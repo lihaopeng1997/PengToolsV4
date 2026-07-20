@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 import datetime
 
-from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QInputDialog, QLineEdit, QMessageBox, QPushButton, QStackedWidget,
-    QStatusBar, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
+    QInputDialog, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+    QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from panels.credit_panel import CreditCodePanel
@@ -22,12 +22,47 @@ from ui.confirm_dialog import ask_close_action
 from ui.hotkey_service import HotkeyService
 from ui.keep_awake_service import KeepAwakeService
 from ui.field_metrics import size_combo
+from ui.icons import NAV_ICON_BY_INDEX, apply_icon, qicon
 from ui.quick_panel import QuickPanel
+from ui.responsive import LayoutModeController, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from ui.tray_service import TrayService
 from config import APP_BUILD_DATE, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
 
 
+# 视觉导航顺序（stack_index 仍按历史映射，不依赖数组下标当导航顺序）
+# (group_key, [(nav_index, name_zh, name_en, icon_role), ...])
+NAV_MODEL = [
+    ('workspace', [
+        (0, '首页', 'Home', 'home'),
+    ]),
+    ('delivery', [
+        (10, '需求管理', 'Requirements', 'requirements'),
+        (2, '升级准备', 'Release Prep', 'release'),
+        (3, '接口文档更新', 'Interface Docs', 'doc-update'),
+        (9, '日报', 'Daily Report', 'daily-report'),
+    ]),
+    ('devtools', [
+        (5, '加解密', 'Crypto', 'shield-key'),
+        (1, '证件类型', 'Documents', 'document-id'),
+        (4, '车辆 VIN', 'Vehicle VIN', 'vin'),
+        (6, '运维助手', 'Operations', 'operations'),
+    ]),
+    ('personal', [
+        (8, '自我学习', 'Learning', 'learning'),
+    ]),
+]
+
+GROUP_LABELS = {
+    'workspace': ('工作台', 'WORKSPACE'),
+    'delivery': ('交付管理', 'DELIVERY'),
+    'devtools': ('开发工具', 'DEV TOOLS'),
+    'personal': ('个人效率', 'PERSONAL'),
+}
+
+
 class MainWindow(QMainWindow):
+    layout_mode_changed = pyqtSignal(str, bool)
+
     def __init__(self):
         super().__init__()
         self._settings = load_settings()
@@ -37,17 +72,20 @@ class MainWindow(QMainWindow):
         self._shutting_down = False
         self._private_unlocked = False
         self._current_nav_index = 0
+        self._layout_mode = 'standard'
+        self._nav_icon_only = False
         self.setWindowTitle(f'PengTools Hub {app_version_text(with_date=False)}')
-        # 允许窗口缩小，布局内部用 splitter / stretch 自适应
         self.setMinimumSize(960, 640)
-        self.resize(1220, 780)
+        self.resize(1440, 900)
         self._center_on_screen()
+        self._layout_controller = LayoutModeController(self)
+        self._layout_controller.layout_mode_changed.connect(self._on_layout_mode)
         self._setup_ui()
         self._egg_clicks = 0
         self._completed_tasks = 0
-        self.author_label.installEventFilter(self)
         self.version_label.installEventFilter(self)
         self.clock_label.installEventFilter(self)
+        self.user_chip.installEventFilter(self)
         self.quick_panel = QuickPanel(self, self.language)
         self.settings_panel.floating_opacity_preview.connect(self.quick_panel.set_opacity)
         self.quick_panel.apply_preferences(
@@ -60,9 +98,10 @@ class MainWindow(QMainWindow):
         self._setup_hotkeys()
         self._setup_clock()
         language_index = 0 if self.language == 'zh' else 1
-        self.language_combo.setCurrentIndex(language_index)
+        self._language_index = language_index
         self._set_language(language_index)
         self._apply_settings(self._settings)
+        QTimer.singleShot(0, lambda: self._layout_controller.force(self.width(), self.height()))
 
     def _center_on_screen(self):
         screen = QApplication.primaryScreen().availableGeometry()
@@ -78,9 +117,10 @@ class MainWindow(QMainWindow):
 
         content = QFrame()
         content.setObjectName('content_area')
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 16, 20, 16)
-        content_layout.setSpacing(12)
+        self._content_frame = content
+        self._content_layout = QVBoxLayout(content)
+        self._content_layout.setContentsMargins(24, 20, 24, 16)
+        self._content_layout.setSpacing(16)
         self.stack = QStackedWidget()
         self.stack.setSizePolicy(
             self.stack.sizePolicy().horizontalPolicy(),
@@ -96,7 +136,11 @@ class MainWindow(QMainWindow):
         self.settings_panel = SettingsPanel(self._settings, self.language)
         self.personal_panel = PersonalPanel(self.language)
         self.requirement_panel = RequirementPanel(self.language)
-        for panel in (self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel, self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel, self.personal_panel, self.requirement_panel):
+        for panel in (
+            self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
+            self.personal_panel, self.requirement_panel,
+        ):
             self.stack.addWidget(panel)
         self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
         self.dashboard_panel.open_sql.connect(lambda: self._show_panel(2))
@@ -104,6 +148,8 @@ class MainWindow(QMainWindow):
         self.dashboard_panel.open_vin.connect(lambda: self._show_panel(4))
         self.dashboard_panel.open_gateway.connect(lambda: self._show_panel(5))
         self.dashboard_panel.open_ops.connect(lambda: self._show_panel(6))
+        if hasattr(self.dashboard_panel, 'open_requirements'):
+            self.dashboard_panel.open_requirements.connect(lambda: self._show_panel(10))
         self.personal_panel.reminder_due.connect(self._show_private_notification)
         self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
         self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
@@ -114,7 +160,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.reset_floating_position.connect(self._reset_floating_position)
         self.sql_panel.task_completed.connect(self._record_success)
         self.docx_panel.task_completed.connect(self._record_success)
-        content_layout.addWidget(self.stack)
+        self._content_layout.addWidget(self.stack)
         layout.addWidget(content, 1)
 
         self.status_bar = QStatusBar()
@@ -123,80 +169,244 @@ class MainWindow(QMainWindow):
         self.clock_label = QLabel()
         self.clock_label.setObjectName('clock-label')
         self.status_bar.addPermanentWidget(self.clock_label)
+        self.layout_mode_changed.connect(self._broadcast_layout_mode)
 
     def _create_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName('sidebar')
-        sidebar.setFixedWidth(236)
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(12, 16, 12, 12)
-        layout.setSpacing(4)
+        self._sidebar = sidebar
+        sidebar.setFixedWidth(248)
+        outer = QVBoxLayout(sidebar)
+        outer.setContentsMargins(12, 14, 12, 12)
+        outer.setSpacing(0)
 
+        # 品牌区
         brand_block = QFrame()
         brand_block.setObjectName('sidebar-brand')
-        brand_layout = QVBoxLayout(brand_block)
-        brand_layout.setContentsMargins(12, 12, 12, 12)
-        brand_layout.setSpacing(2)
+        self._brand_block = brand_block
+        brand_layout = QHBoxLayout(brand_block)
+        brand_layout.setContentsMargins(8, 8, 8, 8)
+        brand_layout.setSpacing(10)
+        self.brand_icon = QLabel()
+        self.brand_icon.setObjectName('sidebar-brand-icon')
+        self.brand_icon.setFixedSize(36, 36)
+        self.brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pix = qicon('home', size=20, normal='#4056CF', active='#4056CF').pixmap(20, 20)
+        if not pix.isNull():
+            self.brand_icon.setPixmap(pix)
+        brand_layout.addWidget(self.brand_icon)
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(0)
         brand = QLabel('PengTools')
         brand.setObjectName('sidebar_title')
-        self.version_label = QLabel(f'UTILITY HUB  ·  {APP_VERSION_LABEL}')
+        self.version_label = QLabel(f'PRIVATE WORKBENCH · {APP_VERSION_LABEL}')
         self.version_label.setObjectName('sidebar_version')
-        self.version_label.setToolTip(f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋')
-        brand_layout.addWidget(brand)
-        brand_layout.addWidget(self.version_label)
-        self.build_date_label = QLabel(f'更新 {APP_BUILD_DATE}')
-        self.build_date_label.setObjectName('sidebar_version')
-        self.build_date_label.setToolTip(f'本机构建/打包日期：{APP_BUILD_DATE}')
-        brand_layout.addWidget(self.build_date_label)
-        layout.addWidget(brand_block)
+        self.version_label.setToolTip(
+            f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋'
+        )
+        brand_text.addWidget(brand)
+        brand_text.addWidget(self.version_label)
+        brand_layout.addLayout(brand_text, 1)
+        outer.addWidget(brand_block)
 
-        self.nav_section_label = QLabel('工作区')
-        self.nav_section_label.setObjectName('sidebar-section')
-        layout.addWidget(self.nav_section_label)
+        # 可滚动导航
+        scroll = QScrollArea()
+        scroll.setObjectName('sidebar-scroll')
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_host = QWidget()
+        nav_host.setObjectName('sidebar-nav-host')
+        self._nav_layout = QVBoxLayout(nav_host)
+        self._nav_layout.setContentsMargins(0, 10, 0, 0)
+        self._nav_layout.setSpacing(2)
 
         self.nav_buttons = [None] * 11
-        for index in (*range(7), 8, 9, 10):
-            button = QPushButton()
-            button.setObjectName('nav-btn')
-            button.setCheckable(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.clicked.connect(lambda checked=False, value=index: self._show_panel(value))
-            layout.addWidget(button)
-            self.nav_buttons[index] = button
-            if index == 8:
-                button.hide()
-        layout.addStretch(1)
+        self._group_labels = {}
+        self._nav_order = []
+
+        for group_key, items in NAV_MODEL:
+            section = QLabel()
+            section.setObjectName('sidebar-section')
+            self._group_labels[group_key] = section
+            self._nav_layout.addWidget(section)
+            for nav_index, _zh, _en, icon_role in items:
+                button = QPushButton()
+                button.setObjectName('nav-btn')
+                button.setCheckable(True)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.setProperty('navIndex', nav_index)
+                button.clicked.connect(lambda checked=False, value=nav_index: self._show_panel(value))
+                apply_icon(button, icon_role, size=20, normal='#68768F', active='#4056CF')
+                self._nav_layout.addWidget(button)
+                self.nav_buttons[nav_index] = button
+                self._nav_order.append(nav_index)
+                if nav_index == 8:
+                    button.hide()
+                    section.hide()
+
+        self._nav_layout.addStretch(1)
+        scroll.setWidget(nav_host)
+        outer.addWidget(scroll, 1)
 
         footer_sep = QFrame()
         footer_sep.setObjectName('sidebar-sep')
         footer_sep.setFixedHeight(1)
-        layout.addWidget(footer_sep)
+        outer.addWidget(footer_sep)
 
-        # 设置固定在左下角，独立 objectName 便于与主导航做轻微视觉区分
+        # 底部：设置 + 用户芯片
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 8, 0, 0)
+        footer.setSpacing(8)
         self.settings_button = QPushButton()
         self.settings_button.setObjectName('nav-btn-settings')
         self.settings_button.setCheckable(True)
         self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_button.clicked.connect(lambda checked=False: self._show_panel(7))
+        apply_icon(self.settings_button, 'settings', size=20, normal='#68768F', active='#4056CF')
         self.nav_buttons[7] = self.settings_button
-        layout.addWidget(self.settings_button)
-        self._apply_nav_icons()
+        footer.addWidget(self.settings_button, 1)
+
+        self.user_chip = QToolButton()
+        self.user_chip.setObjectName('user-chip')
+        self.user_chip.setText('LH')
+        self.user_chip.setToolTip('账户与偏好 · Ctrl+Shift+P 悬浮栏')
+        self.user_chip.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.user_chip.setFixedSize(32, 32)
+        self._user_menu = QMenu(self)
+        self.user_chip.setMenu(self._user_menu)
+        footer.addWidget(self.user_chip, 0, Qt.AlignmentFlag.AlignBottom)
+        outer.addLayout(footer)
+
+        # 兼容旧属性（彩蛋/语言）— 隐藏控件仍供逻辑使用
         self.author_label = QLabel('Author · Lihp')
-        self.author_label.setObjectName('author-label')
-        layout.addWidget(self.author_label)
+        self.author_label.hide()
         self.language_label = QLabel()
-        self.language_label.setObjectName('small-label')
-        layout.addWidget(self.language_label)
+        self.language_label.hide()
         self.language_combo = QComboBox()
+        self.language_combo.hide()
         size_combo(self.language_combo, 'sm')
         self.language_combo.addItems(['中文', 'English'])
         self.language_combo.currentIndexChanged.connect(self._set_language)
-        layout.addWidget(self.language_combo)
         self.float_hint = QLabel('Ctrl + Shift + P')
-        self.float_hint.setObjectName('hotkey-pill')
-        self.float_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.float_hint)
+        self.float_hint.hide()
+        self.build_date_label = QLabel(f'更新 {APP_BUILD_DATE}')
+        self.build_date_label.hide()
+        self._rebuild_user_menu()
         return sidebar
+
+    def _rebuild_user_menu(self):
+        menu = self._user_menu
+        menu.clear()
+        zh = self.language == 'zh'
+        ver = menu.addAction(f'{app_version_text()} · {APP_BUILD_DATE}')
+        ver.setEnabled(False)
+        menu.addSeparator()
+        lang_menu = menu.addMenu('语言' if zh else 'Language')
+        act_zh = lang_menu.addAction('中文')
+        act_en = lang_menu.addAction('English')
+        act_zh.triggered.connect(lambda: self._set_language(0))
+        act_en.triggered.connect(lambda: self._set_language(1))
+        hotkey = menu.addAction('悬浮栏  Ctrl+Shift+P' if zh else 'Floating bar  Ctrl+Shift+P')
+        hotkey.triggered.connect(self.toggle_quick_panel)
+        menu.addSeparator()
+        about = menu.addAction('关于' if zh else 'About')
+        about.triggered.connect(lambda: self.status_bar.showMessage(
+            f'PengTools {app_version_text()} · 离线工作台 · 构建 {APP_BUILD_DATE}', 5000
+        ))
+        quit_act = menu.addAction('退出软件' if zh else 'Exit')
+        quit_act.triggered.connect(self.exit_application)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_controller.observe(self.width(), self.height())
+
+    def _on_layout_mode(self, mode: str, low_height: bool):
+        self._layout_mode = mode
+        icon_only = is_icon_nav(mode)
+        self._nav_icon_only = icon_only
+        self._sidebar.setFixedWidth(nav_width_for_mode(mode))
+        margin = content_margin_for_mode(mode)
+        self._content_layout.setContentsMargins(margin, margin - 4, margin, 12)
+        # 分组标题 / 导航文字
+        for key, label in self._group_labels.items():
+            if key == 'personal' and not self._private_unlocked:
+                label.setVisible(False)
+            else:
+                label.setVisible(not icon_only)
+        for index, button in enumerate(self.nav_buttons):
+            if button is None:
+                continue
+            if index == 8 and not self._private_unlocked:
+                button.hide()
+                continue
+            # 图标模式：只显示图标
+            if icon_only:
+                button.setText('')
+                button.setToolTip(self._nav_tooltip(index))
+                button.setProperty('iconOnly', True)
+            else:
+                button.setProperty('iconOnly', False)
+                button.setToolTip('')
+            button.style().unpolish(button)
+            button.style().polish(button)
+        # 品牌副标题
+        self.version_label.setVisible(not icon_only and not low_height)
+        self.brand_icon.setVisible(True)
+        if icon_only:
+            self.settings_button.setText('')
+            self.settings_button.setToolTip('设置' if self.language == 'zh' else 'Settings')
+        self.layout_mode_changed.emit(mode, low_height)
+        # 刷新导航文案（非 icon 模式）
+        if not icon_only:
+            self._apply_nav_texts()
+
+    def _nav_tooltip(self, index: int) -> str:
+        zh = self.language == 'zh'
+        names = {
+            0: ('首页', 'Home'),
+            1: ('证件类型', 'Documents'),
+            2: ('升级准备', 'Release Prep'),
+            3: ('接口文档更新', 'Interface Docs'),
+            4: ('车辆 VIN', 'Vehicle VIN'),
+            5: ('加解密', 'Crypto'),
+            6: ('运维助手', 'Operations'),
+            7: ('设置', 'Settings'),
+            8: ('自我学习', 'Learning'),
+            9: ('日报', 'Daily Report'),
+            10: ('需求管理', 'Requirements'),
+        }
+        pair = names.get(index, ('', ''))
+        return pair[0] if zh else pair[1]
+
+    def _apply_nav_texts(self):
+        zh = self.language == 'zh'
+        for group_key, items in NAV_MODEL:
+            label = self._group_labels.get(group_key)
+            if label is not None:
+                label.setText(GROUP_LABELS[group_key][0 if zh else 1])
+            for nav_index, name_zh, name_en, icon_role in items:
+                button = self.nav_buttons[nav_index]
+                if button is None:
+                    continue
+                if not self._nav_icon_only:
+                    button.setText(name_zh if zh else name_en)
+                apply_icon(button, icon_role, size=20, normal='#68768F', active='#4056CF')
+        if self.nav_buttons[7] is not None and not self._nav_icon_only:
+            self.nav_buttons[7].setText('设置' if zh else 'Settings')
+            apply_icon(self.nav_buttons[7], 'settings', size=20, normal='#68768F', active='#4056CF')
+
+    def _broadcast_layout_mode(self, mode: str, low_height: bool):
+        for panel in (
+            self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
+            self.personal_panel, self.requirement_panel,
+        ):
+            if hasattr(panel, 'apply_layout_mode'):
+                try:
+                    panel.apply_layout_mode(mode, low_height)
+                except Exception:
+                    pass
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
@@ -211,9 +421,23 @@ class MainWindow(QMainWindow):
             self.requirement_panel.refresh_systems()
         self.stack.setCurrentIndex(stack_index)
         for position, button in enumerate(self.nav_buttons):
-            button.setChecked(position == index)
-        statuses_zh = ['离线工作台已就绪', '个人与单位证件模拟生成', 'SQL 脚本整理、回滚与验证', 'SQL 驱动接口文档更新', '中国车辆 VIN 测试数据', '网关国密解密 · XML 工具', 'Linux 运维命令搜索与安全引导', '界面与悬浮工具栏设置', '自我学习资料整理与全文搜索', '每日日报与定时提醒', '需求归档、上线台账与工具联动']
-        statuses_en = ['Offline workspace ready', 'Personal and unit document test data', 'SQL classify, validate and export', 'SQL-driven interface document updater', 'China vehicle VIN test data', 'Gateway SM crypto · XML tools', 'Linux operations command search and safety guidance', 'Interface and floating toolbar settings', 'Learning library and full-text search', 'Daily reports and reminders', 'Requirement tracking and tool links']
+            if button is not None:
+                button.setChecked(position == index)
+        statuses_zh = [
+            '离线工作台已就绪', '个人与单位证件模拟生成', 'SQL 脚本整理、回滚与验证',
+            'SQL 驱动接口文档更新', '中国车辆 VIN 测试数据', '网关国密解密 · XML 工具',
+            'Linux 运维命令搜索与安全引导', '界面与悬浮工具栏设置',
+            '自我学习资料整理与全文搜索', '每日日报与定时提醒', '需求归档、上线台账与工具联动',
+        ]
+        statuses_en = [
+            'Offline workspace ready', 'Personal and unit document test data',
+            'SQL classify, validate and export', 'SQL-driven interface document updater',
+            'China vehicle VIN test data', 'Gateway SM crypto · XML tools',
+            'Linux operations command search and safety guidance',
+            'Interface and floating toolbar settings',
+            'Learning library and full-text search', 'Daily reports and reminders',
+            'Requirement tracking and tool links',
+        ]
         self.status_bar.showMessage((statuses_zh if self.language == 'zh' else statuses_en)[index])
 
     def _open_system_config(self):
@@ -222,7 +446,6 @@ class MainWindow(QMainWindow):
         self._show_panel(2)
 
     def _open_release_prep(self, requirement=None):
-        """从需求工作台跳转到升级准备，并按需求日期刷新候选。"""
         self.sql_panel.refresh_config()
         self.sql_panel.tabs.setCurrentIndex(0)
         date_text = ''
@@ -251,38 +474,20 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage('已进入升级准备', 3000)
 
-    def _apply_nav_icons(self):
-        """主导航挂本地 SVG（有图标的模块）；无图标项保持纯文字。"""
-        try:
-            from ui.icons import apply_icon
-        except Exception:
-            return
-        # index → 图标角色（resources/icons）
-        mapping = {
-            2: 'release',
-            5: 'shield-key',
-            7: 'settings',
-            10: 'requirements',
-        }
-        for index, role in mapping.items():
-            button = self.nav_buttons[index] if index < len(self.nav_buttons) else None
-            if button is not None:
-                apply_icon(button, role, size=18)
-
     def _set_language(self, combo_index):
         self.language = 'zh' if combo_index == 0 else 'en'
-        zh = self.language == 'zh'
-        names = (
-            ['工作台', '证件类型', '升级准备', '接口文档更新', '车辆 VIN', '加解密', '运维助手', '设置', '自我学习', '日报', '需求管理']
-            if zh else ['Workspace', 'Documents', 'SQL Processing', 'Interface Docs', 'Vehicle VIN', 'Crypto', 'Operations', 'Settings', 'Learning', 'Daily Report', 'Requirements']
-        )
-        for button, name in zip(self.nav_buttons, names):
-            button.setText(name)
-        self._apply_nav_icons()
-        if hasattr(self, 'nav_section_label'):
-            self.nav_section_label.setText('工作区' if zh else 'WORKSPACE')
-        self.language_label.setText('界面语言' if zh else 'Language')
-        for panel in (self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel, self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel, self.personal_panel, self.requirement_panel):
+        self._language_index = combo_index
+        if self.language_combo.currentIndex() != combo_index:
+            self.language_combo.blockSignals(True)
+            self.language_combo.setCurrentIndex(combo_index)
+            self.language_combo.blockSignals(False)
+        self._apply_nav_texts()
+        self._rebuild_user_menu()
+        for panel in (
+            self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
+            self.personal_panel, self.requirement_panel,
+        ):
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
         self.quick_panel.set_language(self.language)
@@ -307,18 +512,21 @@ class MainWindow(QMainWindow):
             self._settings['keep_awake_interval_minutes'],
         )
         wanted_index = 0 if self._settings['default_language'] == 'zh' else 1
-        if self.language_combo.currentIndex() != wanted_index:
-            self.language_combo.setCurrentIndex(wanted_index)
+        if self._language_index != wanted_index:
+            self._set_language(wanted_index)
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
 
     def _reset_floating_position(self):
         self.quick_panel.reset_position()
-        self.status_bar.showMessage('悬浮工具栏已重置到屏幕右侧' if self.language == 'zh' else 'Floating toolbar reset to screen right', 3000)
+        self.status_bar.showMessage(
+            '悬浮工具栏已重置到屏幕右侧' if self.language == 'zh' else 'Floating toolbar reset to screen right',
+            3000,
+        )
 
     def _setup_hotkeys(self):
         self.hotkey_service = HotkeyService(QApplication.instance(), self.quick_panel.show_panel)
         self.hotkey_service.registration_failed.connect(
-            lambda: self.status_bar.showMessage('Ctrl+Shift+P 已被其他程序占用')
+            lambda: self.status_bar.showMessage('Ctrl+Shift+P 已被其他程序占用', 5000)
         )
         self.hotkey_service.register()
 
@@ -349,14 +557,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, 'PengTools 彩蛋', '密钥不正确。')
             return False
         self._private_unlocked = True
-        self.nav_buttons[8].show()
+        if self.nav_buttons[8] is not None:
+            self.nav_buttons[8].show()
+        personal_label = self._group_labels.get('personal')
+        if personal_label is not None and not self._nav_icon_only:
+            personal_label.show()
         self.status_bar.showMessage('彩蛋已解锁：自我学习已开启', 7000)
         self._show_panel(8)
         return True
 
     def _show_private_notification(self, title, message):
-        if hasattr(self, 'tray_service'):
-            self.tray_service.show_notification(title, message)
+        self.tray_service.show_message(title, message)
 
     def _receive_requirement_sql(self, title, sql):
         self.sql_panel._append_sql_parts([(title, sql)], 'paste')
@@ -377,25 +588,22 @@ class MainWindow(QMainWindow):
     def _record_success(self):
         self._completed_tasks += 1
         if self._completed_tasks % 7 == 0:
-            message = ('数据库没有情绪，但今天它选择配合。' if self.language == 'zh'
-                       else 'Databases have no feelings, but today this one chose cooperation.')
+            message = (
+                '数据库没有情绪，但今天它选择配合。' if self.language == 'zh'
+                else 'Databases have no feelings, but today this one chose cooperation.'
+            )
             self.status_bar.showMessage(message, 7000)
 
     def eventFilter(self, watched, event):
         if watched is self.version_label and event.type() == QEvent.Type.MouseButtonDblClick:
             self._unlock_private_tools()
             return True
-        if watched is self.author_label and event.type() == QEvent.Type.MouseButtonRelease:
-            self._egg_clicks += 1
-            if self._egg_clicks >= 5:
-                self._egg_clicks = 0
-                message = ('Lihp 专家模式已开启：Bug 看到你，已经开始写检讨了。' if self.language == 'zh'
-                           else 'Lihp expert mode: the bugs have started writing apology letters.')
-                self.status_bar.showMessage(message, 7000)
-        elif watched is self.clock_label and event.type() == QEvent.Type.MouseButtonDblClick:
-            message = ('这不是摸鱼，是在等待进度条完成它的艺术表演。' if self.language == 'zh'
-                       else 'Not procrastination—just letting the progress bar finish its performance art.')
-            self.status_bar.showMessage(message, 7000)
+        if watched is self.clock_label and event.type() == QEvent.Type.MouseButtonDblClick:
+            self.status_bar.showMessage(
+                '这不是摸鱼，是在等待进度条完成它的艺术表演。' if self.language == 'zh'
+                else 'Not procrastination—just letting the progress bar finish its performance art.',
+                7000,
+            )
         return super().eventFilter(watched, event)
 
     def closeEvent(self, event):
@@ -403,12 +611,10 @@ class MainWindow(QMainWindow):
         if not self._force_exit and self._settings['close_ask_each_time']:
             result = self._ask_close_action()
             if result is None:
-                # 取消关闭
                 event.ignore()
                 return
             action, dont_ask = result
             if dont_ask and action in ('minimize', 'exit'):
-                # 「不再提示」：写回设置，下次直接走默认操作（懒人）
                 self._settings['close_ask_each_time'] = False
                 self._settings['close_default_action'] = action
                 self._settings = save_settings(self._settings)
@@ -422,7 +628,6 @@ class MainWindow(QMainWindow):
         self._shutdown(event)
 
     def _ask_close_action(self):
-        """返回 (action, dont_ask_again) 或 None（取消）。"""
         return ask_close_action(
             self,
             language=self.language,

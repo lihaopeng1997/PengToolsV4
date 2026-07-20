@@ -112,13 +112,14 @@ class UiRegressionTests(unittest.TestCase):
     def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
         window = MainWindow()
         try:
-            self.assertTrue(all(button.isHidden() for button in window.nav_buttons[8:]))
-            sidebar_layout = window.settings_button.parentWidget().layout()
-            self.assertGreater(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.nav_buttons[10]))
-            self.assertLess(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.author_label))
+            # 仅自我学习(8)可隐藏；日报(9)、需求(10)必须常显（AGENTS / V2 导航模型）
+            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[9].isHidden())
+            self.assertFalse(window.nav_buttons[10].isHidden())
+            self.assertIsNotNone(window.settings_button)
             with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
                 self.assertTrue(window._unlock_private_tools())
-            self.assertTrue(all(not button.isHidden() for button in window.nav_buttons[8:]))
+            self.assertFalse(window.nav_buttons[8].isHidden())
             self.assertEqual(window._current_nav_index, 8)
             self.assertIs(window.stack.currentWidget(), window.personal_panel)
         finally:

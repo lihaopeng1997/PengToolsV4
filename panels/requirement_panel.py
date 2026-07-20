@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
-    QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit,
+    QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -826,50 +826,53 @@ class RequirementPanel(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(9)
+        root.setSpacing(12)
 
-        # 顶栏操作区：主流程 / 次流程分组，按钮与信号不变
+        # V2.0 标题区：一个 Primary + 次级动作
+        page_head = QHBoxLayout()
+        page_head.setSpacing(12)
+        try:
+            from ui.page_chrome import make_page_header
+            self.add_btn = QPushButton('新增需求')
+            self.add_btn.setObjectName('primary-btn')
+            self.add_btn.clicked.connect(self._add_requirement)
+            header_frame, self.page_title, self.page_subtitle = make_page_header(
+                '需求管理',
+                '需求、BUG、文件、SQL 与升级联动',
+                'requirements',
+                primary_button=self.add_btn,
+            )
+            page_head.addWidget(header_frame, 1)
+        except Exception:
+            self.page_title = QLabel('需求管理'); self.page_title.setObjectName('page-title')
+            self.page_subtitle = QLabel('需求、BUG、文件、SQL 与升级联动'); self.page_subtitle.setObjectName('page-subtitle')
+            titles = QVBoxLayout(); titles.addWidget(self.page_title); titles.addWidget(self.page_subtitle)
+            page_head.addLayout(titles, 1)
+            self.add_btn = QPushButton('新增需求'); self.add_btn.setObjectName('primary-btn'); self.add_btn.clicked.connect(self._add_requirement)
+            page_head.addWidget(self.add_btn)
+        root.addLayout(page_head)
+
+        # 次级工具条（扫描/检出/更新等，不抢 Primary）
         toolbar_card = QFrame()
-        toolbar_card.setObjectName('req-toolbar-card')
-        toolbar_layout = QVBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(12, 10, 12, 10)
-        toolbar_layout.setSpacing(7)
-        header = QHBoxLayout()
-        header.setSpacing(10)
-
-        primary_group = QFrame()
-        primary_group.setObjectName('req-toolbar-primary')
-        primary_layout = QHBoxLayout(primary_group)
-        primary_layout.setContentsMargins(8, 4, 8, 4)
-        primary_layout.setSpacing(8)
+        toolbar_card.setObjectName('page-filter-bar')
+        toolbar_layout = QHBoxLayout(toolbar_card)
+        toolbar_layout.setContentsMargins(12, 8, 12, 8)
+        toolbar_layout.setSpacing(8)
         self.scan_btn = QPushButton('扫描目录'); self.scan_btn.clicked.connect(self._scan_folder)
         self.checkout_btn = QPushButton('检出代码'); self.checkout_btn.clicked.connect(self._checkout_svn)
         self.update_all_btn = QPushButton('更新全部'); self.update_all_btn.clicked.connect(self._update_all)
-        self.add_btn = QPushButton('新建需求'); self.add_btn.setObjectName('primary-btn'); self.add_btn.clicked.connect(self._add_requirement)
-        for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.add_btn):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(32)
-            primary_layout.addWidget(button)
-        header.addWidget(primary_group, 0)
-
-        secondary_group = QFrame()
-        secondary_group.setObjectName('req-toolbar-secondary')
-        secondary_layout = QHBoxLayout(secondary_group)
-        secondary_layout.setContentsMargins(8, 4, 8, 4)
-        secondary_layout.setSpacing(8)
         self.bug_btn = QPushButton('登记缺陷'); self.bug_btn.clicked.connect(self._paste_bug)
         self.import_btn = QPushButton('导入资料'); self.import_btn.clicked.connect(self._import_requirement)
         self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
-        for button in (self.bug_btn, self.import_btn, self.system_config_btn):
+        for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
             button.setProperty('compactAction', True)
             button.setMinimumHeight(32)
-            secondary_layout.addWidget(button)
-        header.addWidget(secondary_group, 0)
-        header.addStretch(1)
-        toolbar_layout.addLayout(header)
-        self.svn_activity = QLabel('流程：扫描/检出 → 左侧选需求 → 右侧看详情与文件。双击文件夹展开，双击文件打开；点击标记切换红/绿点。')
-        self.svn_activity.setObjectName('path-note'); self.svn_activity.setWordWrap(True)
-        toolbar_layout.addWidget(self.svn_activity)
+            toolbar_layout.addWidget(button)
+        toolbar_layout.addStretch(1)
+        self.svn_activity = QLabel('选择左侧需求后，右侧用「文件与 SVN / 关联 SQL / 上线与联动」完成工作。')
+        self.svn_activity.setObjectName('small-label')
+        self.svn_activity.setWordWrap(True)
+        toolbar_layout.addWidget(self.svn_activity, 1)
         root.addWidget(toolbar_card)
         self.loading = AuroraProgress(self)
 
@@ -1057,26 +1060,57 @@ class RequirementPanel(QWidget):
         card.addWidget(self.flag_chips)
         detail.addWidget(self.detail_card, 0)
 
-        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.file_sql_splitter.setObjectName('requirement-content-splitter')
-        self.file_sql_splitter.setHandleWidth(8)
-        self.file_sql_splitter.setChildrenCollapsible(False)
+        # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName('module-tabs')
+        self.detail_tabs.setDocumentMode(True)
 
-        # 主区域：文件浏览
+        # —— Tab1: 文件与 SVN ——
         file_section = QFrame()
         file_section.setObjectName('req-file-card')
         file_layout = QVBoxLayout(file_section)
         file_layout.setContentsMargins(12, 10, 12, 10)
         file_layout.setSpacing(7)
         file_head = QHBoxLayout(); file_head.setSpacing(6)
-        file_title = QLabel('文件浏览'); file_title.setObjectName('zone-title')
-        file_head.addWidget(file_title)
         self.svn_meta = QLabel()
         self.svn_meta.setObjectName('svn-workspace-meta')
         self.svn_meta.setWordWrap(False)
         self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         file_head.addWidget(self.svn_meta, 1)
         file_layout.addLayout(file_head)
+
+        # SVN 工具分组：浏览 | 版本控制 | 提交
+        action_card = QFrame(); action_card.setObjectName('detail-action-card')
+        action_card_layout = QHBoxLayout(action_card)
+        action_card_layout.setContentsMargins(8, 6, 8, 6)
+        action_card_layout.setSpacing(6)
+        self.open_folder_btn = QPushButton('打开目录'); self.open_folder_btn.clicked.connect(self._open_folder)
+        self.refresh_svn_btn = QPushButton('刷新'); self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
+        self.update_current_btn = QPushButton('更新'); self.update_current_btn.clicked.connect(self._update_current)
+        self.add_file_btn = QPushButton('添加文件'); self.add_file_btn.clicked.connect(self._add_existing_files)
+        self.new_text_btn = QPushButton('新建文本'); self.new_text_btn.clicked.connect(self._add_text_file)
+        self.lock_file_btn = QPushButton('锁定'); self.lock_file_btn.clicked.connect(self._lock_selected_file)
+        self.unlock_file_btn = QPushButton('解锁'); self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
+        self.commit_btn = QPushButton('提交变更'); self.commit_btn.setObjectName('primary-btn'); self.commit_btn.clicked.connect(self._commit_svn)
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.open_folder_btn, 'folder-open', 16)
+            apply_icon(self.refresh_svn_btn, 'refresh', 16)
+            apply_icon(self.lock_file_btn, 'lock', 16)
+            apply_icon(self.unlock_file_btn, 'unlock', 16)
+        except Exception:
+            pass
+        for button in (
+            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn, self.add_file_btn,
+            self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.commit_btn,
+        ):
+            button.setProperty('compactAction', True)
+            button.setMinimumHeight(28)
+            action_card_layout.addWidget(button)
+        action_card_layout.addStretch(1)
+        # 兼容旧 grid 引用
+        self.svn_actions = QGridLayout()
+        file_layout.addWidget(action_card, 0)
 
         self.file_tree = QTreeWidget(); self.file_tree.setObjectName('requirement-file-tree')
         self.file_tree.setHeaderLabels(('名称', '修改时间', '类型', '大小'))
@@ -1112,41 +1146,11 @@ class RequirementPanel(QWidget):
         self.file_tree.itemDoubleClicked.connect(self._open_tree_item)
         self.file_tree.currentItemChanged.connect(self._update_lock_buttons)
         file_layout.addWidget(self.file_tree, 1)
+        self.detail_tabs.addTab(file_section, '文件与 SVN')
 
-        # 文件操作：紧凑 2×4，不再撑高
-        action_card = QFrame(); action_card.setObjectName('detail-action-card')
-        action_card_layout = QVBoxLayout(action_card)
-        action_card_layout.setContentsMargins(8, 6, 8, 6)
-        action_card_layout.setSpacing(4)
-        self.svn_actions = QGridLayout()
-        self.svn_actions.setHorizontalSpacing(4)
-        self.svn_actions.setVerticalSpacing(4)
-        self.open_folder_btn = QPushButton('打开目录'); self.open_folder_btn.clicked.connect(self._open_folder)
-        self.refresh_svn_btn = QPushButton('刷新列表'); self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
-        self.update_current_btn = QPushButton('更新代码'); self.update_current_btn.clicked.connect(self._update_current)
-        self.add_file_btn = QPushButton('添加文件'); self.add_file_btn.clicked.connect(self._add_existing_files)
-        self.new_text_btn = QPushButton('新建文本'); self.new_text_btn.clicked.connect(self._add_text_file)
-        self.lock_file_btn = QPushButton('锁定文件'); self.lock_file_btn.clicked.connect(self._lock_selected_file)
-        self.unlock_file_btn = QPushButton('解锁文件'); self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
-        self.commit_btn = QPushButton('提交变更'); self.commit_btn.setObjectName('primary-btn'); self.commit_btn.clicked.connect(self._commit_svn)
-        flat_buttons = (
-            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn, self.add_file_btn,
-            self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.commit_btn,
-        )
-        for index, button in enumerate(flat_buttons):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(26)
-            button.setMaximumHeight(28)
-            self.svn_actions.addWidget(button, index // 4, index % 4)
-        for column in range(4):
-            self.svn_actions.setColumnStretch(column, 1)
-        action_card_layout.addLayout(self.svn_actions)
-        file_layout.addWidget(action_card, 0)
-
-        # 底部：SQL 预览 + 业务操作（默认高度较小）
+        # —— Tab2: 关联 SQL ——
         sql_section = QFrame()
         sql_section.setObjectName('req-sql-card')
-        sql_section.setMinimumHeight(120)
         sql_layout = QVBoxLayout(sql_section)
         sql_layout.setContentsMargins(12, 10, 12, 10)
         sql_layout.setSpacing(7)
@@ -1154,15 +1158,9 @@ class RequirementPanel(QWidget):
         sql_title = QLabel('关联 SQL'); sql_title.setObjectName('zone-title')
         sql_head.addWidget(sql_title)
         sql_head.addStretch()
-        self.delete_btn = QPushButton('删除'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
-        self.daily_btn = QPushButton('日报'); self.daily_btn.clicked.connect(self._send_daily)
-        self.docx_btn = QPushButton('接口'); self.docx_btn.clicked.connect(self._send_docx)
         self.sql_btn = QPushButton('整理 SQL'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
-        for button in (self.delete_btn, self.daily_btn, self.docx_btn, self.sql_btn):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(26)
-            button.setMaximumHeight(28)
-            sql_head.addWidget(button)
+        self.sql_btn.setProperty('compactAction', True)
+        sql_head.addWidget(self.sql_btn)
         sql_layout.addLayout(sql_head)
         self.sql_preview = QPlainTextEdit()
         self.sql_preview.setReadOnly(True)
@@ -1170,35 +1168,71 @@ class RequirementPanel(QWidget):
         self.sql_preview.setMaximumBlockCount(0)
         self.sql_preview.setMinimumHeight(56)
         sql_layout.addWidget(self.sql_preview, 1)
-        # 兼容旧 actions_card 引用（布局已并入 sql_head）
+        self.detail_tabs.addTab(sql_section, '关联 SQL')
+
+        # —— Tab3: 上线与联动 ——
+        link_section = QFrame()
+        link_section.setObjectName('ds-card')
+        link_layout = QVBoxLayout(link_section)
+        link_layout.setContentsMargins(14, 12, 14, 12)
+        link_layout.setSpacing(10)
+        link_title = QLabel('上线与联动'); link_title.setObjectName('zone-title')
+        link_layout.addWidget(link_title)
+        link_hint = QLabel('日报、接口文档、升级准备与删除等动作集中在此，避免与文件区争高。')
+        link_hint.setObjectName('field-hint')
+        link_hint.setWordWrap(True)
+        link_layout.addWidget(link_hint)
+        link_actions = QHBoxLayout()
+        link_actions.setSpacing(8)
+        self.daily_btn = QPushButton('写入日报'); self.daily_btn.clicked.connect(self._send_daily)
+        self.docx_btn = QPushButton('发送接口文档'); self.docx_btn.clicked.connect(self._send_docx)
+        self.release_link_btn = QPushButton('进入升级准备')
+        self.release_link_btn.setObjectName('primary-btn')
+        self.release_link_btn.clicked.connect(lambda: self.open_release_prep.emit(self._current or {}))
+        self.delete_btn = QPushButton('删除需求'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
+        for button in (self.daily_btn, self.docx_btn, self.release_link_btn, self.delete_btn):
+            button.setProperty('compactAction', True)
+            button.setMinimumHeight(32)
+            link_actions.addWidget(button)
+        link_actions.addStretch(1)
+        link_layout.addLayout(link_actions)
+        link_layout.addStretch(1)
+        self.detail_tabs.addTab(link_section, '上线与联动')
+
+        # 兼容旧 splitter 引用（持久化仍写 content sizes，映射到 tabs 内）
+        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.file_sql_splitter.hide()
         self.actions_card = QFrame(); self.actions_card.hide()
 
-        self.file_sql_splitter.addWidget(file_section)
-        self.file_sql_splitter.addWidget(sql_section)
-        self.file_sql_splitter.setStretchFactor(0, 4)
-        self.file_sql_splitter.setStretchFactor(1, 1)
-        requirement_ui = load_requirement_ui()
-        sizes = requirement_ui['content_splitter_sizes']
-        # 若历史配置把文件区压得过小，则回落到以文件为主
-        if sizes[0] < sizes[1] * 1.5:
-            sizes = [520, 140]
-        self.file_sql_splitter.setSizes(sizes)
-        detail.addWidget(self.file_sql_splitter, 1)
+        detail.addWidget(self.detail_tabs, 1)
         self.detail_splitter.addWidget(right)
-        self.detail_splitter.setSizes(requirement_ui['splitter_sizes'])
+        requirement_ui = load_requirement_ui()
+        sizes = requirement_ui.get('splitter_sizes') or [330, 820]
+        if len(sizes) >= 2 and sizes[0] < 200:
+            sizes = [330, max(520, sizes[1])]
+        self.detail_splitter.setSizes(sizes)
         self._splitter_save_timer = QTimer(self)
         self._splitter_save_timer.setSingleShot(True)
         self._splitter_save_timer.setInterval(250)
         self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
         self.detail_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
-        self.file_sql_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
         root.addWidget(self.detail_splitter, 1)
 
     def _save_splitter_sizes(self):
+        content_sizes = self.file_sql_splitter.sizes() if self.file_sql_splitter.sizes() else [520, 140]
         save_requirement_ui({
             'splitter_sizes': self.detail_splitter.sizes(),
-            'content_splitter_sizes': self.file_sql_splitter.sizes(),
+            'content_splitter_sizes': content_sizes,
         })
+
+    def apply_layout_mode(self, mode, low_height=False):
+        """响应主窗口断点：窄屏时收紧左栏。"""
+        if not hasattr(self, 'detail_splitter'):
+            return
+        if mode in ('compact', 'narrow'):
+            sizes = self.detail_splitter.sizes()
+            if len(sizes) >= 2 and sizes[0] > 300:
+                self.detail_splitter.setSizes([280, max(520, sizes[1])])
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

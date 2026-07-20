@@ -1,20 +1,38 @@
 # -*- coding: utf-8 -*-
+"""首页工作台 — Astra V2.0：核心快捷卡片 + 紧凑工具入口。"""
+
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+)
+
+from ui.icons import apply_icon, icon_pixmap
+from ui.page_chrome import make_page_header
 
 
 class ToolCard(QFrame):
     clicked = pyqtSignal()
 
-    def __init__(self, number, accent):
+    def __init__(self, icon_role, accent='blue'):
         super().__init__()
         self.setObjectName('tool-card')
         self.setProperty('accent', accent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(120)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 20, 22, 20)
-        layout.setSpacing(9)
-        self.eyebrow = QLabel(number)
-        self.eyebrow.setObjectName('card-eyebrow')
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(8)
+        top = QHBoxLayout()
+        icon = QLabel()
+        icon.setFixedSize(32, 32)
+        icon.setObjectName('page-header-icon')
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pix = icon_pixmap(icon_role, 18, '#4056CF')
+        if not pix.isNull():
+            icon.setPixmap(pix)
+        top.addWidget(icon)
+        top.addStretch(1)
+        layout.addLayout(top)
         self.title = QLabel()
         self.title.setObjectName('card-title')
         self.description = QLabel()
@@ -23,11 +41,14 @@ class ToolCard(QFrame):
         self.button = QPushButton()
         self.button.setObjectName('card-action')
         self.button.clicked.connect(self.clicked.emit)
-        layout.addWidget(self.eyebrow)
         layout.addWidget(self.title)
-        layout.addWidget(self.description)
-        layout.addStretch()
-        layout.addWidget(self.button)
+        layout.addWidget(self.description, 1)
+        layout.addWidget(self.button, 0, Qt.AlignmentFlag.AlignLeft)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
     def set_copy(self, title, description, action):
         self.title.setText(title)
@@ -42,76 +63,117 @@ class DashboardPanel(QWidget):
     open_vin = pyqtSignal()
     open_gateway = pyqtSignal()
     open_ops = pyqtSignal()
+    open_requirements = pyqtSignal()
 
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
+        self._mode = 'standard'
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 24)
-        layout.setSpacing(18)
-        top = QHBoxLayout()
-        headings = QVBoxLayout()
-        self.title = QLabel()
-        self.title.setObjectName('page-title')
-        self.subtitle = QLabel()
-        self.subtitle.setObjectName('page-subtitle')
-        headings.addWidget(self.title)
-        headings.addWidget(self.subtitle)
-        top.addLayout(headings)
-        top.addStretch()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
         self.offline = QLabel()
         self.offline.setObjectName('offline-pill')
-        top.addWidget(self.offline)
-        layout.addLayout(top)
+        header, self.title, self.subtitle = make_page_header(
+            '开发工具工作台',
+            '常用交付与开发工具 · 文件仅保留在本机',
+            'home',
+            trailing=self.offline,
+        )
+        layout.addWidget(header)
 
-        cards = QGridLayout()
-        cards.setSpacing(16)
-        self.credit = ToolCard('01  DATA MOCK', 'blue')
-        self.sql = ToolCard('02  DATABASE', 'violet')
-        self.docx = ToolCard('03  DOCUMENT', 'green')
-        self.vin = ToolCard('04  VEHICLE', 'orange')
-        self.gateway = ToolCard('05  CRYPTO', 'violet')
-        self.ops = ToolCard('06  OPERATIONS', 'blue')
-        self.credit.clicked.connect(self.open_credit.emit)
+        # 核心三卡
+        self.core_grid = QGridLayout()
+        self.core_grid.setSpacing(16)
+        self.req_card = ToolCard('requirements', 'violet')
+        self.sql = ToolCard('release', 'violet')
+        self.gateway = ToolCard('shield-key', 'blue')
+        self.req_card.clicked.connect(self.open_requirements.emit)
         self.sql.clicked.connect(self.open_sql.emit)
-        self.docx.clicked.connect(self.open_docx.emit)
-        self.vin.clicked.connect(self.open_vin.emit)
         self.gateway.clicked.connect(self.open_gateway.emit)
-        self.ops.clicked.connect(self.open_ops.emit)
-        cards.addWidget(self.credit, 0, 0)
-        cards.addWidget(self.sql, 0, 1)
-        cards.addWidget(self.docx, 1, 0)
-        cards.addWidget(self.vin, 1, 1)
-        cards.addWidget(self.gateway, 2, 0)
-        cards.addWidget(self.ops, 2, 1)
-        layout.addLayout(cards)
+        self.core_grid.addWidget(self.req_card, 0, 0)
+        self.core_grid.addWidget(self.sql, 0, 1)
+        self.core_grid.addWidget(self.gateway, 0, 2)
+        layout.addLayout(self.core_grid)
+
+        # 次级入口
+        secondary_label = QLabel()
+        secondary_label.setObjectName('sidebar-section')
+        self._secondary_label = secondary_label
+        layout.addWidget(secondary_label)
+        self.tools_row = QHBoxLayout()
+        self.tools_row.setSpacing(10)
+        self.credit = QPushButton()
+        self.docx = QPushButton()
+        self.vin = QPushButton()
+        self.ops = QPushButton()
+        for btn, icon, signal in (
+            (self.credit, 'document-id', self.open_credit),
+            (self.docx, 'doc-update', self.open_docx),
+            (self.vin, 'vin', self.open_vin),
+            (self.ops, 'operations', self.open_ops),
+        ):
+            btn.setObjectName('btn-secondary')
+            btn.setProperty('compactAction', True)
+            apply_icon(btn, icon, 16)
+            btn.clicked.connect(signal.emit)
+            self.tools_row.addWidget(btn)
+        self.tools_row.addStretch(1)
+        layout.addLayout(self.tools_row)
+
         self.hint = QLabel()
         self.hint.setObjectName('shortcut-hint')
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.hint)
+        layout.addStretch(1)
         self.set_language(language)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        self._mode = mode
+        # 三列 / 两列 / 一列
+        for i in reversed(range(self.core_grid.count())):
+            item = self.core_grid.itemAt(i)
+            if item and item.widget():
+                self.core_grid.removeWidget(item.widget())
+        cards = [self.req_card, self.sql, self.gateway]
+        if mode == 'wide' or mode == 'standard':
+            for col, card in enumerate(cards):
+                self.core_grid.addWidget(card, 0, col)
+                card.show()
+        elif mode == 'compact':
+            self.core_grid.addWidget(self.req_card, 0, 0)
+            self.core_grid.addWidget(self.sql, 0, 1)
+            self.core_grid.addWidget(self.gateway, 1, 0, 1, 2)
+        else:
+            for row, card in enumerate(cards):
+                self.core_grid.addWidget(card, row, 0)
 
     def set_language(self, language):
         self.language = language
         if language == 'zh':
             self.title.setText('开发工具工作台')
-            self.subtitle.setText('常用数据、数据库与文档工具集中处理 · 文件仅保留在本机')
+            self.subtitle.setText('常用交付与开发工具 · 文件仅保留在本机')
             self.offline.setText('●  离线可用')
-            self.credit.set_copy('证件类型模拟生成', '身份证可按省市区、年龄和性别定向生成；同时支持其他个人及单位证件。', '生成证件数据')
-            self.sql.set_copy('升级准备', '选择升级日期和需求 / BUG，一键生成发版清单、升级 SQL、回滚及验证脚本。', '准备升级材料')
-            self.docx.set_copy('接口文档更新', '选择文件夹或 SVN 拉取接口文档，再用 SQL 更新表结构与字段说明。', '更新接口文档')
-            self.vin.set_copy('中国车辆 VIN', '按 GB 16735 规则，一键生成并自动填充 10 条测试数据。', '生成 VIN')
-            self.gateway.set_copy('网关加解密', '国密解密与 XML 工具同一工作台：SM2 + SM4 请求/响应解密，XML 清洗与格式化。', '打开加解密')
-            self.ops.set_copy('Linux 运维命令助手', '按日志、状态、网络、容器等场景搜索并安全生成运维命令。', '查找运维命令')
+            self._secondary_label.setText('更多工具')
+            self.req_card.set_copy('需求管理', '台账、文件、SVN 与升级联动一站完成。', '打开需求管理')
+            self.sql.set_copy('升级准备', '按日期勾选需求，生成发版清单与 SQL 包。', '准备升级材料')
+            self.gateway.set_copy('加解密', '国密解密 + XML/JSON 工具同一工作台。', '打开加解密')
+            self.credit.setText('证件类型')
+            self.docx.setText('接口文档')
+            self.vin.setText('车辆 VIN')
+            self.ops.setText('运维助手')
             self.hint.setText('Ctrl + Shift + P  随时展开桌面右侧悬浮工具栏')
         else:
-            self.title.setText('Developer utility workspace')
-            self.subtitle.setText('Data, database and document tools in one place · local-only processing')
-            self.offline.setText('●  OFFLINE READY')
-            self.credit.set_copy('Document Test Data', 'Generate resident IDs by region, age and gender, plus other personal and unit documents.', 'Generate documents')
-            self.sql.set_copy('SQL Script Processing', 'Organize DDL/DML for SVN and generate upgrade, rollback and standalone verification scripts.', 'Process SQL')
-            self.docx.set_copy('Interface Document Updater', 'Pick a folder or checkout SVN docs, then update structures with SQL.', 'Update document')
-            self.vin.set_copy('China Vehicle VIN', 'Generate and fill 10 test VINs using the GB 16735 check digit.', 'Generate VINs')
-            self.gateway.set_copy('Gateway Crypto', 'SM decrypt and XML tools in one workbench: SM2 + SM4 request/response, XML clean and format.', 'Open crypto')
-            self.ops.set_copy('Linux Operations Assistant', 'Search and safely generate commands for logs, status, network, containers and more.', 'Find commands')
-            self.hint.setText('Ctrl + Shift + P  Expand the floating toolbar at any time')
+            self.title.setText('Developer workspace')
+            self.subtitle.setText('Delivery and developer tools · local-only')
+            self.offline.setText('●  OFFLINE')
+            self._secondary_label.setText('MORE TOOLS')
+            self.req_card.set_copy('Requirements', 'Tracking, files, SVN and release links.', 'Open requirements')
+            self.sql.set_copy('Release Prep', 'Pick requirements by date and generate packages.', 'Prepare release')
+            self.gateway.set_copy('Crypto', 'SM decrypt with XML/JSON tools.', 'Open crypto')
+            self.credit.setText('Documents')
+            self.docx.setText('Interface Docs')
+            self.vin.setText('Vehicle VIN')
+            self.ops.setText('Operations')
+            self.hint.setText('Ctrl + Shift + P  Expand the floating toolbar anytime')

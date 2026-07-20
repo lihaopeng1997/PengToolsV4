@@ -42,23 +42,25 @@ class GatewayDecodePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        # —— 页头 ——
-        head = QHBoxLayout()
-        head.setSpacing(12)
-        titles = QVBoxLayout()
-        titles.setSpacing(4)
-        self.page_title = QLabel()
-        self.page_title.setObjectName('page-title')
-        titles.addWidget(self.page_title)
-        self.page_subtitle = QLabel()
-        self.page_subtitle.setObjectName('page-subtitle')
-        self.page_subtitle.setWordWrap(True)
-        titles.addWidget(self.page_subtitle)
-        head.addLayout(titles, 1)
+        # —— 页头（V2.0 骨架）——
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('offline-pill')
-        head.addWidget(self.offline_pill, 0, Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(head)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.page_title, self.page_subtitle = make_page_header(
+                '网关加解密工作台',
+                '本地离线处理 · 密钥与明文默认不落盘',
+                'shield-key',
+                trailing=self.offline_pill,
+            )
+            layout.addWidget(header)
+        except Exception:
+            head = QHBoxLayout()
+            self.page_title = QLabel(); self.page_title.setObjectName('page-title')
+            self.page_subtitle = QLabel(); self.page_subtitle.setObjectName('page-subtitle')
+            titles = QVBoxLayout(); titles.addWidget(self.page_title); titles.addWidget(self.page_subtitle)
+            head.addLayout(titles, 1); head.addWidget(self.offline_pill)
+            layout.addLayout(head)
 
         # —— 参数区 ——
         self.config_group = QGroupBox()

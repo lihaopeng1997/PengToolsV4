@@ -1,31 +1,34 @@
 # -*- coding: utf-8 -*-
-"""统一图标体系：角色 → 本地 SVG / QIcon。
-
-全部来自 resources/icons/ 与根级 SVG，离线打包；禁止 Emoji / CDN / 在线图标库。
-QSS 中的 __DROPDOWN_ARROW__ / __CHECKMARK__ 仍由 run.load_stylesheet 注入。
-"""
+"""统一图标体系：本地 SVG + 显式 tint 染色。"""
 
 from __future__ import annotations
 
 import os
 import sys
+from functools import lru_cache
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QIcon, QPainter, QPixmap
+from PyQt6.QtCore import QByteArray, QSize, Qt
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QLabel
 
+from ui.layout_metrics import ICON_MUTED, PRIMARY_ACTIVE
 
-# 角色 → 相对 app 根的路径片段
 ICON_FILES = {
     'app': ('resources', 'app.ico'),
     'dropdown': ('resources', 'chevron_down.svg'),
     'check': ('resources', 'check_white.svg'),
-    # Pulse 图标包（resources/icons）
+    'home': ('resources', 'icons', 'home.svg'),
     'requirements': ('resources', 'icons', 'requirements.svg'),
     'release': ('resources', 'icons', 'release.svg'),
+    'doc-update': ('resources', 'icons', 'doc-update.svg'),
+    'document-id': ('resources', 'icons', 'document-id.svg'),
+    'vin': ('resources', 'icons', 'vin.svg'),
     'shield-key': ('resources', 'icons', 'shield-key.svg'),
+    'operations': ('resources', 'icons', 'operations.svg'),
     'settings': ('resources', 'icons', 'settings.svg'),
+    'daily-report': ('resources', 'icons', 'daily-report.svg'),
+    'learning': ('resources', 'icons', 'learning.svg'),
     'search': ('resources', 'icons', 'search.svg'),
     'add': ('resources', 'icons', 'add.svg'),
     'delete': ('resources', 'icons', 'delete.svg'),
@@ -42,16 +45,37 @@ ICON_FILES = {
     'warning': ('resources', 'icons', 'warning.svg'),
     'error': ('resources', 'icons', 'error.svg'),
     'info': ('resources', 'icons', 'info.svg'),
+    'import': ('resources', 'icons', 'import.svg'),
+    'export': ('resources', 'icons', 'export.svg'),
+    'refresh': ('resources', 'icons', 'refresh.svg'),
+    'more': ('resources', 'icons', 'more.svg'),
+    'calendar': ('resources', 'icons', 'calendar.svg'),
+    'filter': ('resources', 'icons', 'filter.svg'),
+    'sort': ('resources', 'icons', 'sort.svg'),
+    'save': ('resources', 'icons', 'save.svg'),
+    'terminal': ('resources', 'icons', 'terminal.svg'),
+    'database': ('resources', 'icons', 'database.svg'),
+    'external-open': ('resources', 'icons', 'external-open.svg'),
 }
 
-# 对话框语义 → 图标角色
 NOTICE_ICON_ROLES = {
-    'info': 'info',
-    'success': 'success',
-    'warning': 'warning',
-    'error': 'error',
-    'danger': 'warning',
-    'flow': 'info',
+    'info': 'info', 'success': 'success', 'warning': 'warning',
+    'error': 'error', 'danger': 'warning', 'flow': 'info',
+}
+
+# 导航 stack index → 图标角色
+NAV_ICON_BY_INDEX = {
+    0: 'home',
+    1: 'document-id',
+    2: 'release',
+    3: 'doc-update',
+    4: 'vin',
+    5: 'shield-key',
+    6: 'operations',
+    7: 'settings',
+    8: 'learning',
+    9: 'daily-report',
+    10: 'requirements',
 }
 
 
@@ -64,7 +88,6 @@ def resource_path(*parts: str) -> str:
 
 
 def icon_file(role: str) -> str:
-    """返回角色对应的绝对文件路径；未知角色返回空串。"""
     parts = ICON_FILES.get(role)
     if not parts:
         return ''
@@ -73,27 +96,32 @@ def icon_file(role: str) -> str:
 
 
 def icon_url(role: str) -> str:
-    """供 QSS url(...) 使用的正斜杠路径。"""
     path = icon_file(role)
     return path.replace('\\', '/') if path else ''
 
 
-def qicon(role: str) -> QIcon:
-    path = icon_file(role)
-    return QIcon(path) if path else QIcon()
+def _svg_data_with_tint(path: str, tint: str) -> bytes:
+    with open(path, 'r', encoding='utf-8') as stream:
+        data = stream.read()
+    # 将 currentColor / 默认 stroke 替换为显式色
+    data = data.replace('currentColor', tint)
+    if 'stroke=' not in data and '<svg' in data:
+        data = data.replace('<svg', f'<svg stroke="{tint}"', 1)
+    return data.encode('utf-8')
 
 
-def icon_pixmap(role: str, size: int = 20) -> QPixmap:
-    """渲染为 pixmap（SVG 优先 QSvgRenderer，失败回退 QIcon）。"""
+@lru_cache(maxsize=256)
+def icon_pixmap(role: str, size: int = 20, tint: str = ICON_MUTED) -> QPixmap:
     path = icon_file(role)
     if not path:
         return QPixmap()
     if path.lower().endswith('.svg'):
-        renderer = QSvgRenderer(path)
+        renderer = QSvgRenderer(QByteArray(_svg_data_with_tint(path, tint)))
         if renderer.isValid():
             pix = QPixmap(size, size)
             pix.fill(Qt.GlobalColor.transparent)
             painter = QPainter(pix)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             renderer.render(painter)
             painter.end()
             return pix
@@ -101,9 +129,26 @@ def icon_pixmap(role: str, size: int = 20) -> QPixmap:
     return icon.pixmap(QSize(size, size))
 
 
-def apply_icon(button, role: str, size: int = 18) -> None:
-    """给按钮设置本地图标，不影响 objectName / 业务。"""
-    icon = qicon(role)
+def qicon(role: str, *, size: int = 20, normal: str = ICON_MUTED, active: str = PRIMARY_ACTIVE) -> QIcon:
+    """带 Normal / Active / Selected 状态的 QIcon。"""
+    icon = QIcon()
+    normal_pix = icon_pixmap(role, size, normal)
+    active_pix = icon_pixmap(role, size, active)
+    if normal_pix.isNull():
+        path = icon_file(role)
+        return QIcon(path) if path else QIcon()
+    icon.addPixmap(normal_pix, QIcon.Mode.Normal, QIcon.State.Off)
+    icon.addPixmap(active_pix, QIcon.Mode.Active, QIcon.State.Off)
+    icon.addPixmap(active_pix, QIcon.Mode.Selected, QIcon.State.On)
+    icon.addPixmap(active_pix, QIcon.Mode.Normal, QIcon.State.On)
+    disabled = icon_pixmap(role, size, '#A8B1C2')
+    if not disabled.isNull():
+        icon.addPixmap(disabled, QIcon.Mode.Disabled, QIcon.State.Off)
+    return icon
+
+
+def apply_icon(button, role: str, size: int = 18, *, normal: str = ICON_MUTED, active: str = PRIMARY_ACTIVE) -> None:
+    icon = qicon(role, size=size, normal=normal, active=active)
     if icon.isNull():
         return
     button.setIcon(icon)
@@ -111,21 +156,21 @@ def apply_icon(button, role: str, size: int = 18) -> None:
 
 
 def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) -> QLabel:
-    """对话框 / 页头语义徽章：彩色圆底 + 本地 SVG 图标。"""
     role = NOTICE_ICON_ROLES.get(kind, 'info')
+    tints = {
+        'info': '#4056CF', 'success': '#19875A', 'warning': '#C77818',
+        'error': '#C14653', 'danger': '#C14653', 'flow': '#4056CF',
+    }
     badge = QLabel()
-    badge.setObjectName(f'notice-badge-{kind if kind in NOTICE_ICON_ROLES else "info"}')
+    obj = kind if kind in ('info', 'success', 'warning', 'error') else 'info'
     if kind == 'danger':
-        badge.setObjectName('notice-badge-error')
-    if kind == 'flow':
-        badge.setObjectName('notice-badge-info')
+        obj = 'error'
+    badge.setObjectName(f'notice-badge-{obj}')
     badge.setFixedSize(size, size)
     badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    pix = icon_pixmap(role, icon_size)
+    pix = icon_pixmap(role, icon_size, tints.get(kind, '#4056CF'))
     if not pix.isNull():
         badge.setPixmap(pix)
-    else:
-        badge.setText('')
     return badge
 
 

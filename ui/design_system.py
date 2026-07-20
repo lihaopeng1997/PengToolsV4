@@ -21,24 +21,25 @@ from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTreeW
 
 from ui.field_metrics import FIELD_H, size_compact_button, size_field_height
 from ui.icons import apply_icon
+from ui import layout_metrics as _lm
 
-# —— 视觉 token（Python 侧常量；QSS 以同色值落地）——
-COLOR_BG_APP = '#E8ECF5'
-COLOR_SURFACE = '#FFFFFF'
-COLOR_BORDER = '#D8DEEA'
-COLOR_BORDER_STRONG = '#C5CEDF'
-COLOR_TEXT = '#1A2438'
-COLOR_TEXT_MUTED = '#5F6E88'
-COLOR_PRIMARY = '#4A61F0'
-COLOR_PRIMARY_SOFT = '#5B73FF'
-COLOR_DANGER = '#B33B48'
-COLOR_SUCCESS = '#1F9D5A'
-COLOR_SELECTION = '#E0E8FF'
+# —— 视觉 token（与 layout_metrics / style.qss 对齐 V2.0 Astra）——
+COLOR_BG_APP = _lm.APP_BG
+COLOR_SURFACE = _lm.SURFACE
+COLOR_BORDER = _lm.BORDER
+COLOR_BORDER_STRONG = _lm.BORDER_STRONG
+COLOR_TEXT = _lm.TEXT
+COLOR_TEXT_MUTED = _lm.TEXT_MUTED
+COLOR_PRIMARY = _lm.PRIMARY
+COLOR_PRIMARY_SOFT = _lm.PRIMARY_SOFT
+COLOR_DANGER = _lm.DANGER
+COLOR_SUCCESS = _lm.SUCCESS
+COLOR_SELECTION = _lm.PRIMARY_SOFT
 
-RADIUS_CONTROL = 9
-RADIUS_CARD = 12
-RADIUS_BUTTON = 10
-CONTROL_HEIGHT = FIELD_H
+RADIUS_CONTROL = _lm.RADIUS_CONTROL
+RADIUS_CARD = _lm.RADIUS_CARD
+RADIUS_BUTTON = _lm.RADIUS_BUTTON
+CONTROL_HEIGHT = _lm.BTN_H
 
 BUTTON_ROLES = {
     'primary': 'primary-btn',
