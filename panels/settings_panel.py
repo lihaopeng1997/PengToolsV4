@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
 from ui.field_metrics import size_combo
-from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id
+from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
 
 
 class ThemePreviewWidget(QWidget):
@@ -48,31 +48,39 @@ class ThemePreviewWidget(QWidget):
         painter.setOpacity(0.35)
         painter.drawRoundedRect(5, 20, sidebar_w - 8, 5, 2, 2)
         painter.setOpacity(1.0)
-        # 白色内容卡
+        # 内容卡 + 输入区 + 正文六层（夜间也必须可见深色层级）
         card_x = sidebar_w + 8
         card_w = max(24, rect.width() - card_x - 6)
         card_h = max(20, rect.height() - 14)
         painter.setPen(QPen(QColor(s['border']), 1))
         painter.setBrush(QColor(s['surface']))
         painter.drawRoundedRect(card_x, 6, card_w, card_h, 4, 4)
-        # 内容区弱分隔线
+        # 输入区（CODE/INPUT）
+        input_bg = QColor(s.get('input') or s['surface'])
+        painter.setBrush(input_bg)
         painter.setPen(QPen(QColor(s['border']), 1))
-        line_y = 6 + int(card_h * 0.38)
+        inp_h = max(8, int(card_h * 0.28))
+        painter.drawRoundedRect(card_x + 6, 10, max(16, card_w - 12), inp_h, 3, 3)
+        # 分隔线
+        painter.setPen(QPen(QColor(s['border']), 1))
+        line_y = 12 + inp_h + 2
         painter.drawLine(card_x + 6, line_y, card_x + card_w - 6, line_y)
-        # 弱文本条
+        # 正文条
         painter.setPen(Qt.PenStyle.NoPen)
+        strong = QColor(s.get('text_strong') or s.get('text_muted') or s['border'])
         muted = QColor(s.get('text_muted') or s['border'])
+        painter.setBrush(strong)
+        painter.setOpacity(0.75)
+        painter.drawRoundedRect(card_x + 6, line_y + 5, max(12, card_w // 2), 3, 2, 2)
         painter.setBrush(muted)
-        painter.setOpacity(0.55)
-        painter.drawRoundedRect(card_x + 6, line_y + 5, max(12, card_w // 2), 4, 2, 2)
-        painter.setOpacity(0.35)
-        painter.drawRoundedRect(card_x + 6, line_y + 12, max(10, card_w // 3), 3, 2, 2)
+        painter.setOpacity(0.45)
+        painter.drawRoundedRect(card_x + 6, line_y + 11, max(10, card_w // 3), 3, 2, 2)
         painter.setOpacity(1.0)
         # 主按钮
         btn_w = max(16, min(36, card_w // 3))
         btn_h = 8
         painter.setBrush(QColor(s['primary']))
-        painter.drawRoundedRect(card_x + card_w - btn_w - 6, 10, btn_w, btn_h, 3, 3)
+        painter.drawRoundedRect(card_x + card_w - btn_w - 6, card_h - 2, btn_w, btn_h, 3, 3)
         painter.end()
 
 
@@ -106,6 +114,10 @@ class ThemeCard(QFrame):
         self.current_badge.hide()
         name_row.addWidget(self.current_badge, 0, Qt.AlignmentFlag.AlignRight)
         layout.addLayout(name_row)
+        self.subtitle_label = QLabel()
+        self.subtitle_label.setObjectName('field-hint')
+        self.subtitle_label.setWordWrap(True)
+        layout.addWidget(self.subtitle_label)
         self._swatches = preview_swatches(theme_id)
 
     def set_selected(self, selected: bool):
@@ -115,10 +127,13 @@ class ThemeCard(QFrame):
         self.style().polish(self)
         self.update()
 
-    def set_title(self, title: str, *, current_label: str = ''):
+    def set_title(self, title: str, *, current_label: str = '', subtitle: str = ''):
         # 标题不带 ✓ 前缀；当前状态用角标
         clean = title[2:].strip() if title.startswith('✓ ') else title
         self.name_label.setText(clean)
+        if subtitle:
+            self.subtitle_label.setText(subtitle)
+            self.subtitle_label.show()
         if current_label:
             self.current_badge.setText(current_label)
         elif not self.current_badge.text():
@@ -370,8 +385,22 @@ class SettingsPanel(QWidget):
         current_label = '当前使用' if zh else 'Current'
         for theme_id, card in self._theme_cards.items():
             card.set_selected(theme_id == current)
-            name = THEME_META[theme_id][0 if zh else 1]
-            card.set_title(name, current_label=current_label)
+            name = theme_display_name(theme_id, self.language)
+            sub = theme_subtitle(theme_id, self.language)
+            card.set_title(name, current_label=current_label, subtitle=sub)
+            card.preview.set_theme_id(theme_id)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        """主题卡 Wide/Standard 两列，Compact/Narrow 一列。"""
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(self.subtitle, low_height)
+        cols = 1 if mode in ('compact', 'narrow') else 2
+        # 重新排布 theme_grid
+        for i, theme_id in enumerate(('calm', 'clear', 'warm', 'night')):
+            card = self._theme_cards.get(theme_id)
+            if card is None:
+                continue
+            self.theme_grid.addWidget(card, i // cols, i % cols)
 
     def load_values(self, settings):
         settings = normalize_settings(settings)

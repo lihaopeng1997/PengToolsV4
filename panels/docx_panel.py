@@ -308,6 +308,18 @@ class DocxUpdatePanel(QWidget):
         if hasattr(self, 'progress'):
             self.progress.place_overlay()
 
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        for name in ('splitter', 'main_splitter', 'editor_splitter'):
+            sp = getattr(self, name, None)
+            if sp is not None:
+                apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
+        for name in ('sql_editor', 'log_edit', 'preview_edit'):
+            ed = getattr(self, name, None)
+            if ed is not None and hasattr(ed, 'setMinimumHeight'):
+                ed.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'

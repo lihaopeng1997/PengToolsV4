@@ -265,6 +265,17 @@ class OpsPanel(QWidget):
         if hasattr(self, '_safety_host'):
             self._safety_host.hide()
 
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        for name in ('preview_edit', 'output_edit', 'command_list'):
+            w = getattr(self, name, None)
+            if w is not None and hasattr(w, 'setMinimumHeight'):
+                try:
+                    w.setMinimumHeight(max(120, editor_min_height() // 2) if mode in ('compact', 'narrow') else 0)
+                except Exception:
+                    pass
+
     def set_language(self, language):
         self.language = language
         self._copy_feedback_timer.stop()

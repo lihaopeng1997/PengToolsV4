@@ -110,7 +110,7 @@ class FormatToolsNavTests(unittest.TestCase):
         from main_window import MainWindow
         app = QApplication.instance() or QApplication([])
         fmt = FormatToolsPanel()
-        self.assertEqual(fmt.tabs.count(), 3)
+        self.assertEqual(fmt.tabs.count(), 4)
         gw = GatewayDecodePanel()
         self.assertTrue(hasattr(gw, 'open_format_xml'))
         self.assertIsNone(gw.xml_workspace)

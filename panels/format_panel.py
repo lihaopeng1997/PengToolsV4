@@ -443,8 +443,38 @@ class FormatToolsPanel(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
+        self._layout_mode = 'standard'
         self._setup_ui()
         self.set_language(language)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        self._layout_mode = mode
+        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        min_h = editor_min_height()
+        # JSON 内部若有 splitter
+        for attr in ('json_viewer', 'xml_workspace', 'sql_tab', 'text_tab'):
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            if hasattr(w, 'apply_layout_mode'):
+                try:
+                    w.apply_layout_mode(mode, low_height)
+                except Exception:
+                    pass
+            if hasattr(w, 'editor') and w.editor is not None:
+                w.editor.setMinimumHeight(min_h)
+            if hasattr(w, 'input') and w.input is not None:
+                w.input.setMinimumHeight(min_h // 2 if mode in ('compact', 'narrow') else min_h)
+            if hasattr(w, 'output') and w.output is not None:
+                w.output.setMinimumHeight(min_h // 2 if mode in ('compact', 'narrow') else min_h)
+        # XML 工作区 splitter
+        xml = getattr(self, 'xml_workspace', None)
+        if xml is not None and hasattr(xml, 'splitter'):
+            apply_splitter_orientation(xml.splitter, mode, min_editor=min_h)
+        jv = getattr(self, 'json_viewer', None)
+        if jv is not None and hasattr(jv, 'text_edit') and jv.text_edit is not None:
+            jv.text_edit.setMinimumHeight(min_h)
 
     def _setup_ui(self):
         root = QVBoxLayout(self)

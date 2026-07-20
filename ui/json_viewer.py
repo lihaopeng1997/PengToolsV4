@@ -310,8 +310,14 @@ class JsonViewer(QWidget):
 
     def _search(self, query):
         normal = QBrush()
-        highlight = QBrush(QColor('#FFF0A6'))
-        current = QBrush(QColor('#FFD86B'))
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            highlight = QBrush(QColor(pal.get('SEARCH_MATCH', '#FFF0A6')))
+            current = QBrush(QColor(pal.get('SEARCH_CURRENT', '#FFD86B')))
+        except Exception:
+            highlight = QBrush(QColor('#FFF0A6'))
+            current = QBrush(QColor('#FFD86B'))
         for item in self._all_items():
             for column in range(3):
                 item.setBackground(column, normal)
@@ -340,13 +346,20 @@ class JsonViewer(QWidget):
     def _move_match(self, delta):
         if not self._matches:
             return
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            match_c = QColor(pal.get('SEARCH_MATCH', '#FFF0A6'))
+            curr_c = QColor(pal.get('SEARCH_CURRENT', '#FFD86B'))
+        except Exception:
+            match_c, curr_c = QColor('#FFF0A6'), QColor('#FFD86B')
         old = self._matches[self._match_index]
         for column in range(3):
-            old.setBackground(column, QBrush(QColor('#FFF0A6')))
+            old.setBackground(column, QBrush(match_c))
         self._match_index = (self._match_index + delta) % len(self._matches)
         item = self._matches[self._match_index]
         for column in range(3):
-            item.setBackground(column, QBrush(QColor('#FFD86B')))
+            item.setBackground(column, QBrush(curr_c))
         self._focus_match()
         self._update_search_status()
 

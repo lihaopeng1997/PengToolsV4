@@ -98,7 +98,7 @@ class _CloseOptionCard(QFrame):
 
     clicked = pyqtSignal()
 
-    def __init__(self, icon_role, title_text, tip_text, object_name, parent=None, icon_tint='#FFFFFF'):
+    def __init__(self, icon_role, title_text, tip_text, object_name, parent=None, icon_tint=None):
         super().__init__(parent)
         self.setObjectName(object_name)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -111,9 +111,10 @@ class _CloseOptionCard(QFrame):
         badge.setObjectName('close-option-badge')
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(36, 36)
-        from ui.icons import icon_pixmap
-        # 徽章底为有色，图标必须用浅色前景保证对比度
-        pix = icon_pixmap(icon_role, 20, icon_tint or '#FFFFFF')
+        from ui.icons import icon_pixmap, status_icon_tint
+        # 徽章底为有色，图标用 ON_STATUS / 主题对比色
+        tint = icon_tint or status_icon_tint('info')
+        pix = icon_pixmap(icon_role, 20, tint)
         if not pix.isNull():
             badge.setPixmap(pix)
         layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
@@ -183,16 +184,13 @@ class CloseActionDialog(QDialog):
         root.addLayout(header)
 
         # —— 两种明确后果（本地 SVG，无 Emoji）——
-        # 托盘：浅色主色图标；退出：白色危险图标（与有色徽章对比）
+        # 图标前景取主题 ON_STATUS，保证与有色徽章对比
         try:
-            from ui.theme_manager import ThemeManager
-            pal = ThemeManager.instance().palette()
-            tray_tint = pal.get('SURFACE') or '#FFFFFF'
-            # 主色徽章上用近白
-            tray_tint = '#F7F9FC'
-            exit_tint = '#FFFFFF'
+            from ui.icons import status_icon_tint
+            tray_tint = status_icon_tint('info')
+            exit_tint = status_icon_tint('danger')
         except Exception:
-            tray_tint, exit_tint = '#F7F9FC', '#FFFFFF'
+            tray_tint, exit_tint = '#EDF2EE', '#EDF2EE'
         self.minimize_button = _CloseOptionCard(
             'settings',
             '隐藏到系统托盘' if zh else 'Hide to system tray',

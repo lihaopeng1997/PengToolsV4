@@ -72,6 +72,11 @@ class VinPanel(QWidget):
         bottom.addWidget(self.export_btn)
         layout.addLayout(bottom)
 
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        set_subtitle_visible(getattr(self, 'subtitle', None), low_height)
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'

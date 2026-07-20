@@ -6,14 +6,16 @@ from __future__ import annotations
 import datetime
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
-    QHBoxLayout,
+    QFrame, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QBoxLayout,
 )
 
 from tools.requirements import load_requirements
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
+from ui.responsive import set_subtitle_visible
 
 
 def _online_date(item: dict) -> str:
@@ -88,9 +90,10 @@ class DashboardPanel(QWidget):
         super().__init__()
         self.language = language
         self._mode = 'standard'
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        self._root = QVBoxLayout(self)
+        self._root.setContentsMargins(0, 0, 0, 0)
+        self._root.setSpacing(14)
+        layout = self._root
 
         self.local_status = QLabel()
         self.local_status.setObjectName('dashboard-local-status')
@@ -102,8 +105,8 @@ class DashboardPanel(QWidget):
         )
         layout.addWidget(header)
 
-        # 两列任务卡
-        self.tasks_row = QHBoxLayout()
+        # 两列任务卡（方向可随模式切换）
+        self.tasks_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.tasks_row.setSpacing(14)
 
         self.recent_card = QFrame()
@@ -172,6 +175,7 @@ class DashboardPanel(QWidget):
         self.docx = QPushButton()
         self.vin = QPushButton()
         self.ops = QPushButton()
+        self._tool_buttons = []
         for btn, icon, signal in (
             (self.gateway, 'shield-key', self.open_gateway),
             (self.credit, 'document-id', self.open_credit),
@@ -184,6 +188,16 @@ class DashboardPanel(QWidget):
             apply_icon(btn, icon, 16)
             btn.clicked.connect(signal.emit)
             self.tools_row.addWidget(btn)
+            self._tool_buttons.append(btn)
+        self.tools_more = QToolButton()
+        self.tools_more.setObjectName('responsive-more-btn')
+        self.tools_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.tools_more.setText('更多工具')
+        apply_icon(self.tools_more, 'more', 16)
+        self._tools_menu = QMenu(self.tools_more)
+        self.tools_more.setMenu(self._tools_menu)
+        self.tools_more.hide()
+        self.tools_row.addWidget(self.tools_more)
         self.tools_row.addStretch(1)
         layout.addLayout(self.tools_row)
         layout.addStretch(0)
@@ -200,8 +214,40 @@ class DashboardPanel(QWidget):
 
     def apply_layout_mode(self, mode, low_height=False):
         self._mode = mode
-        # 窄屏时上下堆叠任务卡
-        # 通过 size policy 即可；布局保持横向，空间不足时 Qt 会压缩
+        set_subtitle_visible(self.subtitle, low_height)
+        # Compact/Narrow：任务卡纵向
+        if mode in ('compact', 'narrow'):
+            self.tasks_row.setDirection(QBoxLayout.Direction.TopToBottom)
+            self.tasks_row.setSpacing(10 if low_height else 12)
+        else:
+            self.tasks_row.setDirection(QBoxLayout.Direction.LeftToRight)
+            self.tasks_row.setSpacing(10 if low_height else 14)
+        self._root.setSpacing(10 if low_height else 14)
+        # 常用工具：Narrow 仅前 4 项，其余进更多
+        self._tools_menu.clear()
+        zh = self.language == 'zh'
+        self.tools_more.setText('更多工具' if zh else 'More tools')
+        if mode == 'narrow':
+            for i, btn in enumerate(self._tool_buttons):
+                if i < 4:
+                    btn.show()
+                    if btn.text():
+                        btn.setToolTip(btn.text())
+                else:
+                    btn.hide()
+                    act = QAction(btn.text() or btn.toolTip() or 'Tool', self)
+                    act.triggered.connect(btn.click)
+                    self._tools_menu.addAction(act)
+            self.tools_more.setVisible(bool(self._tools_menu.actions()))
+        else:
+            for btn in self._tool_buttons:
+                btn.show()
+            self.tools_more.hide()
+        # 列表条数随模式变化
+        self.refresh()
+
+    def _list_limit(self) -> int:
+        return 3 if self._mode in ('compact', 'narrow') else 5
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -225,7 +271,7 @@ class DashboardPanel(QWidget):
             requirements,
             key=lambda item: str(item.get('updated_at') or item.get('created_at') or ''),
             reverse=True,
-        )[:5]
+        )[: self._list_limit()]
         self.recent_empty.setVisible(not items)
         for item in items:
             title = item.get('title') or item.get('code') or '未命名'
@@ -268,7 +314,7 @@ class DashboardPanel(QWidget):
         month_only = sorted(month_only, key=lambda item: -_iso_rank(item.get('updated_at')))
 
         ranked = [t[0] for t in overdue] + [t[0] for t in upcoming] + month_only
-        ranked = ranked[:5]
+        ranked = ranked[: self._list_limit()]
         zh = self.language == 'zh'
         self.release_empty.setVisible(not ranked)
         for item in ranked:

@@ -375,7 +375,13 @@ class RequirementAttachmentDialog(QDialog):
                 for column in range(self.table.columnCount()):
                     item = self.table.item(row, column)
                     if item and any(term in item.text().casefold() for term in terms):
-                        self._highlights.append((item, QBrush(item.background()))); item.setBackground(QColor('#FFF19C')); first = first or item
+                        self._highlights.append((item, QBrush(item.background())))
+                        try:
+                            from ui.theme_manager import ThemeManager
+                            sc = QColor(ThemeManager.instance().token('SEARCH_MATCH'))
+                        except Exception:
+                            sc = QColor('#FFF19C')
+                        item.setBackground(sc); first = first or item
         if first:
             self.table.setCurrentItem(first); self.table.scrollToItem(first, QAbstractItemView.ScrollHint.PositionAtCenter); self.table.clearSelection()
 
@@ -1253,13 +1259,45 @@ class RequirementPanel(QWidget):
         })
 
     def apply_layout_mode(self, mode, low_height=False):
-        """响应主窗口断点：窄屏时收紧左栏。"""
+        """响应主窗口断点：收紧左栏、收纳次要工具栏。"""
+        self._layout_mode = mode
+        if hasattr(self, 'page_subtitle'):
+            try:
+                from ui.responsive import set_subtitle_visible
+                set_subtitle_visible(self.page_subtitle, low_height)
+            except Exception:
+                pass
         if not hasattr(self, 'detail_splitter'):
             return
+        # 保证两侧都不可折叠为 0
+        self.detail_splitter.setChildrenCollapsible(False)
+        self.detail_splitter.setStretchFactor(0, 0)
+        self.detail_splitter.setStretchFactor(1, 1)
+        sizes = self.detail_splitter.sizes()
+        if mode == 'compact':
+            left = min(max(sizes[0] if sizes else 280, 260), 300)
+            right = max(520, (sizes[1] if len(sizes) > 1 else 520))
+            self.detail_splitter.setSizes([left, right])
+        elif mode == 'narrow':
+            left = min(max(sizes[0] if sizes else 240, 220), 280)
+            right = max(400, (sizes[1] if len(sizes) > 1 else 400))
+            self.detail_splitter.setSizes([left, right])
+        # 次要操作收纳：若存在 SVN/文件工具栏按钮，Narrow 隐藏低频项
+        secondary_names = (
+            'svn_log_btn', 'svn_diff_btn', 'export_sql_btn', 'send_docx_btn',
+            'batch_flag_btn', 'import_btn', 'help_btn',
+        )
+        more_btn = getattr(self, 'toolbar_more_btn', None)
         if mode in ('compact', 'narrow'):
-            sizes = self.detail_splitter.sizes()
-            if len(sizes) >= 2 and sizes[0] > 300:
-                self.detail_splitter.setSizes([280, max(520, sizes[1])])
+            for name in secondary_names:
+                w = getattr(self, name, None)
+                if w is not None:
+                    w.setVisible(mode == 'compact' and name in ('export_sql_btn',))
+        else:
+            for name in secondary_names:
+                w = getattr(self, name, None)
+                if w is not None:
+                    w.show()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1384,8 +1422,14 @@ class RequirementPanel(QWidget):
                     | Qt.ItemFlag.ItemIsAutoTristate
                 )
                 font = header.font(0); font.setBold(True); font.setPointSize(max(font.pointSize() + 1, 11)); header.setFont(0, font)
-                header.setForeground(0, QColor('#1E2A44'))
-                header.setBackground(0, QColor('#F0F3FA')); header.setBackground(1, QColor('#F0F3FA'))
+                try:
+                    from ui.theme_manager import ThemeManager
+                    pal = ThemeManager.instance().palette()
+                    header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', '#1E2A44')))
+                    mbg = QColor(pal.get('MONTH_HEADER_BG', '#F0F3FA'))
+                except Exception:
+                    header.setForeground(0, QColor('#1E2A44')); mbg = QColor('#F0F3FA')
+                header.setBackground(0, mbg); header.setBackground(1, mbg)
                 self.requirement_list.addTopLevelItem(header)
                 # 必须先入树再跨列，否则月份标题会被挤在需求号窄列中
                 header.setFirstColumnSpanned(True)
@@ -1414,8 +1458,16 @@ class RequirementPanel(QWidget):
             hit = bool(query) and (
                 query in code.casefold() or query in title.casefold() or query in requirement_search_text(requirement)
             )
-            item.setForeground(0, QColor('#C45C12' if hit and query in code.casefold() else '#4058C8'))
-            item.setForeground(1, QColor('#C45C12' if hit else '#4A5872'))
+            try:
+                from ui.theme_manager import ThemeManager
+                pal = ThemeManager.instance().palette()
+                hit_c = QColor(pal.get('HIGHLIGHT_MARK', pal.get('WARNING', '#C45C12')))
+                code_c = QColor(pal.get('PRIMARY_ACTIVE', '#4058C8'))
+                mute_c = QColor(pal.get('TEXT_MUTED', '#4A5872'))
+            except Exception:
+                hit_c, code_c, mute_c = QColor('#C45C12'), QColor('#4058C8'), QColor('#4A5872')
+            item.setForeground(0, hit_c if hit and query in code.casefold() else code_c)
+            item.setForeground(1, hit_c if hit else mute_c)
             if hit:
                 title_font = item.font(1); title_font.setBold(True); item.setFont(1, title_font)
             flag_tip = []
@@ -1977,7 +2029,12 @@ class RequirementPanel(QWidget):
                 if entry['is_dir'] else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator
             )
             if locked:
-                font = item.font(0); font.setBold(True); item.setFont(0, font); item.setForeground(0, QColor('#B24A24'))
+                font = item.font(0); font.setBold(True); item.setFont(0, font)
+                try:
+                    from ui.theme_manager import ThemeManager
+                    item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
+                except Exception:
+                    item.setForeground(0, QColor('#B24A24'))
             if entry['is_dir']: nodes[relative] = item
         self.file_tree.expandAll()
         self._update_lock_buttons()

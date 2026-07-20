@@ -12,19 +12,51 @@ from copy import deepcopy
 
 from PyQt6.QtWidgets import QApplication
 
-# theme_id → 中英文名
+# theme_id → 中英文名 + 副说明
 THEME_META = {
-    'calm': ('静谧办公', 'Calm Office'),
-    'clear': ('晴空清晰', 'Clear Sky'),
-    'warm': ('暖书房', 'Warm Study'),
-    'night': ('夜间安读', 'Night Read'),
+    'calm': ('静谧办公', 'Calm Office', '柔和米灰的日常办公界面', 'Soft office greige'),
+    'clear': ('晴空清晰', 'Clear Sky', '清爽蓝灰的高效阅读界面', 'Cool blue-grey clarity'),
+    'warm': ('暖书房', 'Warm Study', '温暖纸感的长时间阅读', 'Warm paper-like study'),
+    'night': ('夜间安读', 'Night Read', '低眩光的深色工作界面', 'Low-glare deep work surface'),
 }
 
 DEFAULT_THEME_ID = 'calm'
 
+# 各主题共享的扩展 token 默认（浅色语义）
+_LIGHT_EXTRA = {
+    'ELEVATED_SURFACE': '#FFFFFF',
+    'CODE_BG': '#F7F8F6',
+    'OVERLAY_BG': 'rgba(28, 35, 32, 120)',
+    'INFO_BG': '#EAF2F3',
+    'INFO_BORDER': '#B7D0D3',
+    'SUCCESS_BG': '#E8F4EC',
+    'SUCCESS_BORDER': '#A8D0B6',
+    'WARNING_BG': '#FFF5E9',
+    'WARNING_BORDER': '#F2D2AE',
+    'DANGER_BG': '#FFF0F1',
+    'DANGER_BORDER': '#F4C9CE',
+    'SEARCH_MATCH': '#FFF0A6',
+    'SEARCH_CURRENT': '#FFD86B',
+    'LOADING_TRACK': '#E2E8F0',
+    'ON_PRIMARY': '#FFFFFF',
+    'ON_STATUS': '#FFFFFF',
+    'MONTH_HEADER_BG': '#F0F3FA',
+    'MONTH_HEADER_FG': '#1E2A44',
+    'HIGHLIGHT_MARK': '#B24A24',
+}
+
+
+def _with_extra(base: dict, extra: dict | None = None) -> dict:
+    result = dict(base)
+    result.update(_LIGHT_EXTRA)
+    if extra:
+        result.update(extra)
+    return result
+
+
 # 完整 token 表（QSS 占位符名 → 色值）
 THEMES: dict[str, dict[str, str]] = {
-    'calm': {
+    'calm': _with_extra({
         'APP_BG': '#F6F5F1',
         'SIDEBAR_BG': '#FBFAF7',
         'SIDEBAR_BORDER': '#E8E6DF',
@@ -59,8 +91,13 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#E9F1EB',
         'USER_CHIP_TEXT': '#4F735F',
         'SCROLL_HANDLE': '#C9C7BF',
-    },
-    'clear': {
+    }, {
+        'CODE_BG': '#F4F6F4',
+        'ELEVATED_SURFACE': '#FFFFFF',
+        'MONTH_HEADER_BG': '#EEF3EF',
+        'MONTH_HEADER_FG': '#2A3A32',
+    }),
+    'clear': _with_extra({
         'APP_BG': '#F4F7FB',
         'SIDEBAR_BG': '#FAFCFF',
         'SIDEBAR_BORDER': '#E1E8F0',
@@ -95,8 +132,14 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#E8F0F7',
         'USER_CHIP_TEXT': '#3E6588',
         'SCROLL_HANDLE': '#C5CEDF',
-    },
-    'warm': {
+    }, {
+        'CODE_BG': '#F2F6FB',
+        'INFO_BG': '#EAF2FA',
+        'INFO_BORDER': '#B7C9DE',
+        'MONTH_HEADER_BG': '#F0F3FA',
+        'MONTH_HEADER_FG': '#1E2A44',
+    }),
+    'warm': _with_extra({
         'APP_BG': '#FAF7F2',
         'SIDEBAR_BG': '#FFFDF9',
         'SIDEBAR_BORDER': '#EDE6DB',
@@ -131,42 +174,66 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#F5EBDD',
         'USER_CHIP_TEXT': '#8A5F3C',
         'SCROLL_HANDLE': '#D0C4B4',
-    },
+    }, {
+        'CODE_BG': '#F8F3EB',
+        'MONTH_HEADER_BG': '#F5EBDD',
+        'MONTH_HEADER_FG': '#3A2E22',
+    }),
+    # 夜间安读：低眩光深墨绿灰，禁止纯白卡片
     'night': {
-        'APP_BG': '#202523',
-        'SIDEBAR_BG': '#29302C',
-        'SIDEBAR_BORDER': '#3A433D',
-        'SURFACE': '#2E3732',
-        'SURFACE_SOFT': '#343E38',
-        'SURFACE_TECH': '#35433C',
-        'TEXT_STRONG': '#F0F3F0',
-        'TEXT': '#E7ECE7',
-        'TEXT_MUTED': '#B8C1B9',
-        'TEXT_NAV': '#C5CDC6',
-        'BORDER': '#3F4A44',
-        'BORDER_STRONG': '#516058',
+        'APP_BG': '#1B211E',
+        'SIDEBAR_BG': '#222A26',
+        'SIDEBAR_BORDER': '#3C4942',
+        'SURFACE': '#29332E',
+        'SURFACE_SOFT': '#303B35',
+        'SURFACE_TECH': '#35483E',
+        'ELEVATED_SURFACE': '#303B35',
+        'CODE_BG': '#202823',
+        'TEXT_STRONG': '#EDF2EE',
+        'TEXT': '#EDF2EE',
+        'TEXT_MUTED': '#BAC5BD',
+        'TEXT_NAV': '#BAC5BD',
+        'BORDER': '#3C4942',
+        'BORDER_STRONG': '#4A5850',
         'PRIMARY': '#9ABAA6',
         'PRIMARY_HOVER': '#87A994',
-        'PRIMARY_SOFT': '#35433C',
+        'PRIMARY_SOFT': '#35483E',
         'PRIMARY_ACTIVE': '#B0CDBA',
         'CYAN': '#7FA9A0',
         'SUCCESS': '#7BA88A',
         'WARNING': '#C9A56A',
         'DANGER': '#C78A8A',
-        'ICON_MUTED': '#A3ADA5',
-        'NAV_HOVER': '#323B36',
-        'NAV_ACTIVE_BG': '#35433C',
-        'STATUS_BAR_BG': '#252C29',
-        'TABLE_ALT': '#333C37',
-        'TABLE_SELECT': '#3A4A42',
-        'INPUT_BG': '#2A322E',
-        'DISABLED_BG': '#2A322E',
+        'ICON_MUTED': '#919E95',
+        'NAV_HOVER': '#2A342F',
+        'NAV_ACTIVE_BG': '#35483E',
+        'STATUS_BAR_BG': '#1E2521',
+        'TABLE_ALT': '#24302A',
+        'TABLE_SELECT': '#35483E',
+        'INPUT_BG': '#202823',
+        'DISABLED_BG': '#24302A',
         'DISABLED_TEXT': '#6E7871',
-        'SHADOW': 'rgba(0, 0, 0, 80)',
-        'BRAND_ICON_BG': '#35433C',
-        'USER_CHIP_BG': '#35433C',
+        'SHADOW': 'rgba(0, 0, 0, 90)',
+        'BRAND_ICON_BG': '#35483E',
+        'USER_CHIP_BG': '#35483E',
         'USER_CHIP_TEXT': '#B0CDBA',
-        'SCROLL_HANDLE': '#55615A',
+        'SCROLL_HANDLE': '#4A5850',
+        'OVERLAY_BG': 'rgba(9, 14, 11, 150)',
+        'INFO_BG': '#263B3D',
+        'INFO_BORDER': '#3B5D60',
+        'SUCCESS_BG': '#263D31',
+        'SUCCESS_BORDER': '#4D765D',
+        'WARNING_BG': '#423923',
+        'WARNING_BORDER': '#75633B',
+        'DANGER_BG': '#432E30',
+        'DANGER_BORDER': '#765055',
+        'SEARCH_MATCH': '#4A5532',
+        'SEARCH_CURRENT': '#68753D',
+        'LOADING_TRACK': '#425047',
+        'ON_PRIMARY': '#1B211E',
+        'ON_STATUS': '#EDF2EE',
+        'MONTH_HEADER_BG': '#303B35',
+        'MONTH_HEADER_FG': '#EDF2EE',
+        'HIGHLIGHT_MARK': '#D4A574',
     },
 }
 
@@ -184,6 +251,34 @@ def resolve_theme_id(theme_id) -> str:
 def theme_display_name(theme_id: str, language: str = 'zh') -> str:
     meta = THEME_META.get(resolve_theme_id(theme_id), THEME_META[DEFAULT_THEME_ID])
     return meta[0] if language == 'zh' else meta[1]
+
+
+def theme_subtitle(theme_id: str, language: str = 'zh') -> str:
+    meta = THEME_META.get(resolve_theme_id(theme_id), THEME_META[DEFAULT_THEME_ID])
+    return meta[2] if language == 'zh' else meta[3]
+
+
+def parse_color(value: str):
+    """返回 (r,g,b,a 0-255) 或 None。支持 #RGB/#RRGGBB 与 rgba()。"""
+    from PyQt6.QtGui import QColor
+    text = (value or '').strip()
+    if not text:
+        return None
+    if text.startswith('rgba') or text.startswith('rgb'):
+        c = QColor()
+        # QColor 不完全解析 rgba 字符串时手拆
+        inner = text[text.find('(') + 1:text.rfind(')')]
+        parts = [p.strip() for p in inner.split(',')]
+        if len(parts) >= 3:
+            r, g, b = int(float(parts[0])), int(float(parts[1])), int(float(parts[2]))
+            a = int(float(parts[3])) if len(parts) > 3 else 255
+            if a <= 1 and '.' in (parts[3] if len(parts) > 3 else ''):
+                a = int(float(parts[3]) * 255)
+            return r, g, b, max(0, min(255, a))
+    c = QColor(text)
+    if c.isValid():
+        return c.red(), c.green(), c.blue(), c.alpha()
+    return None
 
 
 class ThemeManager:
@@ -213,6 +308,15 @@ class ThemeManager:
     def token(self, name: str, theme_id: str | None = None) -> str:
         return self.palette(theme_id).get(name, '#000000')
 
+    def qcolor(self, name: str, theme_id: str | None = None):
+        from PyQt6.QtGui import QColor
+        raw = self.token(name, theme_id)
+        parsed = parse_color(raw)
+        if parsed:
+            r, g, b, a = parsed
+            return QColor(r, g, b, a)
+        return QColor(raw)
+
     def load_template(self, app_path: str | None = None) -> str:
         app_path = app_path or _app_dir()
         candidates = [
@@ -236,7 +340,6 @@ class ThemeManager:
         palette = THEMES[theme_id]
         for key, value in palette.items():
             qss = qss.replace(f'__{key}__', value)
-        # 资源路径
         try:
             from ui.icons import icon_url
             arrow = icon_url('dropdown')
@@ -262,7 +365,6 @@ class ThemeManager:
             if not qss.strip():
                 raise RuntimeError('empty stylesheet')
             self._theme_id = theme_id
-            # 刷新图标缓存（依赖 theme id）
             try:
                 from ui.icons import clear_icon_cache
                 clear_icon_cache()
@@ -297,14 +399,17 @@ class ThemeManager:
 
 
 def preview_swatches(theme_id: str) -> dict[str, str]:
-    """主题卡预览用色块（完整微型界面）。"""
+    """主题卡预览用色块（完整微型界面：底/侧栏/卡/输入/按钮/正文/边框）。"""
     p = THEMES[resolve_theme_id(theme_id)]
     return {
         'bg': p['APP_BG'],
         'surface': p['SURFACE'],
+        'elevated': p.get('ELEVATED_SURFACE', p['SURFACE']),
+        'input': p.get('CODE_BG', p.get('INPUT_BG', p['SURFACE'])),
         'primary': p['PRIMARY'],
         'sidebar': p['SIDEBAR_BG'],
         'border': p['BORDER'],
         'text_muted': p.get('TEXT_MUTED', p['BORDER']),
         'text_strong': p.get('TEXT_STRONG', p.get('TEXT', '#182238')),
+        'on_primary': p.get('ON_PRIMARY', '#FFFFFF'),
     }

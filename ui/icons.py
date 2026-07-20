@@ -192,22 +192,19 @@ def apply_icon(button, role: str, size: int = 18, *, normal: str | None = None, 
 
 
 def status_icon_tint(kind: str = 'info') -> str:
-    """状态徽章上的图标前景色：必须与 badge 背景形成对比（浅色/白色）。"""
+    """状态徽章上的图标前景色：必须与 badge 背景形成对比。优先 ON_STATUS token。"""
     try:
         from ui.theme_manager import ThemeManager
         pal = ThemeManager.instance().palette()
-        # 优先专用 token；否则浅主题用 SURFACE，夜间用近白
-        on_status = pal.get('ON_STATUS') or pal.get('SURFACE') or '#FFFFFF'
-        # 若 SURFACE 偏暗（夜间），强制近白
-        if on_status.lstrip('#').lower() not in ('ffffff', 'f8fafd', 'f7f9fc', 'f0f3f0', 'fffefb'):
-            # 粗略判断亮度
-            hexv = on_status.lstrip('#')
-            if len(hexv) >= 6:
-                r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)
-                if (r * 299 + g * 587 + b * 114) / 1000 < 160:
-                    on_status = '#FFFFFF'
+        on_status = pal.get('ON_STATUS') or pal.get('ON_PRIMARY') or '#EDF2EE'
+        # 若 token 仍偏暗，用 TEXT_STRONG
+        hexv = on_status.lstrip('#')
+        if len(hexv) >= 6:
+            r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)
+            if (r * 299 + g * 587 + b * 114) / 1000 < 140:
+                on_status = pal.get('TEXT_STRONG') or '#EDF2EE'
     except Exception:
-        on_status = '#FFFFFF'
+        on_status = '#EDF2EE'
     return on_status
 
 

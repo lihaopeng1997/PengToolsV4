@@ -2,9 +2,10 @@
 """网关加解密工作台：国密解密 + JSON 结果呈现（XML 已迁至格式工具）。"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QMenu, QPlainTextEdit, QPushButton, QSplitter, QToolButton, QVBoxLayout, QWidget,
 )
 
 from tools.gateway_crypto import decrypt_gateway_payload
@@ -103,7 +104,8 @@ class GatewayDecodePanel(QWidget):
         work_layout.setContentsMargins(12, 10, 12, 12)
         work_layout.setSpacing(8)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter = self.splitter
         splitter.setObjectName('gateway-splitter')
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(8)
@@ -175,12 +177,51 @@ class GatewayDecodePanel(QWidget):
         apply_button(self.response_btn, 'primary', compact=True, icon='shield-key', icon_size=16)
         self.response_btn.clicked.connect(lambda: self._decrypt('response'))
         actions.addWidget(self.response_btn)
+        # 更多菜单：窄屏收纳次要操作
+        self.more_btn = QToolButton()
+        self.more_btn.setObjectName('responsive-more-btn')
+        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._more_menu = QMenu(self.more_btn)
+        self.more_btn.setMenu(self._more_menu)
+        self.more_btn.hide()
+        actions.addWidget(self.more_btn)
+        self._secondary_btns = [self.to_iface_btn, self.clear_btn, self.copy_btn, self.request_btn]
         layout.addWidget(action_bar)
 
         # 兼容旧引用（已移除 work_tabs / xml_workspace）
         self.work_tabs = None
         self.xml_workspace = None
         self.to_xml_btn = self.to_format_xml_btn
+        self._layout_mode = 'standard'
+
+    def apply_layout_mode(self, mode, low_height=False):
+        self._layout_mode = mode
+        from ui.responsive import apply_splitter_orientation, set_subtitle_visible
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        apply_splitter_orientation(self.splitter, mode, min_editor=180)
+        self._more_menu.clear()
+        zh = self.language == 'zh'
+        self.more_btn.setText('更多' if zh else 'More')
+        if mode in ('compact', 'narrow'):
+            # 主操作：响应解密始终可见；Narrow 再收 request/copy/clear/iface
+            keep = {self.response_btn}
+            if mode == 'compact':
+                keep.update({self.request_btn, self.copy_btn})
+            for btn in self._secondary_btns:
+                if btn in keep:
+                    btn.show()
+                else:
+                    btn.hide()
+                    act = QAction(btn.text() or btn.toolTip() or 'action', self)
+                    act.triggered.connect(btn.click)
+                    self._more_menu.addAction(act)
+            self.more_btn.setVisible(bool(self._more_menu.actions()))
+            self.response_btn.show()
+        else:
+            for btn in self._secondary_btns:
+                btn.show()
+            self.response_btn.show()
+            self.more_btn.hide()
 
     def _toggle_config(self, checked):
         self.config_group.setVisible(bool(checked))

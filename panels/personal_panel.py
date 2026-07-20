@@ -289,6 +289,19 @@ class KnowledgeTab(QWidget):
         splitter.setSizes([360, 680])
         root.addWidget(splitter, 1)
 
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        for name in ('splitter', 'main_splitter', 'content_splitter', 'learn_splitter'):
+            sp = getattr(self, name, None)
+            if sp is not None:
+                apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
+                sp.setChildrenCollapsible(False)
+        for name in ('content_edit', 'editor', 'report_edit', 'private_content'):
+            ed = getattr(self, name, None)
+            if ed is not None and hasattr(ed, 'setMinimumHeight'):
+                ed.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
@@ -505,7 +518,11 @@ class KnowledgeTab(QWidget):
                 if background:
                     item.setBackground(QColor(background))
                 elif row_index in header_rows:
-                    item.setBackground(QColor('#E8EEFF'))
+                    try:
+                        from ui.theme_manager import ThemeManager
+                        item.setBackground(QColor(ThemeManager.instance().token('PRIMARY_SOFT')))
+                    except Exception:
+                        item.setBackground(QColor('#E8EEFF'))
                 item.setToolTip(str(value))
                 self.table_view.setItem(row_index, column_index, item)
         for index, width in enumerate(entry.get('column_widths', [])):
@@ -537,7 +554,11 @@ class KnowledgeTab(QWidget):
                     item = self.table_view.item(row_index, column_index)
                     if item and any(term in item.text().casefold() for term in terms):
                         self._highlighted_cells.append((item, QBrush(item.background())))
-                        item.setBackground(QColor('#FFF19C'))
+                        try:
+                            from ui.theme_manager import ThemeManager
+                            item.setBackground(QColor(ThemeManager.instance().token('SEARCH_MATCH')))
+                        except Exception:
+                            item.setBackground(QColor('#FFF19C'))
                         first_match = first_match or item
         if first_match:
             self.table_view.setCurrentItem(first_match)
@@ -1142,6 +1163,15 @@ class PersonalPanel(QWidget):
         self.stack.addWidget(self.daily_tab)
         root.addWidget(self.stack, 1)
         self.set_language(language)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        if hasattr(self.knowledge_tab, 'apply_layout_mode'):
+            self.knowledge_tab.apply_layout_mode(mode, low_height)
+        if hasattr(self.daily_tab, 'apply_layout_mode'):
+            try:
+                self.daily_tab.apply_layout_mode(mode, low_height)
+            except Exception:
+                pass
 
     def set_language(self, language):
         self.language = language

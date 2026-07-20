@@ -200,16 +200,16 @@ QPushButton#btn-secondary:hover { background: __PRIMARY_SOFT__; border-color: __
 QPushButton#btn-secondary:pressed { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; }
 QPushButton#primary-btn:pressed, QPushButton#card-action:pressed {
     background: __PRIMARY_HOVER__;
-    color: white;
+    color: __ON_PRIMARY__;
 }
 QPushButton#primary-btn, QPushButton#card-action {
     background: __PRIMARY__;
-    color: white; border: none; font-weight: 600; padding: 9px 16px;
+    color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 9px 16px;
     border-radius: 8px;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover {
     background: __PRIMARY_HOVER__;
-    color: white;
+    color: __ON_PRIMARY__;
 }
 QPushButton#primary-btn:disabled, QPushButton#card-action:disabled {
     background: __DISABLED_BG__; color: __PRIMARY_SOFT__; border: none;
@@ -1089,11 +1089,11 @@ QFrame#close-option-primary:focus {
     border-width: 2px;
 }
 QFrame#close-option-danger {
-    border-color: #F0D8DC;
+    border-color: __DANGER_BORDER__;
 }
 QFrame#close-option-danger:hover {
     border-color: __DANGER__;
-    background: #FFF8F9;
+    background: __DANGER_BG__;
 }
 QFrame#close-option-danger:focus {
     border-color: __DANGER__;
@@ -1195,20 +1195,20 @@ QDateEdit::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 1
 QCalendarWidget { background: __SURFACE__; border: 1px solid __BORDER__; }
 QCalendarWidget QWidget#qt_calendar_navigationbar { background: __PRIMARY__; }
 QCalendarWidget QToolButton {
-    color: __SURFACE__; background: transparent; border: none; border-radius: 7px;
+    color: __ON_PRIMARY__; background: transparent; border: none; border-radius: 7px;
     padding: 6px; font-weight: 700;
 }
-QCalendarWidget QToolButton:hover { background: rgba(255, 255, 255, 45); }
+QCalendarWidget QToolButton:hover { background: __PRIMARY_SOFT__; color: __PRIMARY_ACTIVE__; }
 QCalendarWidget QSpinBox {
-    color: __SURFACE__; background: rgba(255, 255, 255, 35);
+    color: __ON_PRIMARY__; background: __PRIMARY_SOFT__;
     border: none; border-radius: 6px; padding: 4px;
 }
 QCalendarWidget QAbstractItemView:enabled {
     background: __SURFACE__; color: __TEXT_STRONG__; border: none; outline: 0;
-    selection-background-color: __PRIMARY__; selection-color: __SURFACE__;
+    selection-background-color: __PRIMARY__; selection-color: __ON_PRIMARY__;
 }
 QGroupBox {
-    background: __SURFACE__; color: #526079; font-weight: 700;
+    background: __SURFACE__; color: __TEXT_MUTED__; font-weight: 700;
     border: 1px solid __BORDER__; border-radius: 13px; margin-top: 10px; padding: 16px 12px 12px;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: __PRIMARY_ACTIVE__; }
@@ -1555,17 +1555,17 @@ QPushButton#docx-date-today:hover { background: #4058E8; }
 QCalendarWidget#docx-calendar { background: __SURFACE__; border: 1px solid __BORDER__; }
 QCalendarWidget#docx-calendar QWidget#qt_calendar_navigationbar { background: __PRIMARY__; }
 QCalendarWidget#docx-calendar QToolButton {
-    color: __SURFACE__;
+    color: __ON_PRIMARY__;
     background: transparent;
     border: none;
     border-radius: 7px;
     padding: 6px;
     font-weight: 700;
 }
-QCalendarWidget#docx-calendar QToolButton:hover { background: rgba(255, 255, 255, 45); }
+QCalendarWidget#docx-calendar QToolButton:hover { background: __PRIMARY_SOFT__; color: __PRIMARY_ACTIVE__; }
 QCalendarWidget#docx-calendar QSpinBox {
-    color: __SURFACE__;
-    background: rgba(255, 255, 255, 35);
+    color: __ON_PRIMARY__;
+    background: __PRIMARY_SOFT__;
     border: none;
     border-radius: 6px;
     padding: 4px;
@@ -1575,7 +1575,7 @@ QCalendarWidget#docx-calendar QAbstractItemView:enabled {
     color: __TEXT_STRONG__;
     border: none;
     selection-background-color: __PRIMARY__;
-    selection-color: __SURFACE__;
+    selection-color: __ON_PRIMARY__;
     outline: 0;
 }
 
@@ -1716,26 +1716,26 @@ QLabel#ops-category-badge {
     font-weight: 700;
 }
 QLabel#ops-risk-badge {
-    color: #16815E;
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __SUCCESS__;
+    color: __SUCCESS__;
+    background: __SUCCESS_BG__;
+    border: 1px solid __SUCCESS_BORDER__;
     border-radius: 10px;
     padding: 6px 9px;
     font-size: 10px;
     font-weight: 700;
 }
-QLabel#ops-risk-badge[risk="caution"] { color: __WARNING__; background: __SURFACE_SOFT__; border-color: __WARNING__; }
-QLabel#ops-risk-badge[risk="danger"] { color: __DANGER__; background: #FFF0F1; border-color: #F4C9CE; }
+QLabel#ops-risk-badge[risk="caution"] { color: __WARNING__; background: __WARNING_BG__; border-color: __WARNING_BORDER__; }
+QLabel#ops-risk-badge[risk="danger"] { color: __DANGER__; background: __DANGER_BG__; border-color: __DANGER_BORDER__; }
 
 QFrame#private-reminder-card {
-  background: #F5F2FF;
-  border: 1px solid #DDD5FF;
+  background: __INFO_BG__;
+  border: 1px solid __INFO_BORDER__;
   border-radius: 12px;
 }
 QLabel#private-sensitive-badge {
   color: __WARNING__;
-  background: __SURFACE_SOFT__;
-  border: 1px solid __WARNING__;
+  background: __WARNING_BG__;
+  border: 1px solid __WARNING_BORDER__;
   border-radius: 9px;
   padding: 3px 8px;
   font-weight: 700;
@@ -1743,22 +1743,22 @@ QLabel#private-sensitive-badge {
 QLabel#requirement-flags {
   color: __PRIMARY_ACTIVE__;
   background: __PRIMARY_SOFT__;
-  border: 1px solid #D9DFFF;
+  border: 1px solid __BORDER__;
   border-radius: 9px;
   padding: 7px 10px;
 }
 QLabel#ops-warning {
-    color: #A64B23;
-    background: #FFF5E9;
-    border: 1px solid #F2D2AE;
+    color: __WARNING__;
+    background: __WARNING_BG__;
+    border: 1px solid __WARNING_BORDER__;
     border-radius: 10px;
     padding: 10px;
     font-weight: 700;
 }
 QLabel#ops-output-guide {
-    color: #35435C;
-    background: __PRIMARY_SOFT__;
-    border: 1px solid #DCE3F5;
+    color: __TEXT__;
+    background: __INFO_BG__;
+    border: 1px solid __INFO_BORDER__;
     border-left: 4px solid __PRIMARY__;
     border-radius: 10px;
     padding: 11px 13px;
@@ -1814,9 +1814,64 @@ QLabel#settings-value {
     min-width: 42px;
     font-weight: 700;
 }
-QSlider::groove:horizontal { height: 6px; background: #E4E8F4; border-radius: 3px; }
+QSlider::groove:horizontal { height: 6px; background: __BORDER__; border-radius: 3px; }
 QSlider::sub-page:horizontal { background: __PRIMARY__; border-radius: 3px; }
-QSlider::handle:horizontal { width: 16px; margin: -5px 0; background: __SURFACE__; border: 2px solid __PRIMARY__; border-radius: 8px; }
+QSlider::handle:horizontal { width: 16px; margin: -5px 0; background: __ELEVATED_SURFACE__; border: 2px solid __PRIMARY__; border-radius: 8px; }
+
+/* Tooltip / Menu / elevated dialog — night-safe */
+QToolTip {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    padding: 6px 10px;
+    border-radius: 6px;
+}
+QMenu {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    padding: 6px;
+}
+QMenu::item {
+    padding: 7px 28px 7px 14px;
+    border-radius: 6px;
+    color: __TEXT__;
+}
+QMenu::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QMenu::item:disabled { color: __DISABLED_TEXT__; }
+QMenu::separator {
+    height: 1px;
+    background: __BORDER__;
+    margin: 4px 8px;
+}
+QDialog {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+}
+QToolButton#responsive-more-btn {
+    background: __SURFACE__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-weight: 600;
+}
+QToolButton#responsive-more-btn:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
+QWidget[responsiveHidden="true"] { max-width: 0; max-height: 0; margin: 0; padding: 0; }
+/* code surfaces */
+QPlainTextEdit, QTextEdit {
+    background: __CODE_BG__;
+    color: __TEXT_STRONG__;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+}
 
 /* Theme cards (Settings → Appearance) */
 QFrame#theme-card {

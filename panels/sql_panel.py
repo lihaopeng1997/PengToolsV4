@@ -756,6 +756,43 @@ class SqlToolPanel(QWidget):
         form.addRow(label, widget)
         return line_edit
 
+    def apply_layout_mode(self, mode, low_height=False):
+        """升级准备/SQL：窄屏保留系统、环境、日期、导入/粘贴、生成主操作。"""
+        self._layout_mode = mode
+        from ui.responsive import set_subtitle_visible, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        # 次要：清空、检查、生成预览 进更多隐藏；主：导出、导入、粘贴
+        secondary = []
+        for name in ('clear_btn', 'analyze_btn', 'preview_btn'):
+            w = getattr(self, name, None)
+            if w is not None:
+                secondary.append(w)
+        primary_keep = []
+        for name in ('load_btn', 'paste_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
+            w = getattr(self, name, None)
+            if w is not None:
+                primary_keep.append(w)
+        if mode == 'narrow':
+            for w in secondary:
+                w.hide()
+            for w in primary_keep:
+                w.show()
+        elif mode == 'compact':
+            for w in secondary:
+                # 清空进更多（隐藏），检查可藏
+                w.setVisible(w is getattr(self, 'analyze_btn', None))
+            for w in primary_keep:
+                w.show()
+            if hasattr(self, 'clear_btn'):
+                self.clear_btn.hide()
+        else:
+            for w in secondary + primary_keep:
+                w.show()
+        for editor_name in ('input_edit', 'sql_editor', 'editor'):
+            ed = getattr(self, editor_name, None)
+            if ed is not None and hasattr(ed, 'setMinimumHeight'):
+                ed.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'

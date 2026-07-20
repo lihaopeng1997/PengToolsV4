@@ -5,11 +5,34 @@
 - 作为 parent 子控件创建（不进 layout），由 place_overlay() 居中浮于宿主上方
 - 仅长任务触发；成功 / 失败 / 异常均需 finish 或 fail
 - 标签优先写任务语义（「正在提交 SVN…」），不要只写「请稍候」
+- 颜色一律来自 ThemeManager，禁止硬编码浅色白卡
 """
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
+
+
+def _palette():
+    try:
+        from ui.theme_manager import ThemeManager
+        return ThemeManager.instance().palette()
+    except Exception:
+        return {}
+
+
+def _qc(pal: dict, key: str, fallback: str = '#29332E') -> QColor:
+    raw = pal.get(key) or fallback
+    try:
+        from ui.theme_manager import parse_color
+        parsed = parse_color(raw)
+        if parsed:
+            r, g, b, a = parsed
+            return QColor(r, g, b, a)
+    except Exception:
+        pass
+    c = QColor(raw)
+    return c if c.isValid() else QColor(fallback)
 
 
 class AuroraProgress(QWidget):
@@ -69,7 +92,6 @@ class AuroraProgress(QWidget):
         self.raise_()
         self._timer.start(28)
         self.update()
-        # 企业软件：成功反馈短促，减少等待
         QTimer.singleShot(1100, self._fade_out)
 
     def fail(self, label):
@@ -80,7 +102,6 @@ class AuroraProgress(QWidget):
         self.show()
         self.raise_()
         self.update()
-        # 失败停留稍长，便于读错误语义；随后自动收起
         QTimer.singleShot(3600, self._fade_out_failed)
 
     def _fade_out(self):
@@ -89,7 +110,6 @@ class AuroraProgress(QWidget):
             self.hide()
 
     def _fade_out_failed(self):
-        # 仅在仍处于失败态时隐藏，避免盖住新的 busy/finish
         if self._value == 0 and not self._timer.isActive():
             self.hide()
 
@@ -101,55 +121,71 @@ class AuroraProgress(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         bounds = QRectF(5.0, 4.0, self.width() - 10, self.height() - 9)
+        pal = _palette()
 
-        # soft layered shadow
-        for i, alpha in enumerate((12, 20, 30)):
+        surface = _qc(pal, 'ELEVATED_SURFACE', pal.get('SURFACE', '#29332E'))
+        border = _qc(pal, 'BORDER', '#3C4942')
+        text = _qc(pal, 'TEXT_STRONG', '#EDF2EE')
+        primary = _qc(pal, 'PRIMARY', '#9ABAA6')
+        primary_soft = _qc(pal, 'PRIMARY_SOFT', '#35483E')
+        track = _qc(pal, 'LOADING_TRACK', '#425047')
+        success = _qc(pal, 'SUCCESS', '#7BA88A')
+        success_bg = _qc(pal, 'SUCCESS_BG', '#263D31')
+        success_border = _qc(pal, 'SUCCESS_BORDER', '#4D765D')
+        danger = _qc(pal, 'DANGER', '#C78A8A')
+        danger_bg = _qc(pal, 'DANGER_BG', '#432E30')
+        danger_border = _qc(pal, 'DANGER_BORDER', '#765055')
+        info_bg = _qc(pal, 'INFO_BG', primary_soft)
+        info_border = _qc(pal, 'INFO_BORDER', border)
+
+        # soft shadow from theme SHADOW base
+        shadow_base = _qc(pal, 'APP_BG', '#1B211E')
+        for i, alpha in enumerate((30, 50, 70)):
             shadow = bounds.adjusted(-1 + i * 0.4, 1 + i * 0.5, 1 - i * 0.4, 2 + i * 0.55)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(15, 23, 42, alpha))
+            sc = QColor(shadow_base)
+            sc.setAlpha(alpha)
+            painter.setBrush(sc)
             painter.drawRoundedRect(shadow, 14, 14)
 
-        # enterprise surface: clean white with cool edge
+        # elevated surface (deep for night, light for day)
         body = QLinearGradient(bounds.topLeft(), bounds.bottomLeft())
-        body.setColorAt(0.0, QColor('#FFFFFF'))
-        body.setColorAt(0.65, QColor('#F8FAFD'))
-        body.setColorAt(1.0, QColor('#F1F5FB'))
-        painter.setPen(QPen(QColor('#C7D2E5'), 1))
+        soft = _qc(pal, 'SURFACE_SOFT', surface)
+        body.setColorAt(0.0, surface)
+        body.setColorAt(0.65, soft)
+        body.setColorAt(1.0, surface)
+        painter.setPen(QPen(border, 1))
         painter.setBrush(body)
         painter.drawRoundedRect(bounds, 13, 13)
 
-        # top highlight
-        painter.setPen(QPen(QColor(255, 255, 255, 210), 1))
-        painter.drawLine(
-            QPointF(bounds.left() + 16, bounds.top() + 1.2),
-            QPointF(bounds.right() - 16, bounds.top() + 1.2),
-        )
-
-        # left brand bar
+        # left brand bar (primary, not neon blue)
         accent = QRectF(bounds.left() + 2, bounds.top() + 12, 3.5, bounds.height() - 24)
         painter.setPen(Qt.PenStyle.NoPen)
         accent_grad = QLinearGradient(accent.topLeft(), accent.bottomLeft())
-        accent_grad.setColorAt(0.0, QColor('#7C93FF'))
-        accent_grad.setColorAt(1.0, QColor('#4A61F0'))
+        accent_grad.setColorAt(0.0, primary)
+        accent_grad.setColorAt(1.0, _qc(pal, 'PRIMARY_ACTIVE', primary))
         painter.setBrush(accent_grad)
         painter.drawRoundedRect(accent, 2, 2)
 
-        # status chip on the right (busy / % / fail)
+        # status chip
         is_fail = self._value == 0 and not self._timer.isActive()
         chip_w = 54 if self._value >= 0 else 62
         chip = QRectF(bounds.right() - chip_w - 12, bounds.top() + 10, chip_w, 22)
         painter.setPen(Qt.PenStyle.NoPen)
         if is_fail:
-            painter.setBrush(QColor('#FEE2E2'))
-            painter.setPen(QPen(QColor('#FECACA'), 1))
+            painter.setBrush(danger_bg)
+            painter.setPen(QPen(danger_border, 1))
+            chip_fg = danger
         elif self._value >= 100:
-            painter.setBrush(QColor('#DCFCE7'))
-            painter.setPen(QPen(QColor('#BBF7D0'), 1))
+            painter.setBrush(success_bg)
+            painter.setPen(QPen(success_border, 1))
+            chip_fg = success
         else:
-            painter.setBrush(QColor('#EEF2FF'))
-            painter.setPen(QPen(QColor('#C7D2FE'), 1))
+            painter.setBrush(info_bg)
+            painter.setPen(QPen(info_border, 1))
+            chip_fg = primary
         painter.drawRoundedRect(chip, 11, 11)
-        painter.setPen(QColor('#B91C1C') if is_fail else (QColor('#15803D') if self._value >= 100 else QColor('#3730A3')))
+        painter.setPen(chip_fg)
         painter.setFont(QFont('Microsoft YaHei UI', 8, QFont.Weight.Bold))
         if self._value < 0:
             chip_text = '处理中'
@@ -160,39 +196,40 @@ class AuroraProgress(QWidget):
         painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, chip_text)
 
         # progress track
-        track = QRectF(bounds.left() + 18, bounds.bottom() - 15, bounds.width() - 36, 5.5)
+        track_rect = QRectF(bounds.left() + 18, bounds.bottom() - 15, bounds.width() - 36, 5.5)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor('#E2E8F0'))
-        painter.drawRoundedRect(track, 3, 3)
+        painter.setBrush(track)
+        painter.drawRoundedRect(track_rect, 3, 3)
 
         if self._value < 0:
-            width = max(72.0, track.width() * 0.22)
-            x = track.left() + ((self._phase / 360.0) * (track.width() + width)) - width
-            fill = QRectF(x, track.top(), width, track.height())
+            width = max(72.0, track_rect.width() * 0.22)
+            x = track_rect.left() + ((self._phase / 360.0) * (track_rect.width() + width)) - width
+            fill = QRectF(x, track_rect.top(), width, track_rect.height())
         else:
-            fill = QRectF(track.left(), track.top(), track.width() * self._value / 100.0, track.height())
+            fill = QRectF(
+                track_rect.left(), track_rect.top(),
+                track_rect.width() * self._value / 100.0, track_rect.height(),
+            )
 
         gradient = QLinearGradient(fill.left(), fill.top(), fill.right(), fill.top())
         if is_fail:
-            gradient.setColorAt(0.0, QColor('#FB923C'))
-            gradient.setColorAt(0.55, QColor('#EF4444'))
-            gradient.setColorAt(1.0, QColor('#DC2626'))
+            gradient.setColorAt(0.0, danger)
+            gradient.setColorAt(1.0, _qc(pal, 'DANGER', danger))
         elif self._value >= 100:
-            gradient.setColorAt(0.0, QColor('#34D399'))
-            gradient.setColorAt(1.0, QColor('#10B981'))
+            gradient.setColorAt(0.0, success)
+            gradient.setColorAt(1.0, _qc(pal, 'SUCCESS', success))
         else:
-            gradient.setColorAt(0.0, QColor('#38BDF8'))
-            gradient.setColorAt(0.5, QColor('#6366F1'))
-            gradient.setColorAt(1.0, QColor('#818CF8'))
+            gradient.setColorAt(0.0, primary)
+            gradient.setColorAt(1.0, _qc(pal, 'PRIMARY_ACTIVE', primary))
         path = QPainterPath()
-        path.addRoundedRect(track, 3, 3)
+        path.addRoundedRect(track_rect, 3, 3)
         painter.save()
         painter.setClipPath(path)
         painter.fillRect(fill, gradient)
         painter.restore()
 
         # label
-        painter.setPen(QColor('#1E293B'))
+        painter.setPen(text)
         painter.setFont(QFont('Microsoft YaHei UI', 9, QFont.Weight.DemiBold))
         label_rect = QRectF(bounds.left() + 18, bounds.top() + 9, bounds.width() - chip_w - 40, 22)
         painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._label)

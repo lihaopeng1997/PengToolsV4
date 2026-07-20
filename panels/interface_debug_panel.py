@@ -202,7 +202,8 @@ class InterfaceDebugPanel(QWidget):
         root.addWidget(conn)
 
         # 中部：列表 + 详情
-        mid = QSplitter(Qt.Orientation.Horizontal)
+        self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
+        mid = self.mid_splitter
         mid.setChildrenCollapsible(False)
         mid.setHandleWidth(8)
 
@@ -1117,6 +1118,43 @@ class InterfaceDebugPanel(QWidget):
         self._fill_local_targets()
 
     # ── 语言 / 清理 ──────────────────────────────────
+    def apply_layout_mode(self, mode, low_height=False):
+        self._layout_mode = mode
+        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        if hasattr(self, 'mid_splitter'):
+            apply_splitter_orientation(self.mid_splitter, mode, min_editor=editor_min_height())
+        # Narrow：顶部仅连接状态、开始/停止；次要进隐藏
+        ie_extra = [self.ie_install_cert_btn, self.ie_remove_cert_btn, self.pick_browser_btn, self.refresh_browsers_btn]
+        secondary = ie_extra + [self.launch_btn, self.show_static_cb, self.reveal_cb]
+        if mode == 'narrow':
+            for w in secondary:
+                if w is not None:
+                    w.hide()
+            self.connect_btn.show()
+            self.stop_btn.show()
+            if hasattr(self, 'draft_preview'):
+                self.draft_preview.setMaximumHeight(80)
+        elif mode == 'compact':
+            for w in secondary:
+                if w is not None:
+                    w.setVisible(w is self.launch_btn or w is self.show_static_cb)
+            self.connect_btn.show()
+            self.stop_btn.show()
+            if hasattr(self, 'draft_preview'):
+                self.draft_preview.setMaximumHeight(100)
+        else:
+            for w in secondary:
+                if w is not None:
+                    w.show()
+            self._on_mode_changed(self.mode_combo.currentIndex())
+            if hasattr(self, 'draft_preview'):
+                self.draft_preview.setMaximumHeight(120)
+        if hasattr(self, 'req_detail'):
+            self.req_detail.setMinimumHeight(editor_min_height())
+        if hasattr(self, 'resp_detail'):
+            self.resp_detail.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
