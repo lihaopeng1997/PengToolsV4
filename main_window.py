@@ -191,7 +191,12 @@ class MainWindow(QMainWindow):
         self.brand_icon.setObjectName('sidebar-brand-icon')
         self.brand_icon.setFixedSize(36, 36)
         self.brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pix = qicon('home', size=20, normal='#4056CF', active='#4056CF').pixmap(20, 20)
+        try:
+            from ui.theme_manager import ThemeManager
+            accent = ThemeManager.instance().token('PRIMARY_ACTIVE')
+        except Exception:
+            accent = '#4F735F'
+        pix = qicon('home', size=20, normal=accent, active=accent).pixmap(20, 20)
         if not pix.isNull():
             self.brand_icon.setPixmap(pix)
         brand_layout.addWidget(self.brand_icon)
@@ -237,7 +242,7 @@ class MainWindow(QMainWindow):
                 button.setCursor(Qt.CursorShape.PointingHandCursor)
                 button.setProperty('navIndex', nav_index)
                 button.clicked.connect(lambda checked=False, value=nav_index: self._show_panel(value))
-                apply_icon(button, icon_role, size=20, normal='#68768F', active='#4056CF')
+                apply_icon(button, icon_role, size=20)
                 self._nav_layout.addWidget(button)
                 self.nav_buttons[nav_index] = button
                 self._nav_order.append(nav_index)
@@ -263,7 +268,7 @@ class MainWindow(QMainWindow):
         self.settings_button.setCheckable(True)
         self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_button.clicked.connect(lambda checked=False: self._show_panel(7))
-        apply_icon(self.settings_button, 'settings', size=20, normal='#68768F', active='#4056CF')
+        apply_icon(self.settings_button, 'settings', size=20)
         self.nav_buttons[7] = self.settings_button
         footer.addWidget(self.settings_button, 1)
 
@@ -391,10 +396,10 @@ class MainWindow(QMainWindow):
                     continue
                 if not self._nav_icon_only:
                     button.setText(name_zh if zh else name_en)
-                apply_icon(button, icon_role, size=20, normal='#68768F', active='#4056CF')
+                apply_icon(button, icon_role, size=20)
         if self.nav_buttons[7] is not None and not self._nav_icon_only:
             self.nav_buttons[7].setText('设置' if zh else 'Settings')
-            apply_icon(self.nav_buttons[7], 'settings', size=20, normal='#68768F', active='#4056CF')
+            apply_icon(self.nav_buttons[7], 'settings', size=20)
 
     def _broadcast_layout_mode(self, mode: str, low_height: bool):
         for panel in (
@@ -501,8 +506,19 @@ class MainWindow(QMainWindow):
         font = app.font()
         font.setPointSize(max(8, int(self._settings['font_size']) - 2))
         app.setFont(font)
-        base_qss = app.property('base_stylesheet') or app.styleSheet()
-        app.setStyleSheet(base_qss + f"\nQWidget {{ font-size: {self._settings['font_size']}px; }}")
+        # 主题即时注入（唯一 QSS 入口）
+        try:
+            from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID
+            ThemeManager.instance().apply(
+                app,
+                self._settings.get('ui_theme', DEFAULT_THEME_ID),
+                font_size=self._settings.get('font_size', 12),
+            )
+        except Exception:
+            base_qss = app.property('base_stylesheet') or app.styleSheet()
+            app.setStyleSheet(base_qss + f"\nQWidget {{ font-size: {self._settings['font_size']}px; }}")
+        # 导航图标随主题重新染色
+        self._apply_nav_texts()
         self.quick_panel.apply_preferences(
             self._settings['floating_opacity'], self._settings['floating_always_on_top']
         )
@@ -515,6 +531,13 @@ class MainWindow(QMainWindow):
         if self._language_index != wanted_index:
             self._set_language(wanted_index)
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
+
+    def apply_theme(self, theme_id: str) -> None:
+        """设置页主题卡即时预览入口。"""
+        self._settings['ui_theme'] = theme_id
+        from config import save_settings
+        self._settings = save_settings(self._settings)
+        self._apply_settings(self._settings)
 
     def _reset_floating_position(self):
         self.quick_panel.reset_position()

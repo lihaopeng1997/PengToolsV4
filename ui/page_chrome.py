@@ -35,7 +35,12 @@ def make_page_header(
         icon_plate.setObjectName('page-header-icon')
         icon_plate.setFixedSize(36, 36)
         icon_plate.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pix = icon_pixmap(icon_role, 20, '#4056CF')
+        try:
+            from ui.theme_manager import ThemeManager
+            tint = ThemeManager.instance().token('PRIMARY_ACTIVE')
+        except Exception:
+            tint = '#4F735F'
+        pix = icon_pixmap(icon_role, 20, tint)
         if not pix.isNull():
             icon_plate.setPixmap(pix)
         layout.addWidget(icon_plate, 0, Qt.AlignmentFlag.AlignTop)

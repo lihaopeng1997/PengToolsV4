@@ -1,25 +1,86 @@
 # -*- coding: utf-8 -*-
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLayout,
+    QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
     QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QSlider,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
 from ui.field_metrics import size_combo
+from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id
+
+
+class ThemeCard(QFrame):
+    """104×72 主题预览卡。"""
+
+    clicked = pyqtSignal(str)
+
+    def __init__(self, theme_id: str, parent=None):
+        super().__init__(parent)
+        self.theme_id = theme_id
+        self.setObjectName('theme-card')
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(112, 80)
+        self.setProperty('selected', False)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+        self.preview = QFrame()
+        self.preview.setObjectName('theme-card-preview')
+        self.preview.setFixedHeight(44)
+        layout.addWidget(self.preview)
+        self.name_label = QLabel()
+        self.name_label.setObjectName('theme-card-name')
+        self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.name_label)
+        self._swatches = preview_swatches(theme_id)
+
+    def set_selected(self, selected: bool):
+        self.setProperty('selected', selected)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def set_title(self, title: str):
+        self.name_label.setText(title)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        # 预览区手绘：背景 + 卡片 + 主按钮色块
+        painter = QPainter(self.preview)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self._swatches
+        painter.fillRect(self.preview.rect(), QColor(s['bg']))
+        painter.setPen(QPen(QColor(s['border']), 1))
+        painter.setBrush(QColor(s['surface']))
+        painter.drawRoundedRect(8, 8, 40, 28, 4, 4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(s['primary']))
+        painter.drawRoundedRect(54, 14, 28, 14, 3, 3)
+        painter.setBrush(QColor(s['sidebar']))
+        painter.drawRoundedRect(6, 6, 10, 32, 2, 2)
+        painter.end()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.theme_id)
+        super().mouseReleaseEvent(event)
 
 
 class SettingsPanel(QWidget):
     settings_changed = pyqtSignal(object)
     reset_floating_position = pyqtSignal()
     floating_opacity_preview = pyqtSignal(int)
+    theme_preview = pyqtSignal(str)
 
     def __init__(self, settings, language='zh'):
         super().__init__()
         self.language = language
         self._secret_clicks = 0
         self._secret_unlocked = False
+        self._ui_theme = 'calm'
         self._setup_ui()
         self.load_values(settings)
         self.set_language(language)
@@ -47,7 +108,32 @@ class SettingsPanel(QWidget):
         root.addWidget(self.subtitle)
 
         self.appearance_group = QGroupBox()
-        appearance = QFormLayout(self.appearance_group)
+        appearance_outer = QVBoxLayout(self.appearance_group)
+        appearance_outer.setSpacing(12)
+
+        self.theme_title = QLabel()
+        self.theme_title.setObjectName('section-title')
+        appearance_outer.addWidget(self.theme_title)
+        self.theme_hint = QLabel()
+        self.theme_hint.setObjectName('field-hint')
+        self.theme_hint.setWordWrap(True)
+        appearance_outer.addWidget(self.theme_hint)
+
+        self.theme_grid = QGridLayout()
+        self.theme_grid.setSpacing(10)
+        self._theme_cards = {}
+        for index, theme_id in enumerate(('calm', 'clear', 'warm', 'night')):
+            card = ThemeCard(theme_id)
+            card.clicked.connect(self._on_theme_clicked)
+            self._theme_cards[theme_id] = card
+            self.theme_grid.addWidget(card, index // 2, index % 2)
+        appearance_outer.addLayout(self.theme_grid)
+        self.theme_note = QLabel()
+        self.theme_note.setObjectName('small-label')
+        self.theme_note.setWordWrap(True)
+        appearance_outer.addWidget(self.theme_note)
+
+        appearance = QFormLayout()
         self.font_size = QSpinBox()
         self.font_size.setRange(10, 18)
         self.font_size.setSuffix(' px')
@@ -59,6 +145,7 @@ class SettingsPanel(QWidget):
         self.language_combo.addItem('English', 'en')
         self.default_language_label = QLabel()
         appearance.addRow(self.default_language_label, self.language_combo)
+        appearance_outer.addLayout(appearance)
         root.addWidget(self.appearance_group)
 
         self.float_group = QGroupBox()
@@ -148,6 +235,7 @@ class SettingsPanel(QWidget):
     def values(self):
         return normalize_settings({
             'font_size': self.font_size.value(),
+            'ui_theme': resolve_theme_id(self._ui_theme),
             'floating_opacity': self.opacity.value(),
             'floating_always_on_top': self.always_on_top.isChecked(),
             'floating_show_on_startup': self.show_on_startup.isChecked(),
@@ -163,9 +251,37 @@ class SettingsPanel(QWidget):
         self.opacity_value.setText(f'{value}%')
         self.floating_opacity_preview.emit(value)
 
+    def _on_theme_clicked(self, theme_id: str):
+        theme_id = resolve_theme_id(theme_id)
+        self._ui_theme = theme_id
+        self._refresh_theme_cards()
+        # 即时预览 + 自动保存
+        try:
+            from ui.theme_manager import ThemeManager
+            ThemeManager.instance().apply(
+                None, theme_id, font_size=self.font_size.value()
+            )
+        except Exception:
+            pass
+        self.theme_preview.emit(theme_id)
+        self._save()
+
+    def _refresh_theme_cards(self):
+        current = resolve_theme_id(self._ui_theme)
+        zh = self.language == 'zh'
+        for theme_id, card in self._theme_cards.items():
+            card.set_selected(theme_id == current)
+            name = THEME_META[theme_id][0 if zh else 1]
+            if theme_id == current:
+                card.set_title(f'✓ {name}')
+            else:
+                card.set_title(name)
+
     def load_values(self, settings):
         settings = normalize_settings(settings)
         self.font_size.setValue(settings['font_size'])
+        self._ui_theme = resolve_theme_id(settings.get('ui_theme', 'calm'))
+        self._refresh_theme_cards()
         self.opacity.setValue(settings['floating_opacity'])
         self.opacity_value.setText(f"{settings['floating_opacity']}%")
         self.always_on_top.setChecked(settings['floating_always_on_top'])
@@ -250,6 +366,18 @@ class SettingsPanel(QWidget):
         self.title.setText('设置' if zh else 'Settings')
         self.subtitle.setText('调整界面、悬浮工具栏和交互反馈 · 设置仅保存在本机' if zh else 'Customize interface, floating toolbar and feedback · local only')
         self.appearance_group.setTitle('界面外观' if zh else 'Appearance')
+        self.theme_title.setText('主题' if zh else 'Theme')
+        self.theme_hint.setText(
+            '选择一个更适合当前工作状态的界面外观。布局和数据不会改变。'
+            if zh else
+            'Pick an appearance for your current work mood. Layout and data stay the same.'
+        )
+        self.theme_note.setText(
+            '主题仅改变外观，不会影响文件、数据、SVN 与功能位置。'
+            if zh else
+            'Themes only change appearance — never files, data, SVN or feature placement.'
+        )
+        self._refresh_theme_cards()
         self.font_label.setText('全局字体大小' if zh else 'Global font size')
         self.default_language_label.setText('默认界面语言' if zh else 'Default language')
         self.float_group.setTitle('悬浮工具栏' if zh else 'Floating toolbar')

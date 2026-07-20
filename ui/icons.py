@@ -110,7 +110,12 @@ def _svg_data_with_tint(path: str, tint: str) -> bytes:
     return data.encode('utf-8')
 
 
-@lru_cache(maxsize=256)
+def clear_icon_cache() -> None:
+    """主题切换时清空 pixmap 缓存。"""
+    icon_pixmap.cache_clear()
+
+
+@lru_cache(maxsize=512)
 def icon_pixmap(role: str, size: int = 20, tint: str = ICON_MUTED) -> QPixmap:
     path = icon_file(role)
     if not path:
@@ -147,7 +152,16 @@ def qicon(role: str, *, size: int = 20, normal: str = ICON_MUTED, active: str = 
     return icon
 
 
-def apply_icon(button, role: str, size: int = 18, *, normal: str = ICON_MUTED, active: str = PRIMARY_ACTIVE) -> None:
+def apply_icon(button, role: str, size: int = 18, *, normal: str | None = None, active: str | None = None) -> None:
+    # 默认 tint 跟随当前主题
+    try:
+        from ui.theme_manager import ThemeManager
+        pal = ThemeManager.instance().palette()
+        normal = normal or pal.get('ICON_MUTED', ICON_MUTED)
+        active = active or pal.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE)
+    except Exception:
+        normal = normal or ICON_MUTED
+        active = active or PRIMARY_ACTIVE
     icon = qicon(role, size=size, normal=normal, active=active)
     if icon.isNull():
         return
@@ -157,10 +171,22 @@ def apply_icon(button, role: str, size: int = 18, *, normal: str = ICON_MUTED, a
 
 def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) -> QLabel:
     role = NOTICE_ICON_ROLES.get(kind, 'info')
-    tints = {
-        'info': '#4056CF', 'success': '#19875A', 'warning': '#C77818',
-        'error': '#C14653', 'danger': '#C14653', 'flow': '#4056CF',
-    }
+    try:
+        from ui.theme_manager import ThemeManager
+        pal = ThemeManager.instance().palette()
+        tints = {
+            'info': pal.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE),
+            'success': pal.get('SUCCESS', '#19875A'),
+            'warning': pal.get('WARNING', '#C77818'),
+            'error': pal.get('DANGER', '#C14653'),
+            'danger': pal.get('DANGER', '#C14653'),
+            'flow': pal.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE),
+        }
+    except Exception:
+        tints = {
+            'info': PRIMARY_ACTIVE, 'success': '#19875A', 'warning': '#C77818',
+            'error': '#C14653', 'danger': '#C14653', 'flow': PRIMARY_ACTIVE,
+        }
     badge = QLabel()
     obj = kind if kind in ('info', 'success', 'warning', 'error') else 'info'
     if kind == 'danger':
@@ -168,7 +194,7 @@ def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) ->
     badge.setObjectName(f'notice-badge-{obj}')
     badge.setFixedSize(size, size)
     badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    pix = icon_pixmap(role, icon_size, tints.get(kind, '#4056CF'))
+    pix = icon_pixmap(role, icon_size, tints.get(kind, PRIMARY_ACTIVE))
     if not pix.isNull():
         badge.setPixmap(pix)
     return badge

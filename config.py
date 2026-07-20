@@ -59,6 +59,7 @@ REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 DEFAULT_SETTINGS = {
     'font_size': 12,
+    'ui_theme': 'calm',  # calm | clear | warm | night
     'floating_opacity': 96,
     'floating_always_on_top': True,
     'floating_show_on_startup': True,
@@ -154,6 +155,8 @@ def normalize_settings(settings):
     result['floating_always_on_top'] = bool(result['floating_always_on_top'])
     result['floating_show_on_startup'] = bool(result['floating_show_on_startup'])
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
+    theme = str(result.get('ui_theme') or 'calm').strip().lower()
+    result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'night') else 'calm'
     result['close_ask_each_time'] = bool(result['close_ask_each_time'])
     result['close_default_action'] = (
         'exit' if result['close_default_action'] == 'exit' else 'minimize'
