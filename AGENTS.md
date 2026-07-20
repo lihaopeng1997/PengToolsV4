@@ -89,6 +89,11 @@ python run.py
 .\build_private_release.ps1
 ```
 
+- GitHub 回滚规则：当前仓库远端固定为 `origin https://github.com/lihaopeng1997/PengToolsV4.git`，默认工作分支为 `main`。
+- 每次完成一轮可交付改动后，默认执行：`git status` → 定向验证 → `git add` → `git commit` → `git push origin main`。
+- 如果本轮只是探索、半成品或用户明确要求暂不提交，则不要强推；除此之外，正常开发默认需要推送到 GitHub，保证可回滚。
+- 提交时禁止把 `data/`、标准安装包、临时截图、日志等无关内容推上去，优先遵守 `.gitignore`。
+
 - 测试策略：**本次改造模块定向测试优先**，不必强求全量回归；业务规则要有函数级断言（尤其发版 Excel）。
 - 内网 SVN 在本环境无法验证：UI/交付说明只能写「待用户内网验证」。
 - 改 `main_window` 导航时同步：菜单、Stack、状态栏文案、中英文。

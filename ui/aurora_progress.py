@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QWidget
 
 
 class AuroraProgress(QWidget):
-    """Compact animated data-stream progress indicator."""
+    """Floating animated progress chip — visual only; trigger logic stays in callers."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -14,7 +14,7 @@ class AuroraProgress(QWidget):
         self._label = ''
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self.setFixedHeight(54)
+        self.setFixedHeight(58)
         self.hide()
 
     def start_busy(self, label):
@@ -60,41 +60,63 @@ class AuroraProgress(QWidget):
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        bounds = QRectF(1.0, 1.0, self.width() - 2, self.height() - 2)
+        # inset leaves room for soft layered shadow
+        bounds = QRectF(4.0, 3.0, self.width() - 8, self.height() - 7)
 
-        # soft outer rim for floating feel
-        painter.setPen(QPen(QColor(30, 42, 72, 28), 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(bounds.adjusted(-0.5, -0.5, 0.5, 0.5), 16, 16)
+        # layered shadow for floating card feel (no extra assets)
+        for i, alpha in enumerate((18, 28, 38)):
+            shadow = bounds.adjusted(-1 + i * 0.3, 1 + i * 0.5, 1 - i * 0.3, 2 + i * 0.6)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(22, 32, 58, alpha))
+            painter.drawRoundedRect(shadow, 15, 15)
 
+        # card body: cool white → soft indigo mist
         body = QLinearGradient(bounds.topLeft(), bounds.bottomLeft())
         body.setColorAt(0.0, QColor('#FFFFFF'))
-        body.setColorAt(1.0, QColor('#F4F7FF'))
-        painter.setPen(QPen(QColor('#C9D4F0'), 1))
+        body.setColorAt(0.55, QColor('#F8FAFF'))
+        body.setColorAt(1.0, QColor('#EEF2FF'))
+        painter.setPen(QPen(QColor('#C5D0F0'), 1))
         painter.setBrush(body)
         painter.drawRoundedRect(bounds, 14, 14)
 
-        # left accent bar
-        accent = QRectF(bounds.left() + 1, bounds.top() + 10, 3.5, bounds.height() - 20)
+        # top hairline highlight
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
+        painter.drawLine(
+            QPointF(bounds.left() + 14, bounds.top() + 1),
+            QPointF(bounds.right() - 14, bounds.top() + 1),
+        )
+
+        # left accent bar (module accent)
+        accent = QRectF(bounds.left() + 2, bounds.top() + 11, 3.5, bounds.height() - 22)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor('#5B73FF'))
+        accent_grad = QLinearGradient(accent.topLeft(), accent.bottomLeft())
+        accent_grad.setColorAt(0.0, QColor('#7C93FF'))
+        accent_grad.setColorAt(1.0, QColor('#5B73FF'))
+        painter.setBrush(accent_grad)
         painter.drawRoundedRect(accent, 2, 2)
 
-        track = QRectF(20, 34, self.width() - 40, 6)
-        painter.setBrush(QColor('#E4E9F5'))
+        track = QRectF(bounds.left() + 18, bounds.bottom() - 16, bounds.width() - 36, 6)
+        painter.setBrush(QColor('#E2E8F5'))
         painter.drawRoundedRect(track, 3, 3)
 
         if self._value < 0:
-            width = max(72.0, track.width() * 0.24)
+            width = max(76.0, track.width() * 0.26)
             x = track.left() + ((self._phase / 360.0) * (track.width() + width)) - width
             fill = QRectF(x, track.top(), width, track.height())
         else:
             fill = QRectF(track.left(), track.top(), track.width() * self._value / 100.0, track.height())
 
         gradient = QLinearGradient(fill.left(), fill.top(), fill.right(), fill.top())
-        gradient.setColorAt(0.0, QColor('#4CC9F0'))
-        gradient.setColorAt(0.45, QColor('#5B73FF'))
-        gradient.setColorAt(1.0, QColor('#8B5CF6'))
+        # fail() 会停表并把 value 置 0；普通 0% 进度仍用主色
+        is_fail = self._value == 0 and not self._timer.isActive()
+        if is_fail:
+            gradient.setColorAt(0.0, QColor('#F97316'))
+            gradient.setColorAt(0.55, QColor('#EF4444'))
+            gradient.setColorAt(1.0, QColor('#DC2626'))
+        else:
+            gradient.setColorAt(0.0, QColor('#38BDF8'))
+            gradient.setColorAt(0.45, QColor('#6366F1'))
+            gradient.setColorAt(1.0, QColor('#A78BFA'))
         path = QPainterPath()
         path.addRoundedRect(track, 3, 3)
         painter.save()
@@ -102,18 +124,21 @@ class AuroraProgress(QWidget):
         painter.fillRect(fill, gradient)
         painter.restore()
 
-        orbit_x = 22 + (self._phase % max(1, self.width() - 44))
-        painter.setPen(QPen(QColor(91, 115, 255, 90), 1))
-        painter.setBrush(QColor(91, 115, 255, 190))
-        painter.drawEllipse(QPointF(orbit_x, 15), 2.8, 2.8)
+        # orbit dot along the top edge of the chip
+        orbit_span = max(1.0, bounds.width() - 48)
+        orbit_x = bounds.left() + 24 + (self._phase % 360) / 360.0 * orbit_span
+        painter.setPen(QPen(QColor(99, 102, 241, 80), 1))
+        painter.setBrush(QColor(99, 102, 241, 200))
+        painter.drawEllipse(QPointF(orbit_x, bounds.top() + 14), 2.6, 2.6)
 
-        painter.setPen(QColor('#24355A'))
+        painter.setPen(QColor('#1E2B4A'))
         painter.setFont(QFont('Microsoft YaHei UI', 9, QFont.Weight.DemiBold))
-        painter.drawText(QRectF(20, 8, self.width() - 100, 20), Qt.AlignmentFlag.AlignVCenter, self._label)
+        label_rect = QRectF(bounds.left() + 18, bounds.top() + 8, bounds.width() - 96, 20)
+        painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter, self._label)
         if self._value >= 0:
-            painter.setPen(QColor('#4A61F0'))
+            painter.setPen(QColor('#DC2626') if is_fail else QColor('#4A61F0'))
             painter.drawText(
-                QRectF(self.width() - 78, 8, 58, 20),
+                QRectF(bounds.right() - 72, bounds.top() + 8, 54, 20),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                 f'{self._value}%',
             )

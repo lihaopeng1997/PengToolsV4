@@ -79,8 +79,8 @@ class MainWindow(QMainWindow):
         content = QFrame()
         content.setObjectName('content_area')
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(16, 12, 16, 12)
-        content_layout.setSpacing(8)
+        content_layout.setContentsMargins(18, 14, 18, 14)
+        content_layout.setSpacing(10)
         self.stack = QStackedWidget()
         self.stack.setSizePolicy(
             self.stack.sizePolicy().horizontalPolicy(),
@@ -127,15 +127,15 @@ class MainWindow(QMainWindow):
     def _create_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName('sidebar')
-        sidebar.setFixedWidth(232)
+        sidebar.setFixedWidth(236)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(12, 18, 12, 14)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 16, 12, 12)
+        layout.setSpacing(4)
 
         brand_block = QFrame()
         brand_block.setObjectName('sidebar-brand')
         brand_layout = QVBoxLayout(brand_block)
-        brand_layout.setContentsMargins(10, 10, 10, 10)
+        brand_layout.setContentsMargins(12, 12, 12, 12)
         brand_layout.setSpacing(2)
         brand = QLabel('PengTools')
         brand.setObjectName('sidebar_title')
@@ -159,21 +159,24 @@ class MainWindow(QMainWindow):
             button = QPushButton()
             button.setObjectName('nav-btn')
             button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda checked=False, value=index: self._show_panel(value))
             layout.addWidget(button)
             self.nav_buttons[index] = button
             if index == 8:
                 button.hide()
-        layout.addStretch()
+        layout.addStretch(1)
 
         footer_sep = QFrame()
         footer_sep.setObjectName('sidebar-sep')
         footer_sep.setFixedHeight(1)
         layout.addWidget(footer_sep)
 
+        # 设置固定在左下角，独立 objectName 便于与主导航做轻微视觉区分
         self.settings_button = QPushButton()
-        self.settings_button.setObjectName('nav-btn')
+        self.settings_button.setObjectName('nav-btn-settings')
         self.settings_button.setCheckable(True)
+        self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_button.clicked.connect(lambda checked=False: self._show_panel(7))
         self.nav_buttons[7] = self.settings_button
         layout.addWidget(self.settings_button)

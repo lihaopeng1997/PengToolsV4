@@ -826,14 +826,14 @@ class RequirementPanel(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(9)
 
         # 顶栏操作区
         toolbar_card = QFrame()
         toolbar_card.setObjectName('req-toolbar-card')
         toolbar_layout = QVBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(10, 8, 10, 8)
-        toolbar_layout.setSpacing(6)
+        toolbar_layout.setContentsMargins(12, 10, 12, 10)
+        toolbar_layout.setSpacing(7)
         header = QHBoxLayout()
         header.setSpacing(8)
         self.scan_btn = QPushButton('扫描目录'); self.scan_btn.clicked.connect(self._scan_folder)
@@ -858,7 +858,7 @@ class RequirementPanel(QWidget):
         filter_card = QFrame()
         filter_card.setObjectName('req-filter-card')
         filters = QHBoxLayout(filter_card)
-        filters.setContentsMargins(10, 8, 10, 8)
+        filters.setContentsMargins(12, 9, 12, 9)
         filters.setSpacing(8)
         self.search_edit = QLineEdit(); self.search_edit.setPlaceholderText('全文搜索：编号、标题、说明、SQL、系统……')
         size_line(self.search_edit, 'search')
@@ -876,8 +876,8 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setChildrenCollapsible(False)
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)
         left.setMinimumWidth(200)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        left_layout.setSpacing(6)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        left_layout.setSpacing(7)
         tree_head = QHBoxLayout()
         tree_head.setSpacing(6)
         tree_title = QLabel('需求列表')
@@ -1039,8 +1039,8 @@ class RequirementPanel(QWidget):
         file_section = QFrame()
         file_section.setObjectName('req-file-card')
         file_layout = QVBoxLayout(file_section)
-        file_layout.setContentsMargins(10, 8, 10, 8)
-        file_layout.setSpacing(6)
+        file_layout.setContentsMargins(12, 10, 12, 10)
+        file_layout.setSpacing(7)
         file_head = QHBoxLayout(); file_head.setSpacing(6)
         file_title = QLabel('文件浏览'); file_title.setObjectName('zone-title')
         file_head.addWidget(file_title)
@@ -1121,8 +1121,8 @@ class RequirementPanel(QWidget):
         sql_section.setObjectName('req-sql-card')
         sql_section.setMinimumHeight(120)
         sql_layout = QVBoxLayout(sql_section)
-        sql_layout.setContentsMargins(10, 8, 10, 8)
-        sql_layout.setSpacing(6)
+        sql_layout.setContentsMargins(12, 10, 12, 10)
+        sql_layout.setSpacing(7)
         sql_head = QHBoxLayout(); sql_head.setSpacing(6)
         sql_title = QLabel('关联 SQL'); sql_title.setObjectName('zone-title')
         sql_head.addWidget(sql_title)
@@ -1176,9 +1176,9 @@ class RequirementPanel(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
-            width = min(460, max(300, self.width() - 48))
+            width = min(540, max(300, self.width() - 48))
             self.loading.setFixedWidth(width)
-            self.loading.move(max(24, (self.width() - width) // 2), 72)
+            self.loading.move(max(24, (self.width() - width) // 2), 64)
             self.loading.raise_()
 
     def set_language(self, language):
