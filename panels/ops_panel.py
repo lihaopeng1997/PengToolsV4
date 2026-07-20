@@ -425,6 +425,10 @@ class OpsPanel(QWidget):
             ):
                 return
         QApplication.clipboard().setText(text)
+        # 立即反馈「已复制」，延时后恢复文案
+        self.copy_btn.setText('已复制' if self.language == 'zh' else 'Copied')
+        self._copy_feedback_timer.stop()
+        self._copy_feedback_timer.start(self._copy_feedback_duration)
 
     def _restore_copy_button_text(self):
         self.copy_btn.setText('复制命令' if self.language == 'zh' else 'Copy command')

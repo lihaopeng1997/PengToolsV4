@@ -311,16 +311,17 @@ class SettingsPanel(QWidget):
             ('退出软件' if zh else 'exit the app')
         )
         if ask:
+            # 与退出弹窗「关闭时不再提示」对称：此处描述「会弹出选择」
             self.close_behavior_hint.setText(
-                '关闭主窗口时询问「隐藏到托盘」还是「退出」。弹窗可勾选记住选择；此处随时可改回。'
+                '当前会弹出选择：隐藏到托盘或退出。弹窗可勾选「关闭时不再提示」；勾选后可在此恢复关闭提示。'
                 if zh else
-                'Closing asks tray vs exit. The dialog can remember your choice; change it back here anytime.'
+                'A close dialog will appear (tray or exit). It can set “Don’t ask again”; re-enable the close prompt here anytime.'
             )
         else:
             self.close_behavior_hint.setText(
-                f'当前：关闭时直接「{action_text}」，不再询问。重新勾选「退出前询问」即可恢复提示。'
+                f'当前为「关闭时不再提示」：关闭时直接「{action_text}」。勾选上方选项即可恢复关闭提示。'
                 if zh else
-                f'Now: close will immediately {action_text} with no prompt. Re-enable “Ask before close” above.'
+                f'“Don’t ask when closing” is on: close will immediately {action_text}. Check the option above to restore the close prompt.'
             )
 
     def _save(self):
@@ -389,16 +390,17 @@ class SettingsPanel(QWidget):
         self.reset_position_label.setText('位置异常时' if zh else 'If position is lost')
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
         self.behavior_group.setTitle('关闭与交互' if zh else 'Close & interaction')
-        self.close_ask_label.setText('退出前是否提示' if zh else 'Ask before close')
-        self.close_ask.setText('关闭主窗口时询问（推荐）' if zh else 'Ask when closing the main window (recommended)')
-        self.close_default_label.setText('不再询问时的默认操作' if zh else 'Default action when not asking')
+        self.close_ask_label.setText('关闭提示' if zh else 'Close prompt')
+        # 勾选=会弹出；取消勾选=关闭时不再提示。文案与退出弹窗「关闭时不再提示」对称。
+        self.close_ask.setText('恢复关闭提示' if zh else 'Restore close prompt')
+        self.close_default_label.setText('关闭时不再提示 · 默认操作' if zh else 'Default when not asking')
         self.close_default_action.setItemText(0, '隐藏到系统托盘' if zh else 'Hide to system tray')
         self.close_default_action.setItemText(1, '退出软件' if zh else 'Exit application')
         self.copy_duration_label.setText('“已复制”提示时长' if zh else '“Copied” toast duration')
         self.safety_note.setText(
-            '若在退出弹窗勾选「记住本次选择」：本页「退出前是否提示」会自动关闭，并把该选择写入默认操作。随时可重新勾选以再次提示。高风险删除确认与禁止删除命令始终启用，不可关闭。'
+            '退出弹窗勾选「关闭时不再提示」后，本项会关闭并把该选择写入默认操作。重新勾选「恢复关闭提示」即可再次询问。高风险删除确认始终启用。'
             if zh else
-            'If you choose “Remember this choice” on close, this prompt turns off and that action becomes the default. Re-enable anytime. Destructive confirmations stay always on.'
+            'Choosing “Don’t ask when closing” on the exit dialog turns this off and saves that action as default. Re-check “Restore close prompt” anytime. Destructive confirms stay on.'
         )
         self._refresh_close_behavior_hint()
         self.keep_awake_group.setTitle('远程会话守护' if zh else 'Remote session guard')

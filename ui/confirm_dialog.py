@@ -211,13 +211,13 @@ class CloseActionDialog(QDialog):
         remember_layout.setContentsMargins(12, 10, 12, 10)
         remember_layout.setSpacing(10)
         self.dont_ask_check = QCheckBox(
-            '记住本次选择，下次关闭时不再询问' if zh else "Remember this choice — don't ask next time"
+            '关闭时不再提示' if zh else "Don't ask again when closing"
         )
         self.dont_ask_check.setObjectName('close-dont-ask')
         self.dont_ask_check.setToolTip(
-            '写入设置：关闭「退出前提示」，并把本次选择设为默认操作。可随时在「设置」中改回。'
+            '勾选后写入设置：关闭时直接使用本次选择，不再弹出。可在「设置 → 关闭与交互」中恢复关闭提示。'
             if zh else
-            'Saves Settings: turn off the close prompt and use this action as default. Change anytime in Settings.'
+            'Saves Settings: use this choice next time without a prompt. Re-enable the close prompt in Settings anytime.'
         )
         remember_layout.addWidget(self.dont_ask_check, 1)
         root.addWidget(remember_card)

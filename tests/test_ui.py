@@ -138,10 +138,11 @@ class UiRegressionTests(unittest.TestCase):
         self.assertTrue(hasattr(requirement, 'send_to_docx'))
         self.assertTrue(hasattr(requirement, 'add_to_daily'))
         self.assertEqual(requirement.kind_filter.count(), 3)
-        self.assertEqual(requirement.scan_btn.text(), '扫描需求文件夹')
-        self.assertEqual(requirement.checkout_btn.text(), '粘贴 SVN 路径')
-        self.assertEqual(requirement.update_all_btn.text(), '一键更新全部 SVN')
-        self.assertEqual(requirement.file_tree.columnCount(), 2)
+        self.assertEqual(requirement.scan_btn.text(), '扫描需求目录')
+        self.assertEqual(requirement.checkout_btn.text(), '检出代码')
+        self.assertEqual(requirement.update_all_btn.text(), '更新全部')
+        # 文件表：名称 / 修改时间 / 类型 / 大小
+        self.assertEqual(requirement.file_tree.columnCount(), 4)
 
     def test_main_window_close_event_exits_all_auxiliary_services(self):
         fake_window = type('FakeMainWindow', (), {})()
@@ -231,13 +232,27 @@ class UiRegressionTests(unittest.TestCase):
         panel.close()
 
     def test_sql_system_selector_belongs_to_configuration_tab(self):
+        """system_combo 属于「系统配置」Tab（index=2），非 SQL 整理页。
+
+        设计：Tab0 升级准备 / Tab1 SQL 整理 / Tab2 系统配置。
+        SQL 整理页仅有只读 current_system_label 芯片，切换系统必须进系统配置。
+        """
         panel = SqlToolPanel()
-        config_tab = panel.tabs.widget(1)
+        self.assertEqual(panel.tabs.count(), 3)
+        self.assertEqual(panel.tabs.tabText(2), '系统配置')
+        config_tab = panel.tabs.widget(2)
         ancestor = panel.system_combo.parentWidget()
         while ancestor is not None and ancestor is not config_tab:
             ancestor = ancestor.parentWidget()
         self.assertIs(ancestor, config_tab)
-        self.assertIn('当前配置系统', panel.current_system_label.text())
+        # 配置页标题文案
+        self.assertIn('当前配置系统', panel.config_system_label.text())
+        # 整理页芯片只展示当前系统摘要，并提示去系统配置切换
+        self.assertTrue(panel.current_system_label.toolTip())
+        self.assertIn('系统配置', panel.current_system_label.toolTip())
+        # 入口可达：从需求「系统配置」按钮映射的 open 逻辑使用 index 2
+        panel.tabs.setCurrentIndex(2)
+        self.assertIs(panel.tabs.currentWidget(), config_tab)
 
     def test_document_panel_separates_personal_and_unit_generation(self):
         panel = CreditCodePanel()
@@ -601,10 +616,12 @@ class UiRegressionTests(unittest.TestCase):
         page.close_ask.setChecked(False)
         page.close_default_action.setCurrentIndex(page.close_default_action.findData('exit'))
         page._refresh_close_behavior_hint()
-        self.assertIn('不再弹窗', page.close_behavior_hint.text())
+        self.assertIn('关闭时不再提示', page.close_behavior_hint.text())
+        self.assertIn('恢复关闭提示', page.close_behavior_hint.text())
         page.close_ask.setChecked(True)
         page._refresh_close_behavior_hint()
         self.assertIn('弹出选择', page.close_behavior_hint.text())
+        self.assertIn('关闭时不再提示', page.close_behavior_hint.text())
 
 
 if __name__ == '__main__':

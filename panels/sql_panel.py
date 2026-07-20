@@ -794,7 +794,7 @@ class SqlToolPanel(QWidget):
         ready = '就绪' if zh else 'Ready'
         if not self.status.text() or self.status.text() in ('就绪', 'Ready') or self.status.toolTip() in ('就绪', 'Ready', ''):
             self._set_status_label(self.status, ready, ready, max_chars=6)
-        self.config_system_label.setText('配置系统' if zh else 'System')
+        self.config_system_label.setText('当前配置系统' if zh else 'Configured system')
         self._update_current_system_label()
 
     def _load_systems(self):

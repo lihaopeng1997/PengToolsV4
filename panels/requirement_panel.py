@@ -858,7 +858,7 @@ class RequirementPanel(QWidget):
         toolbar_layout = QHBoxLayout(toolbar_card)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(8)
-        self.scan_btn = QPushButton('扫描目录'); self.scan_btn.clicked.connect(self._scan_folder)
+        self.scan_btn = QPushButton('扫描需求目录'); self.scan_btn.clicked.connect(self._scan_folder)
         self.checkout_btn = QPushButton('检出代码'); self.checkout_btn.clicked.connect(self._checkout_svn)
         self.update_all_btn = QPushButton('更新全部'); self.update_all_btn.clicked.connect(self._update_all)
         self.bug_btn = QPushButton('登记缺陷'); self.bug_btn.clicked.connect(self._paste_bug)
