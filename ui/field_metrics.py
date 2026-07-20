@@ -108,3 +108,9 @@ def size_compact_button(button) -> None:
     button.setProperty('compactAction', True)
     button.setMinimumWidth(BTN_COMPACT_MIN_W)
     size_field_height(button)
+
+
+def apply_button_role(button, role: str = 'secondary', *, compact: bool = False) -> None:
+    """按钮角色入口（转发 design_system，避免业务面板直接耦合）。"""
+    from ui.design_system import apply_button
+    apply_button(button, role, compact=compact)

@@ -22,9 +22,15 @@ def load_stylesheet(app_path):
         qss_path = os.path.join(os.path.dirname(sys.executable), 'resources', 'style.qss')
     if os.path.exists(qss_path):
         with open(qss_path, 'r', encoding='utf-8') as f:
-            resource_dir = os.path.dirname(qss_path)
-            arrow_path = os.path.join(resource_dir, 'chevron_down.svg').replace('\\', '/')
-            check_path = os.path.join(resource_dir, 'check_white.svg').replace('\\', '/')
+            # 图标路径统一走 ui.icons 角色映射（dropdown / check）
+            try:
+                from ui.icons import icon_url
+                arrow_path = icon_url('dropdown')
+                check_path = icon_url('check')
+            except Exception:
+                resource_dir = os.path.dirname(qss_path)
+                arrow_path = os.path.join(resource_dir, 'chevron_down.svg').replace('\\', '/')
+                check_path = os.path.join(resource_dir, 'check_white.svg').replace('\\', '/')
             return (
                 f.read()
                 .replace('__DROPDOWN_ARROW__', arrow_path)

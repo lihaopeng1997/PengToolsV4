@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+    QApplication, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from tools.gateway_crypto import decrypt_gateway_payload
+from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_combo
 from ui.json_viewer import JsonViewer
 
@@ -40,12 +41,21 @@ class GatewayDecodePanel(QWidget):
         config.addRow(self.key_label, self.key_cipher)
         layout.addWidget(self.config_group)
 
+        work_zone = QFrame()
+        apply_surface(work_zone, 'card')
+        work_zone.setObjectName('gateway-work-zone')
+        work_layout = QVBoxLayout(work_zone)
+        work_layout.setContentsMargins(12, 10, 12, 12)
+        work_layout.setSpacing(8)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(8)
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         self.cipher_label = QLabel()
-        self.cipher_label.setObjectName('section-title')
+        self.cipher_label.setObjectName('zone-title')
         left_layout.addWidget(self.cipher_label)
         self.payload_cipher = QPlainTextEdit()
         self.payload_cipher.setPlaceholderText('Base64 ciphertext')
@@ -56,35 +66,45 @@ class GatewayDecodePanel(QWidget):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         self.plain_label = QLabel()
-        self.plain_label.setObjectName('section-title')
+        self.plain_label.setObjectName('zone-title')
         right_layout.addWidget(self.plain_label)
         self.json_viewer = JsonViewer(self.language)
         # 保留 plain_text 别名，兼容原有调用与自动化检查。
+        # XML 格式入口仍在 JsonViewer 工具条内，本轮不挪位置。
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
         splitter.setSizes([520, 520])
-        layout.addWidget(splitter, 1)
+        work_layout.addWidget(splitter, 1)
+        layout.addWidget(work_zone, 1)
 
-        actions = QHBoxLayout()
+        action_bar = QFrame()
+        apply_surface(action_bar, 'zone')
+        action_bar.setObjectName('gateway-action-zone')
+        actions = QHBoxLayout(action_bar)
+        actions.setContentsMargins(12, 10, 12, 10)
+        actions.setSpacing(8)
         self.note = QLabel()
         self.note.setObjectName('field-hint')
         self.note.setWordWrap(True)
         actions.addWidget(self.note, 1)
         self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True)
         self.clear_btn.clicked.connect(self._clear)
         actions.addWidget(self.clear_btn)
         self.copy_btn = QPushButton()
+        apply_button(self.copy_btn, 'secondary', compact=True)
         self.copy_btn.clicked.connect(self._copy)
         actions.addWidget(self.copy_btn)
         self.request_btn = QPushButton()
+        apply_button(self.request_btn, 'secondary', compact=True)
         self.request_btn.clicked.connect(lambda: self._decrypt('request'))
         actions.addWidget(self.request_btn)
         self.response_btn = QPushButton()
-        self.response_btn.setObjectName('primary-btn')
+        apply_button(self.response_btn, 'primary', compact=True)
         self.response_btn.clicked.connect(lambda: self._decrypt('response'))
         actions.addWidget(self.response_btn)
-        layout.addLayout(actions)
+        layout.addWidget(action_bar)
 
     def set_language(self, language):
         self.language = language
