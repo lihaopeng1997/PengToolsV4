@@ -1,8 +1,17 @@
 # -*- coding: utf-8 -*-
+"""统一弹窗体系：确认 / 通知 / 退出选择。
+
+- 视觉走企业级卡片；按钮角色对齐 design_system
+- 退出弹窗支持「不再提示」，由 MainWindow 写回 settings
+- API 保持 confirm_action / show_* / offer_next_steps；ask_close_action 返回 (action, dont_ask)
+"""
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
 )
+
+from ui.design_system import apply_button
 
 
 class ConfirmActionDialog(QDialog):
@@ -14,12 +23,21 @@ class ConfirmActionDialog(QDialog):
         self.setMinimumWidth(460)
         self.setMaximumWidth(560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 16)
+        root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(14)
 
+        header = QHBoxLayout()
+        header.setSpacing(12)
+        badge = QLabel('!' if danger else '?')
+        badge.setObjectName('notice-badge-warning' if danger else 'notice-badge-info')
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedSize(40, 40)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
-        root.addWidget(title_label)
+        title_label.setWordWrap(True)
+        header.addWidget(title_label, 1)
+        root.addLayout(header)
 
         card = QFrame()
         card.setObjectName('confirm-card')
@@ -36,13 +54,18 @@ class ConfirmActionDialog(QDialog):
         buttons.setSpacing(10)
         buttons.addStretch()
         self.cancel_button = QPushButton('取消')
+        apply_button(self.cancel_button, 'secondary', compact=True)
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setDefault(True)
         self.cancel_button.setAutoDefault(True)
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
         self.confirm_button = QPushButton(confirm_text)
-        self.confirm_button.setObjectName('ops-delete-custom' if danger else 'primary-btn')
+        apply_button(self.confirm_button, 'danger' if danger else 'primary', compact=False)
+        if danger:
+            self.confirm_button.setObjectName('btn-danger')
+        else:
+            self.confirm_button.setObjectName('primary-btn')
         self.confirm_button.setAutoDefault(False)
         self.confirm_button.setMinimumWidth(108)
         self.confirm_button.clicked.connect(self.accept)
@@ -60,8 +83,8 @@ class _CloseOptionCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(5)
         title = QLabel(title_text)
         title.setObjectName('close-option-title')
         tip = QLabel(tip_text)
@@ -83,7 +106,7 @@ class _CloseOptionCard(QFrame):
 
 
 class CloseActionDialog(QDialog):
-    """关闭主窗口时的选择：托盘继续 / 退出软件。"""
+    """关闭主窗口：托盘继续 / 退出；可勾选「不再提示」。"""
 
     def __init__(self, language='zh', default_action='minimize', parent=None):
         super().__init__(parent)
@@ -92,24 +115,34 @@ class CloseActionDialog(QDialog):
         self.setObjectName('confirm-dialog')
         self.setWindowTitle('关闭 PengTools' if zh else 'Close PengTools')
         self.setModal(True)
-        self.setMinimumWidth(460)
-        self.setMaximumWidth(520)
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(540)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
+        root.setContentsMargins(22, 20, 22, 16)
         root.setSpacing(12)
 
+        header = QHBoxLayout()
+        header.setSpacing(12)
+        badge = QLabel('⏻')
+        badge.setObjectName('notice-badge-info')
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedSize(40, 40)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(4)
         title = QLabel('关闭主窗口' if zh else 'Close main window')
         title.setObjectName('confirm-title')
-        root.addWidget(title)
-
+        title_wrap.addWidget(title)
         subtitle = QLabel(
-            '想继续在后台待命，还是彻底结束？'
+            '想继续在后台待命，还是彻底结束？点选一项即可，无需再点确认。'
             if zh else
-            'Keep running in the background, or quit completely?'
+            'Keep running in the background, or quit. One click chooses — no extra confirm.'
         )
         subtitle.setObjectName('confirm-message')
         subtitle.setWordWrap(True)
-        root.addWidget(subtitle)
+        title_wrap.addWidget(subtitle)
+        header.addLayout(title_wrap, 1)
+        root.addLayout(header)
 
         self.minimize_button = _CloseOptionCard(
             '隐藏到系统托盘' if zh else 'Hide to tray',
@@ -131,13 +164,32 @@ class CloseActionDialog(QDialog):
         self.exit_button.clicked.connect(lambda: self._choose('exit'))
         root.addWidget(self.exit_button)
 
+        remember_row = QHBoxLayout()
+        remember_row.setContentsMargins(2, 2, 2, 0)
+        self.dont_ask_check = QCheckBox(
+            '不再提示，以后直接使用本次选择' if zh else "Don't ask again — use this choice next time"
+        )
+        self.dont_ask_check.setObjectName('close-dont-ask')
+        self.dont_ask_check.setToolTip(
+            '勾选后会写入设置：关闭时不再询问，并采用你本次选择的默认操作。可在「设置」中改回。'
+            if zh else
+            'Saves to Settings: skip this prompt and use the action you pick. Change anytime in Settings.'
+        )
+        remember_row.addWidget(self.dont_ask_check)
+        remember_row.addStretch()
+        root.addLayout(remember_row)
+
         footer = QHBoxLayout()
         footer.setSpacing(10)
         self.cancel_button = QPushButton('取消' if zh else 'Cancel')
+        apply_button(self.cancel_button, 'ghost', compact=True)
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.clicked.connect(self.reject)
         footer.addWidget(self.cancel_button)
         footer.addStretch()
+        hint = QLabel('也可在 设置 → 交互反馈 中管理' if zh else 'Also available in Settings → Behavior')
+        hint.setObjectName('field-hint')
+        footer.addWidget(hint)
         root.addLayout(footer)
 
         default = self.exit_button if default_action == 'exit' else self.minimize_button
@@ -149,6 +201,9 @@ class CloseActionDialog(QDialog):
 
     def selected_action(self):
         return self._result
+
+    def dont_ask_again(self):
+        return bool(self.dont_ask_check.isChecked())
 
 
 class AppNoticeDialog(QDialog):
@@ -162,8 +217,8 @@ class AppNoticeDialog(QDialog):
         self.setMinimumWidth(420)
         self.setMaximumWidth(560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(20, 18, 20, 16)
+        root.setSpacing(14)
 
         header = QHBoxLayout()
         header.setSpacing(12)
@@ -190,6 +245,7 @@ class AppNoticeDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
         self.ok_button = QPushButton(button_text)
+        apply_button(self.ok_button, 'primary', compact=False)
         self.ok_button.setObjectName('primary-btn')
         self.ok_button.setMinimumWidth(108)
         self.ok_button.setDefault(True)
@@ -215,10 +271,18 @@ def confirm_action(parent, title, message, confirm_text='确认删除', danger=T
 
 
 def ask_close_action(parent, language='zh', default_action='minimize'):
+    """返回 (action, dont_ask_again)；取消返回 None。
+
+    action: 'minimize' | 'exit'
+    dont_ask_again: bool — 为 True 时调用方应写入 settings 并关闭询问。
+    """
     dialog = CloseActionDialog(language=language, default_action=default_action, parent=parent)
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return None
-    return dialog.selected_action()
+    action = dialog.selected_action()
+    if action not in ('minimize', 'exit'):
+        return None
+    return action, dialog.dont_ask_again()
 
 
 def show_info(parent, title, message, kind='info', button_text='知道了'):
@@ -249,7 +313,7 @@ class NextStepDialog(QDialog):
         self.setMinimumWidth(460)
         self.setMaximumWidth(620)
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 16)
+        root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(12)
 
         title_label = QLabel(title)
@@ -267,6 +331,7 @@ class NextStepDialog(QDialog):
         button_row.setSpacing(8)
         button_row.addStretch()
         later = QPushButton('稍后')
+        apply_button(later, 'ghost', compact=True)
         later.setObjectName('confirm-cancel')
         later.setAutoDefault(False)
         later.clicked.connect(self.reject)
@@ -275,7 +340,12 @@ class NextStepDialog(QDialog):
         self._action_buttons = []
         for action_id, label, is_primary in actions:
             button = QPushButton(label)
-            button.setObjectName('primary-btn' if is_primary or action_id == recommended else 'confirm-cancel')
+            if is_primary or action_id == recommended:
+                apply_button(button, 'primary', compact=True)
+                button.setObjectName('primary-btn')
+            else:
+                apply_button(button, 'secondary', compact=True)
+                button.setObjectName('btn-secondary')
             button.setAutoDefault(False)
             button.setMinimumWidth(96)
             button.clicked.connect(lambda _checked=False, value=action_id: self._choose(value))

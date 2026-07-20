@@ -229,12 +229,16 @@ class SettingsPanel(QWidget):
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
         self.behavior_group.setTitle('交互反馈' if zh else 'Interaction feedback')
         self.close_ask_label.setText('关闭主窗口时' if zh else 'When closing the main window')
-        self.close_ask.setText('每次询问' if zh else 'Ask every time')
-        self.close_default_label.setText('关闭操作默认选择' if zh else 'Default close action')
+        self.close_ask.setText('弹出确认（可在弹窗勾选不再提示）' if zh else 'Show close prompt (can skip next time)')
+        self.close_default_label.setText('关闭默认操作' if zh else 'Default close action')
         self.close_default_action.setItemText(0, '隐藏到系统托盘' if zh else 'Hide to system tray')
         self.close_default_action.setItemText(1, '退出软件' if zh else 'Exit application')
         self.copy_duration_label.setText('“已复制”显示时间' if zh else 'Copied feedback duration')
-        self.safety_note.setText('高风险确认、禁止删除命令等安全规则始终启用，不能在设置中关闭。' if zh else 'Risk confirmation and delete-command blocking are always enabled.')
+        self.safety_note.setText(
+            '关闭弹窗可勾选「不再提示」并自动记住本次选择；也可在此随时改回「弹出确认」。高风险确认与禁止删除命令始终启用，不能关闭。'
+            if zh else
+            'Close prompt can remember your choice via “Don’t ask again”. Change anytime here. Risk confirmations stay always on.'
+        )
         self.keep_awake_group.setTitle('远程会话守护' if zh else 'Remote session guard')
         self.keep_awake_enabled_label.setText('防止自动锁屏' if zh else 'Prevent automatic lock')
         self.keep_awake_enabled.setText('启用' if zh else 'Enabled')

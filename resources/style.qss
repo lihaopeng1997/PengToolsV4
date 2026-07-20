@@ -956,6 +956,24 @@ QLabel#close-option-tip {
     line-height: 1.4;
     background: transparent;
 }
+QCheckBox#close-dont-ask {
+    color: #31455F;
+    font-weight: 650;
+    spacing: 8px;
+    padding: 6px 4px;
+}
+QCheckBox#close-dont-ask:hover {
+    color: #243A91;
+}
+QDialog#confirm-dialog {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #F7F9FC, stop:1 #EEF2F8);
+}
+QDialog#confirm-dialog QFrame#confirm-card {
+    background: #FFFFFF;
+    border: 1px solid #D8DEEA;
+    border-radius: 12px;
+}
 QLabel#notice-badge-info,
 QLabel#notice-badge-success,
 QLabel#notice-badge-warning,

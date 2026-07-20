@@ -180,9 +180,34 @@ class UiRegressionTests(unittest.TestCase):
             'language': 'zh',
             '_settings': {'close_default_action': 'exit'},
         })()
-        with patch('main_window.ask_close_action', return_value='exit') as ask:
-            self.assertEqual(MainWindow._ask_close_action(fake_window), 'exit')
+        with patch('main_window.ask_close_action', return_value=('exit', False)) as ask:
+            self.assertEqual(MainWindow._ask_close_action(fake_window), ('exit', False))
             ask.assert_called_once_with(fake_window, language='zh', default_action='exit')
+
+    def test_close_event_respects_dont_ask_again(self):
+        """退出弹窗勾选不再提示时写回 settings 并下次不询问。"""
+        from config import DEFAULT_SETTINGS
+
+        fake_window = type('FakeMainWindow', (), {})()
+        fake_window._settings = dict(DEFAULT_SETTINGS, close_ask_each_time=True, close_default_action='minimize')
+        fake_window._force_exit = False
+        fake_window.language = 'zh'
+        fake_window.hotkey_service = _CallRecorder()
+        fake_window.quick_panel = _CallRecorder()
+        fake_window.tray_service = _CallRecorder()
+        fake_window.hide = _CallRecorder().hide
+        loaded = []
+        fake_window.settings_panel = type('SP', (), {'load_values': lambda self, s: loaded.append(dict(s))})()
+        fake_window._ask_close_action = lambda: ('minimize', True)
+
+        with patch('main_window.save_settings', side_effect=lambda s: dict(s)) as save:
+            event = _CallRecorder()
+            MainWindow.closeEvent(fake_window, event)
+            save.assert_called_once()
+            self.assertFalse(fake_window._settings['close_ask_each_time'])
+            self.assertEqual(fake_window._settings['close_default_action'], 'minimize')
+            self.assertTrue(event.ignored)
+            self.assertTrue(loaded)
 
     def test_tray_quit_uses_main_window_close_path(self):
         main_window = _CallRecorder()
@@ -469,14 +494,15 @@ class UiRegressionTests(unittest.TestCase):
 
     def test_aurora_progress_uses_light_card_background(self):
         progress = AuroraProgress()
-        progress.resize(600, 54)
+        progress.resize(600, 62)
         progress.set_progress(50, 'Processing')
         self.app.processEvents()
         image = progress.grab().toImage()
-        color = image.pixelColor(8, 8)
-        self.assertGreater(color.red(), 230)
-        self.assertGreater(color.green(), 230)
-        self.assertGreater(color.blue(), 230)
+        # 取样卡片中部（避开外层阴影），应为浅色企业风底
+        color = image.pixelColor(image.width() // 2, image.height() // 2)
+        self.assertGreater(color.red(), 220)
+        self.assertGreater(color.green(), 220)
+        self.assertGreater(color.blue(), 220)
 
 
 if __name__ == '__main__':

@@ -24,7 +24,7 @@ from ui.keep_awake_service import KeepAwakeService
 from ui.field_metrics import size_combo
 from ui.quick_panel import QuickPanel
 from ui.tray_service import TrayService
-from config import APP_BUILD_DATE, APP_VERSION_LABEL, app_version_text, load_settings
+from config import APP_BUILD_DATE, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
 
 
 class MainWindow(QMainWindow):
@@ -381,7 +381,19 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         action = 'exit' if self._force_exit else self._settings['close_default_action']
         if not self._force_exit and self._settings['close_ask_each_time']:
-            action = self._ask_close_action()
+            result = self._ask_close_action()
+            if result is None:
+                # 取消关闭
+                event.ignore()
+                return
+            action, dont_ask = result
+            if dont_ask and action in ('minimize', 'exit'):
+                # 「不再提示」：写回设置，下次直接走默认操作（懒人）
+                self._settings['close_ask_each_time'] = False
+                self._settings['close_default_action'] = action
+                self._settings = save_settings(self._settings)
+                if hasattr(self, 'settings_panel'):
+                    self.settings_panel.load_values(self._settings)
         if action != 'exit':
             event.ignore()
             if action == 'minimize':
@@ -390,6 +402,7 @@ class MainWindow(QMainWindow):
         self._shutdown(event)
 
     def _ask_close_action(self):
+        """返回 (action, dont_ask_again) 或 None（取消）。"""
         return ask_close_action(
             self,
             language=self.language,

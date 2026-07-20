@@ -1613,6 +1613,11 @@ class RequirementPanel(QWidget):
         return super().eventFilter(watched, event)
 
     def _start_task(self, message, function, arguments, success, show_loading=True):
+        """后台任务。
+
+        show_loading=True 仅用于长任务（拉取/更新/锁定/提交/扫描/add 等）。
+        刷新文件树、状态探测等静默任务传 False，不打断浏览。
+        """
         if self._active_worker is not None:
             show_info(self, 'SVN 正在处理', '请等待当前 SVN 操作完成。')
             return
@@ -1620,6 +1625,9 @@ class RequirementPanel(QWidget):
         self._task_shows_loading = show_loading
         if show_loading:
             self._set_busy(message)
+        else:
+            # 静默任务只更新状态文案，不锁整页、不弹 Loading
+            self.svn_activity.setText(message)
         worker = SvnWorker(function, *arguments, parent=self)
         self._active_worker = worker
         worker.result_ready.connect(lambda result: self._task_succeeded(result, success))
@@ -1647,6 +1655,8 @@ class RequirementPanel(QWidget):
         self._active_worker = None
         if self._task_shows_loading:
             self._set_busy('')
+        elif not self._task_failed:
+            self.svn_activity.setText('后台状态已更新。')
         if self._task_failed:
             self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
         if worker:
@@ -1881,7 +1891,15 @@ class RequirementPanel(QWidget):
 
     def _refresh_current_svn(self):
         path = self._current_path()
-        if path: self._start_task('正在刷新当前 SVN 状态……', self._inspect_working_copy, (path,), self._refresh_current_finished)
+        # 刷新状态：普通浏览，不打断、不 Loading
+        if path:
+            self._start_task(
+                '正在刷新当前 SVN 状态……',
+                self._inspect_working_copy,
+                (path,),
+                self._refresh_current_finished,
+                show_loading=False,
+            )
 
     def _refresh_current_finished(self, info):
         if not self._current: return
