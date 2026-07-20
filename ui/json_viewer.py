@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+"""JSON / XML 查看器：树表可读性优先（深层级字段名可横滑、可拖列宽）。"""
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu,
     QHeaderView, QPlainTextEdit, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -13,6 +15,13 @@ from tools.json_viewer import (
 )
 from tools.xml_formatter import format_xml_text
 from ui.confirm_dialog import show_warning
+
+# 深层级时缩进会吃掉第一列宽度；默认给字段名更宽，并禁止挤到不可读
+_KEY_COL_MIN = 160
+_KEY_COL_DEFAULT = 280
+_KEY_COL_MAX_AUTO = 520
+_TYPE_COL_DEFAULT = 88
+_VALUE_PREVIEW_MAX = 280
 
 
 class JsonViewer(QWidget):
@@ -84,10 +93,15 @@ class JsonViewer(QWidget):
         layout.addLayout(second)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName('module-tabs')
         self.text_edit = QPlainTextEdit()
         self.text_edit.setObjectName('json-text')
         # 可编辑：支持粘贴 JSON/XML 后一键格式化
         self.text_edit.setReadOnly(False)
+        self.text_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        mono = QFont('Consolas', 10)
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        self.text_edit.setFont(mono)
         self.tabs.addTab(self.text_edit, '')
 
         self.tree = QTreeWidget()
@@ -95,11 +109,27 @@ class JsonViewer(QWidget):
         self.tree.setColumnCount(3)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.tree.setColumnWidth(0, 175)
-        self.tree.setColumnWidth(1, 72)
+        # 略减缩进，深层级时给字段名多留字宽；允许横向滚动看全名
+        self.tree.setIndentation(14)
+        self.tree.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.tree.setWordWrap(False)
+        header = self.tree.header()
+        header.setObjectName('json-tree-header')
+        header.setSectionsMovable(False)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(64)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # 三列均可拖动调宽；值列默认更宽，字段名列拖窄时自动回弹
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.tree.setColumnWidth(0, _KEY_COL_DEFAULT)
+        self.tree.setColumnWidth(1, _TYPE_COL_DEFAULT)
+        self.tree.setColumnWidth(2, 360)
+        header.sectionResized.connect(self._on_tree_section_resized)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
@@ -111,6 +141,10 @@ class JsonViewer(QWidget):
         self.json_status = QLabel()
         self.json_status.setObjectName('field-hint')
         footer.addWidget(self.json_status, 1)
+        self.clear_view_btn = QPushButton()
+        self.clear_view_btn.setObjectName('json-tool-btn')
+        self.clear_view_btn.clicked.connect(self.clear)
+        footer.addWidget(self.clear_view_btn)
         self.copy_json_btn = QPushButton()
         self.copy_json_btn.setObjectName('json-tool-btn')
         self.copy_json_btn.clicked.connect(self.copy_formatted_json)
@@ -136,12 +170,15 @@ class JsonViewer(QWidget):
         self.collapse_btn.setText('折叠' if zh else 'Collapse')
         self.tabs.setTabText(0, '格式化文本' if zh else 'Formatted text')
         self.tabs.setTabText(1, '树形节点' if zh else 'Tree nodes')
-        self.tree.setHeaderLabels(['节点', '类型', '值'] if zh else ['Node', 'Type', 'Value'])
-        self.copy_json_btn.setText('复制格式化 JSON' if zh else 'Copy formatted JSON')
+        self.tree.setHeaderLabels(['字段名', '类型', '值'] if zh else ['Field', 'Type', 'Value'])
+        self.tree.headerItem().setToolTip(0, '可拖动列宽 · 深层级可横向滚动查看完整字段名' if zh else 'Drag to resize · scroll horizontally for deep keys')
+        self.tree.headerItem().setToolTip(2, '可拖动列宽 · 悬停看完整值' if zh else 'Drag to resize · hover for full value')
+        self.clear_view_btn.setText('清空' if zh else 'Clear')
+        self.copy_json_btn.setText('复制全部' if zh else 'Copy all')
         self.text_edit.setPlaceholderText(
-            '解密明文 / 粘贴 JSON 或 XML 后可一键格式化'
+            '解密明文 / 粘贴 JSON 或 XML 后可一键格式化（大文本不自动折行，可横向滚动）'
             if zh else
-            'Decrypted text / paste JSON or XML then format'
+            'Decrypted text / paste JSON or XML then format (no wrap; scroll horizontally)'
         )
         if self._data is None and not self.text_edit.toPlainText().strip():
             self.json_status.setText('等待解密结果，或粘贴 JSON/XML' if zh else 'Waiting for content, or paste JSON/XML')
@@ -233,18 +270,54 @@ class JsonViewer(QWidget):
         root = self._add_item(None, '$', self._data, '$')
         root.setExpanded(True)
         self.tree.setCurrentItem(root)
+        self._fit_key_column()
+
+    def _fit_key_column(self):
+        """按内容撑开字段名列（含缩进），再夹在可读上下限内；用户仍可拖动。"""
+        self.tree.resizeColumnToContents(0)
+        width = self.tree.columnWidth(0) + 16
+        width = max(_KEY_COL_MIN, min(_KEY_COL_MAX_AUTO, width))
+        # 至少保持默认宽度，避免浅树时列过窄
+        width = max(width, _KEY_COL_DEFAULT)
+        self.tree.blockSignals(True)
+        self.tree.setColumnWidth(0, width)
+        if self.tree.columnWidth(1) < _TYPE_COL_DEFAULT:
+            self.tree.setColumnWidth(1, _TYPE_COL_DEFAULT)
+        if self.tree.columnWidth(2) < 200:
+            self.tree.setColumnWidth(2, 360)
+        self.tree.blockSignals(False)
+
+    def _on_tree_section_resized(self, index, _old, new_size):
+        """字段名列不允许拖得过窄，避免深层级时完全不可读。"""
+        if index != 0 or new_size >= _KEY_COL_MIN:
+            return
+        header = self.tree.header()
+        header.blockSignals(True)
+        self.tree.setColumnWidth(0, _KEY_COL_MIN)
+        header.blockSignals(False)
 
     def _add_item(self, parent, key, value, path):
+        key_text = str(key)
+        type_name = json_type_name(value)
         if isinstance(value, dict):
-            preview = f'{{{len(value)}}}'
+            full_value = f'{{{len(value)}}}'
+            preview = full_value
         elif isinstance(value, list):
-            preview = f'[{len(value)}]'
+            full_value = f'[{len(value)}]'
+            preview = full_value
         else:
-            preview = node_value_text(value)
-            if len(preview) > 160:
-                preview = preview[:157] + '…'
-        item = QTreeWidgetItem([str(key), json_type_name(value), preview])
+            full_value = node_value_text(value)
+            if len(full_value) > _VALUE_PREVIEW_MAX:
+                preview = full_value[: _VALUE_PREVIEW_MAX - 1] + '…'
+            else:
+                preview = full_value
+        item = QTreeWidgetItem([key_text, type_name, preview])
         item.setData(0, Qt.ItemDataRole.UserRole, path)
+        # 悬停始终可见完整字段名 / 路径 / 值（深层级不截断阅读）
+        item.setToolTip(0, f'{key_text}\n{path}')
+        item.setToolTip(1, type_name)
+        item.setToolTip(2, full_value if full_value else preview)
+        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
         self._item_values[id(item)] = value
         (parent.addChild(item) if parent is not None else self.tree.addTopLevelItem(item))
         if isinstance(value, dict):
@@ -372,6 +445,11 @@ class JsonViewer(QWidget):
         self.tree.collapseAll()
 
     def copy_formatted_json(self):
+        # 优先复制当前文本区（含 XML 美化结果）；JSON 树存在时也可用结构化 JSON
+        text = self.text_edit.toPlainText().strip()
+        if text:
+            self._copy_text(text)
+            return
         if self._data is not None:
             self._copy_text(node_json_text(self._data))
 

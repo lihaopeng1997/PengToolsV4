@@ -1318,19 +1318,49 @@ QLineEdit#json-path {
 QPlainTextEdit#json-text {
     font-family: 'Cascadia Mono', 'Consolas', monospace;
     font-size: 11px;
-    line-height: 1.3;
+    line-height: 1.35;
+    background: #FBFCFF;
+    border: 1px solid #D5DEF0;
+    border-radius: 10px;
+    padding: 8px;
 }
 QTreeWidget#json-tree {
     background: #FFFFFF;
-    alternate-background-color: #FAFBFD;
+    alternate-background-color: #F7F9FD;
     color: #26344B;
-    border: 1px solid #E3E8F0;
-    border-radius: 9px;
-    selection-background-color: #DCE3FF;
-    selection-color: #243150;
+    border: 1px solid #D0D8EA;
+    border-radius: 10px;
+    selection-background-color: #E0E8FF;
+    selection-color: #152456;
+    outline: 0;
+    show-decoration-selected: 1;
 }
-QTreeWidget#json-tree::item { padding: 5px 3px; }
-QTreeWidget#json-tree::item:hover { background: #F0F3FF; }
+QTreeWidget#json-tree::item {
+    min-height: 28px;
+    padding: 5px 8px;
+    border-bottom: 1px solid #EEF1F6;
+}
+QTreeWidget#json-tree::item:hover { background: #F0F3FF; color: #1E2B4A; }
+QTreeWidget#json-tree::item:selected {
+    background: #E0E8FF;
+    color: #152456;
+    border-left: 2px solid #5B73FF;
+}
+QTreeWidget#json-tree QHeaderView::section,
+QHeaderView#json-tree-header::section {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #F3F6FB, stop:1 #E8EEF8);
+    color: #24355A;
+    border: none;
+    border-right: 1px solid #D0D8EA;
+    border-bottom: 2px solid #8FA0C4;
+    padding: 8px 10px;
+    font-weight: 800;
+}
+QTreeWidget#json-tree QHeaderView::section:hover,
+QHeaderView#json-tree-header::section:hover {
+    background: #E3EAF7;
+}
 
 /* Linux operations command assistant */
 QLineEdit#ops-search {

@@ -345,6 +345,32 @@ class UiRegressionTests(unittest.TestCase):
         viewer._copy_item_value(item)
         self.assertEqual(QApplication.clipboard().text(), 'Lihp')
 
+    def test_json_tree_keeps_readable_key_column_and_resizable_headers(self):
+        """深层级字段名列可拖宽、有下限，不会被压到不可读。"""
+        from PyQt6.QtWidgets import QHeaderView
+        from ui.json_viewer import JsonViewer, _KEY_COL_DEFAULT, _KEY_COL_MIN
+
+        viewer = JsonViewer()
+        deep = {'level1': {'level2': {'level3': {'very_long_field_name_for_ui': {'leaf': 1}}}}}
+        import json
+        self.assertTrue(viewer.set_text(json.dumps(deep)))
+        header = viewer.tree.header()
+        self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Interactive)
+        self.assertEqual(header.sectionResizeMode(1), QHeaderView.ResizeMode.Interactive)
+        self.assertEqual(header.sectionResizeMode(2), QHeaderView.ResizeMode.Interactive)
+        self.assertGreaterEqual(viewer.tree.columnWidth(0), _KEY_COL_DEFAULT)
+        # 尝试拖窄字段名列，应被下限拦住
+        viewer.tree.setColumnWidth(0, 40)
+        viewer._on_tree_section_resized(0, 200, 40)
+        self.assertGreaterEqual(viewer.tree.columnWidth(0), _KEY_COL_MIN)
+        # 悬停有完整路径提示
+        leaf_path = '$.level1.level2.level3.very_long_field_name_for_ui.leaf'
+        items = viewer._all_items()
+        leaf = next(i for i in items if i.data(0, Qt.ItemDataRole.UserRole) == leaf_path)
+        self.assertIn('very_long_field_name_for_ui', leaf.toolTip(0))
+        self.assertEqual(viewer.tree.textElideMode(), Qt.TextElideMode.ElideNone)
+        viewer.close()
+
     def test_operations_panel_fuzzy_search_and_builtin_protection(self):
         panel = OpsPanel()
         panel.search_edit.setText('ps -ef')
