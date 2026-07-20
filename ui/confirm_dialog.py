@@ -15,6 +15,8 @@ from ui.design_system import apply_button
 
 
 class ConfirmActionDialog(QDialog):
+    """危险/确认操作：取消在左、确认在右，默认焦点永远在取消。"""
+
     def __init__(self, title, message, confirm_text='确认删除', parent=None, danger=True):
         super().__init__(parent)
         self.setObjectName('confirm-dialog')
@@ -23,7 +25,7 @@ class ConfirmActionDialog(QDialog):
         self.setMinimumWidth(460)
         self.setMaximumWidth(560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
+        root.setContentsMargins(22, 20, 22, 16)
         root.setSpacing(14)
 
         header = QHBoxLayout()
@@ -33,10 +35,17 @@ class ConfirmActionDialog(QDialog):
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(40, 40)
         header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(4)
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
         title_label.setWordWrap(True)
-        header.addWidget(title_label, 1)
+        title_wrap.addWidget(title_label)
+        if danger:
+            role_hint = QLabel('此操作需二次确认 · 默认焦点在「取消」')
+            role_hint.setObjectName('field-hint')
+            title_wrap.addWidget(role_hint)
+        header.addLayout(title_wrap, 1)
         root.addLayout(header)
 
         card = QFrame()
@@ -53,6 +62,7 @@ class ConfirmActionDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.setSpacing(10)
         buttons.addStretch()
+        # 层级：次按钮（取消）在左 → 主/危险在右；默认焦点取消
         self.cancel_button = QPushButton('取消')
         apply_button(self.cancel_button, 'secondary', compact=True)
         self.cancel_button.setObjectName('confirm-cancel')
@@ -67,6 +77,7 @@ class ConfirmActionDialog(QDialog):
         else:
             self.confirm_button.setObjectName('primary-btn')
         self.confirm_button.setAutoDefault(False)
+        self.confirm_button.setDefault(False)
         self.confirm_button.setMinimumWidth(108)
         self.confirm_button.clicked.connect(self.accept)
         buttons.addWidget(self.confirm_button)

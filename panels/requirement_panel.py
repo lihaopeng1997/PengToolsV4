@@ -1194,10 +1194,7 @@ class RequirementPanel(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
-            width = min(540, max(300, self.width() - 48))
-            self.loading.setFixedWidth(width)
-            self.loading.move(max(24, (self.width() - width) // 2), 64)
-            self.loading.raise_()
+            self.loading.place_overlay()
 
     def set_language(self, language):
         self.language = language
@@ -1612,17 +1609,19 @@ class RequirementPanel(QWidget):
                     return True
         return super().eventFilter(watched, event)
 
-    def _start_task(self, message, function, arguments, success, show_loading=True):
+    def _start_task(self, message, function, arguments, success, show_loading=True, finish_label=None):
         """后台任务。
 
         show_loading=True 仅用于长任务（拉取/更新/锁定/提交/扫描/add 等）。
         刷新文件树、状态探测等静默任务传 False，不打断浏览。
+        finish_label：成功时 Loading 语义文案；缺省从 message 推导。
         """
         if self._active_worker is not None:
             show_info(self, 'SVN 正在处理', '请等待当前 SVN 操作完成。')
             return
         self._task_failed = False
         self._task_shows_loading = show_loading
+        self._task_finish_label = finish_label or self._finish_label_from_busy(message)
         if show_loading:
             self._set_busy(message)
         else:
@@ -1635,9 +1634,32 @@ class RequirementPanel(QWidget):
         worker.finished.connect(lambda: self._task_finished(worker))
         worker.start()
 
+    @staticmethod
+    def _finish_label_from_busy(message):
+        text = (message or '').strip()
+        mapping = (
+            ('扫描', '扫描完成'),
+            ('拉取', '拉取完成'),
+            ('检出', '检出完成'),
+            ('更新全部', '全部更新完成'),
+            ('更新当前', '当前副本已更新'),
+            ('更新', '更新完成'),
+            ('锁定', '锁定完成'),
+            ('解锁', '解锁完成'),
+            ('提交', '提交完成'),
+            ('SVN add', '文件已加入版本库'),
+            ('复制文件', '文件已添加'),
+            ('创建文件', '文件已创建'),
+            ('导入', '导入完成'),
+        )
+        for key, label in mapping:
+            if key in text:
+                return label
+        return '处理完成'
+
     def _task_succeeded(self, result, success):
         if self._task_shows_loading:
-            self.loading.finish('处理完成')
+            self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成')
         success(result)
 
     def _task_failed_with_error(self, error):
@@ -1645,7 +1667,6 @@ class RequirementPanel(QWidget):
         self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
         if self._task_shows_loading:
             self.loading.fail('处理失败：' + error[:120])
-            QTimer.singleShot(4000, self.loading.hide)
         show_warning(self, 'SVN 操作失败', error)
 
     def _task_finished(self, worker):

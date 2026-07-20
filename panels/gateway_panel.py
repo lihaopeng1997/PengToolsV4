@@ -2,10 +2,11 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from tools.gateway_crypto import decrypt_gateway_payload
+from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_combo
 from ui.json_viewer import JsonViewer
@@ -70,7 +71,7 @@ class GatewayDecodePanel(QWidget):
         right_layout.addWidget(self.plain_label)
         self.json_viewer = JsonViewer(self.language)
         # 保留 plain_text 别名，兼容原有调用与自动化检查。
-        # XML 格式入口仍在 JsonViewer 工具条内，本轮不挪位置。
+        # XML 完整工具台下一轮并入本模块；当前入口仍在 JsonViewer 工具条（XML 美化）。
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
@@ -118,10 +119,11 @@ class GatewayDecodePanel(QWidget):
             self.environment.setItemText(index, name)
         self.key_label.setText('SM4 Key 密文' if zh else 'Encrypted SM4 key')
         self.cipher_label.setText('网关正文密文（Base64）' if zh else 'Gateway payload ciphertext (Base64)')
-        self.plain_label.setText('解密明文' if zh else 'Decrypted plaintext')
+        self.plain_label.setText('解密明文 / JSON·XML 工具' if zh else 'Plaintext / JSON·XML tools')
         self.note.setText(
-            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 同时作为 SM4-CBC 的 Key 与 IV。所有数据仅在本机处理。'
-            if zh else 'Compatible with gatewayDecode.html: SM2 decrypts the key, then that key is used as both SM4-CBC key and IV. Local processing only.'
+            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 同时作为 SM4-CBC 的 Key 与 IV。明文区支持 JSON 一键格式化与 XML 美化（去引号/反转义）。所有数据仅在本机处理。'
+            if zh else
+            'Compatible with gatewayDecode.html. Plaintext supports JSON format and XML beautify (strip quotes / unescape). Local only.'
         )
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.copy_btn.setText('复制明文' if zh else 'Copy plaintext')
@@ -140,7 +142,7 @@ class GatewayDecodePanel(QWidget):
             self.json_viewer.set_text(plain, auto_format=True)
         except ValueError as exc:
             self.json_viewer.clear()
-            QMessageBox.warning(self, 'PengTools', str(exc))
+            show_warning(self, '网关解密' if self.language == 'zh' else 'Gateway decrypt', str(exc))
 
     def _copy(self):
         text = self.json_viewer.plain_text()

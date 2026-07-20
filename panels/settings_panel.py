@@ -98,6 +98,10 @@ class SettingsPanel(QWidget):
         self.close_default_action.addItem('', 'exit')
         self.close_default_label = QLabel()
         behavior.addRow(self.close_default_label, self.close_default_action)
+        self.close_behavior_hint = QLabel()
+        self.close_behavior_hint.setObjectName('field-hint')
+        self.close_behavior_hint.setWordWrap(True)
+        behavior.addRow(self.close_behavior_hint)
         self.copy_duration = QComboBox()
         size_combo(self.copy_duration, 'sm')
         for milliseconds in (1000, 1500, 2000, 3000):
@@ -109,6 +113,8 @@ class SettingsPanel(QWidget):
         self.safety_note.setWordWrap(True)
         behavior.addRow(self.safety_note)
         root.addWidget(self.behavior_group)
+        self.close_ask.toggled.connect(self._refresh_close_behavior_hint)
+        self.close_default_action.currentIndexChanged.connect(self._refresh_close_behavior_hint)
 
         self.keep_awake_group = QGroupBox()
         keep_awake = QFormLayout(self.keep_awake_group)
@@ -165,14 +171,41 @@ class SettingsPanel(QWidget):
         self.always_on_top.setChecked(settings['floating_always_on_top'])
         self.show_on_startup.setChecked(settings['floating_show_on_startup'])
         self.language_combo.setCurrentIndex(self.language_combo.findData(settings['default_language']))
+        self.close_ask.blockSignals(True)
+        self.close_default_action.blockSignals(True)
         self.close_ask.setChecked(settings['close_ask_each_time'])
         self.close_default_action.setCurrentIndex(
             self.close_default_action.findData(settings['close_default_action'])
         )
+        self.close_ask.blockSignals(False)
+        self.close_default_action.blockSignals(False)
         self.keep_awake_enabled.setChecked(settings['keep_awake_enabled'])
         self.keep_awake_interval.setValue(settings['keep_awake_interval_minutes'])
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
+        self._refresh_close_behavior_hint()
+
+    def _refresh_close_behavior_hint(self, *_args):
+        zh = self.language == 'zh'
+        ask = self.close_ask.isChecked()
+        action = self.close_default_action.currentData()
+        action_text = (
+            ('隐藏到系统托盘' if zh else 'hide to tray')
+            if action == 'minimize' else
+            ('退出软件' if zh else 'exit the app')
+        )
+        if ask:
+            self.close_behavior_hint.setText(
+                '关闭主窗口时会弹出选择：托盘继续 / 彻底退出。可在弹窗勾选「不再提示」。'
+                if zh else
+                'Closing the main window shows tray / exit choices. You can check “Don’t ask again”.'
+            )
+        else:
+            self.close_behavior_hint.setText(
+                f'当前不再弹窗：关闭主窗口将直接「{action_text}」。勾选上方「弹出确认」即可恢复再次提示。'
+                if zh else
+                f'Prompt is off: closing will immediately {action_text}. Re-enable the checkbox above to ask again.'
+            )
 
     def _save(self):
         settings = save_settings(self.values())
@@ -227,18 +260,19 @@ class SettingsPanel(QWidget):
         self.show_on_startup.setText('启用' if zh else 'Enabled')
         self.reset_position_label.setText('位置异常时' if zh else 'If position is lost')
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
-        self.behavior_group.setTitle('交互反馈' if zh else 'Interaction feedback')
+        self.behavior_group.setTitle('关闭与交互' if zh else 'Close & interaction')
         self.close_ask_label.setText('关闭主窗口时' if zh else 'When closing the main window')
-        self.close_ask.setText('弹出确认（可在弹窗勾选不再提示）' if zh else 'Show close prompt (can skip next time)')
+        self.close_ask.setText('弹出确认（可恢复「再次提示」）' if zh else 'Show close prompt (can re-enable anytime)')
         self.close_default_label.setText('关闭默认操作' if zh else 'Default close action')
         self.close_default_action.setItemText(0, '隐藏到系统托盘' if zh else 'Hide to system tray')
         self.close_default_action.setItemText(1, '退出软件' if zh else 'Exit application')
         self.copy_duration_label.setText('“已复制”显示时间' if zh else 'Copied feedback duration')
         self.safety_note.setText(
-            '关闭弹窗可勾选「不再提示」并自动记住本次选择；也可在此随时改回「弹出确认」。高风险确认与禁止删除命令始终启用，不能关闭。'
+            '退出弹窗勾选「不再提示」后：此处「弹出确认」会自动关闭，并写入本次选择为默认操作。随时可重新勾选以再次提示。高风险确认与禁止删除命令始终启用，不能关闭。'
             if zh else
-            'Close prompt can remember your choice via “Don’t ask again”. Change anytime here. Risk confirmations stay always on.'
+            'If you choose “Don’t ask again” on exit, this checkbox turns off and the chosen action becomes default. Re-enable anytime. Risk confirmations stay always on.'
         )
+        self._refresh_close_behavior_hint()
         self.keep_awake_group.setTitle('远程会话守护' if zh else 'Remote session guard')
         self.keep_awake_enabled_label.setText('防止自动锁屏' if zh else 'Prevent automatic lock')
         self.keep_awake_enabled.setText('启用' if zh else 'Enabled')

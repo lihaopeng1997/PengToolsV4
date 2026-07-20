@@ -96,6 +96,13 @@ class SqlToolPanel(QWidget):
         self.tabs.addTab(self._create_processing_tab(), '')
         self.tabs.addTab(self._create_config_tab(), '')
         root.addWidget(self.tabs, 1)
+        # 浮层 Loading：不进 layout，避免导出/预览时按钮与分区跳动
+        self.progress = AuroraProgress(self)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'progress'):
+            self.progress.place_overlay()
 
     def _create_release_tab(self):
         tab = QWidget()
@@ -609,9 +616,6 @@ class SqlToolPanel(QWidget):
         editor_outer.addWidget(splitter, 1)
         layout.addWidget(editor_zone, 1)
 
-        self.progress = AuroraProgress()
-        layout.addWidget(self.progress)
-
         # 4) 底部动作区
         action_zone = QFrame()
         action_zone.setObjectName('sql-action-zone')
@@ -1120,7 +1124,14 @@ class SqlToolPanel(QWidget):
         self._export_worker.start()
 
     def _on_export_completed(self, paths):
-        self._preview_package()
+        try:
+            self._preview_package()
+        except Exception:
+            # 预览失败不吞掉导出成功态；仍结束 Loading
+            pass
+        self.progress.finish(
+            f'已写出 {len(paths)} 个交付文件' if self.language == 'zh' else f'Wrote {len(paths)} delivery file(s)'
+        )
         self._set_status_label(
             self.status,
             f'已导出 {len(paths)} 个' if self.language == 'zh' else f'Exported {len(paths)}',

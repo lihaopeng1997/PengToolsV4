@@ -23,6 +23,7 @@ from tools.svn_workspace import (
     SvnError, checkout, safe_folder_name, update_working_copy, validate_svn_url, working_copy_info,
 )
 from ui.aurora_progress import AuroraProgress
+from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.field_metrics import size_compact_button, size_date, size_line
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
@@ -257,9 +258,6 @@ class DocxUpdatePanel(QWidget):
         mid.setSizes([340, 720])
         layout.addWidget(mid, 1)
 
-        self.progress = AuroraProgress()
-        layout.addWidget(self.progress)
-
         bottom = QHBoxLayout()
         self.hint = QLabel()
         self.hint.setWordWrap(True)
@@ -269,6 +267,8 @@ class DocxUpdatePanel(QWidget):
         self.update_btn.clicked.connect(self._update_document)
         bottom.addWidget(self.update_btn)
         layout.addLayout(bottom)
+        # 浮层 Loading：不进 layout，避免生成文档时底栏跳动
+        self.progress = AuroraProgress(self)
 
     @staticmethod
     def _path_row(line_edit, button):
@@ -291,6 +291,11 @@ class DocxUpdatePanel(QWidget):
             button.setProperty('compactAction', True)
             row.addWidget(button)
         return widget
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'progress'):
+            self.progress.place_overlay()
 
     def set_language(self, language):
         self.language = language
@@ -798,7 +803,7 @@ class DocxUpdatePanel(QWidget):
                 temp_path = stream.name
         except Exception as exc:
             self.log.setPlainText(str(exc))
-            QMessageBox.critical(self, 'PengTools', str(exc))
+            show_error(self, 'PengTools', str(exc))
             return
 
         self.update_btn.setEnabled(False)
@@ -820,21 +825,21 @@ class DocxUpdatePanel(QWidget):
             return
         self.sql_editor.clear()
         self._sql_paths.clear()
-        self.progress.finish('接口文档更新完成' if self.language == 'zh' else 'Interface document updated')
+        self.progress.finish('接口文档已生成' if self.language == 'zh' else 'Interface document generated')
         self.task_completed.emit()
         self._refresh_folder_docs()
         self._refresh_output_browser()
-        QMessageBox.information(
-            self, 'PengTools',
-            (f'接口文档更新完成。\n新增/修改 {len(report["changes"])} 项，跳过 {len(report["skipped"])} 项。\n\n请务必自行检查表结构、字段说明和版本记录后再提交。\n{output_path}'
+        show_success(
+            self, '接口文档更新完成' if self.language == 'zh' else 'Interface document updated',
+            (f'新增/修改 {len(report["changes"])} 项，跳过 {len(report["skipped"])} 项。\n\n请务必自行检查表结构、字段说明和版本记录后再提交。\n{output_path}'
              if self.language == 'zh' else
-             f'Interface document updated.\nChanged {len(report["changes"])} item(s), skipped {len(report["skipped"])}.\n\nPlease manually check table structures, field descriptions, and version history before submission.\n{output_path}')
+             f'Changed {len(report["changes"])} item(s), skipped {len(report["skipped"])}.\n\nPlease manually check table structures, field descriptions, and version history before submission.\n{output_path}')
         )
 
     def _on_update_failed(self, message):
         self.log.setPlainText(message)
         self.progress.fail('处理失败，请检查输入' if self.language == 'zh' else 'Processing failed; check the input')
-        QMessageBox.critical(self, 'PengTools', message)
+        show_error(self, 'PengTools', message)
 
     def _on_worker_finished(self):
         self.update_btn.setEnabled(True)

@@ -14,7 +14,7 @@ try:
     from PyQt6.QtCore import QDate, QPoint, Qt
     from PyQt6.QtGui import QIcon
     from PyQt6.QtTest import QTest
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
     from panels.sql_panel import SqlToolPanel
     from panels.credit_panel import CreditCodePanel
     from panels.docx_panel import DocxUpdatePanel
@@ -503,6 +503,36 @@ class UiRegressionTests(unittest.TestCase):
         self.assertGreater(color.red(), 220)
         self.assertGreater(color.green(), 220)
         self.assertGreater(color.blue(), 220)
+
+    def test_aurora_progress_floating_overlay_does_not_need_layout(self):
+        host = QWidget()
+        host.resize(900, 600)
+        host.show()
+        progress = AuroraProgress(host)
+        progress.start_busy('正在导出交付文件…')
+        self.app.processEvents()
+        self.assertFalse(progress.isHidden())
+        self.assertGreaterEqual(progress.x(), 24)
+        self.assertEqual(progress.parentWidget(), host)
+        # 浮层不参与 layout：完成态仅改内部状态，不依赖 addWidget
+        progress.finish('导出完成')
+        self.assertEqual(progress._value, 100)
+        host.close()
+
+    def test_requirement_finish_label_from_busy_message(self):
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在提交 SVN，请勿关闭软件……'), '提交完成')
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在扫描本地需求文件夹和 SVN 工作副本……'), '扫描完成')
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在锁定选中的 SVN 文件……'), '锁定完成')
+
+    def test_settings_close_hint_reflects_dont_ask_state(self):
+        page = SettingsPanel(dict(DEFAULT_SETTINGS))
+        page.close_ask.setChecked(False)
+        page.close_default_action.setCurrentIndex(page.close_default_action.findData('exit'))
+        page._refresh_close_behavior_hint()
+        self.assertIn('不再弹窗', page.close_behavior_hint.text())
+        page.close_ask.setChecked(True)
+        page._refresh_close_behavior_hint()
+        self.assertIn('弹出选择', page.close_behavior_hint.text())
 
 
 if __name__ == '__main__':

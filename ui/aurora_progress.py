@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""企业级浮层 Loading：视觉刷新，API 保持 start_busy / set_progress / finish / fail。
+"""企业级浮层 Loading：与布局隔离，API 保持 start_busy / set_progress / finish / fail。
 
-触发策略由调用方控制（长任务才 show），本组件不占布局、不改业务。
+使用约定：
+- 作为 parent 子控件创建（不进 layout），由 place_overlay() 居中浮于宿主上方
+- 仅长任务触发；成功 / 失败 / 异常均需 finish 或 fail
+- 标签优先写任务语义（「正在提交 SVN…」），不要只写「请稍候」
 """
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
@@ -21,12 +24,27 @@ class AuroraProgress(QWidget):
         self._timer.timeout.connect(self._tick)
         self.setFixedHeight(62)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        # 浮层默认不占布局；hide 时也不会把按钮顶上/顶下
         self.hide()
 
+    def place_overlay(self, host=None):
+        """相对宿主水平居中浮于顶部附近。不修改宿主 layout。"""
+        host = host or self.parentWidget()
+        if host is None:
+            return
+        host_w = max(host.width(), 1)
+        width = min(540, max(300, host_w - 48))
+        self.setFixedWidth(width)
+        x = max(24, (host_w - width) // 2)
+        y = 56 if host.height() >= 160 else max(12, host.height() // 8)
+        self.move(x, y)
+        self.raise_()
+
     def start_busy(self, label):
-        self._label = label
+        self._label = label or ''
         self._value = -1
         self._phase = 0
+        self.place_overlay()
         self.show()
         self.raise_()
         self._timer.start(28)
@@ -36,6 +54,7 @@ class AuroraProgress(QWidget):
         self._value = max(0, min(100, int(value)))
         if label is not None:
             self._label = label
+        self.place_overlay()
         self.show()
         self.raise_()
         if not self._timer.isActive():
@@ -43,24 +62,35 @@ class AuroraProgress(QWidget):
         self.update()
 
     def finish(self, label):
-        self._label = label
+        self._label = label or ''
         self._value = 100
+        self.place_overlay()
+        self.show()
+        self.raise_()
         self._timer.start(28)
         self.update()
         # 企业软件：成功反馈短促，减少等待
         QTimer.singleShot(1100, self._fade_out)
 
     def fail(self, label):
-        self._label = label
+        self._label = label or ''
         self._value = 0
         self._timer.stop()
+        self.place_overlay()
         self.show()
         self.raise_()
         self.update()
+        # 失败停留稍长，便于读错误语义；随后自动收起
+        QTimer.singleShot(3600, self._fade_out_failed)
 
     def _fade_out(self):
         if self._value == 100:
             self._timer.stop()
+            self.hide()
+
+    def _fade_out_failed(self):
+        # 仅在仍处于失败态时隐藏，避免盖住新的 busy/finish
+        if self._value == 0 and not self._timer.isActive():
             self.hide()
 
     def _tick(self):

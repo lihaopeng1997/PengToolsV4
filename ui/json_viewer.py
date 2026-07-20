@@ -2,7 +2,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
+    QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu,
     QHeaderView, QPlainTextEdit, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -12,6 +12,7 @@ from tools.json_viewer import (
     node_value_text, parse_json_text,
 )
 from tools.xml_formatter import format_xml_text
+from ui.confirm_dialog import show_warning
 
 
 class JsonViewer(QWidget):
@@ -194,7 +195,7 @@ class JsonViewer(QWidget):
         try:
             formatted = format_json_text(text)
         except ValueError as exc:
-            QMessageBox.warning(self, 'PengTools JSON', str(exc))
+            show_warning(self, 'PengTools JSON', str(exc))
             return False
         self.set_text(formatted, auto_format=False)
         return True
@@ -205,7 +206,7 @@ class JsonViewer(QWidget):
         try:
             formatted = format_xml_text(text)
         except ValueError as exc:
-            QMessageBox.warning(self, 'PengTools XML', str(exc))
+            show_warning(self, 'PengTools XML', str(exc))
             self.json_status.setText(str(exc))
             return False
         self.text_edit.setPlainText(formatted)

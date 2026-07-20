@@ -3,7 +3,7 @@ from PyQt6.QtCore import QStringListModel, Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+    QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
     QVBoxLayout, QWidget,
 )
 
@@ -12,7 +12,7 @@ from tools.ops_commands import (
     contains_forbidden_delete, infer_risk, load_custom_commands,
     output_guide, save_custom_commands, search_commands,
 )
-from ui.confirm_dialog import confirm_action
+from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.field_metrics import size_combo, size_line
 
 
@@ -65,10 +65,10 @@ class CustomCommandDialog(QDialog):
         zh = self.language == 'zh'
         command = self.command_edit.toPlainText().strip()
         if not self.title_edit.text().strip() or not command:
-            QMessageBox.warning(self, 'PengTools', '请填写名称和命令。' if zh else 'Enter a title and command.')
+            show_warning(self, 'PengTools', '请填写名称和命令。' if zh else 'Enter a title and command.')
             return
         if contains_forbidden_delete(command):
-            QMessageBox.critical(
+            show_error(
                 self, 'PengTools',
                 '为避免误操作，运维助手不允许新增文件删除类命令。'
                 if zh else 'File deletion commands are not allowed.'
@@ -414,15 +414,15 @@ class OpsPanel(QWidget):
             return
         if self._current_command.get('risk') == 'danger':
             zh = self.language == 'zh'
-            answer = QMessageBox.warning(
-                self, 'PengTools · ' + ('高风险确认' if zh else 'Risk confirmation'),
+            if not confirm_action(
+                self,
+                'PengTools · ' + ('高风险确认' if zh else 'Risk confirmation'),
                 ('该命令会修改服务器状态，复制不代表可以直接执行。\n\n请确认：\n1. 目标主机和对象无误；\n2. 已评估业务影响；\n3. 已获得变更授权；\n4. 已准备回滚方案。\n\n仍要复制吗？'
                  if zh else
                  'This command changes server state. Confirm the target, impact, authorization and rollback plan. Copy anyway?'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                confirm_text='仍要复制' if zh else 'Copy anyway',
+                danger=True,
+            ):
                 return
         QApplication.clipboard().setText(text)
 
