@@ -1,5 +1,6 @@
-/* PengTools V4.27 · young professional workspace (UI redesign r1) */
+/* PengTools V4.27 · young professional workspace (UI redesign r1+r2) */
 /* 侧栏深靛 + 内容雾灰紫；分区用色块/左边线对比，整体仍统一 */
+/* r2: SQL 整理四区、需求顶栏主次组、module-tabs / status_bar 壳层 */
 QWidget {
     color: #1A2438;
     font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
@@ -390,6 +391,28 @@ QFrame#req-toolbar-card {
         stop:0 #FFFFFF, stop:1 #F4F7FF);
     border-left: 3px solid #5B73FF;
 }
+/* 需求顶栏：主流程（扫描/检出/更新/新建）与次流程（缺陷/导入/配置） */
+QFrame#req-toolbar-primary {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #EEF2FF, stop:1 #F7F9FF);
+    border: 1px solid #C9D4F5;
+    border-left: 3px solid #5B73FF;
+    border-radius: 10px;
+}
+QFrame#req-toolbar-secondary {
+    background: #F7F8FC;
+    border: 1px solid #E0E5F0;
+    border-radius: 10px;
+}
+QFrame#req-toolbar-secondary QPushButton {
+    color: #4A5872;
+    background: #FFFFFF;
+}
+QFrame#req-toolbar-secondary QPushButton:hover {
+    color: #354FC8;
+    border-color: #A9B5EC;
+    background: #F4F7FF;
+}
 QFrame#req-filter-card {
     background: #F5F7FC;
     border-style: solid;
@@ -605,6 +628,55 @@ QFrame#release-generate-zone {
     border: 1px solid #B7E5CB;
     border-left: 3px solid #2A9B72;
     border-radius: 12px;
+}
+/* SQL 整理：工具 / 交付 / 编辑 / 动作 — 与升级准备同级分区语言 */
+QFrame#sql-tool-zone {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #FFFFFF, stop:1 #F3F6FF);
+    border: 1px solid #CDD8F0;
+    border-left: 3px solid #5B73FF;
+    border-radius: 12px;
+}
+QFrame#sql-delivery-zone {
+    background: #FFFFFF;
+    border: 1px solid #D5DEF0;
+    border-left: 3px solid #7C8FF5;
+    border-radius: 12px;
+}
+QFrame#sql-editor-zone {
+    background: #FFFFFF;
+    border: 1px solid #C8D2E4;
+    border-radius: 12px;
+    border-top: 2px solid #64748B;
+}
+QFrame#sql-action-zone {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ECFBF4, stop:0.45 #F7FFFB, stop:1 #FFFFFF);
+    border: 1px solid #B7E5CB;
+    border-left: 3px solid #2A9B72;
+    border-radius: 12px;
+}
+QFrame#sql-tool-zone QLabel#zone-title { border-left-color: #5B73FF; color: #1A2A6B; }
+QFrame#sql-delivery-zone QLabel#zone-title { border-left-color: #7C8FF5; color: #243A78; }
+QFrame#sql-editor-zone QLabel#zone-title { border-left-color: #64748B; color: #1E293B; }
+QFrame#sql-action-zone QLabel#zone-title-inline { border-left-color: #2A9B72; color: #145C42; }
+QPlainTextEdit#sql-input-editor {
+    background: #FBFCFE;
+    border: 1px solid #D0D8EA;
+    border-radius: 10px;
+    padding: 8px;
+    selection-background-color: #C9D2FF;
+}
+QSplitter#sql-editor-splitter::handle:horizontal {
+    width: 8px;
+    margin: 6px 2px;
+    background: #E1E6FF;
+    border: 1px solid #C7D0F5;
+    border-radius: 4px;
+}
+QSplitter#sql-editor-splitter::handle:horizontal:hover {
+    background: #BFC9FA;
+    border-color: #8799ED;
 }
 QLineEdit#release-readonly {
     background: #F7F9FC;
@@ -867,10 +939,36 @@ QTabWidget::pane {
     padding: 4px;
 }
 QTabWidget#module-tabs::pane {
-    background: #FFFFFF;
-    border: 1px solid #DCE3F0;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #FFFFFF, stop:1 #F7F9FD);
+    border: 1px solid #D0D9EC;
     border-radius: 12px;
     margin-top: 2px;
+    padding: 6px;
+}
+QTabWidget#module-tabs QTabBar::tab {
+    background: transparent;
+    color: #5F6E88;
+    padding: 10px 18px;
+    margin-right: 3px;
+    min-width: 80px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    font-weight: 600;
+}
+QTabWidget#module-tabs QTabBar::tab:hover {
+    color: #354FC8;
+    background: #F0F3FF;
+    border-color: #E0E6F8;
+}
+QTabWidget#module-tabs QTabBar::tab:selected {
+    color: #243A91;
+    font-weight: 800;
+    background: #FFFFFF;
+    border: 1px solid #D0D9EC;
+    border-bottom: 2px solid #5B73FF;
 }
 QTabBar::tab {
     background: transparent;
@@ -898,8 +996,21 @@ QTabBar QToolButton {
 QScrollBar:vertical { background: transparent; width: 9px; }
 QScrollBar::handle:vertical { background: #CFD6E2; border-radius: 4px; min-height: 25px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-#status_bar { background: #FFFFFF; color: #788499; border-top: 1px solid #E5EAF2; }
-#clock-label { color: #8B96A8; padding-right: 8px; }
+#status_bar {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #FFFFFF, stop:1 #F4F6FB);
+    color: #5F6E88;
+    border-top: 1px solid #D8DEEA;
+    min-height: 26px;
+    padding-left: 8px;
+    font-weight: 550;
+}
+#clock-label {
+    color: #6B7A94;
+    padding-right: 10px;
+    font-weight: 650;
+    letter-spacing: 0.3px;
+}
 #page-title { color: #172033; font-size: 28px; font-weight: 700; }
 #page-subtitle { color: #788499; font-size: 13px; }
 #offline-pill { color: #188B62; background: #E9F8F1; border: 1px solid #CDEEDF; border-radius: 12px; padding: 7px 12px; font-weight: 700; }
