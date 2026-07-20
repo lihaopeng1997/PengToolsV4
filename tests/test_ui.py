@@ -1,0 +1,483 @@
+# -*- coding: utf-8 -*-
+import os
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_DIR)
+
+try:
+    from PyQt6.QtCore import QDate, QPoint, Qt
+    from PyQt6.QtGui import QIcon
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from panels.sql_panel import SqlToolPanel
+    from panels.credit_panel import CreditCodePanel
+    from panels.docx_panel import DocxUpdatePanel
+    from panels.gateway_panel import GatewayDecodePanel
+    from panels.ops_panel import OpsPanel
+    from panels.settings_panel import SettingsPanel
+    from panels.personal_panel import PersonalPanel
+    from panels.requirement_panel import RequirementAttachmentDialog, RequirementPanel
+    from main_window import MainWindow
+    from ui.tray_service import TrayService
+    from config import DEFAULT_SETTINGS
+    from ui.quick_panel import QuickPanel
+    from ui.aurora_progress import AuroraProgress
+    from ui.keep_awake_service import KeepAwakeService
+    QT_AVAILABLE = True
+except ImportError:
+    QT_AVAILABLE = False
+
+
+class _MainWindowStub:
+    def showNormal(self):
+        pass
+
+    def raise_(self):
+        pass
+
+    def activateWindow(self):
+        pass
+
+    def navigate_to(self, _index):
+        pass
+
+
+class _CallRecorder:
+    def __init__(self):
+        self.called = False
+        self.ignored = False
+        self.minimized = False
+        self.hidden = False
+
+    def unregister(self):
+        self.called = True
+
+    def close(self):
+        self.called = True
+
+    def hide(self):
+        self.called = True
+        self.hidden = True
+
+    def accept(self):
+        self.called = True
+
+    def ignore(self):
+        self.ignored = True
+
+    def showMinimized(self):
+        self.minimized = True
+
+    def exit_application(self):
+        self.called = True
+
+
+@unittest.skipUnless(QT_AVAILABLE, 'PyQt6 is not installed in this Python runtime')
+class UiRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_floating_toolbar_restores_position_and_can_hide(self):
+        panel = QuickPanel(_MainWindowStub())
+        panel.show()
+        target = QPoint(320, 240)
+        panel.move(target)
+        panel._compact_position = QPoint(target)
+        anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
+        for _ in range(10):
+            panel.toggle_expanded()
+            self.assertTrue(panel.expanded)
+            QTest.qWait(100)
+            self.app.processEvents()
+            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
+            panel.toggle_expanded()
+            QTest.qWait(20)
+            self.app.processEvents()
+            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
+        self.assertFalse(panel.expanded)
+        self.assertEqual(panel.pos(), target)
+        panel.close_toolbar()
+        self.assertTrue(panel.isHidden())
+        panel.show_panel()
+        self.assertFalse(panel.isHidden())
+        panel.close()
+
+    def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
+        window = MainWindow()
+        try:
+            self.assertTrue(all(button.isHidden() for button in window.nav_buttons[8:]))
+            sidebar_layout = window.settings_button.parentWidget().layout()
+            self.assertGreater(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.nav_buttons[10]))
+            self.assertLess(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.author_label))
+            with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
+                self.assertTrue(window._unlock_private_tools())
+            self.assertTrue(all(not button.isHidden() for button in window.nav_buttons[8:]))
+            self.assertEqual(window._current_nav_index, 8)
+            self.assertIs(window.stack.currentWidget(), window.personal_panel)
+        finally:
+            window.hotkey_service.unregister()
+            window.quick_panel.close_toolbar()
+            window.tray_service.hide()
+            window.keep_awake_service.stop()
+            window.hide()
+            window.deleteLater()
+
+    def test_requirement_sql_and_daily_link_targets_exist(self):
+        personal = PersonalPanel()
+        requirement = RequirementPanel()
+        self.assertEqual(personal.stack.count(), 2)
+        self.assertTrue(hasattr(requirement, 'send_to_sql'))
+        self.assertTrue(hasattr(requirement, 'send_to_docx'))
+        self.assertTrue(hasattr(requirement, 'add_to_daily'))
+        self.assertEqual(requirement.kind_filter.count(), 3)
+        self.assertEqual(requirement.scan_btn.text(), '扫描需求文件夹')
+        self.assertEqual(requirement.checkout_btn.text(), '粘贴 SVN 路径')
+        self.assertEqual(requirement.update_all_btn.text(), '一键更新全部 SVN')
+        self.assertEqual(requirement.file_tree.columnCount(), 2)
+
+    def test_main_window_close_event_exits_all_auxiliary_services(self):
+        fake_window = type('FakeMainWindow', (), {})()
+        fake_window._settings = {'close_ask_each_time': False, 'close_default_action': 'exit'}
+        fake_window._force_exit = False
+        fake_window._shutting_down = False
+        fake_window.hotkey_service = _CallRecorder()
+        fake_window.quick_panel = _CallRecorder()
+        fake_window.tray_service = _CallRecorder()
+        fake_window._shutdown = lambda event: MainWindow._shutdown(fake_window, event)
+        event = _CallRecorder()
+        MainWindow.closeEvent(fake_window, event)
+        self.assertTrue(fake_window.hotkey_service.called)
+        self.assertTrue(fake_window.quick_panel.called)
+        self.assertTrue(fake_window.tray_service.called)
+        self.assertTrue(event.called)
+
+    def test_main_window_close_can_hide_from_taskbar_without_stopping_services(self):
+        fake_window = type('FakeMainWindow', (), {})()
+        fake_window._settings = {'close_ask_each_time': False, 'close_default_action': 'minimize'}
+        fake_window._force_exit = False
+        fake_window.hotkey_service = _CallRecorder()
+        fake_window.quick_panel = _CallRecorder()
+        fake_window.tray_service = _CallRecorder()
+        hidden = _CallRecorder()
+        fake_window.hide = hidden.hide
+        event = _CallRecorder()
+        MainWindow.closeEvent(fake_window, event)
+        self.assertTrue(event.ignored)
+        self.assertTrue(hidden.hidden)
+        self.assertFalse(fake_window.hotkey_service.called)
+        self.assertFalse(fake_window.quick_panel.called)
+        self.assertFalse(fake_window.tray_service.called)
+
+    def test_close_prompt_uses_configured_default_button(self):
+        fake_window = type('FakeMainWindow', (), {
+            'language': 'zh',
+            '_settings': {'close_default_action': 'exit'},
+        })()
+        with patch('main_window.ask_close_action', return_value='exit') as ask:
+            self.assertEqual(MainWindow._ask_close_action(fake_window), 'exit')
+            ask.assert_called_once_with(fake_window, language='zh', default_action='exit')
+
+    def test_tray_quit_uses_main_window_close_path(self):
+        main_window = _CallRecorder()
+        tray = type('FakeTray', (), {'_main_window': main_window})()
+        TrayService.quit_app(tray)
+        self.assertTrue(main_window.called)
+
+    def test_expanded_drag_anchor_becomes_compact_position(self):
+        panel = QuickPanel(_MainWindowStub())
+        panel.show()
+        panel.move(420, 260)
+        panel._compact_position = QPoint(420, 260)
+        panel.toggle_expanded()
+        panel.move(panel.pos() + QPoint(-35, 25))
+        moved_anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
+        panel._compact_position = moved_anchor - QPoint(panel.BUTTON_MARGIN, panel.BUTTON_MARGIN)
+        panel.toggle_expanded()
+        QTest.qWait(100)
+        self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), moved_anchor)
+        panel.close()
+
+    def test_sql_system_selector_belongs_to_configuration_tab(self):
+        panel = SqlToolPanel()
+        config_tab = panel.tabs.widget(1)
+        ancestor = panel.system_combo.parentWidget()
+        while ancestor is not None and ancestor is not config_tab:
+            ancestor = ancestor.parentWidget()
+        self.assertIs(ancestor, config_tab)
+        self.assertIn('当前配置系统', panel.current_system_label.text())
+
+    def test_document_panel_separates_personal_and_unit_generation(self):
+        panel = CreditCodePanel()
+        self.assertEqual(panel.category_tabs.count(), 2)
+        self.assertEqual(panel.personal_type.count(), 4)
+        for index in range(panel.personal_type.count()):
+            panel.personal_type.setCurrentIndex(index)
+            panel.personal_qty.setText('10')
+            panel._generate_personal()
+            self.assertEqual(len(panel._results), 10)
+            self.assertNotEqual(panel._results[0][1], 'credit_code')
+        panel.category_tabs.setCurrentIndex(1)
+        panel.unit_qty.setText('10')
+        panel._generate_unit()
+        self.assertEqual(len(panel._results), 10)
+        self.assertTrue(all(item[1] == 'credit_code' for item in panel._results))
+        panel._copy_all()
+        self.assertIn('统一社会信用代码', QApplication.clipboard().text())
+
+    def test_resident_id_custom_region_age_and_gender_controls(self):
+        panel = CreditCodePanel()
+        panel.personal_type.setCurrentIndex(panel.personal_type.findData('resident_id'))
+        panel.personal_mode.setCurrentIndex(1)
+        panel.id_province.setCurrentIndex(panel.id_province.findData('44'))
+        panel.id_city.setCurrentIndex(panel.id_city.findData('4403'))
+        panel.id_district.setCurrentIndex(panel.id_district.findData('440304'))
+        panel.id_min_age.setValue(28)
+        panel.id_max_age.setValue(28)
+        panel.id_gender.setCurrentIndex(panel.id_gender.findData('male'))
+        panel.personal_qty.setText('20')
+        panel._generate_personal()
+        self.assertFalse(panel.id_custom.isHidden())
+        self.assertEqual(len(panel._results), 20)
+        self.assertTrue(all(item[2].startswith('440304') for item in panel._results))
+        self.assertTrue(all(int(item[2][16]) % 2 == 1 for item in panel._results))
+
+    def test_sql_switch_keeps_unsaved_form_edits(self):
+        panel = SqlToolPanel()
+        if len(panel._systems) < 2:
+            panel._add_system()
+        panel.name_box.setText('临时系统名称')
+        panel.system_combo.setCurrentIndex(1)
+        self.assertEqual(panel._systems[0]['name'], '临时系统名称')
+
+    def test_sql_panel_loads_multiple_files_appends_pastes_and_confirms_mixed_sources(self):
+        panel = SqlToolPanel()
+        with tempfile.TemporaryDirectory() as folder:
+            first = os.path.join(folder, '01.sql')
+            second = os.path.join(folder, '02.sql')
+            for path in (first, second):
+                with open(path, 'w', encoding='utf-8') as stream:
+                    stream.write('CREATE TABLE T_MULTI(ID NUMBER);')
+            with patch('panels.sql_panel.QFileDialog.getOpenFileNames', return_value=([first, second], '')):
+                panel._load_file()
+        self.assertTrue(panel._has_file_input)
+        self.assertIn('01.sql', panel.input_sql.toPlainText())
+        self.assertIn('02.sql', panel.input_sql.toPlainText())
+
+        QApplication.clipboard().setText('INSERT INTO T_MULTI(ID) VALUES (1);')
+        with patch('panels.sql_panel.confirm_action', return_value=True) as confirm:
+            panel._paste_sql()
+        confirm.assert_called_once()
+        QApplication.clipboard().setText('UPDATE T_MULTI SET ID=2 WHERE ID=1;')
+        panel._paste_sql()
+        unique, duplicates = panel._prepared_sql()
+        self.assertTrue(panel._has_paste_input)
+        self.assertEqual(len(duplicates), 1)
+        self.assertIn('INSERT INTO T_MULTI', unique)
+        self.assertIn('UPDATE T_MULTI', unique)
+
+    def test_packaged_icon_resource_is_valid(self):
+        icon = QIcon(os.path.join(PROJECT_DIR, 'resources', 'app.ico'))
+        self.assertFalse(icon.isNull())
+
+    def test_gateway_panel_and_docx_date_are_available(self):
+        gateway = GatewayDecodePanel()
+        docx = DocxUpdatePanel()
+        self.assertEqual(gateway.environment.count(), 3)
+        self.assertTrue(docx.update_date.calendarPopup())
+        self.assertEqual(docx.update_date.objectName(), 'docx-date')
+        docx.update_date.setDate(QDate(2030, 5, 20))
+        docx.today_btn.click()
+        self.assertEqual(docx.update_date.date(), QDate.currentDate())
+
+    def test_docx_filename_shows_matched_latest_template(self):
+        panel = DocxUpdatePanel()
+        panel.docx_path.setText('接报案数据库表结构文档V1.0_整理后接口文档.docx')
+        self.assertIsNotNone(panel._template_profile)
+        self.assertEqual(panel._template_profile['system'], '接报案')
+        self.assertIn('V2.0.docx', panel.template_status.text())
+        self.assertIn('标准 4 列', panel.template_status.text())
+        self.assertTrue(panel.template_status.property('matched'))
+        panel.docx_path.setText('未知系统数据库表结构说明文档.docx')
+        self.assertIsNone(panel._template_profile)
+        self.assertFalse(panel.template_status.property('matched'))
+
+    def test_gateway_json_tree_search_and_copy(self):
+        gateway = GatewayDecodePanel()
+        viewer = gateway.json_viewer
+        self.assertTrue(viewer.set_text('{"data":{"users":[{"name":"Lihp"}]}}'))
+        self.assertIn('\n', viewer.plain_text())
+        viewer.search_edit.setText('Lihp')
+        self.assertEqual(len(viewer._matches), 1)
+        self.assertEqual(viewer.path_value.text(), '$.data.users[0].name')
+        item = viewer._matches[0]
+        viewer._copy_item_value(item)
+        self.assertEqual(QApplication.clipboard().text(), 'Lihp')
+
+    def test_operations_panel_fuzzy_search_and_builtin_protection(self):
+        panel = OpsPanel()
+        panel.search_edit.setText('ps -ef')
+        self.assertGreater(panel.command_list.count(), 0)
+        command = panel.command_list.item(0).data(Qt.ItemDataRole.UserRole)
+        self.assertEqual(command['command'], 'ps -ef')
+        self.assertTrue(command['builtin'])
+        self.assertTrue(panel.delete_btn.isHidden())
+        self.assertIn('所有进程', panel.description.text())
+        self.assertIn('PPID', panel.output_explanation.text())
+
+    def test_learning_workbook_uses_table_and_realtime_row_filter(self):
+        owner = PersonalPanel()
+        panel = owner.knowledge_tab
+        entry = {
+            'id': 'table-test', 'title': '测试 Excel · 内网', 'category': 'server',
+            'content_type': 'workbook_sheet', 'content': '', 'source': '测试.xlsx',
+            'sheet_name': '内网', 'rows': [['编号', '主机'], ['1', 'alpha'], ['2', 'beta']],
+            'row_count': 3, 'column_count': 2, 'column_widths': [8, 20],
+            'header_rows': [0], 'cell_styles': {}, 'builtin': True,
+        }
+        panel._seed_entries = [entry]
+        panel._custom_entries = []
+        panel._refresh()
+        self.assertEqual(panel.table_view.rowCount(), 3)
+        self.assertEqual(panel.table_view.horizontalHeaderItem(0).text(), 'A')
+        panel.search_edit.setText('beta')
+        self.assertTrue(panel.table_view.isRowHidden(1))
+        self.assertFalse(panel.table_view.isRowHidden(2))
+        self.assertGreater(panel._suggestion_model.rowCount(), 0)
+        suggestion = panel._suggestion_model.stringList()[0]
+        panel.search_edit.blockSignals(True)
+        panel.search_edit.setText(suggestion)
+        panel.search_edit.blockSignals(False)
+        panel._activate_suggestion(suggestion)
+        self.assertEqual(panel.search_edit.text(), 'beta')
+        self.assertEqual(panel.table_view.currentRow(), 2)
+
+    def test_learning_excel_copy_hide_restore_and_builtin_override(self):
+        owner = PersonalPanel(); panel = owner.knowledge_tab
+        entry = {
+            'id': 'seed-table', 'title': '内置 Excel', 'category': 'server', 'file_type': 'EXCEL',
+            'content_type': 'workbook_sheet', 'content': '', 'source': '内置.xlsx', 'sheet_name': 'Sheet1',
+            'rows': [['编号', '值'], ['1', 'alpha'], ['2', 'beta']], 'row_count': 3, 'column_count': 2,
+            'column_widths': [8, 20], 'header_rows': [0], 'cell_styles': {}, 'builtin': True,
+        }
+        panel._seed_entries = [entry]; panel._custom_entries = []; panel._refresh()
+        panel.table_view.selectRow(1); panel._copy_current_row()
+        self.assertEqual(QApplication.clipboard().text(), '1\talpha')
+        panel._hide_selected_rows(); self.assertTrue(panel.table_view.isRowHidden(1))
+        panel._copy_visible_table(); self.assertNotIn('alpha', QApplication.clipboard().text())
+        panel._restore_hidden_table(); self.assertFalse(panel.table_view.isRowHidden(1))
+        updated = dict(entry); updated['rows'] = [['编号', '值'], ['1', 'changed']]
+        with patch('panels.personal_panel.save_custom_entries'):
+            panel._persist_updated_entry(updated)
+        self.assertTrue(panel.all_entries()[0]['builtin_source'])
+        self.assertEqual(panel.all_entries()[0]['rows'][1][1], 'changed')
+
+    def test_requirement_attachment_excel_editor_and_type_label(self):
+        entry = {
+            'name': '需求.xlsx', 'file_type': 'EXCEL', 'content_type': 'workbook_sheet',
+            'sheet_name': '需求', 'rows': [['编号', '说明'], ['1', 'alpha'], ['2', 'beta']],
+            'row_count': 3, 'column_count': 2, 'column_widths': [8, 20], 'header_rows': [0], 'cell_styles': {},
+        }
+        dialog = RequirementAttachmentDialog(entry)
+        dialog.search.setText('beta')
+        self.assertTrue(dialog.table.isRowHidden(1))
+        self.assertEqual(dialog.table.currentRow(), 2)
+        dialog.table.selectRow(2); dialog._copy_row()
+        self.assertEqual(QApplication.clipboard().text(), '2\tbeta')
+
+    def test_operations_copy_feedback_resets_and_switching_resets_immediately(self):
+        panel = OpsPanel()
+        panel.search_edit.setText('ps -ef')
+        panel.copy_btn.click()
+        self.assertEqual(panel.copy_btn.text(), '已复制')
+        QTest.qWait(1600)
+        self.assertEqual(panel.copy_btn.text(), '复制命令')
+        panel.copy_btn.click()
+        self.assertEqual(panel.copy_btn.text(), '已复制')
+        panel.search_edit.setText('uptime')
+        self.assertEqual(panel.copy_btn.text(), '复制命令')
+
+    def test_settings_panel_values_and_floating_preferences(self):
+        settings = dict(
+            DEFAULT_SETTINGS, font_size=15, floating_opacity=72,
+            copy_feedback_ms=2000, close_ask_each_time=False,
+            close_default_action='exit', keep_awake_enabled=True,
+            keep_awake_interval_minutes=4,
+        )
+        page = SettingsPanel(settings)
+        self.assertEqual(page.values()['font_size'], 15)
+        self.assertEqual(page.values()['floating_opacity'], 72)
+        self.assertEqual(page.values()['copy_feedback_ms'], 2000)
+        self.assertFalse(page.values()['close_ask_each_time'])
+        self.assertEqual(page.values()['close_default_action'], 'exit')
+        self.assertTrue(page.values()['keep_awake_enabled'])
+        self.assertEqual(page.values()['keep_awake_interval_minutes'], 4)
+        self.assertTrue(page.keep_awake_group.isHidden())
+        previews = []
+        page.floating_opacity_preview.connect(previews.append)
+        page.opacity.setValue(61)
+        self.assertEqual(previews, [61])
+        panel = QuickPanel(_MainWindowStub())
+        panel.apply_preferences(72, False)
+        self.assertAlmostEqual(panel.windowOpacity(), 0.72, places=2)
+        self.assertFalse(bool(panel.windowFlags() & Qt.WindowType.WindowStaysOnTopHint))
+        panel.show()
+        panel.apply_preferences(55, True)
+        QTest.qWait(30)
+        self.assertAlmostEqual(panel.windowOpacity(), 0.55, places=2)
+        panel.apply_preferences(55, False)
+        QTest.qWait(30)
+        self.assertAlmostEqual(panel.windowOpacity(), 0.55, places=2)
+        panel.reset_position()
+        self.assertFalse(panel.isHidden())
+        panel.close()
+
+    def test_keep_awake_secret_requires_key_and_service_applies_interval(self):
+        page = SettingsPanel(DEFAULT_SETTINGS)
+        with patch('panels.settings_panel.QInputDialog.getText', return_value=('Lihp', True)):
+            page._unlock_keep_awake()
+        self.assertFalse(page.keep_awake_group.isHidden())
+        page.resize(900, 600)
+        page.show()
+        self.app.processEvents()
+        self.assertTrue(page.keep_awake_note.isVisible())
+        self.assertGreaterEqual(page.keep_awake_note.height(), 42)
+        self.assertGreater(page.scroll_area.verticalScrollBar().maximum(), 0)
+        page.close()
+
+        pulses = []
+        service = KeepAwakeService(pulse=lambda: pulses.append(True))
+        service.apply_preferences(True, 7)
+        self.assertTrue(service.is_active())
+        self.assertEqual(service.interval_minutes(), 7)
+        self.assertEqual(pulses, [True])
+        service.apply_preferences(False, 7)
+        self.assertFalse(service.is_active())
+
+    def test_global_stylesheet_keeps_plain_text_background_transparent(self):
+        with open(os.path.join(PROJECT_DIR, 'resources', 'style.qss'), encoding='utf-8') as stream:
+            stylesheet = stream.read()
+        widget_rule = stylesheet.split('QWidget {', 1)[1].split('}', 1)[0]
+        self.assertNotIn('background:', widget_rule)
+        self.assertIn('QLabel, QCheckBox, QRadioButton { background: transparent; }', stylesheet)
+
+    def test_aurora_progress_uses_light_card_background(self):
+        progress = AuroraProgress()
+        progress.resize(600, 54)
+        progress.set_progress(50, 'Processing')
+        self.app.processEvents()
+        image = progress.grab().toImage()
+        color = image.pixelColor(8, 8)
+        self.assertGreater(color.red(), 230)
+        self.assertGreater(color.green(), 230)
+        self.assertGreater(color.blue(), 230)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,117 @@
+# -*- coding: utf-8 -*-
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+
+
+class ToolCard(QFrame):
+    clicked = pyqtSignal()
+
+    def __init__(self, number, accent):
+        super().__init__()
+        self.setObjectName('tool-card')
+        self.setProperty('accent', accent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(9)
+        self.eyebrow = QLabel(number)
+        self.eyebrow.setObjectName('card-eyebrow')
+        self.title = QLabel()
+        self.title.setObjectName('card-title')
+        self.description = QLabel()
+        self.description.setObjectName('card-description')
+        self.description.setWordWrap(True)
+        self.button = QPushButton()
+        self.button.setObjectName('card-action')
+        self.button.clicked.connect(self.clicked.emit)
+        layout.addWidget(self.eyebrow)
+        layout.addWidget(self.title)
+        layout.addWidget(self.description)
+        layout.addStretch()
+        layout.addWidget(self.button)
+
+    def set_copy(self, title, description, action):
+        self.title.setText(title)
+        self.description.setText(description)
+        self.button.setText(action)
+
+
+class DashboardPanel(QWidget):
+    open_credit = pyqtSignal()
+    open_sql = pyqtSignal()
+    open_docx = pyqtSignal()
+    open_vin = pyqtSignal()
+    open_gateway = pyqtSignal()
+    open_ops = pyqtSignal()
+
+    def __init__(self, language='zh'):
+        super().__init__()
+        self.language = language
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(18)
+        top = QHBoxLayout()
+        headings = QVBoxLayout()
+        self.title = QLabel()
+        self.title.setObjectName('page-title')
+        self.subtitle = QLabel()
+        self.subtitle.setObjectName('page-subtitle')
+        headings.addWidget(self.title)
+        headings.addWidget(self.subtitle)
+        top.addLayout(headings)
+        top.addStretch()
+        self.offline = QLabel()
+        self.offline.setObjectName('offline-pill')
+        top.addWidget(self.offline)
+        layout.addLayout(top)
+
+        cards = QGridLayout()
+        cards.setSpacing(16)
+        self.credit = ToolCard('01  DATA MOCK', 'blue')
+        self.sql = ToolCard('02  DATABASE', 'violet')
+        self.docx = ToolCard('03  DOCUMENT', 'green')
+        self.vin = ToolCard('04  VEHICLE', 'orange')
+        self.gateway = ToolCard('05  CRYPTO', 'violet')
+        self.ops = ToolCard('06  OPERATIONS', 'blue')
+        self.credit.clicked.connect(self.open_credit.emit)
+        self.sql.clicked.connect(self.open_sql.emit)
+        self.docx.clicked.connect(self.open_docx.emit)
+        self.vin.clicked.connect(self.open_vin.emit)
+        self.gateway.clicked.connect(self.open_gateway.emit)
+        self.ops.clicked.connect(self.open_ops.emit)
+        cards.addWidget(self.credit, 0, 0)
+        cards.addWidget(self.sql, 0, 1)
+        cards.addWidget(self.docx, 1, 0)
+        cards.addWidget(self.vin, 1, 1)
+        cards.addWidget(self.gateway, 2, 0)
+        cards.addWidget(self.ops, 2, 1)
+        layout.addLayout(cards)
+        self.hint = QLabel()
+        self.hint.setObjectName('shortcut-hint')
+        self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.hint)
+        self.set_language(language)
+
+    def set_language(self, language):
+        self.language = language
+        if language == 'zh':
+            self.title.setText('开发工具工作台')
+            self.subtitle.setText('常用数据、数据库与文档工具集中处理 · 文件仅保留在本机')
+            self.offline.setText('●  离线可用')
+            self.credit.set_copy('证件类型模拟生成', '身份证可按省市区、年龄和性别定向生成；同时支持其他个人及单位证件。', '生成证件数据')
+            self.sql.set_copy('升级准备', '选择升级日期和需求 / BUG，一键生成发版清单、升级 SQL、回滚及验证脚本。', '准备升级材料')
+            self.docx.set_copy('接口文档更新', '选择文件夹或 SVN 拉取接口文档，再用 SQL 更新表结构与字段说明。', '更新接口文档')
+            self.vin.set_copy('中国车辆 VIN', '按 GB 16735 规则，一键生成并自动填充 10 条测试数据。', '生成 VIN')
+            self.gateway.set_copy('网关国密解密', '兼容 gatewayDecode.html，在本机完成 SM2 + SM4 请求/响应解密。', '打开解密工具')
+            self.ops.set_copy('Linux 运维命令助手', '按日志、状态、网络、容器等场景搜索并安全生成运维命令。', '查找运维命令')
+            self.hint.setText('Ctrl + Shift + P  随时展开桌面右侧悬浮工具栏')
+        else:
+            self.title.setText('Developer utility workspace')
+            self.subtitle.setText('Data, database and document tools in one place · local-only processing')
+            self.offline.setText('●  OFFLINE READY')
+            self.credit.set_copy('Document Test Data', 'Generate resident IDs by region, age and gender, plus other personal and unit documents.', 'Generate documents')
+            self.sql.set_copy('SQL Script Processing', 'Organize DDL/DML for SVN and generate upgrade, rollback and standalone verification scripts.', 'Process SQL')
+            self.docx.set_copy('Interface Document Updater', 'Pick a folder or checkout SVN docs, then update structures with SQL.', 'Update document')
+            self.vin.set_copy('China Vehicle VIN', 'Generate and fill 10 test VINs using the GB 16735 check digit.', 'Generate VINs')
+            self.gateway.set_copy('Gateway Crypto Decode', 'Compatible with gatewayDecode.html for local SM2 + SM4 request/response decryption.', 'Open decoder')
+            self.ops.set_copy('Linux Operations Assistant', 'Search and safely generate commands for logs, status, network, containers and more.', 'Find commands')
+            self.hint.setText('Ctrl + Shift + P  Expand the floating toolbar at any time')

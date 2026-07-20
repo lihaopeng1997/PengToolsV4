@@ -1,0 +1,17 @@
+data/
+dist/
+build/
+Installer/
+PrivateInstaller/
+.codegraph/
+.codex_work/
+__pycache__/
+panels/__pycache__/
+tools/__pycache__/
+ui/__pycache__/
+tests/__pycache__/
+*.pyc
+*.pyo
+*.log
+*.pid
+*.zip
