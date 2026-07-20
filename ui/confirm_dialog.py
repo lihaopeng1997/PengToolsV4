@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.design_system import apply_button
+from ui.icons import make_badge_label, apply_icon
 
 
 class ConfirmActionDialog(QDialog):
@@ -35,10 +36,7 @@ class ConfirmActionDialog(QDialog):
 
         header = QHBoxLayout()
         header.setSpacing(12)
-        badge = QLabel('!' if danger else '?')
-        badge.setObjectName('notice-badge-warning' if danger else 'notice-badge-info')
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setFixedSize(40, 40)
+        badge = make_badge_label('danger' if danger else 'info', size=40, icon_size=22)
         header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
         title_wrap = QVBoxLayout()
         title_wrap.setSpacing(4)
@@ -75,7 +73,13 @@ class ConfirmActionDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
         self.confirm_button = QPushButton(confirm_text)
-        apply_button(self.confirm_button, 'danger' if danger else 'primary', compact=False)
+        apply_button(
+            self.confirm_button,
+            'danger' if danger else 'primary',
+            compact=False,
+            icon='delete' if danger else None,
+            icon_size=16,
+        )
         if danger:
             self.confirm_button.setObjectName('btn-danger')
         else:
@@ -94,7 +98,7 @@ class _CloseOptionCard(QFrame):
 
     clicked = pyqtSignal()
 
-    def __init__(self, badge_text, title_text, tip_text, object_name, parent=None):
+    def __init__(self, icon_role, title_text, tip_text, object_name, parent=None):
         super().__init__(parent)
         self.setObjectName(object_name)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -103,10 +107,14 @@ class _CloseOptionCard(QFrame):
         layout.setContentsMargins(14, 14, 16, 14)
         layout.setSpacing(12)
 
-        badge = QLabel(badge_text)
+        badge = QLabel()
         badge.setObjectName('close-option-badge')
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(36, 36)
+        from ui.icons import icon_pixmap
+        pix = icon_pixmap(icon_role, 20)
+        if not pix.isNull():
+            badge.setPixmap(pix)
         layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
 
         text_col = QVBoxLayout()
@@ -154,10 +162,7 @@ class CloseActionDialog(QDialog):
         # —— 决策标题 ——
         header = QHBoxLayout()
         header.setSpacing(14)
-        badge = QLabel('⏻')
-        badge.setObjectName('notice-badge-info')
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setFixedSize(44, 44)
+        badge = make_badge_label('info', size=44, icon_size=24)
         header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
 
         title_wrap = QVBoxLayout()
@@ -176,9 +181,9 @@ class CloseActionDialog(QDialog):
         header.addLayout(title_wrap, 1)
         root.addLayout(header)
 
-        # —— 两种明确后果 ——
+        # —— 两种明确后果（本地 SVG，无 Emoji）——
         self.minimize_button = _CloseOptionCard(
-            '◉',
+            'settings',
             '隐藏到系统托盘' if zh else 'Hide to system tray',
             '主窗口离开任务栏，托盘图标可随时恢复。悬浮栏、快捷键与后台服务继续可用。'
             if zh else
@@ -189,7 +194,7 @@ class CloseActionDialog(QDialog):
         root.addWidget(self.minimize_button)
 
         self.exit_button = _CloseOptionCard(
-            '✕',
+            'error',
             '退出软件' if zh else 'Exit application',
             '结束主窗口、悬浮栏、托盘与全部后台服务，进程完全退出。未保存的面板状态将丢失。'
             if zh else
@@ -267,10 +272,7 @@ class AppNoticeDialog(QDialog):
 
         header = QHBoxLayout()
         header.setSpacing(12)
-        badge = QLabel(self._badge_text(kind))
-        badge.setObjectName(f'notice-badge-{kind}')
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setFixedSize(40, 40)
+        badge = make_badge_label(kind if kind in ('info', 'success', 'warning', 'error') else 'info', size=40, icon_size=22)
         header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
 
         title_wrap = QVBoxLayout()
@@ -298,15 +300,6 @@ class AppNoticeDialog(QDialog):
         buttons.addWidget(self.ok_button)
         root.addLayout(buttons)
         self.ok_button.setFocus()
-
-    @staticmethod
-    def _badge_text(kind):
-        return {
-            'success': '✓',
-            'warning': '!',
-            'error': '×',
-            'info': 'i',
-        }.get(kind, 'i')
 
 
 def confirm_action(parent, title, message, confirm_text='确认删除', danger=True):

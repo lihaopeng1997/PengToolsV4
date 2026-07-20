@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
         self.settings_button.clicked.connect(lambda checked=False: self._show_panel(7))
         self.nav_buttons[7] = self.settings_button
         layout.addWidget(self.settings_button)
+        self._apply_nav_icons()
         self.author_label = QLabel('Author · Lihp')
         self.author_label.setObjectName('author-label')
         layout.addWidget(self.author_label)
@@ -250,6 +251,24 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage('已进入升级准备', 3000)
 
+    def _apply_nav_icons(self):
+        """主导航挂本地 SVG（有图标的模块）；无图标项保持纯文字。"""
+        try:
+            from ui.icons import apply_icon
+        except Exception:
+            return
+        # index → 图标角色（resources/icons）
+        mapping = {
+            2: 'release',
+            5: 'shield-key',
+            7: 'settings',
+            10: 'requirements',
+        }
+        for index, role in mapping.items():
+            button = self.nav_buttons[index] if index < len(self.nav_buttons) else None
+            if button is not None:
+                apply_icon(button, role, size=18)
+
     def _set_language(self, combo_index):
         self.language = 'zh' if combo_index == 0 else 'en'
         zh = self.language == 'zh'
@@ -259,6 +278,7 @@ class MainWindow(QMainWindow):
         )
         for button, name in zip(self.nav_buttons, names):
             button.setText(name)
+        self._apply_nav_icons()
         if hasattr(self, 'nav_section_label'):
             self.nav_section_label.setText('工作区' if zh else 'WORKSPACE')
         self.language_label.setText('界面语言' if zh else 'Language')

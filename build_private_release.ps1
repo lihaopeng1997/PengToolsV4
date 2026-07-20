@@ -27,10 +27,10 @@ try {
     $InstallerDataDir = Join-Path $InstallerDir 'data'
     if (Test-Path -LiteralPath $InstallerDataDir) { Remove-Item -LiteralPath $InstallerDataDir -Recurse -Force }
 
-    # Keep README first lines: product name + build date
+    # Keep README first lines: product name + build date (ASCII-safe stamp)
     $ReadmePath = Join-Path $InstallerDir 'README.txt'
     if (Test-Path -LiteralPath $ReadmePath) {
-        python -c "import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); d=sys.argv[2]; t=p.read_text(encoding='utf-8'); t=re.sub(r'V4\.\d+(?:\.\d+)?', 'V4.27', t, count=1); t=re.sub(r'更新日期[：:]\s*\S+', '更新日期：'+d, t, count=1); p.write_text(t if '更新日期' in t else ('PengTools Hub V4.27 Private\n更新日期：%s\n\n'%d)+t, encoding='utf-8')" $ReadmePath $BuildDate
+        python -c "import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); d=sys.argv[2]; t=p.read_text(encoding='utf-8'); t=re.sub(r'V4\\.\\d+(?:\\.\\d+)?', 'V4.27', t, count=1); key='\\u66f4\\u65b0\\u65e5\\u671f'; label=key.encode().decode('unicode_escape'); t=re.sub(label+r'[\\uff1a:]\\s*\\S+', label+'\\uff1a'+d, t, count=1); p.write_text(t if label in t else ('PengTools Hub V4.27 Private\\n'+label+'\\uff1a%s\\n\\n'%d)+t, encoding='utf-8')" $ReadmePath $BuildDate
     }
 
     python -m PyInstaller `
@@ -49,9 +49,11 @@ try {
         --add-data 'resources\private_knowledge_seed.txt;resources' `
         --add-data 'resources\private_knowledge_seed_workbooks.json;resources' `
         --add-data 'resources\release_workbook_template.xlsx;resources' `
+        --add-data 'resources\icons;resources\icons' `
         --hidden-import docx `
         --hidden-import openpyxl `
         --hidden-import msoffcrypto `
+        --hidden-import PyQt6.QtSvg `
         run.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
 

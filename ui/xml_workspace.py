@@ -52,22 +52,22 @@ class XmlWorkspace(QWidget):
         tools.setSpacing(8)
 
         self.paste_btn = QPushButton()
-        apply_button(self.paste_btn, 'secondary', compact=True)
+        apply_button(self.paste_btn, 'secondary', compact=True, icon='edit', icon_size=16)
         self.paste_btn.clicked.connect(self._paste_input)
         tools.addWidget(self.paste_btn)
 
         self.clear_input_btn = QPushButton()
-        apply_button(self.clear_input_btn, 'ghost', compact=True)
+        apply_button(self.clear_input_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_input_btn.clicked.connect(self._clear_input)
         tools.addWidget(self.clear_input_btn)
 
         self.normalize_btn = QPushButton()
-        apply_button(self.normalize_btn, 'secondary', compact=True)
+        apply_button(self.normalize_btn, 'secondary', compact=True, icon='xml', icon_size=16)
         self.normalize_btn.clicked.connect(self._normalize_only)
         tools.addWidget(self.normalize_btn)
 
         self.format_btn = QPushButton()
-        apply_button(self.format_btn, 'primary', compact=True)
+        apply_button(self.format_btn, 'primary', compact=True, icon='xml', icon_size=16)
         self.format_btn.clicked.connect(self._format)
         tools.addWidget(self.format_btn)
 
@@ -79,12 +79,12 @@ class XmlWorkspace(QWidget):
         tools.addWidget(self.wrap_check)
 
         self.copy_btn = QPushButton()
-        apply_button(self.copy_btn, 'secondary', compact=True)
+        apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_btn.clicked.connect(self._copy_output)
         tools.addWidget(self.copy_btn)
 
         self.clear_all_btn = QPushButton()
-        apply_button(self.clear_all_btn, 'ghost', compact=True)
+        apply_button(self.clear_all_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_all_btn.clicked.connect(self.clear)
         tools.addWidget(self.clear_all_btn)
 

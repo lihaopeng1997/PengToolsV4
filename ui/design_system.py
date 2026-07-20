@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTreeWidget, QWidget
 
 from ui.field_metrics import FIELD_H, size_compact_button, size_field_height
+from ui.icons import apply_icon
 
 # —— 视觉 token（Python 侧常量；QSS 以同色值落地）——
 COLOR_BG_APP = '#E8ECF5'
@@ -52,8 +53,18 @@ BUTTON_ROLES = {
 }
 
 
-def apply_button(button, role: str = 'secondary', *, compact: bool = False) -> None:
-    """为按钮打上设计系统角色，不改 clicked 信号与文案。"""
+def apply_button(
+    button,
+    role: str = 'secondary',
+    *,
+    compact: bool = False,
+    icon: str | None = None,
+    icon_size: int = 18,
+) -> None:
+    """为按钮打上设计系统角色，不改 clicked 信号与文案。
+
+    icon：icons 角色名（如 'delete' / 'copy'），仅本地 SVG。
+    """
     object_name = BUTTON_ROLES.get(role, BUTTON_ROLES['secondary'])
     # primary / card-action 历史调用可直接传 role='primary'
     if role == 'primary':
@@ -65,6 +76,8 @@ def apply_button(button, role: str = 'secondary', *, compact: bool = False) -> N
     else:
         size_field_height(button, CONTROL_HEIGHT)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
+    if icon:
+        apply_icon(button, icon, size=icon_size)
     # 触发 QSS 对动态 objectName / property 的刷新
     style = button.style()
     if style is not None:

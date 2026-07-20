@@ -898,17 +898,18 @@ class RequirementPanel(QWidget):
         left_layout.setSpacing(7)
         tree_head = QHBoxLayout()
         tree_head.setSpacing(6)
-        tree_title = QLabel('需求列表')
+        tree_title = QLabel('需求目录')
         tree_title.setObjectName('zone-title')
         tree_head.addWidget(tree_title)
+        self.tree_count_label = QLabel('')
+        self.tree_count_label.setObjectName('small-label')
+        tree_head.addWidget(self.tree_count_label)
         tree_head.addStretch()
         left_layout.addLayout(tree_head)
-        # 两行工具条：窄侧栏时也能看到「删除」，避免被展开/折叠按钮挤掉
-        tree_tools = QVBoxLayout()
+        # 单行工具栏：全选 | 删除 | stretch | 展开 | 折叠（设计文档硬性要求，禁止拆两行）
+        tree_tools = QHBoxLayout()
         tree_tools.setContentsMargins(0, 0, 0, 0)
-        tree_tools.setSpacing(4)
-        tree_row1 = QHBoxLayout()
-        tree_row1.setSpacing(6)
+        tree_tools.setSpacing(6)
         self.select_all_check = QCheckBox('全选')
         self.select_all_check.stateChanged.connect(self._select_all_requirements)
         self.batch_delete_btn = QPushButton('删除')
@@ -918,22 +919,30 @@ class RequirementPanel(QWidget):
         self.batch_delete_btn.setMinimumWidth(64)
         self.batch_delete_btn.setToolTip('删除左侧树中当前选中的需求/BUG（支持全选后批量删除；也可按 Delete）')
         self.batch_delete_btn.clicked.connect(self._delete_requirement)
-        tree_row1.addWidget(self.select_all_check)
-        tree_row1.addWidget(self.batch_delete_btn)
-        tree_row1.addStretch()
-        tree_row2 = QHBoxLayout()
-        tree_row2.setSpacing(6)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.batch_delete_btn, 'danger', compact=True, icon='delete', icon_size=16)
+        except Exception:
+            pass
         self.expand_tree_btn = QPushButton('全部展开')
         self.expand_tree_btn.setProperty('compactAction', True)
+        self.expand_tree_btn.setToolTip('全部展开目录分组')
         self.expand_tree_btn.clicked.connect(lambda: self.requirement_list.expandAll())
         self.collapse_tree_btn = QPushButton('全部折叠')
         self.collapse_tree_btn.setProperty('compactAction', True)
+        self.collapse_tree_btn.setToolTip('全部折叠目录分组')
         self.collapse_tree_btn.clicked.connect(lambda: self.requirement_list.collapseAll())
-        tree_row2.addWidget(self.expand_tree_btn)
-        tree_row2.addWidget(self.collapse_tree_btn)
-        tree_row2.addStretch()
-        tree_tools.addLayout(tree_row1)
-        tree_tools.addLayout(tree_row2)
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.expand_tree_btn, 'expand', 16)
+            apply_icon(self.collapse_tree_btn, 'collapse', 16)
+        except Exception:
+            pass
+        tree_tools.addWidget(self.select_all_check)
+        tree_tools.addWidget(self.batch_delete_btn)
+        tree_tools.addStretch(1)
+        tree_tools.addWidget(self.expand_tree_btn)
+        tree_tools.addWidget(self.collapse_tree_btn)
         left_layout.addLayout(tree_tools)
         self.requirement_list = RequirementTree(); self.requirement_list.setObjectName('requirement-tree')
         self.requirement_list.setHeaderHidden(True)
@@ -1228,6 +1237,11 @@ class RequirementPanel(QWidget):
             if status != '全部状态' and requirement.get('status', '待分析') != status: continue
             if system and requirement.get('system', '') != system: continue
             visible.append(requirement)
+        if hasattr(self, 'tree_count_label'):
+            total = len(self._requirements)
+            self.tree_count_label.setText(
+                f'{len(visible)}/{total}' if len(visible) != total else f'{total} 条'
+            )
         visible.sort(
             key=lambda item: (item.get('online_month', ''), item.get('source_modified_at') or item.get('updated_at', ''), item.get('title', '')),
             reverse=True,

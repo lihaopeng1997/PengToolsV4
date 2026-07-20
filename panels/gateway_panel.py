@@ -129,7 +129,7 @@ class GatewayDecodePanel(QWidget):
         self.plain_label.setObjectName('zone-title')
         plain_head.addWidget(self.plain_label, 1)
         self.to_xml_btn = QPushButton()
-        apply_button(self.to_xml_btn, 'ghost', compact=True)
+        apply_button(self.to_xml_btn, 'ghost', compact=True, icon='xml', icon_size=16)
         self.to_xml_btn.clicked.connect(self._send_plain_to_xml)
         plain_head.addWidget(self.to_xml_btn)
         right_layout.addLayout(plain_head)
@@ -153,19 +153,19 @@ class GatewayDecodePanel(QWidget):
         self.note.setWordWrap(True)
         actions.addWidget(self.note, 1)
         self.clear_btn = QPushButton()
-        apply_button(self.clear_btn, 'ghost', compact=True)
+        apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_btn.clicked.connect(self._clear)
         actions.addWidget(self.clear_btn)
         self.copy_btn = QPushButton()
-        apply_button(self.copy_btn, 'secondary', compact=True)
+        apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_btn.clicked.connect(self._copy)
         actions.addWidget(self.copy_btn)
         self.request_btn = QPushButton()
-        apply_button(self.request_btn, 'secondary', compact=True)
+        apply_button(self.request_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.request_btn.clicked.connect(lambda: self._decrypt('request'))
         actions.addWidget(self.request_btn)
         self.response_btn = QPushButton()
-        apply_button(self.response_btn, 'primary', compact=True)
+        apply_button(self.response_btn, 'primary', compact=True, icon='shield-key', icon_size=16)
         self.response_btn.clicked.connect(lambda: self._decrypt('response'))
         actions.addWidget(self.response_btn)
         crypto_layout.addWidget(action_bar)
@@ -175,6 +175,13 @@ class GatewayDecodePanel(QWidget):
         self.xml_workspace = XmlWorkspace(self.language)
         self.work_tabs.addTab(self.xml_workspace, '')
         layout.addWidget(self.work_tabs, 1)
+        try:
+            from ui.icons import qicon
+            # Tab 图标：解密 / XML（文字在 set_language 设置）
+            self.work_tabs.setTabIcon(0, qicon('shield-key'))
+            self.work_tabs.setTabIcon(1, qicon('xml'))
+        except Exception:
+            pass
 
     def set_language(self, language):
         self.language = language
