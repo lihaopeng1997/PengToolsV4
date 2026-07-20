@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+"""网关加解密工作台：国密解密 + XML 工具并列子模块。"""
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from tools.gateway_crypto import decrypt_gateway_payload
@@ -10,6 +12,22 @@ from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_combo
 from ui.json_viewer import JsonViewer
+from ui.xml_workspace import XmlWorkspace
+
+
+def _looks_like_xml(text: str) -> bool:
+    s = (text or '').strip()
+    if not s:
+        return False
+    # 常见：直接 XML、外层引号包裹、转义后仍带 <tag
+    sample = s[:800]
+    if sample.startswith('<?xml') or sample.startswith('<'):
+        return True
+    if sample.startswith('"') and '<' in sample[:120]:
+        return True
+    if '\\n' in sample and '<' in sample:
+        return True
+    return False
 
 
 class GatewayDecodePanel(QWidget):
@@ -24,8 +42,31 @@ class GatewayDecodePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
+        # —— 页头 ——
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        titles = QVBoxLayout()
+        titles.setSpacing(4)
+        self.page_title = QLabel()
+        self.page_title.setObjectName('page-title')
+        titles.addWidget(self.page_title)
+        self.page_subtitle = QLabel()
+        self.page_subtitle.setObjectName('page-subtitle')
+        self.page_subtitle.setWordWrap(True)
+        titles.addWidget(self.page_subtitle)
+        head.addLayout(titles, 1)
+        self.offline_pill = QLabel()
+        self.offline_pill.setObjectName('offline-pill')
+        head.addWidget(self.offline_pill, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(head)
+
+        # —— 参数区 ——
         self.config_group = QGroupBox()
+        self.config_group.setObjectName('gateway-config-group')
         config = QFormLayout(self.config_group)
+        config.setContentsMargins(14, 16, 14, 12)
+        config.setHorizontalSpacing(14)
+        config.setVerticalSpacing(10)
         self.system_value = QLabel('新车险系统（固定兼容模式）')
         self.system_value.setObjectName('path-note')
         self.system_label = QLabel()
@@ -36,11 +77,22 @@ class GatewayDecodePanel(QWidget):
         self.environment_label = QLabel()
         config.addRow(self.environment_label, self.environment)
         self.key_cipher = QPlainTextEdit()
-        self.key_cipher.setMaximumHeight(92)
+        self.key_cipher.setObjectName('gateway-key-edit')
+        self.key_cipher.setMaximumHeight(88)
         self.key_cipher.setPlaceholderText('SM2 encrypted SM4 key (hex)')
         self.key_label = QLabel()
         config.addRow(self.key_label, self.key_cipher)
         layout.addWidget(self.config_group)
+
+        # —— 工作台 Tab：国密解密 | XML 工具 ——
+        self.work_tabs = QTabWidget()
+        self.work_tabs.setObjectName('module-tabs')
+        self.work_tabs.setDocumentMode(True)
+
+        crypto_page = QWidget()
+        crypto_layout = QVBoxLayout(crypto_page)
+        crypto_layout.setContentsMargins(0, 8, 0, 0)
+        crypto_layout.setSpacing(10)
 
         work_zone = QFrame()
         apply_surface(work_zone, 'card')
@@ -50,15 +102,19 @@ class GatewayDecodePanel(QWidget):
         work_layout.setSpacing(8)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName('gateway-splitter')
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(8)
+
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(6)
         self.cipher_label = QLabel()
         self.cipher_label.setObjectName('zone-title')
         left_layout.addWidget(self.cipher_label)
         self.payload_cipher = QPlainTextEdit()
+        self.payload_cipher.setObjectName('gateway-cipher-edit')
         self.payload_cipher.setPlaceholderText('Base64 ciphertext')
         left_layout.addWidget(self.payload_cipher)
         splitter.addWidget(left)
@@ -66,18 +122,25 @@ class GatewayDecodePanel(QWidget):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+        plain_head = QHBoxLayout()
+        plain_head.setSpacing(8)
         self.plain_label = QLabel()
         self.plain_label.setObjectName('zone-title')
-        right_layout.addWidget(self.plain_label)
+        plain_head.addWidget(self.plain_label, 1)
+        self.to_xml_btn = QPushButton()
+        apply_button(self.to_xml_btn, 'ghost', compact=True)
+        self.to_xml_btn.clicked.connect(self._send_plain_to_xml)
+        plain_head.addWidget(self.to_xml_btn)
+        right_layout.addLayout(plain_head)
         self.json_viewer = JsonViewer(self.language)
-        # 保留 plain_text 别名，兼容原有调用与自动化检查。
-        # XML 完整工具台下一轮并入本模块；当前入口仍在 JsonViewer 工具条（XML 美化）。
+        # 兼容原有调用与自动化检查
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
-        splitter.setSizes([520, 520])
+        splitter.setSizes([480, 560])
         work_layout.addWidget(splitter, 1)
-        layout.addWidget(work_zone, 1)
+        crypto_layout.addWidget(work_zone, 1)
 
         action_bar = QFrame()
         apply_surface(action_bar, 'zone')
@@ -105,31 +168,53 @@ class GatewayDecodePanel(QWidget):
         apply_button(self.response_btn, 'primary', compact=True)
         self.response_btn.clicked.connect(lambda: self._decrypt('response'))
         actions.addWidget(self.response_btn)
-        layout.addWidget(action_bar)
+        crypto_layout.addWidget(action_bar)
+
+        self.work_tabs.addTab(crypto_page, '')
+
+        self.xml_workspace = XmlWorkspace(self.language)
+        self.work_tabs.addTab(self.xml_workspace, '')
+        layout.addWidget(self.work_tabs, 1)
 
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.config_group.setTitle('网关国密参数' if zh else 'Gateway cryptographic parameters')
+        self.page_title.setText('网关加解密' if zh else 'Gateway crypto')
+        self.page_subtitle.setText(
+            '国密解密与 XML 工具同一工作台 · 密钥与报文仅在本机处理，默认不落盘'
+            if zh else
+            'SM crypto and XML tools in one workbench · keys stay local, never written by default'
+        )
+        self.offline_pill.setText('离线 · 本机' if zh else 'Offline · local')
+        self.config_group.setTitle('国密参数' if zh else 'Cryptographic parameters')
         self.system_label.setText('系统' if zh else 'System')
-        self.system_value.setText('新车险系统（固定兼容模式）' if zh else 'New Auto Insurance (fixed compatibility mode)')
+        self.system_value.setText(
+            '新车险系统（固定兼容模式）' if zh else 'New Auto Insurance (fixed compatibility mode)'
+        )
         self.environment_label.setText('环境' if zh else 'Environment')
         env_names = ['集成环境', '用户环境', '生产环境'] if zh else ['Integration', 'User / UAT', 'Production']
         for index, name in enumerate(env_names):
             self.environment.setItemText(index, name)
         self.key_label.setText('SM4 Key 密文' if zh else 'Encrypted SM4 key')
         self.cipher_label.setText('网关正文密文（Base64）' if zh else 'Gateway payload ciphertext (Base64)')
-        self.plain_label.setText('解密明文 / JSON·XML 工具' if zh else 'Plaintext / JSON·XML tools')
+        self.plain_label.setText('解密明文 / JSON' if zh else 'Plaintext / JSON')
+        self.to_xml_btn.setText('送入 XML 工具' if zh else 'Send to XML')
+        self.to_xml_btn.setToolTip(
+            '将当前明文复制到 XML 工具页并尝试格式化' if zh else 'Copy plaintext into the XML workspace'
+        )
         self.note.setText(
-            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 同时作为 SM4-CBC 的 Key 与 IV。明文区支持 JSON 一键格式化与 XML 美化（去引号/反转义）。所有数据仅在本机处理。'
+            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 同时作为 SM4-CBC 的 Key 与 IV。JSON 可在右侧一键格式化；XML 请切换到「XML 工具」页。'
             if zh else
-            'Compatible with gatewayDecode.html. Plaintext supports JSON format and XML beautify (strip quotes / unescape). Local only.'
+            'Compatible with gatewayDecode.html. Format JSON on the right; use the XML tools tab for XML.'
         )
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.copy_btn.setText('复制明文' if zh else 'Copy plaintext')
         self.request_btn.setText('请求解密' if zh else 'Decrypt request')
         self.response_btn.setText('响应解密' if zh else 'Decrypt response')
+        self.work_tabs.setTabText(0, '国密解密' if zh else 'SM decrypt')
+        self.work_tabs.setTabText(1, 'XML 工具' if zh else 'XML tools')
         self.json_viewer.set_language(language)
+        self.xml_workspace.set_language(language)
 
     def _decrypt(self, direction):
         try:
@@ -140,9 +225,36 @@ class GatewayDecodePanel(QWidget):
                 self.payload_cipher.toPlainText(),
             )
             self.json_viewer.set_text(plain, auto_format=True)
+            if _looks_like_xml(plain):
+                self._offer_xml_view(plain)
         except ValueError as exc:
             self.json_viewer.clear()
             show_warning(self, '网关解密' if self.language == 'zh' else 'Gateway decrypt', str(exc))
+
+    def _offer_xml_view(self, plain: str):
+        """解密结果像 XML 时给出一步懒人入口，不打断主流程。"""
+        zh = self.language == 'zh'
+        # 轻提示：用户可点「送入 XML」；避免再弹强制对话框打断
+        if zh:
+            self.json_viewer.json_status.setText(
+                '已解密 · 内容像 XML · 可点「送入 XML 工具」继续美化'
+            )
+        else:
+            self.json_viewer.json_status.setText(
+                'Decrypted · looks like XML · use “Send to XML” to beautify'
+            )
+
+    def _send_plain_to_xml(self):
+        text = self.json_viewer.plain_text()
+        if not text.strip():
+            show_warning(
+                self,
+                'XML 工具' if self.language == 'zh' else 'XML tools',
+                '当前没有可送入的明文。' if self.language == 'zh' else 'No plaintext to send.',
+            )
+            return
+        self.xml_workspace.set_input_text(text, auto_format=True)
+        self.work_tabs.setCurrentWidget(self.xml_workspace)
 
     def _copy(self):
         text = self.json_viewer.plain_text()

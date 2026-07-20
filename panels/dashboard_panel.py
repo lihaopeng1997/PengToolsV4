@@ -101,7 +101,7 @@ class DashboardPanel(QWidget):
             self.sql.set_copy('升级准备', '选择升级日期和需求 / BUG，一键生成发版清单、升级 SQL、回滚及验证脚本。', '准备升级材料')
             self.docx.set_copy('接口文档更新', '选择文件夹或 SVN 拉取接口文档，再用 SQL 更新表结构与字段说明。', '更新接口文档')
             self.vin.set_copy('中国车辆 VIN', '按 GB 16735 规则，一键生成并自动填充 10 条测试数据。', '生成 VIN')
-            self.gateway.set_copy('网关国密解密', '兼容 gatewayDecode.html，在本机完成 SM2 + SM4 请求/响应解密。', '打开解密工具')
+            self.gateway.set_copy('网关加解密', '国密解密与 XML 工具同一工作台：SM2 + SM4 请求/响应解密，XML 清洗与格式化。', '打开加解密')
             self.ops.set_copy('Linux 运维命令助手', '按日志、状态、网络、容器等场景搜索并安全生成运维命令。', '查找运维命令')
             self.hint.setText('Ctrl + Shift + P  随时展开桌面右侧悬浮工具栏')
         else:
@@ -112,6 +112,6 @@ class DashboardPanel(QWidget):
             self.sql.set_copy('SQL Script Processing', 'Organize DDL/DML for SVN and generate upgrade, rollback and standalone verification scripts.', 'Process SQL')
             self.docx.set_copy('Interface Document Updater', 'Pick a folder or checkout SVN docs, then update structures with SQL.', 'Update document')
             self.vin.set_copy('China Vehicle VIN', 'Generate and fill 10 test VINs using the GB 16735 check digit.', 'Generate VINs')
-            self.gateway.set_copy('Gateway Crypto Decode', 'Compatible with gatewayDecode.html for local SM2 + SM4 request/response decryption.', 'Open decoder')
+            self.gateway.set_copy('Gateway Crypto', 'SM decrypt and XML tools in one workbench: SM2 + SM4 request/response, XML clean and format.', 'Open crypto')
             self.ops.set_copy('Linux Operations Assistant', 'Search and safely generate commands for logs, status, network, containers and more.', 'Find commands')
             self.hint.setText('Ctrl + Shift + P  Expand the floating toolbar at any time')

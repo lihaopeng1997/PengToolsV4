@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""JSON / XML 查看器：树表可读性优先（深层级字段名可横滑、可拖列宽）。"""
+"""JSON 查看器：树表可读性优先（深层级字段名可横滑、可拖列宽）。
+
+XML 完整能力已迁至网关模块的 XmlWorkspace；本组件专注 JSON。
+"""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont
@@ -13,7 +16,6 @@ from tools.json_viewer import (
     format_json_text, json_path_child, json_type_name, node_json_text,
     node_value_text, parse_json_text,
 )
-from tools.xml_formatter import format_xml_text
 from ui.confirm_dialog import show_warning
 
 # 深层级时缩进会吃掉第一列宽度；默认给字段名更宽，并禁止挤到不可读
@@ -25,7 +27,7 @@ _VALUE_PREVIEW_MAX = 280
 
 
 class JsonViewer(QWidget):
-    """格式化文本 + 可定位、可复制节点的轻量 JSON 查看器；附带 XML 美化入口。"""
+    """格式化文本 + 可定位、可复制节点的轻量 JSON 查看器。"""
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -47,10 +49,6 @@ class JsonViewer(QWidget):
         self.format_btn.setObjectName('json-tool-btn')
         self.format_btn.clicked.connect(self.format_current)
         toolbar.addWidget(self.format_btn)
-        self.xml_format_btn = QPushButton()
-        self.xml_format_btn.setObjectName('json-tool-btn')
-        self.xml_format_btn.clicked.connect(self.format_xml_current)
-        toolbar.addWidget(self.xml_format_btn)
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName('json-search')
         self.search_edit.setClearButtonEnabled(True)
@@ -155,11 +153,8 @@ class JsonViewer(QWidget):
         self.language = language
         zh = language == 'zh'
         self.format_btn.setText('一键格式化' if zh else 'Format')
-        self.xml_format_btn.setText('XML 美化' if zh else 'Beautify XML')
-        self.xml_format_btn.setToolTip(
-            '粘贴 XML（可含外层引号或 \\n / \\" 转义）后一键格式化'
-            if zh else
-            'Paste XML (outer quotes or \\n / \\" escapes OK) and beautify'
+        self.format_btn.setToolTip(
+            '将文本区内容解析为 JSON 并美化缩进' if zh else 'Parse and pretty-print JSON in the text area'
         )
         self.search_edit.setPlaceholderText('搜索字段、值或 JSONPath' if zh else 'Search key, value or JSONPath')
         self.previous_btn.setToolTip('上一个匹配' if zh else 'Previous match')
@@ -176,12 +171,12 @@ class JsonViewer(QWidget):
         self.clear_view_btn.setText('清空' if zh else 'Clear')
         self.copy_json_btn.setText('复制全部' if zh else 'Copy all')
         self.text_edit.setPlaceholderText(
-            '解密明文 / 粘贴 JSON 或 XML 后可一键格式化（大文本不自动折行，可横向滚动）'
+            '解密明文 / 粘贴 JSON 后可一键格式化（大文本不自动折行，可横向滚动）。XML 请用上方「XML 工具」页。'
             if zh else
-            'Decrypted text / paste JSON or XML then format (no wrap; scroll horizontally)'
+            'Decrypted text / paste JSON then format (no wrap; scroll). Use the XML tools tab for XML.'
         )
         if self._data is None and not self.text_edit.toPlainText().strip():
-            self.json_status.setText('等待解密结果，或粘贴 JSON/XML' if zh else 'Waiting for content, or paste JSON/XML')
+            self.json_status.setText('等待解密结果，或粘贴 JSON' if zh else 'Waiting for content, or paste JSON')
 
     def set_text(self, text, auto_format=True):
         self.text_edit.setPlainText(text)
@@ -221,7 +216,7 @@ class JsonViewer(QWidget):
         self.search_status.setText('0 / 0')
         self.path_value.setText('$')
         self.json_status.setText(
-            '等待解密结果，或粘贴 JSON/XML' if self.language == 'zh' else 'Waiting for content, or paste JSON/XML'
+            '等待解密结果，或粘贴 JSON' if self.language == 'zh' else 'Waiting for content, or paste JSON'
         )
 
     def plain_text(self):
@@ -235,33 +230,6 @@ class JsonViewer(QWidget):
             show_warning(self, 'PengTools JSON', str(exc))
             return False
         self.set_text(formatted, auto_format=False)
-        return True
-
-    def format_xml_current(self):
-        """对当前文本区内容做 XML 美化（去引号/反转义后格式化）。"""
-        text = self.text_edit.toPlainText()
-        try:
-            formatted = format_xml_text(text)
-        except ValueError as exc:
-            show_warning(self, 'PengTools XML', str(exc))
-            self.json_status.setText(str(exc))
-            return False
-        self.text_edit.setPlainText(formatted)
-        self.tabs.setCurrentIndex(0)
-        # XML 不是 JSON 树：清空树与匹配，避免展示过期节点
-        self._data = None
-        self.tree.clear()
-        self._item_values.clear()
-        self._matches.clear()
-        self._match_index = -1
-        self.search_status.setText('0 / 0')
-        self.path_value.setText('$')
-        lines = formatted.count('\n') + (0 if formatted.endswith('\n') else 1)
-        self.json_status.setText(
-            f'XML 已美化 · {lines} 行 · 可复制下方文本'
-            if self.language == 'zh' else
-            f'XML beautified · {lines} lines · copy text below'
-        )
         return True
 
     def _build_tree(self):
@@ -445,7 +413,7 @@ class JsonViewer(QWidget):
         self.tree.collapseAll()
 
     def copy_formatted_json(self):
-        # 优先复制当前文本区（含 XML 美化结果）；JSON 树存在时也可用结构化 JSON
+        # 优先复制当前文本区；JSON 树存在时也可用结构化 JSON
         text = self.text_edit.toPlainText().strip()
         if text:
             self._copy_text(text)

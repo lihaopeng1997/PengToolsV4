@@ -73,12 +73,12 @@ class QuickPanel(QWidget):
         self.language = language
         if language == 'zh':
             self.title.setText('PengTools 快捷工具')
-            names = ['证件类型生成', '升级准备', '接口文档更新', '车辆 VIN 生成', '网关国密解密', 'Linux 运维助手', '设置']
+            names = ['证件类型生成', '升级准备', '接口文档更新', '车辆 VIN 生成', '网关加解密', 'Linux 运维助手', '设置']
             self.home_btn.setText('返回工作台')
             self.toggle_btn.setToolTip('展开/收起快捷工具栏')
         else:
             self.title.setText('PengTools Quick Tools')
-            names = ['Documents', 'SQL Processing', 'Interface Docs', 'Vehicle VIN', 'Gateway Decode', 'Linux Operations', 'Settings']
+            names = ['Documents', 'SQL Processing', 'Interface Docs', 'Vehicle VIN', 'Gateway Crypto', 'Linux Operations', 'Settings']
             self.home_btn.setText('Open workspace')
             self.toggle_btn.setToolTip('Expand/collapse toolbar')
         for button, name in zip(self.tool_buttons, names):

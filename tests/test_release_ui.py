@@ -87,9 +87,20 @@ class ReleaseUiTests(unittest.TestCase):
         close_dialog = CloseActionDialog(language='zh', default_action='minimize')
         close_dialog.show()
         self.app.processEvents()
+        self.assertEqual(close_dialog.windowTitle(), '关闭 PengTools？')
         self.assertTrue(close_dialog.minimize_button.hasFocus())
+        self.assertFalse(close_dialog.dont_ask_again())
+        close_dialog.dont_ask_check.setChecked(True)
         close_dialog.minimize_button.clicked.emit()
         self.assertEqual(close_dialog.selected_action(), 'minimize')
+        self.assertTrue(close_dialog.dont_ask_again())
+
+        # 默认动作若为 exit：焦点仍落在安全控件（取消），不误触危险卡
+        close_exit_default = CloseActionDialog(language='zh', default_action='exit')
+        close_exit_default.show()
+        self.app.processEvents()
+        self.assertTrue(close_exit_default.cancel_button.hasFocus())
+        close_exit_default.reject()
 
         panel = SqlToolPanel()
         original_count = len(panel._systems)

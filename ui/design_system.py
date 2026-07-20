@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""PengTools 设计系统基础（UI 重构 r1 · foundation）。
+"""PengTools 设计系统基础（UI 重构 r2 · surfaces + buttons）。
 
 目标：统一按钮角色、控件尺寸语义与表/树默认外观入口。
-约束：不改业务逻辑；Loading / 退出弹窗 / XML 入口位置不在此模块处理。
+弹窗 / Loading / XML 工作区样式在各自模块 + style.qss 落地。
 
 按钮角色（objectName）：
   primary   → primary-btn   主操作

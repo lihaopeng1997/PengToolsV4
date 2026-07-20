@@ -79,8 +79,8 @@ class MainWindow(QMainWindow):
         content = QFrame()
         content.setObjectName('content_area')
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(18, 14, 18, 14)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(20, 16, 20, 16)
+        content_layout.setSpacing(12)
         self.stack = QStackedWidget()
         self.stack.setSizePolicy(
             self.stack.sizePolicy().horizontalPolicy(),
@@ -211,8 +211,8 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(stack_index)
         for position, button in enumerate(self.nav_buttons):
             button.setChecked(position == index)
-        statuses_zh = ['离线工作台已就绪', '个人与单位证件模拟生成', 'SQL 脚本整理、回滚与验证', 'SQL 驱动接口文档更新', '中国车辆 VIN 测试数据', '网关 SM2 + SM4 国密解密', 'Linux 运维命令搜索与安全引导', '界面与悬浮工具栏设置', '自我学习资料整理与全文搜索', '每日日报与定时提醒', '需求归档、上线台账与工具联动']
-        statuses_en = ['Offline workspace ready', 'Personal and unit document test data', 'SQL classify, validate and export', 'SQL-driven interface document updater', 'China vehicle VIN test data', 'Gateway SM2 + SM4 decryption', 'Linux operations command search and safety guidance', 'Interface and floating toolbar settings', 'Learning library and full-text search', 'Daily reports and reminders', 'Requirement tracking and tool links']
+        statuses_zh = ['离线工作台已就绪', '个人与单位证件模拟生成', 'SQL 脚本整理、回滚与验证', 'SQL 驱动接口文档更新', '中国车辆 VIN 测试数据', '网关国密解密 · XML 工具', 'Linux 运维命令搜索与安全引导', '界面与悬浮工具栏设置', '自我学习资料整理与全文搜索', '每日日报与定时提醒', '需求归档、上线台账与工具联动']
+        statuses_en = ['Offline workspace ready', 'Personal and unit document test data', 'SQL classify, validate and export', 'SQL-driven interface document updater', 'China vehicle VIN test data', 'Gateway SM crypto · XML tools', 'Linux operations command search and safety guidance', 'Interface and floating toolbar settings', 'Learning library and full-text search', 'Daily reports and reminders', 'Requirement tracking and tool links']
         self.status_bar.showMessage((statuses_zh if self.language == 'zh' else statuses_en)[index])
 
     def _open_system_config(self):
@@ -254,8 +254,8 @@ class MainWindow(QMainWindow):
         self.language = 'zh' if combo_index == 0 else 'en'
         zh = self.language == 'zh'
         names = (
-            ['工作台', '证件类型', '升级准备', '接口文档更新', '车辆 VIN', '网关解密', '运维助手', '设置', '自我学习', '日报', '需求管理']
-            if zh else ['Workspace', 'Documents', 'SQL Processing', 'Interface Docs', 'Vehicle VIN', 'Gateway Decode', 'Operations', 'Settings', 'Learning', 'Daily Report', 'Requirements']
+            ['工作台', '证件类型', '升级准备', '接口文档更新', '车辆 VIN', '加解密', '运维助手', '设置', '自我学习', '日报', '需求管理']
+            if zh else ['Workspace', 'Documents', 'SQL Processing', 'Interface Docs', 'Vehicle VIN', 'Crypto', 'Operations', 'Settings', 'Learning', 'Daily Report', 'Requirements']
         )
         for button, name in zip(self.nav_buttons, names):
             button.setText(name)

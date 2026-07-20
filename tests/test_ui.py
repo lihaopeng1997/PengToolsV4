@@ -315,11 +315,56 @@ class UiRegressionTests(unittest.TestCase):
         gateway = GatewayDecodePanel()
         docx = DocxUpdatePanel()
         self.assertEqual(gateway.environment.count(), 3)
+        self.assertEqual(gateway.work_tabs.count(), 2)
+        self.assertIs(gateway.work_tabs.widget(1), gateway.xml_workspace)
         self.assertTrue(docx.update_date.calendarPopup())
         self.assertEqual(docx.update_date.objectName(), 'docx-date')
         docx.update_date.setDate(QDate(2030, 5, 20))
         docx.today_btn.click()
         self.assertEqual(docx.update_date.date(), QDate.currentDate())
+
+    def test_gateway_xml_workspace_format_copy_and_errors(self):
+        """XML 工具台：格式化 / 去引号 / 错误提示 / 复制完整流程。"""
+        from ui.xml_workspace import XmlWorkspace
+
+        gateway = GatewayDecodePanel()
+        xml = gateway.xml_workspace
+        self.assertIsInstance(xml, XmlWorkspace)
+        raw = '"<root><item id=\\"1\\">hi</item></root>"'
+        xml.set_input_text(raw)
+        self.assertTrue(xml._format())
+        out = xml.output_text()
+        self.assertIn('<root>', out)
+        self.assertIn('<item', out)
+        self.assertIn('hi', out)
+        xml._copy_output()
+        self.assertEqual(QApplication.clipboard().text(), out)
+
+        with patch('ui.xml_workspace.show_warning') as warn:
+            xml.set_input_text('"<broken"')
+            self.assertFalse(xml._format())
+            warn.assert_called()
+        self.assertTrue(xml.status_label.text())
+
+        escaped = r'"<a>\n  <b>1</b>\n</a>"'
+        xml.set_input_text(escaped)
+        self.assertTrue(xml._normalize_only())
+        cleaned = xml.output_text()
+        self.assertIn('<a>', cleaned)
+        self.assertNotIn('\\n', cleaned)
+
+        # 解密明文可送入 XML 页
+        gateway.json_viewer.set_text('<root><x>1</x></root>', auto_format=False)
+        with patch.object(xml, '_format', return_value=True) as fmt:
+            gateway._send_plain_to_xml()
+            fmt.assert_called()
+        self.assertEqual(gateway.work_tabs.currentWidget(), xml)
+        self.assertIn('<root>', xml.input_text())
+
+        xml.clear()
+        self.assertFalse(xml.input_text().strip())
+        self.assertFalse(xml.output_text().strip())
+        gateway.close()
 
     def test_docx_filename_shows_matched_latest_template(self):
         panel = DocxUpdatePanel()
