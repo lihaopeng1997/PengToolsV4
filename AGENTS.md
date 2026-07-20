@@ -19,6 +19,10 @@
 
 - Windows 离线桌面工具台（Python 3.12 + PyQt6），无账号、云同步、插件市场、在线更新、遥测。
 - 运行代码中不引入 HTTP/WebSocket/浏览器内核/在线 CDN。
+- **Private 版唯一例外（接口排查 nav 12）**：允许本机 `127.0.0.1` 的 Chromium CDP（`websocket-client`）与 IE MITM 代理（`mitmproxy`，仅监听 loopback）。禁止连接远程 host、禁止把代理暴露到局域网。
+- 接口排查抓到的请求/响应/令牌/Cookie/密钥/明文 **只存内存**；停止监听、切换模式、退出应用必须 `clear_session()`，禁止写日志与 JSON。配置仅允许 `data/interface_debug.json`（路径、端口、本地地址、证书指纹、代理恢复快照）。
+- IE 代理：启动前备份 WinINet 设置；停止/失败/退出必须恢复；证书仅删除配置中记录的指纹。
+- 接口草稿（Postman/cURL）只生成、不发送网络请求。
 - 当前工作主线是 **Private 私人版**；标准包 `PengToolsHub_Offline_Setup.zip` **禁止被私人功能改动**。
 - 发布用 `build_private_release.ps1`；常规维护不要跑 `build_release.ps1`。
 
@@ -51,8 +55,10 @@
 | 8 | 自我学习（PersonalPanel） | 彩蛋解锁后显示 |
 | 9 | 日报（同一 PersonalPanel） | **常显，禁止再隐藏** |
 | 10 | 需求管理 | **常显，禁止再隐藏** |
+| 11 | 格式工具 | 常显 |
+| 12 | 接口排查 | 常显（Private） |
 
-- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）。
+- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）；导航 11 → Stack 10（FormatToolsPanel）；导航 12 → Stack 11（InterfaceDebugPanel）。
 - 只有「自我学习」允许彩蛋隐藏；密钥与解锁入口勿擅自改、勿写进普通 UI 文案。
 
 ## 数据与升级硬规则
@@ -79,6 +85,7 @@
 - Loading 为不占布局浮层；文件树后台刷新等静默任务 `show_loading=False`。
 - 成功/失败/异常三条路径都要结束 Loading。
 - 网关解密的密钥/明文/报文默认不落盘、不写日志。
+- 接口排查的敏感报文同样不落盘、不写日志；草稿导出由用户显式选择路径。
 - 运维助手不自动执行破坏性命令。
 
 ## 开发与发布

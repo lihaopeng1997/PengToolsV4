@@ -32,6 +32,7 @@ class GatewayDecodePanel(QWidget):
     """仅负责加解密；JSON 查看器保留；XML 通过信号跳转格式工具。"""
 
     open_format_xml = pyqtSignal(str)
+    open_interface_debug = pyqtSignal()
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -153,6 +154,10 @@ class GatewayDecodePanel(QWidget):
         self.note = QLabel()
         self.note.setObjectName('field-hint')
         self.note.hide()
+        self.to_iface_btn = QPushButton()
+        apply_button(self.to_iface_btn, 'ghost', compact=True, icon='api-debug', icon_size=16)
+        self.to_iface_btn.clicked.connect(self.open_interface_debug.emit)
+        actions.addWidget(self.to_iface_btn)
         actions.addStretch(1)
         self.clear_btn = QPushButton()
         apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
@@ -228,11 +233,19 @@ class GatewayDecodePanel(QWidget):
             if zh else
             'Compatible with gatewayDecode.html (SM2 key → SM4-CBC)'
         )
+        self.to_iface_btn.setText('进入接口排查' if zh else 'API Debug')
+        self.to_iface_btn.setToolTip(
+            '跳转到多浏览器接口排查中心' if zh else 'Open multi-browser API debug center'
+        )
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.copy_btn.setText('复制明文' if zh else 'Copy plaintext')
         self.request_btn.setText('请求解密' if zh else 'Decrypt request')
         self.response_btn.setText('响应解密' if zh else 'Decrypt response')
         self.json_viewer.set_language(language)
+
+    def set_cipher_text(self, text: str):
+        """从接口排查等模块带入密文/正文，不自动解密。"""
+        self.payload_cipher.setPlainText(text or '')
 
     def _decrypt(self, direction):
         try:

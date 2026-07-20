@@ -13,6 +13,7 @@ from panels.dashboard_panel import DashboardPanel
 from panels.docx_panel import DocxUpdatePanel
 from panels.format_panel import FormatToolsPanel
 from panels.gateway_panel import GatewayDecodePanel
+from panels.interface_debug_panel import InterfaceDebugPanel
 from panels.ops_panel import OpsPanel
 from panels.personal_panel import PersonalPanel
 from panels.requirement_panel import RequirementPanel
@@ -113,11 +114,13 @@ class MainWindow(QMainWindow):
         self.personal_panel = PersonalPanel(self.language)
         self.requirement_panel = RequirementPanel(self.language)
         self.format_panel = FormatToolsPanel(self.language)
-        # stack 顺序保持 0–9 历史映射；格式工具追加为 stack 10（nav index 11）
+        self.interface_debug_panel = InterfaceDebugPanel(self.language)
+        # stack 顺序保持 0–9 历史映射；格式工具 stack 10（nav 11）；接口排查 stack 11（nav 12）
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
             self.personal_panel, self.requirement_panel, self.format_panel,
+            self.interface_debug_panel,
         ):
             self.stack.addWidget(panel)
         self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
@@ -131,6 +134,10 @@ class MainWindow(QMainWindow):
         if hasattr(self.dashboard_panel, 'open_requirement'):
             self.dashboard_panel.open_requirement.connect(self._open_requirement_from_dashboard)
         self.gateway_panel.open_format_xml.connect(self._open_format_xml)
+        self.gateway_panel.open_interface_debug.connect(lambda: self._show_panel(12))
+        self.interface_debug_panel.open_gateway.connect(self._open_gateway_from_iface)
+        self.interface_debug_panel.open_format_json.connect(self._open_format_json)
+        self.interface_debug_panel.open_format_xml.connect(self._open_format_xml)
         self.personal_panel.reminder_due.connect(self._show_private_notification)
         self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
         self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
@@ -204,8 +211,8 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–10 历史 nav index + 11 格式工具
-        self.nav_buttons = [None] * 12
+        # 0–10 历史 nav index + 11 格式工具 + 12 接口排查
+        self.nav_buttons = [None] * 13
         self._group_labels = {}
         self._nav_order = []
 
@@ -383,6 +390,7 @@ class MainWindow(QMainWindow):
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
             self.personal_panel, self.requirement_panel, self.format_panel,
+            self.interface_debug_panel,
         ):
             if hasattr(panel, 'apply_layout_mode'):
                 try:
@@ -392,13 +400,15 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _stack_index_for_nav(index: int) -> int:
-        """nav index → stack index。0–10 历史含义不变；11→stack 10。"""
+        """nav index → stack index。0–10 历史含义不变；11→10；12→11。"""
         if index in (8, 9):
             return 8  # personal
         if index == 10:
             return 9  # requirement
         if index == 11:
             return 10  # format tools
+        if index == 12:
+            return 11  # interface debug
         return index
 
     def _show_panel(self, index):
@@ -421,7 +431,8 @@ class MainWindow(QMainWindow):
             3: 'SQL 驱动接口文档更新', 4: '中国车辆 VIN 测试数据', 5: '网关国密解密 · JSON 结果',
             6: 'Linux 运维命令搜索与安全引导', 7: '界面与悬浮工具栏设置',
             8: '自我学习资料整理与全文搜索', 9: '每日日报与定时提醒', 10: '需求归档、上线台账与工具联动',
-            11: 'JSON / XML / SQL 离线格式化',
+            11: 'JSON / XML / SQL / 文本辅助离线格式化',
+            12: '多浏览器接口排查 · 报文仅内存 · 只生成草稿',
         }
         statuses_en = {
             0: 'Offline workspace ready', 1: 'Personal and unit document test data',
@@ -431,7 +442,8 @@ class MainWindow(QMainWindow):
             7: 'Interface and floating toolbar settings',
             8: 'Learning library and full-text search', 9: 'Daily reports and reminders',
             10: 'Requirement tracking and tool links',
-            11: 'Offline JSON / XML / SQL formatting',
+            11: 'Offline JSON / XML / SQL / text helpers',
+            12: 'Multi-browser API debug · in-memory · draft only',
         }
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
@@ -440,6 +452,20 @@ class MainWindow(QMainWindow):
         self._show_panel(11)
         try:
             self.format_panel.open_xml(text or '')
+        except Exception:
+            pass
+
+    def _open_format_json(self, text: str):
+        self._show_panel(11)
+        try:
+            self.format_panel.open_json(text or '')
+        except Exception:
+            pass
+
+    def _open_gateway_from_iface(self, text: str):
+        self._show_panel(5)
+        try:
+            self.gateway_panel.set_cipher_text(text or '')
         except Exception:
             pass
 
@@ -497,6 +523,7 @@ class MainWindow(QMainWindow):
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
             self.personal_panel, self.requirement_panel, self.format_panel,
+            self.interface_debug_panel,
         ):
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
@@ -696,6 +723,12 @@ class MainWindow(QMainWindow):
         keep_awake_service = getattr(self, 'keep_awake_service', None)
         if keep_awake_service:
             keep_awake_service.stop()
+        # 接口排查：停止 CDP/IE 代理、恢复系统代理、清空内存报文
+        try:
+            if hasattr(self, 'interface_debug_panel'):
+                self.interface_debug_panel.shutdown_cleanup()
+        except Exception:
+            pass
         self.quick_panel.close()
         self.tray_service.hide()
         event.accept()

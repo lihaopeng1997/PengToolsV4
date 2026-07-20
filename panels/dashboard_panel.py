@@ -20,19 +20,21 @@ def _online_date(item: dict) -> str:
     return str(item.get('actual_online_date') or item.get('planned_online_date') or '')[:10]
 
 
-def _week_bounds(today: datetime.date):
-    start = today - datetime.timedelta(days=today.weekday())
-    end = start + datetime.timedelta(days=6)
-    next_start = end + datetime.timedelta(days=1)
-    next_end = next_start + datetime.timedelta(days=6)
-    return start, end, next_start, next_end
-
-
 def _parse_date(text: str):
     try:
         return datetime.date.fromisoformat(str(text)[:10])
     except ValueError:
         return None
+
+
+def _iso_rank(value) -> int:
+    """ISO 时间字符串越大越新；无法解析返回 0。"""
+    text = str(value or '').strip().replace('-', '').replace('T', '').replace(':', '').replace(' ', '')
+    digits = ''.join(ch for ch in text if ch.isdigit())[:14]
+    try:
+        return int(digits) if digits else 0
+    except ValueError:
+        return 0
 
 
 class TaskRow(QFrame):
@@ -236,56 +238,55 @@ class DashboardPanel(QWidget):
             self.recent_list.addWidget(row)
 
     def _fill_release(self, requirements):
+        """具体待升级事项（最多 5 条），不再按本周/下周分组汇总。"""
         self._clear_layout(self.release_list)
         today = datetime.date.today()
-        week_start, week_end, next_start, next_end = _week_bounds(today)
-        groups = {
-            'this_week': [],
-            'next_week': [],
-            'unset': [],
-        }
+        horizon = today + datetime.timedelta(days=14)
+        exclude = {'已上线', '已关闭', '已取消', '暂停'}
+        overdue, upcoming, month_only = [], [], []
         for item in requirements:
             status = str(item.get('status') or '')
-            if status in ('已上线', '已关闭', '已取消'):
+            if status in exclude:
                 continue
-            date_text = _online_date(item)
-            parsed = _parse_date(date_text) if date_text else None
-            if parsed is None:
-                groups['unset'].append(item)
-            elif week_start <= parsed <= week_end:
-                groups['this_week'].append(item)
-            elif next_start <= parsed <= next_end:
-                groups['next_week'].append(item)
-            elif parsed >= today:
-                # 更远的也归到 next 展示摘要，避免完全丢失
-                groups['next_week'].append(item)
-            else:
-                # 过期未上线：归入本周待办
-                groups['this_week'].append(item)
+            planned = str(item.get('planned_online_date') or '')[:10]
+            actual = str(item.get('actual_online_date') or '')[:10]
+            if actual:
+                continue
+            parsed = _parse_date(planned) if planned else None
+            month = str(item.get('online_month') or '').strip()
+            if parsed is not None and parsed < today:
+                overdue.append((item, parsed, (today - parsed).days))
+            elif parsed is not None and today <= parsed <= horizon:
+                upcoming.append((item, parsed))
+            elif not planned and month:
+                month_only.append(item)
 
+        # 逾期天数从大到小 → updated 从新到旧
+        overdue = sorted(overdue, key=lambda t: (-t[2], -_iso_rank(t[0].get('updated_at'))))
+        # 计划日期从近到远 → updated 从新到旧
+        upcoming = sorted(upcoming, key=lambda t: (t[1].toordinal(), -_iso_rank(t[0].get('updated_at'))))
+        month_only = sorted(month_only, key=lambda item: -_iso_rank(item.get('updated_at')))
+
+        ranked = [t[0] for t in overdue] + [t[0] for t in upcoming] + month_only
+        ranked = ranked[:5]
         zh = self.language == 'zh'
-        labels = {
-            'this_week': ('本周', 'This week'),
-            'next_week': ('下周/后续', 'Next / later'),
-            'unset': ('未定', 'Unset'),
-        }
-        any_row = False
-        for key in ('this_week', 'next_week', 'unset'):
-            bucket = groups[key]
-            if not bucket:
-                continue
-            any_row = True
-            dates = [_online_date(item) for item in bucket if _online_date(item)]
-            latest = max(dates) if dates else '—'
-            label = labels[key][0 if zh else 1]
-            title = f'{label} · {len(bucket)}' if zh else f'{label} · {len(bucket)}'
-            meta = (f'最近升级日 {latest}' if zh else f'Nearest {latest}') if latest != '—' else (
-                '尚未填写上线日期' if zh else 'No online date'
-            )
-            row = TaskRow({'group': key, 'items': bucket}, title, meta)
-            row.clicked.connect(lambda _p=None: self.open_sql.emit())
+        self.release_empty.setVisible(not ranked)
+        for item in ranked:
+            title = item.get('title') or item.get('code') or ('未命名' if zh else 'Untitled')
+            system = item.get('system') or ('未选系统' if zh else 'No system')
+            progress = item.get('status') or ''
+            planned = str(item.get('planned_online_date') or '')[:10]
+            parsed = _parse_date(planned) if planned else None
+            if parsed is not None and parsed < today:
+                badge = f'逾期 {(today - parsed).days} 天' if zh else f'Overdue {(today - parsed).days}d'
+            elif parsed is not None:
+                badge = f'计划 {planned}' if zh else f'Plan {planned}'
+            else:
+                badge = '待排期' if zh else 'Unscheduled'
+            meta = f'{system} · {badge}'
+            row = TaskRow(item, title, meta, progress)
+            row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
-        self.release_empty.setVisible(not any_row)
 
     def _on_requirement_clicked(self, item):
         if isinstance(item, dict):
@@ -305,7 +306,7 @@ class DashboardPanel(QWidget):
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
             self.release_title.setText('待升级事项')
             self.release_more.setText('升级准备')
-            self.release_empty.setText('暂无待升级事项。有计划上线日的需求会按本周/下周汇总。')
+            self.release_empty.setText('暂无待升级事项')
             self.tools_label.setText('常用工具')
             self.gateway.setText('加解密')
             self.credit.setText('证件类型')
@@ -321,7 +322,7 @@ class DashboardPanel(QWidget):
             self.recent_empty.setText('No requirements yet. Add or scan in Requirements.')
             self.release_title.setText('Upcoming releases')
             self.release_more.setText('Release prep')
-            self.release_empty.setText('No pending releases. Planned online dates will group here.')
+            self.release_empty.setText('No pending releases')
             self.tools_label.setText('TOOLS')
             self.gateway.setText('Crypto')
             self.credit.setText('Documents')

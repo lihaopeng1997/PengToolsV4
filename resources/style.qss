@@ -874,7 +874,11 @@ QFrame#sql-delivery-zone QLabel#zone-title { border-left-color: __PRIMARY__; col
 QFrame#sql-editor-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
 QFrame#sql-action-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
 QPlainTextEdit#sql-input-editor,
-QPlainTextEdit#sql-format-editor {
+QPlainTextEdit#sql-format-editor,
+QPlainTextEdit#text-helper-input,
+QPlainTextEdit#text-helper-output,
+QPlainTextEdit#iface-detail-edit,
+QPlainTextEdit#iface-draft-preview {
     background: __INPUT_BG__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
@@ -884,10 +888,32 @@ QPlainTextEdit#sql-format-editor {
     selection-color: __TEXT_STRONG__;
 }
 QPlainTextEdit#sql-input-editor:focus,
-QPlainTextEdit#sql-format-editor:focus {
+QPlainTextEdit#sql-format-editor:focus,
+QPlainTextEdit#text-helper-input:focus,
+QPlainTextEdit#text-helper-output:focus,
+QPlainTextEdit#iface-detail-edit:focus,
+QPlainTextEdit#iface-draft-preview:focus {
     border-color: __PRIMARY__;
     background: __SURFACE__;
     color: __TEXT_STRONG__;
+}
+QTableWidget#iface-request-table {
+    background: __SURFACE__;
+    alternate-background-color: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    gridline-color: __BORDER__;
+    selection-background-color: __TABLE_SELECT__;
+    selection-color: __TEXT_STRONG__;
+}
+QTableWidget#iface-request-table::item {
+    padding: 4px 6px;
+}
+QFrame#iface-conn-zone,
+QFrame#iface-draft-zone {
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
 }
 QSplitter#sql-editor-splitter::handle:horizontal {
     width: 8px;

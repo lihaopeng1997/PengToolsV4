@@ -27,6 +27,7 @@ NAV_MODEL = [
     ]),
     ('devtools', [
         (5, '加解密', 'Crypto', 'shield-key'),
+        (12, '接口排查', 'API Debug', 'api-debug'),
         (11, '格式工具', 'Format Tools', 'json'),
         (1, '证件类型', 'Documents', 'document-id'),
         (4, '车辆 VIN', 'Vehicle VIN', 'vin'),
@@ -71,11 +72,12 @@ def _build_items() -> dict[int, NavItem]:
         8: ('自我学习资料整理与全文搜索', 'Learning library and full-text search'),
         9: ('每日日报与定时提醒', 'Daily reports and reminders'),
         10: ('需求归档、上线台账与工具联动', 'Requirement tracking and tool links'),
-        11: ('JSON / XML / SQL 离线格式化', 'Offline JSON / XML / SQL formatting'),
+        11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
+        12: ('多浏览器接口实时排查与本地验证草稿', 'Multi-browser API capture and local draft only'),
     }
     # 首页固定为底部入口；设置不进悬浮快捷位
-    # 11 = 格式工具（新 index，不改 0–10 历史含义）
-    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11}
+    # 11 = 格式工具；12 = 接口排查（不改 0–10 历史含义）
+    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
         for nav_index, name_zh, name_en, icon_role in entries:
@@ -109,7 +111,7 @@ def _build_items() -> dict[int, NavItem]:
 NAV_ITEMS: dict[int, NavItem] = _build_items()
 
 # 编辑列表展示顺序（不含首页、设置）
-FLOATING_EDIT_ORDER = [10, 2, 3, 9, 5, 11, 1, 4, 6, 8]
+FLOATING_EDIT_ORDER = [10, 2, 3, 9, 5, 12, 11, 1, 4, 6, 8]
 
 
 def get_nav_item(index: int) -> NavItem | None:

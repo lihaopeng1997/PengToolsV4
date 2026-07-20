@@ -55,6 +55,16 @@ try {
         --hidden-import openpyxl `
         --hidden-import msoffcrypto `
         --hidden-import PyQt6.QtSvg `
+        --hidden-import websocket `
+        --hidden-import websocket._app `
+        --hidden-import mitmproxy `
+        --hidden-import mitmproxy.tools.dump `
+        --hidden-import mitmproxy.certs `
+        --hidden-import mitmproxy.options `
+        --exclude-module PyQt5 `
+        --exclude-module PySide2 `
+        --exclude-module PySide6 `
+        --exclude-module tkinter `
         run.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
 

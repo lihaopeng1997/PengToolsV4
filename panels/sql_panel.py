@@ -516,10 +516,25 @@ class SqlToolPanel(QWidget):
         delivery.setSpacing(6)
         first = QHBoxLayout()
         first.setSpacing(8)
+        self.work_system_label = QLabel()
+        self.work_system_label.setObjectName('field-caption')
+        size_caption(self.work_system_label)
+        first.addWidget(self.work_system_label)
+        # 输入区直接选择系统（与配置页 system_combo 双向同步）
+        self.work_system_combo = QComboBox()
+        size_combo(self.work_system_combo, 'md')
+        self.work_system_combo.currentIndexChanged.connect(self._on_work_system_changed)
+        first.addWidget(self.work_system_combo)
+        self.work_system_empty = QPushButton()
+        self.work_system_empty.setProperty('compactAction', True)
+        self.work_system_empty.setObjectName('ghost-btn')
+        self.work_system_empty.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.work_system_empty.hide()
+        first.addWidget(self.work_system_empty)
+        # 兼容旧 chip 引用
         self.current_system_label = QLabel()
         self.current_system_label.setObjectName('system-chip')
-        size_system_chip(self.current_system_label)
-        first.addWidget(self.current_system_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.current_system_label.hide()
         first.addStretch(1)
         self.env_label = QLabel()
         self.env_label.setObjectName('field-caption')
@@ -788,6 +803,10 @@ class SqlToolPanel(QWidget):
         if not self.status.text() or self.status.text() in ('就绪', 'Ready') or self.status.toolTip() in ('就绪', 'Ready', ''):
             self._set_status_label(self.status, ready, ready, max_chars=6)
         self.config_system_label.setText('当前配置系统' if zh else 'Configured system')
+        if hasattr(self, 'work_system_label'):
+            self.work_system_label.setText('当前系统' if zh else 'System')
+        if hasattr(self, 'work_system_empty'):
+            self.work_system_empty.setText('请先新增系统' if zh else 'Add a system first')
         self._update_current_system_label()
 
     def _load_systems(self):
@@ -795,9 +814,16 @@ class SqlToolPanel(QWidget):
         self.system_combo.clear()
         self.system_combo.addItems([system['name'] for system in self._systems])
         self.system_combo.blockSignals(False)
+        if hasattr(self, 'work_system_combo'):
+            self.work_system_combo.blockSignals(True)
+            self.work_system_combo.clear()
+            self.work_system_combo.addItems([system['name'] for system in self._systems])
+            self.work_system_combo.blockSignals(False)
         if self._systems:
             self._current_system_idx = min(self._current_system_idx, len(self._systems) - 1)
             self.system_combo.setCurrentIndex(self._current_system_idx)
+            if hasattr(self, 'work_system_combo'):
+                self.work_system_combo.setCurrentIndex(self._current_system_idx)
             self._populate_form()
         self._update_current_system_label()
         if hasattr(self, 'release_extra_sql_system'):
@@ -850,6 +876,18 @@ class SqlToolPanel(QWidget):
             self._current_system_idx = index
             self._populate_form()
             self._update_current_system_label()
+            if hasattr(self, 'work_system_combo') and self.work_system_combo.currentIndex() != index:
+                self.work_system_combo.blockSignals(True)
+                self.work_system_combo.setCurrentIndex(index)
+                self.work_system_combo.blockSignals(False)
+
+    def _on_work_system_changed(self, index):
+        """输入区系统下拉 → 同步配置页 system_combo。"""
+        if 0 <= index < len(self._systems):
+            if self.system_combo.currentIndex() != index:
+                self.system_combo.setCurrentIndex(index)
+            else:
+                self._on_system_changed(index)
 
     def _set_status_label(self, label, text, tip=None, max_chars=18):
         """状态胶囊：按内容收缩；过长省略，完整文案放 tooltip。"""
@@ -865,12 +903,22 @@ class SqlToolPanel(QWidget):
     def _update_current_system_label(self):
         system = self._get_system()
         name = system.get('name', '') if system else '-'
+        has_systems = bool(self._systems)
+        if hasattr(self, 'work_system_combo'):
+            self.work_system_combo.setVisible(has_systems)
+            if hasattr(self, 'work_system_empty'):
+                self.work_system_empty.setVisible(not has_systems)
+            if has_systems and 0 <= self._current_system_idx < len(self._systems):
+                if self.work_system_combo.currentIndex() != self._current_system_idx:
+                    self.work_system_combo.blockSignals(True)
+                    self.work_system_combo.setCurrentIndex(self._current_system_idx)
+                    self.work_system_combo.blockSignals(False)
         if self.language == 'zh':
             short = f'系统 · {name}'
-            tip = f'当前系统：{name}\n请到「系统配置」页切换'
+            tip = f'当前系统：{name}'
         else:
             short = f'Sys · {name}'
-            tip = f'Configured system: {name}\nSwitch on System Config tab'
+            tip = f'Configured system: {name}'
         self._set_status_label(self.current_system_label, short, tip, max_chars=16)
 
     def _add_system(self):

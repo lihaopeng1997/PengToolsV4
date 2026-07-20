@@ -9,7 +9,7 @@ import re
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
+    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
     QPushButton, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -17,8 +17,14 @@ from tools.sql_tool import (
     deduplicate_sql_statements, split_statements, strip_comments,
     validate_oracle_sql_detailed,
 )
+from tools.text_dev_helpers import (
+    TextHelperError, decode_base64, decode_unicode_escapes, decode_url,
+    encode_base64, encode_unicode_escapes, encode_url, extract_java_stack,
+    format_timestamp_bundle,
+)
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
+from ui.field_metrics import size_combo
 from ui.json_viewer import JsonViewer
 from ui.page_chrome import make_page_header
 from ui.xml_workspace import XmlWorkspace
@@ -270,8 +276,169 @@ class _SqlFormatTab(QWidget):
         )
 
 
+class _TextDevHelpersTab(QWidget):
+    """Base64 / URL / Unicode / 时间戳 / Java 堆栈。"""
+
+    MODES = ('Base64', 'URL', 'Unicode', '时间戳', 'Java 堆栈')
+
+    def __init__(self, language='zh'):
+        super().__init__()
+        self.language = language
+        self._setup_ui()
+        self.set_language(language)
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 8, 0, 0)
+        root.setSpacing(8)
+
+        tools = QHBoxLayout()
+        tools.setSpacing(8)
+        self.mode_label = QLabel()
+        tools.addWidget(self.mode_label)
+        self.mode_combo = QComboBox()
+        size_combo(self.mode_combo, 'md')
+        self.mode_combo.addItems(list(self.MODES))
+        self.mode_combo.currentIndexChanged.connect(self._on_mode)
+        tools.addWidget(self.mode_combo)
+        tools.addStretch(1)
+        self.encode_btn = QPushButton()
+        apply_button(self.encode_btn, 'primary', compact=True, icon='lock', icon_size=16)
+        self.encode_btn.clicked.connect(self._encode)
+        tools.addWidget(self.encode_btn)
+        self.decode_btn = QPushButton()
+        apply_button(self.decode_btn, 'secondary', compact=True, icon='unlock', icon_size=16)
+        self.decode_btn.clicked.connect(self._decode)
+        tools.addWidget(self.decode_btn)
+        self.convert_btn = QPushButton()
+        apply_button(self.convert_btn, 'primary', compact=True, icon='refresh', icon_size=16)
+        self.convert_btn.clicked.connect(self._convert)
+        self.convert_btn.hide()
+        tools.addWidget(self.convert_btn)
+        self.copy_btn = QPushButton()
+        apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
+        self.copy_btn.clicked.connect(self._copy_out)
+        tools.addWidget(self.copy_btn)
+        self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
+        self.clear_btn.clicked.connect(self._clear)
+        tools.addWidget(self.clear_btn)
+        root.addLayout(tools)
+
+        mono = QFont('Consolas', 10)
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        self.input = QPlainTextEdit()
+        self.input.setObjectName('text-helper-input')
+        self.input.setFont(mono)
+        root.addWidget(self.input, 1)
+        self.output = QPlainTextEdit()
+        self.output.setObjectName('text-helper-output')
+        self.output.setFont(mono)
+        self.output.setReadOnly(True)
+        root.addWidget(self.output, 1)
+        self.status = QLabel()
+        self.status.setObjectName('field-hint')
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+        self._on_mode(0)
+
+    def _mode_key(self) -> str:
+        idx = self.mode_combo.currentIndex()
+        return ('base64', 'url', 'unicode', 'timestamp', 'java')[max(0, min(4, idx))]
+
+    def _on_mode(self, _index=0):
+        key = self._mode_key()
+        stack = key == 'java' or key == 'timestamp'
+        self.encode_btn.setVisible(not stack)
+        self.decode_btn.setVisible(not stack)
+        self.convert_btn.setVisible(stack)
+        zh = self.language == 'zh'
+        if key == 'timestamp':
+            self.convert_btn.setText('转换' if zh else 'Convert')
+        elif key == 'java':
+            self.convert_btn.setText('提取异常链' if zh else 'Extract stack')
+        self.status.setText('')
+
+    def _encode(self):
+        text = self.input.toPlainText()
+        key = self._mode_key()
+        try:
+            if key == 'base64':
+                self.output.setPlainText(encode_base64(text))
+            elif key == 'url':
+                self.output.setPlainText(encode_url(text))
+            elif key == 'unicode':
+                self.output.setPlainText(encode_unicode_escapes(text))
+            self.status.setText('完成' if self.language == 'zh' else 'Done')
+        except TextHelperError as exc:
+            self.output.clear()
+            self.status.setText(str(exc))
+            show_warning(self, '文本辅助', str(exc))
+
+    def _decode(self):
+        text = self.input.toPlainText()
+        key = self._mode_key()
+        try:
+            if key == 'base64':
+                self.output.setPlainText(decode_base64(text))
+            elif key == 'url':
+                self.output.setPlainText(decode_url(text))
+            elif key == 'unicode':
+                self.output.setPlainText(decode_unicode_escapes(text))
+            self.status.setText('完成' if self.language == 'zh' else 'Done')
+        except TextHelperError as exc:
+            self.output.clear()
+            self.status.setText(str(exc))
+            show_warning(self, '文本辅助', str(exc))
+
+    def _convert(self):
+        text = self.input.toPlainText()
+        key = self._mode_key()
+        try:
+            if key == 'timestamp':
+                self.output.setPlainText(format_timestamp_bundle(text))
+            elif key == 'java':
+                result = extract_java_stack(text)
+                self.output.setPlainText(result.get('compact_text') or result.get('summary') or '')
+            self.status.setText('完成' if self.language == 'zh' else 'Done')
+        except TextHelperError as exc:
+            self.output.clear()
+            self.status.setText(str(exc))
+            show_warning(self, '文本辅助', str(exc))
+
+    def _copy_out(self):
+        text = self.output.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+
+    def _clear(self):
+        self.input.clear()
+        self.output.clear()
+        self.status.setText('')
+
+    def set_language(self, language):
+        self.language = language
+        zh = language == 'zh'
+        self.mode_label.setText('模式' if zh else 'Mode')
+        labels = (
+            ['Base64', 'URL', 'Unicode', '时间戳', 'Java 堆栈'] if zh else
+            ['Base64', 'URL', 'Unicode', 'Timestamp', 'Java stack']
+        )
+        for i, name in enumerate(labels):
+            if i < self.mode_combo.count():
+                self.mode_combo.setItemText(i, name)
+        self.encode_btn.setText('编码' if zh else 'Encode')
+        self.decode_btn.setText('解码' if zh else 'Decode')
+        self.copy_btn.setText('复制结果' if zh else 'Copy result')
+        self.clear_btn.setText('清空' if zh else 'Clear')
+        self.input.setPlaceholderText(
+            '粘贴待转换文本…' if zh else 'Paste text…'
+        )
+        self._on_mode(self.mode_combo.currentIndex())
+
+
 class FormatToolsPanel(QWidget):
-    """JSON / XML / SQL 三 Tab 格式工具。"""
+    """JSON / XML / SQL / 文本与开发辅助 四 Tab 格式工具。"""
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -285,7 +452,7 @@ class FormatToolsPanel(QWidget):
         root.setSpacing(12)
         header, self.page_title, self.page_subtitle = make_page_header(
             '格式工具',
-            'JSON · XML · SQL 离线整理 · 不联网、不落盘敏感内容',
+            'JSON · XML · SQL · 文本辅助 · 离线整理 · 不联网、不落盘敏感内容',
             'json',
         )
         root.addWidget(header)
@@ -310,12 +477,16 @@ class FormatToolsPanel(QWidget):
         self.sql_tab = _SqlFormatTab(self.language)
         self.tabs.addTab(self.sql_tab, 'SQL')
 
+        self.text_tab = _TextDevHelpersTab(self.language)
+        self.tabs.addTab(self.text_tab, '文本与开发辅助')
+
         root.addWidget(self.tabs, 1)
         try:
             from ui.icons import qicon
             self.tabs.setTabIcon(0, qicon('json'))
             self.tabs.setTabIcon(1, qicon('xml'))
             self.tabs.setTabIcon(2, qicon('database'))
+            self.tabs.setTabIcon(3, qicon('terminal'))
         except Exception:
             pass
 
@@ -324,15 +495,17 @@ class FormatToolsPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('格式工具' if zh else 'Format tools')
         self.page_subtitle.setText(
-            'JSON · XML · SQL 离线整理 · 不联网、不落盘敏感内容' if zh else
-            'JSON · XML · SQL offline formatting · no network'
+            'JSON · XML · SQL · 文本辅助 · 离线整理 · 不联网、不落盘敏感内容' if zh else
+            'JSON · XML · SQL · text helpers · offline · no network'
         )
         self.tabs.setTabText(0, 'JSON')
         self.tabs.setTabText(1, 'XML')
         self.tabs.setTabText(2, 'SQL')
+        self.tabs.setTabText(3, '文本与开发辅助' if zh else 'Text & Dev helpers')
         self.json_viewer.set_language(language)
         self.xml_workspace.set_language(language)
         self.sql_tab.set_language(language)
+        self.text_tab.set_language(language)
 
     def open_json(self, text: str = ''):
         self.tabs.setCurrentIndex(0)
@@ -349,3 +522,8 @@ class FormatToolsPanel(QWidget):
         if text:
             self.sql_tab.editor.setPlainText(text)
             self.sql_tab._refresh_status()
+
+    def open_text_helper(self, text: str = ''):
+        self.tabs.setCurrentIndex(3)
+        if text:
+            self.text_tab.input.setPlainText(text)

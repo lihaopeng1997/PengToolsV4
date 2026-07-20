@@ -6,11 +6,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('resources\\style.qss', 'resources'), ('resources\\chevron_down.svg', 'resources'), ('resources\\check_white.svg', 'resources'), ('resources\\app.ico', 'resources'), ('resources\\app-icon.png', 'resources'), ('resources\\brand', 'resources\\brand'), ('resources\\build_info.json', 'resources'), ('resources\\private_knowledge_seed.txt', 'resources'), ('resources\\private_knowledge_seed_workbooks.json', 'resources'), ('resources\\release_workbook_template.xlsx', 'resources'), ('resources\\icons', 'resources\\icons')],
-    hiddenimports=['docx', 'openpyxl', 'msoffcrypto', 'PyQt6.QtSvg'],
+    hiddenimports=['docx', 'openpyxl', 'msoffcrypto', 'PyQt6.QtSvg', 'websocket', 'websocket._app', 'mitmproxy', 'mitmproxy.tools.dump', 'mitmproxy.certs', 'mitmproxy.options'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyQt5', 'PySide2', 'PySide6', 'tkinter'],
     noarchive=False,
     optimize=0,
 )

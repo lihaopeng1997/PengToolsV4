@@ -62,6 +62,7 @@ ICON_FILES = {
     'terminal': ('resources', 'icons', 'terminal.svg'),
     'database': ('resources', 'icons', 'database.svg'),
     'external-open': ('resources', 'icons', 'external-open.svg'),
+    'api-debug': ('resources', 'icons', 'api-debug.svg'),
 }
 
 # brand_pixmap 角色 → ICON_FILES key
@@ -92,6 +93,7 @@ NAV_ICON_BY_INDEX = {
     9: 'daily-report',
     10: 'requirements',
     11: 'json',  # 格式工具
+    12: 'api-debug',  # 接口排查
 }
 
 
