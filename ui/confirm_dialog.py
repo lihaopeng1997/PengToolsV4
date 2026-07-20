@@ -98,7 +98,7 @@ class _CloseOptionCard(QFrame):
 
     clicked = pyqtSignal()
 
-    def __init__(self, icon_role, title_text, tip_text, object_name, parent=None):
+    def __init__(self, icon_role, title_text, tip_text, object_name, parent=None, icon_tint='#FFFFFF'):
         super().__init__(parent)
         self.setObjectName(object_name)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -112,7 +112,8 @@ class _CloseOptionCard(QFrame):
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(36, 36)
         from ui.icons import icon_pixmap
-        pix = icon_pixmap(icon_role, 20)
+        # 徽章底为有色，图标必须用浅色前景保证对比度
+        pix = icon_pixmap(icon_role, 20, icon_tint or '#FFFFFF')
         if not pix.isNull():
             badge.setPixmap(pix)
         layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
@@ -182,6 +183,16 @@ class CloseActionDialog(QDialog):
         root.addLayout(header)
 
         # —— 两种明确后果（本地 SVG，无 Emoji）——
+        # 托盘：浅色主色图标；退出：白色危险图标（与有色徽章对比）
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            tray_tint = pal.get('SURFACE') or '#FFFFFF'
+            # 主色徽章上用近白
+            tray_tint = '#F7F9FC'
+            exit_tint = '#FFFFFF'
+        except Exception:
+            tray_tint, exit_tint = '#F7F9FC', '#FFFFFF'
         self.minimize_button = _CloseOptionCard(
             'settings',
             '隐藏到系统托盘' if zh else 'Hide to system tray',
@@ -189,6 +200,7 @@ class CloseActionDialog(QDialog):
             if zh else
             'Leaves the taskbar; reopen from tray anytime. Floating bar, hotkeys and services stay on.',
             'close-option-primary',
+            icon_tint=tray_tint,
         )
         self.minimize_button.clicked.connect(lambda: self._choose('minimize'))
         root.addWidget(self.minimize_button)
@@ -200,6 +212,7 @@ class CloseActionDialog(QDialog):
             if zh else
             'Closes the main window, floating bar, tray and all background services. Unsaved panel state is lost.',
             'close-option-danger',
+            icon_tint=exit_tint,
         )
         self.exit_button.clicked.connect(lambda: self._choose('exit'))
         root.addWidget(self.exit_button)

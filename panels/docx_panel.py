@@ -9,7 +9,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QDateEdit, QFileDialog, QFileIconProvider,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
+    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -627,12 +627,12 @@ class DocxUpdatePanel(QWidget):
         target = self.output_dir.text().strip()
         zh = self.language == 'zh'
         if not url:
-            QMessageBox.warning(self, '接口文档更新' if zh else 'Interface docs', '请填写 SVN 路径。' if zh else 'Enter an SVN URL.')
+            show_warning(self, '接口文档更新' if zh else 'Interface docs', '请填写 SVN 路径。' if zh else 'Enter an SVN URL.')
             return
         try:
             url = validate_svn_url(url)
         except ValueError as exc:
-            QMessageBox.warning(self, '接口文档更新' if zh else 'Interface docs', str(exc))
+            show_warning(self, '接口文档更新' if zh else 'Interface docs', str(exc))
             return
         if not target:
             target = QFileDialog.getExistingDirectory(self, '选择 SVN 检出输出目录' if zh else 'Choose checkout directory')
@@ -652,7 +652,7 @@ class DocxUpdatePanel(QWidget):
                 if names:
                     checkout_target = os.path.join(target, safe_folder_name(url.rstrip('/').rsplit('/', 1)[-1]))
                     if os.path.exists(checkout_target) and os.listdir(checkout_target) and not self._is_working_copy(checkout_target):
-                        QMessageBox.warning(
+                        show_warning(
                             self, '接口文档更新' if zh else 'Interface docs',
                             (f'输出目录非空，且无法安全检出。请清空目录或换一个空目录。\n{checkout_target}' if zh else
                              f'Cannot safely checkout into a non-empty directory:\n{checkout_target}'),
@@ -671,7 +671,7 @@ class DocxUpdatePanel(QWidget):
                     result = checkout(url, checkout_target)
                     message = result.get('output') or ('SVN 检出完成' if zh else 'SVN checkout finished')
         except (SvnError, ValueError, OSError) as exc:
-            QMessageBox.critical(self, '接口文档更新' if zh else 'Interface docs', str(exc))
+            show_error(self, '接口文档更新' if zh else 'Interface docs', str(exc))
             return
         self.output_dir.setText(target)
         self.folder_path.setText(target)
@@ -679,7 +679,7 @@ class DocxUpdatePanel(QWidget):
         self._refresh_output_browser()
         self._expand_log()
         self.log.setPlainText(message)
-        QMessageBox.information(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
+        show_info(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
 
     def _load_sql(self):
         paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', '', 'SQL (*.sql *.txt);;All files (*.*)')
@@ -691,7 +691,7 @@ class DocxUpdatePanel(QWidget):
                 blocks.append(f'-- 来源文件: {os.path.basename(path)}\n{read_file_auto_encoding(path).strip()}')
                 self._sql_paths.append(path)
             except OSError as exc:
-                QMessageBox.critical(self, 'PengTools', str(exc))
+                show_error(self, 'PengTools', str(exc))
                 return
         current = self.sql_editor.toPlainText().strip()
         self.sql_editor.setPlainText('\n\n'.join(([current] if current else []) + blocks))
@@ -729,40 +729,37 @@ class DocxUpdatePanel(QWidget):
     def _confirm_sql(self, sql, input_docx):
         unique_sql, duplicates = deduplicate_sql(sql)
         if duplicates:
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools',
-                (f'检测到 {len(duplicates)} 条重复 SQL。是否去重后继续？\n选择“否”将保留输入，但写入时仍会安全跳过重复内容。'
+                (f'检测到 {len(duplicates)} 条重复 SQL。是否去重后继续？写入时仍会安全跳过文档内已有重复。'
                  if self.language == 'zh' else
-                 f'{len(duplicates)} duplicate SQL statement(s) found. Deduplicate before continuing?\nNo keeps the input; document duplicates are still safely skipped.'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes,
-            )
-            if answer == QMessageBox.StandardButton.Cancel:
+                 f'{len(duplicates)} duplicate SQL statement(s) found. Deduplicate and continue?'),
+                confirm_text='去重并继续' if self.language == 'zh' else 'Deduplicate',
+                danger=False,
+            ):
                 return None
-            if answer == QMessageBox.StandardButton.Yes:
-                sql = unique_sql
+            sql = unique_sql
 
         structure_sql, rejected = filter_docx_structure_sql(sql)
         if rejected:
             preview = '\n'.join('- ' + item.replace('\n', ' ')[:150] for item in rejected[:8])
             if len(rejected) > 8:
                 preview += f'\n... 另有 {len(rejected) - 8} 条'
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools · 接口文档 SQL',
                 (f'接口结构文档只支持 CREATE TABLE、ALTER TABLE ADD/MODIFY 和 COMMENT ON。\n'
                  f'检测到 {len(rejected)} 条非结构 DDL 或不支持的 SQL：\n{preview}\n\n'
-                 '点击“是”将过滤这些语句并继续；点击“否”返回修改。'
+                 '过滤这些语句并继续？'
                  if self.language == 'zh' else
                  f'The document updater supports CREATE TABLE, ALTER TABLE ADD/MODIFY and COMMENT ON only.\n'
-                 f'{len(rejected)} unsupported statement(s) found:\n{preview}\n\nYes filters them and continues; No returns to editing.'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                 f'{len(rejected)} unsupported statement(s):\n{preview}\n\nFilter and continue?'),
+                confirm_text='过滤并继续' if self.language == 'zh' else 'Filter & continue',
+                danger=False,
+            ):
                 return None
             sql = structure_sql
         if not sql.strip():
-            QMessageBox.warning(
+            show_warning(
                 self, 'PengTools · 接口文档 SQL',
                 '过滤后没有可用于更新接口文档的结构 DDL。' if self.language == 'zh'
                 else 'No supported structure DDL remains after filtering.',
@@ -777,14 +774,13 @@ class DocxUpdatePanel(QWidget):
                 f"- SQL {item['statement']}: {item['message_zh' if zh else 'message_en']}"
                 for item in syntax_errors[:8]
             )
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools · 接口文档 SQL',
                 (f'轻量语法检查发现 {len(syntax_errors)} 个问题：\n{preview}\n\n仍要继续尝试解析吗？'
                  if zh else f'Lightweight validation found {len(syntax_errors)} issue(s):\n{preview}\n\nTry parsing anyway?'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                confirm_text='仍要继续' if zh else 'Continue',
+                danger=False,
+            ):
                 return None
 
         existing = detect_existing_changes(input_docx, sql)
@@ -795,15 +791,14 @@ class DocxUpdatePanel(QWidget):
             )
             if len(existing) > 12:
                 preview += f'\n... 另有 {len(existing) - 12} 项'
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools',
-                (f'检测到 {len(existing)} 项表/字段/说明已存在：\n{preview}\n\n是否跳过已存在项并继续处理其余新增内容？'
+                (f'检测到 {len(existing)} 项表/字段/说明已存在：\n{preview}\n\n跳过已存在项并继续处理其余新增内容？'
                  if self.language == 'zh' else
-                 f'{len(existing)} table/field/comment item(s) already exist:\n{preview}\n\nSkip them and continue with missing changes?'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                 f'{len(existing)} table/field/comment item(s) already exist:\n{preview}\n\nSkip them and continue?'),
+                confirm_text='跳过并继续' if self.language == 'zh' else 'Skip & continue',
+                danger=False,
+            ):
                 return None
         return sql
 
@@ -812,11 +807,11 @@ class DocxUpdatePanel(QWidget):
         output_path = self.output_path.text().strip() or self._organized_output_path(selected_docx)
         sql = self.sql_editor.toPlainText().strip()
         if not selected_docx or not os.path.isfile(selected_docx) or not sql:
-            QMessageBox.warning(self, 'PengTools', '请选择接口文档并输入 SQL。' if self.language == 'zh' else 'Select a document and enter SQL.')
+            show_warning(self, 'PengTools', '请选择接口文档并输入 SQL。' if self.language == 'zh' else 'Select a document and enter SQL.')
             return
         self._refresh_template_match()
         if not self._template_profile:
-            QMessageBox.warning(
+            show_warning(
                 self, 'PengTools · 接口文档更新',
                 ('无法根据文档名称匹配系统模板，已停止写入。\n请使用对应系统的结构文档原始名称，或补充该系统模板后再处理。'
                  if self.language == 'zh' else

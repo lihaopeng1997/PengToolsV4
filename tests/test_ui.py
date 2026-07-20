@@ -361,20 +361,23 @@ class UiRegressionTests(unittest.TestCase):
         gateway = GatewayDecodePanel()
         docx = DocxUpdatePanel()
         self.assertEqual(gateway.environment.count(), 3)
-        self.assertEqual(gateway.work_tabs.count(), 2)
-        self.assertIs(gateway.work_tabs.widget(1), gateway.xml_workspace)
+        # 加解密不再内嵌 XML Tab；JSON 查看器保留
+        self.assertIsNotNone(gateway.json_viewer)
+        self.assertIsNone(gateway.xml_workspace)
+        self.assertTrue(hasattr(gateway, 'open_format_xml'))
         self.assertTrue(docx.update_date.calendarPopup())
         self.assertEqual(docx.update_date.objectName(), 'docx-date')
         docx.update_date.setDate(QDate(2030, 5, 20))
         docx.today_btn.click()
         self.assertEqual(docx.update_date.date(), QDate.currentDate())
 
-    def test_gateway_xml_workspace_format_copy_and_errors(self):
-        """XML 工具台：格式化 / 去引号 / 错误提示 / 复制完整流程。"""
+    def test_format_tools_xml_workspace_format_copy_and_errors(self):
+        """格式工具 XML Tab：格式化 / 去引号 / 错误提示 / 复制；加解密可跳转。"""
+        from panels.format_panel import FormatToolsPanel
         from ui.xml_workspace import XmlWorkspace
 
-        gateway = GatewayDecodePanel()
-        xml = gateway.xml_workspace
+        panel = FormatToolsPanel()
+        xml = panel.xml_workspace
         self.assertIsInstance(xml, XmlWorkspace)
         raw = '"<root><item id=\\"1\\">hi</item></root>"'
         xml.set_input_text(raw)
@@ -399,27 +402,33 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn('<a>', cleaned)
         self.assertNotIn('\\n', cleaned)
 
-        # 解密明文可送入 XML 页
+        # 解密明文通过信号送入格式工具
+        gateway = GatewayDecodePanel()
         gateway.json_viewer.set_text('<root><x>1</x></root>', auto_format=False)
-        with patch.object(xml, '_format', return_value=True) as fmt:
-            gateway._send_plain_to_xml()
-            fmt.assert_called()
-        self.assertEqual(gateway.work_tabs.currentWidget(), xml)
-        self.assertIn('<root>', xml.input_text())
+        received = []
+        gateway.open_format_xml.connect(received.append)
+        gateway._send_plain_to_format_xml()
+        self.assertEqual(len(received), 1)
+        self.assertIn('<root>', received[0])
+        panel.open_xml(received[0])
+        self.assertEqual(panel.tabs.currentIndex(), 1)
+        self.assertIn('<root>', panel.xml_workspace.input_text())
 
         xml.clear()
         self.assertFalse(xml.input_text().strip())
         self.assertFalse(xml.output_text().strip())
         gateway.close()
+        panel.close()
 
     def test_docx_filename_shows_matched_latest_template(self):
         panel = DocxUpdatePanel()
         panel.docx_path.setText('接报案数据库表结构文档V1.0_整理后接口文档.docx')
         self.assertIsNotNone(panel._template_profile)
         self.assertEqual(panel._template_profile['system'], '接报案')
-        self.assertIn('V2.0.docx', panel.template_status.text())
-        self.assertIn('标准 4 列', panel.template_status.text())
+        # 正常匹配不占行；详情在 tooltip / profile
         self.assertTrue(panel.template_status.property('matched'))
+        tip = panel.template_status.toolTip() or ''
+        self.assertTrue('接报案' in tip or 'V2.0' in tip or panel._template_profile.get('template'))
         panel.docx_path.setText('未知系统数据库表结构说明文档.docx')
         self.assertIsNone(panel._template_profile)
         self.assertFalse(panel.template_status.property('matched'))

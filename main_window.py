@@ -4,13 +4,14 @@ import datetime
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
-    QInputDialog, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+    QInputDialog, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from panels.credit_panel import CreditCodePanel
 from panels.dashboard_panel import DashboardPanel
 from panels.docx_panel import DocxUpdatePanel
+from panels.format_panel import FormatToolsPanel
 from panels.gateway_panel import GatewayDecodePanel
 from panels.ops_panel import OpsPanel
 from panels.personal_panel import PersonalPanel
@@ -111,10 +112,12 @@ class MainWindow(QMainWindow):
         self.settings_panel = SettingsPanel(self._settings, self.language)
         self.personal_panel = PersonalPanel(self.language)
         self.requirement_panel = RequirementPanel(self.language)
+        self.format_panel = FormatToolsPanel(self.language)
+        # stack 顺序保持 0–9 历史映射；格式工具追加为 stack 10（nav index 11）
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel,
+            self.personal_panel, self.requirement_panel, self.format_panel,
         ):
             self.stack.addWidget(panel)
         self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
@@ -127,6 +130,7 @@ class MainWindow(QMainWindow):
             self.dashboard_panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(self.dashboard_panel, 'open_requirement'):
             self.dashboard_panel.open_requirement.connect(self._open_requirement_from_dashboard)
+        self.gateway_panel.open_format_xml.connect(self._open_format_xml)
         self.personal_panel.reminder_due.connect(self._show_private_notification)
         self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
         self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
@@ -174,7 +178,8 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(0)
         brand = QLabel('PengTools')
         brand.setObjectName('sidebar_title')
-        self.version_label = QLabel(f'PRIVATE WORKBENCH · {APP_VERSION_LABEL}')
+        # 常驻只显示作者；版本/构建/彩蛋进 tooltip（双击仍解锁）
+        self.version_label = QLabel('作者：李浩鹏')
         self.version_label.setObjectName('sidebar_version')
         self.version_label.setToolTip(
             f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋'
@@ -182,6 +187,9 @@ class MainWindow(QMainWindow):
         brand_text.addWidget(brand)
         brand_text.addWidget(self.version_label)
         brand_layout.addLayout(brand_text, 1)
+        brand_block.setToolTip(
+            f'PengTools {app_version_text()}\n更新：{APP_BUILD_DATE}\n双击作者行可解锁私人彩蛋'
+        )
         outer.addWidget(brand_block)
 
         # 可滚动导航
@@ -196,7 +204,8 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        self.nav_buttons = [None] * 11
+        # 0–10 历史 nav index + 11 格式工具
+        self.nav_buttons = [None] * 12
         self._group_labels = {}
         self._nav_order = []
 
@@ -287,7 +296,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         about = menu.addAction('关于' if zh else 'About')
         about.triggered.connect(lambda: self.status_bar.showMessage(
-            f'PengTools {app_version_text()} · 离线工作台 · 构建 {APP_BUILD_DATE}', 5000
+            f'PengTools {app_version_text()} · 作者 李浩鹏 · 构建 {APP_BUILD_DATE}', 6000
         ))
         quit_act = menu.addAction('退出软件' if zh else 'Exit')
         quit_act.triggered.connect(self.exit_application)
@@ -373,7 +382,7 @@ class MainWindow(QMainWindow):
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel,
+            self.personal_panel, self.requirement_panel, self.format_panel,
         ):
             if hasattr(panel, 'apply_layout_mode'):
                 try:
@@ -381,11 +390,22 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+    @staticmethod
+    def _stack_index_for_nav(index: int) -> int:
+        """nav index → stack index。0–10 历史含义不变；11→stack 10。"""
+        if index in (8, 9):
+            return 8  # personal
+        if index == 10:
+            return 9  # requirement
+        if index == 11:
+            return 10  # format tools
+        return index
+
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
             return
         self._current_nav_index = index
-        stack_index = 8 if index in (8, 9) else (9 if index == 10 else index)
+        stack_index = self._stack_index_for_nav(index)
         if index == 8:
             self.personal_panel.open_learning()
         elif index == 9:
@@ -396,22 +416,32 @@ class MainWindow(QMainWindow):
         for position, button in enumerate(self.nav_buttons):
             if button is not None:
                 button.setChecked(position == index)
-        statuses_zh = [
-            '离线工作台已就绪', '个人与单位证件模拟生成', 'SQL 脚本整理、回滚与验证',
-            'SQL 驱动接口文档更新', '中国车辆 VIN 测试数据', '网关国密解密 · XML 工具',
-            'Linux 运维命令搜索与安全引导', '界面与悬浮工具栏设置',
-            '自我学习资料整理与全文搜索', '每日日报与定时提醒', '需求归档、上线台账与工具联动',
-        ]
-        statuses_en = [
-            'Offline workspace ready', 'Personal and unit document test data',
-            'SQL classify, validate and export', 'SQL-driven interface document updater',
-            'China vehicle VIN test data', 'Gateway SM crypto · XML tools',
-            'Linux operations command search and safety guidance',
-            'Interface and floating toolbar settings',
-            'Learning library and full-text search', 'Daily reports and reminders',
-            'Requirement tracking and tool links',
-        ]
-        self.status_bar.showMessage((statuses_zh if self.language == 'zh' else statuses_en)[index])
+        statuses_zh = {
+            0: '离线工作台已就绪', 1: '个人与单位证件模拟生成', 2: 'SQL 脚本整理、回滚与验证',
+            3: 'SQL 驱动接口文档更新', 4: '中国车辆 VIN 测试数据', 5: '网关国密解密 · JSON 结果',
+            6: 'Linux 运维命令搜索与安全引导', 7: '界面与悬浮工具栏设置',
+            8: '自我学习资料整理与全文搜索', 9: '每日日报与定时提醒', 10: '需求归档、上线台账与工具联动',
+            11: 'JSON / XML / SQL 离线格式化',
+        }
+        statuses_en = {
+            0: 'Offline workspace ready', 1: 'Personal and unit document test data',
+            2: 'SQL classify, validate and export', 3: 'SQL-driven interface document updater',
+            4: 'China vehicle VIN test data', 5: 'Gateway SM decrypt · JSON result',
+            6: 'Linux operations command search and safety guidance',
+            7: 'Interface and floating toolbar settings',
+            8: 'Learning library and full-text search', 9: 'Daily reports and reminders',
+            10: 'Requirement tracking and tool links',
+            11: 'Offline JSON / XML / SQL formatting',
+        }
+        table = statuses_zh if self.language == 'zh' else statuses_en
+        self.status_bar.showMessage(table.get(index, ''))
+
+    def _open_format_xml(self, text: str):
+        self._show_panel(11)
+        try:
+            self.format_panel.open_xml(text or '')
+        except Exception:
+            pass
 
     def _open_requirement_from_dashboard(self, requirement):
         self._show_panel(10)
@@ -466,7 +496,7 @@ class MainWindow(QMainWindow):
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel,
+            self.personal_panel, self.requirement_panel, self.format_panel,
         ):
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
@@ -570,7 +600,8 @@ class MainWindow(QMainWindow):
         if not accepted:
             return False
         if key != 'Lihp':
-            QMessageBox.warning(self, 'PengTools 彩蛋', '密钥不正确。')
+            from ui.confirm_dialog import show_warning
+            show_warning(self, 'PengTools 彩蛋', '密钥不正确。')
             return False
         self._private_unlocked = True
         if self.nav_buttons[8] is not None:

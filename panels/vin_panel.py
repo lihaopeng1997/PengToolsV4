@@ -5,10 +5,11 @@ import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QGroupBox, QHeaderView, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
 from ui.field_metrics import size_combo
 
@@ -125,4 +126,4 @@ class VinPanel(QWidget):
                 writer.writerows((vin, vin[:3], vin[9], validate_vin(vin)) for vin in self._results)
             self.status.setText(path)
         except OSError as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            show_error(self, 'Error', str(exc))

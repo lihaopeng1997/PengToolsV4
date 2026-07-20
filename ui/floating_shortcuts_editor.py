@@ -6,9 +6,10 @@ from __future__ import annotations
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_info
 from config import normalize_settings, save_settings
 from ui.icons import qicon
 from ui.navigation_model import (
@@ -214,7 +215,7 @@ class FloatingShortcutsEditor(QDialog):
                 return
             if len(self._session) <= 1:
                 zh = self.language == 'zh'
-                QMessageBox.information(
+                show_info(
                     self,
                     '快捷入口' if zh else 'Shortcuts',
                     '至少保留 1 个快捷入口。' if zh else 'Keep at least one shortcut.',

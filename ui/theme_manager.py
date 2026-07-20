@@ -297,7 +297,7 @@ class ThemeManager:
 
 
 def preview_swatches(theme_id: str) -> dict[str, str]:
-    """主题卡预览用色块。"""
+    """主题卡预览用色块（完整微型界面）。"""
     p = THEMES[resolve_theme_id(theme_id)]
     return {
         'bg': p['APP_BG'],
@@ -305,4 +305,6 @@ def preview_swatches(theme_id: str) -> dict[str, str]:
         'primary': p['PRIMARY'],
         'sidebar': p['SIDEBAR_BG'],
         'border': p['BORDER'],
+        'text_muted': p.get('TEXT_MUTED', p['BORDER']),
+        'text_strong': p.get('TEXT_STRONG', p.get('TEXT', '#182238')),
     }

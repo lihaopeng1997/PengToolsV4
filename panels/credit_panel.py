@@ -4,10 +4,11 @@ import csv
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHeaderView,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget,
     QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_error, show_warning
 from tools.credit_code import (
     ORG_TYPES, PROVINCES, generate_batch, generate_company_name, validate_code,
 )
@@ -217,7 +218,7 @@ class CreditCodePanel(QWidget):
         try:
             return max(1, min(10000, int(box.text())))
         except ValueError:
-            QMessageBox.warning(
+            show_warning(
                 self, '数量无效' if self.language == 'zh' else 'Invalid Quantity',
                 '请输入 1 到 10000 之间的数字。' if self.language == 'zh' else 'Enter a number from 1 to 10000.',
             )
@@ -354,7 +355,7 @@ class CreditCodePanel(QWidget):
                     writer.writerow([self._type_label(kind), document, name])
             self.result_label.setText(('已导出：' if self.language == 'zh' else 'Exported to ') + path)
         except OSError as exc:
-            QMessageBox.critical(self, 'Export Failed', str(exc))
+            show_error(self, 'Export Failed', str(exc))
 
     def _clear(self):
         self._results = []

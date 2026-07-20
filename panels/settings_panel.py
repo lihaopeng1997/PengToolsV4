@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
-    QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QSlider,
+    QInputDialog, QLabel, QLineEdit, QPushButton, QSlider,
     QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -12,8 +12,72 @@ from ui.field_metrics import size_combo
 from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id
 
 
+class ThemePreviewWidget(QWidget):
+    """在自身 paintEvent 中绘制微型界面预览，避免父卡片绘制被子控件覆盖。"""
+
+    def __init__(self, theme_id: str, parent=None):
+        super().__init__(parent)
+        self.theme_id = theme_id
+        self._swatches = preview_swatches(theme_id)
+        self.setObjectName('theme-card-preview')
+        self.setMinimumHeight(56)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+
+    def set_theme_id(self, theme_id: str):
+        self.theme_id = theme_id
+        self._swatches = preview_swatches(theme_id)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self._swatches
+        rect = self.rect()
+        # 主背景
+        painter.fillRect(rect, QColor(s['bg']))
+        # 左侧导航
+        sidebar_w = max(14, int(rect.width() * 0.18))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(s['sidebar']))
+        painter.drawRoundedRect(2, 2, sidebar_w, rect.height() - 4, 3, 3)
+        # 导航项条
+        painter.setBrush(QColor(s['primary']))
+        painter.setOpacity(0.85)
+        painter.drawRoundedRect(5, 10, sidebar_w - 6, 6, 2, 2)
+        painter.setOpacity(0.35)
+        painter.drawRoundedRect(5, 20, sidebar_w - 8, 5, 2, 2)
+        painter.setOpacity(1.0)
+        # 白色内容卡
+        card_x = sidebar_w + 8
+        card_w = max(24, rect.width() - card_x - 6)
+        card_h = max(20, rect.height() - 14)
+        painter.setPen(QPen(QColor(s['border']), 1))
+        painter.setBrush(QColor(s['surface']))
+        painter.drawRoundedRect(card_x, 6, card_w, card_h, 4, 4)
+        # 内容区弱分隔线
+        painter.setPen(QPen(QColor(s['border']), 1))
+        line_y = 6 + int(card_h * 0.38)
+        painter.drawLine(card_x + 6, line_y, card_x + card_w - 6, line_y)
+        # 弱文本条
+        painter.setPen(Qt.PenStyle.NoPen)
+        muted = QColor(s.get('text_muted') or s['border'])
+        painter.setBrush(muted)
+        painter.setOpacity(0.55)
+        painter.drawRoundedRect(card_x + 6, line_y + 5, max(12, card_w // 2), 4, 2, 2)
+        painter.setOpacity(0.35)
+        painter.drawRoundedRect(card_x + 6, line_y + 12, max(10, card_w // 3), 3, 2, 2)
+        painter.setOpacity(1.0)
+        # 主按钮
+        btn_w = max(16, min(36, card_w // 3))
+        btn_h = 8
+        painter.setBrush(QColor(s['primary']))
+        painter.drawRoundedRect(card_x + card_w - btn_w - 6, 10, btn_w, btn_h, 3, 3)
+        painter.end()
+
+
 class ThemeCard(QFrame):
-    """104×72 主题预览卡。"""
+    """自适应主题预览卡：完整微型界面 + 当前使用标识。"""
 
     clicked = pyqtSignal(str)
 
@@ -22,46 +86,43 @@ class ThemeCard(QFrame):
         self.theme_id = theme_id
         self.setObjectName('theme-card')
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(112, 80)
+        self.setMinimumSize(148, 96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setProperty('selected', False)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
-        self.preview = QFrame()
-        self.preview.setObjectName('theme-card-preview')
-        self.preview.setFixedHeight(44)
-        layout.addWidget(self.preview)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.preview = ThemePreviewWidget(theme_id)
+        layout.addWidget(self.preview, 1)
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.setSpacing(4)
         self.name_label = QLabel()
         self.name_label.setObjectName('theme-card-name')
-        self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.name_label)
+        self.name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        name_row.addWidget(self.name_label, 1)
+        self.current_badge = QLabel()
+        self.current_badge.setObjectName('theme-current-badge')
+        self.current_badge.hide()
+        name_row.addWidget(self.current_badge, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(name_row)
         self._swatches = preview_swatches(theme_id)
 
     def set_selected(self, selected: bool):
         self.setProperty('selected', selected)
+        self.current_badge.setVisible(bool(selected))
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
 
-    def set_title(self, title: str):
-        self.name_label.setText(title)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        # 预览区手绘：背景 + 卡片 + 主按钮色块
-        painter = QPainter(self.preview)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        s = self._swatches
-        painter.fillRect(self.preview.rect(), QColor(s['bg']))
-        painter.setPen(QPen(QColor(s['border']), 1))
-        painter.setBrush(QColor(s['surface']))
-        painter.drawRoundedRect(8, 8, 40, 28, 4, 4)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(s['primary']))
-        painter.drawRoundedRect(54, 14, 28, 14, 3, 3)
-        painter.setBrush(QColor(s['sidebar']))
-        painter.drawRoundedRect(6, 6, 10, 32, 2, 2)
-        painter.end()
+    def set_title(self, title: str, *, current_label: str = ''):
+        # 标题不带 ✓ 前缀；当前状态用角标
+        clean = title[2:].strip() if title.startswith('✓ ') else title
+        self.name_label.setText(clean)
+        if current_label:
+            self.current_badge.setText(current_label)
+        elif not self.current_badge.text():
+            self.current_badge.setText('当前使用')
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -306,13 +367,11 @@ class SettingsPanel(QWidget):
     def _refresh_theme_cards(self):
         current = resolve_theme_id(self._ui_theme)
         zh = self.language == 'zh'
+        current_label = '当前使用' if zh else 'Current'
         for theme_id, card in self._theme_cards.items():
             card.set_selected(theme_id == current)
             name = THEME_META[theme_id][0 if zh else 1]
-            if theme_id == current:
-                card.set_title(f'✓ {name}')
-            else:
-                card.set_title(name)
+            card.set_title(name, current_label=current_label)
 
     def load_values(self, settings):
         settings = normalize_settings(settings)
@@ -447,7 +506,8 @@ class SettingsPanel(QWidget):
         if not accepted:
             return
         if key != 'Lihp':
-            QMessageBox.warning(
+            from ui.confirm_dialog import show_warning
+            show_warning(
                 self,
                 '验证失败' if self.language == 'zh' else 'Verification failed',
                 '密钥不正确。' if self.language == 'zh' else 'Incorrect key.',

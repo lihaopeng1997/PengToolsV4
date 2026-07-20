@@ -27,6 +27,7 @@ NAV_MODEL = [
     ]),
     ('devtools', [
         (5, '加解密', 'Crypto', 'shield-key'),
+        (11, '格式工具', 'Format Tools', 'json'),
         (1, '证件类型', 'Documents', 'document-id'),
         (4, '车辆 VIN', 'Vehicle VIN', 'vin'),
         (6, '运维助手', 'Operations', 'operations'),
@@ -64,15 +65,17 @@ def _build_items() -> dict[int, NavItem]:
         2: ('SQL 脚本整理、回滚与验证', 'SQL classify, validate and export'),
         3: ('SQL 驱动接口文档更新', 'SQL-driven interface document updater'),
         4: ('中国车辆 VIN 测试数据', 'China vehicle VIN test data'),
-        5: ('网关国密解密 · XML 工具', 'Gateway SM crypto · XML tools'),
+        5: ('网关国密解密 · 解密后 JSON 查看', 'Gateway SM decrypt with JSON result view'),
         6: ('Linux 运维命令搜索与安全引导', 'Linux operations command search and safety'),
         7: ('界面与悬浮工具栏设置', 'Interface and floating toolbar settings'),
         8: ('自我学习资料整理与全文搜索', 'Learning library and full-text search'),
         9: ('每日日报与定时提醒', 'Daily reports and reminders'),
         10: ('需求归档、上线台账与工具联动', 'Requirement tracking and tool links'),
+        11: ('JSON / XML / SQL 离线格式化', 'Offline JSON / XML / SQL formatting'),
     }
     # 首页固定为底部入口；设置不进悬浮快捷位
-    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10}
+    # 11 = 格式工具（新 index，不改 0–10 历史含义）
+    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
         for nav_index, name_zh, name_en, icon_role in entries:
@@ -106,7 +109,7 @@ def _build_items() -> dict[int, NavItem]:
 NAV_ITEMS: dict[int, NavItem] = _build_items()
 
 # 编辑列表展示顺序（不含首页、设置）
-FLOATING_EDIT_ORDER = [10, 2, 3, 9, 5, 1, 4, 6, 8]
+FLOATING_EDIT_ORDER = [10, 2, 3, 9, 5, 11, 1, 4, 6, 8]
 
 
 def get_nav_item(index: int) -> NavItem | None:

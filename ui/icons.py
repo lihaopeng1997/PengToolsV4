@@ -91,6 +91,7 @@ NAV_ICON_BY_INDEX = {
     8: 'learning',
     9: 'daily-report',
     10: 'requirements',
+    11: 'json',  # 格式工具
 }
 
 
@@ -188,24 +189,48 @@ def apply_icon(button, role: str, size: int = 18, *, normal: str | None = None, 
     button.setIconSize(QSize(size, size))
 
 
-def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) -> QLabel:
-    role = NOTICE_ICON_ROLES.get(kind, 'info')
+def status_icon_tint(kind: str = 'info') -> str:
+    """状态徽章上的图标前景色：必须与 badge 背景形成对比（浅色/白色）。"""
     try:
         from ui.theme_manager import ThemeManager
         pal = ThemeManager.instance().palette()
-        tints = {
-            'info': pal.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE),
-            'success': pal.get('SUCCESS', '#19875A'),
-            'warning': pal.get('WARNING', '#C77818'),
-            'error': pal.get('DANGER', '#C14653'),
-            'danger': pal.get('DANGER', '#C14653'),
-            'flow': pal.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE),
-        }
+        # 优先专用 token；否则浅主题用 SURFACE，夜间用近白
+        on_status = pal.get('ON_STATUS') or pal.get('SURFACE') or '#FFFFFF'
+        # 若 SURFACE 偏暗（夜间），强制近白
+        if on_status.lstrip('#').lower() not in ('ffffff', 'f8fafd', 'f7f9fc', 'f0f3f0', 'fffefb'):
+            # 粗略判断亮度
+            hexv = on_status.lstrip('#')
+            if len(hexv) >= 6:
+                r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)
+                if (r * 299 + g * 587 + b * 114) / 1000 < 160:
+                    on_status = '#FFFFFF'
     except Exception:
-        tints = {
-            'info': PRIMARY_ACTIVE, 'success': '#19875A', 'warning': '#C77818',
-            'error': '#C14653', 'danger': '#C14653', 'flow': PRIMARY_ACTIVE,
-        }
+        on_status = '#FFFFFF'
+    return on_status
+
+
+def badge_background_token(kind: str = 'info') -> str:
+    """徽章背景色 token（用于对比度测试）。"""
+    try:
+        from ui.theme_manager import ThemeManager
+        pal = ThemeManager.instance().palette()
+    except Exception:
+        pal = {}
+    mapping = {
+        'info': pal.get('PRIMARY', PRIMARY_ACTIVE),
+        'success': pal.get('SUCCESS', '#19875A'),
+        'warning': pal.get('WARNING', '#C77818'),
+        'error': pal.get('DANGER', '#C14653'),
+        'danger': pal.get('DANGER', '#C14653'),
+        'flow': pal.get('PRIMARY', PRIMARY_ACTIVE),
+    }
+    return mapping.get(kind, mapping['info'])
+
+
+def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) -> QLabel:
+    """状态徽章：背景为状态色，图标使用对比前景（SURFACE/ON_STATUS），不可与背景同色。"""
+    role = NOTICE_ICON_ROLES.get(kind, 'info')
+    tint = status_icon_tint(kind)
     badge = QLabel()
     obj = kind if kind in ('info', 'success', 'warning', 'error') else 'info'
     if kind == 'danger':
@@ -213,7 +238,10 @@ def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) ->
     badge.setObjectName(f'notice-badge-{obj}')
     badge.setFixedSize(size, size)
     badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    pix = icon_pixmap(role, icon_size, tints.get(kind, PRIMARY_ACTIVE))
+    # 记录 tint 便于测试断言
+    badge.setProperty('iconTint', tint)
+    badge.setProperty('badgeKind', kind)
+    pix = icon_pixmap(role, icon_size, tint)
     if not pix.isNull():
         badge.setPixmap(pix)
     return badge
