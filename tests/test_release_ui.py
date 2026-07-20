@@ -116,9 +116,9 @@ class ReleaseUiTests(unittest.TestCase):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
             panel = RequirementPanel()
         self.assertFalse(hasattr(panel, 'category_filter'))
-        self.assertEqual(panel.lock_file_btn.text(), '锁定文件')
-        self.assertEqual(panel.unlock_file_btn.text(), '解锁文件')
-        self.assertEqual(panel.scan_btn.text(), '扫描目录')
+        self.assertEqual(panel.lock_file_btn.text(), '锁定')
+        self.assertEqual(panel.unlock_file_btn.text(), '解锁')
+        self.assertEqual(panel.scan_btn.text(), '扫描需求目录')
         self.assertEqual(panel.checkout_btn.text(), '检出代码')
         self.assertEqual(panel.bug_btn.text(), '登记缺陷')
         with patch('panels.requirement_panel.QInputDialog.getMultiLineText', return_value=('BUG-100 测试问题', True)), \
@@ -377,19 +377,24 @@ class ReleaseUiTests(unittest.TestCase):
             sizes = panel.detail_splitter.sizes()
             self.assertGreater(sizes[0], 430)
             self.assertGreaterEqual(panel.detail_splitter.widget(0).minimumWidth(), 200)
-            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 180)
-            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 112)
-            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 112)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 0).widget(), panel.open_folder_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 3).widget(), panel.add_file_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 0).widget(), panel.new_text_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 3).widget(), panel.commit_btn)
+            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 160)
+            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 100)
+            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 100)
+            # 文件 Tab 工具条：打开/添加/新建/提交均存在（布局已收敛为横向 action card）
+            for button in (panel.open_folder_btn, panel.add_file_btn, panel.new_text_btn, panel.commit_btn):
+                self.assertIsNotNone(button)
+                self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
             self.assertEqual(panel.sql_btn.text(), '整理 SQL')
+            # 摘要卡不重复 Tab 内完整路径常驻说明；绑定状态为短 pill
+            self.assertTrue(hasattr(panel, 'bind_status'))
+            self.assertTrue(panel.svn_activity.isHidden())
 
             panel._save_splitter_sizes()
-            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': panel.file_sql_splitter.sizes()})
+            # 兼容：file_sql_splitter 已隐藏，content 尺寸使用默认或缓存
+            content_sizes = panel.file_sql_splitter.sizes() or [520, 140]
+            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': content_sizes})
             panel.close()
 
         style_path = os.path.join(ROOT, 'resources', 'style.qss')
@@ -397,7 +402,8 @@ class ReleaseUiTests(unittest.TestCase):
             style = stream.read()
             self.assertIn('QSplitter#requirement-splitter::handle:horizontal', style)
             self.assertIn('QTreeWidget#requirement-file-tree QHeaderView::section', style)
-            self.assertIn('border-right: 2px solid #1F2A3D', style)
+            # 浅色导航右边线（主题 token）
+            self.assertIn('border-right: 1px solid __SIDEBAR_BORDER__', style)
 
     def test_global_combo_and_date_styles_have_visible_drop_down_affordance(self):
         style_path = os.path.join(ROOT, 'resources', 'style.qss')

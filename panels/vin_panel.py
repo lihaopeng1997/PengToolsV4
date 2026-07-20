@@ -58,9 +58,11 @@ class VinPanel(QWidget):
         layout.addWidget(self.table)
 
         bottom = QHBoxLayout()
+        # 结果数量放表格右上区域语义：右侧状态 pill
         self.status = QLabel()
-        bottom.addWidget(self.status)
+        self.status.setObjectName('status-pill')
         bottom.addStretch()
+        bottom.addWidget(self.status)
         self.copy_btn = QPushButton()
         self.copy_btn.clicked.connect(self._copy)
         bottom.addWidget(self.copy_btn)
@@ -95,8 +97,10 @@ class VinPanel(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, column, item)
         self.status.setText(
-            '已自动填充 10 条有效 VIN（GB 16735 校验位）'
-            if self.language == 'zh' else 'Filled 10 valid VINs (GB 16735 check digit)'
+            f'{len(self._results)} 条' if self.language == 'zh' else f'{len(self._results)} rows'
+        )
+        self.status.setToolTip(
+            'GB 16735 校验位' if self.language == 'zh' else 'GB 16735 check digit'
         )
 
     def _copy(self):

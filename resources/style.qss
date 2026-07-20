@@ -1413,6 +1413,37 @@ QPushButton#floating-home:hover {
     background: __PRIMARY_SOFT__;
     border-radius: 10px;
 }
+
+/* 首页任务卡 */
+#dashboard-task-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+#dashboard-task-row {
+    background: __SURFACE_SOFT__;
+    border: 1px solid transparent;
+    border-radius: 10px;
+}
+#dashboard-task-row:hover {
+    border-color: __PRIMARY_SOFT__;
+    background: __PRIMARY_SOFT__;
+}
+#dashboard-task-title {
+    color: __TEXT_STRONG__;
+    font-size: 13px;
+    font-weight: 600;
+}
+#dashboard-row-arrow {
+    color: __TEXT_MUTED__;
+    font-size: 16px;
+    font-weight: 600;
+}
+#dashboard-local-status {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    padding: 4px 8px;
+}
 QMessageBox { background: __SURFACE__; }
 QMessageBox QLabel { background: transparent; color: __TEXT_STRONG__; }
 QProgressBar { background: __BORDER__; border: none; border-radius: 5px; text-align: center; }

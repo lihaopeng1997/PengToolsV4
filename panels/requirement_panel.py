@@ -869,9 +869,11 @@ class RequirementPanel(QWidget):
             button.setMinimumHeight(32)
             toolbar_layout.addWidget(button)
         toolbar_layout.addStretch(1)
-        self.svn_activity = QLabel('选择左侧需求后，右侧用「文件与 SVN / 关联 SQL / 上线与联动」完成工作。')
+        # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明
+        self.svn_activity = QLabel('')
         self.svn_activity.setObjectName('small-label')
         self.svn_activity.setWordWrap(True)
+        self.svn_activity.hide()
         toolbar_layout.addWidget(self.svn_activity, 1)
         root.addWidget(toolbar_card)
         self.loading = AuroraProgress(self)
@@ -992,14 +994,22 @@ class RequirementPanel(QWidget):
         card.setContentsMargins(12, 10, 12, 10)
         card.setSpacing(8)
         head = QHBoxLayout(); head.setSpacing(8)
-        detail_zone = QLabel('需求详情')
-        detail_zone.setObjectName('zone-title')
-        head.addWidget(detail_zone)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(1)
+        self.detail_eyebrow = QLabel('需求')
+        self.detail_eyebrow.setObjectName('field-caption')
+        title_col.addWidget(self.detail_eyebrow)
         self.detail_title = QLabel('请选择需求')
         self.detail_title.setObjectName('section-title')
         self.detail_title.setWordWrap(False)
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        head.addWidget(self.detail_title, 1)
+        title_col.addWidget(self.detail_title)
+        head.addLayout(title_col, 1)
+        # 资料绑定状态（完整路径只在文件 Tab 展示）
+        self.bind_status = QLabel('未绑定资料')
+        self.bind_status.setObjectName('status-pill')
+        self.bind_status.setToolTip('完整路径见「文件与 SVN」页签')
+        head.addWidget(self.bind_status)
         self.edit_btn = QPushButton('编辑')
         self.edit_btn.setProperty('compactAction', True)
         self.edit_btn.setMaximumHeight(28)
@@ -1155,8 +1165,6 @@ class RequirementPanel(QWidget):
         sql_layout.setContentsMargins(12, 10, 12, 10)
         sql_layout.setSpacing(7)
         sql_head = QHBoxLayout(); sql_head.setSpacing(6)
-        sql_title = QLabel('关联 SQL'); sql_title.setObjectName('zone-title')
-        sql_head.addWidget(sql_title)
         sql_head.addStretch()
         self.sql_btn = QPushButton('整理 SQL'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
         self.sql_btn.setProperty('compactAction', True)
@@ -1167,7 +1175,13 @@ class RequirementPanel(QWidget):
         self.sql_preview.setObjectName('ops-preview')
         self.sql_preview.setMaximumBlockCount(0)
         self.sql_preview.setMinimumHeight(56)
+        self.sql_preview.setPlaceholderText('暂未关联 SQL')
         sql_layout.addWidget(self.sql_preview, 1)
+        self.sql_empty = QLabel('暂未关联 SQL')
+        self.sql_empty.setObjectName('field-hint')
+        self.sql_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sql_empty.hide()
+        sql_layout.addWidget(self.sql_empty)
         self.detail_tabs.addTab(sql_section, '关联 SQL')
 
         # —— Tab3: 上线与联动 ——
@@ -1176,12 +1190,7 @@ class RequirementPanel(QWidget):
         link_layout = QVBoxLayout(link_section)
         link_layout.setContentsMargins(14, 12, 14, 12)
         link_layout.setSpacing(10)
-        link_title = QLabel('上线与联动'); link_title.setObjectName('zone-title')
-        link_layout.addWidget(link_title)
-        link_hint = QLabel('日报、接口文档、升级准备与删除等动作集中在此，避免与文件区争高。')
-        link_hint.setObjectName('field-hint')
-        link_hint.setWordWrap(True)
-        link_layout.addWidget(link_hint)
+        # Tab 名已说明用途，内部直接操作卡
         link_actions = QHBoxLayout()
         link_actions.setSpacing(8)
         self.daily_btn = QPushButton('写入日报'); self.daily_btn.clicked.connect(self._send_daily)
@@ -1201,6 +1210,7 @@ class RequirementPanel(QWidget):
 
         # 兼容旧 splitter 引用（持久化仍写 content sizes，映射到 tabs 内）
         self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.file_sql_splitter.setChildrenCollapsible(False)
         self.file_sql_splitter.hide()
         self.actions_card = QFrame(); self.actions_card.hide()
 
@@ -1257,6 +1267,21 @@ class RequirementPanel(QWidget):
         self._systems = load_systems()
         self._fill_system_filter()
         self._refresh()
+
+    def focus_requirement(self, requirement_or_id):
+        """首页等入口：定位并选中指定需求。"""
+        target_id = requirement_or_id
+        if isinstance(requirement_or_id, dict):
+            target_id = requirement_or_id.get('id')
+        if not target_id:
+            return False
+        self._current = next((item for item in self._requirements if item.get('id') == target_id), None)
+        if self._current is None:
+            # 可能缓存未刷新
+            self._requirements = load_requirements()
+            self._current = next((item for item in self._requirements if item.get('id') == target_id), None)
+        self._refresh()
+        return self._current is not None
 
     def _refresh(self):
         if not hasattr(self, 'requirement_list'): return
@@ -1552,12 +1577,15 @@ class RequirementPanel(QWidget):
         if not self._current:
             self.detail_title.setText('请选择左侧需求')
             self.detail_title.setToolTip('')
+            self.bind_status.setText('未绑定资料')
             for value in self._detail_fields.values():
                 value.setText('—')
                 value.setToolTip('')
             for btn in self._flag_buttons.values():
                 btn.setVisible(False)
             self.sql_preview.clear()
+            if hasattr(self, 'sql_empty'):
+                self.sql_empty.show()
             self.svn_meta.clear()
             self.file_tree.clear()
             return
@@ -1609,6 +1637,13 @@ class RequirementPanel(QWidget):
             btn.setToolTip(f'{full}\n点击切换：待办(红) ↔ 完成(绿)')
 
         local_path = requirement.get('local_path') or ''
+        if local_path:
+            self.bind_status.setText('已绑定资料')
+            self.bind_status.setToolTip(local_path)
+        else:
+            self.bind_status.setText('未绑定资料')
+            self.bind_status.setToolTip('完整路径见「文件与 SVN」页签')
+        # 完整路径仅文件 Tab
         if requirement.get('workspace_kind') == 'folder':
             modified = (requirement.get('source_modified_at') or '未知')[:16].replace('T', ' ')
             self.svn_meta.setText(f'{local_path or "未识别"}  ·  {requirement.get("file_count", 0)} 文件  ·  {modified}')
@@ -1623,13 +1658,22 @@ class RequirementPanel(QWidget):
         if refresh_files:
             self._refresh_file_tree()
         sql = merged_sql(requirement)
-        self.sql_preview.setPlainText(sql or '尚未关联 SQL')
-        self.docx_btn.setEnabled(bool(sql))
-        self.sql_btn.setEnabled(bool(sql))
+        has_sql = bool(sql and sql.strip())
+        self.sql_preview.setPlainText(sql if has_sql else '')
+        if hasattr(self, 'sql_empty'):
+            self.sql_empty.setVisible(not has_sql)
+            self.sql_preview.setVisible(has_sql)
+        self.docx_btn.setEnabled(has_sql)
+        self.sql_btn.setEnabled(has_sql)
 
     def _set_busy(self, message=''):
         busy = bool(message)
-        self.svn_activity.setText(message or 'SVN 操作完成。')
+        if message:
+            self.svn_activity.setText(message)
+            self.svn_activity.show()
+        else:
+            self.svn_activity.setText('')
+            self.svn_activity.hide()
         widgets = (
             self.scan_btn, self.checkout_btn, self.update_all_btn, self.system_config_btn,
             self.bug_btn, self.import_btn, self.add_btn, self.search_edit, self.system_filter,
@@ -1673,8 +1717,9 @@ class RequirementPanel(QWidget):
         if show_loading:
             self._set_busy(message)
         else:
-            # 静默任务只更新状态文案，不锁整页、不弹 Loading
+            # 静默任务只短暂显示状态，不锁整页、不弹 Loading
             self.svn_activity.setText(message)
+            self.svn_activity.setVisible(bool(message))
         worker = SvnWorker(function, *arguments, parent=self)
         self._active_worker = worker
         worker.result_ready.connect(lambda result: self._task_succeeded(result, success))
@@ -1713,6 +1758,7 @@ class RequirementPanel(QWidget):
     def _task_failed_with_error(self, error):
         self._task_failed = True
         self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
+        self.svn_activity.show()
         if self._task_shows_loading:
             self.loading.fail('处理失败：' + error[:120])
         show_warning(self, 'SVN 操作失败', error)
@@ -1726,8 +1772,11 @@ class RequirementPanel(QWidget):
             self._set_busy('')
         elif not self._task_failed:
             self.svn_activity.setText('后台状态已更新。')
+            self.svn_activity.show()
+            QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
         if self._task_failed:
             self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
+            self.svn_activity.show()
         if worker:
             worker.deleteLater()
         if self._pending_file_refresh:
@@ -2100,6 +2149,8 @@ class RequirementPanel(QWidget):
             f'已保存：{target.get("code") or "无编号"} · {target.get("title") or "未命名"}'
             f' · 标记 {flag_status_text(target)}'
         )
+        self.svn_activity.show()
+        QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
         if offer_next:
             self._offer_next_steps(target, context='save' if not is_new else 'import')
         return target

@@ -246,13 +246,24 @@ class DocxUpdatePanel(QWidget):
         output_box = QWidget()
         output_layout = QVBoxLayout(output_box)
         output_layout.setContentsMargins(0, 0, 0, 0)
+        # 日志默认折叠为状态条，运行/失败时展开
+        log_head = QHBoxLayout()
+        self.log_toggle = QPushButton('日志 ▸')
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setProperty('compactAction', True)
+        self.log_toggle.toggled.connect(self._toggle_log)
+        log_head.addWidget(self.log_toggle)
         self.log_label = QLabel()
-        output_layout.addWidget(self.log_label)
+        self.log_label.setObjectName('small-label')
+        log_head.addWidget(self.log_label, 1)
+        output_layout.addLayout(log_head)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMaximumHeight(32)
+        self.log.hide()
         output_layout.addWidget(self.log)
         work_split.addWidget(output_box)
-        work_split.setSizes([320, 180])
+        work_split.setSizes([420, 80])
         work_layout.addWidget(work_split)
         mid.addWidget(work_box)
         mid.setSizes([340, 720])
@@ -319,7 +330,11 @@ class DocxUpdatePanel(QWidget):
         self.output_dir_browse.setText('选择' if zh else 'Browse')
         self.output_dir_open.setText('打开' if zh else 'Open')
         self.svn_pull_btn.setText('一键拉取' if zh else 'Pull')
-        self.browser_label.setText('目录预览（双击文件夹展开，双击文件打开）' if zh else 'Preview (folder expands, file opens)')
+        out_name = os.path.basename(self.output_dir.text().strip() or '') or ('输出' if zh else 'Output')
+        self.browser_label.setText(out_name)
+        self.browser_label.setToolTip(
+            '双击文件夹展开，双击文件打开' if zh else 'Double-click folder to expand, file to open'
+        )
         self.browser_refresh.setText('刷新' if zh else 'Refresh')
         self.browser_open_folder.setText('打开目录' if zh else 'Open dir')
         self.update_date.setToolTip('写入版本历史的日期' if zh else 'Date written into revision history')
@@ -329,14 +344,20 @@ class DocxUpdatePanel(QWidget):
         self.output_path.setPlaceholderText('自动生成' if zh else 'Auto')
         self.svn_url.setPlaceholderText('可选：svn://... 拉取到输出目录' if zh else 'Optional svn://... into output dir')
         self.author.setPlaceholderText('作者' if zh else 'Author')
-        self.sql_label.setText('粘贴 / 上传 SQL' if zh else 'Paste / load SQL')
+        self.sql_label.setText('SQL' if zh else 'SQL')
         self.load_sql_btn.setText('上传 SQL' if zh else 'Load SQL')
         self.preview_btn.setText('预检' if zh else 'Preview')
-        self.log_label.setText('运行日志' if zh else 'Log')
-        self.hint.setText(
-            '懒人三步：选目录点文档 →（可选）填 SVN 一键拉取 → 粘贴 SQL 点更新。双击文件夹只展开，右键可打开目录。'
-            if zh else
-            'Lazy flow: pick folder/doc → optional SVN pull → paste SQL and update. Double-click folders expands only.'
+        self.log_label.setText('' if zh else '')
+        if hasattr(self, 'log_toggle'):
+            self.log_toggle.setText(
+                ('日志 ▾' if self.log_toggle.isChecked() else '日志 ▸') if zh else
+                ('Log ▾' if self.log_toggle.isChecked() else 'Log ▸')
+            )
+        self.hint.setText('')
+        self.hint.hide()
+        self.hint.setToolTip(
+            '选目录点文档 →（可选）SVN 拉取 → 粘贴 SQL 更新' if zh else
+            'Pick doc → optional SVN → paste SQL and update'
         )
         self.update_btn.setText('一键更新文档' if zh else 'Update document')
         self._refresh_template_match()
@@ -361,45 +382,58 @@ class DocxUpdatePanel(QWidget):
         self._sync_output_path()
         self._refresh_template_match()
 
+    def _toggle_log(self, checked):
+        self.log.setVisible(bool(checked))
+        if checked:
+            self.log.setMaximumHeight(16777215)
+            self.log.setMinimumHeight(80)
+        else:
+            self.log.setMaximumHeight(32)
+        zh = self.language == 'zh'
+        self.log_toggle.setText(
+            ('日志 ▾' if checked else '日志 ▸') if zh else
+            ('Log ▾' if checked else 'Log ▸')
+        )
+
+    def _expand_log(self):
+        if hasattr(self, 'log_toggle') and not self.log_toggle.isChecked():
+            self.log_toggle.setChecked(True)
+
     def _refresh_template_match(self):
         path = self.docx_path.text().strip()
         self._template_profile = match_document_template(path) if path else None
         if not path:
-            self.template_status.setText(
-                '选择文档后自动按名称匹配最新模板' if self.language == 'zh'
-                else 'Choose a document to match its latest template by name'
-            )
+            self.template_status.clear()
+            self.template_status.hide()
             self.template_status.setProperty('matched', False)
-        elif self._template_profile:
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.hide()
+            return
+        if self._template_profile:
+            # 正常匹配不占行；详情放 tooltip
             profile = self._template_profile
             confidence = '精确匹配' if profile['confidence'] == 'exact' else '兼容匹配'
-            revision_zh = {
-                'standard4': '修订历史：标准 4 列',
-                'type6': '修订历史：6 列（含变更类型）',
-                'date_merged5': '修订历史：5 列（日期合并列）',
-                'date_first6': '修订历史：6 列（日期在前，含审核/批准）',
-                'none': '模板无修订历史，将写入文末自动更新记录',
-            }.get(profile.get('revision_layout'), '修订历史：自动识别')
-            revision_en = {
-                'standard4': 'Revision history: standard 4 columns',
-                'type6': 'Revision history: 6 columns with change type',
-                'date_merged5': 'Revision history: 5 columns with merged date',
-                'date_first6': 'Revision history: 6 columns, date first, with review/approval',
-                'none': 'No revision table; an automatic end record will be added',
-            }.get(profile.get('revision_layout'), 'Revision history: auto-detected')
-            self.template_status.setText(
-                f"✓ {profile['system']} · {confidence}\n最新模板：{profile['template']}\n{revision_zh}"
+            tip = (
+                f"{profile['system']} · {confidence}\n最新模板：{profile['template']}"
                 if self.language == 'zh' else
-                f"✓ {profile['system']} · {profile['confidence']} match\nLatest template: {profile['template']}\n{revision_en}"
+                f"{profile['system']} · {profile['confidence']} match\nLatest: {profile['template']}"
             )
+            self.template_status.clear()
+            self.template_status.hide()
+            self.template_status.setToolTip(tip)
             self.template_status.setProperty('matched', True)
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.hide()
         else:
             names = '、'.join(supported_system_names())
             self.template_status.setText(
                 f'未匹配到系统模板，将阻止写入。支持：{names}' if self.language == 'zh'
                 else 'No system template matched. Writing is blocked; rename or provide a supported template.'
             )
+            self.template_status.show()
             self.template_status.setProperty('matched', False)
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.show()
         self.template_status.style().unpolish(self.template_status)
         self.template_status.style().polish(self.template_status)
 
@@ -643,6 +677,7 @@ class DocxUpdatePanel(QWidget):
         self.folder_path.setText(target)
         self._refresh_folder_docs()
         self._refresh_output_browser()
+        self._expand_log()
         self.log.setPlainText(message)
         QMessageBox.information(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
 
@@ -837,6 +872,7 @@ class DocxUpdatePanel(QWidget):
         )
 
     def _on_update_failed(self, message):
+        self._expand_log()
         self.log.setPlainText(message)
         self.progress.fail('处理失败，请检查输入' if self.language == 'zh' else 'Processing failed; check the input')
         show_error(self, 'PengTools', message)

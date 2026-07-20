@@ -163,6 +163,7 @@ class KnowledgeTab(QWidget):
         self.note = QLabel()
         self.note.setObjectName('ops-safety-note')
         self.note.setWordWrap(True)
+        self.note.hide()  # 首次提示用 tooltip；不占常驻版面
         root.addWidget(self.note)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -170,7 +171,7 @@ class KnowledgeTab(QWidget):
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)
         count_row = QHBoxLayout()
-        self.list_title = QLabel('知识与资料')
+        self.list_title = QLabel('资料库')
         self.list_title.setObjectName('section-title')
         count_row.addWidget(self.list_title)
         count_row.addStretch()
@@ -223,25 +224,37 @@ class KnowledgeTab(QWidget):
         self.table_view.cellDoubleClicked.connect(self._copy_table_cell)
         table_layout.addWidget(self.table_view, 1)
         table_copy_actions = QHBoxLayout()
-        self.copy_row_btn = QPushButton('复制整行'); self.copy_row_btn.clicked.connect(self._copy_current_row)
-        self.copy_visible_btn = QPushButton('复制当前展示'); self.copy_visible_btn.clicked.connect(self._copy_visible_table)
-        self.copy_all_btn = QPushButton('复制整表'); self.copy_all_btn.clicked.connect(self._copy_all_table)
+        # 复制 / 导出 合并为下拉，避免一排重复动作
+        from PyQt6.QtWidgets import QToolButton, QMenu
+        self.copy_menu_btn = QToolButton()
+        self.copy_menu_btn.setText('复制')
+        self.copy_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        copy_menu = QMenu(self.copy_menu_btn)
+        copy_menu.addAction('复制单元格', self._copy_table_cell_action)
+        self.copy_row_btn = copy_menu.addAction('复制整行', self._copy_current_row)
+        self.copy_visible_btn = copy_menu.addAction('复制当前展示', self._copy_visible_table)
+        self.copy_all_btn = copy_menu.addAction('复制整表', self._copy_all_table)
+        self.copy_menu_btn.setMenu(copy_menu)
+        table_copy_actions.addWidget(self.copy_menu_btn)
         self.edit_cell_btn = QPushButton('修改单元格'); self.edit_cell_btn.clicked.connect(self._edit_table_cell)
-        for button in (self.copy_row_btn, self.copy_visible_btn, self.copy_all_btn, self.edit_cell_btn):
-            table_copy_actions.addWidget(button)
+        table_copy_actions.addWidget(self.edit_cell_btn)
         table_copy_actions.addStretch()
         table_layout.addLayout(table_copy_actions)
         table_view_actions = QHBoxLayout()
         self.hide_rows_btn = QPushButton('隐藏选中行'); self.hide_rows_btn.clicked.connect(self._hide_selected_rows)
         self.hide_column_btn = QPushButton('隐藏当前列'); self.hide_column_btn.clicked.connect(self._hide_current_column)
         self.restore_table_btn = QPushButton('恢复全部行列'); self.restore_table_btn.clicked.connect(self._restore_hidden_table)
-        self.export_visible_btn = QPushButton('导出当前展示'); self.export_visible_btn.clicked.connect(lambda: self._export_table(True))
-        self.export_all_btn = QPushButton('导出整表'); self.export_all_btn.clicked.connect(lambda: self._export_table(False))
         for button in (self.hide_rows_btn, self.hide_column_btn, self.restore_table_btn):
             table_view_actions.addWidget(button)
         table_view_actions.addStretch()
-        for button in (self.export_visible_btn, self.export_all_btn):
-            table_view_actions.addWidget(button)
+        self.export_menu_btn = QToolButton()
+        self.export_menu_btn.setText('导出')
+        self.export_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        export_menu = QMenu(self.export_menu_btn)
+        self.export_visible_btn = export_menu.addAction('导出当前展示', lambda: self._export_table(True))
+        self.export_all_btn = export_menu.addAction('导出整表', lambda: self._export_table(False))
+        self.export_menu_btn.setMenu(export_menu)
+        table_view_actions.addWidget(self.export_menu_btn)
         table_layout.addLayout(table_view_actions)
         self.content_stack.addWidget(table_page)
         word_page = QWidget()
@@ -540,6 +553,14 @@ class KnowledgeTab(QWidget):
         item = self.table_view.item(row, column)
         if item:
             QApplication.clipboard().setText(item.text())
+
+    def _copy_table_cell_action(self):
+        row = self.table_view.currentRow()
+        column = self.table_view.currentColumn()
+        if row < 0 or column < 0:
+            show_info(self, '复制单元格', '请先选择一个单元格。')
+            return
+        self._copy_table_cell(row, column)
 
     def _table_text(self, row_indexes, column_indexes):
         lines = []
@@ -850,25 +871,32 @@ class DailyReportTab(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        # 提醒设置迁入设置页；此处仅简短状态 + 入口
         reminder = QFrame()
         reminder.setObjectName('private-reminder-card')
         reminder_layout = QHBoxLayout(reminder)
-        self.reminder_enabled = QCheckBox('每日提醒写日报')
+        reminder_layout.setContentsMargins(10, 6, 10, 6)
+        self.reminder_status = QLabel()
+        self.reminder_status.setObjectName('small-label')
+        reminder_layout.addWidget(self.reminder_status, 1)
+        self.reminder_settings_btn = QPushButton('提醒设置')
+        self.reminder_settings_btn.setProperty('compactAction', True)
+        self.reminder_settings_btn.setObjectName('ghost-btn')
+        self.reminder_settings_btn.clicked.connect(self._open_reminder_settings)
+        reminder_layout.addWidget(self.reminder_settings_btn)
+        # 兼容旧引用（测试/外部）
+        self.reminder_enabled = QCheckBox()
+        self.reminder_enabled.hide()
         self.reminder_enabled.setChecked(self._reminder['enabled'])
-        reminder_layout.addWidget(self.reminder_enabled)
-        reminder_layout.addWidget(QLabel('提醒时间'))
         self.reminder_time = QTimeEdit()
+        self.reminder_time.hide()
         self.reminder_time.setDisplayFormat('HH:mm')
         self.reminder_time.setTime(QTime.fromString(self._reminder['time'], 'HH:mm'))
-        reminder_layout.addWidget(self.reminder_time)
-        self.save_reminder_btn = QPushButton('保存提醒')
-        self.save_reminder_btn.clicked.connect(self._save_reminder)
-        reminder_layout.addWidget(self.save_reminder_btn)
-        reminder_layout.addStretch()
-        self.reminder_hint = QLabel('到点通过系统托盘提醒，每天只提醒一次')
-        self.reminder_hint.setObjectName('small-label')
-        reminder_layout.addWidget(self.reminder_hint)
+        self.save_reminder_btn = QPushButton()
+        self.save_reminder_btn.hide()
+        self.reminder_hint = self.reminder_status
         root.addWidget(reminder)
+        self._refresh_reminder_status()
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
@@ -1044,6 +1072,25 @@ class DailyReportTab(QWidget):
         self._refresh_dates()
         self._load_date(self.date_edit.date())
 
+    def _refresh_reminder_status(self):
+        self._reminder = load_reminder_settings()
+        enabled = bool(self._reminder.get('enabled'))
+        time_text = self._reminder.get('time') or '18:00'
+        self.reminder_status.setText(
+            f'提醒已开启 · {time_text}' if enabled else '提醒未开启'
+        )
+        self.reminder_enabled.setChecked(enabled)
+        try:
+            self.reminder_time.setTime(QTime.fromString(str(time_text), 'HH:mm'))
+        except Exception:
+            pass
+
+    def _open_reminder_settings(self):
+        parent = self.window()
+        if hasattr(parent, 'navigate_to'):
+            parent.navigate_to(7)
+            return
+
     def _save_reminder(self):
         previous_time = self._reminder.get('time')
         selected_time = self.reminder_time.time().toString('HH:mm')
@@ -1051,15 +1098,22 @@ class DailyReportTab(QWidget):
         if selected_time != previous_time:
             self._reminder['last_reminder_date'] = ''
         self._reminder = save_reminder_settings(self._reminder)
+        self._refresh_reminder_status()
         show_success(self, '日报提醒', '提醒设置已保存。')
 
     def _check_reminder(self):
+        self._reminder = load_reminder_settings()
         if not is_reminder_due(self._reminder):
             return
         today = datetime.date.today().isoformat()
         self._reminder['last_reminder_date'] = today
         self._reminder = save_reminder_settings(self._reminder)
+        self._refresh_reminder_status()
         self.reminder_due.emit('PengTools · 日报提醒', '到时间啦，记得整理今天的完成事项和明日计划。')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_reminder_status()
 
     def add_requirement(self, requirement):
         self.date_edit.setDate(QDate.currentDate())

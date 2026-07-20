@@ -49,6 +49,7 @@ class CreditCodePanel(QWidget):
         self.format_note = QLabel()
         self.format_note.setObjectName('path-note')
         self.format_note.setWordWrap(True)
+        self.format_note.hide()  # 仅切换类型或非法输入时显示
         root.addWidget(self.format_note)
 
         self.table = QTableWidget()
@@ -290,6 +291,9 @@ class CreditCodePanel(QWidget):
         self.personal_mode_label.setVisible(is_resident_id)
         self.personal_mode.setVisible(is_resident_id)
         self.id_custom.setVisible(is_resident_id and self.personal_mode.currentIndex() == 1)
+        # 切换类型时短暂展示格式说明
+        if hasattr(self, 'format_note') and self.format_note.text():
+            self.format_note.show()
 
     def _on_personal_mode_changed(self, index):
         self.id_custom.setVisible(self.personal_type.currentData() == 'resident_id' and index == 1)
@@ -395,6 +399,8 @@ class CreditCodePanel(QWidget):
             if zh else
             'Formats: 18-character resident ID with MOD 11-2 check digit; passport E + 8 digits; military and armed-police documents use common Chinese business-system display formats.'
         )
+        self.format_note.hide()
+        self.format_note.setToolTip(self.format_note.text())
         self.table.setHorizontalHeaderLabels(
             ['序号', '证件类型', '证件号码', '模拟名称']
             if zh else ['#', 'Document Type', 'Document Number', 'Mock Name']

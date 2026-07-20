@@ -145,7 +145,17 @@ class OpsPanel(QWidget):
         self.safety_note = QLabel()
         self.safety_note.setObjectName('ops-safety-note')
         self.safety_note.setWordWrap(True)
-        root.addWidget(self.safety_note)
+        self.safety_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # 可关闭的首次安全横条
+        safety_row = QHBoxLayout()
+        safety_row.addWidget(self.safety_note, 1)
+        self.safety_dismiss = QPushButton('知道了')
+        self.safety_dismiss.setProperty('compactAction', True)
+        self.safety_dismiss.clicked.connect(self._dismiss_safety)
+        safety_row.addWidget(self.safety_dismiss)
+        self._safety_host = QWidget()
+        self._safety_host.setLayout(safety_row)
+        root.addWidget(self._safety_host)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
@@ -197,9 +207,9 @@ class OpsPanel(QWidget):
         self.warning.setWordWrap(True)
         detail.addWidget(self.warning)
 
+        # 三段：说明（description+warning）→ 命令 → 结果
         self.guide_title = QLabel()
-        self.guide_title.setObjectName('section-title')
-        detail.addWidget(self.guide_title)
+        self.guide_title.hide()  # 去掉泛化「使用指南」标题
         self.param_frame = QFrame()
         self.param_frame.setObjectName('ops-param-card')
         self.param_form = QFormLayout(self.param_frame)
@@ -251,6 +261,10 @@ class OpsPanel(QWidget):
         splitter.setSizes([350, 650])
         root.addWidget(splitter, 1)
 
+    def _dismiss_safety(self):
+        if hasattr(self, '_safety_host'):
+            self._safety_host.hide()
+
     def set_language(self, language):
         self.language = language
         self._copy_feedback_timer.stop()
@@ -274,9 +288,11 @@ class OpsPanel(QWidget):
             'Safety: commands are generated and copied only. No server execution or delete commands. State-changing commands require confirmation.'
         )
         self.result_label.setText('命令与场景' if zh else 'Commands & scenarios')
-        self.guide_title.setText('参数引导' if zh else 'Guided parameters')
-        self.preview_title.setText('命令示例（按参数生成）' if zh else 'Command example (generated)')
-        self.output_title.setText('输出内容怎么看' if zh else 'How to read the output')
+        self.guide_title.setText('')
+        self.preview_title.setText('命令' if zh else 'Command')
+        self.output_title.setText('结果说明' if zh else 'Result')
+        if hasattr(self, 'safety_dismiss'):
+            self.safety_dismiss.setText('知道了' if zh else 'Got it')
         self.generate_btn.setText('重新生成' if zh else 'Regenerate')
         self.copy_btn.setText('复制命令' if zh else 'Copy command')
         self.delete_btn.setText('删除我的命令' if zh else 'Delete my command')

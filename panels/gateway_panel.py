@@ -62,17 +62,27 @@ class GatewayDecodePanel(QWidget):
             head.addLayout(titles, 1); head.addWidget(self.offline_pill)
             layout.addLayout(head)
 
-        # —— 参数区 ——
+        # —— 参数区：默认折叠 ——
+        self.config_toggle = QPushButton('解密参数 ▸')
+        self.config_toggle.setCheckable(True)
+        self.config_toggle.setProperty('compactAction', True)
+        self.config_toggle.setToolTip('新车险系统固定兼容模式 · 密钥仅本机使用')
+        self.config_toggle.toggled.connect(self._toggle_config)
+        layout.addWidget(self.config_toggle, 0, Qt.AlignmentFlag.AlignLeft)
+
         self.config_group = QGroupBox()
         self.config_group.setObjectName('gateway-config-group')
+        self.config_group.setTitle('')
+        self.config_group.hide()
         config = QFormLayout(self.config_group)
-        config.setContentsMargins(14, 16, 14, 12)
+        config.setContentsMargins(14, 12, 14, 12)
         config.setHorizontalSpacing(14)
         config.setVerticalSpacing(10)
+        # 固定兼容说明移入 tooltip，不占表单行
         self.system_value = QLabel('新车险系统（固定兼容模式）')
-        self.system_value.setObjectName('path-note')
+        self.system_value.hide()
         self.system_label = QLabel()
-        config.addRow(self.system_label, self.system_value)
+        self.system_label.hide()
         self.environment = QComboBox()
         size_combo(self.environment, 'sm')
         self.environment.addItems(['集成环境', '用户环境', '生产环境'])
@@ -150,10 +160,11 @@ class GatewayDecodePanel(QWidget):
         actions = QHBoxLayout(action_bar)
         actions.setContentsMargins(12, 10, 12, 10)
         actions.setSpacing(8)
+        # 常驻说明改为 tooltip，底部只留状态空位
         self.note = QLabel()
         self.note.setObjectName('field-hint')
-        self.note.setWordWrap(True)
-        actions.addWidget(self.note, 1)
+        self.note.hide()
+        actions.addStretch(1)
         self.clear_btn = QPushButton()
         apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_btn.clicked.connect(self._clear)
@@ -185,17 +196,32 @@ class GatewayDecodePanel(QWidget):
         except Exception:
             pass
 
+    def _toggle_config(self, checked):
+        self.config_group.setVisible(bool(checked))
+        zh = self.language == 'zh'
+        self.config_toggle.setText(
+            ('解密参数 ▾' if checked else '解密参数 ▸') if zh else
+            ('Decrypt params ▾' if checked else 'Decrypt params ▸')
+        )
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.page_title.setText('网关加解密' if zh else 'Gateway crypto')
+        self.page_title.setText('加解密' if zh else 'Crypto')
         self.page_subtitle.setText(
-            '国密解密与 XML 工具同一工作台 · 密钥与报文仅在本机处理，默认不落盘'
-            if zh else
-            'SM crypto and XML tools in one workbench · keys stay local, never written by default'
+            '本地处理，内容不保存' if zh else 'Processed locally · nothing is saved'
         )
-        self.offline_pill.setText('离线 · 本机' if zh else 'Offline · local')
-        self.config_group.setTitle('国密参数' if zh else 'Cryptographic parameters')
+        self.offline_pill.setText('● 本地' if zh else '● Local')
+        self.offline_pill.setObjectName('dashboard-local-status')
+        self.config_group.setTitle('' if zh else '')
+        self.config_toggle.setText(
+            ('解密参数 ▾' if self.config_toggle.isChecked() else '解密参数 ▸') if zh else
+            ('Decrypt params ▾' if self.config_toggle.isChecked() else 'Decrypt params ▸')
+        )
+        self.config_toggle.setToolTip(
+            '新车险系统固定兼容模式 · 密钥仅本机使用' if zh else
+            'Auto-insurance fixed compatibility · keys stay local'
+        )
         self.system_label.setText('系统' if zh else 'System')
         self.system_value.setText(
             '新车险系统（固定兼容模式）' if zh else 'New Auto Insurance (fixed compatibility mode)'
@@ -205,16 +231,23 @@ class GatewayDecodePanel(QWidget):
         for index, name in enumerate(env_names):
             self.environment.setItemText(index, name)
         self.key_label.setText('SM4 Key 密文' if zh else 'Encrypted SM4 key')
-        self.cipher_label.setText('网关正文密文（Base64）' if zh else 'Gateway payload ciphertext (Base64)')
-        self.plain_label.setText('解密明文 / JSON' if zh else 'Plaintext / JSON')
+        self.cipher_label.setText('输入' if zh else 'Input')
+        self.cipher_label.setToolTip(
+            '网关正文密文（Base64）' if zh else 'Gateway payload ciphertext (Base64)'
+        )
+        self.plain_label.setText('结果' if zh else 'Result')
         self.to_xml_btn.setText('送入 XML 工具' if zh else 'Send to XML')
         self.to_xml_btn.setToolTip(
             '将当前明文复制到 XML 工具页并尝试格式化' if zh else 'Copy plaintext into the XML workspace'
         )
-        self.note.setText(
-            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 同时作为 SM4-CBC 的 Key 与 IV。JSON 可在右侧一键格式化；XML 请切换到「XML 工具」页。'
+        self.note.setText('')
+        self.payload_cipher.setPlaceholderText(
+            '粘贴 Base64 密文' if zh else 'Paste Base64 ciphertext'
+        )
+        self.key_cipher.setToolTip(
+            '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 作为 SM4-CBC 的 Key 与 IV'
             if zh else
-            'Compatible with gatewayDecode.html. Format JSON on the right; use the XML tools tab for XML.'
+            'Compatible with gatewayDecode.html (SM2 key → SM4-CBC)'
         )
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.copy_btn.setText('复制明文' if zh else 'Copy plaintext')

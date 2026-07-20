@@ -1,59 +1,75 @@
 # -*- coding: utf-8 -*-
-"""首页工作台 — Astra V2.0：核心快捷卡片 + 紧凑工具入口。"""
+"""首页工作台 — 最近需求 + 待升级事项 + 紧凑常用工具。"""
+
+from __future__ import annotations
+
+import datetime
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QHBoxLayout,
 )
 
+from tools.requirements import load_requirements
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
 
 
-class ToolCard(QFrame):
-    clicked = pyqtSignal()
+def _online_date(item: dict) -> str:
+    return str(item.get('actual_online_date') or item.get('planned_online_date') or '')[:10]
 
-    def __init__(self, icon_role, accent='blue'):
+
+def _week_bounds(today: datetime.date):
+    start = today - datetime.timedelta(days=today.weekday())
+    end = start + datetime.timedelta(days=6)
+    next_start = end + datetime.timedelta(days=1)
+    next_end = next_start + datetime.timedelta(days=6)
+    return start, end, next_start, next_end
+
+
+def _parse_date(text: str):
+    try:
+        return datetime.date.fromisoformat(str(text)[:10])
+    except ValueError:
+        return None
+
+
+class TaskRow(QFrame):
+    """列表中的一条可点击任务。"""
+
+    clicked = pyqtSignal(object)
+
+    def __init__(self, payload, title, meta, status=''):
         super().__init__()
-        self.setObjectName('tool-card')
-        self.setProperty('accent', accent)
+        self._payload = payload
+        self.setObjectName('dashboard-task-row')
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(120)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(8)
-        top = QHBoxLayout()
-        icon = QLabel()
-        icon.setFixedSize(32, 32)
-        icon.setObjectName('page-header-icon')
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pix = icon_pixmap(icon_role, 18, '#4056CF')
-        if not pix.isNull():
-            icon.setPixmap(pix)
-        top.addWidget(icon)
-        top.addStretch(1)
-        layout.addLayout(top)
-        self.title = QLabel()
-        self.title.setObjectName('card-title')
-        self.description = QLabel()
-        self.description.setObjectName('card-description')
-        self.description.setWordWrap(True)
-        self.button = QPushButton()
-        self.button.setObjectName('card-action')
-        self.button.clicked.connect(self.clicked.emit)
-        layout.addWidget(self.title)
-        layout.addWidget(self.description, 1)
-        layout.addWidget(self.button, 0, Qt.AlignmentFlag.AlignLeft)
+        body = QVBoxLayout()
+        body.setSpacing(2)
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName('dashboard-task-title')
+        self.title_label.setWordWrap(False)
+        body.addWidget(self.title_label)
+        self.meta_label = QLabel(meta)
+        self.meta_label.setObjectName('small-label')
+        body.addWidget(self.meta_label)
+        layout.addLayout(body, 1)
+        if status:
+            pill = QLabel(status)
+            pill.setObjectName('status-pill')
+            layout.addWidget(pill)
+        arrow = QLabel('›')
+        arrow.setObjectName('dashboard-row-arrow')
+        layout.addWidget(arrow)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
+            self.clicked.emit(self._payload)
         super().mouseReleaseEvent(event)
-
-    def set_copy(self, title, description, action):
-        self.title.setText(title)
-        self.description.setText(description)
-        self.button.setText(action)
 
 
 class DashboardPanel(QWidget):
@@ -64,6 +80,7 @@ class DashboardPanel(QWidget):
     open_gateway = pyqtSignal()
     open_ops = pyqtSignal()
     open_requirements = pyqtSignal()
+    open_requirement = pyqtSignal(object)  # 具体需求 dict 或 id
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -71,44 +88,90 @@ class DashboardPanel(QWidget):
         self._mode = 'standard'
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(14)
 
-        self.offline = QLabel()
-        self.offline.setObjectName('offline-pill')
+        self.local_status = QLabel()
+        self.local_status.setObjectName('dashboard-local-status')
         header, self.title, self.subtitle = make_page_header(
-            '开发工具工作台',
-            '常用交付与开发工具 · 文件仅保留在本机',
+            '工作台',
+            '今天先处理最近的交付事项',
             'home',
-            trailing=self.offline,
+            trailing=self.local_status,
         )
         layout.addWidget(header)
 
-        # 核心三卡
-        self.core_grid = QGridLayout()
-        self.core_grid.setSpacing(16)
-        self.req_card = ToolCard('requirements', 'violet')
-        self.sql = ToolCard('release', 'violet')
-        self.gateway = ToolCard('shield-key', 'blue')
-        self.req_card.clicked.connect(self.open_requirements.emit)
-        self.sql.clicked.connect(self.open_sql.emit)
-        self.gateway.clicked.connect(self.open_gateway.emit)
-        self.core_grid.addWidget(self.req_card, 0, 0)
-        self.core_grid.addWidget(self.sql, 0, 1)
-        self.core_grid.addWidget(self.gateway, 0, 2)
-        layout.addLayout(self.core_grid)
+        # 两列任务卡
+        self.tasks_row = QHBoxLayout()
+        self.tasks_row.setSpacing(14)
 
-        # 次级入口
-        secondary_label = QLabel()
-        secondary_label.setObjectName('sidebar-section')
-        self._secondary_label = secondary_label
-        layout.addWidget(secondary_label)
+        self.recent_card = QFrame()
+        self.recent_card.setObjectName('dashboard-task-card')
+        recent_layout = QVBoxLayout(self.recent_card)
+        recent_layout.setContentsMargins(14, 12, 14, 12)
+        recent_layout.setSpacing(8)
+        recent_head = QHBoxLayout()
+        self.recent_title = QLabel()
+        self.recent_title.setObjectName('zone-title')
+        recent_head.addWidget(self.recent_title)
+        recent_head.addStretch(1)
+        self.recent_more = QPushButton()
+        self.recent_more.setObjectName('ghost-btn')
+        self.recent_more.setProperty('compactAction', True)
+        self.recent_more.clicked.connect(self.open_requirements.emit)
+        recent_head.addWidget(self.recent_more)
+        recent_layout.addLayout(recent_head)
+        self.recent_list = QVBoxLayout()
+        self.recent_list.setSpacing(4)
+        recent_layout.addLayout(self.recent_list, 1)
+        self.recent_empty = QLabel()
+        self.recent_empty.setObjectName('field-hint')
+        self.recent_empty.setWordWrap(True)
+        recent_layout.addWidget(self.recent_empty)
+        self.tasks_row.addWidget(self.recent_card, 1)
+
+        self.release_card = QFrame()
+        self.release_card.setObjectName('dashboard-task-card')
+        release_layout = QVBoxLayout(self.release_card)
+        release_layout.setContentsMargins(14, 12, 14, 12)
+        release_layout.setSpacing(8)
+        release_head = QHBoxLayout()
+        self.release_title = QLabel()
+        self.release_title.setObjectName('zone-title')
+        release_head.addWidget(self.release_title)
+        release_head.addStretch(1)
+        self.release_more = QPushButton()
+        self.release_more.setObjectName('ghost-btn')
+        self.release_more.setProperty('compactAction', True)
+        self.release_more.clicked.connect(self.open_sql.emit)
+        release_head.addWidget(self.release_more)
+        release_layout.addLayout(release_head)
+        self.release_list = QVBoxLayout()
+        self.release_list.setSpacing(4)
+        release_layout.addLayout(self.release_list, 1)
+        self.release_empty = QLabel()
+        self.release_empty.setObjectName('field-hint')
+        self.release_empty.setWordWrap(True)
+        release_layout.addWidget(self.release_empty)
+        self.tasks_row.addWidget(self.release_card, 1)
+        layout.addLayout(self.tasks_row, 1)
+
+        # 常用工具：紧凑图标+文字
+        tools_head = QHBoxLayout()
+        self.tools_label = QLabel()
+        self.tools_label.setObjectName('sidebar-section')
+        tools_head.addWidget(self.tools_label)
+        tools_head.addStretch(1)
+        layout.addLayout(tools_head)
+
         self.tools_row = QHBoxLayout()
-        self.tools_row.setSpacing(10)
+        self.tools_row.setSpacing(8)
+        self.gateway = QPushButton()
         self.credit = QPushButton()
         self.docx = QPushButton()
         self.vin = QPushButton()
         self.ops = QPushButton()
         for btn, icon, signal in (
+            (self.gateway, 'shield-key', self.open_gateway),
             (self.credit, 'document-id', self.open_credit),
             (self.docx, 'doc-update', self.open_docx),
             (self.vin, 'vin', self.open_vin),
@@ -121,59 +184,148 @@ class DashboardPanel(QWidget):
             self.tools_row.addWidget(btn)
         self.tools_row.addStretch(1)
         layout.addLayout(self.tools_row)
+        layout.addStretch(0)
 
+        # 兼容旧属性，避免外部引用崩溃
+        self.offline = self.local_status
         self.hint = QLabel()
-        self.hint.setObjectName('shortcut-hint')
-        self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.hint)
-        layout.addStretch(1)
+        self.hint.hide()
+        self.req_card = self.recent_card
+        self.sql = self.release_card
+
         self.set_language(language)
+        self.refresh()
 
     def apply_layout_mode(self, mode, low_height=False):
         self._mode = mode
-        # 三列 / 两列 / 一列
-        for i in reversed(range(self.core_grid.count())):
-            item = self.core_grid.itemAt(i)
-            if item and item.widget():
-                self.core_grid.removeWidget(item.widget())
-        cards = [self.req_card, self.sql, self.gateway]
-        if mode == 'wide' or mode == 'standard':
-            for col, card in enumerate(cards):
-                self.core_grid.addWidget(card, 0, col)
-                card.show()
-        elif mode == 'compact':
-            self.core_grid.addWidget(self.req_card, 0, 0)
-            self.core_grid.addWidget(self.sql, 0, 1)
-            self.core_grid.addWidget(self.gateway, 1, 0, 1, 2)
-        else:
-            for row, card in enumerate(cards):
-                self.core_grid.addWidget(card, row, 0)
+        # 窄屏时上下堆叠任务卡
+        # 通过 size policy 即可；布局保持横向，空间不足时 Qt 会压缩
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh()
+
+    def refresh(self):
+        requirements = load_requirements()
+        self._fill_recent(requirements)
+        self._fill_release(requirements)
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _fill_recent(self, requirements):
+        self._clear_layout(self.recent_list)
+        items = sorted(
+            requirements,
+            key=lambda item: str(item.get('updated_at') or item.get('created_at') or ''),
+            reverse=True,
+        )[:5]
+        self.recent_empty.setVisible(not items)
+        for item in items:
+            title = item.get('title') or item.get('code') or '未命名'
+            system = item.get('system') or '未选系统'
+            status = item.get('status') or ''
+            updated = str(item.get('updated_at') or '')[:16].replace('T', ' ')
+            meta = f'{system} · {updated}' if updated else system
+            row = TaskRow(item, title, meta, status)
+            row.clicked.connect(self._on_requirement_clicked)
+            self.recent_list.addWidget(row)
+
+    def _fill_release(self, requirements):
+        self._clear_layout(self.release_list)
+        today = datetime.date.today()
+        week_start, week_end, next_start, next_end = _week_bounds(today)
+        groups = {
+            'this_week': [],
+            'next_week': [],
+            'unset': [],
+        }
+        for item in requirements:
+            status = str(item.get('status') or '')
+            if status in ('已上线', '已关闭', '已取消'):
+                continue
+            date_text = _online_date(item)
+            parsed = _parse_date(date_text) if date_text else None
+            if parsed is None:
+                groups['unset'].append(item)
+            elif week_start <= parsed <= week_end:
+                groups['this_week'].append(item)
+            elif next_start <= parsed <= next_end:
+                groups['next_week'].append(item)
+            elif parsed >= today:
+                # 更远的也归到 next 展示摘要，避免完全丢失
+                groups['next_week'].append(item)
+            else:
+                # 过期未上线：归入本周待办
+                groups['this_week'].append(item)
+
+        zh = self.language == 'zh'
+        labels = {
+            'this_week': ('本周', 'This week'),
+            'next_week': ('下周/后续', 'Next / later'),
+            'unset': ('未定', 'Unset'),
+        }
+        any_row = False
+        for key in ('this_week', 'next_week', 'unset'):
+            bucket = groups[key]
+            if not bucket:
+                continue
+            any_row = True
+            dates = [_online_date(item) for item in bucket if _online_date(item)]
+            latest = max(dates) if dates else '—'
+            label = labels[key][0 if zh else 1]
+            title = f'{label} · {len(bucket)}' if zh else f'{label} · {len(bucket)}'
+            meta = (f'最近升级日 {latest}' if zh else f'Nearest {latest}') if latest != '—' else (
+                '尚未填写上线日期' if zh else 'No online date'
+            )
+            row = TaskRow({'group': key, 'items': bucket}, title, meta)
+            row.clicked.connect(lambda _p=None: self.open_sql.emit())
+            self.release_list.addWidget(row)
+        self.release_empty.setVisible(not any_row)
+
+    def _on_requirement_clicked(self, item):
+        if isinstance(item, dict):
+            self.open_requirement.emit(item)
+        self.open_requirements.emit()
 
     def set_language(self, language):
         self.language = language
-        if language == 'zh':
-            self.title.setText('开发工具工作台')
-            self.subtitle.setText('常用交付与开发工具 · 文件仅保留在本机')
-            self.offline.setText('●  离线可用')
-            self._secondary_label.setText('更多工具')
-            self.req_card.set_copy('需求管理', '台账、文件、SVN 与升级联动一站完成。', '打开需求管理')
-            self.sql.set_copy('升级准备', '按日期勾选需求，生成发版清单与 SQL 包。', '准备升级材料')
-            self.gateway.set_copy('加解密', '国密解密 + XML/JSON 工具同一工作台。', '打开加解密')
+        zh = language == 'zh'
+        today = datetime.date.today()
+        if zh:
+            self.title.setText('工作台')
+            self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · 今天先处理最近的交付事项')
+            self.local_status.setText('● 本地工作')
+            self.recent_title.setText('最近需求')
+            self.recent_more.setText('全部')
+            self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
+            self.release_title.setText('待升级事项')
+            self.release_more.setText('升级准备')
+            self.release_empty.setText('暂无待升级事项。有计划上线日的需求会按本周/下周汇总。')
+            self.tools_label.setText('常用工具')
+            self.gateway.setText('加解密')
             self.credit.setText('证件类型')
             self.docx.setText('接口文档')
             self.vin.setText('车辆 VIN')
             self.ops.setText('运维助手')
-            self.hint.setText('Ctrl + Shift + P  随时展开桌面右侧悬浮工具栏')
         else:
-            self.title.setText('Developer workspace')
-            self.subtitle.setText('Delivery and developer tools · local-only')
-            self.offline.setText('●  OFFLINE')
-            self._secondary_label.setText('MORE TOOLS')
-            self.req_card.set_copy('Requirements', 'Tracking, files, SVN and release links.', 'Open requirements')
-            self.sql.set_copy('Release Prep', 'Pick requirements by date and generate packages.', 'Prepare release')
-            self.gateway.set_copy('Crypto', 'SM decrypt with XML/JSON tools.', 'Open crypto')
+            self.title.setText('Workbench')
+            self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · Focus on nearby delivery work')
+            self.local_status.setText('● Local')
+            self.recent_title.setText('Recent requirements')
+            self.recent_more.setText('All')
+            self.recent_empty.setText('No requirements yet. Add or scan in Requirements.')
+            self.release_title.setText('Upcoming releases')
+            self.release_more.setText('Release prep')
+            self.release_empty.setText('No pending releases. Planned online dates will group here.')
+            self.tools_label.setText('TOOLS')
+            self.gateway.setText('Crypto')
             self.credit.setText('Documents')
             self.docx.setText('Interface Docs')
             self.vin.setText('Vehicle VIN')
             self.ops.setText('Operations')
-            self.hint.setText('Ctrl + Shift + P  Expand the floating toolbar anytime')
+        self.refresh()

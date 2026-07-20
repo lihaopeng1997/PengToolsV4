@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         self.dashboard_panel.open_ops.connect(lambda: self._show_panel(6))
         if hasattr(self.dashboard_panel, 'open_requirements'):
             self.dashboard_panel.open_requirements.connect(lambda: self._show_panel(10))
+        if hasattr(self.dashboard_panel, 'open_requirement'):
+            self.dashboard_panel.open_requirement.connect(self._open_requirement_from_dashboard)
         self.personal_panel.reminder_due.connect(self._show_private_notification)
         self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
         self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
@@ -410,6 +412,13 @@ class MainWindow(QMainWindow):
             'Requirement tracking and tool links',
         ]
         self.status_bar.showMessage((statuses_zh if self.language == 'zh' else statuses_en)[index])
+
+    def _open_requirement_from_dashboard(self, requirement):
+        self._show_panel(10)
+        try:
+            self.requirement_panel.focus_requirement(requirement)
+        except Exception:
+            pass
 
     def _open_system_config(self):
         self.sql_panel.refresh_config()

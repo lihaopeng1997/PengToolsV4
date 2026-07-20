@@ -112,13 +112,14 @@ class SettingsPanel(QWidget):
         appearance_outer = QVBoxLayout(self.appearance_group)
         appearance_outer.setSpacing(12)
 
-        self.theme_title = QLabel()
-        self.theme_title.setObjectName('section-title')
-        appearance_outer.addWidget(self.theme_title)
+        # 一层提示即可；详细说明进标题 tooltip
         self.theme_hint = QLabel()
         self.theme_hint.setObjectName('field-hint')
         self.theme_hint.setWordWrap(True)
         appearance_outer.addWidget(self.theme_hint)
+        self.theme_title = self.theme_hint  # 兼容旧引用
+        self.theme_note = QLabel()
+        self.theme_note.hide()
 
         self.theme_grid = QGridLayout()
         self.theme_grid.setSpacing(10)
@@ -129,10 +130,6 @@ class SettingsPanel(QWidget):
             self._theme_cards[theme_id] = card
             self.theme_grid.addWidget(card, index // 2, index % 2)
         appearance_outer.addLayout(self.theme_grid)
-        self.theme_note = QLabel()
-        self.theme_note.setObjectName('small-label')
-        self.theme_note.setWordWrap(True)
-        appearance_outer.addWidget(self.theme_note)
 
         appearance = QFormLayout()
         self.font_size = QSpinBox()
@@ -169,19 +166,48 @@ class SettingsPanel(QWidget):
         self.show_on_startup = QCheckBox()
         self.show_on_startup_label = QLabel()
         floating.addRow(self.show_on_startup_label, self.show_on_startup)
-        self.edit_shortcuts_btn = QPushButton()
-        self.edit_shortcuts_btn.clicked.connect(self.edit_floating_shortcuts.emit)
-        self.edit_shortcuts_label = QLabel()
-        floating.addRow(self.edit_shortcuts_label, self.edit_shortcuts_btn)
-        self.shortcuts_summary = QLabel()
-        self.shortcuts_summary.setObjectName('field-hint')
-        self.shortcuts_summary.setWordWrap(True)
-        floating.addRow(self.shortcuts_summary)
         self.reset_position_btn = QPushButton()
         self.reset_position_btn.clicked.connect(self.reset_floating_position.emit)
         self.reset_position_label = QLabel()
         floating.addRow(self.reset_position_label, self.reset_position_btn)
         root.addWidget(self.float_group)
+
+        # 快捷入口独立分组，避免与透明度/置顶混在一起
+        self.shortcuts_group = QGroupBox()
+        shortcuts_form = QFormLayout(self.shortcuts_group)
+        self.edit_shortcuts_btn = QPushButton()
+        self.edit_shortcuts_btn.clicked.connect(self.edit_floating_shortcuts.emit)
+        self.edit_shortcuts_label = QLabel()
+        shortcuts_form.addRow(self.edit_shortcuts_label, self.edit_shortcuts_btn)
+        self.shortcuts_summary = QLabel()
+        self.shortcuts_summary.setObjectName('field-hint')
+        self.shortcuts_summary.setWordWrap(True)
+        shortcuts_form.addRow(self.shortcuts_summary)
+        root.addWidget(self.shortcuts_group)
+
+        # 日报提醒（从日报页迁入）
+        self.reminder_group = QGroupBox()
+        reminder_form = QFormLayout(self.reminder_group)
+        self.reminder_enabled = QCheckBox()
+        self.reminder_enabled_label = QLabel()
+        reminder_form.addRow(self.reminder_enabled_label, self.reminder_enabled)
+        self.reminder_time = QSpinBox()  # placeholder; replaced below with time if available
+        try:
+            from PyQt6.QtWidgets import QTimeEdit
+            from PyQt6.QtCore import QTime
+            self.reminder_time = QTimeEdit()
+            self.reminder_time.setDisplayFormat('HH:mm')
+            self._reminder_uses_timeedit = True
+        except Exception:
+            self.reminder_time = QSpinBox()
+            self.reminder_time.setRange(0, 23)
+            self._reminder_uses_timeedit = False
+        self.reminder_time_label = QLabel()
+        reminder_form.addRow(self.reminder_time_label, self.reminder_time)
+        self.reminder_save_btn = QPushButton()
+        self.reminder_save_btn.clicked.connect(self._save_reminder_settings)
+        reminder_form.addRow(self.reminder_save_btn)
+        root.addWidget(self.reminder_group)
 
         self.behavior_group = QGroupBox()
         behavior = QFormLayout(self.behavior_group)
@@ -207,6 +233,7 @@ class SettingsPanel(QWidget):
         self.safety_note = QLabel()
         self.safety_note.setObjectName('ops-safety-note')
         self.safety_note.setWordWrap(True)
+        self.safety_note.hide()  # 仅「直接退出」时显示
         behavior.addRow(self.safety_note)
         root.addWidget(self.behavior_group)
         self.close_ask.toggled.connect(self._refresh_close_behavior_hint)
@@ -311,7 +338,44 @@ class SettingsPanel(QWidget):
         self.keep_awake_interval.setValue(settings['keep_awake_interval_minutes'])
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
+        self._load_reminder_values()
         self._refresh_close_behavior_hint()
+
+    def _load_reminder_values(self):
+        try:
+            from tools.daily_reports import load_reminder_settings
+            from PyQt6.QtCore import QTime
+            reminder = load_reminder_settings()
+            self.reminder_enabled.setChecked(bool(reminder.get('enabled')))
+            if getattr(self, '_reminder_uses_timeedit', False):
+                self.reminder_time.setTime(QTime.fromString(str(reminder.get('time') or '18:00'), 'HH:mm'))
+        except Exception:
+            pass
+
+    def _save_reminder_settings(self):
+        try:
+            from tools.daily_reports import load_reminder_settings, save_reminder_settings
+            current = load_reminder_settings()
+            time_text = (
+                self.reminder_time.time().toString('HH:mm')
+                if getattr(self, '_reminder_uses_timeedit', False)
+                else '18:00'
+            )
+            previous = current.get('time')
+            current['enabled'] = self.reminder_enabled.isChecked()
+            current['time'] = time_text
+            if previous != time_text:
+                current['last_reminder_date'] = ''
+            save_reminder_settings(current)
+            from ui.confirm_dialog import show_success
+            show_success(
+                self,
+                '日报提醒' if self.language == 'zh' else 'Daily reminder',
+                '提醒设置已保存。' if self.language == 'zh' else 'Reminder saved.',
+            )
+        except Exception as exc:
+            from ui.confirm_dialog import show_warning
+            show_warning(self, '日报提醒', str(exc))
 
     def _refresh_shortcuts_summary(self):
         from ui.navigation_model import display_name
@@ -335,18 +399,25 @@ class SettingsPanel(QWidget):
             ('退出软件' if zh else 'exit the app')
         )
         if ask:
-            # 与退出弹窗「关闭时不再提示」对称：此处描述「会弹出选择」
             self.close_behavior_hint.setText(
-                '当前会弹出选择：隐藏到托盘或退出。弹窗可勾选「关闭时不再提示」；勾选后可在此恢复关闭提示。'
-                if zh else
-                'A close dialog will appear (tray or exit). It can set “Don’t ask again”; re-enable the close prompt here anytime.'
+                '关闭时会询问：隐藏到托盘或退出。' if zh else
+                'Closing will ask: tray or exit.'
             )
+            self.safety_note.hide()
         else:
             self.close_behavior_hint.setText(
-                f'当前为「关闭时不再提示」：关闭时直接「{action_text}」。勾选上方选项即可恢复关闭提示。'
-                if zh else
-                f'“Don’t ask when closing” is on: close will immediately {action_text}. Check the option above to restore the close prompt.'
+                f'关闭时直接「{action_text}」。' if zh else
+                f'Close will immediately {action_text}.'
             )
+            # 安全提醒仅对「直接退出」显示
+            if action == 'exit':
+                self.safety_note.setText(
+                    '直接退出会关闭主窗口、悬浮栏与托盘。' if zh else
+                    'Exit closes the main window, floating bar and tray.'
+                )
+                self.safety_note.show()
+            else:
+                self.safety_note.hide()
 
     def _save(self):
         settings = save_settings(self.values())
@@ -389,17 +460,14 @@ class SettingsPanel(QWidget):
         self.language = language
         zh = language == 'zh'
         self.title.setText('设置' if zh else 'Settings')
-        self.subtitle.setText('调整界面、悬浮工具栏和交互反馈 · 设置仅保存在本机' if zh else 'Customize interface, floating toolbar and feedback · local only')
-        self.appearance_group.setTitle('界面外观' if zh else 'Appearance')
-        self.theme_title.setText('主题' if zh else 'Theme')
+        self.subtitle.setText('个人偏好' if zh else 'Preferences')
+        self.appearance_group.setTitle('外观' if zh else 'Appearance')
         self.theme_hint.setText(
-            '选择一个更适合当前工作状态的界面外观。布局和数据不会改变。'
-            if zh else
-            'Pick an appearance for your current work mood. Layout and data stay the same.'
+            '选择界面外观；布局与数据不变。' if zh else
+            'Choose appearance; layout and data stay the same.'
         )
-        self.theme_note.setText(
-            '主题仅改变外观，不会影响文件、数据、SVN 与功能位置。'
-            if zh else
+        self.appearance_group.setToolTip(
+            '主题仅改变外观，不影响文件、数据、SVN 与功能位置。' if zh else
             'Themes only change appearance — never files, data, SVN or feature placement.'
         )
         self._refresh_theme_cards()
@@ -411,24 +479,24 @@ class SettingsPanel(QWidget):
         self.always_on_top.setText('启用' if zh else 'Enabled')
         self.show_on_startup_label.setText('启动软件时显示' if zh else 'Show on startup')
         self.show_on_startup.setText('启用' if zh else 'Enabled')
-        self.edit_shortcuts_label.setText('快捷入口' if zh else 'Shortcuts')
+        self.shortcuts_group.setTitle('快捷入口' if zh else 'Shortcuts')
+        self.edit_shortcuts_label.setText('编辑' if zh else 'Edit')
         self.edit_shortcuts_btn.setText('编辑快捷入口' if zh else 'Edit shortcuts')
         self._refresh_shortcuts_summary()
         self.reset_position_label.setText('位置异常时' if zh else 'If position is lost')
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
+        self.reminder_group.setTitle('日报提醒' if zh else 'Daily report reminder')
+        self.reminder_enabled_label.setText('每日提醒' if zh else 'Daily reminder')
+        self.reminder_enabled.setText('启用' if zh else 'Enabled')
+        self.reminder_time_label.setText('提醒时间' if zh else 'Time')
+        self.reminder_save_btn.setText('保存提醒' if zh else 'Save reminder')
         self.behavior_group.setTitle('关闭与交互' if zh else 'Close & interaction')
         self.close_ask_label.setText('关闭提示' if zh else 'Close prompt')
-        # 勾选=会弹出；取消勾选=关闭时不再提示。文案与退出弹窗「关闭时不再提示」对称。
         self.close_ask.setText('恢复关闭提示' if zh else 'Restore close prompt')
         self.close_default_label.setText('关闭时不再提示 · 默认操作' if zh else 'Default when not asking')
         self.close_default_action.setItemText(0, '隐藏到系统托盘' if zh else 'Hide to system tray')
         self.close_default_action.setItemText(1, '退出软件' if zh else 'Exit application')
         self.copy_duration_label.setText('“已复制”提示时长' if zh else '“Copied” toast duration')
-        self.safety_note.setText(
-            '退出弹窗勾选「关闭时不再提示」后，本项会关闭并把该选择写入默认操作。重新勾选「恢复关闭提示」即可再次询问。高风险删除确认始终启用。'
-            if zh else
-            'Choosing “Don’t ask when closing” on the exit dialog turns this off and saves that action as default. Re-check “Restore close prompt” anytime. Destructive confirms stay on.'
-        )
         self._refresh_close_behavior_hint()
         self.keep_awake_group.setTitle('远程会话守护' if zh else 'Remote session guard')
         self.keep_awake_enabled_label.setText('防止自动锁屏' if zh else 'Prevent automatic lock')
