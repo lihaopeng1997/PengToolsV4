@@ -22,8 +22,8 @@ from tools.personal_knowledge import (
     read_text_file,
 )
 from tools.requirements import (
-    CATEGORIES, FLAG_DEFS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
-    classify_requirement, flag_is_active, flag_status_text, load_requirements,
+    CATEGORIES, FLAG_DEFS, FLAG_CHIP_LABELS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
+    classify_requirement, flag_chip_text, flag_is_active, flag_status_text, load_requirements,
     merge_working_copies, merged_sql, normalize_flag_done, normalize_requirement,
     requirement_from_text, requirement_from_working_copy, requirement_search_text,
     save_requirements,
@@ -560,16 +560,20 @@ class RequirementDialog(QDialog):
         flag_wrap = QVBoxLayout(flag_card)
         flag_wrap.setContentsMargins(12, 10, 12, 10)
         flag_wrap.setSpacing(8)
-        flag_title = QLabel('升级标记（勾选后可在右侧点击切换完成状态）')
+        flag_title = QLabel('上线事项')
         flag_title.setObjectName('section-title')
         flag_wrap.addWidget(flag_title)
+        flag_hint = QLabel('勾选本需求/BUG需要处理的事项；保存后可在详情中标记是否完成。')
+        flag_hint.setObjectName('field-hint')
+        flag_hint.setWordWrap(True)
+        flag_wrap.addWidget(flag_hint)
         flags = QGridLayout()
         flags.setHorizontalSpacing(14)
         flags.setVerticalSpacing(8)
-        self.has_sql = QCheckBox('包含 SQL')
-        self.peripheral = QCheckBox('需通知周边系统升级')
-        self.temporary = QCheckBox('临时升级')
-        self.interface_update = QCheckBox('需整理接口文档')
+        self.has_sql = QCheckBox('涉及 SQL')
+        self.peripheral = QCheckBox('通知周边系统')
+        self.temporary = QCheckBox('临时/紧急升级')
+        self.interface_update = QCheckBox('更新接口文档')
         self.has_sql.setChecked(bool(inferred.get('has_sql') or base.get('has_sql') or self._sql_parts))
         self.peripheral.setChecked(bool(inferred.get('needs_peripheral_upgrade') or base.get('needs_peripheral_upgrade')))
         self.temporary.setChecked(bool(inferred.get('temporary_upgrade') or base.get('temporary_upgrade')))
@@ -987,7 +991,7 @@ class RequirementPanel(QWidget):
         detail.setContentsMargins(0, 0, 0, 0)
         detail.setSpacing(8)
 
-        # 需求信息：只展示 类型 / 状态 / 系统 / 上线时间
+        # 需求信息：事项类型 / 进度状态 / 目标系统 / 动态上线字段
         self.detail_card = QFrame(); self.detail_card.setObjectName('detail-summary-card')
         self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         card = QVBoxLayout(self.detail_card)
@@ -1008,7 +1012,7 @@ class RequirementPanel(QWidget):
         # 资料绑定状态（完整路径只在文件 Tab 展示）
         self.bind_status = QLabel('未绑定资料')
         self.bind_status.setObjectName('status-pill')
-        self.bind_status.setToolTip('完整路径见「文件与 SVN」页签')
+        self.bind_status.setToolTip('完整路径见「文件与版本库」页签')
         head.addWidget(self.bind_status)
         self.edit_btn = QPushButton('编辑')
         self.edit_btn.setProperty('compactAction', True)
@@ -1022,11 +1026,12 @@ class RequirementPanel(QWidget):
         self.detail_grid.setHorizontalSpacing(16)
         self.detail_grid.setVerticalSpacing(6)
         self._detail_fields = {}
+        self._detail_captions = {}
         for index, (key, label) in enumerate((
-            ('kind', '类型'),
-            ('status', '当前状态'),
-            ('system', '所属系统'),
-            ('online', '上线时间'),
+            ('kind', '事项类型'),
+            ('status', '进度状态'),
+            ('system', '目标系统'),
+            ('online', '计划上线'),
         )):
             row, col = divmod(index, 2)
             cell = QVBoxLayout()
@@ -1042,6 +1047,7 @@ class RequirementPanel(QWidget):
             cell.addWidget(value)
             self.detail_grid.addLayout(cell, row, col)
             self._detail_fields[key] = value
+            self._detail_captions[key] = caption
         card.addLayout(self.detail_grid)
 
         # 兼容旧引用
@@ -1050,32 +1056,44 @@ class RequirementPanel(QWidget):
         self.flags = QLabel(); self.flags.hide()
         self.meta = QLabel(); self.meta.hide()
 
-        # 任务标记：可点击短 chip
+        # 完成标记：响应式网格，避免窄宽裁切
+        self.flag_section = QWidget()
+        flag_section_layout = QVBoxLayout(self.flag_section)
+        flag_section_layout.setContentsMargins(0, 4, 0, 0)
+        flag_section_layout.setSpacing(6)
+        self.flag_section_caption = QLabel('完成标记')
+        self.flag_section_caption.setObjectName('flag-section-caption')
+        flag_section_layout.addWidget(self.flag_section_caption)
         self.flag_chips = QWidget()
-        self.flag_chips_layout = QHBoxLayout(self.flag_chips)
-        self.flag_chips_layout.setContentsMargins(0, 2, 0, 0)
-        self.flag_chips_layout.setSpacing(6)
+        self.flag_chips.setObjectName('flag-chips-host')
+        self.flag_chips_layout = QGridLayout(self.flag_chips)
+        self.flag_chips_layout.setContentsMargins(0, 0, 0, 0)
+        self.flag_chips_layout.setHorizontalSpacing(8)
+        self.flag_chips_layout.setVerticalSpacing(8)
         self._flag_buttons = {}
         for key, short, full in FLAG_DEFS:
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMaximumHeight(26)
-            btn.setToolTip(f'{full} · 点击切换红/绿')
+            btn.setMinimumHeight(30)
+            btn.setMinimumWidth(112)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
             self._flag_buttons[key] = btn
-            self.flag_chips_layout.addWidget(btn)
             btn.hide()
-        self.flag_chips_layout.addStretch()
-        card.addWidget(self.flag_chips)
+        flag_section_layout.addWidget(self.flag_chips)
+        self.flag_section.hide()
+        card.addWidget(self.flag_section)
         detail.addWidget(self.detail_card, 0)
+        self.detail_card.installEventFilter(self)
 
         # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName('module-tabs')
         self.detail_tabs.setDocumentMode(True)
 
-        # —— Tab1: 文件与 SVN ——
+        # —— Tab1: 文件与版本库 ——
         file_section = QFrame()
         file_section.setObjectName('req-file-card')
         file_layout = QVBoxLayout(file_section)
@@ -1156,9 +1174,9 @@ class RequirementPanel(QWidget):
         self.file_tree.itemDoubleClicked.connect(self._open_tree_item)
         self.file_tree.currentItemChanged.connect(self._update_lock_buttons)
         file_layout.addWidget(self.file_tree, 1)
-        self.detail_tabs.addTab(file_section, '文件与 SVN')
+        self.detail_tabs.addTab(file_section, '文件与版本库')
 
-        # —— Tab2: 关联 SQL ——
+        # —— Tab2: SQL 脚本 ——
         sql_section = QFrame()
         sql_section.setObjectName('req-sql-card')
         sql_layout = QVBoxLayout(sql_section)
@@ -1166,7 +1184,7 @@ class RequirementPanel(QWidget):
         sql_layout.setSpacing(7)
         sql_head = QHBoxLayout(); sql_head.setSpacing(6)
         sql_head.addStretch()
-        self.sql_btn = QPushButton('整理 SQL'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
+        self.sql_btn = QPushButton('打开 SQL 整理'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
         self.sql_btn.setProperty('compactAction', True)
         sql_head.addWidget(self.sql_btn)
         sql_layout.addLayout(sql_head)
@@ -1175,27 +1193,26 @@ class RequirementPanel(QWidget):
         self.sql_preview.setObjectName('ops-preview')
         self.sql_preview.setMaximumBlockCount(0)
         self.sql_preview.setMinimumHeight(56)
-        self.sql_preview.setPlaceholderText('暂未关联 SQL')
+        self.sql_preview.setPlaceholderText('暂无 SQL 脚本')
         sql_layout.addWidget(self.sql_preview, 1)
-        self.sql_empty = QLabel('暂未关联 SQL')
+        self.sql_empty = QLabel('暂无 SQL 脚本')
         self.sql_empty.setObjectName('field-hint')
         self.sql_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sql_empty.hide()
         sql_layout.addWidget(self.sql_empty)
-        self.detail_tabs.addTab(sql_section, '关联 SQL')
+        self.detail_tabs.addTab(sql_section, 'SQL 脚本')
 
-        # —— Tab3: 上线与联动 ——
+        # —— Tab3: 发布与联动 ——
         link_section = QFrame()
         link_section.setObjectName('ds-card')
         link_layout = QVBoxLayout(link_section)
         link_layout.setContentsMargins(14, 12, 14, 12)
         link_layout.setSpacing(10)
-        # Tab 名已说明用途，内部直接操作卡
         link_actions = QHBoxLayout()
         link_actions.setSpacing(8)
         self.daily_btn = QPushButton('写入日报'); self.daily_btn.clicked.connect(self._send_daily)
-        self.docx_btn = QPushButton('发送接口文档'); self.docx_btn.clicked.connect(self._send_docx)
-        self.release_link_btn = QPushButton('进入升级准备')
+        self.docx_btn = QPushButton('更新接口文档'); self.docx_btn.clicked.connect(self._send_docx)
+        self.release_link_btn = QPushButton('准备本次升级')
         self.release_link_btn.setObjectName('primary-btn')
         self.release_link_btn.clicked.connect(lambda: self.open_release_prep.emit(self._current or {}))
         self.delete_btn = QPushButton('删除需求'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
@@ -1206,7 +1223,7 @@ class RequirementPanel(QWidget):
         link_actions.addStretch(1)
         link_layout.addLayout(link_actions)
         link_layout.addStretch(1)
-        self.detail_tabs.addTab(link_section, '上线与联动')
+        self.detail_tabs.addTab(link_section, '发布与联动')
 
         # 兼容旧 splitter 引用（持久化仍写 content sizes，映射到 tabs 内）
         self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -1248,6 +1265,45 @@ class RequirementPanel(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay()
+        self._layout_flag_chips()
+
+    def _layout_flag_chips(self):
+        """响应式完成标记：宽≥520 两列，否则一列；隐藏未适用项。"""
+        if not hasattr(self, 'flag_chips_layout'):
+            return
+        while self.flag_chips_layout.count():
+            item = self.flag_chips_layout.takeAt(0)
+            # 不 delete 按钮，只从布局移除
+            if item and item.widget():
+                pass
+        # 用 isHidden() 而非 isVisible()：父级未 show 时 isVisible 恒为 False
+        visible = [
+            self._flag_buttons[key]
+            for key, _s, _f in FLAG_DEFS
+            if not self._flag_buttons[key].isHidden()
+        ]
+        if not visible:
+            if hasattr(self, 'flag_section'):
+                self.flag_section.hide()
+            return
+        # 优先用详情卡宽度（flag_chips 可能尚未随父级收窄）
+        host_width = 0
+        if hasattr(self, 'detail_card') and self.detail_card.width() > 0:
+            host_width = max(0, self.detail_card.width() - 24)
+        if host_width <= 0:
+            host_width = self.flag_chips.width()
+        columns = 1 if host_width and host_width < 520 else 2
+        for index, btn in enumerate(visible):
+            row, col = divmod(index, columns)
+            btn.setMinimumWidth(112 if columns == 2 else 100)
+            btn.setMinimumHeight(30)
+            btn.setMaximumHeight(16777215)
+            self.flag_chips_layout.addWidget(btn, row, col)
+            self.flag_chips_layout.setRowMinimumHeight(row, 34)
+            self.flag_chips_layout.setColumnStretch(col, 1)
+        self.flag_chips.updateGeometry()
+        if hasattr(self, 'flag_section'):
+            self.flag_section.updateGeometry()
 
     def set_language(self, language):
         self.language = language
@@ -1365,10 +1421,11 @@ class RequirementPanel(QWidget):
             flag_tip = []
             done = normalize_flag_done(requirement)
             for key, short, full in active_flags(requirement):
-                flag_tip.append(f"{'✅' if done.get(key) else '⏳'} {full}")
-            tip_flags = '\n'.join(flag_tip) if flag_tip else '无升级标记'
+                state = '已完成' if done.get(key) else '待完成'
+                flag_tip.append(f'{full} · {state}')
+            tip_flags = '\n'.join(flag_tip) if flag_tip else '无上线事项'
             item.setToolTip(0, f"{requirement.get('record_kind', '需求')}：{code}")
-            item.setToolTip(1, f"{title}\n状态：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n{tip_flags}\n\n右侧详情卡片可点击标记切换红/绿点")
+            item.setToolTip(1, f"{title}\n进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n{tip_flags}\n\n右侧「完成标记」可点击切换完成状态")
             first_item = first_item or item
             if requirement.get('id') == current_id: selected_item = item
         self.requirement_list.expandAll()
@@ -1478,18 +1535,18 @@ class RequirementPanel(QWidget):
         edit_action = menu.addAction('编辑完整信息'); edit_action.triggered.connect(self._edit_requirement)
         flags = active_flags(requirement)
         if flags:
-            status_menu = menu.addMenu('任务红绿点')
+            status_menu = menu.addMenu('完成标记')
             done = normalize_flag_done(requirement)
             for key, short, full in flags:
                 action = status_menu.addAction(
-                    f"{'🟢 完成' if done.get(key) else '🔴 待办'} · {full}"
+                    f"{'已完成' if done.get(key) else '待完成'} · {full}"
                 )
                 action.triggered.connect(
                     lambda _checked=False, req=requirement, flag_key=key: self._toggle_flag_done(req, flag_key)
                 )
             status_menu.addSeparator()
-            status_menu.addAction('全部标完成', lambda req=requirement: self._set_all_flags_done(req, True))
-            status_menu.addAction('全部标待办', lambda req=requirement: self._set_all_flags_done(req, False))
+            status_menu.addAction('全部标为已完成', lambda req=requirement: self._set_all_flags_done(req, True))
+            status_menu.addAction('全部标为待完成', lambda req=requirement: self._set_all_flags_done(req, False))
         if requirement.get('local_path') and os.path.isdir(requirement['local_path']):
             open_action = menu.addAction('打开文件夹')
             open_action.triggered.connect(lambda: self._open_requirement_folder(requirement))
@@ -1581,8 +1638,11 @@ class RequirementPanel(QWidget):
             for value in self._detail_fields.values():
                 value.setText('—')
                 value.setToolTip('')
+            if 'online' in self._detail_captions:
+                self._detail_captions['online'].setText('计划上线')
             for btn in self._flag_buttons.values():
                 btn.setVisible(False)
+            self.flag_section.hide()
             self.sql_preview.clear()
             if hasattr(self, 'sql_empty'):
                 self.sql_empty.show()
@@ -1600,17 +1660,19 @@ class RequirementPanel(QWidget):
         month = requirement.get('online_month') or ''
         planned = requirement.get('planned_online_date') or ''
         actual = requirement.get('actual_online_date') or ''
-        # 上线时间：优先实际上线，其次计划上线，再次上线月份
+        # 动态上线字段名：实际 / 计划 / 月份 / 未安排
         if actual:
-            online_text = actual
+            online_caption, online_text = '实际上线', actual
         elif planned:
-            online_text = planned
+            online_caption, online_text = '计划上线', planned
         elif month:
-            online_text = format_online_month_label(month)
+            online_caption, online_text = '上线月份', format_online_month_label(month)
         else:
-            online_text = '未定'
+            online_caption, online_text = '计划上线', '未安排'
         self.detail_title.setText(title)
         self.detail_title.setToolTip(f'{title}\n编号：{code}\n完整信息请点「编辑」')
+        if 'online' in self._detail_captions:
+            self._detail_captions['online'].setText(online_caption)
         field_map = {
             'kind': kind,
             'status': status,
@@ -1621,7 +1683,7 @@ class RequirementPanel(QWidget):
             self._detail_fields[key].setText(str(value))
             self._detail_fields[key].setToolTip(str(value))
 
-        # 任务标记：只显示已勾选项的可点击短 chip
+        # 完成标记：仅显示适用事项；可响应式换行
         done = normalize_flag_done(requirement)
         active = {key for key, _s, _f in active_flags(requirement)}
         for key, short, full in FLAG_DEFS:
@@ -1631,18 +1693,20 @@ class RequirementPanel(QWidget):
                 continue
             btn.setVisible(True)
             is_done = bool(done.get(key))
-            btn.setText(f"{'🟢' if is_done else '🔴'}{short}")
+            btn.setText(flag_chip_text(key, is_done))
             btn.setProperty('flagDone', 'true' if is_done else 'false')
             btn.style().unpolish(btn); btn.style().polish(btn)
-            btn.setToolTip(f'{full}\n点击切换：待办(红) ↔ 完成(绿)')
+            btn.setToolTip(f'{full}\n点击切换完成状态：待完成 ↔ 已完成')
+        self._layout_flag_chips()
+        self.flag_section.setVisible(bool(active))
 
         local_path = requirement.get('local_path') or ''
         if local_path:
-            self.bind_status.setText('已绑定资料')
+            self.bind_status.setText('资料已绑定')
             self.bind_status.setToolTip(local_path)
         else:
             self.bind_status.setText('未绑定资料')
-            self.bind_status.setToolTip('完整路径见「文件与 SVN」页签')
+            self.bind_status.setToolTip('完整路径见「文件与版本库」页签')
         # 完整路径仅文件 Tab
         if requirement.get('workspace_kind') == 'folder':
             modified = (requirement.get('source_modified_at') or '未知')[:16].replace('T', ' ')
@@ -1699,6 +1763,8 @@ class RequirementPanel(QWidget):
                 if self._selected_requirements():
                     self._delete_requirement()
                     return True
+        if watched is getattr(self, 'detail_card', None) and event.type() == QEvent.Type.Resize:
+            self._layout_flag_chips()
         return super().eventFilter(watched, event)
 
     def _start_task(self, message, function, arguments, success, show_loading=True, finish_label=None):
@@ -2171,16 +2237,16 @@ class RequirementPanel(QWidget):
         title = titles.get(context, '下一步')
         actions = [
             ('daily', '加入今日日报', True),
-            ('release', '进入升级准备', False),
+            ('release', '准备本次升级', False),
         ]
         if has_sql:
-            actions.append(('sql', '发送 SQL', False))
+            actions.append(('sql', '打开 SQL 整理', False))
         if has_path:
             actions.append(('folder', '打开目录', False))
         recommended = 'daily'
         if context == 'scan':
             recommended = 'release'
-            message = f'{name}\n\n推荐：进入升级准备核对候选；也可把当前项加入今日日报。'
+            message = f'{name}\n\n推荐：准备本次升级核对候选；也可把当前项加入今日日报。'
         elif has_sql:
             message = f'{name}\n\n推荐：加入今日日报。已检测到 SQL，也可发送到升级准备/SQL 整理。'
         else:

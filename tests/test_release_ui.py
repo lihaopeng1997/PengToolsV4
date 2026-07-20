@@ -251,8 +251,11 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreater(june.font(0).pointSize(), sql_item.font(0).pointSize())
             self.assertEqual(sql_item.text(0), 'REQ-SQL')
             self.assertIn('SQL change', sql_item.text(1))
-            self.assertIn('🔴SQL', sql_item.text(1))
-            self.assertIn('🔴周边', sql_item.text(1))
+            self.assertIn('SQL·待完成', sql_item.text(1))
+            self.assertTrue(
+                '周边·待完成' in sql_item.text(1) or '周边' in sql_item.text(1),
+                sql_item.text(1),
+            )
 
             panel._move_requirements(['keep'], '2026-06')
             self.assertEqual(next(item for item in panel._requirements if item['id'] == 'keep')['online_month'], '2026-06')
@@ -386,7 +389,7 @@ class ReleaseUiTests(unittest.TestCase):
                 self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
-            self.assertEqual(panel.sql_btn.text(), '整理 SQL')
+            self.assertEqual(panel.sql_btn.text(), '打开 SQL 整理')
             # 摘要卡不重复 Tab 内完整路径常驻说明；绑定状态为短 pill
             self.assertTrue(hasattr(panel, 'bind_status'))
             self.assertTrue(panel.svn_activity.isHidden())

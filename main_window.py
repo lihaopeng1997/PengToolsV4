@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
         brand = QLabel('PengTools')
         brand.setObjectName('sidebar_title')
         # 常驻只显示作者；版本/构建/彩蛋进 tooltip（双击仍解锁）
-        self.version_label = QLabel('作者：李浩鹏')
+        self.version_label = QLabel('作者：Lihp')
         self.version_label.setObjectName('sidebar_version')
         self.version_label.setToolTip(
             f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋'
@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         brand_text.addWidget(self.version_label)
         brand_layout.addLayout(brand_text, 1)
         brand_block.setToolTip(
-            f'PengTools {app_version_text()}\n更新：{APP_BUILD_DATE}\n双击作者行可解锁私人彩蛋'
+            f'PengTools {app_version_text()}\n作者：Lihp\n更新：{APP_BUILD_DATE}\n双击作者行可解锁私人彩蛋'
         )
         outer.addWidget(brand_block)
 
@@ -296,7 +296,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         about = menu.addAction('关于' if zh else 'About')
         about.triggered.connect(lambda: self.status_bar.showMessage(
-            f'PengTools {app_version_text()} · 作者 李浩鹏 · 构建 {APP_BUILD_DATE}', 6000
+            f'PengTools {app_version_text()} · 作者 Lihp · 构建 {APP_BUILD_DATE}', 6000
         ))
         quit_act = menu.addAction('退出软件' if zh else 'Exit')
         quit_act.triggered.connect(self.exit_application)

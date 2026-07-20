@@ -420,16 +420,19 @@ QFrame#gateway-work-zone QLabel#zone-title {
 }
 QPlainTextEdit#gateway-key-edit,
 QPlainTextEdit#gateway-cipher-edit {
-    background: __SURFACE_SOFT__;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
     padding: 8px;
-    selection-background-color: __TABLE_SELECT__;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
 }
 QPlainTextEdit#gateway-key-edit:focus,
 QPlainTextEdit#gateway-cipher-edit:focus {
     border-color: __PRIMARY__;
     background: __SURFACE__;
+    color: __TEXT_STRONG__;
 }
 QSplitter#gateway-splitter::handle:horizontal,
 QSplitter#xml-splitter::handle:horizontal {
@@ -470,19 +473,23 @@ QFrame#xml-work-zone {
 }
 QPlainTextEdit#xml-input,
 QPlainTextEdit#xml-output {
-    background: __SIDEBAR_BG__;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
     padding: 8px;
-    selection-background-color: #E8E4FF;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
 }
 QPlainTextEdit#xml-input:focus,
 QPlainTextEdit#xml-output:focus {
-    border-color: #9B8CF5;
+    border-color: __PRIMARY__;
     background: __SURFACE__;
+    color: __TEXT_STRONG__;
 }
 QPlainTextEdit#xml-output {
-    background: #F9FBFF;
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
 }
 QCheckBox#xml-wrap-check {
     color: __TEXT__;
@@ -760,22 +767,33 @@ QLabel#detail-desc {
 }
 QPushButton#flag-chip {
     background: __SURFACE_SOFT__;
-    color: __DANGER__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
-    padding: 2px 8px;
-    font-weight: 700;
-    font-size: 11px;
-    min-height: 18px;
-    max-height: 26px;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 12px;
+    min-height: 30px;
+    min-width: 112px;
+    text-align: left;
 }
 QPushButton#flag-chip[flagDone="true"] {
     background: __PRIMARY_SOFT__;
     color: __SUCCESS__;
     border: 1px solid __SUCCESS__;
 }
+QPushButton#flag-chip[flagDone="false"] {
+    background: __SURFACE_SOFT__;
+    color: __WARNING__;
+    border: 1px solid __BORDER_STRONG__;
+}
 QPushButton#flag-chip:hover {
     border-color: __PRIMARY__;
+}
+QLabel#flag-section-caption {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    font-weight: 600;
 }
 QLineEdit#date-input-edit {
     min-width: 128px;
@@ -855,12 +873,21 @@ QFrame#sql-tool-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: 
 QFrame#sql-delivery-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QFrame#sql-editor-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
 QFrame#sql-action-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
-QPlainTextEdit#sql-input-editor {
-    background: __SURFACE__;
+QPlainTextEdit#sql-input-editor,
+QPlainTextEdit#sql-format-editor {
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
     padding: 8px;
     selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+}
+QPlainTextEdit#sql-input-editor:focus,
+QPlainTextEdit#sql-format-editor:focus {
+    border-color: __PRIMARY__;
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
 }
 QSplitter#sql-editor-splitter::handle:horizontal {
     width: 8px;
@@ -1542,11 +1569,11 @@ QPushButton#json-tool-btn:hover, QPushButton#json-icon-btn:hover {
 }
 QPushButton#json-icon-btn { min-width: 22px; max-width: 22px; padding: 6px 4px; }
 QLineEdit#json-search { padding: 6px 9px; }
-QLabel#json-search-status { color: #79869B; background: transparent; min-width: 38px; }
+QLabel#json-search-status { color: __TEXT_MUTED__; background: transparent; min-width: 38px; }
 QLabel#json-path-caption { color: __TEXT_MUTED__; background: transparent; font-size: 10px; }
 QLineEdit#json-path {
-    background: #F8F9FC;
-    color: #53627A;
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
     border: 1px solid __BORDER__;
     padding: 6px 9px;
     font-family: 'Cascadia Mono', 'Consolas', monospace;
@@ -1556,10 +1583,18 @@ QPlainTextEdit#json-text {
     font-family: 'Cascadia Mono', 'Consolas', monospace;
     font-size: 11px;
     line-height: 1.35;
-    background: #FBFCFF;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
     padding: 8px;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+}
+QPlainTextEdit#json-text:focus {
+    border-color: __PRIMARY__;
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
 }
 QTreeWidget#json-tree {
     background: __SURFACE__;
@@ -1637,7 +1672,7 @@ QListWidget#ops-command-list::item:selected {
     color: __PRIMARY_ACTIVE__;
     border-left: 3px solid __PRIMARY__;
 }
-QLabel#ops-title { color: #1B2942; font-size: 21px; font-weight: 800; }
+QLabel#ops-title { color: __TEXT_STRONG__; font-size: 21px; font-weight: 800; }
 QLabel#ops-description {
     color: __TEXT_MUTED__;
     background: __SURFACE__;
@@ -1704,14 +1739,46 @@ QLabel#ops-output-guide {
     line-height: 1.35;
 }
 QPlainTextEdit#ops-preview {
-    background: __SURFACE__;
-    color: __TABLE_SELECT__;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
     border: 1px solid __BORDER_STRONG__;
     border-radius: 11px;
     padding: 10px;
-    selection-background-color: __PRIMARY__;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
     font-family: 'Cascadia Mono', 'Consolas', monospace;
 }
+QPlainTextEdit#ops-preview:focus {
+    border-color: __PRIMARY__;
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+}
+QPlainTextEdit#private-content {
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+}
+QListWidget#ops-command-list::item {
+    color: __TEXT__;
+}
+QLabel#ops-output-guide {
+    color: __TEXT__;
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER__;
+    border-left: 4px solid __PRIMARY__;
+}
+QFrame#ops-list-card, QFrame#ops-param-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+}
+QLineEdit#ops-search {
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 2px solid __BORDER__;
+}
+QLineEdit#ops-search:focus { border-color: __PRIMARY__; }
 /* ops-delete-custom 已并入上方 btn-danger 体系统一样式 */
 QLabel#settings-value {
     color: __PRIMARY_ACTIVE__;
