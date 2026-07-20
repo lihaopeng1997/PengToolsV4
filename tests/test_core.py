@@ -470,6 +470,22 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings['keep_awake_enabled'])
         self.assertEqual(settings['keep_awake_interval_minutes'], 60)
         self.assertTrue(DEFAULT_SETTINGS['floating_always_on_top'])
+        self.assertEqual(DEFAULT_SETTINGS['floating_shortcuts'], [10, 2, 9, 5])
+
+    def test_floating_shortcuts_are_normalized(self):
+        from ui.navigation_model import normalize_floating_shortcuts
+        # 去重、非法、最多 6、至少 1
+        self.assertEqual(
+            normalize_floating_shortcuts([10, 10, 2, 99, 9, 5, 1, 4, 6, 3]),
+            [10, 2, 9, 5, 1, 4],
+        )
+        self.assertEqual(normalize_floating_shortcuts([]), [10, 2, 9, 5])
+        self.assertEqual(
+            normalize_floating_shortcuts([8, 10], private_unlocked=False),
+            [10],
+        )
+        settings = normalize_settings({'floating_shortcuts': [10, 'x', 2]})
+        self.assertEqual(settings['floating_shortcuts'], [10, 2])
 
 
 class DocxUpdaterTests(unittest.TestCase):

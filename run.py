@@ -35,7 +35,11 @@ def main():
     app.setOrganizationName('PengTools')
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont('Microsoft YaHei UI', 10))
-    app.setWindowIcon(QIcon(resource_path('resources', 'app.ico')))
+    # 优先品牌 ICO；缺失时回退旧 app.ico
+    brand_ico = resource_path('resources', 'brand', 'pengtools-app-v2.ico')
+    legacy_ico = resource_path('resources', 'app.ico')
+    icon_path = brand_ico if os.path.exists(brand_ico) else legacy_ico
+    app.setWindowIcon(QIcon(icon_path))
 
     from config import load_settings
     from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID

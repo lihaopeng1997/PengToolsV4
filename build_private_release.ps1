@@ -39,12 +39,13 @@ try {
         --onefile `
         --windowed `
         --name PengToolsHub_Private `
-        --icon resources\app.ico `
+        --icon resources\brand\pengtools-app-v2.ico `
         --add-data 'resources\style.qss;resources' `
         --add-data 'resources\chevron_down.svg;resources' `
         --add-data 'resources\check_white.svg;resources' `
         --add-data 'resources\app.ico;resources' `
         --add-data 'resources\app-icon.png;resources' `
+        --add-data 'resources\brand;resources\brand' `
         --add-data 'resources\build_info.json;resources' `
         --add-data 'resources\private_knowledge_seed.txt;resources' `
         --add-data 'resources\private_knowledge_seed_workbooks.json;resources' `

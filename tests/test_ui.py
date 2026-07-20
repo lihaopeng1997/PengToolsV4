@@ -90,17 +90,16 @@ class UiRegressionTests(unittest.TestCase):
         target = QPoint(320, 240)
         panel.move(target)
         panel._compact_position = QPoint(target)
-        anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
+        # 收起态 toggle 可见；展开态 toggle 隐藏，用 compact 锚点校验
         for _ in range(10):
             panel.toggle_expanded()
             self.assertTrue(panel.expanded)
-            QTest.qWait(100)
+            QTest.qWait(40)
             self.app.processEvents()
-            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
             panel.toggle_expanded()
             QTest.qWait(20)
             self.app.processEvents()
-            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
+            self.assertEqual(panel.pos(), target)
         self.assertFalse(panel.expanded)
         self.assertEqual(panel.pos(), target)
         panel.close_toolbar()
@@ -108,6 +107,28 @@ class UiRegressionTests(unittest.TestCase):
         panel.show_panel()
         self.assertFalse(panel.isHidden())
         panel.close()
+
+    def test_floating_shortcuts_default_and_rebuild(self):
+        panel = QuickPanel(_MainWindowStub())
+        self.assertEqual(panel.current_shortcuts(), [10, 2, 9, 5])
+        self.assertEqual(len(panel.tool_buttons), 4)
+        # 无文字 P / ×
+        self.assertEqual(panel.toggle_btn.text(), '')
+        panel.apply_shortcuts([10, 5], private_unlocked=False)
+        self.assertEqual(panel.current_shortcuts(), [10, 5])
+        self.assertEqual(len(panel.tool_buttons), 2)
+        panel.apply_shortcuts([10, 2, 9, 5, 1, 4, 6], private_unlocked=True)
+        self.assertEqual(len(panel.current_shortcuts()), 6)
+        panel.close()
+
+    def test_brand_icon_resources_exist(self):
+        from ui.icons import brand_file, brand_pixmap, brand_window_icon
+        self.assertTrue(os.path.exists(brand_file('app')))
+        self.assertTrue(os.path.exists(brand_file('floating')))
+        self.assertTrue(os.path.exists(brand_file('tray')))
+        pix = brand_pixmap('floating', size=28, tint='#4F735F')
+        self.assertFalse(pix.isNull())
+        self.assertFalse(brand_window_icon().isNull())
 
     def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
         window = MainWindow()
@@ -224,11 +245,18 @@ class UiRegressionTests(unittest.TestCase):
         panel._compact_position = QPoint(420, 260)
         panel.toggle_expanded()
         panel.move(panel.pos() + QPoint(-35, 25))
-        moved_anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
-        panel._compact_position = moved_anchor - QPoint(panel.BUTTON_MARGIN, panel.BUTTON_MARGIN)
+        # 展开态拖动后 compact 锚点跟随后缘（向左展开时）
+        if panel._expand_right:
+            panel._compact_position = QPoint(panel.pos().x(), panel.pos().y())
+        else:
+            panel._compact_position = QPoint(
+                panel.pos().x() + panel.width() - panel.COMPACT_SIZE[0],
+                panel.pos().y(),
+            )
+        expected = QPoint(panel._compact_position)
         panel.toggle_expanded()
-        QTest.qWait(100)
-        self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), moved_anchor)
+        QTest.qWait(40)
+        self.assertEqual(panel.pos(), expected)
         panel.close()
 
     def test_sql_system_selector_belongs_to_configuration_tab(self):
@@ -324,7 +352,9 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn('UPDATE T_MULTI', unique)
 
     def test_packaged_icon_resource_is_valid(self):
-        icon = QIcon(os.path.join(PROJECT_DIR, 'resources', 'app.ico'))
+        brand = os.path.join(PROJECT_DIR, 'resources', 'brand', 'pengtools-app-v2.ico')
+        legacy = os.path.join(PROJECT_DIR, 'resources', 'app.ico')
+        icon = QIcon(brand if os.path.exists(brand) else legacy)
         self.assertFalse(icon.isNull())
 
     def test_gateway_panel_and_docx_date_are_available(self):

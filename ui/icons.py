@@ -15,7 +15,13 @@ from PyQt6.QtWidgets import QLabel
 from ui.layout_metrics import ICON_MUTED, PRIMARY_ACTIVE
 
 ICON_FILES = {
-    'app': ('resources', 'app.ico'),
+    # 品牌资源（优先 brand/，旧 app.ico 仅作兼容回退）
+    'app': ('resources', 'brand', 'pengtools-app-v2.ico'),
+    'app_mark': ('resources', 'brand', 'pengtools-app-mark.svg'),
+    'tray_mark': ('resources', 'brand', 'pengtools-tray-mark.svg'),
+    'floating_mark': ('resources', 'brand', 'pengtools-floating-mark.svg'),
+    'app_legacy_ico': ('resources', 'app.ico'),
+    'app_legacy_png': ('resources', 'app-icon.png'),
     'dropdown': ('resources', 'chevron_down.svg'),
     'check': ('resources', 'check_white.svg'),
     'home': ('resources', 'icons', 'home.svg'),
@@ -56,6 +62,15 @@ ICON_FILES = {
     'terminal': ('resources', 'icons', 'terminal.svg'),
     'database': ('resources', 'icons', 'database.svg'),
     'external-open': ('resources', 'icons', 'external-open.svg'),
+}
+
+# brand_pixmap 角色 → ICON_FILES key
+BRAND_ROLES = {
+    'app': 'app',
+    'app_ico': 'app',
+    'app_mark': 'app_mark',
+    'tray': 'tray_mark',
+    'floating': 'floating_mark',
 }
 
 NOTICE_ICON_ROLES = {
@@ -113,6 +128,10 @@ def _svg_data_with_tint(path: str, tint: str) -> bytes:
 def clear_icon_cache() -> None:
     """主题切换时清空 pixmap 缓存。"""
     icon_pixmap.cache_clear()
+    # brand_pixmap 在本模块后部定义；运行时再清
+    cache = globals().get('brand_pixmap')
+    if cache is not None and hasattr(cache, 'cache_clear'):
+        cache.cache_clear()
 
 
 @lru_cache(maxsize=512)
@@ -202,3 +221,50 @@ def make_badge_label(kind: str = 'info', size: int = 40, icon_size: int = 22) ->
 
 def known_roles() -> tuple[str, ...]:
     return tuple(ICON_FILES.keys())
+
+
+def brand_file(role: str) -> str:
+    """品牌资源路径；role: app / app_mark / tray / floating。"""
+    key = BRAND_ROLES.get(role, role)
+    path = icon_file(key)
+    if path:
+        return path
+    # 兼容：ICO 回退到旧 resources/app.ico
+    if role in ('app', 'app_ico'):
+        return icon_file('app_legacy_ico')
+    return ''
+
+
+@lru_cache(maxsize=128)
+def brand_pixmap(role: str, size: int = 28, tint: str = PRIMARY_ACTIVE) -> QPixmap:
+    """加载品牌 SVG（按 tint 染色）或 ICO/PNG。"""
+    path = brand_file(role)
+    if not path:
+        # 二次回退：floating/tray 失败时用 app ico
+        path = brand_file('app')
+    if not path:
+        return QPixmap()
+    if path.lower().endswith('.svg'):
+        try:
+            renderer = QSvgRenderer(QByteArray(_svg_data_with_tint(path, tint)))
+            if renderer.isValid():
+                pix = QPixmap(size, size)
+                pix.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pix)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                renderer.render(painter)
+                painter.end()
+                return pix
+        except Exception:
+            pass
+        return QPixmap()
+    icon = QIcon(path)
+    return icon.pixmap(QSize(size, size))
+
+
+def brand_window_icon() -> QIcon:
+    path = brand_file('app')
+    if path:
+        return QIcon(path)
+    legacy = icon_file('app_legacy_ico')
+    return QIcon(legacy) if legacy else QIcon()

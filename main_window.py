@@ -22,42 +22,12 @@ from ui.confirm_dialog import ask_close_action
 from ui.hotkey_service import HotkeyService
 from ui.keep_awake_service import KeepAwakeService
 from ui.field_metrics import size_combo
-from ui.icons import NAV_ICON_BY_INDEX, apply_icon, qicon
+from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
+from ui.navigation_model import GROUP_LABELS, NAV_MODEL, display_name
 from ui.quick_panel import QuickPanel
 from ui.responsive import LayoutModeController, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from ui.tray_service import TrayService
 from config import APP_BUILD_DATE, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
-
-
-# 视觉导航顺序（stack_index 仍按历史映射，不依赖数组下标当导航顺序）
-# (group_key, [(nav_index, name_zh, name_en, icon_role), ...])
-NAV_MODEL = [
-    ('workspace', [
-        (0, '首页', 'Home', 'home'),
-    ]),
-    ('delivery', [
-        (10, '需求管理', 'Requirements', 'requirements'),
-        (2, '升级准备', 'Release Prep', 'release'),
-        (3, '接口文档更新', 'Interface Docs', 'doc-update'),
-        (9, '日报', 'Daily Report', 'daily-report'),
-    ]),
-    ('devtools', [
-        (5, '加解密', 'Crypto', 'shield-key'),
-        (1, '证件类型', 'Documents', 'document-id'),
-        (4, '车辆 VIN', 'Vehicle VIN', 'vin'),
-        (6, '运维助手', 'Operations', 'operations'),
-    ]),
-    ('personal', [
-        (8, '自我学习', 'Learning', 'learning'),
-    ]),
-]
-
-GROUP_LABELS = {
-    'workspace': ('工作台', 'WORKSPACE'),
-    'delivery': ('交付管理', 'DELIVERY'),
-    'devtools': ('开发工具', 'DEV TOOLS'),
-    'personal': ('个人效率', 'PERSONAL'),
-}
 
 
 class MainWindow(QMainWindow):
@@ -88,8 +58,13 @@ class MainWindow(QMainWindow):
         self.user_chip.installEventFilter(self)
         self.quick_panel = QuickPanel(self, self.language)
         self.settings_panel.floating_opacity_preview.connect(self.quick_panel.set_opacity)
+        self.settings_panel.edit_floating_shortcuts.connect(self._open_floating_shortcuts_editor)
         self.quick_panel.apply_preferences(
             self._settings['floating_opacity'], self._settings['floating_always_on_top']
+        )
+        self.quick_panel.apply_shortcuts(
+            self._settings.get('floating_shortcuts'),
+            private_unlocked=self._private_unlocked,
         )
         if self._settings['floating_show_on_startup']:
             self.quick_panel.show()
@@ -191,14 +166,7 @@ class MainWindow(QMainWindow):
         self.brand_icon.setObjectName('sidebar-brand-icon')
         self.brand_icon.setFixedSize(36, 36)
         self.brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        try:
-            from ui.theme_manager import ThemeManager
-            accent = ThemeManager.instance().token('PRIMARY_ACTIVE')
-        except Exception:
-            accent = '#4F735F'
-        pix = qicon('home', size=20, normal=accent, active=accent).pixmap(20, 20)
-        if not pix.isNull():
-            self.brand_icon.setPixmap(pix)
+        self._refresh_brand_icon()
         brand_layout.addWidget(self.brand_icon)
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
@@ -367,22 +335,20 @@ class MainWindow(QMainWindow):
             self._apply_nav_texts()
 
     def _nav_tooltip(self, index: int) -> str:
-        zh = self.language == 'zh'
-        names = {
-            0: ('首页', 'Home'),
-            1: ('证件类型', 'Documents'),
-            2: ('升级准备', 'Release Prep'),
-            3: ('接口文档更新', 'Interface Docs'),
-            4: ('车辆 VIN', 'Vehicle VIN'),
-            5: ('加解密', 'Crypto'),
-            6: ('运维助手', 'Operations'),
-            7: ('设置', 'Settings'),
-            8: ('自我学习', 'Learning'),
-            9: ('日报', 'Daily Report'),
-            10: ('需求管理', 'Requirements'),
-        }
-        pair = names.get(index, ('', ''))
-        return pair[0] if zh else pair[1]
+        return display_name(index, self.language)
+
+    def _refresh_brand_icon(self):
+        try:
+            from ui.theme_manager import ThemeManager
+            accent = ThemeManager.instance().token('PRIMARY_ACTIVE')
+        except Exception:
+            accent = '#4F735F'
+        # 侧栏：36px 底板内 24px 品牌标识
+        pix = brand_pixmap('app_mark', size=24, tint=accent)
+        if pix.isNull():
+            pix = brand_pixmap('floating', size=24, tint=accent)
+        if not pix.isNull():
+            self.brand_icon.setPixmap(pix)
 
     def _apply_nav_texts(self):
         zh = self.language == 'zh'
@@ -519,9 +485,17 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(base_qss + f"\nQWidget {{ font-size: {self._settings['font_size']}px; }}")
         # 导航图标随主题重新染色
         self._apply_nav_texts()
+        self._refresh_brand_icon()
         self.quick_panel.apply_preferences(
             self._settings['floating_opacity'], self._settings['floating_always_on_top']
         )
+        self.quick_panel.apply_shortcuts(
+            self._settings.get('floating_shortcuts'),
+            private_unlocked=self._private_unlocked,
+        )
+        self.quick_panel.refresh_brand_icons()
+        if hasattr(self, 'tray_service'):
+            self.tray_service.refresh_icon()
         self.ops_panel.set_copy_feedback_duration(self._settings['copy_feedback_ms'])
         self.keep_awake_service.apply_preferences(
             self._settings['keep_awake_enabled'],
@@ -531,6 +505,16 @@ class MainWindow(QMainWindow):
         if self._language_index != wanted_index:
             self._set_language(wanted_index)
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
+
+    def _open_floating_shortcuts_editor(self):
+        from ui.floating_shortcuts_editor import open_floating_shortcuts_editor
+        open_floating_shortcuts_editor(
+            self,
+            self._settings,
+            language=self.language,
+            private_unlocked=self._private_unlocked,
+            on_saved=self._apply_settings,
+        )
 
     def apply_theme(self, theme_id: str) -> None:
         """设置页主题卡即时预览入口。"""
@@ -585,6 +569,7 @@ class MainWindow(QMainWindow):
         personal_label = self._group_labels.get('personal')
         if personal_label is not None and not self._nav_icon_only:
             personal_label.show()
+        self.quick_panel.set_private_unlocked(True)
         self.status_bar.showMessage('彩蛋已解锁：自我学习已开启', 7000)
         self._show_panel(8)
         return True

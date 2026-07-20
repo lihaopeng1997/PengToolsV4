@@ -63,6 +63,8 @@ DEFAULT_SETTINGS = {
     'floating_opacity': 96,
     'floating_always_on_top': True,
     'floating_show_on_startup': True,
+    # 悬浮快捷入口：需求管理、升级准备、日报、加解密（导航 index）
+    'floating_shortcuts': [10, 2, 9, 5],
     'copy_feedback_ms': 1500,
     'default_language': 'zh',
     'close_ask_each_time': True,
@@ -164,6 +166,12 @@ def normalize_settings(settings):
     result['keep_awake_enabled'] = bool(result['keep_awake_enabled'])
     result['keep_awake_interval_minutes'] = max(
         1, min(60, int(result['keep_awake_interval_minutes']))
+    )
+    # 悬浮快捷：去重/过滤非法 index；彩蛋模块在 UI 层按解锁状态再过滤
+    from ui.navigation_model import normalize_floating_shortcuts
+    result['floating_shortcuts'] = normalize_floating_shortcuts(
+        result.get('floating_shortcuts'),
+        private_unlocked=True,
     )
     return result
 

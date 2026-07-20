@@ -74,6 +74,7 @@ class SettingsPanel(QWidget):
     reset_floating_position = pyqtSignal()
     floating_opacity_preview = pyqtSignal(int)
     theme_preview = pyqtSignal(str)
+    edit_floating_shortcuts = pyqtSignal()
 
     def __init__(self, settings, language='zh'):
         super().__init__()
@@ -168,6 +169,14 @@ class SettingsPanel(QWidget):
         self.show_on_startup = QCheckBox()
         self.show_on_startup_label = QLabel()
         floating.addRow(self.show_on_startup_label, self.show_on_startup)
+        self.edit_shortcuts_btn = QPushButton()
+        self.edit_shortcuts_btn.clicked.connect(self.edit_floating_shortcuts.emit)
+        self.edit_shortcuts_label = QLabel()
+        floating.addRow(self.edit_shortcuts_label, self.edit_shortcuts_btn)
+        self.shortcuts_summary = QLabel()
+        self.shortcuts_summary.setObjectName('field-hint')
+        self.shortcuts_summary.setWordWrap(True)
+        floating.addRow(self.shortcuts_summary)
         self.reset_position_btn = QPushButton()
         self.reset_position_btn.clicked.connect(self.reset_floating_position.emit)
         self.reset_position_label = QLabel()
@@ -239,6 +248,7 @@ class SettingsPanel(QWidget):
             'floating_opacity': self.opacity.value(),
             'floating_always_on_top': self.always_on_top.isChecked(),
             'floating_show_on_startup': self.show_on_startup.isChecked(),
+            'floating_shortcuts': list(getattr(self, '_floating_shortcuts', DEFAULT_SETTINGS.get('floating_shortcuts', [10, 2, 9, 5]))),
             'copy_feedback_ms': self.copy_duration.currentData(),
             'default_language': self.language_combo.currentData(),
             'close_ask_each_time': self.close_ask.isChecked(),
@@ -286,6 +296,8 @@ class SettingsPanel(QWidget):
         self.opacity_value.setText(f"{settings['floating_opacity']}%")
         self.always_on_top.setChecked(settings['floating_always_on_top'])
         self.show_on_startup.setChecked(settings['floating_show_on_startup'])
+        self._floating_shortcuts = list(settings.get('floating_shortcuts') or DEFAULT_SETTINGS['floating_shortcuts'])
+        self._refresh_shortcuts_summary()
         self.language_combo.setCurrentIndex(self.language_combo.findData(settings['default_language']))
         self.close_ask.blockSignals(True)
         self.close_default_action.blockSignals(True)
@@ -300,6 +312,18 @@ class SettingsPanel(QWidget):
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
         self._refresh_close_behavior_hint()
+
+    def _refresh_shortcuts_summary(self):
+        from ui.navigation_model import display_name
+        zh = self.language == 'zh'
+        names = [display_name(i, self.language) for i in getattr(self, '_floating_shortcuts', [])]
+        if not names:
+            self.shortcuts_summary.setText('' if zh else '')
+            return
+        joined = ' · '.join(names)
+        self.shortcuts_summary.setText(
+            f'当前快捷：{joined}' if zh else f'Shortcuts: {joined}'
+        )
 
     def _refresh_close_behavior_hint(self, *_args):
         zh = self.language == 'zh'
@@ -387,6 +411,9 @@ class SettingsPanel(QWidget):
         self.always_on_top.setText('启用' if zh else 'Enabled')
         self.show_on_startup_label.setText('启动软件时显示' if zh else 'Show on startup')
         self.show_on_startup.setText('启用' if zh else 'Enabled')
+        self.edit_shortcuts_label.setText('快捷入口' if zh else 'Shortcuts')
+        self.edit_shortcuts_btn.setText('编辑快捷入口' if zh else 'Edit shortcuts')
+        self._refresh_shortcuts_summary()
         self.reset_position_label.setText('位置异常时' if zh else 'If position is lost')
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
         self.behavior_group.setTitle('关闭与交互' if zh else 'Close & interaction')

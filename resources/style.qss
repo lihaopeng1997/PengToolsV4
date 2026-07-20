@@ -1345,13 +1345,74 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 #card-title { color: #1C2940; font-size: 19px; font-weight: 700; }
 #card-description { color: #748097; }
 #shortcut-hint { color: #68758B; background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 12px; padding: 11px; }
-#floating-toolbar { background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 18px; }
-#floating-toolbar[compact="true"] { background: transparent; border: none; }
-QPushButton#floating-toggle { background: __PRIMARY__; color: white; border: none; border-radius: 22px; font-size: 17px; font-weight: 800; }
-#floating-title { color: #1E2A42; font-size: 15px; font-weight: 700; padding: 3px 5px; }
-QPushButton#floating-item { text-align: left; padding: 10px 14px; background: __SURFACE_SOFT__; border: none; }
-QPushButton#floating-item:hover { background: __PRIMARY_SOFT__; color: __PRIMARY_ACTIVE__; }
-QPushButton#floating-home { background: transparent; color: #65738A; border: 1px solid __BORDER__; }
+#floating-toolbar {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 16px;
+}
+#floating-toolbar[compact="true"] {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 14px;
+}
+QPushButton#floating-toggle {
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    font-size: 1px;
+    padding: 0;
+}
+QPushButton#floating-toggle:hover {
+    border-color: __PRIMARY__;
+    background: __SURFACE_SOFT__;
+}
+#floating-title {
+    color: __TEXT_STRONG__;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 0;
+}
+QPushButton#floating-icon-btn {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 4px;
+}
+QPushButton#floating-icon-btn:hover {
+    background: __PRIMARY_SOFT__;
+}
+QPushButton#floating-item {
+    text-align: left;
+    padding: 10px 12px;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: __TEXT_STRONG__;
+}
+QPushButton#floating-item:hover {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY_SOFT__;
+}
+QPushButton#floating-home {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+QPushButton#floating-home:hover {
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY__;
+}
+#sidebar-brand-icon {
+    background: __PRIMARY_SOFT__;
+    border-radius: 10px;
+}
 QMessageBox { background: __SURFACE__; }
 QMessageBox QLabel { background: transparent; color: __TEXT_STRONG__; }
 QProgressBar { background: __BORDER__; border: none; border-radius: 5px; text-align: center; }

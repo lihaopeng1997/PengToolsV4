@@ -5,7 +5,7 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[('resources\\style.qss', 'resources'), ('resources\\chevron_down.svg', 'resources'), ('resources\\check_white.svg', 'resources'), ('resources\\app.ico', 'resources'), ('resources\\app-icon.png', 'resources'), ('resources\\build_info.json', 'resources'), ('resources\\private_knowledge_seed.txt', 'resources'), ('resources\\private_knowledge_seed_workbooks.json', 'resources'), ('resources\\release_workbook_template.xlsx', 'resources'), ('resources\\icons', 'resources\\icons')],
+    datas=[('resources\\style.qss', 'resources'), ('resources\\chevron_down.svg', 'resources'), ('resources\\check_white.svg', 'resources'), ('resources\\app.ico', 'resources'), ('resources\\app-icon.png', 'resources'), ('resources\\brand', 'resources\\brand'), ('resources\\build_info.json', 'resources'), ('resources\\private_knowledge_seed.txt', 'resources'), ('resources\\private_knowledge_seed_workbooks.json', 'resources'), ('resources\\release_workbook_template.xlsx', 'resources'), ('resources\\icons', 'resources\\icons')],
     hiddenimports=['docx', 'openpyxl', 'msoffcrypto', 'PyQt6.QtSvg'],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['resources\\app.ico'],
+    icon=['resources\\brand\\pengtools-app-v2.ico'],
 )
