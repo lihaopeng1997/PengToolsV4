@@ -1,41 +1,52 @@
 # -*- coding: utf-8 -*-
-"""接口排查中心：Chromium CDP + IE 本机代理，内存会话，仅生成验证草稿。"""
+"""接口排查中心：Fiddler 式工作台（Chromium CDP + IE 本机代理）。
+
+报文仅内存；只生成验证草稿，不发送业务请求。
+"""
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QAction, QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout,
-    QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-    QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
+    QScrollArea, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from tools.browser_debug import (
     BrowserDebugError, connect_page_session, discover_browsers, fetch_cdp_targets,
     is_loopback_host, launch_debug_browser, mask_sensitive_value, mask_url_query,
-    pick_default_page_target, port_open, should_keep_record, wait_debug_port,
+    pick_default_page_target, port_open, wait_debug_port,
 )
 from tools.ie_proxy import (
     IeProxyWorker, install_user_root_cert, remove_recorded_cert, restore_proxy_from_snapshot,
 )
 from tools.interface_debug_store import (
-    load_interface_debug_config, save_interface_debug_config,
+    load_interface_debug_config, save_interface_debug_config, update_ui_prefs,
 )
 from tools.interface_drafts import (
     DraftError, build_curl, build_postman_collection, drafts_as_json_text, rewrite_url,
     validate_base_url,
+)
+from tools.interface_session_view import (
+    COLUMN_DEFS, COLUMN_KEYS, FILTER_ALL, FILTER_FAILED, FILTER_JSON_XML, FILTER_SLOW,
+    FILTER_STATIC, FILTER_XHR, content_kind, duration_severity, filter_and_sort,
+    format_size, host_path_display, is_failed, pretty_body, query_pairs,
+    response_size_bytes, split_cookies,
 )
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_combo
 from ui.page_chrome import make_page_header
+from ui.responsive import apply_splitter_orientation, editor_min_height, set_subtitle_visible
 
 
 def _looks_json(text: str) -> bool:
@@ -54,6 +65,14 @@ def _looks_base64ish(text: str) -> bool:
         return False
     import re
     return bool(re.fullmatch(r'[A-Za-z0-9+/=]+', s)) and not _looks_json(s) and not _looks_xml(s)
+
+
+def _theme_color(name: str, fallback: str) -> QColor:
+    try:
+        from ui.theme_manager import ThemeManager
+        return QColor(ThemeManager.instance().token(name) or fallback)
+    except Exception:
+        return QColor(fallback)
 
 
 class _LaunchBrowserWorker(QThread):
@@ -76,31 +95,65 @@ class _LaunchBrowserWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class _FilterChip(QPushButton):
+    def __init__(self, key: str, label: str, parent=None):
+        super().__init__(label, parent)
+        self.filter_key = key
+        self.setCheckable(True)
+        self.setProperty('compactAction', True)
+        self.setObjectName('iface-filter-chip')
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+
 class InterfaceDebugPanel(QWidget):
-    """Private 版接口排查面板。"""
+    """Private 版 Fiddler 式接口排查面板。"""
 
     open_gateway = pyqtSignal(str)
     open_format_json = pyqtSignal(str)
     open_format_xml = pyqtSignal(str)
 
+    COL_LABELS_ZH = {
+        'status': '状态', 'method': '方法', 'path': '接口路径', 'duration': '耗时',
+        'type': '类型', 'time': '时间', 'size': '大小', 'source': '来源',
+    }
+    COL_LABELS_EN = {
+        'status': 'Status', 'method': 'Method', 'path': 'Path', 'duration': 'Time',
+        'type': 'Type', 'time': 'At', 'size': 'Size', 'source': 'Src',
+    }
+
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
         self._config = load_interface_debug_config()
-        self._records: list[dict] = []  # 内存会话
+        self._prefs = dict(self._config.get('ui_prefs') or {})
+        self._records: list[dict] = []
         self._records_by_id: dict[str, dict] = {}
+        self._filtered: list[dict] = []
         self._cdp_session = None
         self._ie_worker = None
         self._listening = False
-        self._mode = 'chromium'  # chromium | ie
+        self._mode = 'chromium'
         self._reveal_sensitive = False
-        self._show_static = False
+        self._show_static = bool(self._prefs.get('show_static'))
         self._selected_id = None
         self._launch_worker = None
+        self._layout_mode = 'standard'
+        self._active_filters = list(self._prefs.get('active_filters') or [FILTER_ALL])
+        self._sort_key = self._prefs.get('sort_key') or 'time'
+        self._sort_desc = bool(self._prefs.get('sort_desc', True))
+        self._follow_latest = True
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(150)
+        self._search_timer.timeout.connect(self._rebuild_table)
+        self._sensitive_copy_warned = False
         self._setup_ui()
         self._reload_config_ui()
         self.set_language(language)
-        QTimer.singleShot(200, self._check_orphan_proxy_snapshot)
+        self._apply_column_visibility()
+        # 离屏/测试环境跳过延时恢复提示
+        if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
+            QTimer.singleShot(200, self._check_orphan_proxy_snapshot)
 
     # ── UI ──────────────────────────────────────────────
     def _setup_ui(self):
@@ -112,13 +165,13 @@ class InterfaceDebugPanel(QWidget):
         self.offline_pill.setObjectName('offline-pill')
         header, self.page_title, self.page_subtitle = make_page_header(
             '接口排查',
-            '本机 CDP / IE 代理 · 报文仅内存 · 只生成验证草稿',
+            '本机监听 · 仅内存 · 草稿验证',
             'api-debug',
             trailing=self.offline_pill,
         )
         root.addWidget(header)
 
-        # 顶部连接区
+        # 连接控制区
         conn = QFrame()
         apply_surface(conn, 'card')
         conn.setObjectName('iface-conn-zone')
@@ -137,7 +190,8 @@ class InterfaceDebugPanel(QWidget):
         row1.addWidget(self.mode_combo)
         self.browser_combo = QComboBox()
         size_combo(self.browser_combo, 'lg')
-        self.browser_combo.setMinimumWidth(280)
+        self.browser_combo.setMinimumWidth(240)
+        self.browser_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row1.addWidget(self.browser_combo, 1)
         self.refresh_browsers_btn = QPushButton()
         apply_button(self.refresh_browsers_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
@@ -172,7 +226,7 @@ class InterfaceDebugPanel(QWidget):
         row2.addWidget(self.stop_btn)
         self.target_combo = QComboBox()
         size_combo(self.target_combo, 'lg')
-        self.target_combo.setMinimumWidth(220)
+        self.target_combo.setMinimumWidth(180)
         row2.addWidget(self.target_combo, 1)
         self.ie_install_cert_btn = QPushButton()
         apply_button(self.ie_install_cert_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
@@ -184,55 +238,113 @@ class InterfaceDebugPanel(QWidget):
         self.ie_remove_cert_btn.clicked.connect(self._remove_ie_cert)
         self.ie_remove_cert_btn.hide()
         row2.addWidget(self.ie_remove_cert_btn)
+        self.conn_more_btn = QToolButton()
+        self.conn_more_btn.setObjectName('responsive-more-btn')
+        self.conn_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._conn_more_menu = QMenu(self.conn_more_btn)
+        self.conn_more_btn.setMenu(self._conn_more_menu)
+        self.conn_more_btn.hide()
+        row2.addWidget(self.conn_more_btn)
         cl.addLayout(row2)
 
-        row3 = QHBoxLayout()
-        row3.setSpacing(12)
-        self.show_static_cb = QCheckBox()
-        self.show_static_cb.toggled.connect(self._on_show_static)
-        row3.addWidget(self.show_static_cb)
-        self.reveal_cb = QCheckBox()
-        self.reveal_cb.toggled.connect(self._on_reveal)
-        row3.addWidget(self.reveal_cb)
         self.status_label = QLabel()
         self.status_label.setObjectName('field-hint')
         self.status_label.setWordWrap(True)
-        row3.addWidget(self.status_label, 1)
-        cl.addLayout(row3)
+        cl.addWidget(self.status_label)
         root.addWidget(conn)
+
+        # 会话工具条
+        tools = QFrame()
+        apply_surface(tools, 'zone')
+        tools.setObjectName('iface-session-toolbar')
+        tl = QHBoxLayout(tools)
+        tl.setContentsMargins(10, 8, 10, 8)
+        tl.setSpacing(6)
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
+        self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
+        tl.addWidget(self.filter_edit, 1)
+
+        self._filter_chips: dict[str, _FilterChip] = {}
+        chip_defs = [
+            (FILTER_ALL, '全部'),
+            (FILTER_XHR, 'XHR/Fetch'),
+            (FILTER_FAILED, '失败'),
+            (FILTER_SLOW, '慢请求'),
+            (FILTER_JSON_XML, 'JSON/XML'),
+            (FILTER_STATIC, '静态资源'),
+        ]
+        for key, label in chip_defs:
+            chip = _FilterChip(key, label)
+            # 初始化后再连接，避免 setChecked 递归触发
+            self._filter_chips[key] = chip
+            tl.addWidget(chip)
+        if FILTER_ALL in self._active_filters or not self._active_filters:
+            self._filter_chips[FILTER_ALL].setChecked(True)
+        else:
+            for k in self._active_filters:
+                if k in self._filter_chips:
+                    self._filter_chips[k].setChecked(True)
+        for key, chip in self._filter_chips.items():
+            chip.toggled.connect(lambda checked, k=key: self._on_filter_chip(k, checked))
+
+        self.session_count = QLabel('0 / 0')
+        self.session_count.setObjectName('field-hint')
+        tl.addWidget(self.session_count)
+
+        self.cols_btn = QToolButton()
+        self.cols_btn.setObjectName('responsive-more-btn')
+        self.cols_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._cols_menu = QMenu(self.cols_btn)
+        self.cols_btn.setMenu(self._cols_menu)
+        self._rebuild_column_menu()
+        tl.addWidget(self.cols_btn)
+
+        self.clear_list_btn = QPushButton()
+        apply_button(self.clear_list_btn, 'ghost', compact=True, icon='delete', icon_size=16)
+        self.clear_list_btn.clicked.connect(self._confirm_clear_session)
+        tl.addWidget(self.clear_list_btn)
+        root.addWidget(tools)
 
         # 中部：列表 + 详情
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
-        mid = self.mid_splitter
-        mid.setChildrenCollapsible(False)
-        mid.setHandleWidth(8)
+        self.mid_splitter.setChildrenCollapsible(False)
+        self.mid_splitter.setHandleWidth(8)
 
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(4)
-        filter_row = QHBoxLayout()
-        self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText('筛选 path / method…')
-        self.filter_edit.textChanged.connect(self._rebuild_table)
-        filter_row.addWidget(self.filter_edit, 1)
-        self.clear_list_btn = QPushButton()
-        apply_button(self.clear_list_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.clear_list_btn.clicked.connect(self.clear_session)
-        filter_row.addWidget(self.clear_list_btn)
-        ll.addLayout(filter_row)
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, len(COLUMN_KEYS))
         self.table.setObjectName('iface-request-table')
-        self.table.setHorizontalHeaderLabels(['时间', '方法', '路径', '状态', '耗时', '类型'])
+        self.table.setHorizontalHeaderLabels([self.COL_LABELS_ZH[k] for k in COLUMN_KEYS])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        header_view = self.table.horizontalHeader()
+        header_view.setStretchLastSection(False)
+        header_view.setSectionsMovable(False)
+        header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        path_idx = COLUMN_KEYS.index('path')
+        header_view.setSectionResizeMode(path_idx, QHeaderView.ResizeMode.Stretch)
+        header_view.sectionClicked.connect(self._on_header_clicked)
+        header_view.sectionResized.connect(self._on_column_resized)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._table_context_menu)
         ll.addWidget(self.table, 1)
-        mid.addWidget(left)
+
+        self.empty_hint = QLabel()
+        self.empty_hint.setObjectName('field-hint')
+        self.empty_hint.setWordWrap(True)
+        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ll.addWidget(self.empty_hint)
+        self.mid_splitter.addWidget(left)
 
         right = QWidget()
         rl = QVBoxLayout(right)
@@ -240,61 +352,97 @@ class InterfaceDebugPanel(QWidget):
         rl.setSpacing(6)
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName('module-tabs')
+        mono = QFont('Consolas', 10)
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+
+        # Tab 0 概览
+        self.overview_page = QWidget()
+        ov = QVBoxLayout(self.overview_page)
+        ov.setContentsMargins(0, 8, 0, 0)
+        ov_tools = QHBoxLayout()
+        self.reveal_cb = QCheckBox()
+        self.reveal_cb.toggled.connect(self._on_reveal)
+        ov_tools.addWidget(self.reveal_cb)
+        self.copy_safe_url_btn = QPushButton()
+        apply_button(self.copy_safe_url_btn, 'secondary', compact=True, icon='copy', icon_size=16)
+        self.copy_safe_url_btn.clicked.connect(self._copy_safe_url)
+        ov_tools.addWidget(self.copy_safe_url_btn)
+        ov_tools.addStretch(1)
+        ov.addLayout(ov_tools)
+        self.overview_edit = QPlainTextEdit()
+        self.overview_edit.setReadOnly(True)
+        self.overview_edit.setObjectName('iface-detail-edit')
+        self.overview_edit.setFont(mono)
+        self.overview_edit.setMinimumHeight(180)
+        ov.addWidget(self.overview_edit, 1)
+        self.detail_tabs.addTab(self.overview_page, '概览')
+
+        # Tab 1 请求
+        self.req_page = QWidget()
+        rq = QVBoxLayout(self.req_page)
+        rq.setContentsMargins(0, 8, 0, 0)
+        req_tools = QHBoxLayout()
+        self.copy_req_btn = QPushButton()
+        apply_button(self.copy_req_btn, 'ghost', compact=True, icon='copy', icon_size=16)
+        self.copy_req_btn.clicked.connect(lambda: self._copy_text(self.req_detail.toPlainText(), sensitive=True))
+        req_tools.addWidget(self.copy_req_btn)
+        self.format_req_btn = QPushButton()
+        apply_button(self.format_req_btn, 'secondary', compact=True, icon='json', icon_size=16)
+        self.format_req_btn.clicked.connect(lambda: self._send_body_side('request', 'format'))
+        req_tools.addWidget(self.format_req_btn)
+        self.gateway_req_btn = QPushButton()
+        apply_button(self.gateway_req_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
+        self.gateway_req_btn.clicked.connect(lambda: self._send_body_side('request', 'gateway'))
+        req_tools.addWidget(self.gateway_req_btn)
+        req_tools.addStretch(1)
+        rq.addLayout(req_tools)
         self.req_detail = QPlainTextEdit()
         self.req_detail.setReadOnly(True)
         self.req_detail.setObjectName('iface-detail-edit')
-        mono = QFont('Consolas', 10)
-        mono.setStyleHint(QFont.StyleHint.Monospace)
         self.req_detail.setFont(mono)
+        self.req_detail.setMinimumHeight(180)
+        rq.addWidget(self.req_detail, 1)
+        self.detail_tabs.addTab(self.req_page, '请求')
+
+        # Tab 2 响应
+        self.resp_page = QWidget()
+        rs = QVBoxLayout(self.resp_page)
+        rs.setContentsMargins(0, 8, 0, 0)
+        resp_tools = QHBoxLayout()
+        self.copy_resp_btn = QPushButton()
+        apply_button(self.copy_resp_btn, 'ghost', compact=True, icon='copy', icon_size=16)
+        self.copy_resp_btn.clicked.connect(lambda: self._copy_text(self.resp_detail.toPlainText(), sensitive=True))
+        resp_tools.addWidget(self.copy_resp_btn)
+        self.format_resp_btn = QPushButton()
+        apply_button(self.format_resp_btn, 'secondary', compact=True, icon='json', icon_size=16)
+        self.format_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'format'))
+        resp_tools.addWidget(self.format_resp_btn)
+        self.gateway_resp_btn = QPushButton()
+        apply_button(self.gateway_resp_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
+        self.gateway_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'gateway'))
+        resp_tools.addWidget(self.gateway_resp_btn)
+        resp_tools.addStretch(1)
+        rs.addLayout(resp_tools)
         self.resp_detail = QPlainTextEdit()
         self.resp_detail.setReadOnly(True)
         self.resp_detail.setObjectName('iface-detail-edit')
         self.resp_detail.setFont(mono)
-        self.detail_tabs.addTab(self.req_detail, '请求')
-        self.detail_tabs.addTab(self.resp_detail, '响应')
-        rl.addWidget(self.detail_tabs, 1)
+        self.resp_detail.setMinimumHeight(180)
+        rs.addWidget(self.resp_detail, 1)
+        self.detail_tabs.addTab(self.resp_page, '响应')
 
-        link_row = QHBoxLayout()
-        self.to_format_btn = QPushButton()
-        apply_button(self.to_format_btn, 'secondary', compact=True, icon='json', icon_size=16)
-        self.to_format_btn.clicked.connect(self._send_to_format)
-        self.to_format_btn.setEnabled(False)
-        link_row.addWidget(self.to_format_btn)
-        self.to_gateway_btn = QPushButton()
-        apply_button(self.to_gateway_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
-        self.to_gateway_btn.clicked.connect(self._send_to_gateway)
-        self.to_gateway_btn.setEnabled(False)
-        link_row.addWidget(self.to_gateway_btn)
-        link_row.addStretch(1)
-        rl.addLayout(link_row)
-        mid.addWidget(right)
-        mid.setSizes([520, 480])
-        root.addWidget(mid, 1)
-
-        # 底部草稿区
-        draft = QFrame()
-        apply_surface(draft, 'zone')
-        draft.setObjectName('iface-draft-zone')
-        dl = QVBoxLayout(draft)
-        dl.setContentsMargins(12, 10, 12, 10)
-        dl.setSpacing(8)
-        dhead = QHBoxLayout()
-        self.draft_title = QLabel()
-        self.draft_title.setObjectName('zone-title')
-        dhead.addWidget(self.draft_title)
+        # Tab 3 验证草稿
+        self.draft_page = QWidget()
+        dl = QVBoxLayout(self.draft_page)
+        dl.setContentsMargins(0, 8, 0, 0)
         self.draft_badge = QLabel()
         self.draft_badge.setObjectName('offline-pill')
-        dhead.addWidget(self.draft_badge)
-        dhead.addStretch(1)
-        dl.addLayout(dhead)
-
+        dl.addWidget(self.draft_badge)
         drow = QHBoxLayout()
-        drow.setSpacing(8)
         self.target_label = QLabel()
         drow.addWidget(self.target_label)
         self.local_target_combo = QComboBox()
         size_combo(self.local_target_combo, 'md')
-        self.local_target_combo.setMinimumWidth(200)
         drow.addWidget(self.local_target_combo, 1)
         self.add_target_btn = QPushButton()
         apply_button(self.add_target_btn, 'ghost', compact=True, icon='add', icon_size=16)
@@ -309,16 +457,21 @@ class InterfaceDebugPanel(QWidget):
         self.del_target_btn.clicked.connect(self._delete_local_target)
         drow.addWidget(self.del_target_btn)
         dl.addLayout(drow)
-
+        self.include_auth_cb = QCheckBox()
+        self.include_auth_cb.setChecked(bool(self._prefs.get('include_auth_in_draft', True)))
+        self.include_auth_cb.toggled.connect(self._on_include_auth)
+        dl.addWidget(self.include_auth_cb)
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMaximumHeight(120)
-        dl.addWidget(self.draft_preview)
-
+        self.draft_preview.setMinimumHeight(120)
+        dl.addWidget(self.draft_preview, 1)
         brow = QHBoxLayout()
-        brow.setSpacing(8)
+        self.gen_draft_btn = QPushButton()
+        apply_button(self.gen_draft_btn, 'primary', compact=True, icon='refresh', icon_size=16)
+        self.gen_draft_btn.clicked.connect(self._refresh_draft_preview)
+        brow.addWidget(self.gen_draft_btn)
         self.copy_postman_btn = QPushButton()
         apply_button(self.copy_postman_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_postman_btn.clicked.connect(self._copy_postman)
@@ -328,7 +481,7 @@ class InterfaceDebugPanel(QWidget):
         self.export_postman_btn.clicked.connect(self._export_postman)
         brow.addWidget(self.export_postman_btn)
         self.copy_curl_btn = QPushButton()
-        apply_button(self.copy_curl_btn, 'primary', compact=True, icon='terminal', icon_size=16)
+        apply_button(self.copy_curl_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
         self.copy_curl_btn.clicked.connect(self._copy_curl)
         brow.addWidget(self.copy_curl_btn)
         brow.addStretch(1)
@@ -336,19 +489,154 @@ class InterfaceDebugPanel(QWidget):
         self.draft_hint.setObjectName('field-hint')
         brow.addWidget(self.draft_hint)
         dl.addLayout(brow)
-        root.addWidget(draft)
+        self.detail_tabs.addTab(self.draft_page, '验证草稿')
+
+        rl.addWidget(self.detail_tabs, 1)
+        self.mid_splitter.addWidget(right)
+        sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
+        self.mid_splitter.setSizes(sizes)
+        self.mid_splitter.splitterMoved.connect(self._save_splitter_sizes)
+        root.addWidget(self.mid_splitter, 1)
 
         self.loading = AuroraProgress(self)
         self._refresh_browsers()
+        self._rebuild_table()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay(self)
 
+    # ── 列 / 筛选 ────────────────────────────────────
+    def _rebuild_column_menu(self):
+        self._cols_menu.clear()
+        visible = set(self._prefs.get('visible_columns') or [])
+        labels = self.COL_LABELS_ZH if self.language == 'zh' else self.COL_LABELS_EN
+        for key in COLUMN_KEYS:
+            act = QAction(labels.get(key, key), self._cols_menu)
+            act.setCheckable(True)
+            act.setChecked(key in visible or key in ('status', 'method', 'path'))
+            if key in ('status', 'method', 'path'):
+                act.setEnabled(False)
+            act.toggled.connect(lambda checked, k=key: self._toggle_column(k, checked))
+            self._cols_menu.addAction(act)
+
+    def _toggle_column(self, key: str, checked: bool):
+        visible = list(self._prefs.get('visible_columns') or [])
+        if checked and key not in visible:
+            visible.append(key)
+        if not checked and key in visible and key not in ('status', 'method', 'path'):
+            visible.remove(key)
+        self._prefs['visible_columns'] = visible
+        update_ui_prefs({'visible_columns': visible})
+        self._apply_column_visibility()
+
+    def _apply_column_visibility(self):
+        visible = set(self._prefs.get('visible_columns') or [])
+        widths = self._prefs.get('column_widths') or {}
+        for i, key in enumerate(COLUMN_KEYS):
+            show = key in visible or key in ('status', 'method', 'path')
+            self.table.setColumnHidden(i, not show)
+            w = widths.get(key)
+            if w and key != 'path':
+                self.table.setColumnWidth(i, int(w))
+
+    def _on_column_resized(self, index: int, _old: int, new: int):
+        if index < 0 or index >= len(COLUMN_KEYS):
+            return
+        key = COLUMN_KEYS[index]
+        if key == 'path':
+            return
+        widths = dict(self._prefs.get('column_widths') or {})
+        widths[key] = new
+        self._prefs['column_widths'] = widths
+        # 防抖保存
+        if not hasattr(self, '_width_save_timer'):
+            self._width_save_timer = QTimer(self)
+            self._width_save_timer.setSingleShot(True)
+            self._width_save_timer.timeout.connect(
+                lambda: update_ui_prefs({'column_widths': self._prefs.get('column_widths')})
+            )
+        self._width_save_timer.start(400)
+
+    def _on_header_clicked(self, index: int):
+        if index < 0 or index >= len(COLUMN_KEYS):
+            return
+        key = COLUMN_KEYS[index]
+        if self._sort_key == key:
+            self._sort_desc = not self._sort_desc
+        else:
+            self._sort_key = key
+            self._sort_desc = key in ('time', 'duration', 'size', 'status')
+        self._prefs['sort_key'] = self._sort_key
+        self._prefs['sort_desc'] = self._sort_desc
+        update_ui_prefs({'sort_key': self._sort_key, 'sort_desc': self._sort_desc})
+        self._rebuild_table()
+
+    def _on_filter_chip(self, key: str, checked: bool):
+        chips = self._filter_chips
+        if key == FILTER_ALL and checked:
+            for k, chip in chips.items():
+                if k != FILTER_ALL:
+                    chip.blockSignals(True)
+                    chip.setChecked(False)
+                    chip.blockSignals(False)
+            self._active_filters = [FILTER_ALL]
+        else:
+            if checked and FILTER_ALL in self._active_filters:
+                self._active_filters = [f for f in self._active_filters if f != FILTER_ALL]
+                chips[FILTER_ALL].blockSignals(True)
+                chips[FILTER_ALL].setChecked(False)
+                chips[FILTER_ALL].blockSignals(False)
+            if checked and key not in self._active_filters:
+                self._active_filters.append(key)
+            if not checked and key in self._active_filters:
+                self._active_filters.remove(key)
+            if not self._active_filters:
+                self._active_filters = [FILTER_ALL]
+                chips[FILTER_ALL].blockSignals(True)
+                chips[FILTER_ALL].setChecked(True)
+                chips[FILTER_ALL].blockSignals(False)
+        self._show_static = FILTER_STATIC in self._active_filters
+        self._prefs['active_filters'] = list(self._active_filters)
+        self._prefs['show_static'] = self._show_static
+        update_ui_prefs({
+            'active_filters': self._active_filters,
+            'show_static': self._show_static,
+        })
+        self._rebuild_table()
+
+    def _on_reveal(self, checked):
+        if checked and not self._reveal_sensitive:
+            zh = self.language == 'zh'
+            ok = confirm_action(
+                self,
+                '显示敏感内容' if zh else 'Reveal secrets',
+                (
+                    '将显示 Authorization、Cookie、Token 等敏感字段。仅本会话有效，停止监听后清空。'
+                    if zh else
+                    'Reveal Authorization/Cookie/Token for this session only.'
+                ),
+                confirm_text='显示' if zh else 'Reveal',
+                danger=True,
+            )
+            if not ok:
+                self.reveal_cb.blockSignals(True)
+                self.reveal_cb.setChecked(False)
+                self.reveal_cb.blockSignals(False)
+                return
+        self._reveal_sensitive = bool(checked)
+        self._refresh_detail()
+
+    def _on_include_auth(self, checked):
+        self._prefs['include_auth_in_draft'] = bool(checked)
+        update_ui_prefs({'include_auth_in_draft': bool(checked)})
+        self._refresh_draft_preview()
+
     # ── 配置 / 浏览器 ──────────────────────────────────
     def _reload_config_ui(self):
         self._config = load_interface_debug_config()
+        self._prefs = dict(self._config.get('ui_prefs') or {})
         self.port_edit.setText(str(self._config.get('debug_port') or 9222))
         self._fill_local_targets()
         path = self._config.get('browser_path') or ''
@@ -380,6 +668,17 @@ class InterfaceDebugPanel(QWidget):
         self.browser_combo.clear()
         browsers = discover_browsers()
         saved = (self._config.get('browser_path') or '').strip()
+        recent = list(self._config.get('recent_browser_paths') or [])
+        for path in recent:
+            if path and os.path.isfile(path) and not any(
+                (b.get('path') or '').lower() == path.lower() for b in browsers
+            ):
+                browsers.insert(0, {
+                    'name': '最近使用',
+                    'path': path,
+                    'is_chromium': 'firefox' not in path.lower(),
+                    'is_firefox': 'firefox' in path.lower(),
+                })
         if saved and os.path.isfile(saved) and not any(
             (b.get('path') or '').lower() == saved.lower() for b in browsers
         ):
@@ -391,9 +690,12 @@ class InterfaceDebugPanel(QWidget):
             })
         for b in browsers:
             tag = '' if b.get('is_chromium') else ' [Firefox]'
-            self.browser_combo.addItem(f"{b['name']}{tag} — {b['path']}", b['path'])
+            short = os.path.basename(b['path'] or '')
+            label = f"{b['name']}{tag} · {short}"
+            self.browser_combo.addItem(label, b['path'])
             idx = self.browser_combo.count() - 1
             self.browser_combo.setItemData(idx, b, Qt.ItemDataRole.UserRole + 1)
+            self.browser_combo.setItemData(idx, b['path'], Qt.ItemDataRole.ToolTipRole)
         if current:
             for i in range(self.browser_combo.count()):
                 if self.browser_combo.itemData(i) == current:
@@ -416,15 +718,17 @@ class InterfaceDebugPanel(QWidget):
         if not path:
             return
         self._config['browser_path'] = path
+        recent = list(self._config.get('recent_browser_paths') or [])
+        if path in recent:
+            recent.remove(path)
+        recent.insert(0, path)
+        self._config['recent_browser_paths'] = recent[:8]
         save_interface_debug_config(self._config)
         self._refresh_browsers()
         if 'firefox' in path.lower():
             show_warning(
-                self,
-                '浏览器',
-                'Firefox 暂不支持实时监听；请使用 Chromium 内核浏览器。'
-                if self.language == 'zh' else
-                'Firefox is not supported for live capture; use a Chromium browser.',
+                self, '浏览器',
+                'Firefox 暂不支持实时监听；请使用 Chromium 内核浏览器。',
             )
 
     def _selected_browser_meta(self) -> dict:
@@ -452,6 +756,15 @@ class InterfaceDebugPanel(QWidget):
             self._config['browser_path'] = path
         save_interface_debug_config(self._config)
 
+    def _save_splitter_sizes(self, *_args):
+        sizes = self.mid_splitter.sizes()
+        if len(sizes) < 2:
+            return
+        all_sizes = dict(self._prefs.get('splitter_sizes') or {})
+        all_sizes[self._layout_mode] = sizes
+        self._prefs['splitter_sizes'] = all_sizes
+        update_ui_prefs({'splitter_sizes': all_sizes})
+
     # ── 模式 ──────────────────────────────────────────
     def _on_mode_changed(self, index):
         if self._listening:
@@ -474,30 +787,20 @@ class InterfaceDebugPanel(QWidget):
         self.ie_install_cert_btn.setVisible(ie)
         self.ie_remove_cert_btn.setVisible(ie)
         self.clear_session()
-
-    def _on_show_static(self, checked):
-        self._show_static = bool(checked)
-        self._rebuild_table()
-
-    def _on_reveal(self, checked):
-        self._reveal_sensitive = bool(checked)
-        self._refresh_detail()
+        self.apply_layout_mode(self._layout_mode, False)
 
     # ── 连接 / 监听 ──────────────────────────────────
     def _launch_browser(self):
         meta = self._selected_browser_meta()
         path = meta.get('path') or ''
         if meta.get('is_firefox'):
-            show_warning(
-                self, '浏览器',
-                'Firefox 暂不支持实时监听；请使用 Chromium 内核浏览器。',
-            )
+            show_warning(self, '浏览器', 'Firefox 暂不支持实时监听；请使用 Chromium 内核浏览器。')
             return
         if not path or not os.path.isfile(path):
             show_warning(self, '浏览器', '请先选择有效的 Chromium 浏览器 EXE')
             return
         self._save_port()
-        self.loading.start_busy('正在启动调试浏览器…' if self.language == 'zh' else 'Launching debug browser…')
+        self.loading.start_busy('正在启动调试浏览器…' if self.language == 'zh' else 'Launching…')
         self._launch_worker = _LaunchBrowserWorker(path, self._current_port(), self)
         self._launch_worker.finished_ok.connect(self._on_launch_ok)
         self._launch_worker.failed.connect(self._on_launch_fail)
@@ -506,9 +809,7 @@ class InterfaceDebugPanel(QWidget):
     def _on_launch_ok(self, port):
         self.loading.finish('浏览器已就绪' if self.language == 'zh' else 'Browser ready')
         self.status_label.setText(
-            f'调试浏览器已启动 · 端口 {port} · 请打开业务页后点击「连接」'
-            if self.language == 'zh' else
-            f'Debug browser ready · port {port}'
+            f'调试浏览器已启动 · 端口 {port} · 请打开业务页后点击「开始监听」'
         )
         QTimer.singleShot(400, self._refresh_targets)
 
@@ -548,19 +849,18 @@ class InterfaceDebugPanel(QWidget):
 
     def _connect_cdp(self):
         port = self._current_port()
-        host = '127.0.0.1'
-        if not is_loopback_host(host):
+        if not is_loopback_host('127.0.0.1'):
             show_warning(self, '连接', 'CDP 仅允许 127.0.0.1')
             return
         self._save_port()
         if not port_open(port):
             show_warning(
                 self, '连接',
-                f'端口 {port} 不可用。请先「一键启动调试浏览器」，'
-                f'或用 --remote-debugging-port={port} --remote-debugging-address=127.0.0.1 启动。',
+                f'端口 {port} 不可用。请先启动调试浏览器，或用 '
+                f'--remote-debugging-port={port} --remote-debugging-address=127.0.0.1 启动。',
             )
             return
-        self.loading.start_busy('正在连接 CDP…' if self.language == 'zh' else 'Connecting CDP…')
+        self.loading.start_busy('正在连接 CDP…')
         try:
             self._refresh_targets()
             target = self.target_combo.currentData()
@@ -568,9 +868,7 @@ class InterfaceDebugPanel(QWidget):
                 targets = fetch_cdp_targets(port)
                 target = pick_default_page_target(targets)
             session = connect_page_session(
-                port,
-                target=target,
-                host=host,
+                port, target=target, host='127.0.0.1',
                 on_event=self._on_cdp_event_thread,
                 on_error=self._on_cdp_error_thread,
                 on_closed=self._on_cdp_closed_thread,
@@ -578,18 +876,15 @@ class InterfaceDebugPanel(QWidget):
             self._cdp_session = session
             self._listening = True
             self._set_listening_ui(True)
-            self.loading.finish('已开始监听' if self.language == 'zh' else 'Listening')
+            self.loading.finish('已开始监听')
             self.status_label.setText(
                 f'CDP 监听中 · {target.get("title") or target.get("url") or port}'
-                if self.language == 'zh' else
-                f'CDP listening · port {port}'
             )
         except Exception as exc:
             self.loading.fail(str(exc))
             show_warning(self, '连接 CDP', str(exc))
 
     def _on_cdp_event_thread(self, method, params):
-        # 从后台线程调度到主线程
         QTimer.singleShot(0, lambda m=method, p=dict(params or {}): self._handle_cdp_event(m, p))
 
     def _on_cdp_error_thread(self, msg):
@@ -600,22 +895,18 @@ class InterfaceDebugPanel(QWidget):
 
     def _on_cdp_closed(self):
         if self._listening and self._mode == 'chromium':
-            self.status_label.setText('CDP 连接已关闭' if self.language == 'zh' else 'CDP closed')
+            self.status_label.setText('CDP 连接已关闭')
             self._listening = False
             self._set_listening_ui(False)
 
     def _handle_cdp_event(self, method, params):
         if not self._cdp_session:
             return
-        # 从 session.records 同步
         with self._cdp_session._lock:
             records = dict(self._cdp_session.records)
         for rid, rec in records.items():
-            if not should_keep_record(rec, self._show_static):
-                continue
             self._records_by_id[rid] = dict(rec)
         self._records = list(self._records_by_id.values())
-        self._records.sort(key=lambda r: r.get('started_at') or 0, reverse=True)
         self._rebuild_table()
 
     def _start_ie_proxy(self):
@@ -626,25 +917,19 @@ class InterfaceDebugPanel(QWidget):
             (
                 '将临时修改当前用户 Windows 代理为 127.0.0.1，'
                 '并可能安装本机根证书以解密 HTTPS。\n'
-                '停止监听后会自动恢复原代理。\n'
-                '报文仅内存，不落盘、不外发。'
+                '停止监听后会自动恢复原代理。报文仅内存，不落盘、不外发。'
                 if zh else
-                'Will temporarily change your Windows proxy to 127.0.0.1 '
-                'and may install a local root certificate for HTTPS.\n'
-                'Proxy is restored when capture stops.'
+                'Temporarily set Windows proxy to 127.0.0.1 for local capture only.'
             ),
             confirm_text='启用监听' if zh else 'Enable',
             danger=True,
         )
         if not ok:
             return
-        try:
-            port = self._current_port()
-            self._config['ie_proxy_port'] = port
-            save_interface_debug_config(self._config)
-        except Exception:
-            port = 8899
-        self.loading.start_busy('正在启动 IE 代理…' if zh else 'Starting IE proxy…')
+        port = self._current_port()
+        self._config['ie_proxy_port'] = port
+        save_interface_debug_config(self._config)
+        self.loading.start_busy('正在启动 IE 代理…')
         try:
             worker = IeProxyWorker(
                 port=port,
@@ -657,11 +942,9 @@ class InterfaceDebugPanel(QWidget):
             self._ie_worker = worker
             self._listening = True
             self._set_listening_ui(True)
-            self.loading.finish('IE 代理已启用' if zh else 'IE proxy on')
+            self.loading.finish('IE 代理已启用')
             self.status_label.setText(
-                f'IE 代理监听 127.0.0.1:{port} · 请在 IE 中操作业务页'
-                if zh else
-                f'IE proxy listening 127.0.0.1:{port}'
+                f'IE 代理监听 127.0.0.1:{port} · 代理仅作用于当前用户；停止后自动恢复'
             )
         except Exception as exc:
             self.loading.fail(str(exc))
@@ -687,16 +970,13 @@ class InterfaceDebugPanel(QWidget):
         self._set_listening_ui(False)
 
     def _ingest_record(self, rec: dict):
-        if not should_keep_record(rec, self._show_static):
-            return
         rid = rec.get('id') or ''
         self._records_by_id[rid] = rec
         self._records = list(self._records_by_id.values())
-        self._records.sort(key=lambda r: r.get('started_at') or 0, reverse=True)
         self._rebuild_table()
 
     def _stop_listen(self):
-        self.loading.start_busy('正在停止监听…' if self.language == 'zh' else 'Stopping…')
+        self.loading.start_busy('正在停止监听…')
         try:
             if self._cdp_session:
                 try:
@@ -714,10 +994,8 @@ class InterfaceDebugPanel(QWidget):
             self.clear_session()
             self._listening = False
             self._set_listening_ui(False)
-            self.loading.finish('已停止' if self.language == 'zh' else 'Stopped')
-            self.status_label.setText(
-                '已停止监听，会话已清空' if self.language == 'zh' else 'Stopped · session cleared'
-            )
+            self.loading.finish('已停止')
+            self.status_label.setText('已停止监听，会话已清空')
 
     def _set_listening_ui(self, active: bool):
         self.connect_btn.setEnabled(not active)
@@ -725,10 +1003,32 @@ class InterfaceDebugPanel(QWidget):
         self.stop_btn.setEnabled(active)
         self.mode_combo.setEnabled(not active)
 
+    def _confirm_clear_session(self):
+        zh = self.language == 'zh'
+        if not self._records:
+            self.clear_session()
+            return
+        if not confirm_action(
+            self,
+            '清空会话列表' if zh else 'Clear session',
+            '将清空内存中的全部捕获请求（不可恢复）。' if zh else 'Clear all in-memory captures.',
+            confirm_text='清空' if zh else 'Clear',
+            danger=True,
+        ):
+            return
+        self.clear_session()
+
     def clear_session(self):
         self._records.clear()
         self._records_by_id.clear()
+        self._filtered = []
         self._selected_id = None
+        self._reveal_sensitive = False
+        self._sensitive_copy_warned = False
+        if self.reveal_cb.isChecked():
+            self.reveal_cb.blockSignals(True)
+            self.reveal_cb.setChecked(False)
+            self.reveal_cb.blockSignals(False)
         if self._cdp_session:
             try:
                 self._cdp_session.clear_session()
@@ -740,39 +1040,28 @@ class InterfaceDebugPanel(QWidget):
             except Exception:
                 pass
         self.table.setRowCount(0)
+        self.overview_edit.clear()
         self.req_detail.clear()
         self.resp_detail.clear()
         self.draft_preview.clear()
-        self.to_format_btn.setEnabled(False)
-        self.to_gateway_btn.setEnabled(False)
+        self.session_count.setText('0 / 0')
+        self.empty_hint.setVisible(True)
 
     # ── IE 证书 ──────────────────────────────────────
     def _install_ie_cert(self):
         zh = self.language == 'zh'
-        ok = confirm_action(
-            self,
-            '安装本机抓包证书' if zh else 'Install capture CA',
-            (
-                '将把 mitmproxy 根证书安装到「当前用户」受信任根证书颁发机构。\n'
-                '仅用于本机解密 IE HTTPS，不会以管理员身份运行。\n'
-                '可随时用「移除本机抓包证书」删除记录的指纹。'
-                if zh else
-                'Install mitmproxy CA into current-user Root store for local HTTPS capture only.'
-            ),
-            confirm_text='安装证书' if zh else 'Install',
-            danger=True,
-        )
-        if not ok:
+        if not confirm_action(
+            self, '安装本机抓包证书' if zh else 'Install CA',
+            '将把 mitmproxy 根证书安装到当前用户受信任根证书库。' if zh else 'Install mitmproxy CA for current user.',
+            confirm_text='安装证书' if zh else 'Install', danger=True,
+        ):
             return
-        self.loading.start_busy('正在安装证书…' if zh else 'Installing cert…')
+        self.loading.start_busy('正在安装证书…')
         try:
             thumb = install_user_root_cert()
             self._config = load_interface_debug_config()
-            self.loading.finish('证书已安装' if zh else 'Cert installed')
-            show_success(
-                self, '证书',
-                f'已安装，指纹 {thumb[:16]}…' if zh else f'Installed, thumb {thumb[:16]}…',
-            )
+            self.loading.finish('证书已安装')
+            show_success(self, '证书', f'已安装，指纹 {thumb[:16]}…')
         except Exception as exc:
             self.loading.fail(str(exc))
             show_warning(self, '证书', str(exc))
@@ -782,86 +1071,138 @@ class InterfaceDebugPanel(QWidget):
         cfg = load_interface_debug_config()
         thumb = (cfg.get('ie_certificate_thumbprint') or '').strip()
         if not thumb:
-            show_info(self, '证书', '没有已记录的抓包证书指纹' if zh else 'No recorded thumbprint')
+            show_info(self, '证书', '没有已记录的抓包证书指纹')
             return
-        ok = confirm_action(
-            self,
-            '移除本机抓包证书' if zh else 'Remove capture CA',
-            f'将仅删除指纹 {thumb} 对应的证书。' if zh else f'Remove cert with thumbprint {thumb}.',
-            confirm_text='移除证书' if zh else 'Remove',
-            danger=True,
-        )
-        if not ok:
+        if not confirm_action(
+            self, '移除本机抓包证书', f'将仅删除指纹 {thumb} 对应的证书。',
+            confirm_text='移除证书', danger=True,
+        ):
             return
         try:
             remove_recorded_cert(thumb)
             self._config = load_interface_debug_config()
-            show_success(self, '证书', '已移除' if zh else 'Removed')
+            show_success(self, '证书', '已移除')
         except Exception as exc:
             show_warning(self, '证书', str(exc))
 
     def _check_orphan_proxy_snapshot(self):
+        # 自动化/离屏测试不弹交互框
+        if os.environ.get('QT_QPA_PLATFORM', '').lower() == 'offscreen':
+            return
         cfg = load_interface_debug_config()
         snap = cfg.get('proxy_restore_snapshot')
         if not isinstance(snap, dict):
             return
         zh = self.language == 'zh'
-        ok = confirm_action(
-            self,
-            '检测到未恢复的代理设置' if zh else 'Unrestored proxy snapshot',
-            (
-                '上次异常退出可能未恢复 Windows 代理。是否立即恢复？'
-                if zh else
-                'Previous session may have left system proxy changed. Restore now?'
-            ),
-            confirm_text='一键恢复' if zh else 'Restore',
-            danger=False,
-        )
-        if ok:
+        if confirm_action(
+            self, '检测到未恢复的代理设置' if zh else 'Unrestored proxy',
+            '上次异常退出可能未恢复 Windows 代理。是否立即恢复？' if zh else 'Restore previous proxy settings?',
+            confirm_text='一键恢复' if zh else 'Restore', danger=False,
+        ):
             try:
                 restore_proxy_from_snapshot(snap)
-                show_success(self, '代理', '已恢复原代理设置' if zh else 'Proxy restored')
+                show_success(self, '代理', '已恢复原代理设置')
             except Exception as exc:
                 show_warning(self, '代理', str(exc))
 
-    # ── 表格 / 详情 ──────────────────────────────────
+    # ── 表格 ─────────────────────────────────────────
     def _rebuild_table(self):
-        filt = (self.filter_edit.text() or '').strip().lower()
-        rows = []
-        for rec in self._records:
-            if not should_keep_record(rec, self._show_static):
-                continue
-            if filt:
-                blob = f"{rec.get('method','')} {rec.get('path','')} {rec.get('url','')}".lower()
-                if filt not in blob:
-                    continue
-            rows.append(rec)
-        self.table.setRowCount(len(rows))
-        for i, rec in enumerate(rows):
-            ts = rec.get('started_at') or time.time()
-            tstr = datetime.fromtimestamp(ts).strftime('%H:%M:%S')
-            path = rec.get('path') or '/'
-            if rec.get('query'):
-                path = path + '?' + mask_url_query('x?' + rec['query'], self._reveal_sensitive).split('?', 1)[-1]
+        prev_id = self._selected_id
+        at_top = self.table.rowCount() == 0 or (
+            self.table.currentRow() <= 0 and self._follow_latest
+        )
+        query = self.filter_edit.text()
+        self._filtered = filter_and_sort(
+            self._records,
+            query=query,
+            filters=self._active_filters,
+            sort_key=self._sort_key,
+            sort_desc=self._sort_desc,
+            show_static=self._show_static,
+        )
+        total = len(self._records)
+        shown = len(self._filtered)
+        self.session_count.setText(f'{shown} / {total}')
+        self.empty_hint.setVisible(shown == 0)
+        self.table.setRowCount(shown)
+        labels = self.COL_LABELS_ZH if self.language == 'zh' else self.COL_LABELS_EN
+        self.table.setHorizontalHeaderLabels([labels[k] for k in COLUMN_KEYS])
+
+        warn = _theme_color('WARNING', '#C9A56A')
+        danger = _theme_color('DANGER', '#C78A8A')
+        success = _theme_color('SUCCESS', '#7BA88A')
+        muted = _theme_color('TEXT_MUTED', '#BAC5BD')
+        primary = _theme_color('PRIMARY', '#9ABAA6')
+
+        for i, rec in enumerate(self._filtered):
             status = rec.get('status')
-            status_s = '' if status is None else str(status)
+            status_s = '—' if status is None else str(status)
             if rec.get('failure'):
-                status_s = status_s or 'ERR'
+                status_s = f'● {status_s}' if status is not None else '● ERR'
+            elif status is not None:
+                try:
+                    code = int(status)
+                    if code >= 400:
+                        status_s = f'● {code}'
+                    elif 200 <= code < 300:
+                        status_s = f'● {code}'
+                    else:
+                        status_s = f'○ {code}'
+                except (TypeError, ValueError):
+                    status_s = f'○ {status}'
+            method = (rec.get('method') or 'GET').upper()
+            path = host_path_display(rec)
             dur = rec.get('duration_ms')
-            dur_s = '' if dur is None else f'{dur}ms'
-            rtype = rec.get('resource_type') or rec.get('source') or ''
-            vals = [tstr, rec.get('method') or '', path, status_s, dur_s, rtype]
+            dur_s = '—' if dur is None else f'{int(dur)} ms'
+            kind = content_kind(rec)
+            ts = rec.get('started_at') or time.time()
+            tstr = datetime.fromtimestamp(ts).strftime('%H:%M:%S.%f')[:-3]
+            size_s = format_size(response_size_bytes(rec))
+            src = 'Chromium' if (rec.get('source') or 'cdp') == 'cdp' else 'IE'
+            vals = [status_s, method, path, dur_s, kind, tstr, size_s, src]
             for c, v in enumerate(vals):
                 item = QTableWidgetItem(str(v))
                 item.setData(Qt.ItemDataRole.UserRole, rec.get('id'))
+                if c == 0:
+                    if is_failed(rec):
+                        item.setForeground(QBrush(danger))
+                    elif status is not None:
+                        try:
+                            if 200 <= int(status) < 300:
+                                item.setForeground(QBrush(success))
+                        except (TypeError, ValueError):
+                            pass
+                if c == 1:
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
+                    item.setForeground(QBrush(primary))
+                if c == 2:
+                    item.setToolTip(mask_url_query(rec.get('url') or '', self._reveal_sensitive))
+                if c == 3:
+                    sev = duration_severity(dur)
+                    if sev == 'danger':
+                        item.setForeground(QBrush(danger))
+                    elif sev == 'warn':
+                        item.setForeground(QBrush(warn))
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+                if c == 4:
+                    item.setForeground(QBrush(muted))
                 self.table.setItem(i, c, item)
-        # 保持选中
-        if self._selected_id:
+
+        # 恢复选中 / 跟随最新
+        if prev_id:
             for i in range(self.table.rowCount()):
                 it = self.table.item(i, 0)
-                if it and it.data(Qt.ItemDataRole.UserRole) == self._selected_id:
+                if it and it.data(Qt.ItemDataRole.UserRole) == prev_id:
                     self.table.selectRow(i)
+                    self._follow_latest = (i == 0)
                     break
+            else:
+                if at_top and shown:
+                    self.table.selectRow(0)
+                    self._follow_latest = True
+        elif at_top and shown:
+            self.table.selectRow(0)
+            self._follow_latest = True
 
     def _on_row_selected(self):
         items = self.table.selectedItems()
@@ -870,6 +1211,8 @@ class InterfaceDebugPanel(QWidget):
             return
         rid = items[0].data(Qt.ItemDataRole.UserRole)
         self._selected_id = rid
+        row = self.table.currentRow()
+        self._follow_latest = (row == 0)
         self._refresh_detail()
         self._refresh_draft_preview()
 
@@ -878,81 +1221,190 @@ class InterfaceDebugPanel(QWidget):
             return None
         return self._records_by_id.get(self._selected_id)
 
+    def _table_context_menu(self, pos):
+        rec = self._selected_record()
+        if not rec:
+            return
+        menu = QMenu(self)
+        act_copy_url = menu.addAction('复制 URL')
+        act_copy_path = menu.addAction('复制路径')
+        act_format = menu.addAction('送格式工具')
+        act_gw = menu.addAction('送入加解密')
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen == act_copy_url:
+            self._copy_text(mask_url_query(rec.get('url') or '', True), sensitive=True)
+        elif chosen == act_copy_path:
+            self._copy_text(host_path_display(rec), sensitive=False)
+        elif chosen == act_format:
+            self._send_body_side('response', 'format')
+        elif chosen == act_gw:
+            self._send_body_side('response', 'gateway')
+
+    # ── 详情 ─────────────────────────────────────────
     def _format_headers(self, headers: dict) -> str:
         lines = []
         for k, v in (headers or {}).items():
             lines.append(f'{k}: {mask_sensitive_value(k, v, self._reveal_sensitive)}')
-        return '\n'.join(lines)
+        return '\n'.join(lines) if lines else '（无）'
 
     def _refresh_detail(self):
         rec = self._selected_record()
         if not rec:
+            self.overview_edit.clear()
             self.req_detail.clear()
             self.resp_detail.clear()
-            self.to_format_btn.setEnabled(False)
-            self.to_gateway_btn.setEnabled(False)
             return
         url = mask_url_query(rec.get('url') or '', self._reveal_sensitive)
-        req_lines = [
-            f"{rec.get('method') or 'GET'} {url}",
+        status = rec.get('status')
+        dur = rec.get('duration_ms')
+        size = format_size(response_size_bytes(rec))
+        kind = content_kind(rec)
+        src = 'Chromium' if (rec.get('source') or 'cdp') == 'cdp' else 'IE'
+        ts = rec.get('started_at') or time.time()
+        tstr = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        notes = []
+        if rec.get('failure'):
+            notes.append(f'失败原因：{rec.get("failure")}')
+        if is_failed(rec):
+            notes.append('HTTP 失败（4xx/5xx）或加载失败')
+        if duration_severity(dur) != 'normal':
+            notes.append(f'慢请求：{dur} ms')
+        if not (rec.get('response_body') or '').strip() and status:
+            notes.append('响应体为空或 CDP 未能读取（仅保留元信息，不视为程序异常）')
+        overview = [
+            f'URL：{url}',
+            f'方法：{(rec.get("method") or "GET").upper()}',
+            f'状态：{status if status is not None else "—"}',
+            f'耗时：{dur if dur is not None else "—"} ms',
+            f'类型：{kind}',
+            f'来源：{src}',
+            f'开始：{tstr}',
+            f'响应大小：{size}',
+            f'MIME：{rec.get("mime_type") or "—"}',
+        ]
+        if notes:
+            overview.append('')
+            overview.append('—— 说明 ——')
+            overview.extend(notes)
+        self.overview_edit.setPlainText('\n'.join(overview))
+
+        # 请求
+        pairs = query_pairs(rec.get('url') or rec.get('query') or '')
+        q_lines = [f'{k}={v if self._reveal_sensitive or "token" not in k.lower() else "********"}' for k, v in pairs] or ['（无）']
+        headers = rec.get('request_headers') or {}
+        cookie_raw = ''
+        for k, v in headers.items():
+            if str(k).lower() == 'cookie':
+                cookie_raw = v
+                break
+        cookie_lines = []
+        for k, v in split_cookies(cookie_raw):
+            cookie_lines.append(f'{k}={v if self._reveal_sensitive else "********"}')
+        if not cookie_lines:
+            cookie_lines = ['（无）']
+        body = rec.get('request_body') or ''
+        kind_b, pretty, err = pretty_body(body)
+        body_block = pretty if pretty else '（无）'
+        if err:
+            body_block = f'{body}\n\n# {err}'
+        req_text = [
+            f'{(rec.get("method") or "GET").upper()} {url}',
+            '',
+            '—— Query ——',
+            *q_lines,
             '',
             '—— Headers ——',
-            self._format_headers(rec.get('request_headers') or {}),
+            self._format_headers(headers),
             '',
-            '—— Body ——',
-            rec.get('request_body') or '',
+            '—— Cookie ——',
+            *cookie_lines,
+            '',
+            f'—— Body ({kind_b}) ——',
+            body_block,
         ]
-        self.req_detail.setPlainText('\n'.join(req_lines))
-        fail = rec.get('failure') or ''
-        resp_lines = [
-            f"Status: {rec.get('status') if rec.get('status') is not None else '-'}",
-            f"MIME: {rec.get('mime_type') or '-'}",
-            f"Duration: {rec.get('duration_ms') if rec.get('duration_ms') is not None else '-'} ms",
+        self.req_detail.setPlainText('\n'.join(req_text))
+
+        # 响应
+        rbody = rec.get('response_body') or ''
+        rkind, rpretty, rerr = pretty_body(rbody)
+        rblock = rpretty if rpretty else '（无）'
+        if rerr:
+            rblock = f'{rbody}\n\n# {rerr}'
+        resp_text = [
+            f'Status: {status if status is not None else "—"}',
+            f'MIME: {rec.get("mime_type") or "—"}',
+            f'Duration: {dur if dur is not None else "—"} ms',
+            f'Size: {size}',
         ]
-        if fail:
-            resp_lines.append(f'Failure: {fail}')
-        resp_lines += [
+        if rec.get('failure'):
+            resp_text.append(f'Failure: {rec.get("failure")}')
+        resp_text += [
             '',
             '—— Headers ——',
             self._format_headers(rec.get('response_headers') or {}),
             '',
-            '—— Body ——',
-            rec.get('response_body') or '',
+            f'—— Body ({rkind}) ——',
+            rblock,
         ]
-        self.resp_detail.setPlainText('\n'.join(resp_lines))
-        body = rec.get('response_body') or rec.get('request_body') or ''
-        self.to_format_btn.setEnabled(bool(body.strip()) and (_looks_json(body) or _looks_xml(body)))
-        self.to_gateway_btn.setEnabled(bool(body.strip()) and (
+        self.resp_detail.setPlainText('\n'.join(resp_text))
+
+        has_req = bool((body or '').strip())
+        has_resp = bool((rbody or '').strip())
+        self.format_req_btn.setEnabled(has_req and (_looks_json(body) or _looks_xml(body)))
+        self.gateway_req_btn.setEnabled(has_req and (
             _looks_base64ish(body) or not (_looks_json(body) or _looks_xml(body))
         ))
+        self.format_resp_btn.setEnabled(has_resp and (_looks_json(rbody) or _looks_xml(rbody)))
+        self.gateway_resp_btn.setEnabled(has_resp and (
+            _looks_base64ish(rbody) or not (_looks_json(rbody) or _looks_xml(rbody))
+        ))
 
-    def _active_body(self) -> str:
+    def _copy_safe_url(self):
         rec = self._selected_record()
         if not rec:
-            return ''
-        # 当前 tab
-        if self.detail_tabs.currentIndex() == 1:
-            return rec.get('response_body') or ''
-        return rec.get('request_body') or rec.get('response_body') or ''
+            return
+        self._copy_text(mask_url_query(rec.get('url') or '', False), sensitive=False)
 
-    def _send_to_format(self):
-        body = self._active_body()
+    def _copy_text(self, text: str, *, sensitive: bool = False):
+        if not text:
+            return
+        if sensitive and not self._reveal_sensitive:
+            zh = self.language == 'zh'
+            if not self._sensitive_copy_warned:
+                if not confirm_action(
+                    self,
+                    '复制可能含敏感信息' if zh else 'Sensitive copy',
+                    (
+                        '内容可能包含 Authorization、Cookie、Token。仅应粘贴到本机可信工具。'
+                        if zh else
+                        'Content may include secrets. Paste only into trusted local tools.'
+                    ),
+                    confirm_text='继续复制' if zh else 'Copy',
+                    danger=False,
+                ):
+                    return
+                self._sensitive_copy_warned = True
+        QApplication.clipboard().setText(text)
+
+    def _send_body_side(self, side: str, target: str):
+        rec = self._selected_record()
+        if not rec:
+            return
+        body = rec.get('request_body') if side == 'request' else rec.get('response_body')
+        body = body or ''
+        if not body.strip():
+            body = rec.get('response_body') or rec.get('request_body') or ''
         if not body.strip():
             return
+        if target == 'gateway':
+            self.open_gateway.emit(body)
+            return
+        # format
         if _looks_xml(body):
             self.open_format_xml.emit(body)
         else:
-            self.open_format_json.emit(body)
-
-    def _send_to_gateway(self):
-        body = self._active_body()
-        if not body.strip():
-            # 尝试另一侧
-            rec = self._selected_record()
-            if rec:
-                body = rec.get('request_body') or rec.get('response_body') or ''
-        if body.strip():
-            self.open_gateway.emit(body)
+            kind, pretty, _err = pretty_body(body)
+            self.open_format_json.emit(pretty if kind == 'json' else body)
 
     # ── 草稿 ─────────────────────────────────────────
     def _selected_base_url(self) -> str:
@@ -965,17 +1417,31 @@ class InterfaceDebugPanel(QWidget):
             return targets[0].get('base_url') or ''
         return ''
 
-    def _refresh_draft_preview(self):
+    def _draft_record(self) -> dict | None:
         rec = self._selected_record()
+        if not rec:
+            return None
+        out = dict(rec)
+        if not self.include_auth_cb.isChecked():
+            headers = {
+                k: v for k, v in (rec.get('request_headers') or {}).items()
+                if str(k).lower() not in ('authorization', 'cookie', 'proxy-authorization')
+            }
+            out['request_headers'] = headers
+        return out
+
+    def _refresh_draft_preview(self):
+        rec = self._draft_record()
         base = self._selected_base_url()
         if not rec or not base:
             self.draft_preview.setPlainText('')
             return
         try:
             rewritten = rewrite_url(rec.get('url') or '', base)
+            curl = build_curl(rec, base)
             self.draft_preview.setPlainText(
-                f"{rec.get('method') or 'GET'} {rewritten}\n"
-                f"（仅生成验证草稿，不发送请求）"
+                f'{(rec.get("method") or "GET").upper()} {rewritten}\n\n'
+                f'# 仅生成验证草稿，不会发送请求\n\n{curl}'
             )
         except DraftError as exc:
             self.draft_preview.setPlainText(str(exc))
@@ -989,7 +1455,7 @@ class InterfaceDebugPanel(QWidget):
                 '草稿包含 Authorization、Cookie 等敏感信息，仅应导入本机 Postman。\n'
                 'PengTools 不会实际发送请求。'
                 if zh else
-                'Draft may contain Authorization/Cookie. Import only into local Postman.\n'
+                'Draft may contain secrets. Import only into local Postman.\n'
                 'PengTools will not send any request.'
             ),
             confirm_text='继续生成' if zh else 'Continue',
@@ -997,26 +1463,22 @@ class InterfaceDebugPanel(QWidget):
         )
 
     def _copy_postman(self):
-        rec = self._selected_record()
+        rec = self._draft_record()
         base = self._selected_base_url()
-        if not rec:
-            show_warning(self, '草稿', '请先选择一条请求')
-            return
-        if not base:
-            show_warning(self, '草稿', '请先配置本地地址')
+        if not rec or not base:
+            show_warning(self, '草稿', '请选择请求并配置本地地址')
             return
         if not self._warn_sensitive_draft():
             return
         try:
             payload = build_postman_collection(rec, base)
-            text = drafts_as_json_text(payload)
-            QApplication.clipboard().setText(text)
-            show_success(self, '草稿', 'Postman JSON 已复制' if self.language == 'zh' else 'Postman JSON copied')
+            QApplication.clipboard().setText(drafts_as_json_text(payload))
+            show_success(self, '草稿', 'Postman JSON 已复制')
         except DraftError as exc:
             show_warning(self, '草稿', str(exc))
 
     def _export_postman(self):
-        rec = self._selected_record()
+        rec = self._draft_record()
         base = self._selected_base_url()
         if not rec or not base:
             show_warning(self, '草稿', '请选择请求并配置本地地址')
@@ -1024,8 +1486,7 @@ class InterfaceDebugPanel(QWidget):
         if not self._warn_sensitive_draft():
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, '导出 Postman Collection', 'pengtools_local_draft.json',
-            'JSON (*.json)',
+            self, '导出 Postman Collection', 'pengtools_local_draft.json', 'JSON (*.json)',
         )
         if not path:
             return
@@ -1038,7 +1499,7 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '草稿', str(exc))
 
     def _copy_curl(self):
-        rec = self._selected_record()
+        rec = self._draft_record()
         base = self._selected_base_url()
         if not rec or not base:
             show_warning(self, '草稿', '请选择请求并配置本地地址')
@@ -1046,14 +1507,14 @@ class InterfaceDebugPanel(QWidget):
         if not self._warn_sensitive_draft():
             return
         try:
-            text = build_curl(rec, base)
-            QApplication.clipboard().setText(text)
-            show_success(self, '草稿', 'cURL 已复制' if self.language == 'zh' else 'cURL copied')
+            QApplication.clipboard().setText(build_curl(rec, base))
+            show_success(self, '草稿', 'cURL 已复制')
         except DraftError as exc:
             show_warning(self, '草稿', str(exc))
 
     def _add_local_target(self):
         from PyQt6.QtWidgets import QInputDialog
+        import uuid
         zh = self.language == 'zh'
         name, ok = QInputDialog.getText(self, '本地地址', '名称：' if zh else 'Name:')
         if not ok:
@@ -1066,7 +1527,6 @@ class InterfaceDebugPanel(QWidget):
         except DraftError as exc:
             show_warning(self, '本地地址', str(exc))
             return
-        import uuid
         item = {'id': uuid.uuid4().hex, 'name': (name or '本地服务').strip(), 'base_url': url}
         self._config.setdefault('local_targets', []).append(item)
         self._config['default_target_id'] = item['id']
@@ -1102,11 +1562,9 @@ class InterfaceDebugPanel(QWidget):
             return
         zh = self.language == 'zh'
         if not confirm_action(
-            self,
-            '删除本地地址' if zh else 'Delete target',
+            self, '删除本地地址' if zh else 'Delete',
             '确定删除该本地地址配置？' if zh else 'Delete this local target?',
-            confirm_text='删除' if zh else 'Delete',
-            danger=True,
+            confirm_text='删除' if zh else 'Delete', danger=True,
         ):
             return
         self._config['local_targets'] = [
@@ -1117,97 +1575,160 @@ class InterfaceDebugPanel(QWidget):
         save_interface_debug_config(self._config)
         self._fill_local_targets()
 
-    # ── 语言 / 清理 ──────────────────────────────────
+    # ── 响应式 ───────────────────────────────────────
     def apply_layout_mode(self, mode, low_height=False):
         self._layout_mode = mode
-        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
-        if hasattr(self, 'mid_splitter'):
-            apply_splitter_orientation(self.mid_splitter, mode, min_editor=editor_min_height())
-        # Narrow：顶部仅连接状态、开始/停止；次要进隐藏
-        ie_extra = [self.ie_install_cert_btn, self.ie_remove_cert_btn, self.pick_browser_btn, self.refresh_browsers_btn]
-        secondary = ie_extra + [self.launch_btn, self.show_static_cb, self.reveal_cb]
+        apply_splitter_orientation(self.mid_splitter, mode, min_editor=editor_min_height())
+        sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
+        if sizes and len(sizes) >= 2:
+            self.mid_splitter.setSizes(sizes)
+        # Compact/Narrow 连接区收纳
+        secondary = [
+            self.port_label, self.port_edit, self.target_combo,
+            self.refresh_browsers_btn, self.pick_browser_btn,
+            self.ie_install_cert_btn, self.ie_remove_cert_btn,
+        ]
+        self._conn_more_menu.clear()
+        zh = self.language == 'zh'
+        self.conn_more_btn.setText('更多' if zh else 'More')
         if mode == 'narrow':
-            for w in secondary:
+            for w in secondary + [self.browser_combo, self.launch_btn, self.mode_combo]:
                 if w is not None:
                     w.hide()
             self.connect_btn.show()
             self.stop_btn.show()
-            if hasattr(self, 'draft_preview'):
-                self.draft_preview.setMaximumHeight(80)
+            self.conn_more_btn.show()
+            for label, slot in (
+                ('选择浏览器', self._pick_browser),
+                ('刷新识别', self._refresh_browsers),
+                ('启动调试浏览器', self._launch_browser),
+            ):
+                act = QAction(label if zh else label, self)
+                act.triggered.connect(slot)
+                self._conn_more_menu.addAction(act)
+            if self._mode == 'ie':
+                a1 = QAction('安装证书' if zh else 'Install CA', self)
+                a1.triggered.connect(self._install_ie_cert)
+                a2 = QAction('移除证书' if zh else 'Remove CA', self)
+                a2.triggered.connect(self._remove_ie_cert)
+                self._conn_more_menu.addAction(a1)
+                self._conn_more_menu.addAction(a2)
         elif mode == 'compact':
-            for w in secondary:
-                if w is not None:
-                    w.setVisible(w is self.launch_btn or w is self.show_static_cb)
+            for w in [self.port_label, self.port_edit, self.target_combo]:
+                w.hide()
+            self.browser_combo.show()
+            self.mode_combo.show()
+            self.launch_btn.setVisible(self._mode == 'chromium')
             self.connect_btn.show()
             self.stop_btn.show()
-            if hasattr(self, 'draft_preview'):
-                self.draft_preview.setMaximumHeight(100)
+            self.conn_more_btn.show()
+            a = QAction('端口与页面目标…' if zh else 'Port & targets…', self)
+            a.triggered.connect(lambda: show_info(
+                self, '连接', f'当前端口 {self._current_port()}。可在 Wide 模式下编辑端口与目标页。'
+            ))
+            self._conn_more_menu.addAction(a)
+            if self._mode == 'ie':
+                self.ie_install_cert_btn.hide()
+                self.ie_remove_cert_btn.hide()
+                a1 = QAction('安装证书', self)
+                a1.triggered.connect(self._install_ie_cert)
+                self._conn_more_menu.addAction(a1)
         else:
-            for w in secondary:
-                if w is not None:
-                    w.show()
-            self._on_mode_changed(self.mode_combo.currentIndex())
-            if hasattr(self, 'draft_preview'):
-                self.draft_preview.setMaximumHeight(120)
-        if hasattr(self, 'req_detail'):
-            self.req_detail.setMinimumHeight(editor_min_height())
-        if hasattr(self, 'resp_detail'):
-            self.resp_detail.setMinimumHeight(editor_min_height())
+            self.conn_more_btn.hide()
+            self.mode_combo.show()
+            self.browser_combo.setVisible(self._mode == 'chromium')
+            self.refresh_browsers_btn.setVisible(self._mode == 'chromium')
+            self.pick_browser_btn.setVisible(self._mode == 'chromium')
+            self.launch_btn.setVisible(self._mode == 'chromium')
+            self.target_combo.setVisible(self._mode == 'chromium')
+            self.port_label.show()
+            self.port_edit.show()
+            self.connect_btn.show()
+            self.stop_btn.show()
+            self.ie_install_cert_btn.setVisible(self._mode == 'ie')
+            self.ie_remove_cert_btn.setVisible(self._mode == 'ie')
+        for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
+            edit.setMinimumHeight(editor_min_height())
 
+    # ── 语言 / 清理 ──────────────────────────────────
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
         self.page_title.setText('接口排查' if zh else 'API Debug')
         self.page_subtitle.setText(
-            '本机 CDP / IE 代理 · 报文仅内存 · 只生成验证草稿' if zh else
-            'Local CDP / IE proxy · in-memory only · draft generation only'
+            '本机监听 · 仅内存 · 草稿验证' if zh else
+            'Local capture · in-memory · draft only'
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
         self.mode_label.setText('模式' if zh else 'Mode')
         self.mode_combo.setItemText(0, 'Chromium 调试端口' if zh else 'Chromium CDP')
         self.mode_combo.setItemText(1, 'IE 本机代理' if zh else 'IE local proxy')
         self.refresh_browsers_btn.setText('刷新' if zh else 'Refresh')
-        self.pick_browser_btn.setText('手动选择' if zh else 'Browse…')
+        self.pick_browser_btn.setText('选择 EXE' if zh else 'Browse…')
         self.port_label.setText(
             ('IE 代理端口' if self._mode == 'ie' else '调试端口') if zh else
             ('IE proxy port' if self._mode == 'ie' else 'Debug port')
         )
-        self.launch_btn.setText('一键启动调试浏览器' if zh else 'Launch debug browser')
+        self.launch_btn.setText('启动调试浏览器' if zh else 'Launch')
         self.connect_btn.setText(
-            ('启用 IE 代理监听' if self._mode == 'ie' else '连接已有调试浏览器') if zh else
-            ('Start IE proxy' if self._mode == 'ie' else 'Connect debug browser')
+            ('启用 IE 监听' if self._mode == 'ie' else '开始监听') if zh else
+            ('Start IE proxy' if self._mode == 'ie' else 'Start')
         )
-        self.stop_btn.setText('停止监听' if zh else 'Stop')
-        self.ie_install_cert_btn.setText('安装抓包证书' if zh else 'Install CA')
-        self.ie_remove_cert_btn.setText('移除抓包证书' if zh else 'Remove CA')
-        self.show_static_cb.setText('显示静态资源' if zh else 'Show static assets')
-        self.reveal_cb.setText('显示敏感字段' if zh else 'Reveal secrets')
-        self.filter_edit.setPlaceholderText('筛选 path / method…' if zh else 'Filter path / method…')
-        self.clear_list_btn.setText('清空列表' if zh else 'Clear list')
-        self.detail_tabs.setTabText(0, '请求' if zh else 'Request')
-        self.detail_tabs.setTabText(1, '响应' if zh else 'Response')
-        self.to_format_btn.setText('在格式工具中打开' if zh else 'Open in Format tools')
-        self.to_gateway_btn.setText('送入加解密' if zh else 'Send to Crypto')
-        self.draft_title.setText('本地验证草稿' if zh else 'Local verification draft')
-        self.draft_badge.setText('仅生成验证草稿' if zh else 'Draft only · no send')
-        self.target_label.setText('本地地址' if zh else 'Local base URL')
+        self.stop_btn.setText('停止' if zh else 'Stop')
+        self.ie_install_cert_btn.setText('安装证书' if zh else 'Install CA')
+        self.ie_remove_cert_btn.setText('移除证书' if zh else 'Remove CA')
+        self.filter_edit.setPlaceholderText(
+            '搜索 URL / host / path / method / 状态…' if zh else
+            'Search URL / host / path / method / status…'
+        )
+        chip_labels = {
+            FILTER_ALL: ('全部', 'All'),
+            FILTER_XHR: ('XHR/Fetch', 'XHR/Fetch'),
+            FILTER_FAILED: ('失败', 'Failed'),
+            FILTER_SLOW: ('慢请求', 'Slow'),
+            FILTER_JSON_XML: ('JSON/XML', 'JSON/XML'),
+            FILTER_STATIC: ('静态资源', 'Static'),
+        }
+        for k, chip in self._filter_chips.items():
+            chip.setText(chip_labels[k][0 if zh else 1])
+        self.clear_list_btn.setText('清空' if zh else 'Clear')
+        self.cols_btn.setText('列设置' if zh else 'Columns')
+        self._rebuild_column_menu()
+        self.detail_tabs.setTabText(0, '概览' if zh else 'Overview')
+        self.detail_tabs.setTabText(1, '请求' if zh else 'Request')
+        self.detail_tabs.setTabText(2, '响应' if zh else 'Response')
+        self.detail_tabs.setTabText(3, '验证草稿' if zh else 'Draft')
+        self.reveal_cb.setText('显示敏感内容' if zh else 'Reveal secrets')
+        self.copy_safe_url_btn.setText('复制安全 URL' if zh else 'Copy safe URL')
+        self.copy_req_btn.setText('复制请求' if zh else 'Copy request')
+        self.format_req_btn.setText('送格式工具' if zh else 'Format tools')
+        self.gateway_req_btn.setText('送入加解密' if zh else 'Crypto')
+        self.copy_resp_btn.setText('复制响应' if zh else 'Copy response')
+        self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
+        self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
+        self.draft_badge.setText('仅生成验证草稿 · 不发送请求' if zh else 'Draft only · no send')
+        self.target_label.setText('本地地址' if zh else 'Local base')
         self.add_target_btn.setText('新增' if zh else 'Add')
         self.edit_target_btn.setText('编辑' if zh else 'Edit')
         self.del_target_btn.setText('删除' if zh else 'Delete')
-        self.copy_postman_btn.setText('复制 Postman JSON' if zh else 'Copy Postman JSON')
-        self.export_postman_btn.setText('导出 Postman 文件' if zh else 'Export Postman')
+        self.include_auth_cb.setText(
+            '草稿携带 Authorization / Cookie' if zh else 'Include auth headers in draft'
+        )
+        self.gen_draft_btn.setText('生成草稿' if zh else 'Generate draft')
+        self.copy_postman_btn.setText('复制 Postman' if zh else 'Copy Postman')
+        self.export_postman_btn.setText('导出 Collection' if zh else 'Export')
         self.copy_curl_btn.setText('复制 cURL' if zh else 'Copy cURL')
-        self.draft_hint.setText(
-            '不提供发送 / 重放' if zh else 'No send / replay'
+        self.draft_hint.setText('不会发送请求' if zh else 'No HTTP send')
+        self.empty_hint.setText(
+            '暂无请求。请选择本机 Chromium 浏览器 → 启动或连接调试端口 → 在业务页中操作。'
+            if zh else
+            'No requests yet. Pick a local Chromium browser, launch/connect, then use the app page.'
         )
-        self.table.setHorizontalHeaderLabels(
-            ['时间', '方法', '路径', '状态', '耗时', '类型'] if zh else
-            ['Time', 'Method', 'Path', 'Status', 'Dur', 'Type']
-        )
+        labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN
+        self.table.setHorizontalHeaderLabels([labels[k] for k in COLUMN_KEYS])
 
     def shutdown_cleanup(self):
-        """应用退出时调用：停监听、恢复代理、清空内存。"""
         try:
             if self._cdp_session:
                 self._cdp_session.stop()
