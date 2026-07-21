@@ -71,6 +71,8 @@ DEFAULT_SETTINGS = {
     'close_default_action': 'minimize',
     'keep_awake_enabled': False,
     'keep_awake_interval_minutes': 3,
+    # 彩蛋「自我学习」解锁：写在 data/settings.json，升级换 EXE 后仍保留
+    'private_unlocked': False,
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -167,6 +169,7 @@ def normalize_settings(settings):
     result['keep_awake_interval_minutes'] = max(
         1, min(60, int(result['keep_awake_interval_minutes']))
     )
+    result['private_unlocked'] = bool(result.get('private_unlocked', False))
     # 悬浮快捷：去重/过滤非法 index；彩蛋模块在 UI 层按解锁状态再过滤
     from ui.navigation_model import normalize_floating_shortcuts
     result['floating_shortcuts'] = normalize_floating_shortcuts(

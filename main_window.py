@@ -42,7 +42,8 @@ class MainWindow(QMainWindow):
         self.hotkey_service = None
         self._force_exit = False
         self._shutting_down = False
-        self._private_unlocked = False
+        # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
+        self._private_unlocked = bool(self._settings.get('private_unlocked', False))
         self._current_nav_index = 0
         self._layout_mode = 'standard'
         self._nav_icon_only = False
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
             self._settings.get('floating_shortcuts'),
             private_unlocked=self._private_unlocked,
         )
+        if self._private_unlocked:
+            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
         if self._settings['floating_show_on_startup']:
             self.quick_panel.show()
         self.tray_service = TrayService(self)
@@ -232,7 +235,8 @@ class MainWindow(QMainWindow):
                 self._nav_layout.addWidget(button)
                 self.nav_buttons[nav_index] = button
                 self._nav_order.append(nav_index)
-                if nav_index == 8:
+                # 自我学习：仅未解锁时隐藏；已持久化解锁则保持展示
+                if nav_index == 8 and not self._private_unlocked:
                     button.hide()
                     section.hide()
 
@@ -534,6 +538,11 @@ class MainWindow(QMainWindow):
 
     def _apply_settings(self, settings):
         self._settings = dict(settings)
+        # 设置保存不得覆盖已解锁彩蛋；两边取真
+        if bool(self._settings.get('private_unlocked', False)) or self._private_unlocked:
+            self._private_unlocked = True
+            self._settings['private_unlocked'] = True
+            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
         app = QApplication.instance()
         font = app.font()
         font.setPointSize(max(8, int(self._settings['font_size']) - 2))
@@ -618,8 +627,28 @@ class MainWindow(QMainWindow):
     def navigate_to(self, index):
         self._show_panel(index)
 
+    def _apply_private_unlocked_ui(self, *, persist=False, navigate=False, status_message=False):
+        """展示自我学习导航；可选写入 data 持久化，升级重开后仍可见。"""
+        self._private_unlocked = True
+        self._settings['private_unlocked'] = True
+        if self.nav_buttons[8] is not None:
+            self.nav_buttons[8].show()
+        personal_label = self._group_labels.get('personal')
+        if personal_label is not None and not self._nav_icon_only:
+            personal_label.show()
+        if hasattr(self, 'quick_panel') and self.quick_panel is not None:
+            self.quick_panel.set_private_unlocked(True)
+        if persist:
+            save_settings(self._settings)
+        if status_message and hasattr(self, 'status_bar'):
+            self.status_bar.showMessage('彩蛋已解锁：自我学习已开启（下次启动仍会显示）', 7000)
+        if navigate:
+            self._show_panel(8)
+
     def _unlock_private_tools(self):
         if self._private_unlocked:
+            # 已解锁：确保导航可见（例如布局切换后）
+            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
             return True
         key, accepted = QInputDialog.getText(
             self, 'PengTools 彩蛋', '请输入私人功能密钥：', QLineEdit.EchoMode.Password
@@ -630,15 +659,7 @@ class MainWindow(QMainWindow):
             from ui.confirm_dialog import show_warning
             show_warning(self, 'PengTools 彩蛋', '密钥不正确。')
             return False
-        self._private_unlocked = True
-        if self.nav_buttons[8] is not None:
-            self.nav_buttons[8].show()
-        personal_label = self._group_labels.get('personal')
-        if personal_label is not None and not self._nav_icon_only:
-            personal_label.show()
-        self.quick_panel.set_private_unlocked(True)
-        self.status_bar.showMessage('彩蛋已解锁：自我学习已开启', 7000)
-        self._show_panel(8)
+        self._apply_private_unlocked_ui(persist=True, navigate=True, status_message=True)
         return True
 
     def _show_private_notification(self, title, message):

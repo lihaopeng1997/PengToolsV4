@@ -358,6 +358,8 @@ class SettingsPanel(QWidget):
             'close_default_action': self.close_default_action.currentData(),
             'keep_awake_enabled': self.keep_awake_enabled.isChecked(),
             'keep_awake_interval_minutes': self.keep_awake_interval.value(),
+            # 设置页不提供关闭彩蛋入口，保存时必须保留已解锁状态
+            'private_unlocked': bool(getattr(self, '_private_unlocked', False)),
         })
 
     def _preview_opacity(self, value):
@@ -404,6 +406,7 @@ class SettingsPanel(QWidget):
 
     def load_values(self, settings):
         settings = normalize_settings(settings)
+        self._private_unlocked = bool(settings.get('private_unlocked', False))
         self.font_size.setValue(settings['font_size'])
         self._ui_theme = resolve_theme_id(settings.get('ui_theme', 'calm'))
         self._refresh_theme_cards()

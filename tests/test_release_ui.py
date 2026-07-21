@@ -25,7 +25,7 @@ from panels.requirement_panel import DateInput, RequirementDialog, RequirementPa
 from panels.sql_panel import SqlToolPanel
 from tools.release_prep import RELEASE_HEADERS, RELEASE_WORKBOOK_NAME
 from main_window import MainWindow
-from config import local_data_dir
+from config import DEFAULT_SETTINGS, local_data_dir
 from ui.confirm_dialog import AppNoticeDialog, CloseActionDialog, ConfirmActionDialog, NextStepDialog
 from tools.svn_workspace import add_text_file, checkout, commit_working_copy, run_svn, scan_working_copies, workspace_files
 
@@ -468,22 +468,39 @@ class ReleaseUiTests(unittest.TestCase):
         panel.close()
 
     def test_only_learning_module_is_hidden(self):
-        window = MainWindow()
-        self.assertTrue(window.nav_buttons[8].isHidden())
-        self.assertFalse(window.nav_buttons[9].isHidden())
-        self.assertFalse(window.nav_buttons[10].isHidden())
-        window._show_panel(9)
-        self.assertEqual(window._current_nav_index, 9)
-        window._show_panel(8)
-        self.assertEqual(window._current_nav_index, 9)
-        with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
-            self.assertTrue(window._unlock_private_tools())
-        self.assertFalse(window.nav_buttons[8].isHidden())
-        window._open_system_config()
-        self.assertEqual(window._current_nav_index, 2)
-        self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
-        window._force_exit = True
-        window.close()
+        locked = dict(DEFAULT_SETTINGS)
+        locked['private_unlocked'] = False
+        with patch('main_window.load_settings', return_value=locked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[9].isHidden())
+            self.assertFalse(window.nav_buttons[10].isHidden())
+            window._show_panel(9)
+            self.assertEqual(window._current_nav_index, 9)
+            window._show_panel(8)
+            self.assertEqual(window._current_nav_index, 9)
+            with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
+                self.assertTrue(window._unlock_private_tools())
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            self.assertTrue(window._settings.get('private_unlocked'))
+            window._open_system_config()
+            self.assertEqual(window._current_nav_index, 2)
+            self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
+            window._force_exit = True
+            window.close()
+
+    def test_private_unlock_persists_across_reopen(self):
+        """彩蛋解锁写入 data 后，重新打开应一直展示自我学习。"""
+        unlocked = dict(DEFAULT_SETTINGS)
+        unlocked['private_unlocked'] = True
+        with patch('main_window.load_settings', return_value=unlocked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window._private_unlocked)
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            window._force_exit = True
+            window.close()
 
     def test_one_click_generates_workbook_and_sql(self):
         requirement = {
