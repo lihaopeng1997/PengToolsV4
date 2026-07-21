@@ -351,7 +351,7 @@ class DashboardPanel(QWidget):
             self.recent_more.setText('全部')
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
             self.release_title.setText('待升级事项')
-            self.release_more.setText('升级准备')
+            self.release_more.setText('发版联动')
             self.release_empty.setText('暂无待升级事项')
             self.tools_label.setText('常用工具')
             self.gateway.setText('加解密')

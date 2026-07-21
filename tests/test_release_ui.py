@@ -328,12 +328,15 @@ class ReleaseUiTests(unittest.TestCase):
             }
             panel._file_tree_path = temp
             panel._file_tree_loaded(entries)
-            self.assertEqual(panel.file_tree.columnCount(), 4)
-            self.assertEqual([panel.file_tree.headerItem().text(index) for index in range(4)], ['名称', '修改时间', '类型', '大小'])
+            self.assertEqual(panel.file_tree.columnCount(), 5)
+            self.assertEqual(
+                [panel.file_tree.headerItem().text(index) for index in range(5)],
+                ['名称', '类型', '修改时间', '大小', '路径'],
+            )
             header = panel.file_tree.header()
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for index in range(1, 4):
+            for index in range(0, 4):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
+            self.assertEqual(header.sectionResizeMode(4), QHeaderView.ResizeMode.Stretch)
             self.assertFalse(header.stretchLastSection())
             sql_folder = next(panel.file_tree.topLevelItem(index) for index in range(panel.file_tree.topLevelItemCount()) if 'SQL' in panel.file_tree.topLevelItem(index).text(0))
             self.assertTrue(sql_folder.isExpanded())
@@ -355,8 +358,9 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertFalse(panel.batch_delete_btn.isEnabled())
             self.assertEqual(panel.expand_tree_btn.text(), '全部展开')
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
-            self.assertTrue(panel.file_tree.header().sectionsMovable())
-            self.assertEqual(panel.file_tree.header().sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
+            self.assertTrue(hasattr(panel, 'file_search_edit'))
+            self.assertEqual(panel.file_tree.header().sectionResizeMode(0), QHeaderView.ResizeMode.Interactive)
+            self.assertEqual(panel.file_tree.header().sectionResizeMode(4), QHeaderView.ResizeMode.Stretch)
             panel.close()
 
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):
@@ -389,7 +393,7 @@ class ReleaseUiTests(unittest.TestCase):
                 self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
-            self.assertEqual(panel.sql_btn.text(), '打开 SQL 整理')
+            self.assertEqual(panel.sql_btn.text(), '打开发版联动')
             # 摘要卡不重复 Tab 内完整路径常驻说明；绑定状态为短 pill
             self.assertTrue(hasattr(panel, 'bind_status'))
             self.assertTrue(panel.svn_activity.isHidden())
@@ -420,7 +424,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_release_page_is_first_and_date_auto_loads_candidates(self):
         panel = SqlToolPanel()
         self.assertEqual(panel.tabs.tabText(0), '升级准备')
-        self.assertEqual(panel.tabs.tabText(1), 'SQL 整理')
+        self.assertEqual(panel.tabs.tabText(1), '发版联动')
         self.assertEqual(panel.tabs.tabText(2), '系统配置')
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')

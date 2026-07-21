@@ -30,7 +30,7 @@ class LazyUiSelfCheck(unittest.TestCase):
 
     def test_sql_tabs_are_consistent_and_buttons_live_inside_sql_sheet(self):
         panel = SqlToolPanel()
-        self.assertEqual([panel.tabs.tabText(i) for i in range(3)], ['升级准备', 'SQL 整理', '系统配置'])
+        self.assertEqual([panel.tabs.tabText(i) for i in range(3)], ['升级准备', '发版联动', '系统配置'])
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
         self.assertIs(panel.load_btn.parent().parent(), panel.tabs.widget(1))

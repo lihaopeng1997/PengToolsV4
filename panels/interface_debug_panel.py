@@ -256,6 +256,10 @@ class InterfaceDebugPanel(QWidget):
         self.recheck_btn.clicked.connect(self._recheck_channel)
         self.recheck_btn.hide()
         row2.addWidget(self.recheck_btn)
+        self.test_listen_btn = QPushButton()
+        apply_button(self.test_listen_btn, 'ghost', compact=True, icon='terminal', icon_size=16)
+        self.test_listen_btn.clicked.connect(self._test_listen_loopback)
+        row2.addWidget(self.test_listen_btn)
         self.target_combo = QComboBox()
         size_combo(self.target_combo, 'lg')
         self.target_combo.setMinimumWidth(180)
@@ -1151,6 +1155,76 @@ class InterfaceDebugPanel(QWidget):
         else:
             show_warning(self, '检查代理', f'127.0.0.1:{port} 不可连接，请停止后重新开始监听。')
 
+    def _test_listen_loopback(self):
+        """本机最小测试：向 127.0.0.1 测试地址发一次本地请求，验证事件链路。
+
+        严禁访问业务系统；仅 loopback。
+        """
+        zh = self.language == 'zh'
+        if not self._listening or not self._channel_ready:
+            show_warning(
+                self, '测试监听' if zh else 'Test',
+                '请先开始监听并等待通道就绪。' if zh else 'Start listening first.',
+            )
+            return
+        port = self._current_port()
+        # 本地注入一条合成记录，并尝试对代理端口发 HTTP CONNECT/GET 探测
+        import threading
+        import urllib.request
+
+        def _probe():
+            err = ''
+            try:
+                # 不经过系统代理访问业务网，只对本机代理端口发探测
+                proxy = f'http://127.0.0.1:{port}'
+                handlers = [urllib.request.ProxyHandler({'http': proxy, 'https': proxy})]
+                opener = urllib.request.build_opener(*handlers)
+                # 目标仍是 loopback，不触达外网
+                req = urllib.request.Request(
+                    'http://127.0.0.1:9/pengtools-listen-probe',
+                    method='GET',
+                    headers={'User-Agent': 'PengTools-Listen-Probe'},
+                )
+                try:
+                    opener.open(req, timeout=1.5)
+                except Exception as exc:
+                    err = str(exc)
+            except Exception as exc:
+                err = str(exc)
+            QTimer.singleShot(0, lambda: self._on_probe_done(err))
+
+        # 同步注入内存探测记录，保证列表至少有一条
+        self._ingest_record({
+            'id': f'probe-{int(time.time() * 1000)}',
+            'method': 'GET',
+            'url': 'http://127.0.0.1/pengtools-listen-probe',
+            'path': '/pengtools-listen-probe',
+            'status': None,
+            'resource_type': 'XHR',
+            'source': 'local_proxy' if self._mode != 'chromium' else 'cdp',
+            'started_at': time.time(),
+            'failure': '',
+            'request_headers': {'User-Agent': 'PengTools-Listen-Probe'},
+            'response_body': '',
+        })
+        threading.Thread(target=_probe, daemon=True).start()
+        show_info(
+            self, '测试监听' if zh else 'Test',
+            (
+                '已发起本机 loopback 探测（不访问业务系统）。\n'
+                '若代理链路正常，列表应出现探测请求；也可继续用浏览器访问业务页。'
+                if zh else
+                'Loopback probe sent. No business host is contacted.'
+            ),
+        )
+
+    def _on_probe_done(self, err: str):
+        if err and self._listening:
+            # 连接被拒绝等属于探测目标端口（:9）预期失败，不算监听失败
+            self.live_status.setText(
+                (self.live_status.text() or '') + ' · 探测完成'
+            )
+
     def _on_ie_record_thread(self, rec):
         # 禁止后台线程直接操作 QWidget：投递主线程
         QTimer.singleShot(0, lambda r=dict(rec): self._ingest_record(r))
@@ -1949,6 +2023,11 @@ class InterfaceDebugPanel(QWidget):
         )
         self.stop_btn.setText('停止' if zh else 'Stop')
         self.recheck_btn.setText('检查代理/重新连接' if zh else 'Recheck')
+        self.test_listen_btn.setText('测试监听' if zh else 'Test')
+        self.test_listen_btn.setToolTip(
+            '对本机 127.0.0.1 发起探测，验证监听链路（不访问业务系统）' if zh else
+            'Loopback probe only — never hits business hosts'
+        )
         self.ie_install_cert_btn.setText('安装证书' if zh else 'Install CA')
         self.ie_remove_cert_btn.setText('移除证书' if zh else 'Remove CA')
         self.filter_edit.setPlaceholderText(

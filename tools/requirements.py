@@ -346,16 +346,24 @@ def merged_sql(requirement):
 
 
 def requirement_search_text(requirement):
+    """搜索语料：元数据 + 拼音；不含密钥。SQL/附件正文仅取名称与有限摘要。"""
+    from tools.pinyin_search import build_search_blob
     values = [requirement.get(key, '') for key in (
         'code', 'title', 'description', 'record_kind', 'category', 'status', 'priority',
         'system', 'owner', 'online_month', 'svn_url', 'local_path', 'svn_revision', 'svn_status'
     )]
-    values.extend(part.get('name', '') + '\n' + part.get('content', '')
-                  for part in requirement.get('sql_parts', []))
-    for part in requirement.get('source_files', []):
-        values.append(part.get('name', '') + '\n' + part.get('content', ''))
-        values.extend(str(value) for row in part.get('rows', []) for value in row)
-    return '\n'.join(str(value) for value in values).casefold()
+    for part in requirement.get('sql_parts', []) or []:
+        values.append(part.get('name', ''))
+        # 正文过长时只索引前 2k，避免把大报文永久驻留在搜索串
+        content = str(part.get('content', '') or '')
+        if content:
+            values.append(content[:2000])
+    for part in requirement.get('source_files', []) or []:
+        values.append(part.get('name', ''))
+        values.append(part.get('file_type', ''))
+        for row in (part.get('rows', []) or [])[:40]:
+            values.extend(str(value) for value in row[:12])
+    return build_search_blob(*values)
 
 
 def daily_template(requirement):

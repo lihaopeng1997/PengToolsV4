@@ -506,9 +506,9 @@ class MainWindow(QMainWindow):
         if isinstance(requirement, dict):
             title = requirement.get('title') or requirement.get('code') or ''
         if title:
-            self.status_bar.showMessage(f'已进入升级准备，并刷新候选（来自：{title}）', 5000)
+            self.status_bar.showMessage(f'已进入发版联动，并刷新候选（来自：{title}）', 5000)
         else:
-            self.status_bar.showMessage('已进入升级准备', 3000)
+            self.status_bar.showMessage('已进入发版联动', 3000)
 
     def _set_language(self, combo_index):
         self.language = 'zh' if combo_index == 0 else 'en'
@@ -647,7 +647,7 @@ class MainWindow(QMainWindow):
     def _receive_requirement_sql(self, title, sql):
         self.sql_panel._append_sql_parts([(title, sql)], 'paste')
         self._show_panel(2)
-        self.status_bar.showMessage(f'已把“{title}”的 SQL 发送到 SQL 整理', 5000)
+        self.status_bar.showMessage(f'已把“{title}”的 SQL 发送到发版联动', 5000)
 
     def _receive_requirement_docx(self, title, sql):
         current = self.docx_panel.sql_editor.toPlainText().strip()

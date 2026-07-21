@@ -21,7 +21,7 @@ NAV_MODEL = [
     ]),
     ('delivery', [
         (10, '需求管理', 'Requirements', 'requirements'),
-        (2, '升级准备', 'Release Prep', 'release'),
+        (2, '发版联动', 'Release Link', 'release'),
         (3, '接口文档更新', 'Interface Docs', 'doc-update'),
         (9, '日报', 'Daily Report', 'daily-report'),
     ]),
@@ -63,7 +63,7 @@ def _build_items() -> dict[int, NavItem]:
     tooltips = {
         0: ('打开完整工作台首页', 'Open full workspace home'),
         1: ('个人与单位证件模拟生成', 'Personal and unit document test data'),
-        2: ('SQL 脚本整理、回滚与验证', 'SQL classify, validate and export'),
+        2: ('发版联动：需求/BUG、SQL 与发版 Excel', 'Release link: requirements, SQL and workbook'),
         3: ('SQL 驱动接口文档更新', 'SQL-driven interface document updater'),
         4: ('中国车辆 VIN 测试数据', 'China vehicle VIN test data'),
         5: ('网关国密解密 · 解密后 JSON 查看', 'Gateway SM decrypt with JSON result view'),
