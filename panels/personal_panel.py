@@ -874,6 +874,7 @@ class KnowledgeTab(QWidget):
 
 class DailyReportTab(QWidget):
     reminder_due = pyqtSignal(str, str)
+    _REPORT_FIELDS = ('completed', 'issues', 'tomorrow', 'notes')
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -881,6 +882,9 @@ class DailyReportTab(QWidget):
         self._reports = load_reports()
         self._reminder = load_reminder_settings()
         self._loading = False
+        self._loaded_key = ''
+        # 未点保存的编辑缓存：切日期/历史后仍可恢复
+        self._drafts: dict[str, dict] = {}
         self._setup_ui()
         self._refresh_dates()
         self._load_date(QDate.currentDate())
@@ -948,12 +952,22 @@ class DailyReportTab(QWidget):
         size_compact_button(self.today_btn)
         self.today_btn.clicked.connect(self._go_today)
         date_row.addWidget(self.today_btn)
+        self.copy_as_today_btn = QPushButton('复制为今日')
+        size_compact_button(self.copy_as_today_btn)
+        self.copy_as_today_btn.setToolTip('把当前编辑中的内容一键写成今天的日报（可再改再保存）')
+        self.copy_as_today_btn.clicked.connect(self._copy_as_today)
+        date_row.addWidget(self.copy_as_today_btn)
         date_row.addStretch()
+        self.unsaved_label = QLabel('')
+        self.unsaved_label.setObjectName('field-hint')
+        date_row.addWidget(self.unsaved_label)
         form_layout.addLayout(date_row)
         self.completed = self._report_editor(form_layout, '今日完成', '完成的需求、问题处理、沟通结果……')
         self.issues = self._report_editor(form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……')
         self.tomorrow = self._report_editor(form_layout, '明日计划', '下一步准备完成的事项……')
         self.notes = self._report_editor(form_layout, '备注', '补充信息、链接或待跟踪内容……', 70)
+        for ed in (self.completed, self.issues, self.tomorrow, self.notes):
+            ed.textChanged.connect(self._on_editor_changed)
         actions = QHBoxLayout()
         self.delete_btn = QPushButton('删除当日日报')
         self.delete_btn.setObjectName('ops-delete-custom')
@@ -995,6 +1009,39 @@ class DailyReportTab(QWidget):
             'updated_at': datetime.datetime.now().isoformat(timespec='seconds'),
         }
 
+    def _fields_snapshot(self, source: dict | None = None) -> dict:
+        src = source if isinstance(source, dict) else {}
+        return {k: str(src.get(k) or '').strip() for k in self._REPORT_FIELDS}
+
+    def _is_dirty(self, key: str, values: dict | None = None) -> bool:
+        vals = self._fields_snapshot(values if values is not None else self._current_values())
+        saved = self._fields_snapshot(self._reports.get(key) or {})
+        return any(vals[k] != saved[k] for k in self._REPORT_FIELDS)
+
+    def _stash_current_editors(self):
+        """切换日期前：把当前未保存编辑收进草稿缓存。"""
+        if self._loading or not self._loaded_key:
+            return
+        values = self._current_values()
+        if self._is_dirty(self._loaded_key, values):
+            self._drafts[self._loaded_key] = self._fields_snapshot(values)
+        else:
+            self._drafts.pop(self._loaded_key, None)
+
+    def _update_unsaved_hint(self):
+        if not hasattr(self, 'unsaved_label'):
+            return
+        key = self._loaded_key or self._date_key()
+        if self._is_dirty(key):
+            self.unsaved_label.setText('● 未保存（切换日期会保留草稿）')
+        else:
+            self.unsaved_label.setText('')
+
+    def _on_editor_changed(self):
+        if self._loading:
+            return
+        self._update_unsaved_hint()
+
     def _go_today(self):
         today = QDate.currentDate()
         if self.date_edit.date() != today:
@@ -1008,7 +1055,7 @@ class DailyReportTab(QWidget):
     def _refresh_dates(self):
         current = self._date_key() if hasattr(self, 'date_edit') else ''
         today = datetime.date.today().isoformat()
-        keys = set(self._reports)
+        keys = set(self._reports) | set(self._drafts)
         if current:
             keys.add(current)
         keys.add(today)
@@ -1019,7 +1066,9 @@ class DailyReportTab(QWidget):
             label = date_value
             if date_value == today:
                 label = f'{date_value}（今天）'
-            if date_value not in self._reports:
+            if date_value in self._drafts and self._is_dirty(date_value, self._drafts[date_value]):
+                label = f'{label} · 未保存'
+            elif date_value not in self._reports:
                 label = f'{label} · 未写'
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, date_value)
@@ -1033,6 +1082,8 @@ class DailyReportTab(QWidget):
     def _load_date(self, date_value):
         if self._loading:
             return
+        # 先暂存当前编辑中的内容
+        self._stash_current_editors()
         self._loading = True
         try:
             if isinstance(date_value, QDate):
@@ -1050,13 +1101,16 @@ class DailyReportTab(QWidget):
                     self.date_edit.blockSignals(False)
             if not key:
                 key = self._date_key()
-            report = self._reports.get(key, {})
+            # 优先未保存草稿，再回落已保存
+            report = self._drafts.get(key) or self._reports.get(key) or {}
             self.completed.setPlainText(report.get('completed', ''))
             self.issues.setPlainText(report.get('issues', ''))
             self.tomorrow.setPlainText(report.get('tomorrow', ''))
             self.notes.setPlainText(report.get('notes', ''))
+            self._loaded_key = key
             self.delete_btn.setEnabled(key in self._reports)
             self._refresh_dates()
+            self._update_unsaved_hint()
         finally:
             self._loading = False
 
@@ -1073,23 +1127,65 @@ class DailyReportTab(QWidget):
             self._load_date(date)
 
     def _save_report(self):
-        self._reports[self._date_key()] = self._current_values()
+        key = self._date_key()
+        self._reports[key] = self._current_values()
+        self._drafts.pop(key, None)
         save_reports(self._reports)
+        self._loaded_key = key
         self._refresh_dates()
         self.delete_btn.setEnabled(True)
+        self._update_unsaved_hint()
         show_success(self, '日报', '日报已保存到本机。')
 
     def _copy_report(self):
         QApplication.clipboard().setText(report_markdown(self._date_key(), self._current_values()))
 
+    def _copy_as_today(self):
+        """把当前编辑内容（含未保存）一键写成今天的日报草稿。"""
+        source_key = self._loaded_key or self._date_key()
+        payload = self._fields_snapshot(self._current_values())
+        if not any(payload.values()):
+            show_warning(self, '日报', '当前内容为空，没有可复制的内容。')
+            return
+        today = datetime.date.today().isoformat()
+        today_date = QDate.currentDate()
+        if source_key == today and not self._is_dirty(today, payload):
+            show_info(self, '日报', '已经是今天的日报了。')
+            return
+        # 暂存源日草稿后切到今天并写入
+        self._stash_current_editors()
+        self._drafts[today] = dict(payload)
+        self._loading = True
+        try:
+            if self.date_edit.date() != today_date:
+                self.date_edit.blockSignals(True)
+                self.date_edit.setDate(today_date)
+                self.date_edit.blockSignals(False)
+            self.completed.setPlainText(payload.get('completed', ''))
+            self.issues.setPlainText(payload.get('issues', ''))
+            self.tomorrow.setPlainText(payload.get('tomorrow', ''))
+            self.notes.setPlainText(payload.get('notes', ''))
+            self._loaded_key = today
+            self.delete_btn.setEnabled(today in self._reports)
+            self._refresh_dates()
+            self._update_unsaved_hint()
+        finally:
+            self._loading = False
+        show_success(
+            self, '日报',
+            f'已把 {source_key} 的内容复制为今日（{today}）草稿，请确认后点「保存日报」。',
+        )
+
     def _delete_report(self):
         key = self._date_key()
-        if key not in self._reports:
+        if key not in self._reports and key not in self._drafts:
             return
         if not confirm_action(self, '删除日报', f'即将删除 {key} 的日报。\n\n删除后无法恢复，是否继续？'):
             return
         self._reports.pop(key, None)
+        self._drafts.pop(key, None)
         save_reports(self._reports)
+        self._loaded_key = ''
         self._refresh_dates()
         self._load_date(self.date_edit.date())
 
@@ -1130,7 +1226,7 @@ class DailyReportTab(QWidget):
         self._reminder['last_reminder_date'] = today
         self._reminder = save_reminder_settings(self._reminder)
         self._refresh_reminder_status()
-        self.reminder_due.emit('PengTools · 日报提醒', '到时间啦，记得整理今天的完成事项和明日计划。')
+        self.reminder_due.emit('PengToolsHub · 日报提醒', '到时间啦，记得整理今天的完成事项和明日计划。')
 
     def showEvent(self, event):
         super().showEvent(event)

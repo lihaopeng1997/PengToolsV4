@@ -334,14 +334,17 @@ class ReleaseUiTests(unittest.TestCase):
                 ['名称', '类型', '修改时间', '大小', '路径'],
             )
             header = panel.file_tree.header()
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for index in range(1, 5):
+            # 全部 Interactive：可横向滚动、拖动调列宽；支持拖拽调列序
+            for index in range(5):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(header.sectionsMovable())
             self.assertFalse(header.stretchLastSection())
             sql_folder = next(panel.file_tree.topLevelItem(index) for index in range(panel.file_tree.topLevelItemCount()) if 'SQL' in panel.file_tree.topLevelItem(index).text(0))
             self.assertTrue(sql_folder.isExpanded())
             self.assertTrue(sql_folder.child(0).text(0).startswith('🔒'))
             self.assertFalse(sql_folder.child(0).icon(0).isNull())
+            # 仅名称列有图标
+            self.assertTrue(sql_folder.child(0).icon(1).isNull())
             panel.close()
 
     def test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls(self):
@@ -359,8 +362,9 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(panel.expand_tree_btn.text(), '全部展开')
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
             self.assertTrue(hasattr(panel, 'file_search_edit'))
-            self.assertEqual(panel.file_tree.header().sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            self.assertEqual(panel.file_tree.header().sectionResizeMode(4), QHeaderView.ResizeMode.Interactive)
+            for col in range(5):
+                self.assertEqual(panel.file_tree.header().sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(panel.file_tree.header().sectionsMovable())
             panel.close()
 
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):

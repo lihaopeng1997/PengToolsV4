@@ -153,7 +153,11 @@ class CloseActionDialog(QDialog):
         self._result = None
         zh = language == 'zh'
         self.setObjectName('confirm-dialog')
-        self.setWindowTitle('关闭 PengTools？' if zh else 'Close PengTools?')
+        try:
+            from config import APP_NAME
+        except Exception:
+            APP_NAME = 'PengToolsHub'
+        self.setWindowTitle(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         self.setModal(True)
         self.setMinimumWidth(500)
         self.setMaximumWidth(560)
@@ -169,7 +173,7 @@ class CloseActionDialog(QDialog):
 
         title_wrap = QVBoxLayout()
         title_wrap.setSpacing(6)
-        title = QLabel('关闭 PengTools？' if zh else 'Close PengTools?')
+        title = QLabel(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         title.setObjectName('confirm-title')
         title_wrap.addWidget(title)
         subtitle = QLabel(

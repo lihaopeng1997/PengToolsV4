@@ -671,7 +671,8 @@ QTreeWidget#requirement-file-tree {
     alternate-background-color: __TABLE_ALT__;
     color: __TEXT_STRONG__;
     outline: 0;
-    show-decoration-selected: 1;
+    /* 0：图标装饰只出现在名称列，避免选中时其它列也像“带图标” */
+    show-decoration-selected: 0;
 }
 QTreeWidget#requirement-file-tree::item {
     min-height: 27px;

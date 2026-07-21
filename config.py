@@ -11,7 +11,7 @@ def local_data_dir(executable=None, frozen=None):
 
 
 # 版本与构建日期（build_private_release.ps1 打包时会写入 resources/build_info.json）
-APP_NAME = 'PengTools Hub'
+APP_NAME = 'PengToolsHub'
 APP_VERSION = '4.27'
 APP_EDITION = 'Private'
 

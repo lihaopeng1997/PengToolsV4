@@ -1342,6 +1342,14 @@ class RequirementPanel(QWidget):
         self.file_tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_tree.setMinimumHeight(180)
+        # 外部文件拖入工作副本
+        self.file_tree.setAcceptDrops(True)
+        self.file_tree.setDragEnabled(False)
+        self.file_tree.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        self.file_tree.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.file_tree.viewport().setAcceptDrops(True)
+        self.file_tree.viewport().installEventFilter(self)
+        self.file_tree.installEventFilter(self)
         self._file_name_delegate = _WrapTextDelegate(self.file_tree, min_height=32, max_lines=3)
         self.file_tree.setItemDelegateForColumn(0, self._file_name_delegate)
         self._file_sort_column = 0
@@ -1351,25 +1359,24 @@ class RequirementPanel(QWidget):
         file_header.setObjectName('requirement-file-header')
         file_header.setSectionsClickable(True)
         file_header.setHighlightSections(False)
-        file_header.setSectionsMovable(False)
+        # 支持拖拽调整列顺序；全部 Interactive 才能左右滚动 + 拖动改列宽
+        file_header.setSectionsMovable(True)
         file_header.setStretchLastSection(False)
-        file_header.setMinimumSectionSize(72)
+        file_header.setMinimumSectionSize(48)
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        # 名称列优先占宽（完整展示文件名）；路径可横向滚动查看
-        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        file_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        for col in range(5):
+            file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
         file_header.sectionClicked.connect(self._on_file_header_clicked)
         self.file_tree.setColumnWidth(0, 280)
-        self.file_tree.setColumnWidth(1, 88)
-        self.file_tree.setColumnWidth(2, 130)
-        self.file_tree.setColumnWidth(3, 72)
-        self.file_tree.setColumnWidth(4, 200)
+        self.file_tree.setColumnWidth(1, 96)
+        self.file_tree.setColumnWidth(2, 140)
+        self.file_tree.setColumnWidth(3, 80)
+        self.file_tree.setColumnWidth(4, 320)
         for index in range(self.file_tree.columnCount()):
             self.file_tree.headerItem().setToolTip(
-                index, '拖动列分隔线可调列宽 · 点击列头排序 · 双击文件夹展开 · 双击文件打开 · 右键更多'
+                index,
+                '拖动列分隔线调列宽 · 拖列表头调列序 · 横向滚动看全 · '
+                '仅名称列带图标 · 可拖入本地文件 · 双击打开 · 右键更多',
             )
         self.file_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_tree.customContextMenuRequested.connect(self._show_file_menu)
@@ -2174,7 +2181,51 @@ class RequirementPanel(QWidget):
                 if self._selected_requirements():
                     self._delete_requirement()
                     return True
+        # 文件库：拖入本地文件
+        tree = getattr(self, 'file_tree', None)
+        if tree is not None and watched in (tree, tree.viewport()):
+            et = event.type()
+            if et in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+                md = event.mimeData() if hasattr(event, 'mimeData') else None
+                if md and md.hasUrls():
+                    paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile()]
+                    if any(os.path.isfile(p) for p in paths):
+                        event.acceptProposedAction()
+                        return True
+            if et == QEvent.Type.Drop:
+                md = event.mimeData() if hasattr(event, 'mimeData') else None
+                if md and md.hasUrls():
+                    paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile() and os.path.isfile(u.toLocalFile())]
+                    if paths:
+                        self._drop_files_into_workspace(paths)
+                        event.acceptProposedAction()
+                        return True
         return super().eventFilter(watched, event)
+
+    def _drop_files_into_workspace(self, paths: list[str]):
+        """拖入文件：复制到当前需求工作副本并尝试 svn add。"""
+        root = self._current_path()
+        if not root or not os.path.isdir(root):
+            show_warning(self, '文件库', '请先选择有本机目录的需求，再拖入文件。')
+            return
+        files = [p for p in (paths or []) if p and os.path.isfile(p)]
+        if not files:
+            show_warning(self, '文件库', '没有可添加的文件。')
+            return
+        # 若落在某文件夹行上，写入该相对目录
+        folder = ''
+        try:
+            item = self.file_tree.currentItem()
+            if item is not None and bool(item.data(0, IS_DIR_ROLE)):
+                folder = item.text(4) or ''
+        except Exception:
+            folder = ''
+        self._start_task(
+            '正在复制拖入的文件并执行 SVN add……',
+            add_existing_files,
+            (root, files, folder),
+            self._files_added,
+        )
 
     def _start_task(self, message, function, arguments, success, show_loading=True, finish_label=None):
         """后台任务。
@@ -2445,7 +2496,12 @@ class RequirementPanel(QWidget):
             ))
             for col in range(5):
                 item.setTextAlignment(col, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
+            # 仅名称列带系统图标；类型/时间/大小/路径不设图标
+            from PyQt6.QtGui import QIcon
             item.setIcon(0, _FILE_ICON_PROVIDER.icon(QFileInfo(entry['path'])))
+            blank = QIcon()
+            for col in range(1, 5):
+                item.setIcon(col, blank)
             item.setData(0, Qt.ItemDataRole.UserRole, entry['path'])
             item.setData(0, IS_DIR_ROLE, entry['is_dir'])
             tip = f"{name}\n类型：{ftype}\n路径：{relative}\n完整：{entry.get('path')}"
@@ -2475,11 +2531,12 @@ class RequirementPanel(QWidget):
             else:
                 shown += 1
         self.file_tree.expandAll()
-        # 名称列按内容放宽，避免半截；仍可手动拖窄
+        # 名称列给足宽度，但保持 Interactive，便于横向滚动与手动调宽
         try:
-            self.file_tree.resizeColumnToContents(0)
-            w = self.file_tree.columnWidth(0)
-            self.file_tree.setColumnWidth(0, max(200, min(w + 24, 480)))
+            if self.file_tree.columnWidth(0) < 200:
+                self.file_tree.setColumnWidth(0, 280)
+            if self.file_tree.columnWidth(4) < 160:
+                self.file_tree.setColumnWidth(4, 320)
         except Exception:
             pass
         if hasattr(self, 'file_count_label'):

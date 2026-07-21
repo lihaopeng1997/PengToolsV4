@@ -50,10 +50,11 @@ def main():
             aumid = 'PengTools.Hub.Private.4.27'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(aumid)
 
+    from config import APP_NAME, APP_VERSION
     app = QApplication(sys.argv)
-    app.setApplicationName('PengTools Hub')
-    app.setApplicationVersion('4.27')
-    app.setOrganizationName('PengTools')
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(str(APP_VERSION))
+    app.setOrganizationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont('Microsoft YaHei UI', 10))
     app.setWindowIcon(_resolve_window_icon())

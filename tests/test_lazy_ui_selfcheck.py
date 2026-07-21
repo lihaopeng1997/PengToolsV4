@@ -56,7 +56,9 @@ class LazyUiSelfCheck(unittest.TestCase):
                         'enabled': False, 'time': '18:00', 'last_reminder_date': '',
                     }), \
                     patch('panels.personal_panel.save_reminder_settings', side_effect=lambda settings: settings), \
-                    patch('panels.personal_panel.show_success'):
+                    patch('panels.personal_panel.show_success'), \
+                    patch('panels.personal_panel.show_info'), \
+                    patch('panels.personal_panel.show_warning'):
                 tab = DailyReportTab()
                 today = QDate.currentDate()
                 self.assertEqual(tab.date_edit.displayFormat(), 'yyyy-MM-dd')
@@ -70,12 +72,19 @@ class LazyUiSelfCheck(unittest.TestCase):
                 tab.date_edit.setDate(yesterday)
                 self.app.processEvents()
                 self.assertEqual(tab.completed.toPlainText(), '')
-                tab._reports[today.toString('yyyy-MM-dd')] = {
-                    'completed': '完成 A', 'issues': '', 'tomorrow': '', 'notes': '',
-                }
-                tab._load_date(today)
+                # 未保存草稿：写昨天内容后切走再切回应保留
+                tab.completed.setPlainText('昨天未保存')
+                tab.date_edit.setDate(today)
+                self.app.processEvents()
                 self.assertIn('完成 A', tab.completed.toPlainText())
+                tab.date_edit.setDate(yesterday)
+                self.app.processEvents()
+                self.assertIn('昨天未保存', tab.completed.toPlainText())
+                # 一键复制为今日
+                tab._copy_as_today()
                 self.assertEqual(tab.date_edit.date(), today)
+                self.assertIn('昨天未保存', tab.completed.toPlainText())
+                self.assertTrue(hasattr(tab, 'copy_as_today_btn'))
                 tab.resize(900, 600)
                 self.app.processEvents()
                 tab.close()

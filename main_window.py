@@ -29,7 +29,7 @@ from ui.navigation_model import GROUP_LABELS, NAV_MODEL, display_name
 from ui.quick_panel import QuickPanel
 from ui.responsive import LayoutModeController, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from ui.tray_service import TrayService
-from config import APP_BUILD_DATE, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
+from config import APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
 
 
 class MainWindow(QMainWindow):
@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         self._current_nav_index = 0
         self._layout_mode = 'standard'
         self._nav_icon_only = False
-        self.setWindowTitle(f'PengTools Hub {app_version_text(with_date=False)}')
+        self.setWindowTitle(f'{APP_NAME} {app_version_text(with_date=False)}')
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
         self._center_on_screen()
@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         brand_layout.addWidget(self.brand_icon)
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
-        brand = QLabel('PengTools')
+        brand = QLabel(APP_NAME)
         brand.setObjectName('sidebar_title')
         # 常驻只显示作者；版本/构建/彩蛋进 tooltip（双击仍解锁）
         self.version_label = QLabel('作者：Lihp')
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         brand_text.addWidget(self.version_label)
         brand_layout.addLayout(brand_text, 1)
         brand_block.setToolTip(
-            f'PengTools {app_version_text()}\n作者：Lihp\n更新：{APP_BUILD_DATE}\n双击作者行可解锁私人彩蛋'
+            f'{APP_NAME} {app_version_text()}\n作者：Lihp\n更新：{APP_BUILD_DATE}\n双击作者行可解锁私人彩蛋'
         )
         outer.addWidget(brand_block)
 
@@ -306,11 +306,44 @@ class MainWindow(QMainWindow):
         hotkey.triggered.connect(self.toggle_quick_panel)
         menu.addSeparator()
         about = menu.addAction('关于' if zh else 'About')
-        about.triggered.connect(lambda: self.status_bar.showMessage(
-            f'PengTools {app_version_text()} · 作者 Lihp · 构建 {APP_BUILD_DATE}', 6000
-        ))
+        about.triggered.connect(self._show_about)
         quit_act = menu.addAction('退出软件' if zh else 'Exit')
         quit_act.triggered.connect(self.exit_application)
+
+    def _show_about(self):
+        """左下角关于：励志搞笑文案，署名 Lihp。"""
+        from ui.confirm_dialog import show_info
+        zh = self.language == 'zh'
+        if zh:
+            title = f'关于 {APP_NAME}'
+            message = (
+                f'👋 嗨，我是 {APP_NAME}，Lihp 亲手喂大的离线打工人。\n\n'
+                f'今天也要记得：Bug 怕认真的人，需求怕写清楚的人，'
+                f'而加班最怕的是——你其实已经写完了却还在刷新邮箱。\n\n'
+                f'☕ 建议：先喝口水，再点一次「保存」。\n'
+                f'🚀 励志一句：代码可以重构，青春不行；但你可以先把日报写了。\n\n'
+                f'作者：Lihp\n'
+                f'版本：{app_version_text()}\n'
+                f'构建：{APP_BUILD_DATE}\n'
+                f'口号：离线也能起飞，摸鱼也要有工具感。'
+            )
+            btn = '笑完继续干'
+        else:
+            title = f'About {APP_NAME}'
+            message = (
+                f'Hi, I am {APP_NAME} — raised offline by Lihp.\n\n'
+                f'Bugs fear careful people. Specs fear clear people. '
+                f'Overtime fears the person who already finished but still refreshes email.\n\n'
+                f'Author: Lihp\n'
+                f'Version: {app_version_text()}\n'
+                f'Build: {APP_BUILD_DATE}\n'
+                f'Motto: Ship offline. Keep smiling. Save the daily report.'
+            )
+            btn = 'Back to work'
+        show_info(self, title, message, kind='info', button_text=btn)
+        self.status_bar.showMessage(
+            f'{APP_NAME} {app_version_text()} · Lihp · {APP_BUILD_DATE}', 5000
+        )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -658,13 +691,13 @@ class MainWindow(QMainWindow):
             self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
             return True
         key, accepted = QInputDialog.getText(
-            self, 'PengTools 彩蛋', '请输入私人功能密钥：', QLineEdit.EchoMode.Password
+            self, f'{APP_NAME} 彩蛋', '请输入私人功能密钥：', QLineEdit.EchoMode.Password
         )
         if not accepted:
             return False
         if key != 'Lihp':
             from ui.confirm_dialog import show_warning
-            show_warning(self, 'PengTools 彩蛋', '密钥不正确。')
+            show_warning(self, f'{APP_NAME} 彩蛋', '密钥不正确。')
             return False
         self._apply_private_unlocked_ui(persist=True, navigate=True, status_message=True)
         return True
