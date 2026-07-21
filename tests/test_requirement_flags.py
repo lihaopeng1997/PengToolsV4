@@ -166,11 +166,11 @@ class RequirementFlagTests(unittest.TestCase):
                 self.assertNotIn((row, col), positions)
                 positions[(row, col)] = btn
             self.assertEqual(len(positions), 4)
-            # 详情 < 520 时单列
-            if panel.detail_card.width() < 520:
+            # 固定 3:7 上区：优先多列省高度；仅极窄才单列
+            if panel.detail_card.width() < 300:
                 self.assertEqual(max(c for _r, c in positions), 0)
             else:
-                self.assertLessEqual(max(c for _r, c in positions), 1)
+                self.assertLessEqual(max(c for _r, c in positions), 3)
             # 几何完整且不重叠
             rects = []
             for btn in visible:
@@ -180,12 +180,12 @@ class RequirementFlagTests(unittest.TestCase):
                 for other in rects:
                     self.assertFalse(g.intersects(other), f'{g} overlaps {other}')
                 rects.append(g)
-            # 宽屏双列
+            # 中宽及以上至少双列
             panel.detail_splitter.setSizes([300, max(600, total - 300)])
             self.app.processEvents()
             panel._layout_flag_chips()
             self.app.processEvents()
-            if panel.detail_card.width() >= 520:
+            if panel.detail_card.width() >= 300:
                 cols = set()
                 for btn in visible:
                     idx = panel.flag_chips_layout.indexOf(btn)

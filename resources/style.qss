@@ -520,14 +520,23 @@ QSplitter#requirement-splitter::handle:horizontal:hover {
 QSplitter#requirement-splitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
+/* 上下固定 3:7，不可拖动：把手隐藏 */
 QSplitter#requirement-content-splitter::handle:vertical {
-    height: 8px;
-    margin: 2px 8px;
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __BORDER_STRONG__;
-    border-radius: 4px;
+    height: 0px;
+    margin: 0;
+    background: transparent;
+    border: none;
 }
-QSplitter#requirement-content-splitter::handle:vertical:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; }
+QScrollArea#detail-summary-scroll {
+    background: transparent;
+    border: none;
+}
+QScrollArea#detail-summary-scroll > QWidget > QWidget {
+    background: transparent;
+}
+QWidget#detail-summary-body {
+    background: transparent;
+}
 QTreeWidget#requirement-tree {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;

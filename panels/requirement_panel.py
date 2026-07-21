@@ -140,20 +140,56 @@ IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 GROUP_MONTH_ROLE = int(Qt.ItemDataRole.UserRole) + 2
 
 
-def normalize_content_splitter_sizes(stored, total_h: int = 800) -> list[int]:
-    """上下分栏尺寸：尊重自定义；仅非法值兜底；无存储时按总高 3:7。"""
+def normalize_content_splitter_sizes(stored=None, total_h: int = 800) -> list[int]:
+    """上下固定 3:7（上摘要 / 下文件库）。stored 参数保留兼容，不参与计算。"""
     total_h = max(int(total_h or 800), 400)
-    if not stored:
-        return [int(total_h * 0.3), int(total_h * 0.7)]
-    try:
-        if not isinstance(stored, (list, tuple)) or len(stored) < 2:
-            return [int(total_h * 0.3), int(total_h * 0.7)]
-        top, bottom = int(stored[0]), int(stored[1])
-        if top <= 0 or bottom <= 0:
-            return [240, 560]
-        return [top, bottom]
-    except (TypeError, ValueError, IndexError):
-        return [240, 560]
+    top = max(100, int(total_h * 0.3))
+    bottom = max(200, total_h - top)
+    return [top, bottom]
+
+
+class _FixedRatioVSplitter(QSplitter):
+    """垂直固定比例分栏：不可拖动，始终 3:7。"""
+
+    def __init__(self, parent=None, ratio=(3, 7)):
+        super().__init__(Qt.Orientation.Vertical, parent)
+        self._ratio = ratio
+        self._applying = False
+        self.setChildrenCollapsible(False)
+        self.setHandleWidth(0)  # 无把手，不可拖
+        self.setOpaqueResize(True)
+
+    def createHandle(self):
+        handle = super().createHandle()
+        handle.setEnabled(False)
+        handle.setCursor(Qt.CursorShape.ArrowCursor)
+        return handle
+
+    def moveSplitter(self, pos, index):
+        # 忽略任何拖动尝试，始终回到固定比例
+        self.apply_fixed_ratio()
+
+    def apply_fixed_ratio(self):
+        if self._applying:
+            return
+        total = self.height()
+        if total < 80:
+            sizes = self.sizes()
+            total = sum(sizes) if sizes and sum(sizes) > 0 else 800
+        a, b = self._ratio
+        top = max(100, int(total * a / (a + b)))
+        bottom = max(120, total - top)
+        self._applying = True
+        self.blockSignals(True)
+        try:
+            self.setSizes([top, bottom])
+        finally:
+            self.blockSignals(False)
+            self._applying = False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.apply_fixed_ratio()
 
 
 def format_online_month_label(month):
@@ -1129,15 +1165,26 @@ class RequirementPanel(QWidget):
         detail.setSpacing(8)
 
         # 需求信息：事项类型 / 进度状态 / 目标系统 / 动态上线字段
-        self.detail_card = QFrame(); self.detail_card.setObjectName('detail-summary-card')
-        # 垂直 Preferred：允许 splitter 自由拖到 40%~50% 并持久化。
-        # （纯 Maximum 会以 sizeHint 为硬上限，拖动与存储大上区均失效）
-        # 内容不留白靠末尾 addStretch(1)；默认 3:7 靠 stretchFactor + setSizes。
-        self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        # 固定 3:7 上区：外框填满 30% 槽位；内容可滚动，避免标记重叠/裁切
+        self.detail_card = QFrame()
+        self.detail_card.setObjectName('detail-summary-card')
+        self.detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.detail_card.setMinimumHeight(100)
-        # 明确去掉 320 硬上限
-        self.detail_card.setMaximumHeight(16777215)
-        card = QVBoxLayout(self.detail_card)
+        card_outer = QVBoxLayout(self.detail_card)
+        card_outer.setContentsMargins(0, 0, 0, 0)
+        card_outer.setSpacing(0)
+
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setObjectName('detail-summary-scroll')
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.detail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.detail_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        self.detail_body = QWidget()
+        self.detail_body.setObjectName('detail-summary-body')
+        card = QVBoxLayout(self.detail_body)
         card.setContentsMargins(10, 8, 10, 8)
         card.setSpacing(6)
         head = QHBoxLayout(); head.setSpacing(8)
@@ -1199,7 +1246,7 @@ class RequirementPanel(QWidget):
         self.flags = QLabel(); self.flags.hide()
         self.meta = QLabel(); self.meta.hide()
 
-        # 完成标记：紧凑响应式网格，不占上下空白
+        # 完成标记：紧凑响应式网格；贴在摘要区底部（中间 stretch 填白）
         self.flag_section = QWidget()
         self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         flag_section_layout = QVBoxLayout(self.flag_section)
@@ -1214,7 +1261,7 @@ class RequirementPanel(QWidget):
         self.flag_chips_layout = QGridLayout(self.flag_chips)
         self.flag_chips_layout.setContentsMargins(0, 0, 0, 0)
         self.flag_chips_layout.setHorizontalSpacing(6)
-        self.flag_chips_layout.setVerticalSpacing(4)
+        self.flag_chips_layout.setVerticalSpacing(8)
         self._flag_buttons = {}
         for key, short, full in FLAG_DEFS:
             btn = QPushButton(short)
@@ -1230,9 +1277,14 @@ class RequirementPanel(QWidget):
             btn.hide()
         flag_section_layout.addWidget(self.flag_chips)
         self.flag_section.hide()
+        # 摘要顶对齐 + 多余高度由 stretch 吸收 + 标记贴底，避免“中间空一块、标记悬空”
+        card.addStretch(1)
         card.addWidget(self.flag_section, 0)
-        card.addStretch(1)  # 多余高度由 stretch 吸收，内容上顶不留白
+
+        self.detail_scroll.setWidget(self.detail_body)
+        card_outer.addWidget(self.detail_scroll, 1)
         self.detail_card.installEventFilter(self)
+        self.detail_body.installEventFilter(self)
 
         # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
         self.detail_tabs = QTabWidget()
@@ -1422,11 +1474,9 @@ class RequirementPanel(QWidget):
 
         self.actions_card = QFrame(); self.actions_card.hide()
 
-        # 右侧上下分栏：摘要/完成标记 : 文件库 ≈ 3:7，文件库占主导
-        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
+        # 右侧上下固定 3:7（上摘要+完成标记 / 下文件库），不可拖动
+        self.file_sql_splitter = _FixedRatioVSplitter(ratio=(3, 7))
         self.file_sql_splitter.setObjectName('requirement-content-splitter')
-        self.file_sql_splitter.setChildrenCollapsible(False)
-        self.file_sql_splitter.setHandleWidth(8)
         self.file_sql_splitter.addWidget(self.detail_card)
         self.file_sql_splitter.addWidget(self.detail_tabs)
         self.file_sql_splitter.setStretchFactor(0, 3)
@@ -1441,22 +1491,24 @@ class RequirementPanel(QWidget):
         if len(sizes) >= 2 and sizes[0] < 200:
             sizes = [330, max(520, sizes[1])]
         self.detail_splitter.setSizes(sizes)
-        # 内容上下：尊重用户自定义比例；仅非法值兜底；无存储时按总高 3:7
+        # 上下固定 3:7（不读用户拖动历史）
         content_sizes = normalize_content_splitter_sizes(
-            requirement_ui.get('content_splitter_sizes'),
             total_h=max(int(self.file_sql_splitter.height() or 0), 800),
         )
         self.file_sql_splitter.setSizes(content_sizes)
+        QTimer.singleShot(0, self.file_sql_splitter.apply_fixed_ratio)
         self._splitter_save_timer = QTimer(self)
         self._splitter_save_timer.setSingleShot(True)
         self._splitter_save_timer.setInterval(250)
         self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
+        # 仅持久化左右分栏；上下固定 3:7 不响应拖动、不写用户比例
         self.detail_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
-        self.file_sql_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
         root.addWidget(self.detail_splitter, 1)
 
     def _save_splitter_sizes(self):
-        content_sizes = self.file_sql_splitter.sizes() if self.file_sql_splitter.sizes() else [240, 560]
+        # 上下始终记 3:7，避免旧拖动数据干扰
+        total = sum(self.file_sql_splitter.sizes()) if self.file_sql_splitter.sizes() else 800
+        content_sizes = normalize_content_splitter_sizes(total_h=total)
         save_requirement_ui({
             'splitter_sizes': self.detail_splitter.sizes(),
             'content_splitter_sizes': content_sizes,
@@ -1502,27 +1554,20 @@ class RequirementPanel(QWidget):
                 w = getattr(self, name, None)
                 if w is not None:
                     w.show()
-        # 上下分栏：保持 3:7 基线；compact/narrow 收紧上区
-        if hasattr(self, 'file_sql_splitter'):
-            self.file_sql_splitter.setChildrenCollapsible(False)
-            self.file_sql_splitter.setStretchFactor(0, 3)
-            self.file_sql_splitter.setStretchFactor(1, 7)
-            if mode in ('compact', 'narrow'):
-                cs = self.file_sql_splitter.sizes()
-                if len(cs) >= 2:
-                    top = min(cs[0], 200)  # 窄屏上区压缩到 200 以内
-                    top = max(top, 100)    # 不低于 minHeight
-                    bottom = max(cs[1], 200)
-                    self.file_sql_splitter.setSizes([top, bottom])
+        # 上下始终固定 3:7
+        if hasattr(self, 'file_sql_splitter') and hasattr(self.file_sql_splitter, 'apply_fixed_ratio'):
+            self.file_sql_splitter.apply_fixed_ratio()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay()
         self._layout_flag_chips()
+        if hasattr(self, 'file_sql_splitter') and hasattr(self.file_sql_splitter, 'apply_fixed_ratio'):
+            self.file_sql_splitter.apply_fixed_ratio()
 
     def _layout_flag_chips(self):
-        """响应式完成标记：尽量单行/两行紧凑排列，避免上下撑出大片空白。"""
+        """响应式完成标记：优先多列，固定 3:7 上区内尽量少滚动。"""
         if not hasattr(self, 'flag_chips_layout'):
             return
         while self.flag_chips_layout.count():
@@ -1539,37 +1584,48 @@ class RequirementPanel(QWidget):
                 self.flag_section.hide()
             return
         host_width = 0
-        if hasattr(self, 'detail_card') and self.detail_card.width() > 0:
-            host_width = max(0, self.detail_card.width() - 24)
-        if host_width <= 0:
-            host_width = self.flag_chips.width()
+        for host in (
+            getattr(self, 'detail_body', None),
+            getattr(self, 'detail_scroll', None),
+            getattr(self, 'detail_card', None),
+            self.flag_chips,
+        ):
+            if host is not None and host.width() > 40:
+                host_width = max(0, host.width() - 24)
+                break
         n = len(visible)
-        # 宽屏 4 列一行；中宽 2 列；窄 1 列
-        if host_width and host_width >= 640 and n <= 4:
+        # 固定上区高度有限：优先 4/2 列，尽量避免 1 列叠高
+        if host_width and host_width >= 560 and n <= 4:
             columns = min(4, n)
-        elif host_width and host_width >= 420:
-            columns = 2
+        elif host_width and host_width >= 300:
+            columns = min(2, n)
         else:
             columns = 1
+        rows_n = (n + columns - 1) // columns
+        row_h = 34
         for index, btn in enumerate(visible):
             row, col = divmod(index, columns)
-            btn.setMinimumWidth(100 if columns >= 2 else 100)
-            btn.setMinimumHeight(30)
-            btn.setMaximumHeight(34)
+            btn.setMinimumWidth(100)
+            btn.setMinimumHeight(28)
+            btn.setMaximumHeight(32)
+            btn.setFixedHeight(30)
+            btn.show()
             self.flag_chips_layout.addWidget(btn, row, col)
-            self.flag_chips_layout.setRowMinimumHeight(row, 34)
+            self.flag_chips_layout.setRowMinimumHeight(row, row_h)
             self.flag_chips_layout.setRowStretch(row, 0)
             self.flag_chips_layout.setColumnStretch(col, 1)
-        # 多余行不占 stretch
         for r in range(4):
             self.flag_chips_layout.setRowStretch(r, 0)
+        # 显式高度，避免 Expanding 父级下网格行被压扁重叠
+        chips_h = rows_n * row_h + max(0, rows_n - 1) * self.flag_chips_layout.verticalSpacing()
+        self.flag_chips.setMinimumHeight(chips_h)
+        self.flag_chips.setMaximumHeight(chips_h + 4)
+        self.flag_chips_layout.activate()
         self.flag_chips.updateGeometry()
         if hasattr(self, 'flag_section'):
+            self.flag_section.setMinimumHeight(chips_h + 22)
+            self.flag_section.setMaximumHeight(chips_h + 28)
             self.flag_section.updateGeometry()
-        # 摘要卡随内容收缩，文件库侧保持大占比
-        if hasattr(self, 'detail_card'):
-            self.detail_card.adjustSize()
-            self.detail_card.updateGeometry()
 
     def set_language(self, language):
         self.language = language
@@ -2086,7 +2142,11 @@ class RequirementPanel(QWidget):
                 if self._selected_requirements():
                     self._delete_requirement()
                     return True
-        if watched is getattr(self, 'detail_card', None) and event.type() == QEvent.Type.Resize:
+        if watched in (
+            getattr(self, 'detail_card', None),
+            getattr(self, 'detail_body', None),
+            getattr(self, 'detail_scroll', None),
+        ) and event.type() == QEvent.Type.Resize:
             self._layout_flag_chips()
         return super().eventFilter(watched, event)
 

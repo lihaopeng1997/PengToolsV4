@@ -380,9 +380,10 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
             self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
             self.assertFalse(panel.file_sql_splitter.isHidden())
-            # 加载逻辑尊重 [340,230]（不再因上>下强制重置）；Qt Maximum 可能微调像素
+            # 上下固定 3:7，不可拖动
+            self.assertEqual(panel.file_sql_splitter.handleWidth(), 0)
             from panels.requirement_panel import normalize_content_splitter_sizes
-            self.assertEqual(normalize_content_splitter_sizes([340, 230]), [340, 230])
+            self.assertEqual(normalize_content_splitter_sizes([340, 230], total_h=1000), [300, 700])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()
