@@ -1,6 +1,8 @@
-# PengTools Hub V4.27 Private — 项目规则
+# PengToolsHub V4.27 Private — 项目规则
 
-> 详细交接见 `docs/项目交接/PengToolsV4项目交接文档_V4.26_Private.md`（基线交接；当前运行版本以 `resources/build_info.json` 为准）。开发前先读该文档与本规则。
+> **Grok/接手完整交接（优先读）**：`docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md`  
+> 基线历史：`docs/项目交接/PengToolsV4项目交接文档_V4.26_Private.md`  
+> 当前构建信息以 `resources/build_info.json` 为准；界面版本文案为 `V4 Private`（见 `config.app_version_text()`）。
 >
 > **CodeGraph 图谱**：仓库已 `codegraph init`，索引在 `.codegraph/`。改代码前/中优先用图谱定位，而不是盲目全文翻。
 >
