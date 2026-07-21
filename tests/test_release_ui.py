@@ -379,6 +379,11 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreaterEqual(panel.detail_splitter.widget(1).minimumWidth(), 360)
             self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
             self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
+            self.assertFalse(panel.file_sql_splitter.isHidden())
+            # 上下分栏：文件库在下，默认占比应不小于摘要区（约 7:3）
+            content_sizes = panel.file_sql_splitter.sizes()
+            if len(content_sizes) >= 2 and sum(content_sizes) > 0:
+                self.assertGreaterEqual(content_sizes[1], content_sizes[0])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()
@@ -387,20 +392,17 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreaterEqual(panel.system_filter.minimumWidth(), 160)
             self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 100)
             self.assertGreaterEqual(panel.status_filter.minimumWidth(), 100)
-            # 文件 Tab 工具条：打开/添加/新建/提交均存在（布局已收敛为横向 action card）
             for button in (panel.open_folder_btn, panel.add_file_btn, panel.new_text_btn, panel.commit_btn):
                 self.assertIsNotNone(button)
                 self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
             self.assertEqual(panel.sql_btn.text(), '打开发版联动')
-            # 摘要卡不重复 Tab 内完整路径常驻说明；绑定状态为短 pill
             self.assertTrue(hasattr(panel, 'bind_status'))
             self.assertTrue(panel.svn_activity.isHidden())
 
             panel._save_splitter_sizes()
-            # 兼容：file_sql_splitter 已隐藏，content 尺寸使用默认或缓存
-            content_sizes = panel.file_sql_splitter.sizes() or [520, 140]
+            content_sizes = panel.file_sql_splitter.sizes() or [240, 560]
             save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': content_sizes})
             panel.close()
 

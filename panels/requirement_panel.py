@@ -1114,10 +1114,13 @@ class RequirementPanel(QWidget):
 
         # 需求信息：事项类型 / 进度状态 / 目标系统 / 动态上线字段
         self.detail_card = QFrame(); self.detail_card.setObjectName('detail-summary-card')
-        self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # 上区宜紧凑：不抢垂直空间，文件库默认占大头（约 7）
+        self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.detail_card.setMinimumHeight(120)
+        self.detail_card.setMaximumHeight(320)
         card = QVBoxLayout(self.detail_card)
-        card.setContentsMargins(12, 10, 12, 10)
-        card.setSpacing(8)
+        card.setContentsMargins(10, 8, 10, 8)
+        card.setSpacing(6)
         head = QHBoxLayout(); head.setSpacing(8)
         title_col = QVBoxLayout()
         title_col.setSpacing(1)
@@ -1177,27 +1180,30 @@ class RequirementPanel(QWidget):
         self.flags = QLabel(); self.flags.hide()
         self.meta = QLabel(); self.meta.hide()
 
-        # 完成标记：响应式网格，避免窄宽裁切
+        # 完成标记：紧凑响应式网格，不占上下空白
         self.flag_section = QWidget()
+        self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         flag_section_layout = QVBoxLayout(self.flag_section)
-        flag_section_layout.setContentsMargins(0, 4, 0, 0)
-        flag_section_layout.setSpacing(6)
+        flag_section_layout.setContentsMargins(0, 2, 0, 0)
+        flag_section_layout.setSpacing(4)
         self.flag_section_caption = QLabel('完成标记')
         self.flag_section_caption.setObjectName('flag-section-caption')
         flag_section_layout.addWidget(self.flag_section_caption)
         self.flag_chips = QWidget()
         self.flag_chips.setObjectName('flag-chips-host')
+        self.flag_chips.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.flag_chips_layout = QGridLayout(self.flag_chips)
         self.flag_chips_layout.setContentsMargins(0, 0, 0, 0)
-        self.flag_chips_layout.setHorizontalSpacing(8)
-        self.flag_chips_layout.setVerticalSpacing(8)
+        self.flag_chips_layout.setHorizontalSpacing(6)
+        self.flag_chips_layout.setVerticalSpacing(4)
         self._flag_buttons = {}
         for key, short, full in FLAG_DEFS:
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMinimumHeight(30)
-            btn.setMinimumWidth(112)
+            btn.setMinimumHeight(26)
+            btn.setMaximumHeight(30)
+            btn.setMinimumWidth(96)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
@@ -1205,14 +1211,15 @@ class RequirementPanel(QWidget):
             btn.hide()
         flag_section_layout.addWidget(self.flag_chips)
         self.flag_section.hide()
-        card.addWidget(self.flag_section)
-        detail.addWidget(self.detail_card, 0)
+        card.addWidget(self.flag_section, 0)
         self.detail_card.installEventFilter(self)
 
         # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName('module-tabs')
         self.detail_tabs.setDocumentMode(True)
+        self.detail_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.detail_tabs.setMinimumHeight(200)
 
         # —— Tab1: 文件库 ——
         file_section = QFrame()
@@ -1393,28 +1400,54 @@ class RequirementPanel(QWidget):
         link_layout.addStretch(1)
         self.detail_tabs.addTab(link_section, '发布与联动')
 
-        # 兼容旧 splitter 引用（持久化仍写 content sizes，映射到 tabs 内）
-        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.file_sql_splitter.setChildrenCollapsible(False)
-        self.file_sql_splitter.hide()
         self.actions_card = QFrame(); self.actions_card.hide()
 
-        detail.addWidget(self.detail_tabs, 1)
+        # 右侧上下分栏：摘要/完成标记 : 文件库 ≈ 3:7，文件库占主导
+        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.file_sql_splitter.setObjectName('requirement-content-splitter')
+        self.file_sql_splitter.setChildrenCollapsible(False)
+        self.file_sql_splitter.setHandleWidth(8)
+        self.file_sql_splitter.addWidget(self.detail_card)
+        self.file_sql_splitter.addWidget(self.detail_tabs)
+        self.file_sql_splitter.setStretchFactor(0, 3)
+        self.file_sql_splitter.setStretchFactor(1, 7)
+        self.file_sql_splitter.setCollapsible(0, False)
+        self.file_sql_splitter.setCollapsible(1, False)
+        detail.addWidget(self.file_sql_splitter, 1)
         self.detail_splitter.addWidget(right)
+
         requirement_ui = load_requirement_ui()
         sizes = requirement_ui.get('splitter_sizes') or [330, 820]
         if len(sizes) >= 2 and sizes[0] < 200:
             sizes = [330, max(520, sizes[1])]
         self.detail_splitter.setSizes(sizes)
+        # 内容上下：默认约 3:7（上摘要 / 下文件库）
+        content_sizes = list(requirement_ui.get('content_splitter_sizes') or [240, 560])
+        if len(content_sizes) < 2:
+            content_sizes = [240, 560]
+        # 旧数据若上区过大（上>=下），纠正为 3:7，避免完成标记与文件库空隙过大
+        try:
+            top, bottom = int(content_sizes[0]), int(content_sizes[1])
+            if top <= 0 or bottom <= 0 or top >= bottom:
+                content_sizes = [240, 560]
+            else:
+                # 上限：上区不超过总高度约 35%
+                total = top + bottom
+                if top > int(total * 0.35):
+                    content_sizes = [max(160, int(total * 0.30)), max(280, int(total * 0.70))]
+        except (TypeError, ValueError):
+            content_sizes = [240, 560]
+        self.file_sql_splitter.setSizes(content_sizes)
         self._splitter_save_timer = QTimer(self)
         self._splitter_save_timer.setSingleShot(True)
         self._splitter_save_timer.setInterval(250)
         self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
         self.detail_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
+        self.file_sql_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
         root.addWidget(self.detail_splitter, 1)
 
     def _save_splitter_sizes(self):
-        content_sizes = self.file_sql_splitter.sizes() if self.file_sql_splitter.sizes() else [520, 140]
+        content_sizes = self.file_sql_splitter.sizes() if self.file_sql_splitter.sizes() else [240, 560]
         save_requirement_ui({
             'splitter_sizes': self.detail_splitter.sizes(),
             'content_splitter_sizes': content_sizes,
@@ -1468,15 +1501,13 @@ class RequirementPanel(QWidget):
         self._layout_flag_chips()
 
     def _layout_flag_chips(self):
-        """响应式完成标记：宽≥520 两列，否则一列；隐藏未适用项。"""
+        """响应式完成标记：尽量单行/两行紧凑排列，避免上下撑出大片空白。"""
         if not hasattr(self, 'flag_chips_layout'):
             return
         while self.flag_chips_layout.count():
             item = self.flag_chips_layout.takeAt(0)
-            # 不 delete 按钮，只从布局移除
             if item and item.widget():
                 pass
-        # 用 isHidden() 而非 isVisible()：父级未 show 时 isVisible 恒为 False
         visible = [
             self._flag_buttons[key]
             for key, _s, _f in FLAG_DEFS
@@ -1486,24 +1517,38 @@ class RequirementPanel(QWidget):
             if hasattr(self, 'flag_section'):
                 self.flag_section.hide()
             return
-        # 优先用详情卡宽度（flag_chips 可能尚未随父级收窄）
         host_width = 0
         if hasattr(self, 'detail_card') and self.detail_card.width() > 0:
             host_width = max(0, self.detail_card.width() - 24)
         if host_width <= 0:
             host_width = self.flag_chips.width()
-        columns = 1 if host_width and host_width < 520 else 2
+        n = len(visible)
+        # 宽屏 4 列一行；中宽 2 列；窄 1 列
+        if host_width and host_width >= 640 and n <= 4:
+            columns = min(4, n)
+        elif host_width and host_width >= 420:
+            columns = 2
+        else:
+            columns = 1
         for index, btn in enumerate(visible):
             row, col = divmod(index, columns)
-            btn.setMinimumWidth(112 if columns == 2 else 100)
-            btn.setMinimumHeight(30)
-            btn.setMaximumHeight(16777215)
+            btn.setMinimumWidth(88 if columns >= 3 else (100 if columns == 2 else 96))
+            btn.setMinimumHeight(26)
+            btn.setMaximumHeight(30)
             self.flag_chips_layout.addWidget(btn, row, col)
-            self.flag_chips_layout.setRowMinimumHeight(row, 34)
+            self.flag_chips_layout.setRowMinimumHeight(row, 28)
+            self.flag_chips_layout.setRowStretch(row, 0)
             self.flag_chips_layout.setColumnStretch(col, 1)
+        # 多余行不占 stretch
+        for r in range(4):
+            self.flag_chips_layout.setRowStretch(r, 0)
         self.flag_chips.updateGeometry()
         if hasattr(self, 'flag_section'):
             self.flag_section.updateGeometry()
+        # 摘要卡随内容收缩，文件库侧保持大占比
+        if hasattr(self, 'detail_card'):
+            self.detail_card.adjustSize()
+            self.detail_card.updateGeometry()
 
     def set_language(self, language):
         self.language = language
