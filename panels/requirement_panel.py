@@ -1135,9 +1135,9 @@ class RequirementPanel(QWidget):
         self.detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.detail_card.setMinimumHeight(0)
         card = QVBoxLayout(self.detail_card)
-        # 底部略多留 2px，避免完成标记按钮下边框贴卡底被裁
-        card.setContentsMargins(10, 8, 10, 10)
-        card.setSpacing(5)
+        # 底部多留空隙，避免完成标记按钮下边框贴卡底被裁
+        card.setContentsMargins(10, 8, 10, 12)
+        card.setSpacing(6)
         head = QHBoxLayout(); head.setSpacing(8)
         title_col = QVBoxLayout()
         title_col.setSpacing(0)
@@ -1200,21 +1200,24 @@ class RequirementPanel(QWidget):
         self.detail_scroll = None
         self.detail_body = self.detail_card
 
-        # 完成标记：最多四个，始终单行均分；底部留 2–4px，避免按钮下边框被裁切
+        # 完成标记：最多四个单行；禁止 setFixedHeight 压扁，否则 1px 下边框会被裁掉
         self.flag_section = QWidget()
-        self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.flag_section.setObjectName('flag-section')
+        self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         flag_section_layout = QVBoxLayout(self.flag_section)
-        flag_section_layout.setContentsMargins(0, 2, 0, 4)
-        flag_section_layout.setSpacing(3)
+        flag_section_layout.setContentsMargins(0, 4, 0, 6)
+        flag_section_layout.setSpacing(4)
         self.flag_section_caption = QLabel('完成标记')
         self.flag_section_caption.setObjectName('flag-section-caption')
         flag_section_layout.addWidget(self.flag_section_caption)
         self.flag_chips = QWidget()
         self.flag_chips.setObjectName('flag-chips-host')
-        self.flag_chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.flag_chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.flag_chips_layout = QHBoxLayout(self.flag_chips)
-        self.flag_chips_layout.setContentsMargins(0, 1, 0, 2)
-        self.flag_chips_layout.setSpacing(6)
+        # 四周留白，保证描边完整（尤其下边框）
+        self.flag_chips_layout.setContentsMargins(1, 2, 1, 4)
+        self.flag_chips_layout.setSpacing(8)
+        self.flag_chips_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._flag_buttons = {}
         self._layouting_flags = False
         self._showing_requirement = False
@@ -1223,10 +1226,9 @@ class RequirementPanel(QWidget):
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMinimumHeight(28)
-            btn.setMaximumHeight(30)
+            btn.setMinimumHeight(30)
+            btn.setMaximumHeight(34)
             btn.setMinimumWidth(72)
-            btn.setFixedHeight(28)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
@@ -1234,11 +1236,7 @@ class RequirementPanel(QWidget):
             # 常驻布局，只 show/hide，避免点击时反复 takeAt/addWidget 触发 Qt 布局重入闪退
             self.flag_chips_layout.addWidget(btn, 1)
             btn.hide()
-        # 按钮 28 + 上下内边距 1+2，保证描边完整
-        self.flag_chips.setFixedHeight(31)
         flag_section_layout.addWidget(self.flag_chips)
-        # 标题约 16 + 间距 3 + chips 31 + 上下 margin 2+4
-        self.flag_section.setFixedHeight(16 + 3 + 31 + 6)
         self.flag_section.hide()
         card.addWidget(self.flag_section, 0)
         self.detail_card.installEventFilter(self)
