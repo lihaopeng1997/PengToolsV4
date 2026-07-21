@@ -466,14 +466,17 @@ def export_word_entry(entry, path):
 
 
 def search_entries(entries, query='', category='all'):
-    terms = [term.casefold() for term in str(query).split() if term.strip()]
+    """支持中文原文 / 全拼 / 首字母；索引不含密钥。"""
+    from tools.pinyin_search import build_search_blob, match_query
     result = []
     for entry in entries:
         if category != 'all' and entry.get('category') != category:
             continue
         parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
-        parts.extend(str(value) for row in entry.get('rows', []) for value in row)
-        haystack = '\n'.join(parts).casefold()
-        if all(term in haystack for term in terms):
+        # 表格行只取有限单元格，避免敏感大报文进索引
+        for row in (entry.get('rows', []) or [])[:80]:
+            parts.extend(str(value) for value in (row or [])[:16])
+        blob = build_search_blob(*parts)
+        if match_query(blob, query):
             result.append(entry)
     return result

@@ -96,6 +96,13 @@ class SqlToolPanel(QWidget):
         self.tabs.addTab(self._create_processing_tab(), '')
         self.tabs.addTab(self._create_config_tab(), '')
         root.addWidget(self.tabs, 1)
+        # 浮层 Loading：不进 layout，避免导出/预览时按钮与分区跳动
+        self.progress = AuroraProgress(self)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'progress'):
+            self.progress.place_overlay()
 
     def _create_release_tab(self):
         tab = QWidget()
@@ -103,21 +110,61 @@ class SqlToolPanel(QWidget):
         layout.setSpacing(10)
         layout.setContentsMargins(2, 4, 2, 2)
 
-        intro = QLabel('懒人流程：选择升级日期后自动加载候选需求 / BUG；可点「刷新候选」重载；开发分支可留空；勾选后一键生成 SQL 包与生产发版清单。')
-        intro.setObjectName('path-note')
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+        # 弱步骤条：选择日期 → 勾选事项 → 生成资料
+        steps = QLabel('选择日期  →  勾选事项  →  生成资料')
+        steps.setObjectName('small-label')
+        steps.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(steps)
 
-        # 顶区：路径 + 筛选，形成「配置模块」
-        filter_zone = QFrame()
-        filter_zone.setObjectName('release-filter-zone')
-        filter_zone_layout = QVBoxLayout(filter_zone)
-        filter_zone_layout.setContentsMargins(12, 10, 12, 10)
-        filter_zone_layout.setSpacing(10)
+        # 默认摘要行：日期 / 候选数量 / 展开上下文
+        summary = QFrame()
+        summary.setObjectName('release-filter-zone')
+        summary_layout = QHBoxLayout(summary)
+        summary_layout.setContentsMargins(12, 8, 12, 8)
+        summary_layout.setSpacing(10)
+        date_label = QLabel('升级日期')
+        date_label.setObjectName('field-caption')
+        size_caption(date_label)
+        summary_layout.addWidget(date_label)
+        self.release_date = QDateEdit(QDate.currentDate())
+        self.release_date.setObjectName('release-date')
+        self.release_date.setDisplayFormat('yyyy-MM-dd')
+        size_date(self.release_date)
+        self.release_date.dateChanged.connect(self._release_date_changed)
+        summary_layout.addWidget(self.release_date)
+        self.refresh_release_btn = QPushButton('刷新候选')
+        self.refresh_release_btn.setObjectName('primary-btn')
+        size_compact_button(self.refresh_release_btn)
+        self.refresh_release_btn.clicked.connect(self._load_release_candidates)
+        summary_layout.addWidget(self.refresh_release_btn)
+        select_all = QPushButton('全选')
+        size_compact_button(select_all)
+        select_all.clicked.connect(lambda: self._set_release_selection(True))
+        summary_layout.addWidget(select_all)
+        select_none = QPushButton('取消全选')
+        size_compact_button(select_none)
+        select_none.clicked.connect(lambda: self._set_release_selection(False))
+        summary_layout.addWidget(select_none)
+        self.release_count = QLabel('加载中…')
+        self.release_count.setObjectName('status-pill')
+        size_status_pill(self.release_count)
+        self.release_count.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        summary_layout.addWidget(self.release_count)
+        summary_layout.addStretch(1)
+        self.release_context_toggle = QPushButton('升级上下文 ▸')
+        self.release_context_toggle.setProperty('compactAction', True)
+        self.release_context_toggle.setCheckable(True)
+        self.release_context_toggle.toggled.connect(self._toggle_release_context)
+        summary_layout.addWidget(self.release_context_toggle)
+        layout.addWidget(summary)
 
-        filter_title = QLabel('发版路径与筛选')
-        filter_title.setObjectName('zone-title')
-        filter_zone_layout.addWidget(filter_title)
+        # 可折叠：SVN / 发版清单目录
+        self.release_context = QFrame()
+        self.release_context.setObjectName('release-filter-zone')
+        self.release_context.hide()
+        filter_zone_layout = QVBoxLayout(self.release_context)
+        filter_zone_layout.setContentsMargins(14, 10, 14, 10)
+        filter_zone_layout.setSpacing(8)
 
         svn_row = QHBoxLayout()
         svn_label = QLabel('生产发版 SVN')
@@ -150,50 +197,14 @@ class SqlToolPanel(QWidget):
         choose_root.clicked.connect(self._choose_release_root)
         path_row.addWidget(choose_root)
         filter_zone_layout.addLayout(path_row)
+        layout.addWidget(self.release_context)
 
-        date_row = QHBoxLayout()
-        date_row.setSpacing(10)
-        date_label = QLabel('升级日期')
-        date_label.setObjectName('field-caption')
-        size_caption(date_label)
-        date_row.addWidget(date_label)
-        self.release_date = QDateEdit(QDate.currentDate())
-        self.release_date.setObjectName('release-date')
-        self.release_date.setDisplayFormat('yyyy-MM-dd')
-        size_date(self.release_date)
-        self.release_date.dateChanged.connect(self._release_date_changed)
-        date_row.addWidget(self.release_date)
-        self.refresh_release_btn = QPushButton('刷新候选')
-        self.refresh_release_btn.setObjectName('primary-btn')
-        size_compact_button(self.refresh_release_btn)
-        self.refresh_release_btn.clicked.connect(self._load_release_candidates)
-        date_row.addWidget(self.refresh_release_btn)
-        select_all = QPushButton('全选')
-        size_compact_button(select_all)
-        select_all.clicked.connect(lambda: self._set_release_selection(True))
-        date_row.addWidget(select_all)
-        select_none = QPushButton('取消全选')
-        size_compact_button(select_none)
-        select_none.clicked.connect(lambda: self._set_release_selection(False))
-        date_row.addWidget(select_none)
-        self.release_count = QLabel('加载中…')
-        self.release_count.setObjectName('status-pill')
-        size_status_pill(self.release_count)
-        self.release_count.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        date_row.addWidget(self.release_count)
-        date_row.addStretch(1)
-        filter_zone_layout.addLayout(date_row)
-        layout.addWidget(filter_zone)
-
-        # 中区：候选表格
+        # 中区：候选表格（无重复「候选需求」标题，数量在上方 pill）
         table_zone = QFrame()
         table_zone.setObjectName('release-table-zone')
         table_zone_layout = QVBoxLayout(table_zone)
-        table_zone_layout.setContentsMargins(10, 8, 10, 10)
-        table_zone_layout.setSpacing(6)
-        table_title = QLabel('候选需求 / BUG')
-        table_title.setObjectName('zone-title')
-        table_zone_layout.addWidget(table_title)
+        table_zone_layout.setContentsMargins(12, 10, 12, 12)
+        table_zone_layout.setSpacing(8)
 
         self.release_table = QTableWidget(0, 10)
         self.release_table.setObjectName('release-table')
@@ -238,33 +249,36 @@ class SqlToolPanel(QWidget):
         bottom_card = QFrame()
         bottom_card.setObjectName('release-generate-zone')
         bottom = QHBoxLayout(bottom_card)
-        bottom.setContentsMargins(12, 10, 12, 10)
+        bottom.setContentsMargins(14, 12, 14, 12)
         bottom.setSpacing(10)
-        gen_title = QLabel('生成')
+        gen_title = QLabel('生成升级资料')
         gen_title.setObjectName('zone-title-inline')
         bottom.addWidget(gen_title)
         self.release_no_sql = QCheckBox('本次确认无 SQL')
         bottom.addWidget(self.release_no_sql)
         extra_label = QLabel('额外 SQL 归属')
         extra_label.setObjectName('field-caption')
+        extra_label.setToolTip('有 SQL 时汇总所选需求/BUG 已关联 SQL，并合并发版联动页编辑区内容。')
         bottom.addWidget(extra_label)
         self.release_extra_sql_system = QComboBox()
         self.release_extra_sql_system.setObjectName('release-extra-system')
+        self.release_extra_sql_system.setToolTip('有 SQL 时汇总所选需求/BUG 已关联 SQL，并合并发版联动页编辑区内容。')
         size_combo(self.release_extra_sql_system, 'md')
         self.release_extra_sql_system.addItem('自动（单系统）', '')
         for system in self._systems:
             self.release_extra_sql_system.addItem(system['name'], system['name'])
         bottom.addWidget(self.release_extra_sql_system)
-        hint = QLabel('有 SQL 时汇总所选需求/BUG 已关联 SQL，并合并 SQL 整理页编辑区内容。')
-        hint.setObjectName('small-label')
-        hint.setWordWrap(True)
-        bottom.addWidget(hint, 1)
+        bottom.addStretch(1)
         self.release_generate = QPushButton('生成升级材料')
         self.release_generate.setObjectName('primary-btn')
         self.release_generate.clicked.connect(self._generate_release_materials)
         bottom.addWidget(self.release_generate)
         layout.addWidget(bottom_card)
         return tab
+
+    def _toggle_release_context(self, checked):
+        self.release_context.setVisible(bool(checked))
+        self.release_context_toggle.setText('升级上下文 ▾' if checked else '升级上下文 ▸')
 
     def _choose_release_root(self):
         path = QFileDialog.getExistingDirectory(self, '选择生产发版任务清单目录', self.release_root.text())
@@ -462,43 +476,65 @@ class SqlToolPanel(QWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(10)
-        layout.setContentsMargins(8, 10, 8, 8)
+        layout.setContentsMargins(2, 4, 2, 2)
 
-        # SQL 专属操作条：只属于本 Sheet，切换页时不会“突然出现”
-        sql_bar = QFrame()
-        sql_bar.setObjectName('release-card')
-        toolbar = QHBoxLayout(sql_bar)
-        toolbar.setContentsMargins(10, 8, 10, 8)
-        toolbar.setSpacing(8)
+        # 三段：输入 / 预览 / 导出（去掉外层重复标题）
+        # —— 输入 ——
+        input_zone = QFrame()
+        input_zone.setObjectName('sql-tool-zone')
+        input_outer = QVBoxLayout(input_zone)
+        input_outer.setContentsMargins(14, 10, 14, 10)
+        input_outer.setSpacing(8)
+        input_head = QHBoxLayout()
+        self.input_label = QLabel('输入')
+        self.input_label.setObjectName('zone-title')
+        input_head.addWidget(self.input_label)
+        input_head.addStretch(1)
         self.load_btn = QPushButton()
         self.load_btn.setProperty('compactAction', True)
         self.load_btn.clicked.connect(self._load_file)
-        toolbar.addWidget(self.load_btn)
+        input_head.addWidget(self.load_btn)
         self.paste_btn = QPushButton()
         self.paste_btn.setProperty('compactAction', True)
         self.paste_btn.clicked.connect(self._paste_sql)
-        toolbar.addWidget(self.paste_btn)
+        input_head.addWidget(self.paste_btn)
         self.clear_btn = QPushButton()
         self.clear_btn.setProperty('compactAction', True)
         self.clear_btn.clicked.connect(self._clear_sql)
-        toolbar.addWidget(self.clear_btn)
-        toolbar.addStretch(1)
+        input_head.addWidget(self.clear_btn)
         self.status = QLabel('就绪')
         self.status.setObjectName('status-pill')
         size_status_pill(self.status)
-        self.status.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-        toolbar.addWidget(self.status, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(sql_bar)
+        input_head.addWidget(self.status)
+        input_outer.addLayout(input_head)
 
-        self.delivery_group = QGroupBox()
+        # 交付上下文（系统/环境/日期/目录）并入输入区一行，不另开「交付信息」大标题
+        self.delivery_group = QFrame()
+        self.delivery_group.setObjectName('sql-delivery-zone')
         delivery = QVBoxLayout(self.delivery_group)
-        delivery.setSpacing(8)
+        delivery.setContentsMargins(0, 0, 0, 0)
+        delivery.setSpacing(6)
         first = QHBoxLayout()
         first.setSpacing(8)
+        self.work_system_label = QLabel()
+        self.work_system_label.setObjectName('field-caption')
+        size_caption(self.work_system_label)
+        first.addWidget(self.work_system_label)
+        # 输入区直接选择系统（与配置页 system_combo 双向同步）
+        self.work_system_combo = QComboBox()
+        size_combo(self.work_system_combo, 'md')
+        self.work_system_combo.currentIndexChanged.connect(self._on_work_system_changed)
+        first.addWidget(self.work_system_combo)
+        self.work_system_empty = QPushButton()
+        self.work_system_empty.setProperty('compactAction', True)
+        self.work_system_empty.setObjectName('ghost-btn')
+        self.work_system_empty.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.work_system_empty.hide()
+        first.addWidget(self.work_system_empty)
+        # 兼容旧 chip 引用
         self.current_system_label = QLabel()
         self.current_system_label.setObjectName('system-chip')
-        size_system_chip(self.current_system_label)
-        first.addWidget(self.current_system_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.current_system_label.hide()
         first.addStretch(1)
         self.env_label = QLabel()
         self.env_label.setObjectName('field-caption')
@@ -532,37 +568,33 @@ class SqlToolPanel(QWidget):
         self.root_btn.clicked.connect(self._choose_root)
         second.addWidget(self.root_btn)
         delivery.addLayout(second)
+        # 路径说明仅在空/异常时显示
         self.path_note = QLabel()
         self.path_note.setObjectName('path-note')
         self.path_note.setWordWrap(True)
-        self.path_note.setMaximumHeight(40)
+        self.path_note.hide()
         delivery.addWidget(self.path_note)
-        layout.addWidget(self.delivery_group)
+        input_outer.addWidget(self.delivery_group)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(8)
-        input_widget = QWidget()
-        input_widget.setMinimumWidth(220)
-        input_layout = QVBoxLayout(input_widget)
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        self.input_label = QLabel()
-        self.input_label.setObjectName('section-title')
-        input_layout.addWidget(self.input_label)
         self.input_sql = QPlainTextEdit()
+        self.input_sql.setObjectName('sql-input-editor')
         self.input_sql.setFont(QFont('Consolas', 10))
-        self.input_sql.setSizePolicy(self.input_sql.sizePolicy().horizontalPolicy(), self.input_sql.sizePolicy().verticalPolicy())
+        self.input_sql.setMinimumHeight(120)
         self.input_sql.textChanged.connect(self._reset_sources_if_empty)
-        input_layout.addWidget(self.input_sql, 1)
-        splitter.addWidget(input_widget)
+        self.input_sql.textChanged.connect(self._refresh_path_note_visibility)
+        self.output_root.textChanged.connect(self._refresh_path_note_visibility)
+        input_outer.addWidget(self.input_sql, 1)
+        layout.addWidget(input_zone, 1)
 
-        preview_widget = QWidget()
-        preview_widget.setMinimumWidth(240)
-        preview_layout = QVBoxLayout(preview_widget)
-        preview_layout.setContentsMargins(0, 0, 0, 0)
-        self.preview_label = QLabel()
-        self.preview_label.setObjectName('section-title')
-        preview_layout.addWidget(self.preview_label)
+        # —— 预览 ——
+        preview_zone = QFrame()
+        preview_zone.setObjectName('sql-editor-zone')
+        preview_outer = QVBoxLayout(preview_zone)
+        preview_outer.setContentsMargins(12, 10, 12, 12)
+        preview_outer.setSpacing(6)
+        self.preview_label = QLabel('预览')
+        self.preview_label.setObjectName('zone-title')
+        preview_outer.addWidget(self.preview_label)
         self.preview_tabs = QTabWidget()
         self.preview_tabs.setObjectName('module-tabs')
         self.preview_tabs.setDocumentMode(True)
@@ -574,18 +606,18 @@ class SqlToolPanel(QWidget):
         self.preview_tabs.addTab(self.upgrade_preview, '')
         self.preview_tabs.addTab(self.rollback_preview, '')
         self.preview_tabs.addTab(self.validation_preview, '')
-        preview_layout.addWidget(self.preview_tabs, 1)
-        splitter.addWidget(preview_widget)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([480, 520])
-        layout.addWidget(splitter, 1)
+        preview_outer.addWidget(self.preview_tabs, 1)
+        layout.addWidget(preview_zone, 1)
 
-        self.progress = AuroraProgress()
-        layout.addWidget(self.progress)
-
-        actions = QHBoxLayout()
+        # —— 导出 ——
+        action_zone = QFrame()
+        action_zone.setObjectName('sql-action-zone')
+        actions = QHBoxLayout(action_zone)
+        actions.setContentsMargins(14, 10, 14, 10)
         actions.setSpacing(8)
+        self.sql_action_title = QLabel('导出')
+        self.sql_action_title.setObjectName('zone-title-inline')
+        actions.addWidget(self.sql_action_title)
         self.analyze_btn = QPushButton()
         self.analyze_btn.setProperty('compactAction', True)
         self.analyze_btn.clicked.connect(self._analyze)
@@ -599,8 +631,30 @@ class SqlToolPanel(QWidget):
         self.export_btn.setObjectName('primary-btn')
         self.export_btn.clicked.connect(self._export_package)
         actions.addWidget(self.export_btn)
-        layout.addLayout(actions)
+        layout.addWidget(action_zone)
+
+        # 兼容旧属性名（set_language / 测试）
+        self.sql_tool_title = self.input_label
+        self.delivery_zone_title = self.input_label
+        self.sql_editor_title = self.preview_label
         return tab
+
+    def _refresh_path_note_visibility(self):
+        root = self.output_root.text().strip() if hasattr(self, 'output_root') else ''
+        if not root:
+            self.path_note.setText(
+                '请填写输出目录。导出时将按 日期/环境/DDL|DML/系统 组织。'
+                if self.language == 'zh' else
+                'Set an output directory first.'
+            )
+            self.path_note.show()
+        elif not os.path.isdir(root):
+            self.path_note.setText(
+                f'目录不存在：{root}' if self.language == 'zh' else f'Missing folder: {root}'
+            )
+            self.path_note.show()
+        else:
+            self.path_note.hide()
 
     @staticmethod
     def _preview_editor():
@@ -702,6 +756,43 @@ class SqlToolPanel(QWidget):
         form.addRow(label, widget)
         return line_edit
 
+    def apply_layout_mode(self, mode, low_height=False):
+        """升级准备/SQL：窄屏保留系统、环境、日期、导入/粘贴、生成主操作。"""
+        self._layout_mode = mode
+        from ui.responsive import set_subtitle_visible, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        # 次要：清空、检查、生成预览 进更多隐藏；主：导出、导入、粘贴
+        secondary = []
+        for name in ('clear_btn', 'analyze_btn', 'preview_btn'):
+            w = getattr(self, name, None)
+            if w is not None:
+                secondary.append(w)
+        primary_keep = []
+        for name in ('load_btn', 'paste_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
+            w = getattr(self, name, None)
+            if w is not None:
+                primary_keep.append(w)
+        if mode == 'narrow':
+            for w in secondary:
+                w.hide()
+            for w in primary_keep:
+                w.show()
+        elif mode == 'compact':
+            for w in secondary:
+                # 清空进更多（隐藏），检查可藏
+                w.setVisible(w is getattr(self, 'analyze_btn', None))
+            for w in primary_keep:
+                w.show()
+            if hasattr(self, 'clear_btn'):
+                self.clear_btn.hide()
+        else:
+            for w in secondary + primary_keep:
+                w.show()
+        for editor_name in ('input_edit', 'sql_editor', 'editor'):
+            ed = getattr(self, editor_name, None)
+            if ed is not None and hasattr(ed, 'setMinimumHeight'):
+                ed.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
@@ -709,21 +800,16 @@ class SqlToolPanel(QWidget):
         self.paste_btn.setText('粘贴 SQL' if zh else 'Paste SQL')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.tabs.setTabText(0, '升级准备' if zh else 'Release Prep')
-        self.tabs.setTabText(1, 'SQL 整理' if zh else 'SQL Scripts')
+        self.tabs.setTabText(1, '发版联动' if zh else 'Release Link')
         self.tabs.setTabText(2, '系统配置' if zh else 'Systems')
-        self.delivery_group.setTitle('交付信息' if zh else 'Delivery')
+        self.input_label.setText('输入' if zh else 'Input')
+        self.sql_action_title.setText('导出' if zh else 'Export')
         self.env_label.setText('环境' if zh else 'Env')
         self.env_combo.setItemText(0, '模拟环境' if zh else 'Simulation')
         self.env_combo.setItemText(1, '生产环境' if zh else 'Production')
         self.date_label.setText('日期' if zh else 'Date')
         self.root_label.setText('输出目录' if zh else 'Output')
         self.root_btn.setText('选择' if zh else 'Browse')
-        self.path_note.setText(
-            '目录：日期/环境/DDL|DML/系统/升级|回滚；验证 SQL 不进 SVN。'
-            if zh else
-            'Path: date/env/DDL|DML/system/upgrade|rollback; validation stays outside SVN.'
-        )
-        self.input_label.setText('SQL 输入' if zh else 'SQL input')
         self.preview_label.setText('预览' if zh else 'Preview')
         self.preview_tabs.setTabText(0, '升级 SQL' if zh else 'Upgrade SQL')
         self.preview_tabs.setTabText(1, '回滚 SQL' if zh else 'Rollback SQL')
@@ -731,6 +817,7 @@ class SqlToolPanel(QWidget):
         self.analyze_btn.setText('检查 SQL' if zh else 'Check SQL')
         self.preview_btn.setText('生成预览' if zh else 'Preview')
         self.export_btn.setText('导出全部' if zh else 'Export all')
+        self._refresh_path_note_visibility()
         self.identity_group.setTitle('系统与文件名' if zh else 'System & filename')
         self.sim_group.setTitle('模拟环境' if zh else 'Simulation')
         self.prod_group.setTitle('生产环境' if zh else 'Production')
@@ -752,7 +839,11 @@ class SqlToolPanel(QWidget):
         ready = '就绪' if zh else 'Ready'
         if not self.status.text() or self.status.text() in ('就绪', 'Ready') or self.status.toolTip() in ('就绪', 'Ready', ''):
             self._set_status_label(self.status, ready, ready, max_chars=6)
-        self.config_system_label.setText('配置系统' if zh else 'System')
+        self.config_system_label.setText('当前配置系统' if zh else 'Configured system')
+        if hasattr(self, 'work_system_label'):
+            self.work_system_label.setText('当前系统' if zh else 'System')
+        if hasattr(self, 'work_system_empty'):
+            self.work_system_empty.setText('请先新增系统' if zh else 'Add a system first')
         self._update_current_system_label()
 
     def _load_systems(self):
@@ -760,9 +851,16 @@ class SqlToolPanel(QWidget):
         self.system_combo.clear()
         self.system_combo.addItems([system['name'] for system in self._systems])
         self.system_combo.blockSignals(False)
+        if hasattr(self, 'work_system_combo'):
+            self.work_system_combo.blockSignals(True)
+            self.work_system_combo.clear()
+            self.work_system_combo.addItems([system['name'] for system in self._systems])
+            self.work_system_combo.blockSignals(False)
         if self._systems:
             self._current_system_idx = min(self._current_system_idx, len(self._systems) - 1)
             self.system_combo.setCurrentIndex(self._current_system_idx)
+            if hasattr(self, 'work_system_combo'):
+                self.work_system_combo.setCurrentIndex(self._current_system_idx)
             self._populate_form()
         self._update_current_system_label()
         if hasattr(self, 'release_extra_sql_system'):
@@ -815,6 +913,18 @@ class SqlToolPanel(QWidget):
             self._current_system_idx = index
             self._populate_form()
             self._update_current_system_label()
+            if hasattr(self, 'work_system_combo') and self.work_system_combo.currentIndex() != index:
+                self.work_system_combo.blockSignals(True)
+                self.work_system_combo.setCurrentIndex(index)
+                self.work_system_combo.blockSignals(False)
+
+    def _on_work_system_changed(self, index):
+        """输入区系统下拉 → 同步配置页 system_combo。"""
+        if 0 <= index < len(self._systems):
+            if self.system_combo.currentIndex() != index:
+                self.system_combo.setCurrentIndex(index)
+            else:
+                self._on_system_changed(index)
 
     def _set_status_label(self, label, text, tip=None, max_chars=18):
         """状态胶囊：按内容收缩；过长省略，完整文案放 tooltip。"""
@@ -830,12 +940,22 @@ class SqlToolPanel(QWidget):
     def _update_current_system_label(self):
         system = self._get_system()
         name = system.get('name', '') if system else '-'
+        has_systems = bool(self._systems)
+        if hasattr(self, 'work_system_combo'):
+            self.work_system_combo.setVisible(has_systems)
+            if hasattr(self, 'work_system_empty'):
+                self.work_system_empty.setVisible(not has_systems)
+            if has_systems and 0 <= self._current_system_idx < len(self._systems):
+                if self.work_system_combo.currentIndex() != self._current_system_idx:
+                    self.work_system_combo.blockSignals(True)
+                    self.work_system_combo.setCurrentIndex(self._current_system_idx)
+                    self.work_system_combo.blockSignals(False)
         if self.language == 'zh':
             short = f'系统 · {name}'
-            tip = f'当前系统：{name}\n请到「系统配置」页切换'
+            tip = f'当前系统：{name}'
         else:
             short = f'Sys · {name}'
-            tip = f'Configured system: {name}\nSwitch on System Config tab'
+            tip = f'Configured system: {name}'
         self._set_status_label(self.current_system_label, short, tip, max_chars=16)
 
     def _add_system(self):
@@ -1082,7 +1202,14 @@ class SqlToolPanel(QWidget):
         self._export_worker.start()
 
     def _on_export_completed(self, paths):
-        self._preview_package()
+        try:
+            self._preview_package()
+        except Exception:
+            # 预览失败不吞掉导出成功态；仍结束 Loading
+            pass
+        self.progress.finish(
+            f'已写出 {len(paths)} 个交付文件' if self.language == 'zh' else f'Wrote {len(paths)} delivery file(s)'
+        )
         self._set_status_label(
             self.status,
             f'已导出 {len(paths)} 个' if self.language == 'zh' else f'Exported {len(paths)}',

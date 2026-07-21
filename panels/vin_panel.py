@@ -5,10 +5,11 @@ import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QGroupBox, QHeaderView, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
 from ui.field_metrics import size_combo
 
@@ -58,9 +59,11 @@ class VinPanel(QWidget):
         layout.addWidget(self.table)
 
         bottom = QHBoxLayout()
+        # 结果数量放表格右上区域语义：右侧状态 pill
         self.status = QLabel()
-        bottom.addWidget(self.status)
+        self.status.setObjectName('status-pill')
         bottom.addStretch()
+        bottom.addWidget(self.status)
         self.copy_btn = QPushButton()
         self.copy_btn.clicked.connect(self._copy)
         bottom.addWidget(self.copy_btn)
@@ -68,6 +71,11 @@ class VinPanel(QWidget):
         self.export_btn.clicked.connect(self._export)
         bottom.addWidget(self.export_btn)
         layout.addLayout(bottom)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        set_subtitle_visible(getattr(self, 'subtitle', None), low_height)
 
     def set_language(self, language):
         self.language = language
@@ -95,8 +103,10 @@ class VinPanel(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, column, item)
         self.status.setText(
-            '已自动填充 10 条有效 VIN（GB 16735 校验位）'
-            if self.language == 'zh' else 'Filled 10 valid VINs (GB 16735 check digit)'
+            f'{len(self._results)} 条' if self.language == 'zh' else f'{len(self._results)} rows'
+        )
+        self.status.setToolTip(
+            'GB 16735 校验位' if self.language == 'zh' else 'GB 16735 check digit'
         )
 
     def _copy(self):
@@ -121,4 +131,4 @@ class VinPanel(QWidget):
                 writer.writerows((vin, vin[:3], vin[9], validate_vin(vin)) for vin in self._results)
             self.status.setText(path)
         except OSError as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            show_error(self, 'Error', str(exc))

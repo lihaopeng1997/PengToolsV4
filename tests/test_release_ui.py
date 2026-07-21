@@ -25,7 +25,7 @@ from panels.requirement_panel import DateInput, RequirementDialog, RequirementPa
 from panels.sql_panel import SqlToolPanel
 from tools.release_prep import RELEASE_HEADERS, RELEASE_WORKBOOK_NAME
 from main_window import MainWindow
-from config import local_data_dir
+from config import DEFAULT_SETTINGS, local_data_dir
 from ui.confirm_dialog import AppNoticeDialog, CloseActionDialog, ConfirmActionDialog, NextStepDialog
 from tools.svn_workspace import add_text_file, checkout, commit_working_copy, run_svn, scan_working_copies, workspace_files
 
@@ -87,9 +87,20 @@ class ReleaseUiTests(unittest.TestCase):
         close_dialog = CloseActionDialog(language='zh', default_action='minimize')
         close_dialog.show()
         self.app.processEvents()
+        self.assertEqual(close_dialog.windowTitle(), '关闭 PengTools？')
         self.assertTrue(close_dialog.minimize_button.hasFocus())
+        self.assertFalse(close_dialog.dont_ask_again())
+        close_dialog.dont_ask_check.setChecked(True)
         close_dialog.minimize_button.clicked.emit()
         self.assertEqual(close_dialog.selected_action(), 'minimize')
+        self.assertTrue(close_dialog.dont_ask_again())
+
+        # 默认动作若为 exit：焦点仍落在安全控件（取消），不误触危险卡
+        close_exit_default = CloseActionDialog(language='zh', default_action='exit')
+        close_exit_default.show()
+        self.app.processEvents()
+        self.assertTrue(close_exit_default.cancel_button.hasFocus())
+        close_exit_default.reject()
 
         panel = SqlToolPanel()
         original_count = len(panel._systems)
@@ -105,9 +116,9 @@ class ReleaseUiTests(unittest.TestCase):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
             panel = RequirementPanel()
         self.assertFalse(hasattr(panel, 'category_filter'))
-        self.assertEqual(panel.lock_file_btn.text(), '锁定文件')
-        self.assertEqual(panel.unlock_file_btn.text(), '解锁文件')
-        self.assertEqual(panel.scan_btn.text(), '扫描目录')
+        self.assertEqual(panel.lock_file_btn.text(), '锁定')
+        self.assertEqual(panel.unlock_file_btn.text(), '解锁')
+        self.assertEqual(panel.scan_btn.text(), '扫描需求目录')
         self.assertEqual(panel.checkout_btn.text(), '检出代码')
         self.assertEqual(panel.bug_btn.text(), '登记缺陷')
         with patch('panels.requirement_panel.QInputDialog.getMultiLineText', return_value=('BUG-100 测试问题', True)), \
@@ -240,8 +251,11 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreater(june.font(0).pointSize(), sql_item.font(0).pointSize())
             self.assertEqual(sql_item.text(0), 'REQ-SQL')
             self.assertIn('SQL change', sql_item.text(1))
-            self.assertIn('🔴SQL', sql_item.text(1))
-            self.assertIn('🔴周边', sql_item.text(1))
+            self.assertIn('SQL·待完成', sql_item.text(1))
+            self.assertTrue(
+                '周边·待完成' in sql_item.text(1) or '周边' in sql_item.text(1),
+                sql_item.text(1),
+            )
 
             panel._move_requirements(['keep'], '2026-06')
             self.assertEqual(next(item for item in panel._requirements if item['id'] == 'keep')['online_month'], '2026-06')
@@ -314,17 +328,23 @@ class ReleaseUiTests(unittest.TestCase):
             }
             panel._file_tree_path = temp
             panel._file_tree_loaded(entries)
-            self.assertEqual(panel.file_tree.columnCount(), 4)
-            self.assertEqual([panel.file_tree.headerItem().text(index) for index in range(4)], ['名称', '修改时间', '类型', '大小'])
+            self.assertEqual(panel.file_tree.columnCount(), 5)
+            self.assertEqual(
+                [panel.file_tree.headerItem().text(index) for index in range(5)],
+                ['名称', '类型', '修改时间', '大小', '路径'],
+            )
             header = panel.file_tree.header()
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for index in range(1, 4):
+            # 全部 Interactive：可横向滚动、拖动调列宽；支持拖拽调列序
+            for index in range(5):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(header.sectionsMovable())
             self.assertFalse(header.stretchLastSection())
             sql_folder = next(panel.file_tree.topLevelItem(index) for index in range(panel.file_tree.topLevelItemCount()) if 'SQL' in panel.file_tree.topLevelItem(index).text(0))
             self.assertTrue(sql_folder.isExpanded())
             self.assertTrue(sql_folder.child(0).text(0).startswith('🔒'))
             self.assertFalse(sql_folder.child(0).icon(0).isNull())
+            # 仅名称列有图标
+            self.assertTrue(sql_folder.child(0).icon(1).isNull())
             panel.close()
 
     def test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls(self):
@@ -341,8 +361,10 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertFalse(panel.batch_delete_btn.isEnabled())
             self.assertEqual(panel.expand_tree_btn.text(), '全部展开')
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
+            self.assertTrue(hasattr(panel, 'file_search_edit'))
+            for col in range(5):
+                self.assertEqual(panel.file_tree.header().sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
             self.assertTrue(panel.file_tree.header().sectionsMovable())
-            self.assertEqual(panel.file_tree.header().sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
             panel.close()
 
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):
@@ -359,26 +381,32 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreaterEqual(panel.detail_splitter.handleWidth(), 8)
             self.assertFalse(panel.detail_splitter.childrenCollapsible())
             self.assertGreaterEqual(panel.detail_splitter.widget(1).minimumWidth(), 360)
-            self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
-            self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
+            # 上下：摘要紧凑 + 文件库占满，无垂直 splitter
+            self.assertIsNone(panel.file_sql_splitter)
+            from PyQt6.QtWidgets import QSizePolicy
+            self.assertEqual(panel.detail_card.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum)
+            from panels.requirement_panel import normalize_content_splitter_sizes
+            self.assertEqual(normalize_content_splitter_sizes(total_h=1000, top_h=160), [160, 840])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()
             self.assertGreater(sizes[0], 430)
             self.assertGreaterEqual(panel.detail_splitter.widget(0).minimumWidth(), 200)
-            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 180)
-            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 112)
-            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 112)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 0).widget(), panel.open_folder_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 3).widget(), panel.add_file_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 0).widget(), panel.new_text_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 3).widget(), panel.commit_btn)
+            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 160)
+            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 100)
+            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 100)
+            for button in (panel.open_folder_btn, panel.add_file_btn, panel.new_text_btn, panel.commit_btn):
+                self.assertIsNotNone(button)
+                self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
-            self.assertEqual(panel.sql_btn.text(), '整理 SQL')
+            self.assertEqual(panel.sql_btn.text(), '打开发版联动')
+            self.assertTrue(hasattr(panel, 'bind_status'))
+            self.assertTrue(panel.svn_activity.isHidden())
 
             panel._save_splitter_sizes()
-            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': panel.file_sql_splitter.sizes()})
+            content_sizes = panel._content_stack_sizes()
+            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': content_sizes})
             panel.close()
 
         style_path = os.path.join(ROOT, 'resources', 'style.qss')
@@ -386,7 +414,8 @@ class ReleaseUiTests(unittest.TestCase):
             style = stream.read()
             self.assertIn('QSplitter#requirement-splitter::handle:horizontal', style)
             self.assertIn('QTreeWidget#requirement-file-tree QHeaderView::section', style)
-            self.assertIn('border-right: 2px solid #1F2A3D', style)
+            # 浅色导航右边线（主题 token）
+            self.assertIn('border-right: 1px solid __SIDEBAR_BORDER__', style)
 
     def test_global_combo_and_date_styles_have_visible_drop_down_affordance(self):
         style_path = os.path.join(ROOT, 'resources', 'style.qss')
@@ -400,7 +429,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_release_page_is_first_and_date_auto_loads_candidates(self):
         panel = SqlToolPanel()
         self.assertEqual(panel.tabs.tabText(0), '升级准备')
-        self.assertEqual(panel.tabs.tabText(1), 'SQL 整理')
+        self.assertEqual(panel.tabs.tabText(1), '发版联动')
         self.assertEqual(panel.tabs.tabText(2), '系统配置')
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
@@ -443,22 +472,39 @@ class ReleaseUiTests(unittest.TestCase):
         panel.close()
 
     def test_only_learning_module_is_hidden(self):
-        window = MainWindow()
-        self.assertTrue(window.nav_buttons[8].isHidden())
-        self.assertFalse(window.nav_buttons[9].isHidden())
-        self.assertFalse(window.nav_buttons[10].isHidden())
-        window._show_panel(9)
-        self.assertEqual(window._current_nav_index, 9)
-        window._show_panel(8)
-        self.assertEqual(window._current_nav_index, 9)
-        with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
-            self.assertTrue(window._unlock_private_tools())
-        self.assertFalse(window.nav_buttons[8].isHidden())
-        window._open_system_config()
-        self.assertEqual(window._current_nav_index, 2)
-        self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
-        window._force_exit = True
-        window.close()
+        locked = dict(DEFAULT_SETTINGS)
+        locked['private_unlocked'] = False
+        with patch('main_window.load_settings', return_value=locked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[9].isHidden())
+            self.assertFalse(window.nav_buttons[10].isHidden())
+            window._show_panel(9)
+            self.assertEqual(window._current_nav_index, 9)
+            window._show_panel(8)
+            self.assertEqual(window._current_nav_index, 9)
+            with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
+                self.assertTrue(window._unlock_private_tools())
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            self.assertTrue(window._settings.get('private_unlocked'))
+            window._open_system_config()
+            self.assertEqual(window._current_nav_index, 2)
+            self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
+            window._force_exit = True
+            window.close()
+
+    def test_private_unlock_persists_across_reopen(self):
+        """彩蛋解锁写入 data 后，重新打开应一直展示自我学习。"""
+        unlocked = dict(DEFAULT_SETTINGS)
+        unlocked['private_unlocked'] = True
+        with patch('main_window.load_settings', return_value=unlocked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window._private_unlocked)
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            window._force_exit = True
+            window.close()
 
     def test_one_click_generates_workbook_and_sql(self):
         requirement = {
@@ -585,7 +631,7 @@ class ReleaseUiTests(unittest.TestCase):
 
     def test_upgrade_reuses_data_directory_and_accepts_legacy_requirement(self):
         old_exe = r'D:\PengToolsPrivate\PengToolsHub_Private_V4.24.exe'
-        new_exe = r'D:\PengToolsPrivate\PengToolsHub_Private.exe'
+        new_exe = r'D:\PengToolsPrivate\PengToolsHub.exe'
         self.assertEqual(local_data_dir(old_exe, True), local_data_dir(new_exe, True))
 
         legacy = {

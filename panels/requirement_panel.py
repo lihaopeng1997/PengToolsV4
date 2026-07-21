@@ -4,15 +4,111 @@ import copy
 import os
 import re
 
-from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QThread, QTimer, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QKeySequence
+from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QRect, QSize, QThread, QTimer, QUrl, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFontMetrics, QKeySequence, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
-    QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit,
+    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
+    QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
+
+
+class _WrapTextDelegate(QStyledItemDelegate):
+    """树/列表名称列：完整换行展示，禁止半截省略；选中态强制高对比字色。"""
+
+    def __init__(self, parent=None, min_height: int = 28, max_lines: int = 3):
+        super().__init__(parent)
+        self._min_height = min_height
+        self._max_lines = max_lines
+
+    def _theme_colors(self):
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            return (
+                QColor(pal.get('PRIMARY', '#668C78')),
+                QColor(pal.get('ON_PRIMARY', '#FFFFFF')),
+                QColor(pal.get('TEXT_STRONG', '#272B29')),
+            )
+        except Exception:
+            return QColor('#668C78'), QColor('#FFFFFF'), QColor('#272B29')
+
+    def paint(self, painter, option, index):
+        self.initStyleOption(option, index)
+        option.textElideMode = Qt.TextElideMode.ElideNone
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ''
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        primary, on_primary, text_strong = self._theme_colors()
+        # 选中：自绘主色底，忽略 setForeground 带来的低对比色
+        if selected:
+            painter.save()
+            painter.fillRect(option.rect.adjusted(1, 1, -1, -1), primary)
+            painter.restore()
+        else:
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget)
+        if not text:
+            return
+        # 图标区
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        left = option.rect.left() + 4
+        if icon is not None and hasattr(icon, 'isNull') and not icon.isNull():
+            icon_size = option.decorationSize if option.decorationSize.isValid() else QSize(16, 16)
+            icon_rect = QRect(left, option.rect.top() + 4, icon_size.width(), icon_size.height())
+            icon.paint(painter, icon_rect)
+            left = icon_rect.right() + 6
+        text_rect = QRect(left, option.rect.top() + 2, option.rect.right() - left - 4, option.rect.height() - 4)
+        painter.save()
+        painter.setPen(on_primary if selected else text_strong)
+        # 多行完整绘制
+        fm = QFontMetrics(option.font)
+        line_h = fm.lineSpacing()
+        y = text_rect.top()
+        remaining = str(text)
+        lines = 0
+        while remaining and lines < self._max_lines:
+            n = len(remaining)
+            lo, hi = 1, n
+            best = 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if fm.horizontalAdvance(remaining[:mid]) <= max(8, text_rect.width()):
+                    best = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            chunk = remaining[:best]
+            remaining = remaining[best:]
+            painter.drawText(text_rect.left(), y + fm.ascent(), chunk)
+            y += line_h
+            lines += 1
+            if remaining and lines >= self._max_lines:
+                break
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or '')
+        width = option.rect.width() if option.rect.width() > 40 else 200
+        fm = QFontMetrics(option.font)
+        if not text:
+            return QSize(width, self._min_height)
+        # 估算行数
+        line_w = max(40, width - 28)
+        total = 0
+        line = ''
+        lines = 1
+        for ch in text:
+            if fm.horizontalAdvance(line + ch) > line_w:
+                lines += 1
+                line = ch
+            else:
+                line += ch
+            if lines >= self._max_lines:
+                break
+        h = max(self._min_height, lines * fm.lineSpacing() + 8)
+        return QSize(width, h)
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
@@ -22,8 +118,8 @@ from tools.personal_knowledge import (
     read_text_file,
 )
 from tools.requirements import (
-    CATEGORIES, FLAG_DEFS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
-    classify_requirement, flag_is_active, flag_status_text, load_requirements,
+    CATEGORIES, FLAG_DEFS, FLAG_CHIP_LABELS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
+    classify_requirement, flag_chip_text, flag_is_active, flag_status_text, load_requirements,
     merge_working_copies, merged_sql, normalize_flag_done, normalize_requirement,
     requirement_from_text, requirement_from_working_copy, requirement_search_text,
     save_requirements,
@@ -42,6 +138,23 @@ from ui.field_metrics import size_combo, size_compact_button, size_date, size_li
 
 IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 GROUP_MONTH_ROLE = int(Qt.ItemDataRole.UserRole) + 2
+
+
+def normalize_content_splitter_sizes(stored=None, total_h: int = 800, top_h: int = 160) -> list[int]:
+    """配置兼容：上区按内容高度，其余给文件库（不再使用固定比例）。"""
+    total_h = max(int(total_h or 800), 400)
+    # 优先用显式 top_h；stored 仅作兜底，且夹在合理紧凑区间
+    top = int(top_h or 0)
+    if top <= 0 and isinstance(stored, (list, tuple)) and len(stored) >= 1:
+        try:
+            top = int(stored[0] or 0)
+        except (TypeError, ValueError):
+            top = 0
+    if top <= 0:
+        top = 160
+    top = max(96, min(top, min(280, total_h // 2)))
+    bottom = max(200, total_h - top)
+    return [top, bottom]
 
 
 def format_online_month_label(month):
@@ -375,7 +488,13 @@ class RequirementAttachmentDialog(QDialog):
                 for column in range(self.table.columnCount()):
                     item = self.table.item(row, column)
                     if item and any(term in item.text().casefold() for term in terms):
-                        self._highlights.append((item, QBrush(item.background()))); item.setBackground(QColor('#FFF19C')); first = first or item
+                        self._highlights.append((item, QBrush(item.background())))
+                        try:
+                            from ui.theme_manager import ThemeManager
+                            sc = QColor(ThemeManager.instance().token('SEARCH_MATCH'))
+                        except Exception:
+                            sc = QColor('#FFF19C')
+                        item.setBackground(sc); first = first or item
         if first:
             self.table.setCurrentItem(first); self.table.scrollToItem(first, QAbstractItemView.ScrollHint.PositionAtCenter); self.table.clearSelection()
 
@@ -560,16 +679,20 @@ class RequirementDialog(QDialog):
         flag_wrap = QVBoxLayout(flag_card)
         flag_wrap.setContentsMargins(12, 10, 12, 10)
         flag_wrap.setSpacing(8)
-        flag_title = QLabel('升级标记（勾选后可在右侧点击切换完成状态）')
+        flag_title = QLabel('上线事项')
         flag_title.setObjectName('section-title')
         flag_wrap.addWidget(flag_title)
+        flag_hint = QLabel('勾选本需求/BUG需要处理的事项；保存后可在详情中标记是否完成。')
+        flag_hint.setObjectName('field-hint')
+        flag_hint.setWordWrap(True)
+        flag_wrap.addWidget(flag_hint)
         flags = QGridLayout()
         flags.setHorizontalSpacing(14)
         flags.setVerticalSpacing(8)
-        self.has_sql = QCheckBox('包含 SQL')
-        self.peripheral = QCheckBox('需通知周边系统升级')
-        self.temporary = QCheckBox('临时升级')
-        self.interface_update = QCheckBox('需整理接口文档')
+        self.has_sql = QCheckBox('涉及 SQL')
+        self.peripheral = QCheckBox('通知周边系统')
+        self.temporary = QCheckBox('临时/紧急升级')
+        self.interface_update = QCheckBox('更新接口文档')
         self.has_sql.setChecked(bool(inferred.get('has_sql') or base.get('has_sql') or self._sql_parts))
         self.peripheral.setChecked(bool(inferred.get('needs_peripheral_upgrade') or base.get('needs_peripheral_upgrade')))
         self.temporary.setChecked(bool(inferred.get('temporary_upgrade') or base.get('temporary_upgrade')))
@@ -615,7 +738,7 @@ class RequirementDialog(QDialog):
         self.sql_list = QListWidget(); self.sql_list.setMaximumHeight(105)
         layout.addWidget(self.sql_list)
         self.sql_paste = QPlainTextEdit()
-        self.sql_paste.setPlaceholderText('也可以直接粘贴需求 SQL；保存后可一键发送到 SQL 整理和接口 DOCX。')
+        self.sql_paste.setPlaceholderText('也可以直接粘贴需求 SQL；保存后可一键发送到发版联动和接口 DOCX。')
         self.sql_paste.setMaximumHeight(95)
         layout.addWidget(self.sql_paste)
         scroll.setWidget(body)
@@ -822,47 +945,80 @@ class RequirementPanel(QWidget):
         self._pending_file_refresh = False
         self._task_failed = False
         self._task_shows_loading = False
+        self._file_entries_cache = []
+        self._file_sort_column = 0
+        self._file_sort_order = Qt.SortOrder.AscendingOrder
+        self._search_expand_snapshot = None
         self._setup_ui(); self.set_language(language); self._refresh()
 
     def _setup_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(12)
 
-        # 顶栏操作区
+        # V2.0 标题区：一个 Primary + 次级动作
+        page_head = QHBoxLayout()
+        page_head.setSpacing(12)
+        try:
+            from ui.page_chrome import make_page_header
+            self.add_btn = QPushButton('新增需求')
+            self.add_btn.setObjectName('primary-btn')
+            self.add_btn.clicked.connect(self._add_requirement)
+            header_frame, self.page_title, self.page_subtitle = make_page_header(
+                '需求管理',
+                '需求、BUG、文件、SQL 与升级联动',
+                'requirements',
+                primary_button=self.add_btn,
+            )
+            page_head.addWidget(header_frame, 1)
+        except Exception:
+            self.page_title = QLabel('需求管理'); self.page_title.setObjectName('page-title')
+            self.page_subtitle = QLabel('需求、BUG、文件、SQL 与升级联动'); self.page_subtitle.setObjectName('page-subtitle')
+            titles = QVBoxLayout(); titles.addWidget(self.page_title); titles.addWidget(self.page_subtitle)
+            page_head.addLayout(titles, 1)
+            self.add_btn = QPushButton('新增需求'); self.add_btn.setObjectName('primary-btn'); self.add_btn.clicked.connect(self._add_requirement)
+            page_head.addWidget(self.add_btn)
+        root.addLayout(page_head)
+
+        # 次级工具条（扫描/检出/更新等，不抢 Primary）
         toolbar_card = QFrame()
-        toolbar_card.setObjectName('req-toolbar-card')
-        toolbar_layout = QVBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(10, 8, 10, 8)
-        toolbar_layout.setSpacing(6)
-        header = QHBoxLayout()
-        header.setSpacing(8)
-        self.scan_btn = QPushButton('扫描目录'); self.scan_btn.clicked.connect(self._scan_folder)
+        toolbar_card.setObjectName('page-filter-bar')
+        toolbar_layout = QHBoxLayout(toolbar_card)
+        toolbar_layout.setContentsMargins(12, 8, 12, 8)
+        toolbar_layout.setSpacing(8)
+        self.scan_btn = QPushButton('扫描需求目录'); self.scan_btn.clicked.connect(self._scan_folder)
         self.checkout_btn = QPushButton('检出代码'); self.checkout_btn.clicked.connect(self._checkout_svn)
         self.update_all_btn = QPushButton('更新全部'); self.update_all_btn.clicked.connect(self._update_all)
-        self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
         self.bug_btn = QPushButton('登记缺陷'); self.bug_btn.clicked.connect(self._paste_bug)
         self.import_btn = QPushButton('导入资料'); self.import_btn.clicked.connect(self._import_requirement)
-        self.add_btn = QPushButton('新建需求'); self.add_btn.setObjectName('primary-btn'); self.add_btn.clicked.connect(self._add_requirement)
-        for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn, self.add_btn):
+        self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
+        for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
             button.setProperty('compactAction', True)
             button.setMinimumHeight(32)
-            header.addWidget(button)
-        header.addStretch()
-        toolbar_layout.addLayout(header)
-        self.svn_activity = QLabel('流程：扫描/检出 → 左侧选需求 → 右侧看详情与文件。双击文件夹展开，双击文件打开；点击标记切换红/绿点。')
-        self.svn_activity.setObjectName('path-note'); self.svn_activity.setWordWrap(True)
-        toolbar_layout.addWidget(self.svn_activity)
+            toolbar_layout.addWidget(button)
+        toolbar_layout.addStretch(1)
+        # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明
+        self.svn_activity = QLabel('')
+        self.svn_activity.setObjectName('small-label')
+        self.svn_activity.setWordWrap(True)
+        self.svn_activity.hide()
+        toolbar_layout.addWidget(self.svn_activity, 1)
         root.addWidget(toolbar_card)
         self.loading = AuroraProgress(self)
 
         filter_card = QFrame()
         filter_card.setObjectName('req-filter-card')
         filters = QHBoxLayout(filter_card)
-        filters.setContentsMargins(10, 8, 10, 8)
+        filters.setContentsMargins(12, 9, 12, 9)
         filters.setSpacing(8)
-        self.search_edit = QLineEdit(); self.search_edit.setPlaceholderText('全文搜索：编号、标题、说明、SQL、系统……')
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText('搜索编号、标题、系统…（支持拼音/首字母）')
         size_line(self.search_edit, 'search')
-        self.search_edit.setClearButtonEnabled(True); self.search_edit.textChanged.connect(self._refresh)
+        self.search_edit.setClearButtonEnabled(True)
+        self._req_search_timer = QTimer(self)
+        self._req_search_timer.setSingleShot(True)
+        self._req_search_timer.setInterval(150)
+        self._req_search_timer.timeout.connect(self._refresh)
+        self.search_edit.textChanged.connect(lambda *_: self._req_search_timer.start())
         self.status_filter = QComboBox(); self.status_filter.addItems(('全部状态',) + STATUSES); self.status_filter.currentIndexChanged.connect(self._refresh)
         self.kind_filter = QComboBox(); self.kind_filter.addItems(('全部类型', '需求', 'BUG')); self.kind_filter.currentIndexChanged.connect(self._refresh)
         self.system_filter = QComboBox(); self._fill_system_filter(); self.system_filter.currentIndexChanged.connect(self._refresh)
@@ -874,23 +1030,25 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setObjectName('requirement-splitter')
         self.detail_splitter.setHandleWidth(10)
         self.detail_splitter.setChildrenCollapsible(False)
+        self.detail_splitter.setOpaqueResize(True)
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)
         left.setMinimumWidth(200)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        left_layout.setSpacing(6)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        left_layout.setSpacing(7)
         tree_head = QHBoxLayout()
         tree_head.setSpacing(6)
-        tree_title = QLabel('需求列表')
+        tree_title = QLabel('需求目录')
         tree_title.setObjectName('zone-title')
         tree_head.addWidget(tree_title)
+        self.tree_count_label = QLabel('')
+        self.tree_count_label.setObjectName('small-label')
+        tree_head.addWidget(self.tree_count_label)
         tree_head.addStretch()
         left_layout.addLayout(tree_head)
-        # 两行工具条：窄侧栏时也能看到「删除」，避免被展开/折叠按钮挤掉
-        tree_tools = QVBoxLayout()
+        # 单行工具栏：全选 | 删除 | stretch | 展开 | 折叠（设计文档硬性要求，禁止拆两行）
+        tree_tools = QHBoxLayout()
         tree_tools.setContentsMargins(0, 0, 0, 0)
-        tree_tools.setSpacing(4)
-        tree_row1 = QHBoxLayout()
-        tree_row1.setSpacing(6)
+        tree_tools.setSpacing(6)
         self.select_all_check = QCheckBox('全选')
         self.select_all_check.stateChanged.connect(self._select_all_requirements)
         self.batch_delete_btn = QPushButton('删除')
@@ -900,25 +1058,38 @@ class RequirementPanel(QWidget):
         self.batch_delete_btn.setMinimumWidth(64)
         self.batch_delete_btn.setToolTip('删除左侧树中当前选中的需求/BUG（支持全选后批量删除；也可按 Delete）')
         self.batch_delete_btn.clicked.connect(self._delete_requirement)
-        tree_row1.addWidget(self.select_all_check)
-        tree_row1.addWidget(self.batch_delete_btn)
-        tree_row1.addStretch()
-        tree_row2 = QHBoxLayout()
-        tree_row2.setSpacing(6)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.batch_delete_btn, 'danger', compact=True, icon='delete', icon_size=16)
+        except Exception:
+            pass
         self.expand_tree_btn = QPushButton('全部展开')
         self.expand_tree_btn.setProperty('compactAction', True)
+        self.expand_tree_btn.setToolTip('全部展开目录分组')
         self.expand_tree_btn.clicked.connect(lambda: self.requirement_list.expandAll())
         self.collapse_tree_btn = QPushButton('全部折叠')
         self.collapse_tree_btn.setProperty('compactAction', True)
+        self.collapse_tree_btn.setToolTip('全部折叠目录分组')
         self.collapse_tree_btn.clicked.connect(lambda: self.requirement_list.collapseAll())
-        tree_row2.addWidget(self.expand_tree_btn)
-        tree_row2.addWidget(self.collapse_tree_btn)
-        tree_row2.addStretch()
-        tree_tools.addLayout(tree_row1)
-        tree_tools.addLayout(tree_row2)
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.expand_tree_btn, 'expand', 16)
+            apply_icon(self.collapse_tree_btn, 'collapse', 16)
+        except Exception:
+            pass
+        tree_tools.addWidget(self.select_all_check)
+        tree_tools.addWidget(self.batch_delete_btn)
+        tree_tools.addStretch(1)
+        tree_tools.addWidget(self.expand_tree_btn)
+        tree_tools.addWidget(self.collapse_tree_btn)
         left_layout.addLayout(tree_tools)
         self.requirement_list = RequirementTree(); self.requirement_list.setObjectName('requirement-tree')
         self.requirement_list.setHeaderHidden(True)
+        self.requirement_list.setUniformRowHeights(False)
+        self.requirement_list.setWordWrap(True)
+        self.requirement_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self._tree_expand_state = {}
+        self._search_expand_snapshot = None
         self.requirement_list.setColumnCount(2)
         self.requirement_list.setRootIsDecorated(True)
         self.requirement_list.setItemsExpandable(True)
@@ -930,13 +1101,17 @@ class RequirementPanel(QWidget):
         self.requirement_list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.requirement_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.requirement_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # 名称/标题列完整换行，禁止半截
+        self._req_title_delegate = _WrapTextDelegate(self.requirement_list, min_height=40, max_lines=3)
+        self.requirement_list.setItemDelegateForColumn(0, self._req_title_delegate)
+        self.requirement_list.setItemDelegateForColumn(1, self._req_title_delegate)
         tree_header = self.requirement_list.header()
         tree_header.setStretchLastSection(True)
-        tree_header.setMinimumSectionSize(72)
+        tree_header.setMinimumSectionSize(96)
         tree_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         tree_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         tree_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.requirement_list.setColumnWidth(0, 200)
+        self.requirement_list.setColumnWidth(0, 220)
         self.requirement_list.setDragEnabled(True); self.requirement_list.setAcceptDrops(True)
         self.requirement_list.setDropIndicatorShown(True); self.requirement_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.requirement_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -955,21 +1130,32 @@ class RequirementPanel(QWidget):
         detail.setContentsMargins(0, 0, 0, 0)
         detail.setSpacing(8)
 
-        # 需求信息：只展示 类型 / 状态 / 系统 / 上线时间
-        self.detail_card = QFrame(); self.detail_card.setObjectName('detail-summary-card')
-        self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # 需求摘要：按内容紧凑高度，不占固定比例；完成标记最多 4 个单行
+        self.detail_card = QFrame()
+        self.detail_card.setObjectName('detail-summary-card')
+        self.detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.detail_card.setMinimumHeight(0)
         card = QVBoxLayout(self.detail_card)
-        card.setContentsMargins(12, 10, 12, 10)
-        card.setSpacing(8)
+        # 底部多留空隙，避免完成标记按钮下边框贴卡底被裁
+        card.setContentsMargins(10, 8, 10, 12)
+        card.setSpacing(6)
         head = QHBoxLayout(); head.setSpacing(8)
-        detail_zone = QLabel('需求详情')
-        detail_zone.setObjectName('zone-title')
-        head.addWidget(detail_zone)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(0)
+        self.detail_eyebrow = QLabel('需求')
+        self.detail_eyebrow.setObjectName('field-caption')
+        title_col.addWidget(self.detail_eyebrow)
         self.detail_title = QLabel('请选择需求')
         self.detail_title.setObjectName('section-title')
         self.detail_title.setWordWrap(False)
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        head.addWidget(self.detail_title, 1)
+        title_col.addWidget(self.detail_title)
+        head.addLayout(title_col, 1)
+        # 资料绑定状态（完整路径只在文件 Tab 展示）
+        self.bind_status = QLabel('未绑定资料')
+        self.bind_status.setObjectName('status-pill')
+        self.bind_status.setToolTip('完整路径见「文件库」页签')
+        head.addWidget(self.bind_status)
         self.edit_btn = QPushButton('编辑')
         self.edit_btn.setProperty('compactAction', True)
         self.edit_btn.setMaximumHeight(28)
@@ -979,19 +1165,20 @@ class RequirementPanel(QWidget):
 
         self.detail_grid = QGridLayout()
         self.detail_grid.setContentsMargins(0, 0, 0, 0)
-        self.detail_grid.setHorizontalSpacing(16)
-        self.detail_grid.setVerticalSpacing(6)
+        self.detail_grid.setHorizontalSpacing(12)
+        self.detail_grid.setVerticalSpacing(4)
         self._detail_fields = {}
+        self._detail_captions = {}
         for index, (key, label) in enumerate((
-            ('kind', '类型'),
-            ('status', '当前状态'),
-            ('system', '所属系统'),
-            ('online', '上线时间'),
+            ('kind', '事项类型'),
+            ('status', '进度状态'),
+            ('system', '目标系统'),
+            ('online', '计划上线'),
         )):
             row, col = divmod(index, 2)
             cell = QVBoxLayout()
             cell.setContentsMargins(0, 0, 0, 0)
-            cell.setSpacing(2)
+            cell.setSpacing(1)
             caption = QLabel(label)
             caption.setObjectName('field-caption')
             value = QLabel('—')
@@ -1002,6 +1189,7 @@ class RequirementPanel(QWidget):
             cell.addWidget(value)
             self.detail_grid.addLayout(cell, row, col)
             self._detail_fields[key] = value
+            self._detail_captions[key] = caption
         card.addLayout(self.detail_grid)
 
         # 兼容旧引用
@@ -1009,177 +1197,358 @@ class RequirementPanel(QWidget):
         self.desc_preview = QLabel(); self.desc_preview.hide()
         self.flags = QLabel(); self.flags.hide()
         self.meta = QLabel(); self.meta.hide()
+        # 兼容旧滚动结构引用（现为紧凑直排，无独立 scroll）
+        self.detail_scroll = None
+        self.detail_body = self.detail_card
 
-        # 任务标记：可点击短 chip
+        # 完成标记：最多四个单行；禁止 setFixedHeight 压扁，否则 1px 下边框会被裁掉
+        self.flag_section = QWidget()
+        self.flag_section.setObjectName('flag-section')
+        self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        flag_section_layout = QVBoxLayout(self.flag_section)
+        flag_section_layout.setContentsMargins(0, 4, 0, 6)
+        flag_section_layout.setSpacing(4)
+        self.flag_section_caption = QLabel('完成标记')
+        self.flag_section_caption.setObjectName('flag-section-caption')
+        flag_section_layout.addWidget(self.flag_section_caption)
         self.flag_chips = QWidget()
+        self.flag_chips.setObjectName('flag-chips-host')
+        self.flag_chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.flag_chips_layout = QHBoxLayout(self.flag_chips)
-        self.flag_chips_layout.setContentsMargins(0, 2, 0, 0)
-        self.flag_chips_layout.setSpacing(6)
+        # 四周留白，保证描边完整（尤其下边框）
+        self.flag_chips_layout.setContentsMargins(1, 2, 1, 4)
+        self.flag_chips_layout.setSpacing(8)
+        self.flag_chips_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._flag_buttons = {}
+        self._layouting_flags = False
+        self._showing_requirement = False
+        self._refreshing_tree = False
         for key, short, full in FLAG_DEFS:
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMaximumHeight(26)
-            btn.setToolTip(f'{full} · 点击切换红/绿')
+            btn.setMinimumHeight(30)
+            btn.setMaximumHeight(34)
+            btn.setMinimumWidth(72)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
             self._flag_buttons[key] = btn
-            self.flag_chips_layout.addWidget(btn)
+            # 常驻布局，只 show/hide，避免点击时反复 takeAt/addWidget 触发 Qt 布局重入闪退
+            self.flag_chips_layout.addWidget(btn, 1)
             btn.hide()
-        self.flag_chips_layout.addStretch()
-        card.addWidget(self.flag_chips)
-        detail.addWidget(self.detail_card, 0)
+        flag_section_layout.addWidget(self.flag_chips)
+        self.flag_section.hide()
+        card.addWidget(self.flag_section, 0)
+        self.detail_card.installEventFilter(self)
 
-        self.file_sql_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.file_sql_splitter.setObjectName('requirement-content-splitter')
-        self.file_sql_splitter.setHandleWidth(8)
-        self.file_sql_splitter.setChildrenCollapsible(False)
+        # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName('module-tabs')
+        self.detail_tabs.setDocumentMode(True)
+        self.detail_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.detail_tabs.setMinimumHeight(200)
 
-        # 主区域：文件浏览
+        # —— Tab1: 文件库 ——
         file_section = QFrame()
         file_section.setObjectName('req-file-card')
         file_layout = QVBoxLayout(file_section)
-        file_layout.setContentsMargins(10, 8, 10, 8)
-        file_layout.setSpacing(6)
+        file_layout.setContentsMargins(12, 10, 12, 10)
+        file_layout.setSpacing(7)
         file_head = QHBoxLayout(); file_head.setSpacing(6)
-        file_title = QLabel('文件浏览'); file_title.setObjectName('zone-title')
-        file_head.addWidget(file_title)
+        self.file_lib_title = QLabel('文件库')
+        self.file_lib_title.setObjectName('zone-title')
+        file_head.addWidget(self.file_lib_title)
+        self.file_lib_subtitle = QLabel('需求、BUG、SQL、通知、接口文档与版本库文件')
+        self.file_lib_subtitle.setObjectName('field-hint')
+        file_head.addWidget(self.file_lib_subtitle, 1)
         self.svn_meta = QLabel()
         self.svn_meta.setObjectName('svn-workspace-meta')
         self.svn_meta.setWordWrap(False)
         self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        file_head.addWidget(self.svn_meta, 1)
+        file_head.addWidget(self.svn_meta)
         file_layout.addLayout(file_head)
 
+        # SVN 工具分组：浏览 | 版本控制 | 提交
+        action_card = QFrame(); action_card.setObjectName('detail-action-card')
+        action_card_layout = QHBoxLayout(action_card)
+        action_card_layout.setContentsMargins(8, 6, 8, 6)
+        action_card_layout.setSpacing(6)
+        self.open_folder_btn = QPushButton('打开目录'); self.open_folder_btn.clicked.connect(self._open_folder)
+        self.refresh_svn_btn = QPushButton('刷新'); self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
+        self.update_current_btn = QPushButton('更新'); self.update_current_btn.clicked.connect(self._update_current)
+        self.add_file_btn = QPushButton('添加文件'); self.add_file_btn.clicked.connect(self._add_existing_files)
+        self.new_text_btn = QPushButton('新建文本'); self.new_text_btn.clicked.connect(self._add_text_file)
+        self.lock_file_btn = QPushButton('锁定'); self.lock_file_btn.clicked.connect(self._lock_selected_file)
+        self.unlock_file_btn = QPushButton('解锁'); self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
+        self.commit_btn = QPushButton('提交变更'); self.commit_btn.setObjectName('primary-btn'); self.commit_btn.clicked.connect(self._commit_svn)
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.open_folder_btn, 'folder-open', 16)
+            apply_icon(self.refresh_svn_btn, 'refresh', 16)
+            apply_icon(self.lock_file_btn, 'lock', 16)
+            apply_icon(self.unlock_file_btn, 'unlock', 16)
+        except Exception:
+            pass
+        for button in (
+            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn, self.add_file_btn,
+            self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.commit_btn,
+        ):
+            button.setProperty('compactAction', True)
+            button.setMinimumHeight(28)
+            action_card_layout.addWidget(button)
+        action_card_layout.addStretch(1)
+        # 兼容旧 grid 引用
+        self.svn_actions = QGridLayout()
+        file_layout.addWidget(action_card, 0)
+
+        # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描）
+        file_tools = QHBoxLayout()
+        file_tools.setSpacing(6)
+        self.file_search_edit = QLineEdit()
+        self.file_search_edit.setClearButtonEnabled(True)
+        self.file_search_edit.setPlaceholderText('搜索文件名 / 路径 / 类型 / 扩展名 / 需求号…（支持拼音）')
+        size_line(self.file_search_edit, 'search')
+        self._file_search_timer = QTimer(self)
+        self._file_search_timer.setSingleShot(True)
+        self._file_search_timer.setInterval(150)
+        self._file_search_timer.timeout.connect(self._filter_file_tree_local)
+        self.file_search_edit.textChanged.connect(lambda *_: self._file_search_timer.start())
+        file_tools.addWidget(self.file_search_edit, 1)
+        self.file_expand_btn = QPushButton('全部展开')
+        self.file_expand_btn.setProperty('compactAction', True)
+        self.file_expand_btn.clicked.connect(lambda: self.file_tree.expandAll())
+        self.file_collapse_btn = QPushButton('全部折叠')
+        self.file_collapse_btn.setProperty('compactAction', True)
+        self.file_collapse_btn.clicked.connect(lambda: self.file_tree.collapseAll())
+        self.file_count_label = QLabel('')
+        self.file_count_label.setObjectName('small-label')
+        file_tools.addWidget(self.file_count_label)
+        file_tools.addWidget(self.file_expand_btn)
+        file_tools.addWidget(self.file_collapse_btn)
+        file_layout.addLayout(file_tools)
+
         self.file_tree = QTreeWidget(); self.file_tree.setObjectName('requirement-file-tree')
-        self.file_tree.setHeaderLabels(('名称', '修改时间', '类型', '大小'))
+        self.file_tree.setHeaderLabels(('名称', '类型', '修改时间', '大小', '路径'))
         self.file_tree.setAlternatingRowColors(True)
         self.file_tree.setRootIsDecorated(True)
         self.file_tree.setItemsExpandable(True)
         self.file_tree.setExpandsOnDoubleClick(False)
         self.file_tree.setIndentation(16)
-        self.file_tree.setUniformRowHeights(True)
-        self.file_tree.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.file_tree.setUniformRowHeights(False)
+        self.file_tree.setWordWrap(True)
+        self.file_tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.file_tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_tree.setMinimumHeight(180)
+        # 外部文件拖入工作副本
+        self.file_tree.setAcceptDrops(True)
+        self.file_tree.setDragEnabled(False)
+        self.file_tree.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        self.file_tree.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.file_tree.viewport().setAcceptDrops(True)
+        self.file_tree.viewport().installEventFilter(self)
+        self.file_tree.installEventFilter(self)
+        self._file_name_delegate = _WrapTextDelegate(self.file_tree, min_height=32, max_lines=3)
+        self.file_tree.setItemDelegateForColumn(0, self._file_name_delegate)
+        self._file_sort_column = 0
+        self._file_sort_order = Qt.SortOrder.AscendingOrder
+        self._file_entries_cache = []
         file_header = self.file_tree.header()
         file_header.setObjectName('requirement-file-header')
         file_header.setSectionsClickable(True)
         file_header.setHighlightSections(False)
+        # 支持拖拽调整列顺序；全部 Interactive 才能左右滚动 + 拖动改列宽
         file_header.setSectionsMovable(True)
         file_header.setStretchLastSection(False)
-        file_header.setMinimumSectionSize(56)
+        file_header.setMinimumSectionSize(48)
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        file_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        self.file_tree.setColumnWidth(1, 145)
-        self.file_tree.setColumnWidth(2, 110)
-        self.file_tree.setColumnWidth(3, 90)
+        for col in range(5):
+            file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        file_header.sectionClicked.connect(self._on_file_header_clicked)
+        self.file_tree.setColumnWidth(0, 280)
+        self.file_tree.setColumnWidth(1, 96)
+        self.file_tree.setColumnWidth(2, 140)
+        self.file_tree.setColumnWidth(3, 80)
+        self.file_tree.setColumnWidth(4, 320)
         for index in range(self.file_tree.columnCount()):
-            self.file_tree.headerItem().setToolTip(index, '拖动标题列分隔线可调列宽 · 双击文件夹展开 · 双击文件打开 · 右键打开目录')
+            self.file_tree.headerItem().setToolTip(
+                index,
+                '拖动列分隔线调列宽 · 拖列表头调列序 · 横向滚动看全 · '
+                '仅名称列带图标 · 可拖入本地文件 · 双击打开 · 右键更多',
+            )
         self.file_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_tree.customContextMenuRequested.connect(self._show_file_menu)
         self.file_tree.itemDoubleClicked.connect(self._open_tree_item)
         self.file_tree.currentItemChanged.connect(self._update_lock_buttons)
         file_layout.addWidget(self.file_tree, 1)
+        self.detail_tabs.addTab(file_section, '文件库')
 
-        # 文件操作：紧凑 2×4，不再撑高
-        action_card = QFrame(); action_card.setObjectName('detail-action-card')
-        action_card_layout = QVBoxLayout(action_card)
-        action_card_layout.setContentsMargins(8, 6, 8, 6)
-        action_card_layout.setSpacing(4)
-        self.svn_actions = QGridLayout()
-        self.svn_actions.setHorizontalSpacing(4)
-        self.svn_actions.setVerticalSpacing(4)
-        self.open_folder_btn = QPushButton('打开目录'); self.open_folder_btn.clicked.connect(self._open_folder)
-        self.refresh_svn_btn = QPushButton('刷新列表'); self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
-        self.update_current_btn = QPushButton('更新代码'); self.update_current_btn.clicked.connect(self._update_current)
-        self.add_file_btn = QPushButton('添加文件'); self.add_file_btn.clicked.connect(self._add_existing_files)
-        self.new_text_btn = QPushButton('新建文本'); self.new_text_btn.clicked.connect(self._add_text_file)
-        self.lock_file_btn = QPushButton('锁定文件'); self.lock_file_btn.clicked.connect(self._lock_selected_file)
-        self.unlock_file_btn = QPushButton('解锁文件'); self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
-        self.commit_btn = QPushButton('提交变更'); self.commit_btn.setObjectName('primary-btn'); self.commit_btn.clicked.connect(self._commit_svn)
-        flat_buttons = (
-            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn, self.add_file_btn,
-            self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.commit_btn,
-        )
-        for index, button in enumerate(flat_buttons):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(26)
-            button.setMaximumHeight(28)
-            self.svn_actions.addWidget(button, index // 4, index % 4)
-        for column in range(4):
-            self.svn_actions.setColumnStretch(column, 1)
-        action_card_layout.addLayout(self.svn_actions)
-        file_layout.addWidget(action_card, 0)
-
-        # 底部：SQL 预览 + 业务操作（默认高度较小）
+        # —— Tab2: SQL / 发版联动入口 ——
         sql_section = QFrame()
         sql_section.setObjectName('req-sql-card')
-        sql_section.setMinimumHeight(120)
         sql_layout = QVBoxLayout(sql_section)
-        sql_layout.setContentsMargins(10, 8, 10, 8)
-        sql_layout.setSpacing(6)
+        sql_layout.setContentsMargins(12, 10, 12, 10)
+        sql_layout.setSpacing(7)
         sql_head = QHBoxLayout(); sql_head.setSpacing(6)
-        sql_title = QLabel('关联 SQL'); sql_title.setObjectName('zone-title')
-        sql_head.addWidget(sql_title)
         sql_head.addStretch()
-        self.delete_btn = QPushButton('删除'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
-        self.daily_btn = QPushButton('日报'); self.daily_btn.clicked.connect(self._send_daily)
-        self.docx_btn = QPushButton('接口'); self.docx_btn.clicked.connect(self._send_docx)
-        self.sql_btn = QPushButton('整理 SQL'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
-        for button in (self.delete_btn, self.daily_btn, self.docx_btn, self.sql_btn):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(26)
-            button.setMaximumHeight(28)
-            sql_head.addWidget(button)
+        self.sql_btn = QPushButton('打开发版联动'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
+        self.sql_btn.setProperty('compactAction', True)
+        sql_head.addWidget(self.sql_btn)
         sql_layout.addLayout(sql_head)
         self.sql_preview = QPlainTextEdit()
         self.sql_preview.setReadOnly(True)
         self.sql_preview.setObjectName('ops-preview')
         self.sql_preview.setMaximumBlockCount(0)
         self.sql_preview.setMinimumHeight(56)
+        self.sql_preview.setPlaceholderText('暂无 SQL 脚本 · 可打开发版联动继续整理')
         sql_layout.addWidget(self.sql_preview, 1)
-        # 兼容旧 actions_card 引用（布局已并入 sql_head）
+        self.sql_empty = QLabel('暂无 SQL 脚本')
+        self.sql_empty.setObjectName('field-hint')
+        self.sql_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sql_empty.hide()
+        sql_layout.addWidget(self.sql_empty)
+        self.detail_tabs.addTab(sql_section, 'SQL / 发版')
+
+        # —— Tab3: 发布与联动 ——
+        link_section = QFrame()
+        link_section.setObjectName('ds-card')
+        link_layout = QVBoxLayout(link_section)
+        link_layout.setContentsMargins(14, 12, 14, 12)
+        link_layout.setSpacing(10)
+        link_actions = QHBoxLayout()
+        link_actions.setSpacing(8)
+        self.daily_btn = QPushButton('写入日报'); self.daily_btn.clicked.connect(self._send_daily)
+        self.docx_btn = QPushButton('更新接口文档'); self.docx_btn.clicked.connect(self._send_docx)
+        self.release_link_btn = QPushButton('准备本次升级')
+        self.release_link_btn.setObjectName('primary-btn')
+        self.release_link_btn.clicked.connect(lambda: self.open_release_prep.emit(self._current or {}))
+        self.delete_btn = QPushButton('删除需求'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
+        for button in (self.daily_btn, self.docx_btn, self.release_link_btn, self.delete_btn):
+            button.setProperty('compactAction', True)
+            button.setMinimumHeight(32)
+            link_actions.addWidget(button)
+        link_actions.addStretch(1)
+        link_layout.addLayout(link_actions)
+        link_layout.addStretch(1)
+        self.detail_tabs.addTab(link_section, '发布与联动')
+
         self.actions_card = QFrame(); self.actions_card.hide()
 
-        self.file_sql_splitter.addWidget(file_section)
-        self.file_sql_splitter.addWidget(sql_section)
-        self.file_sql_splitter.setStretchFactor(0, 4)
-        self.file_sql_splitter.setStretchFactor(1, 1)
-        requirement_ui = load_requirement_ui()
-        sizes = requirement_ui['content_splitter_sizes']
-        # 若历史配置把文件区压得过小，则回落到以文件为主
-        if sizes[0] < sizes[1] * 1.5:
-            sizes = [520, 140]
-        self.file_sql_splitter.setSizes(sizes)
-        detail.addWidget(self.file_sql_splitter, 1)
+        # 右侧：上摘要紧凑（按内容），下文件库占满剩余；无垂直拖动分栏
+        detail.setSpacing(6)
+        detail.addWidget(self.detail_card, 0)
+        detail.addWidget(self.detail_tabs, 1)
+        # 兼容旧测试/引用名：指向右侧内容区（非可拖动 splitter）
+        self.file_sql_splitter = None
         self.detail_splitter.addWidget(right)
-        self.detail_splitter.setSizes(requirement_ui['splitter_sizes'])
+
+        requirement_ui = load_requirement_ui()
+        sizes = requirement_ui.get('splitter_sizes') or [330, 820]
+        if len(sizes) >= 2 and sizes[0] < 200:
+            sizes = [330, max(520, sizes[1])]
+        self.detail_splitter.setSizes(sizes)
         self._splitter_save_timer = QTimer(self)
         self._splitter_save_timer.setSingleShot(True)
         self._splitter_save_timer.setInterval(250)
         self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
+        # 仅持久化左右分栏
         self.detail_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
-        self.file_sql_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
         root.addWidget(self.detail_splitter, 1)
+
+    def _content_stack_sizes(self):
+        """配置兼容字段：上区实际高度 + 估算剩余。"""
+        top_h = 0
+        if hasattr(self, 'detail_card') and self.detail_card is not None:
+            top_h = self.detail_card.height() or self.detail_card.sizeHint().height()
+        parent_h = 0
+        if self.detail_card is not None and self.detail_card.parentWidget() is not None:
+            parent_h = self.detail_card.parentWidget().height()
+        return normalize_content_splitter_sizes(top_h=top_h or 160, total_h=parent_h or 800)
 
     def _save_splitter_sizes(self):
         save_requirement_ui({
             'splitter_sizes': self.detail_splitter.sizes(),
-            'content_splitter_sizes': self.file_sql_splitter.sizes(),
+            'content_splitter_sizes': self._content_stack_sizes(),
         })
+
+    def apply_layout_mode(self, mode, low_height=False):
+        """响应主窗口断点：收紧左栏、收纳次要工具栏。"""
+        self._layout_mode = mode
+        if hasattr(self, 'page_subtitle'):
+            try:
+                from ui.responsive import set_subtitle_visible
+                set_subtitle_visible(self.page_subtitle, low_height)
+            except Exception:
+                pass
+        if not hasattr(self, 'detail_splitter'):
+            return
+        # 保证两侧都不可折叠为 0
+        self.detail_splitter.setChildrenCollapsible(False)
+        self.detail_splitter.setStretchFactor(0, 0)
+        self.detail_splitter.setStretchFactor(1, 1)
+        sizes = self.detail_splitter.sizes()
+        if mode == 'compact':
+            left = min(max(sizes[0] if sizes else 280, 260), 300)
+            right = max(520, (sizes[1] if len(sizes) > 1 else 520))
+            self.detail_splitter.setSizes([left, right])
+        elif mode == 'narrow':
+            left = min(max(sizes[0] if sizes else 240, 220), 280)
+            right = max(400, (sizes[1] if len(sizes) > 1 else 400))
+            self.detail_splitter.setSizes([left, right])
+        # 次要操作收纳：若存在 SVN/文件工具栏按钮，Narrow 隐藏低频项
+        secondary_names = (
+            'svn_log_btn', 'svn_diff_btn', 'export_sql_btn', 'send_docx_btn',
+            'batch_flag_btn', 'import_btn', 'help_btn',
+        )
+        more_btn = getattr(self, 'toolbar_more_btn', None)
+        if mode in ('compact', 'narrow'):
+            for name in secondary_names:
+                w = getattr(self, name, None)
+                if w is not None:
+                    w.setVisible(mode == 'compact' and name in ('export_sql_btn',))
+        else:
+            for name in secondary_names:
+                w = getattr(self, name, None)
+                if w is not None:
+                    w.show()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
-            width = min(460, max(300, self.width() - 48))
-            self.loading.setFixedWidth(width)
-            self.loading.move(max(24, (self.width() - width) // 2), 72)
-            self.loading.raise_()
+            self.loading.place_overlay()
+        # 标记按钮已常驻单行布局，resize 不再反复拆装，避免重入闪退
+
+    @staticmethod
+    def _tree_item_alive(item) -> bool:
+        """PyQt 树节点在 clear/重建后可能变成已删除的 sip 包装。"""
+        if item is None:
+            return False
+        try:
+            from PyQt6 import sip
+            if sip.isdeleted(item):
+                return False
+        except Exception:
+            pass
+        try:
+            item.data(0, Qt.ItemDataRole.UserRole)
+            return True
+        except RuntimeError:
+            return False
+
+    def _layout_flag_chips(self):
+        """完成标记最多 4 个，始终单行；仅同步 section 显隐，不拆装布局。"""
+        if not hasattr(self, 'flag_chips_layout') or getattr(self, '_layouting_flags', False):
+            return
+        self._layouting_flags = True
+        try:
+            has_visible = any(not btn.isHidden() for btn in self._flag_buttons.values())
+            if hasattr(self, 'flag_section'):
+                self.flag_section.setVisible(has_visible)
+        finally:
+            self._layouting_flags = False
 
     def set_language(self, language):
         self.language = language
@@ -1200,19 +1569,62 @@ class RequirementPanel(QWidget):
         self._fill_system_filter()
         self._refresh()
 
+    def focus_requirement(self, requirement_or_id):
+        """首页等入口：定位并选中指定需求。"""
+        target_id = requirement_or_id
+        if isinstance(requirement_or_id, dict):
+            target_id = requirement_or_id.get('id')
+        if not target_id:
+            return False
+        self._current = next((item for item in self._requirements if item.get('id') == target_id), None)
+        if self._current is None:
+            # 可能缓存未刷新
+            self._requirements = load_requirements()
+            self._current = next((item for item in self._requirements if item.get('id') == target_id), None)
+        self._refresh()
+        return self._current is not None
+
     def _refresh(self):
-        if not hasattr(self, 'requirement_list'): return
-        query = self.search_edit.text().strip().casefold()
+        if not hasattr(self, 'requirement_list'):
+            return
+        if getattr(self, '_refreshing_tree', False):
+            return
+        self._refreshing_tree = True
+        try:
+            self._refresh_impl()
+        finally:
+            self._refreshing_tree = False
+
+    def _refresh_impl(self):
+        from tools.pinyin_search import match_query
+        query = self.search_edit.text().strip()
         current_id = self._current.get('id') if self._current else None
         status = self.status_filter.currentText(); kind = self.kind_filter.currentText(); system = self.system_filter.currentData()
-        self.requirement_list.clear()
+        # 有搜索时先快照展开状态，清除后恢复
+        if query and self._search_expand_snapshot is None:
+            self._search_expand_snapshot = self._capture_tree_expand_state()
+        elif not query and self._search_expand_snapshot is not None:
+            # 将在填充后恢复
+            pass
+        # 阻断 clear 触发的 currentItemChanged，避免访问已删除节点闪退
+        self.requirement_list.blockSignals(True)
+        try:
+            self.requirement_list.clear()
+        finally:
+            self.requirement_list.blockSignals(False)
         visible = []
         for requirement in self._requirements:
-            if query and query not in requirement_search_text(requirement): continue
+            if query and not match_query(requirement_search_text(requirement), query):
+                continue
             if kind != '全部类型' and requirement.get('record_kind', '需求') != kind: continue
             if status != '全部状态' and requirement.get('status', '待分析') != status: continue
             if system and requirement.get('system', '') != system: continue
             visible.append(requirement)
+        if hasattr(self, 'tree_count_label'):
+            total = len(self._requirements)
+            self.tree_count_label.setText(
+                f'{len(visible)}/{total}' if len(visible) != total else f'{total} 条'
+            )
         visible.sort(
             key=lambda item: (item.get('online_month', ''), item.get('source_modified_at') or item.get('updated_at', ''), item.get('title', '')),
             reverse=True,
@@ -1240,8 +1652,14 @@ class RequirementPanel(QWidget):
                     | Qt.ItemFlag.ItemIsAutoTristate
                 )
                 font = header.font(0); font.setBold(True); font.setPointSize(max(font.pointSize() + 1, 11)); header.setFont(0, font)
-                header.setForeground(0, QColor('#1E2A44'))
-                header.setBackground(0, QColor('#F0F3FA')); header.setBackground(1, QColor('#F0F3FA'))
+                try:
+                    from ui.theme_manager import ThemeManager
+                    pal = ThemeManager.instance().palette()
+                    header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', '#1E2A44')))
+                    mbg = QColor(pal.get('MONTH_HEADER_BG', '#F0F3FA'))
+                except Exception:
+                    header.setForeground(0, QColor('#1E2A44')); mbg = QColor('#F0F3FA')
+                header.setBackground(0, mbg); header.setBackground(1, mbg)
                 self.requirement_list.addTopLevelItem(header)
                 # 必须先入树再跨列，否则月份标题会被挤在需求号窄列中
                 header.setFirstColumnSpanned(True)
@@ -1266,36 +1684,86 @@ class RequirementPanel(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, requirement)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled)
             code_font = item.font(0); code_font.setBold(True); item.setFont(0, code_font)
-            # 搜索命中时用更醒目的颜色提示编号/标题（轻量高亮，不改树结构）
-            hit = bool(query) and (
-                query in code.casefold() or query in title.casefold() or query in requirement_search_text(requirement)
-            )
-            item.setForeground(0, QColor('#C45C12' if hit and query in code.casefold() else '#4058C8'))
-            item.setForeground(1, QColor('#C45C12' if hit else '#4A5872'))
+            # 搜索命中：拼音/原文均可
+            hit = bool(query) and match_query(requirement_search_text(requirement), query)
+            try:
+                from ui.theme_manager import ThemeManager
+                pal = ThemeManager.instance().palette()
+                hit_c = QColor(pal.get('HIGHLIGHT_MARK', pal.get('WARNING', '#C45C12')))
+                code_c = QColor(pal.get('PRIMARY_ACTIVE', '#4058C8'))
+                mute_c = QColor(pal.get('TEXT_MUTED', '#4A5872'))
+            except Exception:
+                hit_c, code_c, mute_c = QColor('#C45C12'), QColor('#4058C8'), QColor('#4A5872')
+            item.setForeground(0, hit_c if hit and query in code.casefold() else code_c)
+            item.setForeground(1, hit_c if hit else mute_c)
             if hit:
                 title_font = item.font(1); title_font.setBold(True); item.setFont(1, title_font)
             flag_tip = []
             done = normalize_flag_done(requirement)
             for key, short, full in active_flags(requirement):
-                flag_tip.append(f"{'✅' if done.get(key) else '⏳'} {full}")
-            tip_flags = '\n'.join(flag_tip) if flag_tip else '无升级标记'
-            item.setToolTip(0, f"{requirement.get('record_kind', '需求')}：{code}")
-            item.setToolTip(1, f"{title}\n状态：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n{tip_flags}\n\n右侧详情卡片可点击标记切换红/绿点")
+                state = '已完成' if done.get(key) else '待完成'
+                flag_tip.append(f'{full} · {state}')
+            tip_flags = '\n'.join(flag_tip) if flag_tip else '无上线事项'
+            full_tip = (
+                f"{requirement.get('record_kind', '需求')}：{code}\n"
+                f"{title}\n"
+                f"进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n"
+                f"{tip_flags}\n"
+                f"系统：{requirement.get('system') or '—'}\n"
+                f"路径：{requirement.get('local_path') or requirement.get('svn_url') or '—'}"
+            )
+            item.setToolTip(0, full_tip)
+            item.setToolTip(1, full_tip)
+            # 窄窗增高：允许两行标题
+            from PyQt6.QtCore import QSize
+            item.setSizeHint(0, QSize(0, 44))
+            item.setSizeHint(1, QSize(0, 44))
             first_item = first_item or item
             if requirement.get('id') == current_id: selected_item = item
-        self.requirement_list.expandAll()
+        if query:
+            self.requirement_list.expandAll()
+        elif self._search_expand_snapshot is not None:
+            self._restore_tree_expand_state(self._search_expand_snapshot)
+            self._search_expand_snapshot = None
+        else:
+            self.requirement_list.expandAll()
         self._fit_requirement_code_column()
         # 有搜索词时优先定位第一条匹配；无搜索时尽量保持当前选中
         pick = first_item if query else (selected_item or first_item)
-        if pick:
-            self.requirement_list.setCurrentItem(pick)
-            parent = pick.parent()
-            if parent is not None:
-                parent.setExpanded(True)
-            self.requirement_list.scrollToItem(pick)
+        if pick and self._tree_item_alive(pick):
+            self.requirement_list.blockSignals(True)
+            try:
+                self.requirement_list.setCurrentItem(pick)
+                parent = pick.parent()
+                if parent is not None and self._tree_item_alive(parent):
+                    parent.setExpanded(True)
+                self.requirement_list.scrollToItem(pick)
+            finally:
+                self.requirement_list.blockSignals(False)
+            # 整树重建后需要重新加载文件库；信号已阻断，此处显式刷新
+            self._show_requirement(pick, refresh_files=True)
         else:
             self._show_requirement(None)
         self._on_requirement_selection_changed()
+
+    def _capture_tree_expand_state(self) -> dict:
+        state = {}
+        if not hasattr(self, 'requirement_list'):
+            return state
+        for i in range(self.requirement_list.topLevelItemCount()):
+            group = self.requirement_list.topLevelItem(i)
+            key = group.data(0, GROUP_MONTH_ROLE)
+            state[str(key if key is not None else group.text(0))] = bool(group.isExpanded())
+        return state
+
+    def _restore_tree_expand_state(self, state: dict):
+        if not state or not hasattr(self, 'requirement_list'):
+            return
+        for i in range(self.requirement_list.topLevelItemCount()):
+            group = self.requirement_list.topLevelItem(i)
+            key = str(group.data(0, GROUP_MONTH_ROLE) if group.data(0, GROUP_MONTH_ROLE) is not None else group.text(0))
+            if key in state:
+                group.setExpanded(bool(state[key]))
 
     def _fit_requirement_code_column(self):
         """按当前需求号内容自适应第 0 列，避免编号被裁切。"""
@@ -1308,8 +1776,17 @@ class RequirementPanel(QWidget):
     def _selected_requirements(self):
         selected = []
         seen = set()
-        for item in self.requirement_list.selectedItems():
-            requirement = item.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            items = list(self.requirement_list.selectedItems())
+        except RuntimeError:
+            items = []
+        for item in items:
+            if not self._tree_item_alive(item):
+                continue
+            try:
+                requirement = item.data(0, Qt.ItemDataRole.UserRole)
+            except RuntimeError:
+                continue
             requirement_id = requirement.get('id') if isinstance(requirement, dict) else None
             if requirement_id and requirement_id not in seen:
                 selected.append(requirement); seen.add(requirement_id)
@@ -1390,18 +1867,18 @@ class RequirementPanel(QWidget):
         edit_action = menu.addAction('编辑完整信息'); edit_action.triggered.connect(self._edit_requirement)
         flags = active_flags(requirement)
         if flags:
-            status_menu = menu.addMenu('任务红绿点')
+            status_menu = menu.addMenu('完成标记')
             done = normalize_flag_done(requirement)
             for key, short, full in flags:
                 action = status_menu.addAction(
-                    f"{'🟢 完成' if done.get(key) else '🔴 待办'} · {full}"
+                    f"{'已完成' if done.get(key) else '待完成'} · {full}"
                 )
                 action.triggered.connect(
                     lambda _checked=False, req=requirement, flag_key=key: self._toggle_flag_done(req, flag_key)
                 )
             status_menu.addSeparator()
-            status_menu.addAction('全部标完成', lambda req=requirement: self._set_all_flags_done(req, True))
-            status_menu.addAction('全部标待办', lambda req=requirement: self._set_all_flags_done(req, False))
+            status_menu.addAction('全部标为已完成', lambda req=requirement: self._set_all_flags_done(req, True))
+            status_menu.addAction('全部标为待完成', lambda req=requirement: self._set_all_flags_done(req, False))
         if requirement.get('local_path') and os.path.isdir(requirement['local_path']):
             open_action = menu.addAction('打开文件夹')
             open_action.triggered.connect(lambda: self._open_requirement_folder(requirement))
@@ -1434,7 +1911,9 @@ class RequirementPanel(QWidget):
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
         save_requirements(self._requirements)
         self._current = target
-        self._refresh()
+        # 轻量刷新：只改标记与左侧徽章，避免整树 clear 导致点击闪退
+        self._apply_flag_ui(target)
+        self._patch_requirement_tree_item(target)
 
     def _set_all_flags_done(self, requirement, done_value):
         target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
@@ -1445,7 +1924,80 @@ class RequirementPanel(QWidget):
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
         save_requirements(self._requirements)
         self._current = target
-        self._refresh()
+        self._apply_flag_ui(target)
+        self._patch_requirement_tree_item(target)
+
+    def _apply_flag_ui(self, requirement):
+        """同步右侧完成标记按钮状态（不重建树）。"""
+        if not requirement or not hasattr(self, '_flag_buttons'):
+            return
+        done = normalize_flag_done(requirement)
+        active = {key for key, _s, _f in active_flags(requirement)}
+        for key, short, full in FLAG_DEFS:
+            btn = self._flag_buttons.get(key)
+            if btn is None:
+                continue
+            if key not in active:
+                btn.hide()
+                continue
+            is_done = bool(done.get(key))
+            btn.setText(flag_chip_text(key, is_done))
+            btn.setProperty('flagDone', 'true' if is_done else 'false')
+            try:
+                style = btn.style()
+                if style is not None:
+                    style.unpolish(btn)
+                    style.polish(btn)
+            except RuntimeError:
+                pass
+            btn.setToolTip(f'{full}\n点击切换完成状态：待完成 ↔ 已完成')
+            btn.show()
+        self.flag_section.setVisible(bool(active))
+        self._layout_flag_chips()
+
+    def _patch_requirement_tree_item(self, requirement):
+        """就地更新左侧树节点文案与 UserRole，避免 clear 重建。"""
+        if not requirement or not hasattr(self, 'requirement_list'):
+            return
+        rid = requirement.get('id')
+        if not rid:
+            return
+        try:
+            root_count = self.requirement_list.topLevelItemCount()
+        except RuntimeError:
+            return
+        for i in range(root_count):
+            group = self.requirement_list.topLevelItem(i)
+            if not self._tree_item_alive(group):
+                continue
+            for j in range(group.childCount()):
+                item = group.child(j)
+                if not self._tree_item_alive(item):
+                    continue
+                try:
+                    data = item.data(0, Qt.ItemDataRole.UserRole)
+                except RuntimeError:
+                    continue
+                if not isinstance(data, dict) or data.get('id') != rid:
+                    continue
+                requirement = normalize_requirement(requirement)
+                modified = requirement.get('source_modified_at') or requirement.get('updated_at', '')
+                modified_text = modified[:16].replace('T', ' ') if modified else '未知'
+                file_count = requirement.get('file_count', 0)
+                badge_text = flag_status_text(requirement)
+                title = (
+                    requirement.get('title')
+                    or os.path.basename(requirement.get('local_path', '').rstrip(os.sep))
+                    or '未命名'
+                )
+                code = str(requirement.get('code') or '').strip() or '未编号'
+                try:
+                    item.setText(0, code)
+                    item.setText(1, f"{title}\n{badge_text}  ·  {file_count}文件 · {modified_text}")
+                    item.setData(0, Qt.ItemDataRole.UserRole, requirement)
+                except RuntimeError:
+                    return
+                return
 
     def _rename_requirement_title(self):
         if not self._current:
@@ -1476,7 +2028,27 @@ class RequirementPanel(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _show_requirement(self, current, _previous=None, refresh_files=True):
-        self._current = current.data(0, Qt.ItemDataRole.UserRole) if current else None
+        # currentItemChanged 在树重建时可能传入已销毁节点
+        if getattr(self, '_showing_requirement', False):
+            return
+        if current is not None and not self._tree_item_alive(current):
+            current = None
+        self._showing_requirement = True
+        try:
+            self._show_requirement_impl(current, refresh_files=refresh_files)
+        except RuntimeError:
+            # sip 包装已删除等瞬时错误：忽略，避免闪退
+            return
+        finally:
+            self._showing_requirement = False
+
+    def _show_requirement_impl(self, current, refresh_files=True):
+        try:
+            self._current = current.data(0, Qt.ItemDataRole.UserRole) if current else None
+        except RuntimeError:
+            self._current = None
+        if self._current is not None and not isinstance(self._current, dict):
+            self._current = None
         for button in (self.delete_btn, self.edit_btn, self.daily_btn, self.docx_btn, self.sql_btn):
             button.setEnabled(bool(self._current))
         has_path = bool(self._current and self._current.get('local_path'))
@@ -1489,14 +2061,24 @@ class RequirementPanel(QWidget):
         if not self._current:
             self.detail_title.setText('请选择左侧需求')
             self.detail_title.setToolTip('')
+            self.bind_status.setText('未绑定资料')
             for value in self._detail_fields.values():
                 value.setText('—')
                 value.setToolTip('')
+            if 'online' in self._detail_captions:
+                self._detail_captions['online'].setText('计划上线')
             for btn in self._flag_buttons.values():
-                btn.setVisible(False)
+                btn.hide()
+            self.flag_section.hide()
             self.sql_preview.clear()
+            if hasattr(self, 'sql_empty'):
+                self.sql_empty.show()
             self.svn_meta.clear()
-            self.file_tree.clear()
+            self.file_tree.blockSignals(True)
+            try:
+                self.file_tree.clear()
+            finally:
+                self.file_tree.blockSignals(False)
             return
 
         requirement = normalize_requirement(self._current)
@@ -1509,17 +2091,19 @@ class RequirementPanel(QWidget):
         month = requirement.get('online_month') or ''
         planned = requirement.get('planned_online_date') or ''
         actual = requirement.get('actual_online_date') or ''
-        # 上线时间：优先实际上线，其次计划上线，再次上线月份
+        # 动态上线字段名：实际 / 计划 / 月份 / 未安排
         if actual:
-            online_text = actual
+            online_caption, online_text = '实际上线', actual
         elif planned:
-            online_text = planned
+            online_caption, online_text = '计划上线', planned
         elif month:
-            online_text = format_online_month_label(month)
+            online_caption, online_text = '上线月份', format_online_month_label(month)
         else:
-            online_text = '未定'
+            online_caption, online_text = '计划上线', '未安排'
         self.detail_title.setText(title)
         self.detail_title.setToolTip(f'{title}\n编号：{code}\n完整信息请点「编辑」')
+        if 'online' in self._detail_captions:
+            self._detail_captions['online'].setText(online_caption)
         field_map = {
             'kind': kind,
             'status': status,
@@ -1530,22 +2114,16 @@ class RequirementPanel(QWidget):
             self._detail_fields[key].setText(str(value))
             self._detail_fields[key].setToolTip(str(value))
 
-        # 任务标记：只显示已勾选项的可点击短 chip
-        done = normalize_flag_done(requirement)
-        active = {key for key, _s, _f in active_flags(requirement)}
-        for key, short, full in FLAG_DEFS:
-            btn = self._flag_buttons[key]
-            if key not in active:
-                btn.setVisible(False)
-                continue
-            btn.setVisible(True)
-            is_done = bool(done.get(key))
-            btn.setText(f"{'🟢' if is_done else '🔴'}{short}")
-            btn.setProperty('flagDone', 'true' if is_done else 'false')
-            btn.style().unpolish(btn); btn.style().polish(btn)
-            btn.setToolTip(f'{full}\n点击切换：待办(红) ↔ 完成(绿)')
+        self._apply_flag_ui(requirement)
 
         local_path = requirement.get('local_path') or ''
+        if local_path:
+            self.bind_status.setText('资料已绑定')
+            self.bind_status.setToolTip(local_path)
+        else:
+            self.bind_status.setText('未绑定资料')
+            self.bind_status.setToolTip('完整路径见「文件库」页签')
+        # 完整路径仅文件 Tab
         if requirement.get('workspace_kind') == 'folder':
             modified = (requirement.get('source_modified_at') or '未知')[:16].replace('T', ' ')
             self.svn_meta.setText(f'{local_path or "未识别"}  ·  {requirement.get("file_count", 0)} 文件  ·  {modified}')
@@ -1560,13 +2138,22 @@ class RequirementPanel(QWidget):
         if refresh_files:
             self._refresh_file_tree()
         sql = merged_sql(requirement)
-        self.sql_preview.setPlainText(sql or '尚未关联 SQL')
-        self.docx_btn.setEnabled(bool(sql))
-        self.sql_btn.setEnabled(bool(sql))
+        has_sql = bool(sql and sql.strip())
+        self.sql_preview.setPlainText(sql if has_sql else '')
+        if hasattr(self, 'sql_empty'):
+            self.sql_empty.setVisible(not has_sql)
+            self.sql_preview.setVisible(has_sql)
+        self.docx_btn.setEnabled(has_sql)
+        self.sql_btn.setEnabled(has_sql)
 
     def _set_busy(self, message=''):
         busy = bool(message)
-        self.svn_activity.setText(message or 'SVN 操作完成。')
+        if message:
+            self.svn_activity.setText(message)
+            self.svn_activity.show()
+        else:
+            self.svn_activity.setText('')
+            self.svn_activity.hide()
         widgets = (
             self.scan_btn, self.checkout_btn, self.update_all_btn, self.system_config_btn,
             self.bug_btn, self.import_btn, self.add_btn, self.search_edit, self.system_filter,
@@ -1584,7 +2171,10 @@ class RequirementPanel(QWidget):
         if busy:
             self.loading.start_busy(message)
         else:
-            self._show_requirement(self.requirement_list.currentItem(), refresh_files=False)
+            current = self.requirement_list.currentItem()
+            if not self._tree_item_alive(current):
+                current = None
+            self._show_requirement(current, refresh_files=False)
 
     def eventFilter(self, watched, event):
         if watched is getattr(self, 'requirement_list', None) and event.type() == QEvent.Type.KeyPress:
@@ -1592,16 +2182,71 @@ class RequirementPanel(QWidget):
                 if self._selected_requirements():
                     self._delete_requirement()
                     return True
+        # 文件库：拖入本地文件
+        tree = getattr(self, 'file_tree', None)
+        if tree is not None and watched in (tree, tree.viewport()):
+            et = event.type()
+            if et in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+                md = event.mimeData() if hasattr(event, 'mimeData') else None
+                if md and md.hasUrls():
+                    paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile()]
+                    if any(os.path.isfile(p) for p in paths):
+                        event.acceptProposedAction()
+                        return True
+            if et == QEvent.Type.Drop:
+                md = event.mimeData() if hasattr(event, 'mimeData') else None
+                if md and md.hasUrls():
+                    paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile() and os.path.isfile(u.toLocalFile())]
+                    if paths:
+                        self._drop_files_into_workspace(paths)
+                        event.acceptProposedAction()
+                        return True
         return super().eventFilter(watched, event)
 
-    def _start_task(self, message, function, arguments, success, show_loading=True):
+    def _drop_files_into_workspace(self, paths: list[str]):
+        """拖入文件：复制到当前需求工作副本并尝试 svn add。"""
+        root = self._current_path()
+        if not root or not os.path.isdir(root):
+            show_warning(self, '文件库', '请先选择有本机目录的需求，再拖入文件。')
+            return
+        files = [p for p in (paths or []) if p and os.path.isfile(p)]
+        if not files:
+            show_warning(self, '文件库', '没有可添加的文件。')
+            return
+        # 若落在某文件夹行上，写入该相对目录
+        folder = ''
+        try:
+            item = self.file_tree.currentItem()
+            if item is not None and bool(item.data(0, IS_DIR_ROLE)):
+                folder = item.text(4) or ''
+        except Exception:
+            folder = ''
+        self._start_task(
+            '正在复制拖入的文件并执行 SVN add……',
+            add_existing_files,
+            (root, files, folder),
+            self._files_added,
+        )
+
+    def _start_task(self, message, function, arguments, success, show_loading=True, finish_label=None):
+        """后台任务。
+
+        show_loading=True 仅用于长任务（拉取/更新/锁定/提交/扫描/add 等）。
+        刷新文件树、状态探测等静默任务传 False，不打断浏览。
+        finish_label：成功时 Loading 语义文案；缺省从 message 推导。
+        """
         if self._active_worker is not None:
             show_info(self, 'SVN 正在处理', '请等待当前 SVN 操作完成。')
             return
         self._task_failed = False
         self._task_shows_loading = show_loading
+        self._task_finish_label = finish_label or self._finish_label_from_busy(message)
         if show_loading:
             self._set_busy(message)
+        else:
+            # 静默任务只短暂显示状态，不锁整页、不弹 Loading
+            self.svn_activity.setText(message)
+            self.svn_activity.setVisible(bool(message))
         worker = SvnWorker(function, *arguments, parent=self)
         self._active_worker = worker
         worker.result_ready.connect(lambda result: self._task_succeeded(result, success))
@@ -1609,17 +2254,40 @@ class RequirementPanel(QWidget):
         worker.finished.connect(lambda: self._task_finished(worker))
         worker.start()
 
+    @staticmethod
+    def _finish_label_from_busy(message):
+        text = (message or '').strip()
+        mapping = (
+            ('扫描', '扫描完成'),
+            ('拉取', '拉取完成'),
+            ('检出', '检出完成'),
+            ('更新全部', '全部更新完成'),
+            ('更新当前', '当前副本已更新'),
+            ('更新', '更新完成'),
+            ('锁定', '锁定完成'),
+            ('解锁', '解锁完成'),
+            ('提交', '提交完成'),
+            ('SVN add', '文件已加入版本库'),
+            ('复制文件', '文件已添加'),
+            ('创建文件', '文件已创建'),
+            ('导入', '导入完成'),
+        )
+        for key, label in mapping:
+            if key in text:
+                return label
+        return '处理完成'
+
     def _task_succeeded(self, result, success):
         if self._task_shows_loading:
-            self.loading.finish('处理完成')
+            self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成')
         success(result)
 
     def _task_failed_with_error(self, error):
         self._task_failed = True
         self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
+        self.svn_activity.show()
         if self._task_shows_loading:
             self.loading.fail('处理失败：' + error[:120])
-            QTimer.singleShot(4000, self.loading.hide)
         show_warning(self, 'SVN 操作失败', error)
 
     def _task_finished(self, worker):
@@ -1629,8 +2297,13 @@ class RequirementPanel(QWidget):
         self._active_worker = None
         if self._task_shows_loading:
             self._set_busy('')
+        elif not self._task_failed:
+            self.svn_activity.setText('后台状态已更新。')
+            self.svn_activity.show()
+            QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
         if self._task_failed:
             self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
+            self.svn_activity.show()
         if worker:
             worker.deleteLater()
         if self._pending_file_refresh:
@@ -1728,9 +2401,18 @@ class RequirementPanel(QWidget):
         return path if path and os.path.isdir(path) else ''
 
     def _refresh_file_tree(self):
-        self.file_tree.clear()
+        if hasattr(self, 'file_tree'):
+            self.file_tree.blockSignals(True)
+            try:
+                self.file_tree.clear()
+            finally:
+                self.file_tree.blockSignals(False)
+        self._file_entries_cache = []
         path = self._current_path()
-        if not path: return
+        if not path:
+            if hasattr(self, 'file_count_label'):
+                self.file_count_label.setText('')
+            return
         if self._active_worker is not None:
             self._pending_file_refresh = True
             return
@@ -1740,51 +2422,188 @@ class RequirementPanel(QWidget):
     def _file_tree_loaded(self, entries):
         if getattr(self, '_file_tree_path', '') != self._current_path():
             return
+        self._file_entries_cache = list(entries or [])
+        self._populate_file_tree_from_cache()
+
+    def _sorted_file_entries(self, entries):
+        col = getattr(self, '_file_sort_column', 0)
+        reverse = getattr(self, '_file_sort_order', Qt.SortOrder.AscendingOrder) == Qt.SortOrder.DescendingOrder
+
+        def sort_key(entry):
+            is_dir = 0 if entry.get('is_dir') else 1
+            name = os.path.basename(entry.get('relative_path') or entry.get('path') or '').casefold()
+            ftype = str(entry.get('file_type') or ('文件夹' if entry.get('is_dir') else '文件')).casefold()
+            mtime = str(entry.get('modified_at') or '')
+            size = str(entry.get('size') or '')
+            path = str(entry.get('relative_path') or '')
+            base = (is_dir,)
+            if col == 0:
+                return base + (name,)
+            if col == 1:
+                return base + (ftype, name)
+            if col == 2:
+                return base + (mtime, name)
+            if col == 3:
+                return base + (size, name)
+            return base + (path.casefold(), name)
+
+        return sorted(entries, key=sort_key, reverse=reverse)
+
+    def _populate_file_tree_from_cache(self):
+        from tools.pinyin_search import build_search_blob, match_query
+        from PyQt6.QtCore import QSize
+        self.file_tree.blockSignals(True)
+        try:
+            self.file_tree.clear()
+        finally:
+            self.file_tree.blockSignals(False)
+        entries = self._sorted_file_entries(list(self._file_entries_cache or []))
+        query = self.file_search_edit.text().strip() if hasattr(self, 'file_search_edit') else ''
+        req_meta = []
+        if self._current:
+            req_meta = [
+                self._current.get('code'), self._current.get('title'),
+                self._current.get('system'), self._current.get('record_kind'),
+            ]
+        keep_rel = set()
+        if query:
+            for entry in entries:
+                blob = build_search_blob(
+                    entry.get('relative_path'), entry.get('file_type'),
+                    os.path.basename(entry.get('relative_path') or ''),
+                    os.path.splitext(entry.get('relative_path') or '')[1],
+                    *req_meta,
+                )
+                if match_query(blob, query):
+                    rel = entry.get('relative_path') or ''
+                    keep_rel.add(rel)
+                    parent = os.path.dirname(rel)
+                    while parent:
+                        keep_rel.add(parent)
+                        parent = os.path.dirname(parent)
+            entries = [e for e in entries if (e.get('relative_path') or '') in keep_rel]
         nodes = {'': self.file_tree.invisibleRootItem()}
+        shown = 0
         for entry in entries:
             relative = entry['relative_path']
             parent_key = os.path.dirname(relative)
             parent = nodes.get(parent_key, self.file_tree.invisibleRootItem())
             locked = relative in (self._current.get('svn_locks', {}) if self._current else {})
             name = os.path.basename(relative)
-            display_name = f'🔒 {name}' if locked else name
+            display_name = ('🔒 ' + name) if locked else name
+            ftype = entry.get('file_type', '文件夹' if entry['is_dir'] else '文件')
             item = QTreeWidgetItem(parent, (
-                display_name, entry.get('modified_at', ''),
-                entry.get('file_type', '文件夹' if entry['is_dir'] else '文件'), entry.get('size', ''),
+                display_name, ftype, entry.get('modified_at', ''), entry.get('size', ''), relative,
             ))
-            item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-            item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-            item.setTextAlignment(2, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-            item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
+            for col in range(5):
+                item.setTextAlignment(col, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
+            # 仅名称列带系统图标；类型/时间/大小/路径不设图标
+            from PyQt6.QtGui import QIcon
             item.setIcon(0, _FILE_ICON_PROVIDER.icon(QFileInfo(entry['path'])))
+            blank = QIcon()
+            for col in range(1, 5):
+                item.setIcon(col, blank)
             item.setData(0, Qt.ItemDataRole.UserRole, entry['path'])
             item.setData(0, IS_DIR_ROLE, entry['is_dir'])
-            item.setToolTip(0, relative)
+            tip = f"{name}\n类型：{ftype}\n路径：{relative}\n完整：{entry.get('path')}"
+            for col in range(5):
+                item.setToolTip(col, tip)
+            item.setSizeHint(0, QSize(0, 32 if len(name) < 28 else 44))
             item.setChildIndicatorPolicy(
                 QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
                 if entry['is_dir'] else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator
             )
             if locked:
-                font = item.font(0); font.setBold(True); item.setFont(0, font); item.setForeground(0, QColor('#B24A24'))
-            if entry['is_dir']: nodes[relative] = item
+                font = item.font(0); font.setBold(True); item.setFont(0, font)
+                try:
+                    from ui.theme_manager import ThemeManager
+                    item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
+                except Exception:
+                    item.setForeground(0, QColor('#B24A24'))
+            if query and match_query(build_search_blob(name, relative, ftype), query):
+                try:
+                    from ui.theme_manager import ThemeManager
+                    item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
+                except Exception:
+                    item.setForeground(0, QColor('#C45C12'))
+                f = item.font(0); f.setBold(True); item.setFont(0, f)
+            if entry['is_dir']:
+                nodes[relative] = item
+            else:
+                shown += 1
         self.file_tree.expandAll()
+        # 名称列给足宽度，但保持 Interactive，便于横向滚动与手动调宽
+        try:
+            if self.file_tree.columnWidth(0) < 200:
+                self.file_tree.setColumnWidth(0, 280)
+            if self.file_tree.columnWidth(4) < 160:
+                self.file_tree.setColumnWidth(4, 320)
+        except Exception:
+            pass
+        if hasattr(self, 'file_count_label'):
+            total = len([e for e in (self._file_entries_cache or []) if not e.get('is_dir')])
+            self.file_count_label.setText(f'{shown}/{total} 文件' if query else f'{total} 文件')
         self._update_lock_buttons()
 
+    def _filter_file_tree_local(self):
+        if not hasattr(self, 'file_tree'):
+            return
+        self._populate_file_tree_from_cache()
+
+    def _on_file_header_clicked(self, column: int):
+        if column == getattr(self, '_file_sort_column', 0):
+            self._file_sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self._file_sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            self._file_sort_column = column
+            self._file_sort_order = Qt.SortOrder.AscendingOrder
+        self._populate_file_tree_from_cache()
+
+    def _selected_file_paths(self):
+        paths = []
+        try:
+            items = list(self.file_tree.selectedItems())
+        except RuntimeError:
+            items = []
+        for item in items:
+            if not self._tree_item_alive(item):
+                continue
+            try:
+                path = item.data(0, Qt.ItemDataRole.UserRole)
+            except RuntimeError:
+                continue
+            if path and os.path.exists(path):
+                paths.append(path)
+        return paths
+
     def _selected_svn_file(self):
-        item = self.file_tree.currentItem()
-        if not item or item.data(0, IS_DIR_ROLE):
+        item = self.file_tree.currentItem() if hasattr(self, 'file_tree') else None
+        if not self._tree_item_alive(item):
             return ''
-        path = item.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            if item.data(0, IS_DIR_ROLE):
+                return ''
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+        except RuntimeError:
+            return ''
         return path if path and os.path.isfile(path) else ''
 
     def _update_lock_buttons(self, *_args):
-        path = self._selected_svn_file() if hasattr(self, 'file_tree') else ''
-        relative = os.path.relpath(path, self._current_path()) if path and self._current_path() else ''
-        locked = bool(relative and self._current and relative in self._current.get('svn_locks', {}))
-        is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
-        if hasattr(self, 'lock_file_btn'):
-            self.lock_file_btn.setEnabled(is_svn and bool(path) and not locked)
-            self.unlock_file_btn.setEnabled(is_svn and bool(path) and locked)
+        try:
+            path = self._selected_svn_file() if hasattr(self, 'file_tree') else ''
+            relative = os.path.relpath(path, self._current_path()) if path and self._current_path() else ''
+            locked = bool(relative and self._current and relative in self._current.get('svn_locks', {}))
+            is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
+            if hasattr(self, 'lock_file_btn'):
+                self.lock_file_btn.setEnabled(is_svn and bool(path) and not locked)
+                self.unlock_file_btn.setEnabled(is_svn and bool(path) and locked)
+        except (RuntimeError, ValueError, OSError):
+            if hasattr(self, 'lock_file_btn'):
+                self.lock_file_btn.setEnabled(False)
+                self.unlock_file_btn.setEnabled(False)
 
     def _lock_selected_file(self):
         path = self._selected_svn_file()
@@ -1816,42 +2635,102 @@ class RequirementPanel(QWidget):
         show_success(self, 'SVN 文件已解锁', result.get('output') or '该文件已允许其他人提交。')
 
     def _open_tree_item(self, item, _column):
-        """双击：文件夹只展开/折叠树；文件才用系统打开。"""
         if not item:
             return
-        is_dir = bool(item.data(0, IS_DIR_ROLE))
         path = item.data(0, Qt.ItemDataRole.UserRole)
+        is_dir = bool(item.data(0, IS_DIR_ROLE))
         if is_dir or (path and os.path.isdir(path)):
             item.setExpanded(not item.isExpanded())
             return
         if path and os.path.isfile(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _copy_selected_paths(self):
+        paths = self._selected_file_paths()
+        if not paths:
+            return
+        QApplication.clipboard().setText('\n'.join(paths))
+        show_success(self, '文件库', f'已复制 {len(paths)} 条路径')
+
+    def _export_selected_files(self):
+        paths = [p for p in self._selected_file_paths() if os.path.isfile(p)]
+        if not paths:
+            show_info(self, '导出', '请先选择要导出的文件。')
+            return
+        dest = QFileDialog.getExistingDirectory(self, '选择导出目录')
+        if not dest:
+            return
+        import shutil
+        ok = 0
+        for path in paths:
+            try:
+                shutil.copy2(path, os.path.join(dest, os.path.basename(path)))
+                ok += 1
+            except Exception:
+                pass
+        show_success(self, '导出', f'已导出 {ok}/{len(paths)} 个文件到：\n{dest}')
+
+    def _delete_selected_files(self):
+        paths = [p for p in self._selected_file_paths() if os.path.isfile(p) or os.path.isdir(p)]
+        if not paths:
+            show_info(self, '删除', '请先选择要删除的文件或文件夹。')
+            return
+        names = '\n'.join(os.path.basename(p) for p in paths[:12])
+        more = f'\n…共 {len(paths)} 项' if len(paths) > 12 else ''
+        if not confirm_action(
+            self, '确认删除文件',
+            f'将删除选中项（仅本地文件，不可恢复）：\n\n{names}{more}\n\n默认取消，请确认后再删除。',
+            confirm_text='确认删除',
+            danger=True,
+        ):
+            return
+        import shutil
+        failed = 0
+        for path in paths:
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+            except Exception:
+                failed += 1
+        self._refresh_file_tree()
+        if failed:
+            show_warning(self, '删除', f'完成，但有 {failed} 项失败。')
+        else:
+            show_success(self, '删除', f'已删除 {len(paths)} 项。')
+
     def _show_file_menu(self, point):
         item = self.file_tree.itemAt(point)
-        if not item:
-            return
-        self.file_tree.setCurrentItem(item)
-        path = item.data(0, Qt.ItemDataRole.UserRole)
-        if not path:
-            return
+        if item:
+            self.file_tree.setCurrentItem(item)
         menu = QMenu(self)
-        is_dir = bool(item.data(0, IS_DIR_ROLE)) or os.path.isdir(path)
-        if is_dir:
-            expand_action = menu.addAction('展开/折叠')
-            expand_action.triggered.connect(lambda: item.setExpanded(not item.isExpanded()))
-            open_action = menu.addAction('打开目录')
-            open_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
-        else:
-            open_action = menu.addAction('打开文件')
-            open_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
-            folder_action = menu.addAction('打开所在文件夹')
-            folder_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path))))
-            menu.addSeparator()
-            if self.lock_file_btn.isEnabled():
-                menu.addAction('锁定文件', self._lock_selected_file)
-            if self.unlock_file_btn.isEnabled():
-                menu.addAction('解锁文件', self._unlock_selected_file)
+        menu.addAction('刷新', self._refresh_file_tree)
+        menu.addAction('全部展开', self.file_tree.expandAll)
+        menu.addAction('全部折叠', self.file_tree.collapseAll)
+        menu.addSeparator()
+        menu.addAction('复制路径', self._copy_selected_paths)
+        menu.addAction('导出到…', self._export_selected_files)
+        menu.addAction('删除…', self._delete_selected_files)
+        if item:
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            if path:
+                is_dir = bool(item.data(0, IS_DIR_ROLE)) or os.path.isdir(path)
+                menu.addSeparator()
+                if is_dir:
+                    menu.addAction('展开/折叠', lambda: item.setExpanded(not item.isExpanded()))
+                    menu.addAction('打开文件夹', lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+                else:
+                    menu.addAction('打开文件', lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+                    menu.addAction(
+                        '打开所在文件夹',
+                        lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(p))),
+                    )
+                    menu.addSeparator()
+                    if self.lock_file_btn.isEnabled():
+                        menu.addAction('锁定文件', self._lock_selected_file)
+                    if self.unlock_file_btn.isEnabled():
+                        menu.addAction('解锁文件', self._unlock_selected_file)
         menu.exec(self.file_tree.viewport().mapToGlobal(point))
 
     def _open_folder(self):
@@ -1863,7 +2742,15 @@ class RequirementPanel(QWidget):
 
     def _refresh_current_svn(self):
         path = self._current_path()
-        if path: self._start_task('正在刷新当前 SVN 状态……', self._inspect_working_copy, (path,), self._refresh_current_finished)
+        # 刷新状态：普通浏览，不打断、不 Loading
+        if path:
+            self._start_task(
+                '正在刷新当前 SVN 状态……',
+                self._inspect_working_copy,
+                (path,),
+                self._refresh_current_finished,
+                show_loading=False,
+            )
 
     def _refresh_current_finished(self, info):
         if not self._current: return
@@ -1995,6 +2882,8 @@ class RequirementPanel(QWidget):
             f'已保存：{target.get("code") or "无编号"} · {target.get("title") or "未命名"}'
             f' · 标记 {flag_status_text(target)}'
         )
+        self.svn_activity.show()
+        QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
         if offer_next:
             self._offer_next_steps(target, context='save' if not is_new else 'import')
         return target
@@ -2015,18 +2904,18 @@ class RequirementPanel(QWidget):
         title = titles.get(context, '下一步')
         actions = [
             ('daily', '加入今日日报', True),
-            ('release', '进入升级准备', False),
+            ('release', '准备本次升级', False),
         ]
         if has_sql:
-            actions.append(('sql', '发送 SQL', False))
+            actions.append(('sql', '打开发版联动', False))
         if has_path:
             actions.append(('folder', '打开目录', False))
         recommended = 'daily'
         if context == 'scan':
             recommended = 'release'
-            message = f'{name}\n\n推荐：进入升级准备核对候选；也可把当前项加入今日日报。'
+            message = f'{name}\n\n推荐：准备本次升级核对候选；也可把当前项加入今日日报。'
         elif has_sql:
-            message = f'{name}\n\n推荐：加入今日日报。已检测到 SQL，也可发送到升级准备/SQL 整理。'
+            message = f'{name}\n\n推荐：加入今日日报。已检测到 SQL，也可发送到发版联动。'
         else:
             message = f'{name}\n\n推荐：加入今日日报（不覆盖你已写内容）。'
         action = offer_next_steps(self, title, message, actions, recommended=recommended)

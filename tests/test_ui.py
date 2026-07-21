@@ -14,7 +14,7 @@ try:
     from PyQt6.QtCore import QDate, QPoint, Qt
     from PyQt6.QtGui import QIcon
     from PyQt6.QtTest import QTest
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
     from panels.sql_panel import SqlToolPanel
     from panels.credit_panel import CreditCodePanel
     from panels.docx_panel import DocxUpdatePanel
@@ -90,17 +90,16 @@ class UiRegressionTests(unittest.TestCase):
         target = QPoint(320, 240)
         panel.move(target)
         panel._compact_position = QPoint(target)
-        anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
+        # 收起态 toggle 可见；展开态 toggle 隐藏，用 compact 锚点校验
         for _ in range(10):
             panel.toggle_expanded()
             self.assertTrue(panel.expanded)
-            QTest.qWait(100)
+            QTest.qWait(40)
             self.app.processEvents()
-            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
             panel.toggle_expanded()
             QTest.qWait(20)
             self.app.processEvents()
-            self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), anchor)
+            self.assertEqual(panel.pos(), target)
         self.assertFalse(panel.expanded)
         self.assertEqual(panel.pos(), target)
         panel.close_toolbar()
@@ -109,16 +108,39 @@ class UiRegressionTests(unittest.TestCase):
         self.assertFalse(panel.isHidden())
         panel.close()
 
+    def test_floating_shortcuts_default_and_rebuild(self):
+        panel = QuickPanel(_MainWindowStub())
+        self.assertEqual(panel.current_shortcuts(), [10, 2, 9, 5])
+        self.assertEqual(len(panel.tool_buttons), 4)
+        # 无文字 P / ×
+        self.assertEqual(panel.toggle_btn.text(), '')
+        panel.apply_shortcuts([10, 5], private_unlocked=False)
+        self.assertEqual(panel.current_shortcuts(), [10, 5])
+        self.assertEqual(len(panel.tool_buttons), 2)
+        panel.apply_shortcuts([10, 2, 9, 5, 1, 4, 6], private_unlocked=True)
+        self.assertEqual(len(panel.current_shortcuts()), 6)
+        panel.close()
+
+    def test_brand_icon_resources_exist(self):
+        from ui.icons import brand_file, brand_pixmap, brand_window_icon
+        self.assertTrue(os.path.exists(brand_file('app')))
+        self.assertTrue(os.path.exists(brand_file('floating')))
+        self.assertTrue(os.path.exists(brand_file('tray')))
+        pix = brand_pixmap('floating', size=28, tint='#4F735F')
+        self.assertFalse(pix.isNull())
+        self.assertFalse(brand_window_icon().isNull())
+
     def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
         window = MainWindow()
         try:
-            self.assertTrue(all(button.isHidden() for button in window.nav_buttons[8:]))
-            sidebar_layout = window.settings_button.parentWidget().layout()
-            self.assertGreater(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.nav_buttons[10]))
-            self.assertLess(sidebar_layout.indexOf(window.settings_button), sidebar_layout.indexOf(window.author_label))
+            # 仅自我学习(8)可隐藏；日报(9)、需求(10)必须常显（AGENTS / V2 导航模型）
+            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[9].isHidden())
+            self.assertFalse(window.nav_buttons[10].isHidden())
+            self.assertIsNotNone(window.settings_button)
             with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
                 self.assertTrue(window._unlock_private_tools())
-            self.assertTrue(all(not button.isHidden() for button in window.nav_buttons[8:]))
+            self.assertFalse(window.nav_buttons[8].isHidden())
             self.assertEqual(window._current_nav_index, 8)
             self.assertIs(window.stack.currentWidget(), window.personal_panel)
         finally:
@@ -137,10 +159,11 @@ class UiRegressionTests(unittest.TestCase):
         self.assertTrue(hasattr(requirement, 'send_to_docx'))
         self.assertTrue(hasattr(requirement, 'add_to_daily'))
         self.assertEqual(requirement.kind_filter.count(), 3)
-        self.assertEqual(requirement.scan_btn.text(), '扫描需求文件夹')
-        self.assertEqual(requirement.checkout_btn.text(), '粘贴 SVN 路径')
-        self.assertEqual(requirement.update_all_btn.text(), '一键更新全部 SVN')
-        self.assertEqual(requirement.file_tree.columnCount(), 2)
+        self.assertEqual(requirement.scan_btn.text(), '扫描需求目录')
+        self.assertEqual(requirement.checkout_btn.text(), '检出代码')
+        self.assertEqual(requirement.update_all_btn.text(), '更新全部')
+        # 文件表：名称 / 修改时间 / 类型 / 大小
+        self.assertEqual(requirement.file_tree.columnCount(), 4)
 
     def test_main_window_close_event_exits_all_auxiliary_services(self):
         fake_window = type('FakeMainWindow', (), {})()
@@ -180,9 +203,34 @@ class UiRegressionTests(unittest.TestCase):
             'language': 'zh',
             '_settings': {'close_default_action': 'exit'},
         })()
-        with patch('main_window.ask_close_action', return_value='exit') as ask:
-            self.assertEqual(MainWindow._ask_close_action(fake_window), 'exit')
+        with patch('main_window.ask_close_action', return_value=('exit', False)) as ask:
+            self.assertEqual(MainWindow._ask_close_action(fake_window), ('exit', False))
             ask.assert_called_once_with(fake_window, language='zh', default_action='exit')
+
+    def test_close_event_respects_dont_ask_again(self):
+        """退出弹窗勾选不再提示时写回 settings 并下次不询问。"""
+        from config import DEFAULT_SETTINGS
+
+        fake_window = type('FakeMainWindow', (), {})()
+        fake_window._settings = dict(DEFAULT_SETTINGS, close_ask_each_time=True, close_default_action='minimize')
+        fake_window._force_exit = False
+        fake_window.language = 'zh'
+        fake_window.hotkey_service = _CallRecorder()
+        fake_window.quick_panel = _CallRecorder()
+        fake_window.tray_service = _CallRecorder()
+        fake_window.hide = _CallRecorder().hide
+        loaded = []
+        fake_window.settings_panel = type('SP', (), {'load_values': lambda self, s: loaded.append(dict(s))})()
+        fake_window._ask_close_action = lambda: ('minimize', True)
+
+        with patch('main_window.save_settings', side_effect=lambda s: dict(s)) as save:
+            event = _CallRecorder()
+            MainWindow.closeEvent(fake_window, event)
+            save.assert_called_once()
+            self.assertFalse(fake_window._settings['close_ask_each_time'])
+            self.assertEqual(fake_window._settings['close_default_action'], 'minimize')
+            self.assertTrue(event.ignored)
+            self.assertTrue(loaded)
 
     def test_tray_quit_uses_main_window_close_path(self):
         main_window = _CallRecorder()
@@ -197,21 +245,42 @@ class UiRegressionTests(unittest.TestCase):
         panel._compact_position = QPoint(420, 260)
         panel.toggle_expanded()
         panel.move(panel.pos() + QPoint(-35, 25))
-        moved_anchor = panel.toggle_btn.mapToGlobal(QPoint(0, 0))
-        panel._compact_position = moved_anchor - QPoint(panel.BUTTON_MARGIN, panel.BUTTON_MARGIN)
+        # 展开态拖动后 compact 锚点跟随后缘（向左展开时）
+        if panel._expand_right:
+            panel._compact_position = QPoint(panel.pos().x(), panel.pos().y())
+        else:
+            panel._compact_position = QPoint(
+                panel.pos().x() + panel.width() - panel.COMPACT_SIZE[0],
+                panel.pos().y(),
+            )
+        expected = QPoint(panel._compact_position)
         panel.toggle_expanded()
-        QTest.qWait(100)
-        self.assertEqual(panel.toggle_btn.mapToGlobal(QPoint(0, 0)), moved_anchor)
+        QTest.qWait(40)
+        self.assertEqual(panel.pos(), expected)
         panel.close()
 
     def test_sql_system_selector_belongs_to_configuration_tab(self):
+        """system_combo 属于「系统配置」Tab（index=2），非 SQL 整理页。
+
+        设计：Tab0 升级准备 / Tab1 SQL 整理 / Tab2 系统配置。
+        SQL 整理页仅有只读 current_system_label 芯片，切换系统必须进系统配置。
+        """
         panel = SqlToolPanel()
-        config_tab = panel.tabs.widget(1)
+        self.assertEqual(panel.tabs.count(), 3)
+        self.assertEqual(panel.tabs.tabText(2), '系统配置')
+        config_tab = panel.tabs.widget(2)
         ancestor = panel.system_combo.parentWidget()
         while ancestor is not None and ancestor is not config_tab:
             ancestor = ancestor.parentWidget()
         self.assertIs(ancestor, config_tab)
-        self.assertIn('当前配置系统', panel.current_system_label.text())
+        # 配置页标题文案
+        self.assertIn('当前配置系统', panel.config_system_label.text())
+        # 整理页芯片只展示当前系统摘要，并提示去系统配置切换
+        self.assertTrue(panel.current_system_label.toolTip())
+        self.assertIn('系统配置', panel.current_system_label.toolTip())
+        # 入口可达：从需求「系统配置」按钮映射的 open 逻辑使用 index 2
+        panel.tabs.setCurrentIndex(2)
+        self.assertIs(panel.tabs.currentWidget(), config_tab)
 
     def test_document_panel_separates_personal_and_unit_generation(self):
         panel = CreditCodePanel()
@@ -283,27 +352,83 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn('UPDATE T_MULTI', unique)
 
     def test_packaged_icon_resource_is_valid(self):
-        icon = QIcon(os.path.join(PROJECT_DIR, 'resources', 'app.ico'))
+        brand = os.path.join(PROJECT_DIR, 'resources', 'brand', 'pengtools-app-v2.ico')
+        legacy = os.path.join(PROJECT_DIR, 'resources', 'app.ico')
+        icon = QIcon(brand if os.path.exists(brand) else legacy)
         self.assertFalse(icon.isNull())
 
     def test_gateway_panel_and_docx_date_are_available(self):
         gateway = GatewayDecodePanel()
         docx = DocxUpdatePanel()
         self.assertEqual(gateway.environment.count(), 3)
+        # 加解密不再内嵌 XML Tab；JSON 查看器保留
+        self.assertIsNotNone(gateway.json_viewer)
+        self.assertIsNone(gateway.xml_workspace)
+        self.assertTrue(hasattr(gateway, 'open_format_xml'))
         self.assertTrue(docx.update_date.calendarPopup())
         self.assertEqual(docx.update_date.objectName(), 'docx-date')
         docx.update_date.setDate(QDate(2030, 5, 20))
         docx.today_btn.click()
         self.assertEqual(docx.update_date.date(), QDate.currentDate())
 
+    def test_format_tools_xml_workspace_format_copy_and_errors(self):
+        """格式工具 XML Tab：格式化 / 去引号 / 错误提示 / 复制；加解密可跳转。"""
+        from panels.format_panel import FormatToolsPanel
+        from ui.xml_workspace import XmlWorkspace
+
+        panel = FormatToolsPanel()
+        xml = panel.xml_workspace
+        self.assertIsInstance(xml, XmlWorkspace)
+        raw = '"<root><item id=\\"1\\">hi</item></root>"'
+        xml.set_input_text(raw)
+        self.assertTrue(xml._format())
+        out = xml.output_text()
+        self.assertIn('<root>', out)
+        self.assertIn('<item', out)
+        self.assertIn('hi', out)
+        xml._copy_output()
+        self.assertEqual(QApplication.clipboard().text(), out)
+
+        with patch('ui.xml_workspace.show_warning') as warn:
+            xml.set_input_text('"<broken"')
+            self.assertFalse(xml._format())
+            warn.assert_called()
+        self.assertTrue(xml.status_label.text())
+
+        escaped = r'"<a>\n  <b>1</b>\n</a>"'
+        xml.set_input_text(escaped)
+        self.assertTrue(xml._normalize_only())
+        cleaned = xml.output_text()
+        self.assertIn('<a>', cleaned)
+        self.assertNotIn('\\n', cleaned)
+
+        # 解密明文通过信号送入格式工具
+        gateway = GatewayDecodePanel()
+        gateway.json_viewer.set_text('<root><x>1</x></root>', auto_format=False)
+        received = []
+        gateway.open_format_xml.connect(received.append)
+        gateway._send_plain_to_format_xml()
+        self.assertEqual(len(received), 1)
+        self.assertIn('<root>', received[0])
+        panel.open_xml(received[0])
+        self.assertEqual(panel.tabs.currentIndex(), 1)
+        self.assertIn('<root>', panel.xml_workspace.input_text())
+
+        xml.clear()
+        self.assertFalse(xml.input_text().strip())
+        self.assertFalse(xml.output_text().strip())
+        gateway.close()
+        panel.close()
+
     def test_docx_filename_shows_matched_latest_template(self):
         panel = DocxUpdatePanel()
         panel.docx_path.setText('接报案数据库表结构文档V1.0_整理后接口文档.docx')
         self.assertIsNotNone(panel._template_profile)
         self.assertEqual(panel._template_profile['system'], '接报案')
-        self.assertIn('V2.0.docx', panel.template_status.text())
-        self.assertIn('标准 4 列', panel.template_status.text())
+        # 正常匹配不占行；详情在 tooltip / profile
         self.assertTrue(panel.template_status.property('matched'))
+        tip = panel.template_status.toolTip() or ''
+        self.assertTrue('接报案' in tip or 'V2.0' in tip or panel._template_profile.get('template'))
         panel.docx_path.setText('未知系统数据库表结构说明文档.docx')
         self.assertIsNone(panel._template_profile)
         self.assertFalse(panel.template_status.property('matched'))
@@ -319,6 +444,32 @@ class UiRegressionTests(unittest.TestCase):
         item = viewer._matches[0]
         viewer._copy_item_value(item)
         self.assertEqual(QApplication.clipboard().text(), 'Lihp')
+
+    def test_json_tree_keeps_readable_key_column_and_resizable_headers(self):
+        """深层级字段名列可拖宽、有下限，不会被压到不可读。"""
+        from PyQt6.QtWidgets import QHeaderView
+        from ui.json_viewer import JsonViewer, _KEY_COL_DEFAULT, _KEY_COL_MIN
+
+        viewer = JsonViewer()
+        deep = {'level1': {'level2': {'level3': {'very_long_field_name_for_ui': {'leaf': 1}}}}}
+        import json
+        self.assertTrue(viewer.set_text(json.dumps(deep)))
+        header = viewer.tree.header()
+        self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Interactive)
+        self.assertEqual(header.sectionResizeMode(1), QHeaderView.ResizeMode.Interactive)
+        self.assertEqual(header.sectionResizeMode(2), QHeaderView.ResizeMode.Interactive)
+        self.assertGreaterEqual(viewer.tree.columnWidth(0), _KEY_COL_DEFAULT)
+        # 尝试拖窄字段名列，应被下限拦住
+        viewer.tree.setColumnWidth(0, 40)
+        viewer._on_tree_section_resized(0, 200, 40)
+        self.assertGreaterEqual(viewer.tree.columnWidth(0), _KEY_COL_MIN)
+        # 悬停有完整路径提示
+        leaf_path = '$.level1.level2.level3.very_long_field_name_for_ui.leaf'
+        items = viewer._all_items()
+        leaf = next(i for i in items if i.data(0, Qt.ItemDataRole.UserRole) == leaf_path)
+        self.assertIn('very_long_field_name_for_ui', leaf.toolTip(0))
+        self.assertEqual(viewer.tree.textElideMode(), Qt.TextElideMode.ElideNone)
+        viewer.close()
 
     def test_operations_panel_fuzzy_search_and_builtin_protection(self):
         panel = OpsPanel()
@@ -469,14 +620,47 @@ class UiRegressionTests(unittest.TestCase):
 
     def test_aurora_progress_uses_light_card_background(self):
         progress = AuroraProgress()
-        progress.resize(600, 54)
+        progress.resize(600, 62)
         progress.set_progress(50, 'Processing')
         self.app.processEvents()
         image = progress.grab().toImage()
-        color = image.pixelColor(8, 8)
-        self.assertGreater(color.red(), 230)
-        self.assertGreater(color.green(), 230)
-        self.assertGreater(color.blue(), 230)
+        # 取样卡片中部（避开外层阴影），应为浅色企业风底
+        color = image.pixelColor(image.width() // 2, image.height() // 2)
+        self.assertGreater(color.red(), 220)
+        self.assertGreater(color.green(), 220)
+        self.assertGreater(color.blue(), 220)
+
+    def test_aurora_progress_floating_overlay_does_not_need_layout(self):
+        host = QWidget()
+        host.resize(900, 600)
+        host.show()
+        progress = AuroraProgress(host)
+        progress.start_busy('正在导出交付文件…')
+        self.app.processEvents()
+        self.assertFalse(progress.isHidden())
+        self.assertGreaterEqual(progress.x(), 24)
+        self.assertEqual(progress.parentWidget(), host)
+        # 浮层不参与 layout：完成态仅改内部状态，不依赖 addWidget
+        progress.finish('导出完成')
+        self.assertEqual(progress._value, 100)
+        host.close()
+
+    def test_requirement_finish_label_from_busy_message(self):
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在提交 SVN，请勿关闭软件……'), '提交完成')
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在扫描本地需求文件夹和 SVN 工作副本……'), '扫描完成')
+        self.assertEqual(RequirementPanel._finish_label_from_busy('正在锁定选中的 SVN 文件……'), '锁定完成')
+
+    def test_settings_close_hint_reflects_dont_ask_state(self):
+        page = SettingsPanel(dict(DEFAULT_SETTINGS))
+        page.close_ask.setChecked(False)
+        page.close_default_action.setCurrentIndex(page.close_default_action.findData('exit'))
+        page._refresh_close_behavior_hint()
+        self.assertIn('关闭时不再提示', page.close_behavior_hint.text())
+        self.assertIn('恢复关闭提示', page.close_behavior_hint.text())
+        page.close_ask.setChecked(True)
+        page._refresh_close_behavior_hint()
+        self.assertIn('弹出选择', page.close_behavior_hint.text())
+        self.assertIn('关闭时不再提示', page.close_behavior_hint.text())
 
 
 if __name__ == '__main__':

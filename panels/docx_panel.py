@@ -9,7 +9,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QDateEdit, QFileDialog, QFileIconProvider,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
+    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -23,6 +23,7 @@ from tools.svn_workspace import (
     SvnError, checkout, safe_folder_name, update_working_copy, validate_svn_url, working_copy_info,
 )
 from ui.aurora_progress import AuroraProgress
+from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.field_metrics import size_compact_button, size_date, size_line
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
@@ -245,20 +246,28 @@ class DocxUpdatePanel(QWidget):
         output_box = QWidget()
         output_layout = QVBoxLayout(output_box)
         output_layout.setContentsMargins(0, 0, 0, 0)
+        # 日志默认折叠为状态条，运行/失败时展开
+        log_head = QHBoxLayout()
+        self.log_toggle = QPushButton('日志 ▸')
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setProperty('compactAction', True)
+        self.log_toggle.toggled.connect(self._toggle_log)
+        log_head.addWidget(self.log_toggle)
         self.log_label = QLabel()
-        output_layout.addWidget(self.log_label)
+        self.log_label.setObjectName('small-label')
+        log_head.addWidget(self.log_label, 1)
+        output_layout.addLayout(log_head)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMaximumHeight(32)
+        self.log.hide()
         output_layout.addWidget(self.log)
         work_split.addWidget(output_box)
-        work_split.setSizes([320, 180])
+        work_split.setSizes([420, 80])
         work_layout.addWidget(work_split)
         mid.addWidget(work_box)
         mid.setSizes([340, 720])
         layout.addWidget(mid, 1)
-
-        self.progress = AuroraProgress()
-        layout.addWidget(self.progress)
 
         bottom = QHBoxLayout()
         self.hint = QLabel()
@@ -269,6 +278,8 @@ class DocxUpdatePanel(QWidget):
         self.update_btn.clicked.connect(self._update_document)
         bottom.addWidget(self.update_btn)
         layout.addLayout(bottom)
+        # 浮层 Loading：不进 layout，避免生成文档时底栏跳动
+        self.progress = AuroraProgress(self)
 
     @staticmethod
     def _path_row(line_edit, button):
@@ -292,6 +303,23 @@ class DocxUpdatePanel(QWidget):
             row.addWidget(button)
         return widget
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'progress'):
+            self.progress.place_overlay()
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        for name in ('splitter', 'main_splitter', 'editor_splitter'):
+            sp = getattr(self, name, None)
+            if sp is not None:
+                apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
+        for name in ('sql_editor', 'log_edit', 'preview_edit'):
+            ed = getattr(self, name, None)
+            if ed is not None and hasattr(ed, 'setMinimumHeight'):
+                ed.setMinimumHeight(editor_min_height())
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
@@ -314,7 +342,11 @@ class DocxUpdatePanel(QWidget):
         self.output_dir_browse.setText('选择' if zh else 'Browse')
         self.output_dir_open.setText('打开' if zh else 'Open')
         self.svn_pull_btn.setText('一键拉取' if zh else 'Pull')
-        self.browser_label.setText('目录预览（双击文件夹展开，双击文件打开）' if zh else 'Preview (folder expands, file opens)')
+        out_name = os.path.basename(self.output_dir.text().strip() or '') or ('输出' if zh else 'Output')
+        self.browser_label.setText(out_name)
+        self.browser_label.setToolTip(
+            '双击文件夹展开，双击文件打开' if zh else 'Double-click folder to expand, file to open'
+        )
         self.browser_refresh.setText('刷新' if zh else 'Refresh')
         self.browser_open_folder.setText('打开目录' if zh else 'Open dir')
         self.update_date.setToolTip('写入版本历史的日期' if zh else 'Date written into revision history')
@@ -324,14 +356,20 @@ class DocxUpdatePanel(QWidget):
         self.output_path.setPlaceholderText('自动生成' if zh else 'Auto')
         self.svn_url.setPlaceholderText('可选：svn://... 拉取到输出目录' if zh else 'Optional svn://... into output dir')
         self.author.setPlaceholderText('作者' if zh else 'Author')
-        self.sql_label.setText('粘贴 / 上传 SQL' if zh else 'Paste / load SQL')
+        self.sql_label.setText('SQL' if zh else 'SQL')
         self.load_sql_btn.setText('上传 SQL' if zh else 'Load SQL')
         self.preview_btn.setText('预检' if zh else 'Preview')
-        self.log_label.setText('运行日志' if zh else 'Log')
-        self.hint.setText(
-            '懒人三步：选目录点文档 →（可选）填 SVN 一键拉取 → 粘贴 SQL 点更新。双击文件夹只展开，右键可打开目录。'
-            if zh else
-            'Lazy flow: pick folder/doc → optional SVN pull → paste SQL and update. Double-click folders expands only.'
+        self.log_label.setText('' if zh else '')
+        if hasattr(self, 'log_toggle'):
+            self.log_toggle.setText(
+                ('日志 ▾' if self.log_toggle.isChecked() else '日志 ▸') if zh else
+                ('Log ▾' if self.log_toggle.isChecked() else 'Log ▸')
+            )
+        self.hint.setText('')
+        self.hint.hide()
+        self.hint.setToolTip(
+            '选目录点文档 →（可选）SVN 拉取 → 粘贴 SQL 更新' if zh else
+            'Pick doc → optional SVN → paste SQL and update'
         )
         self.update_btn.setText('一键更新文档' if zh else 'Update document')
         self._refresh_template_match()
@@ -356,45 +394,58 @@ class DocxUpdatePanel(QWidget):
         self._sync_output_path()
         self._refresh_template_match()
 
+    def _toggle_log(self, checked):
+        self.log.setVisible(bool(checked))
+        if checked:
+            self.log.setMaximumHeight(16777215)
+            self.log.setMinimumHeight(80)
+        else:
+            self.log.setMaximumHeight(32)
+        zh = self.language == 'zh'
+        self.log_toggle.setText(
+            ('日志 ▾' if checked else '日志 ▸') if zh else
+            ('Log ▾' if checked else 'Log ▸')
+        )
+
+    def _expand_log(self):
+        if hasattr(self, 'log_toggle') and not self.log_toggle.isChecked():
+            self.log_toggle.setChecked(True)
+
     def _refresh_template_match(self):
         path = self.docx_path.text().strip()
         self._template_profile = match_document_template(path) if path else None
         if not path:
-            self.template_status.setText(
-                '选择文档后自动按名称匹配最新模板' if self.language == 'zh'
-                else 'Choose a document to match its latest template by name'
-            )
+            self.template_status.clear()
+            self.template_status.hide()
             self.template_status.setProperty('matched', False)
-        elif self._template_profile:
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.hide()
+            return
+        if self._template_profile:
+            # 正常匹配不占行；详情放 tooltip
             profile = self._template_profile
             confidence = '精确匹配' if profile['confidence'] == 'exact' else '兼容匹配'
-            revision_zh = {
-                'standard4': '修订历史：标准 4 列',
-                'type6': '修订历史：6 列（含变更类型）',
-                'date_merged5': '修订历史：5 列（日期合并列）',
-                'date_first6': '修订历史：6 列（日期在前，含审核/批准）',
-                'none': '模板无修订历史，将写入文末自动更新记录',
-            }.get(profile.get('revision_layout'), '修订历史：自动识别')
-            revision_en = {
-                'standard4': 'Revision history: standard 4 columns',
-                'type6': 'Revision history: 6 columns with change type',
-                'date_merged5': 'Revision history: 5 columns with merged date',
-                'date_first6': 'Revision history: 6 columns, date first, with review/approval',
-                'none': 'No revision table; an automatic end record will be added',
-            }.get(profile.get('revision_layout'), 'Revision history: auto-detected')
-            self.template_status.setText(
-                f"✓ {profile['system']} · {confidence}\n最新模板：{profile['template']}\n{revision_zh}"
+            tip = (
+                f"{profile['system']} · {confidence}\n最新模板：{profile['template']}"
                 if self.language == 'zh' else
-                f"✓ {profile['system']} · {profile['confidence']} match\nLatest template: {profile['template']}\n{revision_en}"
+                f"{profile['system']} · {profile['confidence']} match\nLatest: {profile['template']}"
             )
+            self.template_status.clear()
+            self.template_status.hide()
+            self.template_status.setToolTip(tip)
             self.template_status.setProperty('matched', True)
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.hide()
         else:
             names = '、'.join(supported_system_names())
             self.template_status.setText(
                 f'未匹配到系统模板，将阻止写入。支持：{names}' if self.language == 'zh'
                 else 'No system template matched. Writing is blocked; rename or provide a supported template.'
             )
+            self.template_status.show()
             self.template_status.setProperty('matched', False)
+            if hasattr(self, 'template_row_label'):
+                self.template_row_label.show()
         self.template_status.style().unpolish(self.template_status)
         self.template_status.style().polish(self.template_status)
 
@@ -588,12 +639,12 @@ class DocxUpdatePanel(QWidget):
         target = self.output_dir.text().strip()
         zh = self.language == 'zh'
         if not url:
-            QMessageBox.warning(self, '接口文档更新' if zh else 'Interface docs', '请填写 SVN 路径。' if zh else 'Enter an SVN URL.')
+            show_warning(self, '接口文档更新' if zh else 'Interface docs', '请填写 SVN 路径。' if zh else 'Enter an SVN URL.')
             return
         try:
             url = validate_svn_url(url)
         except ValueError as exc:
-            QMessageBox.warning(self, '接口文档更新' if zh else 'Interface docs', str(exc))
+            show_warning(self, '接口文档更新' if zh else 'Interface docs', str(exc))
             return
         if not target:
             target = QFileDialog.getExistingDirectory(self, '选择 SVN 检出输出目录' if zh else 'Choose checkout directory')
@@ -613,7 +664,7 @@ class DocxUpdatePanel(QWidget):
                 if names:
                     checkout_target = os.path.join(target, safe_folder_name(url.rstrip('/').rsplit('/', 1)[-1]))
                     if os.path.exists(checkout_target) and os.listdir(checkout_target) and not self._is_working_copy(checkout_target):
-                        QMessageBox.warning(
+                        show_warning(
                             self, '接口文档更新' if zh else 'Interface docs',
                             (f'输出目录非空，且无法安全检出。请清空目录或换一个空目录。\n{checkout_target}' if zh else
                              f'Cannot safely checkout into a non-empty directory:\n{checkout_target}'),
@@ -632,14 +683,15 @@ class DocxUpdatePanel(QWidget):
                     result = checkout(url, checkout_target)
                     message = result.get('output') or ('SVN 检出完成' if zh else 'SVN checkout finished')
         except (SvnError, ValueError, OSError) as exc:
-            QMessageBox.critical(self, '接口文档更新' if zh else 'Interface docs', str(exc))
+            show_error(self, '接口文档更新' if zh else 'Interface docs', str(exc))
             return
         self.output_dir.setText(target)
         self.folder_path.setText(target)
         self._refresh_folder_docs()
         self._refresh_output_browser()
+        self._expand_log()
         self.log.setPlainText(message)
-        QMessageBox.information(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
+        show_info(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
 
     def _load_sql(self):
         paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', '', 'SQL (*.sql *.txt);;All files (*.*)')
@@ -651,7 +703,7 @@ class DocxUpdatePanel(QWidget):
                 blocks.append(f'-- 来源文件: {os.path.basename(path)}\n{read_file_auto_encoding(path).strip()}')
                 self._sql_paths.append(path)
             except OSError as exc:
-                QMessageBox.critical(self, 'PengTools', str(exc))
+                show_error(self, 'PengTools', str(exc))
                 return
         current = self.sql_editor.toPlainText().strip()
         self.sql_editor.setPlainText('\n\n'.join(([current] if current else []) + blocks))
@@ -689,40 +741,37 @@ class DocxUpdatePanel(QWidget):
     def _confirm_sql(self, sql, input_docx):
         unique_sql, duplicates = deduplicate_sql(sql)
         if duplicates:
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools',
-                (f'检测到 {len(duplicates)} 条重复 SQL。是否去重后继续？\n选择“否”将保留输入，但写入时仍会安全跳过重复内容。'
+                (f'检测到 {len(duplicates)} 条重复 SQL。是否去重后继续？写入时仍会安全跳过文档内已有重复。'
                  if self.language == 'zh' else
-                 f'{len(duplicates)} duplicate SQL statement(s) found. Deduplicate before continuing?\nNo keeps the input; document duplicates are still safely skipped.'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes,
-            )
-            if answer == QMessageBox.StandardButton.Cancel:
+                 f'{len(duplicates)} duplicate SQL statement(s) found. Deduplicate and continue?'),
+                confirm_text='去重并继续' if self.language == 'zh' else 'Deduplicate',
+                danger=False,
+            ):
                 return None
-            if answer == QMessageBox.StandardButton.Yes:
-                sql = unique_sql
+            sql = unique_sql
 
         structure_sql, rejected = filter_docx_structure_sql(sql)
         if rejected:
             preview = '\n'.join('- ' + item.replace('\n', ' ')[:150] for item in rejected[:8])
             if len(rejected) > 8:
                 preview += f'\n... 另有 {len(rejected) - 8} 条'
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools · 接口文档 SQL',
                 (f'接口结构文档只支持 CREATE TABLE、ALTER TABLE ADD/MODIFY 和 COMMENT ON。\n'
                  f'检测到 {len(rejected)} 条非结构 DDL 或不支持的 SQL：\n{preview}\n\n'
-                 '点击“是”将过滤这些语句并继续；点击“否”返回修改。'
+                 '过滤这些语句并继续？'
                  if self.language == 'zh' else
                  f'The document updater supports CREATE TABLE, ALTER TABLE ADD/MODIFY and COMMENT ON only.\n'
-                 f'{len(rejected)} unsupported statement(s) found:\n{preview}\n\nYes filters them and continues; No returns to editing.'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                 f'{len(rejected)} unsupported statement(s):\n{preview}\n\nFilter and continue?'),
+                confirm_text='过滤并继续' if self.language == 'zh' else 'Filter & continue',
+                danger=False,
+            ):
                 return None
             sql = structure_sql
         if not sql.strip():
-            QMessageBox.warning(
+            show_warning(
                 self, 'PengTools · 接口文档 SQL',
                 '过滤后没有可用于更新接口文档的结构 DDL。' if self.language == 'zh'
                 else 'No supported structure DDL remains after filtering.',
@@ -737,14 +786,13 @@ class DocxUpdatePanel(QWidget):
                 f"- SQL {item['statement']}: {item['message_zh' if zh else 'message_en']}"
                 for item in syntax_errors[:8]
             )
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools · 接口文档 SQL',
                 (f'轻量语法检查发现 {len(syntax_errors)} 个问题：\n{preview}\n\n仍要继续尝试解析吗？'
                  if zh else f'Lightweight validation found {len(syntax_errors)} issue(s):\n{preview}\n\nTry parsing anyway?'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                confirm_text='仍要继续' if zh else 'Continue',
+                danger=False,
+            ):
                 return None
 
         existing = detect_existing_changes(input_docx, sql)
@@ -755,15 +803,14 @@ class DocxUpdatePanel(QWidget):
             )
             if len(existing) > 12:
                 preview += f'\n... 另有 {len(existing) - 12} 项'
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self, 'PengTools',
-                (f'检测到 {len(existing)} 项表/字段/说明已存在：\n{preview}\n\n是否跳过已存在项并继续处理其余新增内容？'
+                (f'检测到 {len(existing)} 项表/字段/说明已存在：\n{preview}\n\n跳过已存在项并继续处理其余新增内容？'
                  if self.language == 'zh' else
-                 f'{len(existing)} table/field/comment item(s) already exist:\n{preview}\n\nSkip them and continue with missing changes?'),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                 f'{len(existing)} table/field/comment item(s) already exist:\n{preview}\n\nSkip them and continue?'),
+                confirm_text='跳过并继续' if self.language == 'zh' else 'Skip & continue',
+                danger=False,
+            ):
                 return None
         return sql
 
@@ -772,11 +819,11 @@ class DocxUpdatePanel(QWidget):
         output_path = self.output_path.text().strip() or self._organized_output_path(selected_docx)
         sql = self.sql_editor.toPlainText().strip()
         if not selected_docx or not os.path.isfile(selected_docx) or not sql:
-            QMessageBox.warning(self, 'PengTools', '请选择接口文档并输入 SQL。' if self.language == 'zh' else 'Select a document and enter SQL.')
+            show_warning(self, 'PengTools', '请选择接口文档并输入 SQL。' if self.language == 'zh' else 'Select a document and enter SQL.')
             return
         self._refresh_template_match()
         if not self._template_profile:
-            QMessageBox.warning(
+            show_warning(
                 self, 'PengTools · 接口文档更新',
                 ('无法根据文档名称匹配系统模板，已停止写入。\n请使用对应系统的结构文档原始名称，或补充该系统模板后再处理。'
                  if self.language == 'zh' else
@@ -798,7 +845,7 @@ class DocxUpdatePanel(QWidget):
                 temp_path = stream.name
         except Exception as exc:
             self.log.setPlainText(str(exc))
-            QMessageBox.critical(self, 'PengTools', str(exc))
+            show_error(self, 'PengTools', str(exc))
             return
 
         self.update_btn.setEnabled(False)
@@ -820,21 +867,22 @@ class DocxUpdatePanel(QWidget):
             return
         self.sql_editor.clear()
         self._sql_paths.clear()
-        self.progress.finish('接口文档更新完成' if self.language == 'zh' else 'Interface document updated')
+        self.progress.finish('接口文档已生成' if self.language == 'zh' else 'Interface document generated')
         self.task_completed.emit()
         self._refresh_folder_docs()
         self._refresh_output_browser()
-        QMessageBox.information(
-            self, 'PengTools',
-            (f'接口文档更新完成。\n新增/修改 {len(report["changes"])} 项，跳过 {len(report["skipped"])} 项。\n\n请务必自行检查表结构、字段说明和版本记录后再提交。\n{output_path}'
+        show_success(
+            self, '接口文档更新完成' if self.language == 'zh' else 'Interface document updated',
+            (f'新增/修改 {len(report["changes"])} 项，跳过 {len(report["skipped"])} 项。\n\n请务必自行检查表结构、字段说明和版本记录后再提交。\n{output_path}'
              if self.language == 'zh' else
-             f'Interface document updated.\nChanged {len(report["changes"])} item(s), skipped {len(report["skipped"])}.\n\nPlease manually check table structures, field descriptions, and version history before submission.\n{output_path}')
+             f'Changed {len(report["changes"])} item(s), skipped {len(report["skipped"])}.\n\nPlease manually check table structures, field descriptions, and version history before submission.\n{output_path}')
         )
 
     def _on_update_failed(self, message):
+        self._expand_log()
         self.log.setPlainText(message)
         self.progress.fail('处理失败，请检查输入' if self.language == 'zh' else 'Processing failed; check the input')
-        QMessageBox.critical(self, 'PengTools', message)
+        show_error(self, 'PengTools', message)
 
     def _on_worker_finished(self):
         self.update_btn.setEnabled(True)

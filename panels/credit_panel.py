@@ -4,10 +4,11 @@ import csv
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHeaderView,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget,
     QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_error, show_warning
 from tools.credit_code import (
     ORG_TYPES, PROVINCES, generate_batch, generate_company_name, validate_code,
 )
@@ -49,6 +50,7 @@ class CreditCodePanel(QWidget):
         self.format_note = QLabel()
         self.format_note.setObjectName('path-note')
         self.format_note.setWordWrap(True)
+        self.format_note.hide()  # 仅切换类型或非法输入时显示
         root.addWidget(self.format_note)
 
         self.table = QTableWidget()
@@ -216,7 +218,7 @@ class CreditCodePanel(QWidget):
         try:
             return max(1, min(10000, int(box.text())))
         except ValueError:
-            QMessageBox.warning(
+            show_warning(
                 self, '数量无效' if self.language == 'zh' else 'Invalid Quantity',
                 '请输入 1 到 10000 之间的数字。' if self.language == 'zh' else 'Enter a number from 1 to 10000.',
             )
@@ -290,6 +292,9 @@ class CreditCodePanel(QWidget):
         self.personal_mode_label.setVisible(is_resident_id)
         self.personal_mode.setVisible(is_resident_id)
         self.id_custom.setVisible(is_resident_id and self.personal_mode.currentIndex() == 1)
+        # 切换类型时短暂展示格式说明
+        if hasattr(self, 'format_note') and self.format_note.text():
+            self.format_note.show()
 
     def _on_personal_mode_changed(self, index):
         self.id_custom.setVisible(self.personal_type.currentData() == 'resident_id' and index == 1)
@@ -350,7 +355,7 @@ class CreditCodePanel(QWidget):
                     writer.writerow([self._type_label(kind), document, name])
             self.result_label.setText(('已导出：' if self.language == 'zh' else 'Exported to ') + path)
         except OSError as exc:
-            QMessageBox.critical(self, 'Export Failed', str(exc))
+            show_error(self, 'Export Failed', str(exc))
 
     def _clear(self):
         self._results = []
@@ -359,6 +364,11 @@ class CreditCodePanel(QWidget):
 
     def refresh_config(self):
         pass
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        set_subtitle_visible(getattr(self, 'subtitle', None), low_height)
 
     def set_language(self, language):
         self.language = language
@@ -395,6 +405,8 @@ class CreditCodePanel(QWidget):
             if zh else
             'Formats: 18-character resident ID with MOD 11-2 check digit; passport E + 8 digits; military and armed-police documents use common Chinese business-system display formats.'
         )
+        self.format_note.hide()
+        self.format_note.setToolTip(self.format_note.text())
         self.table.setHorizontalHeaderLabels(
             ['序号', '证件类型', '证件号码', '模拟名称']
             if zh else ['#', 'Document Type', 'Document Number', 'Mock Name']

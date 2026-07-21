@@ -136,6 +136,30 @@ class PrivateWorkspaceTests(unittest.TestCase):
         self.assertIn('含 SQL', template['notes'])
         self.assertIn('周边系统', template['notes'])
 
+    def test_reminder_settings_file_roundtrip_shared_store(self):
+        """设置页与日报页共用 daily_report_settings.json。"""
+        import tempfile
+        from tools.daily_reports import load_reminder_settings, save_reminder_settings
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'daily_report_settings.json')
+            saved = save_reminder_settings(
+                {'enabled': True, 'time': '16:40', 'last_reminder_date': ''},
+                path=path,
+            )
+            self.assertTrue(saved['enabled'])
+            self.assertEqual(saved['time'], '16:40')
+            loaded = load_reminder_settings(path)
+            self.assertEqual(loaded['time'], '16:40')
+            self.assertTrue(loaded['enabled'])
+            # 改时间后清空 last_reminder_date 由 UI 层负责；文件层原样读写
+            again = save_reminder_settings(
+                {'enabled': False, 'time': '08:05', 'last_reminder_date': '2026-07-21'},
+                path=path,
+            )
+            self.assertFalse(again['enabled'])
+            self.assertEqual(again['time'], '08:05')
+            self.assertEqual(load_reminder_settings(path)['last_reminder_date'], '2026-07-21')
+
     def test_requirement_classification_covers_common_types(self):
         self.assertEqual(classify_requirement('修复 BUG：保存时报错'), '缺陷优化')
         self.assertEqual(classify_requirement('新增字段并执行 DDL SQL'), '数据变更')
@@ -470,6 +494,22 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings['keep_awake_enabled'])
         self.assertEqual(settings['keep_awake_interval_minutes'], 60)
         self.assertTrue(DEFAULT_SETTINGS['floating_always_on_top'])
+        self.assertEqual(DEFAULT_SETTINGS['floating_shortcuts'], [10, 2, 9, 5])
+
+    def test_floating_shortcuts_are_normalized(self):
+        from ui.navigation_model import normalize_floating_shortcuts
+        # 去重、非法、最多 6、至少 1
+        self.assertEqual(
+            normalize_floating_shortcuts([10, 10, 2, 99, 9, 5, 1, 4, 6, 3]),
+            [10, 2, 9, 5, 1, 4],
+        )
+        self.assertEqual(normalize_floating_shortcuts([]), [10, 2, 9, 5])
+        self.assertEqual(
+            normalize_floating_shortcuts([8, 10], private_unlocked=False),
+            [10],
+        )
+        settings = normalize_settings({'floating_shortcuts': [10, 'x', 2]})
+        self.assertEqual(settings['floating_shortcuts'], [10, 2])
 
 
 class DocxUpdaterTests(unittest.TestCase):

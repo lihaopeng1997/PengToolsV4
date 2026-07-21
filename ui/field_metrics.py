@@ -4,8 +4,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
-# 统一控件高度（含内边距后的视觉高度）
-FIELD_H = 34
+# 统一控件高度（V2.0 蓝图 36px）
+FIELD_H = 36
 
 # 下拉框：短 / 中 / 长
 COMBO_SM = (120, 140)   # 类型、状态、环境、性别等短选项
@@ -108,3 +108,9 @@ def size_compact_button(button) -> None:
     button.setProperty('compactAction', True)
     button.setMinimumWidth(BTN_COMPACT_MIN_W)
     size_field_height(button)
+
+
+def apply_button_role(button, role: str = 'secondary', *, compact: bool = False) -> None:
+    """按钮角色入口（转发 design_system，避免业务面板直接耦合）。"""
+    from ui.design_system import apply_button
+    apply_button(button, role, compact=compact)
