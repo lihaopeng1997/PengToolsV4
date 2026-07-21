@@ -611,10 +611,18 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_import_btn, 'secondary', compact=True, icon='import', icon_size=16)
         self.rt_import_btn.clicked.connect(self._rt_import_file)
         io_row.addWidget(self.rt_import_btn)
+        self.rt_req_copy_btn = QPushButton()
+        apply_button(self.rt_req_copy_btn, 'ghost', compact=True, icon='copy', icon_size=14)
+        self.rt_req_copy_btn.clicked.connect(self._rt_copy_request_body)
+        io_row.addWidget(self.rt_req_copy_btn)
         self.rt_req_format_btn = QPushButton()
         apply_button(self.rt_req_format_btn, 'secondary', compact=True, icon='json', icon_size=14)
         self.rt_req_format_btn.clicked.connect(self._rt_send_request_to_format)
         io_row.addWidget(self.rt_req_format_btn)
+        self.rt_resp_copy_btn = QPushButton()
+        apply_button(self.rt_resp_copy_btn, 'ghost', compact=True, icon='copy', icon_size=14)
+        self.rt_resp_copy_btn.clicked.connect(self._rt_copy_response_body)
+        io_row.addWidget(self.rt_resp_copy_btn)
         self.rt_resp_format_btn = QPushButton()
         apply_button(self.rt_resp_format_btn, 'secondary', compact=True, icon='json', icon_size=14)
         self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
@@ -2080,9 +2088,45 @@ class InterfaceDebugPanel(QWidget):
         cursor.movePosition(cursor.MoveOperation.Start)
         self.draft_preview.setTextCursor(cursor)
 
+    def _rt_current_request_body(self) -> str:
+        return (self.rt_body.toPlainText() if hasattr(self, 'rt_body') else '') or self._rt_last_request_body or ''
+
+    def _rt_current_response_body(self) -> str:
+        body = self._rt_last_response_body or ''
+        if str(body).strip():
+            return body
+        # 兼容：从预览区取「Body」段，去掉 Headers 与 # 注释
+        preview = self.draft_preview.toPlainText() if hasattr(self, 'draft_preview') else ''
+        if '—— Response Body' in preview:
+            body = preview.split('—— Response Body', 1)[-1]
+            # 去掉标题行
+            lines = body.splitlines()
+            if lines and lines[0].startswith('（') or (lines and '——' in lines[0]):
+                lines = lines[1:]
+            body = '\n'.join(ln for ln in lines if not ln.startswith('#')).strip()
+            return body
+        lines = [ln for ln in preview.splitlines() if not ln.startswith('#') and not ln.startswith('——')]
+        return '\n'.join(lines).strip()
+
+    def _rt_copy_request_body(self):
+        body = self._rt_current_request_body()
+        if not str(body).strip():
+            show_warning(self, '请求测试', '当前请求 Body 为空')
+            return
+        self._copy_text(body, sensitive=True)
+        show_success(self, '请求测试', f'已复制请求 Body（{len(body)} 字符）')
+
+    def _rt_copy_response_body(self):
+        body = self._rt_current_response_body()
+        if not str(body).strip():
+            show_warning(self, '请求测试', '当前没有响应 Body，请先发送请求')
+            return
+        self._copy_text(body, sensitive=True)
+        show_success(self, '请求测试', f'已复制响应 Body（{len(body)} 字符）')
+
     def _rt_send_request_to_format(self):
         """当前请求 Body → 格式工具。"""
-        body = (self.rt_body.toPlainText() if hasattr(self, 'rt_body') else '') or self._rt_last_request_body or ''
+        body = self._rt_current_request_body()
         if not str(body).strip():
             show_warning(self, '请求测试', '当前请求 Body 为空')
             return
@@ -2090,12 +2134,7 @@ class InterfaceDebugPanel(QWidget):
 
     def _rt_send_response_to_format(self):
         """最近响应 Body → 格式工具。"""
-        body = self._rt_last_response_body or ''
-        if not str(body).strip():
-            # 兼容：预览区整段也尝试（去掉 # 注释头）
-            preview = self.draft_preview.toPlainText() if hasattr(self, 'draft_preview') else ''
-            lines = [ln for ln in preview.splitlines() if not ln.startswith('#')]
-            body = '\n'.join(lines).strip()
+        body = self._rt_current_response_body()
         if not str(body).strip():
             show_warning(self, '请求测试', '当前没有响应 Body，请先发送请求')
             return
@@ -2511,6 +2550,15 @@ class InterfaceDebugPanel(QWidget):
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')
             self.rt_resp_label.setText('响应' if zh else 'Response')
+        if hasattr(self, 'rt_req_copy_btn'):
+            self.rt_req_copy_btn.setText('复制请求' if zh else 'Copy req')
+            self.rt_req_copy_btn.setToolTip(
+                '一键复制当前请求 Body（完整）' if zh else 'Copy full request body'
+            )
+            self.rt_resp_copy_btn.setText('复制响应' if zh else 'Copy resp')
+            self.rt_resp_copy_btn.setToolTip(
+                '一键复制完整响应 Body' if zh else 'Copy full response body'
+            )
         if hasattr(self, 'rt_req_format_btn'):
             self.rt_req_format_btn.setText('请求→格式工具' if zh else 'Req → Format')
             self.rt_req_format_btn.setToolTip(

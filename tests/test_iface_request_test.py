@@ -239,6 +239,16 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         p._rt_send_request_to_format()
         self.assertTrue(emitted)
         self.assertIn('req', emitted[0])
+        # 一键复制
+        self.assertTrue(hasattr(p, 'rt_req_copy_btn'))
+        self.assertTrue(hasattr(p, 'rt_resp_copy_btn'))
+        with mock.patch('panels.interface_debug_panel.show_success'), \
+             mock.patch.object(p, '_copy_text') as copy_mock:
+            p._rt_copy_request_body()
+            self.assertTrue(copy_mock.called)
+            self.assertIn('req', copy_mock.call_args[0][0])
+            p._rt_copy_response_body()
+            self.assertIn('AAAA', copy_mock.call_args[0][0])
         p.close()
 
 
