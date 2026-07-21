@@ -147,12 +147,22 @@ def restore_proxy_from_snapshot(snapshot: Optional[dict] = None) -> bool:
 def apply_local_proxy(port: int = 8899) -> dict:
     """备份并设置 127.0.0.1 代理（Fiddler 式：关 PAC/自动检测，强制显式代理）。"""
     port = max(1, min(65535, int(port or 8899)))
+    # 若当前已是本机抓包端口（上次异常未恢复），先恢复再备份，避免快照嵌套污染
+    current = read_proxy_settings()
+    server = str(current.get('ProxyServer') or '')
+    if '127.0.0.1' in server or 'localhost' in server.lower():
+        cfg = load_interface_debug_config()
+        if isinstance(cfg.get('proxy_restore_snapshot'), dict):
+            try:
+                restore_proxy_from_snapshot(cfg.get('proxy_restore_snapshot'))
+            except Exception:
+                pass
     snap = backup_proxy_to_config()
+    # Fiddler 经典：单地址对全部协议；Chrome/Edge/IE 识别最稳
     write_proxy_settings({
         'ProxyEnable': 1,
-        # 同时写 http/https，兼容只认分协议代理的客户端
-        'ProxyServer': f'http=127.0.0.1:{port};https=127.0.0.1:{port}',
-        # <-loopback>：允许经代理访问本机环回（Windows 默认绕过 127.0.0.1）
+        'ProxyServer': f'127.0.0.1:{port}',
+        # <-loopback>：本机环回也走代理（Win10+）；不要写 <local> 排除内网
         'ProxyOverride': '<-loopback>',
         'AutoConfigURL': '',
         'AutoDetect': 0,

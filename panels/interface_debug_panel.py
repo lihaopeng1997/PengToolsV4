@@ -111,6 +111,10 @@ class InterfaceDebugPanel(QWidget):
     open_gateway = pyqtSignal(str)
     open_format_json = pyqtSignal(str)
     open_format_xml = pyqtSignal(str)
+    # 抓包后台线程 → 主线程（必须用信号，不能用 QTimer.singleShot）
+    _sig_capture_record = pyqtSignal(dict)
+    _sig_capture_error = pyqtSignal(str)
+    _sig_capture_stopped = pyqtSignal()
 
     # 对齐 Fiddler Session 列表列名
     COL_LABELS_ZH = {
@@ -141,7 +145,8 @@ class InterfaceDebugPanel(QWidget):
         # 只做 HTTP/HTTPS 抓包，不再提供模式切换（CDP/代理等对用户隐藏）
         self._mode = 'proxy'
         self._reveal_sensitive = False
-        self._show_static = bool(self._prefs.get('show_static'))
+        # 默认显示静态资源，避免「页面打开了但列表全空」被过滤误伤
+        self._show_static = bool(self._prefs.get('show_static', True))
         self._selected_id = None
         self._launch_worker = None
         self._layout_mode = 'standard'
@@ -161,6 +166,10 @@ class InterfaceDebugPanel(QWidget):
         self._status_tick.setInterval(2000)
         self._status_tick.timeout.connect(self._refresh_live_status)
         self._sensitive_copy_warned = False
+        # 跨线程投递：QueuedConnection
+        self._sig_capture_record.connect(self._ingest_record)
+        self._sig_capture_error.connect(self._on_ie_error)
+        self._sig_capture_stopped.connect(self._on_proxy_stopped)
         self._setup_ui()
         self._reload_config_ui()
         self.set_language(language)
@@ -1016,7 +1025,11 @@ class InterfaceDebugPanel(QWidget):
                 self.loading.fail(err)
                 show_warning(self, title, err)
                 return
-            self._mark_listen_success('抓包中 · 打开浏览器访问业务页即可看到 URL 列表')
+            # 自检：经本机代理打一条 HTTP，验证「代理→抓取引擎→列表」整条链路
+            self._probe_capture_pipeline(port)
+            self._mark_listen_success(
+                f'抓包中 · 系统代理已指向 127.0.0.1:{port} · 请用浏览器打开业务页（必要时重启浏览器）'
+            )
             self.loading.finish('抓包已开始' if zh else 'Capture started')
         except Exception as exc:
             self.loading.fail(str(exc))
@@ -1025,6 +1038,27 @@ class InterfaceDebugPanel(QWidget):
                 restore_proxy_from_snapshot()
             except Exception:
                 pass
+
+    def _probe_capture_pipeline(self, port: int):
+        """经本地代理发一条 HTTP 探测；成功则列表至少出现探测会话。"""
+        def _run():
+            try:
+                import urllib.request
+                proxy = urllib.request.ProxyHandler({
+                    'http': f'http://127.0.0.1:{int(port)}',
+                    'https': f'http://127.0.0.1:{int(port)}',
+                })
+                opener = urllib.request.build_opener(proxy)
+                # 访问公网探测：若内网不通，仍会留下 CONNECT/失败记录；优先本机无效端口无意义
+                try:
+                    opener.open('http://example.com/', timeout=4)
+                except Exception:
+                    # 即使失败，mitm 也应留下请求记录
+                    pass
+            except Exception:
+                pass
+        import threading
+        threading.Thread(target=_run, name='capture-probe', daemon=True).start()
 
     def _mark_listen_success(self, status_text: str):
         self._listening = True
@@ -1046,11 +1080,11 @@ class InterfaceDebugPanel(QWidget):
             return
         zh = self.language == 'zh'
         self.status_label.setText(
-            '监听已建立，等待浏览器请求。可点击「检查代理/重新连接」。'
+            '仍未收到流量：请完全退出并重新打开 Chrome/Edge 后再访问页面；'
+            '设置 → 系统 → 代理 中应能看到 127.0.0.1。公司代理/VPN 可能劫持流量。'
             if zh else
-            'Listener ready — waiting for browser requests.'
+            'No traffic yet — fully restart Chrome/Edge; check system proxy is 127.0.0.1.'
         )
-        self.recheck_btn.show()
         self._update_empty_hint()
 
     def _refresh_live_status(self):
@@ -1149,14 +1183,23 @@ class InterfaceDebugPanel(QWidget):
             )
 
     def _on_ie_record_thread(self, rec):
-        # 禁止后台线程直接操作 QWidget：投递主线程
-        QTimer.singleShot(0, lambda r=dict(rec): self._ingest_record(r))
+        # 后台线程必须用信号投递主线程（QTimer.singleShot 跨线程不可靠）
+        try:
+            self._sig_capture_record.emit(dict(rec or {}))
+        except Exception:
+            pass
 
     def _on_ie_error_thread(self, msg):
-        QTimer.singleShot(0, lambda: self._on_ie_error(msg))
+        try:
+            self._sig_capture_error.emit(str(msg or ''))
+        except Exception:
+            pass
 
     def _on_ie_stopped_thread(self):
-        QTimer.singleShot(0, self._on_proxy_stopped)
+        try:
+            self._sig_capture_stopped.emit()
+        except Exception:
+            pass
 
     def _on_proxy_stopped(self):
         self._listening = False
@@ -1261,9 +1304,10 @@ class InterfaceDebugPanel(QWidget):
             )
         else:
             self.empty_hint.setText(
-                '点「开始抓包」，再用浏览器访问业务页，即可看到 HTTP/HTTPS 的 URL。'
+                '点「开始抓包」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。\n'
+                '列表会显示 # / 结果 / 协议 / 方法 / 主机 / URL。'
                 if zh else
-                'Click Start capture, then browse — HTTP/HTTPS URLs will appear here.'
+                'Start capture → fully restart Chrome/Edge → open your app pages.'
             )
 
     def _confirm_clear_session(self):

@@ -278,9 +278,9 @@ def filter_and_sort(
     filters: Optional[Iterable[str]] = None,
     sort_key: str = 'time',
     sort_desc: bool = True,
-    show_static: bool = False,
+    show_static: bool = True,
 ) -> list[dict]:
-    """筛选排序。默认显示 XHR/Fetch、Document 与未知类型；静态资源可隐藏。"""
+    """筛选排序。默认显示全部类型（含静态），避免用户误以为「没抓到」。"""
     out = []
     active = list(filters or [FILTER_ALL])
     for rec in records:
