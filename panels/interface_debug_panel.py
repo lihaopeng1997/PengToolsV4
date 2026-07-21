@@ -611,19 +611,45 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_import_btn, 'secondary', compact=True, icon='import', icon_size=16)
         self.rt_import_btn.clicked.connect(self._rt_import_file)
         io_row.addWidget(self.rt_import_btn)
+        self.rt_req_format_btn = QPushButton()
+        apply_button(self.rt_req_format_btn, 'secondary', compact=True, icon='json', icon_size=14)
+        self.rt_req_format_btn.clicked.connect(self._rt_send_request_to_format)
+        io_row.addWidget(self.rt_req_format_btn)
+        self.rt_resp_format_btn = QPushButton()
+        apply_button(self.rt_resp_format_btn, 'secondary', compact=True, icon='json', icon_size=14)
+        self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
+        io_row.addWidget(self.rt_resp_format_btn)
         io_row.addStretch(1)
         dl.addLayout(io_row)
 
+        resp_head = QHBoxLayout()
         self.rt_resp_label = QLabel('响应')
         self.rt_resp_label.setObjectName('field-caption')
-        dl.addWidget(self.rt_resp_label)
+        resp_head.addWidget(self.rt_resp_label)
+        self.rt_resp_meta = QLabel('')
+        self.rt_resp_meta.setObjectName('field-hint')
+        self.rt_resp_meta.setWordWrap(True)
+        resp_head.addWidget(self.rt_resp_meta, 1)
+        dl.addLayout(resp_head)
+        # 响应区：摘要 + 完整 Body（不截断）
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMinimumHeight(100)
-        self.draft_preview.setPlaceholderText('发送后显示响应；也可拖入导出的 JSON 文件自动填充')
+        self.draft_preview.setMinimumHeight(140)
+        self.draft_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.draft_preview.setPlaceholderText(
+            '发送后此处显示完整响应 Body（不截断）；上方可一键送格式工具'
+        )
+        # 取消块数限制，保证大报文也能看全
+        try:
+            self.draft_preview.document().setMaximumBlockCount(0)
+        except Exception:
+            pass
         dl.addWidget(self.draft_preview, 1)
+        self._rt_last_request_body = ''
+        self._rt_last_response_body = ''
+        self._rt_last_response_headers = {}
         self.detail_tabs.addTab(self.draft_page, '请求测试')
         self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
@@ -2018,9 +2044,70 @@ class InterfaceDebugPanel(QWidget):
         self.rt_headers.setPlainText(form.get('headers_text') or '')
         self.rt_params.setPlainText(form.get('params_text') or '')
         self.rt_body.setPlainText(form.get('body') or '')
+        self._rt_last_request_body = form.get('body') or ''
         sample = form.get('response_body_sample') or ''
         if sample:
-            self.draft_preview.setPlainText(f'# 原响应参考（可忽略）\n{sample[:4000]}')
+            # 完整展示，不截断
+            self._rt_set_response_view(
+                body=sample,
+                meta='原抓包响应参考（完整）',
+                headers=None,
+            )
+        else:
+            self._rt_set_response_view(body='', meta='', headers=None)
+
+    def _rt_set_response_view(self, body: str, meta: str = '', headers: dict | None = None):
+        """写入响应预览：元信息 + 完整 Body（pretty 失败则原文）。"""
+        raw = body if body is not None else ''
+        self._rt_last_response_body = raw
+        self._rt_last_response_headers = dict(headers or {})
+        if hasattr(self, 'rt_resp_meta'):
+            self.rt_resp_meta.setText(meta or '')
+        if not raw.strip():
+            self.draft_preview.clear()
+            return
+        kind, pretty, err = pretty_body(raw)
+        display = pretty if pretty else raw
+        # 头部信息放在 meta 标签；正文区只放完整 body，避免「被摘要挤掉」的感觉
+        parts = []
+        if err:
+            parts.append(f'# {err}')
+            parts.append('')
+        parts.append(display)
+        self.draft_preview.setPlainText('\n'.join(parts))
+        # 滚到开头，方便通读
+        cursor = self.draft_preview.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        self.draft_preview.setTextCursor(cursor)
+
+    def _rt_send_request_to_format(self):
+        """当前请求 Body → 格式工具。"""
+        body = (self.rt_body.toPlainText() if hasattr(self, 'rt_body') else '') or self._rt_last_request_body or ''
+        if not str(body).strip():
+            show_warning(self, '请求测试', '当前请求 Body 为空')
+            return
+        self._rt_open_format(body)
+
+    def _rt_send_response_to_format(self):
+        """最近响应 Body → 格式工具。"""
+        body = self._rt_last_response_body or ''
+        if not str(body).strip():
+            # 兼容：预览区整段也尝试（去掉 # 注释头）
+            preview = self.draft_preview.toPlainText() if hasattr(self, 'draft_preview') else ''
+            lines = [ln for ln in preview.splitlines() if not ln.startswith('#')]
+            body = '\n'.join(lines).strip()
+        if not str(body).strip():
+            show_warning(self, '请求测试', '当前没有响应 Body，请先发送请求')
+            return
+        self._rt_open_format(body)
+
+    def _rt_open_format(self, text: str):
+        body = text or ''
+        if _looks_xml(body):
+            self.open_format_xml.emit(body)
+            return
+        kind, pretty, _err = pretty_body(body)
+        self.open_format_json.emit(pretty if kind == 'json' else body)
 
     def _rt_send(self):
         from tools.iface_request_test import (
@@ -2050,6 +2137,7 @@ class InterfaceDebugPanel(QWidget):
             return
 
         self._rt_send_meta = {'method': method, 'url': url}
+        self._rt_last_request_body = body
         self.rt_send_btn.setEnabled(False)
         self.loading.start_busy('正在发送请求…')
         # 先刷新界面再进后台线程，确保 Loading 可见
@@ -2068,23 +2156,50 @@ class InterfaceDebugPanel(QWidget):
         url = meta.get('url') or ''
         try:
             self.loading.finish('请求完成')
-            lines = [
-                f'{method} {url}',
-                f'Status: {result.get("status")}',
-                f'OK: {result.get("ok")}',
-            ]
-            if result.get('error'):
-                lines.append(f'Error: {result.get("error")}')
-            lines.append('')
-            lines.append('—— Response Headers ——')
-            for k, v in (result.get('headers') or {}).items():
-                lines.append(f'{k}: {v}')
-            lines.append('')
-            lines.append('—— Body ——')
             rbody = result.get('body') or ''
-            kind, pretty, _err = pretty_body(rbody)
-            lines.append(pretty if pretty else rbody)
-            self.draft_preview.setPlainText('\n'.join(lines))
+            headers = result.get('headers') or {}
+            status = result.get('status')
+            ok = result.get('ok')
+            err = result.get('error') or ''
+            # 元信息：状态 + 长度 + 头数量（完整 body 放预览区，不截断）
+            meta_bits = [
+                f'{method} {url}',
+                f'Status: {status}',
+                f'OK: {ok}',
+                f'Body: {len(rbody)} 字符',
+            ]
+            if err:
+                meta_bits.append(f'Error: {err}')
+            if headers:
+                # 头单独列几行在 meta，完整头可进预览前缀
+                head_lines = [f'{k}: {v}' for k, v in headers.items()]
+                meta_text = ' · '.join(meta_bits[:4])
+                if err:
+                    meta_text += f' · Error: {err}'
+                # Body 区：可选 Headers 全文 + Body 全文
+                body_parts = []
+                body_parts.append('—— Response Headers ——')
+                body_parts.extend(head_lines if head_lines else ['（无）'])
+                body_parts.append('')
+                body_parts.append('—— Response Body（完整）——')
+                kind, pretty, perr = pretty_body(rbody)
+                if perr:
+                    body_parts.append(f'# {perr}')
+                body_parts.append(pretty if pretty else rbody)
+                self._rt_last_response_body = rbody
+                self._rt_last_response_headers = dict(headers)
+                if hasattr(self, 'rt_resp_meta'):
+                    self.rt_resp_meta.setText(meta_text)
+                self.draft_preview.setPlainText('\n'.join(body_parts))
+                cursor = self.draft_preview.textCursor()
+                cursor.movePosition(cursor.MoveOperation.Start)
+                self.draft_preview.setTextCursor(cursor)
+            else:
+                self._rt_set_response_view(
+                    body=rbody,
+                    meta=' · '.join(meta_bits),
+                    headers=headers,
+                )
         finally:
             self.rt_send_btn.setEnabled(True)
             self._rt_worker = None
@@ -2396,6 +2511,15 @@ class InterfaceDebugPanel(QWidget):
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')
             self.rt_resp_label.setText('响应' if zh else 'Response')
+        if hasattr(self, 'rt_req_format_btn'):
+            self.rt_req_format_btn.setText('请求→格式工具' if zh else 'Req → Format')
+            self.rt_req_format_btn.setToolTip(
+                '把当前请求 Body 送入格式工具' if zh else 'Send request body to Format Tools'
+            )
+            self.rt_resp_format_btn.setText('响应→格式工具' if zh else 'Resp → Format')
+            self.rt_resp_format_btn.setToolTip(
+                '把完整响应 Body 送入格式工具' if zh else 'Send full response body to Format Tools'
+            )
         if hasattr(self, 'rt_save_env_btn'):
             self.rt_save_env_btn.setText('保存环境' if zh else 'Save env')
         if hasattr(self, 'add_target_btn'):

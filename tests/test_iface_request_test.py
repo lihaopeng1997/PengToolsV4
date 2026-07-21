@@ -219,6 +219,28 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
             p._rt_import_text(json.dumps(doc, ensure_ascii=False))
         self.assertIn('localhost', p.rt_url.text())
 
+    def test_response_view_keeps_full_body_and_format_buttons(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        p = InterfaceDebugPanel(language='zh')
+        self.assertTrue(hasattr(p, 'rt_req_format_btn'))
+        self.assertTrue(hasattr(p, 'rt_resp_format_btn'))
+        big = '{"data":"' + ('A' * 20000) + '"}'
+        p._rt_set_response_view(big, meta='Status: 200', headers={'Content-Type': 'application/json'})
+        text = p.draft_preview.toPlainText()
+        self.assertGreaterEqual(len(text), 20000)
+        self.assertEqual(p._rt_last_response_body, big)
+        emitted = []
+        p.open_format_json.connect(lambda t: emitted.append(t))
+        p._rt_send_response_to_format()
+        self.assertTrue(emitted)
+        self.assertIn('AAAA', emitted[0])
+        p.rt_body.setPlainText('{"req":1}')
+        emitted.clear()
+        p._rt_send_request_to_format()
+        self.assertTrue(emitted)
+        self.assertIn('req', emitted[0])
+        p.close()
+
 
 if __name__ == '__main__':
     unittest.main()
