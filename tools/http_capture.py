@@ -488,12 +488,24 @@ class HttpCaptureWorker:
 
     def _restore_proxy(self):
         if not self._proxy_applied:
+            # 仍做一次安全检查（应对异常半开状态）
+            try:
+                from tools.ie_proxy import ensure_system_proxy_safe
+                ensure_system_proxy_safe(reason='capture_stop_idle')
+            except Exception:
+                pass
             return
         try:
-            from tools.ie_proxy import restore_proxy_from_snapshot
+            from tools.ie_proxy import restore_proxy_from_snapshot, ensure_system_proxy_safe, mark_capture_proxy_inactive
             restore_proxy_from_snapshot()
+            mark_capture_proxy_inactive()
+            ensure_system_proxy_safe(reason='capture_stop')
         except Exception:
-            pass
+            try:
+                from tools.ie_proxy import ensure_system_proxy_safe
+                ensure_system_proxy_safe(reason='capture_stop_fallback')
+            except Exception:
+                pass
         self._proxy_applied = False
 
 

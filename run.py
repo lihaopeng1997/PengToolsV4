@@ -81,6 +81,13 @@ def main():
     except Exception:
         ThemeManager.instance().apply(app, DEFAULT_THEME_ID, font_size=font_size)
 
+    # 尽早清理：上次抓包强杀/崩溃残留的系统代理，避免其它接口全挂
+    try:
+        from tools.ie_proxy import ensure_system_proxy_safe
+        ensure_system_proxy_safe(reason='app_startup')
+    except Exception:
+        pass
+
     from main_window import MainWindow
     window = MainWindow()
     window.setWindowIcon(app.windowIcon())

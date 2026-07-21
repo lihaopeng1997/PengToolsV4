@@ -255,6 +255,11 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.test_listen_btn, 'ghost', compact=True, icon='terminal', icon_size=16)
         self.test_listen_btn.clicked.connect(self._test_listen_loopback)
         row2.addWidget(self.test_listen_btn)
+        self.restore_proxy_btn = QPushButton()
+        apply_button(self.restore_proxy_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
+        self.restore_proxy_btn.setToolTip('若抓包异常退出导致网页/接口不通，点此恢复系统代理')
+        self.restore_proxy_btn.clicked.connect(self._manual_restore_proxy)
+        row2.addWidget(self.restore_proxy_btn)
         row2.addStretch(1)
         cl.addLayout(row2)
 
@@ -1406,13 +1411,20 @@ class InterfaceDebugPanel(QWidget):
                     pass
                 self._ie_worker = None
         finally:
-            # 不清空列表
+            # 不清空列表；再确保系统代理已恢复
             self._listening = False
             self._channel_ready = False
             self._set_listening_ui(False)
+            try:
+                from tools.ie_proxy import ensure_system_proxy_safe
+                ensure_system_proxy_safe(reason='stop_listen')
+            except Exception:
+                pass
             n = len(self._records)
             self.loading.finish('已停止')
-            self.status_label.setText(f'已停止抓包 · 会话保留 {n} 条（可继续导出/请求测试）')
+            self.status_label.setText(
+                f'已停止抓包 · 系统代理已恢复 · 会话保留 {n} 条（可继续导出/请求测试）'
+            )
             self.live_status.setText('')
             self.recheck_btn.hide()
 
@@ -1526,24 +1538,55 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '证书', str(exc))
 
     def _check_orphan_proxy_snapshot(self):
-        # 自动化/离屏测试不弹交互框
+        """启动时自动清理残留系统代理（无需用户确认，避免接口全挂）。"""
+        try:
+            from tools.ie_proxy import ensure_system_proxy_safe
+            result = ensure_system_proxy_safe(reason='panel_startup')
+        except Exception:
+            return
         if os.environ.get('QT_QPA_PLATFORM', '').lower() == 'offscreen':
             return
-        cfg = load_interface_debug_config()
-        snap = cfg.get('proxy_restore_snapshot')
-        if not isinstance(snap, dict):
-            return
         zh = self.language == 'zh'
-        if confirm_action(
-            self, '检测到未恢复的代理设置' if zh else 'Unrestored proxy',
-            '上次异常退出可能未恢复 Windows 代理。是否立即恢复？' if zh else 'Restore previous proxy settings?',
-            confirm_text='一键恢复' if zh else 'Restore', danger=False,
-        ):
-            try:
-                restore_proxy_from_snapshot(snap)
-                show_success(self, '代理', '已恢复原代理设置')
-            except Exception as exc:
-                show_warning(self, '代理', str(exc))
+        if result == 'restored_snapshot':
+            self.status_label.setText(
+                '已自动恢复系统代理（上次抓包可能未正常停止）' if zh else
+                'System proxy restored automatically'
+            )
+        elif result == 'disabled_orphan':
+            self.status_label.setText(
+                '已关闭残留的本机抓包代理（端口已无服务）' if zh else
+                'Orphan local capture proxy disabled'
+            )
+
+    def _manual_restore_proxy(self):
+        """用户一键恢复系统代理。"""
+        zh = self.language == 'zh'
+        if self._listening:
+            show_warning(
+                self, '代理' if zh else 'Proxy',
+                '请先停止抓包，再恢复系统代理。' if zh else 'Stop capture first.',
+            )
+            return
+        try:
+            from tools.ie_proxy import ensure_system_proxy_safe, restore_proxy_from_snapshot, is_loopback_capture_proxy, read_proxy_settings
+            result = ensure_system_proxy_safe(reason='manual')
+            # 若仍指向本机，再强制关一次
+            if is_loopback_capture_proxy(read_proxy_settings()):
+                if not restore_proxy_from_snapshot():
+                    from tools.ie_proxy import disable_orphan_loopback_proxy
+                    disable_orphan_loopback_proxy()
+                    result = 'disabled_orphan'
+            labels = {
+                'ok': ('当前系统代理正常，无需恢复', 'Proxy looks fine'),
+                'restored_snapshot': ('已恢复抓包前的系统代理', 'Restored previous proxy'),
+                'disabled_orphan': ('已关闭残留的本机抓包代理', 'Disabled orphan capture proxy'),
+                'cleared_stale_snapshot': ('已清理过期快照，当前代理无需改动', 'Cleared stale snapshot'),
+            }
+            msg = labels.get(result, labels['ok'])
+            show_success(self, '代理' if zh else 'Proxy', msg[0 if zh else 1])
+            self.status_label.setText(msg[0 if zh else 1])
+        except Exception as exc:
+            show_warning(self, '代理' if zh else 'Proxy', str(exc))
 
     # ── 表格 ─────────────────────────────────────────
     def _rebuild_table(self):
@@ -2248,6 +2291,13 @@ class InterfaceDebugPanel(QWidget):
         self.test_listen_btn.setToolTip(
             '本机探测，确认抓包链路可用' if zh else 'Loopback probe'
         )
+        if hasattr(self, 'restore_proxy_btn'):
+            self.restore_proxy_btn.setText('恢复系统代理' if zh else 'Restore proxy')
+            self.restore_proxy_btn.setToolTip(
+                '抓包异常退出导致网页/接口不通时，点此恢复 Windows 系统代理'
+                if zh else
+                'Restore Windows system proxy if capture left it broken'
+            )
         self.filter_edit.setPlaceholderText(
             '搜索 URL / host / path / method / 状态…' if zh else
             'Search URL / host / path / method / status…'
@@ -2327,5 +2377,10 @@ class InterfaceDebugPanel(QWidget):
         self.clear_session()
         try:
             restore_proxy_from_snapshot()
+        except Exception:
+            pass
+        try:
+            from tools.ie_proxy import ensure_system_proxy_safe
+            ensure_system_proxy_safe(reason='shutdown')
         except Exception:
             pass

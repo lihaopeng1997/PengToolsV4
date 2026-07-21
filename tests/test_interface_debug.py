@@ -312,6 +312,42 @@ class IeProxyTests(unittest.TestCase):
                 self.assertIn('AABBCC', args)
                 self.assertIn('-delstore', args)
 
+    def test_is_loopback_capture_proxy(self):
+        from tools.ie_proxy import is_loopback_capture_proxy
+        self.assertTrue(is_loopback_capture_proxy(
+            {'ProxyEnable': 1, 'ProxyServer': '127.0.0.1:8899'}, ports=[8899],
+        ))
+        self.assertFalse(is_loopback_capture_proxy(
+            {'ProxyEnable': 1, 'ProxyServer': 'proxy.corp:8080'}, ports=[8899],
+        ))
+        self.assertFalse(is_loopback_capture_proxy(
+            {'ProxyEnable': 0, 'ProxyServer': '127.0.0.1:8899'}, ports=[8899],
+        ))
+
+    def test_ensure_system_proxy_safe_restores_snapshot(self):
+        from tools import ie_proxy
+        written = {}
+        snap = {
+            'ProxyEnable': 0, 'ProxyServer': '', 'ProxyOverride': '',
+            'AutoConfigURL': '', 'AutoDetect': 0,
+        }
+        cfg = {
+            'ie_proxy_port': 8899,
+            'proxy_restore_snapshot': dict(snap),
+        }
+        with mock.patch.object(ie_proxy, 'load_interface_debug_config', return_value=cfg), \
+             mock.patch.object(ie_proxy, 'save_interface_debug_config', side_effect=lambda c, path=None: c), \
+             mock.patch.object(ie_proxy, 'read_proxy_settings', return_value={
+                 'ProxyEnable': 1, 'ProxyServer': '127.0.0.1:8899',
+                 'ProxyOverride': '<-loopback>', 'AutoConfigURL': '', 'AutoDetect': 0,
+             }), \
+             mock.patch.object(ie_proxy, 'write_proxy_settings', side_effect=lambda s: written.update(s)), \
+             mock.patch.object(ie_proxy, '_port_listening', return_value=False):
+            ie_proxy._CAPTURE_PROXY_ACTIVE = False
+            result = ie_proxy.ensure_system_proxy_safe(reason='test')
+        self.assertEqual(result, 'restored_snapshot')
+        self.assertEqual(written.get('ProxyEnable'), 0)
+
 
 class DashboardReleaseTests(unittest.TestCase):
     def test_fill_release_ranking(self):
