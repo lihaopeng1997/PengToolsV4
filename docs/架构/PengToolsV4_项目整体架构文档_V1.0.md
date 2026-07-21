@@ -494,7 +494,7 @@ python -m unittest tests.test_filelib_pinyin_release tests.test_release_ui -v
  → 更新发版 Excel 模板资源
  → 清理 PrivateInstaller 旧程序文件
  → 删除 PrivateInstaller/data（防携带用户数据）
- → PyInstaller 构建 PengToolsHub_Private.exe（打入 QSS/图标/种子/模板）
+ → PyInstaller 构建 PengToolsHub.exe（打入 QSS/图标/种子/模板）
  → 压缩 ZIP
  → 再次校验标准包哈希（被改则报错）
 ```

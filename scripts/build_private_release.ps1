@@ -49,7 +49,7 @@ try {
         --clean `
         --onefile `
         --windowed `
-        --name PengToolsHub_Private `
+        --name PengToolsHub `
         --icon resources\brand\pengtools-app-v2.ico `
         --add-data 'resources\style.qss;resources' `
         --add-data 'resources\chevron_down.svg;resources' `
@@ -80,7 +80,7 @@ try {
         run.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
 
-    Copy-Item (Join-Path $DistDir 'PengToolsHub_Private.exe') $InstallerDir -Force
+    Copy-Item (Join-Path $DistDir 'PengToolsHub.exe') $InstallerDir -Force
     $ZipPath = Join-Path $ProjectDir 'PengToolsHub_Private_Offline_Setup.zip'
     if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
     Compress-Archive -Path (Join-Path $InstallerDir '*') -DestinationPath $ZipPath

@@ -19,5 +19,5 @@
 
 产物：
 
-- `dist/PengToolsHub_Private.exe`
-- `PengToolsHub_Private_Offline_Setup.zip`（根目录，已 gitignore）
+- `dist/PengToolsHub.exe`
+- `PengToolsHub_Private_Offline_Setup.zip`（根目录，已 gitignore；安装包内 EXE 名为 PengToolsHub.exe）

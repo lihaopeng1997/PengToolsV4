@@ -298,7 +298,7 @@ Compact/Narrow 双栏可改垂直；**不重排** splitter 子控件顺序，避
 3. 小步改：`tools` 逻辑优先可单测 → `panels` UI → 文案/QSS。
 4. 定向测试（见第 8 节）。
 5. 若可交付：提交并推送（见 7.3）。
-6. 私人包：`.\scripts\build_private_release.ps1`（或根目录转发脚本；若 EXE 被占用先结束 `PengToolsHub_Private` 进程）。
+6. 私人包：`.\scripts\build_private_release.ps1`（或根目录转发脚本；若 EXE 被占用先结束 `PengToolsHub` 进程）。
 7. 改完代码：`codegraph sync .`。
 
 ### 7.2 本地运行
@@ -335,14 +335,14 @@ git push origin main
 
 ```powershell
 # 若 PermissionError 锁文件：
-Get-Process PengToolsHub_Private -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process PengToolsHub -ErrorAction SilentlyContinue | Stop-Process -Force
 .\scripts\build_private_release.ps1
 ```
 
 产物：
 
-- `dist/PengToolsHub_Private.exe`
-- `PengToolsHub_Private_Offline_Setup.zip`
+- `dist/PengToolsHub.exe`
+- `PengToolsHub_Private_Offline_Setup.zip`（包内 EXE 名为 `PengToolsHub.exe`）
 - 构建脚本会写 `resources/build_info.json` 日期戳  
 - 会校验**标准包** SHA 未被改动
 

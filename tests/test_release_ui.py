@@ -631,7 +631,7 @@ class ReleaseUiTests(unittest.TestCase):
 
     def test_upgrade_reuses_data_directory_and_accepts_legacy_requirement(self):
         old_exe = r'D:\PengToolsPrivate\PengToolsHub_Private_V4.24.exe'
-        new_exe = r'D:\PengToolsPrivate\PengToolsHub_Private.exe'
+        new_exe = r'D:\PengToolsPrivate\PengToolsHub.exe'
         self.assertEqual(local_data_dir(old_exe, True), local_data_dir(new_exe, True))
 
         legacy = {
