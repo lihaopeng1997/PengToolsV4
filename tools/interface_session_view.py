@@ -86,10 +86,19 @@ def format_size(n: Optional[int]) -> str:
 
 
 def host_path_display(rec: dict) -> str:
+    """列表「路径」列：host + path（query 放 tooltip，避免整表被参数挤爆）。"""
     url = rec.get('url') or ''
     parsed = urlparse(url)
-    host = parsed.netloc or ''
-    path = parsed.path or rec.get('path') or '/'
+    host = rec.get('host') or parsed.netloc or ''
+    if host and rec.get('port') and ':' not in str(host):
+        try:
+            port = int(rec.get('port'))
+            default = 443 if (rec.get('scheme') or parsed.scheme or '').lower() == 'https' else 80
+            if port and port != default:
+                host = f'{host}:{port}'
+        except (TypeError, ValueError):
+            pass
+    path = rec.get('path') or parsed.path or '/'
     if host:
         return f'{host}{path}'
     return path or '/'

@@ -829,21 +829,22 @@ class InterfaceDebugPanel(QWidget):
         self.launch_btn.setVisible(cdp)
         self.target_combo.setVisible(cdp)
         if self._mode == 'proxy':
-            self.port_label.setText('代理端口' if zh else 'Proxy port')
+            self.port_label.setText('抓包端口' if zh else 'Capture port')
             self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
             self.mode_hint.setText(
-                '默认模式（类 Fiddler）：开始监听后临时改本机系统代理为 127.0.0.1，并关闭 PAC/自动检测；'
-                'Chrome/Edge/IE/360 等即可出请求。HTTPS 请先点「安装证书」。停止后自动恢复代理。'
+                'HTTP/HTTPS 数据包抓取（Fiddler 同款 MITM）：在 127.0.0.1 起本地代理，'
+                '开始后临时改系统代理并关闭 PAC；浏览器访问业务页即可抓到 method/url/status。'
+                'HTTPS 需先「安装证书」。停止后自动恢复代理，报文只存内存。'
                 if zh else
-                'Fiddler-like: set system proxy to 127.0.0.1, disable PAC; install CA for HTTPS.'
+                'HTTP/HTTPS MITM capture on 127.0.0.1; install CA for HTTPS; memory-only records.'
             )
         elif self._mode == 'ie':
-            self.port_label.setText('IE 代理端口' if zh else 'IE proxy port')
+            self.port_label.setText('抓包端口' if zh else 'Capture port')
             self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
             self.mode_hint.setText(
-                'IE 兼容入口：复用本机 MITM 代理与证书流程；无需选择 Chromium 浏览器。'
+                '与默认抓包相同：本机 MITM 数据包抓取 + 系统代理；适用于 IE / 走系统代理的客户端。'
                 if zh else
-                'IE compatibility mode uses the same local MITM proxy.'
+                'Same MITM capture path for IE / system-proxy clients.'
             )
         else:
             self.port_label.setText('调试端口' if zh else 'Debug port')
@@ -1023,22 +1024,22 @@ class InterfaceDebugPanel(QWidget):
 
     def _start_local_proxy(self, ie_mode: bool = False):
         zh = self.language == 'zh'
-        title = '启用 IE 代理监听' if ie_mode else '启用本机通用代理'
+        title = '启用 HTTP/HTTPS 数据包抓取' if zh else 'Start HTTP/HTTPS capture'
         body = (
-            '将临时修改当前用户 Windows 代理为 127.0.0.1，'
-            '并可能需要安装本机根证书以解密 HTTPS。\n'
-            '适用于 Chromium、IE 及遵循系统代理的程序。\n'
-            '停止监听后会自动恢复原代理。报文仅内存，不落盘、不外发。\n'
-            '仅绑定 127.0.0.1，不会监听局域网或公网。'
+            '将按 Fiddler 同款方式抓取本机 HTTP/HTTPS 数据包：\n'
+            '1. 在 127.0.0.1 启动本地 MITM 代理\n'
+            '2. 临时修改当前用户系统代理，并关闭 PAC/自动检测\n'
+            '3. 列表展示 URL / 方法 / 状态等（报文仅内存）\n'
+            'HTTPS 请先安装本机证书。停止后自动恢复代理，不会监听局域网。'
             if zh else
-            'Temporarily set current-user Windows proxy to 127.0.0.1 for local capture only.'
+            'Fiddler-style local MITM on 127.0.0.1; memory-only URL records.'
         )
         if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
             ok = confirm_action(
                 self,
-                title if zh else 'Enable local proxy',
+                title,
                 body,
-                confirm_text='启用监听' if zh else 'Enable',
+                confirm_text='开始抓取' if zh else 'Start',
                 danger=True,
             )
             if not ok:
@@ -1047,24 +1048,24 @@ class InterfaceDebugPanel(QWidget):
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
         self.loading.start_busy(
-            '正在启动本机代理并等待端口就绪…' if not ie_mode else '正在启动 IE 代理…'
+            '正在启动 HTTP/HTTPS 抓包引擎…' if zh else 'Starting capture engine…'
         )
-        source = 'ie_proxy' if ie_mode else 'local_proxy'
+        source = 'ie_proxy' if ie_mode else 'http_capture'
         try:
-            worker = IeProxyWorker(
+            # 新引擎：tools.http_capture.HttpCaptureWorker（IeProxyWorker 为其别名）
+            from tools.http_capture import HttpCaptureWorker
+            worker = HttpCaptureWorker(
                 port=port,
                 on_record=self._on_ie_record_thread,
                 on_error=self._on_ie_error_thread,
                 on_stopped=self._on_ie_stopped_thread,
-                # 捕获层全量入库；静态资源由列表筛选控制
                 show_static=True,
                 source_label=source,
                 apply_system_proxy=True,
             )
             worker.start()
             self._ie_worker = worker
-            # 轮询就绪，期间泵事件，避免整窗冻结；未就绪不显示成功
-            deadline = time.time() + 12.0
+            deadline = time.time() + 14.0
             while time.time() < deadline:
                 if getattr(worker, 'ready', False):
                     break
@@ -1073,7 +1074,10 @@ class InterfaceDebugPanel(QWidget):
                 QApplication.processEvents()
                 time.sleep(0.05)
             if not getattr(worker, 'ready', False):
-                err = '本机代理未在时限内就绪（端口占用、证书或 mitmproxy 依赖问题）'
+                err = (
+                    '抓包引擎未在时限内就绪（端口占用、证书或 mitmproxy 依赖问题）。'
+                    '请检查端口是否空闲，并确认已安装 mitmproxy。'
+                )
                 try:
                     worker.stop()
                 except Exception:
@@ -1083,11 +1087,10 @@ class InterfaceDebugPanel(QWidget):
                 show_warning(self, title, err)
                 return
             label = (
-                f'{"IE 兼容" if ie_mode else "本机通用"}代理监听 127.0.0.1:{port} · '
-                f'代理仅当前用户 · 停止后自动恢复'
+                f'HTTP/HTTPS 抓包中 · 127.0.0.1:{port} · 系统代理已接管 · 停止后自动恢复'
             )
             self._mark_listen_success(label)
-            self.loading.finish('代理通道已建立')
+            self.loading.finish('抓包通道已建立' if zh else 'Capture ready')
         except Exception as exc:
             self.loading.fail(str(exc))
             show_warning(self, title, str(exc))
@@ -1918,11 +1921,12 @@ class InterfaceDebugPanel(QWidget):
 
     # ── 响应式 ───────────────────────────────────────
     def _source_label(self, source) -> str:
+        # http_capture / local_proxy / ie_proxy / cdp
         s = (source or '').lower()
-        if s in ('local_proxy', 'proxy'):
-            return '本机代理'
+        if s in ('http_capture', 'local_proxy', 'proxy', 'mitm'):
+            return '抓包'
         if s in ('ie_proxy', 'ie'):
-            return 'IE'
+            return 'IE抓包'
         if s in ('cdp', 'chromium'):
             return 'Chromium'
         return source or '—'

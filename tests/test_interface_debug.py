@@ -237,6 +237,7 @@ class BrowserDebugTests(unittest.TestCase):
 class IeProxyTests(unittest.TestCase):
     def test_flow_to_record_shape(self):
         from tools.ie_proxy import flow_to_record
+        from tools.http_capture import flow_to_url_record, HttpCaptureWorker, IeProxyWorker
 
         class FakeHeaders:
             def __init__(self, d):
@@ -250,9 +251,13 @@ class IeProxyTests(unittest.TestCase):
 
         class FakeReq:
             method = 'GET'
-            pretty_url = 'http://127.0.0.1:8080/api'
+            pretty_url = 'http://127.0.0.1:8080/api?x=1'
             url = pretty_url
+            scheme = 'http'
+            host = '127.0.0.1'
+            port = 8080
             headers = FakeHeaders({'Cookie': 'a=1'})
+            content = b''
 
             def get_text(self, strict=False):
                 return ''
@@ -260,6 +265,7 @@ class IeProxyTests(unittest.TestCase):
         class FakeResp:
             status_code = 200
             headers = FakeHeaders({'Content-Type': 'application/json'})
+            content = b'{"ok":true}'
 
             def get_text(self, strict=False):
                 return '{"ok":true}'
@@ -274,6 +280,15 @@ class IeProxyTests(unittest.TestCase):
         self.assertEqual(rec['status'], 200)
         self.assertEqual(rec['source'], 'ie_proxy')
         self.assertIn('Cookie', rec['request_headers'])
+        self.assertEqual(rec.get('host'), '127.0.0.1')
+        self.assertEqual(rec.get('path'), '/api')
+        self.assertEqual(rec.get('query'), 'x=1')
+        self.assertEqual(rec.get('query_params', {}).get('x'), '1')
+        # 新引擎别名
+        self.assertIs(IeProxyWorker, HttpCaptureWorker)
+        rec2 = flow_to_url_record(FakeFlow(), source='http_capture')
+        self.assertEqual(rec2['source'], 'http_capture')
+        self.assertIn('url', rec2)
 
     def test_cert_thumbprint_only_from_config(self):
         from tools import ie_proxy
