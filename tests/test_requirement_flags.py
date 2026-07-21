@@ -102,7 +102,7 @@ class RequirementFlagTests(unittest.TestCase):
                 # 完成标记文案完整可读
                 chip = panel._flag_buttons['temporary_upgrade']
                 self.assertIn('已完成', chip.text())
-                self.assertGreaterEqual(chip.minimumHeight(), 30)
+                self.assertGreaterEqual(chip.minimumHeight(), 28)
                 panel.close()
 
     def test_json_roundtrip_keeps_flags(self):
@@ -148,50 +148,23 @@ class RequirementFlagTests(unittest.TestCase):
             visible = [b for b in panel._flag_buttons.values() if b.isVisible()]
             self.assertEqual(len(visible), 4)
             for btn in visible:
-                self.assertGreaterEqual(btn.minimumHeight(), 30)
-                self.assertGreaterEqual(btn.minimumWidth(), 100)
+                self.assertGreaterEqual(btn.minimumHeight(), 28)
+                self.assertGreaterEqual(btn.minimumWidth(), 72)
                 self.assertTrue(btn.geometry().width() > 0)
                 self.assertIn('·', btn.text())
-            # 窄详情：收窄右侧 splitter 以触发单列
-            total = sum(panel.detail_splitter.sizes()) or 900
-            panel.detail_splitter.setSizes([max(200, total - 400), 400])
-            self.app.processEvents()
             panel._layout_flag_chips()
             self.app.processEvents()
-            positions = {}
-            for btn in visible:
-                idx = panel.flag_chips_layout.indexOf(btn)
-                self.assertGreaterEqual(idx, 0)
-                row, col, rs, cs = panel.flag_chips_layout.getItemPosition(idx)
-                self.assertNotIn((row, col), positions)
-                positions[(row, col)] = btn
-            self.assertEqual(len(positions), 4)
-            # 固定 3:7 上区：优先多列省高度；仅极窄才单列
-            if panel.detail_card.width() < 300:
-                self.assertEqual(max(c for _r, c in positions), 0)
-            else:
-                self.assertLessEqual(max(c for _r, c in positions), 3)
-            # 几何完整且不重叠
+            # 始终单行：四个按钮 y 对齐，x 递增，互不重叠
+            ys = {btn.geometry().y() for btn in visible}
+            self.assertEqual(len(ys), 1)
             rects = []
-            for btn in visible:
+            for btn in sorted(visible, key=lambda b: b.geometry().x()):
                 g = btn.geometry()
-                self.assertGreaterEqual(g.height(), 28, btn.text())
-                self.assertGreaterEqual(g.width(), 90, btn.text())
+                self.assertGreaterEqual(g.height(), 26, btn.text())
+                self.assertGreaterEqual(g.width(), 40, btn.text())
                 for other in rects:
                     self.assertFalse(g.intersects(other), f'{g} overlaps {other}')
                 rects.append(g)
-            # 中宽及以上至少双列
-            panel.detail_splitter.setSizes([300, max(600, total - 300)])
-            self.app.processEvents()
-            panel._layout_flag_chips()
-            self.app.processEvents()
-            if panel.detail_card.width() >= 300:
-                cols = set()
-                for btn in visible:
-                    idx = panel.flag_chips_layout.indexOf(btn)
-                    _r, c, _rs, _cs = panel.flag_chips_layout.getItemPosition(idx)
-                    cols.add(c)
-                self.assertIn(1, cols)
             # 动态上线字段
             self.assertEqual(panel._detail_captions['online'].text(), '上线月份')
             panel.close()

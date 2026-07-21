@@ -520,23 +520,7 @@ QSplitter#requirement-splitter::handle:horizontal:hover {
 QSplitter#requirement-splitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
-/* 上下固定 3:7，不可拖动：把手隐藏 */
-QSplitter#requirement-content-splitter::handle:vertical {
-    height: 0px;
-    margin: 0;
-    background: transparent;
-    border: none;
-}
-QScrollArea#detail-summary-scroll {
-    background: transparent;
-    border: none;
-}
-QScrollArea#detail-summary-scroll > QWidget > QWidget {
-    background: transparent;
-}
-QWidget#detail-summary-body {
-    background: transparent;
-}
+/* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;
@@ -766,8 +750,8 @@ QFrame#detail-summary-card QLabel#field-value {
     background: __SIDEBAR_BG__;
     border: 1px solid __BORDER__;
     border-radius: 8px;
-    padding: 6px 10px;
-    min-height: 18px;
+    padding: 4px 8px;
+    min-height: 16px;
     font-weight: 650;
 }
 QLabel#field-value {
@@ -790,12 +774,12 @@ QPushButton#flag-chip {
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 8px;
-    padding: 4px 8px;
+    padding: 2px 6px;
     font-weight: 600;
     font-size: 12px;
-    min-height: 30px;
-    max-height: 34px;
-    min-width: 88px;
+    min-height: 28px;
+    max-height: 30px;
+    min-width: 72px;
     text-align: left;
 }
 QPushButton#flag-chip[flagDone="true"] {

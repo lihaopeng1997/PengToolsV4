@@ -196,8 +196,8 @@ def save_settings(settings):
 def load_requirement_ui():
     ensure_config_dir()
     # 右侧以文件浏览为主：文件区默认远大于 SQL 预览区
-    # content：上摘要/完成标记 : 下文件库 ≈ 3:7
-    result = {'splitter_sizes': [320, 780], 'content_splitter_sizes': [240, 560]}
+    # content：上摘要紧凑高度 + 下文件库剩余（仅兼容字段，布局按内容）
+    result = {'splitter_sizes': [320, 780], 'content_splitter_sizes': [160, 640]}
     try:
         with open(REQUIREMENT_UI_FILE, 'r', encoding='utf-8') as stream:
             loaded = json.load(stream)

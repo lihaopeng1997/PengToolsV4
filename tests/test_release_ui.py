@@ -377,13 +377,12 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreaterEqual(panel.detail_splitter.handleWidth(), 8)
             self.assertFalse(panel.detail_splitter.childrenCollapsible())
             self.assertGreaterEqual(panel.detail_splitter.widget(1).minimumWidth(), 360)
-            self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
-            self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
-            self.assertFalse(panel.file_sql_splitter.isHidden())
-            # 上下固定 3:7，不可拖动
-            self.assertEqual(panel.file_sql_splitter.handleWidth(), 0)
+            # 上下：摘要紧凑 + 文件库占满，无垂直 splitter
+            self.assertIsNone(panel.file_sql_splitter)
+            from PyQt6.QtWidgets import QSizePolicy
+            self.assertEqual(panel.detail_card.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum)
             from panels.requirement_panel import normalize_content_splitter_sizes
-            self.assertEqual(normalize_content_splitter_sizes([340, 230], total_h=1000), [300, 700])
+            self.assertEqual(normalize_content_splitter_sizes(total_h=1000, top_h=160), [160, 840])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()
@@ -402,7 +401,7 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertTrue(panel.svn_activity.isHidden())
 
             panel._save_splitter_sizes()
-            content_sizes = panel.file_sql_splitter.sizes() or [240, 560]
+            content_sizes = panel._content_stack_sizes()
             save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': content_sizes})
             panel.close()
 
