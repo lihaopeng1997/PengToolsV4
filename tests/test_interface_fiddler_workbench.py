@@ -163,6 +163,9 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p.stop_btn.isHidden())
         p.apply_layout_mode('wide', False)
         self.assertFalse(p.mode_combo.isHidden())
+        # 三种监听模式
+        self.assertEqual(p.mode_combo.count(), 3)
+        self.assertEqual(p._mode, 'proxy')
 
     def test_shutdown_clears_memory(self):
         p = InterfaceDebugPanel('zh')

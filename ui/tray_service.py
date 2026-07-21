@@ -3,7 +3,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from ui.icons import brand_file, brand_pixmap, brand_window_icon
+from ui.icons import brand_tray_icon, brand_window_icon
 
 
 class TrayService:
@@ -16,37 +16,15 @@ class TrayService:
         self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
 
-    def _theme_tint(self) -> str:
-        try:
-            from ui.theme_manager import ThemeManager
-            return ThemeManager.instance().token('TEXT_STRONG')
-        except Exception:
-            return '#1E2A42'
-
     def _create_icon(self) -> QIcon:
-        """品牌托盘 SVG 主题染色；失败则回退 app ICO，不再绘制蓝色圆 P。"""
-        tint = self._theme_tint()
-        for size in (20, 16, 24, 32):
-            pix = brand_pixmap('tray', size=size, tint=tint)
-            if not pix.isNull():
-                icon = QIcon()
-                icon.addPixmap(pix)
-                # 多尺寸
-                for extra in (16, 20, 24, 32):
-                    if extra == size:
-                        continue
-                    extra_pix = brand_pixmap('tray', size=extra, tint=tint)
-                    if not extra_pix.isNull():
-                        icon.addPixmap(extra_pix)
-                return icon
-        # SVG 失败：ICO 回退
-        ico_path = brand_file('app')
-        if ico_path:
-            return QIcon(ico_path)
+        """托盘使用高对比图标，不随夜间主题变黑；主题导航图标不受影响。"""
+        icon = brand_tray_icon()
+        if icon is not None and not icon.isNull():
+            return icon
         return brand_window_icon()
 
     def refresh_icon(self):
-        """主题切换后刷新托盘染色。"""
+        """主题切换后仍保持高对比托盘图标（任务栏可读性优先）。"""
         self._tray.setIcon(self._create_icon())
 
     def _create_menu(self):

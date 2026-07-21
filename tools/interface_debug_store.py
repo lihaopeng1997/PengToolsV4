@@ -19,6 +19,7 @@ DEFAULT_UI_PREFS = {
     'sort_desc': True,
     'active_filters': ['all'],
     'show_static': False,
+    'listen_mode': 'proxy',  # proxy | chromium | ie
     'splitter_sizes': {'wide': [420, 580], 'standard': [400, 560], 'compact': [360, 480], 'narrow': [300, 420]},
     'include_auth_in_draft': True,
 }
@@ -75,6 +76,10 @@ def _normalize_ui_prefs(raw) -> dict:
         filters = ['all']
     base['active_filters'] = [str(f) for f in filters] or ['all']
     base['show_static'] = bool(base.get('show_static'))
+    mode = str(base.get('listen_mode') or 'proxy').lower()
+    if mode not in ('proxy', 'chromium', 'ie'):
+        mode = 'proxy'
+    base['listen_mode'] = mode
     base['include_auth_in_draft'] = bool(base.get('include_auth_in_draft', True))
     sizes = dict(DEFAULT_UI_PREFS['splitter_sizes'])
     if isinstance(base.get('splitter_sizes'), dict):

@@ -132,7 +132,13 @@ class InterfaceDebugPanel(QWidget):
         self._cdp_session = None
         self._ie_worker = None
         self._listening = False
-        self._mode = 'chromium'
+        self._channel_ready = False
+        self._listen_started_at = 0.0
+        self._last_request_at = 0.0
+        # 默认：本机通用代理（无需先选浏览器）
+        self._mode = str(self._prefs.get('listen_mode') or 'proxy')
+        if self._mode not in ('proxy', 'chromium', 'ie'):
+            self._mode = 'proxy'
         self._reveal_sensitive = False
         self._show_static = bool(self._prefs.get('show_static'))
         self._selected_id = None
@@ -146,11 +152,19 @@ class InterfaceDebugPanel(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(150)
         self._search_timer.timeout.connect(self._rebuild_table)
+        self._wait_hint_timer = QTimer(self)
+        self._wait_hint_timer.setSingleShot(True)
+        self._wait_hint_timer.setInterval(10000)
+        self._wait_hint_timer.timeout.connect(self._on_wait_hint)
+        self._status_tick = QTimer(self)
+        self._status_tick.setInterval(2000)
+        self._status_tick.timeout.connect(self._refresh_live_status)
         self._sensitive_copy_warned = False
         self._setup_ui()
         self._reload_config_ui()
         self.set_language(language)
         self._apply_column_visibility()
+        self._apply_mode_ui()
         # 离屏/测试环境跳过延时恢复提示
         if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
             QTimer.singleShot(200, self._check_orphan_proxy_snapshot)
@@ -185,9 +199,17 @@ class InterfaceDebugPanel(QWidget):
         row1.addWidget(self.mode_label)
         self.mode_combo = QComboBox()
         size_combo(self.mode_combo, 'md')
-        self.mode_combo.addItems(['Chromium 调试端口', 'IE 本机代理'])
+        # 0 本机通用代理(默认) · 1 Chromium CDP 高级 · 2 IE 兼容
+        self.mode_combo.addItems(['本机通用代理', 'Chromium CDP（高级）', 'IE 代理（兼容）'])
+        mode_index = {'proxy': 0, 'chromium': 1, 'ie': 2}.get(self._mode, 0)
+        self.mode_combo.blockSignals(True)
+        self.mode_combo.setCurrentIndex(mode_index)
+        self.mode_combo.blockSignals(False)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row1.addWidget(self.mode_combo)
+        self.mode_hint = QLabel()
+        self.mode_hint.setObjectName('field-hint')
+        self.mode_hint.setWordWrap(True)
         self.browser_combo = QComboBox()
         size_combo(self.browser_combo, 'lg')
         self.browser_combo.setMinimumWidth(240)
@@ -202,6 +224,7 @@ class InterfaceDebugPanel(QWidget):
         self.pick_browser_btn.clicked.connect(self._pick_browser)
         row1.addWidget(self.pick_browser_btn)
         cl.addLayout(row1)
+        cl.addWidget(self.mode_hint)
 
         row2 = QHBoxLayout()
         row2.setSpacing(8)
@@ -209,7 +232,11 @@ class InterfaceDebugPanel(QWidget):
         row2.addWidget(self.port_label)
         self.port_edit = QLineEdit()
         self.port_edit.setMaximumWidth(90)
-        self.port_edit.setText(str(self._config.get('debug_port') or 9222))
+        # 默认通用代理端口
+        default_port = self._config.get('ie_proxy_port') or 8899
+        if self._mode == 'chromium':
+            default_port = self._config.get('debug_port') or 9222
+        self.port_edit.setText(str(default_port))
         row2.addWidget(self.port_edit)
         self.launch_btn = QPushButton()
         apply_button(self.launch_btn, 'primary', compact=True, icon='external-open', icon_size=16)
@@ -224,6 +251,11 @@ class InterfaceDebugPanel(QWidget):
         self.stop_btn.clicked.connect(self._stop_listen)
         self.stop_btn.setEnabled(False)
         row2.addWidget(self.stop_btn)
+        self.recheck_btn = QPushButton()
+        apply_button(self.recheck_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
+        self.recheck_btn.clicked.connect(self._recheck_channel)
+        self.recheck_btn.hide()
+        row2.addWidget(self.recheck_btn)
         self.target_combo = QComboBox()
         size_combo(self.target_combo, 'lg')
         self.target_combo.setMinimumWidth(180)
@@ -251,6 +283,10 @@ class InterfaceDebugPanel(QWidget):
         self.status_label.setObjectName('field-hint')
         self.status_label.setWordWrap(True)
         cl.addWidget(self.status_label)
+        self.live_status = QLabel()
+        self.live_status.setObjectName('field-hint')
+        self.live_status.setWordWrap(True)
+        cl.addWidget(self.live_status)
         root.addWidget(conn)
 
         # 会话工具条
@@ -750,7 +786,11 @@ class InterfaceDebugPanel(QWidget):
             return 9222
 
     def _save_port(self):
-        self._config['debug_port'] = self._current_port()
+        port = self._current_port()
+        if self._mode == 'chromium':
+            self._config['debug_port'] = port
+        else:
+            self._config['ie_proxy_port'] = port
         path = self.browser_combo.currentData() or ''
         if path:
             self._config['browser_path'] = path
@@ -766,31 +806,66 @@ class InterfaceDebugPanel(QWidget):
         update_ui_prefs({'splitter_sizes': all_sizes})
 
     # ── 模式 ──────────────────────────────────────────
+    def _mode_from_index(self, index: int) -> str:
+        return {0: 'proxy', 1: 'chromium', 2: 'ie'}.get(int(index), 'proxy')
+
+    def _apply_mode_ui(self):
+        zh = self.language == 'zh'
+        proxy_like = self._mode in ('proxy', 'ie')
+        cdp = self._mode == 'chromium'
+        self.browser_combo.setVisible(cdp)
+        self.refresh_browsers_btn.setVisible(cdp)
+        self.pick_browser_btn.setVisible(cdp)
+        self.launch_btn.setVisible(cdp)
+        self.target_combo.setVisible(cdp)
+        if self._mode == 'proxy':
+            self.port_label.setText('代理端口' if zh else 'Proxy port')
+            self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
+            self.mode_hint.setText(
+                '默认模式：点击「开始监听」后，Chromium / IE / 遵循系统代理的程序将经 127.0.0.1 捕获请求；无需先选浏览器。'
+                if zh else
+                'Default: start local 127.0.0.1 proxy for Chromium/IE and system-proxy apps.'
+            )
+        elif self._mode == 'ie':
+            self.port_label.setText('IE 代理端口' if zh else 'IE proxy port')
+            self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
+            self.mode_hint.setText(
+                'IE 兼容入口：复用本机 MITM 代理与证书流程；无需选择 Chromium 浏览器。'
+                if zh else
+                'IE compatibility mode uses the same local MITM proxy.'
+            )
+        else:
+            self.port_label.setText('调试端口' if zh else 'Debug port')
+            self.port_edit.setText(str(self._config.get('debug_port') or 9222))
+            self.mode_hint.setText(
+                '高级：Chromium CDP。可手选 EXE、启动独立调试浏览器或连接已有 127.0.0.1 调试端口。Firefox 首版不支持。'
+                if zh else
+                'Advanced Chromium CDP. Firefox is not supported in v1.'
+            )
+        self.ie_install_cert_btn.setVisible(proxy_like)
+        self.ie_remove_cert_btn.setVisible(proxy_like)
+        self.connect_btn.setText(
+            ('开始监听' if zh else 'Start')
+            if self._mode != 'ie' else
+            ('启用 IE 监听' if zh else 'Start IE proxy')
+        )
+        self._update_empty_hint()
+
     def _on_mode_changed(self, index):
         if self._listening:
             self._stop_listen()
-        self._mode = 'ie' if index == 1 else 'chromium'
-        ie = self._mode == 'ie'
-        self.browser_combo.setVisible(not ie)
-        self.refresh_browsers_btn.setVisible(not ie)
-        self.pick_browser_btn.setVisible(not ie)
-        self.launch_btn.setVisible(not ie)
-        self.target_combo.setVisible(not ie)
-        self.port_label.setText(
-            ('IE 代理端口' if ie else '调试端口') if self.language == 'zh' else
-            ('IE proxy port' if ie else 'Debug port')
-        )
-        if ie:
-            self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
-        else:
-            self.port_edit.setText(str(self._config.get('debug_port') or 9222))
-        self.ie_install_cert_btn.setVisible(ie)
-        self.ie_remove_cert_btn.setVisible(ie)
+        self._mode = self._mode_from_index(index)
+        self._prefs['listen_mode'] = self._mode
+        update_ui_prefs({'listen_mode': self._mode})
+        self._apply_mode_ui()
         self.clear_session()
         self.apply_layout_mode(self._layout_mode, False)
 
     # ── 连接 / 监听 ──────────────────────────────────
     def _launch_browser(self):
+        if self._mode != 'chromium':
+            show_info(self, '浏览器', '仅 Chromium CDP 高级模式需要启动调试浏览器。')
+            return
         meta = self._selected_browser_meta()
         path = meta.get('path') or ''
         if meta.get('is_firefox'):
@@ -842,10 +917,10 @@ class InterfaceDebugPanel(QWidget):
         self.target_combo.blockSignals(False)
 
     def _connect_or_start(self):
-        if self._mode == 'ie':
-            self._start_ie_proxy()
-        else:
+        if self._mode == 'chromium':
             self._connect_cdp()
+        else:
+            self._start_local_proxy(ie_mode=(self._mode == 'ie'))
 
     def _connect_cdp(self):
         port = self._current_port()
@@ -860,76 +935,110 @@ class InterfaceDebugPanel(QWidget):
                 f'--remote-debugging-port={port} --remote-debugging-address=127.0.0.1 启动。',
             )
             return
-        self.loading.start_busy('正在连接 CDP…')
+        self.loading.start_busy('正在连接 CDP 并注册 Network 事件…')
         try:
             self._refresh_targets()
             target = self.target_combo.currentData()
             if not isinstance(target, dict):
                 targets = fetch_cdp_targets(port)
                 target = pick_default_page_target(targets)
+            # wait_ready=True：仅在 Network.enable 成功后才算监听成功
             session = connect_page_session(
                 port, target=target, host='127.0.0.1',
                 on_event=self._on_cdp_event_thread,
                 on_error=self._on_cdp_error_thread,
                 on_closed=self._on_cdp_closed_thread,
+                wait_ready=True,
+                ready_timeout=8.0,
             )
+            if not getattr(session, 'ready', False):
+                try:
+                    session.stop()
+                except Exception:
+                    pass
+                raise BrowserDebugError('CDP 事件通道未就绪，不能标记为监听成功')
             self._cdp_session = session
-            self._listening = True
-            self._set_listening_ui(True)
-            self.loading.finish('已开始监听')
-            self.status_label.setText(
-                f'CDP 监听中 · {target.get("title") or target.get("url") or port}'
+            self._mark_listen_success(
+                f'CDP 监听中 · 127.0.0.1:{port} · {target.get("title") or target.get("url") or "page"}'
             )
+            self.loading.finish('CDP 通道已建立')
         except Exception as exc:
             self.loading.fail(str(exc))
+            self._channel_ready = False
+            self._listening = False
+            self._set_listening_ui(False)
             show_warning(self, '连接 CDP', str(exc))
 
     def _on_cdp_event_thread(self, method, params):
         QTimer.singleShot(0, lambda m=method, p=dict(params or {}): self._handle_cdp_event(m, p))
 
     def _on_cdp_error_thread(self, msg):
-        QTimer.singleShot(0, lambda: self.status_label.setText(f'CDP 错误：{msg}'))
+        QTimer.singleShot(0, lambda: self._on_cdp_error(msg))
+
+    def _on_cdp_error(self, msg):
+        self.status_label.setText(f'CDP 错误：{msg}')
+        if self._listening and not self._channel_ready:
+            self.loading.fail(str(msg))
+            self._listening = False
+            self._set_listening_ui(False)
 
     def _on_cdp_closed_thread(self):
         QTimer.singleShot(0, self._on_cdp_closed)
 
     def _on_cdp_closed(self):
         if self._listening and self._mode == 'chromium':
-            self.status_label.setText('CDP 连接已关闭')
+            self.status_label.setText('已断开 · CDP 连接已关闭')
             self._listening = False
+            self._channel_ready = False
             self._set_listening_ui(False)
+            self._wait_hint_timer.stop()
+            self._status_tick.stop()
 
     def _handle_cdp_event(self, method, params):
         if not self._cdp_session:
             return
         with self._cdp_session._lock:
             records = dict(self._cdp_session.records)
+        prev_selected = self._selected_id
         for rid, rec in records.items():
             self._records_by_id[rid] = dict(rec)
         self._records = list(self._records_by_id.values())
+        if self._records:
+            self._last_request_at = time.time()
         self._rebuild_table()
+        # 新请求不得覆盖当前已选详情
+        if prev_selected and prev_selected in self._records_by_id:
+            self._selected_id = prev_selected
 
-    def _start_ie_proxy(self):
+    def _start_local_proxy(self, ie_mode: bool = False):
         zh = self.language == 'zh'
-        ok = confirm_action(
-            self,
-            '启用 IE 代理监听' if zh else 'Enable IE proxy',
-            (
-                '将临时修改当前用户 Windows 代理为 127.0.0.1，'
-                '并可能安装本机根证书以解密 HTTPS。\n'
-                '停止监听后会自动恢复原代理。报文仅内存，不落盘、不外发。'
-                if zh else
-                'Temporarily set Windows proxy to 127.0.0.1 for local capture only.'
-            ),
-            confirm_text='启用监听' if zh else 'Enable',
-            danger=True,
+        title = '启用 IE 代理监听' if ie_mode else '启用本机通用代理'
+        body = (
+            '将临时修改当前用户 Windows 代理为 127.0.0.1，'
+            '并可能需要安装本机根证书以解密 HTTPS。\n'
+            '适用于 Chromium、IE 及遵循系统代理的程序。\n'
+            '停止监听后会自动恢复原代理。报文仅内存，不落盘、不外发。\n'
+            '仅绑定 127.0.0.1，不会监听局域网或公网。'
+            if zh else
+            'Temporarily set current-user Windows proxy to 127.0.0.1 for local capture only.'
         )
-        if not ok:
-            return
+        if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
+            ok = confirm_action(
+                self,
+                title if zh else 'Enable local proxy',
+                body,
+                confirm_text='启用监听' if zh else 'Enable',
+                danger=True,
+            )
+            if not ok:
+                return
         port = self._current_port()
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
-        self.loading.start_busy('正在启动 IE 代理…')
+        self.loading.start_busy(
+            '正在启动本机代理并等待端口就绪…' if not ie_mode else '正在启动 IE 代理…'
+        )
+        source = 'ie_proxy' if ie_mode else 'local_proxy'
         try:
             worker = IeProxyWorker(
                 port=port,
@@ -937,46 +1046,175 @@ class InterfaceDebugPanel(QWidget):
                 on_error=self._on_ie_error_thread,
                 on_stopped=self._on_ie_stopped_thread,
                 show_static=self._show_static,
+                source_label=source,
+                apply_system_proxy=True,
             )
             worker.start()
             self._ie_worker = worker
-            self._listening = True
-            self._set_listening_ui(True)
-            self.loading.finish('IE 代理已启用')
-            self.status_label.setText(
-                f'IE 代理监听 127.0.0.1:{port} · 代理仅作用于当前用户；停止后自动恢复'
+            # 轮询就绪，期间泵事件，避免整窗冻结；未就绪不显示成功
+            deadline = time.time() + 12.0
+            while time.time() < deadline:
+                if getattr(worker, 'ready', False):
+                    break
+                if getattr(worker, '_stop', None) is not None and worker._stop.is_set():
+                    break
+                QApplication.processEvents()
+                time.sleep(0.05)
+            if not getattr(worker, 'ready', False):
+                err = '本机代理未在时限内就绪（端口占用、证书或 mitmproxy 依赖问题）'
+                try:
+                    worker.stop()
+                except Exception:
+                    pass
+                self._ie_worker = None
+                self.loading.fail(err)
+                show_warning(self, title, err)
+                return
+            label = (
+                f'{"IE 兼容" if ie_mode else "本机通用"}代理监听 127.0.0.1:{port} · '
+                f'代理仅当前用户 · 停止后自动恢复'
             )
+            self._mark_listen_success(label)
+            self.loading.finish('代理通道已建立')
         except Exception as exc:
             self.loading.fail(str(exc))
-            show_warning(self, 'IE 代理', str(exc))
+            show_warning(self, title, str(exc))
             try:
                 restore_proxy_from_snapshot()
             except Exception:
                 pass
 
+    def _mark_listen_success(self, status_text: str):
+        self._listening = True
+        self._channel_ready = True
+        self._listen_started_at = time.time()
+        self._last_request_at = 0.0
+        self._set_listening_ui(True)
+        self.status_label.setText(status_text)
+        self._update_empty_hint()
+        self._refresh_live_status()
+        self._wait_hint_timer.start()
+        if not self._status_tick.isActive():
+            self._status_tick.start()
+
+    def _on_wait_hint(self):
+        if not self._listening or not self._channel_ready:
+            return
+        if self._records:
+            return
+        zh = self.language == 'zh'
+        self.status_label.setText(
+            '监听已建立，等待浏览器请求。可点击「检查代理/重新连接」。'
+            if zh else
+            'Listener ready — waiting for browser requests.'
+        )
+        self.recheck_btn.show()
+        self._update_empty_hint()
+
+    def _refresh_live_status(self):
+        if not self._listening:
+            self.live_status.setText('')
+            return
+        zh = self.language == 'zh'
+        mode_name = {
+            'proxy': '本机通用代理' if zh else 'Local proxy',
+            'chromium': 'Chromium CDP' if zh else 'Chromium CDP',
+            'ie': 'IE 代理' if zh else 'IE proxy',
+        }.get(self._mode, self._mode)
+        port = self._current_port()
+        n = len(self._records)
+        last = (
+            datetime.fromtimestamp(self._last_request_at).strftime('%H:%M:%S')
+            if self._last_request_at else '—'
+        )
+        ready = '已就绪' if self._channel_ready else '未就绪'
+        self.live_status.setText(
+            f'模式 {mode_name} · 127.0.0.1:{port} · 通道{ready} · 已捕获 {n} · 最近请求 {last}'
+            if zh else
+            f'{mode_name} · 127.0.0.1:{port} · ready={self._channel_ready} · n={n} · last={last}'
+        )
+
+    def _recheck_channel(self):
+        """检查代理/重新连接入口。"""
+        if self._mode == 'chromium':
+            if self._cdp_session and getattr(self._cdp_session, 'ready', False) and port_open(self._current_port()):
+                show_info(self, '检查', 'CDP 端口可连接，通道仍在。请在业务页发起请求。')
+            else:
+                show_warning(self, '检查', 'CDP 通道异常，请停止后重新开始监听。')
+            return
+        port = self._current_port()
+        if port_open(port):
+            show_info(
+                self, '检查代理',
+                f'127.0.0.1:{port} 可连接。请确认浏览器使用系统代理，HTTPS 已安装抓包证书。',
+            )
+        else:
+            show_warning(self, '检查代理', f'127.0.0.1:{port} 不可连接，请停止后重新开始监听。')
+
     def _on_ie_record_thread(self, rec):
+        # 禁止后台线程直接操作 QWidget：投递主线程
         QTimer.singleShot(0, lambda r=dict(rec): self._ingest_record(r))
 
     def _on_ie_error_thread(self, msg):
         QTimer.singleShot(0, lambda: self._on_ie_error(msg))
 
     def _on_ie_stopped_thread(self):
-        QTimer.singleShot(0, lambda: self._set_listening_ui(False))
+        QTimer.singleShot(0, self._on_proxy_stopped)
+
+    def _on_proxy_stopped(self):
+        self._listening = False
+        self._channel_ready = False
+        self._set_listening_ui(False)
+        self._wait_hint_timer.stop()
+        self._status_tick.stop()
 
     def _on_ie_error(self, msg):
-        self.status_label.setText(f'IE 代理错误：{msg}')
-        show_warning(self, 'IE 代理', msg)
+        self.status_label.setText(f'代理错误：{msg}')
+        show_warning(self, '本机代理', msg)
         self._listening = False
+        self._channel_ready = False
         self._set_listening_ui(False)
+        self._wait_hint_timer.stop()
+        self._status_tick.stop()
+        if self._ie_worker:
+            try:
+                self._ie_worker.stop()
+            except Exception:
+                pass
+            self._ie_worker = None
 
     def _ingest_record(self, rec: dict):
         rid = rec.get('id') or ''
-        self._records_by_id[rid] = rec
+        if not rid:
+            return
+        prev_selected = self._selected_id
+        # 合并同 id（request→response）
+        old = self._records_by_id.get(rid) or {}
+        merged = dict(old)
+        merged.update({k: v for k, v in rec.items() if v is not None and v != ''})
+        # status 允许 0；failure 允许覆盖
+        if 'status' in rec:
+            merged['status'] = rec.get('status')
+        if rec.get('failure'):
+            merged['failure'] = rec.get('failure')
+        if rec.get('response_body') is not None:
+            merged['response_body'] = rec.get('response_body')
+        if rec.get('request_body') is not None and rec.get('request_body') != '':
+            merged['request_body'] = rec.get('request_body')
+        self._records_by_id[rid] = merged
         self._records = list(self._records_by_id.values())
+        self._last_request_at = time.time()
         self._rebuild_table()
+        if prev_selected and prev_selected in self._records_by_id:
+            self._selected_id = prev_selected
+        self._refresh_live_status()
+        if self._records and self.recheck_btn.isVisible():
+            self.recheck_btn.hide()
 
     def _stop_listen(self):
         self.loading.start_busy('正在停止监听…')
+        self._wait_hint_timer.stop()
+        self._status_tick.stop()
         try:
             if self._cdp_session:
                 try:
@@ -993,15 +1231,41 @@ class InterfaceDebugPanel(QWidget):
         finally:
             self.clear_session()
             self._listening = False
+            self._channel_ready = False
             self._set_listening_ui(False)
             self.loading.finish('已停止')
             self.status_label.setText('已停止监听，会话已清空')
+            self.live_status.setText('')
+            self.recheck_btn.hide()
 
     def _set_listening_ui(self, active: bool):
         self.connect_btn.setEnabled(not active)
         self.launch_btn.setEnabled(not active and self._mode == 'chromium')
         self.stop_btn.setEnabled(active)
         self.mode_combo.setEnabled(not active)
+        if not active:
+            self.recheck_btn.hide()
+
+    def _update_empty_hint(self):
+        zh = self.language == 'zh'
+        if self._listening and self._channel_ready and not self._records:
+            self.empty_hint.setText(
+                '监听已建立，等待浏览器请求…\n请用 Chrome / Edge / IE 打开业务页并操作；HTTPS 首次请安装本机证书。'
+                if zh else
+                'Listener ready — waiting for browser traffic.'
+            )
+        elif self._mode == 'chromium':
+            self.empty_hint.setText(
+                '暂无请求。高级模式：选择 Chromium → 启动或连接调试端口 → 在业务页中操作。'
+                if zh else
+                'No requests. Advanced CDP: pick Chromium, launch/connect, then use the page.'
+            )
+        else:
+            self.empty_hint.setText(
+                '暂无请求。点击「开始监听」后，在浏览器中访问业务页面即可捕获（默认无需选择浏览器）。'
+                if zh else
+                'No requests yet. Click Start, then browse as usual — no browser pick required.'
+            )
 
     def _confirm_clear_session(self):
         zh = self.language == 'zh'
@@ -1158,7 +1422,7 @@ class InterfaceDebugPanel(QWidget):
             ts = rec.get('started_at') or time.time()
             tstr = datetime.fromtimestamp(ts).strftime('%H:%M:%S.%f')[:-3]
             size_s = format_size(response_size_bytes(rec))
-            src = 'Chromium' if (rec.get('source') or 'cdp') == 'cdp' else 'IE'
+            src = self._source_label(rec.get('source'))
             vals = [status_s, method, path, dur_s, kind, tstr, size_s, src]
             for c, v in enumerate(vals):
                 item = QTableWidgetItem(str(v))
@@ -1259,7 +1523,7 @@ class InterfaceDebugPanel(QWidget):
         dur = rec.get('duration_ms')
         size = format_size(response_size_bytes(rec))
         kind = content_kind(rec)
-        src = 'Chromium' if (rec.get('source') or 'cdp') == 'cdp' else 'IE'
+        src = self._source_label(rec.get('source'))
         ts = rec.get('started_at') or time.time()
         tstr = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         notes = []
@@ -1269,14 +1533,18 @@ class InterfaceDebugPanel(QWidget):
             notes.append('HTTP 失败（4xx/5xx）或加载失败')
         if duration_severity(dur) != 'normal':
             notes.append(f'慢请求：{dur} ms')
+        rtype = (rec.get('resource_type') or '').lower()
+        if rtype == 'websocket':
+            notes.append('WebSocket 会话（以状态说明展示，报文可能不完整）')
         if not (rec.get('response_body') or '').strip() and status:
-            notes.append('响应体为空或 CDP 未能读取（仅保留元信息，不视为程序异常）')
+            notes.append('响应体为空或未能读取（仅保留元信息，不视为程序异常）')
         overview = [
             f'URL：{url}',
             f'方法：{(rec.get("method") or "GET").upper()}',
             f'状态：{status if status is not None else "—"}',
             f'耗时：{dur if dur is not None else "—"} ms',
             f'类型：{kind}',
+            f'资源类型：{rec.get("resource_type") or "—"}',
             f'来源：{src}',
             f'开始：{tstr}',
             f'响应大小：{size}',
@@ -1576,6 +1844,16 @@ class InterfaceDebugPanel(QWidget):
         self._fill_local_targets()
 
     # ── 响应式 ───────────────────────────────────────
+    def _source_label(self, source) -> str:
+        s = (source or '').lower()
+        if s in ('local_proxy', 'proxy'):
+            return '本机代理'
+        if s in ('ie_proxy', 'ie'):
+            return 'IE'
+        if s in ('cdp', 'chromium'):
+            return 'Chromium'
+        return source or '—'
+
     def apply_layout_mode(self, mode, low_height=False):
         self._layout_mode = mode
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
@@ -1583,7 +1861,6 @@ class InterfaceDebugPanel(QWidget):
         sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
         if sizes and len(sizes) >= 2:
             self.mid_splitter.setSizes(sizes)
-        # Compact/Narrow 连接区收纳
         secondary = [
             self.port_label, self.port_edit, self.target_combo,
             self.refresh_browsers_btn, self.pick_browser_btn,
@@ -1592,6 +1869,7 @@ class InterfaceDebugPanel(QWidget):
         self._conn_more_menu.clear()
         zh = self.language == 'zh'
         self.conn_more_btn.setText('更多' if zh else 'More')
+        proxy_like = self._mode in ('proxy', 'ie')
         if mode == 'narrow':
             for w in secondary + [self.browser_combo, self.launch_btn, self.mode_combo]:
                 if w is not None:
@@ -1607,17 +1885,20 @@ class InterfaceDebugPanel(QWidget):
                 act = QAction(label if zh else label, self)
                 act.triggered.connect(slot)
                 self._conn_more_menu.addAction(act)
-            if self._mode == 'ie':
+            if proxy_like:
                 a1 = QAction('安装证书' if zh else 'Install CA', self)
                 a1.triggered.connect(self._install_ie_cert)
                 a2 = QAction('移除证书' if zh else 'Remove CA', self)
                 a2.triggered.connect(self._remove_ie_cert)
                 self._conn_more_menu.addAction(a1)
                 self._conn_more_menu.addAction(a2)
+            a3 = QAction('检查代理/重新连接' if zh else 'Recheck', self)
+            a3.triggered.connect(self._recheck_channel)
+            self._conn_more_menu.addAction(a3)
         elif mode == 'compact':
             for w in [self.port_label, self.port_edit, self.target_combo]:
                 w.hide()
-            self.browser_combo.show()
+            self.browser_combo.setVisible(self._mode == 'chromium')
             self.mode_combo.show()
             self.launch_btn.setVisible(self._mode == 'chromium')
             self.connect_btn.show()
@@ -1628,7 +1909,7 @@ class InterfaceDebugPanel(QWidget):
                 self, '连接', f'当前端口 {self._current_port()}。可在 Wide 模式下编辑端口与目标页。'
             ))
             self._conn_more_menu.addAction(a)
-            if self._mode == 'ie':
+            if proxy_like:
                 self.ie_install_cert_btn.hide()
                 self.ie_remove_cert_btn.hide()
                 a1 = QAction('安装证书', self)
@@ -1637,17 +1918,11 @@ class InterfaceDebugPanel(QWidget):
         else:
             self.conn_more_btn.hide()
             self.mode_combo.show()
-            self.browser_combo.setVisible(self._mode == 'chromium')
-            self.refresh_browsers_btn.setVisible(self._mode == 'chromium')
-            self.pick_browser_btn.setVisible(self._mode == 'chromium')
-            self.launch_btn.setVisible(self._mode == 'chromium')
-            self.target_combo.setVisible(self._mode == 'chromium')
+            self._apply_mode_ui()
             self.port_label.show()
             self.port_edit.show()
             self.connect_btn.show()
             self.stop_btn.show()
-            self.ie_install_cert_btn.setVisible(self._mode == 'ie')
-            self.ie_remove_cert_btn.setVisible(self._mode == 'ie')
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
             edit.setMinimumHeight(editor_min_height())
 
@@ -1662,20 +1937,18 @@ class InterfaceDebugPanel(QWidget):
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
         self.mode_label.setText('模式' if zh else 'Mode')
-        self.mode_combo.setItemText(0, 'Chromium 调试端口' if zh else 'Chromium CDP')
-        self.mode_combo.setItemText(1, 'IE 本机代理' if zh else 'IE local proxy')
+        self.mode_combo.setItemText(0, '本机通用代理' if zh else 'Local proxy')
+        self.mode_combo.setItemText(1, 'Chromium CDP（高级）' if zh else 'Chromium CDP')
+        self.mode_combo.setItemText(2, 'IE 代理（兼容）' if zh else 'IE proxy')
         self.refresh_browsers_btn.setText('刷新' if zh else 'Refresh')
         self.pick_browser_btn.setText('选择 EXE' if zh else 'Browse…')
-        self.port_label.setText(
-            ('IE 代理端口' if self._mode == 'ie' else '调试端口') if zh else
-            ('IE proxy port' if self._mode == 'ie' else 'Debug port')
-        )
         self.launch_btn.setText('启动调试浏览器' if zh else 'Launch')
         self.connect_btn.setText(
             ('启用 IE 监听' if self._mode == 'ie' else '开始监听') if zh else
             ('Start IE proxy' if self._mode == 'ie' else 'Start')
         )
         self.stop_btn.setText('停止' if zh else 'Stop')
+        self.recheck_btn.setText('检查代理/重新连接' if zh else 'Recheck')
         self.ie_install_cert_btn.setText('安装证书' if zh else 'Install CA')
         self.ie_remove_cert_btn.setText('移除证书' if zh else 'Remove CA')
         self.filter_edit.setPlaceholderText(
@@ -1720,15 +1993,16 @@ class InterfaceDebugPanel(QWidget):
         self.export_postman_btn.setText('导出 Collection' if zh else 'Export')
         self.copy_curl_btn.setText('复制 cURL' if zh else 'Copy cURL')
         self.draft_hint.setText('不会发送请求' if zh else 'No HTTP send')
-        self.empty_hint.setText(
-            '暂无请求。请选择本机 Chromium 浏览器 → 启动或连接调试端口 → 在业务页中操作。'
-            if zh else
-            'No requests yet. Pick a local Chromium browser, launch/connect, then use the app page.'
-        )
+        self._apply_mode_ui()
         labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN
         self.table.setHorizontalHeaderLabels([labels[k] for k in COLUMN_KEYS])
 
     def shutdown_cleanup(self):
+        try:
+            self._wait_hint_timer.stop()
+            self._status_tick.stop()
+        except Exception:
+            pass
         try:
             if self._cdp_session:
                 self._cdp_session.stop()
@@ -1738,6 +2012,8 @@ class InterfaceDebugPanel(QWidget):
                 self._ie_worker = None
         except Exception:
             pass
+        self._listening = False
+        self._channel_ready = False
         self.clear_session()
         try:
             restore_proxy_from_snapshot()

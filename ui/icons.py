@@ -17,6 +17,9 @@ from ui.layout_metrics import ICON_MUTED, PRIMARY_ACTIVE
 ICON_FILES = {
     # 品牌资源（优先 brand/，旧 app.ico 仅作兼容回退）
     'app': ('resources', 'brand', 'pengtools-app-v2.ico'),
+    # 高对比任务栏/托盘 ICO：浅底深标，不跟随夜间主题变黑
+    'app_taskbar_hc': ('resources', 'brand', 'pengtools-taskbar-hc.ico'),
+    'app_taskbar_hc_svg': ('resources', 'brand', 'pengtools-taskbar-hc.svg'),
     'app_mark': ('resources', 'brand', 'pengtools-app-mark.svg'),
     'tray_mark': ('resources', 'brand', 'pengtools-tray-mark.svg'),
     'floating_mark': ('resources', 'brand', 'pengtools-floating-mark.svg'),
@@ -69,6 +72,8 @@ ICON_FILES = {
 BRAND_ROLES = {
     'app': 'app',
     'app_ico': 'app',
+    'app_taskbar': 'app_taskbar_hc',
+    'app_taskbar_hc': 'app_taskbar_hc',
     'app_mark': 'app_mark',
     'tray': 'tray_mark',
     'floating': 'floating_mark',
@@ -290,8 +295,40 @@ def brand_pixmap(role: str, size: int = 28, tint: str = PRIMARY_ACTIVE) -> QPixm
 
 
 def brand_window_icon() -> QIcon:
+    """窗口 / 任务栏 / Alt+Tab 图标：优先高对比 ICO，不随主题变暗。"""
+    hc = brand_file('app_taskbar') or icon_file('app_taskbar_hc')
+    if hc:
+        return QIcon(hc)
     path = brand_file('app')
     if path:
         return QIcon(path)
     legacy = icon_file('app_legacy_ico')
     return QIcon(legacy) if legacy else QIcon()
+
+
+def brand_taskbar_icon() -> QIcon:
+    """任务栏专用高对比图标（与主题 tint 无关）。"""
+    return brand_window_icon()
+
+
+def brand_tray_icon() -> QIcon:
+    """托盘图标：优先高对比 ICO，保证黑/浅任务栏可见；失败再回退主题染色 SVG。"""
+    hc = brand_file('app_taskbar') or icon_file('app_taskbar_hc')
+    if hc:
+        icon = QIcon(hc)
+        if not icon.isNull():
+            return icon
+    # 回退：固定深墨绿 tint 的 tray SVG，避免夜间主题染成近黑
+    for size in (20, 16, 24, 32):
+        pix = brand_pixmap('tray', size=size, tint='#1F3D32')
+        if not pix.isNull():
+            icon = QIcon()
+            icon.addPixmap(pix)
+            for extra in (16, 20, 24, 32):
+                if extra == size:
+                    continue
+                extra_pix = brand_pixmap('tray', size=extra, tint='#1F3D32')
+                if not extra_pix.isNull():
+                    icon.addPixmap(extra_pix)
+            return icon
+    return brand_window_icon()

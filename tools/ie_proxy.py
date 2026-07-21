@@ -264,41 +264,80 @@ def flow_to_record(flow) -> dict:
         rec['path'] = parsed.path or '/'
         rec['query'] = parsed.query or ''
         headers = {}
-        for k, v in req.headers.items(multi=True):
-            headers[str(k)] = str(v)
+        try:
+            for k, v in req.headers.items(multi=True):
+                headers[str(k)] = str(v)
+        except Exception:
+            try:
+                headers = {str(k): str(v) for k, v in dict(req.headers).items()}
+            except Exception:
+                headers = {}
         rec['request_headers'] = headers
         try:
             rec['request_body'] = req.get_text(strict=False) or ''
         except Exception:
-            rec['request_body'] = ''
+            try:
+                raw = req.content or b''
+                rec['request_body'] = raw.decode('utf-8', errors='replace') if raw else ''
+            except Exception:
+                rec['request_body'] = ''
+        # 耗时起点
+        try:
+            ts = getattr(flow, 'timestamp_start', None) or getattr(req, 'timestamp_start', None)
+            if ts:
+                rec['started_at'] = float(ts)
+        except Exception:
+            pass
         if getattr(flow, 'response', None) is not None:
             resp = flow.response
             rec['status'] = resp.status_code
-            rec['mime_type'] = resp.headers.get('content-type', '')
+            rec['mime_type'] = resp.headers.get('content-type', '') or ''
             rh = {}
-            for k, v in resp.headers.items(multi=True):
-                rh[str(k)] = str(v)
+            try:
+                for k, v in resp.headers.items(multi=True):
+                    rh[str(k)] = str(v)
+            except Exception:
+                try:
+                    rh = {str(k): str(v) for k, v in dict(resp.headers).items()}
+                except Exception:
+                    rh = {}
             rec['response_headers'] = rh
             try:
                 rec['response_body'] = resp.get_text(strict=False) or ''
             except Exception:
-                rec['response_body'] = ''
-            if hasattr(flow, 'response') and flow.response and hasattr(flow, 'timestamp_end'):
                 try:
-                    start = getattr(flow, 'timestamp_start', None) or 0
-                    end = getattr(flow, 'timestamp_end', None) or start
-                    rec['duration_ms'] = int(max(0, (end - start) * 1000))
+                    raw = resp.content or b''
+                    rec['response_body'] = raw.decode('utf-8', errors='replace') if raw else ''
                 except Exception:
-                    pass
+                    rec['response_body'] = ''
+            try:
+                start = getattr(flow, 'timestamp_start', None) or rec.get('started_at') or 0
+                end = getattr(flow, 'timestamp_end', None)
+                if end is None and hasattr(resp, 'timestamp_end'):
+                    end = resp.timestamp_end
+                if end and start:
+                    rec['duration_ms'] = int(max(0, (float(end) - float(start)) * 1000))
+            except Exception:
+                pass
         else:
             err = getattr(flow, 'error', None)
             if err:
                 rec['failure'] = str(getattr(err, 'msg', err))
-        # 资源类型粗判
+        # 资源类型粗判：Document / XHR / 静态
         path = (rec.get('path') or '').lower()
+        accept = ''
+        for k, v in headers.items():
+            if str(k).lower() == 'accept':
+                accept = str(v).lower()
+                break
         if any(path.endswith(ext) for ext in STATIC_EXTENSIONS):
             rec['resource_type'] = 'Other'
+        elif 'text/html' in accept or path.endswith(('.html', '.htm')) or path in ('', '/'):
+            rec['resource_type'] = 'Document'
+        elif not path or path.endswith('/'):
+            rec['resource_type'] = 'Document'
         else:
+            # 默认按业务 XHR 保留，避免被默认过滤误杀
             rec['resource_type'] = 'XHR'
     except Exception as exc:
         rec['failure'] = str(exc)
@@ -306,16 +345,41 @@ def flow_to_record(flow) -> dict:
 
 
 class _CaptureAddon:
-    def __init__(self, out_queue: queue.Queue, show_static: bool = False):
+    """request + response 两阶段均产出记录；不修改流量。"""
+
+    def __init__(self, out_queue: queue.Queue, show_static: bool = False, id_map: Optional[dict] = None):
         self.out_queue = out_queue
         self.show_static = show_static
+        self.id_map = id_map if id_map is not None else {}
+
+    def _should_emit(self, url: str) -> bool:
+        if self.show_static:
+            return True
+        return not is_static_url(url or '')
+
+    def request(self, flow):
+        """请求阶段先入列表，避免「有监听无响应」时整条丢失。"""
+        try:
+            rec = flow_to_record(flow)
+            if not self._should_emit(rec.get('url') or ''):
+                return
+            # 尚无响应时标记进行中
+            if rec.get('status') is None and not rec.get('failure'):
+                rec['failure'] = ''
+            self.id_map[id(flow)] = rec['id']
+            self.out_queue.put(rec)
+        except Exception:
+            pass
 
     def response(self, flow):
         try:
             rec = flow_to_record(flow)
-            if not self.show_static and is_static_url(rec.get('url') or ''):
+            if not self._should_emit(rec.get('url') or ''):
                 return
-            # 只观察，不修改
+            # 保持与 request 阶段同一 id，便于合并
+            prev = self.id_map.get(id(flow))
+            if prev:
+                rec['id'] = prev
             self.out_queue.put(rec)
         except Exception:
             pass
@@ -323,8 +387,11 @@ class _CaptureAddon:
     def error(self, flow):
         try:
             rec = flow_to_record(flow)
-            if rec.get('url') and not self.show_static and is_static_url(rec['url']):
+            if rec.get('url') and not self._should_emit(rec['url']):
                 return
+            prev = self.id_map.get(id(flow))
+            if prev:
+                rec['id'] = prev
             if not rec.get('failure'):
                 rec['failure'] = 'HTTPS 未解密：请安装本机抓包证书' if (
                     (rec.get('url') or '').startswith('https')
@@ -335,7 +402,10 @@ class _CaptureAddon:
 
 
 class IeProxyWorker:
-    """后台线程运行 mitmproxy DumpMaster，仅监听 127.0.0.1。"""
+    """后台线程运行 mitmproxy DumpMaster，仅监听 127.0.0.1。
+
+    通用本机代理与 IE 兼容模式共用此 worker。
+    """
 
     def __init__(
         self,
@@ -343,36 +413,49 @@ class IeProxyWorker:
         on_record: Optional[Callable[[dict], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         on_stopped: Optional[Callable[[], None]] = None,
+        on_ready: Optional[Callable[[], None]] = None,
         show_static: bool = False,
+        source_label: str = 'ie_proxy',
+        apply_system_proxy: bool = True,
     ):
         self.port = max(1, min(65535, int(port or 8899)))
         self.on_record = on_record
         self.on_error = on_error
         self.on_stopped = on_stopped
+        self.on_ready = on_ready
         self.show_static = show_static
+        self.source_label = source_label or 'ie_proxy'
+        self.apply_system_proxy = bool(apply_system_proxy)
         self._thread = None
         self._poll_thread = None
         self._master = None
         self._stop = threading.Event()
+        self._ready = threading.Event()
         self._queue: queue.Queue = queue.Queue()
         self.records: dict[str, dict] = {}
         self._lock = threading.Lock()
         self._proxy_applied = False
+        self.ready = False
 
     def start(self):
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
-        # 应用系统代理
-        apply_local_proxy(self.port)
-        self._proxy_applied = True
+        self._ready.clear()
+        self.ready = False
+        # 先启动监听，就绪后再写系统代理，避免“代理已改但端口未开”
         self._thread = threading.Thread(target=self._run_master, name='ie-mitm', daemon=True)
         self._thread.start()
         self._poll_thread = threading.Thread(target=self._poll_queue, name='ie-poll', daemon=True)
         self._poll_thread.start()
 
+    def wait_ready(self, timeout: float = 12.0) -> bool:
+        ok = self._ready.wait(timeout)
+        return bool(ok and self.ready and not self._stop.is_set())
+
     def stop(self):
         self._stop.set()
+        self.ready = False
         try:
             if self._master is not None:
                 self._master.shutdown()
@@ -406,6 +489,8 @@ class IeProxyWorker:
                 rec = self._queue.get(timeout=0.3)
             except queue.Empty:
                 continue
+            rec = dict(rec)
+            rec['source'] = self.source_label
             with self._lock:
                 self.records[rec['id']] = rec
             if self.on_record:
@@ -413,6 +498,15 @@ class IeProxyWorker:
                     self.on_record(rec)
                 except Exception:
                     pass
+
+    def _mark_ready(self):
+        self.ready = True
+        self._ready.set()
+        if self.on_ready:
+            try:
+                self.on_ready()
+            except Exception:
+                pass
 
     def _run_master(self):
         try:
@@ -422,23 +516,91 @@ class IeProxyWorker:
             if self.on_error:
                 self.on_error(f'缺少 mitmproxy 依赖：{exc}')
             self._cleanup_proxy()
+            self._ready.set()
             return
         confdir = mitm_cert_dir()
         try:
+            # 强制仅 loopback，拒绝 0.0.0.0 / 局域网
+            listen_host = '127.0.0.1'
             opts = options.Options(
-                listen_host='127.0.0.1',
+                listen_host=listen_host,
                 listen_port=self.port,
                 confdir=confdir,
             )
-            # 不修改请求：只观察
-            addon = _CaptureAddon(self._queue, show_static=self.show_static)
+            id_map: dict = {}
+            addon = _CaptureAddon(self._queue, show_static=self.show_static, id_map=id_map)
             self._master = DumpMaster(opts, with_termlog=False, with_dumper=False)
             self._master.addons.add(addon)
-            self._master.run()
+
+            # 在独立线程中 run，主线程轮询端口就绪
+            def _run():
+                try:
+                    self._master.run()
+                except Exception as exc:
+                    if self.on_error and not self._stop.is_set():
+                        self.on_error(str(exc))
+
+            runner = threading.Thread(target=_run, name='ie-mitm-run', daemon=True)
+            runner.start()
+
+            # 等待端口真正可连接
+            deadline = time.time() + 10.0
+            bound = False
+            while time.time() < deadline and not self._stop.is_set():
+                try:
+                    import socket
+                    with socket.create_connection(('127.0.0.1', self.port), timeout=0.4):
+                        bound = True
+                        break
+                except OSError:
+                    time.sleep(0.15)
+
+            if not bound:
+                if self.on_error:
+                    self.on_error(
+                        f'本机代理未能绑定 127.0.0.1:{self.port}（端口占用或 mitmproxy 启动失败）'
+                    )
+                try:
+                    if self._master is not None:
+                        self._master.shutdown()
+                except Exception:
+                    pass
+                self._cleanup_proxy()
+                self._ready.set()
+                return
+
+            if self.apply_system_proxy:
+                try:
+                    apply_local_proxy(self.port)
+                    self._proxy_applied = True
+                except Exception as exc:
+                    if self.on_error:
+                        self.on_error(f'设置系统代理失败：{exc}')
+                    try:
+                        if self._master is not None:
+                            self._master.shutdown()
+                    except Exception:
+                        pass
+                    self._ready.set()
+                    return
+
+            self._mark_ready()
+            # 阻塞直到 master 结束
+            while runner.is_alive() and not self._stop.is_set():
+                runner.join(timeout=0.4)
+            if self._stop.is_set():
+                try:
+                    if self._master is not None:
+                        self._master.shutdown()
+                except Exception:
+                    pass
+                runner.join(timeout=2.0)
         except Exception as exc:
             if self.on_error and not self._stop.is_set():
                 self.on_error(str(exc))
+            self._ready.set()
         finally:
+            self.ready = False
             self._cleanup_proxy()
 
     def _cleanup_proxy(self):
@@ -448,3 +610,4 @@ class IeProxyWorker:
             except Exception:
                 pass
             self._proxy_applied = False
+

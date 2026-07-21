@@ -15,11 +15,14 @@
 
 | 文件 | 用途 | 颜色 |
 |---|---|---|
-| `pengtools-app-mark.svg` | 应用主 Logo、任务栏 ICO 的源图 | 默认静谧办公绿色底 |
-| `pengtools-tray-mark.svg` | 系统托盘图标 | `currentColor`，由主题服务染色 |
+| `pengtools-app-mark.svg` | 应用主 Logo / 侧栏品牌 | 默认静谧办公绿色底 |
+| `pengtools-app-v2.ico` | 主题品牌 ICO 回退 | 绿底浅标 |
+| `pengtools-taskbar-hc.svg` | 高对比任务栏源图 | 浅色圆角底 + 深墨绿标志 |
+| `pengtools-taskbar-hc.ico` | 窗口/任务栏/托盘/Alt+Tab 主图标 | 多尺寸 16–256，黑/浅任务栏皆清晰 |
+| `pengtools-tray-mark.svg` | 系统托盘矢量回退 | `currentColor` |
 | `pengtools-floating-mark.svg` | 悬浮框开关按钮 | `currentColor`，由悬浮框表面决定 |
 
-应用窗口、任务栏与安装程序必须使用从 `pengtools-app-mark.svg` 导出的多尺寸 `app.ico`；不要再使用单独的字母 P 或圆形渐变图标。托盘和悬浮框不使用文字，以保证 16–40px 尺寸清晰。
+窗口、任务栏与托盘优先使用高对比 `pengtools-taskbar-hc.ico`，**不跟随夜间主题变黑**；侧栏导航与悬浮按钮仍使用现有主题 tint 图标，互不影响。
 
 ## 尺寸
 

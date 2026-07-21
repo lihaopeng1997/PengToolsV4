@@ -219,13 +219,28 @@ def port_open(port: int, host: str = '127.0.0.1') -> bool:
         return False
 
 
+def _loopback_opener():
+    """绕过 HTTP_PROXY/HTTPS_PROXY，确保 127.0.0.1 CDP 探测不被内网代理劫持。"""
+    try:
+        import urllib.request
+        # ProxyHandler({}) 表示不使用任何代理
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    except Exception:
+        return None
+
+
 def fetch_cdp_targets(port: int = 9222, host: str = '127.0.0.1') -> list[dict]:
     if not is_loopback_host(host):
         raise BrowserDebugError('CDP 仅允许连接 127.0.0.1 / localhost')
     url = f'http://{host}:{int(port)}/json/list'
     try:
-        with urlopen(url, timeout=2.0) as resp:
-            data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        opener = _loopback_opener()
+        if opener is not None:
+            with opener.open(url, timeout=2.0) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        else:
+            with urlopen(url, timeout=2.0) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='replace'))
     except Exception as exc:
         raise BrowserDebugError(
             f'无法连接调试端口 {host}:{port}。请用 --remote-debugging-port={port} 启动浏览器。\n{exc}'
@@ -363,15 +378,30 @@ def merge_cdp_event(records: dict, event_method: str, params: dict) -> Optional[
 
 
 def should_keep_record(rec: dict, show_static: bool = False) -> bool:
-    rtype = (rec.get('resource_type') or '').lower()
-    # 仅 XHR / Fetch / Document（及未知但非静态）
-    allowed = {'xhr', 'fetch', 'document', 'xhr/fetch', ''}
-    if rtype and rtype not in allowed and rtype not in ('other',):
-        # CDP 可能用 XHR/Fetch/Document 大写混用
-        if rtype not in ('xhr', 'fetch', 'document'):
-            if not show_static:
-                return False
-    if not show_static and is_static_url(rec.get('url') or ''):
+    """默认保留 XHR/Fetch、Document、未知类型、WebSocket/EventSource；静态可隐藏。
+
+    不得因默认过滤导致业务接口全部消失。
+    """
+    rtype = (rec.get('resource_type') or '').strip().lower()
+    url = rec.get('url') or ''
+    static_types = {
+        'stylesheet', 'script', 'image', 'font', 'media', 'texttrack',
+        'manifest', 'ping', 'cspviolationreport',
+    }
+    # 业务与未知类型一律保留
+    keep_types = {
+        '', 'xhr', 'fetch', 'document', 'xhr/fetch', 'other',
+        'websocket', 'eventsource', 'signedexchange', 'preflight',
+    }
+    if rtype in keep_types:
+        if not show_static and is_static_url(url) and rtype in ('', 'other'):
+            # URL 明显是静态且类型未知时才隐藏
+            return False
+        return True
+    if rtype in static_types:
+        return bool(show_static)
+    # 未识别类型：保留（避免误杀）
+    if not show_static and is_static_url(url):
         return False
     return True
 
@@ -385,27 +415,39 @@ class CdpNetworkSession:
         on_event: Optional[Callable[[str, dict], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         on_closed: Optional[Callable[[], None]] = None,
+        on_ready: Optional[Callable[[], None]] = None,
     ):
         self.ws_url = ws_url
         self.on_event = on_event
         self.on_error = on_error
         self.on_closed = on_closed
+        self.on_ready = on_ready
         self._ws = None
         self._thread = None
         self._stop = threading.Event()
+        self._ready = threading.Event()
         self._msg_id = 0
         self._lock = threading.Lock()
         self.records: dict[str, dict] = {}
+        self.ready = False
 
     def start(self):
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._ready.clear()
+        self.ready = False
         self._thread = threading.Thread(target=self._run, name='cdp-network', daemon=True)
         self._thread.start()
 
+    def wait_ready(self, timeout: float = 8.0) -> bool:
+        """等待 Network.enable 成功并回调注册完成。"""
+        ok = self._ready.wait(timeout)
+        return bool(ok and self.ready and not self._stop.is_set())
+
     def stop(self):
         self._stop.set()
+        self.ready = False
         try:
             if self._ws is not None:
                 self._ws.close()
@@ -421,13 +463,15 @@ class CdpNetworkSession:
         self._msg_id += 1
         return self._msg_id
 
-    def _send(self, method: str, params: Optional[dict] = None):
+    def _send(self, method: str, params: Optional[dict] = None, msg_id: Optional[int] = None):
         if self._ws is None:
-            return
-        payload = {'id': self._next_id(), 'method': method}
+            return None
+        mid = self._next_id() if msg_id is None else msg_id
+        payload = {'id': mid, 'method': method}
         if params:
             payload['params'] = params
         self._ws.send(json.dumps(payload))
+        return mid
 
     def get_response_body(self, request_id: str, timeout: float = 3.0) -> tuple[str, bool]:
         """同步请求响应体；返回 (body, base64Encoded)。失败返回 ('', False)。"""
@@ -436,18 +480,6 @@ class CdpNetworkSession:
         result_holder = {}
         event = threading.Event()
         msg_id = self._next_id()
-
-        def waiter(raw):
-            try:
-                data = json.loads(raw)
-            except Exception:
-                return
-            if data.get('id') == msg_id:
-                result_holder['data'] = data
-                event.set()
-
-        # 使用临时 on_message 不适合；改为共享队列模式较复杂。
-        # 简化：若已在 loadingFinished 后异步填充则直接读 records。
         rec = self.records.get(request_id)
         if rec and rec.get('response_body'):
             return rec['response_body'], False
@@ -457,7 +489,6 @@ class CdpNetworkSession:
                 'method': 'Network.getResponseBody',
                 'params': {'requestId': request_id},
             })
-            # 非线程安全的同步获取：依赖 _pending
             with self._lock:
                 if not hasattr(self, '_pending'):
                     self._pending = {}
@@ -465,6 +496,8 @@ class CdpNetworkSession:
             self._ws.send(payload)
             if event.wait(timeout):
                 data = result_holder.get('data') or {}
+                if data.get('error'):
+                    return '', False
                 body = (data.get('result') or {}).get('body') or ''
                 b64 = bool((data.get('result') or {}).get('base64Encoded'))
                 if b64 and body:
@@ -483,6 +516,15 @@ class CdpNetworkSession:
                     self._pending.pop(msg_id, None)
         return '', False
 
+    def _mark_ready(self):
+        self.ready = True
+        self._ready.set()
+        if self.on_ready:
+            try:
+                self.on_ready()
+            except Exception:
+                pass
+
     def _run(self):
         try:
             import websocket
@@ -491,32 +533,74 @@ class CdpNetworkSession:
                 self.on_error(f'缺少 websocket-client 依赖：{exc}')
             if self.on_closed:
                 self.on_closed()
+            self._ready.set()
             return
 
         self._pending = {}
+        enable_id = {'id': None}
 
         def on_message(ws, message):
             try:
                 data = json.loads(message)
             except Exception:
                 return
-            if 'id' in data and data['id'] in self._pending:
-                holder, ev = self._pending.pop(data['id'])
+            mid = data.get('id')
+            if mid is not None and mid in self._pending:
+                holder, ev = self._pending.pop(mid)
                 holder['data'] = data
                 ev.set()
+                if enable_id['id'] is not None and mid == enable_id['id']:
+                    if data.get('error'):
+                        err = data.get('error')
+                        msg = err.get('message') if isinstance(err, dict) else str(err)
+                        if self.on_error:
+                            self.on_error(f'Network.enable 失败：{msg}')
+                        self._ready.set()
+                    else:
+                        self._mark_ready()
+                return
+            # 无 pending 但可能是 enable 响应
+            if mid is not None and enable_id['id'] is not None and mid == enable_id['id']:
+                if data.get('error'):
+                    err = data.get('error')
+                    msg = err.get('message') if isinstance(err, dict) else str(err)
+                    if self.on_error:
+                        self.on_error(f'Network.enable 失败：{msg}')
+                    self._ready.set()
+                else:
+                    self._mark_ready()
                 return
             method = data.get('method') or ''
             params = data.get('params') or {}
-            if method.startswith('Network.'):
+            if method.startswith('Network.') or method.startswith('Network'):
                 with self._lock:
                     rid = merge_cdp_event(self.records, method, params)
-                    # loadingFinished 后异步取 body
                     if method == 'Network.loadingFinished' and rid:
                         threading.Thread(
                             target=self._fetch_body_async,
                             args=(rid,),
                             daemon=True,
                         ).start()
+                    # WebSocket 帧：标注类型，不丢弃
+                    if method in (
+                        'Network.webSocketCreated',
+                        'Network.webSocketFrameSent',
+                        'Network.webSocketFrameReceived',
+                        'Network.webSocketClosed',
+                        'Network.webSocketHandshakeResponseReceived',
+                    ):
+                        rid = params.get('requestId')
+                        if rid:
+                            rec = self.records.get(rid)
+                            if rec is None:
+                                rec = empty_record(rid)
+                                rec['url'] = params.get('url') or rec.get('url') or ''
+                                self.records[rid] = rec
+                            rec['resource_type'] = 'WebSocket'
+                            if method == 'Network.webSocketClosed':
+                                rec['failure'] = rec.get('failure') or ''
+                            if 'response' in params and isinstance(params.get('response'), dict):
+                                rec['status'] = params['response'].get('status')
                 if self.on_event:
                     try:
                         self.on_event(method, params)
@@ -529,22 +613,38 @@ class CdpNetworkSession:
                     self.on_error(str(error))
                 except Exception:
                     pass
+            if not self.ready:
+                self._ready.set()
 
         def on_close(ws, *args):
+            self.ready = False
             if self.on_closed:
                 try:
                     self.on_closed()
                 except Exception:
                     pass
+            self._ready.set()
 
         def on_open(ws):
             try:
-                self._send('Network.enable')
+                mid = self._next_id()
+                enable_id['id'] = mid
+                with self._lock:
+                    self._pending[mid] = ({}, threading.Event())
+                self._send('Network.enable', msg_id=mid)
+                # 兜底：若浏览器不回 enable 响应，短延迟后仍标记就绪（通道已开）
+                def _fallback_ready():
+                    time.sleep(1.2)
+                    if not self.ready and not self._stop.is_set() and self._ws is not None:
+                        self._mark_ready()
+                threading.Thread(target=_fallback_ready, daemon=True).start()
             except Exception as exc:
                 if self.on_error:
                     self.on_error(str(exc))
+                self._ready.set()
 
         try:
+            # http_proxy_host=None 强制绕过环境代理
             self._ws = websocket.WebSocketApp(
                 self.ws_url,
                 on_message=on_message,
@@ -552,13 +652,29 @@ class CdpNetworkSession:
                 on_close=on_close,
                 on_open=on_open,
             )
-            # run_forever 阻塞直到 close
-            self._ws.run_forever(ping_interval=20, ping_timeout=10)
+            self._ws.run_forever(
+                ping_interval=20,
+                ping_timeout=10,
+                http_proxy_host=None,
+                http_proxy_port=None,
+                proxy_type=None,
+            )
+        except TypeError:
+            # 旧版 websocket-client 无 proxy 参数
+            try:
+                self._ws.run_forever(ping_interval=20, ping_timeout=10)
+            except Exception as exc:
+                if self.on_error and not self._stop.is_set():
+                    self.on_error(str(exc))
+                if self.on_closed:
+                    self.on_closed()
+                self._ready.set()
         except Exception as exc:
             if self.on_error and not self._stop.is_set():
                 self.on_error(str(exc))
             if self.on_closed:
                 self.on_closed()
+            self._ready.set()
 
     def _fetch_body_async(self, request_id: str):
         body, _ = self.get_response_body(request_id)
@@ -572,6 +688,16 @@ class CdpNetworkSession:
                     self.on_event('Network.responseBody', {'requestId': request_id})
                 except Exception:
                     pass
+        else:
+            # getResponseBody 失败时保留摘要，不删除记录
+            if self.on_event:
+                try:
+                    self.on_event('Network.responseBody', {
+                        'requestId': request_id,
+                        'failed': True,
+                    })
+                except Exception:
+                    pass
 
 
 def connect_page_session(
@@ -581,9 +707,14 @@ def connect_page_session(
     on_event=None,
     on_error=None,
     on_closed=None,
+    on_ready=None,
+    wait_ready: bool = True,
+    ready_timeout: float = 8.0,
 ) -> CdpNetworkSession:
     if not is_loopback_host(host):
         raise BrowserDebugError('CDP 仅允许连接 127.0.0.1 / localhost')
+    if not port_open(port, host):
+        raise BrowserDebugError(f'调试端口 {host}:{port} 不可连接')
     targets = fetch_cdp_targets(port, host)
     page = target or pick_default_page_target(targets)
     if not page:
@@ -595,6 +726,21 @@ def connect_page_session(
     parsed = urlparse(ws_url)
     if parsed.hostname and not is_loopback_host(parsed.hostname):
         raise BrowserDebugError('调试 WebSocket 地址非本机 loopback，已拒绝连接')
-    session = CdpNetworkSession(ws_url, on_event=on_event, on_error=on_error, on_closed=on_closed)
+    # 规范化 ws URL 使用 127.0.0.1，避免 localhost 被代理解析
+    if parsed.hostname in ('localhost', '::1'):
+        from urllib.parse import urlunparse
+        netloc = f'127.0.0.1:{parsed.port}' if parsed.port else '127.0.0.1'
+        ws_url = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    session = CdpNetworkSession(
+        ws_url,
+        on_event=on_event,
+        on_error=on_error,
+        on_closed=on_closed,
+        on_ready=on_ready,
+    )
     session.start()
+    if wait_ready and not session.wait_ready(ready_timeout):
+        session.stop()
+        raise BrowserDebugError('CDP 通道已连接，但 Network.enable / 事件回调未在时限内就绪')
     return session
+

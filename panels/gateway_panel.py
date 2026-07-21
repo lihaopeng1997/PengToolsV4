@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
-"""网关加解密工作台：国密解密 + JSON 结果呈现（XML 已迁至格式工具）。"""
+"""网关加解密工作台：国密解密 + JSON 结果呈现（XML 已迁至格式工具）。
+
+解密参数区始终可见；从接口排查送入报文时只填充密文，不覆盖已录入 Key。
+密钥仅内存，不落盘、不写日志。
+"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QMenu, QPlainTextEdit, QPushButton, QSplitter, QToolButton, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
+    QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QSplitter, QToolButton,
+    QVBoxLayout, QWidget,
 )
 
 from tools.gateway_crypto import decrypt_gateway_payload
@@ -38,8 +43,10 @@ class GatewayDecodePanel(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
+        self._key_visible = True
         self._setup_ui()
         self.set_language(language)
+        self._refresh_param_visibility()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -65,36 +72,88 @@ class GatewayDecodePanel(QWidget):
             head.addLayout(titles, 1); head.addWidget(self.offline_pill)
             layout.addLayout(head)
 
-        self.config_toggle = QPushButton('解密参数 ▸')
-        self.config_toggle.setCheckable(True)
-        self.config_toggle.setProperty('compactAction', True)
-        self.config_toggle.setToolTip('新车险系统固定兼容模式 · 密钥仅本机使用')
-        self.config_toggle.toggled.connect(self._toggle_config)
-        layout.addWidget(self.config_toggle, 0, Qt.AlignmentFlag.AlignLeft)
-
+        # 解密参数区：始终显示，不得默认折叠
         self.config_group = QGroupBox()
         self.config_group.setObjectName('gateway-config-group')
-        self.config_group.setTitle('')
-        self.config_group.hide()
+        self.config_group.setTitle('解密参数')
         config = QFormLayout(self.config_group)
-        config.setContentsMargins(14, 12, 14, 12)
+        config.setContentsMargins(14, 16, 14, 12)
         config.setHorizontalSpacing(14)
         config.setVerticalSpacing(10)
-        self.system_value = QLabel('新车险系统（固定兼容模式）')
-        self.system_value.hide()
+
         self.system_label = QLabel()
-        self.system_label.hide()
+        self.system_value = QLabel('新车险系统（固定兼容模式）')
+        self.system_value.setObjectName('field-hint')
+        config.addRow(self.system_label, self.system_value)
+
+        self.algo_label = QLabel()
+        self.algo_value = QLabel('SM2 + SM4')
+        config.addRow(self.algo_label, self.algo_value)
+
+        self.mode_label = QLabel()
+        self.mode_value = QLabel('CBC')
+        config.addRow(self.mode_label, self.mode_value)
+
+        self.padding_label = QLabel()
+        self.padding_value = QLabel('PKCS#7 / 分组填充')
+        config.addRow(self.padding_label, self.padding_value)
+
+        self.encoding_label = QLabel()
+        self.encoding_value = QLabel('Key=Hex · 正文=Base64 · 明文=UTF-8')
+        config.addRow(self.encoding_label, self.encoding_value)
+
         self.environment = QComboBox()
         size_combo(self.environment, 'sm')
         self.environment.addItems(['集成环境', '用户环境', '生产环境'])
         self.environment_label = QLabel()
         config.addRow(self.environment_label, self.environment)
+
+        # Key（密钥）— 清晰中文标签 + 可录入区域 + 显示/隐藏
+        key_wrap = QWidget()
+        key_layout = QVBoxLayout(key_wrap)
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.setSpacing(4)
+        key_head = QHBoxLayout()
+        key_head.setContentsMargins(0, 0, 0, 0)
+        self.key_label = QLabel()
+        self.key_label.setObjectName('zone-title')
+        key_head.addWidget(self.key_label, 1)
+        self.key_reveal_cb = QCheckBox()
+        self.key_reveal_cb.setChecked(True)
+        self.key_reveal_cb.toggled.connect(self._toggle_key_visibility)
+        key_head.addWidget(self.key_reveal_cb)
+        key_layout.addLayout(key_head)
         self.key_cipher = QPlainTextEdit()
         self.key_cipher.setObjectName('gateway-key-edit')
-        self.key_cipher.setMaximumHeight(88)
-        self.key_cipher.setPlaceholderText('SM2 encrypted SM4 key (hex)')
-        self.key_label = QLabel()
-        config.addRow(self.key_label, self.key_cipher)
+        self.key_cipher.setMinimumHeight(72)
+        self.key_cipher.setMaximumHeight(110)
+        self.key_cipher.setPlaceholderText('粘贴 SM2 加密后的 SM4 Key（十六进制 Hex）')
+        key_layout.addWidget(self.key_cipher)
+        self.key_hint = QLabel()
+        self.key_hint.setObjectName('field-hint')
+        self.key_hint.setWordWrap(True)
+        key_layout.addWidget(self.key_hint)
+        config.addRow(key_wrap)
+
+        # IV/Nonce：本协议 Key 同时作 IV，说明原因
+        self.iv_label = QLabel()
+        self.iv_value = QLabel()
+        self.iv_value.setObjectName('field-hint')
+        self.iv_value.setWordWrap(True)
+        config.addRow(self.iv_label, self.iv_value)
+
+        self.param_note = QLabel()
+        self.param_note.setObjectName('field-hint')
+        self.param_note.setWordWrap(True)
+        config.addRow(self.param_note)
+
+        # 兼容旧代码：config_toggle 仍存在但不隐藏参数区
+        self.config_toggle = QPushButton('解密参数（始终显示）')
+        self.config_toggle.setCheckable(True)
+        self.config_toggle.setChecked(True)
+        self.config_toggle.setProperty('compactAction', True)
+        self.config_toggle.hide()  # 不再作为折叠入口
+
         layout.addWidget(self.config_group)
 
         work_zone = QFrame()
@@ -119,7 +178,7 @@ class GatewayDecodePanel(QWidget):
         left_layout.addWidget(self.cipher_label)
         self.payload_cipher = QPlainTextEdit()
         self.payload_cipher.setObjectName('gateway-cipher-edit')
-        self.payload_cipher.setPlaceholderText('Base64 ciphertext')
+        self.payload_cipher.setPlaceholderText('粘贴 Base64 密文（网关正文）')
         left_layout.addWidget(self.payload_cipher)
         splitter.addWidget(left)
 
@@ -132,7 +191,6 @@ class GatewayDecodePanel(QWidget):
         self.plain_label = QLabel()
         self.plain_label.setObjectName('zone-title')
         plain_head.addWidget(self.plain_label, 1)
-        # 低干扰入口：仅当结果像 XML 时显示
         self.to_format_xml_btn = QPushButton()
         apply_button(self.to_format_xml_btn, 'ghost', compact=True, icon='xml', icon_size=16)
         self.to_format_xml_btn.clicked.connect(self._send_plain_to_format_xml)
@@ -177,7 +235,6 @@ class GatewayDecodePanel(QWidget):
         apply_button(self.response_btn, 'primary', compact=True, icon='shield-key', icon_size=16)
         self.response_btn.clicked.connect(lambda: self._decrypt('response'))
         actions.addWidget(self.response_btn)
-        # 更多菜单：窄屏收纳次要操作
         self.more_btn = QToolButton()
         self.more_btn.setObjectName('responsive-more-btn')
         self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -188,22 +245,54 @@ class GatewayDecodePanel(QWidget):
         self._secondary_btns = [self.to_iface_btn, self.clear_btn, self.copy_btn, self.request_btn]
         layout.addWidget(action_bar)
 
-        # 兼容旧引用（已移除 work_tabs / xml_workspace）
         self.work_tabs = None
         self.xml_workspace = None
         self.to_xml_btn = self.to_format_xml_btn
         self._layout_mode = 'standard'
+
+    def _toggle_key_visibility(self, checked: bool):
+        self._key_visible = bool(checked)
+        # QPlainTextEdit 无 password 模式；用占位样式提示。完整隐藏用只读遮罩不合适，
+        # 这里仅切换 echo 风格的提示文案；实际 Key 仍在控件中，默认可见可编辑。
+        zh = self.language == 'zh'
+        if checked:
+            self.key_cipher.setStyleSheet('')
+            self.key_reveal_cb.setText('显示 Key' if zh else 'Show Key')
+        else:
+            # 视觉弱化（仍可编辑，避免误清空）
+            self.key_cipher.setStyleSheet('color: transparent;')
+            self.key_reveal_cb.setText('显示 Key' if zh else 'Show Key')
+
+    def _refresh_param_visibility(self):
+        """根据算法动态说明参数；当前固定 SM2+SM4-CBC。"""
+        zh = self.language == 'zh'
+        # 本协议无独立 IV 输入：SM4-CBC 的 IV = 解密后的 SM4 Key
+        self.iv_label.setText('IV/Nonce（初始向量）' if zh else 'IV/Nonce')
+        self.iv_value.setText(
+            '当前算法不需要单独录入 IV：兼容 gatewayDecode.html，SM4-CBC 使用解出的 SM4 Key 同时作为 Key 与 IV。'
+            if zh else
+            'No separate IV field: SM4-CBC uses the decrypted SM4 key as both key and IV.'
+        )
+        self.param_note.setText(
+            '算法固定为国密 SM2 解 Key + SM4-CBC 解正文；Padding 与 Mode 由协议固定，无需手工切换。密钥仅本机内存使用，不落盘。'
+            if zh else
+            'Fixed SM2+SM4-CBC protocol. Keys stay in memory only.'
+        )
+        # 始终显示参数组
+        self.config_group.show()
 
     def apply_layout_mode(self, mode, low_height=False):
         self._layout_mode = mode
         from ui.responsive import apply_splitter_orientation, set_subtitle_visible
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         apply_splitter_orientation(self.splitter, mode, min_editor=180)
+        # 窄屏：参数区在报文上方（已在 VBox 中）；宽屏保持并列报文区
+        self.config_group.show()
+        self.key_cipher.setMinimumHeight(64 if mode in ('compact', 'narrow') else 72)
         self._more_menu.clear()
         zh = self.language == 'zh'
         self.more_btn.setText('更多' if zh else 'More')
         if mode in ('compact', 'narrow'):
-            # 主操作：响应解密始终可见；Narrow 再收 request/copy/clear/iface
             keep = {self.response_btn}
             if mode == 'compact':
                 keep.update({self.request_btn, self.copy_btn})
@@ -224,12 +313,9 @@ class GatewayDecodePanel(QWidget):
             self.more_btn.hide()
 
     def _toggle_config(self, checked):
-        self.config_group.setVisible(bool(checked))
-        zh = self.language == 'zh'
-        self.config_toggle.setText(
-            ('解密参数 ▾' if checked else '解密参数 ▸') if zh else
-            ('Decrypt params ▾' if checked else 'Decrypt params ▸')
-        )
+        # 兼容旧调用：始终显示，忽略折叠
+        self.config_group.show()
+        self.config_toggle.setChecked(True)
 
     def set_language(self, language):
         self.language = language
@@ -240,34 +326,48 @@ class GatewayDecodePanel(QWidget):
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
         self.offline_pill.setObjectName('dashboard-local-status')
-        self.config_toggle.setText(
-            ('解密参数 ▾' if self.config_toggle.isChecked() else '解密参数 ▸') if zh else
-            ('Decrypt params ▾' if self.config_toggle.isChecked() else 'Decrypt params ▸')
-        )
-        self.config_toggle.setToolTip(
-            '新车险系统固定兼容模式 · 密钥仅本机使用' if zh else
-            'Auto-insurance fixed compatibility · keys stay local'
-        )
+        self.config_group.setTitle('解密参数' if zh else 'Decrypt parameters')
         self.system_label.setText('系统' if zh else 'System')
         self.system_value.setText(
             '新车险系统（固定兼容模式）' if zh else 'New Auto Insurance (fixed compatibility mode)'
+        )
+        self.algo_label.setText('算法' if zh else 'Algorithm')
+        self.algo_value.setText('SM2 + SM4')
+        self.mode_label.setText('模式' if zh else 'Mode')
+        self.mode_value.setText('CBC')
+        self.padding_label.setText('Padding（填充）' if zh else 'Padding')
+        self.padding_value.setText('PKCS#7 / 分组填充' if zh else 'PKCS#7 block padding')
+        self.encoding_label.setText('编码' if zh else 'Encoding')
+        self.encoding_value.setText(
+            'Key=Hex · 正文=Base64 · 明文=UTF-8' if zh else
+            'Key=Hex · Payload=Base64 · Plain=UTF-8'
         )
         self.environment_label.setText('环境' if zh else 'Environment')
         env_names = ['集成环境', '用户环境', '生产环境'] if zh else ['Integration', 'User / UAT', 'Production']
         for index, name in enumerate(env_names):
             self.environment.setItemText(index, name)
-        self.key_label.setText('SM4 Key 密文' if zh else 'Encrypted SM4 key')
-        self.cipher_label.setText('输入' if zh else 'Input')
+        self.key_label.setText('Key（密钥）' if zh else 'Key')
+        self.key_hint.setText(
+            '请在此录入 SM2 加密后的 SM4 Key 密文（十六进制）。示例格式：a1b2c3…（请勿把真实密钥写入示例或日志）'
+            if zh else
+            'Paste SM2-encrypted SM4 key ciphertext (hex). Do not log real keys.'
+        )
+        self.key_reveal_cb.setText('显示 Key' if zh else 'Show Key')
+        self.cipher_label.setText('输入报文' if zh else 'Ciphertext')
         self.cipher_label.setToolTip(
             '网关正文密文（Base64）' if zh else 'Gateway payload ciphertext (Base64)'
         )
-        self.plain_label.setText('结果' if zh else 'Result')
+        self.plain_label.setText('解密结果' if zh else 'Result')
         self.to_format_xml_btn.setText('在格式工具中打开 XML' if zh else 'Open XML in Format tools')
         self.to_format_xml_btn.setToolTip(
             '跳转到格式工具 · XML Tab' if zh else 'Jump to Format tools · XML tab'
         )
         self.payload_cipher.setPlaceholderText(
-            '粘贴 Base64 密文' if zh else 'Paste Base64 ciphertext'
+            '粘贴 Base64 密文（网关正文）' if zh else 'Paste Base64 ciphertext'
+        )
+        self.key_cipher.setPlaceholderText(
+            '粘贴 SM2 加密后的 SM4 Key（十六进制 Hex）' if zh else
+            'Paste SM2-encrypted SM4 key (hex)'
         )
         self.key_cipher.setToolTip(
             '兼容 gatewayDecode.html：SM2 解 Key，再以 Key 作为 SM4-CBC 的 Key 与 IV'
@@ -283,28 +383,52 @@ class GatewayDecodePanel(QWidget):
         self.request_btn.setText('请求解密' if zh else 'Decrypt request')
         self.response_btn.setText('响应解密' if zh else 'Decrypt response')
         self.json_viewer.set_language(language)
+        self._refresh_param_visibility()
+        self._toggle_key_visibility(self.key_reveal_cb.isChecked())
 
     def set_cipher_text(self, text: str):
-        """从接口排查等模块带入密文/正文，不自动解密。"""
+        """从接口排查等模块带入密文/正文，不自动解密，不覆盖 Key/IV/环境。"""
         self.payload_cipher.setPlainText(text or '')
+        # 若 Key 为空，给出轻提示（不弹阻塞框）
+        if not (self.key_cipher.toPlainText() or '').strip():
+            zh = self.language == 'zh'
+            try:
+                self.json_viewer.json_status.setText(
+                    '已填入报文 · 请在上方录入 Key（密钥）后解密' if zh else
+                    'Payload filled · enter Key above, then decrypt'
+                )
+            except Exception:
+                pass
 
     def _decrypt(self, direction):
+        # 解密失败不得清空 Key / 环境 / 报文
+        key_before = self.key_cipher.toPlainText()
+        payload_before = self.payload_cipher.toPlainText()
+        env_before = self.environment.currentIndex()
         try:
             plain = decrypt_gateway_payload(
                 direction,
                 self.environment.currentIndex() + 1,
-                self.key_cipher.toPlainText(),
-                self.payload_cipher.toPlainText(),
+                key_before,
+                payload_before,
             )
             self.json_viewer.set_text(plain, auto_format=True)
             if _looks_like_xml(plain):
                 self._offer_xml_view(plain)
             else:
                 self.to_format_xml_btn.hide()
-        except ValueError as exc:
+        except Exception as exc:
+            # 仅清空结果区，保留用户已录入的 Key / IV / 环境 / 报文
             self.json_viewer.clear()
             self.to_format_xml_btn.hide()
-            show_warning(self, '网关解密' if self.language == 'zh' else 'Gateway decrypt', str(exc))
+            if self.key_cipher.toPlainText() != key_before:
+                self.key_cipher.setPlainText(key_before)
+            if self.payload_cipher.toPlainText() != payload_before:
+                self.payload_cipher.setPlainText(payload_before)
+            if self.environment.currentIndex() != env_before:
+                self.environment.setCurrentIndex(env_before)
+            msg = str(exc) if str(exc) else '解密失败，请检查 Key 与正文是否配套'
+            show_warning(self, '网关解密' if self.language == 'zh' else 'Gateway decrypt', msg)
 
     def _offer_xml_view(self, plain: str):
         zh = self.language == 'zh'
@@ -335,6 +459,7 @@ class GatewayDecodePanel(QWidget):
             QApplication.clipboard().setText(text)
 
     def _clear(self):
+        # 清空全部用户输入（用户主动）
         self.key_cipher.clear()
         self.payload_cipher.clear()
         self.json_viewer.clear()

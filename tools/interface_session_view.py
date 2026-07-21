@@ -223,18 +223,18 @@ def filter_and_sort(
     sort_desc: bool = True,
     show_static: bool = False,
 ) -> list[dict]:
+    """筛选排序。默认显示 XHR/Fetch、Document 与未知类型；静态资源可隐藏。"""
     out = []
+    active = list(filters or [FILTER_ALL])
     for rec in records:
         if not match_search(rec, query):
             continue
-        if not match_filters(rec, filters or [FILTER_ALL], show_static_default=show_static):
+        if not match_filters(rec, active, show_static_default=show_static):
             continue
-        # 与 CDP 静态策略一致（show_static 时放行）
-        if not show_static and FILTER_STATIC not in set(filters or []):
-            if not should_keep_record(rec, show_static=False) and not is_xhr_like(rec):
-                # should_keep 可能过严；若已有 path 且非静态仍保留
-                if is_static_url(rec.get('url') or ''):
-                    continue
+        # 默认保留业务与未知；仅隐藏明确静态
+        want_static = show_static or FILTER_STATIC in set(active)
+        if not want_static and not should_keep_record(rec, show_static=False):
+            continue
         out.append(rec)
     return sort_records(out, sort_key=sort_key, reverse=sort_desc)
 
