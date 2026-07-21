@@ -1135,7 +1135,8 @@ class RequirementPanel(QWidget):
         self.detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.detail_card.setMinimumHeight(0)
         card = QVBoxLayout(self.detail_card)
-        card.setContentsMargins(10, 8, 10, 8)
+        # 底部略多留 2px，避免完成标记按钮下边框贴卡底被裁
+        card.setContentsMargins(10, 8, 10, 10)
         card.setSpacing(5)
         head = QHBoxLayout(); head.setSpacing(8)
         title_col = QVBoxLayout()
@@ -1199,11 +1200,11 @@ class RequirementPanel(QWidget):
         self.detail_scroll = None
         self.detail_body = self.detail_card
 
-        # 完成标记：最多四个，始终单行均分
+        # 完成标记：最多四个，始终单行均分；底部留 2–4px，避免按钮下边框被裁切
         self.flag_section = QWidget()
         self.flag_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         flag_section_layout = QVBoxLayout(self.flag_section)
-        flag_section_layout.setContentsMargins(0, 2, 0, 0)
+        flag_section_layout.setContentsMargins(0, 2, 0, 4)
         flag_section_layout.setSpacing(3)
         self.flag_section_caption = QLabel('完成标记')
         self.flag_section_caption.setObjectName('flag-section-caption')
@@ -1212,7 +1213,7 @@ class RequirementPanel(QWidget):
         self.flag_chips.setObjectName('flag-chips-host')
         self.flag_chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.flag_chips_layout = QHBoxLayout(self.flag_chips)
-        self.flag_chips_layout.setContentsMargins(0, 0, 0, 0)
+        self.flag_chips_layout.setContentsMargins(0, 1, 0, 2)
         self.flag_chips_layout.setSpacing(6)
         self._flag_buttons = {}
         self._layouting_flags = False
@@ -1233,9 +1234,11 @@ class RequirementPanel(QWidget):
             # 常驻布局，只 show/hide，避免点击时反复 takeAt/addWidget 触发 Qt 布局重入闪退
             self.flag_chips_layout.addWidget(btn, 1)
             btn.hide()
-        self.flag_chips.setFixedHeight(28)
+        # 按钮 28 + 上下内边距 1+2，保证描边完整
+        self.flag_chips.setFixedHeight(31)
         flag_section_layout.addWidget(self.flag_chips)
-        self.flag_section.setFixedHeight(18 + 3 + 28)
+        # 标题约 16 + 间距 3 + chips 31 + 上下 margin 2+4
+        self.flag_section.setFixedHeight(16 + 3 + 31 + 6)
         self.flag_section.hide()
         card.addWidget(self.flag_section, 0)
         self.detail_card.installEventFilter(self)
