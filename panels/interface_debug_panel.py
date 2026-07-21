@@ -16,9 +16,9 @@ from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
-    QToolButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableWidget,
+    QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from tools.browser_debug import (
@@ -583,6 +583,82 @@ class InterfaceDebugPanel(QWidget):
         method_row.addWidget(self.rt_send_btn)
         dl.addLayout(method_row)
 
+        # 分类 + 保存到接口库
+        cat_row = QHBoxLayout()
+        self.rt_cat_label = QLabel('分类')
+        cat_row.addWidget(self.rt_cat_label)
+        self.rt_category_combo = QComboBox()
+        self.rt_category_combo.setMinimumWidth(120)
+        size_combo(self.rt_category_combo, 'sm')
+        cat_row.addWidget(self.rt_category_combo, 1)
+        self.rt_save_api_btn = QPushButton()
+        apply_button(self.rt_save_api_btn, 'secondary', compact=True, icon='save', icon_size=14)
+        self.rt_save_api_btn.clicked.connect(self._rt_save_api)
+        cat_row.addWidget(self.rt_save_api_btn)
+        self.rt_manage_cat_btn = QPushButton()
+        apply_button(self.rt_manage_cat_btn, 'ghost', compact=True, icon='edit', icon_size=14)
+        self.rt_manage_cat_btn.clicked.connect(self._rt_manage_categories)
+        cat_row.addWidget(self.rt_manage_cat_btn)
+        dl.addLayout(cat_row)
+
+        # 左：接口库/历史 · 右：表单与响应
+        self.rt_split = QSplitter(Qt.Orientation.Horizontal)
+        self.rt_split.setChildrenCollapsible(False)
+        lib_panel = QWidget()
+        lib_panel.setMinimumWidth(180)
+        lib_panel.setMaximumWidth(360)
+        lib_l = QVBoxLayout(lib_panel)
+        lib_l.setContentsMargins(0, 0, 4, 0)
+        lib_l.setSpacing(4)
+        mode_row = QHBoxLayout()
+        self.rt_lib_mode = QComboBox()
+        self.rt_lib_mode.addItem('接口库', 'library')
+        self.rt_lib_mode.addItem('历史', 'history')
+        size_combo(self.rt_lib_mode, 'sm')
+        self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
+        mode_row.addWidget(self.rt_lib_mode, 1)
+        lib_l.addLayout(mode_row)
+        filter_row = QHBoxLayout()
+        self.rt_lib_cat_filter = QComboBox()
+        size_combo(self.rt_lib_cat_filter, 'sm')
+        self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
+        filter_row.addWidget(self.rt_lib_cat_filter, 1)
+        lib_l.addLayout(filter_row)
+        self.rt_lib_search = QLineEdit()
+        self.rt_lib_search.setPlaceholderText('搜索名称 / URL')
+        self.rt_lib_search.setClearButtonEnabled(True)
+        self.rt_lib_search.textChanged.connect(self._rt_lib_refresh_list)
+        lib_l.addWidget(self.rt_lib_search)
+        self.rt_lib_list = QListWidget()
+        self.rt_lib_list.setObjectName('iface-rt-lib-list')
+        self.rt_lib_list.itemDoubleClicked.connect(self._rt_lib_apply_selected)
+        self.rt_lib_list.itemActivated.connect(self._rt_lib_apply_selected)
+        lib_l.addWidget(self.rt_lib_list, 1)
+        lib_btn_row = QHBoxLayout()
+        self.rt_lib_load_btn = QPushButton()
+        apply_button(self.rt_lib_load_btn, 'secondary', compact=True, icon='refresh', icon_size=14)
+        self.rt_lib_load_btn.clicked.connect(self._rt_lib_apply_selected)
+        lib_btn_row.addWidget(self.rt_lib_load_btn)
+        self.rt_lib_del_btn = QPushButton()
+        apply_button(self.rt_lib_del_btn, 'ghost', compact=True, icon='delete', icon_size=14)
+        self.rt_lib_del_btn.clicked.connect(self._rt_lib_delete_selected)
+        lib_btn_row.addWidget(self.rt_lib_del_btn)
+        self.rt_lib_clear_btn = QPushButton()
+        apply_button(self.rt_lib_clear_btn, 'ghost', compact=True, icon='delete', icon_size=14)
+        self.rt_lib_clear_btn.clicked.connect(self._rt_lib_clear_history)
+        lib_btn_row.addWidget(self.rt_lib_clear_btn)
+        lib_btn_row.addStretch(1)
+        lib_l.addLayout(lib_btn_row)
+        self.rt_lib_count = QLabel('')
+        self.rt_lib_count.setObjectName('field-hint')
+        lib_l.addWidget(self.rt_lib_count)
+        self.rt_split.addWidget(lib_panel)
+
+        right_form = QWidget()
+        rf = QVBoxLayout(right_form)
+        rf.setContentsMargins(4, 0, 0, 0)
+        rf.setSpacing(6)
+
         self.rt_tabs = QTabWidget()
         self.rt_tabs.setDocumentMode(True)
         self.rt_headers = QPlainTextEdit()
@@ -600,7 +676,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_body.setFont(mono)
         self.rt_body.setMinimumHeight(80)
         self.rt_tabs.addTab(self.rt_body, 'Body')
-        dl.addWidget(self.rt_tabs)
+        rf.addWidget(self.rt_tabs)
 
         io_row = QHBoxLayout()
         self.export_detail_btn = QPushButton()
@@ -628,7 +704,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
         io_row.addWidget(self.rt_resp_format_btn)
         io_row.addStretch(1)
-        dl.addLayout(io_row)
+        rf.addLayout(io_row)
 
         resp_head = QHBoxLayout()
         self.rt_resp_label = QLabel('响应')
@@ -638,26 +714,35 @@ class InterfaceDebugPanel(QWidget):
         self.rt_resp_meta.setObjectName('field-hint')
         self.rt_resp_meta.setWordWrap(True)
         resp_head.addWidget(self.rt_resp_meta, 1)
-        dl.addLayout(resp_head)
+        rf.addLayout(resp_head)
         # 响应区：摘要 + 完整 Body（不截断）
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMinimumHeight(140)
+        self.draft_preview.setMinimumHeight(120)
         self.draft_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.draft_preview.setPlaceholderText(
-            '发送后此处显示完整响应 Body（不截断）；上方可一键送格式工具'
+            '发送后此处显示完整响应 Body（不截断）；左侧可收藏接口与查看历史'
         )
-        # 取消块数限制，保证大报文也能看全
         try:
             self.draft_preview.document().setMaximumBlockCount(0)
         except Exception:
             pass
-        dl.addWidget(self.draft_preview, 1)
+        rf.addWidget(self.draft_preview, 1)
+        self.rt_split.addWidget(right_form)
+        self.rt_split.setStretchFactor(0, 0)
+        self.rt_split.setStretchFactor(1, 1)
+        self.rt_split.setSizes([220, 480])
+        dl.addWidget(self.rt_split, 1)
+
         self._rt_last_request_body = ''
         self._rt_last_response_body = ''
         self._rt_last_response_headers = {}
+        self._rt_lib = None
+        self._rt_editing_api_id = ''
+        self._rt_send_started_at = 0.0
+        self._rt_lib_reload(refresh_ui=True)
         self.detail_tabs.addTab(self.draft_page, '请求测试')
         self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
@@ -2053,6 +2138,8 @@ class InterfaceDebugPanel(QWidget):
         self.rt_params.setPlainText(form.get('params_text') or '')
         self.rt_body.setPlainText(form.get('body') or '')
         self._rt_last_request_body = form.get('body') or ''
+        if form.get('category_id'):
+            self._rt_select_category(form.get('category_id'))
         sample = form.get('response_body_sample') or ''
         if sample:
             # 完整展示，不截断
@@ -2175,8 +2262,17 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '请求测试', str(exc))
             return
 
-        self._rt_send_meta = {'method': method, 'url': url}
+        self._rt_send_meta = {
+            'method': method,
+            'url': url,
+            'headers_text': self.rt_headers.toPlainText() or '',
+            'params_text': self.rt_params.toPlainText() or '',
+            'body': body,
+            'base_host': self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else '',
+            'category_id': self._rt_current_category_id(),
+        }
         self._rt_last_request_body = body
+        self._rt_send_started_at = time.time()
         self.rt_send_btn.setEnabled(False)
         self.loading.start_busy('正在发送请求…')
         # 先刷新界面再进后台线程，确保 Loading 可见
@@ -2239,6 +2335,9 @@ class InterfaceDebugPanel(QWidget):
                     meta=' · '.join(meta_bits),
                     headers=headers,
                 )
+            self._rt_append_history_from_send(
+                status=status, ok=ok, error=err, response_body=rbody,
+            )
         finally:
             self.rt_send_btn.setEnabled(True)
             self._rt_worker = None
@@ -2247,6 +2346,9 @@ class InterfaceDebugPanel(QWidget):
         try:
             self.loading.fail(message or '请求失败')
             show_warning(self, '请求测试', message or '请求失败')
+            self._rt_append_history_from_send(
+                status=None, ok=False, error=message or '请求失败', response_body='',
+            )
         finally:
             self.rt_send_btn.setEnabled(True)
             self._rt_worker = None
@@ -2339,6 +2441,419 @@ class InterfaceDebugPanel(QWidget):
             show_success(self, '请求测试', '已复制（Body 优先解密明文）')
         except RequestTestError as exc:
             show_warning(self, '请求测试', str(exc))
+
+    # ── 请求测试：接口库 / 历史 / 分类 ─────────────────
+    def _rt_lib_reload(self, refresh_ui: bool = True):
+        from tools.iface_request_library import load_library, normalize_library
+        try:
+            self._rt_lib = load_library()
+        except Exception:
+            self._rt_lib = normalize_library()
+        if refresh_ui:
+            self._rt_lib_fill_category_combos()
+            self._rt_lib_sync_mode_combo()
+            self._rt_lib_refresh_list()
+
+    def _rt_lib_data(self) -> dict:
+        if not isinstance(getattr(self, '_rt_lib', None), dict):
+            self._rt_lib_reload(refresh_ui=False)
+        return self._rt_lib or {}
+
+    def _rt_current_category_id(self) -> str:
+        from tools.iface_request_library import UNCATEGORIZED_ID
+        if not hasattr(self, 'rt_category_combo'):
+            return UNCATEGORIZED_ID
+        data = self.rt_category_combo.currentData()
+        return str(data or UNCATEGORIZED_ID)
+
+    def _rt_select_category(self, category_id: str):
+        from tools.iface_request_library import UNCATEGORIZED_ID
+        if not hasattr(self, 'rt_category_combo'):
+            return
+        cid = category_id or UNCATEGORIZED_ID
+        for i in range(self.rt_category_combo.count()):
+            if self.rt_category_combo.itemData(i) == cid:
+                self.rt_category_combo.setCurrentIndex(i)
+                return
+        # 找不到则保持
+
+    def _rt_lib_fill_category_combos(self):
+        from tools.iface_request_library import UNCATEGORIZED_ID
+        lib = self._rt_lib_data()
+        cats = lib.get('categories') or []
+        last = lib.get('last_category_id') or UNCATEGORIZED_ID
+        # 表单分类
+        if hasattr(self, 'rt_category_combo'):
+            self.rt_category_combo.blockSignals(True)
+            self.rt_category_combo.clear()
+            for c in cats:
+                self.rt_category_combo.addItem(c.get('name') or '', c.get('id'))
+            self._rt_select_category(last)
+            self.rt_category_combo.blockSignals(False)
+        # 列表筛选：全部 + 各分类
+        if hasattr(self, 'rt_lib_cat_filter'):
+            self.rt_lib_cat_filter.blockSignals(True)
+            cur = self.rt_lib_cat_filter.currentData()
+            self.rt_lib_cat_filter.clear()
+            zh = self.language == 'zh'
+            self.rt_lib_cat_filter.addItem('全部分类' if zh else 'All categories', 'all')
+            for c in cats:
+                self.rt_lib_cat_filter.addItem(c.get('name') or '', c.get('id'))
+            # 恢复筛选
+            sel = 0
+            for i in range(self.rt_lib_cat_filter.count()):
+                if self.rt_lib_cat_filter.itemData(i) == cur:
+                    sel = i
+                    break
+            self.rt_lib_cat_filter.setCurrentIndex(sel)
+            self.rt_lib_cat_filter.blockSignals(False)
+
+    def _rt_lib_sync_mode_combo(self):
+        if not hasattr(self, 'rt_lib_mode'):
+            return
+        lib = self._rt_lib_data()
+        mode = lib.get('last_mode') or 'library'
+        self.rt_lib_mode.blockSignals(True)
+        for i in range(self.rt_lib_mode.count()):
+            if self.rt_lib_mode.itemData(i) == mode:
+                self.rt_lib_mode.setCurrentIndex(i)
+                break
+        self.rt_lib_mode.blockSignals(False)
+        if hasattr(self, 'rt_lib_clear_btn'):
+            self.rt_lib_clear_btn.setVisible(mode == 'history')
+
+    def _rt_lib_mode_value(self) -> str:
+        if not hasattr(self, 'rt_lib_mode'):
+            return 'library'
+        return self.rt_lib_mode.currentData() or 'library'
+
+    def _rt_lib_on_mode_changed(self, *_args):
+        from tools.iface_request_library import set_last_mode
+        mode = self._rt_lib_mode_value()
+        try:
+            self._rt_lib = set_last_mode(self._rt_lib_data(), mode)
+        except Exception:
+            pass
+        if hasattr(self, 'rt_lib_clear_btn'):
+            self.rt_lib_clear_btn.setVisible(mode == 'history')
+        self._rt_lib_refresh_list()
+
+    def _rt_lib_refresh_list(self, *_args):
+        if not hasattr(self, 'rt_lib_list'):
+            return
+        from tools.iface_request_library import display_label, filter_items
+        lib = self._rt_lib_data()
+        mode = self._rt_lib_mode_value()
+        cat = 'all'
+        if hasattr(self, 'rt_lib_cat_filter'):
+            cat = self.rt_lib_cat_filter.currentData() or 'all'
+        kw = self.rt_lib_search.text() if hasattr(self, 'rt_lib_search') else ''
+        source = lib.get('history') if mode == 'history' else lib.get('apis')
+        items = filter_items(source or [], category_id=cat, keyword=kw)
+        cat_map = {c.get('id'): c.get('name') for c in (lib.get('categories') or [])}
+        self.rt_lib_list.blockSignals(True)
+        self.rt_lib_list.clear()
+        for it in items:
+            label = display_label(it, mode=mode, category_map=cat_map)
+            row = QListWidgetItem(label)
+            row.setData(Qt.ItemDataRole.UserRole, it.get('id'))
+            row.setToolTip(
+                f"{it.get('method') or ''} {it.get('url') or ''}\n"
+                f"{cat_map.get(it.get('category_id'), '')}"
+            )
+            self.rt_lib_list.addItem(row)
+        self.rt_lib_list.blockSignals(False)
+        zh = self.language == 'zh'
+        total = len(source or [])
+        shown = len(items)
+        if mode == 'history':
+            text = (f'历史 {shown}/{total}' if zh else f'History {shown}/{total}')
+        else:
+            text = (f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}')
+        if hasattr(self, 'rt_lib_count'):
+            self.rt_lib_count.setText(text)
+
+    def _rt_lib_selected_item(self) -> dict | None:
+        if not hasattr(self, 'rt_lib_list'):
+            return None
+        row = self.rt_lib_list.currentItem()
+        if not row:
+            return None
+        iid = row.data(Qt.ItemDataRole.UserRole)
+        if not iid:
+            return None
+        lib = self._rt_lib_data()
+        mode = self._rt_lib_mode_value()
+        pool = lib.get('history') if mode == 'history' else lib.get('apis')
+        return next((x for x in (pool or []) if x.get('id') == iid), None)
+
+    def _rt_lib_apply_selected(self, *_args):
+        from tools.iface_request_library import form_fields_from_item
+        item = self._rt_lib_selected_item()
+        if not item:
+            show_warning(self, '请求测试', '请先选择一条接口或历史')
+            return
+        form = form_fields_from_item(item)
+        # base 优先用条目里的，否则当前
+        if not form.get('base_host'):
+            form['base_host'] = self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else ''
+        self._rt_apply_form(form)
+        if self._rt_lib_mode_value() == 'library':
+            self._rt_editing_api_id = item.get('id') or ''
+        else:
+            self._rt_editing_api_id = ''
+        show_success(self, '请求测试', f'已加载：{item.get("name") or item.get("url") or ""}')
+
+    def _rt_collect_form_snapshot(self) -> dict:
+        return {
+            'method': self.rt_method.currentText() if hasattr(self, 'rt_method') else 'GET',
+            'url': (self.rt_url.text() or '').strip() if hasattr(self, 'rt_url') else '',
+            'base_host': self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else '',
+            'headers_text': self.rt_headers.toPlainText() if hasattr(self, 'rt_headers') else '',
+            'params_text': self.rt_params.toPlainText() if hasattr(self, 'rt_params') else '',
+            'body': self.rt_body.toPlainText() if hasattr(self, 'rt_body') else '',
+            'category_id': self._rt_current_category_id(),
+        }
+
+    def _rt_save_api(self):
+        from PyQt6.QtWidgets import QInputDialog
+        from tools.iface_request_library import (
+            UNCATEGORIZED_ID, build_api_from_form, set_last_category, upsert_api,
+        )
+        snap = self._rt_collect_form_snapshot()
+        if not snap.get('url'):
+            show_warning(self, '保存接口', '请先填写 URL')
+            return
+        # 默认名：path
+        from tools.iface_request_library import form_fields_from_item
+        default_name = form_fields_from_item(snap).get('name') or snap['url']
+        # 若正在编辑库内条目，带出原名
+        lib = self._rt_lib_data()
+        edit_id = getattr(self, '_rt_editing_api_id', '') or ''
+        if edit_id:
+            old = next((a for a in (lib.get('apis') or []) if a.get('id') == edit_id), None)
+            if old and old.get('name'):
+                default_name = old.get('name')
+        zh = self.language == 'zh'
+        name, ok = QInputDialog.getText(
+            self,
+            '保存接口' if zh else 'Save API',
+            '接口名称：' if zh else 'Name:',
+            text=default_name,
+        )
+        if not ok:
+            return
+        name = (name or '').strip() or default_name
+        cat = snap.get('category_id') or UNCATEGORIZED_ID
+        api = build_api_from_form(
+            name=name,
+            category_id=cat,
+            method=snap['method'],
+            url=snap['url'],
+            base_host=snap.get('base_host') or '',
+            headers_text=snap.get('headers_text') or '',
+            params_text=snap.get('params_text') or '',
+            body=snap.get('body') or '',
+            api_id=edit_id,
+        )
+        try:
+            self._rt_lib = upsert_api(lib, api)
+            self._rt_lib = set_last_category(self._rt_lib, cat)
+            self._rt_editing_api_id = api['id']
+            # 切到接口库视图
+            if hasattr(self, 'rt_lib_mode'):
+                for i in range(self.rt_lib_mode.count()):
+                    if self.rt_lib_mode.itemData(i) == 'library':
+                        self.rt_lib_mode.setCurrentIndex(i)
+                        break
+            self._rt_lib_fill_category_combos()
+            self._rt_lib_refresh_list()
+            show_success(self, '保存接口', f'已保存「{name}」')
+        except Exception as exc:
+            show_warning(self, '保存接口', str(exc))
+
+    def _rt_manage_categories(self):
+        from PyQt6.QtWidgets import QInputDialog
+        from tools.iface_request_library import (
+            UNCATEGORIZED_ID, add_category, delete_category, rename_category,
+        )
+        zh = self.language == 'zh'
+        actions = [
+            '新增分类' if zh else 'Add category',
+            '重命名分类' if zh else 'Rename category',
+            '删除分类' if zh else 'Delete category',
+        ]
+        action, ok = QInputDialog.getItem(
+            self,
+            '管理分类' if zh else 'Categories',
+            '操作：' if zh else 'Action:',
+            actions,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        lib = self._rt_lib_data()
+        try:
+            if action == actions[0]:
+                name, ok2 = QInputDialog.getText(
+                    self, '新增分类' if zh else 'Add', '分类名称：' if zh else 'Name:',
+                )
+                if not ok2 or not (name or '').strip():
+                    return
+                self._rt_lib = add_category(lib, name.strip())
+                show_success(self, '分类', f'已新增「{name.strip()}」')
+            elif action == actions[1]:
+                names = [
+                    c.get('name') for c in (lib.get('categories') or [])
+                    if c.get('id') != UNCATEGORIZED_ID
+                ]
+                if not names:
+                    show_warning(self, '分类', '没有可重命名的自定义分类')
+                    return
+                cur, ok2 = QInputDialog.getItem(
+                    self, '重命名' if zh else 'Rename', '选择分类：' if zh else 'Category:',
+                    names, 0, False,
+                )
+                if not ok2:
+                    return
+                hit = next(
+                    (c for c in lib['categories'] if c.get('name') == cur), None,
+                )
+                if not hit:
+                    return
+                new_name, ok3 = QInputDialog.getText(
+                    self, '重命名' if zh else 'Rename', '新名称：' if zh else 'New name:',
+                    text=cur,
+                )
+                if not ok3 or not (new_name or '').strip():
+                    return
+                self._rt_lib = rename_category(lib, hit['id'], new_name.strip())
+                show_success(self, '分类', f'已重命名为「{new_name.strip()}」')
+            else:
+                names = [
+                    c.get('name') for c in (lib.get('categories') or [])
+                    if c.get('id') != UNCATEGORIZED_ID
+                ]
+                if not names:
+                    show_warning(self, '分类', '没有可删除的自定义分类')
+                    return
+                cur, ok2 = QInputDialog.getItem(
+                    self, '删除分类' if zh else 'Delete', '选择分类：' if zh else 'Category:',
+                    names, 0, False,
+                )
+                if not ok2:
+                    return
+                hit = next(
+                    (c for c in lib['categories'] if c.get('name') == cur), None,
+                )
+                if not hit:
+                    return
+                if not confirm_action(
+                    self,
+                    '删除分类' if zh else 'Delete category',
+                    (
+                        f'删除「{cur}」后，其下接口将归入「未分类」。确定删除？'
+                        if zh else
+                        f'Delete "{cur}"? APIs move to Uncategorized.'
+                    ),
+                    confirm_text='删除' if zh else 'Delete',
+                    danger=True,
+                ):
+                    return
+                self._rt_lib = delete_category(lib, hit['id'])
+                show_success(self, '分类', f'已删除「{cur}」')
+        except Exception as exc:
+            show_warning(self, '分类', str(exc))
+            return
+        self._rt_lib_fill_category_combos()
+        self._rt_lib_refresh_list()
+
+    def _rt_lib_delete_selected(self):
+        from tools.iface_request_library import delete_api, delete_history
+        item = self._rt_lib_selected_item()
+        if not item:
+            show_warning(self, '请求测试', '请先选择要删除的条目')
+            return
+        zh = self.language == 'zh'
+        mode = self._rt_lib_mode_value()
+        label = item.get('name') or item.get('url') or item.get('id')
+        if not confirm_action(
+            self,
+            '删除' if zh else 'Delete',
+            (f'确定删除「{label}」？' if zh else f'Delete "{label}"?'),
+            confirm_text='删除' if zh else 'Delete',
+            danger=True,
+        ):
+            return
+        lib = self._rt_lib_data()
+        try:
+            if mode == 'history':
+                self._rt_lib = delete_history(lib, item.get('id'))
+            else:
+                self._rt_lib = delete_api(lib, item.get('id'))
+                if getattr(self, '_rt_editing_api_id', '') == item.get('id'):
+                    self._rt_editing_api_id = ''
+            self._rt_lib_refresh_list()
+            show_success(self, '请求测试', '已删除')
+        except Exception as exc:
+            show_warning(self, '请求测试', str(exc))
+
+    def _rt_lib_clear_history(self):
+        from tools.iface_request_library import clear_history
+        if self._rt_lib_mode_value() != 'history':
+            return
+        zh = self.language == 'zh'
+        if not confirm_action(
+            self,
+            '清空历史' if zh else 'Clear history',
+            '确定清空全部请求测试历史？' if zh else 'Clear all request-test history?',
+            confirm_text='清空' if zh else 'Clear',
+            danger=True,
+        ):
+            return
+        try:
+            self._rt_lib = clear_history(self._rt_lib_data())
+            self._rt_lib_refresh_list()
+            show_success(self, '历史', '已清空')
+        except Exception as exc:
+            show_warning(self, '历史', str(exc))
+
+    def _rt_append_history_from_send(
+        self,
+        *,
+        status=None,
+        ok=None,
+        error: str = '',
+        response_body: str = '',
+    ):
+        from tools.iface_request_library import append_history, build_history_from_send
+        meta = getattr(self, '_rt_send_meta', None) or {}
+        url = meta.get('url') or ''
+        if not url:
+            return
+        started = getattr(self, '_rt_send_started_at', 0) or 0
+        duration = int((time.time() - started) * 1000) if started else 0
+        entry = build_history_from_send(
+            method=meta.get('method') or 'GET',
+            url=url,
+            base_host=meta.get('base_host') or '',
+            headers_text=meta.get('headers_text') or '',
+            params_text=meta.get('params_text') or '',
+            body=meta.get('body') or '',
+            category_id=meta.get('category_id') or self._rt_current_category_id(),
+            status=status,
+            ok=ok,
+            error=error or '',
+            response_body=response_body or '',
+            duration_ms=duration,
+        )
+        try:
+            self._rt_lib = append_history(self._rt_lib_data(), entry)
+            # 列表在历史模式时刷新；库模式也更新计数
+            self._rt_lib_refresh_list()
+        except Exception:
+            pass
 
     def _rt_save_current_as_env(self):
         """把当前 Base 保存为环境（有选中则更新，否则新建）。"""
@@ -2538,8 +3053,8 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求测试 · 按环境发送' if zh else
-            'Request test · by environment'
+            '请求测试 · 环境 / 接口库 / 历史' if zh else
+            'Request test · env / library / history'
         )
         self.target_label.setText('环境' if zh else 'Environment')
         if hasattr(self, 'base_label'):
@@ -2570,6 +3085,40 @@ class InterfaceDebugPanel(QWidget):
             )
         if hasattr(self, 'rt_save_env_btn'):
             self.rt_save_env_btn.setText('保存环境' if zh else 'Save env')
+        if hasattr(self, 'rt_cat_label'):
+            self.rt_cat_label.setText('分类' if zh else 'Category')
+            self.rt_save_api_btn.setText('保存接口' if zh else 'Save API')
+            self.rt_save_api_btn.setToolTip(
+                '把当前请求保存到接口库（可分类）' if zh else 'Save current request to library'
+            )
+            self.rt_manage_cat_btn.setText('分类' if zh else 'Cats')
+            self.rt_manage_cat_btn.setToolTip(
+                '新增 / 重命名 / 删除接口分类' if zh else 'Add / rename / delete categories'
+            )
+        if hasattr(self, 'rt_lib_mode'):
+            # 保留 data，只改显示文案
+            for i in range(self.rt_lib_mode.count()):
+                data = self.rt_lib_mode.itemData(i)
+                if data == 'library':
+                    self.rt_lib_mode.setItemText(i, '接口库' if zh else 'Library')
+                elif data == 'history':
+                    self.rt_lib_mode.setItemText(i, '历史' if zh else 'History')
+            self.rt_lib_search.setPlaceholderText(
+                '搜索名称 / URL' if zh else 'Search name / URL'
+            )
+            self.rt_lib_load_btn.setText('加载' if zh else 'Load')
+            self.rt_lib_load_btn.setToolTip(
+                '双击或点加载：填入表单' if zh else 'Load into form'
+            )
+            self.rt_lib_del_btn.setText('删除' if zh else 'Del')
+            self.rt_lib_clear_btn.setText('清空历史' if zh else 'Clear')
+            self.rt_lib_clear_btn.setToolTip(
+                '清空全部请求测试历史' if zh else 'Clear all history'
+            )
+            # 刷新「全部分类」文案
+            if self.rt_lib_cat_filter.count() > 0 and self.rt_lib_cat_filter.itemData(0) == 'all':
+                self.rt_lib_cat_filter.setItemText(0, '全部分类' if zh else 'All categories')
+            self._rt_lib_refresh_list()
         if hasattr(self, 'add_target_btn'):
             self.add_target_btn.setToolTip('新增环境' if zh else 'Add environment')
             self.edit_target_btn.setToolTip('编辑环境' if zh else 'Edit environment')
@@ -2577,9 +3126,9 @@ class InterfaceDebugPanel(QWidget):
         if hasattr(self, 'export_list_btn'):
             self.export_list_btn.setText('导出明细' if zh else 'Export')
         self.draft_hint.setText(
-            '选择或保存环境 Base（scheme://host:port），从会话填充时自动替换 host，保留 path/query。'
+            '左侧接口库可分类收藏；发送后自动记入历史。环境 Base 替换 host，保留 path/query。'
             if zh else
-            'Pick a saved environment base; fill rewrites host and keeps path/query.'
+            'Left: categorized library & history. Send auto-saves history. Env rewrites host.'
         )
         self._apply_mode_ui()
         labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN
