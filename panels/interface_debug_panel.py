@@ -346,12 +346,25 @@ class InterfaceDebugPanel(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setAlternatingRowColors(True)
         self.table.setWordWrap(False)
+        # 超长 URL/主机：不截断为「被挤扁」，允许左右滚动看全
+        self.table.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         header_view = self.table.horizontalHeader()
         header_view.setStretchLastSection(False)
         header_view.setSectionsMovable(False)
+        header_view.setMinimumSectionSize(40)
+        # 全部 Interactive：总宽度可超过视口，才能出现横向滚动条
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        url_idx = COLUMN_KEYS.index('url')
-        header_view.setSectionResizeMode(url_idx, QHeaderView.ResizeMode.Stretch)
+        # 默认列宽（可拖拽调整；URL/主机给足宽度）
+        _default_w = {
+            'seq': 44, 'status': 64, 'protocol': 56, 'method': 64,
+            'host': 160, 'url': 420, 'body': 72, 'type': 72,
+            'duration': 72, 'time': 96,
+        }
+        for i, key in enumerate(COLUMN_KEYS):
+            self.table.setColumnWidth(i, int(_default_w.get(key, 80)))
         header_view.sectionClicked.connect(self._on_header_clicked)
         header_view.sectionResized.connect(self._on_column_resized)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
@@ -561,17 +574,20 @@ class InterfaceDebugPanel(QWidget):
             show = key in visible or key in core
             self.table.setColumnHidden(i, not show)
             w = widths.get(key)
-            if w and key != 'url':
-                self.table.setColumnWidth(i, int(w))
+            if w:
+                try:
+                    self.table.setColumnWidth(i, max(40, int(w)))
+                except (TypeError, ValueError):
+                    pass
+        # 保证可横向滚动：可见列总宽至少略大于视口时才出现滚动条
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def _on_column_resized(self, index: int, _old: int, new: int):
         if index < 0 or index >= len(COLUMN_KEYS):
             return
         key = COLUMN_KEYS[index]
-        if key == 'url':
-            return
         widths = dict(self._prefs.get('column_widths') or {})
-        widths[key] = new
+        widths[key] = max(40, int(new))
         self._prefs['column_widths'] = widths
         # 防抖保存
         if not hasattr(self, '_width_save_timer'):
