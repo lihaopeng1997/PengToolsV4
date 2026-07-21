@@ -38,8 +38,8 @@ from tools.interface_drafts import (
 from tools.interface_session_view import (
     COLUMN_DEFS, COLUMN_KEYS, FILTER_ALL, FILTER_FAILED, FILTER_JSON_XML, FILTER_SLOW,
     FILTER_STATIC, FILTER_XHR, content_kind, duration_severity, filter_and_sort,
-    format_size, host_path_display, is_failed, pretty_body, query_pairs,
-    response_size_bytes, split_cookies,
+    format_size, host_of, host_path_display, is_failed, pretty_body, protocol_of,
+    query_pairs, response_size_bytes, split_cookies, url_path_display,
 )
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
@@ -112,13 +112,16 @@ class InterfaceDebugPanel(QWidget):
     open_format_json = pyqtSignal(str)
     open_format_xml = pyqtSignal(str)
 
+    # 对齐 Fiddler Session 列表列名
     COL_LABELS_ZH = {
-        'status': '状态', 'method': '方法', 'path': '接口路径', 'duration': '耗时',
-        'type': '类型', 'time': '时间', 'size': '大小', 'source': '来源',
+        'seq': '#', 'status': '结果', 'protocol': '协议', 'method': '方法',
+        'host': '主机', 'url': 'URL', 'body': 'Body', 'type': '类型',
+        'duration': '耗时', 'time': '时间',
     }
     COL_LABELS_EN = {
-        'status': 'Status', 'method': 'Method', 'path': 'Path', 'duration': 'Time',
-        'type': 'Type', 'time': 'At', 'size': 'Size', 'source': 'Src',
+        'seq': '#', 'status': 'Result', 'protocol': 'Protocol', 'method': 'Method',
+        'host': 'Host', 'url': 'URL', 'body': 'Body', 'type': 'Type',
+        'duration': 'Duration', 'time': 'Time',
     }
 
     def __init__(self, language='zh'):
@@ -338,8 +341,8 @@ class InterfaceDebugPanel(QWidget):
         header_view.setStretchLastSection(False)
         header_view.setSectionsMovable(False)
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        path_idx = COLUMN_KEYS.index('path')
-        header_view.setSectionResizeMode(path_idx, QHeaderView.ResizeMode.Stretch)
+        url_idx = COLUMN_KEYS.index('url')
+        header_view.setSectionResizeMode(url_idx, QHeaderView.ResizeMode.Stretch)
         header_view.sectionClicked.connect(self._on_header_clicked)
         header_view.sectionResized.connect(self._on_column_resized)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
@@ -523,17 +526,19 @@ class InterfaceDebugPanel(QWidget):
         for key in COLUMN_KEYS:
             act = QAction(labels.get(key, key), self._cols_menu)
             act.setCheckable(True)
-            act.setChecked(key in visible or key in ('status', 'method', 'path'))
-            if key in ('status', 'method', 'path'):
+            core = ('seq', 'status', 'method', 'host', 'url')
+            act.setChecked(key in visible or key in core)
+            if key in core:
                 act.setEnabled(False)
             act.toggled.connect(lambda checked, k=key: self._toggle_column(k, checked))
             self._cols_menu.addAction(act)
 
     def _toggle_column(self, key: str, checked: bool):
         visible = list(self._prefs.get('visible_columns') or [])
+        core = ('seq', 'status', 'method', 'host', 'url')
         if checked and key not in visible:
             visible.append(key)
-        if not checked and key in visible and key not in ('status', 'method', 'path'):
+        if not checked and key in visible and key not in core:
             visible.remove(key)
         self._prefs['visible_columns'] = visible
         update_ui_prefs({'visible_columns': visible})
@@ -542,18 +547,19 @@ class InterfaceDebugPanel(QWidget):
     def _apply_column_visibility(self):
         visible = set(self._prefs.get('visible_columns') or [])
         widths = self._prefs.get('column_widths') or {}
+        core = ('seq', 'status', 'method', 'host', 'url')
         for i, key in enumerate(COLUMN_KEYS):
-            show = key in visible or key in ('status', 'method', 'path')
+            show = key in visible or key in core
             self.table.setColumnHidden(i, not show)
             w = widths.get(key)
-            if w and key != 'path':
+            if w and key != 'url':
                 self.table.setColumnWidth(i, int(w))
 
     def _on_column_resized(self, index: int, _old: int, new: int):
         if index < 0 or index >= len(COLUMN_KEYS):
             return
         key = COLUMN_KEYS[index]
-        if key == 'path':
+        if key == 'url':
             return
         widths = dict(self._prefs.get('column_widths') or {})
         widths[key] = new
@@ -575,7 +581,7 @@ class InterfaceDebugPanel(QWidget):
             self._sort_desc = not self._sort_desc
         else:
             self._sort_key = key
-            self._sort_desc = key in ('time', 'duration', 'size', 'status')
+            self._sort_desc = key in ('time', 'duration', 'body', 'status', 'seq')
         self._prefs['sort_key'] = self._sort_key
         self._prefs['sort_desc'] = self._sort_desc
         update_ui_prefs({'sort_key': self._sort_key, 'sort_desc': self._sort_desc})
@@ -1052,22 +1058,16 @@ class InterfaceDebugPanel(QWidget):
             self.live_status.setText('')
             return
         zh = self.language == 'zh'
-        mode_name = {
-            'proxy': '本机通用代理' if zh else 'Local proxy',
-            'chromium': 'Chromium CDP' if zh else 'Chromium CDP',
-            'ie': 'IE 代理' if zh else 'IE proxy',
-        }.get(self._mode, self._mode)
-        port = self._current_port()
         n = len(self._records)
         last = (
             datetime.fromtimestamp(self._last_request_at).strftime('%H:%M:%S')
             if self._last_request_at else '—'
         )
-        ready = '已就绪' if self._channel_ready else '未就绪'
+        # Fiddler 式状态：正在抓取 / 会话条数 / 最近一条时间
         self.live_status.setText(
-            f'模式 {mode_name} · 127.0.0.1:{port} · 通道{ready} · 已捕获 {n} · 最近请求 {last}'
+            f'抓包中 · 本机 HTTP/HTTPS · 会话 {n} · 最近 {last}'
             if zh else
-            f'{mode_name} · 127.0.0.1:{port} · ready={self._channel_ready} · n={n} · last={last}'
+            f'Capturing · HTTP/HTTPS · sessions {n} · last {last}'
         )
 
     def _recheck_channel(self):
@@ -1198,6 +1198,11 @@ class InterfaceDebugPanel(QWidget):
             merged['response_body'] = rec.get('response_body')
         if rec.get('request_body') is not None and rec.get('request_body') != '':
             merged['request_body'] = rec.get('request_body')
+        # Fiddler 式会话序号：首次入库编号
+        if 'seq' not in old:
+            merged['seq'] = len(self._records_by_id) + 1
+        else:
+            merged['seq'] = old.get('seq')
         self._records_by_id[rid] = merged
         self._records = list(self._records_by_id.values())
         self._last_request_at = time.time()
@@ -1409,19 +1414,35 @@ class InterfaceDebugPanel(QWidget):
                 except (TypeError, ValueError):
                     status_s = f'○ {status}'
             method = (rec.get('method') or 'GET').upper()
-            path = host_path_display(rec)
+            proto = protocol_of(rec)
+            host = host_of(rec)
+            url_col = url_path_display(rec)
             dur = rec.get('duration_ms')
             dur_s = '—' if dur is None else f'{int(dur)} ms'
             kind = content_kind(rec)
             ts = rec.get('started_at') or time.time()
             tstr = datetime.fromtimestamp(ts).strftime('%H:%M:%S.%f')[:-3]
             size_s = format_size(response_size_bytes(rec))
-            src = self._source_label(rec.get('source'))
-            vals = [status_s, method, path, dur_s, kind, tstr, size_s, src]
+            seq_s = str(rec.get('seq') or (i + 1))
+            # 列顺序与 COLUMN_KEYS 一致
+            cell_map = {
+                'seq': seq_s,
+                'status': status_s,
+                'protocol': proto,
+                'method': method,
+                'host': host or '—',
+                'url': url_col,
+                'body': size_s,
+                'type': kind,
+                'duration': dur_s,
+                'time': tstr,
+            }
+            vals = [cell_map.get(k, '—') for k in COLUMN_KEYS]
             for c, v in enumerate(vals):
+                key = COLUMN_KEYS[c]
                 item = QTableWidgetItem(str(v))
                 item.setData(Qt.ItemDataRole.UserRole, rec.get('id'))
-                if c == 0:
+                if key == 'status':
                     if is_failed(rec):
                         item.setForeground(QBrush(danger))
                     elif status is not None:
@@ -1430,19 +1451,27 @@ class InterfaceDebugPanel(QWidget):
                                 item.setForeground(QBrush(success))
                         except (TypeError, ValueError):
                             pass
-                if c == 1:
+                if key == 'method':
                     item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
                     item.setForeground(QBrush(primary))
-                if c == 2:
+                if key == 'protocol':
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
+                    if proto == 'https':
+                        item.setForeground(QBrush(success))
+                    else:
+                        item.setForeground(QBrush(muted))
+                if key in ('url', 'host'):
                     item.setToolTip(mask_url_query(rec.get('url') or '', self._reveal_sensitive))
-                if c == 3:
+                if key == 'duration':
                     sev = duration_severity(dur)
                     if sev == 'danger':
                         item.setForeground(QBrush(danger))
                     elif sev == 'warn':
                         item.setForeground(QBrush(warn))
                     item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
-                if c == 4:
+                if key in ('body', 'seq'):
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+                if key == 'type':
                     item.setForeground(QBrush(muted))
                 self.table.setItem(i, c, item)
 

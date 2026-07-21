@@ -51,24 +51,38 @@ def _normalize_ui_prefs(raw) -> dict:
     if not isinstance(raw, dict):
         return base
     base.update(raw)
-    cols = [c for c in (base.get('visible_columns') or []) if c in COLUMN_KEYS]
+    from tools.interface_session_view import normalize_column_key
+    raw_cols = base.get('visible_columns') or []
+    cols = []
+    for c in raw_cols:
+        nk = normalize_column_key(c)
+        if nk in COLUMN_KEYS and nk not in cols:
+            cols.append(nk)
     if not cols:
         cols = list(DEFAULT_UI_PREFS['visible_columns'])
-    # 强制核心列可见
-    for must in ('status', 'method', 'path'):
+    # Fiddler 核心列始终可见
+    for must in ('seq', 'status', 'method', 'host', 'url'):
         if must not in cols:
-            cols.insert(0, must)
-    base['visible_columns'] = cols
+            cols.insert(0 if must == 'seq' else len(cols), must)
+    # 去重保持顺序
+    seen = set()
+    ordered = []
+    for c in cols:
+        if c not in seen and c in COLUMN_KEYS:
+            seen.add(c)
+            ordered.append(c)
+    base['visible_columns'] = ordered
     widths = dict(DEFAULT_UI_PREFS['column_widths'])
     if isinstance(base.get('column_widths'), dict):
         for k, v in base['column_widths'].items():
-            if k in COLUMN_KEYS:
+            nk = normalize_column_key(k)
+            if nk in COLUMN_KEYS:
                 try:
-                    widths[k] = max(40, min(800, int(v)))
+                    widths[nk] = max(40, min(800, int(v)))
                 except (TypeError, ValueError):
                     pass
     base['column_widths'] = widths
-    sk = base.get('sort_key') or 'time'
+    sk = normalize_column_key(base.get('sort_key') or 'time')
     base['sort_key'] = sk if sk in COLUMN_KEYS or sk == 'time' else 'time'
     base['sort_desc'] = bool(base.get('sort_desc', True))
     filters = base.get('active_filters') or ['all']

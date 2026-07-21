@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-"""接口排查会话视图：筛选、排序、类型识别、体积格式化。
+"""接口排查会话视图（对齐 Fiddler Session 列表习惯）。
 
-仅处理内存中的记录摘要，不涉及网络发送，不落盘报文。
+Fiddler 核心：本机 HTTP/HTTPS 流量中转 → 会话列表 → 检视详情。
+本模块只做列表筛选/排序/展示字段，不发送网络、不落盘报文。
+Private 边界：只「看」与生成草稿，不改包、不重放、不 Mock 外发。
 """
 
 from __future__ import annotations
@@ -13,19 +15,28 @@ from urllib.parse import parse_qsl, urlparse
 
 from tools.browser_debug import is_static_url, should_keep_record
 
-# 列定义：(key, 默认可见, 默认宽)
+# Fiddler 式列：# / Result / Protocol / Method / Host / URL / Body / Type / Time
+# (key, 默认可见, 默认宽)
 COLUMN_DEFS = [
-    ('status', True, 72),
-    ('method', True, 66),
-    ('path', True, 280),
-    ('duration', True, 74),
-    ('type', True, 80),
-    ('time', True, 100),
-    ('size', False, 80),
-    ('source', False, 80),
+    ('seq', True, 44),
+    ('status', True, 64),
+    ('protocol', True, 56),
+    ('method', True, 64),
+    ('host', True, 150),
+    ('url', True, 320),
+    ('body', True, 72),
+    ('type', True, 72),
+    ('duration', True, 72),
+    ('time', False, 96),
 ]
 
 COLUMN_KEYS = [c[0] for c in COLUMN_DEFS]
+# 旧配置字段兼容
+_COLUMN_ALIASES = {
+    'path': 'url',
+    'size': 'body',
+    'source': 'type',
+}
 
 FILTER_ALL = 'all'
 FILTER_XHR = 'xhr'
@@ -85,23 +96,51 @@ def format_size(n: Optional[int]) -> str:
     return f'{n / (1024 * 1024):.2f} MB'
 
 
-def host_path_display(rec: dict) -> str:
-    """列表「路径」列：host + path（query 放 tooltip，避免整表被参数挤爆）。"""
+def protocol_of(rec: dict) -> str:
+    scheme = (rec.get('scheme') or urlparse(rec.get('url') or '').scheme or '').lower()
+    if scheme in ('http', 'https'):
+        return scheme
+    return 'https' if (rec.get('url') or '').lower().startswith('https') else (scheme or 'http')
+
+
+def host_of(rec: dict) -> str:
     url = rec.get('url') or ''
     parsed = urlparse(url)
-    host = rec.get('host') or parsed.netloc or ''
+    host = rec.get('host') or parsed.hostname or parsed.netloc or ''
     if host and rec.get('port') and ':' not in str(host):
         try:
             port = int(rec.get('port'))
-            default = 443 if (rec.get('scheme') or parsed.scheme or '').lower() == 'https' else 80
+            default = 443 if protocol_of(rec) == 'https' else 80
             if port and port != default:
-                host = f'{host}:{port}'
+                return f'{host}:{port}'
         except (TypeError, ValueError):
             pass
+    return host or (parsed.netloc or '')
+
+
+def url_path_display(rec: dict) -> str:
+    """Fiddler URL 列：path + query。"""
+    url = rec.get('url') or ''
+    parsed = urlparse(url)
     path = rec.get('path') or parsed.path or '/'
+    query = rec.get('query') if rec.get('query') is not None else (parsed.query or '')
+    if query:
+        return f'{path}?{query}'
+    return path or '/'
+
+
+def host_path_display(rec: dict) -> str:
+    """兼容旧名：host + path。"""
+    host = host_of(rec)
+    path = rec.get('path') or urlparse(rec.get('url') or '').path or '/'
     if host:
         return f'{host}{path}'
     return path or '/'
+
+
+def normalize_column_key(key: str) -> str:
+    k = str(key or '')
+    return _COLUMN_ALIASES.get(k, k)
 
 
 def is_failed(rec: dict) -> bool:
@@ -196,6 +235,7 @@ def sort_records(
     sort_key: str = 'time',
     reverse: bool = True,
 ) -> list[dict]:
+    sort_key = normalize_column_key(sort_key)
     def key_fn(rec):
         if sort_key == 'status':
             try:
@@ -204,13 +244,21 @@ def sort_records(
                 return -1
         if sort_key == 'method':
             return (rec.get('method') or '').upper()
-        if sort_key == 'path':
-            return host_path_display(rec).casefold()
-        if sort_key == 'duration':
+        if sort_key in ('path', 'url'):
+            return url_path_display(rec).casefold()
+        if sort_key == 'host':
+            return host_of(rec).casefold()
+        if sort_key == 'protocol':
+            return protocol_of(rec)
+        if sort_key in ('duration',):
             try:
                 return int(rec.get('duration_ms') or -1)
             except (TypeError, ValueError):
                 return -1
+        if sort_key in ('body', 'size'):
+            return response_size_bytes(rec) or -1
+        if sort_key == 'seq':
+            return int(rec.get('seq') or 0)
         if sort_key == 'type':
             return content_kind(rec)
         if sort_key == 'size':

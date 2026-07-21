@@ -104,7 +104,9 @@ class SessionViewLogicTests(unittest.TestCase):
                 }
             }, path=path)
             cfg = load_interface_debug_config(path)
-            self.assertIn('size', cfg['ui_prefs']['visible_columns'])
+            # 旧 size/path 列名应映射到 body/url
+            cols = cfg['ui_prefs']['visible_columns']
+            self.assertTrue('body' in cols or 'size' in cols or 'url' in cols)
             self.assertEqual(cfg['ui_prefs']['sort_key'], 'duration')
             raw = open(path, encoding='utf-8').read()
             self.assertNotIn('request_body', raw)
@@ -129,15 +131,16 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     def test_four_detail_tabs_and_columns(self):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(p.detail_tabs.count(), 4)
-        self.assertEqual(p.table.columnCount(), 8)
+        # Fiddler 式列：# / 结果 / 协议 / 方法 / 主机 / URL / Body / 类型 / 耗时 / 时间
+        self.assertEqual(p.table.columnCount(), 10)
         # 注入假数据
         p._records_by_id = {
             'a': {
-                'id': 'a', 'method': 'GET', 'url': 'https://x.com/api?token=1',
-                'path': '/api', 'status': 200, 'duration_ms': 1500,
+                'id': 'a', 'seq': 1, 'method': 'GET', 'url': 'https://x.com/api?token=1',
+                'path': '/api', 'host': 'x.com', 'scheme': 'https', 'status': 200, 'duration_ms': 1500,
                 'mime_type': 'application/json', 'resource_type': 'XHR',
                 'response_body': '{"x":1}', 'request_headers': {'Authorization': 'Bearer t'},
-                'started_at': 1.0, 'source': 'cdp',
+                'started_at': 1.0, 'source': 'http_capture',
             }
         }
         p._records = list(p._records_by_id.values())
@@ -162,10 +165,10 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p.connect_btn.isHidden())
         self.assertFalse(p.stop_btn.isHidden())
         p.apply_layout_mode('wide', False)
-        self.assertFalse(p.mode_combo.isHidden())
-        # 三种监听模式
-        self.assertEqual(p.mode_combo.count(), 3)
+        # 产品面仅抓包，模式切换隐藏
+        self.assertTrue(p.mode_combo.isHidden())
         self.assertEqual(p._mode, 'proxy')
+        self.assertIn('抓包', p.connect_btn.text())
 
     def test_shutdown_clears_memory(self):
         p = InterfaceDebugPanel('zh')

@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""HTTP/HTTPS 本机数据包抓取（Fiddler / mitmproxy 同款 MITM 模型）。
+"""HTTP/HTTPS 本机数据包抓取（对齐 Fiddler 的「中转站」模型）。
 
-设计要点（对齐市面主流工具）：
-1. 在 127.0.0.1 起本地正向代理，浏览器/系统流量经此转发；
-2. HTTP 明文直接记录；HTTPS 用本机 CA 做 MITM 解密后再记录；
-3. 每条流量产出一条「URL 中心」内存记录（method/url/host/path/query/status…）；
-4. 只监听 loopback，禁止暴露局域网；报文仅内存，不落盘、不外发。
+Fiddler 做什么：电脑上的 HTTP/HTTPS 请求先到本地代理，再转发外网；
+工具从中看到地址、参数、响应、耗时、状态、Cookie 等。
 
-本模块负责抓包引擎；系统代理备份/恢复与证书安装仍复用 ie_proxy 中的 WinINet 工具。
+本实现同样：
+1. 127.0.0.1 本地正向代理（系统代理临时指向它）→ 全端走系统代理的程序流量可进；
+2. HTTP 明文记录；HTTPS 本机 CA MITM 解密后记录完整 URL/头/体；
+3. 每条流量 = 一条 Session 内存记录（method/url/host/path/query/status…）；
+4. 仅 loopback；报文只存内存；Private 版不改包、不重放、不 Mock 外发。
+
+系统代理与 CA 工具在 tools.ie_proxy；本文件只做抓取引擎。
 """
 
 from __future__ import annotations
