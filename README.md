@@ -17,10 +17,11 @@ PengToolsV4/
 ├── tests/                 # 定向单元 / 面板烟雾测试
 ├── scripts/               # 构建脚本与开发工具
 ├── docs/                  # 架构 / 交接 / UI 需求文档
-├── packaging/             # 安装布局说明（PrivateInstaller 本地产物 gitignore）
+├── packaging/             # 安装布局说明
+├── Installer/             # 安装模板（gitignore 含 EXE）
 ├── requirements.txt
 ├── AGENTS.md              # AI/开发硬规则
-└── build_private_release.ps1  # 便捷入口 → scripts/
+└── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
 ```
 
 依赖方向（强制）：
@@ -45,12 +46,11 @@ $env:QT_QPA_PLATFORM='offscreen'
 python -m unittest tests.test_core -v
 ```
 
-私人包发布：
+发布打包：
 
 ```powershell
-.\build_private_release.ps1
-# 或
-.\scripts\build_private_release.ps1
+.\build_release.ps1
+# 产物：dist\PengToolsHub.exe 、 PengToolsHub_Offline_Setup.zip
 ```
 
 ## 文档入口
@@ -66,4 +66,4 @@ python -m unittest tests.test_core -v
 
 - 离线优先；用户数据只在 `config.local_data_dir()`（开发 `./data/`，打包 `<exe旁>/data/`）。
 - Private 抓包仅 loopback；报文只存内存。
-- 日常构建私人包；**禁止**改标准包 `PengToolsHub_Offline_Setup.zip`。
+- 唯一发布包：`PengToolsHub_Offline_Setup.zip` / `PengToolsHub.exe`（原 Private 能力 + 品牌图标）。

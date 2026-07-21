@@ -26,8 +26,8 @@
 - 请求测试按用户在 `interface_debug.json` 保存的**环境 Base**（scheme://host:port）替换抓包 URL 的 host 后发送；可新增/编辑/删除环境。导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
 - IE 代理：启动前备份 WinINet 设置；停止/失败/退出必须恢复；证书仅删除配置中记录的指纹。
 - 接口草稿（Postman/cURL）只生成、不发送网络请求。
-- 当前工作主线是 **Private 私人版**；标准包 `PengToolsHub_Offline_Setup.zip` **禁止被私人功能改动**。
-- 发布用 `build_private_release.ps1`；常规维护不要跑 `build_release.ps1`。
+- 产品统一为 **PengToolsHub**（含原 Private 能力：接口排查等）；发布包 `PengToolsHub_Offline_Setup.zip`，EXE 名 `PengToolsHub.exe`。
+- 发布用 `build_release.ps1`（`build_private_release.ps1` 仅作兼容转发）；图标用 `resources/brand/pengtools-app-v2.ico`。
 
 ## 目录与职责
 
@@ -45,7 +45,8 @@
 | `scripts/` | 构建脚本与开发工具（权威入口） |
 | `docs/` | 架构 / 交接 / UI 需求 |
 | `packaging/` | 安装布局说明（产物目录见 README） |
-| `PrivateInstaller/` | 私人包安装模板（本地构建用，gitignore） |
+| `Installer/` | 安装模板（setup.cmd + README + 构建写入的 EXE） |
+| `PrivateInstaller/` | 兼容旧路径（构建会同步 EXE） |
 
 依赖方向：`run → main_window → panels → tools|ui|config`；`ui` 不 import `panels/tools`；`tools` 不 import `panels`。
 
@@ -77,7 +78,7 @@
   - 打包：`<exe 旁>/data/`  
   - **禁止**写到 `_MEIPASS` 或用户主目录。
 - 升级 = 替换 EXE 等程序文件；**不得删除/覆盖**安装目录 `data`。
-- 安装包不得包含用户 `data`（构建脚本会清 `PrivateInstaller/data`）。
+- 安装包不得包含用户 `data`（构建脚本会清 `Installer/data`）。
 - JSON 字段：读时 `setdefault`/默认值兼容旧数据；写时保留已知旧字段。
 - 删除类操作：取消在左、确认删除在右，**默认焦点取消**。
 
@@ -102,8 +103,8 @@
 ```powershell
 python -m pip install -r requirements.txt
 python run.py
-.\scripts\build_private_release.ps1
-# 根目录 .\build_private_release.ps1 为同上便捷转发
+.\scripts\build_release.ps1
+# 兼容：.\build_private_release.ps1 / .\build_release.ps1 均转发到同一脚本
 ```
 
 - GitHub 回滚规则：当前仓库远端固定为 `origin https://github.com/lihaopeng1997/PengToolsV4.git`，默认工作分支为 `main`。

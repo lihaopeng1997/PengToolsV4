@@ -96,7 +96,7 @@ def main():
     ])
     add_heading(doc, '1.2 安装启动', 2)
     add_nums(doc, [
-        '解压 PengToolsHub_Private_Offline_Setup.zip',
+        '解压 PengToolsHub_Offline_Setup.zip',
         '运行 PengToolsHub.exe',
         '首次运行在 EXE 同级创建 data/ 存放配置与业务数据',
     ])
