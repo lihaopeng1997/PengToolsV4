@@ -96,6 +96,31 @@ class _LaunchBrowserWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class _RequestTestWorker(QThread):
+    """请求测试后台发送，避免阻塞 UI 导致 Loading 不刷新。"""
+
+    finished_ok = pyqtSignal(dict)
+    failed = pyqtSignal(str)
+
+    def __init__(self, method: str, url: str, headers: dict, body: str, parent=None):
+        super().__init__(parent)
+        self.method = method
+        self.url = url
+        self.headers = headers or {}
+        self.body = body or ''
+
+    def run(self):
+        try:
+            from tools.iface_request_test import RequestTestError, send_http_request
+            result = send_http_request(
+                self.method, self.url, headers=self.headers, body=self.body,
+            )
+            self.finished_ok.emit(result if isinstance(result, dict) else {'ok': False, 'body': str(result)})
+        except Exception as exc:
+            # RequestTestError 与其它异常统一回主线程
+            self.failed.emit(str(exc))
+
+
 class _FilterChip(QPushButton):
     def __init__(self, key: str, label: str, parent=None):
         super().__init__(label, parent)
@@ -2000,8 +2025,11 @@ class InterfaceDebugPanel(QWidget):
     def _rt_send(self):
         from tools.iface_request_test import (
             RequestTestError, headers_dict_from_text, merge_url_with_params,
-            normalize_base_host, send_http_request,
+            normalize_base_host,
         )
+        # 避免重复点击
+        if getattr(self, '_rt_worker', None) is not None and self._rt_worker.isRunning():
+            return
         try:
             base = normalize_base_host(self.rt_base_edit.text())
             self.rt_base_edit.setText(base)
@@ -2014,8 +2042,31 @@ class InterfaceDebugPanel(QWidget):
             method = self.rt_method.currentText() or 'GET'
             headers = headers_dict_from_text(self.rt_headers.toPlainText())
             body = self.rt_body.toPlainText() or ''
-            self.loading.start_busy('正在发送本机请求…')
-            result = send_http_request(method, url, headers=headers, body=body)
+        except RequestTestError as exc:
+            show_warning(self, '请求测试', str(exc))
+            return
+        except Exception as exc:
+            show_warning(self, '请求测试', str(exc))
+            return
+
+        self._rt_send_meta = {'method': method, 'url': url}
+        self.rt_send_btn.setEnabled(False)
+        self.loading.start_busy('正在发送请求…')
+        # 先刷新界面再进后台线程，确保 Loading 可见
+        QApplication.processEvents()
+
+        worker = _RequestTestWorker(method, url, headers, body, parent=self)
+        self._rt_worker = worker
+        worker.finished_ok.connect(self._rt_send_finished)
+        worker.failed.connect(self._rt_send_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _rt_send_finished(self, result: dict):
+        meta = getattr(self, '_rt_send_meta', {}) or {}
+        method = meta.get('method') or 'GET'
+        url = meta.get('url') or ''
+        try:
             self.loading.finish('请求完成')
             lines = [
                 f'{method} {url}',
@@ -2034,12 +2085,17 @@ class InterfaceDebugPanel(QWidget):
             kind, pretty, _err = pretty_body(rbody)
             lines.append(pretty if pretty else rbody)
             self.draft_preview.setPlainText('\n'.join(lines))
-        except RequestTestError as exc:
-            self.loading.fail(str(exc))
-            show_warning(self, '请求测试', str(exc))
-        except Exception as exc:
-            self.loading.fail(str(exc))
-            show_warning(self, '请求测试', str(exc))
+        finally:
+            self.rt_send_btn.setEnabled(True)
+            self._rt_worker = None
+
+    def _rt_send_failed(self, message: str):
+        try:
+            self.loading.fail(message or '请求失败')
+            show_warning(self, '请求测试', message or '请求失败')
+        finally:
+            self.rt_send_btn.setEnabled(True)
+            self._rt_worker = None
 
     def _rt_import_file(self):
         path, _ = QFileDialog.getOpenFileName(

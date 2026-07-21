@@ -72,6 +72,12 @@ class AuroraProgress(QWidget):
         self.raise_()
         self._timer.start(28)
         self.update()
+        # 同步长任务前给界面一次绘制机会（调用方若 processEvents 更稳）
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
+        except Exception:
+            pass
 
     def set_progress(self, value, label=None):
         self._value = max(0, min(100, int(value)))
