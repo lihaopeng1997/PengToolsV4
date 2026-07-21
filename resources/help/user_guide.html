@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>PengToolsHub 使用说明</title>
+<style>
+  :root {
+    --bg: #F4F7F5;
+    --surface: #FFFFFF;
+    --text: #272B29;
+    --muted: #5C6560;
+    --primary: #668C78;
+    --primary-soft: #E4EFE8;
+    --border: #D5DDD8;
+    --warn: #B45309;
+    --danger: #B42318;
+    --code-bg: #EEF2F0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text);
+    background: var(--bg);
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 20px 22px 48px; }
+  header.hero {
+    background: linear-gradient(135deg, #668C78 0%, #4F735F 100%);
+    color: #fff;
+    border-radius: 14px;
+    padding: 22px 24px;
+    margin-bottom: 18px;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 24px; font-weight: 700; }
+  header.hero p { margin: 0; opacity: 0.95; font-size: 13px; }
+  .meta { margin-top: 10px; font-size: 12px; opacity: 0.9; }
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+  }
+  nav.toc h2 { margin: 0 0 8px; font-size: 15px; color: var(--primary); }
+  nav.toc a { color: var(--primary); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  nav.toc ol { margin: 0; padding-left: 22px; }
+  nav.toc li { margin: 4px 0; }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px 18px;
+    margin-bottom: 14px;
+  }
+  h2 {
+    margin: 0 0 10px;
+    font-size: 18px;
+    color: var(--primary);
+    border-left: 4px solid var(--primary);
+    padding-left: 10px;
+  }
+  h3 { margin: 14px 0 6px; font-size: 15px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 12px;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--primary-soft); font-weight: 700; }
+  code, .path {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .tip, .warn, .danger {
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .tip { background: var(--primary-soft); border: 1px solid var(--primary); }
+  .warn { background: #FEF3C7; border: 1px solid #F59E0B; color: #78350F; }
+  .danger { background: #FEE4E2; border: 1px solid #F97066; color: #7A271A; }
+  .kbd {
+    display: inline-block;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 6px;
+    font-size: 12px;
+    background: #fff;
+    font-family: Consolas, monospace;
+  }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 8px;
+    padding: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>PengToolsHub 使用说明</h1>
+  <p>Windows 离线桌面工具台 · 需求 / 发版 / 日报 / 加解密 / 接口排查 / 格式工具</p>
+  <div class="meta">版本展示：V4 Private · 作者：Lihp · 数据仅存本机 · 无账号无云同步</div>
+</header>
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">产品简介与安装</a></li>
+    <li><a href="#s2">界面总览</a></li>
+    <li><a href="#s3">首页工作台</a></li>
+    <li><a href="#s4">需求管理</a></li>
+    <li><a href="#s5">发版联动（升级准备）</a></li>
+    <li><a href="#s6">日报</a></li>
+    <li><a href="#s7">网关加解密</a></li>
+    <li><a href="#s8">接口排查（抓包 / 请求测试）</a></li>
+    <li><a href="#s9">格式工具与其它模块</a></li>
+    <li><a href="#s10">设置与悬浮栏</a></li>
+    <li><a href="#s11">数据目录与升级</a></li>
+    <li><a href="#s12">常见问题 FAQ</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2>1. 产品简介与安装</h2>
+  <p><strong>PengToolsHub</strong> 是面向内网办公的 <strong>离线</strong> Windows 工具集合，把日常开发、运维、需求归档、SQL 发版、接口排查、加解密等流程收敛到一个本地窗口里。</p>
+  <h3>1.1 能做什么</h3>
+  <ul>
+    <li>管理需求 / BUG、SVN 工作副本与文件库</li>
+    <li>整理 SQL、生成发版 Excel</li>
+    <li>写日报、（彩蛋解锁后）管理自我学习资料</li>
+    <li>网关 SM2+SM4 加解密、JSON/XML 格式化</li>
+    <li>本机 HTTP/HTTPS 抓包、按环境做请求测试</li>
+  </ul>
+  <h3>1.2 安装与启动</h3>
+  <ol>
+    <li>解压私人安装包 <code>PengToolsHub_Private_Offline_Setup.zip</code></li>
+    <li>运行目录中的 <code>PengToolsHub_Private.exe</code>（或 <code>setup.cmd</code> 按说明）</li>
+    <li>首次运行会在 <strong>EXE 同级</strong> 自动创建 <code>data/</code> 目录存放配置与业务数据</li>
+  </ol>
+  <div class="tip"><strong>提示：</strong>程序支持单实例。重复启动会激活已打开的窗口，不会开第二套托盘/后台服务。</div>
+</section>
+
+<section id="s2">
+  <h2>2. 界面总览</h2>
+  <h3>2.1 左侧导航</h3>
+  <table>
+    <tr><th>分组</th><th>模块</th><th>说明</th></tr>
+    <tr><td>工作台</td><td>首页</td><td>最近需求、待升级事项、快捷入口</td></tr>
+    <tr><td rowspan="4">交付管理</td><td>需求管理</td><td>需求树、文件库、SVN、联动</td></tr>
+    <tr><td>发版联动</td><td>升级准备 / SQL / 系统配置</td></tr>
+    <tr><td>接口文档更新</td><td>SQL 驱动 DOCX 更新</td></tr>
+    <tr><td>日报</td><td>按日填写完成与计划</td></tr>
+    <tr><td rowspan="6">开发工具</td><td>加解密</td><td>网关报文解密</td></tr>
+    <tr><td>接口排查</td><td>抓包、明细导出、请求测试</td></tr>
+    <tr><td>格式工具</td><td>JSON / XML / SQL / 文本辅助</td></tr>
+    <tr><td>证件类型</td><td>测试用证件号等</td></tr>
+    <tr><td>车辆 VIN</td><td>测试 VIN</td></tr>
+    <tr><td>运维助手</td><td>命令查询与复制（不自动执行破坏性操作）</td></tr>
+    <tr><td>个人</td><td>自我学习</td><td>需彩蛋解锁后显示</td></tr>
+  </table>
+  <h3>2.2 左下角</h3>
+  <ul>
+    <li><strong>设置</strong>：主题、字体、语言、悬浮栏、关闭行为等</li>
+    <li><strong>用户菜单（LH）</strong>：语言、悬浮栏、关于、使用说明、退出</li>
+  </ul>
+  <h3>2.3 悬浮栏</h3>
+  <p>快捷键 <span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">P</span> 打开/收起桌面悬浮入口，可在设置中编辑快捷模块。</p>
+</section>
+
+<section id="s3">
+  <h2>3. 首页工作台</h2>
+  <ul>
+    <li><strong>最近需求</strong>：按更新时间展示最近几条，点击跳转需求管理并定位。</li>
+    <li><strong>待升级事项</strong>：只列出<strong>已填写上线日期</strong>且<strong>日期 ≥ 今天</strong>、尚未实际上线、状态非「已上线/关闭/取消/暂停」的需求。</li>
+    <li><strong>今天上线</strong>的需求会高亮显示，并优先排在前面。</li>
+    <li><strong>常用工具</strong>：一键跳转加解密、证件、文档、VIN、运维等。</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2>4. 需求管理</h2>
+  <h3>4.1 左侧需求树</h3>
+  <ul>
+    <li>按月份/类型组织需求与 BUG</li>
+    <li>支持搜索（含拼音）、筛选系统/类型/状态</li>
+    <li>批量选择与删除（删除有二次确认，默认焦点在「取消」）</li>
+  </ul>
+  <h3>4.2 右侧摘要与页签</h3>
+  <ul>
+    <li>上方摘要：标题、系统、状态、计划上线日、标志芯片等</li>
+    <li><strong>文件库</strong>：名称 / 类型 / 时间 / 大小 / 路径；仅名称列带图标；可拖列宽、横向滚动、拖入本地文件到工作副本</li>
+    <li>SQL / 发版联动入口、发布与联动（写入日报、准备升级、接口文档等）</li>
+  </ul>
+  <h3>4.3 SVN 相关</h3>
+  <ul>
+    <li>检出、更新、提交、锁定/解锁等依赖本机已安装的 SVN 命令行</li>
+    <li>认证使用本机缓存，软件<strong>不保存密码</strong></li>
+    <li>内网 SVN 需在你本机环境验证</li>
+  </ul>
+  <div class="warn"><strong>注意：</strong>破坏性操作（删除、提交等）均有确认框；请确认后再执行。</div>
+</section>
+
+<section id="s5">
+  <h2>5. 发版联动（升级准备）</h2>
+  <ol>
+    <li>确认/选择升级日期</li>
+    <li>推荐或勾选参与发版的需求 / BUG</li>
+    <li>按多系统分别整理 SQL</li>
+    <li>生成发版 Excel（基于内置模板，23 列表头固定）</li>
+  </ol>
+  <p>开发分支 SVN 地址可以为空，不会阻塞生成。验证用 SQL 不会进入 SVN 提交目录逻辑。</p>
+</section>
+
+<section id="s6">
+  <h2>6. 日报</h2>
+  <ul>
+    <li>左侧历史日期列表，右侧编辑：今日完成 / 问题与风险 / 明日计划 / 备注</li>
+    <li><strong>未点保存就切换日期</strong>：内容会作为草稿保留，列表可能显示「未保存」</li>
+    <li><strong>复制为今日</strong>：把当前正在看的内容一键写成「今天」的草稿，确认后请点「保存日报」</li>
+    <li>从需求「写入日报」会追加模板段落，不覆盖你已写内容</li>
+    <li>提醒时间在「设置」中配置</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2>7. 网关加解密</h2>
+  <ul>
+    <li>用于网关 SM2 + SM4 类报文解密与查看</li>
+    <li>从接口排查「送入加解密」时可自动带入报文与 Key（能识别时）</li>
+    <li><strong>密钥 / 明文 / 报文默认不落盘、不写日志</strong></li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2>8. 接口排查（Private）</h2>
+  <h3>8.1 开始抓包会做什么</h3>
+  <ol>
+    <li>在本机 <code>127.0.0.1:端口</code> 启动 MITM 代理</li>
+    <li><strong>临时修改 Windows 系统代理</strong>指向该地址（便于 Chrome/Edge 等走代理）</li>
+    <li>状态栏提示抓包中；请用浏览器访问业务页（必要时<strong>完全退出并重启浏览器</strong>）</li>
+  </ol>
+  <div class="danger">
+    <strong>重要：</strong>抓包会改系统代理。请务必用「停止抓包」或正常退出软件，代理会自动恢复。
+    若任务管理器强杀进程，可能导致代理残留，其它接口会「不好使」。
+  </div>
+  <h3>8.2 停止 / 恢复代理</h3>
+  <ul>
+    <li><strong>停止抓包</strong>：恢复系统代理，会话列表默认保留（不清空）</li>
+    <li><strong>清空</strong>：才清空内存中的抓包记录</li>
+    <li><strong>恢复系统代理</strong>按钮：异常后一键修复</li>
+    <li>软件<strong>启动时</strong>也会自动检测并清理残留的本机抓包代理</li>
+  </ul>
+  <h3>8.3 列表与详情</h3>
+  <ul>
+    <li>列表：# / 结果 / 协议 / 方法 / 主机 / URL / Body / 类型 / 耗时 等（可列设置）</li>
+    <li>详情：概览 / 请求 / 响应 / <strong>请求测试</strong></li>
+    <li>可复制、送格式工具、送入加解密（尽量带 Key）</li>
+  </ul>
+  <h3>8.4 请求测试（Postman 风格）</h3>
+  <ol>
+    <li>维护<strong>环境</strong>：Base 形如 <code>http://host:port</code>（可保存多个）</li>
+    <li>从会话填充：自动用当前环境替换抓包 URL 的 host，保留 path/query</li>
+    <li>编辑 Method / Headers / Params / Body 后点「发送」</li>
+    <li>Body 优先使用能解密的明文；解不了则用原报文</li>
+  </ol>
+  <h3>8.5 导出 / 导入明细</h3>
+  <ul>
+    <li>导出格式：<code>pengtools_iface_session_v1</code>（JSON）</li>
+    <li>内容含 URL、请求/响应（优先解密明文）等</li>
+    <li>可再「导入明细」或把 JSON 拖入请求测试页自动填充</li>
+  </ul>
+  <div class="tip"><strong>安全：</strong>抓到的请求/响应/Cookie/Token 只在内存；配置里只存端口、环境地址、证书指纹等，不写报文正文。</div>
+</section>
+
+<section id="s9">
+  <h2>9. 格式工具与其它模块</h2>
+  <h3>9.1 格式工具</h3>
+  <p>JSON / XML / SQL / Base64 / URL / 时间戳 / Java 堆栈等离线处理，无网络请求。</p>
+  <h3>9.2 接口文档更新</h3>
+  <p>根据 SQL 与模板更新接口 Word 文档（依赖本机模板匹配规则）。</p>
+  <h3>9.3 证件 / VIN / 运维</h3>
+  <ul>
+    <li>证件类型、车辆 VIN：生成/校验测试数据</li>
+    <li>运维助手：搜索命令与说明；<strong>不会自动执行破坏性命令</strong></li>
+  </ul>
+  <h3>9.4 自我学习（彩蛋）</h3>
+  <p>默认隐藏。通过约定入口解锁后显示；解锁状态保存在本机 <code>data/settings.json</code>，升级换 EXE 一般仍保留。</p>
+</section>
+
+<section id="s10">
+  <h2>10. 设置与关于</h2>
+  <ul>
+    <li>主题（含夜间）、字体、语言</li>
+    <li>悬浮栏透明度、置顶、快捷入口编辑</li>
+    <li>关闭行为：询问 / 托盘 / 退出</li>
+    <li>日报提醒时间</li>
+    <li>左下角菜单：关于、使用说明、退出软件</li>
+  </ul>
+</section>
+
+<section id="s11">
+  <h2>11. 数据目录与升级</h2>
+  <table>
+    <tr><th>场景</th><th>数据位置</th></tr>
+    <tr><td>开发运行</td><td>源码旁 <code>PengToolsV4/data/</code></td></tr>
+    <tr><td>安装包运行</td><td><code>&lt;PengToolsHub_Private.exe 同级&gt;/data/</code></td></tr>
+  </table>
+  <ul>
+    <li>常见文件：<code>settings.json</code>、<code>requirements.json</code>、<code>daily_reports.json</code>、<code>interface_debug.json</code> 等</li>
+    <li><strong>升级</strong> = 替换 EXE 等程序文件；<strong>不要删除</strong>安装目录下的 <code>data</code></li>
+    <li>安装包不会携带你的业务 data</li>
+  </ul>
+</section>
+
+<section id="s12">
+  <h2>12. 常见问题 FAQ</h2>
+  <h3>Q1：抓包后列表是空的？</h3>
+  <ul>
+    <li>确认已点「开始抓包」且状态为抓包中</li>
+    <li>完全退出浏览器再打开，再访问业务页</li>
+    <li>HTTPS 需信任本机抓包证书（软件会尽量静默准备）</li>
+    <li>检查筛选条件是否过滤掉了静态资源/全部请求</li>
+  </ul>
+  <h3>Q2：抓包后网页/其它接口都不好使？</h3>
+  <ul>
+    <li>点「停止抓包」或「恢复系统代理」</li>
+    <li>或重启一次 PengToolsHub（启动会自动清理残留代理）</li>
+    <li>仍不行：Windows 设置 → 网络和 Internet → 代理 → 关闭「使用代理服务器」</li>
+  </ul>
+  <h3>Q3：请求测试发不出去？</h3>
+  <ul>
+    <li>检查环境 Base 是否为 <code>http(s)://host:port</code> 且不带业务 path</li>
+    <li>目标服务是否可达（本机/内网）</li>
+    <li>HTTPS 内网自签证书：工具侧已尽量放宽校验，仍失败请看响应区错误信息</li>
+  </ul>
+  <h3>Q4：日报写了但刷新没了？</h3>
+  <p>请点「保存日报」。未保存内容在切换日期时会暂存草稿，但退出进程后只有已保存的 JSON 会保留。</p>
+  <h3>Q5：发版 Excel 列不对？</h3>
+  <p>请使用软件内置模板生成，勿手工改 23 列表头顺序。</p>
+</section>
+
+<footer>
+  PengToolsHub · 作者 Lihp · 离线也能起飞<br/>
+  本说明随软件内置，无需联网。
+</footer>
+
+</div>
+</body>
+</html>

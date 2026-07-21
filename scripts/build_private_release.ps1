@@ -52,6 +52,7 @@ try {
         --add-data 'resources\private_knowledge_seed_workbooks.json;resources' `
         --add-data 'resources\release_workbook_template.xlsx;resources' `
         --add-data 'resources\icons;resources\icons' `
+        --add-data 'resources\help;resources\help' `
         --hidden-import docx `
         --hidden-import openpyxl `
         --hidden-import msoffcrypto `

@@ -307,6 +307,9 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         about = menu.addAction('关于' if zh else 'About')
         about.triggered.connect(self._show_about)
+        help_act = menu.addAction('使用说明' if zh else 'User Guide')
+        help_act.triggered.connect(self._show_user_guide)
+        menu.addSeparator()
         quit_act = menu.addAction('退出软件' if zh else 'Exit')
         quit_act.triggered.connect(self.exit_application)
 
@@ -325,7 +328,8 @@ class MainWindow(QMainWindow):
                 f'作者：Lihp\n'
                 f'版本：{app_version_text()}\n'
                 f'构建：{APP_BUILD_DATE}\n'
-                f'口号：离线也能起飞，摸鱼也要有工具感。'
+                f'口号：离线也能起飞，摸鱼也要有工具感。\n\n'
+                f'完整操作请看菜单中的「使用说明」。'
             )
             btn = '笑完继续干'
         else:
@@ -337,12 +341,21 @@ class MainWindow(QMainWindow):
                 f'Author: Lihp\n'
                 f'Version: {app_version_text()}\n'
                 f'Build: {APP_BUILD_DATE}\n'
-                f'Motto: Ship offline. Keep smiling. Save the daily report.'
+                f'Motto: Ship offline. Keep smiling. Save the daily report.\n\n'
+                f'See User Guide in the menu for full documentation.'
             )
             btn = 'Back to work'
         show_info(self, title, message, kind='info', button_text=btn)
         self.status_bar.showMessage(
             f'{APP_NAME} {app_version_text()} · Lihp · {APP_BUILD_DATE}', 5000
+        )
+
+    def _show_user_guide(self):
+        """左下角菜单：内置 HTML 使用说明（关于下方）。"""
+        from ui.help_dialog import show_user_guide
+        show_user_guide(parent=self, language=self.language)
+        self.status_bar.showMessage(
+            '已打开使用说明' if self.language == 'zh' else 'User guide opened', 3000
         )
 
     def resizeEvent(self, event):
