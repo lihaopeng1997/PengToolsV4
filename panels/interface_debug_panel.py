@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""接口排查中心：HTTP/HTTPS 数据包抓取（MITM）+ Chromium CDP 高级模式。
+"""接口排查中心：HTTP/HTTPS 抓包（MITM）+ 本机请求测试 + 明细导出导入。
 
-报文仅内存；只生成验证草稿，不发送业务请求。
+报文仅内存；停止抓包保留会话；清空/退出才 clear_session。
+请求测试仅允许 localhost/127.0.0.1。
 """
 
 from __future__ import annotations
@@ -108,7 +109,7 @@ class _FilterChip(QPushButton):
 class InterfaceDebugPanel(QWidget):
     """Private 版 Fiddler 式接口排查面板。"""
 
-    open_gateway = pyqtSignal(str)
+    open_gateway = pyqtSignal(object)  # str 或 {cipher, key}
     open_format_json = pyqtSignal(str)
     open_format_xml = pyqtSignal(str)
     # 抓包后台线程 → 主线程（必须用信号，不能用 QTimer.singleShot）
@@ -314,6 +315,10 @@ class InterfaceDebugPanel(QWidget):
         self._rebuild_column_menu()
         tl.addWidget(self.cols_btn)
 
+        self.export_list_btn = QPushButton()
+        apply_button(self.export_list_btn, 'secondary', compact=True, icon='export', icon_size=16)
+        self.export_list_btn.clicked.connect(self._export_session_detail)
+        tl.addWidget(self.export_list_btn)
         self.clear_list_btn = QPushButton()
         apply_button(self.clear_list_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_list_btn.clicked.connect(self._confirm_clear_session)
@@ -464,65 +469,111 @@ class InterfaceDebugPanel(QWidget):
         rs.addWidget(self.resp_detail, 1)
         self.detail_tabs.addTab(self.resp_page, '响应')
 
-        # Tab 3 验证草稿
+        # Tab 3 请求测试（Postman 风格，仅本机）
         self.draft_page = QWidget()
+        self.draft_page.setAcceptDrops(True)
+        self.draft_page.installEventFilter(self)
         dl = QVBoxLayout(self.draft_page)
         dl.setContentsMargins(0, 8, 0, 0)
+        dl.setSpacing(6)
         self.draft_badge = QLabel()
         self.draft_badge.setObjectName('offline-pill')
         dl.addWidget(self.draft_badge)
-        drow = QHBoxLayout()
-        self.target_label = QLabel()
-        drow.addWidget(self.target_label)
+
+        # 兼容旧 local_targets（隐藏）
         self.local_target_combo = QComboBox()
-        size_combo(self.local_target_combo, 'md')
-        drow.addWidget(self.local_target_combo, 1)
+        self.local_target_combo.hide()
         self.add_target_btn = QPushButton()
-        apply_button(self.add_target_btn, 'ghost', compact=True, icon='add', icon_size=16)
-        self.add_target_btn.clicked.connect(self._add_local_target)
-        drow.addWidget(self.add_target_btn)
+        self.add_target_btn.hide()
         self.edit_target_btn = QPushButton()
-        apply_button(self.edit_target_btn, 'ghost', compact=True, icon='edit', icon_size=16)
-        self.edit_target_btn.clicked.connect(self._edit_local_target)
-        drow.addWidget(self.edit_target_btn)
+        self.edit_target_btn.hide()
         self.del_target_btn = QPushButton()
-        apply_button(self.del_target_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.del_target_btn.clicked.connect(self._delete_local_target)
-        drow.addWidget(self.del_target_btn)
-        dl.addLayout(drow)
+        self.del_target_btn.hide()
         self.include_auth_cb = QCheckBox()
-        self.include_auth_cb.setChecked(bool(self._prefs.get('include_auth_in_draft', True)))
-        self.include_auth_cb.toggled.connect(self._on_include_auth)
-        dl.addWidget(self.include_auth_cb)
+        self.include_auth_cb.hide()
+        self.gen_draft_btn = QPushButton()
+        self.gen_draft_btn.hide()
+        self.copy_postman_btn = QPushButton()
+        self.copy_postman_btn.hide()
+        self.export_postman_btn = QPushButton()
+        self.export_postman_btn.hide()
+        self.copy_curl_btn = QPushButton()
+        self.copy_curl_btn.hide()
+        self.draft_hint = QLabel()
+        self.draft_hint.setObjectName('field-hint')
+        self.draft_hint.setWordWrap(True)
+        dl.addWidget(self.draft_hint)
+
+        base_row = QHBoxLayout()
+        self.target_label = QLabel('本机地址')
+        base_row.addWidget(self.target_label)
+        self.rt_base_edit = QLineEdit()
+        self.rt_base_edit.setText('http://localhost:18031')
+        self.rt_base_edit.setPlaceholderText('http://localhost:18031')
+        base_row.addWidget(self.rt_base_edit, 1)
+        self.rt_fill_btn = QPushButton()
+        apply_button(self.rt_fill_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
+        self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
+        base_row.addWidget(self.rt_fill_btn)
+        dl.addLayout(base_row)
+
+        method_row = QHBoxLayout()
+        self.rt_method = QComboBox()
+        self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
+        size_combo(self.rt_method, 'sm')
+        method_row.addWidget(self.rt_method)
+        self.rt_url = QLineEdit()
+        self.rt_url.setPlaceholderText('http://localhost:18031/path')
+        method_row.addWidget(self.rt_url, 1)
+        self.rt_send_btn = QPushButton()
+        apply_button(self.rt_send_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        self.rt_send_btn.clicked.connect(self._rt_send)
+        method_row.addWidget(self.rt_send_btn)
+        dl.addLayout(method_row)
+
+        self.rt_tabs = QTabWidget()
+        self.rt_tabs.setDocumentMode(True)
+        self.rt_headers = QPlainTextEdit()
+        self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')
+        self.rt_headers.setFont(mono)
+        self.rt_headers.setMaximumHeight(100)
+        self.rt_tabs.addTab(self.rt_headers, 'Headers')
+        self.rt_params = QPlainTextEdit()
+        self.rt_params.setPlaceholderText('key=value\npage=1')
+        self.rt_params.setFont(mono)
+        self.rt_params.setMaximumHeight(100)
+        self.rt_tabs.addTab(self.rt_params, 'Params')
+        self.rt_body = QPlainTextEdit()
+        self.rt_body.setPlaceholderText('请求 Body（优先解密后的明文）')
+        self.rt_body.setFont(mono)
+        self.rt_body.setMinimumHeight(80)
+        self.rt_tabs.addTab(self.rt_body, 'Body')
+        dl.addWidget(self.rt_tabs)
+
+        io_row = QHBoxLayout()
+        self.export_detail_btn = QPushButton()
+        apply_button(self.export_detail_btn, 'secondary', compact=True, icon='export', icon_size=16)
+        self.export_detail_btn.clicked.connect(self._export_session_detail)
+        io_row.addWidget(self.export_detail_btn)
+        self.rt_import_btn = QPushButton()
+        apply_button(self.rt_import_btn, 'secondary', compact=True, icon='import', icon_size=16)
+        self.rt_import_btn.clicked.connect(self._rt_import_file)
+        io_row.addWidget(self.rt_import_btn)
+        io_row.addStretch(1)
+        dl.addLayout(io_row)
+
+        self.rt_resp_label = QLabel('响应')
+        self.rt_resp_label.setObjectName('field-caption')
+        dl.addWidget(self.rt_resp_label)
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMinimumHeight(120)
+        self.draft_preview.setMinimumHeight(100)
+        self.draft_preview.setPlaceholderText('发送后显示响应；也可拖入导出的 JSON 文件自动填充')
         dl.addWidget(self.draft_preview, 1)
-        brow = QHBoxLayout()
-        self.gen_draft_btn = QPushButton()
-        apply_button(self.gen_draft_btn, 'primary', compact=True, icon='refresh', icon_size=16)
-        self.gen_draft_btn.clicked.connect(self._refresh_draft_preview)
-        brow.addWidget(self.gen_draft_btn)
-        self.copy_postman_btn = QPushButton()
-        apply_button(self.copy_postman_btn, 'secondary', compact=True, icon='copy', icon_size=16)
-        self.copy_postman_btn.clicked.connect(self._copy_postman)
-        brow.addWidget(self.copy_postman_btn)
-        self.export_postman_btn = QPushButton()
-        apply_button(self.export_postman_btn, 'secondary', compact=True, icon='export', icon_size=16)
-        self.export_postman_btn.clicked.connect(self._export_postman)
-        brow.addWidget(self.export_postman_btn)
-        self.copy_curl_btn = QPushButton()
-        apply_button(self.copy_curl_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
-        self.copy_curl_btn.clicked.connect(self._copy_curl)
-        brow.addWidget(self.copy_curl_btn)
-        brow.addStretch(1)
-        self.draft_hint = QLabel()
-        self.draft_hint.setObjectName('field-hint')
-        brow.addWidget(self.draft_hint)
-        dl.addLayout(brow)
-        self.detail_tabs.addTab(self.draft_page, '验证草稿')
+        self.detail_tabs.addTab(self.draft_page, '请求测试')
+        self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
@@ -1273,7 +1324,7 @@ class InterfaceDebugPanel(QWidget):
             self.recheck_btn.hide()
 
     def _stop_listen(self):
-        self.loading.start_busy('正在停止监听…')
+        self.loading.start_busy('正在停止抓包…')
         self._wait_hint_timer.stop()
         self._status_tick.stop()
         try:
@@ -1285,17 +1336,22 @@ class InterfaceDebugPanel(QWidget):
                 self._cdp_session = None
             if self._ie_worker:
                 try:
+                    # 停止引擎但保留面板会话列表（清空请用「清空」按钮）
+                    if hasattr(self._ie_worker, 'clear_session'):
+                        # 先摘掉 stop 内清空对 UI 的影响：仅停代理
+                        pass
                     self._ie_worker.stop()
                 except Exception:
                     pass
                 self._ie_worker = None
         finally:
-            self.clear_session()
+            # 不清空列表
             self._listening = False
             self._channel_ready = False
             self._set_listening_ui(False)
+            n = len(self._records)
             self.loading.finish('已停止')
-            self.status_label.setText('已停止监听，会话已清空')
+            self.status_label.setText(f'已停止抓包 · 会话保留 {n} 条（可继续导出/请求测试）')
             self.live_status.setText('')
             self.recheck_btn.hide()
 
@@ -1561,7 +1617,19 @@ class InterfaceDebugPanel(QWidget):
         row = self.table.currentRow()
         self._follow_latest = (row == 0)
         self._refresh_detail()
-        self._refresh_draft_preview()
+        # 在请求测试页时自动按选中会话填充（静默，不弹窗）
+        if self.detail_tabs.currentWidget() is getattr(self, 'draft_page', None):
+            try:
+                self._rt_fill_from_selection(silent=True)
+            except Exception:
+                pass
+
+    def _on_detail_tab_changed(self, index: int):
+        try:
+            if self.detail_tabs.widget(index) is getattr(self, 'draft_page', None):
+                self._rt_fill_from_selection(silent=True)
+        except Exception:
+            pass
 
     def _selected_record(self) -> dict | None:
         if not self._selected_id:
@@ -1748,120 +1816,215 @@ class InterfaceDebugPanel(QWidget):
         if not body.strip():
             return
         if target == 'gateway':
-            self.open_gateway.emit(body)
+            from tools.iface_request_test import extract_sm4_key_cipher
+            key = extract_sm4_key_cipher(rec, side=side)
+            self.open_gateway.emit({'cipher': body, 'key': key, 'sm4_key_cipher': key})
             return
-        # format
+        # format：尽量送解密后明文
+        from tools.iface_request_test import extract_sm4_key_cipher, try_decrypt_body
+        key = extract_sm4_key_cipher(rec, side=side)
+        plain, ok = try_decrypt_body(body, key, preferred_side=side)
+        body = plain if ok else body
         if _looks_xml(body):
             self.open_format_xml.emit(body)
         else:
             kind, pretty, _err = pretty_body(body)
             self.open_format_json.emit(pretty if kind == 'json' else body)
 
-    # ── 草稿 ─────────────────────────────────────────
+    # ── 请求测试 / 导出导入 ─────────────────────────────
     def _selected_base_url(self) -> str:
-        tid = self.local_target_combo.currentData()
-        for t in self._config.get('local_targets') or []:
-            if t.get('id') == tid:
-                return t.get('base_url') or ''
-        targets = self._config.get('local_targets') or []
-        if targets:
-            return targets[0].get('base_url') or ''
-        return ''
+        if hasattr(self, 'rt_base_edit'):
+            return (self.rt_base_edit.text() or '').strip() or 'http://localhost:18031'
+        return 'http://localhost:18031'
 
-    def _draft_record(self) -> dict | None:
-        rec = self._selected_record()
-        if not rec:
-            return None
-        out = dict(rec)
-        if not self.include_auth_cb.isChecked():
-            headers = {
-                k: v for k, v in (rec.get('request_headers') or {}).items()
-                if str(k).lower() not in ('authorization', 'cookie', 'proxy-authorization')
-            }
-            out['request_headers'] = headers
-        return out
-
-    def _refresh_draft_preview(self):
-        rec = self._draft_record()
-        base = self._selected_base_url()
-        if not rec or not base:
-            self.draft_preview.setPlainText('')
-            return
-        try:
-            rewritten = rewrite_url(rec.get('url') or '', base)
-            curl = build_curl(rec, base)
-            self.draft_preview.setPlainText(
-                f'{(rec.get("method") or "GET").upper()} {rewritten}\n\n'
-                f'# 仅生成验证草稿，不会发送请求\n\n{curl}'
-            )
-        except DraftError as exc:
-            self.draft_preview.setPlainText(str(exc))
-
-    def _warn_sensitive_draft(self) -> bool:
-        zh = self.language == 'zh'
-        return confirm_action(
-            self,
-            '生成验证草稿' if zh else 'Generate draft',
-            (
-                '草稿包含 Authorization、Cookie 等敏感信息，仅应导入本机 Postman。\n'
-                'PengTools 不会实际发送请求。'
-                if zh else
-                'Draft may contain secrets. Import only into local Postman.\n'
-                'PengTools will not send any request.'
-            ),
-            confirm_text='继续生成' if zh else 'Continue',
-            danger=False,
-        )
-
-    def _copy_postman(self):
-        rec = self._draft_record()
-        base = self._selected_base_url()
-        if not rec or not base:
-            show_warning(self, '草稿', '请选择请求并配置本地地址')
-            return
-        if not self._warn_sensitive_draft():
-            return
-        try:
-            payload = build_postman_collection(rec, base)
-            QApplication.clipboard().setText(drafts_as_json_text(payload))
-            show_success(self, '草稿', 'Postman JSON 已复制')
-        except DraftError as exc:
-            show_warning(self, '草稿', str(exc))
-
-    def _export_postman(self):
-        rec = self._draft_record()
-        base = self._selected_base_url()
-        if not rec or not base:
-            show_warning(self, '草稿', '请选择请求并配置本地地址')
-            return
-        if not self._warn_sensitive_draft():
+    def _export_session_detail(self):
+        """导出选中或当前列表会话：URL + 请求/响应明文（能解则解，解不了则原文）。"""
+        from tools.iface_request_test import build_export_document, export_document_to_text
+        one = self._selected_record()
+        if one:
+            recs = [one]
+        else:
+            recs = list(self._filtered or self._records or [])
+        if not recs:
+            show_warning(self, '导出', '没有可导出的会话')
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, '导出 Postman Collection', 'pengtools_local_draft.json', 'JSON (*.json)',
+            self, '导出会话明细', 'pengtools_iface_session.json', 'JSON (*.json)',
         )
         if not path:
             return
         try:
-            payload = build_postman_collection(rec, base)
+            doc = build_export_document(recs)
             with open(path, 'w', encoding='utf-8') as stream:
-                stream.write(drafts_as_json_text(payload))
-            show_success(self, '草稿', f'已导出：{path}')
+                stream.write(export_document_to_text(doc))
+            tip = '（当前选中）' if one else '（当前列表）'
+            show_success(self, '导出', f'已导出 {len(doc.get("items") or [])} 条{tip}：{path}')
         except Exception as exc:
-            show_warning(self, '草稿', str(exc))
+            show_warning(self, '导出', str(exc))
 
-    def _copy_curl(self):
-        rec = self._draft_record()
-        base = self._selected_base_url()
-        if not rec or not base:
-            show_warning(self, '草稿', '请选择请求并配置本地地址')
+    def _rt_fill_from_selection(self, silent: bool = False):
+        rec = self._selected_record()
+        if not rec:
+            if not silent:
+                show_warning(self, '请求测试', '请先在左侧列表选择一条会话')
             return
-        if not self._warn_sensitive_draft():
+        from tools.iface_request_test import fill_request_form_from_item, plaintext_bodies
+        base = self._selected_base_url()
+        item = plaintext_bodies(rec)
+        form = fill_request_form_from_item(item, base)
+        self._rt_apply_form(form)
+        if not silent:
+            self.detail_tabs.setCurrentWidget(self.draft_page)
+            show_info(self, '请求测试', '已按抓包会话填充（Body 优先解密明文）')
+
+    def _rt_apply_form(self, form: dict):
+        if not form:
+            return
+        base = form.get('base_host') or 'http://localhost:18031'
+        self.rt_base_edit.setText(base)
+        method = (form.get('method') or 'GET').upper()
+        idx = self.rt_method.findText(method)
+        self.rt_method.setCurrentIndex(max(0, idx))
+        self.rt_url.setText(form.get('url') or '')
+        self.rt_headers.setPlainText(form.get('headers_text') or '')
+        self.rt_params.setPlainText(form.get('params_text') or '')
+        self.rt_body.setPlainText(form.get('body') or '')
+        sample = form.get('response_body_sample') or ''
+        if sample:
+            self.draft_preview.setPlainText(f'# 原响应参考（可忽略）\n{sample[:4000]}')
+
+    def _rt_send(self):
+        from tools.iface_request_test import (
+            RequestTestError, headers_dict_from_text, merge_url_with_params,
+            normalize_base_host, send_http_request,
+        )
+        try:
+            base = normalize_base_host(self.rt_base_edit.text())
+            self.rt_base_edit.setText(base)
+            url = (self.rt_url.text() or '').strip()
+            if not url:
+                raise RequestTestError('请填写 URL')
+            if '://' not in url:
+                url = base.rstrip('/') + '/' + url.lstrip('/')
+            url = merge_url_with_params(url, self.rt_params.toPlainText())
+            method = self.rt_method.currentText() or 'GET'
+            headers = headers_dict_from_text(self.rt_headers.toPlainText())
+            body = self.rt_body.toPlainText() or ''
+            self.loading.start_busy('正在发送本机请求…')
+            result = send_http_request(method, url, headers=headers, body=body)
+            self.loading.finish('请求完成')
+            lines = [
+                f'{method} {url}',
+                f'Status: {result.get("status")}',
+                f'OK: {result.get("ok")}',
+            ]
+            if result.get('error'):
+                lines.append(f'Error: {result.get("error")}')
+            lines.append('')
+            lines.append('—— Response Headers ——')
+            for k, v in (result.get('headers') or {}).items():
+                lines.append(f'{k}: {v}')
+            lines.append('')
+            lines.append('—— Body ——')
+            rbody = result.get('body') or ''
+            kind, pretty, _err = pretty_body(rbody)
+            lines.append(pretty if pretty else rbody)
+            self.draft_preview.setPlainText('\n'.join(lines))
+        except RequestTestError as exc:
+            self.loading.fail(str(exc))
+            show_warning(self, '请求测试', str(exc))
+        except Exception as exc:
+            self.loading.fail(str(exc))
+            show_warning(self, '请求测试', str(exc))
+
+    def _rt_import_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, '导入会话明细', '', 'JSON (*.json);;All (*.*)',
+        )
+        if not path:
             return
         try:
-            QApplication.clipboard().setText(build_curl(rec, base))
-            show_success(self, '草稿', 'cURL 已复制')
-        except DraftError as exc:
-            show_warning(self, '草稿', str(exc))
+            with open(path, 'r', encoding='utf-8') as stream:
+                text = stream.read()
+            self._rt_import_text(text)
+        except Exception as exc:
+            show_warning(self, '导入', str(exc))
+
+    def _rt_import_text(self, text: str):
+        from tools.iface_request_test import (
+            RequestTestError, fill_request_form_from_item, parse_import_document,
+        )
+        try:
+            items = parse_import_document(text)
+        except RequestTestError as exc:
+            show_warning(self, '导入', str(exc))
+            return
+        item = items[0]
+        base = self._selected_base_url()
+        form = fill_request_form_from_item(item, base)
+        self._rt_apply_form(form)
+        self.detail_tabs.setCurrentWidget(self.draft_page)
+        show_success(self, '导入', f'已加载 {len(items)} 条中的第 1 条到请求测试')
+
+    def eventFilter(self, watched, event):
+        # 请求测试页拖入 JSON
+        if watched is getattr(self, 'draft_page', None):
+            et = event.type()
+            from PyQt6.QtCore import QEvent
+            if et == QEvent.Type.DragEnter:
+                md = event.mimeData()
+                if md and md.hasUrls():
+                    event.acceptProposedAction()
+                    return True
+            if et == QEvent.Type.Drop:
+                md = event.mimeData()
+                if md and md.hasUrls():
+                    for url in md.urls():
+                        path = url.toLocalFile()
+                        if path and path.lower().endswith('.json'):
+                            try:
+                                with open(path, 'r', encoding='utf-8') as stream:
+                                    self._rt_import_text(stream.read())
+                            except Exception as exc:
+                                show_warning(self, '导入', str(exc))
+                            event.acceptProposedAction()
+                            return True
+        return super().eventFilter(watched, event)
+
+    def _on_row_selected_hook_fill(self):
+        pass
+
+    def _refresh_draft_preview(self):
+        # 兼容旧调用：改为从选中会话填充请求测试
+        self._rt_fill_from_selection()
+
+    def _copy_postman(self):
+        show_info(self, '请求测试', '请使用「导出明细」或在请求测试中直接发送本机请求')
+
+    def _export_postman(self):
+        self._export_session_detail()
+
+    def _copy_curl(self):
+        from tools.iface_request_test import RequestTestError, plaintext_bodies, rewrite_url_with_base
+        rec = self._selected_record()
+        if not rec:
+            show_warning(self, '请求测试', '请先选择会话')
+            return
+        try:
+            base = self._selected_base_url()
+            item = plaintext_bodies(rec)
+            target = rewrite_url_with_base(item.get('url') or '', base)
+            method = (item.get('method') or 'GET').upper()
+            lines = [f'{method} {target}']
+            for k, v in (item.get('request_headers') or {}).items():
+                lines.append(f'{k}: {v}')
+            body = item.get('request_body') or ''
+            if body:
+                lines.extend(['', body])
+            QApplication.clipboard().setText('\n'.join(lines))
+            show_success(self, '请求测试', '已复制（Body 优先解密明文）')
+        except RequestTestError as exc:
+            show_warning(self, '请求测试', str(exc))
 
     def _add_local_target(self):
         from PyQt6.QtWidgets import QInputDialog
@@ -1989,7 +2152,7 @@ class InterfaceDebugPanel(QWidget):
         self.detail_tabs.setTabText(0, '概览' if zh else 'Overview')
         self.detail_tabs.setTabText(1, '请求' if zh else 'Request')
         self.detail_tabs.setTabText(2, '响应' if zh else 'Response')
-        self.detail_tabs.setTabText(3, '验证草稿' if zh else 'Draft')
+        self.detail_tabs.setTabText(3, '请求测试' if zh else 'Request Test')
         self.reveal_cb.setText('显示敏感内容' if zh else 'Reveal secrets')
         self.copy_safe_url_btn.setText('复制安全 URL' if zh else 'Copy safe URL')
         self.copy_req_btn.setText('复制请求' if zh else 'Copy request')
@@ -1998,19 +2161,24 @@ class InterfaceDebugPanel(QWidget):
         self.copy_resp_btn.setText('复制响应' if zh else 'Copy response')
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
-        self.draft_badge.setText('仅生成验证草稿 · 不发送请求' if zh else 'Draft only · no send')
-        self.target_label.setText('本地地址' if zh else 'Local base')
-        self.add_target_btn.setText('新增' if zh else 'Add')
-        self.edit_target_btn.setText('编辑' if zh else 'Edit')
-        self.del_target_btn.setText('删除' if zh else 'Delete')
-        self.include_auth_cb.setText(
-            '草稿携带 Authorization / Cookie' if zh else 'Include auth headers in draft'
+        self.draft_badge.setText(
+            '请求测试 · 仅本机 localhost · 可发送' if zh else
+            'Request test · localhost only · can send'
         )
-        self.gen_draft_btn.setText('生成草稿' if zh else 'Generate draft')
-        self.copy_postman_btn.setText('复制 Postman' if zh else 'Copy Postman')
-        self.export_postman_btn.setText('导出 Collection' if zh else 'Export')
-        self.copy_curl_btn.setText('复制 cURL' if zh else 'Copy cURL')
-        self.draft_hint.setText('不会发送请求' if zh else 'No HTTP send')
+        self.target_label.setText('本机地址' if zh else 'Local base')
+        if hasattr(self, 'rt_fill_btn'):
+            self.rt_fill_btn.setText('从会话填充' if zh else 'Fill from session')
+            self.rt_send_btn.setText('发送' if zh else 'Send')
+            self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
+            self.rt_import_btn.setText('导入明细' if zh else 'Import')
+            self.rt_resp_label.setText('响应' if zh else 'Response')
+        if hasattr(self, 'export_list_btn'):
+            self.export_list_btn.setText('导出明细' if zh else 'Export')
+        self.draft_hint.setText(
+            '本机地址默认 http://；自动替换 host。Body 优先解密明文。支持拖入导出 JSON。'
+            if zh else
+            'Localhost only. Body prefers decrypted plaintext. Drag-drop export JSON.'
+        )
         self._apply_mode_ui()
         labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN
         self.table.setHorizontalHeaderLabels([labels[k] for k in COLUMN_KEYS])

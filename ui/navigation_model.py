@@ -73,7 +73,7 @@ def _build_items() -> dict[int, NavItem]:
         9: ('每日日报与定时提醒', 'Daily reports and reminders'),
         10: ('需求归档、上线台账与工具联动', 'Requirement tracking and tool links'),
         11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
-        12: ('多浏览器接口实时排查与本地验证草稿', 'Multi-browser API capture and local draft only'),
+        12: ('多浏览器接口实时排查与本机请求测试', 'Multi-browser API capture and local request test'),
     }
     # 首页固定为底部入口；设置不进悬浮快捷位
     # 11 = 格式工具；12 = 接口排查（不改 0–10 历史含义）

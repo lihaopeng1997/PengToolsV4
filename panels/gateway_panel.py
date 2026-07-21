@@ -400,6 +400,23 @@ class GatewayDecodePanel(QWidget):
             except Exception:
                 pass
 
+    def set_cipher_and_key(self, cipher: str, key_cipher: str = ''):
+        """接口排查带入：报文 + SM4 Key 密文（有则覆盖 Key 框）。"""
+        self.payload_cipher.setPlainText(cipher or '')
+        key = (key_cipher or '').strip()
+        if key:
+            self.key_cipher.setPlainText(key)
+            zh = self.language == 'zh'
+            try:
+                self.json_viewer.json_status.setText(
+                    '已填入报文与 Key · 可直接点解密' if zh else
+                    'Payload + Key filled · ready to decrypt'
+                )
+            except Exception:
+                pass
+        else:
+            self.set_cipher_text(cipher or '')
+
     def _decrypt(self, direction):
         # 解密失败不得清空 Key / 环境 / 报文
         key_before = self.key_cipher.toPlainText()

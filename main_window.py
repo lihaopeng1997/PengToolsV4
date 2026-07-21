@@ -466,10 +466,17 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _open_gateway_from_iface(self, text: str):
+    def _open_gateway_from_iface(self, payload):
+        """接口排查送入：支持纯文本报文，或 dict{cipher,key}。"""
         self._show_panel(5)
         try:
-            self.gateway_panel.set_cipher_text(text or '')
+            if isinstance(payload, dict):
+                self.gateway_panel.set_cipher_and_key(
+                    payload.get('cipher') or payload.get('body') or '',
+                    payload.get('key') or payload.get('sm4_key_cipher') or '',
+                )
+            else:
+                self.gateway_panel.set_cipher_text(str(payload or ''))
         except Exception:
             pass
 
