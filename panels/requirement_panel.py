@@ -1215,6 +1215,9 @@ class RequirementPanel(QWidget):
         self.flag_chips_layout.setContentsMargins(0, 0, 0, 0)
         self.flag_chips_layout.setSpacing(6)
         self._flag_buttons = {}
+        self._layouting_flags = False
+        self._showing_requirement = False
+        self._refreshing_tree = False
         for key, short, full in FLAG_DEFS:
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
@@ -1222,12 +1225,17 @@ class RequirementPanel(QWidget):
             btn.setMinimumHeight(28)
             btn.setMaximumHeight(30)
             btn.setMinimumWidth(72)
+            btn.setFixedHeight(28)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
             self._flag_buttons[key] = btn
+            # 常驻布局，只 show/hide，避免点击时反复 takeAt/addWidget 触发 Qt 布局重入闪退
+            self.flag_chips_layout.addWidget(btn, 1)
             btn.hide()
+        self.flag_chips.setFixedHeight(28)
         flag_section_layout.addWidget(self.flag_chips)
+        self.flag_section.setFixedHeight(18 + 3 + 28)
         self.flag_section.hide()
         card.addWidget(self.flag_section, 0)
         self.detail_card.installEventFilter(self)
@@ -1502,41 +1510,36 @@ class RequirementPanel(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay()
-        self._layout_flag_chips()
+        # 标记按钮已常驻单行布局，resize 不再反复拆装，避免重入闪退
+
+    @staticmethod
+    def _tree_item_alive(item) -> bool:
+        """PyQt 树节点在 clear/重建后可能变成已删除的 sip 包装。"""
+        if item is None:
+            return False
+        try:
+            from PyQt6 import sip
+            if sip.isdeleted(item):
+                return False
+        except Exception:
+            pass
+        try:
+            item.data(0, Qt.ItemDataRole.UserRole)
+            return True
+        except RuntimeError:
+            return False
 
     def _layout_flag_chips(self):
-        """完成标记最多 4 个，始终单行均分展示。"""
-        if not hasattr(self, 'flag_chips_layout'):
+        """完成标记最多 4 个，始终单行；仅同步 section 显隐，不拆装布局。"""
+        if not hasattr(self, 'flag_chips_layout') or getattr(self, '_layouting_flags', False):
             return
-        while self.flag_chips_layout.count():
-            item = self.flag_chips_layout.takeAt(0)
-            if item and item.widget():
-                pass
-        visible = [
-            self._flag_buttons[key]
-            for key, _s, _f in FLAG_DEFS
-            if not self._flag_buttons[key].isHidden()
-        ][:4]
-        if not visible:
+        self._layouting_flags = True
+        try:
+            has_visible = any(not btn.isHidden() for btn in self._flag_buttons.values())
             if hasattr(self, 'flag_section'):
-                self.flag_section.hide()
-            return
-        for btn in visible:
-            btn.setMinimumWidth(72)
-            btn.setMinimumHeight(28)
-            btn.setMaximumHeight(30)
-            btn.setFixedHeight(28)
-            btn.show()
-            self.flag_chips_layout.addWidget(btn, 1)
-        self.flag_chips.setFixedHeight(28)
-        self.flag_chips_layout.activate()
-        self.flag_chips.updateGeometry()
-        if hasattr(self, 'flag_section'):
-            # 标题行 + 间距 + 单行 chip
-            self.flag_section.setFixedHeight(18 + 3 + 28)
-            self.flag_section.updateGeometry()
-            if hasattr(self, 'detail_card'):
-                self.detail_card.updateGeometry()
+                self.flag_section.setVisible(has_visible)
+        finally:
+            self._layouting_flags = False
 
     def set_language(self, language):
         self.language = language
@@ -1573,7 +1576,17 @@ class RequirementPanel(QWidget):
         return self._current is not None
 
     def _refresh(self):
-        if not hasattr(self, 'requirement_list'): return
+        if not hasattr(self, 'requirement_list'):
+            return
+        if getattr(self, '_refreshing_tree', False):
+            return
+        self._refreshing_tree = True
+        try:
+            self._refresh_impl()
+        finally:
+            self._refreshing_tree = False
+
+    def _refresh_impl(self):
         from tools.pinyin_search import match_query
         query = self.search_edit.text().strip()
         current_id = self._current.get('id') if self._current else None
@@ -1584,7 +1597,12 @@ class RequirementPanel(QWidget):
         elif not query and self._search_expand_snapshot is not None:
             # 将在填充后恢复
             pass
-        self.requirement_list.clear()
+        # 阻断 clear 触发的 currentItemChanged，避免访问已删除节点闪退
+        self.requirement_list.blockSignals(True)
+        try:
+            self.requirement_list.clear()
+        finally:
+            self.requirement_list.blockSignals(False)
         visible = []
         for requirement in self._requirements:
             if query and not match_query(requirement_search_text(requirement), query):
@@ -1703,12 +1721,18 @@ class RequirementPanel(QWidget):
         self._fit_requirement_code_column()
         # 有搜索词时优先定位第一条匹配；无搜索时尽量保持当前选中
         pick = first_item if query else (selected_item or first_item)
-        if pick:
-            self.requirement_list.setCurrentItem(pick)
-            parent = pick.parent()
-            if parent is not None:
-                parent.setExpanded(True)
-            self.requirement_list.scrollToItem(pick)
+        if pick and self._tree_item_alive(pick):
+            self.requirement_list.blockSignals(True)
+            try:
+                self.requirement_list.setCurrentItem(pick)
+                parent = pick.parent()
+                if parent is not None and self._tree_item_alive(parent):
+                    parent.setExpanded(True)
+                self.requirement_list.scrollToItem(pick)
+            finally:
+                self.requirement_list.blockSignals(False)
+            # 整树重建后需要重新加载文件库；信号已阻断，此处显式刷新
+            self._show_requirement(pick, refresh_files=True)
         else:
             self._show_requirement(None)
         self._on_requirement_selection_changed()
@@ -1743,8 +1767,17 @@ class RequirementPanel(QWidget):
     def _selected_requirements(self):
         selected = []
         seen = set()
-        for item in self.requirement_list.selectedItems():
-            requirement = item.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            items = list(self.requirement_list.selectedItems())
+        except RuntimeError:
+            items = []
+        for item in items:
+            if not self._tree_item_alive(item):
+                continue
+            try:
+                requirement = item.data(0, Qt.ItemDataRole.UserRole)
+            except RuntimeError:
+                continue
             requirement_id = requirement.get('id') if isinstance(requirement, dict) else None
             if requirement_id and requirement_id not in seen:
                 selected.append(requirement); seen.add(requirement_id)
@@ -1869,7 +1902,9 @@ class RequirementPanel(QWidget):
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
         save_requirements(self._requirements)
         self._current = target
-        self._refresh()
+        # 轻量刷新：只改标记与左侧徽章，避免整树 clear 导致点击闪退
+        self._apply_flag_ui(target)
+        self._patch_requirement_tree_item(target)
 
     def _set_all_flags_done(self, requirement, done_value):
         target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
@@ -1880,7 +1915,80 @@ class RequirementPanel(QWidget):
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
         save_requirements(self._requirements)
         self._current = target
-        self._refresh()
+        self._apply_flag_ui(target)
+        self._patch_requirement_tree_item(target)
+
+    def _apply_flag_ui(self, requirement):
+        """同步右侧完成标记按钮状态（不重建树）。"""
+        if not requirement or not hasattr(self, '_flag_buttons'):
+            return
+        done = normalize_flag_done(requirement)
+        active = {key for key, _s, _f in active_flags(requirement)}
+        for key, short, full in FLAG_DEFS:
+            btn = self._flag_buttons.get(key)
+            if btn is None:
+                continue
+            if key not in active:
+                btn.hide()
+                continue
+            is_done = bool(done.get(key))
+            btn.setText(flag_chip_text(key, is_done))
+            btn.setProperty('flagDone', 'true' if is_done else 'false')
+            try:
+                style = btn.style()
+                if style is not None:
+                    style.unpolish(btn)
+                    style.polish(btn)
+            except RuntimeError:
+                pass
+            btn.setToolTip(f'{full}\n点击切换完成状态：待完成 ↔ 已完成')
+            btn.show()
+        self.flag_section.setVisible(bool(active))
+        self._layout_flag_chips()
+
+    def _patch_requirement_tree_item(self, requirement):
+        """就地更新左侧树节点文案与 UserRole，避免 clear 重建。"""
+        if not requirement or not hasattr(self, 'requirement_list'):
+            return
+        rid = requirement.get('id')
+        if not rid:
+            return
+        try:
+            root_count = self.requirement_list.topLevelItemCount()
+        except RuntimeError:
+            return
+        for i in range(root_count):
+            group = self.requirement_list.topLevelItem(i)
+            if not self._tree_item_alive(group):
+                continue
+            for j in range(group.childCount()):
+                item = group.child(j)
+                if not self._tree_item_alive(item):
+                    continue
+                try:
+                    data = item.data(0, Qt.ItemDataRole.UserRole)
+                except RuntimeError:
+                    continue
+                if not isinstance(data, dict) or data.get('id') != rid:
+                    continue
+                requirement = normalize_requirement(requirement)
+                modified = requirement.get('source_modified_at') or requirement.get('updated_at', '')
+                modified_text = modified[:16].replace('T', ' ') if modified else '未知'
+                file_count = requirement.get('file_count', 0)
+                badge_text = flag_status_text(requirement)
+                title = (
+                    requirement.get('title')
+                    or os.path.basename(requirement.get('local_path', '').rstrip(os.sep))
+                    or '未命名'
+                )
+                code = str(requirement.get('code') or '').strip() or '未编号'
+                try:
+                    item.setText(0, code)
+                    item.setText(1, f"{title}\n{badge_text}  ·  {file_count}文件 · {modified_text}")
+                    item.setData(0, Qt.ItemDataRole.UserRole, requirement)
+                except RuntimeError:
+                    return
+                return
 
     def _rename_requirement_title(self):
         if not self._current:
@@ -1911,7 +2019,27 @@ class RequirementPanel(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _show_requirement(self, current, _previous=None, refresh_files=True):
-        self._current = current.data(0, Qt.ItemDataRole.UserRole) if current else None
+        # currentItemChanged 在树重建时可能传入已销毁节点
+        if getattr(self, '_showing_requirement', False):
+            return
+        if current is not None and not self._tree_item_alive(current):
+            current = None
+        self._showing_requirement = True
+        try:
+            self._show_requirement_impl(current, refresh_files=refresh_files)
+        except RuntimeError:
+            # sip 包装已删除等瞬时错误：忽略，避免闪退
+            return
+        finally:
+            self._showing_requirement = False
+
+    def _show_requirement_impl(self, current, refresh_files=True):
+        try:
+            self._current = current.data(0, Qt.ItemDataRole.UserRole) if current else None
+        except RuntimeError:
+            self._current = None
+        if self._current is not None and not isinstance(self._current, dict):
+            self._current = None
         for button in (self.delete_btn, self.edit_btn, self.daily_btn, self.docx_btn, self.sql_btn):
             button.setEnabled(bool(self._current))
         has_path = bool(self._current and self._current.get('local_path'))
@@ -1931,13 +2059,17 @@ class RequirementPanel(QWidget):
             if 'online' in self._detail_captions:
                 self._detail_captions['online'].setText('计划上线')
             for btn in self._flag_buttons.values():
-                btn.setVisible(False)
+                btn.hide()
             self.flag_section.hide()
             self.sql_preview.clear()
             if hasattr(self, 'sql_empty'):
                 self.sql_empty.show()
             self.svn_meta.clear()
-            self.file_tree.clear()
+            self.file_tree.blockSignals(True)
+            try:
+                self.file_tree.clear()
+            finally:
+                self.file_tree.blockSignals(False)
             return
 
         requirement = normalize_requirement(self._current)
@@ -1973,22 +2105,7 @@ class RequirementPanel(QWidget):
             self._detail_fields[key].setText(str(value))
             self._detail_fields[key].setToolTip(str(value))
 
-        # 完成标记：仅显示适用事项；可响应式换行
-        done = normalize_flag_done(requirement)
-        active = {key for key, _s, _f in active_flags(requirement)}
-        for key, short, full in FLAG_DEFS:
-            btn = self._flag_buttons[key]
-            if key not in active:
-                btn.setVisible(False)
-                continue
-            btn.setVisible(True)
-            is_done = bool(done.get(key))
-            btn.setText(flag_chip_text(key, is_done))
-            btn.setProperty('flagDone', 'true' if is_done else 'false')
-            btn.style().unpolish(btn); btn.style().polish(btn)
-            btn.setToolTip(f'{full}\n点击切换完成状态：待完成 ↔ 已完成')
-        self._layout_flag_chips()
-        self.flag_section.setVisible(bool(active))
+        self._apply_flag_ui(requirement)
 
         local_path = requirement.get('local_path') or ''
         if local_path:
@@ -2045,7 +2162,10 @@ class RequirementPanel(QWidget):
         if busy:
             self.loading.start_busy(message)
         else:
-            self._show_requirement(self.requirement_list.currentItem(), refresh_files=False)
+            current = self.requirement_list.currentItem()
+            if not self._tree_item_alive(current):
+                current = None
+            self._show_requirement(current, refresh_files=False)
 
     def eventFilter(self, watched, event):
         if watched is getattr(self, 'requirement_list', None) and event.type() == QEvent.Type.KeyPress:
@@ -2053,8 +2173,6 @@ class RequirementPanel(QWidget):
                 if self._selected_requirements():
                     self._delete_requirement()
                     return True
-        if watched is getattr(self, 'detail_card', None) and event.type() == QEvent.Type.Resize:
-            self._layout_flag_chips()
         return super().eventFilter(watched, event)
 
     def _start_task(self, message, function, arguments, success, show_loading=True, finish_label=None):
@@ -2230,7 +2348,12 @@ class RequirementPanel(QWidget):
         return path if path and os.path.isdir(path) else ''
 
     def _refresh_file_tree(self):
-        self.file_tree.clear()
+        if hasattr(self, 'file_tree'):
+            self.file_tree.blockSignals(True)
+            try:
+                self.file_tree.clear()
+            finally:
+                self.file_tree.blockSignals(False)
         self._file_entries_cache = []
         path = self._current_path()
         if not path:
@@ -2276,7 +2399,11 @@ class RequirementPanel(QWidget):
     def _populate_file_tree_from_cache(self):
         from tools.pinyin_search import build_search_blob, match_query
         from PyQt6.QtCore import QSize
-        self.file_tree.clear()
+        self.file_tree.blockSignals(True)
+        try:
+            self.file_tree.clear()
+        finally:
+            self.file_tree.blockSignals(False)
         entries = self._sorted_file_entries(list(self._file_entries_cache or []))
         query = self.file_search_edit.text().strip() if hasattr(self, 'file_search_edit') else ''
         req_meta = []
@@ -2378,27 +2505,46 @@ class RequirementPanel(QWidget):
 
     def _selected_file_paths(self):
         paths = []
-        for item in self.file_tree.selectedItems():
-            path = item.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            items = list(self.file_tree.selectedItems())
+        except RuntimeError:
+            items = []
+        for item in items:
+            if not self._tree_item_alive(item):
+                continue
+            try:
+                path = item.data(0, Qt.ItemDataRole.UserRole)
+            except RuntimeError:
+                continue
             if path and os.path.exists(path):
                 paths.append(path)
         return paths
 
     def _selected_svn_file(self):
-        item = self.file_tree.currentItem()
-        if not item or item.data(0, IS_DIR_ROLE):
+        item = self.file_tree.currentItem() if hasattr(self, 'file_tree') else None
+        if not self._tree_item_alive(item):
             return ''
-        path = item.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            if item.data(0, IS_DIR_ROLE):
+                return ''
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+        except RuntimeError:
+            return ''
         return path if path and os.path.isfile(path) else ''
 
     def _update_lock_buttons(self, *_args):
-        path = self._selected_svn_file() if hasattr(self, 'file_tree') else ''
-        relative = os.path.relpath(path, self._current_path()) if path and self._current_path() else ''
-        locked = bool(relative and self._current and relative in self._current.get('svn_locks', {}))
-        is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
-        if hasattr(self, 'lock_file_btn'):
-            self.lock_file_btn.setEnabled(is_svn and bool(path) and not locked)
-            self.unlock_file_btn.setEnabled(is_svn and bool(path) and locked)
+        try:
+            path = self._selected_svn_file() if hasattr(self, 'file_tree') else ''
+            relative = os.path.relpath(path, self._current_path()) if path and self._current_path() else ''
+            locked = bool(relative and self._current and relative in self._current.get('svn_locks', {}))
+            is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
+            if hasattr(self, 'lock_file_btn'):
+                self.lock_file_btn.setEnabled(is_svn and bool(path) and not locked)
+                self.unlock_file_btn.setEnabled(is_svn and bool(path) and locked)
+        except (RuntimeError, ValueError, OSError):
+            if hasattr(self, 'lock_file_btn'):
+                self.lock_file_btn.setEnabled(False)
+                self.unlock_file_btn.setEnabled(False)
 
     def _lock_selected_file(self):
         path = self._selected_svn_file()

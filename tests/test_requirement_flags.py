@@ -105,6 +105,43 @@ class RequirementFlagTests(unittest.TestCase):
                 self.assertGreaterEqual(chip.minimumHeight(), 28)
                 panel.close()
 
+    def test_flag_click_does_not_rebuild_tree_or_crash(self):
+        """标记点击只做轻量更新，反复点击不应因树节点销毁闪退。"""
+        from tools.requirements import normalize_requirement, flag_status_text
+        req = normalize_requirement({
+            'id': 'click1', 'title': '点击闪退回归', 'code': 'C-CRASH',
+            'has_sql': True, 'temporary_upgrade': True,
+            'needs_peripheral_upgrade': True, 'needs_interface_update': True,
+            'sql_parts': [], 'source_files': [],
+        })
+        with patch('panels.requirement_panel.load_requirements', return_value=[req]), \
+                patch('panels.requirement_panel.load_requirement_ui', return_value={
+                    'splitter_sizes': [320, 780], 'content_splitter_sizes': [160, 640],
+                }), \
+                patch('panels.requirement_panel.save_requirements') as save_mock, \
+                patch('panels.requirement_panel.save_requirement_ui'), \
+                patch('panels.requirement_panel.RequirementPanel._refresh_file_tree', lambda self: None):
+            panel = RequirementPanel('zh')
+            panel.resize(1100, 800)
+            panel.show()
+            self.app.processEvents()
+            panel._refresh()
+            self.app.processEvents()
+            root = panel.requirement_list.topLevelItem(0)
+            child = root.child(0)
+            panel.requirement_list.setCurrentItem(child)
+            panel._show_requirement(child, refresh_files=False)
+            self.app.processEvents()
+            old_child = child
+            for _ in range(12):
+                panel._on_flag_chip_clicked('has_sql')
+                self.app.processEvents()
+            # 轻量路径：原树节点仍有效，且会落盘
+            self.assertTrue(panel._tree_item_alive(old_child))
+            self.assertGreaterEqual(save_mock.call_count, 1)
+            self.assertIn('SQL', flag_status_text(panel._requirements[0]))
+            panel.close()
+
     def test_json_roundtrip_keeps_flags(self):
         with tempfile.TemporaryDirectory() as temp:
             path = os.path.join(temp, 'requirements.json')
