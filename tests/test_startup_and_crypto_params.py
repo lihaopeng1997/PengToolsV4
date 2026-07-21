@@ -176,9 +176,10 @@ class InterfaceDefaultModeTests(unittest.TestCase):
         from panels.interface_debug_panel import InterfaceDebugPanel
         p = InterfaceDebugPanel('zh')
         self.assertEqual(p._mode, 'proxy')
-        self.assertEqual(p.mode_combo.currentIndex(), 0)
-        self.assertIn('抓包', p.mode_combo.currentText())
-        self.assertTrue(p.browser_combo.isHidden() or not p.browser_combo.isVisible())
+        # 产品面只有抓包，不展示模式切换 / 证书 / 浏览器选择
+        self.assertTrue(p.mode_combo.isHidden())
+        self.assertTrue(p.browser_combo.isHidden())
+        self.assertTrue(p.ie_install_cert_btn.isHidden())
         self.assertIn('抓包', p.connect_btn.text())
 
     def test_ingest_merges_and_main_thread_safe(self):

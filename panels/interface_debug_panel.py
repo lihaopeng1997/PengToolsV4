@@ -135,10 +135,8 @@ class InterfaceDebugPanel(QWidget):
         self._channel_ready = False
         self._listen_started_at = 0.0
         self._last_request_at = 0.0
-        # 默认：HTTP/HTTPS 抓包（无需先选浏览器）
-        self._mode = str(self._prefs.get('listen_mode') or 'proxy')
-        if self._mode not in ('proxy', 'chromium', 'ie'):
-            self._mode = 'proxy'
+        # 只做 HTTP/HTTPS 抓包，不再提供模式切换（CDP/代理等对用户隐藏）
+        self._mode = 'proxy'
         self._reveal_sensitive = False
         self._show_static = bool(self._prefs.get('show_static'))
         self._selected_id = None
@@ -179,13 +177,13 @@ class InterfaceDebugPanel(QWidget):
         self.offline_pill.setObjectName('offline-pill')
         header, self.page_title, self.page_subtitle = make_page_header(
             '接口排查',
-            'HTTP/HTTPS 抓包 · 仅内存 · 草稿验证',
+            '抓 HTTP / HTTPS 请求 · 列表看 URL · 仅内存',
             'api-debug',
             trailing=self.offline_pill,
         )
         root.addWidget(header)
 
-        # 连接控制区
+        # 连接控制区：只要开始/停止抓包，不暴露模式/证书/代理术语
         conn = QFrame()
         apply_surface(conn, 'card')
         conn.setObjectName('iface-conn-zone')
@@ -193,57 +191,46 @@ class InterfaceDebugPanel(QWidget):
         cl.setContentsMargins(12, 10, 12, 10)
         cl.setSpacing(8)
 
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
+        # 兼容旧属性（隐藏，逻辑代码仍可引用）
         self.mode_label = QLabel()
-        row1.addWidget(self.mode_label)
+        self.mode_label.hide()
         self.mode_combo = QComboBox()
-        size_combo(self.mode_combo, 'md')
-        # 0 HTTP/HTTPS 抓包(默认) · 1 Chromium CDP 高级 · 2 IE 兼容抓包
         self.mode_combo.addItems(['HTTP/HTTPS 抓包', 'Chromium CDP（高级）', 'IE 抓包（兼容）'])
-        mode_index = {'proxy': 0, 'chromium': 1, 'ie': 2}.get(self._mode, 0)
-        self.mode_combo.blockSignals(True)
-        self.mode_combo.setCurrentIndex(mode_index)
-        self.mode_combo.blockSignals(False)
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        row1.addWidget(self.mode_combo)
+        self.mode_combo.setCurrentIndex(0)
+        self.mode_combo.hide()
         self.mode_hint = QLabel()
         self.mode_hint.setObjectName('field-hint')
         self.mode_hint.setWordWrap(True)
+        self.mode_hint.hide()
         self.browser_combo = QComboBox()
-        size_combo(self.browser_combo, 'lg')
-        self.browser_combo.setMinimumWidth(240)
-        self.browser_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        row1.addWidget(self.browser_combo, 1)
+        self.browser_combo.hide()
         self.refresh_browsers_btn = QPushButton()
-        apply_button(self.refresh_browsers_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
-        self.refresh_browsers_btn.clicked.connect(self._refresh_browsers)
-        row1.addWidget(self.refresh_browsers_btn)
+        self.refresh_browsers_btn.hide()
         self.pick_browser_btn = QPushButton()
-        apply_button(self.pick_browser_btn, 'secondary', compact=True, icon='folder-open', icon_size=16)
-        self.pick_browser_btn.clicked.connect(self._pick_browser)
-        row1.addWidget(self.pick_browser_btn)
-        cl.addLayout(row1)
-        cl.addWidget(self.mode_hint)
+        self.pick_browser_btn.hide()
+        self.launch_btn = QPushButton()
+        self.launch_btn.hide()
+        self.target_combo = QComboBox()
+        self.target_combo.hide()
+        self.port_label = QLabel()
+        self.port_label.hide()
+        self.port_edit = QLineEdit()
+        self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
+        self.port_edit.hide()
+        self.ie_install_cert_btn = QPushButton()
+        self.ie_install_cert_btn.hide()
+        self.ie_remove_cert_btn = QPushButton()
+        self.ie_remove_cert_btn.hide()
+        self.recheck_btn = QPushButton()
+        self.recheck_btn.hide()
+        self.conn_more_btn = QToolButton()
+        self.conn_more_btn.hide()
+        self._conn_more_menu = QMenu(self.conn_more_btn)
 
         row2 = QHBoxLayout()
         row2.setSpacing(8)
-        self.port_label = QLabel()
-        row2.addWidget(self.port_label)
-        self.port_edit = QLineEdit()
-        self.port_edit.setMaximumWidth(90)
-        # 默认通用代理端口
-        default_port = self._config.get('ie_proxy_port') or 8899
-        if self._mode == 'chromium':
-            default_port = self._config.get('debug_port') or 9222
-        self.port_edit.setText(str(default_port))
-        row2.addWidget(self.port_edit)
-        self.launch_btn = QPushButton()
-        apply_button(self.launch_btn, 'primary', compact=True, icon='external-open', icon_size=16)
-        self.launch_btn.clicked.connect(self._launch_browser)
-        row2.addWidget(self.launch_btn)
         self.connect_btn = QPushButton()
-        apply_button(self.connect_btn, 'secondary', compact=True, icon='unlock', icon_size=16)
+        apply_button(self.connect_btn, 'primary', compact=True, icon='external-open', icon_size=16)
         self.connect_btn.clicked.connect(self._connect_or_start)
         row2.addWidget(self.connect_btn)
         self.stop_btn = QPushButton()
@@ -251,36 +238,11 @@ class InterfaceDebugPanel(QWidget):
         self.stop_btn.clicked.connect(self._stop_listen)
         self.stop_btn.setEnabled(False)
         row2.addWidget(self.stop_btn)
-        self.recheck_btn = QPushButton()
-        apply_button(self.recheck_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
-        self.recheck_btn.clicked.connect(self._recheck_channel)
-        self.recheck_btn.hide()
-        row2.addWidget(self.recheck_btn)
         self.test_listen_btn = QPushButton()
         apply_button(self.test_listen_btn, 'ghost', compact=True, icon='terminal', icon_size=16)
         self.test_listen_btn.clicked.connect(self._test_listen_loopback)
         row2.addWidget(self.test_listen_btn)
-        self.target_combo = QComboBox()
-        size_combo(self.target_combo, 'lg')
-        self.target_combo.setMinimumWidth(180)
-        row2.addWidget(self.target_combo, 1)
-        self.ie_install_cert_btn = QPushButton()
-        apply_button(self.ie_install_cert_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
-        self.ie_install_cert_btn.clicked.connect(self._install_ie_cert)
-        self.ie_install_cert_btn.hide()
-        row2.addWidget(self.ie_install_cert_btn)
-        self.ie_remove_cert_btn = QPushButton()
-        apply_button(self.ie_remove_cert_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.ie_remove_cert_btn.clicked.connect(self._remove_ie_cert)
-        self.ie_remove_cert_btn.hide()
-        row2.addWidget(self.ie_remove_cert_btn)
-        self.conn_more_btn = QToolButton()
-        self.conn_more_btn.setObjectName('responsive-more-btn')
-        self.conn_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._conn_more_menu = QMenu(self.conn_more_btn)
-        self.conn_more_btn.setMenu(self._conn_more_menu)
-        self.conn_more_btn.hide()
-        row2.addWidget(self.conn_more_btn)
+        row2.addStretch(1)
         cl.addLayout(row2)
 
         self.status_label = QLabel()
@@ -820,58 +782,26 @@ class InterfaceDebugPanel(QWidget):
         return {0: 'proxy', 1: 'chromium', 2: 'ie'}.get(int(index), 'proxy')
 
     def _apply_mode_ui(self):
+        """界面只保留抓包；其它入口一律隐藏。"""
         zh = self.language == 'zh'
-        proxy_like = self._mode in ('proxy', 'ie')
-        cdp = self._mode == 'chromium'
-        self.browser_combo.setVisible(cdp)
-        self.refresh_browsers_btn.setVisible(cdp)
-        self.pick_browser_btn.setVisible(cdp)
-        self.launch_btn.setVisible(cdp)
-        self.target_combo.setVisible(cdp)
-        if self._mode == 'proxy':
-            self.port_label.setText('抓包端口' if zh else 'Capture port')
-            self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
-            self.mode_hint.setText(
-                'HTTP/HTTPS 数据包抓取（Fiddler 同款 MITM）：在 127.0.0.1 起本地代理，'
-                '开始后临时改系统代理并关闭 PAC；浏览器访问业务页即可抓到 method/url/status。'
-                'HTTPS 需先「安装证书」。停止后自动恢复代理，报文只存内存。'
-                if zh else
-                'HTTP/HTTPS MITM capture on 127.0.0.1; install CA for HTTPS; memory-only records.'
-            )
-        elif self._mode == 'ie':
-            self.port_label.setText('抓包端口' if zh else 'Capture port')
-            self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
-            self.mode_hint.setText(
-                '与默认抓包相同：本机 MITM 数据包抓取 + 系统代理；适用于 IE / 走系统代理的客户端。'
-                if zh else
-                'Same MITM capture path for IE / system-proxy clients.'
-            )
-        else:
-            self.port_label.setText('调试端口' if zh else 'Debug port')
-            self.port_edit.setText(str(self._config.get('debug_port') or 9222))
-            self.mode_hint.setText(
-                '高级：Chromium CDP。可手选 EXE、启动独立调试浏览器或连接已有 127.0.0.1 调试端口。Firefox 首版不支持。'
-                if zh else
-                'Advanced Chromium CDP. Firefox is not supported in v1.'
-            )
-        self.ie_install_cert_btn.setVisible(proxy_like)
-        self.ie_remove_cert_btn.setVisible(proxy_like)
-        self.connect_btn.setText(
-            ('开始抓包' if zh else 'Start capture')
-            if self._mode != 'ie' else
-            ('开始 IE 抓包' if zh else 'Start IE capture')
-        )
+        self._mode = 'proxy'
+        for w in (
+            self.mode_label, self.mode_combo, self.mode_hint,
+            self.browser_combo, self.refresh_browsers_btn, self.pick_browser_btn,
+            self.launch_btn, self.target_combo, self.port_label, self.port_edit,
+            self.ie_install_cert_btn, self.ie_remove_cert_btn, self.recheck_btn,
+            self.conn_more_btn,
+        ):
+            if w is not None:
+                w.hide()
+        self.connect_btn.setText('开始抓包' if zh else 'Start capture')
+        self.stop_btn.setText('停止抓包' if zh else 'Stop')
         self._update_empty_hint()
 
     def _on_mode_changed(self, index):
-        if self._listening:
-            self._stop_listen()
-        self._mode = self._mode_from_index(index)
-        self._prefs['listen_mode'] = self._mode
-        update_ui_prefs({'listen_mode': self._mode})
+        # 模式切换已取消，固定抓包
+        self._mode = 'proxy'
         self._apply_mode_ui()
-        self.clear_session()
-        self.apply_layout_mode(self._layout_mode, False)
 
     # ── 连接 / 监听 ──────────────────────────────────
     def _launch_browser(self):
@@ -929,10 +859,27 @@ class InterfaceDebugPanel(QWidget):
         self.target_combo.blockSignals(False)
 
     def _connect_or_start(self):
-        if self._mode == 'chromium':
-            self._connect_cdp()
-        else:
-            self._start_local_proxy(ie_mode=(self._mode == 'ie'))
+        # 产品面只有抓包一条路
+        self._mode = 'proxy'
+        self._start_local_proxy(ie_mode=False)
+
+    def _ensure_capture_ready_silently(self):
+        """HTTPS 解密所需 CA：启动时静默准备，不打扰用户。"""
+        try:
+            ensure_mitm_ca_exists = __import__(
+                'tools.ie_proxy', fromlist=['ensure_mitm_ca_exists']
+            ).ensure_mitm_ca_exists
+            ensure_mitm_ca_exists()
+        except Exception:
+            pass
+        try:
+            cfg = load_interface_debug_config()
+            if not (cfg.get('ie_certificate_thumbprint') or '').strip():
+                install_user_root_cert()
+                self._config = load_interface_debug_config()
+        except Exception:
+            # 证书失败时 HTTP 仍可抓；HTTPS 可能只有 host
+            pass
 
     def _connect_cdp(self):
         port = self._current_port()
@@ -1024,35 +971,15 @@ class InterfaceDebugPanel(QWidget):
 
     def _start_local_proxy(self, ie_mode: bool = False):
         zh = self.language == 'zh'
-        title = '启用 HTTP/HTTPS 数据包抓取' if zh else 'Start HTTP/HTTPS capture'
-        body = (
-            '将按 Fiddler 同款方式抓取本机 HTTP/HTTPS 数据包：\n'
-            '1. 在 127.0.0.1 启动本地 MITM 代理\n'
-            '2. 临时修改当前用户系统代理，并关闭 PAC/自动检测\n'
-            '3. 列表展示 URL / 方法 / 状态等（报文仅内存）\n'
-            'HTTPS 请先安装本机证书。停止后自动恢复代理，不会监听局域网。'
-            if zh else
-            'Fiddler-style local MITM on 127.0.0.1; memory-only URL records.'
-        )
-        if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
-            ok = confirm_action(
-                self,
-                title,
-                body,
-                confirm_text='开始抓取' if zh else 'Start',
-                danger=True,
-            )
-            if not ok:
-                return
+        title = '开始抓包' if zh else 'Start capture'
         port = self._current_port()
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
-        self.loading.start_busy(
-            '正在启动 HTTP/HTTPS 抓包引擎…' if zh else 'Starting capture engine…'
-        )
-        source = 'ie_proxy' if ie_mode else 'http_capture'
+        self.loading.start_busy('正在开始抓包…' if zh else 'Starting capture…')
+        # HTTPS 解密准备：静默，不出现「安装证书」按钮
+        self._ensure_capture_ready_silently()
+        source = 'http_capture'
         try:
-            # 新引擎：tools.http_capture.HttpCaptureWorker（IeProxyWorker 为其别名）
             from tools.http_capture import HttpCaptureWorker
             worker = HttpCaptureWorker(
                 port=port,
@@ -1074,10 +1001,7 @@ class InterfaceDebugPanel(QWidget):
                 QApplication.processEvents()
                 time.sleep(0.05)
             if not getattr(worker, 'ready', False):
-                err = (
-                    '抓包引擎未在时限内就绪（端口占用、证书或 mitmproxy 依赖问题）。'
-                    '请检查端口是否空闲，并确认已安装 mitmproxy。'
-                )
+                err = '抓包未就绪（端口可能被占用）。请关闭占用后重试。'
                 try:
                     worker.stop()
                 except Exception:
@@ -1086,11 +1010,8 @@ class InterfaceDebugPanel(QWidget):
                 self.loading.fail(err)
                 show_warning(self, title, err)
                 return
-            label = (
-                f'HTTP/HTTPS 抓包中 · 127.0.0.1:{port} · 系统代理已接管 · 停止后自动恢复'
-            )
-            self._mark_listen_success(label)
-            self.loading.finish('抓包通道已建立' if zh else 'Capture ready')
+            self._mark_listen_success('抓包中 · 打开浏览器访问业务页即可看到 URL 列表')
+            self.loading.finish('抓包已开始' if zh else 'Capture started')
         except Exception as exc:
             self.loading.fail(str(exc))
             show_warning(self, title, str(exc))
@@ -1316,31 +1237,28 @@ class InterfaceDebugPanel(QWidget):
 
     def _set_listening_ui(self, active: bool):
         self.connect_btn.setEnabled(not active)
-        self.launch_btn.setEnabled(not active and self._mode == 'chromium')
         self.stop_btn.setEnabled(active)
-        self.mode_combo.setEnabled(not active)
-        if not active:
+        if hasattr(self, 'launch_btn') and self.launch_btn is not None:
+            self.launch_btn.setEnabled(False)
+            self.launch_btn.hide()
+        if hasattr(self, 'mode_combo') and self.mode_combo is not None:
+            self.mode_combo.hide()
+        if not active and hasattr(self, 'recheck_btn'):
             self.recheck_btn.hide()
 
     def _update_empty_hint(self):
         zh = self.language == 'zh'
         if self._listening and self._channel_ready and not self._records:
             self.empty_hint.setText(
-                '抓包已建立，等待 HTTP/HTTPS 数据包…\n请用 Chrome / Edge / IE 打开业务页并操作；HTTPS 首次请点「安装证书」。'
+                '抓包中，等待请求…\n请用浏览器打开业务页面并操作，列表会显示 method / URL / 状态。'
                 if zh else
-                'Capture ready — waiting for HTTP/HTTPS packets.'
-            )
-        elif self._mode == 'chromium':
-            self.empty_hint.setText(
-                '暂无请求。高级模式：选择 Chromium → 启动或连接调试端口 → 在业务页中操作。'
-                if zh else
-                'No requests. Advanced CDP: pick Chromium, launch/connect, then use the page.'
+                'Capturing — open your browser and use the app; URL list will fill in.'
             )
         else:
             self.empty_hint.setText(
-                '暂无请求。模式选「HTTP/HTTPS 抓包」→ 点「开始抓包」→ 浏览器访问业务页即可出现 URL 列表。'
+                '点「开始抓包」，再用浏览器访问业务页，即可看到 HTTP/HTTPS 的 URL。'
                 if zh else
-                'No requests yet. Choose HTTP/HTTPS capture, Start, then browse as usual.'
+                'Click Start capture, then browse — HTTP/HTTPS URLs will appear here.'
             )
 
     def _confirm_clear_session(self):
@@ -1938,68 +1856,11 @@ class InterfaceDebugPanel(QWidget):
         sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
         if sizes and len(sizes) >= 2:
             self.mid_splitter.setSizes(sizes)
-        secondary = [
-            self.port_label, self.port_edit, self.target_combo,
-            self.refresh_browsers_btn, self.pick_browser_btn,
-            self.ie_install_cert_btn, self.ie_remove_cert_btn,
-        ]
-        self._conn_more_menu.clear()
-        zh = self.language == 'zh'
-        self.conn_more_btn.setText('更多' if zh else 'More')
-        proxy_like = self._mode in ('proxy', 'ie')
-        if mode == 'narrow':
-            for w in secondary + [self.browser_combo, self.launch_btn, self.mode_combo]:
-                if w is not None:
-                    w.hide()
-            self.connect_btn.show()
-            self.stop_btn.show()
-            self.conn_more_btn.show()
-            for label, slot in (
-                ('选择浏览器', self._pick_browser),
-                ('刷新识别', self._refresh_browsers),
-                ('启动调试浏览器', self._launch_browser),
-            ):
-                act = QAction(label if zh else label, self)
-                act.triggered.connect(slot)
-                self._conn_more_menu.addAction(act)
-            if proxy_like:
-                a1 = QAction('安装证书' if zh else 'Install CA', self)
-                a1.triggered.connect(self._install_ie_cert)
-                a2 = QAction('移除证书' if zh else 'Remove CA', self)
-                a2.triggered.connect(self._remove_ie_cert)
-                self._conn_more_menu.addAction(a1)
-                self._conn_more_menu.addAction(a2)
-            a3 = QAction('检查代理/重新连接' if zh else 'Recheck', self)
-            a3.triggered.connect(self._recheck_channel)
-            self._conn_more_menu.addAction(a3)
-        elif mode == 'compact':
-            for w in [self.port_label, self.port_edit, self.target_combo]:
-                w.hide()
-            self.browser_combo.setVisible(self._mode == 'chromium')
-            self.mode_combo.show()
-            self.launch_btn.setVisible(self._mode == 'chromium')
-            self.connect_btn.show()
-            self.stop_btn.show()
-            self.conn_more_btn.show()
-            a = QAction('端口与页面目标…' if zh else 'Port & targets…', self)
-            a.triggered.connect(lambda: show_info(
-                self, '连接', f'当前端口 {self._current_port()}。可在 Wide 模式下编辑端口与目标页。'
-            ))
-            self._conn_more_menu.addAction(a)
-            if proxy_like:
-                self.ie_install_cert_btn.hide()
-                self.ie_remove_cert_btn.hide()
-                a1 = QAction('安装证书', self)
-                a1.triggered.connect(self._install_ie_cert)
-                self._conn_more_menu.addAction(a1)
-        else:
-            self.conn_more_btn.hide()
-            self.mode_combo.show()
-            self._apply_mode_ui()
-            self.port_label.show()
-            self.port_edit.show()
-            self.connect_btn.show()
-            self.stop_btn.show()
+        # 任何断点都只保留抓包按钮，不恢复模式/证书入口
+        self._apply_mode_ui()
+        self.connect_btn.show()
+        self.stop_btn.show()
+        self.test_listen_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
             edit.setMinimumHeight(editor_min_height())
 
@@ -2009,30 +1870,16 @@ class InterfaceDebugPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('接口排查' if zh else 'API Debug')
         self.page_subtitle.setText(
-            'HTTP/HTTPS 抓包 · 仅内存 · 草稿验证' if zh else
-            'HTTP/HTTPS capture · in-memory · draft only'
+            '抓 HTTP / HTTPS 请求 · 列表看 URL · 仅内存' if zh else
+            'Capture HTTP/HTTPS · URL list · memory only'
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
-        self.mode_label.setText('模式' if zh else 'Mode')
-        self.mode_combo.setItemText(0, 'HTTP/HTTPS 抓包' if zh else 'HTTP/HTTPS capture')
-        self.mode_combo.setItemText(1, 'Chromium CDP（高级）' if zh else 'Chromium CDP')
-        self.mode_combo.setItemText(2, 'IE 抓包（兼容）' if zh else 'IE capture')
-        self.refresh_browsers_btn.setText('刷新' if zh else 'Refresh')
-        self.pick_browser_btn.setText('选择 EXE' if zh else 'Browse…')
-        self.launch_btn.setText('启动调试浏览器' if zh else 'Launch')
-        self.connect_btn.setText(
-            ('开始 IE 抓包' if self._mode == 'ie' else '开始抓包') if zh else
-            ('Start IE capture' if self._mode == 'ie' else 'Start capture')
-        )
-        self.stop_btn.setText('停止' if zh else 'Stop')
-        self.recheck_btn.setText('检查代理/重新连接' if zh else 'Recheck')
-        self.test_listen_btn.setText('测试抓包' if zh else 'Test')
+        self.connect_btn.setText('开始抓包' if zh else 'Start capture')
+        self.stop_btn.setText('停止抓包' if zh else 'Stop')
+        self.test_listen_btn.setText('测试' if zh else 'Test')
         self.test_listen_btn.setToolTip(
-            '对本机 127.0.0.1 发起探测，验证抓包链路（不访问业务系统）' if zh else
-            'Loopback probe only — never hits business hosts'
+            '本机探测，确认抓包链路可用' if zh else 'Loopback probe'
         )
-        self.ie_install_cert_btn.setText('安装证书' if zh else 'Install CA')
-        self.ie_remove_cert_btn.setText('移除证书' if zh else 'Remove CA')
         self.filter_edit.setPlaceholderText(
             '搜索 URL / host / path / method / 状态…' if zh else
             'Search URL / host / path / method / status…'
