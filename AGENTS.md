@@ -36,12 +36,18 @@
 | `run.py` | 入口、高 DPI、QSS、主窗口 |
 | `main_window.py` | 导航、Stack、联动、托盘/关闭、彩蛋 |
 | `config.py` | `local_data_dir()`、系统/设置/需求 UI 等路径与默认值 |
-| `panels/` | 各导航模块 UI |
-| `tools/` | 无界面业务逻辑 |
+| `panels/` | 各导航模块 UI（界面层） |
+| `tools/` | 无界面业务逻辑（可单测） |
+| `ui/` | 主题/图标/响应式/弹窗等公共 UI |
 | `resources/` | QSS、图标、发版模板、学习种子 |
 | `data/` | 开发态用户数据（不得打进安装包） |
 | `tests/` | 定向测试 |
-| `PrivateInstaller/` | 私人包安装模板 |
+| `scripts/` | 构建脚本与开发工具（权威入口） |
+| `docs/` | 架构 / 交接 / UI 需求 |
+| `packaging/` | 安装布局说明（产物目录见 README） |
+| `PrivateInstaller/` | 私人包安装模板（本地构建用，gitignore） |
+
+依赖方向：`run → main_window → panels → tools|ui|config`；`ui` 不 import `panels/tools`；`tools` 不 import `panels`。
 
 ## 导航与 Stack（必须同步维护）
 
@@ -96,7 +102,8 @@
 ```powershell
 python -m pip install -r requirements.txt
 python run.py
-.\build_private_release.ps1
+.\scripts\build_private_release.ps1
+# 根目录 .\build_private_release.ps1 为同上便捷转发
 ```
 
 - GitHub 回滚规则：当前仓库远端固定为 `origin https://github.com/lihaopeng1997/PengToolsV4.git`，默认工作分支为 `main`。
