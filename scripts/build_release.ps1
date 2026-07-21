@@ -1,7 +1,14 @@
 $ErrorActionPreference = 'Stop'
 
 # 脚本位于 scripts/，工程根为上一级
-$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) {
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $ScriptDir) {
+    $ScriptDir = (Get-Location).Path
+}
+$ProjectDir = (Resolve-Path (Join-Path $ScriptDir '..')).Path
 $DistDir = Join-Path $ProjectDir 'dist'
 $InstallerDir = Join-Path $ProjectDir 'Installer'
 

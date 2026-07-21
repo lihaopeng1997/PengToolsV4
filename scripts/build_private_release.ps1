@@ -1,7 +1,17 @@
 $ErrorActionPreference = 'Stop'
 
-# 脚本位于 scripts/，工程根为上一级
-$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# 脚本位于 scripts/，工程根为上一级（兼容 PSScriptRoot 为空的调用方式）
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) {
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $ScriptDir) {
+    $ScriptDir = (Get-Location).Path
+}
+$ProjectDir = (Resolve-Path (Join-Path $ScriptDir '..')).Path
+if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir 'run.py'))) {
+    throw "Project root not found from script dir: $ScriptDir"
+}
 $DistDir = Join-Path $ProjectDir 'dist'
 $InstallerDir = Join-Path $ProjectDir 'PrivateInstaller'
 $OriginalRelease = Join-Path $ProjectDir 'PengToolsHub_Offline_Setup.zip'
