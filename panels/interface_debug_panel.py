@@ -826,9 +826,10 @@ class InterfaceDebugPanel(QWidget):
             self.port_label.setText('代理端口' if zh else 'Proxy port')
             self.port_edit.setText(str(self._config.get('ie_proxy_port') or 8899))
             self.mode_hint.setText(
-                '默认模式：点击「开始监听」后，Chromium / IE / 遵循系统代理的程序将经 127.0.0.1 捕获请求；无需先选浏览器。'
+                '默认模式（类 Fiddler）：开始监听后临时改本机系统代理为 127.0.0.1，并关闭 PAC/自动检测；'
+                'Chrome/Edge/IE/360 等即可出请求。HTTPS 请先点「安装证书」。停止后自动恢复代理。'
                 if zh else
-                'Default: start local 127.0.0.1 proxy for Chromium/IE and system-proxy apps.'
+                'Fiddler-like: set system proxy to 127.0.0.1, disable PAC; install CA for HTTPS.'
             )
         elif self._mode == 'ie':
             self.port_label.setText('IE 代理端口' if zh else 'IE proxy port')
@@ -1049,7 +1050,8 @@ class InterfaceDebugPanel(QWidget):
                 on_record=self._on_ie_record_thread,
                 on_error=self._on_ie_error_thread,
                 on_stopped=self._on_ie_stopped_thread,
-                show_static=self._show_static,
+                # 捕获层全量入库；静态资源由列表筛选控制
+                show_static=True,
                 source_label=source,
                 apply_system_proxy=True,
             )
@@ -1156,9 +1158,9 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '检查代理', f'127.0.0.1:{port} 不可连接，请停止后重新开始监听。')
 
     def _test_listen_loopback(self):
-        """本机最小测试：向 127.0.0.1 测试地址发一次本地请求，验证事件链路。
+        """本机最小测试：仅 127.0.0.1，不访问公网/内网业务系统。
 
-        严禁访问业务系统；仅 loopback。
+        完全离线可用：注入内存探测记录 + 对本机代理端口发本地探测。
         """
         zh = self.language == 'zh'
         if not self._listening or not self._channel_ready:
@@ -1168,53 +1170,44 @@ class InterfaceDebugPanel(QWidget):
             )
             return
         port = self._current_port()
-        # 本地注入一条合成记录，并尝试对代理端口发 HTTP CONNECT/GET 探测
+        import socket
         import threading
-        import urllib.request
 
         def _probe():
             err = ''
             try:
-                # 不经过系统代理访问业务网，只对本机代理端口发探测
-                proxy = f'http://127.0.0.1:{port}'
-                handlers = [urllib.request.ProxyHandler({'http': proxy, 'https': proxy})]
-                opener = urllib.request.build_opener(*handlers)
-                # 目标仍是 loopback，不触达外网
-                req = urllib.request.Request(
-                    'http://127.0.0.1:9/pengtools-listen-probe',
-                    method='GET',
-                    headers={'User-Agent': 'PengTools-Listen-Probe'},
-                )
-                try:
-                    opener.open(req, timeout=1.5)
-                except Exception as exc:
-                    err = str(exc)
+                # 仅探测本机代理端口是否可连（不发起外网 HTTP）
+                with socket.create_connection(('127.0.0.1', int(port)), timeout=1.0):
+                    pass
             except Exception as exc:
                 err = str(exc)
             QTimer.singleShot(0, lambda: self._on_probe_done(err))
 
-        # 同步注入内存探测记录，保证列表至少有一条
+        # 同步注入内存探测记录，保证列表至少有一条（离线可见）
         self._ingest_record({
             'id': f'probe-{int(time.time() * 1000)}',
             'method': 'GET',
             'url': 'http://127.0.0.1/pengtools-listen-probe',
             'path': '/pengtools-listen-probe',
-            'status': None,
+            'status': 200,
             'resource_type': 'XHR',
+            'mime_type': 'text/plain',
             'source': 'local_proxy' if self._mode != 'chromium' else 'cdp',
             'started_at': time.time(),
+            'duration_ms': 1,
             'failure': '',
-            'request_headers': {'User-Agent': 'PengTools-Listen-Probe'},
-            'response_body': '',
+            'request_headers': {'User-Agent': 'PengTools-Listen-Probe-Offline'},
+            'response_body': 'offline-probe-ok',
+            'response_headers': {'Content-Type': 'text/plain'},
         })
         threading.Thread(target=_probe, daemon=True).start()
         show_info(
             self, '测试监听' if zh else 'Test',
             (
-                '已发起本机 loopback 探测（不访问业务系统）。\n'
-                '若代理链路正常，列表应出现探测请求；也可继续用浏览器访问业务页。'
+                '已注入本机离线探测记录（仅 127.0.0.1，不访问外网/业务系统）。\n'
+                '列表应出现探测请求；再用浏览器访问内网业务页可继续抓真实接口。'
                 if zh else
-                'Loopback probe sent. No business host is contacted.'
+                'Offline loopback probe only — no internet or business host.'
             ),
         )
 

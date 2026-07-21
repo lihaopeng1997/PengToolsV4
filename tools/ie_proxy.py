@@ -41,11 +41,13 @@ def _wininet_refresh():
 
 
 def read_proxy_settings() -> dict:
-    """读取当前用户 Internet Settings 代理配置。"""
+    """读取当前用户 Internet Settings 代理配置（含 PAC/自动检测，Fiddler 同理需处理）。"""
     result = {
         'ProxyEnable': 0,
         'ProxyServer': '',
         'ProxyOverride': '',
+        'AutoConfigURL': '',
+        'AutoDetect': 0,
     }
     try:
         import winreg
@@ -53,7 +55,7 @@ def read_proxy_settings() -> dict:
             winreg.HKEY_CURRENT_USER,
             r'Software\Microsoft\Windows\CurrentVersion\Internet Settings',
         )
-        for name in ('ProxyEnable', 'ProxyServer', 'ProxyOverride'):
+        for name in ('ProxyEnable', 'ProxyServer', 'ProxyOverride', 'AutoConfigURL', 'AutoDetect'):
             try:
                 val, _ = winreg.QueryValueEx(key, name)
                 result[name] = val
@@ -84,6 +86,21 @@ def write_proxy_settings(settings: dict):
         override = str(settings.get('ProxyOverride') or '')
         winreg.SetValueEx(key, 'ProxyServer', 0, winreg.REG_SZ, server)
         winreg.SetValueEx(key, 'ProxyOverride', 0, winreg.REG_SZ, override)
+        # PAC / 自动检测：监听期间必须关闭，否则 Chrome/Edge 会忽略 ProxyServer
+        if 'AutoConfigURL' in settings:
+            pac = str(settings.get('AutoConfigURL') or '')
+            if pac:
+                winreg.SetValueEx(key, 'AutoConfigURL', 0, winreg.REG_SZ, pac)
+            else:
+                try:
+                    winreg.DeleteValue(key, 'AutoConfigURL')
+                except OSError:
+                    winreg.SetValueEx(key, 'AutoConfigURL', 0, winreg.REG_SZ, '')
+        if 'AutoDetect' in settings:
+            try:
+                winreg.SetValueEx(key, 'AutoDetect', 0, winreg.REG_DWORD, int(settings.get('AutoDetect') or 0))
+            except OSError:
+                pass
     finally:
         winreg.CloseKey(key)
     _wininet_refresh()
@@ -96,6 +113,8 @@ def backup_proxy_to_config() -> dict:
         'ProxyEnable': int(snap.get('ProxyEnable') or 0),
         'ProxyServer': str(snap.get('ProxyServer') or ''),
         'ProxyOverride': str(snap.get('ProxyOverride') or ''),
+        'AutoConfigURL': str(snap.get('AutoConfigURL') or ''),
+        'AutoDetect': int(snap.get('AutoDetect') or 0),
         'saved_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
     }
     save_interface_debug_config(cfg)
@@ -114,6 +133,8 @@ def restore_proxy_from_snapshot(snapshot: Optional[dict] = None) -> bool:
         'ProxyEnable': int(snap.get('ProxyEnable') or 0),
         'ProxyServer': str(snap.get('ProxyServer') or ''),
         'ProxyOverride': str(snap.get('ProxyOverride') or ''),
+        'AutoConfigURL': str(snap.get('AutoConfigURL') or ''),
+        'AutoDetect': int(snap.get('AutoDetect') or 0),
     })
     cfg = load_interface_debug_config()
     cfg['proxy_restore_snapshot'] = None
@@ -122,13 +143,16 @@ def restore_proxy_from_snapshot(snapshot: Optional[dict] = None) -> bool:
 
 
 def apply_local_proxy(port: int = 8899) -> dict:
-    """备份并设置 127.0.0.1 代理。"""
+    """备份并设置 127.0.0.1 代理（Fiddler 式：关 PAC/自动检测，强制显式代理）。"""
     port = max(1, min(65535, int(port or 8899)))
     snap = backup_proxy_to_config()
     write_proxy_settings({
         'ProxyEnable': 1,
         'ProxyServer': f'127.0.0.1:{port}',
-        'ProxyOverride': 'localhost;127.0.0.1;<local>',
+        # 勿把全部 <local> 排除业务网；仅绕过本机，避免误伤内网抓包
+        'ProxyOverride': '<-loopback>',
+        'AutoConfigURL': '',
+        'AutoDetect': 0,
     })
     return snap
 
@@ -345,50 +369,33 @@ def flow_to_record(flow) -> dict:
 
 
 class _CaptureAddon:
-    """request + response 两阶段均产出记录；不修改流量。"""
+    """request + response 两阶段均产出记录；不修改流量。
 
-    def __init__(self, out_queue: queue.Queue, show_static: bool = False, id_map: Optional[dict] = None):
+    捕获层默认全部入库，静态资源由 UI 筛选隐藏（对齐 Fiddler「先抓再滤」）。
+    """
+
+    def __init__(self, out_queue: queue.Queue, show_static: bool = True, id_map: Optional[dict] = None):
         self.out_queue = out_queue
         self.show_static = show_static
         self.id_map = id_map if id_map is not None else {}
 
     def _should_emit(self, url: str) -> bool:
-        if self.show_static:
-            return True
-        return not is_static_url(url or '')
+        # 捕获层始终放行；UI 再按 show_static 过滤
+        return True
+
+    def requestheaders(self, flow):
+        """尽早登记，防止仅有 CONNECT/失败时无记录。"""
+        self._emit(flow)
 
     def request(self, flow):
-        """请求阶段先入列表，避免「有监听无响应」时整条丢失。"""
-        try:
-            rec = flow_to_record(flow)
-            if not self._should_emit(rec.get('url') or ''):
-                return
-            # 尚无响应时标记进行中
-            if rec.get('status') is None and not rec.get('failure'):
-                rec['failure'] = ''
-            self.id_map[id(flow)] = rec['id']
-            self.out_queue.put(rec)
-        except Exception:
-            pass
+        self._emit(flow)
 
     def response(self, flow):
-        try:
-            rec = flow_to_record(flow)
-            if not self._should_emit(rec.get('url') or ''):
-                return
-            # 保持与 request 阶段同一 id，便于合并
-            prev = self.id_map.get(id(flow))
-            if prev:
-                rec['id'] = prev
-            self.out_queue.put(rec)
-        except Exception:
-            pass
+        self._emit(flow)
 
     def error(self, flow):
         try:
             rec = flow_to_record(flow)
-            if rec.get('url') and not self._should_emit(rec['url']):
-                return
             prev = self.id_map.get(id(flow))
             if prev:
                 rec['id'] = prev
@@ -396,6 +403,18 @@ class _CaptureAddon:
                 rec['failure'] = 'HTTPS 未解密：请安装本机抓包证书' if (
                     (rec.get('url') or '').startswith('https')
                 ) else 'proxy error'
+            self.id_map[id(flow)] = rec['id']
+            self.out_queue.put(rec)
+        except Exception:
+            pass
+
+    def _emit(self, flow):
+        try:
+            rec = flow_to_record(flow)
+            prev = self.id_map.get(id(flow))
+            if prev:
+                rec['id'] = prev
+            self.id_map[id(flow)] = rec['id']
             self.out_queue.put(rec)
         except Exception:
             pass
@@ -509,6 +528,7 @@ class IeProxyWorker:
                 pass
 
     def _run_master(self):
+        """运行 mitmproxy。DumpMaster.run 为 async，必须用事件循环驱动。"""
         try:
             from mitmproxy import options
             from mitmproxy.tools.dump import DumpMaster
@@ -519,36 +539,63 @@ class IeProxyWorker:
             self._ready.set()
             return
         confdir = mitm_cert_dir()
+        # 确保证书目录存在（HTTPS 解密）
         try:
-            # 强制仅 loopback，拒绝 0.0.0.0 / 局域网
+            ensure_mitm_ca_exists()
+        except Exception:
+            pass
+        try:
+            import asyncio
+            import socket
+
             listen_host = '127.0.0.1'
             opts = options.Options(
                 listen_host=listen_host,
                 listen_port=self.port,
                 confdir=confdir,
             )
+            # 尽量兼容不同 mitmproxy 版本的可选参数
+            for key, val in (
+                ('ssl_insecure', True),  # 上游自签证书不阻断抓包
+                ('http2', True),
+                ('websocket', True),
+            ):
+                try:
+                    opts.update(**{key: val})
+                except Exception:
+                    pass
+
             id_map: dict = {}
-            addon = _CaptureAddon(self._queue, show_static=self.show_static, id_map=id_map)
-            self._master = DumpMaster(opts, with_termlog=False, with_dumper=False)
+            # 捕获层全量入库，静态由 UI 滤
+            addon = _CaptureAddon(self._queue, show_static=True, id_map=id_map)
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._master = DumpMaster(opts, loop=loop, with_termlog=False, with_dumper=False)
             self._master.addons.add(addon)
 
-            # 在独立线程中 run，主线程轮询端口就绪
+            async def _async_run():
+                await self._master.run()
+
             def _run():
                 try:
-                    self._master.run()
+                    loop.run_until_complete(_async_run())
                 except Exception as exc:
                     if self.on_error and not self._stop.is_set():
-                        self.on_error(str(exc))
+                        self.on_error(f'mitmproxy 运行失败：{exc}')
+                finally:
+                    try:
+                        loop.close()
+                    except Exception:
+                        pass
 
             runner = threading.Thread(target=_run, name='ie-mitm-run', daemon=True)
             runner.start()
 
-            # 等待端口真正可连接
-            deadline = time.time() + 10.0
+            deadline = time.time() + 12.0
             bound = False
             while time.time() < deadline and not self._stop.is_set():
                 try:
-                    import socket
                     with socket.create_connection(('127.0.0.1', self.port), timeout=0.4):
                         bound = True
                         break
@@ -585,7 +632,6 @@ class IeProxyWorker:
                     return
 
             self._mark_ready()
-            # 阻塞直到 master 结束
             while runner.is_alive() and not self._stop.is_set():
                 runner.join(timeout=0.4)
             if self._stop.is_set():
@@ -594,7 +640,7 @@ class IeProxyWorker:
                         self._master.shutdown()
                 except Exception:
                     pass
-                runner.join(timeout=2.0)
+                runner.join(timeout=3.0)
         except Exception as exc:
             if self.on_error and not self._stop.is_set():
                 self.on_error(str(exc))

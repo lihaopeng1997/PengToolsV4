@@ -17,7 +17,7 @@ sys.path.insert(0, ROOT)
 class PinyinSearchTests(unittest.TestCase):
     def test_initials_and_match_chinese(self):
         from tools.pinyin_search import build_search_blob, match_query, pinyin_initials, backend_name
-        self.assertIn(backend_name(), ('pypinyin', 'builtin_initials'))
+        self.assertIn(backend_name(), ('pypinyin-local', 'offline-gbk-initials', 'pypinyin', 'builtin_initials'))
         # 车险承保 → cxcb（内置表）
         init = pinyin_initials('车险承保')
         self.assertTrue(init.startswith('c') or 'c' in init)

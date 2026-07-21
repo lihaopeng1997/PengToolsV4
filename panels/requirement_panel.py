@@ -4,15 +4,98 @@ import copy
 import os
 import re
 
-from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QThread, QTimer, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QKeySequence
+from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QRect, QSize, QThread, QTimer, QUrl, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFontMetrics, QKeySequence, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
+    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
+
+
+class _WrapTextDelegate(QStyledItemDelegate):
+    """树/列表名称列：完整换行展示，禁止半截省略。"""
+
+    def __init__(self, parent=None, min_height: int = 28, max_lines: int = 3):
+        super().__init__(parent)
+        self._min_height = min_height
+        self._max_lines = max_lines
+
+    def paint(self, painter, option, index):
+        self.initStyleOption(option, index)
+        option.textElideMode = Qt.TextElideMode.ElideNone
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ''
+        if not text:
+            super().paint(painter, option, index)
+            return
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget)
+        # 图标区
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        left = option.rect.left() + 4
+        if icon is not None and hasattr(icon, 'isNull') and not icon.isNull():
+            icon_size = option.decorationSize if option.decorationSize.isValid() else QSize(16, 16)
+            icon_rect = QRect(left, option.rect.top() + 4, icon_size.width(), icon_size.height())
+            icon.paint(painter, icon_rect)
+            left = icon_rect.right() + 6
+        text_rect = QRect(left, option.rect.top() + 2, option.rect.right() - left - 4, option.rect.height() - 4)
+        painter.save()
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.setPen(option.palette.highlightedText().color())
+        else:
+            painter.setPen(option.palette.text().color())
+        # 多行完整绘制
+        fm = QFontMetrics(option.font)
+        line_h = fm.lineSpacing()
+        y = text_rect.top()
+        # 按宽度拆行（手工 wrap，避免 elide）
+        remaining = str(text)
+        lines = 0
+        while remaining and lines < self._max_lines:
+            # 取当前行能放下的最长前缀
+            n = len(remaining)
+            lo, hi = 1, n
+            best = 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if fm.horizontalAdvance(remaining[:mid]) <= text_rect.width():
+                    best = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            chunk = remaining[:best]
+            remaining = remaining[best:]
+            painter.drawText(text_rect.left(), y + fm.ascent(), chunk)
+            y += line_h
+            lines += 1
+            if remaining and lines >= self._max_lines:
+                # 仍有剩余：完整写在 tooltip，不画半截省略号盖住关键编号
+                break
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or '')
+        width = option.rect.width() if option.rect.width() > 40 else 200
+        fm = QFontMetrics(option.font)
+        if not text:
+            return QSize(width, self._min_height)
+        # 估算行数
+        line_w = max(40, width - 28)
+        total = 0
+        line = ''
+        lines = 1
+        for ch in text:
+            if fm.horizontalAdvance(line + ch) > line_w:
+                lines += 1
+                line = ch
+            else:
+                line += ch
+            if lines >= self._max_lines:
+                break
+        h = max(self._min_height, lines * fm.lineSpacing() + 8)
+        return QSize(width, h)
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
@@ -987,13 +1070,17 @@ class RequirementPanel(QWidget):
         self.requirement_list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.requirement_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.requirement_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # 名称/标题列完整换行，禁止半截
+        self._req_title_delegate = _WrapTextDelegate(self.requirement_list, min_height=40, max_lines=3)
+        self.requirement_list.setItemDelegateForColumn(0, self._req_title_delegate)
+        self.requirement_list.setItemDelegateForColumn(1, self._req_title_delegate)
         tree_header = self.requirement_list.header()
         tree_header.setStretchLastSection(True)
-        tree_header.setMinimumSectionSize(72)
+        tree_header.setMinimumSectionSize(96)
         tree_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         tree_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         tree_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.requirement_list.setColumnWidth(0, 200)
+        self.requirement_list.setColumnWidth(0, 220)
         self.requirement_list.setDragEnabled(True); self.requirement_list.setAcceptDrops(True)
         self.requirement_list.setDropIndicatorShown(True); self.requirement_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.requirement_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1205,8 +1292,11 @@ class RequirementPanel(QWidget):
         self.file_tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.file_tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_tree.setMinimumHeight(180)
+        self._file_name_delegate = _WrapTextDelegate(self.file_tree, min_height=32, max_lines=3)
+        self.file_tree.setItemDelegateForColumn(0, self._file_name_delegate)
         self._file_sort_column = 0
         self._file_sort_order = Qt.SortOrder.AscendingOrder
         self._file_entries_cache = []
@@ -1216,18 +1306,20 @@ class RequirementPanel(QWidget):
         file_header.setHighlightSections(False)
         file_header.setSectionsMovable(False)
         file_header.setStretchLastSection(False)
-        file_header.setMinimumSectionSize(64)
+        file_header.setMinimumSectionSize(72)
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        # 名称列优先占宽（完整展示文件名）；路径可横向滚动查看
+        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         file_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         file_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         file_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        file_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        file_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         file_header.sectionClicked.connect(self._on_file_header_clicked)
-        self.file_tree.setColumnWidth(0, 220)
-        self.file_tree.setColumnWidth(1, 90)
-        self.file_tree.setColumnWidth(2, 140)
-        self.file_tree.setColumnWidth(3, 80)
+        self.file_tree.setColumnWidth(0, 280)
+        self.file_tree.setColumnWidth(1, 88)
+        self.file_tree.setColumnWidth(2, 130)
+        self.file_tree.setColumnWidth(3, 72)
+        self.file_tree.setColumnWidth(4, 200)
         for index in range(self.file_tree.columnCount()):
             self.file_tree.headerItem().setToolTip(
                 index, '拖动列分隔线可调列宽 · 点击列头排序 · 双击文件夹展开 · 双击文件打开 · 右键更多'
@@ -2209,6 +2301,13 @@ class RequirementPanel(QWidget):
             else:
                 shown += 1
         self.file_tree.expandAll()
+        # 名称列按内容放宽，避免半截；仍可手动拖窄
+        try:
+            self.file_tree.resizeColumnToContents(0)
+            w = self.file_tree.columnWidth(0)
+            self.file_tree.setColumnWidth(0, max(200, min(w + 24, 480)))
+        except Exception:
+            pass
         if hasattr(self, 'file_count_label'):
             total = len([e for e in (self._file_entries_cache or []) if not e.get('is_dir')])
             self.file_count_label.setText(f'{shown}/{total} 文件' if query else f'{total} 文件')
