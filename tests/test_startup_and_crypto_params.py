@@ -177,8 +177,9 @@ class InterfaceDefaultModeTests(unittest.TestCase):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(p._mode, 'proxy')
         self.assertEqual(p.mode_combo.currentIndex(), 0)
+        self.assertIn('抓包', p.mode_combo.currentText())
         self.assertTrue(p.browser_combo.isHidden() or not p.browser_combo.isVisible())
-        self.assertIn('开始监听', p.connect_btn.text())
+        self.assertIn('抓包', p.connect_btn.text())
 
     def test_ingest_merges_and_main_thread_safe(self):
         from panels.interface_debug_panel import InterfaceDebugPanel

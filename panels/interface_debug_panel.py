@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""接口排查中心：Fiddler 式工作台（Chromium CDP + IE 本机代理）。
+"""接口排查中心：HTTP/HTTPS 数据包抓取（MITM）+ Chromium CDP 高级模式。
 
 报文仅内存；只生成验证草稿，不发送业务请求。
 """
@@ -135,7 +135,7 @@ class InterfaceDebugPanel(QWidget):
         self._channel_ready = False
         self._listen_started_at = 0.0
         self._last_request_at = 0.0
-        # 默认：本机通用代理（无需先选浏览器）
+        # 默认：HTTP/HTTPS 抓包（无需先选浏览器）
         self._mode = str(self._prefs.get('listen_mode') or 'proxy')
         if self._mode not in ('proxy', 'chromium', 'ie'):
             self._mode = 'proxy'
@@ -179,7 +179,7 @@ class InterfaceDebugPanel(QWidget):
         self.offline_pill.setObjectName('offline-pill')
         header, self.page_title, self.page_subtitle = make_page_header(
             '接口排查',
-            '本机监听 · 仅内存 · 草稿验证',
+            'HTTP/HTTPS 抓包 · 仅内存 · 草稿验证',
             'api-debug',
             trailing=self.offline_pill,
         )
@@ -199,8 +199,8 @@ class InterfaceDebugPanel(QWidget):
         row1.addWidget(self.mode_label)
         self.mode_combo = QComboBox()
         size_combo(self.mode_combo, 'md')
-        # 0 本机通用代理(默认) · 1 Chromium CDP 高级 · 2 IE 兼容
-        self.mode_combo.addItems(['本机通用代理', 'Chromium CDP（高级）', 'IE 代理（兼容）'])
+        # 0 HTTP/HTTPS 抓包(默认) · 1 Chromium CDP 高级 · 2 IE 兼容抓包
+        self.mode_combo.addItems(['HTTP/HTTPS 抓包', 'Chromium CDP（高级）', 'IE 抓包（兼容）'])
         mode_index = {'proxy': 0, 'chromium': 1, 'ie': 2}.get(self._mode, 0)
         self.mode_combo.blockSignals(True)
         self.mode_combo.setCurrentIndex(mode_index)
@@ -857,9 +857,9 @@ class InterfaceDebugPanel(QWidget):
         self.ie_install_cert_btn.setVisible(proxy_like)
         self.ie_remove_cert_btn.setVisible(proxy_like)
         self.connect_btn.setText(
-            ('开始监听' if zh else 'Start')
+            ('开始抓包' if zh else 'Start capture')
             if self._mode != 'ie' else
-            ('启用 IE 监听' if zh else 'Start IE proxy')
+            ('开始 IE 抓包' if zh else 'Start IE capture')
         )
         self._update_empty_hint()
 
@@ -1326,9 +1326,9 @@ class InterfaceDebugPanel(QWidget):
         zh = self.language == 'zh'
         if self._listening and self._channel_ready and not self._records:
             self.empty_hint.setText(
-                '监听已建立，等待浏览器请求…\n请用 Chrome / Edge / IE 打开业务页并操作；HTTPS 首次请安装本机证书。'
+                '抓包已建立，等待 HTTP/HTTPS 数据包…\n请用 Chrome / Edge / IE 打开业务页并操作；HTTPS 首次请点「安装证书」。'
                 if zh else
-                'Listener ready — waiting for browser traffic.'
+                'Capture ready — waiting for HTTP/HTTPS packets.'
             )
         elif self._mode == 'chromium':
             self.empty_hint.setText(
@@ -1338,9 +1338,9 @@ class InterfaceDebugPanel(QWidget):
             )
         else:
             self.empty_hint.setText(
-                '暂无请求。点击「开始监听」后，在浏览器中访问业务页面即可捕获（默认无需选择浏览器）。'
+                '暂无请求。模式选「HTTP/HTTPS 抓包」→ 点「开始抓包」→ 浏览器访问业务页即可出现 URL 列表。'
                 if zh else
-                'No requests yet. Click Start, then browse as usual — no browser pick required.'
+                'No requests yet. Choose HTTP/HTTPS capture, Start, then browse as usual.'
             )
 
     def _confirm_clear_session(self):
@@ -2009,26 +2009,26 @@ class InterfaceDebugPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('接口排查' if zh else 'API Debug')
         self.page_subtitle.setText(
-            '本机监听 · 仅内存 · 草稿验证' if zh else
-            'Local capture · in-memory · draft only'
+            'HTTP/HTTPS 抓包 · 仅内存 · 草稿验证' if zh else
+            'HTTP/HTTPS capture · in-memory · draft only'
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
         self.mode_label.setText('模式' if zh else 'Mode')
-        self.mode_combo.setItemText(0, '本机通用代理' if zh else 'Local proxy')
+        self.mode_combo.setItemText(0, 'HTTP/HTTPS 抓包' if zh else 'HTTP/HTTPS capture')
         self.mode_combo.setItemText(1, 'Chromium CDP（高级）' if zh else 'Chromium CDP')
-        self.mode_combo.setItemText(2, 'IE 代理（兼容）' if zh else 'IE proxy')
+        self.mode_combo.setItemText(2, 'IE 抓包（兼容）' if zh else 'IE capture')
         self.refresh_browsers_btn.setText('刷新' if zh else 'Refresh')
         self.pick_browser_btn.setText('选择 EXE' if zh else 'Browse…')
         self.launch_btn.setText('启动调试浏览器' if zh else 'Launch')
         self.connect_btn.setText(
-            ('启用 IE 监听' if self._mode == 'ie' else '开始监听') if zh else
-            ('Start IE proxy' if self._mode == 'ie' else 'Start')
+            ('开始 IE 抓包' if self._mode == 'ie' else '开始抓包') if zh else
+            ('Start IE capture' if self._mode == 'ie' else 'Start capture')
         )
         self.stop_btn.setText('停止' if zh else 'Stop')
         self.recheck_btn.setText('检查代理/重新连接' if zh else 'Recheck')
-        self.test_listen_btn.setText('测试监听' if zh else 'Test')
+        self.test_listen_btn.setText('测试抓包' if zh else 'Test')
         self.test_listen_btn.setToolTip(
-            '对本机 127.0.0.1 发起探测，验证监听链路（不访问业务系统）' if zh else
+            '对本机 127.0.0.1 发起探测，验证抓包链路（不访问业务系统）' if zh else
             'Loopback probe only — never hits business hosts'
         )
         self.ie_install_cert_btn.setText('安装证书' if zh else 'Install CA')
