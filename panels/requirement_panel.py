@@ -140,6 +140,22 @@ IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 GROUP_MONTH_ROLE = int(Qt.ItemDataRole.UserRole) + 2
 
 
+def normalize_content_splitter_sizes(stored, total_h: int = 800) -> list[int]:
+    """上下分栏尺寸：尊重自定义；仅非法值兜底；无存储时按总高 3:7。"""
+    total_h = max(int(total_h or 800), 400)
+    if not stored:
+        return [int(total_h * 0.3), int(total_h * 0.7)]
+    try:
+        if not isinstance(stored, (list, tuple)) or len(stored) < 2:
+            return [int(total_h * 0.3), int(total_h * 0.7)]
+        top, bottom = int(stored[0]), int(stored[1])
+        if top <= 0 or bottom <= 0:
+            return [240, 560]
+        return [top, bottom]
+    except (TypeError, ValueError, IndexError):
+        return [240, 560]
+
+
 def format_online_month_label(month):
     """把 online_month 规范成“2026年6月”这类完整中文月份标题。"""
     text = str(month or '').strip()
@@ -1114,10 +1130,13 @@ class RequirementPanel(QWidget):
 
         # 需求信息：事项类型 / 进度状态 / 目标系统 / 动态上线字段
         self.detail_card = QFrame(); self.detail_card.setObjectName('detail-summary-card')
-        # 上区宜紧凑：不抢垂直空间，文件库默认占大头（约 7）
+        # 垂直 Preferred：允许 splitter 自由拖到 40%~50% 并持久化。
+        # （纯 Maximum 会以 sizeHint 为硬上限，拖动与存储大上区均失效）
+        # 内容不留白靠末尾 addStretch(1)；默认 3:7 靠 stretchFactor + setSizes。
         self.detail_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.detail_card.setMinimumHeight(120)
-        self.detail_card.setMaximumHeight(320)
+        self.detail_card.setMinimumHeight(100)
+        # 明确去掉 320 硬上限
+        self.detail_card.setMaximumHeight(16777215)
         card = QVBoxLayout(self.detail_card)
         card.setContentsMargins(10, 8, 10, 8)
         card.setSpacing(6)
@@ -1201,8 +1220,8 @@ class RequirementPanel(QWidget):
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMinimumHeight(26)
-            btn.setMaximumHeight(30)
+            btn.setMinimumHeight(30)
+            btn.setMaximumHeight(34)
             btn.setMinimumWidth(96)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
@@ -1212,6 +1231,7 @@ class RequirementPanel(QWidget):
         flag_section_layout.addWidget(self.flag_chips)
         self.flag_section.hide()
         card.addWidget(self.flag_section, 0)
+        card.addStretch(1)  # 多余高度由 stretch 吸收，内容上顶不留白
         self.detail_card.installEventFilter(self)
 
         # V2.0：右侧 Tabs 替代文件+SQL 纵向堆叠
@@ -1421,22 +1441,11 @@ class RequirementPanel(QWidget):
         if len(sizes) >= 2 and sizes[0] < 200:
             sizes = [330, max(520, sizes[1])]
         self.detail_splitter.setSizes(sizes)
-        # 内容上下：默认约 3:7（上摘要 / 下文件库）
-        content_sizes = list(requirement_ui.get('content_splitter_sizes') or [240, 560])
-        if len(content_sizes) < 2:
-            content_sizes = [240, 560]
-        # 旧数据若上区过大（上>=下），纠正为 3:7，避免完成标记与文件库空隙过大
-        try:
-            top, bottom = int(content_sizes[0]), int(content_sizes[1])
-            if top <= 0 or bottom <= 0 or top >= bottom:
-                content_sizes = [240, 560]
-            else:
-                # 上限：上区不超过总高度约 35%
-                total = top + bottom
-                if top > int(total * 0.35):
-                    content_sizes = [max(160, int(total * 0.30)), max(280, int(total * 0.70))]
-        except (TypeError, ValueError):
-            content_sizes = [240, 560]
+        # 内容上下：尊重用户自定义比例；仅非法值兜底；无存储时按总高 3:7
+        content_sizes = normalize_content_splitter_sizes(
+            requirement_ui.get('content_splitter_sizes'),
+            total_h=max(int(self.file_sql_splitter.height() or 0), 800),
+        )
         self.file_sql_splitter.setSizes(content_sizes)
         self._splitter_save_timer = QTimer(self)
         self._splitter_save_timer.setSingleShot(True)
@@ -1493,6 +1502,18 @@ class RequirementPanel(QWidget):
                 w = getattr(self, name, None)
                 if w is not None:
                     w.show()
+        # 上下分栏：保持 3:7 基线；compact/narrow 收紧上区
+        if hasattr(self, 'file_sql_splitter'):
+            self.file_sql_splitter.setChildrenCollapsible(False)
+            self.file_sql_splitter.setStretchFactor(0, 3)
+            self.file_sql_splitter.setStretchFactor(1, 7)
+            if mode in ('compact', 'narrow'):
+                cs = self.file_sql_splitter.sizes()
+                if len(cs) >= 2:
+                    top = min(cs[0], 200)  # 窄屏上区压缩到 200 以内
+                    top = max(top, 100)    # 不低于 minHeight
+                    bottom = max(cs[1], 200)
+                    self.file_sql_splitter.setSizes([top, bottom])
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1532,11 +1553,11 @@ class RequirementPanel(QWidget):
             columns = 1
         for index, btn in enumerate(visible):
             row, col = divmod(index, columns)
-            btn.setMinimumWidth(88 if columns >= 3 else (100 if columns == 2 else 96))
-            btn.setMinimumHeight(26)
-            btn.setMaximumHeight(30)
+            btn.setMinimumWidth(100 if columns >= 2 else 100)
+            btn.setMinimumHeight(30)
+            btn.setMaximumHeight(34)
             self.flag_chips_layout.addWidget(btn, row, col)
-            self.flag_chips_layout.setRowMinimumHeight(row, 28)
+            self.flag_chips_layout.setRowMinimumHeight(row, 34)
             self.flag_chips_layout.setRowStretch(row, 0)
             self.flag_chips_layout.setColumnStretch(col, 1)
         # 多余行不占 stretch

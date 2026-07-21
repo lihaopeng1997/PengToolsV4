@@ -380,10 +380,9 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
             self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
             self.assertFalse(panel.file_sql_splitter.isHidden())
-            # 上下分栏：文件库在下，默认占比应不小于摘要区（约 7:3）
-            content_sizes = panel.file_sql_splitter.sizes()
-            if len(content_sizes) >= 2 and sum(content_sizes) > 0:
-                self.assertGreaterEqual(content_sizes[1], content_sizes[0])
+            # 加载逻辑尊重 [340,230]（不再因上>下强制重置）；Qt Maximum 可能微调像素
+            from panels.requirement_panel import normalize_content_splitter_sizes
+            self.assertEqual(normalize_content_splitter_sizes([340, 230]), [340, 230])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()

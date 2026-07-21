@@ -784,8 +784,8 @@ QPushButton#flag-chip {
     padding: 4px 8px;
     font-weight: 600;
     font-size: 12px;
-    min-height: 26px;
-    max-height: 30px;
+    min-height: 30px;
+    max-height: 34px;
     min-width: 88px;
     text-align: left;
 }
