@@ -21,7 +21,7 @@
 - 运行代码中不引入 HTTP/WebSocket/浏览器内核/在线 CDN。
 - **Private 版唯一例外（接口排查 nav 12）**：允许本机 `127.0.0.1` 的 Chromium CDP（`websocket-client`）与 IE MITM 代理（`mitmproxy`，仅监听 loopback）。禁止连接远程 host、禁止把代理暴露到局域网。
 - 接口排查抓到的请求/响应/令牌/Cookie/密钥/明文 **只存内存**；禁止写日志与 JSON。停止抓包**保留会话**（可继续导出/请求测试）；仅「清空」按钮与应用退出调用 `clear_session()`。配置仅允许 `data/interface_debug.json`（路径、端口、本地地址、证书指纹、代理恢复快照）。
-- 请求测试仅允许发往本机 `localhost` / `127.0.0.1`；导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
+- 请求测试按用户在 `interface_debug.json` 保存的**环境 Base**（scheme://host:port）替换抓包 URL 的 host 后发送；可新增/编辑/删除环境。导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
 - IE 代理：启动前备份 WinINet 设置；停止/失败/退出必须恢复；证书仅删除配置中记录的指纹。
 - 接口草稿（Postman/cURL）只生成、不发送网络请求。
 - 当前工作主线是 **Private 私人版**；标准包 `PengToolsHub_Offline_Setup.zip` **禁止被私人功能改动**。

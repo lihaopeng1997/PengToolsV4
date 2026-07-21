@@ -33,7 +33,7 @@ class RequestTestError(ValueError):
 
 
 def normalize_base_host(text: str) -> str:
-    """localhost:18031 / http://localhost:18031 → http://localhost:18031"""
+    """环境 base：host:port / http://host:port → http(s)://host:port（允许用户保存的环境地址）。"""
     raw = (text or '').strip()
     if not raw:
         return 'http://localhost:18031'
@@ -41,16 +41,18 @@ def normalize_base_host(text: str) -> str:
         raw = 'http://' + raw
     parsed = urlparse(raw)
     if parsed.scheme not in ('http', 'https'):
-        raise RequestTestError('本地地址仅支持 http/https')
-    host = (parsed.hostname or '').lower()
-    if host not in ('localhost', '127.0.0.1', '::1'):
-        raise RequestTestError('请求测试仅允许访问本机 localhost / 127.0.0.1')
-    netloc = parsed.netloc or host
+        raise RequestTestError('环境地址仅支持 http/https')
+    if not parsed.hostname:
+        raise RequestTestError('环境地址缺少主机名')
+    # base 不允许带业务 path（path 来自抓包 URL）
+    if parsed.path and parsed.path not in ('', '/'):
+        raise RequestTestError('环境 base 请只填 scheme://host:port，不要带 path')
+    netloc = parsed.netloc or parsed.hostname
     return f'{parsed.scheme}://{netloc}'.rstrip('/')
 
 
 def rewrite_url_with_base(original_url: str, base_host: str) -> str:
-    """http://xxx:10110/a/b?x=1 + localhost:18031 → http://localhost:18031/a/b?x=1"""
+    """http://xxx:10110/a/b?x=1 + 环境 base → http://env/a/b?x=1"""
     base = normalize_base_host(base_host)
     src = urlparse(original_url or '')
     base_p = urlparse(base)
@@ -282,11 +284,10 @@ def send_http_request(
     body: str = '',
     timeout: float = 30.0,
 ) -> dict:
-    """发送 HTTP 请求（仅本机 host）。"""
+    """发送 HTTP 请求（按用户选择的环境 URL；仅 http/https）。"""
     parsed = urlparse(url or '')
-    host = (parsed.hostname or '').lower()
-    if host not in ('localhost', '127.0.0.1', '::1'):
-        raise RequestTestError('安全限制：请求测试只能发往 localhost / 127.0.0.1')
+    if not (parsed.hostname or '').strip():
+        raise RequestTestError('URL 缺少主机名')
     if parsed.scheme not in ('http', 'https'):
         raise RequestTestError('仅支持 http/https')
     method = (method or 'GET').upper()
@@ -300,8 +301,16 @@ def send_http_request(
         req.add_header(str(k), str(v))
     if data is not None and not any(str(k).lower() == 'content-type' for k in (headers or {})):
         req.add_header('Content-Type', 'application/json;charset=UTF-8')
+    # 内网自签证书常见：对 https 关闭证书校验（仅本工具请求测试）
+    context = None
+    if parsed.scheme == 'https':
+        try:
+            import ssl
+            context = ssl._create_unverified_context()
+        except Exception:
+            context = None
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
             raw = resp.read()
             try:
                 text = raw.decode('utf-8')

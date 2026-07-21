@@ -36,14 +36,14 @@ def _load_build_info():
 
 _BUILD_INFO = _load_build_info()
 APP_BUILD_DATE = str(_BUILD_INFO.get('build_date') or '2026-07-17')
-APP_VERSION_LABEL = f"V{_BUILD_INFO.get('version') or APP_VERSION}"
+# 界面展示用简写：V4 Private（避免 V4.27 Private · 日期 · 日期 冗余）
+_APP_MAJOR = str((_BUILD_INFO.get('version') or APP_VERSION) or '4').split('.')[0] or '4'
+APP_VERSION_LABEL = f'V{_APP_MAJOR}'
 
 
 def app_version_text(with_date=True):
-    base = f'{APP_VERSION_LABEL} {APP_EDITION}'
-    if with_date and APP_BUILD_DATE:
-        return f'{base} · {APP_BUILD_DATE}'
-    return base
+    """界面版本文案：固定为「V4 Private」。构建日期仅在关于/tooltip 单独展示。"""
+    return f'{APP_VERSION_LABEL} {APP_EDITION}'
 
 
 CONFIG_DIR = local_data_dir()

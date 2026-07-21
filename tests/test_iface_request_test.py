@@ -19,8 +19,12 @@ class IfaceRequestTestHelpers(unittest.TestCase):
         self.assertEqual(normalize_base_host('localhost:18031'), 'http://localhost:18031')
         self.assertEqual(normalize_base_host('http://127.0.0.1:9'), 'http://127.0.0.1:9')
         self.assertEqual(normalize_base_host(''), 'http://localhost:18031')
+        # 允许用户保存的环境地址（非本机）
+        self.assertEqual(normalize_base_host('http://uat.example.com:10110'), 'http://uat.example.com:10110')
         with self.assertRaises(RequestTestError):
-            normalize_base_host('http://example.com:80')
+            normalize_base_host('http://example.com:80/api')
+        with self.assertRaises(RequestTestError):
+            normalize_base_host('ftp://x')
 
     def test_rewrite_url_keeps_path_query(self):
         from tools.iface_request_test import rewrite_url_with_base
@@ -94,12 +98,12 @@ class IfaceRequestTestHelpers(unittest.TestCase):
         self.assertIn('y=8', url)
         self.assertNotIn('old=1', url)
 
-    def test_send_blocks_remote_host(self):
+    def test_send_rejects_bad_scheme(self):
         from tools.iface_request_test import RequestTestError, send_http_request
         with self.assertRaises(RequestTestError):
-            send_http_request('GET', 'http://example.com/a')
+            send_http_request('GET', 'ftp://example.com/a')
 
-    def test_send_localhost_ok(self):
+    def test_send_env_host_ok(self):
         from tools.iface_request_test import send_http_request
         class _Resp:
             status = 200
@@ -117,11 +121,13 @@ class IfaceRequestTestHelpers(unittest.TestCase):
             def __exit__(self, *a):
                 return False
 
-        with mock.patch('urllib.request.urlopen', return_value=_Resp()):
-            result = send_http_request('GET', 'http://127.0.0.1:18031/ping')
-        self.assertTrue(result['ok'])
-        self.assertEqual(result['status'], 200)
-        self.assertEqual(result['body'], 'hello')
+        with mock.patch('urllib.request.urlopen', return_value=_Resp()) as m:
+            result = send_http_request('GET', 'http://uat.internal:10110/ping')
+            self.assertTrue(result['ok'])
+            self.assertEqual(result['status'], 200)
+            self.assertEqual(result['body'], 'hello')
+            # 允许传入 context= 参数
+            self.assertTrue(m.called)
 
     def test_extract_sm4_key_from_header(self):
         from tools.iface_request_test import extract_sm4_key_cipher

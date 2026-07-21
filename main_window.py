@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         self._current_nav_index = 0
         self._layout_mode = 'standard'
         self._nav_icon_only = False
-        self.setWindowTitle(f'{APP_NAME} {app_version_text(with_date=False)}')
+        self.setWindowTitle(f'{APP_NAME} {app_version_text()}')
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
         self._center_on_screen()
@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         menu = self._user_menu
         menu.clear()
         zh = self.language == 'zh'
-        ver = menu.addAction(f'{app_version_text()} · {APP_BUILD_DATE}')
+        ver = menu.addAction(app_version_text())
         ver.setEnabled(False)
         menu.addSeparator()
         lang_menu = menu.addMenu('语言' if zh else 'Language')

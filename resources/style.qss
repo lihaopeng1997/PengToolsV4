@@ -506,19 +506,34 @@ QLabel[xmlStatus="ok"] {
     font-weight: 650;
 }
 
-QSplitter#requirement-splitter::handle:horizontal {
+QSplitter#requirement-splitter::handle:horizontal,
+QSplitter#iface-mid-splitter::handle:horizontal,
+QSplitter#gateway-splitter::handle:horizontal {
     width: 10px;
     margin: 6px 2px;
     background: __PRIMARY_SOFT__;
     border: 1px solid __BORDER_STRONG__;
     border-radius: 4px;
 }
-QSplitter#requirement-splitter::handle:horizontal:hover {
+QSplitter#requirement-splitter::handle:horizontal:hover,
+QSplitter#iface-mid-splitter::handle:horizontal:hover,
+QSplitter#gateway-splitter::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
 }
-QSplitter#requirement-splitter::handle:horizontal:pressed {
+QSplitter#requirement-splitter::handle:horizontal:pressed,
+QSplitter#iface-mid-splitter::handle:horizontal:pressed,
+QSplitter#gateway-splitter::handle:horizontal:pressed {
     background: __PRIMARY__;
+}
+/* 垂直分栏把手：与横向一致，避免方向切换后拖拽手感异常 */
+QSplitter#iface-mid-splitter::handle:vertical,
+QSplitter#gateway-splitter::handle:vertical {
+    height: 10px;
+    margin: 2px 6px;
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 4px;
 }
 /* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {
@@ -1527,6 +1542,29 @@ QPushButton#floating-home:hover {
 #dashboard-task-row:hover {
     border-color: __PRIMARY_SOFT__;
     background: __PRIMARY_SOFT__;
+}
+/* 今天上线：高亮提示 */
+#dashboard-task-row-today {
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __PRIMARY__;
+    border-left: 4px solid __PRIMARY_ACTIVE__;
+    border-radius: 10px;
+}
+#dashboard-task-row-today:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY_ACTIVE__;
+}
+#dashboard-task-row-today #dashboard-task-title {
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 700;
+}
+QLabel#status-pill-today {
+    background: __PRIMARY__;
+    color: __ON_PRIMARY__;
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
 }
 #dashboard-task-title {
     color: __TEXT_STRONG__;

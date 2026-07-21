@@ -332,9 +332,9 @@ class DashboardReleaseTests(unittest.TestCase):
                 'system': 'SysA', 'updated_at': '2026-01-01T00:00:00',
             },
             {
-                'title': '逾期新', 'status': '开发中',
-                'planned_online_date': str(today - datetime.timedelta(days=3)),
-                'system': 'SysB', 'updated_at': '2026-06-01T00:00:00',
+                'title': '今天上线项', 'status': '开发中',
+                'planned_online_date': str(today),
+                'system': 'SysT', 'updated_at': '2026-06-01T00:00:00',
             },
             {
                 'title': '计划近', 'status': '开发中',
@@ -352,15 +352,16 @@ class DashboardReleaseTests(unittest.TestCase):
             },
         ]
         panel._fill_release(items)
-        # 最多 5 条，排除已上线/暂停/取消
+        # 仅：填了上线日且 ≥ 今天；排除逾期/无日期/已上线暂停取消
         count = panel.release_list.count()
-        self.assertGreaterEqual(count, 3)
-        self.assertLessEqual(count, 5)
-        # 第一条应为逾期天数更大的「逾期老」
+        self.assertEqual(count, 2)
         first = panel.release_list.itemAt(0).widget()
         self.assertIsNotNone(first)
-        self.assertEqual(first.title_label.text(), '逾期老')
-        self.assertIn('逾期', first.meta_label.text())
+        self.assertEqual(first.title_label.text(), '今天上线项')
+        self.assertIn('今天上线', first.meta_label.text())
+        self.assertEqual(first.objectName(), 'dashboard-task-row-today')
+        second = panel.release_list.itemAt(1).widget()
+        self.assertEqual(second.title_label.text(), '计划近')
 
     def test_empty_release(self):
         try:

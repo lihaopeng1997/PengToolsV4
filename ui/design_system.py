@@ -78,7 +78,23 @@ def apply_button(
         size_field_height(button, CONTROL_HEIGHT)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon:
-        apply_icon(button, icon, size=icon_size)
+        # primary / danger 底色较深：图标用 ON_PRIMARY，避免 mute 色看不清
+        icon_kwargs = {}
+        if role in ('primary',):
+            try:
+                from ui.theme_manager import ThemeManager
+                on_p = ThemeManager.instance().token('ON_PRIMARY') or '#FFFFFF'
+            except Exception:
+                on_p = '#FFFFFF'
+            icon_kwargs = {'normal': on_p, 'active': on_p}
+        elif role in ('danger', 'delete'):
+            try:
+                from ui.theme_manager import ThemeManager
+                danger = ThemeManager.instance().token('DANGER') or '#B42318'
+            except Exception:
+                danger = '#B42318'
+            icon_kwargs = {'normal': danger, 'active': danger}
+        apply_icon(button, icon, size=icon_size, **icon_kwargs)
     # 触发 QSS 对动态 objectName / property 的刷新
     style = button.style()
     if style is not None:

@@ -44,10 +44,11 @@ class TaskRow(QFrame):
 
     clicked = pyqtSignal(object)
 
-    def __init__(self, payload, title, meta, status=''):
+    def __init__(self, payload, title, meta, status='', *, highlight: bool = False):
         super().__init__()
         self._payload = payload
-        self.setObjectName('dashboard-task-row')
+        self.setObjectName('dashboard-task-row-today' if highlight else 'dashboard-task-row')
+        self.setProperty('todayRelease', bool(highlight))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -64,7 +65,7 @@ class TaskRow(QFrame):
         layout.addLayout(body, 1)
         if status:
             pill = QLabel(status)
-            pill.setObjectName('status-pill')
+            pill.setObjectName('status-pill-today' if highlight else 'status-pill')
             layout.addWidget(pill)
         arrow = QLabel('›')
         arrow.setObjectName('dashboard-row-arrow')
@@ -284,12 +285,11 @@ class DashboardPanel(QWidget):
             self.recent_list.addWidget(row)
 
     def _fill_release(self, requirements):
-        """具体待升级事项（最多 5 条），不再按本周/下周分组汇总。"""
+        """待升级：仅「已填上线日期且日期 ≥ 今天」；今天上线高亮。"""
         self._clear_layout(self.release_list)
         today = datetime.date.today()
-        horizon = today + datetime.timedelta(days=14)
         exclude = {'已上线', '已关闭', '已取消', '暂停'}
-        overdue, upcoming, month_only = [], [], []
+        upcoming = []
         for item in requirements:
             status = str(item.get('status') or '')
             if status in exclude:
@@ -298,39 +298,38 @@ class DashboardPanel(QWidget):
             actual = str(item.get('actual_online_date') or '')[:10]
             if actual:
                 continue
-            parsed = _parse_date(planned) if planned else None
-            month = str(item.get('online_month') or '').strip()
-            if parsed is not None and parsed < today:
-                overdue.append((item, parsed, (today - parsed).days))
-            elif parsed is not None and today <= parsed <= horizon:
-                upcoming.append((item, parsed))
-            elif not planned and month:
-                month_only.append(item)
+            # 必须填写上线日期；已过期不进列表
+            if not planned:
+                continue
+            parsed = _parse_date(planned)
+            if parsed is None or parsed < today:
+                continue
+            upcoming.append((item, parsed))
 
-        # 逾期天数从大到小 → updated 从新到旧
-        overdue = sorted(overdue, key=lambda t: (-t[2], -_iso_rank(t[0].get('updated_at'))))
-        # 计划日期从近到远 → updated 从新到旧
-        upcoming = sorted(upcoming, key=lambda t: (t[1].toordinal(), -_iso_rank(t[0].get('updated_at'))))
-        month_only = sorted(month_only, key=lambda item: -_iso_rank(item.get('updated_at')))
-
-        ranked = [t[0] for t in overdue] + [t[0] for t in upcoming] + month_only
-        ranked = ranked[: self._list_limit()]
+        # 今天优先 → 日期从近到远 → 最近更新
+        upcoming = sorted(
+            upcoming,
+            key=lambda t: (
+                0 if t[1] == today else 1,
+                t[1].toordinal(),
+                -_iso_rank(t[0].get('updated_at')),
+            ),
+        )
+        ranked = upcoming[: self._list_limit()]
         zh = self.language == 'zh'
         self.release_empty.setVisible(not ranked)
-        for item in ranked:
+        for item, parsed in ranked:
             title = item.get('title') or item.get('code') or ('未命名' if zh else 'Untitled')
             system = item.get('system') or ('未选系统' if zh else 'No system')
             progress = item.get('status') or ''
             planned = str(item.get('planned_online_date') or '')[:10]
-            parsed = _parse_date(planned) if planned else None
-            if parsed is not None and parsed < today:
-                badge = f'逾期 {(today - parsed).days} 天' if zh else f'Overdue {(today - parsed).days}d'
-            elif parsed is not None:
-                badge = f'计划 {planned}' if zh else f'Plan {planned}'
+            is_today = parsed == today
+            if is_today:
+                badge = '今天上线' if zh else 'Ships today'
             else:
-                badge = '待排期' if zh else 'Unscheduled'
+                badge = f'计划 {planned}' if zh else f'Plan {planned}'
             meta = f'{system} · {badge}'
-            row = TaskRow(item, title, meta, progress)
+            row = TaskRow(item, title, meta, progress, highlight=is_today)
             row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
 

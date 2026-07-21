@@ -339,13 +339,28 @@ def set_subtitle_visible(subtitle_widget, low_height: bool):
 
 
 def apply_splitter_orientation(splitter, mode: str, *, min_editor: int = 180):
-    """双栏编辑器在 compact/narrow 改为垂直，并保证最小高度。"""
+    """双栏编辑器在 compact/narrow 改为垂直，并保证最小高度。
+
+    不重排子控件顺序（保持 0=左/上、1=右/下），避免拖拽方向与视觉「反了」。
+    """
     if splitter is None:
         return
     orient = editor_orientation_for_mode(mode)
     if splitter.orientation() != orient:
         splitter.setOrientation(orient)
+    try:
+        splitter.setOpaqueResize(True)
+        splitter.setChildrenCollapsible(False)
+    except Exception:
+        pass
     for i in range(splitter.count()):
         w = splitter.widget(i)
         if w is not None:
-            w.setMinimumHeight(min_editor if orient == Qt.Orientation.Vertical else 0)
+            if orient == Qt.Orientation.Vertical:
+                w.setMinimumHeight(min_editor)
+                w.setMinimumWidth(0)
+            else:
+                w.setMinimumHeight(0)
+                # 左右分栏给最小宽，防止拖到 0
+                if w.minimumWidth() < 120:
+                    w.setMinimumWidth(120)

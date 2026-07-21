@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""接口排查中心：HTTP/HTTPS 抓包（MITM）+ 本机请求测试 + 明细导出导入。
+"""接口排查中心：HTTP/HTTPS 抓包（MITM）+ 请求测试 + 明细导出导入。
 
 报文仅内存；停止抓包保留会话；清空/退出才 clear_session。
-请求测试仅允许 localhost/127.0.0.1。
+请求测试按用户保存的环境 base 替换 host 后发送。
 """
 
 from __future__ import annotations
@@ -327,8 +327,10 @@ class InterfaceDebugPanel(QWidget):
 
         # 中部：列表 + 详情
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.mid_splitter.setObjectName('iface-mid-splitter')
         self.mid_splitter.setChildrenCollapsible(False)
-        self.mid_splitter.setHandleWidth(8)
+        self.mid_splitter.setHandleWidth(10)
+        self.mid_splitter.setOpaqueResize(True)
 
         left = QWidget()
         ll = QVBoxLayout(left)
@@ -358,17 +360,20 @@ class InterfaceDebugPanel(QWidget):
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         header_view = self.table.horizontalHeader()
         header_view.setStretchLastSection(False)
-        header_view.setSectionsMovable(False)
+        header_view.setSectionsMovable(True)
         header_view.setMinimumSectionSize(40)
-        # 全部 Interactive：总宽度可超过视口，才能出现横向滚动条
-        header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        # 默认列宽（可拖拽调整；URL/主机给足宽度）
+        header_view.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # 短列 Interactive；URL 列 Stretch 吃掉尾部空白，表头随视口变化
         _default_w = {
             'seq': 44, 'status': 64, 'protocol': 56, 'method': 64,
-            'host': 160, 'url': 420, 'body': 72, 'type': 72,
+            'host': 160, 'url': 360, 'body': 72, 'type': 72,
             'duration': 72, 'time': 96,
         }
         for i, key in enumerate(COLUMN_KEYS):
+            if key == 'url':
+                header_view.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            else:
+                header_view.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
             self.table.setColumnWidth(i, int(_default_w.get(key, 80)))
         header_view.sectionClicked.connect(self._on_header_clicked)
         header_view.sectionResized.connect(self._on_column_resized)
@@ -469,7 +474,7 @@ class InterfaceDebugPanel(QWidget):
         rs.addWidget(self.resp_detail, 1)
         self.detail_tabs.addTab(self.resp_page, '响应')
 
-        # Tab 3 请求测试（Postman 风格，仅本机）
+        # Tab 3 请求测试（Postman 风格 · 按已保存环境发送）
         self.draft_page = QWidget()
         self.draft_page.setAcceptDrops(True)
         self.draft_page.installEventFilter(self)
@@ -480,15 +485,6 @@ class InterfaceDebugPanel(QWidget):
         self.draft_badge.setObjectName('offline-pill')
         dl.addWidget(self.draft_badge)
 
-        # 兼容旧 local_targets（隐藏）
-        self.local_target_combo = QComboBox()
-        self.local_target_combo.hide()
-        self.add_target_btn = QPushButton()
-        self.add_target_btn.hide()
-        self.edit_target_btn = QPushButton()
-        self.edit_target_btn.hide()
-        self.del_target_btn = QPushButton()
-        self.del_target_btn.hide()
         self.include_auth_cb = QCheckBox()
         self.include_auth_cb.hide()
         self.gen_draft_btn = QPushButton()
@@ -504,15 +500,41 @@ class InterfaceDebugPanel(QWidget):
         self.draft_hint.setWordWrap(True)
         dl.addWidget(self.draft_hint)
 
+        # 环境：下拉选择已保存地址 + 当前 base 可编辑 + 保存/管理
+        env_row = QHBoxLayout()
+        self.target_label = QLabel('环境')
+        env_row.addWidget(self.target_label)
+        self.local_target_combo = QComboBox()
+        self.local_target_combo.setMinimumWidth(160)
+        self.local_target_combo.currentIndexChanged.connect(self._on_env_selected)
+        env_row.addWidget(self.local_target_combo, 1)
+        self.add_target_btn = QPushButton()
+        apply_button(self.add_target_btn, 'secondary', compact=True, icon='add', icon_size=14)
+        self.add_target_btn.clicked.connect(self._add_local_target)
+        env_row.addWidget(self.add_target_btn)
+        self.edit_target_btn = QPushButton()
+        apply_button(self.edit_target_btn, 'ghost', compact=True, icon='edit', icon_size=14)
+        self.edit_target_btn.clicked.connect(self._edit_local_target)
+        env_row.addWidget(self.edit_target_btn)
+        self.del_target_btn = QPushButton()
+        apply_button(self.del_target_btn, 'ghost', compact=True, icon='delete', icon_size=14)
+        self.del_target_btn.clicked.connect(self._delete_local_target)
+        env_row.addWidget(self.del_target_btn)
+        dl.addLayout(env_row)
+
         base_row = QHBoxLayout()
-        self.target_label = QLabel('本机地址')
-        base_row.addWidget(self.target_label)
+        self.base_label = QLabel('Base')
+        base_row.addWidget(self.base_label)
         self.rt_base_edit = QLineEdit()
         self.rt_base_edit.setText('http://localhost:18031')
-        self.rt_base_edit.setPlaceholderText('http://localhost:18031')
+        self.rt_base_edit.setPlaceholderText('http://host:port（可保存为环境）')
         base_row.addWidget(self.rt_base_edit, 1)
+        self.rt_save_env_btn = QPushButton()
+        apply_button(self.rt_save_env_btn, 'secondary', compact=True, icon='save', icon_size=14)
+        self.rt_save_env_btn.clicked.connect(self._rt_save_current_as_env)
+        base_row.addWidget(self.rt_save_env_btn)
         self.rt_fill_btn = QPushButton()
-        apply_button(self.rt_fill_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
+        apply_button(self.rt_fill_btn, 'secondary', compact=True, icon='refresh', icon_size=14)
         self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
         base_row.addWidget(self.rt_fill_btn)
         dl.addLayout(base_row)
@@ -523,7 +545,7 @@ class InterfaceDebugPanel(QWidget):
         size_combo(self.rt_method, 'sm')
         method_row.addWidget(self.rt_method)
         self.rt_url = QLineEdit()
-        self.rt_url.setPlaceholderText('http://localhost:18031/path')
+        self.rt_url.setPlaceholderText('http://host:port/path')
         method_row.addWidget(self.rt_url, 1)
         self.rt_send_btn = QPushButton()
         apply_button(self.rt_send_btn, 'primary', compact=True, icon='external-open', icon_size=16)
@@ -621,16 +643,28 @@ class InterfaceDebugPanel(QWidget):
         visible = set(self._prefs.get('visible_columns') or [])
         widths = self._prefs.get('column_widths') or {}
         core = ('seq', 'status', 'method', 'host', 'url')
+        header = self.table.horizontalHeader()
+        last_visible = -1
         for i, key in enumerate(COLUMN_KEYS):
             show = key in visible or key in core
             self.table.setColumnHidden(i, not show)
+            if show:
+                last_visible = i
+            # URL 固定 Stretch 填满尾部空白；其余 Interactive 可拖宽
+            if key == 'url':
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
             w = widths.get(key)
-            if w:
+            if w and key != 'url':
                 try:
                     self.table.setColumnWidth(i, max(40, int(w)))
                 except (TypeError, ValueError):
                     pass
-        # 保证可横向滚动：可见列总宽至少略大于视口时才出现滚动条
+        # 若 URL 被隐藏（不应），最后一列 Stretch 避免空白
+        if last_visible >= 0 and COLUMN_KEYS[last_visible] != 'url':
+            header.setSectionResizeMode(last_visible, QHeaderView.ResizeMode.Stretch)
+        header.setStretchLastSection(False)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def _on_column_resized(self, index: int, _old: int, new: int):
@@ -743,14 +777,41 @@ class InterfaceDebugPanel(QWidget):
         default_id = self._config.get('default_target_id') or ''
         sel = 0
         for i, t in enumerate(targets):
-            label = f"{t.get('name') or '本地'} · {t.get('base_url') or ''}"
+            label = f"{t.get('name') or '环境'} · {t.get('base_url') or ''}"
             self.local_target_combo.addItem(label, t.get('id'))
             if t.get('id') == default_id:
                 sel = i
         if not targets:
-            self.local_target_combo.addItem('（未配置本地地址）', '')
+            self.local_target_combo.addItem('（未保存环境 · 可填 Base 后点保存）', '')
         self.local_target_combo.setCurrentIndex(sel)
         self.local_target_combo.blockSignals(False)
+        # 同步 Base 输入框
+        self._on_env_selected(sel)
+
+    def _on_env_selected(self, index: int = 0):
+        tid = self.local_target_combo.currentData() if hasattr(self, 'local_target_combo') else None
+        if not tid:
+            return
+        targets = self._config.get('local_targets') or []
+        item = next((t for t in targets if t.get('id') == tid), None)
+        if not item:
+            return
+        base = (item.get('base_url') or '').strip()
+        if base and hasattr(self, 'rt_base_edit'):
+            self.rt_base_edit.setText(base)
+        self._config['default_target_id'] = tid
+        try:
+            save_interface_debug_config(self._config)
+        except Exception:
+            pass
+        # 若 URL 已有内容，按新环境重写 host
+        if hasattr(self, 'rt_url') and (self.rt_url.text() or '').strip():
+            try:
+                from tools.iface_request_test import rewrite_url_with_base
+                cur = self.rt_url.text().strip()
+                self.rt_url.setText(rewrite_url_with_base(cur, base))
+            except Exception:
+                pass
 
     def _refresh_browsers(self):
         current = self.browser_combo.currentData()
@@ -2026,22 +2087,57 @@ class InterfaceDebugPanel(QWidget):
         except RequestTestError as exc:
             show_warning(self, '请求测试', str(exc))
 
+    def _rt_save_current_as_env(self):
+        """把当前 Base 保存为环境（有选中则更新，否则新建）。"""
+        from PyQt6.QtWidgets import QInputDialog
+        import uuid
+        from tools.iface_request_test import RequestTestError, normalize_base_host
+        try:
+            base = normalize_base_host(self.rt_base_edit.text())
+            self.rt_base_edit.setText(base)
+        except RequestTestError as exc:
+            show_warning(self, '环境', str(exc))
+            return
+        tid = self.local_target_combo.currentData()
+        targets = self._config.setdefault('local_targets', [])
+        item = next((t for t in targets if t.get('id') == tid), None) if tid else None
+        if item:
+            item['base_url'] = base
+            save_interface_debug_config(self._config)
+            self._fill_local_targets()
+            show_success(self, '环境', f'已更新环境「{item.get("name")}」')
+            return
+        name, ok = QInputDialog.getText(self, '保存环境', '环境名称（如 开发 / UAT / 本机）：')
+        if not ok:
+            return
+        item = {'id': uuid.uuid4().hex, 'name': (name or '环境').strip(), 'base_url': base}
+        targets.append(item)
+        self._config['default_target_id'] = item['id']
+        save_interface_debug_config(self._config)
+        self._fill_local_targets()
+        show_success(self, '环境', f'已保存环境「{item["name"]}」')
+
     def _add_local_target(self):
         from PyQt6.QtWidgets import QInputDialog
         import uuid
+        from tools.iface_request_test import RequestTestError, normalize_base_host
         zh = self.language == 'zh'
-        name, ok = QInputDialog.getText(self, '本地地址', '名称：' if zh else 'Name:')
+        name, ok = QInputDialog.getText(self, '新增环境' if zh else 'Add env', '名称：' if zh else 'Name:')
         if not ok:
             return
-        url, ok = QInputDialog.getText(self, '本地地址', 'base URL (http://host:port)：')
+        url, ok = QInputDialog.getText(
+            self, '新增环境' if zh else 'Add env',
+            'Base URL (http://host:port)：',
+            text=(self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else '') or 'http://localhost:18031',
+        )
         if not ok:
             return
         try:
-            url = validate_base_url(url)
-        except DraftError as exc:
-            show_warning(self, '本地地址', str(exc))
+            url = normalize_base_host(url)
+        except RequestTestError as exc:
+            show_warning(self, '环境', str(exc))
             return
-        item = {'id': uuid.uuid4().hex, 'name': (name or '本地服务').strip(), 'base_url': url}
+        item = {'id': uuid.uuid4().hex, 'name': (name or '环境').strip(), 'base_url': url}
         self._config.setdefault('local_targets', []).append(item)
         self._config['default_target_id'] = item['id']
         save_interface_debug_config(self._config)
@@ -2049,21 +2145,23 @@ class InterfaceDebugPanel(QWidget):
 
     def _edit_local_target(self):
         from PyQt6.QtWidgets import QInputDialog
+        from tools.iface_request_test import RequestTestError, normalize_base_host
         tid = self.local_target_combo.currentData()
         targets = self._config.get('local_targets') or []
         item = next((t for t in targets if t.get('id') == tid), None)
         if not item:
+            show_warning(self, '环境', '请先选择一个已保存环境')
             return
-        name, ok = QInputDialog.getText(self, '编辑', '名称：', text=item.get('name') or '')
+        name, ok = QInputDialog.getText(self, '编辑环境', '名称：', text=item.get('name') or '')
         if not ok:
             return
-        url, ok = QInputDialog.getText(self, '编辑', 'base URL：', text=item.get('base_url') or '')
+        url, ok = QInputDialog.getText(self, '编辑环境', 'Base URL：', text=item.get('base_url') or '')
         if not ok:
             return
         try:
-            url = validate_base_url(url)
-        except DraftError as exc:
-            show_warning(self, '本地地址', str(exc))
+            url = normalize_base_host(url)
+        except RequestTestError as exc:
+            show_warning(self, '环境', str(exc))
             return
         item['name'] = (name or item['name']).strip()
         item['base_url'] = url
@@ -2076,8 +2174,8 @@ class InterfaceDebugPanel(QWidget):
             return
         zh = self.language == 'zh'
         if not confirm_action(
-            self, '删除本地地址' if zh else 'Delete',
-            '确定删除该本地地址配置？' if zh else 'Delete this local target?',
+            self, '删除环境' if zh else 'Delete',
+            '确定删除该环境配置？' if zh else 'Delete this environment?',
             confirm_text='删除' if zh else 'Delete', danger=True,
         ):
             return
@@ -2104,10 +2202,28 @@ class InterfaceDebugPanel(QWidget):
     def apply_layout_mode(self, mode, low_height=False):
         self._layout_mode = mode
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        prev_orient = self.mid_splitter.orientation()
         apply_splitter_orientation(self.mid_splitter, mode, min_editor=editor_min_height())
+        # 方向切换时用对应模式尺寸；不反转左右顺序
+        self.mid_splitter.setChildrenCollapsible(False)
+        self.mid_splitter.setOpaqueResize(True)
         sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
         if sizes and len(sizes) >= 2:
-            self.mid_splitter.setSizes(sizes)
+            a, b = int(sizes[0]), int(sizes[1])
+            # 防止历史脏数据导致「反向」观感（一侧过小）
+            if a < 120:
+                a = 320 if self.mid_splitter.orientation() == Qt.Orientation.Horizontal else 200
+            if b < 120:
+                b = 480 if self.mid_splitter.orientation() == Qt.Orientation.Horizontal else 280
+            self.mid_splitter.setSizes([a, b])
+        # 横向：左列表 / 右详情；保持 stretch 合理
+        if self.mid_splitter.orientation() == Qt.Orientation.Horizontal:
+            self.mid_splitter.setStretchFactor(0, 1)
+            self.mid_splitter.setStretchFactor(1, 1)
+        else:
+            self.mid_splitter.setStretchFactor(0, 1)
+            self.mid_splitter.setStretchFactor(1, 2)
+        _ = prev_orient  # 保留变量便于后续差异处理
         # 任何断点都只保留抓包按钮，不恢复模式/证书入口
         self._apply_mode_ui()
         self.connect_btn.show()
@@ -2162,22 +2278,30 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求测试 · 仅本机 localhost · 可发送' if zh else
-            'Request test · localhost only · can send'
+            '请求测试 · 按环境发送' if zh else
+            'Request test · by environment'
         )
-        self.target_label.setText('本机地址' if zh else 'Local base')
+        self.target_label.setText('环境' if zh else 'Environment')
+        if hasattr(self, 'base_label'):
+            self.base_label.setText('Base')
         if hasattr(self, 'rt_fill_btn'):
             self.rt_fill_btn.setText('从会话填充' if zh else 'Fill from session')
             self.rt_send_btn.setText('发送' if zh else 'Send')
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')
             self.rt_resp_label.setText('响应' if zh else 'Response')
+        if hasattr(self, 'rt_save_env_btn'):
+            self.rt_save_env_btn.setText('保存环境' if zh else 'Save env')
+        if hasattr(self, 'add_target_btn'):
+            self.add_target_btn.setToolTip('新增环境' if zh else 'Add environment')
+            self.edit_target_btn.setToolTip('编辑环境' if zh else 'Edit environment')
+            self.del_target_btn.setToolTip('删除环境' if zh else 'Delete environment')
         if hasattr(self, 'export_list_btn'):
             self.export_list_btn.setText('导出明细' if zh else 'Export')
         self.draft_hint.setText(
-            '本机地址默认 http://；自动替换 host。Body 优先解密明文。支持拖入导出 JSON。'
+            '选择或保存环境 Base（scheme://host:port），从会话填充时自动替换 host，保留 path/query。'
             if zh else
-            'Localhost only. Body prefers decrypted plaintext. Drag-drop export JSON.'
+            'Pick a saved environment base; fill rewrites host and keeps path/query.'
         )
         self._apply_mode_ui()
         labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN
