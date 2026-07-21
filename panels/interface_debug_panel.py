@@ -360,6 +360,12 @@ class InterfaceDebugPanel(QWidget):
         self.table.setHorizontalHeaderLabels([self.COL_LABELS_ZH[k] for k in COLUMN_KEYS])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        try:
+            from ui.selection_delegate import HighContrastSelectDelegate
+            self._select_delegate = HighContrastSelectDelegate(self.table)
+            self.table.setItemDelegate(self._select_delegate)
+        except Exception:
+            pass
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(False)
         self.table.verticalHeader().setVisible(False)

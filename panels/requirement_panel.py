@@ -16,22 +16,41 @@ from PyQt6.QtWidgets import (
 
 
 class _WrapTextDelegate(QStyledItemDelegate):
-    """树/列表名称列：完整换行展示，禁止半截省略。"""
+    """树/列表名称列：完整换行展示，禁止半截省略；选中态强制高对比字色。"""
 
     def __init__(self, parent=None, min_height: int = 28, max_lines: int = 3):
         super().__init__(parent)
         self._min_height = min_height
         self._max_lines = max_lines
 
+    def _theme_colors(self):
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            return (
+                QColor(pal.get('PRIMARY', '#668C78')),
+                QColor(pal.get('ON_PRIMARY', '#FFFFFF')),
+                QColor(pal.get('TEXT_STRONG', '#272B29')),
+            )
+        except Exception:
+            return QColor('#668C78'), QColor('#FFFFFF'), QColor('#272B29')
+
     def paint(self, painter, option, index):
         self.initStyleOption(option, index)
         option.textElideMode = Qt.TextElideMode.ElideNone
         text = index.data(Qt.ItemDataRole.DisplayRole) or ''
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        primary, on_primary, text_strong = self._theme_colors()
+        # 选中：自绘主色底，忽略 setForeground 带来的低对比色
+        if selected:
+            painter.save()
+            painter.fillRect(option.rect.adjusted(1, 1, -1, -1), primary)
+            painter.restore()
+        else:
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget)
         if not text:
-            super().paint(painter, option, index)
             return
-        style = option.widget.style() if option.widget else QApplication.style()
-        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget)
         # 图标区
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         left = option.rect.left() + 4
@@ -42,25 +61,20 @@ class _WrapTextDelegate(QStyledItemDelegate):
             left = icon_rect.right() + 6
         text_rect = QRect(left, option.rect.top() + 2, option.rect.right() - left - 4, option.rect.height() - 4)
         painter.save()
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(option.palette.highlightedText().color())
-        else:
-            painter.setPen(option.palette.text().color())
+        painter.setPen(on_primary if selected else text_strong)
         # 多行完整绘制
         fm = QFontMetrics(option.font)
         line_h = fm.lineSpacing()
         y = text_rect.top()
-        # 按宽度拆行（手工 wrap，避免 elide）
         remaining = str(text)
         lines = 0
         while remaining and lines < self._max_lines:
-            # 取当前行能放下的最长前缀
             n = len(remaining)
             lo, hi = 1, n
             best = 1
             while lo <= hi:
                 mid = (lo + hi) // 2
-                if fm.horizontalAdvance(remaining[:mid]) <= text_rect.width():
+                if fm.horizontalAdvance(remaining[:mid]) <= max(8, text_rect.width()):
                     best = mid
                     lo = mid + 1
                 else:
@@ -71,7 +85,6 @@ class _WrapTextDelegate(QStyledItemDelegate):
             y += line_h
             lines += 1
             if remaining and lines >= self._max_lines:
-                # 仍有剩余：完整写在 tooltip，不画半截省略号盖住关键编号
                 break
         painter.restore()
 

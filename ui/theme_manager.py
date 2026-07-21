@@ -208,7 +208,8 @@ THEMES: dict[str, dict[str, str]] = {
         'NAV_ACTIVE_BG': '#35483E',
         'STATUS_BAR_BG': '#1E2521',
         'TABLE_ALT': '#24302A',
-        'TABLE_SELECT': '#35483E',
+        # 选中底用主色，字用 ON_PRIMARY，避免与行底同色看不清
+        'TABLE_SELECT': '#9ABAA6',
         'INPUT_BG': '#202823',
         'DISABLED_BG': '#24302A',
         'DISABLED_TEXT': '#6E7871',
