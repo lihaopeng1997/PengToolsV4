@@ -149,6 +149,11 @@ class MainWindow(QMainWindow):
         self.requirement_panel.open_release_prep.connect(self._open_release_prep)
         self.settings_panel.settings_changed.connect(self._apply_settings)
         self.settings_panel.reset_floating_position.connect(self._reset_floating_position)
+        # 设置页日报提醒 ↔ 日报模块状态条 双向同步
+        if hasattr(self.settings_panel, 'reminder_settings_changed'):
+            self.settings_panel.reminder_settings_changed.connect(
+                self.personal_panel.reload_reminder_settings
+            )
         self.sql_panel.task_completed.connect(self._record_success)
         self.docx_panel.task_completed.connect(self._record_success)
         self._content_layout.addWidget(self.stack)
@@ -466,7 +471,14 @@ class MainWindow(QMainWindow):
             return
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
-        if index == 8:
+        if index == 7:
+            # 进入设置：重载日报提醒控件，避免与日报页不同步
+            if hasattr(self.settings_panel, 'reload_reminder_from_store'):
+                try:
+                    self.settings_panel.reload_reminder_from_store()
+                except Exception:
+                    pass
+        elif index == 8:
             self.personal_panel.open_learning()
         elif index == 9:
             self.personal_panel.open_daily_report()

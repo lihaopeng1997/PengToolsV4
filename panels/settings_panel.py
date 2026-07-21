@@ -151,6 +151,8 @@ class SettingsPanel(QWidget):
     floating_opacity_preview = pyqtSignal(int)
     theme_preview = pyqtSignal(str)
     edit_floating_shortcuts = pyqtSignal()
+    # 日报提醒已写入 data/daily_report_settings.json，供日报页即时同步
+    reminder_settings_changed = pyqtSignal(object)
 
     def __init__(self, settings, language='zh'):
         super().__init__()
@@ -433,40 +435,85 @@ class SettingsPanel(QWidget):
         self._refresh_close_behavior_hint()
 
     def _load_reminder_values(self):
+        """从磁盘重载提醒控件，与日报模块共用 daily_report_settings.json。"""
         try:
-            from tools.daily_reports import load_reminder_settings
+            from tools.daily_reports import DEFAULT_REMINDER, load_reminder_settings
             from PyQt6.QtCore import QTime
             reminder = load_reminder_settings()
+            default_time = str(DEFAULT_REMINDER.get('time') or '17:30')
+            self.reminder_enabled.blockSignals(True)
             self.reminder_enabled.setChecked(bool(reminder.get('enabled')))
+            self.reminder_enabled.blockSignals(False)
+            time_text = str(reminder.get('time') or default_time)
             if getattr(self, '_reminder_uses_timeedit', False):
-                self.reminder_time.setTime(QTime.fromString(str(reminder.get('time') or '18:00'), 'HH:mm'))
+                parsed = QTime.fromString(time_text, 'HH:mm')
+                if not parsed.isValid():
+                    parsed = QTime.fromString(default_time, 'HH:mm')
+                self.reminder_time.blockSignals(True)
+                self.reminder_time.setTime(parsed)
+                self.reminder_time.blockSignals(False)
+            else:
+                try:
+                    hour = int(time_text.split(':', 1)[0])
+                except (TypeError, ValueError, IndexError):
+                    hour = 17
+                self.reminder_time.blockSignals(True)
+                self.reminder_time.setValue(max(0, min(23, hour)))
+                self.reminder_time.blockSignals(False)
         except Exception:
             pass
 
-    def _save_reminder_settings(self):
+    def reload_reminder_from_store(self):
+        """进入设置页或外部改完提醒后刷新 UI。"""
+        self._load_reminder_values()
+
+    def _current_reminder_time_text(self) -> str:
+        from tools.daily_reports import DEFAULT_REMINDER
+        if getattr(self, '_reminder_uses_timeedit', False):
+            return self.reminder_time.time().toString('HH:mm')
+        # SpinBox 仅小时时补 :00
         try:
-            from tools.daily_reports import load_reminder_settings, save_reminder_settings
-            current = load_reminder_settings()
-            time_text = (
-                self.reminder_time.time().toString('HH:mm')
-                if getattr(self, '_reminder_uses_timeedit', False)
-                else '18:00'
-            )
-            previous = current.get('time')
-            current['enabled'] = self.reminder_enabled.isChecked()
-            current['time'] = time_text
-            if previous != time_text:
-                current['last_reminder_date'] = ''
-            save_reminder_settings(current)
+            hour = int(self.reminder_time.value())
+        except Exception:
+            hour = int(str(DEFAULT_REMINDER.get('time') or '17:30').split(':', 1)[0])
+        return f'{max(0, min(23, hour)):02d}:00'
+
+    def _persist_reminder_settings(self, *, notify_ui: bool = True, show_toast: bool = True):
+        """写入日报提醒并通知日报页；返回规范化后的设置。"""
+        from tools.daily_reports import load_reminder_settings, save_reminder_settings
+        current = load_reminder_settings()
+        time_text = self._current_reminder_time_text()
+        previous_time = current.get('time')
+        previous_enabled = bool(current.get('enabled'))
+        current['enabled'] = self.reminder_enabled.isChecked()
+        current['time'] = time_text
+        # 改时间或重新开启时允许当天再提醒一次
+        if previous_time != time_text or (not previous_enabled and current['enabled']):
+            current['last_reminder_date'] = ''
+        normalized = save_reminder_settings(current)
+        if notify_ui:
+            self.reminder_settings_changed.emit(normalized)
+        if show_toast:
             from ui.confirm_dialog import show_success
             show_success(
                 self,
                 '日报提醒' if self.language == 'zh' else 'Daily reminder',
-                '提醒设置已保存。' if self.language == 'zh' else 'Reminder saved.',
+                '提醒设置已保存，已与日报页同步。' if self.language == 'zh' else
+                'Reminder saved and synced with Daily Report.',
             )
+        return normalized
+
+    def _save_reminder_settings(self):
+        try:
+            self._persist_reminder_settings(notify_ui=True, show_toast=True)
         except Exception as exc:
             from ui.confirm_dialog import show_warning
             show_warning(self, '日报提醒', str(exc))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 从日报改过文件、或其它入口改过时，进入设置页立刻对齐
+        self._load_reminder_values()
 
     def _refresh_shortcuts_summary(self):
         from ui.navigation_model import display_name
@@ -513,6 +560,11 @@ class SettingsPanel(QWidget):
     def _save(self):
         settings = save_settings(self.values())
         self.settings_changed.emit(settings)
+        # 总保存时一并落盘日报提醒，避免只改了提醒却忘点「保存提醒」
+        try:
+            self._persist_reminder_settings(notify_ui=True, show_toast=False)
+        except Exception:
+            pass
 
     def _restore_defaults(self):
         self.load_values(DEFAULT_SETTINGS)

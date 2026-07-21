@@ -1192,34 +1192,69 @@ class DailyReportTab(QWidget):
     def _refresh_reminder_status(self):
         self._reminder = load_reminder_settings()
         enabled = bool(self._reminder.get('enabled'))
-        time_text = self._reminder.get('time') or '18:00'
-        self.reminder_status.setText(
-            f'提醒已开启 · {time_text}' if enabled else '提醒未开启'
-        )
+        time_text = self._reminder.get('time') or '17:30'
+        zh = self.language == 'zh'
+        if enabled:
+            self.reminder_status.setText(
+                f'提醒已开启 · 每天 {time_text}（与设置页同步）' if zh else
+                f'Reminder on · daily {time_text} (synced with Settings)'
+            )
+        else:
+            self.reminder_status.setText(
+                '提醒未开启 · 可在设置中开启' if zh else
+                'Reminder off · enable in Settings'
+            )
+        self.reminder_enabled.blockSignals(True)
         self.reminder_enabled.setChecked(enabled)
+        self.reminder_enabled.blockSignals(False)
         try:
-            self.reminder_time.setTime(QTime.fromString(str(time_text), 'HH:mm'))
+            parsed = QTime.fromString(str(time_text), 'HH:mm')
+            if parsed.isValid():
+                self.reminder_time.blockSignals(True)
+                self.reminder_time.setTime(parsed)
+                self.reminder_time.blockSignals(False)
         except Exception:
             pass
 
+    def reload_reminder_settings(self, _settings=None):
+        """设置页保存后 / 切入日报时：从磁盘刷新状态与内存缓存。"""
+        self._refresh_reminder_status()
+
     def _open_reminder_settings(self):
         parent = self.window()
+        # 先让设置页读到最新文件，再跳转
+        if hasattr(parent, 'settings_panel') and hasattr(parent.settings_panel, 'reload_reminder_from_store'):
+            try:
+                parent.settings_panel.reload_reminder_from_store()
+            except Exception:
+                pass
         if hasattr(parent, 'navigate_to'):
             parent.navigate_to(7)
             return
 
     def _save_reminder(self):
+        """兼容隐藏控件路径：仍写入同一配置文件并刷新状态。"""
         previous_time = self._reminder.get('time')
+        previous_enabled = bool(self._reminder.get('enabled'))
         selected_time = self.reminder_time.time().toString('HH:mm')
-        self._reminder.update({'enabled': self.reminder_enabled.isChecked(), 'time': selected_time})
-        if selected_time != previous_time:
+        enabled = self.reminder_enabled.isChecked()
+        self._reminder.update({'enabled': enabled, 'time': selected_time})
+        if selected_time != previous_time or (not previous_enabled and enabled):
             self._reminder['last_reminder_date'] = ''
         self._reminder = save_reminder_settings(self._reminder)
         self._refresh_reminder_status()
+        # 通知设置页（若主窗已接线）
+        parent = self.window()
+        if hasattr(parent, 'settings_panel') and hasattr(parent.settings_panel, 'reload_reminder_from_store'):
+            try:
+                parent.settings_panel.reload_reminder_from_store()
+            except Exception:
+                pass
         show_success(self, '日报提醒', '提醒设置已保存。')
 
     def _check_reminder(self):
         self._reminder = load_reminder_settings()
+        self._refresh_reminder_status()
         if not is_reminder_due(self._reminder):
             return
         today = datetime.date.today().isoformat()
@@ -1272,12 +1307,27 @@ class PersonalPanel(QWidget):
     def set_language(self, language):
         self.language = language
         self.knowledge_tab.set_language(language)
+        self.daily_tab.language = language
+        if hasattr(self.daily_tab, 'reload_reminder_settings'):
+            self.daily_tab.reload_reminder_settings()
+        if hasattr(self.daily_tab, 'reminder_settings_btn'):
+            self.daily_tab.reminder_settings_btn.setText(
+                '提醒设置' if language == 'zh' else 'Reminder settings'
+            )
 
     def open_daily_report(self):
         self.stack.setCurrentWidget(self.daily_tab)
+        # 从设置页改完提醒后切回：必须主动刷新，不能只靠 showEvent
+        if hasattr(self.daily_tab, 'reload_reminder_settings'):
+            self.daily_tab.reload_reminder_settings()
 
     def open_learning(self):
         self.stack.setCurrentWidget(self.knowledge_tab)
+
+    def reload_reminder_settings(self, settings=None):
+        """主窗口：设置页保存提醒后回调。"""
+        if hasattr(self.daily_tab, 'reload_reminder_settings'):
+            self.daily_tab.reload_reminder_settings(settings)
 
     def add_requirement_to_daily(self, requirement):
         self.open_daily_report()
