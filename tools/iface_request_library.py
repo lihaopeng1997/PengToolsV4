@@ -57,7 +57,8 @@ def _normalize_api(item: Any) -> Optional[dict]:
     url = str(item.get('url') or '').strip()
     if not url and not item.get('path'):
         return None
-    return {
+    pinned = bool(item.get('pinned'))
+    result = {
         'id': str(item.get('id') or '').strip() or _new_id(),
         'name': str(item.get('name') or '').strip() or _default_name(method, url),
         'category_id': str(item.get('category_id') or UNCATEGORIZED_ID).strip() or UNCATEGORIZED_ID,
@@ -70,7 +71,11 @@ def _normalize_api(item: Any) -> Optional[dict]:
         'note': str(item.get('note') or ''),
         'updated_at': str(item.get('updated_at') or _now_iso()),
         'created_at': str(item.get('created_at') or item.get('updated_at') or _now_iso()),
+        'pinned': pinned,
     }
+    if pinned:
+        result['pinned_at'] = str(item.get('pinned_at') or _now_iso())
+    return result
 
 
 def _normalize_history(item: Any) -> Optional[dict]:
@@ -158,9 +163,12 @@ def normalize_library(data: Any = None) -> dict:
         if api['category_id'] not in cat_ids:
             api['category_id'] = UNCATEGORIZED_ID
         apis.append(api)
-    # 新在前
-    apis.sort(key=lambda a: a.get('updated_at') or '', reverse=True)
-    result['apis'] = apis
+    # 置顶优先，其次新在前
+    pinned = [a for a in apis if a.get('pinned')]
+    plain = [a for a in apis if not a.get('pinned')]
+    plain.sort(key=lambda a: a.get('updated_at') or '', reverse=True)
+    pinned.sort(key=lambda a: (a.get('pinned_at') or '', a.get('updated_at') or ''), reverse=True)
+    result['apis'] = pinned + plain
 
     hist = []
     for raw in result.get('history') or []:
@@ -265,6 +273,13 @@ def delete_category(lib: dict, category_id: str) -> dict:
 def upsert_api(lib: dict, item: dict) -> dict:
     """新增或更新接口库条目（按 id）。"""
     lib = normalize_library(lib)
+    existing = next((a for a in lib['apis'] if a.get('id') == (item or {}).get('id')), None)
+    # 表单保存未带 pinned 时保留原置顶状态
+    if existing and 'pinned' not in (item or {}):
+        item = dict(item or {})
+        item['pinned'] = bool(existing.get('pinned'))
+        if existing.get('pinned_at'):
+            item['pinned_at'] = existing.get('pinned_at')
     api = _normalize_api(item)
     if not api:
         raise ValueError('接口缺少 URL')
@@ -273,7 +288,6 @@ def upsert_api(lib: dict, item: dict) -> dict:
         api['category_id'] = UNCATEGORIZED_ID
     api['updated_at'] = _now_iso()
     if not item.get('created_at'):
-        existing = next((a for a in lib['apis'] if a.get('id') == api['id']), None)
         if existing:
             api['created_at'] = existing.get('created_at') or api['updated_at']
         else:
@@ -284,6 +298,16 @@ def upsert_api(lib: dict, item: dict) -> dict:
     others.insert(0, api)
     lib['apis'] = others
     lib['last_category_id'] = api['category_id']
+    return save_library(lib)
+
+
+def set_api_pinned(lib: dict, api_id: str, pinned: bool) -> dict:
+    lib = normalize_library(lib)
+    for api in lib['apis']:
+        if api.get('id') == api_id:
+            from tools.list_pin import set_pinned_fields
+            set_pinned_fields(api, pinned)
+            break
     return save_library(lib)
 
 
@@ -356,7 +380,22 @@ def filter_items(
             if kw not in blob:
                 continue
         out.append(it)
-    return out
+    from tools.list_pin import is_pinned, pinned_at_rank
+    out.sort(
+        key=lambda it: (
+            0 if is_pinned(it) else 1,
+            -(1 if pinned_at_rank(it) else 0),
+            pinned_at_rank(it),
+            str(it.get('updated_at') or it.get('ts') or ''),
+        ),
+        reverse=False,
+    )
+    # 置顶块内按 pinned_at / updated 新在前
+    pinned = [it for it in out if is_pinned(it)]
+    plain = [it for it in out if not is_pinned(it)]
+    pinned.sort(key=lambda it: (pinned_at_rank(it), str(it.get('updated_at') or it.get('ts') or '')), reverse=True)
+    plain.sort(key=lambda it: str(it.get('updated_at') or it.get('ts') or ''), reverse=True)
+    return pinned + plain
 
 
 def build_api_from_form(
@@ -439,6 +478,7 @@ def form_fields_from_item(item: dict) -> dict:
 
 def display_label(item: dict, *, mode: str = 'library', category_map: Optional[dict] = None) -> str:
     """列表展示文案。"""
+    from tools.list_pin import decorate_title, is_pinned
     method = (item.get('method') or 'GET').upper()
     name = item.get('name') or _default_name(method, item.get('url') or '')
     cat = ''
@@ -451,6 +491,7 @@ def display_label(item: dict, *, mode: str = 'library', category_map: Optional[d
         st = item.get('status')
         st_s = str(st) if st is not None else ('ERR' if item.get('error') else '—')
         prefix = f'[{st_s}] {ts} · {method}'
-        return f'{prefix} {name}' if name else prefix
+        label = f'{prefix} {name}' if name else prefix
+        return decorate_title(label, is_pinned(item))
     cat_part = f'[{cat}] ' if cat and cat != DEFAULT_CATEGORY_NAME else ''
-    return f'{cat_part}{method} · {name}'
+    return decorate_title(f'{cat_part}{method} · {name}', is_pinned(item))

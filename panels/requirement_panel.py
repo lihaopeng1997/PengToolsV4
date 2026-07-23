@@ -125,9 +125,11 @@ from tools.requirements import (
     save_requirements,
 )
 from tools.svn_workspace import (
-    SvnError, add_existing_files, add_text_file, checkout, commit_working_copy, lock_file, month_end_date,
+    SvnError, add_existing_files, add_text_file, changed_paths, checkout, commit_paths,
+    commit_working_copy, lock_file, lock_files, month_end_date, revert_paths,
     safe_folder_name, scan_working_copies, svn_status, update_many,
-    unlock_file, validate_svn_url, working_copy_info, workspace_files,
+    unlock_file, unlock_files, validate_svn_url, working_copy_info, workspace_files,
+    workspace_snapshot, working_copy_locks,
 )
 from ui.confirm_dialog import (
     confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
@@ -1269,35 +1271,93 @@ class RequirementPanel(QWidget):
         file_head.addWidget(self.svn_meta)
         file_layout.addLayout(file_head)
 
-        # SVN 工具分组：浏览 | 版本控制 | 提交
-        action_card = QFrame(); action_card.setObjectName('detail-action-card')
-        action_card_layout = QHBoxLayout(action_card)
-        action_card_layout.setContentsMargins(8, 6, 8, 6)
-        action_card_layout.setSpacing(6)
-        self.open_folder_btn = QPushButton('打开目录'); self.open_folder_btn.clicked.connect(self._open_folder)
-        self.refresh_svn_btn = QPushButton('刷新'); self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
-        self.update_current_btn = QPushButton('更新'); self.update_current_btn.clicked.connect(self._update_current)
-        self.add_file_btn = QPushButton('添加文件'); self.add_file_btn.clicked.connect(self._add_existing_files)
-        self.new_text_btn = QPushButton('新建文本'); self.new_text_btn.clicked.connect(self._add_text_file)
-        self.lock_file_btn = QPushButton('锁定'); self.lock_file_btn.clicked.connect(self._lock_selected_file)
-        self.unlock_file_btn = QPushButton('解锁'); self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
-        self.commit_btn = QPushButton('提交变更'); self.commit_btn.setObjectName('primary-btn'); self.commit_btn.clicked.connect(self._commit_svn)
+        # 文件库工具：浏览/资料 | 版本控制（支持选中/多选/全部）
+        action_card = QFrame()
+        action_card.setObjectName('detail-action-card')
+        action_outer = QVBoxLayout(action_card)
+        action_outer.setContentsMargins(8, 6, 8, 6)
+        action_outer.setSpacing(6)
+
+        browse_row = QHBoxLayout()
+        browse_row.setSpacing(6)
+        self.open_folder_btn = QPushButton('打开目录')
+        self.open_folder_btn.clicked.connect(self._open_folder)
+        self.refresh_svn_btn = QPushButton('刷新')
+        self.refresh_svn_btn.clicked.connect(self._refresh_file_tree)
+        self.update_current_btn = QPushButton('更新')
+        self.update_current_btn.clicked.connect(self._update_current)
+        self.add_file_btn = QPushButton('添加文件')
+        self.add_file_btn.clicked.connect(self._add_existing_files)
+        self.new_text_btn = QPushButton('新建文本')
+        self.new_text_btn.clicked.connect(self._add_text_file)
+        for button in (
+            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
+            self.add_file_btn, self.new_text_btn,
+        ):
+            button.setProperty('compactAction', True)
+            button.setMinimumHeight(28)
+            browse_row.addWidget(button)
+        browse_row.addStretch(1)
+        action_outer.addLayout(browse_row)
+
+        vcs_row = QHBoxLayout()
+        vcs_row.setSpacing(6)
+        self.vcs_scope_label = QLabel('范围')
+        self.vcs_scope_label.setObjectName('small-label')
+        self.vcs_scope_combo = QComboBox()
+        size_combo(self.vcs_scope_combo, 'md')
+        # data: selection | all_files | changes
+        self.vcs_scope_combo.addItem('当前选中', 'selection')
+        self.vcs_scope_combo.addItem('全部文件', 'all_files')
+        self.vcs_scope_combo.addItem('全部改动', 'changes')
+        self.vcs_scope_combo.setToolTip(
+            '当前选中：文件树里勾选/点选的文件（支持多选）\n'
+            '全部文件：文件库中所有文件\n'
+            '全部改动：svn status 中有本地修改的路径（适合提交/回滚）'
+        )
+        self.vcs_scope_combo.currentIndexChanged.connect(self._update_vcs_action_state)
+        self.vcs_target_label = QLabel('')
+        self.vcs_target_label.setObjectName('small-label')
+        self.select_all_files_btn = QPushButton('全选文件')
+        self.select_all_files_btn.setProperty('compactAction', True)
+        self.select_all_files_btn.clicked.connect(self._select_all_files_in_tree)
+        self.clear_file_sel_btn = QPushButton('清除选择')
+        self.clear_file_sel_btn.setProperty('compactAction', True)
+        self.clear_file_sel_btn.clicked.connect(self._clear_file_selection)
+        self.lock_file_btn = QPushButton('锁定')
+        self.lock_file_btn.clicked.connect(self._lock_selected_file)
+        self.unlock_file_btn = QPushButton('解锁')
+        self.unlock_file_btn.clicked.connect(self._unlock_selected_file)
+        self.revert_btn = QPushButton('回滚')
+        self.revert_btn.clicked.connect(self._revert_svn_paths)
+        self.commit_btn = QPushButton('提交')
+        self.commit_btn.setObjectName('primary-btn')
+        self.commit_btn.clicked.connect(self._commit_svn)
         try:
             from ui.icons import apply_icon
             apply_icon(self.open_folder_btn, 'folder-open', 16)
             apply_icon(self.refresh_svn_btn, 'refresh', 16)
             apply_icon(self.lock_file_btn, 'lock', 16)
             apply_icon(self.unlock_file_btn, 'unlock', 16)
+            apply_icon(self.commit_btn, 'export', 16)
         except Exception:
             pass
         for button in (
-            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn, self.add_file_btn,
-            self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.commit_btn,
+            self.lock_file_btn, self.unlock_file_btn, self.revert_btn, self.commit_btn,
+            self.select_all_files_btn, self.clear_file_sel_btn,
         ):
             button.setProperty('compactAction', True)
             button.setMinimumHeight(28)
-            action_card_layout.addWidget(button)
-        action_card_layout.addStretch(1)
+        vcs_row.addWidget(self.vcs_scope_label)
+        vcs_row.addWidget(self.vcs_scope_combo)
+        vcs_row.addWidget(self.vcs_target_label, 1)
+        vcs_row.addWidget(self.select_all_files_btn)
+        vcs_row.addWidget(self.clear_file_sel_btn)
+        vcs_row.addWidget(self.lock_file_btn)
+        vcs_row.addWidget(self.unlock_file_btn)
+        vcs_row.addWidget(self.revert_btn)
+        vcs_row.addWidget(self.commit_btn)
+        action_outer.addLayout(vcs_row)
         # 兼容旧 grid 引用
         self.svn_actions = QGridLayout()
         file_layout.addWidget(action_card, 0)
@@ -1382,7 +1442,8 @@ class RequirementPanel(QWidget):
         self.file_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_tree.customContextMenuRequested.connect(self._show_file_menu)
         self.file_tree.itemDoubleClicked.connect(self._open_tree_item)
-        self.file_tree.currentItemChanged.connect(self._update_lock_buttons)
+        self.file_tree.currentItemChanged.connect(self._update_vcs_action_state)
+        self.file_tree.itemSelectionChanged.connect(self._update_vcs_action_state)
         file_layout.addWidget(self.file_tree, 1)
         self.detail_tabs.addTab(file_section, '文件库')
 
@@ -1620,83 +1681,140 @@ class RequirementPanel(QWidget):
             if status != '全部状态' and requirement.get('status', '待分析') != status: continue
             if system and requirement.get('system', '') != system: continue
             visible.append(requirement)
+        total_all = len(self._requirements)
         if hasattr(self, 'tree_count_label'):
-            total = len(self._requirements)
-            self.tree_count_label.setText(
-                f'{len(visible)}/{total}' if len(visible) != total else f'{total} 条'
-            )
+            if query:
+                self.tree_count_label.setText(f'命中 {len(visible)}/{total_all}')
+            else:
+                self.tree_count_label.setText(
+                    f'{len(visible)}/{total_all}' if len(visible) != total_all else f'{total_all} 条'
+                )
+        from tools.list_pin import decorate_title, is_pinned, pinned_at_rank
+        # 置顶优先，再按月份/更新时间
         visible.sort(
-            key=lambda item: (item.get('online_month', ''), item.get('source_modified_at') or item.get('updated_at', ''), item.get('title', '')),
+            key=lambda item: (
+                0 if is_pinned(item) else 1,
+                pinned_at_rank(item),
+                item.get('online_month', ''),
+                item.get('source_modified_at') or item.get('updated_at', ''),
+                item.get('title', ''),
+            ),
             reverse=True,
         )
+        # 非置顶按时间新在前；置顶块内 pinned_at 新在前（reverse 已覆盖 pinned_at）
+        pinned_items = [r for r in visible if is_pinned(r)]
+        plain_items = [r for r in visible if not is_pinned(r)]
+        pinned_items.sort(
+            key=lambda item: (
+                pinned_at_rank(item),
+                item.get('source_modified_at') or item.get('updated_at', ''),
+            ),
+            reverse=True,
+        )
+        plain_items.sort(
+            key=lambda item: (
+                item.get('online_month', ''),
+                item.get('source_modified_at') or item.get('updated_at', ''),
+                item.get('title', ''),
+            ),
+            reverse=True,
+        )
+        visible = pinned_items + plain_items
         month_counts = {}
-        for requirement in visible:
+        for requirement in plain_items:
             month = requirement.get('online_month') or '未分月'
             month_counts[month] = month_counts.get(month, 0) + 1
         selected_item = None
         first_item = None
         groups = {}
-        for requirement in visible:
-            month = requirement.get('online_month') or '未分月'
-            if month not in groups:
-                label = format_online_month_label(month)
-                header_text = f'{label}  ·  {month_counts[month]} 项'
-                header = QTreeWidgetItem()
-                header.setText(0, header_text)
-                header.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-                header.setData(0, GROUP_MONTH_ROLE, '' if month == '未分月' else month)
-                header.setToolTip(0, f'{header_text}\n点击左侧三角可展开/折叠该月')
-                header.setFlags(
-                    Qt.ItemFlag.ItemIsEnabled
-                    | Qt.ItemFlag.ItemIsDropEnabled
-                    | Qt.ItemFlag.ItemIsAutoTristate
-                )
-                font = header.font(0); font.setBold(True); font.setPointSize(max(font.pointSize() + 1, 11)); header.setFont(0, font)
-                try:
-                    from ui.theme_manager import ThemeManager
-                    pal = ThemeManager.instance().palette()
-                    header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', '#1E2A44')))
-                    mbg = QColor(pal.get('MONTH_HEADER_BG', '#F0F3FA'))
-                except Exception:
-                    header.setForeground(0, QColor('#1E2A44')); mbg = QColor('#F0F3FA')
-                header.setBackground(0, mbg); header.setBackground(1, mbg)
-                self.requirement_list.addTopLevelItem(header)
-                # 必须先入树再跨列，否则月份标题会被挤在需求号窄列中
-                header.setFirstColumnSpanned(True)
-                header.setExpanded(True)
-                header.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
-                groups[month] = header
+
+        def _add_group_header(key, header_text, month_role):
+            header = QTreeWidgetItem()
+            header.setText(0, header_text)
+            header.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
+            header.setData(0, GROUP_MONTH_ROLE, month_role)
+            header.setToolTip(0, f'{header_text}\n点击左侧三角可展开/折叠')
+            header.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsDropEnabled
+                | Qt.ItemFlag.ItemIsAutoTristate
+            )
+            font = header.font(0); font.setBold(True); font.setPointSize(max(font.pointSize() + 1, 11)); header.setFont(0, font)
+            try:
+                from ui.theme_manager import ThemeManager
+                pal = ThemeManager.instance().palette()
+                header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', '#1E2A44')))
+                mbg = QColor(pal.get('MONTH_HEADER_BG', '#F0F3FA'))
+            except Exception:
+                header.setForeground(0, QColor('#1E2A44')); mbg = QColor('#F0F3FA')
+            header.setBackground(0, mbg); header.setBackground(1, mbg)
+            self.requirement_list.addTopLevelItem(header)
+            header.setFirstColumnSpanned(True)
+            header.setExpanded(True)
+            header.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+            groups[key] = header
+            return header
+
+        def _add_requirement_item(parent, requirement):
+            nonlocal first_item, selected_item
+            from tools.pinyin_search import highlight_terms, match_snippet
+            from ui.search_highlight import paint_tree_item
             requirement = normalize_requirement(requirement)
             count = len(requirement.get('sql_parts', []))
             modified = requirement.get('source_modified_at') or requirement.get('updated_at', '')
             modified_text = modified[:16].replace('T', ' ') if modified else '未知'
             file_count = requirement.get('file_count', 0)
             badge_text = flag_status_text(requirement)
-            item = QTreeWidgetItem(groups[month])
+            item = QTreeWidgetItem(parent)
             item.setFirstColumnSpanned(False)
             item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
             title = requirement.get('title') or os.path.basename(requirement.get('local_path', '').rstrip(os.sep)) or requirement.get('svn_url', '').rstrip('/').rsplit('/', 1)[-1] or '未命名'
             code = str(requirement.get('code') or '').strip() or '未编号'
-            item.setText(0, code)
-            item.setText(1, f"{title}\n{badge_text}  ·  {file_count}文件 · {modified_text}")
+            pinned = is_pinned(requirement)
+            hit = bool(query) and match_query(requirement_search_text(requirement), query)
+            display_code = decorate_title(code, pinned)
+            display_title = ('📌 ' + title) if pinned else title
+            if hit and query:
+                display_code = highlight_terms(display_code, query)
+                display_title = highlight_terms(display_title, query)
+            # 命中摘要：优先描述/路径，便于定位到哪里匹配
+            snippet = ''
+            if hit and query:
+                for field in (
+                    requirement.get('description'),
+                    requirement.get('local_path'),
+                    requirement.get('svn_url'),
+                    requirement.get('system'),
+                    requirement.get('owner'),
+                ):
+                    if field and match_query(str(field), query):
+                        snippet = match_snippet(str(field), query)
+                        if snippet:
+                            break
+            line2 = f'{badge_text}  ·  {file_count}文件 · {modified_text}'
+            if snippet:
+                line2 = f'命中：{snippet}\n{line2}'
+            item.setText(0, display_code)
+            item.setText(1, f'{display_title}\n{line2}')
             item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
             item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
             item.setData(0, Qt.ItemDataRole.UserRole, requirement)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled)
             code_font = item.font(0); code_font.setBold(True); item.setFont(0, code_font)
-            # 搜索命中：拼音/原文均可
-            hit = bool(query) and match_query(requirement_search_text(requirement), query)
             try:
                 from ui.theme_manager import ThemeManager
                 pal = ThemeManager.instance().palette()
-                hit_c = QColor(pal.get('HIGHLIGHT_MARK', pal.get('WARNING', '#C45C12')))
                 code_c = QColor(pal.get('PRIMARY_ACTIVE', '#4058C8'))
                 mute_c = QColor(pal.get('TEXT_MUTED', '#4A5872'))
             except Exception:
-                hit_c, code_c, mute_c = QColor('#C45C12'), QColor('#4058C8'), QColor('#4A5872')
-            item.setForeground(0, hit_c if hit and query in code.casefold() else code_c)
-            item.setForeground(1, hit_c if hit else mute_c)
+                code_c, mute_c = QColor('#4058C8'), QColor('#4A5872')
+            if not hit:
+                item.setForeground(0, code_c)
+                item.setForeground(1, mute_c)
+            is_current_hit = hit and first_item is None
             if hit:
+                paint_tree_item(item, matched=True, current=is_current_hit)
+            if pinned and not hit:
                 title_font = item.font(1); title_font.setBold(True); item.setFont(1, title_font)
             flag_tip = []
             done = normalize_flag_done(requirement)
@@ -1704,9 +1822,12 @@ class RequirementPanel(QWidget):
                 state = '已完成' if done.get(key) else '待完成'
                 flag_tip.append(f'{full} · {state}')
             tip_flags = '\n'.join(flag_tip) if flag_tip else '无上线事项'
+            pin_line = '置顶：是\n' if pinned else ''
+            hit_line = f'搜索命中：是\n命中摘要：{snippet}\n' if hit else ''
             full_tip = (
                 f"{requirement.get('record_kind', '需求')}：{code}\n"
                 f"{title}\n"
+                f"{pin_line}{hit_line}"
                 f"进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n"
                 f"{tip_flags}\n"
                 f"系统：{requirement.get('system') or '—'}\n"
@@ -1714,12 +1835,26 @@ class RequirementPanel(QWidget):
             )
             item.setToolTip(0, full_tip)
             item.setToolTip(1, full_tip)
-            # 窄窗增高：允许两行标题
             from PyQt6.QtCore import QSize
-            item.setSizeHint(0, QSize(0, 44))
-            item.setSizeHint(1, QSize(0, 44))
+            item.setSizeHint(0, QSize(0, 56 if snippet else 44))
+            item.setSizeHint(1, QSize(0, 56 if snippet else 44))
             first_item = first_item or item
-            if requirement.get('id') == current_id: selected_item = item
+            if requirement.get('id') == current_id:
+                selected_item = item
+            return item
+
+        if pinned_items:
+            pin_header = _add_group_header('__pinned__', f'已置顶  ·  {len(pinned_items)} 项', '__pinned__')
+            for requirement in pinned_items:
+                _add_requirement_item(pin_header, requirement)
+        for requirement in plain_items:
+            month = requirement.get('online_month') or '未分月'
+            if month not in groups:
+                label = format_online_month_label(month)
+                header_text = f'{label}  ·  {month_counts[month]} 项'
+                _add_group_header(month, header_text, '' if month == '未分月' else month)
+            _add_requirement_item(groups[month], requirement)
+
         if query:
             self.requirement_list.expandAll()
         elif self._search_expand_snapshot is not None:
@@ -1729,15 +1864,12 @@ class RequirementPanel(QWidget):
             self.requirement_list.expandAll()
         self._fit_requirement_code_column()
         # 有搜索词时优先定位第一条匹配；无搜索时尽量保持当前选中
+        from ui.search_highlight import focus_tree_item
         pick = first_item if query else (selected_item or first_item)
         if pick and self._tree_item_alive(pick):
             self.requirement_list.blockSignals(True)
             try:
-                self.requirement_list.setCurrentItem(pick)
-                parent = pick.parent()
-                if parent is not None and self._tree_item_alive(parent):
-                    parent.setExpanded(True)
-                self.requirement_list.scrollToItem(pick)
+                focus_tree_item(self.requirement_list, pick)
             finally:
                 self.requirement_list.blockSignals(False)
             # 整树重建后需要重新加载文件库；信号已阻断，此处显式刷新
@@ -1865,6 +1997,9 @@ class RequirementPanel(QWidget):
         self.requirement_list.setCurrentItem(item)
         rename_action = menu.addAction('修改标题'); rename_action.triggered.connect(self._rename_requirement_title)
         edit_action = menu.addAction('编辑完整信息'); edit_action.triggered.connect(self._edit_requirement)
+        from tools.list_pin import is_pinned, pin_action_label
+        pin_action = menu.addAction(pin_action_label(is_pinned(requirement), self.language if hasattr(self, 'language') else 'zh'))
+        pin_action.triggered.connect(lambda _=False, req=requirement: self._toggle_requirement_pin(req))
         flags = active_flags(requirement)
         if flags:
             status_menu = menu.addMenu('完成标记')
@@ -1886,6 +2021,19 @@ class RequirementPanel(QWidget):
         delete_action = menu.addAction(f"删除选中的 {len(self._selected_requirements())} 项")
         delete_action.triggered.connect(self._delete_requirement)
         menu.exec(self.requirement_list.viewport().mapToGlobal(point))
+
+    def _toggle_requirement_pin(self, requirement):
+        from tools.list_pin import is_pinned, set_pinned_fields
+        if not isinstance(requirement, dict):
+            return
+        target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), None)
+        if target is None:
+            return
+        set_pinned_fields(target, not is_pinned(target))
+        target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+        save_requirements(self._requirements)
+        self._current = target
+        self._refresh()
 
     def _on_requirement_item_clicked(self, item, column):
         """左侧树单击仅选中；颜色切换请点右侧对应标记按钮。"""
@@ -2055,9 +2203,9 @@ class RequirementPanel(QWidget):
         is_svn = bool(has_path and self._current.get('workspace_kind', 'svn') == 'svn')
         self.open_folder_btn.setEnabled(has_path)
         self.refresh_svn_btn.setEnabled(has_path)
-        for button in (self.update_current_btn, self.add_file_btn, self.new_text_btn, self.commit_btn):
+        for button in (self.update_current_btn, self.add_file_btn, self.new_text_btn):
             button.setEnabled(is_svn)
-        self._update_lock_buttons()
+        self._update_vcs_action_state()
         if not self._current:
             self.detail_title.setText('请选择左侧需求')
             self.detail_title.setToolTip('')
@@ -2083,8 +2231,13 @@ class RequirementPanel(QWidget):
 
         requirement = normalize_requirement(self._current)
         self._current = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
+        query = self.search_edit.text().strip() if hasattr(self, 'search_edit') else ''
+        from tools.pinyin_search import highlight_terms
         title = requirement.get('title') or '未命名需求'
         code = requirement.get('code') or '无编号'
+        if query:
+            title = highlight_terms(title, query)
+            code = highlight_terms(code, query)
         kind = requirement.get('record_kind', '需求')
         system = requirement.get('system') or '未选系统'
         status = requirement.get('status') or '待分析'
@@ -2143,6 +2296,15 @@ class RequirementPanel(QWidget):
         if hasattr(self, 'sql_empty'):
             self.sql_empty.setVisible(not has_sql)
             self.sql_preview.setVisible(has_sql)
+        # 搜索时在 SQL 预览中高亮定位
+        try:
+            from ui.search_highlight import apply_text_highlights, clear_text_highlights
+            if query and has_sql:
+                apply_text_highlights(self.sql_preview, query, select_first=True)
+            else:
+                clear_text_highlights(self.sql_preview)
+        except Exception:
+            pass
         self.docx_btn.setEnabled(has_sql)
         self.sql_btn.setEnabled(has_sql)
 
@@ -2161,8 +2323,9 @@ class RequirementPanel(QWidget):
             self.batch_delete_btn, self.expand_tree_btn, self.collapse_tree_btn, self.file_tree,
             self.open_folder_btn, self.refresh_svn_btn,
             self.update_current_btn, self.add_file_btn, self.new_text_btn, self.lock_file_btn,
-            self.unlock_file_btn, self.commit_btn, self.delete_btn, self.edit_btn,
-            self.daily_btn, self.docx_btn, self.sql_btn,
+            self.unlock_file_btn, self.revert_btn, self.commit_btn,
+            self.select_all_files_btn, self.clear_file_sel_btn, self.vcs_scope_combo,
+            self.delete_btn, self.edit_btn, self.daily_btn, self.docx_btn, self.sql_btn,
         )
         for widget in widgets:
             widget.setEnabled(not busy)
@@ -2266,6 +2429,7 @@ class RequirementPanel(QWidget):
             ('更新', '更新完成'),
             ('锁定', '锁定完成'),
             ('解锁', '解锁完成'),
+            ('回滚', '回滚完成'),
             ('提交', '提交完成'),
             ('SVN add', '文件已加入版本库'),
             ('复制文件', '文件已添加'),
@@ -2417,13 +2581,72 @@ class RequirementPanel(QWidget):
             self._pending_file_refresh = True
             return
         self._file_tree_path = path
-        self._start_task('正在读取需求文件夹完整内容……', workspace_files, (path,), self._file_tree_loaded, show_loading=False)
+        # 一次拉取文件列表 + SVN 真实锁状态（覆盖本地 svn_locks 缓存）
+        is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
+        if is_svn and os.path.isdir(os.path.join(path, '.svn')):
+            self._start_task(
+                '正在读取文件库并同步 SVN 锁定状态……',
+                workspace_snapshot,
+                (path,),
+                self._file_tree_loaded,
+                show_loading=False,
+            )
+        else:
+            self._start_task(
+                '正在读取需求文件夹完整内容……',
+                workspace_files,
+                (path,),
+                self._file_tree_loaded,
+                show_loading=False,
+            )
 
-    def _file_tree_loaded(self, entries):
+    def _file_tree_loaded(self, payload):
         if getattr(self, '_file_tree_path', '') != self._current_path():
             return
-        self._file_entries_cache = list(entries or [])
+        # 兼容：旧回调可能直接是 list
+        if isinstance(payload, dict) and 'files' in payload:
+            entries = list(payload.get('files') or [])
+            locks = payload.get('locks') if isinstance(payload.get('locks'), dict) else {}
+            self._apply_synced_svn_locks(locks)
+        else:
+            entries = list(payload or [])
+        self._file_entries_cache = entries
         self._populate_file_tree_from_cache()
+
+    def _apply_synced_svn_locks(self, locks: dict):
+        """用 SVN 真实锁覆盖需求台账中的 svn_locks（解决外部解锁后界面仍显示锁定）。"""
+        if not self._current:
+            return
+        if self._current.get('workspace_kind', 'svn') != 'svn':
+            return
+        # locks: relative_path -> meta dict
+        new_locks = {}
+        for rel, meta in (locks or {}).items():
+            if not rel:
+                continue
+            # 统一成工作副本相对路径（系统分隔符）
+            key = str(rel).replace('/', os.sep).replace('\\', os.sep)
+            if isinstance(meta, dict):
+                stamp = meta.get('created') or meta.get('owner') or datetime.datetime.now().isoformat(timespec='seconds')
+                new_locks[key] = stamp
+            elif meta:
+                new_locks[key] = str(meta)
+        old = self._current.get('svn_locks') or {}
+        # 仅在变化时写盘，避免无意义刷盘
+        if dict(old) != new_locks:
+            self._current['svn_locks'] = new_locks
+            # 写回 requirements 列表中的同一对象
+            rid = self._current.get('id')
+            for item in self._requirements:
+                if item.get('id') == rid:
+                    item['svn_locks'] = new_locks
+                    break
+            try:
+                save_requirements(self._requirements)
+            except Exception:
+                pass
+        else:
+            self._current['svn_locks'] = new_locks
 
     def _sorted_file_entries(self, entries):
         col = getattr(self, '_file_sort_column', 0)
@@ -2484,11 +2707,14 @@ class RequirementPanel(QWidget):
             entries = [e for e in entries if (e.get('relative_path') or '') in keep_rel]
         nodes = {'': self.file_tree.invisibleRootItem()}
         shown = 0
+        first_file_hit = None
         for entry in entries:
             relative = entry['relative_path']
             parent_key = os.path.dirname(relative)
             parent = nodes.get(parent_key, self.file_tree.invisibleRootItem())
-            locked = relative in (self._current.get('svn_locks', {}) if self._current else {})
+            lock_map = (self._current.get('svn_locks', {}) if self._current else {}) or {}
+            rel_norm = relative.replace('/', os.sep).replace('\\', os.sep)
+            locked = rel_norm in lock_map or relative.replace('\\', '/') in lock_map
             name = os.path.basename(relative)
             display_name = ('🔒 ' + name) if locked else name
             ftype = entry.get('file_type', '文件夹' if entry['is_dir'] else '文件')
@@ -2506,6 +2732,11 @@ class RequirementPanel(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, entry['path'])
             item.setData(0, IS_DIR_ROLE, entry['is_dir'])
             tip = f"{name}\n类型：{ftype}\n路径：{relative}\n完整：{entry.get('path')}"
+            if locked:
+                tip += '\n锁定：是（已与 SVN 同步）'
+                lock_val = lock_map.get(rel_norm) or lock_map.get(relative.replace('\\', '/')) or ''
+                if lock_val:
+                    tip += f'\n锁信息：{lock_val}'
             for col in range(5):
                 item.setToolTip(col, tip)
             item.setSizeHint(0, QSize(0, 32 if len(name) < 28 else 44))
@@ -2520,13 +2751,15 @@ class RequirementPanel(QWidget):
                     item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
                 except Exception:
                     item.setForeground(0, QColor('#B24A24'))
-            if query and match_query(build_search_blob(name, relative, ftype), query):
-                try:
-                    from ui.theme_manager import ThemeManager
-                    item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
-                except Exception:
-                    item.setForeground(0, QColor('#C45C12'))
-                f = item.font(0); f.setBold(True); item.setFont(0, f)
+            file_hit = bool(query and match_query(build_search_blob(name, relative, ftype), query))
+            if file_hit:
+                from tools.pinyin_search import highlight_terms
+                from ui.search_highlight import paint_tree_item
+                item.setText(0, highlight_terms(name, query))
+                is_first_file_hit = first_file_hit is None and not entry.get('is_dir')
+                paint_tree_item(item, matched=True, current=bool(is_first_file_hit))
+                if is_first_file_hit:
+                    first_file_hit = item
             if entry['is_dir']:
                 nodes[relative] = item
             else:
@@ -2540,10 +2773,13 @@ class RequirementPanel(QWidget):
                 self.file_tree.setColumnWidth(4, 320)
         except Exception:
             pass
+        if first_file_hit is not None:
+            from ui.search_highlight import focus_tree_item
+            focus_tree_item(self.file_tree, first_file_hit)
         if hasattr(self, 'file_count_label'):
             total = len([e for e in (self._file_entries_cache or []) if not e.get('is_dir')])
-            self.file_count_label.setText(f'{shown}/{total} 文件' if query else f'{total} 文件')
-        self._update_lock_buttons()
+            self.file_count_label.setText(f'命中 {shown}/{total} 文件' if query else f'{total} 文件')
+        self._update_vcs_action_state()
 
     def _filter_file_tree_local(self):
         if not hasattr(self, 'file_tree'):
@@ -2580,59 +2816,253 @@ class RequirementPanel(QWidget):
         return paths
 
     def _selected_svn_file(self):
-        item = self.file_tree.currentItem() if hasattr(self, 'file_tree') else None
-        if not self._tree_item_alive(item):
-            return ''
+        """兼容：返回当前项单个文件路径。"""
+        files = self._selected_file_paths_only()
+        return files[0] if len(files) == 1 else (files[0] if files else '')
+
+    def _selected_file_paths_only(self):
+        return [p for p in self._selected_file_paths() if os.path.isfile(p)]
+
+    def _all_file_paths_in_tree(self):
+        root = self._current_path()
+        if not root:
+            return []
+        result = []
+        for entry in self._file_entries_cache or []:
+            if entry.get('is_dir'):
+                continue
+            path = entry.get('path')
+            if path and os.path.isfile(path):
+                result.append(path)
+        return result
+
+    def _vcs_scope_mode(self) -> str:
+        if not hasattr(self, 'vcs_scope_combo'):
+            return 'selection'
+        return self.vcs_scope_combo.currentData() or 'selection'
+
+    def _with_vcs_scope(self, mode: str, callback):
+        """临时切换范围执行回调（用于右键「选中」动作）。"""
+        combo = getattr(self, 'vcs_scope_combo', None)
+        if combo is None:
+            callback()
+            return
+        old = combo.currentIndex()
+        idx = combo.findData(mode)
+        if idx >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
         try:
-            if item.data(0, IS_DIR_ROLE):
-                return ''
-            path = item.data(0, Qt.ItemDataRole.UserRole)
-        except RuntimeError:
-            return ''
-        return path if path and os.path.isfile(path) else ''
+            callback()
+        finally:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(old)
+            combo.blockSignals(False)
+            self._update_vcs_action_state()
+
+    def _resolve_vcs_targets(self, *, files_only: bool, prefer_changes: bool = False):
+        """按范围解析操作目标。
+
+        files_only=True：锁定/解锁只收文件。
+        prefer_changes：提交/回滚在「全部文件」时也优先有改动的路径更安全——但全部文件模式按字面全部文件。
+        """
+        root = self._current_path()
+        mode = self._vcs_scope_mode()
+        if mode == 'all_files':
+            paths = self._all_file_paths_in_tree()
+            label = f'全部文件 {len(paths)} 个'
+        elif mode == 'changes':
+            if not root:
+                return [], '无工作副本'
+            try:
+                info = changed_paths(root)
+            except (SvnError, ValueError) as exc:
+                raise ValueError(str(exc)) from exc
+            paths = list(info.get('paths') or [])
+            if files_only:
+                paths = [p for p in paths if os.path.isfile(p)]
+            label = f'全部改动 {len(paths)} 项'
+        else:
+            paths = self._selected_file_paths_only() if files_only else self._selected_file_paths()
+            if files_only:
+                label = f'选中文件 {len(paths)} 个'
+            else:
+                label = f'选中项 {len(paths)} 个'
+        # 去重保序
+        seen = set()
+        unique = []
+        for path in paths:
+            key = os.path.normcase(os.path.abspath(path))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(os.path.abspath(path))
+        return unique, label
+
+    def _select_all_files_in_tree(self):
+        if not hasattr(self, 'file_tree'):
+            return
+        self.file_tree.clearSelection()
+        def walk(item):
+            count = item.childCount()
+            for i in range(count):
+                child = item.child(i)
+                if child is None:
+                    continue
+                try:
+                    if not bool(child.data(0, IS_DIR_ROLE)):
+                        child.setSelected(True)
+                except RuntimeError:
+                    pass
+                walk(child)
+        root = self.file_tree.invisibleRootItem()
+        walk(root)
+        # 切换到「当前选中」便于后续操作
+        if hasattr(self, 'vcs_scope_combo'):
+            idx = self.vcs_scope_combo.findData('selection')
+            if idx >= 0:
+                self.vcs_scope_combo.setCurrentIndex(idx)
+        self._update_vcs_action_state()
+
+    def _clear_file_selection(self):
+        if hasattr(self, 'file_tree'):
+            self.file_tree.clearSelection()
+        self._update_vcs_action_state()
 
     def _update_lock_buttons(self, *_args):
+        """兼容旧名。"""
+        self._update_vcs_action_state()
+
+    def _update_vcs_action_state(self, *_args):
         try:
-            path = self._selected_svn_file() if hasattr(self, 'file_tree') else ''
-            relative = os.path.relpath(path, self._current_path()) if path and self._current_path() else ''
-            locked = bool(relative and self._current and relative in self._current.get('svn_locks', {}))
-            is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
+            is_svn = bool(
+                self._current
+                and self._current.get('local_path')
+                and self._current.get('workspace_kind', 'svn') == 'svn'
+            )
+            has_path = bool(self._current_path())
+            mode = self._vcs_scope_mode()
+            selected_files = self._selected_file_paths_only()
+            all_files_n = len(self._all_file_paths_in_tree())
+            if mode == 'selection':
+                target_n = len(selected_files)
+                tip = f'已选 {target_n} 个文件'
+            elif mode == 'all_files':
+                target_n = all_files_n
+                tip = f'文件库共 {target_n} 个文件'
+            else:
+                tip = '将按 svn status 取全部本地改动'
+                target_n = -1  # 未知，仍允许点按钮再解析
+            if hasattr(self, 'vcs_target_label'):
+                self.vcs_target_label.setText(tip)
+            can_file_op = is_svn and (target_n > 0 or mode == 'changes')
             if hasattr(self, 'lock_file_btn'):
-                self.lock_file_btn.setEnabled(is_svn and bool(path) and not locked)
-                self.unlock_file_btn.setEnabled(is_svn and bool(path) and locked)
+                self.lock_file_btn.setEnabled(can_file_op)
+                self.unlock_file_btn.setEnabled(can_file_op)
+            if hasattr(self, 'revert_btn'):
+                self.revert_btn.setEnabled(is_svn and (target_n > 0 or mode in ('changes', 'all_files')))
+            if hasattr(self, 'commit_btn'):
+                # selection 无选中时仍启用，点击后提示切换范围；其余范围直接可用
+                self.commit_btn.setEnabled(is_svn)
+            if hasattr(self, 'vcs_scope_combo'):
+                self.vcs_scope_combo.setEnabled(is_svn)
+            if hasattr(self, 'select_all_files_btn'):
+                self.select_all_files_btn.setEnabled(has_path and all_files_n > 0)
+                self.clear_file_sel_btn.setEnabled(has_path)
         except (RuntimeError, ValueError, OSError):
-            if hasattr(self, 'lock_file_btn'):
-                self.lock_file_btn.setEnabled(False)
-                self.unlock_file_btn.setEnabled(False)
+            for name in ('lock_file_btn', 'unlock_file_btn', 'revert_btn', 'commit_btn'):
+                btn = getattr(self, name, None)
+                if btn is not None:
+                    btn.setEnabled(False)
 
     def _lock_selected_file(self):
-        path = self._selected_svn_file()
-        if not path:
-            show_info(self, 'SVN 文件锁', '请先在文件树中选择一个文件。'); return
-        message, accepted = QInputDialog.getText(self, '锁定 SVN 文件', '锁定说明：', text='PengTools 开发锁定')
-        if not accepted: return
-        self._pending_lock_path = path
-        self._start_task('正在锁定选中的 SVN 文件……', lock_file, (path, message), self._lock_finished)
+        try:
+            paths, label = self._resolve_vcs_targets(files_only=True)
+        except ValueError as exc:
+            show_warning(self, 'SVN 锁定', str(exc)); return
+        if not paths:
+            show_info(self, 'SVN 锁定', '请先选择文件，或将范围改为「全部文件」。'); return
+        default_msg = 'PengTools 开发锁定'
+        if len(paths) == 1:
+            prompt = f'锁定说明（{os.path.basename(paths[0])}）：'
+        else:
+            prompt = f'锁定说明（{label}）：'
+        message, accepted = QInputDialog.getText(self, '锁定 SVN 文件', prompt, text=default_msg)
+        if not accepted:
+            return
+        preview = '\n'.join(os.path.basename(p) for p in paths[:12])
+        more = f'\n…共 {len(paths)} 个' if len(paths) > 12 else ''
+        if len(paths) > 1 and not confirm_action(
+            self, '确认批量锁定',
+            f'将锁定以下文件：\n\n{preview}{more}\n\n其他人将无法提交这些文件，直到解锁。',
+            confirm_text='确认锁定',
+            danger=False,
+        ):
+            return
+        self._start_task(
+            f'正在锁定 {len(paths)} 个 SVN 文件……',
+            lock_files, (paths, message), self._lock_finished,
+        )
 
     def _lock_finished(self, result):
-        if not self._current: return
-        relative = os.path.relpath(result['path'], self._current_path())
-        self._current.setdefault('svn_locks', {})[relative] = datetime.datetime.now().isoformat(timespec='seconds')
-        save_requirements(self._requirements); self._refresh_file_tree()
-        show_success(self, 'SVN 文件已锁定', result.get('output') or '其他人将无法提交该文件，直到你解锁。')
+        if not self._current:
+            return
+        root = self._current_path()
+        locks = self._current.setdefault('svn_locks', {})
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        for path in result.get('paths') or ([result.get('path')] if result.get('path') else []):
+            if not path or not root:
+                continue
+            try:
+                relative = os.path.relpath(path, root)
+            except ValueError:
+                continue
+            locks[relative] = now
+        save_requirements(self._requirements)
+        self._refresh_file_tree()
+        count = int(result.get('count') or len(result.get('paths') or []) or 1)
+        show_success(
+            self, 'SVN 文件已锁定',
+            (result.get('output') or f'已锁定 {count} 个文件。') + '\n其他人将无法提交这些文件，直到解锁。',
+        )
 
     def _unlock_selected_file(self):
-        path = self._selected_svn_file()
-        if not path:
-            show_info(self, 'SVN 文件锁', '请先在文件树中选择一个已锁定文件。'); return
-        self._start_task('正在解锁选中的 SVN 文件……', unlock_file, (path,), self._unlock_finished)
+        try:
+            paths, label = self._resolve_vcs_targets(files_only=True)
+        except ValueError as exc:
+            show_warning(self, 'SVN 解锁', str(exc)); return
+        if not paths:
+            show_info(self, 'SVN 解锁', '请先选择要解锁的文件，或将范围改为「全部文件」。'); return
+        if len(paths) > 1 and not confirm_action(
+            self, '确认批量解锁',
+            f'将解锁 {len(paths)} 个文件（{label}）。',
+            confirm_text='确认解锁',
+            danger=False,
+        ):
+            return
+        self._start_task(
+            f'正在解锁 {len(paths)} 个 SVN 文件……',
+            unlock_files, (paths,), self._unlock_finished,
+        )
 
     def _unlock_finished(self, result):
-        if not self._current: return
-        relative = os.path.relpath(result['path'], self._current_path())
-        self._current.setdefault('svn_locks', {}).pop(relative, None)
-        save_requirements(self._requirements); self._refresh_file_tree()
-        show_success(self, 'SVN 文件已解锁', result.get('output') or '该文件已允许其他人提交。')
+        if not self._current:
+            return
+        root = self._current_path()
+        locks = self._current.setdefault('svn_locks', {})
+        for path in result.get('paths') or ([result.get('path')] if result.get('path') else []):
+            if not path or not root:
+                continue
+            try:
+                relative = os.path.relpath(path, root)
+            except ValueError:
+                continue
+            locks.pop(relative, None)
+        save_requirements(self._requirements)
+        self._refresh_file_tree()
+        count = int(result.get('count') or len(result.get('paths') or []) or 1)
+        show_success(self, 'SVN 文件已解锁', result.get('output') or f'已解锁 {count} 个文件。')
 
     def _open_tree_item(self, item, _column):
         if not item:
@@ -2702,16 +3132,42 @@ class RequirementPanel(QWidget):
 
     def _show_file_menu(self, point):
         item = self.file_tree.itemAt(point)
-        if item:
+        if item and not item.isSelected():
+            # 右键未在多选集合内时，改为单选该项
+            self.file_tree.clearSelection()
+            item.setSelected(True)
             self.file_tree.setCurrentItem(item)
         menu = QMenu(self)
         menu.addAction('刷新', self._refresh_file_tree)
         menu.addAction('全部展开', self.file_tree.expandAll)
         menu.addAction('全部折叠', self.file_tree.collapseAll)
+        menu.addAction('全选文件', self._select_all_files_in_tree)
+        menu.addAction('清除选择', self._clear_file_selection)
         menu.addSeparator()
         menu.addAction('复制路径', self._copy_selected_paths)
         menu.addAction('导出到…', self._export_selected_files)
         menu.addAction('删除…', self._delete_selected_files)
+        is_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn')
+        selected_files = self._selected_file_paths_only()
+        if is_svn and selected_files:
+            menu.addSeparator()
+            n = len(selected_files)
+            menu.addAction(
+                f'锁定选中（{n}）',
+                lambda: self._with_vcs_scope('selection', self._lock_selected_file),
+            )
+            menu.addAction(
+                f'解锁选中（{n}）',
+                lambda: self._with_vcs_scope('selection', self._unlock_selected_file),
+            )
+            menu.addAction(
+                f'回滚选中（{n}）…',
+                lambda: self._with_vcs_scope('selection', self._revert_svn_paths),
+            )
+            menu.addAction(
+                f'提交选中（{n}）…',
+                lambda: self._with_vcs_scope('selection', self._commit_svn),
+            )
         if item:
             path = item.data(0, Qt.ItemDataRole.UserRole)
             if path:
@@ -2726,11 +3182,6 @@ class RequirementPanel(QWidget):
                         '打开所在文件夹',
                         lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(p))),
                     )
-                    menu.addSeparator()
-                    if self.lock_file_btn.isEnabled():
-                        menu.addAction('锁定文件', self._lock_selected_file)
-                    if self.unlock_file_btn.isEnabled():
-                        menu.addAction('解锁文件', self._unlock_selected_file)
         menu.exec(self.file_tree.viewport().mapToGlobal(point))
 
     def _open_folder(self):
@@ -2793,29 +3244,122 @@ class RequirementPanel(QWidget):
         show_success(self, 'SVN 新增完成', f'已新增并加入版本控制：{count} 个文件。提交前仍可继续修改。')
 
     def _commit_svn(self):
-        path = self._current_path()
-        if not path: return
+        root = self._current_path()
+        if not root:
+            return
+        mode = self._vcs_scope_mode()
         try:
-            status = svn_status(path)
-        except SvnError as exc:
-            show_warning(self, 'SVN 状态', str(exc)); return
-        if status['clean']:
-            show_info(self, '提交 SVN', '当前工作副本没有可提交的改动。'); return
-        message, accepted = QInputDialog.getText(self, '提交 SVN', '提交说明：')
-        if not accepted or not message.strip(): return
-        preview = status['text'][:4000]
+            if mode == 'selection':
+                paths = self._selected_file_paths()
+                # 选中目录时也允许提交该目录下改动
+                if not paths:
+                    show_info(
+                        self, '提交 SVN',
+                        '当前范围为「当前选中」但未选中文件。\n'
+                        '请多选文件，或把范围改为「全部改动 / 全部文件」。',
+                    )
+                    return
+                label = f'选中 {len(paths)} 项'
+            elif mode == 'all_files':
+                paths = self._all_file_paths_in_tree()
+                if not paths:
+                    show_info(self, '提交 SVN', '文件库中没有文件。')
+                    return
+                label = f'全部文件 {len(paths)} 个'
+            else:
+                info = changed_paths(root)
+                paths = list(info.get('paths') or [])
+                if not paths:
+                    show_info(self, '提交 SVN', '当前工作副本没有可提交的改动。')
+                    return
+                label = f'全部改动 {len(paths)} 项'
+                preview_status = info.get('text') or ''
+        except (SvnError, ValueError) as exc:
+            show_warning(self, 'SVN 提交', str(exc))
+            return
+
+        message, accepted = QInputDialog.getText(self, '提交 SVN', f'提交说明（{label}）：')
+        if not accepted or not message.strip():
+            return
+        names = '\n'.join(os.path.basename(p) for p in paths[:15])
+        more = f'\n…共 {len(paths)} 项' if len(paths) > 15 else ''
+        detail = f'范围：{label}\n\n{names}{more}\n\n提交说明：{message.strip()}'
+        if mode == 'changes':
+            detail = f'范围：{label}\n\n{(preview_status or names)[:2500]}\n\n提交说明：{message.strip()}'
         if not confirm_action(
             self, '确认提交 SVN',
-            f'将提交当前需求工作副本的全部改动：\n\n{preview}\n\n提交说明：{message}',
+            f'将提交以下路径的改动：\n\n{detail}',
             confirm_text='确认提交',
             danger=True,
         ):
             return
-        self._start_task('正在提交 SVN，请勿关闭软件……', commit_working_copy, (path, message), self._commit_finished)
+        self._start_task(
+            f'正在提交 {len(paths)} 项，请勿关闭软件……',
+            commit_paths, (paths, message.strip(), root), self._commit_finished,
+        )
 
     def _commit_finished(self, info):
         self._refresh_current_finished(info)
-        show_success(self, 'SVN 提交完成', info.get('output', '提交成功。'))
+        self._refresh_file_tree()
+        count = info.get('count') or ''
+        suffix = f'（{count} 项）' if count else ''
+        show_success(self, 'SVN 提交完成', (info.get('output') or '提交成功。') + suffix)
+
+    def _revert_svn_paths(self):
+        root = self._current_path()
+        if not root:
+            return
+        mode = self._vcs_scope_mode()
+        try:
+            if mode == 'selection':
+                paths = self._selected_file_paths()
+                if not paths:
+                    show_info(self, '回滚', '请先选择要回滚的文件，或改范围。')
+                    return
+                label = f'选中 {len(paths)} 项'
+            elif mode == 'all_files':
+                # 全部文件回滚太危险：改为全部改动
+                info = changed_paths(root)
+                paths = list(info.get('paths') or [])
+                if not paths:
+                    show_info(self, '回滚', '没有本地改动可回滚。「全部文件」范围下仅回滚有改动的路径。')
+                    return
+                label = f'全部改动 {len(paths)} 项（已避免无改动文件）'
+            else:
+                info = changed_paths(root)
+                paths = list(info.get('paths') or [])
+                if not paths:
+                    show_info(self, '回滚', '当前工作副本没有本地改动。')
+                    return
+                label = f'全部改动 {len(paths)} 项'
+        except (SvnError, ValueError) as exc:
+            show_warning(self, '回滚', str(exc))
+            return
+
+        names = '\n'.join(os.path.basename(p) for p in paths[:15])
+        more = f'\n…共 {len(paths)} 项' if len(paths) > 15 else ''
+        if not confirm_action(
+            self, '确认回滚本地修改',
+            f'将丢弃本地未提交修改（svn revert），不可恢复：\n\n范围：{label}\n\n{names}{more}\n\n'
+            '不会删除未纳入版本库的新文件（? 状态可能仍保留）。',
+            confirm_text='确认回滚',
+            danger=True,
+        ):
+            return
+        self._start_task(
+            f'正在回滚 {len(paths)} 项……',
+            revert_paths, (paths,), self._revert_finished,
+        )
+
+    def _revert_finished(self, result):
+        self._refresh_file_tree()
+        if self._current_path():
+            try:
+                self._refresh_current_svn()
+            except Exception:
+                pass
+        count = result.get('count') or len(result.get('paths') or [])
+        show_success(self, '回滚完成', result.get('output') or f'已回滚 {count} 项。')
 
     def _save_dialog(self, requirement=None, offer_next=True, is_new=False, offer_daily=None):
         # offer_daily 为旧参数别名：True/False 映射到是否弹出下一步建议

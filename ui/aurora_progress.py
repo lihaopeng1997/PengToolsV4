@@ -46,7 +46,8 @@ class AuroraProgress(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.setFixedHeight(62)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        # 仅作视觉反馈：不拦截鼠标，避免「Loading 盖住界面 → 点什么都没反应」
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # 浮层默认不占布局；hide 时也不会把按钮顶上/顶下
         self.hide()
 
@@ -98,7 +99,8 @@ class AuroraProgress(QWidget):
         self.raise_()
         self._timer.start(28)
         self.update()
-        QTimer.singleShot(1100, self._fade_out)
+        # 缩短停留，减少遮挡感（不挡鼠标，但仍尽快消失）
+        QTimer.singleShot(600, self._fade_out)
 
     def fail(self, label):
         self._label = label or ''

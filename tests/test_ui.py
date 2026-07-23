@@ -436,14 +436,21 @@ class UiRegressionTests(unittest.TestCase):
     def test_gateway_json_tree_search_and_copy(self):
         gateway = GatewayDecodePanel()
         viewer = gateway.json_viewer
-        self.assertTrue(viewer.set_text('{"data":{"users":[{"name":"Lihp"}]}}'))
+        self.assertTrue(viewer.set_text('{"data":{"users":[{"name":"demo_user"}]}}'))
         self.assertIn('\n', viewer.plain_text())
-        viewer.search_edit.setText('Lihp')
+        # 树节点页签内搜索
+        viewer.tabs.setCurrentIndex(1)
+        viewer.search_edit.setText('demo_user')
         self.assertEqual(len(viewer._matches), 1)
         self.assertEqual(viewer.path_value.text(), '$.data.users[0].name')
         item = viewer._matches[0]
         viewer._copy_item_value(item)
-        self.assertEqual(QApplication.clipboard().text(), 'Lihp')
+        self.assertEqual(QApplication.clipboard().text(), 'demo_user')
+        # 格式化文本页签内搜索应命中正文并高亮
+        viewer.tabs.setCurrentIndex(0)
+        viewer.search_edit.setText('demo_user')
+        self.assertEqual(viewer._search_mode, 'text')
+        self.assertGreaterEqual(len(viewer._matches), 1)
 
     def test_json_tree_keeps_readable_key_column_and_resizable_headers(self):
         """深层级字段名列可拖宽、有下限，不会被压到不可读。"""

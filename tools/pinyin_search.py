@@ -57,7 +57,8 @@ def normalize_query(text: str) -> str:
     s = ''.join(ch for ch in s if not unicodedata.combining(ch))
     s = s.casefold().strip()
     s = _SPACE_RE.sub(' ', s)
-    return s
+    # 必须再 strip：否则 "..." 会变成 " "（真值非空），导致当作「有查询」却 0 个 token → 误显示全部
+    return s.strip()
 
 
 def _gbk_initial(ch: str) -> str:
@@ -149,50 +150,106 @@ def build_search_blob(*parts: object) -> str:
     full = ' '.join(x for x in full_bits if x)
     initials = ''.join(init_bits)
     compact_full = _VOWEL_STRIP.sub('', full)
-    # 多形态索引，便于 cx / cxcb / chexian / 车险 命中
-    pieces = [
-        raw,
-        normalize_query(raw),
+    # 首行必须是「可见原文」专用（供单字母/中文原文匹配），不要把拼音拼进首行。
+    # 旧实现 normalize_query(整段) 会把换行压成空格，导致 e 命中 che、乱输仍像有结果。
+    raw_line = normalize_query(raw)
+    return '\n'.join([
+        raw_line,
         full,
         compact_full,
         initials,
         ' '.join(init_bits),
-    ]
-    blob = '\n'.join(pieces)
-    return normalize_query(blob) + '\n' + compact_full + '\n' + initials
+    ])
+
+
+def _has_cjk(text: str) -> bool:
+    return any('\u4e00' <= c <= '\u9fff' for c in (text or ''))
+
+
+def _latin_token(text: str) -> str:
+    """仅保留 a-z0-9，用于拼音/英文紧凑匹配。绝不把中文压成空串后当命中。"""
+    return _VOWEL_STRIP.sub('', (text or '').casefold())
 
 
 def match_query(blob_or_text: str, query: str) -> bool:
-    """多词 AND；支持原文、全拼、首字母、无空格。完全离线。"""
+    """多词 AND；支持原文、全拼、首字母。完全离线。
+
+    重要约束（防「乱输也显示全部」）：
+    - 空查询 → True（展示全部）
+    - 纯标点/无有效 token → False（无命中）
+    - 禁止用空串 ``'' in blob``（Python 恒 True）判定命中
+    - 单字母只匹配「可见原文」，不在拼音索引里找（避免 e 命中 che）
+    - 中文靠原文子串或拼音全拼/首字母（长度≥2）
+    """
+    raw_query = str(query or '')
     q = normalize_query(query)
     if not q:
-        return True
-    src = blob_or_text or ''
-    if any('\u4e00' <= c <= '\u9fff' for c in src) and '\n' not in src:
-        blob = build_search_blob(src)
-    else:
-        # 已是 blob 或纯英文
-        if any('\u4e00' <= c <= '\u9fff' for c in src):
-            blob = build_search_blob(src)
-        else:
-            blob = normalize_query(src) + '\n' + _VOWEL_STRIP.sub('', normalize_query(src))
+        # 仅空白 → 展示全部；纯标点（归一化后变空）→ 无命中
+        return not bool(raw_query.strip())
 
-    compact_blob = _VOWEL_STRIP.sub('', blob)
-    for term in q.split():
-        if not term:
+    terms = [t for t in q.split() if t]
+    if not terms:
+        return not bool(raw_query.strip())
+
+    src = blob_or_text or ''
+    # 已是 build_search_blob 产物：首行=原文，后续=拼音索引
+    looks_like_blob = ('\n' in src) and (src.count('\n') >= 2)
+    if looks_like_blob:
+        blob = src
+        raw_visible = normalize_query(src.split('\n', 1)[0])
+    else:
+        blob = build_search_blob(src)
+        raw_visible = normalize_query(src)
+
+    # blob 行：0 原文 / 1 全拼 / 2 紧凑全拼 / 3 首字母串 / 4 首字母空格串
+    lines = blob.split('\n')
+    raw_line = lines[0] if lines else raw_visible
+    full_line = _latin_token(lines[1]) if len(lines) > 1 else ''
+    compact_line = _latin_token(lines[2]) if len(lines) > 2 else _latin_token(blob)
+    init_line = (lines[3] if len(lines) > 3 else '').casefold()
+    meaningful = 0
+
+    for term in terms:
+        matched = False
+        latin = _latin_token(term)
+        has_cjk = _has_cjk(term)
+
+        if has_cjk:
+            # 中文：先原文，再拼音（全拼走 compact/full，首字母只走 init 行，避免 sq 误伤 jiekousql）
+            if term in raw_visible or term in raw_line:
+                matched = True
+            else:
+                q_full = _latin_token(pinyin_full(term))
+                q_init = (pinyin_initials(term) or '').casefold()
+                if q_full and len(q_full) >= 2 and (q_full in compact_line or q_full in full_line):
+                    matched = True
+                elif q_init and len(q_init) >= 2 and q_init in init_line:
+                    matched = True
+        elif latin:
+            if len(latin) >= 2:
+                # 英文/数字/拼音：可见原文、全拼紧凑或首字母串
+                if (
+                    latin in raw_visible
+                    or term in raw_visible
+                    or latin in compact_line
+                    or latin in full_line
+                    or (len(latin) >= 2 and latin in init_line)
+                ):
+                    matched = True
+            else:
+                # 单字母：仅可见原文（编号 REQ 中的 r 等），禁止落在拼音 che/xian 上
+                if latin in raw_visible or latin in raw_line:
+                    matched = True
+        else:
+            # 纯标点 token：忽略
             continue
-        compact_t = _VOWEL_STRIP.sub('', term)
-        if term in blob or compact_t in compact_blob:
-            continue
-        # 查询含中文：对查询本身再生成拼音后匹配（离线）
-        if any('\u4e00' <= c <= '\u9fff' for c in term):
-            q_full = _VOWEL_STRIP.sub('', pinyin_full(term))
-            q_init = pinyin_initials(term)
-            if (q_full and q_full in compact_blob) or (q_init and q_init in compact_blob):
-                continue
-            # 原文子串
-            if term in src:
-                continue
+
+        if not matched:
+            return False
+        meaningful += 1
+
+    # 全是标点（如 "!!!" / "..."）→ 无命中，列表应为空
+    if meaningful == 0:
         return False
     return True
 
@@ -226,6 +283,81 @@ def highlight_terms(text: str, query: str) -> str:
             pattern = re.compile(re.escape(term), re.IGNORECASE)
             result = pattern.sub(lambda m: f'【{m.group(0)}】', result)
     return result
+
+
+def find_term_spans(text: str, query: str) -> list[tuple[int, int]]:
+    """返回原文中可高亮的 (start, end) 区间（end 不含）。"""
+    q = normalize_query(query)
+    source = text or ''
+    if not q or not source:
+        return []
+    spans: list[tuple[int, int]] = []
+    for term in q.split():
+        if not term:
+            continue
+        # 拼音类查询在原文无对应字符时跳过（避免误高亮）
+        if not any('\u4e00' <= c <= '\u9fff' for c in term) and not any(c.isascii() and c.isalnum() for c in term):
+            continue
+        try:
+            pattern = re.compile(re.escape(term), re.IGNORECASE)
+        except re.error:
+            continue
+        for match in pattern.finditer(source):
+            spans.append((match.start(), match.end()))
+    if not spans:
+        return []
+    spans.sort()
+    merged: list[tuple[int, int]] = [spans[0]]
+    for start, end in spans[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def match_snippet(text: str, query: str, radius: int = 28, max_len: int = 96) -> str:
+    """截取首个命中附近片段，并用【】标出关键词，便于列表定位展示。"""
+    source = str(text or '').replace('\r\n', '\n').replace('\r', '\n')
+    source = re.sub(r'\s+', ' ', source).strip()
+    if not source:
+        return ''
+    spans = find_term_spans(source, query)
+    if not spans:
+        # 无字面命中（可能是拼音命中元数据）：给开头摘要
+        snippet = source[:max_len]
+        return (snippet + '…') if len(source) > max_len else snippet
+    start, end = spans[0]
+    left = max(0, start - radius)
+    right = min(len(source), end + radius)
+    chunk = source[left:right]
+    # 在片段内重新标亮
+    marked = highlight_terms(chunk, query)
+    prefix = '…' if left > 0 else ''
+    suffix = '…' if right < len(source) else ''
+    result = f'{prefix}{marked}{suffix}'
+    if len(result) > max_len + 8:
+        result = result[: max_len + 8] + '…'
+    return result
+
+
+def first_match_line(text: str, query: str) -> tuple[int, str]:
+    """返回 (0-based 行号, 行文本)；无命中时 (-1, '')。"""
+    source = str(text or '')
+    if not source:
+        return -1, ''
+    lines = source.splitlines() or [source]
+    q = normalize_query(query)
+    if not q:
+        return 0, lines[0] if lines else ''
+    for index, line in enumerate(lines):
+        if find_term_spans(line, query):
+            return index, line
+        # 拼音命中：整行 blob
+        if match_query(build_search_blob(line), query):
+            return index, line
+    return -1, ''
 
 
 def clear_pinyin_cache() -> None:

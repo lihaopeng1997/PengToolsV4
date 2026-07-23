@@ -40,6 +40,9 @@ INTERNET_OPTION_REFRESH = 37
 
 # 进程内：是否由本工具设置了系统代理（atexit 兜底）
 _CAPTURE_PROXY_ACTIVE = False
+# 抓包引擎仍在跑，但系统代理已临时恢复（离开接口排查页 / 用户暂停）
+_CAPTURE_PROXY_SUSPENDED = False
+_CAPTURE_PROXY_PORT = 0
 _ATEXIT_REGISTERED = False
 _PROXY_LOCK = threading.Lock()
 
@@ -191,9 +194,12 @@ def backup_proxy_to_config() -> dict:
     return cfg['proxy_restore_snapshot']
 
 
-def restore_proxy_from_snapshot(snapshot: Optional[dict] = None) -> bool:
-    """恢复代理；返回是否执行了恢复。"""
-    global _CAPTURE_PROXY_ACTIVE
+def restore_proxy_from_snapshot(snapshot: Optional[dict] = None, *, clear_snapshot: bool = True) -> bool:
+    """恢复代理；返回是否执行了恢复。
+
+    clear_snapshot=False：仅写回用户代理，保留快照（用于「暂停系统代理但引擎仍运行」）。
+    """
+    global _CAPTURE_PROXY_ACTIVE, _CAPTURE_PROXY_SUSPENDED
     with _PROXY_LOCK:
         snap = snapshot
         if snap is None:
@@ -208,11 +214,86 @@ def restore_proxy_from_snapshot(snapshot: Optional[dict] = None) -> bool:
             'AutoConfigURL': str(snap.get('AutoConfigURL') or ''),
             'AutoDetect': int(snap.get('AutoDetect') or 0),
         })
-        cfg = load_interface_debug_config()
-        cfg['proxy_restore_snapshot'] = None
-        save_interface_debug_config(cfg)
+        if clear_snapshot:
+            cfg = load_interface_debug_config()
+            cfg['proxy_restore_snapshot'] = None
+            save_interface_debug_config(cfg)
+            _CAPTURE_PROXY_SUSPENDED = False
         _CAPTURE_PROXY_ACTIVE = False
         return True
+
+
+def suspend_capture_system_proxy() -> str:
+    """抓包引擎可继续跑，但先把系统代理还给用户，避免其它软件/SVN 全超时。
+
+    返回：suspended | noop | failed
+    """
+    global _CAPTURE_PROXY_ACTIVE, _CAPTURE_PROXY_SUSPENDED
+    with _PROXY_LOCK:
+        if _CAPTURE_PROXY_SUSPENDED:
+            return 'noop'
+        if not _CAPTURE_PROXY_ACTIVE and not is_loopback_capture_proxy():
+            return 'noop'
+        cfg = load_interface_debug_config()
+        snap = cfg.get('proxy_restore_snapshot')
+        try:
+            if isinstance(snap, dict):
+                write_proxy_settings({
+                    'ProxyEnable': int(snap.get('ProxyEnable') or 0),
+                    'ProxyServer': str(snap.get('ProxyServer') or ''),
+                    'ProxyOverride': str(snap.get('ProxyOverride') or ''),
+                    'AutoConfigURL': str(snap.get('AutoConfigURL') or ''),
+                    'AutoDetect': int(snap.get('AutoDetect') or 0),
+                })
+            else:
+                write_proxy_settings({
+                    'ProxyEnable': 0,
+                    'ProxyServer': '',
+                    'ProxyOverride': '',
+                    'AutoConfigURL': '',
+                    'AutoDetect': 0,
+                })
+            _CAPTURE_PROXY_ACTIVE = False
+            _CAPTURE_PROXY_SUSPENDED = True
+            return 'suspended'
+        except Exception:
+            return 'failed'
+
+
+def resume_capture_system_proxy(port: Optional[int] = None) -> str:
+    """重新挂上本机抓包系统代理（在 suspend 之后、引擎仍运行时调用）。"""
+    global _CAPTURE_PROXY_ACTIVE, _CAPTURE_PROXY_SUSPENDED, _CAPTURE_PROXY_PORT
+    with _PROXY_LOCK:
+        cfg = load_interface_debug_config()
+        use_port = int(port or _CAPTURE_PROXY_PORT or cfg.get('ie_proxy_port') or 8899)
+        use_port = max(1, min(65535, use_port))
+        if not _CAPTURE_PROXY_SUSPENDED and _CAPTURE_PROXY_ACTIVE:
+            return 'noop'
+        # 无快照时也允许直接挂上抓包代理（suspend 过仍保留快照更理想）
+        if not isinstance(cfg.get('proxy_restore_snapshot'), dict):
+            # 尽量备份当前（若当前已是抓包代理则 backup 内部会处理）
+            try:
+                backup_proxy_to_config()
+            except Exception:
+                pass
+        try:
+            write_proxy_settings({
+                'ProxyEnable': 1,
+                'ProxyServer': f'127.0.0.1:{use_port}',
+                'ProxyOverride': '<-loopback>',
+                'AutoConfigURL': '',
+                'AutoDetect': 0,
+            })
+            _CAPTURE_PROXY_ACTIVE = True
+            _CAPTURE_PROXY_SUSPENDED = False
+            _CAPTURE_PROXY_PORT = use_port
+            return 'resumed'
+        except Exception:
+            return 'failed'
+
+
+def is_capture_proxy_suspended() -> bool:
+    return bool(_CAPTURE_PROXY_SUSPENDED)
 
 
 def disable_orphan_loopback_proxy(ports: Optional[list] = None) -> bool:
@@ -294,7 +375,7 @@ def ensure_system_proxy_safe(reason: str = '') -> str:
 
 def apply_local_proxy(port: int = 8899) -> dict:
     """备份并设置 127.0.0.1 代理（Fiddler 式：关 PAC/自动检测，强制显式代理）。"""
-    global _CAPTURE_PROXY_ACTIVE
+    global _CAPTURE_PROXY_ACTIVE, _CAPTURE_PROXY_SUSPENDED, _CAPTURE_PROXY_PORT
     _register_atexit_once()
     port = max(1, min(65535, int(port or 8899)))
     with _PROXY_LOCK:
@@ -340,13 +421,16 @@ def apply_local_proxy(port: int = 8899) -> dict:
             'AutoDetect': 0,
         })
         _CAPTURE_PROXY_ACTIVE = True
+        _CAPTURE_PROXY_SUSPENDED = False
+        _CAPTURE_PROXY_PORT = port
         return snap
 
 
 def mark_capture_proxy_inactive():
     """抓包引擎已释放系统代理后调用。"""
-    global _CAPTURE_PROXY_ACTIVE
+    global _CAPTURE_PROXY_ACTIVE, _CAPTURE_PROXY_SUSPENDED
     _CAPTURE_PROXY_ACTIVE = False
+    _CAPTURE_PROXY_SUSPENDED = False
 
 
 def mitm_cert_dir() -> str:

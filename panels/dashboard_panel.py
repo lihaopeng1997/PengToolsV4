@@ -267,20 +267,29 @@ class DashboardPanel(QWidget):
                 widget.deleteLater()
 
     def _fill_recent(self, requirements):
+        from tools.list_pin import decorate_title, is_pinned, pinned_at_rank
         self._clear_layout(self.recent_list)
-        items = sorted(
-            requirements,
+        pinned = [r for r in requirements if is_pinned(r)]
+        plain = [r for r in requirements if not is_pinned(r)]
+        pinned.sort(
+            key=lambda item: (pinned_at_rank(item), str(item.get('updated_at') or item.get('created_at') or '')),
+            reverse=True,
+        )
+        plain.sort(
             key=lambda item: str(item.get('updated_at') or item.get('created_at') or ''),
             reverse=True,
-        )[: self._list_limit()]
+        )
+        items = (pinned + plain)[: self._list_limit()]
         self.recent_empty.setVisible(not items)
         for item in items:
-            title = item.get('title') or item.get('code') or '未命名'
+            title = decorate_title(item.get('title') or item.get('code') or '未命名', is_pinned(item))
             system = item.get('system') or '未选系统'
             status = item.get('status') or ''
             updated = str(item.get('updated_at') or '')[:16].replace('T', ' ')
             meta = f'{system} · {updated}' if updated else system
-            row = TaskRow(item, title, meta, status)
+            if is_pinned(item):
+                meta = f'置顶 · {meta}'
+            row = TaskRow(item, title, meta, status, highlight=is_pinned(item))
             row.clicked.connect(self._on_requirement_clicked)
             self.recent_list.addWidget(row)
 
@@ -306,20 +315,25 @@ class DashboardPanel(QWidget):
                 continue
             upcoming.append((item, parsed))
 
-        # 今天优先 → 日期从近到远 → 最近更新
+        from tools.list_pin import decorate_title, is_pinned, pinned_at_rank
+        # 置顶优先 → 今天优先 → 日期从近到远 → 最近更新
         upcoming = sorted(
             upcoming,
             key=lambda t: (
+                0 if is_pinned(t[0]) else 1,
                 0 if t[1] == today else 1,
                 t[1].toordinal(),
-                -_iso_rank(t[0].get('updated_at')),
+                -_iso_rank(t[0].get('pinned_at') if is_pinned(t[0]) else t[0].get('updated_at')),
             ),
         )
         ranked = upcoming[: self._list_limit()]
         zh = self.language == 'zh'
         self.release_empty.setVisible(not ranked)
         for item, parsed in ranked:
-            title = item.get('title') or item.get('code') or ('未命名' if zh else 'Untitled')
+            title = decorate_title(
+                item.get('title') or item.get('code') or ('未命名' if zh else 'Untitled'),
+                is_pinned(item),
+            )
             system = item.get('system') or ('未选系统' if zh else 'No system')
             progress = item.get('status') or ''
             planned = str(item.get('planned_online_date') or '')[:10]
@@ -329,7 +343,9 @@ class DashboardPanel(QWidget):
             else:
                 badge = f'计划 {planned}' if zh else f'Plan {planned}'
             meta = f'{system} · {badge}'
-            row = TaskRow(item, title, meta, progress, highlight=is_today)
+            if is_pinned(item):
+                meta = ('置顶 · ' if zh else 'Pinned · ') + meta
+            row = TaskRow(item, title, meta, progress, highlight=is_today or is_pinned(item))
             row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
 
@@ -357,7 +373,7 @@ class DashboardPanel(QWidget):
             self.credit.setText('证件类型')
             self.docx.setText('接口文档')
             self.vin.setText('车辆 VIN')
-            self.ops.setText('运维助手')
+            self.ops.setText('运维工作台')
         else:
             self.title.setText('Workbench')
             self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · Focus on nearby delivery work')
@@ -373,5 +389,5 @@ class DashboardPanel(QWidget):
             self.credit.setText('Documents')
             self.docx.setText('Interface Docs')
             self.vin.setText('Vehicle VIN')
-            self.ops.setText('Operations')
+            self.ops.setText('Ops Workbench')
         self.refresh()

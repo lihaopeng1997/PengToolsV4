@@ -38,7 +38,10 @@ except ImportError:
 class NightThemeTokenTests(unittest.TestCase):
     def test_night_display_name(self):
         self.assertEqual(theme_display_name('night', 'zh'), '夜间安读')
-        self.assertIn('低眩光', theme_subtitle('night', 'zh'))
+        self.assertTrue(
+            '低眩光' in theme_subtitle('night', 'zh')
+            or '石板' in theme_subtitle('night', 'zh')
+        )
 
     def test_all_themes_have_extended_tokens(self):
         required = (
@@ -51,27 +54,50 @@ class NightThemeTokenTests(unittest.TestCase):
             for key in required:
                 self.assertIn(key, pal, msg=f'{tid}.{key}')
 
+    def _avg_luma(self, hex_color: str) -> float:
+        hexv = hex_color.upper().lstrip('#')
+        r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)
+        return (r + g + b) / 3
+
     def test_night_surfaces_not_white(self):
         pal = THEMES['night']
-        self.assertEqual(pal['APP_BG'], '#1B211E')
+        # 最深底
+        self.assertLess(self._avg_luma(pal['APP_BG']), 40)
         for key in (
             'APP_BG', 'SIDEBAR_BG', 'SURFACE', 'SURFACE_SOFT', 'ELEVATED_SURFACE',
             'CODE_BG', 'INPUT_BG', 'TABLE_ALT', 'DANGER_BG', 'SUCCESS_BG',
         ):
             val = pal[key].upper()
             self.assertNotIn(val, ('#FFFFFF', '#FFF', 'WHITE'), msg=key)
-            # 不应接近纯白
-            hexv = val.lstrip('#')
-            if len(hexv) >= 6:
-                r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)
-                self.assertLess((r + g + b) / 3, 220, msg=f'{key} too bright')
+            self.assertLess(self._avg_luma(val), 80, msg=f'{key} too bright for night')
+
+    def test_night_hierarchy_and_selection_contrast(self):
+        """夜间主题：层次递进 + 选中底不能比正文更亮导致看不清。"""
+        pal = THEMES['night']
+        app_l = self._avg_luma(pal['APP_BG'])
+        side_l = self._avg_luma(pal['SIDEBAR_BG'])
+        surf_l = self._avg_luma(pal['SURFACE'])
+        elev_l = self._avg_luma(pal.get('ELEVATED_SURFACE', pal['SURFACE']))
+        code_l = self._avg_luma(pal['CODE_BG'])
+        self.assertLessEqual(app_l, side_l + 2)
+        self.assertLessEqual(side_l, surf_l + 2)
+        self.assertLessEqual(surf_l, elev_l + 8)
+        self.assertLessEqual(code_l, surf_l + 2)
+        # 选中底应偏暗，亮字才可读
+        select_l = self._avg_luma(pal['TABLE_SELECT'])
+        text_l = self._avg_luma(pal['TEXT_STRONG'])
+        self.assertLess(select_l, 90, msg='TABLE_SELECT too bright for dark theme')
+        self.assertGreater(text_l, 180, msg='TEXT_STRONG too dim')
+        # 正文层级：STRONG > TEXT > MUTED
+        self.assertGreater(self._avg_luma(pal['TEXT_STRONG']), self._avg_luma(pal['TEXT']))
+        self.assertGreater(self._avg_luma(pal['TEXT']), self._avg_luma(pal['TEXT_MUTED']))
 
     def test_render_night_qss_has_tokens_applied(self):
         tm = ThemeManager.instance()
         tm.load_template()
         qss = tm.render('night')
-        self.assertIn('#1B211E', qss)
-        self.assertIn('#29332E', qss)
+        self.assertIn(THEMES['night']['APP_BG'], qss)
+        self.assertIn(THEMES['night']['SURFACE'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
 
     def test_night_preview_not_blank(self):

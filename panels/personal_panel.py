@@ -8,7 +8,7 @@ from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
+    QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
     QInputDialog, QLineEdit, QHeaderView,
     QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTimeEdit, QVBoxLayout, QWidget,
@@ -181,6 +181,8 @@ class KnowledgeTab(QWidget):
         left_layout.addLayout(count_row)
         self.entry_list = QListWidget()
         self.entry_list.setObjectName('ops-command-list')
+        self.entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.entry_list.customContextMenuRequested.connect(self._show_entry_menu)
         self.entry_list.currentItemChanged.connect(self._show_entry)
         left_layout.addWidget(self.entry_list)
         splitter.addWidget(left)
@@ -313,10 +315,12 @@ class KnowledgeTab(QWidget):
         )
 
     def all_entries(self):
+        from tools.list_pin import apply_namespace_pins
         overrides = {entry.get('base_seed_id'): entry for entry in self._custom_entries if entry.get('base_seed_id')}
         entries = [overrides.get(entry.get('id'), entry) for entry in self._seed_entries]
         entries.extend(entry for entry in self._custom_entries if not entry.get('base_seed_id'))
-        return entries
+        # 置顶状态统一存 list_pins（内置/我的资料共用 id）
+        return apply_namespace_pins(entries, 'knowledge')
 
     def _on_search_changed(self, text):
         self._refresh()
@@ -405,30 +409,78 @@ class KnowledgeTab(QWidget):
         self.entry_list.blockSignals(True)
         self.entry_list.clear()
         selected_item = None
+        from tools.list_pin import decorate_title, is_pinned
+        from tools.pinyin_search import highlight_terms, match_snippet
+        from ui.search_highlight import focus_list_item, paint_list_item
+        query = self.search_edit.text().strip()
+        first_hit = None
         for entry in self._filtered:
             category = CATEGORIES.get(entry.get('category'), CATEGORIES['other'])
             source = '已更新' if entry.get('builtin_source') else ('内置' if entry.get('builtin') else '我的')
             file_type = entry.get('file_type') or ('EXCEL' if entry.get('content_type') == 'workbook_sheet' else 'TXT')
-            item = QListWidgetItem(f"{entry.get('title', '未命名')}\n{file_type} · {category} · {source}")
+            raw_title = entry.get('title', '未命名')
+            title = decorate_title(raw_title, is_pinned(entry))
+            if query:
+                title = highlight_terms(title, query)
+            pin_tag = ' · 置顶' if is_pinned(entry) else ''
+            snippet = ''
+            if query:
+                if entry.get('content_type') == 'workbook_sheet':
+                    for row in (entry.get('rows') or [])[:200]:
+                        row_text = ' '.join(str(v) for v in (row or []) if str(v).strip())
+                        if row_text:
+                            sn = match_snippet(row_text, query)
+                            if '【' in sn or sn:
+                                # 仅当字面命中时用【】判断更准
+                                from tools.pinyin_search import find_term_spans
+                                if find_term_spans(row_text, query):
+                                    snippet = sn
+                                    break
+                else:
+                    body = entry.get('content') or ''
+                    if body:
+                        from tools.pinyin_search import find_term_spans
+                        if find_term_spans(body, query):
+                            snippet = match_snippet(body, query)
+            meta = f'{file_type} · {category} · {source}{pin_tag}'
+            if snippet:
+                meta = f'命中：{snippet}\n{meta}'
+            item = QListWidgetItem(f'{title}\n{meta}')
             if entry.get('content_type') == 'workbook_sheet':
                 tooltip = f"Excel 工作表：{entry.get('sheet_name', '')}\n{entry.get('row_count', 0)} 行 × {entry.get('column_count', 0)} 列"
             else:
                 tooltip = entry.get('content', '')[:800]
+            if is_pinned(entry):
+                tooltip = '【已置顶】\n' + (tooltip or '')
+            if snippet:
+                tooltip = f'【搜索命中】{snippet}\n' + (tooltip or '')
             item.setToolTip(tooltip)
             item.setData(Qt.ItemDataRole.UserRole, entry)
+            matched = bool(query)
+            is_current = matched and first_hit is None
+            paint_list_item(item, matched=matched, current=is_current)
             self.entry_list.addItem(item)
+            if matched and first_hit is None:
+                first_hit = item
             if entry.get('id') == current_id:
                 selected_item = item
-        self.result_count.setText(f'{len(self._filtered)} 条')
+        if query:
+            self.result_count.setText(f'命中 {len(self._filtered)} 条')
+        else:
+            self.result_count.setText(f'{len(self._filtered)} 条')
         if self.entry_list.count():
-            selected_item = selected_item or self.entry_list.item(0)
-            self.entry_list.setCurrentItem(selected_item)
+            # 搜索时优先定位第一条命中；否则保持当前选中
+            pick = first_hit if query else (selected_item or self.entry_list.item(0))
+            selected_item = pick
+            focus_list_item(self.entry_list, selected_item)
         self.entry_list.blockSignals(False)
         if selected_item:
             selected = selected_item.data(Qt.ItemDataRole.UserRole)
             if self._current and selected.get('id') == self._current.get('id'):
                 if selected.get('content_type') == 'workbook_sheet':
                     self._filter_workbook_rows(selected)
+                else:
+                    self._highlight_entry_content(selected)
             else:
                 self._show_entry(selected_item)
         else:
@@ -480,12 +532,34 @@ class KnowledgeTab(QWidget):
             self.content_view.setPlainText(entry.get('content', ''))
             self.content_stack.setCurrentIndex(0)
             self.copy_btn.setText('复制内容')
+        self._highlight_entry_content(entry)
         self.copy_btn.setEnabled(True)
         self.copy_btn.setVisible(not is_table)
         self.edit_btn.setVisible(not is_table and not is_word)
         self.update_btn.setVisible(True)
         self.delete_btn.setVisible(not entry.get('builtin'))
         self.delete_btn.setText('恢复内置原版' if entry.get('builtin_source') else '删除')
+
+    def _highlight_entry_content(self, entry):
+        """详情区：按当前搜索词高亮并滚动到首个命中。"""
+        query = self.search_edit.text().strip() if hasattr(self, 'search_edit') else ''
+        from ui.search_highlight import apply_text_highlights, clear_text_highlights
+        if entry and entry.get('content_type') == 'workbook_sheet':
+            return
+        if entry and entry.get('content_type') == 'word_document':
+            if query:
+                apply_text_highlights(self.word_view, query, select_first=True)
+            else:
+                clear_text_highlights(self.word_view)
+            return
+        if query:
+            n = apply_text_highlights(self.content_view, query, select_first=True)
+            if n and hasattr(self, 'meta_label'):
+                base = self.meta_label.text()
+                if '正文命中' not in base:
+                    self.meta_label.setText(f'{base}  ·  正文命中 {n} 处')
+        else:
+            clear_text_highlights(self.content_view)
 
     @staticmethod
     def _column_name(index):
@@ -759,6 +833,30 @@ class KnowledgeTab(QWidget):
             message += '\n\n未导入：\n' + '\n'.join(errors)
         show_success(self, '文档整理完成', message)
 
+    def _show_entry_menu(self, point):
+        item = self.entry_list.itemAt(point)
+        if not item:
+            return
+        entry = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(entry, dict):
+            return
+        from tools.list_pin import is_pinned, pin_action_label
+        menu = QMenu(self)
+        pin_act = menu.addAction(pin_action_label(is_pinned(entry), self.language))
+        pin_act.triggered.connect(lambda _=False, e=entry: self._toggle_entry_pin(e))
+        if not entry.get('builtin') or entry.get('builtin_source'):
+            menu.addSeparator()
+            menu.addAction('编辑', self._edit_entry)
+            menu.addAction('删除', self._delete_entry)
+        menu.exec(self.entry_list.viewport().mapToGlobal(point))
+
+    def _toggle_entry_pin(self, entry):
+        from tools.list_pin import is_pinned, set_namespace_pinned
+        if not isinstance(entry, dict) or not entry.get('id'):
+            return
+        set_namespace_pinned('knowledge', entry.get('id'), not is_pinned(entry))
+        self._refresh()
+
     def _add_entry(self):
         dialog = KnowledgeEditDialog(parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -929,6 +1027,8 @@ class DailyReportTab(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(QLabel('日报历史'))
         self.date_list = QListWidget()
+        self.date_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.date_list.customContextMenuRequested.connect(self._show_date_menu)
         self.date_list.setObjectName('ops-command-list')
         self.date_list.currentItemChanged.connect(self._select_history)
         left_layout.addWidget(self.date_list)
@@ -1053,6 +1153,7 @@ class DailyReportTab(QWidget):
         self._load_date(date_value)
 
     def _refresh_dates(self):
+        from tools.list_pin import decorate_title, namespace_is_pinned, namespace_pinned_at
         current = self._date_key() if hasattr(self, 'date_edit') else ''
         today = datetime.date.today().isoformat()
         keys = set(self._reports) | set(self._drafts)
@@ -1062,7 +1163,23 @@ class DailyReportTab(QWidget):
         self.date_list.blockSignals(True)
         self.date_list.clear()
         selected = None
-        for date_value in sorted(keys, reverse=True):
+        # 置顶日期优先，再按日期倒序
+        ordered = sorted(
+            keys,
+            key=lambda d: (
+                0 if namespace_is_pinned('daily_report', d) else 1,
+                namespace_pinned_at('daily_report', d) if namespace_is_pinned('daily_report', d) else '',
+                d,
+            ),
+            reverse=True,
+        )
+        # reverse 会让日期与 pinned_at 都倒序；置顶标志 0 会变成排在后？需要再分桶
+        pinned_dates = [d for d in keys if namespace_is_pinned('daily_report', d)]
+        plain_dates = [d for d in keys if not namespace_is_pinned('daily_report', d)]
+        pinned_dates.sort(key=lambda d: (namespace_pinned_at('daily_report', d), d), reverse=True)
+        plain_dates.sort(reverse=True)
+        ordered = pinned_dates + plain_dates
+        for date_value in ordered:
             label = date_value
             if date_value == today:
                 label = f'{date_value}（今天）'
@@ -1070,7 +1187,8 @@ class DailyReportTab(QWidget):
                 label = f'{label} · 未保存'
             elif date_value not in self._reports:
                 label = f'{label} · 未写'
-            item = QListWidgetItem(label)
+            pinned = namespace_is_pinned('daily_report', date_value)
+            item = QListWidgetItem(decorate_title(label, pinned))
             item.setData(Qt.ItemDataRole.UserRole, date_value)
             self.date_list.addItem(item)
             if date_value == current:
@@ -1078,6 +1196,25 @@ class DailyReportTab(QWidget):
         if selected is not None:
             self.date_list.setCurrentItem(selected)
         self.date_list.blockSignals(False)
+
+    def _show_date_menu(self, point):
+        item = self.date_list.itemAt(point)
+        if not item:
+            return
+        date_value = item.data(Qt.ItemDataRole.UserRole)
+        if not date_value:
+            return
+        from tools.list_pin import namespace_is_pinned, pin_action_label, set_namespace_pinned
+        pinned = namespace_is_pinned('daily_report', date_value)
+        menu = QMenu(self)
+        act = menu.addAction(pin_action_label(pinned, self.language if hasattr(self, 'language') else 'zh'))
+        act.triggered.connect(
+            lambda _=False, d=date_value, p=pinned: (
+                set_namespace_pinned('daily_report', d, not p),
+                self._refresh_dates(),
+            )
+        )
+        menu.exec(self.date_list.viewport().mapToGlobal(point))
 
     def _load_date(self, date_value):
         if self._loading:

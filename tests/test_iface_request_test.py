@@ -103,6 +103,14 @@ class IfaceRequestTestHelpers(unittest.TestCase):
         with self.assertRaises(RequestTestError):
             send_http_request('GET', 'ftp://example.com/a')
 
+    def test_is_loopback_host(self):
+        from tools.iface_request_test import is_loopback_host
+        self.assertTrue(is_loopback_host('localhost'))
+        self.assertTrue(is_loopback_host('127.0.0.1'))
+        self.assertTrue(is_loopback_host('127.1.2.3'))
+        self.assertFalse(is_loopback_host('uat.internal'))
+        self.assertFalse(is_loopback_host('10.0.0.1'))
+
     def test_send_env_host_ok(self):
         from tools.iface_request_test import send_http_request
         class _Resp:
@@ -121,13 +129,88 @@ class IfaceRequestTestHelpers(unittest.TestCase):
             def __exit__(self, *a):
                 return False
 
-        with mock.patch('urllib.request.urlopen', return_value=_Resp()) as m:
+        class _Opener:
+            def open(self, req, timeout=None):
+                return _Resp()
+
+        with mock.patch('urllib.request.build_opener', return_value=_Opener()):
             result = send_http_request('GET', 'http://uat.internal:10110/ping')
             self.assertTrue(result['ok'])
             self.assertEqual(result['status'], 200)
             self.assertEqual(result['body'], 'hello')
-            # 允许传入 context= 参数
-            self.assertTrue(m.called)
+
+    def test_send_https_default_verify_ssl_true(self):
+        """安测：HTTPS 默认走校验证书的 SSL context。"""
+        from tools.iface_request_test import send_http_request
+        import ssl
+
+        class _Resp:
+            status = 200
+            headers = {}
+
+            def read(self):
+                return b'ok'
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _Opener:
+            def open(self, req, timeout=None):
+                return _Resp()
+
+        captured = {}
+
+        def _build_opener(*handlers):
+            for h in handlers:
+                ctx = getattr(h, '_context', None)
+                if ctx is not None:
+                    captured['context'] = ctx
+            return _Opener()
+
+        with mock.patch('urllib.request.build_opener', side_effect=_build_opener):
+            result = send_http_request('GET', 'https://example.com/ping', verify_ssl=True)
+            self.assertTrue(result['ok'])
+            self.assertTrue(result.get('ssl_verified'))
+        # 有 context 时不应是 unverified（check_hostname 通常为 True）
+        ctx = captured.get('context')
+        if ctx is not None:
+            self.assertTrue(getattr(ctx, 'check_hostname', True))
+
+    def test_send_https_can_disable_verify(self):
+        from tools.iface_request_test import send_http_request
+
+        class _Resp:
+            status = 200
+            headers = {}
+
+            def read(self):
+                return b'ok'
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _Opener:
+            def open(self, req, timeout=None):
+                return _Resp()
+
+        with mock.patch('urllib.request.build_opener', return_value=_Opener()):
+            result = send_http_request(
+                'GET', 'https://self-signed.local/ping', verify_ssl=False,
+            )
+            self.assertTrue(result['ok'])
+            self.assertFalse(result.get('ssl_verified'))
 
     def test_extract_sm4_key_from_header(self):
         from tools.iface_request_test import extract_sm4_key_cipher

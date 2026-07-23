@@ -2,7 +2,7 @@
 from PyQt6.QtCore import QStringListModel, Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
     QVBoxLayout, QWidget,
 )
@@ -70,7 +70,7 @@ class CustomCommandDialog(QDialog):
         if contains_forbidden_delete(command):
             show_error(
                 self, 'PengTools',
-                '为避免误操作，运维助手不允许新增文件删除类命令。'
+                '为避免误操作，命令库不允许新增文件删除类命令。'
                 if zh else 'File deletion commands are not allowed.'
             )
             return
@@ -173,6 +173,8 @@ class OpsPanel(QWidget):
         left_layout.addLayout(top)
         self.command_list = QListWidget()
         self.command_list.setObjectName('ops-command-list')
+        self.command_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.command_list.customContextMenuRequested.connect(self._show_command_menu)
         self.command_list.currentItemChanged.connect(self._show_command)
         left_layout.addWidget(self.command_list)
         splitter.addWidget(left)
@@ -325,25 +327,58 @@ class OpsPanel(QWidget):
         )
         self.command_list.clear()
         zh = self.language == 'zh'
+        query = self.search_edit.text().strip()
+        from tools.list_pin import decorate_title, is_pinned
+        from tools.pinyin_search import highlight_terms, match_snippet
+        from ui.search_highlight import focus_list_item, paint_list_item
+        first_hit = None
         for command in self._commands:
             title = command['title_zh' if zh else 'title_en']
             display_command = command['command'].replace('\n', ' ')
             if len(display_command) > 31:
                 display_command = display_command[:28] + '…'
             summary = title if len(title) <= 20 else title[:19] + '…'
-            item = QListWidgetItem(f'{display_command}\n{summary}')
+            pinned = is_pinned(command)
+            if query:
+                display_command = highlight_terms(display_command, query)
+                summary = highlight_terms(summary, query)
+            label = decorate_title(f'{display_command}\n{summary}', pinned)
+            item = QListWidgetItem(label)
             full_description = command['description_zh' if zh else 'description_en']
             source = '用户自定义' if not command.get('builtin', True) else '内置只读'
-            item.setToolTip(f"{command['command']}\n\n{title}\n{full_description}\n\n{source if zh else ('Custom' if source == '用户自定义' else 'Built-in read-only')}")
+            pin_tip = ('已置顶\n' if zh else 'Pinned\n') if pinned else ''
+            hit_tip = ''
+            if query:
+                sn = match_snippet(f'{command.get("command","")}\n{title}\n{full_description}', query)
+                if sn:
+                    hit_tip = (f'命中：{sn}\n\n' if zh else f'Match: {sn}\n\n')
+            item.setToolTip(
+                f"{pin_tip}{hit_tip}{command['command']}\n\n{title}\n{full_description}\n\n"
+                f"{source if zh else ('Custom' if source == '用户自定义' else 'Built-in read-only')}"
+            )
             item.setData(Qt.ItemDataRole.UserRole, command)
+            matched = bool(query)
+            paint_list_item(item, matched=matched, current=matched and first_hit is None)
             self.command_list.addItem(item)
-        self.result_count.setText(
-            f'{len(self._commands)} 条' if zh else f'{len(self._commands)} result(s)'
-        )
+            if matched and first_hit is None:
+                first_hit = item
+        if query:
+            self.result_count.setText(
+                f'命中 {len(self._commands)} 条' if zh else f'{len(self._commands)} match(es)'
+            )
+        else:
+            self.result_count.setText(
+                f'{len(self._commands)} 条' if zh else f'{len(self._commands)} result(s)'
+            )
         suggestions = [command_text(item, self.language) for item in self._commands[:15]]
         self._completion_model.setStringList(suggestions)
         if self.command_list.count():
-            self.command_list.setCurrentRow(0)
+            if first_hit is not None:
+                focus_list_item(self.command_list, first_hit)
+            else:
+                self.command_list.setCurrentRow(0)
+            # 详情区也高亮命令文本
+            self._highlight_command_detail()
         else:
             self._clear_detail()
 
@@ -418,6 +453,34 @@ class OpsPanel(QWidget):
         )
         self.delete_btn.setVisible(is_custom)
         self._generate_preview()
+        self._highlight_command_detail()
+
+    def _highlight_command_detail(self):
+        """搜索时在标题/说明/预览中标出命中并滚动到预览首处。"""
+        query = self.search_edit.text().strip() if hasattr(self, 'search_edit') else ''
+        from tools.pinyin_search import highlight_terms
+        from ui.search_highlight import apply_text_highlights, clear_text_highlights
+        cmd = getattr(self, '_current_command', None)
+        if not cmd:
+            clear_text_highlights(self.preview)
+            if hasattr(self, 'output_explanation'):
+                clear_text_highlights(self.output_explanation)
+            return
+        zh = self.language == 'zh'
+        title = cmd['title_zh' if zh else 'title_en']
+        desc = cmd['description_zh' if zh else 'description_en']
+        if query:
+            self.title_label.setText(highlight_terms(title, query))
+            self.description.setText(highlight_terms(desc, query))
+            apply_text_highlights(self.preview, query, select_first=True)
+            if hasattr(self, 'output_explanation'):
+                apply_text_highlights(self.output_explanation, query, select_first=False)
+        else:
+            self.title_label.setText(title)
+            self.description.setText(desc)
+            clear_text_highlights(self.preview)
+            if hasattr(self, 'output_explanation'):
+                clear_text_highlights(self.output_explanation)
 
     def _values(self):
         return {name: edit.text() for name, edit in self._param_edits.items()}
@@ -434,6 +497,10 @@ class OpsPanel(QWidget):
         except ValueError as exc:
             self.preview.setPlainText(str(exc))
             self.copy_btn.setEnabled(False)
+        # 参数变更后保持搜索高亮
+        if getattr(self, 'search_edit', None) and self.search_edit.text().strip():
+            from ui.search_highlight import apply_text_highlights
+            apply_text_highlights(self.preview, self.search_edit.text().strip(), select_first=True)
 
     def _copy_command(self):
         text = self.preview.toPlainText().strip()
@@ -462,6 +529,48 @@ class OpsPanel(QWidget):
 
     def set_copy_feedback_duration(self, milliseconds):
         self._copy_feedback_duration = max(500, min(5000, int(milliseconds)))
+
+    def _show_command_menu(self, point):
+        item = self.command_list.itemAt(point)
+        if not item:
+            return
+        command = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(command, dict):
+            return
+        from tools.list_pin import (
+            is_pinned, ops_command_pin_id, pin_action_label, set_namespace_pinned,
+        )
+        menu = QMenu(self)
+        pin_id = ops_command_pin_id(command)
+        pinned = is_pinned(command)
+        act = menu.addAction(pin_action_label(pinned, self.language))
+        act.triggered.connect(
+            lambda _=False, pid=pin_id, p=pinned: self._toggle_command_pin(pid, p)
+        )
+        if not command.get('builtin', True):
+            menu.addSeparator()
+            menu.addAction(
+                '删除我的命令' if self.language == 'zh' else 'Delete my command',
+                self._delete_custom_command,
+            )
+        menu.exec(self.command_list.viewport().mapToGlobal(point))
+
+    def _toggle_command_pin(self, pin_id, currently_pinned):
+        from tools.list_pin import set_namespace_pinned
+        if not pin_id:
+            return
+        set_namespace_pinned('ops_command', pin_id, not currently_pinned)
+        current = None
+        if self.command_list.currentItem():
+            current = self.command_list.currentItem().data(Qt.ItemDataRole.UserRole)
+        self._refresh_results()
+        if current:
+            for row in range(self.command_list.count()):
+                item = self.command_list.item(row)
+                data = item.data(Qt.ItemDataRole.UserRole) or {}
+                if data.get('command') == current.get('command') and data.get('title_zh') == current.get('title_zh'):
+                    self.command_list.setCurrentRow(row)
+                    break
 
     def _add_custom_command(self):
         dialog = CustomCommandDialog(self.language, self)

@@ -338,7 +338,61 @@ def _split_csv(text):
     return parts
 
 
+def _rollback_execution_rank(statement: str) -> int:
+    """回滚语句执行优先级：数值越小越先执行。
+
+    典型依赖：先还原 DML → 再 DROP INDEX/CONSTRAINT/COLUMN → 最后 DROP TABLE。
+    避免「先 DROP TABLE 再 DROP INDEX」导致 ORA 异常。
+    """
+    text = (statement or '').strip()
+    if not text:
+        return 999
+    # 取第一条有效 SQL 行参与排序（跳过纯注释引导）
+    code_line = ''
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith('--'):
+            continue
+        code_line = stripped
+        break
+    if not code_line:
+        return 900
+    upper = code_line.upper()
+    if re.match(r'^(DELETE|UPDATE|INSERT)\b', upper):
+        return 10
+    if re.match(r'^DROP\s+(UNIQUE\s+)?INDEX\b', upper):
+        return 20
+    if re.search(r'\bDROP\s+CONSTRAINT\b', upper):
+        return 30
+    if re.search(r'\bDROP\s+COLUMN\b', upper):
+        return 40
+    if re.match(r'^DROP\s+SEQUENCE\b', upper):
+        return 50
+    if re.match(r'^DROP\s+VIEW\b', upper):
+        return 55
+    if re.match(r'^DROP\s+TABLE\b', upper):
+        return 60
+    if re.match(r'^ALTER\s+TABLE\b', upper):
+        return 45
+    return 70
+
+
+def order_rollback_statements(statements):
+    """对回滚语句块排序：先逆序（对应升级逆过程），再按依赖稳定排序。"""
+    blocks = [str(item).strip() for item in (statements or []) if str(item).strip()]
+    # 1) 升级语句生成的回滚块先按原顺序的逆序（后升级的先回滚）
+    reversed_blocks = list(reversed(blocks))
+    # 2) 稳定排序：DROP INDEX 等先于 DROP TABLE，防止表已删仍删索引
+    return sorted(reversed_blocks, key=_rollback_execution_rank)
+
+
 def generate_reverse_sql(sql, direction='upgrade'):
+    """从升级 SQL 生成回滚 SQL（或反向提示）。
+
+    回滚语句会按安全执行顺序整理：
+    - 对应升级脚本的逆序
+    - 且 DROP INDEX / DROP CONSTRAINT / DROP COLUMN 一定在 DROP TABLE 之前
+    """
     clean = strip_comments(sql)
     clean_stmts = split_statements(clean)
     results = []
@@ -347,6 +401,15 @@ def generate_reverse_sql(sql, direction='upgrade'):
             results.append(generate_rollback(statement, statement.upper()))
         else:
             results.append(f'-- [必须人工补充] 请根据回滚语句还原升级 SQL\n-- {statement}')
+    if direction == 'upgrade':
+        results = order_rollback_statements(results)
+        if results:
+            header = (
+                '-- 回滚顺序说明：已按依赖自动整理'
+                '（先还原 DML，再 DROP INDEX/CONSTRAINT/COLUMN，最后 DROP TABLE）\n'
+                '-- 请在目标库执行前人工复核\n'
+            )
+            return header + '\n\n'.join(results)
     return '\n\n'.join(results)
 
 

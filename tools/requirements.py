@@ -113,6 +113,11 @@ def normalize_requirement(requirement):
         item['title'] = ''
     if item.get('code') is None:
         item['code'] = ''
+    item['pinned'] = bool(item.get('pinned'))
+    if item['pinned']:
+        item['pinned_at'] = str(item.get('pinned_at') or '')
+    else:
+        item.pop('pinned_at', None)
     normalize_flag_done(item)
     return item
 

@@ -27,6 +27,11 @@ class PinyinSearchTests(unittest.TestCase):
         self.assertTrue(match_query(blob, 'REQ'))
         self.assertTrue(match_query(blob, 'sql'))
         self.assertFalse(match_query(blob, 'zzzznotfound'))
+        # 回归：中文/标点不得因 compact 空串 '' in blob 而误命中全部
+        self.assertFalse(match_query(blob, '完全不存在的需求关键词xyz'))
+        self.assertFalse(match_query(blob, '!!!'))
+        self.assertFalse(match_query(blob, '...'))
+        self.assertFalse(match_query(blob, '@@@###'))
 
     def test_requirement_search_uses_pinyin(self):
         from tools.requirements import requirement_search_text
@@ -50,6 +55,22 @@ class PinyinSearchTests(unittest.TestCase):
         ]
         hit = search_entries(entries, 'cx', 'all')
         self.assertTrue(any('车险' in e['title'] for e in hit))
+        # 无命中必须空列表，不能退回「全部展示」
+        miss = search_entries(entries, '完全不存在的内容zzzz', 'all')
+        self.assertEqual(miss, [])
+        miss2 = search_entries(entries, '!!!', 'all')
+        self.assertEqual(miss2, [])
+
+    def test_no_match_must_not_return_all(self):
+        from tools.pinyin_search import build_search_blob, match_query
+        items = [
+            build_search_blob('车险承保中心', 'REQ-001'),
+            build_search_blob('运维助手命令', 'ops'),
+            build_search_blob('接口排查抓包', 'iface'),
+        ]
+        for q in ('完全没有的东西', '!!!', '...', 'qqqqnotexist', '@@@'):
+            hits = [b for b in items if match_query(b, q)]
+            self.assertEqual(hits, [], msg=f'query {q!r} should match nothing, got {len(hits)}')
 
 
 class ReleaseLinkNamingTests(unittest.TestCase):

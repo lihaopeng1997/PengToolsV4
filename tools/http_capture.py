@@ -266,7 +266,8 @@ class HttpCaptureWorker:
         ok = self._ready.wait(timeout)
         return bool(ok and self.ready and not self._stop.is_set())
 
-    def stop(self):
+    def stop(self, *, join_timeout: float = 1.2, clear_records: bool = False):
+        """停止抓包。join 时间宜短，避免卡死 UI 主线程。"""
         self._stop.set()
         self.ready = False
         master = self._master
@@ -279,10 +280,12 @@ class HttpCaptureWorker:
                     master.shutdown()
         except Exception:
             pass
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=4.0)
+        # 先恢复系统代理，再短暂 join（网络立刻恢复，不等引擎线程完全退出）
         self._restore_proxy()
-        self.clear_session()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=max(0.2, float(join_timeout or 1.2)))
+        if clear_records:
+            self.clear_session()
         if self.on_stopped:
             try:
                 self.on_stopped()
