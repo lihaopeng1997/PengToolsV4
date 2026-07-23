@@ -1,26 +1,29 @@
 # PengToolsHub V4.27 Private — 项目规则
 
-> **Grok/接手完整交接（优先读）**：`docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md`  
-> 基线历史：`docs/项目交接/PengToolsV4项目交接文档_V4.26_Private.md`  
+> **开工读序（省 token）**：本文件（硬规则）→ 服务器 `SHARED.md`（短共识）→ **仅接手/大改时**再打开交接长文。  
+> 完整交接（按需）：`docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md`  
+> 基线历史（按需）：`docs/项目交接/PengToolsV4项目交接文档_V4.26_Private.md`  
 > 当前构建信息以 `resources/build_info.json` 为准；界面版本文案为 `V4 Private`（见 `config.app_version_text()`）。
 >
-> **CodeGraph 图谱**：仓库已 `codegraph init`，索引在 `.codegraph/`。改代码前/中优先用图谱定位，而不是盲目全文翻。
+> **CodeGraph 按需**：仓库可有 `.codegraph/`；服务器基线见 `PengToolsV4/codegraph/latest.tar.gz`。  
+> - **需要时再用**（跨模块、陌生调用链、影响面、重构、用户要求查图谱）  
+> - **小改/路径已明确**：直接改源码，不必每次 download/sync  
+> - 改完且用过图谱时：`codegraph sync .`  
 >
 > ```powershell
+> # 仅在需要定位调用链/影响面时
 > codegraph status .
-> codegraph sync .                          # 改完代码后同步索引
+> codegraph sync .
 > codegraph query -p . -l 20 <symbol>
 > codegraph callers -p . <symbol>
-> codegraph callees -p . <symbol>
 > codegraph impact -p . <symbol>
-> codegraph files -p . --format tree --max-depth 3
-> codegraph affected -p . <changed files>   # 找相关测试
 > ```
 
 ## 产品边界
 
 - Windows 离线桌面工具台（Python 3.12 + PyQt6），无账号、云同步、插件市场、在线更新、遥测。
 - 运行代码中不引入 HTTP/WebSocket/浏览器内核/在线 CDN。
+- **禁止**把真实账密/VPN/Token/私钥写入 `resources/`（会打进 EXE）；私有笔记只存 `data/`。发布前必须 `python scripts/scan_release_secrets.py` 通过（`build_release.ps1` 已集成）。
 - **Private 版唯一例外（接口排查 nav 12）**：允许本机 `127.0.0.1` 的 Chromium CDP（`websocket-client`）与 IE MITM 代理（`mitmproxy`，仅监听 loopback）。禁止连接远程 host、禁止把代理暴露到局域网。
 - 接口排查抓到的请求/响应/令牌/Cookie/密钥/明文 **只存内存**；禁止写日志与 JSON。停止抓包**保留会话**（可继续导出/请求测试）；仅「清空」按钮与应用退出调用 `clear_session()`。配置仅允许 `data/interface_debug.json`（路径、端口、本地地址、证书指纹、代理恢复快照）。
 - 请求测试按用户在 `interface_debug.json` 保存的**环境 Base**（scheme://host:port）替换抓包 URL 的 host 后发送；可新增/编辑/删除环境。导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
@@ -28,6 +31,11 @@
 - 接口草稿（Postman/cURL）只生成、不发送网络请求。
 - 产品统一为 **PengToolsHub**（含原 Private 能力：接口排查等）；发布包 `PengToolsHub_Offline_Setup.zip`，EXE 名 `PengToolsHub.exe`。
 - 发布用 `build_release.ps1`（`build_private_release.ps1` 仅作兼容转发）；图标用 `resources/brand/pengtools-app-v2.ico`。
+- **交付节奏（强制）**：每完成一轮可交付功能/修复（用户可验收的一次迭代），**必须重新打包离线安装包**，不要只留源码调试态。
+  - 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1`
+  - 产物：`dist\PengToolsHub.exe`、`Installer\`、`PengToolsHub_Offline_Setup.zip`
+  - 打包前确认依赖已写入 `requirements.txt` / 构建 `hidden-import`（如 paramiko）
+  - 打包完成后向用户回报产物路径与 `resources/build_info.json` 构建时间
 
 ## 目录与职责
 

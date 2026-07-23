@@ -9,3 +9,5 @@ msoffcrypto-tool>=5.4.0
 websocket-client>=1.6.0
 mitmproxy>=11
 pypinyin>=0.51.0
+paramiko>=3.4.0
+cryptography>=42.0.0

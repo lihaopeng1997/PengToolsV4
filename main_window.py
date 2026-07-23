@@ -14,6 +14,7 @@ from panels.docx_panel import DocxUpdatePanel
 from panels.format_panel import FormatToolsPanel
 from panels.gateway_panel import GatewayDecodePanel
 from panels.interface_debug_panel import InterfaceDebugPanel
+from panels.ops_log_panel import OpsLogPanel
 from panels.ops_panel import OpsPanel
 from panels.personal_panel import PersonalPanel
 from panels.requirement_panel import RequirementPanel
@@ -113,17 +114,18 @@ class MainWindow(QMainWindow):
         self.vin_panel = VinPanel(self.language)
         self.gateway_panel = GatewayDecodePanel(self.language)
         self.ops_panel = OpsPanel(self.language)
+        self.ops_log_panel = OpsLogPanel(self.language)
         self.settings_panel = SettingsPanel(self._settings, self.language)
         self.personal_panel = PersonalPanel(self.language)
         self.requirement_panel = RequirementPanel(self.language)
         self.format_panel = FormatToolsPanel(self.language)
         self.interface_debug_panel = InterfaceDebugPanel(self.language)
-        # stack 顺序保持 0–9 历史映射；格式工具 stack 10（nav 11）；接口排查 stack 11（nav 12）
+        # stack 顺序保持 0–9 历史映射；格式工具 10；接口排查 11；日志排查 12（nav 13）
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
             self.personal_panel, self.requirement_panel, self.format_panel,
-            self.interface_debug_panel,
+            self.interface_debug_panel, self.ops_log_panel,
         ):
             self.stack.addWidget(panel)
         self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
@@ -131,7 +133,7 @@ class MainWindow(QMainWindow):
         self.dashboard_panel.open_docx.connect(lambda: self._show_panel(3))
         self.dashboard_panel.open_vin.connect(lambda: self._show_panel(4))
         self.dashboard_panel.open_gateway.connect(lambda: self._show_panel(5))
-        self.dashboard_panel.open_ops.connect(lambda: self._show_panel(6))
+        self.dashboard_panel.open_ops.connect(lambda: self._show_panel(13))
         if hasattr(self.dashboard_panel, 'open_requirements'):
             self.dashboard_panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(self.dashboard_panel, 'open_requirement'):
@@ -219,8 +221,8 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–10 历史 nav index + 11 格式工具 + 12 接口排查
-        self.nav_buttons = [None] * 13
+        # 0–10 历史 nav index + 11 格式工具 + 12 接口排查 + 13 日志排查
+        self.nav_buttons = [None] * 14
         self._group_labels = {}
         self._nav_order = []
 
@@ -443,9 +445,9 @@ class MainWindow(QMainWindow):
     def _broadcast_layout_mode(self, mode: str, low_height: bool):
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
-            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel, self.format_panel,
-            self.interface_debug_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel, self.ops_log_panel,
+            self.settings_panel, self.personal_panel, self.requirement_panel,
+            self.format_panel, self.interface_debug_panel,
         ):
             if hasattr(panel, 'apply_layout_mode'):
                 try:
@@ -455,7 +457,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _stack_index_for_nav(index: int) -> int:
-        """nav index → stack index。0–10 历史含义不变；11→10；12→11。"""
+        """nav index → stack index。0–10 历史含义不变；11→10；12→11；13→12。"""
         if index in (8, 9):
             return 8  # personal
         if index == 10:
@@ -464,13 +466,29 @@ class MainWindow(QMainWindow):
             return 10  # format tools
         if index == 12:
             return 11  # interface debug
+        if index == 13:
+            return 12  # ops log inspect
         return index
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
             return
+        prev = getattr(self, '_current_nav_index', None)
+        # 离开接口排查：暂停系统代理，避免其它模块/外网操作全超时
+        if prev == 12 and index != 12:
+            try:
+                if hasattr(self.interface_debug_panel, 'on_panel_deactivated'):
+                    self.interface_debug_panel.on_panel_deactivated()
+            except Exception:
+                pass
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
+        if index == 12:
+            try:
+                if hasattr(self.interface_debug_panel, 'on_panel_activated'):
+                    self.interface_debug_panel.on_panel_activated()
+            except Exception:
+                pass
         if index == 7:
             # 进入设置：重载日报提醒控件，避免与日报页不同步
             if hasattr(self.settings_panel, 'reload_reminder_from_store'):
@@ -491,21 +509,23 @@ class MainWindow(QMainWindow):
         statuses_zh = {
             0: '离线工作台已就绪', 1: '个人与单位证件模拟生成', 2: 'SQL 脚本整理、回滚与验证',
             3: 'SQL 驱动接口文档更新', 4: '中国车辆 VIN 测试数据', 5: '网关国密解密 · JSON 结果',
-            6: 'Linux 运维命令搜索与安全引导', 7: '界面与悬浮工具栏设置',
+            6: '命令库 · 只生成/复制 Linux 命令，不连服务器', 7: '界面与悬浮工具栏设置',
             8: '自我学习资料整理与全文搜索', 9: '每日日报与定时提醒', 10: '需求归档、上线台账与工具联动',
             11: 'JSON / XML / SQL / 文本辅助离线格式化',
-            12: '多浏览器接口排查 · 报文仅内存 · 只生成草稿',
+            12: '接口排查 · 抓包中会占用系统代理，离开本页自动暂停代理',
+            13: '日志排查 · SSH 会话 / 多机日志导出',
         }
         statuses_en = {
             0: 'Offline workspace ready', 1: 'Personal and unit document test data',
             2: 'SQL classify, validate and export', 3: 'SQL-driven interface document updater',
             4: 'China vehicle VIN test data', 5: 'Gateway SM decrypt · JSON result',
-            6: 'Linux operations command search and safety guidance',
+            6: 'Command library · generate/copy only, no SSH',
             7: 'Interface and floating toolbar settings',
             8: 'Learning library and full-text search', 9: 'Daily reports and reminders',
             10: 'Requirement tracking and tool links',
             11: 'Offline JSON / XML / SQL / text helpers',
-            12: 'Multi-browser API debug · in-memory · draft only',
+            12: 'API debug · system proxy paused when you leave this page',
+            13: 'Log inspect · SSH session / multi-host export',
         }
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
@@ -590,9 +610,9 @@ class MainWindow(QMainWindow):
         self._rebuild_user_menu()
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
-            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel, self.format_panel,
-            self.interface_debug_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel, self.ops_log_panel,
+            self.settings_panel, self.personal_panel, self.requirement_panel,
+            self.format_panel, self.interface_debug_panel,
         ):
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)

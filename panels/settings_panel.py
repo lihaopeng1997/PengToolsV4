@@ -334,6 +334,21 @@ class SettingsPanel(QWidget):
         self.keep_awake_group.hide()
         root.addWidget(self.keep_awake_group)
 
+        # 安测 / 安全基线
+        self.security_group = QGroupBox()
+        security = QFormLayout(self.security_group)
+        self.security_ssl_verify = QCheckBox()
+        self.security_ssl_verify_label = QLabel()
+        security.addRow(self.security_ssl_verify_label, self.security_ssl_verify)
+        self.security_confirm_remote = QCheckBox()
+        self.security_confirm_remote_label = QLabel()
+        security.addRow(self.security_confirm_remote_label, self.security_confirm_remote)
+        self.security_note = QLabel()
+        self.security_note.setObjectName('ops-safety-note')
+        self.security_note.setWordWrap(True)
+        security.addRow(self.security_note)
+        root.addWidget(self.security_group)
+
         buttons = QHBoxLayout()
         buttons.addStretch()
         self.restore_btn = QPushButton()
@@ -362,6 +377,12 @@ class SettingsPanel(QWidget):
             'keep_awake_interval_minutes': self.keep_awake_interval.value(),
             # 设置页不提供关闭彩蛋入口，保存时必须保留已解锁状态
             'private_unlocked': bool(getattr(self, '_private_unlocked', False)),
+            'security_ssl_verify': self.security_ssl_verify.isChecked(),
+            'security_confirm_remote_request': self.security_confirm_remote.isChecked(),
+            # 生产主机关键词仅配置层维护，UI 不直接编辑
+            'security_prod_host_hints': list(
+                getattr(self, '_security_prod_host_hints', DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
+            ),
         })
 
     def _preview_opacity(self, value):
@@ -431,6 +452,15 @@ class SettingsPanel(QWidget):
         self.keep_awake_interval.setValue(settings['keep_awake_interval_minutes'])
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
+        self.security_ssl_verify.setChecked(bool(settings.get('security_ssl_verify', True)))
+        self.security_confirm_remote.setChecked(
+            bool(settings.get('security_confirm_remote_request', True))
+        )
+        self._security_prod_host_hints = list(
+            settings.get('security_prod_host_hints')
+            or DEFAULT_SETTINGS.get('security_prod_host_hints')
+            or []
+        )
         self._load_reminder_values()
         self._refresh_close_behavior_hint()
 
@@ -651,6 +681,19 @@ class SettingsPanel(QWidget):
             '启用后按设定间隔发送极小鼠标活动并立即复位，仅在 PengTools 运行期间生效。'
             if zh else
             'Sends tiny mouse activity at the selected interval and immediately restores it; active only while PengTools runs.'
+        )
+        self.security_group.setTitle('安全与安测' if zh else 'Security')
+        self.security_ssl_verify_label.setText('HTTPS 校验证书' if zh else 'Verify HTTPS certs')
+        self.security_ssl_verify.setText('启用（推荐）' if zh else 'Enabled (recommended)')
+        self.security_confirm_remote_label.setText('远程请求确认' if zh else 'Confirm remote requests')
+        self.security_confirm_remote.setText('启用（推荐）' if zh else 'Enabled (recommended)')
+        self.security_note.setText(
+            '默认校验证书并对非本机目标二次确认。内网自签可在请求测试页临时关闭校验。'
+            'SSH 密码使用 Windows DPAPI 加密存本机 data/。'
+            if zh else
+            'TLS verification and remote-target confirmation are on by default. '
+            'You may disable TLS check temporarily for self-signed hosts. '
+            'SSH passwords use Windows DPAPI in local data/.'
         )
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')

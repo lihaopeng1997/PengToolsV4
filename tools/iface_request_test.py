@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""接口排查：会话导出/导入、密钥提取、本机请求测试（Postman 风格）。
+"""接口排查：会话导出/导入、密钥提取、请求测试（类 Postman）。
 
 - 导出/导入格式：pengtools_iface_session_v1
 - URL 替换：base(host:port) + 原 path/query
-- 请求发送：仅允许 127.0.0.1 / localhost（Private 边界）
+- 请求发送：http/https；安测默认 HTTPS 校验证书
+- 非本机目标的二次确认在 UI 层（security_confirm_remote_request）
 """
 
 from __future__ import annotations
@@ -277,14 +278,31 @@ def fill_request_form_from_item(item: dict, base_host: str = 'http://localhost:1
     }
 
 
+def is_loopback_host(hostname: str) -> bool:
+    """本机回环：不触发远程目标确认。"""
+    host = (hostname or '').strip().lower().rstrip('.')
+    if not host:
+        return False
+    if host in ('localhost', '127.0.0.1', '::1', '0:0:0:0:0:0:0:1'):
+        return True
+    if host.startswith('127.'):
+        return True
+    return False
+
+
 def send_http_request(
     method: str,
     url: str,
     headers: Optional[dict] = None,
     body: str = '',
     timeout: float = 30.0,
+    verify_ssl: bool = True,
 ) -> dict:
-    """发送 HTTP 请求（按用户选择的环境 URL；仅 http/https）。"""
+    """发送 HTTP 请求（仅 http/https）。
+
+    安测默认：HTTPS 校验 TLS 证书（verify_ssl=True）。
+    内网自签可在设置或请求测试页显式关闭校验。
+    """
     parsed = urlparse(url or '')
     if not (parsed.hostname or '').strip():
         raise RequestTestError('URL 缺少主机名')
@@ -301,16 +319,25 @@ def send_http_request(
         req.add_header(str(k), str(v))
     if data is not None and not any(str(k).lower() == 'content-type' for k in (headers or {})):
         req.add_header('Content-Type', 'application/json;charset=UTF-8')
-    # 内网自签证书常见：对 https 关闭证书校验（仅本工具请求测试）
     context = None
     if parsed.scheme == 'https':
         try:
             import ssl
-            context = ssl._create_unverified_context()
+            if verify_ssl:
+                context = ssl.create_default_context()
+            else:
+                # 仅用户显式关闭时使用；默认校验证书
+                context = ssl._create_unverified_context()
         except Exception:
             context = None
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
+        # 强制直连：抓包时系统代理指向 127.0.0.1，请求测试再走代理会套娃/超时
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=context) if context is not None else urllib.request.HTTPSHandler(),
+            urllib.request.HTTPHandler(),
+        )
+        with opener.open(req, timeout=timeout) as resp:
             raw = resp.read()
             try:
                 text = raw.decode('utf-8')
@@ -322,8 +349,10 @@ def send_http_request(
                 'headers': {k: v for k, v in resp.headers.items()},
                 'body': text,
                 'error': '',
+                'ssl_verified': bool(verify_ssl) if parsed.scheme == 'https' else None,
             }
     except urllib.error.HTTPError as exc:
+        # HTTPError 也是“有响应”，不走系统代理路径（已由 opener 发出）
         raw = exc.read() if hasattr(exc, 'read') else b''
         try:
             text = raw.decode('utf-8')
@@ -335,6 +364,7 @@ def send_http_request(
             'headers': dict(exc.headers.items()) if exc.headers else {},
             'body': text,
             'error': str(exc),
+            'ssl_verified': bool(verify_ssl) if parsed.scheme == 'https' else None,
         }
     except Exception as exc:
         raise RequestTestError(f'请求失败：{exc}') from exc

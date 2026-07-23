@@ -102,18 +102,31 @@ class _RequestTestWorker(QThread):
     finished_ok = pyqtSignal(dict)
     failed = pyqtSignal(str)
 
-    def __init__(self, method: str, url: str, headers: dict, body: str, parent=None):
+    def __init__(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        body: str,
+        parent=None,
+        verify_ssl: bool = True,
+    ):
         super().__init__(parent)
         self.method = method
         self.url = url
         self.headers = headers or {}
         self.body = body or ''
+        self.verify_ssl = bool(verify_ssl)
 
     def run(self):
         try:
-            from tools.iface_request_test import RequestTestError, send_http_request
+            from tools.iface_request_test import send_http_request
             result = send_http_request(
-                self.method, self.url, headers=self.headers, body=self.body,
+                self.method,
+                self.url,
+                headers=self.headers,
+                body=self.body,
+                verify_ssl=self.verify_ssl,
             )
             self.finished_ok.emit(result if isinstance(result, dict) else {'ok': False, 'body': str(result)})
         except Exception as exc:
@@ -184,6 +197,13 @@ class InterfaceDebugPanel(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(150)
         self._search_timer.timeout.connect(self._rebuild_table)
+        # 抓包高峰时每条流量都全表重建会卡死主线程 → 合并刷新
+        self._ingest_flush_timer = QTimer(self)
+        self._ingest_flush_timer.setSingleShot(True)
+        self._ingest_flush_timer.setInterval(220)
+        self._ingest_flush_timer.timeout.connect(self._flush_ingest_ui)
+        self._ingest_dirty = False
+        self._ingest_count_since_flush = 0
         self._wait_hint_timer = QTimer(self)
         self._wait_hint_timer.setSingleShot(True)
         self._wait_hint_timer.setInterval(10000)
@@ -582,6 +602,16 @@ class InterfaceDebugPanel(QWidget):
         self.rt_send_btn.clicked.connect(self._rt_send)
         method_row.addWidget(self.rt_send_btn)
         dl.addLayout(method_row)
+        # 安测：HTTPS 证书校验（默认开，与设置 security_ssl_verify 对齐）
+        ssl_row = QHBoxLayout()
+        self.rt_ssl_verify = QCheckBox()
+        self.rt_ssl_verify.setChecked(True)
+        self.rt_ssl_verify.setToolTip(
+            '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
+        )
+        ssl_row.addWidget(self.rt_ssl_verify)
+        ssl_row.addStretch(1)
+        dl.addLayout(ssl_row)
 
         # 分类 + 保存到接口库
         cat_row = QHBoxLayout()
@@ -631,6 +661,8 @@ class InterfaceDebugPanel(QWidget):
         lib_l.addWidget(self.rt_lib_search)
         self.rt_lib_list = QListWidget()
         self.rt_lib_list.setObjectName('iface-rt-lib-list')
+        self.rt_lib_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.rt_lib_list.customContextMenuRequested.connect(self._rt_lib_show_menu)
         self.rt_lib_list.itemDoubleClicked.connect(self._rt_lib_apply_selected)
         self.rt_lib_list.itemActivated.connect(self._rt_lib_apply_selected)
         lib_l.addWidget(self.rt_lib_list, 1)
@@ -743,6 +775,7 @@ class InterfaceDebugPanel(QWidget):
         self._rt_editing_api_id = ''
         self._rt_send_started_at = 0.0
         self._rt_lib_reload(refresh_ui=True)
+        self._rt_sync_ssl_checkbox_from_settings()
         self.detail_tabs.addTab(self.draft_page, '请求测试')
         self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
@@ -1262,16 +1295,24 @@ class InterfaceDebugPanel(QWidget):
             self._selected_id = prev_selected
 
     def _start_local_proxy(self, ie_mode: bool = False):
+        """异步启动抓包：不在主线程 sleep 等待，避免点任何按钮都像超时。"""
         zh = self.language == 'zh'
         title = '开始抓包' if zh else 'Start capture'
+        if self._listening or self._ie_worker is not None:
+            show_info(self, title, '已在抓包中' if zh else 'Already capturing')
+            return
         port = self._current_port()
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
         self.loading.start_busy('正在开始抓包…' if zh else 'Starting capture…')
-        # HTTPS 解密准备：静默，不出现「安装证书」按钮
-        self._ensure_capture_ready_silently()
-        source = 'http_capture'
+        self.connect_btn.setEnabled(False)
+        # HTTPS 解密准备：静默
         try:
+            self._ensure_capture_ready_silently()
+        except Exception:
+            pass
+
+        def _boot():
             from tools.http_capture import HttpCaptureWorker
             worker = HttpCaptureWorker(
                 port=port,
@@ -1279,42 +1320,63 @@ class InterfaceDebugPanel(QWidget):
                 on_error=self._on_ie_error_thread,
                 on_stopped=self._on_ie_stopped_thread,
                 show_static=True,
-                source_label=source,
+                source_label='http_capture',
                 apply_system_proxy=True,
             )
             worker.start()
-            self._ie_worker = worker
-            deadline = time.time() + 14.0
-            while time.time() < deadline:
-                if getattr(worker, 'ready', False):
-                    break
-                if getattr(worker, '_stop', None) is not None and worker._stop.is_set():
-                    break
-                QApplication.processEvents()
-                time.sleep(0.05)
-            if not getattr(worker, 'ready', False):
-                err = '抓包未就绪（端口可能被占用）。请关闭占用后重试。'
+            ready = False
+            try:
+                ready = bool(worker.wait_ready(timeout=12.0))
+            except Exception:
+                ready = bool(getattr(worker, 'ready', False))
+            if not ready:
                 try:
-                    worker.stop()
+                    worker.stop(join_timeout=0.8)
                 except Exception:
                     pass
+                return {'ok': False, 'error': '抓包未就绪（端口可能被占用）。请关闭占用后重试。', 'port': port}
+            return {'ok': True, 'worker': worker, 'port': port}
+
+        class _Boot(QThread):
+            done = pyqtSignal(object)
+
+            def run(self_inner):
+                try:
+                    self_inner.done.emit(_boot())
+                except Exception as exc:
+                    self_inner.done.emit({'ok': False, 'error': str(exc), 'port': port})
+
+        boot = _Boot(self)
+        self._capture_boot_worker = boot
+
+        def _on_boot(result: dict):
+            self.connect_btn.setEnabled(True)
+            if not result or not result.get('ok'):
+                err = (result or {}).get('error') or '启动失败'
                 self._ie_worker = None
                 self.loading.fail(err)
                 show_warning(self, title, err)
+                try:
+                    restore_proxy_from_snapshot()
+                except Exception:
+                    pass
                 return
-            # 自检：经本机代理打一条 HTTP，验证「代理→抓取引擎→列表」整条链路
-            self._probe_capture_pipeline(port)
+            worker = result.get('worker')
+            self._ie_worker = worker
+            self._probe_capture_pipeline(int(result.get('port') or port))
             self._mark_listen_success(
-                f'抓包中 · 系统代理已指向 127.0.0.1:{port} · 请用浏览器打开业务页（必要时重启浏览器）'
+                f'抓包中 · 系统代理 127.0.0.1:{port} · 请重启浏览器后访问业务页 · '
+                f'离开本页会自动暂停系统代理（引擎仍可运行），其它软件不再被拖死'
             )
             self.loading.finish('抓包已开始' if zh else 'Capture started')
-        except Exception as exc:
-            self.loading.fail(str(exc))
-            show_warning(self, title, str(exc))
             try:
-                restore_proxy_from_snapshot()
+                self.loading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             except Exception:
                 pass
+
+        boot.done.connect(_on_boot)
+        boot.finished.connect(lambda: setattr(self, '_capture_boot_worker', None))
+        boot.start()
 
     def _probe_capture_pipeline(self, port: int):
         """经本地代理发一条 HTTP 探测；成功则列表至少出现探测会话。"""
@@ -1504,8 +1566,7 @@ class InterfaceDebugPanel(QWidget):
         rid = rec.get('id') or ''
         if not rid:
             return
-        prev_selected = self._selected_id
-        # 合并同 id（request→response）
+        # 合并同 id（request→response）— 仅更新内存，UI 合并刷新
         old = self._records_by_id.get(rid) or {}
         merged = dict(old)
         merged.update({k: v for k, v in rec.items() if v is not None and v != ''})
@@ -1524,53 +1585,119 @@ class InterfaceDebugPanel(QWidget):
         else:
             merged['seq'] = old.get('seq')
         self._records_by_id[rid] = merged
-        self._records = list(self._records_by_id.values())
         self._last_request_at = time.time()
+        self._ingest_dirty = True
+        self._ingest_count_since_flush += 1
+        # 首屏立刻刷；高峰合并刷新，避免主线程被打满
+        if len(self._records_by_id) <= 3 or self._ingest_count_since_flush >= 80:
+            self._ingest_flush_timer.stop()
+            self._flush_ingest_ui()
+        elif not self._ingest_flush_timer.isActive():
+            self._ingest_flush_timer.start()
+
+    def _flush_ingest_ui(self):
+        if not self._ingest_dirty and self._ingest_count_since_flush == 0:
+            return
+        prev_selected = self._selected_id
+        self._records = list(self._records_by_id.values())
+        self._ingest_dirty = False
+        self._ingest_count_since_flush = 0
         self._rebuild_table()
         if prev_selected and prev_selected in self._records_by_id:
             self._selected_id = prev_selected
         self._refresh_live_status()
-        if self._records and self.recheck_btn.isVisible():
+        if self._records and hasattr(self, 'recheck_btn') and self.recheck_btn.isVisible():
             self.recheck_btn.hide()
 
     def _stop_listen(self):
         self.loading.start_busy('正在停止抓包…')
         self._wait_hint_timer.stop()
         self._status_tick.stop()
+        # 先立刻恢复系统代理（网络马上可用），引擎在后台收尾
         try:
-            if self._cdp_session:
+            from tools.ie_proxy import restore_proxy_from_snapshot, ensure_system_proxy_safe, mark_capture_proxy_inactive
+            restore_proxy_from_snapshot()
+            mark_capture_proxy_inactive()
+            ensure_system_proxy_safe(reason='stop_listen_pre')
+        except Exception:
+            pass
+        worker = self._ie_worker
+        cdp = self._cdp_session
+        self._ie_worker = None
+        self._cdp_session = None
+        self._listening = False
+        self._channel_ready = False
+        self._set_listening_ui(False)
+
+        def _shutdown():
+            if cdp is not None:
                 try:
-                    self._cdp_session.stop()
+                    cdp.stop()
                 except Exception:
                     pass
-                self._cdp_session = None
-            if self._ie_worker:
+            if worker is not None:
                 try:
-                    # 停止引擎但保留面板会话列表（清空请用「清空」按钮）
-                    if hasattr(self._ie_worker, 'clear_session'):
-                        # 先摘掉 stop 内清空对 UI 的影响：仅停代理
+                    worker.stop(join_timeout=1.0, clear_records=False)
+                except TypeError:
+                    try:
+                        worker.stop()
+                    except Exception:
                         pass
-                    self._ie_worker.stop()
                 except Exception:
                     pass
-                self._ie_worker = None
-        finally:
-            # 不清空列表；再确保系统代理已恢复
-            self._listening = False
-            self._channel_ready = False
-            self._set_listening_ui(False)
             try:
                 from tools.ie_proxy import ensure_system_proxy_safe
                 ensure_system_proxy_safe(reason='stop_listen')
             except Exception:
                 pass
-            n = len(self._records)
-            self.loading.finish('已停止')
-            self.status_label.setText(
-                f'已停止抓包 · 系统代理已恢复 · 会话保留 {n} 条（可继续导出/请求测试）'
-            )
-            self.live_status.setText('')
+
+        import threading
+        threading.Thread(target=_shutdown, name='capture-stop', daemon=True).start()
+        n = len(self._records)
+        self.loading.finish('已停止')
+        self.status_label.setText(
+            f'已停止抓包 · 系统代理已恢复 · 会话保留 {n} 条（可继续导出/请求测试）'
+        )
+        self.live_status.setText('')
+        if hasattr(self, 'recheck_btn'):
             self.recheck_btn.hide()
+
+    def on_panel_deactivated(self):
+        """离开接口排查页：暂停系统代理，其它模块/软件不再被拖超时。引擎可仍运行。"""
+        if not self._listening:
+            return
+        try:
+            from tools.ie_proxy import suspend_capture_system_proxy, is_capture_proxy_suspended
+            result = suspend_capture_system_proxy()
+            if result == 'suspended' or is_capture_proxy_suspended():
+                port = self._current_port()
+                self.status_label.setText(
+                    f'抓包引擎运行中 · 系统代理已暂停（其它软件可正常上网）· '
+                    f'回到本页将自动恢复 127.0.0.1:{port}'
+                )
+                if hasattr(self, 'live_status'):
+                    self.live_status.setText('系统代理已暂停')
+        except Exception:
+            pass
+
+    def on_panel_activated(self):
+        """回到接口排查页：若仍在抓包，恢复系统代理以便浏览器继续进流量。"""
+        if not self._listening:
+            return
+        try:
+            from tools.ie_proxy import resume_capture_system_proxy, is_capture_proxy_suspended
+            if not is_capture_proxy_suspended() and self._ie_worker is None:
+                return
+            port = self._current_port()
+            result = resume_capture_system_proxy(port)
+            if result in ('resumed', 'noop'):
+                self.status_label.setText(
+                    f'抓包中 · 系统代理 127.0.0.1:{port} · 请用浏览器访问业务页 · '
+                    f'离开本页会自动暂停系统代理'
+                )
+                self._refresh_live_status()
+        except Exception:
+            pass
 
     def _set_listening_ui(self, active: bool):
         self.connect_btn.setEnabled(not active)
@@ -2235,6 +2362,75 @@ class InterfaceDebugPanel(QWidget):
         kind, pretty, _err = pretty_body(body)
         self.open_format_json.emit(pretty if kind == 'json' else body)
 
+    def _rt_security_settings(self) -> dict:
+        """读取安测相关设置（失败时用收紧默认）。"""
+        try:
+            from config import load_settings
+            return load_settings()
+        except Exception:
+            return {
+                'security_ssl_verify': True,
+                'security_confirm_remote_request': True,
+                'security_prod_host_hints': ['prod', 'production', '生产', 'hxutf', 'prd'],
+            }
+
+    def _rt_sync_ssl_checkbox_from_settings(self):
+        if not hasattr(self, 'rt_ssl_verify'):
+            return
+        settings = self._rt_security_settings()
+        # 仅在用户尚未手动改过时跟随全局；首次/进入面板时对齐
+        self.rt_ssl_verify.blockSignals(True)
+        self.rt_ssl_verify.setChecked(bool(settings.get('security_ssl_verify', True)))
+        self.rt_ssl_verify.blockSignals(False)
+
+    def _rt_looks_like_prod(self, host: str, settings: dict) -> bool:
+        host_l = (host or '').lower()
+        hints = settings.get('security_prod_host_hints') or []
+        for hint in hints:
+            text = str(hint or '').strip().lower()
+            if text and text in host_l:
+                return True
+        return False
+
+    def _rt_confirm_remote_if_needed(self, url: str, method: str) -> bool:
+        """非本机目标且开启确认时弹窗；返回 False 表示用户取消。"""
+        from tools.iface_request_test import is_loopback_host
+        from urllib.parse import urlparse
+        from ui.confirm_dialog import confirm_action
+
+        settings = self._rt_security_settings()
+        if not bool(settings.get('security_confirm_remote_request', True)):
+            return True
+        parsed = urlparse(url or '')
+        host = (parsed.hostname or '').strip()
+        if is_loopback_host(host):
+            return True
+        zh = self.language == 'zh'
+        prod = self._rt_looks_like_prod(host, settings)
+        title = (
+            ('生产环境请求确认' if prod else '远程请求确认')
+            if zh else
+            ('Confirm production request' if prod else 'Confirm remote request')
+        )
+        msg = (
+            f'即将向非本机目标发送 HTTP 请求：\n\n{method} {url}\n\n'
+            f'主机：{host}\n'
+            + ('⚠ 主机名疑似生产环境，请确认已获授权。\n' if prod else '')
+            + '仅在授权联调环境使用，勿对未授权系统压测或写操作。'
+            if zh else
+            f'About to send a non-loopback request:\n\n{method} {url}\n\n'
+            f'Host: {host}\n'
+            + ('⚠ Host looks like production — confirm authorization.\n' if prod else '')
+            + 'Use only on authorized environments.'
+        )
+        return confirm_action(
+            self,
+            title,
+            msg,
+            confirm_text='确认发送' if zh else 'Send',
+            danger=prod,
+        )
+
     def _rt_send(self):
         from tools.iface_request_test import (
             RequestTestError, headers_dict_from_text, merge_url_with_params,
@@ -2262,6 +2458,13 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '请求测试', str(exc))
             return
 
+        if not self._rt_confirm_remote_if_needed(url, method):
+            return
+
+        verify_ssl = True
+        if hasattr(self, 'rt_ssl_verify'):
+            verify_ssl = self.rt_ssl_verify.isChecked()
+
         self._rt_send_meta = {
             'method': method,
             'url': url,
@@ -2270,6 +2473,7 @@ class InterfaceDebugPanel(QWidget):
             'body': body,
             'base_host': self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else '',
             'category_id': self._rt_current_category_id(),
+            'verify_ssl': verify_ssl,
         }
         self._rt_last_request_body = body
         self._rt_send_started_at = time.time()
@@ -2278,7 +2482,9 @@ class InterfaceDebugPanel(QWidget):
         # 先刷新界面再进后台线程，确保 Loading 可见
         QApplication.processEvents()
 
-        worker = _RequestTestWorker(method, url, headers, body, parent=self)
+        worker = _RequestTestWorker(
+            method, url, headers, body, parent=self, verify_ssl=verify_ssl,
+        )
         self._rt_worker = worker
         worker.finished_ok.connect(self._rt_send_finished)
         worker.failed.connect(self._rt_send_failed)
@@ -2551,25 +2757,43 @@ class InterfaceDebugPanel(QWidget):
         source = lib.get('history') if mode == 'history' else lib.get('apis')
         items = filter_items(source or [], category_id=cat, keyword=kw)
         cat_map = {c.get('id'): c.get('name') for c in (lib.get('categories') or [])}
+        from tools.pinyin_search import highlight_terms, match_snippet
+        from ui.search_highlight import focus_list_item, paint_list_item
         self.rt_lib_list.blockSignals(True)
         self.rt_lib_list.clear()
+        first_hit = None
         for it in items:
             label = display_label(it, mode=mode, category_map=cat_map)
+            if kw:
+                label = highlight_terms(label, kw)
             row = QListWidgetItem(label)
             row.setData(Qt.ItemDataRole.UserRole, it.get('id'))
-            row.setToolTip(
+            sn = match_snippet(
+                f"{it.get('method') or ''} {it.get('url') or ''} {it.get('name') or ''} {it.get('note') or ''}",
+                kw,
+            ) if kw else ''
+            tip = (
                 f"{it.get('method') or ''} {it.get('url') or ''}\n"
                 f"{cat_map.get(it.get('category_id'), '')}"
             )
+            if sn:
+                tip = f'命中：{sn}\n{tip}'
+            row.setToolTip(tip)
+            matched = bool(kw)
+            paint_list_item(row, matched=matched, current=matched and first_hit is None)
             self.rt_lib_list.addItem(row)
+            if matched and first_hit is None:
+                first_hit = row
         self.rt_lib_list.blockSignals(False)
+        if first_hit is not None:
+            focus_list_item(self.rt_lib_list, first_hit)
         zh = self.language == 'zh'
         total = len(source or [])
         shown = len(items)
         if mode == 'history':
-            text = (f'历史 {shown}/{total}' if zh else f'History {shown}/{total}')
+            text = (f'命中历史 {shown}/{total}' if zh and kw else (f'历史 {shown}/{total}' if zh else f'History {shown}/{total}'))
         else:
-            text = (f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}')
+            text = (f'命中接口 {shown}/{total}' if zh and kw else (f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}'))
         if hasattr(self, 'rt_lib_count'):
             self.rt_lib_count.setText(text)
 
@@ -2586,6 +2810,37 @@ class InterfaceDebugPanel(QWidget):
         mode = self._rt_lib_mode_value()
         pool = lib.get('history') if mode == 'history' else lib.get('apis')
         return next((x for x in (pool or []) if x.get('id') == iid), None)
+
+    def _rt_lib_show_menu(self, point):
+        row = self.rt_lib_list.itemAt(point)
+        if not row:
+            return
+        self.rt_lib_list.setCurrentItem(row)
+        item = self._rt_lib_selected_item()
+        if not item:
+            return
+        mode = self._rt_lib_mode_value()
+        from tools.list_pin import is_pinned, pin_action_label
+        menu = QMenu(self)
+        if mode == 'library':
+            pinned = is_pinned(item)
+            act = menu.addAction(pin_action_label(pinned, self.language if hasattr(self, 'language') else 'zh'))
+            act.triggered.connect(lambda _=False, it=item, p=pinned: self._rt_lib_toggle_pin(it, p))
+            menu.addSeparator()
+        menu.addAction('加载到表单' if (getattr(self, 'language', 'zh') == 'zh') else 'Load', self._rt_lib_apply_selected)
+        menu.exec(self.rt_lib_list.viewport().mapToGlobal(point))
+
+    def _rt_lib_toggle_pin(self, item, currently_pinned):
+        from tools.iface_request_library import set_api_pinned
+        api_id = (item or {}).get('id')
+        if not api_id:
+            return
+        try:
+            self._rt_lib = set_api_pinned(self._rt_lib_data(), api_id, not currently_pinned)
+        except Exception as exc:
+            show_warning(self, '请求测试', f'置顶失败：{exc}')
+            return
+        self._rt_lib_refresh_list()
 
     def _rt_lib_apply_selected(self, *_args):
         from tools.iface_request_library import form_fields_from_item
@@ -3065,6 +3320,16 @@ class InterfaceDebugPanel(QWidget):
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')
             self.rt_resp_label.setText('响应' if zh else 'Response')
+        if hasattr(self, 'rt_ssl_verify'):
+            self.rt_ssl_verify.setText(
+                '校验 HTTPS 证书（安测默认开启）' if zh else
+                'Verify HTTPS certificates (default on)'
+            )
+            self.rt_ssl_verify.setToolTip(
+                '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
+                if zh else
+                'Disable only for self-signed intranet hosts; verification is on by default'
+            )
         if hasattr(self, 'rt_req_copy_btn'):
             self.rt_req_copy_btn.setText('复制请求' if zh else 'Copy req')
             self.rt_req_copy_btn.setToolTip(

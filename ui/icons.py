@@ -99,6 +99,7 @@ NAV_ICON_BY_INDEX = {
     10: 'requirements',
     11: 'json',  # 格式工具
     12: 'api-debug',  # 接口排查
+    13: 'search',  # 日志排查
 }
 
 

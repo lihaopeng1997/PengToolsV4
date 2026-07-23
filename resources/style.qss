@@ -679,7 +679,8 @@ QTreeWidget#docx-output-browser QHeaderView::section {
     padding: 8px;
     font-weight: 800;
 }
-QTreeWidget#requirement-file-tree {
+QTreeWidget#requirement-file-tree,
+QTreeWidget#ops-remote-tree {
     border: 1px solid __BORDER__;
     border-radius: 8px;
     background: __SURFACE__;
@@ -689,25 +690,33 @@ QTreeWidget#requirement-file-tree {
     /* 0：图标装饰只出现在名称列，避免选中时其它列也像“带图标” */
     show-decoration-selected: 0;
 }
-QTreeWidget#requirement-file-tree::item {
+QTreeWidget#requirement-file-tree::item,
+QTreeWidget#ops-remote-tree::item {
     min-height: 27px;
     padding: 4px 7px;
     border: none;
     border-bottom: 1px solid __BORDER__;
     color: __TEXT_STRONG__;
 }
-QTreeWidget#requirement-file-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
+QTreeWidget#requirement-file-tree::item:hover,
+QTreeWidget#ops-remote-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
 QTreeWidget#requirement-file-tree::item:selected,
 QTreeWidget#requirement-file-tree::item:selected:active,
-QTreeWidget#requirement-file-tree::item:selected:!active {
+QTreeWidget#requirement-file-tree::item:selected:!active,
+QTreeWidget#ops-remote-tree::item:selected,
+QTreeWidget#ops-remote-tree::item:selected:active,
+QTreeWidget#ops-remote-tree::item:selected:!active {
     background: __PRIMARY__;
     color: __ON_PRIMARY__;
     border-left: 2px solid __PRIMARY_ACTIVE__;
 }
-QTreeWidget#requirement-file-tree::branch { background: transparent; }
-QTreeWidget#requirement-file-tree::branch:hover { background: transparent; }
-QTreeWidget#requirement-file-tree::branch:selected { background: transparent; }
-/* 表头：企业文件树风格 */
+QTreeWidget#requirement-file-tree::branch,
+QTreeWidget#ops-remote-tree::branch { background: transparent; }
+QTreeWidget#requirement-file-tree::branch:hover,
+QTreeWidget#ops-remote-tree::branch:hover { background: transparent; }
+QTreeWidget#requirement-file-tree::branch:selected,
+QTreeWidget#ops-remote-tree::branch:selected { background: transparent; }
+/* 表头：企业文件树风格；ops-remote-tree 窄栏用更紧凑 padding */
 QTreeWidget#requirement-file-tree QHeaderView::section {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
@@ -717,8 +726,19 @@ QTreeWidget#requirement-file-tree QHeaderView::section {
     padding: 8px 10px;
     font-weight: 800;
 }
-QTreeWidget#requirement-file-tree QHeaderView::section:hover { background: __PRIMARY_SOFT__; }
-QTreeWidget#requirement-file-tree QHeaderView::section:last { border-right: none; }
+QTreeWidget#ops-remote-tree QHeaderView::section {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: none;
+    border-right: 1px solid __SCROLL_HANDLE__;
+    border-bottom: 2px solid __BORDER_STRONG__;
+    padding: 4px 6px;
+    font-weight: 700;
+}
+QTreeWidget#requirement-file-tree QHeaderView::section:hover,
+QTreeWidget#ops-remote-tree QHeaderView::section:hover { background: __PRIMARY_SOFT__; }
+QTreeWidget#requirement-file-tree QHeaderView::section:last,
+QTreeWidget#ops-remote-tree QHeaderView::section:last { border-right: none; }
 QHeaderView#requirement-file-header::section {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
@@ -1693,7 +1713,7 @@ QPlainTextEdit#json-text {
     font-family: 'Cascadia Mono', 'Consolas', monospace;
     font-size: 11px;
     line-height: 1.35;
-    background: __INPUT_BG__;
+    background: __CODE_BG__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
@@ -1703,8 +1723,17 @@ QPlainTextEdit#json-text {
 }
 QPlainTextEdit#json-text:focus {
     border-color: __PRIMARY__;
-    background: __SURFACE__;
+    background: __CODE_BG__;
     color: __TEXT_STRONG__;
+}
+/* CodeGlance 右侧缩略条（绘制在自定义 widget 上，这里仅兜底） */
+QWidget#code-glance {
+    background: __CODE_BG__;
+    border-left: 1px solid __BORDER__;
+}
+QWidget#fold-margin {
+    background: __CODE_BG__;
+    border-right: 1px solid __BORDER__;
 }
 QTreeWidget#json-tree {
     background: __SURFACE__;
@@ -1955,6 +1984,218 @@ QPlainTextEdit, QTextEdit {
     color: __TEXT_STRONG__;
     selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+}
+QPlainTextEdit:focus, QTextEdit:focus {
+    border-color: __PRIMARY__;
+}
+
+/* ── SSH 终端：控制台岛（深底亮字，与页面强对比；色相贴主题） ── */
+QWidget#ssh-terminal-host {
+    background: __TERM_BG__;
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 14px;
+}
+QPlainTextEdit#ssh-terminal {
+    background: __TERM_BG__;
+    color: __TERM_FG__;
+    border: none;
+    border-radius: 12px;
+    selection-background-color: __TERM_SEL__;
+    selection-color: __TERM_FG__;
+    padding: 10px 12px;
+    font-family: 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 10.5pt;
+}
+QPlainTextEdit#ssh-terminal:focus {
+    border: none;
+    background: __TERM_BG__;
+    color: __TERM_FG__;
+}
+QWidget#ssh-find-bar {
+    background: __TERM_FIND_BG__;
+    border-bottom: 1px solid __TERM_BORDER__;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    padding: 2px;
+}
+QLineEdit#ssh-find-edit {
+    background: __TERM_BG__;
+    color: __TERM_FG__;
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 8px;
+    padding: 4px 8px;
+    selection-background-color: __TERM_SEL__;
+}
+QLineEdit#ssh-find-edit:focus {
+    border-color: __TERM_SYS__;
+}
+QCheckBox#ssh-find-case {
+    color: __TERM_MUTED__;
+}
+QPushButton#ssh-find-btn {
+    background: __TERM_CHROME__;
+    color: __TERM_FG__;
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 8px;
+    padding: 2px 10px;
+    font-weight: 600;
+}
+QPushButton#ssh-find-btn:hover {
+    background: __TERM_SEL__;
+    border-color: __TERM_SYS__;
+    color: __TERM_FG__;
+}
+QLabel#ssh-find-status {
+    color: __TERM_SYS__;
+    font-weight: 600;
+    min-width: 48px;
+}
+QWidget#ops-right-panel {
+    background: transparent;
+}
+QFrame#ops-term-card, QFrame#ops-result-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 14px;
+}
+/* 终端外壳：页面卡片色包住深色控制台，避免 sheet 割裂 */
+QFrame#ops-term-shell {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 14px;
+}
+/* 标签栏贴页面；选中与控制台衔接 */
+QTabWidget#ops-term-tabs::pane {
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 10px;
+    background: __TERM_BG__;
+    top: -1px;
+    padding: 0;
+    margin: 0;
+}
+QTabWidget#ops-term-tabs QTabBar::tab {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_MUTED__;
+    border: 1px solid __BORDER__;
+    border-bottom: none;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    padding: 7px 16px;
+    margin-right: 4px;
+    font-weight: 600;
+}
+QTabWidget#ops-term-tabs QTabBar::tab:selected {
+    background: __TERM_BG__;
+    color: __TERM_SYS__;
+    border-color: __TERM_BORDER__;
+}
+QTabWidget#ops-term-tabs QTabBar::tab:hover:!selected {
+    color: __TEXT_STRONG__;
+    background: __PRIMARY_SOFT__;
+}
+/* 导出目标树：可横向滚动看全路径 */
+QTreeWidget#ops-export-tree {
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    background: __SURFACE__;
+    alternate-background-color: __TABLE_ALT__;
+    color: __TEXT_STRONG__;
+    outline: 0;
+    show-decoration-selected: 0;
+}
+QTreeWidget#ops-export-tree::item {
+    min-height: 26px;
+    padding: 3px 6px;
+}
+QTreeWidget#ops-export-tree::item:selected {
+    background: __PRIMARY__;
+    color: __ON_PRIMARY__;
+}
+QTreeWidget#ops-export-tree QHeaderView::section {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: none;
+    border-right: 1px solid __SCROLL_HANDLE__;
+    border-bottom: 2px solid __BORDER_STRONG__;
+    padding: 4px 6px;
+    font-weight: 700;
+}
+/* 圆滑弹框 */
+QDialog#ops-dialog, QDialog#server-editor-dialog, QDialog#server-manage-dialog,
+QDialog#cmd-history-dialog, QDialog#log-settings-dialog {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 16px;
+}
+QDialog#ops-dialog QLabel#dialog-title,
+QDialog#server-editor-dialog QLabel#dialog-title,
+QDialog#server-manage-dialog QLabel#dialog-title,
+QDialog#cmd-history-dialog QLabel#dialog-title {
+    color: __TEXT_STRONG__;
+    font-size: 16px;
+    font-weight: 800;
+}
+QDialog#ops-dialog QFrame#dialog-card,
+QDialog#server-editor-dialog QFrame#dialog-card,
+QDialog#server-manage-dialog QFrame#dialog-card,
+QDialog#cmd-history-dialog QFrame#dialog-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QListWidget#ops-cmd-history-list, QTreeWidget#ops-cmd-history-list {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 4px;
+}
+QListWidget#ops-cmd-history-list::item, QTreeWidget#ops-cmd-history-list::item {
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+QListWidget#ops-cmd-history-list::item:selected, QTreeWidget#ops-cmd-history-list::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __TEXT_STRONG__;
+}
+
+/* 暗色/通用：滚动条更易辨认 */
+QScrollBar:vertical {
+    background: __SURFACE_SOFT__;
+    width: 10px;
+    margin: 0;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: __SCROLL_HANDLE__;
+    border-radius: 5px;
+    min-height: 28px;
+}
+QScrollBar::handle:vertical:hover {
+    background: __BORDER_STRONG__;
+}
+QScrollBar:horizontal {
+    background: __SURFACE_SOFT__;
+    height: 10px;
+    margin: 0;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal {
+    background: __SCROLL_HANDLE__;
+    border-radius: 5px;
+    min-width: 28px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: __BORDER_STRONG__;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0; height: 0; background: none;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
 }
 
 /* Theme cards (Settings → Appearance) */

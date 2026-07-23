@@ -32,6 +32,27 @@ try {
         throw 'Release workbook template was not found.'
     }
 
+    # 发布前敏感扫描：阻断账密/JWT/私钥等进入安装包
+    $ScanScript = Join-Path $ScriptDir 'scan_release_secrets.py'
+    if (-not (Test-Path -LiteralPath $ScanScript)) {
+        throw "Secret scanner missing: $ScanScript"
+    }
+    Write-Host 'Running release secret scan...'
+    python $ScanScript --project $ProjectDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Release secret scan failed (exit $LASTEXITCODE). Remove secrets under resources/ before packaging."
+    }
+
+    # Safe seed templates only (do not reintroduce real secrets into resources)
+    $SeedTxtPath = Join-Path $ProjectDir 'resources\private_knowledge_seed.txt'
+    $SeedJsonPath = Join-Path $ProjectDir 'resources\private_knowledge_seed_workbooks.json'
+    if (-not (Test-Path -LiteralPath $SeedTxtPath)) {
+        throw "Missing safe seed template: $SeedTxtPath"
+    }
+    if (-not (Test-Path -LiteralPath $SeedJsonPath)) {
+        Set-Content -LiteralPath $SeedJsonPath -Value "[]" -Encoding utf8
+    }
+
     python -c "import json,sys; open(sys.argv[1],'w',encoding='utf-8').write(json.dumps({'version':'4.27','edition':'Private','build_date':sys.argv[2],'build_time':sys.argv[3]},ensure_ascii=False,indent=2)+chr(10))" $BuildInfoPath $BuildDate $BuildTime
     if (-not (Test-Path -LiteralPath $BuildInfoPath)) {
         throw 'Failed to write build_info.json'
@@ -46,41 +67,47 @@ try {
         Remove-Item -LiteralPath $InstallerDataDir -Recurse -Force
     }
 
-    # Brand icon from former Private package
-    python -m PyInstaller `
-        --noconfirm `
-        --clean `
-        --onefile `
-        --windowed `
-        --name PengToolsHub `
-        --icon resources\brand\pengtools-app-v2.ico `
-        --add-data 'resources\style.qss;resources' `
-        --add-data 'resources\chevron_down.svg;resources' `
-        --add-data 'resources\check_white.svg;resources' `
-        --add-data 'resources\app.ico;resources' `
-        --add-data 'resources\app-icon.png;resources' `
-        --add-data 'resources\brand;resources\brand' `
-        --add-data 'resources\build_info.json;resources' `
-        --add-data 'resources\private_knowledge_seed.txt;resources' `
-        --add-data 'resources\private_knowledge_seed_workbooks.json;resources' `
-        --add-data 'resources\release_workbook_template.xlsx;resources' `
-        --add-data 'resources\icons;resources\icons' `
-        --add-data 'resources\help;resources\help' `
-        --hidden-import docx `
-        --hidden-import openpyxl `
-        --hidden-import msoffcrypto `
-        --hidden-import PyQt6.QtSvg `
-        --hidden-import websocket `
-        --hidden-import websocket._app `
-        --hidden-import mitmproxy `
-        --hidden-import mitmproxy.tools.dump `
-        --hidden-import mitmproxy.certs `
-        --hidden-import mitmproxy.options `
-        --exclude-module PyQt5 `
-        --exclude-module PySide2 `
-        --exclude-module PySide6 `
-        --exclude-module tkinter `
-        run.py
+    # Safe seed templates only (secret scan already passed)
+    $pyArgs = @(
+        '-m', 'PyInstaller',
+        '--noconfirm',
+        '--clean',
+        '--onefile',
+        '--windowed',
+        '--name', 'PengToolsHub',
+        '--icon', 'resources\brand\pengtools-app-v2.ico',
+        '--add-data', 'resources\style.qss;resources',
+        '--add-data', 'resources\chevron_down.svg;resources',
+        '--add-data', 'resources\check_white.svg;resources',
+        '--add-data', 'resources\app.ico;resources',
+        '--add-data', 'resources\app-icon.png;resources',
+        '--add-data', 'resources\brand;resources\brand',
+        '--add-data', 'resources\build_info.json;resources',
+        '--add-data', 'resources\private_knowledge_seed.txt;resources',
+        '--add-data', 'resources\private_knowledge_seed_workbooks.json;resources',
+        '--add-data', 'resources\release_workbook_template.xlsx;resources',
+        '--add-data', 'resources\icons;resources\icons',
+        '--add-data', 'resources\help;resources\help',
+        '--hidden-import', 'docx',
+        '--hidden-import', 'openpyxl',
+        '--hidden-import', 'msoffcrypto',
+        '--hidden-import', 'PyQt6.QtSvg',
+        '--hidden-import', 'websocket',
+        '--hidden-import', 'websocket._app',
+        '--hidden-import', 'mitmproxy',
+        '--hidden-import', 'mitmproxy.tools.dump',
+        '--hidden-import', 'mitmproxy.certs',
+        '--hidden-import', 'mitmproxy.options',
+        '--hidden-import', 'paramiko',
+        '--hidden-import', 'cryptography',
+        '--hidden-import', 'nacl',
+        '--exclude-module', 'PyQt5',
+        '--exclude-module', 'PySide2',
+        '--exclude-module', 'PySide6',
+        '--exclude-module', 'tkinter',
+        'run.py'
+    )
+    python @pyArgs
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed with exit code $LASTEXITCODE"
     }

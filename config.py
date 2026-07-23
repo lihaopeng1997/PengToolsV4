@@ -50,6 +50,8 @@ CONFIG_DIR = local_data_dir()
 
 SYSTEMS_FILE = os.path.join(CONFIG_DIR, 'systems.json')
 CUSTOM_OPS_FILE = os.path.join(CONFIG_DIR, 'ops_custom_commands.json')
+OPS_SERVERS_FILE = os.path.join(CONFIG_DIR, 'ops_servers.json')
+OPS_LOG_SETTINGS_FILE = os.path.join(CONFIG_DIR, 'ops_log_settings.json')
 SETTINGS_FILE = os.path.join(CONFIG_DIR, 'settings.json')
 PRIVATE_KNOWLEDGE_FILE = os.path.join(CONFIG_DIR, 'private_knowledge.json')
 DAILY_REPORTS_FILE = os.path.join(CONFIG_DIR, 'daily_reports.json')
@@ -73,6 +75,13 @@ DEFAULT_SETTINGS = {
     'keep_awake_interval_minutes': 3,
     # 彩蛋「自我学习」解锁：写在 data/settings.json，升级换 EXE 后仍保留
     'private_unlocked': False,
+    # ── 安测 / 安全基线（默认收紧）──
+    # HTTPS 请求测试默认校验证书；内网自签可在设置或请求页临时关闭
+    'security_ssl_verify': True,
+    # 向非本机目标发请求前二次确认
+    'security_confirm_remote_request': True,
+    # 生产类主机名关键词提示（命中时确认文案更醒目）
+    'security_prod_host_hints': ['prod', 'production', '生产', 'hxutf', 'prd'],
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -170,6 +179,21 @@ def normalize_settings(settings):
         1, min(60, int(result['keep_awake_interval_minutes']))
     )
     result['private_unlocked'] = bool(result.get('private_unlocked', False))
+    result['security_ssl_verify'] = bool(result.get('security_ssl_verify', True))
+    result['security_confirm_remote_request'] = bool(
+        result.get('security_confirm_remote_request', True)
+    )
+    hints = result.get('security_prod_host_hints')
+    if not isinstance(hints, list):
+        hints = list(DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
+    cleaned = []
+    for item in hints:
+        text = str(item or '').strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    result['security_prod_host_hints'] = cleaned or list(
+        DEFAULT_SETTINGS.get('security_prod_host_hints') or []
+    )
     # 悬浮快捷：去重/过滤非法 index；彩蛋模块在 UI 层按解锁状态再过滤
     from ui.navigation_model import normalize_floating_shortcuts
     result['floating_shortcuts'] = normalize_floating_shortcuts(

@@ -67,3 +67,10 @@ python -m unittest tests.test_core -v
 - 离线优先；用户数据只在 `config.local_data_dir()`（开发 `./data/`，打包 `<exe旁>/data/`）。
 - Private 抓包仅 loopback；报文只存内存。
 - 唯一发布包：`PengToolsHub_Offline_Setup.zip` / `PengToolsHub.exe`（原 Private 能力 + 品牌图标）。
+
+## 安全与分发
+
+- **禁止**把真实账密 / VPN / Token 写入 `resources/`（会打进 EXE）。
+- 打包前自动扫描：`python scripts/scan_release_secrets.py`（`build_release.ps1` 已集成，失败则中止）。
+- 内置学习种子仅为安全空模板；私有笔记只存本机 `data/`。
+- 详见 [docs/SECURITY.md](docs/SECURITY.md)。

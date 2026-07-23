@@ -6,13 +6,19 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
+    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from tools.xml_formatter import format_xml_text, normalize_xml_input
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
+from ui.foldable_text_edit import FoldablePlainTextEdit
+from ui.search_highlight import (
+    apply_text_match_index,
+    clear_text_highlights,
+    collect_text_spans,
+)
 
 
 class XmlWorkspace(QWidget):
@@ -21,6 +27,9 @@ class XmlWorkspace(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
+        # 搜索：[(edit, start, end), ...]
+        self._search_hits: list[tuple[object, int, int]] = []
+        self._search_index = -1
         self._setup_ui()
         self.set_language(language)
 
@@ -78,6 +87,23 @@ class XmlWorkspace(QWidget):
         self.wrap_check.toggled.connect(self._apply_wrap)
         tools.addWidget(self.wrap_check)
 
+        self.expand_btn = QPushButton()
+        apply_button(self.expand_btn, 'ghost', compact=True, icon='expand', icon_size=16)
+        self.expand_btn.clicked.connect(self._expand_output)
+        tools.addWidget(self.expand_btn)
+
+        self.collapse_btn = QPushButton()
+        apply_button(self.collapse_btn, 'ghost', compact=True, icon='collapse', icon_size=16)
+        self.collapse_btn.clicked.connect(self._collapse_output)
+        tools.addWidget(self.collapse_btn)
+
+        self.glance_btn = QPushButton()
+        apply_button(self.glance_btn, 'ghost', compact=True, icon='more', icon_size=16)
+        self.glance_btn.setCheckable(True)
+        self.glance_btn.setChecked(True)
+        self.glance_btn.toggled.connect(self._toggle_glance)
+        tools.addWidget(self.glance_btn)
+
         self.copy_btn = QPushButton()
         apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_btn.clicked.connect(self._copy_output)
@@ -89,6 +115,29 @@ class XmlWorkspace(QWidget):
         tools.addWidget(self.clear_all_btn)
 
         root.addWidget(toolbar)
+
+        # 搜索条：优先输出区，无输出则搜输入；高亮并跳转
+        search_bar = QHBoxLayout()
+        search_bar.setContentsMargins(2, 0, 2, 0)
+        search_bar.setSpacing(8)
+        self.search_edit = QLineEdit()
+        self.search_edit.setObjectName('xml-search')
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._search)
+        self.search_edit.returnPressed.connect(self._next_match)
+        search_bar.addWidget(self.search_edit, 1)
+        self.search_prev_btn = QPushButton('↑')
+        apply_button(self.search_prev_btn, 'ghost', compact=True)
+        self.search_prev_btn.clicked.connect(self._prev_match)
+        search_bar.addWidget(self.search_prev_btn)
+        self.search_next_btn = QPushButton('↓')
+        apply_button(self.search_next_btn, 'ghost', compact=True)
+        self.search_next_btn.clicked.connect(self._next_match)
+        search_bar.addWidget(self.search_next_btn)
+        self.search_status = QLabel('0 / 0')
+        self.search_status.setObjectName('field-hint')
+        search_bar.addWidget(self.search_status)
+        root.addLayout(search_bar)
 
         work = QFrame()
         apply_surface(work, 'card')
@@ -123,7 +172,8 @@ class XmlWorkspace(QWidget):
         self.output_label = QLabel()
         self.output_label.setObjectName('zone-title')
         right_layout.addWidget(self.output_label)
-        self.output_edit = QPlainTextEdit()
+        # 输出区支持 HiJson 风格折叠
+        self.output_edit = FoldablePlainTextEdit(fold_mode='indent')
         self.output_edit.setObjectName('xml-output')
         self.output_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.output_edit.setReadOnly(False)
@@ -172,8 +222,30 @@ class XmlWorkspace(QWidget):
             'Normalize, validate and pretty-print (keeps XML declaration)'
         )
         self.wrap_check.setText('自动换行' if zh else 'Word wrap')
+        self.expand_btn.setText('全部展开' if zh else 'Expand all')
+        self.expand_btn.setToolTip(
+            '展开输出区折叠块' if zh else 'Expand all folds in output'
+        )
+        self.collapse_btn.setText('全部折叠' if zh else 'Collapse all')
+        self.collapse_btn.setToolTip(
+            '折叠输出区（参考 HiJson 格式化文本折叠）' if zh else
+            'Collapse output folds (HiJson-style)'
+        )
+        self.glance_btn.setText('缩略图' if zh else 'Minimap')
+        self.glance_btn.setToolTip(
+            '右侧 CodeGlance 缩略导航：点击跳转 / 拖视口滚动 / 拖左边调宽'
+            if zh else
+            'CodeGlance minimap: click jump / drag viewport / resize from left edge'
+        )
         self.copy_btn.setText('复制结果' if zh else 'Copy result')
         self.clear_all_btn.setText('全部清空' if zh else 'Clear all')
+        self.search_edit.setPlaceholderText(
+            '搜索输入/输出中的标签、属性或文本（有输出时优先搜输出）· 回车下一个'
+            if zh else
+            'Search input/output (prefer output) · Enter next'
+        )
+        self.search_prev_btn.setToolTip('上一个' if zh else 'Previous')
+        self.search_next_btn.setToolTip('下一个' if zh else 'Next')
         self.input_label.setText('输入' if zh else 'Input')
         self.output_label.setText('输出' if zh else 'Output')
         self.input_edit.setPlaceholderText(
@@ -182,9 +254,9 @@ class XmlWorkspace(QWidget):
             'Paste raw XML here… outer quotes and escapes supported'
         )
         self.output_edit.setPlaceholderText(
-            '格式化结果将显示在这里，可编辑后复制'
+            '格式化结果将显示在这里，可编辑后复制；左侧 +/- 可折叠'
             if zh else
-            'Formatted result appears here; editable before copy'
+            'Formatted result appears here; use +/- margin to fold'
         )
         self._refresh_status()
 
@@ -205,6 +277,9 @@ class XmlWorkspace(QWidget):
     def clear(self):
         self.input_edit.clear()
         self.output_edit.clear()
+        self._clear_search()
+        if hasattr(self, 'search_edit'):
+            self.search_edit.clear()
         self._refresh_status()
 
     def _apply_wrap(self, enabled: bool):
@@ -256,14 +331,116 @@ class XmlWorkspace(QWidget):
         # 失败路径已在 _show_error；成功时滚动到输出顶部
         self.output_edit.moveCursor(QTextCursor.MoveOperation.Start)
         zh = self.language == 'zh'
+        fold_n = 0
+        if hasattr(self.output_edit, 'fold_regions'):
+            fold_n = len(self.output_edit.fold_regions())
         self.status_label.setText(
-            f'格式化成功 · {self._stats(formatted)} · 可复制右侧结果'
+            f'格式化成功 · {self._stats(formatted)} · 可折叠 {fold_n} 处 · 可复制右侧结果'
             if zh else
-            f'Formatted · {self._stats(formatted)} · copy from output'
+            f'Formatted · {self._stats(formatted)} · {fold_n} folds · copy from output'
         )
         self.status_label.setProperty('xmlStatus', 'ok')
         self._repolish_status()
+        # 格式化后若搜索框有词，刷新命中
+        if hasattr(self, 'search_edit') and self.search_edit.text().strip():
+            self._search(self.search_edit.text())
         return True
+
+    def _expand_output(self):
+        if hasattr(self.output_edit, 'expand_all_folds'):
+            self.output_edit.expand_all_folds()
+
+    def _collapse_output(self):
+        if hasattr(self.output_edit, 'collapse_all_folds'):
+            self.output_edit.collapse_all_folds()
+
+    def _toggle_glance(self, checked: bool):
+        if hasattr(self.output_edit, 'set_glance_visible'):
+            self.output_edit.set_glance_visible(bool(checked))
+
+    def _clear_search(self):
+        self._search_hits = []
+        self._search_index = -1
+        if hasattr(self, 'search_status'):
+            self.search_status.setText('0 / 0')
+        for edit in (getattr(self, 'input_edit', None), getattr(self, 'output_edit', None)):
+            if edit is None:
+                continue
+            clear_text_highlights(edit)
+
+    def _search_targets(self) -> list:
+        """输出优先，再输入（都有内容时两边都搜）。"""
+        targets = []
+        if self.output_edit.toPlainText().strip():
+            targets.append(self.output_edit)
+        if self.input_edit.toPlainText().strip():
+            targets.append(self.input_edit)
+        return targets
+
+    def _search(self, query: str = ''):
+        self._clear_search()
+        needle = (query if query is not None else self.search_edit.text()).strip()
+        if not needle:
+            return
+        hits: list[tuple[object, int, int]] = []
+        for edit in self._search_targets():
+            for start, end in collect_text_spans(edit, needle):
+                hits.append((edit, start, end))
+        self._search_hits = hits
+        if not hits:
+            self.search_status.setText('0 / 0')
+            return
+        self._search_index = 0
+        self._apply_search_index()
+
+    def _apply_search_index(self):
+        if not self._search_hits:
+            self.search_status.setText('0 / 0')
+            return
+        from ui.search_highlight import build_text_extra_selections, _set_edit_extra_selections
+
+        clear_text_highlights(self.input_edit)
+        clear_text_highlights(self.output_edit)
+
+        by_edit: dict[int, dict] = {}
+        for edit, start, end in self._search_hits:
+            pack = by_edit.setdefault(id(edit), {'edit': edit, 'spans': []})
+            pack['spans'].append((start, end))
+
+        cur_edit, cur_start, cur_end = self._search_hits[self._search_index]
+        for pack in by_edit.values():
+            edit = pack['edit']
+            spans = pack['spans']
+            if edit is cur_edit:
+                local = 0
+                for i, (s, e) in enumerate(spans):
+                    if s == cur_start and e == cur_end:
+                        local = i
+                        break
+                apply_text_match_index(edit, spans, local)
+            else:
+                sels = build_text_extra_selections(edit, spans, current_index=-1)
+                _set_edit_extra_selections(edit, sels)
+
+        where = '输出' if cur_edit is self.output_edit else '输入'
+        if self.language != 'zh':
+            where = 'out' if cur_edit is self.output_edit else 'in'
+        total = len(self._search_hits)
+        self.search_status.setText(f'{self._search_index + 1} / {total} · {where}')
+
+    def _next_match(self):
+        if not self._search_hits:
+            self._search(self.search_edit.text())
+            return
+        self._search_index = (self._search_index + 1) % len(self._search_hits)
+        self._apply_search_index()
+
+    def _prev_match(self):
+        if not self._search_hits:
+            self._search(self.search_edit.text())
+            return
+        self._search_index = (self._search_index - 1) % len(self._search_hits)
+        self._apply_search_index()
 
     def _copy_output(self):
         text = self.output_edit.toPlainText()
