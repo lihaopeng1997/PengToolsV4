@@ -182,5 +182,36 @@ class OpsSshTests(unittest.TestCase):
         self.assertEqual(len(jobs2), 1)
         self.assertEqual(jobs2[0]['log_path'], '/override.log')
 
+    def test_build_export_jobs_with_override_paths(self):
+        """逐项 override_paths 按 job_key 覆盖 log_path，用于批量导出选具体日期文件。"""
+        from tools.ops_ssh import build_export_jobs, _normalize_server
+        raw = {
+            'id': 's1', 'name': '机A', 'host': '10.0.0.1', 'username': 'u',
+            'default_log_path': '/old.log',
+            'services': [
+                {'id': 'gw', 'name': '网关', 'log_path': '/gw/app/', 'enabled': True},
+                {'id': 'core', 'name': '核心', 'log_path': '/core/app/', 'enabled': True},
+            ],
+        }
+        server = _normalize_server(raw)
+        jobs = build_export_jobs([server])
+        self.assertEqual(len(jobs), 2)
+        # 默认取服务配置的目录路径
+        self.assertEqual(jobs[0]['log_path'], '/gw/app/')
+        self.assertEqual(jobs[1]['log_path'], '/core/app/')
+        # 逐项覆盖：只覆盖网关，核心保持不变
+        jobs2 = build_export_jobs(
+            [server],
+            override_paths={'s1::gw': '/gw/app/2026-07-24.log'},
+        )
+        self.assertEqual(len(jobs2), 2)
+        gw_job = next(j for j in jobs2 if j['service_id'] == 'gw')
+        core_job = next(j for j in jobs2 if j['service_id'] == 'core')
+        self.assertEqual(gw_job['log_path'], '/gw/app/2026-07-24.log')
+        self.assertEqual(core_job['log_path'], '/core/app/')
+        # 空 override_paths 不影响结果
+        jobs3 = build_export_jobs([server], override_paths=None)
+        self.assertEqual(jobs3[0]['log_path'], '/gw/app/')
+
 if __name__ == '__main__':
     unittest.main()

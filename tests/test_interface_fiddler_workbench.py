@@ -131,8 +131,8 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     def test_four_detail_tabs_and_columns(self):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(p.detail_tabs.count(), 4)
-        # Fiddler 式列：# / 结果 / 协议 / 方法 / 主机 / URL / Body / 类型 / 耗时 / 时间
-        self.assertEqual(p.table.columnCount(), 10)
+        # Fiddler 式列：# / 结果 / 协议 / 方法 / 名称 / 主机 / URL / Body / 类型 / 耗时 / 时间
+        self.assertEqual(p.table.columnCount(), 11)
         # 注入假数据
         p._records_by_id = {
             'a': {

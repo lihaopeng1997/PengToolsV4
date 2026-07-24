@@ -17,8 +17,8 @@ from tools.ops_ssh_shell import InteractiveShell
 
 _MAX_BLOCKS = 10000
 _MAX_PENDING = 256 * 1024
-# 稍合并刷新，减少连删时的 UI 重绘次数
-_FLUSH_MS = 50
+# 稍合并刷新，减少连删时的 UI 重绘次数（25ms 兼顾流畅与跟手）
+_FLUSH_MS = 25
 
 
 def _theme_term_colors() -> dict:
@@ -358,14 +358,13 @@ class _SshTerminalView(QPlainTextEdit):
         if '\x08' in chunk or '\x7f' in chunk:
             self._write_with_backspace(chunk)
         else:
-            self.moveCursor(QTextCursor.MoveOperation.End)
+            cursor = self.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
             plain = QTextCharFormat()
             plain.setForeground(QColor(self._colors['fg']))
-            cur = self.textCursor()
-            cur.setCharFormat(plain)
-            self.setTextCursor(cur)
-            self.insertPlainText(chunk)
-            self.moveCursor(QTextCursor.MoveOperation.End)
+            cursor.setCharFormat(plain)
+            cursor.insertText(chunk)
+            self.setTextCursor(cursor)
         sb = self.verticalScrollBar()
         sb.setValue(sb.maximum())
 

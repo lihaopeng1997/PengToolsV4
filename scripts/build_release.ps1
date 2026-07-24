@@ -61,10 +61,10 @@ try {
     if (-not (Test-Path -LiteralPath $InstallerDir)) {
         New-Item -ItemType Directory -Path $InstallerDir | Out-Null
     }
-    Get-ChildItem $InstallerDir -File | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | Remove-Item -Force
+    Get-ChildItem $InstallerDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
     $InstallerDataDir = Join-Path $InstallerDir 'data'
     if (Test-Path -LiteralPath $InstallerDataDir) {
-        Remove-Item -LiteralPath $InstallerDataDir -Recurse -Force
+        cmd /c "rmdir /s /q `"$InstallerDataDir`"" 2>$null
     }
 
     # Safe seed templates only (secret scan already passed)
@@ -121,10 +121,10 @@ try {
     # Do not use name PrivateDir - PowerShell treats $Private: as a scope
     $LegacyInstallerDir = Join-Path $ProjectDir 'PrivateInstaller'
     if (Test-Path -LiteralPath $LegacyInstallerDir) {
-        Get-ChildItem $LegacyInstallerDir -File | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | Remove-Item -Force
+        Get-ChildItem $LegacyInstallerDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
         $LegacyDataDir = Join-Path $LegacyInstallerDir 'data'
         if (Test-Path -LiteralPath $LegacyDataDir) {
-            Remove-Item -LiteralPath $LegacyDataDir -Recurse -Force
+            cmd /c "rmdir /s /q `"$LegacyDataDir`"" 2>$null
         }
         Copy-Item $ExePath $LegacyInstallerDir -Force
         $SetupSrc = Join-Path $InstallerDir 'setup.cmd'
@@ -135,17 +135,17 @@ try {
 
     $ZipPath = Join-Path $ProjectDir 'PengToolsHub_Offline_Setup.zip'
     if (Test-Path -LiteralPath $ZipPath) {
-        Remove-Item -LiteralPath $ZipPath -Force
+        cmd /c "del /f /q `"$ZipPath`"" 2>$null
     }
     Compress-Archive -Path (Join-Path $InstallerDir '*') -DestinationPath $ZipPath
 
     $LegacyZip = Join-Path $ProjectDir 'PengToolsHub_Private_Offline_Setup.zip'
     if (Test-Path -LiteralPath $LegacyZip) {
-        Remove-Item -LiteralPath $LegacyZip -Force
+        cmd /c "del /f /q `"$LegacyZip`"" 2>$null
     }
     $LegacyExe = Join-Path $DistDir 'PengToolsHub_Private.exe'
     if (Test-Path -LiteralPath $LegacyExe) {
-        Remove-Item -LiteralPath $LegacyExe -Force
+        cmd /c "del /f /q `"$LegacyExe`"" 2>$null
     }
 
     Write-Host "Release created: $ZipPath"

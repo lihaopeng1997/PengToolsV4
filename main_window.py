@@ -28,7 +28,7 @@ from ui.field_metrics import size_combo
 from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
 from ui.navigation_model import GROUP_LABELS, NAV_MODEL, display_name
 from ui.quick_panel import QuickPanel
-from ui.responsive import LayoutModeController, content_margin_for_mode, is_icon_nav, nav_width_for_mode
+from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from ui.tray_service import TrayService
 from config import APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
 
@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         self._current_nav_index = 0
         self._layout_mode = 'standard'
         self._nav_icon_only = False
+        self._nav_collapsed = False
         self.setWindowTitle(f'{APP_NAME} {app_version_text()}')
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
@@ -256,6 +257,16 @@ class MainWindow(QMainWindow):
         footer_sep.setFixedHeight(1)
         outer.addWidget(footer_sep)
 
+        # 折叠/展开切换按钮
+        self._collapse_btn = QPushButton()
+        self._collapse_btn.setObjectName('sidebar-collapse-btn')
+        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setFixedHeight(28)
+        self._collapse_btn.setText('◀')
+        self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
+        self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
+        outer.addWidget(self._collapse_btn)
+
         # 底部：设置 + 用户芯片
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 8, 0, 0)
@@ -371,9 +382,14 @@ class MainWindow(QMainWindow):
 
     def _on_layout_mode(self, mode: str, low_height: bool):
         self._layout_mode = mode
-        icon_only = is_icon_nav(mode)
+        # 手动折叠时强制 icon-only 模式
+        if self._nav_collapsed:
+            icon_only = True
+            self._sidebar.setFixedWidth(NAV_ICON)
+        else:
+            icon_only = is_icon_nav(mode)
+            self._sidebar.setFixedWidth(nav_width_for_mode(mode))
         self._nav_icon_only = icon_only
-        self._sidebar.setFixedWidth(nav_width_for_mode(mode))
         margin = content_margin_for_mode(mode)
         self._content_layout.setContentsMargins(margin, margin - 4, margin, 12)
         # 分组标题 / 导航文字
@@ -408,6 +424,19 @@ class MainWindow(QMainWindow):
         # 刷新导航文案（非 icon 模式）
         if not icon_only:
             self._apply_nav_texts()
+
+    def _toggle_nav_collapse(self):
+        """手动折叠/展开侧边栏导航。"""
+        zh = self.language == 'zh'
+        self._nav_collapsed = not self._nav_collapsed
+        if self._nav_collapsed:
+            self._collapse_btn.setText('▶')
+            self._collapse_btn.setToolTip('展开导航栏' if zh else 'Expand sidebar')
+        else:
+            self._collapse_btn.setText('◀')
+            self._collapse_btn.setToolTip('收起导航栏' if zh else 'Collapse sidebar')
+        # 触发一次布局刷新
+        self._on_layout_mode(self._layout_mode, False)
 
     def _nav_tooltip(self, index: int) -> str:
         return display_name(index, self.language)

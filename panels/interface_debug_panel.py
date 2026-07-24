@@ -39,7 +39,7 @@ from tools.interface_drafts import (
 from tools.interface_session_view import (
     COLUMN_DEFS, COLUMN_KEYS, FILTER_ALL, FILTER_FAILED, FILTER_JSON_XML, FILTER_SLOW,
     FILTER_STATIC, FILTER_XHR, content_kind, duration_severity, filter_and_sort,
-    format_size, host_of, host_path_display, is_failed, pretty_body, protocol_of,
+    format_size, host_of, host_path_display, is_failed, name_of, pretty_body, protocol_of,
     query_pairs, response_size_bytes, split_cookies, url_path_display,
 )
 from ui.aurora_progress import AuroraProgress
@@ -158,12 +158,12 @@ class InterfaceDebugPanel(QWidget):
     # 对齐 Fiddler Session 列表列名
     COL_LABELS_ZH = {
         'seq': '#', 'status': '结果', 'protocol': '协议', 'method': '方法',
-        'host': '主机', 'url': 'URL', 'body': 'Body', 'type': '类型',
+        'name': '名称', 'host': '主机', 'url': 'URL', 'body': 'Body', 'type': '类型',
         'duration': '耗时', 'time': '时间',
     }
     COL_LABELS_EN = {
         'seq': '#', 'status': 'Result', 'protocol': 'Protocol', 'method': 'Method',
-        'host': 'Host', 'url': 'URL', 'body': 'Body', 'type': 'Type',
+        'name': 'Name', 'host': 'Host', 'url': 'URL', 'body': 'Body', 'type': 'Type',
         'duration': 'Duration', 'time': 'Time',
     }
 
@@ -1907,6 +1907,7 @@ class InterfaceDebugPanel(QWidget):
             method = (rec.get('method') or 'GET').upper()
             proto = protocol_of(rec)
             host = host_of(rec)
+            name_col = name_of(rec)
             url_col = url_path_display(rec)
             dur = rec.get('duration_ms')
             dur_s = '—' if dur is None else f'{int(dur)} ms'
@@ -1921,6 +1922,7 @@ class InterfaceDebugPanel(QWidget):
                 'status': status_s,
                 'protocol': proto,
                 'method': method,
+                'name': name_col,
                 'host': host or '—',
                 'url': url_col,
                 'body': size_s,

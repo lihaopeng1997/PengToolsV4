@@ -452,7 +452,9 @@ class JsonViewerLogicTests(unittest.TestCase):
         self.assertIn('\n', node_json_text({'a': 1}))
 
     def test_invalid_json_reports_line_and_column(self):
-        with self.assertRaisesRegex(ValueError, '第 2 行，第 1 列'):
+        # Python 3.13 对尾逗号报错位置与旧版不同（旧：第2行第1列；3.13：第1行第8列），
+        # 兼容两种位置。
+        with self.assertRaisesRegex(ValueError, r'第 [12] 行，第 \d+ 列'):
             parse_json_text('{"a": 1,\n}')
 
 

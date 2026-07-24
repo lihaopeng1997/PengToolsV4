@@ -295,6 +295,7 @@ class OpsPanel(QWidget):
             if zh else 'Fuzzy search: ps -ef, log extract, port, CPU, container…'
         )
         self.add_btn.setText('新增我的命令' if zh else 'Add my command')
+        self.add_btn.setToolTip('新增我的命令' if zh else 'Add my command')
         self.safety_note.setText(
             '安全边界：仅生成和复制命令，不连接服务器、不自动执行；不收录删除命令。修改服务、权限或进程状态的命令会在复制前强制确认。'
             if zh else
@@ -307,8 +308,11 @@ class OpsPanel(QWidget):
         if hasattr(self, 'safety_dismiss'):
             self.safety_dismiss.setText('知道了' if zh else 'Got it')
         self.generate_btn.setText('重新生成' if zh else 'Regenerate')
+        self.generate_btn.setToolTip('重新生成' if zh else 'Regenerate')
         self.copy_btn.setText('复制命令' if zh else 'Copy command')
+        self.copy_btn.setToolTip('复制命令' if zh else 'Copy command')
         self.delete_btn.setText('删除我的命令' if zh else 'Delete my command')
+        self.delete_btn.setToolTip('删除我的命令' if zh else 'Delete my command')
         self._refresh_results()
 
     def _all_commands(self):

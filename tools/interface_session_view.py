@@ -22,6 +22,7 @@ COLUMN_DEFS = [
     ('status', True, 64),
     ('protocol', True, 56),
     ('method', True, 64),
+    ('name', True, 140),
     ('host', True, 150),
     ('url', True, 320),
     ('body', True, 72),
@@ -127,6 +128,15 @@ def url_path_display(rec: dict) -> str:
     if query:
         return f'{path}?{query}'
     return path or '/'
+
+
+def name_of(rec: dict) -> str:
+    """浏览器 F12 名称列：URL path 的最后一段（不含 query）。"""
+    path = rec.get('path') or urlparse(rec.get('url') or '').path or ''
+    path = path.rstrip('/')
+    if not path:
+        return rec.get('host') or urlparse(rec.get('url') or '').netloc or '—'
+    return path.rsplit('/', 1)[-1] or '/'
 
 
 def host_path_display(rec: dict) -> str:

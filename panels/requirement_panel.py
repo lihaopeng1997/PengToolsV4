@@ -410,6 +410,9 @@ class RequirementAttachmentDialog(QDialog):
         self.table = QTableWidget(len(rows), columns); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.setHorizontalHeaderLabels([self._column_name(index) for index in range(columns)])
         self.table.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
         for row_index, row in enumerate(rows):

@@ -213,6 +213,8 @@ class DocxUpdatePanel(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.output_browser.setColumnWidth(1, 110)
         self.output_browser.setColumnWidth(2, 80)
+        self.output_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.output_browser.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.output_browser.setExpandsOnDoubleClick(False)
         self.output_browser.itemDoubleClicked.connect(self._open_browser_item)
         self.output_browser.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

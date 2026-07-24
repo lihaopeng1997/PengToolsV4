@@ -167,7 +167,14 @@ def build_export_jobs(
     *,
     selected_keys: set[str] | None = None,
     override_path: str = '',
+    override_paths: dict[str, str] | None = None,
 ) -> list[dict]:
+    """构建导出任务列表。
+
+    override_path  : 全局统一路径（所有选中服务器用同一路径）。
+    override_paths : 按 job_key 逐项覆盖日志路径（优先级最高），
+                     用于批量导出时让用户指定具体日期文件。
+    """
     jobs: list[dict] = []
     override_path = str(override_path or '').strip()
     for server in servers or []:
@@ -199,6 +206,11 @@ def build_export_jobs(
             key = make_job_key(sid, svid)
             if selected_keys is not None and key not in selected_keys:
                 continue
+            # 逐项覆盖：用户在导出树里选了具体文件则替换 log_path
+            if override_paths:
+                ov = str(override_paths.get(key) or '').strip()
+                if ov:
+                    path = ov
             jobs.append({
                 'server': server,
                 'server_id': sid,

@@ -233,7 +233,7 @@ class SqlToolPanel(QWidget):
         header.setStretchLastSection(False)
         fixed_widths = {0: 52, 1: 58, 2: 128, 4: 108, 5: 178, 7: 108}
         for column, width in fixed_widths.items():
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
             self.release_table.setColumnWidth(column, width)
         for column in (3, 6, 8, 9):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)

@@ -318,6 +318,9 @@ class ServerEditorDialog(QDialog):
         self.services_table.setMaximumHeight(280)
         self.services_table.setColumnWidth(0, 120)
         self.services_table.setColumnWidth(1, 360)
+        self.services_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.services_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        self.services_table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         try:
             self.services_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         except Exception:
@@ -913,19 +916,26 @@ class CommandHistoryDialog(QDialog):
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         root.addWidget(self.list, 1)
         row = QHBoxLayout()
         fill_btn = QPushButton('填入命令框' if zh else 'Fill bar')
         apply_button(fill_btn, 'secondary', compact=True)
+        fill_btn.setToolTip('将选中命令填入终端输入框' if zh else 'Fill command into terminal bar')
         fill_btn.clicked.connect(self._emit_insert)
         send_btn = QPushButton('发送到终端' if zh else 'Send to term')
         apply_button(send_btn, 'primary', compact=True)
+        send_btn.setToolTip('将选中命令发送到当前终端执行' if zh else 'Send command to current terminal')
         send_btn.clicked.connect(self._emit_send)
         clear_btn = QPushButton('清空历史' if zh else 'Clear')
         apply_button(clear_btn, 'ghost', compact=True)
+        clear_btn.setToolTip('清空本机命令历史' if zh else 'Clear local command history')
         clear_btn.clicked.connect(self._clear)
         close_btn = QPushButton('关闭' if zh else 'Close')
         apply_button(close_btn, 'ghost', compact=True)
+        close_btn.setToolTip('关闭' if zh else 'Close')
         close_btn.clicked.connect(self.accept)
         row.addWidget(fill_btn)
         row.addWidget(send_btn)
@@ -1809,8 +1819,8 @@ class OpsLogPanel(QWidget):
         el_l.addLayout(erow)
         self.export_server_list = QTreeWidget()
         self.export_server_list.setObjectName('ops-export-tree')
-        self.export_server_list.setColumnCount(2)
-        self.export_server_list.setHeaderLabels(['服务器 / 服务', '日志路径'])
+        self.export_server_list.setColumnCount(3)
+        self.export_server_list.setHeaderLabels(['服务器 / 服务', '日志路径', '指定文件'])
         self.export_server_list.setHeaderHidden(False)
         self.export_server_list.setRootIsDecorated(True)
         self.export_server_list.setUniformRowHeights(True)
@@ -1819,13 +1829,17 @@ class OpsLogPanel(QWidget):
         self.export_server_list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.export_server_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.export_server_list.itemChanged.connect(self._on_export_tree_item_changed)
+        self.export_server_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.export_server_list.customContextMenuRequested.connect(self._on_export_tree_context_menu)
         exp_hdr = self.export_server_list.header()
         exp_hdr.setStretchLastSection(False)
         exp_hdr.setMinimumSectionSize(60)
         exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         exp_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        exp_hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.export_server_list.setColumnWidth(0, 160)
         self.export_server_list.setColumnWidth(1, 220)
+        self.export_server_list.setColumnWidth(2, 140)
         el_l.addWidget(self.export_server_list, 1)
         left_root.addWidget(self.export_ops, 1)
 
@@ -1988,6 +2002,12 @@ class OpsLogPanel(QWidget):
         self.result_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.result_table.horizontalHeader().setStretchLastSection(True)
+        self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.result_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.result_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.result_table.setMaximumHeight(160)
         self.result_table.doubleClicked.connect(self._open_selected_result)
         er_l.addWidget(self.result_table, 1)
@@ -3295,7 +3315,7 @@ class OpsLogPanel(QWidget):
             for svc in services:
                 path = str(svc.get('log_path') or '').strip()
                 svc_name = str(svc.get('name') or '服务')
-                child = QTreeWidgetItem([svc_name, path or '（未配置路径）'])
+                child = QTreeWidgetItem([svc_name, path or '（未配置路径）', ''])
                 child.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
                 on = bool(svc.get('enabled', True)) and bool(path)
                 child.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
@@ -3305,10 +3325,12 @@ class OpsLogPanel(QWidget):
                     'service_id': svc.get('id'),
                     'job_key': make_job_key(str(server.get('id') or ''), str(svc.get('id') or '')),
                     'log_path': path,
+                    'override_log_path': '',
                 })
                 tip = f'{svc_name}\n{path}' if path else svc_name
                 child.setToolTip(0, tip)
                 child.setToolTip(1, path or '')
+                child.setToolTip(2, '右键选择具体日志文件' if self.language == 'zh' else 'Right-click to pick file')
                 if not path:
                     child.setDisabled(True)
                 host.addChild(child)
@@ -3342,6 +3364,127 @@ class OpsLogPanel(QWidget):
             if ch.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                 ch.setCheckState(0, state if state != Qt.CheckState.PartiallyChecked else Qt.CheckState.Checked)
         tree.blockSignals(False)
+
+    def _on_export_tree_context_menu(self, pos):
+        """导出树右键菜单：选择/清除指定日志文件。"""
+        zh = self.language == 'zh'
+        item = self.export_server_list.itemAt(pos)
+        if not item:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(data, dict) or data.get('type') != 'service':
+            return
+        has_override = bool(data.get('override_log_path'))
+        menu = QMenu(self)
+        act_pick = menu.addAction('选择日志文件…' if zh else 'Pick log file…')
+        act_clear = None
+        if has_override:
+            act_clear = menu.addAction('清除指定文件' if zh else 'Clear override')
+        action = menu.exec(self.export_server_list.viewport().mapToGlobal(pos))
+        if action is None:
+            return
+        if action == act_pick:
+            self._pick_remote_log_file(item, data)
+        elif act_clear is not None and action == act_clear:
+            self._clear_remote_log_override(item, data)
+
+    def _find_server_by_id(self, sid: str) -> dict | None:
+        for s in self._servers:
+            if s.get('id') == sid:
+                return s
+        return None
+
+    def _get_ssh_client_for_server(self, server: dict):
+        """优先复用已连终端会话的 client；无则临时连接。返回 (client, is_temporary)。"""
+        sid = str(server.get('id') or '')
+        for sess in getattr(self, '_term_sessions', []) or []:
+            if sess.get('server_id') == sid and sess.get('client') is not None:
+                return sess['client'], False
+        client = open_ssh_client(server, timeout_sec=30)
+        return client, True
+
+    def _pick_remote_log_file(self, item, data):
+        """连接服务器列出候选日志文件供用户选择。"""
+        zh = self.language == 'zh'
+        server = self._find_server_by_id(str(data.get('server_id') or ''))
+        if not server:
+            show_warning(self, 'PengTools', '未找到服务器信息' if zh else 'Server not found')
+            return
+        if not decrypt_secret(server.get('password_token') or ''):
+            show_warning(self, 'PengTools', '请先编辑服务器并保存密码' if zh else 'Save password first')
+            return
+        log_path = str(data.get('log_path') or '').strip()
+        if not log_path:
+            show_warning(self, 'PengTools', '该服务未配置日志路径' if zh else 'No log path')
+            return
+        self.status_label.setText('正在获取日志文件列表…' if zh else 'Listing log files…')
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        client = None
+        is_temp = False
+        try:
+            client, is_temp = self._get_ssh_client_for_server(server)
+        except Exception as exc:
+            self.status_label.setText('')
+            show_error(self, 'PengTools', f'连接失败：{exc}' if zh else f'Connect failed: {exc}')
+            return
+        try:
+            files = list_remote_log_files(client, log_path)
+        except OpsSshError as exc:
+            if is_temp:
+                close_ssh_client(client)
+            self.status_label.setText('')
+            show_error(self, 'PengTools', str(exc))
+            return
+        except Exception as exc:
+            if is_temp:
+                close_ssh_client(client)
+            self.status_label.setText('')
+            show_error(self, 'PengTools', f'获取文件列表失败：{exc}' if zh else f'List failed: {exc}')
+            return
+        if is_temp:
+            close_ssh_client(client)
+        if not files:
+            self.status_label.setText('')
+            show_warning(self, 'PengTools', '该路径下没有日志文件' if zh else 'No log files')
+            return
+
+        # 弹框选择
+        labels = []
+        for f in files:
+            name = str(f.get('name') or '')
+            mt = str(f.get('mtime_text') or '')
+            sz = str(f.get('size_text') or '')
+            labels.append(f'{name}  ({mt}  {sz})' if mt or sz else name)
+        label, ok = QInputDialog.getItem(
+            self,
+            '选择日志文件' if zh else 'Pick log file',
+            f'{server.get("name")} — {log_path}' if zh else f'{server.get("name")} — {log_path}',
+            labels,
+            0,
+            False,
+        )
+        self.status_label.setText('')
+        if not ok or not label:
+            return
+        idx = labels.index(label) if label in labels else 0
+        chosen = files[idx]
+        chosen_path = str(chosen.get('path') or '')
+        if not chosen_path:
+            return
+        data['override_log_path'] = chosen_path
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        item.setText(2, str(chosen.get('name') or chosen_path))
+        item.setToolTip(2, chosen_path)
+
+    def _clear_remote_log_override(self, item, data):
+        """清除服务项的指定文件覆盖，恢复默认（取最新 .log）。"""
+        zh = self.language == 'zh'
+        data['override_log_path'] = ''
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        item.setText(2, '')
+        item.setToolTip(2, '右键选择具体日志文件' if zh else 'Right-click to pick file')
 
     def _set_all_checked(self, checked: bool):
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
@@ -3521,10 +3664,27 @@ class OpsLogPanel(QWidget):
         if not selected_keys:
             show_warning(self, 'PengTools', '请至少勾选一个服务日志路径' if zh else 'Select service log paths')
             return
+        # 收集导出树中各服务项的指定文件覆盖（右键选择的日志文件）
+        overrides: dict[str, str] = {}
+        tree = self.export_server_list
+
+        def _collect_overrides(node):
+            for i in range(node.childCount()):
+                ch = node.child(i)
+                d = ch.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(d, dict) and d.get('type') == 'service':
+                    ov = str(d.get('override_log_path') or '').strip()
+                    jk = str(d.get('job_key') or '')
+                    if ov and jk:
+                        overrides[jk] = ov
+                _collect_overrides(ch)
+
+        _collect_overrides(tree.invisibleRootItem())
         jobs = build_export_jobs(
             servers,
             selected_keys=selected_keys if selected_keys else None,
             override_path='',
+            override_paths=overrides or None,
         )
         if not jobs:
             show_warning(self, 'PengTools', '没有可导出的路径（请检查服务配置）' if zh else 'No export jobs')

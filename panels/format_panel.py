@@ -154,14 +154,23 @@ class _SqlFormatTab(QWidget):
         self.language = language
         zh = language == 'zh'
         self.paste_btn.setText('粘贴' if zh else 'Paste')
+        self.paste_btn.setToolTip('粘贴' if zh else 'Paste')
         self.open_btn.setText('打开文件' if zh else 'Open file')
+        self.open_btn.setToolTip('打开文件' if zh else 'Open file')
         self.format_btn.setText('格式化缩进' if zh else 'Pretty indent')
+        self.format_btn.setToolTip('格式化缩进' if zh else 'Pretty indent')
         self.compact_btn.setText('压缩单行' if zh else 'Minify')
+        self.compact_btn.setToolTip('压缩单行' if zh else 'Minify')
         self.dedupe_btn.setText('去重语句' if zh else 'Dedupe')
+        self.dedupe_btn.setToolTip('去重语句' if zh else 'Dedupe')
         self.validate_btn.setText('风险检查' if zh else 'Lint risks')
+        self.validate_btn.setToolTip('风险检查' if zh else 'Lint risks')
         self.copy_btn.setText('复制' if zh else 'Copy')
+        self.copy_btn.setToolTip('复制' if zh else 'Copy')
         self.export_btn.setText('导出' if zh else 'Export')
+        self.export_btn.setToolTip('导出' if zh else 'Export')
         self.clear_btn.setText('清空' if zh else 'Clear')
+        self.clear_btn.setToolTip('清空' if zh else 'Clear')
         self.editor.setPlaceholderText(
             '粘贴 SQL（仅离线文本整理，不连接数据库）…' if zh else
             'Paste SQL (offline text only — never executes)…'

@@ -234,7 +234,7 @@ class InteractiveShell:
                             data += ch.recv(4096)
                         break
                     else:
-                        time.sleep(0.02)
+                        time.sleep(0.01)
                         continue
                 except socket.timeout:
                     continue
