@@ -252,20 +252,25 @@ class MainWindow(QMainWindow):
         scroll.setWidget(nav_host)
         outer.addWidget(scroll, 1)
 
+        # 分界线 + 折叠按钮放在同一行
+        sep_row = QHBoxLayout()
+        sep_row.setContentsMargins(0, 0, 0, 0)
+        sep_row.setSpacing(4)
         footer_sep = QFrame()
         footer_sep.setObjectName('sidebar-sep')
         footer_sep.setFixedHeight(1)
-        outer.addWidget(footer_sep)
+        sep_row.addWidget(footer_sep, 1)          # 分界线吃掉剩余空间
 
-        # 折叠/展开切换按钮
+        # 折叠/展开切换按钮（用 SVG 图标替代文本 ◀/▶）
         self._collapse_btn = QPushButton()
         self._collapse_btn.setObjectName('sidebar-collapse-btn')
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setFixedHeight(28)
-        self._collapse_btn.setText('◀')
+        self._collapse_btn.setFixedSize(24, 24)
+        apply_icon(self._collapse_btn, 'collapse', size=14)
         self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
-        outer.addWidget(self._collapse_btn)
+        sep_row.addWidget(self._collapse_btn)     # 按钮贴右侧
+        outer.addLayout(sep_row)
 
         # 底部：设置 + 用户芯片
         footer = QHBoxLayout()
@@ -420,6 +425,11 @@ class MainWindow(QMainWindow):
         if icon_only:
             self.settings_button.setText('')
             self.settings_button.setToolTip('设置' if self.language == 'zh' else 'Settings')
+        # 折叠按钮同步 icon_only 属性
+        if hasattr(self, '_collapse_btn'):
+            self._collapse_btn.setProperty('iconOnly', icon_only)
+            self._collapse_btn.style().unpolish(self._collapse_btn)
+            self._collapse_btn.style().polish(self._collapse_btn)
         self.layout_mode_changed.emit(mode, low_height)
         # 刷新导航文案（非 icon 模式）
         if not icon_only:
@@ -430,10 +440,10 @@ class MainWindow(QMainWindow):
         zh = self.language == 'zh'
         self._nav_collapsed = not self._nav_collapsed
         if self._nav_collapsed:
-            self._collapse_btn.setText('▶')
+            apply_icon(self._collapse_btn, 'expand', size=14)
             self._collapse_btn.setToolTip('展开导航栏' if zh else 'Expand sidebar')
         else:
-            self._collapse_btn.setText('◀')
+            apply_icon(self._collapse_btn, 'collapse', size=14)
             self._collapse_btn.setToolTip('收起导航栏' if zh else 'Collapse sidebar')
         # 触发一次布局刷新
         self._on_layout_mode(self._layout_mode, False)

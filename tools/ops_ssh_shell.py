@@ -37,15 +37,17 @@ def strip_ansi(text: str) -> str:
 
 
 def normalize_terminal_text(text: str) -> str:
-    """把 shell 输出规整成适合 QPlainTextEdit 追加的文本。
+    """把 shell 输出规整成适合终端渲染的文本。
 
-    必须保留 \\x08 / \\x7f：远端回显退格依赖它们，剥掉会导致「能输入不能删除」。
+    保留 \\r（CR 行重绘）、\\x08(BS)、\\x7f(DEL)、\\t(TAB)、\\n(LF)，
+    仅剥离 ANSI 转义序列与无用控制符。
+    必须保留 BS/DEL/CR：远端回显退格和行重绘依赖它们，剥掉会导致「能输入不能删除」「Tab 补全乱行」。
     """
     if not text:
         return ''
     t = strip_ansi(text)
-    t = t.replace('\r\n', '\n').replace('\r', '\n')
-    # 去掉无用控制符，但保留 BS(\\x08) / DEL(\\x7f) / TAB / LF
+    # 不再把 \r 转成 \n！保留 CR 供渲染层做行内重绘
+    # 仅去掉无用控制符，保留 \t \n \r \x08 \x7f
     t = re.sub(r'[\x00-\x07\x0b\x0c\x0e-\x1f]', '', t)
     return t
 

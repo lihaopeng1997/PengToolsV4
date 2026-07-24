@@ -803,7 +803,7 @@ class InterfaceDebugPanel(QWidget):
         for key in COLUMN_KEYS:
             act = QAction(labels.get(key, key), self._cols_menu)
             act.setCheckable(True)
-            core = ('seq', 'status', 'method', 'host', 'url')
+            core = ('seq', 'status', 'method', 'name', 'host', 'url')
             act.setChecked(key in visible or key in core)
             if key in core:
                 act.setEnabled(False)

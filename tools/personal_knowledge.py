@@ -500,15 +500,20 @@ def search_entries(entries, query='', category='all'):
     """支持中文原文 / 全拼 / 首字母；索引不含密钥。置顶条目排在前面。"""
     from tools.list_pin import sort_with_pin
     from tools.pinyin_search import build_search_blob, match_query
+    # 确保索引已建（懒加载兜底）
+    global _INDEX_BUILT
+    if not _INDEX_BUILT:
+        rebuild_search_index(entries)
     result = []
     for entry in entries:
         if category != 'all' and entry.get('category') != category:
             continue
-        parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
-        # 表格行只取有限单元格，避免敏感大报文进索引
-        for row in (entry.get('rows', []) or [])[:80]:
-            parts.extend(str(value) for value in (row or [])[:16])
-        blob = build_search_blob(*parts)
+        eid = entry.get('id')
+        blob = _SEARCH_INDEX.get(eid)
+        if blob is None:
+            blob = _build_entry_blob(entry)
+            if eid:
+                _SEARCH_INDEX[eid] = blob
         if match_query(blob, query):
             result.append(entry)
     return sort_with_pin(
@@ -518,3 +523,40 @@ def search_entries(entries, query='', category='all'):
             str(e.get('title') or ''),
         ),
     )
+
+
+# ── 搜索索引（预建缓存，避免每次按键全量重建 blob） ──
+_SEARCH_INDEX: dict[str, str] = {}
+_INDEX_BUILT = False
+
+
+def _build_entry_blob(entry: dict) -> str:
+    """为单条目构建搜索 blob（含拼音），表格取前 80 行×16 列。"""
+    from tools.pinyin_search import build_search_blob
+    parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
+    for row in (entry.get('rows', []) or [])[:80]:
+        parts.extend(str(value) for value in (row or [])[:16])
+    return build_search_blob(*parts)
+
+
+def rebuild_search_index(entries: list) -> None:
+    """全量重建索引（导入/启动时调用）。"""
+    global _INDEX_BUILT
+    _SEARCH_INDEX.clear()
+    for entry in entries:
+        eid = entry.get('id')
+        if eid:
+            _SEARCH_INDEX[eid] = _build_entry_blob(entry)
+    _INDEX_BUILT = True
+
+
+def update_entry_index(entry: dict) -> None:
+    """单条目增量更新（新增/编辑时调用）。"""
+    eid = entry.get('id')
+    if eid:
+        _SEARCH_INDEX[eid] = _build_entry_blob(entry)
+
+
+def remove_entry_index(entry_id: str) -> None:
+    """删除条目时清除索引。"""
+    _SEARCH_INDEX.pop(entry_id, None)

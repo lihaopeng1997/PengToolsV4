@@ -355,8 +355,9 @@ class _SshTerminalView(QPlainTextEdit):
         if not self._ui_active:
             return
         chunk, self._pending = self._pending, ''
-        if '\x08' in chunk or '\x7f' in chunk:
-            self._write_with_backspace(chunk)
+        # 含 CR/BS/DEL 时走行重绘；纯文本直接追加
+        if any(c in chunk for c in ('\r', '\x08', '\x7f')):
+            self._render_terminal_text(chunk)
         else:
             cursor = self.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -378,11 +379,14 @@ class _SshTerminalView(QPlainTextEdit):
         self.setTextCursor(cursor)
         return True
 
-    def _write_with_backspace(self, text: str):
-        """批量处理远端 BS/DEL，避免连删时逐字符刷屏卡顿。
+    def _render_terminal_text(self, text: str):
+        """处理含 CR/BS/DEL 的终端文本，支持行内重绘。
 
-        bash 常见擦除序列：\\x08 空格 \\x08 → 计 1 次删除。
-        合并为 beginEditBlock + 批量 deletePreviousChar。
+        - \\r\\n : 标准换行（CR 跳过，LF 插入换行）
+        - 单独 \\r : 光标回当前行首 + 删除到行尾（为覆写做准备）
+        - \\x08/\\x7f : 退格删除（含 BS+space+BS 合并）
+        - \\n : 换行
+        - 其他 : 批量插入
         """
         if not text:
             return
@@ -390,26 +394,38 @@ class _SshTerminalView(QPlainTextEdit):
         try:
             self.moveCursor(QTextCursor.MoveOperation.End)
             cursor = self.textCursor()
-            plain = QTextCharFormat()
-            plain.setForeground(QColor(self._colors['fg']))
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(self._colors['fg']))
             cursor.beginEditBlock()
             try:
-                i = 0
-                n = len(text)
+                i, n = 0, len(text)
                 while i < n:
                     ch = text[i]
-                    if ch in ('\x08', '\x7f'):
+                    if ch == '\r':
+                        i += 1
+                        # \r\n → 交由 \n 处理换行
+                        if i < n and text[i] == '\n':
+                            continue
+                        # 单独 \r：回到当前 block 行首，删除到行尾
+                        block = cursor.block()
+                        cursor.setPosition(block.position())
+                        cursor.movePosition(
+                            QTextCursor.MoveOperation.EndOfLine,
+                            QTextCursor.MoveMode.KeepAnchor)
+                        cursor.removeSelectedText()
+                    elif ch == '\n':
+                        cursor.setCharFormat(fmt)
+                        cursor.insertText('\n')
+                        i += 1
+                    elif ch in ('\x08', '\x7f'):
+                        # BS/DEL 合并删除（含 bash BS+space+BS 一次擦除）
                         deletes = 0
                         while i < n:
                             if text[i] in ('\x08', '\x7f'):
                                 deletes += 1
                                 i += 1
-                                # bash: BS + space + BS = 视觉上一次擦除
-                                if (
-                                    i + 1 < n
-                                    and text[i] == ' '
-                                    and text[i + 1] in ('\x08', '\x7f')
-                                ):
+                                if (i + 1 < n and text[i] == ' '
+                                        and text[i + 1] in ('\x08', '\x7f')):
                                     i += 2
                             else:
                                 break
@@ -417,16 +433,12 @@ class _SshTerminalView(QPlainTextEdit):
                             if cursor.position() <= 0:
                                 break
                             cursor.deletePreviousChar()
-                    elif ch == '\n':
-                        cursor.setCharFormat(plain)
-                        cursor.insertText('\n')
-                        i += 1
                     else:
                         j = i
-                        while j < n and text[j] not in ('\x08', '\x7f', '\n'):
+                        while j < n and text[j] not in ('\r', '\n', '\x08', '\x7f'):
                             j += 1
                         if j > i:
-                            cursor.setCharFormat(plain)
+                            cursor.setCharFormat(fmt)
                             cursor.insertText(text[i:j])
                         i = j
             finally:

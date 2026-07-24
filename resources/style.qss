@@ -117,6 +117,23 @@ QCheckBox#flag-check::indicator {
     max-height: 1px;
     margin: 6px 2px 4px 2px;
 }
+#sidebar-collapse-btn {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: __TEXT_MUTED__;
+    padding: 2px;
+}
+#sidebar-collapse-btn:hover {
+    background: __NAV_HOVER__;
+    color: __PRIMARY_ACTIVE__;
+}
+#sidebar-collapse-btn:pressed {
+    background: __PRIMARY_SOFT__;
+}
+#sidebar-collapse-btn[iconOnly="true"] {
+    margin: 0 auto;
+}
 #sidebar-scroll, #sidebar-nav-host {
     background: transparent;
     border: none;
@@ -231,21 +248,27 @@ QPushButton#btn-danger:pressed, QPushButton#ops-delete-custom:pressed {
     background: __SURFACE_SOFT__;
     border-color: __DANGER__;
 }
-/* ghost：低强调 / 次级工具 */
+/* ghost：次级工具按钮（浅底+边框，确保可见） */
 QPushButton#btn-ghost {
-    background: transparent;
+    background: __SURFACE_SOFT__;
     color: __TEXT__;
-    border: 1px solid transparent;
+    border: 1px solid __BORDER__;
     border-radius: 10px;
     font-weight: 600;
 }
 QPushButton#btn-ghost:hover {
     background: __PRIMARY_SOFT__;
-    border-color: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
     color: __PRIMARY_ACTIVE__;
 }
 QPushButton#btn-ghost:pressed {
     background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+}
+QPushButton#btn-ghost:disabled {
+    background: __DISABLED_BG__;
+    color: __DISABLED_TEXT__;
+    border-color: transparent;
 }
 QPushButton[compactAction="true"] { padding: 7px 12px; min-height: 18px; }
 /* 浅色导航项 */

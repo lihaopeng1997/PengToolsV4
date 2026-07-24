@@ -141,6 +141,10 @@ class KnowledgeTab(QWidget):
         self._completer.activated[str].connect(self._activate_suggestion)
         self.search_edit.setCompleter(self._completer)
         self.search_edit.textChanged.connect(self._on_search_changed)
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(220)
+        self._search_debounce.timeout.connect(self._do_search)
         actions.addWidget(self.search_edit, 1)
         self.category_combo = QComboBox()
         size_combo(self.category_combo, 'md')
@@ -326,6 +330,11 @@ class KnowledgeTab(QWidget):
         return apply_namespace_pins(entries, 'knowledge')
 
     def _on_search_changed(self, text):
+        # 防抖：按键时只重启定时器，不立即搜索
+        self._search_debounce.start()
+
+    def _do_search(self):
+        text = self.search_edit.text()
         self._refresh()
         self._update_suggestions(text)
 
@@ -783,6 +792,9 @@ class KnowledgeTab(QWidget):
                 existing.add(fingerprint)
         self._custom_entries.extend(unique)
         save_custom_entries(self._custom_entries)
+        # 全量重建搜索索引（导入/批量新增后）
+        from tools.personal_knowledge import rebuild_search_index
+        rebuild_search_index(self.all_entries())
         self.search_edit.clear()
         self.category_combo.setCurrentIndex(0)
         self._refresh()
@@ -885,6 +897,9 @@ class KnowledgeTab(QWidget):
         self._custom_entries.append(updated)
         self._current = updated
         save_custom_entries(self._custom_entries)
+        # 增量更新搜索索引
+        from tools.personal_knowledge import update_entry_index
+        update_entry_index(updated)
         self._refresh()
 
     def _edit_entry(self):
@@ -961,6 +976,9 @@ class KnowledgeTab(QWidget):
         self._custom_entries = [entry for entry in self._custom_entries if (entry.get('base_seed_id') or entry.get('id')) != key]
         self._current = None
         save_custom_entries(self._custom_entries)
+        # 删除搜索索引
+        from tools.personal_knowledge import remove_entry_index
+        remove_entry_index(key)
         self._refresh()
 
     def _copy_entry(self):

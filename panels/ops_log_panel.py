@@ -1997,7 +1997,7 @@ class OpsLogPanel(QWidget):
         self.open_dir_btn.clicked.connect(self._open_export_dir)
         rtop.addWidget(self.open_dir_btn)
         er_l.addLayout(rtop)
-        self.result_table = QTableWidget(0, 5)
+        self.result_table = QTableWidget(0, 6)
         apply_table(self.result_table)
         self.result_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -2006,6 +2006,8 @@ class OpsLogPanel(QWidget):
         self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.result_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        self.result_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.result_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.result_table.setMaximumHeight(160)
@@ -2167,6 +2169,11 @@ class OpsLogPanel(QWidget):
         for server in self._servers:
             label = self._server_label(server, with_category=True)
             self.server_combo.addItem(label, server.get('id'))
+            # IP/端口信息放到 tooltip，保持下拉列表简洁
+            idx = self.server_combo.count() - 1
+            host = server.get('host') or ''
+            port = server.get('port') or 22
+            self.server_combo.setItemData(idx, f"{host}:{port}", Qt.ItemDataRole.ToolTipRole)
         if prefer:
             idx = self.server_combo.findData(prefer)
             if idx >= 0:
@@ -2350,7 +2357,7 @@ class OpsLogPanel(QWidget):
             'Same icon style as Requirements file library. Double-click folder/file; Use to bind path.'
         )
         self.result_table.setHorizontalHeaderLabels(
-            ['服务器', '服务', '状态', '行数', '本地文件'] if zh else ['Server', 'Service', 'Status', 'Lines', 'File']
+            ['服务器', '服务', '状态', '行数', '本地文件', '时间'] if zh else ['Server', 'Service', 'Status', 'Lines', 'File', 'Time']
         )
         if self.dep_note is not None:
             self.dep_note.setText('未检测到 paramiko' if zh else 'paramiko missing')
@@ -2407,7 +2414,8 @@ class OpsLogPanel(QWidget):
         names = category_name_map(self._categories)
         cid = server.get('category_id') or UNCATEGORIZED_ID
         cname = names.get(cid) or server.get('group') or ''
-        base = f"{server.get('name')}  ·  {server.get('host')}:{server.get('port')}"
+        # 下拉框只展示分类和名称，不展示 IP（IP 在 tooltip 中可查）
+        base = f"{server.get('name')}"
         if with_category and cname and cid != UNCATEGORIZED_ID:
             return f'[{cname}] {base}'
         return base
@@ -3757,12 +3765,14 @@ class OpsLogPanel(QWidget):
         if not ok and msg:
             status = f'{status}: {msg[:40]}'
         svc = str(result.get('service_name') or '')
+        time_str = datetime.now().strftime('%H:%M:%S')
         values = [
             name,
             svc,
             status,
             str(result.get('line_count') if ok else '-'),
             str(result.get('local_path') or msg),
+            time_str,
         ]
         for col, cell in enumerate(values):
             item = QTableWidgetItem(cell)
