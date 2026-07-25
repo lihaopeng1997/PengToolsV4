@@ -118,11 +118,14 @@ QCheckBox#flag-check::indicator {
     margin: 6px 2px 4px 2px;
 }
 #sidebar-collapse-btn {
-    background: transparent;
+    background: __SIDEBAR_BG__;
     border: none;
-    border-radius: 6px;
+    border-left: 1px solid __SIDEBAR_BORDER__;
+    border-right: 1px solid __SIDEBAR_BORDER__;
+    border-radius: 0px;
     color: __TEXT_MUTED__;
-    padding: 2px;
+    padding: 0px;
+    margin: 0px;
 }
 #sidebar-collapse-btn:hover {
     background: __NAV_HOVER__;
@@ -130,9 +133,6 @@ QCheckBox#flag-check::indicator {
 }
 #sidebar-collapse-btn:pressed {
     background: __PRIMARY_SOFT__;
-}
-#sidebar-collapse-btn[iconOnly="true"] {
-    margin: 0 auto;
 }
 #sidebar-scroll, #sidebar-nav-host {
     background: transparent;
@@ -457,17 +457,7 @@ QPlainTextEdit#gateway-cipher-edit:focus {
     background: __SURFACE__;
     color: __TEXT_STRONG__;
 }
-QSplitter#xml-splitter::handle:horizontal {
-    width: 6px;
-    margin: 6px 1px;
-    background: __BORDER__;
-    border: 1px solid __BORDER__;
-    border-radius: 3px;
-}
-QSplitter#xml-splitter::handle:horizontal:hover {
-    background: __PRIMARY_SOFT__;
-    border-color: __PRIMARY__;
-}
+/* xml-splitter 已由全局 QSplitter::handle 统一管理 */
 /* XML 工具工作区 */
 QFrame#xml-workspace-header {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
@@ -527,37 +517,26 @@ QLabel[xmlStatus="ok"] {
     font-weight: 650;
 }
 
-QSplitter#requirement-splitter::handle:horizontal,
-QSplitter#iface-mid-splitter::handle:horizontal,
-QSplitter#gateway-splitter::handle:horizontal,
-QSplitter#ops-main-split::handle:horizontal {
+/* 全局分割线：细线风格，仅 hover 时高亮 */
+QSplitter::handle:horizontal {
     width: 6px;
-    margin: 6px 1px;
+    margin: 0;
+    background: __BORDER__;
+    border: none;
+    border-radius: 0;
+}
+QSplitter::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;
-    border: 1px solid __BORDER_STRONG__;
-    border-radius: 3px;
 }
-QSplitter#requirement-splitter::handle:horizontal:hover,
-QSplitter#iface-mid-splitter::handle:horizontal:hover,
-QSplitter#gateway-splitter::handle:horizontal:hover,
-QSplitter#ops-main-split::handle:horizontal:hover {
-    background: __PRIMARY_SOFT__;
-    border-color: __PRIMARY__;
-}
-QSplitter#requirement-splitter::handle:horizontal:pressed,
-QSplitter#iface-mid-splitter::handle:horizontal:pressed,
-QSplitter#gateway-splitter::handle:horizontal:pressed,
-QSplitter#ops-main-split::handle:horizontal:pressed {
-    background: __PRIMARY__;
-}
-/* 垂直分栏把手：与横向一致，避免方向切换后拖拽手感异常 */
-QSplitter#iface-mid-splitter::handle:vertical,
-QSplitter#gateway-splitter::handle:vertical {
+QSplitter::handle:vertical {
     height: 6px;
-    margin: 1px 6px;
+    margin: 0;
+    background: __BORDER__;
+    border: none;
+    border-radius: 0;
+}
+QSplitter::handle:vertical:hover {
     background: __PRIMARY_SOFT__;
-    border: 1px solid __BORDER_STRONG__;
-    border-radius: 3px;
 }
 /* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {
@@ -1004,17 +983,7 @@ QFrame#iface-draft-zone {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-QSplitter#sql-editor-splitter::handle:horizontal {
-    width: 6px;
-    margin: 6px 1px;
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __BORDER_STRONG__;
-    border-radius: 3px;
-}
-QSplitter#sql-editor-splitter::handle:horizontal:hover {
-    background: __PRIMARY_SOFT__;
-    border-color: __PRIMARY__;
-}
+/* sql-editor-splitter 已由全局 QSplitter::handle 统一管理 */
 QLineEdit#release-readonly {
     background: __SIDEBAR_BG__;
     color: __TEXT__;
