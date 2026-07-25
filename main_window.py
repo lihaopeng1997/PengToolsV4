@@ -252,14 +252,14 @@ class MainWindow(QMainWindow):
         scroll.setWidget(nav_host)
         outer.addWidget(scroll, 1)
 
-        # 分界线 + 折叠按钮放在同一行
+        # 分界线 + 折叠按钮放在同一行，按钮居中
         sep_row = QHBoxLayout()
         sep_row.setContentsMargins(0, 0, 0, 0)
         sep_row.setSpacing(4)
         footer_sep = QFrame()
         footer_sep.setObjectName('sidebar-sep')
         footer_sep.setFixedHeight(1)
-        sep_row.addWidget(footer_sep, 1)          # 分界线吃掉剩余空间
+        sep_row.addWidget(footer_sep, 1)          # 左侧分界线
 
         # 折叠/展开切换按钮（用 SVG 图标替代文本 ◀/▶）
         self._collapse_btn = QPushButton()
@@ -269,7 +269,12 @@ class MainWindow(QMainWindow):
         apply_icon(self._collapse_btn, 'collapse', size=14)
         self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
-        sep_row.addWidget(self._collapse_btn)     # 按钮贴右侧
+        sep_row.addWidget(self._collapse_btn)     # 按钮居中
+
+        footer_sep_r = QFrame()
+        footer_sep_r.setObjectName('sidebar-sep')
+        footer_sep_r.setFixedHeight(1)
+        sep_row.addWidget(footer_sep_r, 1)         # 右侧分界线
         outer.addLayout(sep_row)
 
         # 底部：设置 + 用户芯片
