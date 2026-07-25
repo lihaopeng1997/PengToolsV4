@@ -167,7 +167,7 @@ class GatewayDecodePanel(QWidget):
         splitter = self.splitter
         splitter.setObjectName('gateway-splitter')
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(10)
+        splitter.setHandleWidth(6)
         splitter.setOpaqueResize(True)
 
         left = QWidget()

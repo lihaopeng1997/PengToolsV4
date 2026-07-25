@@ -379,7 +379,7 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.mid_splitter.setObjectName('iface-mid-splitter')
         self.mid_splitter.setChildrenCollapsible(False)
-        self.mid_splitter.setHandleWidth(10)
+        self.mid_splitter.setHandleWidth(6)
         self.mid_splitter.setOpaqueResize(True)
 
         left = QWidget()

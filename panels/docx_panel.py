@@ -181,6 +181,7 @@ class DocxUpdatePanel(QWidget):
         layout.addWidget(self.file_group)
 
         mid = QSplitter(Qt.Orientation.Horizontal)
+        mid.setHandleWidth(6)
         mid.setChildrenCollapsible(False)
 
         browser_box = QWidget()
@@ -226,6 +227,8 @@ class DocxUpdatePanel(QWidget):
         work_layout = QVBoxLayout(work_box)
         work_layout.setContentsMargins(0, 0, 0, 0)
         work_split = QSplitter(Qt.Orientation.Vertical)
+        work_split.setHandleWidth(6)
+        work_split.setChildrenCollapsible(False)
         input_box = QWidget()
         input_layout = QVBoxLayout(input_box)
         input_layout.setContentsMargins(0, 0, 0, 0)

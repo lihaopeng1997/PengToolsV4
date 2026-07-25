@@ -1553,6 +1553,7 @@ class OpsLogPanel(QWidget):
         self.main_split = QSplitter(Qt.Orientation.Horizontal)
         self.main_split.setObjectName('ops-main-split')
         self.main_split.setChildrenCollapsible(False)
+        self.main_split.setHandleWidth(6)
         root.addWidget(self.main_split, 1)
 
         # ========== LEFT（可拖动变宽；内部可横向滚动避免截断）==========

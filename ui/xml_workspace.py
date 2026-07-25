@@ -149,7 +149,7 @@ class XmlWorkspace(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setObjectName('xml-splitter')
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(8)
+        self.splitter.setHandleWidth(6)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)

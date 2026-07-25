@@ -252,16 +252,10 @@ class MainWindow(QMainWindow):
         scroll.setWidget(nav_host)
         outer.addWidget(scroll, 1)
 
-        # 分界线 + 折叠按钮放在同一行，按钮居中
-        sep_row = QHBoxLayout()
-        sep_row.setContentsMargins(0, 0, 0, 0)
-        sep_row.setSpacing(4)
-        footer_sep = QFrame()
-        footer_sep.setObjectName('sidebar-sep')
-        footer_sep.setFixedHeight(1)
-        sep_row.addWidget(footer_sep, 1)          # 左侧分界线
-
-        # 折叠/展开切换按钮（用 SVG 图标替代文本 ◀/▶）
+        # 折叠/展开切换按钮（居中，在分界线上方）
+        collapse_row = QHBoxLayout()
+        collapse_row.setContentsMargins(0, 4, 0, 2)
+        collapse_row.addStretch(1)
         self._collapse_btn = QPushButton()
         self._collapse_btn.setObjectName('sidebar-collapse-btn')
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -269,13 +263,15 @@ class MainWindow(QMainWindow):
         apply_icon(self._collapse_btn, 'collapse', size=14)
         self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
-        sep_row.addWidget(self._collapse_btn)     # 按钮居中
+        collapse_row.addWidget(self._collapse_btn)
+        collapse_row.addStretch(1)
+        outer.addLayout(collapse_row)
 
-        footer_sep_r = QFrame()
-        footer_sep_r.setObjectName('sidebar-sep')
-        footer_sep_r.setFixedHeight(1)
-        sep_row.addWidget(footer_sep_r, 1)         # 右侧分界线
-        outer.addLayout(sep_row)
+        # 分界线（全宽）
+        footer_sep = QFrame()
+        footer_sep.setObjectName('sidebar-sep')
+        footer_sep.setFixedHeight(1)
+        outer.addWidget(footer_sep)
 
         # 底部：设置 + 用户芯片
         footer = QHBoxLayout()
@@ -430,6 +426,9 @@ class MainWindow(QMainWindow):
         if icon_only:
             self.settings_button.setText('')
             self.settings_button.setToolTip('设置' if self.language == 'zh' else 'Settings')
+        # 手动折叠后隐藏设置按钮，底部仅保留 LH 图标
+        if hasattr(self, '_nav_collapsed'):
+            self.settings_button.setVisible(not self._nav_collapsed)
         # 折叠按钮同步 icon_only 属性
         if hasattr(self, '_collapse_btn'):
             self._collapse_btn.setProperty('iconOnly', icon_only)

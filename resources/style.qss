@@ -457,15 +457,13 @@ QPlainTextEdit#gateway-cipher-edit:focus {
     background: __SURFACE__;
     color: __TEXT_STRONG__;
 }
-QSplitter#gateway-splitter::handle:horizontal,
 QSplitter#xml-splitter::handle:horizontal {
-    width: 8px;
-    margin: 8px 2px;
+    width: 6px;
+    margin: 6px 1px;
     background: __BORDER__;
     border: 1px solid __BORDER__;
-    border-radius: 4px;
+    border-radius: 3px;
 }
-QSplitter#gateway-splitter::handle:horizontal:hover,
 QSplitter#xml-splitter::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
@@ -531,32 +529,35 @@ QLabel[xmlStatus="ok"] {
 
 QSplitter#requirement-splitter::handle:horizontal,
 QSplitter#iface-mid-splitter::handle:horizontal,
-QSplitter#gateway-splitter::handle:horizontal {
-    width: 10px;
-    margin: 6px 2px;
+QSplitter#gateway-splitter::handle:horizontal,
+QSplitter#ops-main-split::handle:horizontal {
+    width: 6px;
+    margin: 6px 1px;
     background: __PRIMARY_SOFT__;
     border: 1px solid __BORDER_STRONG__;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 QSplitter#requirement-splitter::handle:horizontal:hover,
 QSplitter#iface-mid-splitter::handle:horizontal:hover,
-QSplitter#gateway-splitter::handle:horizontal:hover {
+QSplitter#gateway-splitter::handle:horizontal:hover,
+QSplitter#ops-main-split::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
 }
 QSplitter#requirement-splitter::handle:horizontal:pressed,
 QSplitter#iface-mid-splitter::handle:horizontal:pressed,
-QSplitter#gateway-splitter::handle:horizontal:pressed {
+QSplitter#gateway-splitter::handle:horizontal:pressed,
+QSplitter#ops-main-split::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
 /* 垂直分栏把手：与横向一致，避免方向切换后拖拽手感异常 */
 QSplitter#iface-mid-splitter::handle:vertical,
 QSplitter#gateway-splitter::handle:vertical {
-    height: 10px;
-    margin: 2px 6px;
+    height: 6px;
+    margin: 1px 6px;
     background: __PRIMARY_SOFT__;
     border: 1px solid __BORDER_STRONG__;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 /* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {
@@ -1004,11 +1005,11 @@ QFrame#iface-draft-zone {
     border-radius: 12px;
 }
 QSplitter#sql-editor-splitter::handle:horizontal {
-    width: 8px;
-    margin: 6px 2px;
+    width: 6px;
+    margin: 6px 1px;
     background: __PRIMARY_SOFT__;
     border: 1px solid __BORDER_STRONG__;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 QSplitter#sql-editor-splitter::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;

@@ -171,6 +171,8 @@ class KnowledgeTab(QWidget):
         root.addWidget(self.note)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.setChildrenCollapsible(False)
         left = QFrame()
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)
@@ -1043,6 +1045,8 @@ class DailyReportTab(QWidget):
         self._refresh_reminder_status()
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.setChildrenCollapsible(False)
         left = QFrame()
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)

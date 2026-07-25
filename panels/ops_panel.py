@@ -162,6 +162,8 @@ class OpsPanel(QWidget):
         root.addWidget(self._safety_host)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.setChildrenCollapsible(False)
         left = QFrame()
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)
