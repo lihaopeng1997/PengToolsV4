@@ -28,10 +28,23 @@ _ANSI_RE = re.compile(
 
 
 def strip_ansi(text: str) -> str:
+    """剥离 ANSI 转义序列，但保留 \\x1b[K (EL) 和 \\x1b[J (ED) 供渲染层处理。"""
     if not text:
         return ''
+    # 先把 EL/ED 序列替换为占位符，strip 后再恢复
+    # 支持 \x1b[K \x1b[0K \x1b[J \x1b[0J 等
+    placeholders = {}
+    import re as _re
+    for m in _re.finditer(r'\x1b\[[0-9]*[KJ]', text):
+        token = m.group()
+        key = f'\x00EL{len(placeholders)}\x00'
+        placeholders[key] = token
+        text = text[:m.start()] + key + text[m.end():]
     t = _ANSI_RE.sub('', text)
-    # 终端常见控制符
+    t = t.replace('\x00', '')
+    # 恢复 EL/ED 序列
+    for key, token in placeholders.items():
+        t = t.replace(key, token)
     t = t.replace('\x00', '')
     return t
 
@@ -236,7 +249,7 @@ class InteractiveShell:
                             data += ch.recv(4096)
                         break
                     else:
-                        time.sleep(0.01)
+                        time.sleep(0.005)
                         continue
                 except socket.timeout:
                     continue

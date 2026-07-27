@@ -118,21 +118,14 @@ QCheckBox#flag-check::indicator {
     margin: 6px 2px 4px 2px;
 }
 #sidebar-collapse-btn {
-    background: __SIDEBAR_BG__;
+    background: transparent;
     border: none;
-    border-left: 1px solid __SIDEBAR_BORDER__;
-    border-right: 1px solid __SIDEBAR_BORDER__;
-    border-radius: 0px;
+    border-radius: 6px;
     color: __TEXT_MUTED__;
     padding: 0px;
-    margin: 0px;
 }
 #sidebar-collapse-btn:hover {
-    background: __NAV_HOVER__;
     color: __PRIMARY_ACTIVE__;
-}
-#sidebar-collapse-btn:pressed {
-    background: __PRIMARY_SOFT__;
 }
 #sidebar-scroll, #sidebar-nav-host {
     background: transparent;
@@ -1146,82 +1139,7 @@ QDialog#confirm-dialog QPushButton#btn-danger {
     border-radius: 10px;
     padding: 7px 14px;
 }
-/* 退出决策卡片：主路径 / 危险路径层级分明 */
-QFrame#close-option-primary,
-QFrame#close-option-danger {
-    background: __SURFACE__;
-    border: 1.5px solid __BORDER__;
-    border-radius: 14px;
-}
-QFrame#close-option-primary:hover {
-    border-color: __PRIMARY__;
-    background: __PRIMARY_SOFT__;
-}
-QFrame#close-option-primary:focus {
-    border-color: __PRIMARY__;
-    background: __TEXT_STRONG__;
-    border-width: 2px;
-}
-QFrame#close-option-danger {
-    border-color: __DANGER_BORDER__;
-}
-QFrame#close-option-danger:hover {
-    border-color: __DANGER__;
-    background: __DANGER_BG__;
-}
-QFrame#close-option-danger:focus {
-    border-color: __DANGER__;
-    background: __SURFACE_SOFT__;
-    border-width: 2px;
-}
-QLabel#close-option-badge {
-    border-radius: 18px;
-    font-size: 14px;
-    font-weight: 800;
-    color: __SURFACE__;
-    background: __PRIMARY__;
-}
-QFrame#close-option-danger QLabel#close-option-badge {
-    background: __DANGER__;
-}
-QLabel#close-option-title {
-    color: __TEXT_STRONG__;
-    font-size: 14px;
-    font-weight: 800;
-    background: transparent;
-}
-QFrame#close-option-danger QLabel#close-option-title {
-    color: __DANGER__;
-}
-QLabel#close-option-tip {
-    color: __TEXT_MUTED__;
-    font-size: 12px;
-    line-height: 1.45;
-    background: transparent;
-}
-QFrame#close-remember-card {
-    background: #F4F7FC;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
-}
-QFrame#close-remember-card:hover {
-    border-color: __BORDER_STRONG__;
-    background: __TEXT_STRONG__;
-}
-QCheckBox#close-dont-ask {
-    color: __TEXT__;
-    font-weight: 650;
-    spacing: 10px;
-    padding: 2px 2px;
-}
-QCheckBox#close-dont-ask:hover {
-    color: __PRIMARY_ACTIVE__;
-}
-QCheckBox#close-dont-ask::indicator {
-    width: 18px;
-    height: 18px;
-    border-radius: 5px;
-}
+/* 退出决策卡片样式已弃用（弹窗已精简为按钮行） */
 QLabel#notice-badge-info,
 QLabel#notice-badge-success,
 QLabel#notice-badge-warning,

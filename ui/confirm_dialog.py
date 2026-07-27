@@ -145,7 +145,7 @@ class _CloseOptionCard(QFrame):
 class CloseActionDialog(QDialog):
     """关闭主窗口决策：隐藏托盘 / 退出；可勾选「不再提示」。
 
-    标题直接问决策；危险动作不设默认焦点。
+    精简版：两个按钮同一行 + 底部勾选框与取消同一行，无 hover 高亮。
     """
 
     def __init__(self, language='zh', default_action='minimize', parent=None):
@@ -159,106 +159,54 @@ class CloseActionDialog(QDialog):
             APP_NAME = 'PengToolsHub'
         self.setWindowTitle(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         self.setModal(True)
-        self.setMinimumWidth(500)
-        self.setMaximumWidth(560)
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(420)
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(20, 18, 20, 14)
+        root.setSpacing(10)
 
         # —— 决策标题 ——
-        header = QHBoxLayout()
-        header.setSpacing(14)
-        badge = make_badge_label('info', size=44, icon_size=24)
-        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
-
-        title_wrap = QVBoxLayout()
-        title_wrap.setSpacing(6)
         title = QLabel(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         title.setObjectName('confirm-title')
-        title_wrap.addWidget(title)
-        subtitle = QLabel(
-            '选择如何结束当前窗口。隐藏到托盘后进程仍在运行；退出将彻底结束所有服务。'
-            if zh else
-            'Choose how to leave this window. Tray keeps the process alive; Exit stops everything.'
-        )
-        subtitle.setObjectName('confirm-message')
-        subtitle.setWordWrap(True)
-        title_wrap.addWidget(subtitle)
-        header.addLayout(title_wrap, 1)
-        root.addLayout(header)
+        root.addWidget(title)
 
-        # —— 两种明确后果（本地 SVG，无 Emoji）——
-        # 图标前景取主题 ON_STATUS，保证与有色徽章对比
-        try:
-            from ui.icons import status_icon_tint
-            tray_tint = status_icon_tint('info')
-            exit_tint = status_icon_tint('danger')
-        except Exception:
-            tray_tint, exit_tint = '#EDF2EE', '#EDF2EE'
-        self.minimize_button = _CloseOptionCard(
-            'settings',
-            '隐藏到系统托盘' if zh else 'Hide to system tray',
-            '主窗口离开任务栏，托盘图标可随时恢复。悬浮栏、快捷键与后台服务继续可用。'
-            if zh else
-            'Leaves the taskbar; reopen from tray anytime. Floating bar, hotkeys and services stay on.',
-            'close-option-primary',
-            icon_tint=tray_tint,
-        )
+        # —— 两个按钮同一行 ——
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self.minimize_button = QPushButton('隐藏' if zh else 'Hide')
+        apply_button(self.minimize_button, 'secondary', compact=True)
+        self.minimize_button.setObjectName('confirm-cancel')
+        self.minimize_button.setMinimumWidth(100)
         self.minimize_button.clicked.connect(lambda: self._choose('minimize'))
-        root.addWidget(self.minimize_button)
+        btn_row.addWidget(self.minimize_button, 1)
 
-        self.exit_button = _CloseOptionCard(
-            'error',
-            '退出软件' if zh else 'Exit application',
-            '结束主窗口、悬浮栏、托盘与全部后台服务，进程完全退出。未保存的面板状态将丢失。'
-            if zh else
-            'Closes the main window, floating bar, tray and all background services. Unsaved panel state is lost.',
-            'close-option-danger',
-            icon_tint=exit_tint,
-        )
+        self.exit_button = QPushButton('退出软件' if zh else 'Exit')
+        apply_button(self.exit_button, 'danger', compact=True)
+        self.exit_button.setObjectName('btn-danger')
+        self.exit_button.setMinimumWidth(100)
         self.exit_button.clicked.connect(lambda: self._choose('exit'))
-        root.addWidget(self.exit_button)
+        btn_row.addWidget(self.exit_button, 1)
+        root.addLayout(btn_row)
 
-        # —— 记住选择（漂亮复选容器）——
-        remember_card = QFrame()
-        remember_card.setObjectName('close-remember-card')
-        remember_layout = QHBoxLayout(remember_card)
-        remember_layout.setContentsMargins(12, 10, 12, 10)
-        remember_layout.setSpacing(10)
+        # —— 底部：勾选框 + 取消，同一行 ——
+        footer = QHBoxLayout()
+        footer.setSpacing(8)
         self.dont_ask_check = QCheckBox(
-            '关闭时不再提示' if zh else "Don't ask again when closing"
+            '关闭时不再提示' if zh else "Don't ask again"
         )
         self.dont_ask_check.setObjectName('close-dont-ask')
-        self.dont_ask_check.setToolTip(
-            '勾选后写入设置：关闭时直接使用本次选择，不再弹出。可在「设置 → 关闭与交互」中恢复关闭提示。'
-            if zh else
-            'Saves Settings: use this choice next time without a prompt. Re-enable the close prompt in Settings anytime.'
-        )
-        remember_layout.addWidget(self.dont_ask_check, 1)
-        root.addWidget(remember_card)
+        footer.addWidget(self.dont_ask_check, 1)
 
-        # —— 底部：取消 + 设置入口提示 ——
-        footer = QHBoxLayout()
-        footer.setSpacing(10)
         self.cancel_button = QPushButton('取消' if zh else 'Cancel')
         apply_button(self.cancel_button, 'ghost', compact=True)
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setAutoDefault(False)
         self.cancel_button.clicked.connect(self.reject)
         footer.addWidget(self.cancel_button)
-        footer.addStretch()
-        hint = QLabel(
-            '也可在 设置 → 关闭与交互 中管理' if zh else 'Also in Settings → Close & interaction'
-        )
-        hint.setObjectName('field-hint')
-        footer.addWidget(hint)
         root.addLayout(footer)
 
-        # 默认焦点：安全动作（托盘）；若配置默认是 exit，仍不把焦点放危险卡上，改放取消
-        if default_action == 'exit':
-            self.cancel_button.setFocus()
-        else:
-            self.minimize_button.setFocus()
+        # 默认焦点：安全动作（隐藏）
+        self.minimize_button.setFocus()
 
     def _choose(self, action):
         self._result = action

@@ -97,16 +97,6 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self._create_sidebar())
 
-        # 折叠/展开按钮 — 独立中间元素，连接侧边栏与内容区
-        self._collapse_btn = QPushButton()
-        self._collapse_btn.setObjectName('sidebar-collapse-btn')
-        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setFixedWidth(16)
-        self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
-        apply_icon(self._collapse_btn, 'collapse', size=12)
-        self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
-        layout.addWidget(self._collapse_btn)
-
         content = QFrame()
         content.setObjectName('content_area')
         self._content_frame = content
@@ -261,6 +251,21 @@ class MainWindow(QMainWindow):
         self._nav_layout.addStretch(1)
         scroll.setWidget(nav_host)
         outer.addWidget(scroll, 1)
+
+        # 折叠/展开切换按钮（居中，在分界线上方）
+        collapse_row = QHBoxLayout()
+        collapse_row.setContentsMargins(0, 4, 0, 2)
+        collapse_row.addStretch(1)
+        self._collapse_btn = QPushButton()
+        self._collapse_btn.setObjectName('sidebar-collapse-btn')
+        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setFixedSize(22, 22)
+        apply_icon(self._collapse_btn, 'collapse', size=12)
+        self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
+        self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
+        collapse_row.addWidget(self._collapse_btn)
+        collapse_row.addStretch(1)
+        outer.addLayout(collapse_row)
 
         # 分界线（全宽）
         footer_sep = QFrame()

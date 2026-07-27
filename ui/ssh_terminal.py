@@ -17,8 +17,8 @@ from tools.ops_ssh_shell import InteractiveShell
 
 _MAX_BLOCKS = 10000
 _MAX_PENDING = 256 * 1024
-# 稍合并刷新，减少连删时的 UI 重绘次数（25ms 兼顾流畅与跟手）
-_FLUSH_MS = 25
+# 快速刷新，减少输入延迟感（12ms 兼顾流畅与性能）
+_FLUSH_MS = 12
 
 
 def _theme_term_colors() -> dict:
@@ -355,8 +355,8 @@ class _SshTerminalView(QPlainTextEdit):
         if not self._ui_active:
             return
         chunk, self._pending = self._pending, ''
-        # 含 CR/BS/DEL 时走行重绘；纯文本直接追加
-        if any(c in chunk for c in ('\r', '\x08', '\x7f')):
+        # 含 CR/BS/DEL/ESC 时走行重绘；纯文本直接追加
+        if any(c in chunk for c in ('\r', '\x08', '\x7f', '\x1b')):
             self._render_terminal_text(chunk)
         else:
             cursor = self.textCursor()
@@ -380,73 +380,93 @@ class _SshTerminalView(QPlainTextEdit):
         return True
 
     def _render_terminal_text(self, text: str):
-        """处理含 CR/BS/DEL 的终端文本，支持行内重绘。
+        """处理含 CR/BS/DEL/EL/ED 的终端文本，支持行内重绘。
 
         - \\r\\n : 标准换行（CR 跳过，LF 插入换行）
-        - 单独 \\r : 光标回当前行首 + 删除到行尾（为覆写做准备）
+        - 单独 \\r : 光标回当前行首 + 删除到 block 末尾（为覆写做准备）
+        - \\x1b[K / \\x1b[0K : EL — 擦除从光标到行尾
+        - \\x1b[J / \\x1b[0J : ED — 擦除从光标到文档末尾
         - \\x08/\\x7f : 退格删除（含 BS+space+BS 合并）
         - \\n : 换行
         - 其他 : 批量插入
         """
         if not text:
             return
-        self.setUpdatesEnabled(False)
+        self.moveCursor(QTextCursor.MoveOperation.End)
+        cursor = self.textCursor()
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(self._colors['fg']))
+        cursor.beginEditBlock()
         try:
-            self.moveCursor(QTextCursor.MoveOperation.End)
-            cursor = self.textCursor()
-            fmt = QTextCharFormat()
-            fmt.setForeground(QColor(self._colors['fg']))
-            cursor.beginEditBlock()
-            try:
-                i, n = 0, len(text)
-                while i < n:
-                    ch = text[i]
-                    if ch == '\r':
-                        i += 1
-                        # \r\n → 交由 \n 处理换行
-                        if i < n and text[i] == '\n':
-                            continue
-                        # 单独 \r：回到当前 block 行首，删除到行尾
-                        block = cursor.block()
-                        cursor.setPosition(block.position())
-                        cursor.movePosition(
-                            QTextCursor.MoveOperation.EndOfLine,
-                            QTextCursor.MoveMode.KeepAnchor)
-                        cursor.removeSelectedText()
-                    elif ch == '\n':
-                        cursor.setCharFormat(fmt)
-                        cursor.insertText('\n')
-                        i += 1
-                    elif ch in ('\x08', '\x7f'):
-                        # BS/DEL 合并删除（含 bash BS+space+BS 一次擦除）
-                        deletes = 0
-                        while i < n:
-                            if text[i] in ('\x08', '\x7f'):
-                                deletes += 1
-                                i += 1
-                                if (i + 1 < n and text[i] == ' '
-                                        and text[i + 1] in ('\x08', '\x7f')):
-                                    i += 2
-                            else:
-                                break
-                        for _ in range(deletes):
-                            if cursor.position() <= 0:
-                                break
-                            cursor.deletePreviousChar()
+            i, n = 0, len(text)
+            while i < n:
+                ch = text[i]
+                if ch == '\r':
+                    i += 1
+                    # \r\n → 交由 \n 处理换行
+                    if i < n and text[i] == '\n':
+                        continue
+                    # 单独 \r：回到当前 block 行首，删除到 block 末尾
+                    block = cursor.block()
+                    cursor.setPosition(block.position())
+                    cursor.movePosition(
+                        QTextCursor.MoveOperation.EndOfBlock,
+                        QTextCursor.MoveMode.KeepAnchor)
+                    cursor.removeSelectedText()
+                elif ch == '\n':
+                    cursor.setCharFormat(fmt)
+                    cursor.insertText('\n')
+                    i += 1
+                elif ch == '\x1b' and i + 2 < n and text[i + 1] == '[':
+                    # ANSI cursor control: EL (\x1b[K) / ED (\x1b[J)
+                    seq_end = i + 2
+                    while seq_end < n and text[seq_end] in '0123456789;':
+                        seq_end += 1
+                    if seq_end < n and text[seq_end] in ('K', 'J'):
+                        cmd = text[seq_end]
+                        if cmd == 'K':
+                            # EL: 擦除从光标到 block 末尾
+                            cursor.movePosition(
+                                QTextCursor.MoveOperation.EndOfBlock,
+                                QTextCursor.MoveMode.KeepAnchor)
+                            cursor.removeSelectedText()
+                        elif cmd == 'J':
+                            # ED: 擦除从光标到文档末尾
+                            cursor.movePosition(
+                                QTextCursor.MoveOperation.End,
+                                QTextCursor.MoveMode.KeepAnchor)
+                            cursor.removeSelectedText()
+                        i = seq_end + 1
                     else:
-                        j = i
-                        while j < n and text[j] not in ('\r', '\n', '\x08', '\x7f'):
-                            j += 1
-                        if j > i:
-                            cursor.setCharFormat(fmt)
-                            cursor.insertText(text[i:j])
-                        i = j
-            finally:
-                cursor.endEditBlock()
-                self.setTextCursor(cursor)
-            self.moveCursor(QTextCursor.MoveOperation.End)
+                        i += 1  # 跳过未识别的 ESC 序列
+                elif ch in ('\x08', '\x7f'):
+                    # BS/DEL 合并删除（含 bash BS+space+BS 一次擦除）
+                    deletes = 0
+                    while i < n:
+                        if text[i] in ('\x08', '\x7f'):
+                            deletes += 1
+                            i += 1
+                            if (i + 1 < n and text[i] == ' '
+                                    and text[i + 1] in ('\x08', '\x7f')):
+                                i += 2
+                        else:
+                            break
+                    for _ in range(deletes):
+                        if cursor.position() <= 0:
+                            break
+                        cursor.deletePreviousChar()
+                else:
+                    j = i
+                    while j < n and text[j] not in ('\r', '\n', '\x08', '\x7f', '\x1b'):
+                        j += 1
+                    if j > i:
+                        cursor.setCharFormat(fmt)
+                        cursor.insertText(text[i:j])
+                    i = j
         finally:
-            self.setUpdatesEnabled(True)
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+        self.moveCursor(QTextCursor.MoveOperation.End)
 
     def _on_shell_closed(self):
         self._connected = False
