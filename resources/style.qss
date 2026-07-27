@@ -175,7 +175,6 @@ QLabel#docx-template-status[matched="true"] {
     color: __PRIMARY_ACTIVE__; background: __PRIMARY_SOFT__; border: 1px solid __PRIMARY_SOFT__;
     border-radius: 12px; padding: 8px;
 }
-#ops-title { color: __TEXT_STRONG__; font-size: 16px; font-weight: 750; }
 QLabel#requirement-flags {
     color: __PRIMARY_ACTIVE__;
     background: __PRIMARY_SOFT__;
@@ -311,16 +310,6 @@ QFrame#page-filter-bar {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
-}
-#page-title {
-    color: __TEXT_STRONG__;
-    font-size: 24px;
-    font-weight: 600;
-}
-#page-subtitle {
-    color: __TEXT_MUTED__;
-    font-size: 13px;
-    font-weight: 400;
 }
 /* 分区标题：左边线色块区分模块 */
 QLabel#zone-title {
@@ -602,15 +591,14 @@ QFrame#req-toolbar-card {
 }
 /* 需求顶栏：主流程（扫描/检出/更新/新建）与次流程（缺陷/导入/配置） */
 QFrame#req-toolbar-primary {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __PRIMARY_SOFT__, stop:1 __PRIMARY_SOFT__);
-    border: 1px solid #C9D4F5;
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
     border-left: 3px solid __PRIMARY__;
     border-radius: 10px;
 }
 QFrame#req-toolbar-secondary {
     background: __SURFACE_SOFT__;
-    border: 1px solid #E0E5F0;
+    border: 1px solid __BORDER__;
     border-radius: 10px;
 }
 QFrame#req-toolbar-secondary QPushButton {
@@ -635,8 +623,7 @@ QFrame#req-file-card {
     border-top: 2px solid __TEXT_MUTED__;
 }
 QFrame#req-sql-card {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE_SOFT__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE_SOFT__;
     border-left: 3px solid __SUCCESS__;
 }
 QListWidget#docx-doc-list {
@@ -667,11 +654,11 @@ QTreeWidget#docx-output-browser::item {
     padding: 3px 4px 3px 2px;
 }
 QTreeWidget#docx-output-browser QHeaderView::section {
-    background: #E8EEFB;
-    color: #243A68;
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
     border: none;
     border-right: 1px solid __BORDER_STRONG__;
-    border-bottom: 2px solid #9EACC9;
+    border-bottom: 2px solid __BORDER_STRONG__;
     padding: 8px;
     font-weight: 800;
 }
@@ -746,7 +733,7 @@ QHeaderView#requirement-file-header::section {
 }
 QFrame#detail-action-card {
     background: __SURFACE_SOFT__;
-    border: 1px solid #DCE2EE;
+    border: 1px solid __BORDER__;
     border-radius: 10px;
 }
 QFrame#ops-list-card {
@@ -763,7 +750,7 @@ QFrame#detail-summary-card {
 }
 QLabel#detail-tags {
     color: __PRIMARY_ACTIVE__;
-    background: #F1F5FF;
+    background: __PRIMARY_SOFT__;
     border: 1px solid __PRIMARY_SOFT__;
     border-radius: 8px;
     padding: 4px 8px;
@@ -771,7 +758,7 @@ QLabel#detail-tags {
     font-size: 12px;
 }
 QFrame#detail-summary-card QLabel#field-caption {
-    color: #7A869C;
+    color: __TEXT_MUTED__;
     font-size: 11px;
     font-weight: 650;
     min-width: 0;
@@ -1067,7 +1054,7 @@ QTableWidget::item:selected:!active {
 QTableWidget#release-table QHeaderView::section,
 QHeaderView#release-table-header::section {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __PRIMARY_SOFT__, stop:1 #D5DEEF);
+        stop:0 __PRIMARY_SOFT__, stop:1 __SURFACE_SOFT__);
     color: __TEXT_STRONG__;
     border: none;
     border-right: 1px solid __BORDER_STRONG__;
@@ -1078,7 +1065,7 @@ QHeaderView#release-table-header::section {
 }
 QTableWidget#release-table QHeaderView::section:hover,
 QHeaderView#release-table-header::section:hover {
-    background: #CDD8EF;
+    background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
 }
 QComboBox#table-combo, QComboBox#release-extra-system {
@@ -1149,9 +1136,9 @@ QLabel#notice-badge-error {
     font-weight: 800;
     color: __SURFACE__;
 }
-QLabel#notice-badge-info { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6B82FF, stop:1 __PRIMARY__); }
+QLabel#notice-badge-info { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 __PRIMARY_HOVER__, stop:1 __PRIMARY__); }
 QLabel#notice-badge-success { background: __SUCCESS__; }
-QLabel#notice-badge-warning { background: #D9891F; }
+QLabel#notice-badge-warning { background: __WARNING__; }
 QLabel#notice-badge-error { background: __DANGER__; }
 QMessageBox {
     background: __SIDEBAR_BG__;
@@ -1307,7 +1294,7 @@ QTabWidget#module-tabs QTabBar::tab {
 QTabWidget#module-tabs QTabBar::tab:hover {
     color: __PRIMARY_ACTIVE__;
     background: __PRIMARY_SOFT__;
-    border-color: #E0E6F8;
+    border-color: __PRIMARY_SOFT__;
 }
 QTabWidget#module-tabs QTabBar::tab:selected {
     color: __PRIMARY_ACTIVE__;
@@ -1370,7 +1357,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 }
 #offline-pill {
     color: __SUCCESS__;
-    background: #EAF8F1;
+    background: __SUCCESS_BG__;
     border: 1px solid __SUCCESS__;
     border-radius: 999px;
     padding: 5px 10px;
@@ -1378,18 +1365,18 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 }
 #tool-card {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE__, stop:1 #F9FBFE);
+        stop:0 __SURFACE__, stop:1 __SURFACE_SOFT__);
     border: 1px solid __BORDER__;
     border-radius: 16px;
 }
 #tool-card:hover {
-    border-color: #B9C4EE;
+    border-color: __PRIMARY__;
     background: __SURFACE__;
 }
-#card-eyebrow { color: #6879D5; font-size: 10px; font-weight: 700; }
-#card-title { color: #1C2940; font-size: 20px; font-weight: 700; }
-#card-description { color: #748097; }
-#shortcut-hint { color: #68758B; background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 12px; padding: 11px; }
+#card-eyebrow { color: __PRIMARY_ACTIVE__; font-size: 10px; font-weight: 700; }
+#card-title { color: __TEXT_STRONG__; font-size: 20px; font-weight: 700; }
+#card-description { color: __TEXT_MUTED__; }
+#shortcut-hint { color: __TEXT_MUTED__; background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 12px; padding: 11px; }
 #floating-toolbar {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
@@ -1519,12 +1506,12 @@ QProgressBar::chunk { background: __PRIMARY__; border-radius: 5px; }
 
 /* DOCX generation date · compact light calendar card */
 QFrame#docx-date-card {
-    background: #F7F8FF;
+    background: __PRIMARY_SOFT__;
     border: 1px solid __PRIMARY_SOFT__;
     border-radius: 12px;
 }
 QLabel#docx-date-badge {
-    background: #E8ECFF;
+    background: __SURFACE_SOFT__;
     color: __PRIMARY__;
     border: 1px solid __PRIMARY_SOFT__;
     border-radius: 8px;
@@ -1535,7 +1522,7 @@ QLabel#docx-date-badge {
 QDateEdit#docx-date {
     background: __SURFACE__;
     color: __TEXT_STRONG__;
-    border: 1px solid #CDD6FF;
+    border: 1px solid __PRIMARY__;
     border-radius: 10px;
     padding: 7px 38px 7px 11px;
     min-width: 150px;
@@ -1554,7 +1541,7 @@ QDateEdit#docx-date::drop-down {
     width: 32px;
     border: none;
     border-left: 1px solid __PRIMARY_SOFT__;
-    background: #F1F3FF;
+    background: __PRIMARY_SOFT__;
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
 }
@@ -1566,7 +1553,7 @@ QPushButton#docx-date-today {
     padding: 8px 15px;
     font-weight: 700;
 }
-QPushButton#docx-date-today:hover { background: #4058E8; }
+QPushButton#docx-date-today:hover { background: __PRIMARY_ACTIVE__; }
 QCalendarWidget#docx-calendar { background: __SURFACE__; border: 1px solid __BORDER__; }
 QCalendarWidget#docx-calendar QWidget#qt_calendar_navigationbar { background: __PRIMARY__; }
 QCalendarWidget#docx-calendar QToolButton {
@@ -1606,7 +1593,7 @@ QPushButton#json-tool-btn, QPushButton#json-icon-btn {
 }
 QPushButton#json-tool-btn:hover, QPushButton#json-icon-btn:hover {
     background: __PRIMARY_SOFT__;
-    border-color: #AEBBF4;
+    border-color: __PRIMARY__;
 }
 QPushButton#json-icon-btn { min-width: 22px; max-width: 22px; padding: 6px 4px; }
 QLineEdit#json-search { padding: 6px 9px; }
@@ -1687,12 +1674,12 @@ QHeaderView#json-tree-header::section:hover {
 /* Linux operations command assistant */
 QLineEdit#ops-search {
     background: __SURFACE__;
-    border: 2px solid #D9E0FF;
+    border: 2px solid __PRIMARY_SOFT__;
     border-radius: 12px;
     padding: 9px 13px;
     font-size: 13px;
 }
-QLineEdit#ops-search:focus { border-color: #6379F2; }
+QLineEdit#ops-search:focus { border-color: __PRIMARY__; }
 QLabel#ops-safety-note {
     color: __TEXT_MUTED__;
     background: __PRIMARY_SOFT__;
@@ -1702,7 +1689,7 @@ QLabel#ops-safety-note {
 }
 QFrame#ops-list-card, QFrame#ops-param-card {
     background: __SURFACE__;
-    border: 1px solid #E2E7F0;
+    border: 1px solid __BORDER__;
     border-radius: 12px;
 }
 QListWidget#ops-command-list {
@@ -1711,7 +1698,7 @@ QListWidget#ops-command-list {
     outline: 0;
 }
 QListWidget#ops-command-list::item {
-    color: #34435D;
+    color: __TEXT_STRONG__;
     border-bottom: 1px solid __SURFACE_SOFT__;
     border-radius: 8px;
     padding: 9px 10px;
