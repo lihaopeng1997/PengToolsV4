@@ -7,10 +7,10 @@ from PyQt6.QtWidgets import QSizePolicy, QWidget
 # 统一控件高度（V2.0 蓝图 36px）
 FIELD_H = 36
 
-# 下拉框：短 / 中 / 长
-COMBO_SM = (120, 140)   # 类型、状态、环境、性别等短选项
-COMBO_MD = (180, 220)   # 系统名、分类、筛选
-COMBO_LG = (240, 320)   # 系统配置主下拉
+# 下拉框：min 宽度保底 + max 宽度防溢出（内容超出 max 时 ElideRight 截断）
+COMBO_SM = (120, 500)   # 类型、状态、环境、性别等短选项
+COMBO_MD = (160, 500)   # 系统名、分类、筛选
+COMBO_LG = (200, 600)   # 系统配置主下拉
 
 # 日期（yyyy-MM-dd 统一 150–160，避免各页长短不一）
 DATE_W = (150, 160)
@@ -42,11 +42,19 @@ def size_field_height(widget: QWidget, height: int = FIELD_H) -> None:
 
 
 def size_combo(widget, size: str = 'md') -> None:
-    """统一下拉框宽度与高度。size: sm | md | lg"""
+    """统一下拉框宽度与高度。size: sm | md | lg
+
+    使用 AdjustToContents 策略：下拉框宽度自动适配最长选项内容，
+    不被截断；min 宽度保底、max 宽度防止超长内容撑爆布局。
+    """
+    from PyQt6.QtWidgets import QComboBox
     mapping = {'sm': COMBO_SM, 'md': COMBO_MD, 'lg': COMBO_LG}
     lo, hi = mapping.get(size, COMBO_MD)
     _apply_width(widget, lo, hi)
     size_field_height(widget)
+    # 自适应内容宽度：完整展示选项文字
+    if isinstance(widget, QComboBox):
+        widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
 

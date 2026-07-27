@@ -359,7 +359,7 @@ QComboBox, QLineEdit {
     min-height: 18px;
     max-height: 34px;
 }
-QComboBox { padding-right: 38px; min-width: 120px; }
+QComboBox { padding-right: 38px; }
 QLineEdit { min-width: 160px; }
 QComboBox:hover, QLineEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
 QComboBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
