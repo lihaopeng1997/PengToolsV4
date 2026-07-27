@@ -373,6 +373,17 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.clear_list_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.clear_list_btn.clicked.connect(self._confirm_clear_session)
         tl.addWidget(self.clear_list_btn)
+
+        # 左侧栏隐藏/显示切换按钮
+        self._toggle_list_btn = QPushButton('隐藏')
+        self._toggle_list_btn.setObjectName('btn-ghost')
+        self._toggle_list_btn.setFixedHeight(28)
+        self._toggle_list_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toggle_list_btn.setFixedWidth(52)
+        self._toggle_list_btn.setToolTip('隐藏 / 显示会话列表')
+        self._toggle_list_btn.clicked.connect(self._toggle_session_list)
+        tl.addWidget(self._toggle_list_btn)
+
         root.addWidget(tools)
 
         # 中部：列表 + 详情
@@ -437,6 +448,7 @@ class InterfaceDebugPanel(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ll.addWidget(self.empty_hint)
+        self._session_list_widget = left
         self.mid_splitter.addWidget(left)
 
         right = QWidget()
@@ -589,6 +601,21 @@ class InterfaceDebugPanel(QWidget):
         base_row.addWidget(self.rt_fill_btn)
         dl.addLayout(base_row)
 
+        # URL 过滤规则行
+        filter_row = QHBoxLayout()
+        filter_label = QLabel('过滤')
+        filter_row.addWidget(filter_label)
+        self.rt_url_filter_edit = QLineEdit()
+        self.rt_url_filter_edit.setPlaceholderText('网关前缀，逗号分隔，如 /prpcar-api/car')
+        prefixes = self._config.get('url_filter_prefixes') or []
+        self.rt_url_filter_edit.setText(', '.join(prefixes))
+        filter_row.addWidget(self.rt_url_filter_edit, 1)
+        self.rt_url_filter_save_btn = QPushButton()
+        apply_button(self.rt_url_filter_save_btn, 'secondary', compact=True, icon='save', icon_size=14)
+        self.rt_url_filter_save_btn.clicked.connect(self._save_url_filter_prefixes)
+        filter_row.addWidget(self.rt_url_filter_save_btn)
+        dl.addLayout(filter_row)
+
         method_row = QHBoxLayout()
         self.rt_method = QComboBox()
         self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
@@ -671,6 +698,13 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_lib_load_btn, 'secondary', compact=True, icon='refresh', icon_size=14)
         self.rt_lib_load_btn.clicked.connect(self._rt_lib_apply_selected)
         lib_btn_row.addWidget(self.rt_lib_load_btn)
+        self.rt_lib_resend_btn = QPushButton('复制并重发')
+        self.rt_lib_resend_btn.setObjectName('btn-ghost')
+        self.rt_lib_resend_btn.setFixedHeight(28)
+        self.rt_lib_resend_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rt_lib_resend_btn.setToolTip('加载选中条目到表单并立即发送')
+        self.rt_lib_resend_btn.clicked.connect(self._rt_lib_resend_selected)
+        lib_btn_row.addWidget(self.rt_lib_resend_btn)
         self.rt_lib_del_btn = QPushButton()
         apply_button(self.rt_lib_del_btn, 'ghost', compact=True, icon='delete', icon_size=14)
         self.rt_lib_del_btn.clicked.connect(self._rt_lib_delete_selected)
@@ -2245,10 +2279,14 @@ class InterfaceDebugPanel(QWidget):
             if not silent:
                 show_warning(self, '请求测试', '请先在左侧列表选择一条会话')
             return
-        from tools.iface_request_test import fill_request_form_from_item, plaintext_bodies
+        from tools.iface_request_test import fill_request_form_from_item, plaintext_bodies, strip_url_prefixes
         base = self._selected_base_url()
         item = plaintext_bodies(rec)
         form = fill_request_form_from_item(item, base)
+        # 剥离网关前缀（如 /prpcar-api/car）
+        prefixes = self._config.get('url_filter_prefixes') or []
+        if prefixes and form.get('url'):
+            form['url'] = strip_url_prefixes(form['url'], prefixes)
         self._rt_apply_form(form)
         if not silent:
             self.detail_tabs.setCurrentWidget(self.draft_page)
@@ -2829,7 +2867,9 @@ class InterfaceDebugPanel(QWidget):
             act = menu.addAction(pin_action_label(pinned, self.language if hasattr(self, 'language') else 'zh'))
             act.triggered.connect(lambda _=False, it=item, p=pinned: self._rt_lib_toggle_pin(it, p))
             menu.addSeparator()
-        menu.addAction('加载到表单' if (getattr(self, 'language', 'zh') == 'zh') else 'Load', self._rt_lib_apply_selected)
+        zh = getattr(self, 'language', 'zh') == 'zh'
+        menu.addAction('加载到表单' if zh else 'Load', self._rt_lib_apply_selected)
+        menu.addAction('复制并重发' if zh else 'Copy & Resend', self._rt_lib_resend_selected)
         menu.exec(self.rt_lib_list.viewport().mapToGlobal(point))
 
     def _rt_lib_toggle_pin(self, item, currently_pinned):
@@ -2860,6 +2900,24 @@ class InterfaceDebugPanel(QWidget):
         else:
             self._rt_editing_api_id = ''
         show_success(self, '请求测试', f'已加载：{item.get("name") or item.get("url") or ""}')
+
+    def _rt_lib_resend_selected(self, *_args):
+        """加载选中条目到表单并立即发送。"""
+        from tools.iface_request_library import form_fields_from_item
+        item = self._rt_lib_selected_item()
+        if not item:
+            show_warning(self, '请求测试', '请先选择一条接口或历史')
+            return
+        form = form_fields_from_item(item)
+        if not form.get('base_host'):
+            form['base_host'] = self.rt_base_edit.text() if hasattr(self, 'rt_base_edit') else ''
+        self._rt_apply_form(form)
+        if self._rt_lib_mode_value() == 'library':
+            self._rt_editing_api_id = item.get('id') or ''
+        else:
+            self._rt_editing_api_id = ''
+        # 立即发送
+        self._rt_send()
 
     def _rt_collect_form_snapshot(self) -> dict:
         return {
@@ -3112,6 +3170,14 @@ class InterfaceDebugPanel(QWidget):
         except Exception:
             pass
 
+    def _save_url_filter_prefixes(self):
+        """保存 URL 过滤前缀到配置。"""
+        raw = self.rt_url_filter_edit.text().strip()
+        prefixes = [p.strip() for p in raw.split(',') if p.strip()]
+        self._config['url_filter_prefixes'] = prefixes
+        save_interface_debug_config(self._config)
+        show_success(self, 'URL 过滤', f'已保存 {len(prefixes)} 条过滤规则')
+
     def _rt_save_current_as_env(self):
         """把当前 Base 保存为环境（有选中则更新，否则新建）。"""
         from PyQt6.QtWidgets import QInputDialog
@@ -3223,6 +3289,18 @@ class InterfaceDebugPanel(QWidget):
         if s in ('cdp', 'chromium'):
             return 'Chromium'
         return source or '—'
+
+    def _toggle_session_list(self):
+        """隐藏/显示会话列表（mid_splitter 左侧）。"""
+        w = getattr(self, '_session_list_widget', None)
+        if w is None:
+            return
+        if w.isVisible():
+            w.setVisible(False)
+            self._toggle_list_btn.setText('显示')
+        else:
+            w.setVisible(True)
+            self._toggle_list_btn.setText('隐藏')
 
     def apply_layout_mode(self, mode, low_height=False):
         self._layout_mode = mode

@@ -24,6 +24,7 @@ DEFAULT_CATEGORY_NAME = '未分类'
 MAX_HISTORY = 100
 MAX_BODY_CHARS = 200_000
 MAX_RESP_PREVIEW = 2_000
+MAX_RESP_FULL = 500_000
 LIBRARY_VERSION = 1
 
 
@@ -105,6 +106,7 @@ def _normalize_history(item: Any) -> Optional[dict]:
         'ok': bool(item.get('ok')) if item.get('ok') is not None else None,
         'error': str(item.get('error') or ''),
         'response_preview': _clip(str(item.get('response_preview') or ''), MAX_RESP_PREVIEW),
+        'response_body': _clip(str(item.get('response_body') or ''), MAX_RESP_FULL),
         'duration_ms': _safe_int(item.get('duration_ms'), 0),
     }
 
@@ -456,6 +458,7 @@ def build_history_from_send(
         'ok': ok,
         'error': error or '',
         'response_preview': _clip(response_body or '', MAX_RESP_PREVIEW),
+        'response_body': _clip(response_body or '', MAX_RESP_FULL),
         'duration_ms': duration_ms or 0,
     }
 
@@ -472,7 +475,7 @@ def form_fields_from_item(item: dict) -> dict:
         'body': item.get('body') or '',
         'category_id': item.get('category_id') or UNCATEGORIZED_ID,
         'name': item.get('name') or '',
-        'response_body_sample': item.get('response_preview') or '',
+        'response_body_sample': item.get('response_body') or item.get('response_preview') or '',
     }
 
 

@@ -67,6 +67,46 @@ def rewrite_url_with_base(original_url: str, base_host: str) -> str:
     ))
 
 
+def strip_url_prefixes(url: str, prefixes: list) -> str:
+    """剥离 URL path 中的网关前缀。
+
+    例：url='http://10.128.24.46:18888/prpcar-api/car/endorse/delete'
+        prefixes=['/prpcar-api/car']
+        → 'http://10.128.24.46:18888/endorse/delete'
+
+    仅剥离 path 开头匹配的前缀，保留 query。
+    """
+    if not url or not prefixes:
+        return url or ''
+    parsed = urlparse(url)
+    path = parsed.path or '/'
+    for prefix in prefixes:
+        p = str(prefix or '').strip()
+        if not p:
+            continue
+        # 统一格式：确保以 / 开头
+        if not p.startswith('/'):
+            p = '/' + p
+        # 去掉末尾斜杠
+        p = p.rstrip('/')
+        if not p:
+            continue
+        if path.startswith(p + '/'):
+            path = path[len(p):]
+            break
+        elif path == p:
+            path = '/'
+            break
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        path or '/',
+        '',
+        parsed.query or '',
+        '',
+    ))
+
+
 def _looks_hex_key(value: str) -> bool:
     s = re.sub(r'\s+', '', value or '')
     if len(s) < 64 or len(s) % 2:

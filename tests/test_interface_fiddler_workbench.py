@@ -178,6 +178,28 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p._records, [])
         self.assertEqual(p._records_by_id, {})
 
+    def test_strip_url_prefixes(self):
+        from tools.iface_request_test import strip_url_prefixes
+        # 基本剥离
+        url = 'http://10.128.24.46:18888/prpcar-api/car/endorse/main/delete/endorse'
+        result = strip_url_prefixes(url, ['/prpcar-api/car'])
+        self.assertEqual(result, 'http://10.128.24.46:18888/endorse/main/delete/endorse')
+        # 保留 query
+        url2 = 'http://host:18888/prpcar-api/car/endorse?id=1'
+        result2 = strip_url_prefixes(url2, ['/prpcar-api/car'])
+        self.assertEqual(result2, 'http://host:18888/endorse?id=1')
+        # 无匹配前缀不变
+        url3 = 'http://host:18888/api/endorse'
+        result3 = strip_url_prefixes(url3, ['/prpcar-api/car'])
+        self.assertEqual(result3, 'http://host:18888/api/endorse')
+        # 空前缀列表不变
+        result4 = strip_url_prefixes(url, [])
+        self.assertEqual(result4, url)
+        # 多个前缀匹配第一个
+        url5 = 'http://host/gw/api/test'
+        result5 = strip_url_prefixes(url5, ['/prpcar-api/car', '/gw'])
+        self.assertEqual(result5, 'http://host/api/test')
+
 
 if __name__ == '__main__':
     unittest.main()

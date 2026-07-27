@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
     'proxy_restore_snapshot': None,
     'recent_browser_paths': [],
     'ui_prefs': dict(DEFAULT_UI_PREFS),
+    'url_filter_prefixes': [],
 }
 
 
@@ -141,6 +142,16 @@ def normalize_interface_debug_config(data=None) -> dict:
             cleaned.append(s)
     result['recent_browser_paths'] = cleaned[:8]
     result['ui_prefs'] = _normalize_ui_prefs(result.get('ui_prefs'))
+    # URL 过滤前缀：规范化为 list[str]
+    raw_prefixes = result.get('url_filter_prefixes')
+    if not isinstance(raw_prefixes, list):
+        raw_prefixes = []
+    cleaned_prefixes = []
+    for p in raw_prefixes:
+        s = str(p or '').strip()
+        if s and s not in cleaned_prefixes:
+            cleaned_prefixes.append(s)
+    result['url_filter_prefixes'] = cleaned_prefixes
     # setdefault 兼容：确保关键字段始终存在
     for key, default in DEFAULT_CONFIG.items():
         result.setdefault(key, default)

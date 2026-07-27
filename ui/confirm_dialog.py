@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
 )
+import random
 
 from ui.design_system import apply_button
 from ui.icons import make_badge_label, apply_icon
@@ -145,8 +146,28 @@ class _CloseOptionCard(QFrame):
 class CloseActionDialog(QDialog):
     """关闭主窗口决策：隐藏托盘 / 退出；可勾选「不再提示」。
 
-    精简版：两个按钮同一行 + 底部勾选框与取消同一行，无 hover 高亮。
+    幽默版：随机展示一条贴合接口排查场景的搞笑提示语。
     """
+
+    _FUNNY_LINES_ZH = [
+        '接口还没排查完，你就要跑了？\n跑得了和尚跑不了报文啊！',
+        '别走啊！你的 Bug 还在等你修呢，它说它想你了！',
+        '500 个请求里还有 499 个没看，确定要辜负它们吗？',
+        '你的报文们在哭泣：「主人，别丢下我们！」',
+        '再排查一个接口嘛，就一个！好不好嘛～',
+        'Exit？这个单词太伤感情了，要不要改成 Stay？',
+        '确认退出？所有未保存的排查记录将化作一道彩虹飞走～',
+        '接口排查工具申请添加你为好友，验证消息：别走！',
+        '你忍心让你的 200 OK 变成 404 Not Found 吗？',
+        'Bug 们正在开派对庆祝你离开，确定要走吗？',
+    ]
+    _FUNNY_LINES_EN = [
+        'Your API bugs are waving goodbye... with middle fingers.',
+        '500 requests? You\'ve only checked 1. Quitter!',
+        'Exit? How about "Strategic Retreat" instead?',
+        'Your packets are crying in the corner right now.',
+        'One more API, just one! Pretty please?',
+    ]
 
     def __init__(self, language='zh', default_action='minimize', parent=None):
         super().__init__(parent)
@@ -169,6 +190,13 @@ class CloseActionDialog(QDialog):
         title = QLabel(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         title.setObjectName('confirm-title')
         root.addWidget(title)
+
+        # —— 幽默提示语（随机一条）——
+        lines = self._FUNNY_LINES_ZH if zh else self._FUNNY_LINES_EN
+        funny = QLabel(random.choice(lines))
+        funny.setObjectName('confirm-message')
+        funny.setWordWrap(True)
+        root.addWidget(funny)
 
         # —— 两个按钮同一行 ——
         btn_row = QHBoxLayout()
