@@ -250,7 +250,7 @@ class ServerEditorDialog(QDialog):
         self.setMinimumHeight(520)
         self.resize(720, 580)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
         title = QLabel(self.windowTitle())
         title.setObjectName('dialog-title')
@@ -270,7 +270,7 @@ class ServerEditorDialog(QDialog):
         # 密码：可粘贴 + 可保存（DPAPI/Fernet 加密写入 data/）
         pwd_row = QHBoxLayout()
         pwd_row.setContentsMargins(0, 0, 0, 0)
-        pwd_row.setSpacing(6)
+        pwd_row.setSpacing(8)
         self.password_edit = PasswordLineEdit()
         size_line(self.password_edit, 'std')
         has_saved = bool(self._server.get('password_token'))
@@ -696,7 +696,7 @@ class ServerManageDialog(QDialog):
         self.setMinimumSize(640, 480)
         self.resize(720, 520)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
+        root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
         title = QLabel('管理服务器' if zh else 'Manage servers')
         title.setObjectName('dialog-title')
@@ -888,7 +888,7 @@ class CommandHistoryDialog(QDialog):
         self.setMinimumSize(560, 420)
         self.resize(620, 480)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
+        root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(10)
         title = QLabel('命令历史' if zh else 'Command history')
         title.setObjectName('dialog-title')
@@ -1525,7 +1525,7 @@ class OpsLogPanel(QWidget):
         apply_surface(frame, 'card')
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
         return frame, layout
 
     def _setup_ui(self):
@@ -1595,7 +1595,7 @@ class OpsLogPanel(QWidget):
 
         # —— 当前主机（管理走弹框，不在模块内展开）——
         left, left_l = self._card()
-        left_l.setSpacing(6)
+        left_l.setSpacing(8)
         pick_row = QHBoxLayout()
         self.server_title = QLabel()
         self.server_title.setObjectName('section-title')
@@ -1912,7 +1912,7 @@ class OpsLogPanel(QWidget):
         right_host.setObjectName('ops-right-panel')
         right_l = QVBoxLayout(right_host)
         right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(6)
+        right_l.setSpacing(8)
 
         top_bar = QHBoxLayout()
         self.console_title = QLabel()
@@ -1940,7 +1940,7 @@ class OpsLogPanel(QWidget):
         right_l.addLayout(top_bar)
 
         cmd_row = QHBoxLayout()
-        cmd_row.setSpacing(6)
+        cmd_row.setSpacing(8)
         self.cmd_input = QLineEdit()
         size_line(self.cmd_input, 'std')
         self.cmd_input.setPlaceholderText('输入命令后点发送，或打开历史…')

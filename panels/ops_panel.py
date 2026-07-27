@@ -188,7 +188,7 @@ class OpsPanel(QWidget):
         right_container = QWidget()
         right_container_layout = QVBoxLayout(right_container)
         right_container_layout.setContentsMargins(0, 0, 0, 0)
-        right_container_layout.setSpacing(6)
+        right_container_layout.setSpacing(8)
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setFrameShape(QFrame.Shape.NoFrame)

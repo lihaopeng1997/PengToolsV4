@@ -93,7 +93,7 @@ class DashboardPanel(QWidget):
         self._mode = 'standard'
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(0, 0, 0, 0)
-        self._root.setSpacing(14)
+        self._root.setSpacing(12)
         layout = self._root
 
         self.local_status = QLabel()
@@ -108,7 +108,7 @@ class DashboardPanel(QWidget):
 
         # 两列任务卡（方向可随模式切换）
         self.tasks_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
-        self.tasks_row.setSpacing(14)
+        self.tasks_row.setSpacing(12)
 
         self.recent_card = QFrame()
         self.recent_card.setObjectName('dashboard-task-card')

@@ -175,7 +175,7 @@ QLabel#docx-template-status[matched="true"] {
     color: __PRIMARY_ACTIVE__; background: __PRIMARY_SOFT__; border: 1px solid __PRIMARY_SOFT__;
     border-radius: 12px; padding: 8px;
 }
-#ops-title { color: __TEXT_STRONG__; font-size: 15px; font-weight: 750; }
+#ops-title { color: __TEXT_STRONG__; font-size: 16px; font-weight: 750; }
 QLabel#requirement-flags {
     color: __PRIMARY_ACTIVE__;
     background: __PRIMARY_SOFT__;
@@ -269,7 +269,7 @@ QPushButton#nav-btn, QPushButton#nav-btn-settings {
     background: transparent;
     color: __TEXT_NAV__;
     border: none;
-    border-radius: 9px;
+    border-radius: 10px;
     padding: 10px 12px;
     text-align: left;
     font-size: 14px;
@@ -351,7 +351,7 @@ QFrame#release-generate-zone QLabel#zone-title-inline { border-left-color: __SUC
 /* —— 输入 / 下拉 / 多行：统一高度、圆角、焦点环 —— */
 QComboBox, QLineEdit, QTextEdit, QPlainTextEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 9px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 10px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
     min-height: 18px;
 }
@@ -642,7 +642,7 @@ QFrame#req-sql-card {
 QListWidget#docx-doc-list {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 9px;
+    border-radius: 10px;
     padding: 4px;
 }
 QListWidget#docx-doc-list::item {
@@ -659,7 +659,7 @@ QListWidget#docx-doc-list::item:selected:!active {
 QTreeWidget#docx-output-browser {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 9px;
+    border-radius: 10px;
     alternate-background-color: __SURFACE_SOFT__;
 }
 QTreeWidget#docx-output-browser::item {
@@ -752,7 +752,7 @@ QFrame#detail-action-card {
 QFrame#ops-list-card {
     background: __SURFACE__;
     border: 1px solid __APP_BG__;
-    border-radius: 14px;
+    border-radius: 12px;
 }
 QFrame#detail-summary-card {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
@@ -1085,7 +1085,7 @@ QComboBox#table-combo, QComboBox#release-extra-system {
     min-height: 24px;
     max-height: 30px;
     padding: 3px 28px 3px 8px;
-    border-radius: 7px;
+    border-radius: 8px;
     border: 1px solid __BORDER__;
     background: __SURFACE__;
 }
@@ -1144,7 +1144,7 @@ QLabel#notice-badge-info,
 QLabel#notice-badge-success,
 QLabel#notice-badge-warning,
 QLabel#notice-badge-error {
-    border-radius: 22px;
+    border-radius: 16px;
     font-size: 18px;
     font-weight: 800;
     color: __SURFACE__;
@@ -1171,7 +1171,7 @@ QMessageBox QPushButton {
 
 QDateEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 9px; padding: 7px 38px 7px 11px;
+    border-radius: 10px; padding: 7px 38px 7px 11px;
     min-width: 150px; max-width: 160px; min-height: 18px; max-height: 34px;
     selection-background-color: __PRIMARY__; selection-color: __SURFACE__;
 }
@@ -1187,7 +1187,7 @@ QDateEdit::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 1
 QCalendarWidget { background: __SURFACE__; border: 1px solid __BORDER__; }
 QCalendarWidget QWidget#qt_calendar_navigationbar { background: __PRIMARY__; }
 QCalendarWidget QToolButton {
-    color: __ON_PRIMARY__; background: transparent; border: none; border-radius: 7px;
+    color: __ON_PRIMARY__; background: transparent; border: none; border-radius: 8px;
     padding: 6px; font-weight: 700;
 }
 QCalendarWidget QToolButton:hover { background: __PRIMARY_SOFT__; color: __PRIMARY_ACTIVE__; }
@@ -1201,7 +1201,7 @@ QCalendarWidget QAbstractItemView:enabled {
 }
 QGroupBox {
     background: __SURFACE__; color: __TEXT_MUTED__; font-weight: 700;
-    border: 1px solid __BORDER__; border-radius: 13px; margin-top: 10px; padding: 16px 12px 12px;
+    border: 1px solid __BORDER__; border-radius: 12px; margin-top: 10px; padding: 16px 12px 12px;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: __PRIMARY_ACTIVE__; }
 /* —— 表格 / 树 全局基线（模块专属 #id 规则可继续覆盖）—— */
@@ -1387,7 +1387,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     background: __SURFACE__;
 }
 #card-eyebrow { color: #6879D5; font-size: 10px; font-weight: 700; }
-#card-title { color: #1C2940; font-size: 19px; font-weight: 700; }
+#card-title { color: #1C2940; font-size: 20px; font-weight: 700; }
 #card-description { color: #748097; }
 #shortcut-hint { color: #68758B; background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 12px; padding: 11px; }
 #floating-toolbar {
@@ -1398,7 +1398,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 #floating-toolbar[compact="true"] {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 14px;
+    border-radius: 12px;
 }
 QPushButton#floating-toggle {
     background: __SURFACE__;
@@ -1536,7 +1536,7 @@ QDateEdit#docx-date {
     background: __SURFACE__;
     color: __TEXT_STRONG__;
     border: 1px solid #CDD6FF;
-    border-radius: 9px;
+    border-radius: 10px;
     padding: 7px 38px 7px 11px;
     min-width: 150px;
     max-width: 160px;
@@ -1562,7 +1562,7 @@ QPushButton#docx-date-today {
     background: __PRIMARY__;
     color: __SURFACE__;
     border: none;
-    border-radius: 9px;
+    border-radius: 10px;
     padding: 8px 15px;
     font-weight: 700;
 }
@@ -1573,7 +1573,7 @@ QCalendarWidget#docx-calendar QToolButton {
     color: __ON_PRIMARY__;
     background: transparent;
     border: none;
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 6px;
     font-weight: 700;
 }
@@ -1703,7 +1703,7 @@ QLabel#ops-safety-note {
 QFrame#ops-list-card, QFrame#ops-param-card {
     background: __SURFACE__;
     border: 1px solid #E2E7F0;
-    border-radius: 13px;
+    border-radius: 12px;
 }
 QListWidget#ops-command-list {
     background: __SURFACE__;
@@ -1722,12 +1722,12 @@ QListWidget#ops-command-list::item:selected {
     color: __PRIMARY_ACTIVE__;
     border-left: 3px solid __PRIMARY__;
 }
-QLabel#ops-title { color: __TEXT_STRONG__; font-size: 21px; font-weight: 800; }
+QLabel#ops-title { color: __TEXT_STRONG__; font-size: 20px; font-weight: 800; }
 QLabel#ops-description {
     color: __TEXT_MUTED__;
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 11px;
+    border-radius: 12px;
     padding: 12px;
 }
 QLabel#ops-category-badge {
@@ -1760,7 +1760,7 @@ QLabel#private-sensitive-badge {
   color: __WARNING__;
   background: __WARNING_BG__;
   border: 1px solid __WARNING_BORDER__;
-  border-radius: 9px;
+  border-radius: 10px;
   padding: 3px 8px;
   font-weight: 700;
 }
@@ -1768,7 +1768,7 @@ QLabel#requirement-flags {
   color: __PRIMARY_ACTIVE__;
   background: __PRIMARY_SOFT__;
   border: 1px solid __BORDER__;
-  border-radius: 9px;
+  border-radius: 10px;
   padding: 7px 10px;
 }
 QLabel#ops-warning {
@@ -1792,7 +1792,7 @@ QPlainTextEdit#ops-preview {
     background: __INPUT_BG__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER_STRONG__;
-    border-radius: 11px;
+    border-radius: 12px;
     padding: 10px;
     selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
@@ -1905,7 +1905,7 @@ QPlainTextEdit:focus, QTextEdit:focus {
 QWidget#ssh-terminal-host {
     background: __TERM_BG__;
     border: 1px solid __TERM_BORDER__;
-    border-radius: 14px;
+    border-radius: 12px;
 }
 QPlainTextEdit#ssh-terminal {
     background: __TERM_BG__;
@@ -1968,13 +1968,13 @@ QWidget#ops-right-panel {
 QFrame#ops-term-card, QFrame#ops-result-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 14px;
+    border-radius: 12px;
 }
 /* 终端外壳：页面卡片色包住深色控制台，避免 sheet 割裂 */
 QFrame#ops-term-shell {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 14px;
+    border-radius: 12px;
 }
 /* 标签栏贴页面；选中与控制台衔接 */
 QTabWidget#ops-term-tabs::pane {

@@ -268,7 +268,7 @@ class MonthSelect(QWidget):
         year, month = parse_year_month(value)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
         self.year_spin = QSpinBox()
         self.year_spin.setRange(2000, 2099)
         self.year_spin.setValue(year)
@@ -300,7 +300,7 @@ class DateInput(QWidget):
     def __init__(self, value='', month_only=False, parent=None):
         super().__init__(parent)
         self.month_only = month_only
-        layout = QHBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
+        layout = QHBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
         self.edit = QLineEdit(value)
         self.edit.setObjectName('date-input-edit')
         size_date(self.edit, month=month_only)
@@ -1013,7 +1013,7 @@ class RequirementPanel(QWidget):
         filter_card = QFrame()
         filter_card.setObjectName('req-filter-card')
         filters = QHBoxLayout(filter_card)
-        filters.setContentsMargins(12, 9, 12, 9)
+        filters.setContentsMargins(12, 8, 12, 8)
         filters.setSpacing(8)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText('搜索编号、标题、系统…（支持拼音/首字母）')
@@ -1039,9 +1039,9 @@ class RequirementPanel(QWidget):
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)
         left.setMinimumWidth(200)
         left_layout.setContentsMargins(10, 10, 10, 10)
-        left_layout.setSpacing(7)
+        left_layout.setSpacing(8)
         tree_head = QHBoxLayout()
-        tree_head.setSpacing(6)
+        tree_head.setSpacing(8)
         tree_title = QLabel('需求目录')
         tree_title.setObjectName('zone-title')
         tree_head.addWidget(tree_title)
@@ -1053,7 +1053,7 @@ class RequirementPanel(QWidget):
         # 单行工具栏：全选 | 删除 | stretch | 展开 | 折叠（设计文档硬性要求，禁止拆两行）
         tree_tools = QHBoxLayout()
         tree_tools.setContentsMargins(0, 0, 0, 0)
-        tree_tools.setSpacing(6)
+        tree_tools.setSpacing(8)
         self.select_all_check = QCheckBox('全选')
         self.select_all_check.stateChanged.connect(self._select_all_requirements)
         self.batch_delete_btn = QPushButton('删除')
@@ -1143,7 +1143,7 @@ class RequirementPanel(QWidget):
         card = QVBoxLayout(self.detail_card)
         # 底部多留空隙，避免完成标记按钮下边框贴卡底被裁
         card.setContentsMargins(10, 8, 10, 12)
-        card.setSpacing(6)
+        card.setSpacing(8)
         head = QHBoxLayout(); head.setSpacing(8)
         title_col = QVBoxLayout()
         title_col.setSpacing(0)
@@ -1259,8 +1259,8 @@ class RequirementPanel(QWidget):
         file_section.setObjectName('req-file-card')
         file_layout = QVBoxLayout(file_section)
         file_layout.setContentsMargins(12, 10, 12, 10)
-        file_layout.setSpacing(7)
-        file_head = QHBoxLayout(); file_head.setSpacing(6)
+        file_layout.setSpacing(8)
+        file_head = QHBoxLayout(); file_head.setSpacing(8)
         self.file_lib_title = QLabel('文件库')
         self.file_lib_title.setObjectName('zone-title')
         file_head.addWidget(self.file_lib_title)
@@ -1279,10 +1279,10 @@ class RequirementPanel(QWidget):
         action_card.setObjectName('detail-action-card')
         action_outer = QVBoxLayout(action_card)
         action_outer.setContentsMargins(8, 6, 8, 6)
-        action_outer.setSpacing(6)
+        action_outer.setSpacing(8)
 
         browse_row = QHBoxLayout()
-        browse_row.setSpacing(6)
+        browse_row.setSpacing(8)
         self.open_folder_btn = QPushButton('打开目录')
         self.open_folder_btn.clicked.connect(self._open_folder)
         self.refresh_svn_btn = QPushButton('刷新')
@@ -1304,7 +1304,7 @@ class RequirementPanel(QWidget):
         action_outer.addLayout(browse_row)
 
         vcs_row = QHBoxLayout()
-        vcs_row.setSpacing(6)
+        vcs_row.setSpacing(8)
         self.vcs_scope_label = QLabel('范围')
         self.vcs_scope_label.setObjectName('small-label')
         self.vcs_scope_combo = QComboBox()
@@ -1367,7 +1367,7 @@ class RequirementPanel(QWidget):
 
         # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描）
         file_tools = QHBoxLayout()
-        file_tools.setSpacing(6)
+        file_tools.setSpacing(8)
         self.file_search_edit = QLineEdit()
         self.file_search_edit.setClearButtonEnabled(True)
         self.file_search_edit.setPlaceholderText('搜索文件名 / 路径 / 类型 / 扩展名 / 需求号…（支持拼音）')
@@ -1455,8 +1455,8 @@ class RequirementPanel(QWidget):
         sql_section.setObjectName('req-sql-card')
         sql_layout = QVBoxLayout(sql_section)
         sql_layout.setContentsMargins(12, 10, 12, 10)
-        sql_layout.setSpacing(7)
-        sql_head = QHBoxLayout(); sql_head.setSpacing(6)
+        sql_layout.setSpacing(8)
+        sql_head = QHBoxLayout(); sql_head.setSpacing(8)
         sql_head.addStretch()
         self.sql_btn = QPushButton('打开发版联动'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
         self.sql_btn.setProperty('compactAction', True)
@@ -1502,7 +1502,7 @@ class RequirementPanel(QWidget):
         self.actions_card = QFrame(); self.actions_card.hide()
 
         # 右侧：上摘要紧凑（按内容），下文件库占满剩余；无垂直拖动分栏
-        detail.setSpacing(6)
+        detail.setSpacing(8)
         detail.addWidget(self.detail_card, 0)
         detail.addWidget(self.detail_tabs, 1)
         # 兼容旧测试/引用名：指向右侧内容区（非可拖动 splitter）

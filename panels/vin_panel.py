@@ -26,7 +26,7 @@ class VinPanel(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
         self.settings = QGroupBox()
         row = QHBoxLayout(self.settings)
