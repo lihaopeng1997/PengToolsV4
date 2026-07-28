@@ -20,8 +20,8 @@ _DEFAULT_WIDTH = 80
 _MIN_WIDTH = 48
 _MAX_WIDTH = 160
 _RESIZE_GRIP = 5
-_VIEWPORT_MIN_H = 24   # 视口框最小视觉高度
-_VIEWPORT_HIT_PAD = 12  # 视口框点击命中容差（上下各加这么多像素）
+_VIEWPORT_MIN_H = 36   # 视口框最小视觉高度
+_VIEWPORT_HIT_PAD = 14  # 视口框点击命中容差（上下各加这么多像素）
 
 _KEY_LINE = re.compile(r'^\s*"[^"]+"\s*:')
 _NUM_LINE = re.compile(r'^\s*-?\d')
