@@ -123,6 +123,14 @@ class InteractiveShell:
                 chan.set_combine_stderr(True)
             except Exception:
                 pass
+            # invoke_shell 返回后仍须校验通道：部分服务器会立即关闭不支持的 PTY，
+            # 此时不能把它暴露为“已就绪”的交互终端。
+            if bool(getattr(chan, 'closed', False)):
+                try:
+                    chan.close()
+                except Exception:
+                    pass
+                raise OpsSshError('交互终端通道已关闭')
             self._channel = chan
         except Exception as exc:
             self._channel = None

@@ -2896,6 +2896,36 @@ class OpsLogPanel(QWidget):
                 show_warning(self, 'PengTools', '会话标签已关闭，连接已取消' if zh else 'Tab closed')
                 return
             sess = self._term_sessions[tab_index]
+            term = sess.get('widget')
+            # FinalShell/MobaXterm 式会话边界：SSH 连通不等于交互 PTY 就绪。
+            # 先为“目标标签”申请并核验 PTY，成功后才提交会话状态并开放键盘输入。
+            try:
+                if term is None:
+                    raise OpsSshError('终端控件不可用')
+                term.attach_client(payload['client'])
+                if not term.shell_alive:
+                    raise OpsSshError('交互终端通道未就绪')
+            except Exception as exc:
+                try:
+                    if term is not None:
+                        term.detach()
+                except Exception:
+                    pass
+                try:
+                    close_ssh_client(payload.get('client'))
+                except Exception:
+                    pass
+                sess['client'] = None
+                sess['connected'] = False
+                sess['remote_entries'] = []
+                if self.term_tabs.currentIndex() == tab_index:
+                    self._set_session_connected(False)
+                    self._update_session_status_label(sess)
+                self._console_append(
+                    f'[终端启动失败] {exc}；本标签未建立交互会话，请重试连接'
+                )
+                return
+
             if sess.get('client') is not None and sess.get('client') is not payload['client']:
                 try:
                     close_ssh_client(sess.get('client'))
@@ -2913,13 +2943,7 @@ class OpsLogPanel(QWidget):
             if self.term_tabs.currentIndex() == tab_index:
                 self.path_edit.setText(sess['remote_cwd'])
                 self._fill_remote_tree(sess['remote_entries'])
-                try:
-                    term = sess.get('widget') or self._current_terminal()
-                    if term is not None:
-                        term.attach_client(sess['client'])
-                    self._refresh_service_combo(payload['server'])
-                except Exception as exc:
-                    self._console_append(f'[终端启动失败] {exc}')
+                self._refresh_service_combo(payload['server'])
                 if payload['server'].get('default_log_path') and not self.log_path_edit.text().strip():
                     self.log_path_edit.setText(str(payload['server'].get('default_log_path')))
                     sess['log_path'] = str(payload['server'].get('default_log_path'))
@@ -2928,19 +2952,11 @@ class OpsLogPanel(QWidget):
                 self._set_work_mode('session')
                 self._refresh_log_file_combo()
                 self._refresh_output_context()
-                term = self._current_terminal()
-                if term is not None:
-                    term.setFocus()
+                term.setFocus()
             else:
-                try:
-                    term = sess.get('widget')
-                    if term is not None:
-                        term.attach_client(sess['client'])
-                        view = getattr(term, 'view', None)
-                        if view is not None and hasattr(view, 'set_ui_active'):
-                            view.set_ui_active(False)
-                except Exception as exc:
-                    self._console_append(f'[终端启动失败·后台标签] {exc}')
+                view = getattr(term, 'view', None)
+                if view is not None and hasattr(view, 'set_ui_active'):
+                    view.set_ui_active(False)
             self._console_append(
                 f"[OK] 会话{tab_index + 1} 已连接 {payload['server'].get('name')}，cwd {payload['cwd']}"
             )

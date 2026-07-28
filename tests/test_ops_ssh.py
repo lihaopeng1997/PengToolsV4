@@ -49,6 +49,31 @@ class OpsSshTests(unittest.TestCase):
         self.assertIn('\x08', text)
         self.assertEqual(text, 'ab\x08 \x08c')
 
+    def test_terminal_attach_rejects_closed_pty_channel(self):
+        """PTY 申请后若已关闭，不得被上层当作可交互终端。"""
+        from tools.ops_ssh_shell import InteractiveShell
+
+        class ClosedChannel:
+            closed = True
+
+            def settimeout(self, _timeout):
+                pass
+
+            def set_combine_stderr(self, _enabled):
+                pass
+
+            def close(self):
+                pass
+
+        class Client:
+            def invoke_shell(self, **_kwargs):
+                return ClosedChannel()
+
+        shell = InteractiveShell()
+        with self.assertRaises(OpsSshError):
+            shell.attach_client(Client())
+        self.assertFalse(shell.alive)
+
     def test_password_roundtrip_not_plain(self):
         token = encrypt_secret('p@ss-测试')
         self.assertFalse(token.startswith('p@ss'))
