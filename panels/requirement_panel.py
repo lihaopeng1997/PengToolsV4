@@ -2303,7 +2303,7 @@ class RequirementPanel(QWidget):
         try:
             from ui.search_highlight import apply_text_highlights, clear_text_highlights
             if query and has_sql:
-                apply_text_highlights(self.sql_preview, query, select_first=True)
+                apply_text_highlights(self.sql_preview, query, select_first=True, take_focus=False)
             else:
                 clear_text_highlights(self.sql_preview)
         except Exception:

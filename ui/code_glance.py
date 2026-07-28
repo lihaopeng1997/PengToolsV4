@@ -20,6 +20,8 @@ _DEFAULT_WIDTH = 80
 _MIN_WIDTH = 48
 _MAX_WIDTH = 160
 _RESIZE_GRIP = 5
+_VIEWPORT_MIN_H = 16   # 视口框最小视觉高度
+_VIEWPORT_HIT_PAD = 8  # 视口框点击命中容差（上下各加这么多像素）
 
 _KEY_LINE = re.compile(r'^\s*"[^"]+"\s*:')
 _NUM_LINE = re.compile(r'^\s*-?\d')
@@ -239,7 +241,7 @@ class CodeGlanceBar(QWidget):
         # 视口框
         start, end = self._viewport_fraction()
         vy0 = int(start * h)
-        vy1 = max(vy0 + 4, int(end * h))
+        vy1 = max(vy0 + _VIEWPORT_MIN_H, int(end * h))
         view_rect = QRect(1, vy0, self.width() - 2, vy1 - vy0)
         painter.fillRect(view_rect, view_fill)
         painter.setPen(QPen(view_border, 1))
@@ -265,7 +267,9 @@ class CodeGlanceBar(QWidget):
     def _hit_viewport(self, y: float) -> bool:
         start, end = self._viewport_fraction()
         h = max(1, self.height())
-        return start * h - 2 <= y <= end * h + 2
+        vy0 = start * h
+        vy1 = max(vy0 + _VIEWPORT_MIN_H, end * h)
+        return vy0 - _VIEWPORT_HIT_PAD <= y <= vy1 + _VIEWPORT_HIT_PAD
 
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:

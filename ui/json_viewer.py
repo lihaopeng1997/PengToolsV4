@@ -392,7 +392,7 @@ class JsonViewer(QWidget):
             self._matches = list(self._text_spans)
             if self._matches:
                 self._match_index = 0
-                apply_text_match_index(self.text_edit, self._text_spans, 0)
+                apply_text_match_index(self.text_edit, self._text_spans, 0, take_focus=False)
         else:
             self._search_mode = 'tree'
             for item in self._all_items():

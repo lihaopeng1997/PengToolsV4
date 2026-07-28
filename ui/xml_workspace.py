@@ -391,9 +391,9 @@ class XmlWorkspace(QWidget):
             self.search_status.setText('0 / 0')
             return
         self._search_index = 0
-        self._apply_search_index()
+        self._apply_search_index(take_focus=False)
 
-    def _apply_search_index(self):
+    def _apply_search_index(self, *, take_focus: bool = True):
         if not self._search_hits:
             self.search_status.setText('0 / 0')
             return
@@ -417,7 +417,7 @@ class XmlWorkspace(QWidget):
                     if s == cur_start and e == cur_end:
                         local = i
                         break
-                apply_text_match_index(edit, spans, local)
+                apply_text_match_index(edit, spans, local, take_focus=take_focus)
             else:
                 sels = build_text_extra_selections(edit, spans, current_index=-1)
                 _set_edit_extra_selections(edit, sels)

@@ -190,8 +190,11 @@ def ensure_text_pos_unfolded(edit: TextEdit, pos: int) -> None:
             pass
 
 
-def focus_text_span(edit: TextEdit, start: int, end: int) -> None:
-    """跳转到文本区间并保证可见。"""
+def focus_text_span(edit: TextEdit, start: int, end: int, *, take_focus: bool = True) -> None:
+    """跳转到文本区间并保证可见。
+
+    take_focus=False 时仅滚动定位、不抢焦点（适用于搜索框实时输入场景）。
+    """
     if edit is None:
         return
     ensure_text_pos_unfolded(edit, start)
@@ -211,13 +214,14 @@ def focus_text_span(edit: TextEdit, start: int, end: int) -> None:
     caret.setPosition(int(start))
     edit.setTextCursor(caret)
     edit.ensureCursorVisible()
-    try:
-        edit.setFocus(Qt.FocusReason.OtherFocusReason)
-    except Exception:
-        edit.setFocus()
+    if take_focus:
+        try:
+            edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        except Exception:
+            edit.setFocus()
 
 
-def apply_text_highlights(edit: TextEdit, query: str, *, select_first: bool = True) -> int:
+def apply_text_highlights(edit: TextEdit, query: str, *, select_first: bool = True, take_focus: bool = True) -> int:
     """在 QPlainTextEdit/QTextEdit 中高亮全部字面命中，并滚动到第一处。返回命中数。"""
     if edit is None:
         return 0
@@ -230,7 +234,7 @@ def apply_text_highlights(edit: TextEdit, query: str, *, select_first: bool = Tr
     selections = build_text_extra_selections(edit, spans, current_index=0)
     _set_edit_extra_selections(edit, selections)
     if select_first:
-        focus_text_span(edit, spans[0][0], spans[0][1])
+        focus_text_span(edit, spans[0][0], spans[0][1], take_focus=take_focus)
     return len(spans)
 
 
@@ -238,15 +242,20 @@ def apply_text_match_index(
     edit: TextEdit,
     spans: Sequence[tuple[int, int]],
     index: int,
+    *,
+    take_focus: bool = True,
 ) -> None:
-    """按索引高亮并跳转到某一处命中。"""
+    """按索引高亮并跳转到某一处命中。
+
+    take_focus=False 时仅高亮滚动、不抢焦点（适用于搜索框实时输入场景）。
+    """
     if edit is None or not spans:
         return
     idx = int(index) % len(spans)
     selections = build_text_extra_selections(edit, spans, current_index=idx)
     _set_edit_extra_selections(edit, selections)
     start, end = spans[idx]
-    focus_text_span(edit, start, end)
+    focus_text_span(edit, start, end, take_focus=take_focus)
 
 
 def status_text(matched: int, total: Optional[int] = None, language: str = 'zh') -> str:

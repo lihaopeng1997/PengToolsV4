@@ -562,12 +562,12 @@ class KnowledgeTab(QWidget):
             return
         if entry and entry.get('content_type') == 'word_document':
             if query:
-                apply_text_highlights(self.word_view, query, select_first=True)
+                apply_text_highlights(self.word_view, query, select_first=True, take_focus=False)
             else:
                 clear_text_highlights(self.word_view)
             return
         if query:
-            n = apply_text_highlights(self.content_view, query, select_first=True)
+            n = apply_text_highlights(self.content_view, query, select_first=True, take_focus=False)
             if n and hasattr(self, 'meta_label'):
                 base = self.meta_label.text()
                 if '正文命中' not in base:

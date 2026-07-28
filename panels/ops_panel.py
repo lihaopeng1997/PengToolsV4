@@ -482,9 +482,9 @@ class OpsPanel(QWidget):
         if query:
             self.title_label.setText(highlight_terms(title, query))
             self.description.setText(highlight_terms(desc, query))
-            apply_text_highlights(self.preview, query, select_first=True)
+            apply_text_highlights(self.preview, query, select_first=True, take_focus=False)
             if hasattr(self, 'output_explanation'):
-                apply_text_highlights(self.output_explanation, query, select_first=False)
+                apply_text_highlights(self.output_explanation, query, select_first=False, take_focus=False)
         else:
             self.title_label.setText(title)
             self.description.setText(desc)
@@ -510,7 +510,7 @@ class OpsPanel(QWidget):
         # 参数变更后保持搜索高亮
         if getattr(self, 'search_edit', None) and self.search_edit.text().strip():
             from ui.search_highlight import apply_text_highlights
-            apply_text_highlights(self.preview, self.search_edit.text().strip(), select_first=True)
+            apply_text_highlights(self.preview, self.search_edit.text().strip(), select_first=True, take_focus=False)
 
     def _copy_command(self):
         text = self.preview.toPlainText().strip()
