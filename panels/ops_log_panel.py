@@ -2563,13 +2563,15 @@ class OpsLogPanel(QWidget):
 
     def _current_server(self) -> dict | None:
         sid = None
-        item = self.server_list.currentItem() if hasattr(self, 'server_list') else None
-        if item:
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if isinstance(data, str) and not str(data).startswith('__cat__:'):
-                sid = data
-        if not sid and hasattr(self, 'server_combo'):
+        # 优先读用户实际操作的下拉框 server_combo
+        if hasattr(self, 'server_combo'):
             sid = self.server_combo.currentData()
+        if not sid:
+            item = self.server_list.currentItem() if hasattr(self, 'server_list') else None
+            if item:
+                data = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(data, str) and not str(data).startswith('__cat__:'):
+                    sid = data
         if not sid:
             return None
         for s in self._servers:
