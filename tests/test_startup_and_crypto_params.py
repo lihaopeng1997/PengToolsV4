@@ -54,6 +54,11 @@ class SingleInstanceNameTests(unittest.TestCase):
 
 
 class HighContrastIconTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
     def test_hc_ico_exists_and_window_icon(self):
         from ui.icons import brand_file, brand_window_icon, brand_tray_icon, icon_file
         hc = brand_file('app_taskbar') or icon_file('app_taskbar_hc')
@@ -66,6 +71,17 @@ class HighContrastIconTests(unittest.TestCase):
         self.assertFalse(win.isNull())
         tray = brand_tray_icon()
         self.assertFalse(tray.isNull())
+
+
+class ReleaseTaskbarIconTests(unittest.TestCase):
+    def test_release_definitions_embed_high_contrast_taskbar_icon(self):
+        expected = 'resources\\brand\\pengtools-taskbar-hc.ico'
+        for rel_path in ('scripts/build_release.ps1', 'PengToolsHub.spec'):
+            path = os.path.join(PROJECT_DIR, rel_path)
+            with open(path, 'r', encoding='utf-8') as fp:
+                content = fp.read()
+            normalized = content.replace('\\\\', '\\')
+            self.assertIn(expected, normalized, f'{rel_path} must embed the high-contrast taskbar icon')
 
 
 class ShouldKeepRecordTests(unittest.TestCase):

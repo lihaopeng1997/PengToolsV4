@@ -75,7 +75,7 @@ try {
         '--onefile',
         '--windowed',
         '--name', 'PengToolsHub',
-        '--icon', 'resources\brand\pengtools-app-v2.ico',
+        '--icon', 'resources\brand\pengtools-taskbar-hc.ico',
         '--add-data', 'resources\style.qss;resources',
         '--add-data', 'resources\chevron_down.svg;resources',
         '--add-data', 'resources\check_white.svg;resources',

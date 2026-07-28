@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['resources\\brand\\pengtools-app-v2.ico'],
+    icon=['resources\\brand\\pengtools-taskbar-hc.ico'],
 )
