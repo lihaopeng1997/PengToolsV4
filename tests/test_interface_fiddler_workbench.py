@@ -159,16 +159,38 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p._records, [])
         self.assertEqual(p.table.rowCount(), 0)
 
-    def test_layout_mode_keeps_start_stop(self):
+    def test_capture_control_is_one_stateful_action_and_keeps_proxy_tools(self):
         p = InterfaceDebugPanel('zh')
-        p.apply_layout_mode('narrow', True)
-        self.assertFalse(p.connect_btn.isHidden())
-        self.assertFalse(p.stop_btn.isHidden())
+        self.assertTrue(hasattr(p, 'capture_toggle_btn'))
+        self.assertFalse(p.capture_toggle_btn.isHidden())
+        self.assertFalse(p.test_listen_btn.isHidden())
+        self.assertFalse(p.restore_proxy_btn.isHidden())
+        self.assertTrue(p.capture_toggle_btn.text())
+        # 旧属性只保留给底层兼容逻辑，不能再作为可见操作入口。
+        self.assertTrue(p.connect_btn.isHidden())
+        self.assertTrue(p.stop_btn.isHidden())
         p.apply_layout_mode('wide', False)
-        # 产品面仅抓包，模式切换隐藏
         self.assertTrue(p.mode_combo.isHidden())
         self.assertEqual(p._mode, 'proxy')
-        self.assertIn('抓包', p.connect_btn.text())
+
+    def test_capture_action_switches_without_clearing_session(self):
+        p = InterfaceDebugPanel('zh')
+        p._records = [{'id': '1'}]
+        p._records_by_id = {'1': {'id': '1', 'url': 'http://x'}}
+        p._listening = True
+        p._set_listening_ui(True)
+        self.assertIn('停止', p.capture_toggle_btn.text())
+        self.assertTrue(p.connect_btn.isHidden())
+        self.assertTrue(p.stop_btn.isHidden())
+        p._listening = False
+        p._set_listening_ui(False)
+        self.assertIn('开始', p.capture_toggle_btn.text())
+        self.assertEqual(p._records, [{'id': '1'}])
+        p.set_language('en')
+        p.apply_layout_mode('narrow', True)
+        self.assertIn('Start', p.capture_toggle_btn.text())
+        self.assertTrue(p.connect_btn.isHidden())
+        self.assertTrue(p.stop_btn.isHidden())
 
     def test_shutdown_clears_memory(self):
         p = InterfaceDebugPanel('zh')

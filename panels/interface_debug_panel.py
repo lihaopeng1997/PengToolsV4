@@ -287,15 +287,15 @@ class InterfaceDebugPanel(QWidget):
 
         row2 = QHBoxLayout()
         row2.setSpacing(8)
-        self.connect_btn = QPushButton()
-        apply_button(self.connect_btn, 'primary', compact=True, icon='external-open', icon_size=16)
-        self.connect_btn.clicked.connect(self._connect_or_start)
-        row2.addWidget(self.connect_btn)
-        self.stop_btn = QPushButton()
-        apply_button(self.stop_btn, 'ghost', compact=True, icon='lock', icon_size=16)
-        self.stop_btn.clicked.connect(self._stop_listen)
-        self.stop_btn.setEnabled(False)
-        row2.addWidget(self.stop_btn)
+        self.capture_toggle_btn = QPushButton()
+        apply_button(self.capture_toggle_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        self.capture_toggle_btn.clicked.connect(self._toggle_capture)
+        row2.addWidget(self.capture_toggle_btn)
+        # 保留旧属性供既有启动/停止代码兼容引用，不再作为可见操作入口。
+        self.connect_btn = QPushButton(self)
+        self.connect_btn.hide()
+        self.stop_btn = QPushButton(self)
+        self.stop_btn.hide()
         self.test_listen_btn = QPushButton()
         apply_button(self.test_listen_btn, 'ghost', compact=True, icon='terminal', icon_size=16)
         self.test_listen_btn.clicked.connect(self._test_listen_loopback)
@@ -1154,8 +1154,7 @@ class InterfaceDebugPanel(QWidget):
         ):
             if w is not None:
                 w.hide()
-        self.connect_btn.setText('开始抓包' if zh else 'Start capture')
-        self.stop_btn.setText('停止抓包' if zh else 'Stop')
+        self._refresh_capture_action()
         self._update_empty_hint()
 
     def _on_mode_changed(self, index):
@@ -1217,6 +1216,34 @@ class InterfaceDebugPanel(QWidget):
                     self.target_combo.setCurrentIndex(i)
                     break
         self.target_combo.blockSignals(False)
+
+    def _refresh_capture_action(self, busy: bool = False):
+        """统一刷新唯一抓包主操作，不触碰会话或代理状态。"""
+        active = bool(self._listening)
+        zh = self.language == 'zh'
+        self.capture_toggle_btn.setText(
+            ('停止抓包' if zh else 'Stop capture') if active else
+            ('开始抓包' if zh else 'Start capture')
+        )
+        self.capture_toggle_btn.setEnabled(not busy)
+        apply_button(
+            self.capture_toggle_btn,
+            'danger' if active else 'primary',
+            compact=True,
+            icon='lock' if active else 'external-open',
+            icon_size=16,
+        )
+        # 兼容旧状态引用；这两个按钮始终隐藏。
+        self.connect_btn.setEnabled(not active and not busy)
+        self.stop_btn.setEnabled(active and not busy)
+        self.connect_btn.hide()
+        self.stop_btn.hide()
+
+    def _toggle_capture(self):
+        if self._listening:
+            self._stop_listen()
+        else:
+            self._connect_or_start()
 
     def _connect_or_start(self):
         # 产品面只有抓包一条路
@@ -1340,7 +1367,7 @@ class InterfaceDebugPanel(QWidget):
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
         self.loading.start_busy('正在开始抓包…' if zh else 'Starting capture…')
-        self.connect_btn.setEnabled(False)
+        self._refresh_capture_action(busy=True)
         # HTTPS 解密准备：静默
         try:
             self._ensure_capture_ready_silently()
@@ -1385,10 +1412,10 @@ class InterfaceDebugPanel(QWidget):
         self._capture_boot_worker = boot
 
         def _on_boot(result: dict):
-            self.connect_btn.setEnabled(True)
             if not result or not result.get('ok'):
                 err = (result or {}).get('error') or '启动失败'
                 self._ie_worker = None
+                self._refresh_capture_action()
                 self.loading.fail(err)
                 show_warning(self, title, err)
                 try:
@@ -1735,8 +1762,7 @@ class InterfaceDebugPanel(QWidget):
             pass
 
     def _set_listening_ui(self, active: bool):
-        self.connect_btn.setEnabled(not active)
-        self.stop_btn.setEnabled(active)
+        self._refresh_capture_action()
         if hasattr(self, 'launch_btn') and self.launch_btn is not None:
             self.launch_btn.setEnabled(False)
             self.launch_btn.hide()
@@ -3328,10 +3354,11 @@ class InterfaceDebugPanel(QWidget):
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)
         _ = prev_orient  # 保留变量便于后续差异处理
-        # 任何断点都只保留抓包按钮，不恢复模式/证书入口
+        # 任何断点都只保留唯一抓包主按钮，不恢复模式/证书入口。
         self._apply_mode_ui()
-        self.connect_btn.show()
-        self.stop_btn.show()
+        self.capture_toggle_btn.show()
+        self.connect_btn.hide()
+        self.stop_btn.hide()
         self.test_listen_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
             edit.setMinimumHeight(editor_min_height())
@@ -3346,8 +3373,7 @@ class InterfaceDebugPanel(QWidget):
             'Capture HTTP/HTTPS · URL list · memory only'
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
-        self.connect_btn.setText('开始抓包' if zh else 'Start capture')
-        self.stop_btn.setText('停止抓包' if zh else 'Stop')
+        self._refresh_capture_action()
         self.test_listen_btn.setText('测试' if zh else 'Test')
         self.test_listen_btn.setToolTip(
             '本机探测，确认抓包链路可用' if zh else 'Loopback probe'
