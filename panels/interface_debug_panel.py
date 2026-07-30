@@ -455,6 +455,12 @@ class InterfaceDebugPanel(QWidget):
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(8)
+        self.detail_summary = QLabel()
+        self.detail_summary.setObjectName('status-banner')
+        self.detail_summary.setWordWrap(True)
+        self.detail_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.detail_summary.hide()
+        rl.addWidget(self.detail_summary)
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName('module-tabs')
         mono = QFont('Consolas', 10)
@@ -2049,6 +2055,7 @@ class InterfaceDebugPanel(QWidget):
         items = self.table.selectedItems()
         if not items:
             self._selected_id = None
+            self._refresh_detail()
             return
         rid = items[0].data(Qt.ItemDataRole.UserRole)
         self._selected_id = rid
@@ -2106,8 +2113,11 @@ class InterfaceDebugPanel(QWidget):
             self.overview_edit.clear()
             self.req_detail.clear()
             self.resp_detail.clear()
+            self.detail_summary.clear()
+            self.detail_summary.hide()
             return
         url = mask_url_query(rec.get('url') or '', self._reveal_sensitive)
+        summary_url = mask_url_query(rec.get('url') or '', False)
         status = rec.get('status')
         dur = rec.get('duration_ms')
         size = format_size(response_size_bytes(rec))
@@ -2127,6 +2137,26 @@ class InterfaceDebugPanel(QWidget):
             notes.append('WebSocket 会话（以状态说明展示，报文可能不完整）')
         if not (rec.get('response_body') or '').strip() and status:
             notes.append('响应体为空或未能读取（仅保留元信息，不视为程序异常）')
+        summary_parts = [
+            (rec.get('method') or 'GET').upper(),
+            summary_url,
+            f'状态 {status if status is not None else "—"}',
+            f'耗时 {dur if dur is not None else "—"} ms',
+            f'大小 {size}',
+        ]
+        self.detail_summary.setText(' · '.join(summary_parts))
+        summary_status = 'danger' if is_failed(rec) else 'info'
+        try:
+            if status is not None and 200 <= int(status) < 300:
+                summary_status = 'success'
+        except (TypeError, ValueError):
+            pass
+        self.detail_summary.setProperty('status', summary_status)
+        style = self.detail_summary.style()
+        if style is not None:
+            style.unpolish(self.detail_summary)
+            style.polish(self.detail_summary)
+        self.detail_summary.show()
         overview = [
             f'URL：{url}',
             f'方法：{(rec.get("method") or "GET").upper()}',

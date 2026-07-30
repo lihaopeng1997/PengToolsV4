@@ -128,6 +128,33 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_detail_workspace_keeps_summary_and_readable_response(self):
+        p = InterfaceDebugPanel('zh')
+        self.assertEqual(
+            [p.detail_tabs.tabText(i) for i in range(p.detail_tabs.count())],
+            ['概览', '请求', '响应', '请求测试'],
+        )
+        self.assertGreaterEqual(p.resp_detail.minimumHeight(), 180)
+        self.assertTrue(p.resp_detail.isReadOnly())
+        p._records_by_id = {
+            'a': {
+                'id': 'a', 'method': 'GET', 'url': 'https://x.com/api?token=secret',
+                'status': 200, 'duration_ms': 150, 'mime_type': 'application/json',
+                'response_body': '{"ok":true}', 'started_at': 1.0, 'source': 'http_capture',
+            }
+        }
+        p._selected_id = 'a'
+        p._refresh_detail()
+        self.assertIn('GET', p.detail_summary.text())
+        self.assertIn('200', p.detail_summary.text())
+        self.assertNotIn('secret', p.detail_summary.text())
+        p._reveal_sensitive = True
+        p._refresh_detail()
+        self.assertNotIn('secret', p.detail_summary.text())
+        p.table.clearSelection()
+        p._on_row_selected()
+        self.assertTrue(p.detail_summary.isHidden())
+
     def test_four_detail_tabs_and_columns(self):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(p.detail_tabs.count(), 4)
