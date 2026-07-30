@@ -15,10 +15,11 @@ from urllib.parse import urlparse
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableWidget,
-    QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,
+    QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
 from tools.browser_debug import (
@@ -577,18 +578,17 @@ class InterfaceDebugPanel(QWidget):
         self.local_target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.local_target_combo.currentIndexChanged.connect(self._on_env_selected)
         env_row.addWidget(self.local_target_combo, 1)
-        self.add_target_btn = QPushButton()
-        apply_button(self.add_target_btn, 'secondary', compact=True, icon='add', icon_size=16)
-        self.add_target_btn.clicked.connect(self._add_local_target)
-        env_row.addWidget(self.add_target_btn)
-        self.edit_target_btn = QPushButton()
-        apply_button(self.edit_target_btn, 'ghost', compact=True, icon='edit', icon_size=16)
-        self.edit_target_btn.clicked.connect(self._edit_local_target)
-        env_row.addWidget(self.edit_target_btn)
-        self.del_target_btn = QPushButton()
-        apply_button(self.del_target_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.del_target_btn.clicked.connect(self._delete_local_target)
-        env_row.addWidget(self.del_target_btn)
+        self.rt_environment_config_btn = QPushButton()
+        apply_button(self.rt_environment_config_btn, 'secondary', compact=True, icon='edit', icon_size=16)
+        self.rt_environment_config_btn.clicked.connect(self._show_environment_config_dialog)
+        env_row.addWidget(self.rt_environment_config_btn)
+        # 旧控件保留隐藏兼容，避免破坏既有管理槽函数。
+        self.add_target_btn = QPushButton(self)
+        self.add_target_btn.hide()
+        self.edit_target_btn = QPushButton(self)
+        self.edit_target_btn.hide()
+        self.del_target_btn = QPushButton(self)
+        self.del_target_btn.hide()
         dl.addLayout(env_row)
 
         base_row = QHBoxLayout()
@@ -598,29 +598,27 @@ class InterfaceDebugPanel(QWidget):
         self.rt_base_edit.setText('http://localhost:18031')
         self.rt_base_edit.setPlaceholderText('http://host:port（可保存为环境）')
         base_row.addWidget(self.rt_base_edit, 1)
-        self.rt_save_env_btn = QPushButton()
-        apply_button(self.rt_save_env_btn, 'secondary', compact=True, icon='save', icon_size=16)
-        self.rt_save_env_btn.clicked.connect(self._rt_save_current_as_env)
-        base_row.addWidget(self.rt_save_env_btn)
+        self.rt_save_env_btn = QPushButton(self)
+        self.rt_save_env_btn.hide()
         self.rt_fill_btn = QPushButton()
         apply_button(self.rt_fill_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
         self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
         base_row.addWidget(self.rt_fill_btn)
         dl.addLayout(base_row)
 
-        # URL 过滤规则行
+        # URL 过滤规则收口到配置弹窗，主页面仅保留入口。
         filter_row = QHBoxLayout()
         filter_label = QLabel('过滤')
         filter_row.addWidget(filter_label)
-        self.rt_url_filter_edit = QLineEdit()
-        self.rt_url_filter_edit.setPlaceholderText('网关前缀，逗号分隔，如 /prpcar-api/car')
-        prefixes = self._config.get('url_filter_prefixes') or []
-        self.rt_url_filter_edit.setText(', '.join(prefixes))
-        filter_row.addWidget(self.rt_url_filter_edit, 1)
-        self.rt_url_filter_save_btn = QPushButton()
-        apply_button(self.rt_url_filter_save_btn, 'secondary', compact=True, icon='save', icon_size=16)
-        self.rt_url_filter_save_btn.clicked.connect(self._save_url_filter_prefixes)
-        filter_row.addWidget(self.rt_url_filter_save_btn)
+        self.rt_filter_config_btn = QPushButton()
+        apply_button(self.rt_filter_config_btn, 'secondary', compact=True, icon='edit', icon_size=16)
+        self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
+        filter_row.addWidget(self.rt_filter_config_btn)
+        filter_row.addStretch(1)
+        self.rt_url_filter_edit = QLineEdit(self)
+        self.rt_url_filter_edit.hide()
+        self.rt_url_filter_save_btn = QPushButton(self)
+        self.rt_url_filter_save_btn.hide()
         dl.addLayout(filter_row)
 
         method_row = QHBoxLayout()
@@ -3258,13 +3256,203 @@ class InterfaceDebugPanel(QWidget):
         except Exception:
             pass
 
+    def _show_environment_config_dialog(self):
+        """集中管理非敏感环境 Base；请求报文永不进入该配置。"""
+        from PyQt6.QtWidgets import QInputDialog
+
+        zh = self.language == 'zh'
+        dialog = QDialog(self)
+        dialog.setWindowTitle('环境配置' if zh else 'Environment configuration')
+        dialog.setMinimumWidth(520)
+        layout = QVBoxLayout(dialog)
+        targets = QListWidget(dialog)
+        targets.setObjectName('iface-environment-list')
+        layout.addWidget(targets, 1)
+
+        def reload_list(select_id=''):
+            targets.clear()
+            selected_row = -1
+            for index, item in enumerate(self._config.get('local_targets') or []):
+                row = QListWidgetItem(f"{item.get('name') or '环境'} · {item.get('base_url') or ''}")
+                row.setData(Qt.ItemDataRole.UserRole, item.get('id'))
+                targets.addItem(row)
+                if item.get('id') == select_id:
+                    selected_row = index
+            if selected_row >= 0:
+                targets.setCurrentRow(selected_row)
+
+        def selected_target():
+            row = targets.currentItem()
+            target_id = row.data(Qt.ItemDataRole.UserRole) if row else ''
+            return next((item for item in self._config.get('local_targets') or [] if item.get('id') == target_id), None)
+
+        def add_target():
+            import uuid
+            from tools.iface_request_test import RequestTestError, normalize_base_host
+            name, ok = QInputDialog.getText(dialog, '新增环境' if zh else 'Add environment', '名称：' if zh else 'Name:')
+            if not ok:
+                return
+            base, ok = QInputDialog.getText(
+                dialog, '新增环境' if zh else 'Add environment',
+                'Base URL (http://host:port)：', text=self.rt_base_edit.text() or 'http://localhost:18031',
+            )
+            if not ok:
+                return
+            try:
+                base = normalize_base_host(base)
+            except RequestTestError as exc:
+                show_warning(dialog, '环境' if zh else 'Environment', str(exc))
+                return
+            item = {'id': uuid.uuid4().hex, 'name': (name or '环境').strip() or '环境', 'base_url': base}
+            self._config.setdefault('local_targets', []).append(item)
+            self._config['default_target_id'] = item['id']
+            save_interface_debug_config(self._config)
+            self._fill_local_targets()
+            reload_list(item['id'])
+
+        def edit_target():
+            from tools.iface_request_test import RequestTestError, normalize_base_host
+            item = selected_target()
+            if not item:
+                show_warning(dialog, '环境' if zh else 'Environment', '请先选择环境' if zh else 'Select an environment first.')
+                return
+            name, ok = QInputDialog.getText(dialog, '编辑环境' if zh else 'Edit environment', '名称：' if zh else 'Name:', text=item.get('name') or '')
+            if not ok:
+                return
+            base, ok = QInputDialog.getText(dialog, '编辑环境' if zh else 'Edit environment', 'Base URL：', text=item.get('base_url') or '')
+            if not ok:
+                return
+            try:
+                item['base_url'] = normalize_base_host(base)
+            except RequestTestError as exc:
+                show_warning(dialog, '环境' if zh else 'Environment', str(exc))
+                return
+            item['name'] = (name or item.get('name') or '环境').strip() or '环境'
+            save_interface_debug_config(self._config)
+            self._fill_local_targets()
+            reload_list(item.get('id') or '')
+
+        def delete_target():
+            item = selected_target()
+            if not item:
+                return
+            if not confirm_action(
+                dialog, '删除环境' if zh else 'Delete environment',
+                f"确定删除「{item.get('name') or ''}」？" if zh else 'Delete selected environment?',
+                confirm_text='删除' if zh else 'Delete', danger=True,
+            ):
+                return
+            target_id = item.get('id')
+            self._config['local_targets'] = [
+                value for value in (self._config.get('local_targets') or []) if value.get('id') != target_id
+            ]
+            if self._config.get('default_target_id') == target_id:
+                remaining = self._config['local_targets']
+                self._config['default_target_id'] = (remaining[0].get('id') if remaining else '')
+            save_interface_debug_config(self._config)
+            self._fill_local_targets()
+            reload_list()
+
+        actions = QHBoxLayout()
+        for text, handler in (
+            ('新增' if zh else 'Add', add_target),
+            ('编辑' if zh else 'Edit', edit_target),
+            ('删除' if zh else 'Delete', delete_target),
+        ):
+            button = QPushButton(text, dialog)
+            button.clicked.connect(handler)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        reload_list(self.local_target_combo.currentData() or '')
+        dialog.exec()
+
+    def _show_url_filter_config_dialog(self):
+        """以列表管理旧版 url_filter_prefixes，保持 list[str] 兼容。"""
+        from PyQt6.QtWidgets import QInputDialog
+
+        zh = self.language == 'zh'
+        dialog = QDialog(self)
+        dialog.setWindowTitle('过滤配置' if zh else 'Filter configuration')
+        dialog.setMinimumWidth(520)
+        layout = QVBoxLayout(dialog)
+        rules = QListWidget(dialog)
+        rules.setObjectName('iface-url-filter-list')
+        for prefix in self._config.get('url_filter_prefixes') or []:
+            rules.addItem(prefix)
+        layout.addWidget(rules, 1)
+
+        def add_rule():
+            value, ok = QInputDialog.getText(dialog, '新增规则' if zh else 'Add rule', 'URL 前缀：' if zh else 'URL prefix:')
+            if ok and (value or '').strip():
+                rules.addItem(value.strip())
+
+        def edit_rule():
+            item = rules.currentItem()
+            if not item:
+                return
+            value, ok = QInputDialog.getText(dialog, '编辑规则' if zh else 'Edit rule', 'URL 前缀：' if zh else 'URL prefix:', text=item.text())
+            if ok and (value or '').strip():
+                item.setText(value.strip())
+
+        def delete_rule():
+            row = rules.currentRow()
+            if row < 0:
+                return
+            if confirm_action(dialog, '删除规则' if zh else 'Delete rule', '确定删除选中规则？' if zh else 'Delete selected rule?', confirm_text='删除' if zh else 'Delete', danger=True):
+                rules.takeItem(row)
+
+        def move_rule(offset):
+            row = rules.currentRow()
+            target = row + offset
+            if row < 0 or target < 0 or target >= rules.count():
+                return
+            item = rules.takeItem(row)
+            rules.insertItem(target, item)
+            rules.setCurrentRow(target)
+
+        actions = QHBoxLayout()
+        for text, handler in (
+            ('新增' if zh else 'Add', add_rule),
+            ('编辑' if zh else 'Edit', edit_rule),
+            ('删除' if zh else 'Delete', delete_rule),
+            ('上移' if zh else 'Up', lambda: move_rule(-1)),
+            ('下移' if zh else 'Down', lambda: move_rule(1)),
+        ):
+            button = QPushButton(text, dialog)
+            button.clicked.connect(handler)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save,
+            parent=dialog,
+        )
+        buttons.rejected.connect(dialog.reject)
+
+        def save_rules():
+            prefixes = []
+            for index in range(rules.count()):
+                value = rules.item(index).text().strip()
+                if value and value not in prefixes:
+                    prefixes.append(value)
+            self._config['url_filter_prefixes'] = prefixes
+            save_interface_debug_config(self._config)
+            dialog.accept()
+
+        buttons.accepted.connect(save_rules)
+        layout.addWidget(buttons)
+        dialog.exec()
+
     def _save_url_filter_prefixes(self):
-        """保存 URL 过滤前缀到配置。"""
+        """兼容旧槽函数：保存隐藏输入框中的前缀。"""
         raw = self.rt_url_filter_edit.text().strip()
         prefixes = [p.strip() for p in raw.split(',') if p.strip()]
         self._config['url_filter_prefixes'] = prefixes
         save_interface_debug_config(self._config)
-        show_success(self, 'URL 过滤', f'已保存 {len(prefixes)} 条过滤规则')
 
     def _rt_save_current_as_env(self):
         """把当前 Base 保存为环境（有选中则更新，否则新建）。"""

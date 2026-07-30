@@ -130,6 +130,18 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_request_test_has_environment_and_filter_config_entries(self):
+        p = InterfaceDebugPanel('zh')
+        self.assertTrue(hasattr(p, 'rt_environment_config_btn'))
+        self.assertTrue(hasattr(p, 'rt_filter_config_btn'))
+        self.assertFalse(p.rt_environment_config_btn.isHidden())
+        self.assertFalse(p.rt_filter_config_btn.isHidden())
+        for widget in (
+            p.add_target_btn, p.edit_target_btn, p.del_target_btn,
+            p.rt_save_env_btn, p.rt_url_filter_edit, p.rt_url_filter_save_btn,
+        ):
+            self.assertTrue(widget.isHidden())
+
     def test_request_test_uses_resizable_editor_response_splitter(self):
         p = InterfaceDebugPanel('zh')
         self.assertTrue(hasattr(p, 'rt_editor_response_splitter'))
