@@ -2131,3 +2131,80 @@ QFrame#theme-card {
     min-width: 148px;
     min-height: 96px;
 }
+
+/* ── Global workbench contract: density, focus, page chrome and status ── */
+QMainWindow[uiDensity="compact"] QPushButton,
+QMainWindow[uiDensity="compact"] QComboBox,
+QMainWindow[uiDensity="compact"] QLineEdit,
+QMainWindow[uiDensity="compact"] QDateEdit,
+QMainWindow[uiDensity="compact"] QSpinBox {
+    min-height: __CONTROL_HEIGHT_COMPACT__;
+    max-height: __CONTROL_HEIGHT_COMPACT__;
+}
+QMainWindow[uiDensity="compact"] QTableWidget::item,
+QMainWindow[uiDensity="compact"] QTreeWidget::item,
+QMainWindow[uiDensity="compact"] QListWidget::item {
+    min-height: __ROW_HEIGHT_COMPACT__;
+}
+QMainWindow[uiDensity="comfortable"] QPushButton,
+QMainWindow[uiDensity="comfortable"] QComboBox,
+QMainWindow[uiDensity="comfortable"] QLineEdit,
+QMainWindow[uiDensity="comfortable"] QDateEdit,
+QMainWindow[uiDensity="comfortable"] QSpinBox {
+    min-height: __CONTROL_HEIGHT_COMFORTABLE__;
+    max-height: __CONTROL_HEIGHT_COMFORTABLE__;
+}
+QMainWindow[uiDensity="comfortable"] QTableWidget::item,
+QMainWindow[uiDensity="comfortable"] QTreeWidget::item,
+QMainWindow[uiDensity="comfortable"] QListWidget::item {
+    min-height: __ROW_HEIGHT_COMFORTABLE__;
+}
+QPushButton:focus,
+QLineEdit:focus,
+QComboBox:focus,
+QTextEdit:focus,
+QPlainTextEdit:focus,
+QDateEdit:focus,
+QSpinBox:focus {
+    border: 2px solid __FOCUS_RING__;
+}
+QLabel#page-context {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    padding-top: 1px;
+}
+QWidget#page-chrome {
+    background: transparent;
+}
+QLabel#status-banner {
+    color: __TEXT__;
+    background: __STATUS_INFO_BG__;
+    border: 1px solid __INFO_BORDER__;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+QLabel#status-banner[status="success"] {
+    color: __SUCCESS__;
+    background: __STATUS_SUCCESS_BG__;
+    border-color: __SUCCESS_BORDER__;
+}
+QLabel#status-banner[status="warning"] {
+    color: __WARNING__;
+    background: __STATUS_WARNING_BG__;
+    border-color: __WARNING_BORDER__;
+}
+QLabel#status-banner[status="danger"] {
+    color: __DANGER__;
+    background: __STATUS_DANGER_BG__;
+    border-color: __DANGER_BORDER__;
+}
+QPushButton#danger-btn {
+    color: __DANGER__;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __DANGER__;
+    border-radius: 8px;
+    font-weight: 700;
+}
+QPushButton#danger-btn:hover {
+    background: __STATUS_DANGER_BG__;
+}

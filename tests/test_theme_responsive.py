@@ -16,19 +16,19 @@ try:
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QAction, QColor, QImage
     from PyQt6.QtWidgets import QApplication
-    from config import DEFAULT_SETTINGS
+    from config import DEFAULT_SETTINGS, normalize_settings
     from panels.dashboard_panel import DashboardPanel
     from panels.format_panel import FormatToolsPanel
     from panels.gateway_panel import GatewayDecodePanel
     from panels.settings_panel import SettingsPanel, ThemePreviewWidget
     from ui.aurora_progress import AuroraProgress
+    from ui import design_system
     from ui.responsive import (
         ActionDensity, ResponsiveActionBar, classify_layout, density_for_mode,
         editor_orientation_for_mode, is_low_height,
     )
-    from ui.theme_manager import (
-        THEMES, ThemeManager, theme_display_name, theme_subtitle,
-    )
+    from ui import theme_manager
+    from ui.theme_manager import THEMES, ThemeManager, theme_display_name, theme_subtitle
     QT_AVAILABLE = True
 except ImportError:
     QT_AVAILABLE = False
@@ -53,6 +53,33 @@ class NightThemeTokenTests(unittest.TestCase):
         for tid, pal in THEMES.items():
             for key in required:
                 self.assertIn(key, pal, msg=f'{tid}.{key}')
+
+    def test_all_themes_have_design_system_tokens(self):
+        required = (
+            'CONTROL_HEIGHT_COMPACT', 'CONTROL_HEIGHT_COMFORTABLE',
+            'ROW_HEIGHT_COMPACT', 'ROW_HEIGHT_COMFORTABLE', 'FOCUS_RING',
+            'STATUS_INFO_BG', 'STATUS_SUCCESS_BG', 'STATUS_WARNING_BG',
+            'STATUS_DANGER_BG',
+        )
+        for theme_id, palette in THEMES.items():
+            self.assertEqual(
+                theme_manager.missing_theme_tokens(palette, required), (), theme_id
+            )
+
+    def test_rendered_qss_has_no_unresolved_design_tokens(self):
+        manager = ThemeManager.instance()
+        manager.load_template()
+        qss = manager.render('calm')
+        self.assertEqual(theme_manager.unresolved_qss_tokens(qss), ())
+
+    def test_qss_contains_global_component_contract(self):
+        manager = ThemeManager.instance()
+        manager.load_template()
+        qss = manager.render('night')
+        for selector in ('#page-title', '#page-context', '#status-banner', '#primary-btn', '#danger-btn'):
+            self.assertIn(selector, qss)
+        self.assertIn('QPushButton:focus', qss)
+        self.assertNotIn('__CONTROL_HEIGHT_COMPACT__', qss)
 
     def _avg_luma(self, hex_color: str) -> float:
         hexv = hex_color.upper().lstrip('#')
@@ -125,6 +152,21 @@ class NightThemeTokenTests(unittest.TestCase):
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
+class DesignSystemSettingsTests(unittest.TestCase):
+    def test_normalize_settings_defaults_global_density_preferences(self):
+        settings = normalize_settings({'ui_density': 'unknown', 'sidebar_collapsed': 'yes'})
+        self.assertEqual(settings['ui_density'], 'compact')
+        self.assertTrue(settings['sidebar_collapsed'])
+        self.assertFalse(normalize_settings({'sidebar_collapsed': 'false'})['sidebar_collapsed'])
+
+    def test_density_metrics_are_stable(self):
+        self.assertEqual(design_system.density_metrics('compact').control_height, 32)
+        self.assertEqual(design_system.density_metrics('comfortable').control_height, 36)
+        self.assertEqual(design_system.density_metrics('compact').row_height, 32)
+        self.assertEqual(design_system.density_metrics('comfortable').row_height, 40)
+
+
+@unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class ResponsiveLayoutTests(unittest.TestCase):
     def test_breakpoints(self):
         self.assertEqual(classify_layout(1440), 'wide')
@@ -168,6 +210,55 @@ class ResponsiveLayoutTests(unittest.TestCase):
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
+class MainWindowDesignSystemTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_navigation_stack_mapping_is_unchanged(self):
+        from main_window import MainWindow
+
+        self.assertEqual(MainWindow._stack_index_for_nav(8), 8)
+        self.assertEqual(MainWindow._stack_index_for_nav(9), 8)
+        self.assertEqual(MainWindow._stack_index_for_nav(10), 9)
+        self.assertEqual(MainWindow._stack_index_for_nav(11), 10)
+        self.assertEqual(MainWindow._stack_index_for_nav(12), 11)
+        self.assertEqual(MainWindow._stack_index_for_nav(13), 12)
+
+    def test_apply_density_sets_window_property(self):
+        from main_window import MainWindow
+
+        window = MainWindow()
+        window._apply_settings({**DEFAULT_SETTINGS, 'ui_density': 'comfortable'})
+        self.assertEqual(window.property('uiDensity'), 'comfortable')
+
+    def test_runtime_settings_do_not_reset_manual_sidebar_state(self):
+        from main_window import MainWindow
+
+        window = MainWindow()
+        window._set_nav_collapsed(True)
+        window._set_nav_collapsed(False)
+        window._apply_settings({**DEFAULT_SETTINGS, 'sidebar_collapsed': True})
+        self.assertFalse(window._nav_collapsed)
+
+
+@unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
+class PageChromeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_page_chrome_exposes_context_and_primary_action_slots(self):
+        from ui import page_chrome
+
+        chrome = page_chrome.PageChrome('接口排查', '当前环境：模拟环境')
+        self.assertEqual(chrome.title_label.text(), '接口排查')
+        self.assertEqual(chrome.context_label.text(), '当前环境：模拟环境')
+        self.assertIsNotNone(chrome.primary_actions)
+        self.assertIsNotNone(chrome.secondary_actions)
+
+
+@unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class PanelLayoutModeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -181,6 +272,19 @@ class PanelLayoutModeTests(unittest.TestCase):
         self.assertEqual(panel._list_limit(), 3)
         self.assertTrue(panel.tools_more.isVisible() or panel.ops.isHidden())
         self.assertTrue(panel.subtitle.isHidden())
+
+    def test_settings_exposes_density_preference(self):
+        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_density': 'comfortable'}, 'zh')
+        self.assertEqual(panel.density_combo.currentData(), 'comfortable')
+        self.assertFalse(panel.sidebar_collapsed_check.isChecked())
+
+    def test_settings_values_preserve_layout_preferences(self):
+        panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
+        panel.density_combo.setCurrentIndex(panel.density_combo.findData('comfortable'))
+        panel.sidebar_collapsed_check.setChecked(True)
+        values = panel.values()
+        self.assertEqual(values['ui_density'], 'comfortable')
+        self.assertTrue(values['sidebar_collapsed'])
 
     def test_settings_theme_grid_columns(self):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')

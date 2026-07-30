@@ -131,7 +131,9 @@ class UiRegressionTests(unittest.TestCase):
         self.assertFalse(brand_window_icon().isNull())
 
     def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
-        window = MainWindow()
+        settings = dict(DEFAULT_SETTINGS, private_unlocked=False)
+        with patch('main_window.load_settings', return_value=settings):
+            window = MainWindow()
         try:
             # 仅自我学习(8)可隐藏；日报(9)、需求(10)必须常显（AGENTS / V2 导航模型）
             self.assertTrue(window.nav_buttons[8].isHidden())
@@ -162,8 +164,12 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(requirement.scan_btn.text(), '扫描需求目录')
         self.assertEqual(requirement.checkout_btn.text(), '检出代码')
         self.assertEqual(requirement.update_all_btn.text(), '更新全部')
-        # 文件表：名称 / 修改时间 / 类型 / 大小
-        self.assertEqual(requirement.file_tree.columnCount(), 4)
+        # 文件表：名称 / 类型 / 修改时间 / 大小 / 路径
+        self.assertEqual(requirement.file_tree.columnCount(), 5)
+        self.assertEqual(
+            [requirement.file_tree.headerItem().text(i) for i in range(5)],
+            ['名称', '类型', '修改时间', '大小', '路径'],
+        )
 
     def test_main_window_close_event_exits_all_auxiliary_services(self):
         fake_window = type('FakeMainWindow', (), {})()
@@ -481,6 +487,8 @@ class UiRegressionTests(unittest.TestCase):
     def test_operations_panel_fuzzy_search_and_builtin_protection(self):
         panel = OpsPanel()
         panel.search_edit.setText('ps -ef')
+        QTest.qWait(250)
+        self.app.processEvents()
         self.assertGreater(panel.command_list.count(), 0)
         command = panel.command_list.item(0).data(Qt.ItemDataRole.UserRole)
         self.assertEqual(command['command'], 'ps -ef')
@@ -505,6 +513,8 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(panel.table_view.rowCount(), 3)
         self.assertEqual(panel.table_view.horizontalHeaderItem(0).text(), 'A')
         panel.search_edit.setText('beta')
+        QTest.qWait(250)
+        self.app.processEvents()
         self.assertTrue(panel.table_view.isRowHidden(1))
         self.assertFalse(panel.table_view.isRowHidden(2))
         self.assertGreater(panel._suggestion_model.rowCount(), 0)
@@ -559,6 +569,8 @@ class UiRegressionTests(unittest.TestCase):
         panel.copy_btn.click()
         self.assertEqual(panel.copy_btn.text(), '已复制')
         panel.search_edit.setText('uptime')
+        QTest.qWait(250)
+        self.app.processEvents()
         self.assertEqual(panel.copy_btn.text(), '复制命令')
 
     def test_settings_panel_values_and_floating_preferences(self):

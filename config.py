@@ -62,6 +62,8 @@ SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 DEFAULT_SETTINGS = {
     'font_size': 12,
     'ui_theme': 'calm',  # calm | clear | warm | night
+    'ui_density': 'compact',  # compact | comfortable
+    'sidebar_collapsed': False,
     'floating_opacity': 96,
     'floating_always_on_top': True,
     'floating_show_on_startup': True,
@@ -170,6 +172,13 @@ def normalize_settings(settings):
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
     result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'night') else 'calm'
+    density = str(result.get('ui_density') or 'compact').strip().lower()
+    result['ui_density'] = density if density in ('compact', 'comfortable') else 'compact'
+    sidebar_value = result.get('sidebar_collapsed', False)
+    if isinstance(sidebar_value, str):
+        result['sidebar_collapsed'] = sidebar_value.strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        result['sidebar_collapsed'] = bool(sidebar_value)
     result['close_ask_each_time'] = bool(result['close_ask_each_time'])
     result['close_default_action'] = (
         'exit' if result['close_default_action'] == 'exit' else 'minimize'

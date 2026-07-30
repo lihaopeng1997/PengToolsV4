@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from copy import deepcopy
 
@@ -25,6 +26,15 @@ DEFAULT_THEME_ID = 'calm'
 # 各主题共享的扩展 token 默认（浅色语义）
 # TERM_*：SSH 控制台「岛」——浅色界面上用深色终端形成强对比，色相贴主色避免违和
 _LIGHT_EXTRA = {
+    'CONTROL_HEIGHT_COMPACT': '32px',
+    'CONTROL_HEIGHT_COMFORTABLE': '36px',
+    'ROW_HEIGHT_COMPACT': '32px',
+    'ROW_HEIGHT_COMFORTABLE': '40px',
+    'FOCUS_RING': '#668C78',
+    'STATUS_INFO_BG': '#EAF2F3',
+    'STATUS_SUCCESS_BG': '#E8F4EC',
+    'STATUS_WARNING_BG': '#FFF5E9',
+    'STATUS_DANGER_BG': '#FFF0F1',
     'ELEVATED_SURFACE': '#FFFFFF',
     'CODE_BG': '#F7F8F6',
     'OVERLAY_BG': 'rgba(28, 35, 32, 120)',
@@ -283,8 +293,27 @@ THEMES: dict[str, dict[str, str]] = {
         'MONTH_HEADER_BG': '#222932',
         'MONTH_HEADER_FG': '#F2F5F8',
         'HIGHLIGHT_MARK': '#F0C878',
+        'CONTROL_HEIGHT_COMPACT': '32px',
+        'CONTROL_HEIGHT_COMFORTABLE': '36px',
+        'ROW_HEIGHT_COMPACT': '32px',
+        'ROW_HEIGHT_COMFORTABLE': '40px',
+        'FOCUS_RING': '#8AD4B4',
+        'STATUS_INFO_BG': '#172830',
+        'STATUS_SUCCESS_BG': '#16281F',
+        'STATUS_WARNING_BG': '#2E2616',
+        'STATUS_DANGER_BG': '#2E1A1C',
     },
 }
+
+
+def missing_theme_tokens(palette: dict[str, str], required: tuple[str, ...]) -> tuple[str, ...]:
+    """返回主题调色板中缺失或空白的必填 token。"""
+    return tuple(key for key in required if not str(palette.get(key) or '').strip())
+
+
+def unresolved_qss_tokens(qss: str) -> tuple[str, ...]:
+    """返回 QSS 中尚未渲染的全大写占位符。"""
+    return tuple(sorted(set(re.findall(r'__[A-Z0-9_]+__', qss))))
 
 
 def _app_dir() -> str:
@@ -398,6 +427,9 @@ class ThemeManager:
             arrow = os.path.join(resource_dir, 'chevron_down.svg').replace('\\', '/')
             check = os.path.join(resource_dir, 'check_white.svg').replace('\\', '/')
         qss = qss.replace('__DROPDOWN_ARROW__', arrow).replace('__CHECKMARK__', check)
+        unresolved = unresolved_qss_tokens(qss)
+        if unresolved:
+            raise RuntimeError(f'unresolved QSS tokens: {", ".join(unresolved)}')
         if font_size is not None:
             qss = qss + f'\nQWidget {{ font-size: {int(font_size)}px; }}\n'
         return qss

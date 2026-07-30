@@ -952,10 +952,10 @@ class SqlToolPanel(QWidget):
                     self.work_system_combo.blockSignals(False)
         if self.language == 'zh':
             short = f'系统 · {name}'
-            tip = f'当前系统：{name}'
+            tip = f'当前系统：{name}；如需切换，请前往“系统配置”。'
         else:
             short = f'Sys · {name}'
-            tip = f'Configured system: {name}'
+            tip = f'Configured system: {name}. Switch it in System Configuration.'
         self._set_status_label(self.current_system_label, short, tip, max_chars=16)
 
     def _add_system(self):

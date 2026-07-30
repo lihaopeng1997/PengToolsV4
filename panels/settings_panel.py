@@ -215,6 +215,17 @@ class SettingsPanel(QWidget):
         self.font_size.setSuffix(' px')
         self.font_label = QLabel()
         appearance.addRow(self.font_label, self.font_size)
+        self.density_combo = QComboBox()
+        self.density_combo.setObjectName('density-combo')
+        size_combo(self.density_combo, 'sm')
+        self.density_combo.addItem('紧凑', 'compact')
+        self.density_combo.addItem('舒适', 'comfortable')
+        self.density_label = QLabel()
+        appearance.addRow(self.density_label, self.density_combo)
+        self.sidebar_collapsed_check = QCheckBox()
+        self.sidebar_collapsed_check.setObjectName('sidebar-collapsed-check')
+        self.sidebar_collapsed_label = QLabel()
+        appearance.addRow(self.sidebar_collapsed_label, self.sidebar_collapsed_check)
         self.language_combo = QComboBox()
         size_combo(self.language_combo, 'sm')
         self.language_combo.addItem('中文', 'zh')
@@ -365,6 +376,8 @@ class SettingsPanel(QWidget):
         return normalize_settings({
             'font_size': self.font_size.value(),
             'ui_theme': resolve_theme_id(self._ui_theme),
+            'ui_density': self.density_combo.currentData(),
+            'sidebar_collapsed': self.sidebar_collapsed_check.isChecked(),
             'floating_opacity': self.opacity.value(),
             'floating_always_on_top': self.always_on_top.isChecked(),
             'floating_show_on_startup': self.show_on_startup.isChecked(),
@@ -431,6 +444,10 @@ class SettingsPanel(QWidget):
         settings = normalize_settings(settings)
         self._private_unlocked = bool(settings.get('private_unlocked', False))
         self.font_size.setValue(settings['font_size'])
+        self.density_combo.setCurrentIndex(
+            max(0, self.density_combo.findData(settings.get('ui_density', 'compact')))
+        )
+        self.sidebar_collapsed_check.setChecked(bool(settings.get('sidebar_collapsed', False)))
         self._ui_theme = resolve_theme_id(settings.get('ui_theme', 'calm'))
         self._refresh_theme_cards()
         self.opacity.setValue(settings['floating_opacity'])
@@ -568,14 +585,14 @@ class SettingsPanel(QWidget):
         )
         if ask:
             self.close_behavior_hint.setText(
-                '关闭时会询问：隐藏到托盘或退出。' if zh else
-                'Closing will ask: tray or exit.'
+                '关闭时会弹出选择：隐藏到托盘或退出；可勾选“关闭时不再提示”。' if zh else
+                'Closing will ask: tray or exit; you can choose not to ask again.'
             )
             self.safety_note.hide()
         else:
             self.close_behavior_hint.setText(
-                f'关闭时直接「{action_text}」。' if zh else
-                f'Close will immediately {action_text}.'
+                f'关闭时不再提示，直接「{action_text}」；勾选“恢复关闭提示”可重新弹出选择。' if zh else
+                f'Close will immediately {action_text}; enable Restore close prompt to ask again.'
             )
             # 安全提醒仅对「直接退出」显示
             if action == 'exit':
@@ -646,6 +663,13 @@ class SettingsPanel(QWidget):
         )
         self._refresh_theme_cards()
         self.font_label.setText('全局字体大小' if zh else 'Global font size')
+        self.density_label.setText('信息密度' if zh else 'Information density')
+        self.density_combo.setItemText(0, '紧凑' if zh else 'Compact')
+        self.density_combo.setItemText(1, '舒适' if zh else 'Comfortable')
+        self.sidebar_collapsed_label.setText('导航栏' if zh else 'Navigation')
+        self.sidebar_collapsed_check.setText(
+            '启动时收起侧栏' if zh else 'Collapse sidebar on startup'
+        )
         self.default_language_label.setText('默认界面语言' if zh else 'Default language')
         self.float_group.setTitle('悬浮工具栏' if zh else 'Floating toolbar')
         self.opacity_label.setText('透明度' if zh else 'Opacity')

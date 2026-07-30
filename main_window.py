@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
         self._current_nav_index = 0
         self._layout_mode = 'standard'
         self._nav_icon_only = False
-        self._nav_collapsed = False
+        self._nav_collapsed = bool(self._settings.get('sidebar_collapsed', False))
         self.setWindowTitle(f'{APP_NAME} {app_version_text()}')
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
         self._language_index = language_index
         self._set_language(language_index)
         self._apply_settings(self._settings)
+        self._apply_density_preferences(self._settings, apply_startup_sidebar=True)
         QTimer.singleShot(0, lambda: self._layout_controller.force(self.width(), self.height()))
 
     def _center_on_screen(self):
@@ -434,18 +435,43 @@ class MainWindow(QMainWindow):
         if not icon_only:
             self._apply_nav_texts()
 
-    def _toggle_nav_collapse(self):
-        """手动折叠/展开侧边栏导航。"""
+    def _set_nav_collapsed(self, collapsed: bool, *, persist: bool = False) -> None:
+        """应用侧栏折叠状态，不改变导航数组或面板映射。"""
         zh = self.language == 'zh'
-        self._nav_collapsed = not self._nav_collapsed
+        self._nav_collapsed = bool(collapsed)
         if self._nav_collapsed:
             apply_icon(self._collapse_btn, 'expand', size=12)
             self._collapse_btn.setToolTip('展开导航栏' if zh else 'Expand sidebar')
         else:
             apply_icon(self._collapse_btn, 'collapse', size=12)
             self._collapse_btn.setToolTip('收起导航栏' if zh else 'Collapse sidebar')
-        # 触发一次布局刷新
+        self._sidebar.setProperty('collapsed', self._nav_collapsed)
         self._on_layout_mode(self._layout_mode, False)
+        if persist:
+            from config import save_settings
+            self._settings['sidebar_collapsed'] = self._nav_collapsed
+            self._settings = save_settings(self._settings)
+
+    def _toggle_nav_collapse(self):
+        """手动折叠/展开侧边栏导航。"""
+        self._set_nav_collapsed(not self._nav_collapsed, persist=True)
+
+    def _apply_density_preferences(self, settings, *, apply_startup_sidebar: bool = False) -> None:
+        """将纯视觉偏好注入窗口，不重建任何业务面板。"""
+        from ui.design_system import density_metrics
+
+        density = str(settings.get('ui_density') or 'compact').strip().lower()
+        metrics = density_metrics(density)
+        self.setProperty('uiDensity', density)
+        self.setProperty('uiControlHeight', metrics.control_height)
+        self.setProperty('uiRowHeight', metrics.row_height)
+        if apply_startup_sidebar:
+            self._set_nav_collapsed(bool(settings.get('sidebar_collapsed', False)), persist=False)
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+        self.update()
 
     def _nav_tooltip(self, index: int) -> str:
         return display_name(index, self.language)
@@ -681,6 +707,7 @@ class MainWindow(QMainWindow):
         except Exception:
             base_qss = app.property('base_stylesheet') or app.styleSheet()
             app.setStyleSheet(base_qss + f"\nQWidget {{ font-size: {self._settings['font_size']}px; }}")
+        self._apply_density_preferences(self._settings)
         # 导航图标随主题重新染色
         self._apply_nav_texts()
         self._refresh_brand_icon()

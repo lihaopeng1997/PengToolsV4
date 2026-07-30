@@ -8,6 +8,45 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+
+class PageChrome(QWidget):
+    """可复用的页面标题、上下文与操作槽位容器，不承载业务状态。"""
+
+    def __init__(self, title: str, context: str = '', parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName('page-chrome')
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        text_column = QVBoxLayout()
+        text_column.setContentsMargins(0, 0, 0, 0)
+        text_column.setSpacing(2)
+        self.title_label = QLabel(title, self)
+        self.title_label.setObjectName('page-title')
+        text_column.addWidget(self.title_label)
+        self.context_label = QLabel(context, self)
+        self.context_label.setObjectName('page-context')
+        self.context_label.setWordWrap(True)
+        self.context_label.setVisible(bool(context))
+        text_column.addWidget(self.context_label)
+        layout.addLayout(text_column, 1)
+
+        self.secondary_actions = QHBoxLayout()
+        self.secondary_actions.setContentsMargins(0, 0, 0, 0)
+        self.secondary_actions.setSpacing(8)
+        layout.addLayout(self.secondary_actions)
+        self.primary_actions = QHBoxLayout()
+        self.primary_actions.setContentsMargins(0, 0, 0, 0)
+        self.primary_actions.setSpacing(8)
+        layout.addLayout(self.primary_actions)
+
+    def add_secondary_action(self, widget: QWidget) -> None:
+        self.secondary_actions.addWidget(widget)
+
+    def add_primary_action(self, widget: QWidget) -> None:
+        self.primary_actions.addWidget(widget)
+
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.layout_metrics import PAGE_HEADER_H, PRIMARY_SOFT, TEXT_MUTED
