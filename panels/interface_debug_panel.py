@@ -732,24 +732,34 @@ class InterfaceDebugPanel(QWidget):
         rf.setContentsMargins(4, 0, 0, 0)
         rf.setSpacing(8)
 
+        self.rt_editor_response_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.rt_editor_response_splitter.setObjectName('iface-request-test-splitter')
+        self.rt_editor_response_splitter.setChildrenCollapsible(False)
+        self.rt_editor_response_splitter.setHandleWidth(6)
+        self.rt_editor_response_splitter.setOpaqueResize(True)
+        editor_panel = QWidget()
+        editor_layout = QVBoxLayout(editor_panel)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+
         self.rt_tabs = QTabWidget()
         self.rt_tabs.setDocumentMode(True)
         self.rt_headers = QPlainTextEdit()
         self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')
         self.rt_headers.setFont(mono)
-        self.rt_headers.setMaximumHeight(100)
+        self.rt_headers.setMinimumHeight(120)
         self.rt_tabs.addTab(self.rt_headers, 'Headers')
         self.rt_params = QPlainTextEdit()
         self.rt_params.setPlaceholderText('key=value\npage=1')
         self.rt_params.setFont(mono)
-        self.rt_params.setMaximumHeight(100)
+        self.rt_params.setMinimumHeight(120)
         self.rt_tabs.addTab(self.rt_params, 'Params')
         self.rt_body = QPlainTextEdit()
         self.rt_body.setPlaceholderText('请求 Body（优先解密后的明文）')
         self.rt_body.setFont(mono)
         self.rt_body.setMinimumHeight(80)
         self.rt_tabs.addTab(self.rt_body, 'Body')
-        rf.addWidget(self.rt_tabs)
+        editor_layout.addWidget(self.rt_tabs, 1)
 
         io_row = QHBoxLayout()
         self.export_detail_btn = QPushButton()
@@ -777,8 +787,13 @@ class InterfaceDebugPanel(QWidget):
         self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
         io_row.addWidget(self.rt_resp_format_btn)
         io_row.addStretch(1)
-        rf.addLayout(io_row)
+        editor_layout.addLayout(io_row)
+        self.rt_editor_response_splitter.addWidget(editor_panel)
 
+        response_panel = QWidget()
+        response_layout = QVBoxLayout(response_panel)
+        response_layout.setContentsMargins(0, 0, 0, 0)
+        response_layout.setSpacing(6)
         resp_head = QHBoxLayout()
         self.rt_resp_label = QLabel('响应')
         self.rt_resp_label.setObjectName('field-caption')
@@ -787,7 +802,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_resp_meta.setObjectName('field-hint')
         self.rt_resp_meta.setWordWrap(True)
         resp_head.addWidget(self.rt_resp_meta, 1)
-        rf.addLayout(resp_head)
+        response_layout.addLayout(resp_head)
         # 响应区：摘要 + 完整 Body（不截断）
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
@@ -802,7 +817,14 @@ class InterfaceDebugPanel(QWidget):
             self.draft_preview.document().setMaximumBlockCount(0)
         except Exception:
             pass
-        rf.addWidget(self.draft_preview, 1)
+        response_layout.addWidget(self.draft_preview, 1)
+        self.rt_editor_response_splitter.addWidget(response_panel)
+        self.rt_editor_response_splitter.setStretchFactor(0, 1)
+        self.rt_editor_response_splitter.setStretchFactor(1, 2)
+        request_test_sizes = self._prefs.get('request_test_splitter_sizes') or [360, 640]
+        self.rt_editor_response_splitter.setSizes(request_test_sizes)
+        self.rt_editor_response_splitter.splitterMoved.connect(self._save_request_test_splitter_sizes)
+        rf.addWidget(self.rt_editor_response_splitter, 1)
         self.rt_split.addWidget(right_form)
         self.rt_split.setStretchFactor(0, 0)
         self.rt_split.setStretchFactor(1, 1)
@@ -1142,6 +1164,15 @@ class InterfaceDebugPanel(QWidget):
         all_sizes[self._layout_mode] = sizes
         self._prefs['splitter_sizes'] = all_sizes
         update_ui_prefs({'splitter_sizes': all_sizes})
+
+    def _save_request_test_splitter_sizes(self, *_args):
+        """只保存请求测试区域的非敏感视觉尺寸。"""
+        sizes = self.rt_editor_response_splitter.sizes()
+        if len(sizes) < 2:
+            return
+        saved = [int(sizes[0]), int(sizes[1])]
+        self._prefs['request_test_splitter_sizes'] = saved
+        update_ui_prefs({'request_test_splitter_sizes': saved})
 
     # ── 模式 ──────────────────────────────────────────
     def _mode_from_index(self, index: int) -> str:

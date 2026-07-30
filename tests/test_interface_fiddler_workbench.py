@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -115,6 +116,7 @@ class SessionViewLogicTests(unittest.TestCase):
 
 
 try:
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication
     from panels.interface_debug_panel import InterfaceDebugPanel
     QT = True
@@ -127,6 +129,26 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_request_test_uses_resizable_editor_response_splitter(self):
+        p = InterfaceDebugPanel('zh')
+        self.assertTrue(hasattr(p, 'rt_editor_response_splitter'))
+        self.assertEqual(p.rt_editor_response_splitter.orientation(), Qt.Orientation.Vertical)
+        self.assertGreaterEqual(p.draft_preview.minimumHeight(), 120)
+        sizes = p.rt_editor_response_splitter.sizes()
+        self.assertGreaterEqual(len(sizes), 2)
+        self.assertGreater(sizes[1], sizes[0])
+
+    def test_request_test_splitter_persists_only_visual_sizes(self):
+        p = InterfaceDebugPanel('zh')
+        p.rt_headers.setPlainText('Authorization: Bearer private-token')
+        p.rt_body.setPlainText('{"request_body":"private"}')
+        p.draft_preview.setPlainText('{"response_body":"private"}')
+        p.rt_editor_response_splitter.setSizes([300, 700])
+        expected_sizes = list(p.rt_editor_response_splitter.sizes())
+        with patch('panels.interface_debug_panel.update_ui_prefs') as save:
+            p._save_request_test_splitter_sizes()
+        save.assert_called_once_with({'request_test_splitter_sizes': expected_sizes})
 
     def test_detail_workspace_keeps_summary_and_readable_response(self):
         p = InterfaceDebugPanel('zh')
