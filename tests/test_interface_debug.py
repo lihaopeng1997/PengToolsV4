@@ -44,9 +44,61 @@ class InterfaceDebugStoreTests(unittest.TestCase):
             self.assertEqual(loaded['debug_port'], 9333)
             self.assertEqual(loaded['default_target_id'], 't1')
             # 敏感字段不得出现
-            raw = open(path, encoding='utf-8').read()
+            with open(path, encoding='utf-8') as stream:
+                raw = stream.read()
             self.assertNotIn('Authorization', raw)
             self.assertNotIn('request_body', raw)
+
+    def test_ui_prefs_keep_vertical_splitter_and_never_store_payload(self):
+        from tools.interface_debug_store import load_interface_debug_config, save_interface_debug_config
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, 'interface_debug.json')
+            save_interface_debug_config({
+                'ui_prefs': {
+                    'splitter_sizes': {'standard': [300, 700]},
+                    'request_test_splitter_sizes': [360, 640],
+                    'request_body': '{"private": true}',
+                    'Authorization': 'Bearer private-token',
+                },
+                'url_filter_prefixes': ['/gateway'],
+            }, path=path)
+            cfg = load_interface_debug_config(path)
+            self.assertEqual(cfg['ui_prefs']['request_test_splitter_sizes'], [360, 640])
+            self.assertEqual(cfg['url_filter_prefixes'], ['/gateway'])
+            with open(path, encoding='utf-8') as stream:
+                raw = stream.read()
+            self.assertNotIn('request_body', raw)
+            self.assertNotIn('Authorization', raw)
+            self.assertNotIn('private-token', raw)
+
+    def test_config_discards_top_level_sensitive_data_and_invalid_splitter_sizes(self):
+        from tools.interface_debug_store import load_interface_debug_config, save_interface_debug_config
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, 'interface_debug.json')
+            save_interface_debug_config({
+                'ui_prefs': {'request_test_splitter_sizes': [True, 220]},
+                'request_body': '{"private": true}',
+                'response_body': '{"secret": true}',
+                'Authorization': 'Bearer private-token',
+                'Cookie': 'sid=private-cookie',
+                'Token': 'private-token',
+            }, path=path)
+            cfg = load_interface_debug_config(path)
+            self.assertEqual(
+                cfg['ui_prefs']['request_test_splitter_sizes'], [360, 640]
+            )
+            with open(path, encoding='utf-8') as stream:
+                raw = stream.read()
+            for marker in ('request_body', 'response_body', 'Authorization', 'Cookie', 'Token', 'private-token'):
+                self.assertNotIn(marker, raw)
+
+    def test_request_test_splitter_sizes_require_real_integers(self):
+        from tools.interface_debug_store import normalize_interface_debug_config
+        for sizes in (['361', 640], [361.5, 640], [159, 640]):
+            cfg = normalize_interface_debug_config({
+                'ui_prefs': {'request_test_splitter_sizes': sizes}
+            })
+            self.assertEqual(cfg['ui_prefs']['request_test_splitter_sizes'], [360, 640])
 
 
 class InterfaceDraftsTests(unittest.TestCase):

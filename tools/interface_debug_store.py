@@ -21,6 +21,7 @@ DEFAULT_UI_PREFS = {
     'show_static': False,
     'listen_mode': 'proxy',  # proxy | chromium | ie
     'splitter_sizes': {'wide': [420, 580], 'standard': [400, 560], 'compact': [360, 480], 'narrow': [300, 420]},
+    'request_test_splitter_sizes': [360, 640],
     'include_auth_in_draft': True,
 }
 
@@ -48,10 +49,14 @@ def _normalize_target(item):
 
 
 def _normalize_ui_prefs(raw) -> dict:
+    """规范化可持久化的工作台视觉偏好，拒绝所有未声明字段。"""
     base = dict(DEFAULT_UI_PREFS)
     if not isinstance(raw, dict):
         return base
-    base.update(raw)
+    # 白名单防止捕获报文、认证信息或未来调用方误传字段进入 JSON。
+    for key in DEFAULT_UI_PREFS:
+        if key in raw:
+            base[key] = raw[key]
     from tools.interface_session_view import normalize_column_key
     raw_cols = base.get('visible_columns') or []
     cols = []
@@ -105,13 +110,29 @@ def _normalize_ui_prefs(raw) -> dict:
                 except (TypeError, ValueError):
                     pass
     base['splitter_sizes'] = sizes
+    request_test_sizes = base.get('request_test_splitter_sizes')
+    default_request_test_sizes = list(DEFAULT_UI_PREFS['request_test_splitter_sizes'])
+    if (
+        not isinstance(request_test_sizes, (list, tuple))
+        or len(request_test_sizes) < 2
+        or any(type(value) is not int for value in request_test_sizes[:2])
+    ):
+        request_test_sizes = default_request_test_sizes
+    elif request_test_sizes[0] < 160 or request_test_sizes[1] < 220:
+        request_test_sizes = default_request_test_sizes
+    else:
+        request_test_sizes = [request_test_sizes[0], request_test_sizes[1]]
+    base['request_test_splitter_sizes'] = request_test_sizes
     return base
 
 
 def normalize_interface_debug_config(data=None) -> dict:
+    """仅保留允许落盘的非敏感接口排查配置字段。"""
     result = dict(DEFAULT_CONFIG)
     if isinstance(data, dict):
-        result.update(data)
+        for key in DEFAULT_CONFIG:
+            if key in data:
+                result[key] = data[key]
     try:
         result['debug_port'] = max(1, min(65535, int(result.get('debug_port') or 9222)))
     except (TypeError, ValueError):
