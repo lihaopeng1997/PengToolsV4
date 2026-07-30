@@ -101,6 +101,47 @@ class InterfaceDebugStoreTests(unittest.TestCase):
             self.assertEqual(cfg['ui_prefs']['request_test_splitter_sizes'], [360, 640])
 
 
+class InterfaceLibraryHistoryTests(unittest.TestCase):
+    def test_history_cleanup_scope_only_returns_matching_persisted_entries(self):
+        from tools.iface_request_library import history_items_for_cleanup
+        history = [
+            {'id': 'recent', 'ts': '2026-07-30T09:00:00', 'url': 'https://api.example.com/a'},
+            {'id': 'old', 'ts': '2026-07-01T09:00:00', 'url': 'https://api.example.com/b'},
+            {'id': 'other', 'ts': '2026-07-30T09:00:00', 'url': 'https://other.example.com/c'},
+        ]
+        self.assertEqual(
+            [item['id'] for item in history_items_for_cleanup(history, 'all', now=datetime.datetime(2026, 7, 30, 10, 0, 0))],
+            ['recent', 'old', 'other'],
+        )
+        self.assertEqual(
+            [item['id'] for item in history_items_for_cleanup(history, 'older_than_7_days', now=datetime.datetime(2026, 7, 30, 10, 0, 0))],
+            ['old'],
+        )
+        self.assertEqual(
+            [item['id'] for item in history_items_for_cleanup(history, 'current_search', current_items=[history[0]])],
+            ['recent'],
+        )
+        aware_history = [{'id': 'aware', 'ts': '2026-07-01T09:00:00+08:00', 'url': 'https://api.example.com/aware'}]
+        self.assertEqual(
+            [item['id'] for item in history_items_for_cleanup(aware_history, 'older_than_7_days', now=datetime.datetime(2026, 7, 30, 10, 0, 0))],
+            ['aware'],
+        )
+
+    def test_clear_history_items_removes_only_explicit_ids(self):
+        from tools.iface_request_library import clear_history_items
+        lib = {
+            'history': [
+                {'id': 'keep', 'url': 'https://api.example.com/keep'},
+                {'id': 'delete', 'url': 'https://api.example.com/delete'},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, 'iface_request_library.json')
+            with mock.patch('tools.iface_request_library.LIBRARY_FILE', path):
+                cleaned = clear_history_items(lib, {'delete'})
+        self.assertEqual([item['id'] for item in cleaned['history']], ['keep'])
+
+
 class InterfaceDraftsTests(unittest.TestCase):
     def test_validate_base_url(self):
         from tools.interface_drafts import DraftError, validate_base_url

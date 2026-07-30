@@ -142,6 +142,70 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         ):
             self.assertTrue(widget.isHidden())
 
+    def test_library_history_actions_move_to_context_menu(self):
+        p = InterfaceDebugPanel('zh')
+        self.assertFalse(p.rt_lib_load_btn.isVisible())
+        self.assertFalse(p.rt_lib_resend_btn.isVisible())
+        self.assertFalse(p.rt_lib_del_btn.isVisible())
+        self.assertFalse(p.rt_lib_clear_btn.isVisible())
+        self.assertTrue(hasattr(p, 'rt_history_cleanup_btn'))
+        self.assertTrue(p.rt_lib_list.contextMenuPolicy().name == 'CustomContextMenu')
+
+    def test_history_fill_url_preserves_request_editor_content(self):
+        p = InterfaceDebugPanel('zh')
+        p._rt_lib = {
+            'history': [{
+                'id': 'history-1', 'method': 'POST', 'url': 'https://api.example.com/orders?trace=1',
+                'headers_text': 'Authorization: Bearer private', 'body': '{"saved":true}',
+            }],
+            'apis': [], 'categories': [{'id': 'uncategorized', 'name': '未分类'}],
+            'last_mode': 'history', 'last_category_id': 'uncategorized', 'max_history': 100,
+        }
+        p.rt_lib_mode.setCurrentIndex(1)
+        p._rt_lib_refresh_list()
+        p.rt_lib_list.setCurrentRow(0)
+        p.rt_headers.setPlainText('X-Keep: editor')
+        p.rt_body.setPlainText('{"editing":true}')
+        with patch('panels.interface_debug_panel.show_success'):
+            p._rt_fill_history_url()
+        self.assertEqual(p.rt_url.text(), 'https://api.example.com/orders?trace=1')
+        self.assertEqual(p.rt_headers.toPlainText(), 'X-Keep: editor')
+        self.assertEqual(p.rt_body.toPlainText(), '{"editing":true}')
+
+    def test_library_activation_fills_form_without_sending(self):
+        p = InterfaceDebugPanel('zh')
+        p._rt_lib = {
+            'history': [],
+            'apis': [{'id': 'api-1', 'name': '查询订单', 'method': 'GET', 'url': 'https://api.example.com/orders'}],
+            'categories': [{'id': 'uncategorized', 'name': '未分类'}],
+            'last_mode': 'library', 'last_category_id': 'uncategorized', 'max_history': 100,
+        }
+        p.rt_lib_mode.setCurrentIndex(0)
+        p.rt_lib_cat_filter.setCurrentIndex(0)
+        p._rt_lib_refresh_list()
+        p.rt_lib_list.setCurrentRow(0)
+        with patch.object(p, '_rt_send') as send, patch('panels.interface_debug_panel.show_success'), patch('panels.interface_debug_panel.show_warning'):
+            p._rt_lib_apply_selected()
+        self.assertEqual(p.rt_url.text(), 'https://api.example.com/orders')
+        send.assert_not_called()
+
+    def test_history_copy_curl_keeps_saved_full_url(self):
+        p = InterfaceDebugPanel('zh')
+        p._rt_lib = {
+            'history': [{
+                'id': 'history-curl', 'method': 'GET', 'url': 'https://api.example.com/orders?trace=1',
+                'base_host': 'http://127.0.0.1:18031', 'headers_text': '', 'body': '',
+            }],
+            'apis': [], 'categories': [{'id': 'uncategorized', 'name': '未分类'}],
+            'last_mode': 'history', 'last_category_id': 'uncategorized', 'max_history': 100,
+        }
+        p.rt_lib_mode.setCurrentIndex(1)
+        p._rt_lib_refresh_list()
+        p.rt_lib_list.setCurrentRow(0)
+        with patch('panels.interface_debug_panel.show_success'):
+            p._rt_copy_history_curl()
+        self.assertIn('https://api.example.com/orders?trace=1', QApplication.clipboard().text())
+
     def test_request_test_uses_resizable_editor_response_splitter(self):
         p = InterfaceDebugPanel('zh')
         self.assertTrue(hasattr(p, 'rt_editor_response_splitter'))

@@ -679,6 +679,11 @@ class InterfaceDebugPanel(QWidget):
         size_combo(self.rt_lib_mode, 'sm')
         self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
         mode_row.addWidget(self.rt_lib_mode, 1)
+        self.rt_history_cleanup_btn = QPushButton()
+        apply_button(self.rt_history_cleanup_btn, 'ghost', compact=True, icon='delete', icon_size=16)
+        self.rt_history_cleanup_btn.clicked.connect(self._show_history_cleanup_dialog)
+        self.rt_history_cleanup_btn.hide()
+        mode_row.addWidget(self.rt_history_cleanup_btn)
         lib_l.addLayout(mode_row)
         filter_row = QHBoxLayout()
         self.rt_lib_cat_filter = QComboBox()
@@ -717,7 +722,11 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_clear_btn = QPushButton()
         apply_button(self.rt_lib_clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.rt_lib_clear_btn.clicked.connect(self._rt_lib_clear_history)
+        self.rt_lib_clear_btn.hide()
         lib_btn_row.addWidget(self.rt_lib_clear_btn)
+        self.rt_lib_load_btn.hide()
+        self.rt_lib_resend_btn.hide()
+        self.rt_lib_del_btn.hide()
         lib_btn_row.addStretch(1)
         lib_l.addLayout(lib_btn_row)
         self.rt_lib_count = QLabel('')
@@ -2852,7 +2861,9 @@ class InterfaceDebugPanel(QWidget):
                 break
         self.rt_lib_mode.blockSignals(False)
         if hasattr(self, 'rt_lib_clear_btn'):
-            self.rt_lib_clear_btn.setVisible(mode == 'history')
+            self.rt_lib_clear_btn.hide()
+        if hasattr(self, 'rt_history_cleanup_btn'):
+            self.rt_history_cleanup_btn.setVisible(mode == 'history')
 
     def _rt_lib_mode_value(self) -> str:
         if not hasattr(self, 'rt_lib_mode'):
@@ -2867,7 +2878,9 @@ class InterfaceDebugPanel(QWidget):
         except Exception:
             pass
         if hasattr(self, 'rt_lib_clear_btn'):
-            self.rt_lib_clear_btn.setVisible(mode == 'history')
+            self.rt_lib_clear_btn.hide()
+        if hasattr(self, 'rt_history_cleanup_btn'):
+            self.rt_history_cleanup_btn.setVisible(mode == 'history')
         self._rt_lib_refresh_list()
 
     def _rt_lib_refresh_list(self, *_args):
@@ -2948,14 +2961,21 @@ class InterfaceDebugPanel(QWidget):
         mode = self._rt_lib_mode_value()
         from tools.list_pin import is_pinned, pin_action_label
         menu = QMenu(self)
+        zh = getattr(self, 'language', 'zh') == 'zh'
         if mode == 'library':
             pinned = is_pinned(item)
             act = menu.addAction(pin_action_label(pinned, self.language if hasattr(self, 'language') else 'zh'))
             act.triggered.connect(lambda _=False, it=item, p=pinned: self._rt_lib_toggle_pin(it, p))
             menu.addSeparator()
-        zh = getattr(self, 'language', 'zh') == 'zh'
-        menu.addAction('加载到表单' if zh else 'Load', self._rt_lib_apply_selected)
-        menu.addAction('复制并重发' if zh else 'Copy & Resend', self._rt_lib_resend_selected)
+            menu.addAction('加载到表单' if zh else 'Load', self._rt_lib_apply_selected)
+            menu.addAction('删除接口' if zh else 'Delete API', self._rt_lib_delete_selected)
+        else:
+            menu.addAction('填充到请求 URL' if zh else 'Fill request URL', self._rt_fill_history_url)
+            menu.addAction('复制完整 URL' if zh else 'Copy full URL', self._rt_copy_history_url)
+            menu.addAction('复制为 cURL' if zh else 'Copy as cURL', self._rt_copy_history_curl)
+            menu.addAction('保存到接口库' if zh else 'Save to library', self._rt_save_selected_history_to_library)
+            menu.addSeparator()
+            menu.addAction('删除此条历史' if zh else 'Delete history item', self._rt_lib_delete_selected)
         menu.exec(self.rt_lib_list.viewport().mapToGlobal(point))
 
     def _rt_lib_toggle_pin(self, item, currently_pinned):
@@ -2987,8 +3007,69 @@ class InterfaceDebugPanel(QWidget):
             self._rt_editing_api_id = ''
         show_success(self, '请求测试', f'已加载：{item.get("name") or item.get("url") or ""}')
 
+    def _rt_fill_history_url(self):
+        """仅回填历史 URL，避免覆盖用户正在编辑的请求内容。"""
+        item = self._rt_lib_selected_item()
+        if not item:
+            return
+        self.rt_url.setText(item.get('url') or '')
+        show_success(self, '历史', '已填充请求 URL')
+
+    def _rt_copy_history_url(self):
+        item = self._rt_lib_selected_item()
+        if not item:
+            return
+        QApplication.clipboard().setText(item.get('url') or '')
+        show_success(self, '历史', '已复制完整 URL')
+
+    def _rt_copy_history_curl(self):
+        from tools.interface_drafts import build_curl
+        item = self._rt_lib_selected_item()
+        if not item:
+            return
+        record = {
+            'method': item.get('method') or 'GET',
+            'url': item.get('url') or '',
+            'request_headers': self._rt_headers_to_dict(item.get('headers_text') or ''),
+            'request_body': item.get('body') or '',
+        }
+        parsed = urlparse(record['url'])
+        base_url = f'{parsed.scheme}://{parsed.netloc}' if parsed.scheme and parsed.netloc else (item.get('base_host') or '')
+        QApplication.clipboard().setText(build_curl(record, base_url))
+        show_success(self, '历史', '已复制 cURL')
+
+    def _rt_headers_to_dict(self, raw: str) -> dict:
+        headers = {}
+        for line in (raw or '').splitlines():
+            key, sep, value = line.partition(':')
+            if sep and key.strip():
+                headers[key.strip()] = value.strip()
+        return headers
+
+    def _rt_save_selected_history_to_library(self):
+        item = self._rt_lib_selected_item()
+        if not item:
+            return
+        from tools.iface_request_library import build_api_from_form, upsert_api
+        api = build_api_from_form(
+            name=item.get('name') or item.get('url') or '',
+            category_id=item.get('category_id') or '',
+            method=item.get('method') or 'GET',
+            url=item.get('url') or '',
+            base_host=item.get('base_host') or '',
+            headers_text=item.get('headers_text') or '',
+            params_text=item.get('params_text') or '',
+            body=item.get('body') or '',
+        )
+        try:
+            self._rt_lib = upsert_api(self._rt_lib_data(), api)
+            self._rt_lib_refresh_list()
+            show_success(self, '接口库', '已保存到接口库')
+        except Exception as exc:
+            show_warning(self, '接口库', str(exc))
+
     def _rt_lib_resend_selected(self, *_args):
-        """加载选中条目到表单并立即发送。"""
+        """兼容旧调用：加载选中条目到表单，但不自动发送。"""
         from tools.iface_request_library import form_fields_from_item
         item = self._rt_lib_selected_item()
         if not item:
@@ -3002,8 +3083,6 @@ class InterfaceDebugPanel(QWidget):
             self._rt_editing_api_id = item.get('id') or ''
         else:
             self._rt_editing_api_id = ''
-        # 立即发送
-        self._rt_send()
 
     def _rt_collect_form_snapshot(self) -> dict:
         return {
@@ -3200,25 +3279,91 @@ class InterfaceDebugPanel(QWidget):
         except Exception as exc:
             show_warning(self, '请求测试', str(exc))
 
-    def _rt_lib_clear_history(self):
-        from tools.iface_request_library import clear_history
+    def _show_history_cleanup_dialog(self):
+        """按明确范围预览并清理已持久化请求测试历史。"""
         if self._rt_lib_mode_value() != 'history':
             return
+        from tools.iface_request_library import clear_history_items, history_items_for_cleanup
+
         zh = self.language == 'zh'
-        if not confirm_action(
-            self,
-            '清空历史' if zh else 'Clear history',
-            '确定清空全部请求测试历史？' if zh else 'Clear all request-test history?',
-            confirm_text='清空' if zh else 'Clear',
-            danger=True,
-        ):
-            return
-        try:
-            self._rt_lib = clear_history(self._rt_lib_data())
-            self._rt_lib_refresh_list()
-            show_success(self, '历史', '已清空')
-        except Exception as exc:
-            show_warning(self, '历史', str(exc))
+        dialog = QDialog(self)
+        dialog.setWindowTitle('历史清理配置' if zh else 'History cleanup')
+        dialog.setMinimumWidth(460)
+        layout = QVBoxLayout(dialog)
+        hint = QLabel('仅清理已保存的请求测试历史，不影响当前抓包会话。' if zh else 'Only saved request-test history is affected; captured sessions remain intact.')
+        hint.setWordWrap(True)
+        hint.setObjectName('field-hint')
+        layout.addWidget(hint)
+        scope_combo = QComboBox(dialog)
+        scope_combo.addItem('全部历史' if zh else 'All history', 'all')
+        scope_combo.addItem('7 天前历史' if zh else 'History older than 7 days', 'older_than_7_days')
+        scope_combo.addItem('当前搜索结果' if zh else 'Current search results', 'current_search')
+        layout.addWidget(scope_combo)
+        impact = QLabel(dialog)
+        impact.setObjectName('field-hint')
+        layout.addWidget(impact)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        clean_btn = buttons.addButton('清理所选范围' if zh else 'Clean selected scope', QDialogButtonBox.ButtonRole.AcceptRole)
+        clean_btn.setObjectName('btn-danger')
+        layout.addWidget(buttons)
+
+        def matching_items():
+            lib = self._rt_lib_data()
+            visible = []
+            for row_index in range(self.rt_lib_list.count()):
+                row = self.rt_lib_list.item(row_index)
+                item_id = row.data(Qt.ItemDataRole.UserRole) if row else ''
+                item = next((entry for entry in (lib.get('history') or []) if entry.get('id') == item_id), None)
+                if item:
+                    visible.append(item)
+            return history_items_for_cleanup(
+                lib.get('history') or [],
+                scope_combo.currentData() or 'all',
+                current_items=visible,
+            )
+
+        def refresh_impact(*_args):
+            count = len(matching_items())
+            impact.setText(f'预计影响 {count} 条历史' if zh else f'Estimated impact: {count} history items')
+            clean_btn.setEnabled(count > 0)
+
+        def clean_selected():
+            items = matching_items()
+            count = len(items)
+            if not count:
+                return
+            message = (
+                f'将删除 {count} 条请求测试历史，当前抓包会话不会受影响。确定继续？'
+                if zh else
+                f'Delete {count} saved request-test history items? Current captured sessions are unaffected.'
+            )
+            if not confirm_action(
+                dialog,
+                '清理历史' if zh else 'Clean history',
+                message,
+                confirm_text='清理' if zh else 'Clean',
+                danger=True,
+            ):
+                return
+            try:
+                self._rt_lib = clear_history_items(
+                    self._rt_lib_data(), {item.get('id') for item in items}
+                )
+                self._rt_lib_refresh_list()
+                dialog.accept()
+                show_success(self, '历史', f'已清理 {count} 条历史' if zh else f'Cleaned {count} history items')
+            except Exception as exc:
+                show_warning(dialog, '历史' if zh else 'History', str(exc))
+
+        scope_combo.currentIndexChanged.connect(refresh_impact)
+        buttons.rejected.connect(dialog.reject)
+        clean_btn.clicked.connect(clean_selected)
+        refresh_impact()
+        dialog.exec()
+
+    def _rt_lib_clear_history(self):
+        """兼容旧槽位：通过带影响范围的清理配置完成操作。"""
+        self._show_history_cleanup_dialog()
 
     def _rt_append_history_from_send(
         self,
@@ -3736,6 +3881,11 @@ class InterfaceDebugPanel(QWidget):
             self.rt_lib_clear_btn.setToolTip(
                 '清空全部请求测试历史' if zh else 'Clear all history'
             )
+            if hasattr(self, 'rt_history_cleanup_btn'):
+                self.rt_history_cleanup_btn.setText('历史清理' if zh else 'Clean history')
+                self.rt_history_cleanup_btn.setToolTip(
+                    '按范围预览并清理请求测试历史' if zh else 'Preview and clean request-test history by scope'
+                )
             # 刷新「全部分类」文案
             if self.rt_lib_cat_filter.count() > 0 and self.rt_lib_cat_filter.itemData(0) == 'all':
                 self.rt_lib_cat_filter.setItemText(0, '全部分类' if zh else 'All categories')

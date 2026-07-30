@@ -339,6 +339,44 @@ def delete_history(lib: dict, history_id: str) -> dict:
     return save_library(lib)
 
 
+def history_items_for_cleanup(
+    history: list[dict],
+    scope: str,
+    *,
+    current_items: Optional[list[dict]] = None,
+    now: Optional[datetime] = None,
+) -> list[dict]:
+    """返回指定历史清理范围内的已持久化条目，不涉及捕获会话。"""
+    items = list(history or [])
+    if scope == 'current_search':
+        current_ids = {str(item.get('id') or '') for item in (current_items or [])}
+        return [item for item in items if str(item.get('id') or '') in current_ids]
+    if scope != 'older_than_7_days':
+        return items
+    cutoff = (now or datetime.now()).replace(microsecond=0)
+    from datetime import timedelta
+    cutoff -= timedelta(days=7)
+    selected = []
+    for item in items:
+        try:
+            stamp = datetime.fromisoformat(str(item.get('ts') or ''))
+            if stamp.tzinfo is not None:
+                stamp = stamp.replace(tzinfo=None)
+        except (TypeError, ValueError):
+            continue
+        if stamp < cutoff:
+            selected.append(item)
+    return selected
+
+
+def clear_history_items(lib: dict, history_ids: set[str]) -> dict:
+    """按明确 id 清理持久化请求测试历史。"""
+    lib = normalize_library(lib)
+    ids = {str(value or '') for value in (history_ids or set())}
+    lib['history'] = [item for item in lib['history'] if str(item.get('id') or '') not in ids]
+    return save_library(lib)
+
+
 def clear_history(lib: dict) -> dict:
     lib = normalize_library(lib)
     lib['history'] = []

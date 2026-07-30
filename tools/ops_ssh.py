@@ -1098,9 +1098,12 @@ def list_remote_dir(client, path: str = '.') -> list[dict]:
 
 def _looks_like_log_file(name: str) -> bool:
     n = str(name or '').casefold()
-    if not n or n.startswith('.'):
+    if not n:
         return False
-    # 常见：app.log / app-2026-07-23.log / app.log.1 / app.log.gz
+    # 保留唯一约定文件名 .log；其他隐藏文件仍不作为日志候选。
+    if n.startswith('.') and n != '.log':
+        return False
+    # 常见：.log / app.log / app-2026-07-23.log / app.log.1 / app.log.gz
     if n.endswith(('.log', '.log.gz', '.out', '.txt')):
         return True
     if '.log.' in n:  # app.log.20260723 / app.log.1

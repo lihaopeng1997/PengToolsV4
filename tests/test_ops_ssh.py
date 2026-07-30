@@ -31,6 +31,40 @@ class OpsSshTests(unittest.TestCase):
     def test_split_extra_keywords(self):
         self.assertEqual(split_extra_keywords('a,b，c\nd'), ['a', 'b', 'c', 'd'])
 
+    def test_dot_log_filename_is_a_valid_remote_log_candidate(self):
+        from tools.ops_ssh import _looks_like_log_file
+        self.assertTrue(_looks_like_log_file('.log'))
+        self.assertFalse(_looks_like_log_file('.hidden'))
+
+    def test_remote_log_directory_lists_dot_log_but_ignores_other_hidden_files(self):
+        import stat
+        from types import SimpleNamespace
+        from tools.ops_ssh import list_remote_log_files
+
+        class Sftp:
+            def normalize(self, path):
+                return path
+
+            def stat(self, _path):
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755)
+
+            def listdir_attr(self, _path):
+                return [
+                    SimpleNamespace(filename='.log', st_mode=stat.S_IFREG | 0o644, st_size=10, st_mtime=20),
+                    SimpleNamespace(filename='.hidden', st_mode=stat.S_IFREG | 0o644, st_size=20, st_mtime=30),
+                ]
+
+            def close(self):
+                pass
+
+        class Client:
+            def open_sftp(self):
+                return Sftp()
+
+        files = list_remote_log_files(Client(), '/var/log/app')
+        self.assertEqual([item['name'] for item in files], ['.log'])
+        self.assertEqual(files[0]['path'], '/var/log/app/.log')
+
     def test_export_filename_ip_service(self):
         from tools.ops_ssh import local_export_filename, parse_keywords
         name = local_export_filename(
