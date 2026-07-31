@@ -329,7 +329,8 @@ class JsonViewer(QWidget):
         self._item_values[id(item)] = value
         (parent.addChild(item) if parent is not None else self.tree.addTopLevelItem(item))
         if isinstance(value, dict):
-            for child_key, child_value in value.items():
+            for child_key in sorted(value):
+                child_value = value[child_key]
                 self._add_item(item, child_key, child_value, json_path_child(path, child_key))
         elif isinstance(value, list):
             for index, child_value in enumerate(value):

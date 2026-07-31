@@ -429,6 +429,16 @@ class GatewayCryptoTests(unittest.TestCase):
 
 
 class JsonViewerLogicTests(unittest.TestCase):
+    def test_format_sorts_object_keys_recursively_but_keeps_array_order(self):
+        formatted = format_json_text(
+            '{"z":1,"a":{"zebra":1,"apple":2},"items":[{"z":3,"a":4},2,1]}'
+        )
+        self.assertLess(formatted.index('"a": {'), formatted.index('"items": ['))
+        self.assertLess(formatted.index('"items": ['), formatted.index('"z": 1'))
+        self.assertLess(formatted.index('"apple": 2'), formatted.index('"zebra": 1'))
+        self.assertLess(formatted.index('"a": 4'), formatted.index('"z": 3'))
+        self.assertLess(formatted.index('    2,'), formatted.index('    1'))
+
     def test_format_keeps_chinese_boolean_and_null(self):
         formatted = format_json_text('{"姓名":"示例用户","ok":true,"value":null}')
         self.assertIn('"姓名": "示例用户"', formatted)
@@ -450,6 +460,13 @@ class JsonViewerLogicTests(unittest.TestCase):
         self.assertEqual(node_value_text('hello'), 'hello')
         self.assertEqual(node_value_text(True), 'true')
         self.assertIn('\n', node_json_text({'a': 1}))
+
+    def test_node_json_text_sorts_nested_object_keys_but_keeps_arrays(self):
+        text = node_json_text({'z': 1, 'a': {'zebra': 2, 'apple': 3}, 'items': [2, 1]})
+        self.assertLess(text.index('"a": {'), text.index('"items": ['))
+        self.assertLess(text.index('"items": ['), text.index('"z": 1'))
+        self.assertLess(text.index('"apple": 3'), text.index('"zebra": 2'))
+        self.assertLess(text.index('    2,'), text.index('    1'))
 
     def test_invalid_json_reports_line_and_column(self):
         # Python 3.13 对尾逗号报错位置与旧版不同（旧：第2行第1列；3.13：第1行第8列），

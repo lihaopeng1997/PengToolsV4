@@ -439,6 +439,16 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIsNone(panel._template_profile)
         self.assertFalse(panel.template_status.property('matched'))
 
+    def test_gateway_json_tree_sorts_object_fields_alphabetically(self):
+        gateway = GatewayDecodePanel()
+        viewer = gateway.json_viewer
+        self.assertTrue(viewer.set_text('{"z":1,"a":{"zebra":1,"apple":2}}'))
+        root = viewer.tree.topLevelItem(0)
+        self.assertEqual([root.child(index).text(0) for index in range(root.childCount())], ['a', 'z'])
+        nested = root.child(0)
+        self.assertEqual([nested.child(index).text(0) for index in range(nested.childCount())], ['apple', 'zebra'])
+        gateway.close()
+
     def test_gateway_json_tree_search_and_copy(self):
         gateway = GatewayDecodePanel()
         viewer = gateway.json_viewer

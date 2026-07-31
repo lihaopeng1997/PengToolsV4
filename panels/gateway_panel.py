@@ -77,9 +77,10 @@ class GatewayDecodePanel(QWidget):
         self.config_group.setObjectName('gateway-config-group')
         self.config_group.setTitle('解密参数')
         config = QFormLayout(self.config_group)
-        config.setContentsMargins(14, 16, 14, 12)
-        config.setHorizontalSpacing(14)
-        config.setVerticalSpacing(10)
+        # 参数保持完整可见，但采用紧凑节奏，将垂直空间交还给报文与结果阅读区。
+        config.setContentsMargins(12, 10, 12, 8)
+        config.setHorizontalSpacing(12)
+        config.setVerticalSpacing(5)
 
         self.system_label = QLabel()
         self.system_value = QLabel('新车险系统（固定兼容模式）')
@@ -112,7 +113,7 @@ class GatewayDecodePanel(QWidget):
         key_wrap = QWidget()
         key_layout = QVBoxLayout(key_wrap)
         key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.setSpacing(4)
+        key_layout.setSpacing(2)
         key_head = QHBoxLayout()
         key_head.setContentsMargins(0, 0, 0, 0)
         self.key_label = QLabel()
@@ -125,8 +126,8 @@ class GatewayDecodePanel(QWidget):
         key_layout.addLayout(key_head)
         self.key_cipher = QPlainTextEdit()
         self.key_cipher.setObjectName('gateway-key-edit')
-        self.key_cipher.setMinimumHeight(72)
-        self.key_cipher.setMaximumHeight(110)
+        self.key_cipher.setMinimumHeight(56)
+        self.key_cipher.setMaximumHeight(80)
         self.key_cipher.setPlaceholderText('粘贴 SM2 加密后的 SM4 Key（十六进制 Hex）')
         key_layout.addWidget(self.key_cipher)
         self.key_hint = QLabel()
@@ -202,7 +203,10 @@ class GatewayDecodePanel(QWidget):
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
-        splitter.setSizes([480, 560])
+        # 输入报文与解密结果默认均衡分配，用户仍可按需拖动。
+        splitter.setSizes([520, 520])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
         work_layout.addWidget(splitter, 1)
         layout.addWidget(work_zone, 1)
 
@@ -289,7 +293,7 @@ class GatewayDecodePanel(QWidget):
         apply_splitter_orientation(self.splitter, mode, min_editor=180)
         # 窄屏：参数区在报文上方（已在 VBox 中）；宽屏保持并列报文区
         self.config_group.show()
-        self.key_cipher.setMinimumHeight(64 if mode in ('compact', 'narrow') else 72)
+        self.key_cipher.setMinimumHeight(52 if mode in ('compact', 'narrow') else 56)
         self._more_menu.clear()
         zh = self.language == 'zh'
         self.more_btn.setText('更多' if zh else 'More')

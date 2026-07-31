@@ -163,6 +163,20 @@ class GatewayParamsVisibleTests(unittest.TestCase):
         self.assertIn('IV', p.iv_label.text())
         self.assertTrue(p.iv_value.text())
 
+    def test_compact_params_leave_more_space_for_cipher_and_result(self):
+        from panels.gateway_panel import GatewayDecodePanel
+        p = GatewayDecodePanel('zh')
+        self.assertFalse(p.config_group.isHidden())
+        self.assertLessEqual(p.key_cipher.minimumHeight(), 56)
+        self.assertLessEqual(p.key_cipher.maximumHeight(), 80)
+        p.resize(1200, 820)
+        p.show()
+        self.app.processEvents()
+        sizes = p.splitter.sizes()
+        self.assertEqual(len(sizes), 2)
+        self.assertAlmostEqual(sizes[0], sizes[1], delta=80)
+        p.close()
+
     def test_set_cipher_does_not_overwrite_key(self):
         from panels.gateway_panel import GatewayDecodePanel
         p = GatewayDecodePanel('zh')
