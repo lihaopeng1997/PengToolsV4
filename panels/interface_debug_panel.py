@@ -190,6 +190,7 @@ class InterfaceDebugPanel(QWidget):
         self._selected_id = None
         self._launch_worker = None
         self._layout_mode = 'standard'
+        self._compact_session_view = True
         self._active_filters = list(self._prefs.get('active_filters') or [FILTER_ALL])
         self._sort_key = self._prefs.get('sort_key') or 'time'
         self._sort_desc = bool(self._prefs.get('sort_desc', True))
@@ -317,10 +318,12 @@ class InterfaceDebugPanel(QWidget):
         self.live_status.setObjectName('field-hint')
         self.live_status.setWordWrap(True)
         cl.addWidget(self.live_status)
-        root.addWidget(conn)
+        # 抓包控制归入左侧“采集与定位”栏，而不是占据全宽顶部。
+        self.capture_zone = conn
 
         # 会话工具条
         tools = QFrame()
+        self.session_toolbar = tools
         apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
         tl = QHBoxLayout(tools)
@@ -385,9 +388,7 @@ class InterfaceDebugPanel(QWidget):
         self._toggle_list_btn.clicked.connect(self._toggle_session_list)
         tl.addWidget(self._toggle_list_btn)
 
-        root.addWidget(tools)
-
-        # 中部：列表 + 详情
+        # 中部：左侧采集/定位/会话，右侧诊断/复测。
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.mid_splitter.setObjectName('iface-mid-splitter')
         self.mid_splitter.setChildrenCollapsible(False)
@@ -395,9 +396,23 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter.setOpaqueResize(True)
 
         left = QWidget()
+        left.setObjectName('iface-session-pane')
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(4)
+        ll.setSpacing(8)
+        ll.addWidget(self.capture_zone)
+
+        # 工具条保持单行；窄屏时通过横向滚动保留完整操作，不挤压按钮文本。
+        self.session_toolbar_scroll = QScrollArea()
+        self.session_toolbar_scroll.setObjectName('iface-session-toolbar-scroll')
+        self.session_toolbar_scroll.setWidgetResizable(False)
+        self.session_toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.session_toolbar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.session_toolbar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.session_toolbar.setMinimumWidth(760)
+        self.session_toolbar_scroll.setWidget(self.session_toolbar)
+        ll.addWidget(self.session_toolbar_scroll)
+
         self.table = QTableWidget(0, len(COLUMN_KEYS))
         self.table.setObjectName('iface-request-table')
         self.table.setHorizontalHeaderLabels([self.COL_LABELS_ZH[k] for k in COLUMN_KEYS])
@@ -412,7 +427,8 @@ class InterfaceDebugPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(32)
+        # 一条会话在同一行展示“请求摘要 + 诊断元信息”两层内容，避免 11 列把定位信息压碎。
+        self.table.verticalHeader().setDefaultSectionSize(52)
         self.table.setAlternatingRowColors(True)
         self.table.setWordWrap(False)
         # 超长 URL/主机：不截断为「被挤扁」，允许左右滚动看全
@@ -427,9 +443,9 @@ class InterfaceDebugPanel(QWidget):
         header_view.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         # 短列 Interactive；URL 列 Stretch 吃掉尾部空白，表头随视口变化
         _default_w = {
-            'seq': 44, 'status': 64, 'protocol': 56, 'method': 64,
+            'seq': 44, 'status': 68, 'protocol': 56, 'method': 64,
             'host': 160, 'url': 360, 'body': 72, 'type': 72,
-            'duration': 72, 'time': 96,
+            'duration': 84, 'time': 110,
         }
         for i, key in enumerate(COLUMN_KEYS):
             if key == 'url':
@@ -453,6 +469,8 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter.addWidget(left)
 
         right = QWidget()
+        self.detail_workspace = right
+        right.setObjectName('iface-detail-workspace')
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(8)
@@ -849,6 +867,12 @@ class InterfaceDebugPanel(QWidget):
         self.detail_tabs.addTab(self.draft_page, '请求测试')
         self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
 
+        # 键盘路径：采集 → 定位 → 会话 → 详情 → 请求测试。
+        QWidget.setTabOrder(self.capture_toggle_btn, self.filter_edit)
+        QWidget.setTabOrder(self.filter_edit, self.table)
+        QWidget.setTabOrder(self.table, self.detail_tabs)
+        QWidget.setTabOrder(self.detail_tabs, self.rt_url)
+
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
         sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
@@ -870,14 +894,19 @@ class InterfaceDebugPanel(QWidget):
         self._cols_menu.clear()
         visible = set(self._prefs.get('visible_columns') or [])
         labels = self.COL_LABELS_ZH if self.language == 'zh' else self.COL_LABELS_EN
+        compact_core = ('status', 'method', 'url', 'duration', 'time')
         for key in COLUMN_KEYS:
             act = QAction(labels.get(key, key), self._cols_menu)
             act.setCheckable(True)
-            core = ('seq', 'status', 'method', 'name', 'host', 'url')
-            act.setChecked(key in visible or key in core)
-            if key in core:
+            if self._compact_session_view:
+                # 高密度视图的列集合固定，避免菜单出现“已勾选但实际隐藏”的无效反馈。
+                act.setChecked(key in compact_core)
                 act.setEnabled(False)
-            act.toggled.connect(lambda checked, k=key: self._toggle_column(k, checked))
+            else:
+                core = ('seq', 'status', 'method', 'name', 'host', 'url')
+                act.setChecked(key in visible or key in core)
+                act.setEnabled(key not in core)
+                act.toggled.connect(lambda checked, k=key: self._toggle_column(k, checked))
             self._cols_menu.addAction(act)
 
     def _toggle_column(self, key: str, checked: bool):
@@ -891,14 +920,19 @@ class InterfaceDebugPanel(QWidget):
         update_ui_prefs({'visible_columns': visible})
         self._apply_column_visibility()
 
+    def _column_index(self, key: str) -> int:
+        return COLUMN_KEYS.index(key)
+
     def _apply_column_visibility(self):
         visible = set(self._prefs.get('visible_columns') or [])
         widths = self._prefs.get('column_widths') or {}
-        core = ('seq', 'status', 'method', 'host', 'url')
+        # 默认高密度诊断视图只显示可扫读的关键列；完整字段可通过“列”菜单显式展开。
+        compact_core = ('status', 'method', 'url', 'duration', 'time')
+        core = compact_core if self._compact_session_view else ('seq', 'status', 'method', 'host', 'url')
         header = self.table.horizontalHeader()
         last_visible = -1
         for i, key in enumerate(COLUMN_KEYS):
-            show = key in visible or key in core
+            show = key in core if self._compact_session_view else (key in visible or key in core)
             self.table.setColumnHidden(i, not show)
             if show:
                 last_visible = i
@@ -2013,7 +2047,8 @@ class InterfaceDebugPanel(QWidget):
             proto = protocol_of(rec)
             host = host_of(rec)
             name_col = name_of(rec)
-            url_col = url_path_display(rec)
+            # 主行放路径，次行放主机、资源类型和大小，形成可扫读的两行诊断摘要。
+            url_col = f'{url_path_display(rec)}\n{host or "—"} · {content_kind(rec)} · {format_size(response_size_bytes(rec))}'
             dur = rec.get('duration_ms')
             dur_s = '—' if dur is None else f'{int(dur)} ms'
             kind = content_kind(rec)
@@ -2175,12 +2210,20 @@ class InterfaceDebugPanel(QWidget):
             notes.append('WebSocket 会话（以状态说明展示，报文可能不完整）')
         if not (rec.get('response_body') or '').strip() and status:
             notes.append('响应体为空或未能读取（仅保留元信息，不视为程序异常）')
+        environment_id = self.local_target_combo.currentData()
+        environment_item = next(
+            (item for item in (self._config.get('local_targets') or []) if item.get('id') == environment_id),
+            None,
+        )
+        environment = (environment_item or {}).get('name') or '未选择'
         summary_parts = [
             (rec.get('method') or 'GET').upper(),
             summary_url,
             f'状态 {status if status is not None else "—"}',
             f'耗时 {dur if dur is not None else "—"} ms',
             f'大小 {size}',
+            f'时间 {tstr}',
+            f'环境 {environment}',
         ]
         self.detail_summary.setText(' · '.join(summary_parts))
         summary_status = 'danger' if is_failed(rec) else 'info'

@@ -226,6 +226,35 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
             p._save_request_test_splitter_sizes()
         save.assert_called_once_with({'request_test_splitter_sizes': expected_sizes})
 
+    def test_detail_summary_includes_capture_time_and_current_environment(self):
+        p = InterfaceDebugPanel('zh')
+        p._config['local_targets'] = [{'id': 'env-1', 'name': '测试环境', 'base_url': 'https://test.example.com'}]
+        p.local_target_combo.addItem('测试环境', 'env-1')
+        p.local_target_combo.setCurrentIndex(p.local_target_combo.count() - 1)
+        p._records_by_id = {
+            'context': {
+                'id': 'context', 'method': 'GET', 'url': 'https://x.com/api?token=secret',
+                'status': 200, 'duration_ms': 150, 'mime_type': 'application/json',
+                'response_body': '{"ok":true}', 'started_at': 1.0, 'source': 'http_capture',
+            }
+        }
+        p._selected_id = 'context'
+        p._refresh_detail()
+        self.assertIn('时间', p.detail_summary.text())
+        self.assertIn('环境 测试环境', p.detail_summary.text())
+        self.assertNotIn('secret', p.detail_summary.text())
+
+    def test_detail_environment_context_uses_name_without_base_url(self):
+        p = InterfaceDebugPanel('zh')
+        p._config['local_targets'] = [{'id': 'env-private', 'name': '内网测试', 'base_url': 'https://host/?token=private'}]
+        p.local_target_combo.clear()
+        p.local_target_combo.addItem('内网测试 · https://host/?token=private', 'env-private')
+        p._records_by_id = {'r': {'id': 'r', 'method': 'GET', 'url': 'https://x.com/api', 'status': 200, 'started_at': 1.0}}
+        p._selected_id = 'r'
+        p._refresh_detail()
+        self.assertIn('环境 内网测试', p.detail_summary.text())
+        self.assertNotIn('private', p.detail_summary.text())
+
     def test_detail_workspace_keeps_summary_and_readable_response(self):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(
@@ -252,6 +281,33 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         p.table.clearSelection()
         p._on_row_selected()
         self.assertTrue(p.detail_summary.isHidden())
+
+    def test_compact_session_view_column_menu_matches_visible_columns(self):
+        p = InterfaceDebugPanel('zh')
+        actions = {action.text(): action for action in p._cols_menu.actions()}
+        for key, label in p.COL_LABELS_ZH.items():
+            action = actions[label]
+            self.assertEqual(action.isChecked(), not p.table.isColumnHidden(p._column_index(key)))
+            self.assertFalse(action.isEnabled())
+
+    def test_session_list_uses_compact_two_line_diagnostics_view(self):
+        p = InterfaceDebugPanel('zh')
+        p._records_by_id = {
+            'two-line': {
+                'id': 'two-line', 'seq': 1, 'method': 'GET',
+                'url': 'https://api.example.com/v1/orders?trace=1', 'path': '/v1/orders',
+                'host': 'api.example.com', 'scheme': 'https', 'status': 200,
+                'duration_ms': 125, 'mime_type': 'application/json',
+                'resource_type': 'XHR', 'response_body': '{"ok":true}',
+                'started_at': 1.0, 'source': 'http_capture',
+            }
+        }
+        p._records = list(p._records_by_id.values())
+        p._rebuild_table()
+        self.assertGreaterEqual(p.table.verticalHeader().defaultSectionSize(), 48)
+        self.assertIn('\n', p.table.item(0, p._column_index('url')).text())
+        for key in ('seq', 'protocol', 'name', 'host', 'body', 'type'):
+            self.assertTrue(p.table.isColumnHidden(p._column_index(key)))
 
     def test_four_detail_tabs_and_columns(self):
         p = InterfaceDebugPanel('zh')
@@ -306,6 +362,18 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         expected_sizes = list(p.mid_splitter.sizes())
         p.apply_layout_mode('wide', False)
         self.assertEqual(p.mid_splitter.sizes(), expected_sizes)
+
+    def test_workspace_places_capture_and_session_tools_inside_left_pane(self):
+        p = InterfaceDebugPanel('zh')
+        self.assertTrue(hasattr(p, 'capture_zone'))
+        self.assertTrue(hasattr(p, 'session_toolbar_scroll'))
+        self.assertIs(p.capture_zone.parentWidget(), p._session_list_widget)
+        self.assertIs(p.session_toolbar_scroll.parentWidget(), p._session_list_widget)
+        self.assertIs(p.session_toolbar_scroll.widget(), p.session_toolbar)
+        self.assertIs(p.mid_splitter.widget(0), p._session_list_widget)
+        self.assertIs(p.mid_splitter.widget(1), p.detail_workspace)
+        self.assertEqual(p.session_toolbar_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.assertEqual(p.session_toolbar_scroll.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def test_capture_control_is_one_stateful_action_and_keeps_proxy_tools(self):
         p = InterfaceDebugPanel('zh')
