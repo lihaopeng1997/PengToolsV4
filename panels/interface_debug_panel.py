@@ -191,6 +191,7 @@ class InterfaceDebugPanel(QWidget):
         self._launch_worker = None
         self._layout_mode = 'standard'
         self._compact_session_view = True
+        self._last_responsive_widths = None
         self._active_filters = list(self._prefs.get('active_filters') or [FILTER_ALL])
         self._sort_key = self._prefs.get('sort_key') or 'time'
         self._sort_desc = bool(self._prefs.get('sort_desc', True))
@@ -223,6 +224,7 @@ class InterfaceDebugPanel(QWidget):
         self.set_language(language)
         self._apply_column_visibility()
         self._apply_mode_ui()
+        # 离屏初始化无有效布局宽度；首次真实 resize/splitter 事件再计算收纳状态。
         # 离屏/测试环境跳过延时恢复提示
         if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
             QTimer.singleShot(200, self._check_orphan_proxy_snapshot)
@@ -307,6 +309,7 @@ class InterfaceDebugPanel(QWidget):
         self.restore_proxy_btn.setToolTip('若抓包异常退出导致网页/接口不通，点此恢复系统代理')
         self.restore_proxy_btn.clicked.connect(self._manual_restore_proxy)
         row2.addWidget(self.restore_proxy_btn)
+        self.capture_actions_more_btn, self._capture_actions_menu = self._make_overflow_button(row2)
         row2.addStretch(1)
         cl.addLayout(row2)
 
@@ -388,6 +391,18 @@ class InterfaceDebugPanel(QWidget):
         self._toggle_list_btn.clicked.connect(self._toggle_session_list)
         tl.addWidget(self._toggle_list_btn)
 
+        # 左栏收窄时将次要筛选和操作收纳到“更多”，避免按钮被水平裁切。
+        self.session_actions_more_btn = QToolButton()
+        self.session_actions_more_btn.setObjectName('responsive-more-btn')
+        self.session_actions_more_btn.setText('更多')
+        self.session_actions_more_btn.setToolTip('显示筛选与会话操作')
+        self.session_actions_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._session_actions_menu = QMenu(self.session_actions_more_btn)
+        self.session_actions_more_btn.setMenu(self._session_actions_menu)
+        self.session_actions_more_btn.hide()
+        tl.addWidget(self.session_actions_more_btn)
+        self._rebuild_session_actions_menu()
+
         # 中部：左侧采集/定位/会话，右侧诊断/复测。
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.mid_splitter.setObjectName('iface-mid-splitter')
@@ -405,11 +420,11 @@ class InterfaceDebugPanel(QWidget):
         # 工具条保持单行；窄屏时通过横向滚动保留完整操作，不挤压按钮文本。
         self.session_toolbar_scroll = QScrollArea()
         self.session_toolbar_scroll.setObjectName('iface-session-toolbar-scroll')
-        self.session_toolbar_scroll.setWidgetResizable(False)
+        self.session_toolbar_scroll.setWidgetResizable(True)
         self.session_toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.session_toolbar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.session_toolbar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.session_toolbar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.session_toolbar.setMinimumWidth(760)
+        self.session_toolbar.setMinimumWidth(0)
         self.session_toolbar_scroll.setWidget(self.session_toolbar)
         ll.addWidget(self.session_toolbar_scroll)
 
@@ -524,6 +539,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.gateway_req_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_req_btn.clicked.connect(lambda: self._send_body_side('request', 'gateway'))
         req_tools.addWidget(self.gateway_req_btn)
+        self.req_actions_more_btn, self._req_actions_menu = self._make_overflow_button(req_tools)
         req_tools.addStretch(1)
         rq.addLayout(req_tools)
         self.req_detail = QPlainTextEdit()
@@ -551,6 +567,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.gateway_resp_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'gateway'))
         resp_tools.addWidget(self.gateway_resp_btn)
+        self.resp_actions_more_btn, self._resp_actions_menu = self._make_overflow_button(resp_tools)
         resp_tools.addStretch(1)
         rs.addLayout(resp_tools)
         self.resp_detail = QPlainTextEdit()
@@ -679,6 +696,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_manage_cat_btn, 'ghost', compact=True, icon='edit', icon_size=16)
         self.rt_manage_cat_btn.clicked.connect(self._rt_manage_categories)
         cat_row.addWidget(self.rt_manage_cat_btn)
+        self.rt_form_more_btn, self._rt_form_actions_menu = self._make_overflow_button(cat_row)
         dl.addLayout(cat_row)
 
         # 左：接口库/历史 · 右：表单与响应
@@ -811,6 +829,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_resp_format_btn, 'secondary', compact=True, icon='json', icon_size=16)
         self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
         io_row.addWidget(self.rt_resp_format_btn)
+        self.rt_io_more_btn, self._rt_io_actions_menu = self._make_overflow_button(io_row)
         io_row.addStretch(1)
         editor_layout.addLayout(io_row)
         self.rt_editor_response_splitter.addWidget(editor_panel)
@@ -875,9 +894,19 @@ class InterfaceDebugPanel(QWidget):
 
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
+        self.session_list_reveal_btn = QPushButton('显示会话列表')
+        apply_button(self.session_list_reveal_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
+        self.session_list_reveal_btn.setToolTip('恢复左侧会话列表')
+        self.session_list_reveal_btn.clicked.connect(self._toggle_session_list)
+        self.session_list_reveal_btn.hide()
+        rl.addWidget(self.session_list_reveal_btn, 0, Qt.AlignmentFlag.AlignLeft)
         sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
         self.mid_splitter.setSizes(sizes)
         self.mid_splitter.splitterMoved.connect(self._save_splitter_sizes)
+        # splitterMoved 发生时子控件几何信息尚未稳定，下一事件循环再按最终宽度重算按钮和列。
+        self.mid_splitter.splitterMoved.connect(
+            lambda *_: QTimer.singleShot(0, self._update_responsive_workspace)
+        )
         root.addWidget(self.mid_splitter, 1)
 
         self.loading = AuroraProgress(self)
@@ -888,6 +917,144 @@ class InterfaceDebugPanel(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay(self)
+        if hasattr(self, 'mid_splitter'):
+            self._update_responsive_workspace()
+
+    def _make_overflow_button(self, layout):
+        """为动作行创建固定可达的收纳入口。"""
+        button = QToolButton()
+        button.setObjectName('responsive-more-btn')
+        button.setText('更多')
+        button.setToolTip('显示收纳操作')
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        button.setMenu(menu)
+        button.hide()
+        layout.addWidget(button)
+        return button, menu
+
+    @staticmethod
+    def _set_widgets_visible(widgets, visible):
+        for widget in widgets:
+            widget.setVisible(visible)
+
+    def _rebuild_overflow_menu(self, menu, actions):
+        """菜单项直接复用现有控件行为，不复制业务逻辑。"""
+        menu.clear()
+        for label, callback in actions:
+            action = menu.addAction(label)
+            action.triggered.connect(callback)
+
+    def _update_responsive_workspace(self, left_width=None, right_width=None, table_width=None):
+        """按实际分隔条宽度收纳次要按钮，并同步压缩会话诊断列。"""
+        explicit_widths = any(value is not None for value in (left_width, right_width, table_width))
+        left_width = int(left_width if left_width is not None else self._session_list_widget.width())
+        right_width = int(right_width if right_width is not None else self.detail_workspace.width())
+        table_width = int(table_width if table_width is not None else self.table.viewport().width())
+        # QTableWidget 的最小 SizeHint 可能让视口尺寸滞后于父栏；列断点不能超过左栏实际可用宽度。
+        table_width = min(table_width, left_width)
+        # 离屏初始化尚无布局宽度时不能误判为窄屏；真实 resize/splitter 事件会在可见后重算。
+        if not explicit_widths and (left_width <= 0 or right_width <= 0):
+            return
+        self._last_responsive_widths = (left_width, right_width, table_width)
+        self._update_session_toolbar_overflow(left_width)
+
+        capture_compact = left_width < 500
+        self._set_widgets_visible((self.test_listen_btn, self.restore_proxy_btn), not capture_compact)
+        self.capture_actions_more_btn.setVisible(capture_compact)
+        if capture_compact:
+            self._rebuild_overflow_menu(self._capture_actions_menu, [
+                ('测试连接' if self.language == 'zh' else 'Test connection', self._test_listen_loopback),
+                ('恢复系统代理' if self.language == 'zh' else 'Restore proxy', self._manual_restore_proxy),
+            ])
+
+        detail_compact = right_width < 500
+        self._set_widgets_visible((self.format_req_btn, self.gateway_req_btn), not detail_compact)
+        self.req_actions_more_btn.setVisible(detail_compact)
+        if detail_compact:
+            self._rebuild_overflow_menu(self._req_actions_menu, [
+                ('送格式工具' if self.language == 'zh' else 'Format tools', lambda: self._send_body_side('request', 'format')),
+                ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('request', 'gateway')),
+            ])
+        self._set_widgets_visible((self.format_resp_btn, self.gateway_resp_btn), not detail_compact)
+        self.resp_actions_more_btn.setVisible(detail_compact)
+        if detail_compact:
+            self._rebuild_overflow_menu(self._resp_actions_menu, [
+                ('送格式工具' if self.language == 'zh' else 'Format tools', lambda: self._send_body_side('response', 'format')),
+                ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('response', 'gateway')),
+            ])
+
+        request_test_compact = right_width < 560
+        request_test_actions = (
+            self.export_detail_btn, self.rt_import_btn, self.rt_req_copy_btn,
+            self.rt_req_format_btn, self.rt_resp_copy_btn, self.rt_resp_format_btn,
+        )
+        self._set_widgets_visible(request_test_actions, not request_test_compact)
+        self.rt_io_more_btn.setVisible(request_test_compact)
+        if request_test_compact:
+            self._rebuild_overflow_menu(self._rt_io_actions_menu, [
+                ('导出明细' if self.language == 'zh' else 'Export detail', self._export_session_detail),
+                ('导入明细' if self.language == 'zh' else 'Import', self._rt_import_file),
+                ('复制请求' if self.language == 'zh' else 'Copy request', self._rt_copy_request_body),
+                ('请求→格式工具' if self.language == 'zh' else 'Request → Format', self._rt_send_request_to_format),
+                ('复制响应' if self.language == 'zh' else 'Copy response', self._rt_copy_response_body),
+                ('响应→格式工具' if self.language == 'zh' else 'Response → Format', self._rt_send_response_to_format),
+            ])
+
+        form_compact = right_width < 560
+        form_actions = (
+            self.rt_environment_config_btn, self.rt_fill_btn, self.rt_filter_config_btn,
+            self.rt_save_api_btn, self.rt_manage_cat_btn,
+        )
+        self._set_widgets_visible(form_actions, not form_compact)
+        self.rt_form_more_btn.setVisible(form_compact)
+        if form_compact:
+            self._rebuild_overflow_menu(self._rt_form_actions_menu, [
+                ('环境配置' if self.language == 'zh' else 'Environment settings', self._show_environment_config_dialog),
+                ('从会话填充' if self.language == 'zh' else 'Fill from session', self._rt_fill_from_selection),
+                ('过滤配置' if self.language == 'zh' else 'Filter settings', self._show_url_filter_config_dialog),
+                ('保存接口' if self.language == 'zh' else 'Save API', self._rt_save_api),
+                ('分类管理' if self.language == 'zh' else 'Manage categories', self._rt_manage_categories),
+            ])
+
+        self._adaptive_table_width = table_width
+        self._apply_column_visibility()
+
+    def _rebuild_session_actions_menu(self):
+        """构建窄左栏的收纳菜单；复用原按钮行为，保证所有操作仍可访问。"""
+        menu = self._session_actions_menu
+        menu.clear()
+        for chip in self._filter_chips.values():
+            action = menu.addAction(chip.text())
+            action.setCheckable(True)
+            action.setChecked(chip.isChecked())
+            action.toggled.connect(chip.setChecked)
+        menu.addSeparator()
+        export_action = menu.addAction('导出会话明细' if self.language == 'zh' else 'Export session details')
+        export_action.triggered.connect(self._export_session_detail)
+        clear_action = menu.addAction('清空会话' if self.language == 'zh' else 'Clear sessions')
+        clear_action.triggered.connect(self._confirm_clear_session)
+        session_list = getattr(self, '_session_list_widget', None)
+        list_hidden = bool(session_list is not None and session_list.isHidden())
+        toggle_text = '显示会话列表' if list_hidden else '隐藏会话列表'
+        toggle_action = menu.addAction(toggle_text if self.language == 'zh' else ('Show session list' if list_hidden else 'Hide session list'))
+        toggle_action.triggered.connect(self._toggle_session_list)
+
+    def _update_session_toolbar_overflow(self, available_width=None):
+        """左栏随分隔条宽度在完整工具条与收纳菜单间切换。"""
+        if not hasattr(self, 'session_actions_more_btn'):
+            return
+        width = int(available_width if available_width is not None else self._session_list_widget.width())
+        compact = width < 760
+        for chip in self._filter_chips.values():
+            chip.setVisible(not compact)
+        self.export_list_btn.setVisible(not compact)
+        self.clear_list_btn.setVisible(not compact)
+        # 会话栏显隐是窄屏下恢复阅读区的主控件，始终保持可达。
+        self._toggle_list_btn.show()
+        self.session_actions_more_btn.setVisible(compact)
+        if compact:
+            self._rebuild_session_actions_menu()
 
     # ── 列 / 筛选 ────────────────────────────────────
     def _rebuild_column_menu(self):
@@ -928,7 +1095,12 @@ class InterfaceDebugPanel(QWidget):
         widths = self._prefs.get('column_widths') or {}
         # 默认高密度诊断视图只显示可扫读的关键列；完整字段可通过“列”菜单显式展开。
         compact_core = ('status', 'method', 'url', 'duration', 'time')
-        core = compact_core if self._compact_session_view else ('seq', 'status', 'method', 'host', 'url')
+        # 会话表宽度不足时优先保留结果、方法和请求摘要；拉宽后自动恢复耗时与时间。
+        table_width = int(getattr(self, '_adaptive_table_width', self.table.viewport().width()))
+        if self._compact_session_view and table_width < 420:
+            core = ('status', 'method', 'url')
+        else:
+            core = compact_core if self._compact_session_view else ('seq', 'status', 'method', 'host', 'url')
         header = self.table.horizontalHeader()
         last_visible = -1
         for i, key in enumerate(COLUMN_KEYS):
@@ -3762,9 +3934,12 @@ class InterfaceDebugPanel(QWidget):
         if w.isHidden():
             w.show()
             self._toggle_list_btn.setText('隐藏')
+            self.session_list_reveal_btn.hide()
         else:
             w.hide()
             self._toggle_list_btn.setText('显示')
+            self.session_list_reveal_btn.show()
+        self._rebuild_session_actions_menu()
 
     def apply_layout_mode(self, mode, low_height=False):
         previous_mode = self._layout_mode
@@ -3801,6 +3976,7 @@ class InterfaceDebugPanel(QWidget):
         self.test_listen_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
             edit.setMinimumHeight(editor_min_height())
+        self._update_responsive_workspace()
 
     # ── 语言 / 清理 ──────────────────────────────────
     def set_language(self, language):
@@ -3840,7 +4016,19 @@ class InterfaceDebugPanel(QWidget):
             chip.setText(chip_labels[k][0 if zh else 1])
         self.clear_list_btn.setText('清空' if zh else 'Clear')
         self.cols_btn.setText('列设置' if zh else 'Columns')
+        for button in (
+            self.session_actions_more_btn, self.capture_actions_more_btn,
+            self.req_actions_more_btn, self.resp_actions_more_btn,
+            self.rt_io_more_btn, self.rt_form_more_btn,
+        ):
+            button.setText('更多' if zh else 'More')
+            button.setToolTip('显示收纳操作' if zh else 'Show overflow actions')
+        self.session_list_reveal_btn.setText('显示会话列表' if zh else 'Show session list')
+        self.session_list_reveal_btn.setToolTip('恢复左侧会话列表' if zh else 'Restore left session list')
         self._rebuild_column_menu()
+        widths = self._last_responsive_widths
+        if widths:
+            self._update_responsive_workspace(*widths)
         self.detail_tabs.setTabText(0, '概览' if zh else 'Overview')
         self.detail_tabs.setTabText(1, '请求' if zh else 'Request')
         self.detail_tabs.setTabText(2, '响应' if zh else 'Response')

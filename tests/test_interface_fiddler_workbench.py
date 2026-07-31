@@ -347,6 +347,9 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p._toggle_list_btn.isHidden())
         p._toggle_session_list()
         self.assertTrue(p._session_list_widget.isHidden())
+        self.assertFalse(p.session_list_reveal_btn.isHidden())
+        p.session_list_reveal_btn.click()
+        self.assertFalse(p._session_list_widget.isHidden())
 
     def test_wide_layout_defaults_prioritize_detail_pane(self):
         p = InterfaceDebugPanel('zh')
@@ -370,10 +373,112 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertIs(p.capture_zone.parentWidget(), p._session_list_widget)
         self.assertIs(p.session_toolbar_scroll.parentWidget(), p._session_list_widget)
         self.assertIs(p.session_toolbar_scroll.widget(), p.session_toolbar)
+        self.assertTrue(p.session_toolbar_scroll.widgetResizable())
+        self.assertEqual(p.session_toolbar.minimumWidth(), 0)
         self.assertIs(p.mid_splitter.widget(0), p._session_list_widget)
         self.assertIs(p.mid_splitter.widget(1), p.detail_workspace)
-        self.assertEqual(p.session_toolbar_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.assertEqual(p.session_toolbar_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.assertEqual(p.session_toolbar_scroll.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def test_session_toolbar_moves_optional_actions_into_overflow_when_left_pane_is_narrow(self):
+        p = InterfaceDebugPanel('zh')
+        p._update_session_toolbar_overflow(420)
+        self.assertFalse(p.session_actions_more_btn.isHidden())
+        self.assertTrue(all(chip.isHidden() for chip in p._filter_chips.values()))
+        self.assertTrue(p.export_list_btn.isHidden())
+        self.assertTrue(p.clear_list_btn.isHidden())
+        self.assertFalse(p._toggle_list_btn.isHidden())
+        action_labels = [action.text() for action in p._session_actions_menu.actions()]
+        self.assertIn('导出会话明细', action_labels)
+        self.assertIn('清空会话', action_labels)
+        self.assertIn('隐藏会话列表', action_labels)
+
+        p._update_session_toolbar_overflow(960)
+        self.assertTrue(p.session_actions_more_btn.isHidden())
+        self.assertTrue(all(not chip.isHidden() for chip in p._filter_chips.values()))
+        self.assertFalse(p.export_list_btn.isHidden())
+        self.assertFalse(p.clear_list_btn.isHidden())
+        self.assertFalse(p._toggle_list_btn.isHidden())
+
+    def test_all_action_rows_and_session_columns_adapt_to_available_workspace_width(self):
+        p = InterfaceDebugPanel('zh')
+        p._update_responsive_workspace(left_width=360, right_width=320, table_width=300)
+        self.assertFalse(p.capture_actions_more_btn.isHidden())
+        self.assertTrue(p.test_listen_btn.isHidden())
+        self.assertTrue(p.restore_proxy_btn.isHidden())
+        self.assertFalse(p.req_actions_more_btn.isHidden())
+        self.assertTrue(p.format_req_btn.isHidden())
+        self.assertTrue(p.gateway_req_btn.isHidden())
+        self.assertFalse(p.resp_actions_more_btn.isHidden())
+        self.assertTrue(p.format_resp_btn.isHidden())
+        self.assertTrue(p.gateway_resp_btn.isHidden())
+        self.assertFalse(p.rt_io_more_btn.isHidden())
+        self.assertTrue(p.export_detail_btn.isHidden())
+        self.assertTrue(p.rt_import_btn.isHidden())
+        self.assertTrue(p.table.isColumnHidden(p._column_index('duration')))
+        self.assertTrue(p.table.isColumnHidden(p._column_index('time')))
+        self.assertFalse(p.table.isColumnHidden(p._column_index('status')))
+        self.assertFalse(p.table.isColumnHidden(p._column_index('method')))
+        self.assertFalse(p.table.isColumnHidden(p._column_index('url')))
+
+        p._update_responsive_workspace(left_width=960, right_width=860, table_width=760)
+        self.assertTrue(p.capture_actions_more_btn.isHidden())
+        self.assertFalse(p.test_listen_btn.isHidden())
+        self.assertFalse(p.restore_proxy_btn.isHidden())
+        self.assertTrue(p.req_actions_more_btn.isHidden())
+        self.assertFalse(p.format_req_btn.isHidden())
+        self.assertFalse(p.gateway_req_btn.isHidden())
+        self.assertTrue(p.resp_actions_more_btn.isHidden())
+        self.assertFalse(p.format_resp_btn.isHidden())
+        self.assertFalse(p.gateway_resp_btn.isHidden())
+        self.assertTrue(p.rt_io_more_btn.isHidden())
+        self.assertFalse(p.export_detail_btn.isHidden())
+        self.assertFalse(p.rt_import_btn.isHidden())
+        self.assertFalse(p.table.isColumnHidden(p._column_index('duration')))
+        self.assertFalse(p.table.isColumnHidden(p._column_index('time')))
+
+    def test_request_test_secondary_actions_move_into_overflow_without_hiding_send(self):
+        p = InterfaceDebugPanel('zh')
+        p._update_responsive_workspace(left_width=760, right_width=420, table_width=720)
+        self.assertFalse(p.rt_form_more_btn.isHidden())
+        self.assertFalse(p.rt_send_btn.isHidden())
+        for widget in (
+            p.rt_environment_config_btn, p.rt_fill_btn, p.rt_filter_config_btn,
+            p.rt_save_api_btn, p.rt_manage_cat_btn,
+        ):
+            self.assertTrue(widget.isHidden())
+        labels = [action.text() for action in p._rt_form_actions_menu.actions()]
+        self.assertIn('环境配置', labels)
+        self.assertIn('从会话填充', labels)
+        self.assertIn('过滤配置', labels)
+        self.assertIn('保存接口', labels)
+        self.assertIn('分类管理', labels)
+
+        p._update_responsive_workspace(left_width=760, right_width=860, table_width=720)
+        self.assertTrue(p.rt_form_more_btn.isHidden())
+        for widget in (
+            p.rt_environment_config_btn, p.rt_fill_btn, p.rt_filter_config_btn,
+            p.rt_save_api_btn, p.rt_manage_cat_btn,
+        ):
+            self.assertFalse(widget.isHidden())
+
+    def test_compact_overflow_labels_refresh_after_language_switch(self):
+        p = InterfaceDebugPanel('zh')
+        p._update_responsive_workspace(left_width=360, right_width=320, table_width=300)
+        p.set_language('en')
+        self.assertEqual(p.session_actions_more_btn.text(), 'More')
+        self.assertEqual(p.capture_actions_more_btn.text(), 'More')
+        self.assertIn('Test connection', [action.text() for action in p._capture_actions_menu.actions()])
+        self.assertIn('Export session details', [action.text() for action in p._session_actions_menu.actions()])
+
+    def test_result_columns_recalculate_after_deferred_splitter_resize(self):
+        p = InterfaceDebugPanel('zh')
+        p._update_responsive_workspace(left_width=760, right_width=760, table_width=760)
+        self.assertFalse(p.table.isColumnHidden(p._column_index('duration')))
+        self.assertFalse(p.table.isColumnHidden(p._column_index('time')))
+        p._update_responsive_workspace(left_width=260, right_width=960, table_width=280)
+        self.assertTrue(p.table.isColumnHidden(p._column_index('duration')))
+        self.assertTrue(p.table.isColumnHidden(p._column_index('time')))
 
     def test_capture_control_is_one_stateful_action_and_keeps_proxy_tools(self):
         p = InterfaceDebugPanel('zh')
