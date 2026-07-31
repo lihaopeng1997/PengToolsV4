@@ -284,6 +284,29 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p._records, [])
         self.assertEqual(p.table.rowCount(), 0)
 
+    def test_narrow_layout_can_hide_left_session_pane_without_hiding_capture(self):
+        p = InterfaceDebugPanel('zh')
+        p.apply_layout_mode('narrow', True)
+        self.assertFalse(p.capture_toggle_btn.isHidden())
+        self.assertFalse(p._toggle_list_btn.isHidden())
+        p._toggle_session_list()
+        self.assertTrue(p._session_list_widget.isHidden())
+
+    def test_wide_layout_defaults_prioritize_detail_pane(self):
+        p = InterfaceDebugPanel('zh')
+        p._prefs['splitter_sizes']['wide'] = [340, 680]
+        p.apply_layout_mode('wide', False)
+        sizes = p.mid_splitter.sizes()
+        self.assertGreater(sizes[1], sizes[0] * 1.7)
+
+    def test_reapplying_same_layout_preserves_dragged_splitter_sizes(self):
+        p = InterfaceDebugPanel('zh')
+        p.apply_layout_mode('wide', False)
+        p.mid_splitter.setSizes([500, 300])
+        expected_sizes = list(p.mid_splitter.sizes())
+        p.apply_layout_mode('wide', False)
+        self.assertEqual(p.mid_splitter.sizes(), expected_sizes)
+
     def test_capture_control_is_one_stateful_action_and_keeps_proxy_tools(self):
         p = InterfaceDebugPanel('zh')
         self.assertTrue(hasattr(p, 'capture_toggle_btn'))

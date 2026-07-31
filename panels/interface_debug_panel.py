@@ -3716,14 +3716,15 @@ class InterfaceDebugPanel(QWidget):
         w = getattr(self, '_session_list_widget', None)
         if w is None:
             return
-        if w.isVisible():
-            w.setVisible(False)
-            self._toggle_list_btn.setText('显示')
-        else:
-            w.setVisible(True)
+        if w.isHidden():
+            w.show()
             self._toggle_list_btn.setText('隐藏')
+        else:
+            w.hide()
+            self._toggle_list_btn.setText('显示')
 
     def apply_layout_mode(self, mode, low_height=False):
+        previous_mode = self._layout_mode
         self._layout_mode = mode
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         prev_orient = self.mid_splitter.orientation()
@@ -3731,8 +3732,9 @@ class InterfaceDebugPanel(QWidget):
         # 方向切换时用对应模式尺寸；不反转左右顺序
         self.mid_splitter.setChildrenCollapsible(False)
         self.mid_splitter.setOpaqueResize(True)
+        restore_saved_sizes = previous_mode != mode or prev_orient != self.mid_splitter.orientation()
         sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
-        if sizes and len(sizes) >= 2:
+        if restore_saved_sizes and sizes and len(sizes) >= 2:
             a, b = int(sizes[0]), int(sizes[1])
             # 防止历史脏数据导致「反向」观感（一侧过小）
             if a < 120:
@@ -3740,10 +3742,10 @@ class InterfaceDebugPanel(QWidget):
             if b < 120:
                 b = 480 if self.mid_splitter.orientation() == Qt.Orientation.Horizontal else 280
             self.mid_splitter.setSizes([a, b])
-        # 横向：左列表 / 右详情；保持 stretch 合理
+        # 横向：左列表 / 右详情。宽屏默认阅读区更大，已保存的分隔尺寸始终优先。
         if self.mid_splitter.orientation() == Qt.Orientation.Horizontal:
             self.mid_splitter.setStretchFactor(0, 1)
-            self.mid_splitter.setStretchFactor(1, 1)
+            self.mid_splitter.setStretchFactor(1, 2)
         else:
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)

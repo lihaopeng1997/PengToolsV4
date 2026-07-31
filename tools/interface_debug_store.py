@@ -20,7 +20,7 @@ DEFAULT_UI_PREFS = {
     'active_filters': ['all'],
     'show_static': False,
     'listen_mode': 'proxy',  # proxy | chromium | ie
-    'splitter_sizes': {'wide': [420, 580], 'standard': [400, 560], 'compact': [360, 480], 'narrow': [300, 420]},
+    'splitter_sizes': {'wide': [340, 680], 'standard': [400, 560], 'compact': [360, 480], 'narrow': [300, 420]},
     'request_test_splitter_sizes': [360, 640],
     'include_auth_in_draft': True,
 }
