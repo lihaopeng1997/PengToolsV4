@@ -1,17 +1,24 @@
+# 用户数据与构建产物
 data/
 dist/
 build/
 Installer/
 PrivateInstaller/
+*.zip
+
+# 工具缓存与工作区
 .codegraph/
 .codex_work/
 __pycache__/
-panels/__pycache__/
-tools/__pycache__/
-ui/__pycache__/
-tests/__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.log
 *.pid
-*.zip
+
+# 编辑器 / 本机
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

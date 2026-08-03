@@ -10,16 +10,27 @@ from tools.svn_workspace import month_end_date
 
 
 CATEGORIES = ('功能需求', '缺陷优化', '接口联动', '数据变更', '配置调整', '其他')
-STATUSES = ('待分析', '开发中', '待测试', '待上线', '已上线', '暂停')
+STATUSES = (
+    '待分析', '待开发', '开发中', '待测试', '集成测试',
+    '用户测试', '模拟测试', '待上线', '已上线', '暂停',
+)
 PRIORITIES = ('普通', '重要', '紧急')
 
-# key, 树节点短名, 对话框全名
+# key, 树节点短名, 对话框全名（适用项名称，≠完成状态）
 FLAG_DEFS = (
-    ('has_sql', 'SQL', '包含 SQL'),
-    ('needs_peripheral_upgrade', '周边', '需通知周边系统升级'),
-    ('needs_interface_update', '接口', '需整理接口文档'),
-    ('temporary_upgrade', '临时', '临时升级'),
+    ('has_sql', 'SQL', '涉及 SQL'),
+    ('needs_peripheral_upgrade', '周边', '通知周边系统'),
+    ('needs_interface_update', '接口', '更新接口文档'),
+    ('temporary_upgrade', '临时', '临时/紧急升级'),
 )
+
+# 详情「完成标记」按钮展示名（与 FLAG_DEFS 的 key 对应）
+FLAG_CHIP_LABELS = {
+    'has_sql': 'SQL',
+    'needs_peripheral_upgrade': '周边通知',
+    'needs_interface_update': '接口文档',
+    'temporary_upgrade': '临时升级',
+}
 
 CATEGORY_KEYWORDS = {
     '缺陷优化': ('bug', '缺陷', '修复', '异常', '报错', '优化'),
@@ -71,12 +82,20 @@ def normalize_flag_done(requirement):
 
 
 def flag_status_text(requirement):
-    """左侧树用：未完成红点，完成绿点。"""
+    """左侧树用：待完成 / 已完成文字，不依赖红绿点。"""
     parts = []
     done = normalize_flag_done(requirement)
     for key, short, _full in active_flags(requirement):
-        parts.append(f"{'🟢' if done.get(key) else '🔴'}{short}")
-    return '  '.join(parts) if parts else '○无升级标记'
+        state = '已完成' if done.get(key) else '待完成'
+        parts.append(f'{short}·{state}')
+    return '  '.join(parts) if parts else '○ 无上线事项'
+
+
+def flag_chip_text(key, is_done: bool) -> str:
+    label = FLAG_CHIP_LABELS.get(key) or key
+    mark = '✓' if is_done else '○'
+    state = '已完成' if is_done else '待完成'
+    return f'{mark} {label} · {state}'
 
 
 def normalize_requirement(requirement):
@@ -97,6 +116,11 @@ def normalize_requirement(requirement):
         item['title'] = ''
     if item.get('code') is None:
         item['code'] = ''
+    item['pinned'] = bool(item.get('pinned'))
+    if item['pinned']:
+        item['pinned_at'] = str(item.get('pinned_at') or '')
+    else:
+        item.pop('pinned_at', None)
     normalize_flag_done(item)
     return item
 
@@ -330,16 +354,24 @@ def merged_sql(requirement):
 
 
 def requirement_search_text(requirement):
+    """搜索语料：元数据 + 拼音；不含密钥。SQL/附件正文仅取名称与有限摘要。"""
+    from tools.pinyin_search import build_search_blob
     values = [requirement.get(key, '') for key in (
         'code', 'title', 'description', 'record_kind', 'category', 'status', 'priority',
         'system', 'owner', 'online_month', 'svn_url', 'local_path', 'svn_revision', 'svn_status'
     )]
-    values.extend(part.get('name', '') + '\n' + part.get('content', '')
-                  for part in requirement.get('sql_parts', []))
-    for part in requirement.get('source_files', []):
-        values.append(part.get('name', '') + '\n' + part.get('content', ''))
-        values.extend(str(value) for row in part.get('rows', []) for value in row)
-    return '\n'.join(str(value) for value in values).casefold()
+    for part in requirement.get('sql_parts', []) or []:
+        values.append(part.get('name', ''))
+        # 正文过长时只索引前 2k，避免把大报文永久驻留在搜索串
+        content = str(part.get('content', '') or '')
+        if content:
+            values.append(content[:2000])
+    for part in requirement.get('source_files', []) or []:
+        values.append(part.get('name', ''))
+        values.append(part.get('file_type', ''))
+        for row in (part.get('rows', []) or [])[:40]:
+            values.extend(str(value) for value in row[:12])
+    return build_search_blob(*values)
 
 
 def daily_template(requirement):

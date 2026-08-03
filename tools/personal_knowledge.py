@@ -326,16 +326,47 @@ def organize_content(text, source='直接粘贴', builtin=False, file_type=None)
 
 
 def load_seed_entries():
+    """加载内置说明种子。
+
+    发布包仅允许安全空模板；禁止再把真实环境账密打进 resources。
+    用户私有笔记请走 data/private_knowledge.json。
+    """
     entries = []
-    for filename, source in (('private_knowledge_seed.txt', '车险整理.txt'),):
+    for filename, source in (('private_knowledge_seed.txt', '内置说明（安全模板）'),):
         path = _resource_path(filename)
         if os.path.exists(path):
-            entries.extend(organize_content(read_text_file(path), source=source, builtin=True))
+            try:
+                text = read_text_file(path)
+            except (OSError, ValueError, TypeError):
+                continue
+            # 空/纯注释则跳过，避免无意义条目
+            body = '\n'.join(
+                line for line in text.splitlines()
+                if line.strip() and not line.strip().startswith('#')
+            ).strip()
+            if body:
+                entries.extend(organize_content(body, source=source, builtin=True))
     workbook_seed = _resource_path('private_knowledge_seed_workbooks.json')
     try:
         with open(workbook_seed, 'r', encoding='utf-8') as stream:
             loaded = json.load(stream)
-        entries.extend(dict(entry, builtin=True) for entry in loaded if isinstance(entry, dict))
+        if isinstance(loaded, list):
+            for entry in loaded:
+                if not isinstance(entry, dict):
+                    continue
+                # 跳过明显敏感内置表（防止误放回仓库）
+                blob = ' '.join(
+                    str(entry.get(k, '')) for k in ('title', 'source', 'tags', 'content')
+                )
+                rows = entry.get('rows') or []
+                if rows:
+                    blob += ' ' + ' '.join(
+                        str(cell) for row in rows[:30] for cell in (row or [])[:12]
+                    )
+                if SENSITIVE_PATTERN.search(blob) and entry.get('builtin', True):
+                    # 含密码等模式的内置表一律不加载
+                    continue
+                entries.append(dict(entry, builtin=True))
     except (OSError, ValueError, TypeError):
         pass
     return entries
@@ -466,14 +497,66 @@ def export_word_entry(entry, path):
 
 
 def search_entries(entries, query='', category='all'):
-    terms = [term.casefold() for term in str(query).split() if term.strip()]
+    """支持中文原文 / 全拼 / 首字母；索引不含密钥。置顶条目排在前面。"""
+    from tools.list_pin import sort_with_pin
+    from tools.pinyin_search import build_search_blob, match_query
+    # 确保索引已建（懒加载兜底）
+    global _INDEX_BUILT
+    if not _INDEX_BUILT:
+        rebuild_search_index(entries)
     result = []
     for entry in entries:
         if category != 'all' and entry.get('category') != category:
             continue
-        parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
-        parts.extend(str(value) for row in entry.get('rows', []) for value in row)
-        haystack = '\n'.join(parts).casefold()
-        if all(term in haystack for term in terms):
+        eid = entry.get('id')
+        blob = _SEARCH_INDEX.get(eid)
+        if blob is None:
+            blob = _build_entry_blob(entry)
+            if eid:
+                _SEARCH_INDEX[eid] = blob
+        if match_query(blob, query):
             result.append(entry)
-    return result
+    return sort_with_pin(
+        result,
+        secondary_key=lambda e: (
+            str(e.get('updated_at') or e.get('created_at') or ''),
+            str(e.get('title') or ''),
+        ),
+    )
+
+
+# ── 搜索索引（预建缓存，避免每次按键全量重建 blob） ──
+_SEARCH_INDEX: dict[str, str] = {}
+_INDEX_BUILT = False
+
+
+def _build_entry_blob(entry: dict) -> str:
+    """为单条目构建搜索 blob（含拼音），表格取前 80 行×16 列。"""
+    from tools.pinyin_search import build_search_blob
+    parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
+    for row in (entry.get('rows', []) or [])[:80]:
+        parts.extend(str(value) for value in (row or [])[:16])
+    return build_search_blob(*parts)
+
+
+def rebuild_search_index(entries: list) -> None:
+    """全量重建索引（导入/启动时调用）。"""
+    global _INDEX_BUILT
+    _SEARCH_INDEX.clear()
+    for entry in entries:
+        eid = entry.get('id')
+        if eid:
+            _SEARCH_INDEX[eid] = _build_entry_blob(entry)
+    _INDEX_BUILT = True
+
+
+def update_entry_index(entry: dict) -> None:
+    """单条目增量更新（新增/编辑时调用）。"""
+    eid = entry.get('id')
+    if eid:
+        _SEARCH_INDEX[eid] = _build_entry_blob(entry)
+
+
+def remove_entry_index(entry_id: str) -> None:
+    """删除条目时清除索引。"""
+    _SEARCH_INDEX.pop(entry_id, None)

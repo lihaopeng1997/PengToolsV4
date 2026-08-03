@@ -77,7 +77,7 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
             '推荐：加入今日日报',
             actions=[
                 ('daily', '加入今日日报', True),
-                ('release', '进入升级准备', False),
+                ('release', '准备本次升级', False),
             ],
             recommended='daily',
         )
