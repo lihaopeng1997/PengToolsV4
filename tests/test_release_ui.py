@@ -52,6 +52,20 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertEqual(dialog.values()['svn_url'], 'svn://10/x/DEV_REQ_TEST')
         self.assertEqual(dialog.values()['system'], dialog.system_edit.currentData())
 
+    def test_requirement_status_flow_is_available_in_editor_and_filter(self):
+        expected = [
+            '待分析', '待开发', '开发中', '待测试', '集成测试',
+            '用户测试', '模拟测试', '待上线', '已上线', '暂停',
+        ]
+        dialog = RequirementDialog()
+        panel = RequirementPanel()
+        self.assertEqual([dialog.status_combo.itemText(index) for index in range(dialog.status_combo.count())], expected)
+        self.assertEqual(
+            [panel.status_filter.itemText(index) for index in range(1, panel.status_filter.count())],
+            expected,
+        )
+        dialog.close(); panel.close()
+
     def test_requirement_system_configuration_is_shared(self):
         panel = RequirementPanel()
         requirement_systems = [panel.system_filter.itemData(index) for index in range(1, panel.system_filter.count())]
