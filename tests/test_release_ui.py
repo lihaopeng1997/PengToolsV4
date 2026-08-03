@@ -367,6 +367,28 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertTrue(panel.file_tree.header().sectionsMovable())
             panel.close()
 
+    def test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space(self):
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        self.assertFalse(hasattr(panel, 'vcs_scope_combo'))
+        self.assertFalse(hasattr(panel, 'select_all_files_btn'))
+        self.assertFalse(hasattr(panel, 'clear_file_sel_btn'))
+        self.assertEqual(
+            [button.text() for button in panel.file_library_action_buttons],
+            ['打开目录', '刷新', '更新', '添加文件', '新建文本', '锁定', '解锁', '回滚', '提交'],
+        )
+        self.assertTrue(all(button.minimumHeight() <= 24 for button in panel.file_library_action_buttons))
+        self.assertTrue(hasattr(panel, 'file_library_action_scroll'))
+        self.assertFalse(panel.file_library_action_scroll.widgetResizable())
+        self.assertGreaterEqual(panel.file_tree.minimumHeight(), 240)
+        with patch.object(panel, '_resolve_vcs_targets', return_value=([], '选中项 0 个')):
+            panel._update_vcs_action_state()
+        self.assertFalse(panel.lock_file_btn.isEnabled())
+        self.assertFalse(panel.unlock_file_btn.isEnabled())
+        self.assertFalse(panel.revert_btn.isEnabled())
+        self.assertFalse(panel.commit_btn.isEnabled())
+        panel.close()
+
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[]), \
                 patch('panels.requirement_panel.load_requirement_ui', return_value={'splitter_sizes': [430, 620], 'content_splitter_sizes': [340, 230]}), \

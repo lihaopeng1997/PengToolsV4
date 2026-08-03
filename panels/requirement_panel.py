@@ -1278,11 +1278,11 @@ class RequirementPanel(QWidget):
         action_card = QFrame()
         action_card.setObjectName('detail-action-card')
         action_outer = QVBoxLayout(action_card)
-        action_outer.setContentsMargins(8, 6, 8, 6)
-        action_outer.setSpacing(8)
+        action_outer.setContentsMargins(6, 4, 6, 4)
+        action_outer.setSpacing(4)
 
         browse_row = QHBoxLayout()
-        browse_row.setSpacing(8)
+        browse_row.setSpacing(4)
         self.open_folder_btn = QPushButton('打开目录')
         self.open_folder_btn.clicked.connect(self._open_folder)
         self.refresh_svn_btn = QPushButton('刷新')
@@ -1298,35 +1298,11 @@ class RequirementPanel(QWidget):
             self.add_file_btn, self.new_text_btn,
         ):
             button.setProperty('compactAction', True)
-            button.setMinimumHeight(28)
+            button.setMinimumHeight(24)
             browse_row.addWidget(button)
-        browse_row.addStretch(1)
-        action_outer.addLayout(browse_row)
 
         vcs_row = QHBoxLayout()
-        vcs_row.setSpacing(8)
-        self.vcs_scope_label = QLabel('范围')
-        self.vcs_scope_label.setObjectName('small-label')
-        self.vcs_scope_combo = QComboBox()
-        size_combo(self.vcs_scope_combo, 'md')
-        # data: selection | all_files | changes
-        self.vcs_scope_combo.addItem('当前选中', 'selection')
-        self.vcs_scope_combo.addItem('全部文件', 'all_files')
-        self.vcs_scope_combo.addItem('全部改动', 'changes')
-        self.vcs_scope_combo.setToolTip(
-            '当前选中：文件树里勾选/点选的文件（支持多选）\n'
-            '全部文件：文件库中所有文件\n'
-            '全部改动：svn status 中有本地修改的路径（适合提交/回滚）'
-        )
-        self.vcs_scope_combo.currentIndexChanged.connect(self._update_vcs_action_state)
-        self.vcs_target_label = QLabel('')
-        self.vcs_target_label.setObjectName('small-label')
-        self.select_all_files_btn = QPushButton('全选文件')
-        self.select_all_files_btn.setProperty('compactAction', True)
-        self.select_all_files_btn.clicked.connect(self._select_all_files_in_tree)
-        self.clear_file_sel_btn = QPushButton('清除选择')
-        self.clear_file_sel_btn.setProperty('compactAction', True)
-        self.clear_file_sel_btn.clicked.connect(self._clear_file_selection)
+        vcs_row.setSpacing(4)
         self.lock_file_btn = QPushButton('锁定')
         self.lock_file_btn.clicked.connect(self._lock_selected_file)
         self.unlock_file_btn = QPushButton('解锁')
@@ -1347,22 +1323,33 @@ class RequirementPanel(QWidget):
             pass
         for button in (
             self.lock_file_btn, self.unlock_file_btn, self.revert_btn, self.commit_btn,
-            self.select_all_files_btn, self.clear_file_sel_btn,
         ):
             button.setProperty('compactAction', True)
-            button.setMinimumHeight(28)
-        vcs_row.addWidget(self.vcs_scope_label)
-        vcs_row.addWidget(self.vcs_scope_combo)
-        vcs_row.addWidget(self.vcs_target_label, 1)
-        vcs_row.addWidget(self.select_all_files_btn)
-        vcs_row.addWidget(self.clear_file_sel_btn)
-        vcs_row.addWidget(self.lock_file_btn)
-        vcs_row.addWidget(self.unlock_file_btn)
-        vcs_row.addWidget(self.revert_btn)
-        vcs_row.addWidget(self.commit_btn)
-        action_outer.addLayout(vcs_row)
-        # 兼容旧 grid 引用
-        self.svn_actions = QGridLayout()
+            button.setMinimumHeight(24)
+        action_row = QHBoxLayout()
+        action_row.setSpacing(4)
+        for button in (
+            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
+            self.add_file_btn, self.new_text_btn, self.lock_file_btn,
+            self.unlock_file_btn, self.revert_btn, self.commit_btn,
+        ):
+            action_row.addWidget(button)
+        action_row.addStretch(1)
+        action_host = QWidget()
+        action_host.setLayout(action_row)
+        self.file_library_action_scroll = QScrollArea()
+        self.file_library_action_scroll.setObjectName('file-library-action-scroll')
+        self.file_library_action_scroll.setWidget(action_host)
+        self.file_library_action_scroll.setWidgetResizable(False)
+        self.file_library_action_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.file_library_action_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_library_action_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        action_outer.addWidget(self.file_library_action_scroll)
+        self.file_library_action_buttons = (
+            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
+            self.add_file_btn, self.new_text_btn, self.lock_file_btn,
+            self.unlock_file_btn, self.revert_btn, self.commit_btn,
+        )
         file_layout.addWidget(action_card, 0)
 
         # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描）
@@ -1405,7 +1392,7 @@ class RequirementPanel(QWidget):
         self.file_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.file_tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.file_tree.setMinimumHeight(180)
+        self.file_tree.setMinimumHeight(240)
         # 外部文件拖入工作副本
         self.file_tree.setAcceptDrops(True)
         self.file_tree.setDragEnabled(False)
@@ -2327,7 +2314,6 @@ class RequirementPanel(QWidget):
             self.open_folder_btn, self.refresh_svn_btn,
             self.update_current_btn, self.add_file_btn, self.new_text_btn, self.lock_file_btn,
             self.unlock_file_btn, self.revert_btn, self.commit_btn,
-            self.select_all_files_btn, self.clear_file_sel_btn, self.vcs_scope_combo,
             self.delete_btn, self.edit_btn, self.daily_btn, self.docx_btn, self.sql_btn,
         )
         for widget in widgets:
@@ -2840,29 +2826,12 @@ class RequirementPanel(QWidget):
         return result
 
     def _vcs_scope_mode(self) -> str:
-        if not hasattr(self, 'vcs_scope_combo'):
-            return 'selection'
-        return self.vcs_scope_combo.currentData() or 'selection'
+        """文件库 SVN 操作始终基于当前文件树选择。"""
+        return 'selection'
 
-    def _with_vcs_scope(self, mode: str, callback):
-        """临时切换范围执行回调（用于右键「选中」动作）。"""
-        combo = getattr(self, 'vcs_scope_combo', None)
-        if combo is None:
-            callback()
-            return
-        old = combo.currentIndex()
-        idx = combo.findData(mode)
-        if idx >= 0:
-            combo.blockSignals(True)
-            combo.setCurrentIndex(idx)
-            combo.blockSignals(False)
-        try:
-            callback()
-        finally:
-            combo.blockSignals(True)
-            combo.setCurrentIndex(old)
-            combo.blockSignals(False)
-            self._update_vcs_action_state()
+    def _with_vcs_scope(self, _mode: str, callback):
+        """兼容右键菜单调用；所有操作固定作用于当前选择。"""
+        callback()
 
     def _resolve_vcs_targets(self, *, files_only: bool, prefer_changes: bool = False):
         """按范围解析操作目标。
@@ -2921,11 +2890,6 @@ class RequirementPanel(QWidget):
                 walk(child)
         root = self.file_tree.invisibleRootItem()
         walk(root)
-        # 切换到「当前选中」便于后续操作
-        if hasattr(self, 'vcs_scope_combo'):
-            idx = self.vcs_scope_combo.findData('selection')
-            if idx >= 0:
-                self.vcs_scope_combo.setCurrentIndex(idx)
         self._update_vcs_action_state()
 
     def _clear_file_selection(self):
@@ -2944,35 +2908,16 @@ class RequirementPanel(QWidget):
                 and self._current.get('local_path')
                 and self._current.get('workspace_kind', 'svn') == 'svn'
             )
-            has_path = bool(self._current_path())
-            mode = self._vcs_scope_mode()
             selected_files = self._selected_file_paths_only()
-            all_files_n = len(self._all_file_paths_in_tree())
-            if mode == 'selection':
-                target_n = len(selected_files)
-                tip = f'已选 {target_n} 个文件'
-            elif mode == 'all_files':
-                target_n = all_files_n
-                tip = f'文件库共 {target_n} 个文件'
-            else:
-                tip = '将按 svn status 取全部本地改动'
-                target_n = -1  # 未知，仍允许点按钮再解析
-            if hasattr(self, 'vcs_target_label'):
-                self.vcs_target_label.setText(tip)
-            can_file_op = is_svn and (target_n > 0 or mode == 'changes')
+            target_n = len(selected_files)
+            can_file_op = is_svn and target_n > 0
             if hasattr(self, 'lock_file_btn'):
                 self.lock_file_btn.setEnabled(can_file_op)
                 self.unlock_file_btn.setEnabled(can_file_op)
             if hasattr(self, 'revert_btn'):
-                self.revert_btn.setEnabled(is_svn and (target_n > 0 or mode in ('changes', 'all_files')))
+                self.revert_btn.setEnabled(can_file_op)
             if hasattr(self, 'commit_btn'):
-                # selection 无选中时仍启用，点击后提示切换范围；其余范围直接可用
-                self.commit_btn.setEnabled(is_svn)
-            if hasattr(self, 'vcs_scope_combo'):
-                self.vcs_scope_combo.setEnabled(is_svn)
-            if hasattr(self, 'select_all_files_btn'):
-                self.select_all_files_btn.setEnabled(has_path and all_files_n > 0)
-                self.clear_file_sel_btn.setEnabled(has_path)
+                self.commit_btn.setEnabled(can_file_op)
         except (RuntimeError, ValueError, OSError):
             for name in ('lock_file_btn', 'unlock_file_btn', 'revert_btn', 'commit_btn'):
                 btn = getattr(self, name, None)
@@ -2985,7 +2930,7 @@ class RequirementPanel(QWidget):
         except ValueError as exc:
             show_warning(self, 'SVN 锁定', str(exc)); return
         if not paths:
-            show_info(self, 'SVN 锁定', '请先选择文件，或将范围改为「全部文件」。'); return
+            show_info(self, 'SVN 锁定', '请先在文件列表中选择要锁定的文件。'); return
         default_msg = 'PengTools 开发锁定'
         if len(paths) == 1:
             prompt = f'锁定说明（{os.path.basename(paths[0])}）：'
@@ -3036,7 +2981,7 @@ class RequirementPanel(QWidget):
         except ValueError as exc:
             show_warning(self, 'SVN 解锁', str(exc)); return
         if not paths:
-            show_info(self, 'SVN 解锁', '请先选择要解锁的文件，或将范围改为「全部文件」。'); return
+            show_info(self, 'SVN 解锁', '请先在文件列表中选择要解锁的文件。'); return
         if len(paths) > 1 and not confirm_action(
             self, '确认批量解锁',
             f'将解锁 {len(paths)} 个文件（{label}）。',
@@ -3144,8 +3089,6 @@ class RequirementPanel(QWidget):
         menu.addAction('刷新', self._refresh_file_tree)
         menu.addAction('全部展开', self.file_tree.expandAll)
         menu.addAction('全部折叠', self.file_tree.collapseAll)
-        menu.addAction('全选文件', self._select_all_files_in_tree)
-        menu.addAction('清除选择', self._clear_file_selection)
         menu.addSeparator()
         menu.addAction('复制路径', self._copy_selected_paths)
         menu.addAction('导出到…', self._export_selected_files)
@@ -3250,36 +3193,11 @@ class RequirementPanel(QWidget):
         root = self._current_path()
         if not root:
             return
-        mode = self._vcs_scope_mode()
-        try:
-            if mode == 'selection':
-                paths = self._selected_file_paths()
-                # 选中目录时也允许提交该目录下改动
-                if not paths:
-                    show_info(
-                        self, '提交 SVN',
-                        '当前范围为「当前选中」但未选中文件。\n'
-                        '请多选文件，或把范围改为「全部改动 / 全部文件」。',
-                    )
-                    return
-                label = f'选中 {len(paths)} 项'
-            elif mode == 'all_files':
-                paths = self._all_file_paths_in_tree()
-                if not paths:
-                    show_info(self, '提交 SVN', '文件库中没有文件。')
-                    return
-                label = f'全部文件 {len(paths)} 个'
-            else:
-                info = changed_paths(root)
-                paths = list(info.get('paths') or [])
-                if not paths:
-                    show_info(self, '提交 SVN', '当前工作副本没有可提交的改动。')
-                    return
-                label = f'全部改动 {len(paths)} 项'
-                preview_status = info.get('text') or ''
-        except (SvnError, ValueError) as exc:
-            show_warning(self, 'SVN 提交', str(exc))
+        paths = self._selected_file_paths()
+        if not paths:
+            show_info(self, '提交 SVN', '请先在文件列表中选择要提交的文件或目录。')
             return
+        label = f'选中 {len(paths)} 项'
 
         message, accepted = QInputDialog.getText(self, '提交 SVN', f'提交说明（{label}）：')
         if not accepted or not message.strip():
@@ -3287,8 +3205,6 @@ class RequirementPanel(QWidget):
         names = '\n'.join(os.path.basename(p) for p in paths[:15])
         more = f'\n…共 {len(paths)} 项' if len(paths) > 15 else ''
         detail = f'范围：{label}\n\n{names}{more}\n\n提交说明：{message.strip()}'
-        if mode == 'changes':
-            detail = f'范围：{label}\n\n{(preview_status or names)[:2500]}\n\n提交说明：{message.strip()}'
         if not confirm_action(
             self, '确认提交 SVN',
             f'将提交以下路径的改动：\n\n{detail}',
@@ -3312,32 +3228,11 @@ class RequirementPanel(QWidget):
         root = self._current_path()
         if not root:
             return
-        mode = self._vcs_scope_mode()
-        try:
-            if mode == 'selection':
-                paths = self._selected_file_paths()
-                if not paths:
-                    show_info(self, '回滚', '请先选择要回滚的文件，或改范围。')
-                    return
-                label = f'选中 {len(paths)} 项'
-            elif mode == 'all_files':
-                # 全部文件回滚太危险：改为全部改动
-                info = changed_paths(root)
-                paths = list(info.get('paths') or [])
-                if not paths:
-                    show_info(self, '回滚', '没有本地改动可回滚。「全部文件」范围下仅回滚有改动的路径。')
-                    return
-                label = f'全部改动 {len(paths)} 项（已避免无改动文件）'
-            else:
-                info = changed_paths(root)
-                paths = list(info.get('paths') or [])
-                if not paths:
-                    show_info(self, '回滚', '当前工作副本没有本地改动。')
-                    return
-                label = f'全部改动 {len(paths)} 项'
-        except (SvnError, ValueError) as exc:
-            show_warning(self, '回滚', str(exc))
+        paths = self._selected_file_paths()
+        if not paths:
+            show_info(self, '回滚', '请先在文件列表中选择要回滚的文件或目录。')
             return
+        label = f'选中 {len(paths)} 项'
 
         names = '\n'.join(os.path.basename(p) for p in paths[:15])
         more = f'\n…共 {len(paths)} 项' if len(paths) > 15 else ''
