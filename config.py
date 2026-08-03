@@ -58,6 +58,8 @@ DAILY_REPORTS_FILE = os.path.join(CONFIG_DIR, 'daily_reports.json')
 DAILY_REPORT_SETTINGS_FILE = os.path.join(CONFIG_DIR, 'daily_report_settings.json')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
+# 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
+DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 DEFAULT_SETTINGS = {
     'font_size': 12,

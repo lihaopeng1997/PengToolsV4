@@ -492,6 +492,49 @@ class DashboardReleaseTests(unittest.TestCase):
         second = panel.release_list.itemAt(1).widget()
         self.assertEqual(second.title_label.text(), '计划近')
 
+    def test_release_board_only_shows_current_month_and_scrolls_all_items(self):
+        try:
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtWidgets import QApplication
+            from panels.dashboard_panel import DashboardPanel
+        except ImportError:
+            self.skipTest('PyQt6 missing')
+        app = QApplication.instance() or QApplication([])
+        panel = DashboardPanel('zh')
+        today = datetime.date.today()
+        first_day = today.replace(day=1)
+        next_month = (first_day + datetime.timedelta(days=32)).replace(day=1)
+        previous_month = (first_day - datetime.timedelta(days=1)).replace(day=1)
+        items = [
+            {'id': f'current-{index}', 'title': f'本月事项 {index}', 'status': '开发中',
+             'planned_online_date': str(first_day + datetime.timedelta(days=min(index, 20))), 'system': 'S'}
+            for index in range(7)
+        ]
+        items.extend([
+            {'id': 'next', 'title': '下月事项', 'status': '开发中', 'planned_online_date': str(next_month), 'system': 'S'},
+            {'id': 'previous', 'title': '上月事项', 'status': '开发中', 'planned_online_date': str(previous_month), 'system': 'S'},
+        ])
+        panel._fill_release(items)
+        self.assertEqual(panel.release_list.count(), 7)
+        self.assertTrue(hasattr(panel, 'release_scroll'))
+        self.assertEqual(panel.release_scroll.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.assertFalse(panel.release_more.isHidden())
+        self.assertTrue(hasattr(panel, 'release_add_requirement_btn'))
+        self.assertTrue(hasattr(panel, 'release_add_manual_btn'))
+        self.assertTrue(panel.release_add_requirement_btn.text())
+        self.assertTrue(panel.release_add_manual_btn.text())
+
+    def test_release_board_manual_items_persist_without_touching_requirements(self):
+        from tools.dashboard_release_items import load_release_items, save_release_items
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, 'dashboard_release_items.json')
+            items = [{'title': '人工升级核对', 'planned_date': '2026-08-06', 'note': '检查监控'}]
+            save_release_items(items, path)
+            loaded = load_release_items(path)
+        self.assertEqual(loaded[0]['title'], '人工升级核对')
+        self.assertEqual(loaded[0]['planned_date'], '2026-08-06')
+        self.assertTrue(loaded[0]['id'])
+
     def test_empty_release(self):
         try:
             from PyQt6.QtWidgets import QApplication
