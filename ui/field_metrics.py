@@ -27,6 +27,7 @@ CAPTION_W = (72, 92)
 STATUS_PILL_MAX = 200
 SYSTEM_CHIP_MAX = 220
 BTN_COMPACT_MIN_W = 72
+BTN_COMPACT_H = 28
 
 
 def _apply_width(widget: QWidget, lo: int, hi: int | None = None) -> None:
@@ -113,9 +114,10 @@ def size_system_chip(label, max_width: int = SYSTEM_CHIP_MAX) -> None:
 
 
 def size_compact_button(button) -> None:
+    """设置行内操作的紧凑规格，避免工具条挤压列表展示空间。"""
     button.setProperty('compactAction', True)
     button.setMinimumWidth(BTN_COMPACT_MIN_W)
-    size_field_height(button)
+    size_field_height(button, BTN_COMPACT_H)
 
 
 def apply_button_role(button, role: str = 'secondary', *, compact: bool = False) -> None:

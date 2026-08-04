@@ -1297,8 +1297,7 @@ class RequirementPanel(QWidget):
             self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
             self.add_file_btn, self.new_text_btn,
         ):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(24)
+            size_compact_button(button)
             browse_row.addWidget(button)
 
         vcs_row = QHBoxLayout()
@@ -1324,8 +1323,7 @@ class RequirementPanel(QWidget):
         for button in (
             self.lock_file_btn, self.unlock_file_btn, self.revert_btn, self.commit_btn,
         ):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(24)
+            size_compact_button(button)
         action_row = QHBoxLayout()
         action_row.setSpacing(4)
         for button in (
@@ -1415,14 +1413,16 @@ class RequirementPanel(QWidget):
         file_header.setStretchLastSection(False)
         file_header.setMinimumSectionSize(48)
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        for col in range(5):
+        # 名称列承接放大窗口的剩余空间；其余元数据列仍可手动拖拽调整。
+        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 5):
             file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
         file_header.sectionClicked.connect(self._on_file_header_clicked)
         self.file_tree.setColumnWidth(0, 280)
         self.file_tree.setColumnWidth(1, 96)
         self.file_tree.setColumnWidth(2, 140)
         self.file_tree.setColumnWidth(3, 80)
-        self.file_tree.setColumnWidth(4, 320)
+        self.file_tree.setColumnWidth(4, 200)
         for index in range(self.file_tree.columnCount()):
             self.file_tree.headerItem().setToolTip(
                 index,

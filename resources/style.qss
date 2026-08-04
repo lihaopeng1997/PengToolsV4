@@ -194,7 +194,7 @@ QLabel#svn-workspace-meta {
 /* —— Button system —— */
 QPushButton {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 8px; padding: 8px 14px;
+    border-radius: 8px; padding: 6px 12px;
     font-weight: 500;
     min-height: 20px;
 }
@@ -213,7 +213,7 @@ QPushButton#primary-btn:pressed, QPushButton#card-action:pressed {
 }
 QPushButton#primary-btn, QPushButton#card-action {
     background: __PRIMARY__;
-    color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 9px 16px;
+    color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 7px 14px;
     border-radius: 8px;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover {
@@ -262,7 +262,7 @@ QPushButton#btn-ghost:disabled {
     color: __DISABLED_TEXT__;
     border-color: transparent;
 }
-QPushButton[compactAction="true"] { padding: 7px 12px; min-height: 18px; }
+QPushButton[compactAction="true"] { padding: 4px 10px; min-height: 16px; font-size: 12px; }
 /* 浅色导航项 */
 QPushButton#nav-btn, QPushButton#nav-btn-settings {
     background: transparent;
@@ -675,8 +675,8 @@ QTreeWidget#ops-remote-tree {
 }
 QTreeWidget#requirement-file-tree::item,
 QTreeWidget#ops-remote-tree::item {
-    min-height: 27px;
-    padding: 4px 7px;
+    min-height: 30px;
+    padding: 5px 8px;
     border: none;
     border-bottom: 1px solid __BORDER__;
     color: __TEXT_STRONG__;

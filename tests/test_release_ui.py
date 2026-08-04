@@ -348,8 +348,9 @@ class ReleaseUiTests(unittest.TestCase):
                 ['名称', '类型', '修改时间', '大小', '路径'],
             )
             header = panel.file_tree.header()
-            # 全部 Interactive：可横向滚动、拖动调列宽；支持拖拽调列序
-            for index in range(5):
+            # 名称列 Stretch 吸收窗口放大后的剩余空间；其余列仍可拖动调整。
+            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
+            for index in range(1, 5):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
             self.assertTrue(header.sectionsMovable())
             self.assertFalse(header.stretchLastSection())
@@ -376,9 +377,11 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(panel.expand_tree_btn.text(), '全部展开')
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
             self.assertTrue(hasattr(panel, 'file_search_edit'))
-            for col in range(5):
-                self.assertEqual(panel.file_tree.header().sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
-            self.assertTrue(panel.file_tree.header().sectionsMovable())
+            header = panel.file_tree.header()
+            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
+            for col in range(1, 5):
+                self.assertEqual(header.sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(header.sectionsMovable())
             panel.close()
 
     def test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space(self):
@@ -391,7 +394,7 @@ class ReleaseUiTests(unittest.TestCase):
             [button.text() for button in panel.file_library_action_buttons],
             ['打开目录', '刷新', '更新', '添加文件', '新建文本', '锁定', '解锁', '回滚', '提交'],
         )
-        self.assertTrue(all(button.minimumHeight() <= 24 for button in panel.file_library_action_buttons))
+        self.assertTrue(all(button.height() == 28 for button in panel.file_library_action_buttons))
         self.assertTrue(hasattr(panel, 'file_library_action_scroll'))
         self.assertFalse(panel.file_library_action_scroll.widgetResizable())
         self.assertGreaterEqual(panel.file_tree.minimumHeight(), 240)

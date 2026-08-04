@@ -1785,12 +1785,13 @@ class OpsLogPanel(QWidget):
         hdr.setStretchLastSection(False)
         hdr.setSectionsMovable(False)
         hdr.setMinimumSectionSize(48)
-        # Interactive：用户可左右拖列宽
-        for col in range(4):
+        # 名称列自动填充窗口放大后的剩余空间；元数据列仍可左右拖动。
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 4):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
         self.remote_tree.setColumnWidth(0, 160)
-        self.remote_tree.setColumnWidth(1, 72)
-        self.remote_tree.setColumnWidth(2, 64)
+        self.remote_tree.setColumnWidth(1, 80)
+        self.remote_tree.setColumnWidth(2, 72)
         self.remote_tree.setColumnWidth(3, 120)
         rb.addWidget(self.remote_tree, 1)
         self.remote_hint = QLabel()
@@ -1834,12 +1835,12 @@ class OpsLogPanel(QWidget):
         exp_hdr = self.export_server_list.header()
         exp_hdr.setStretchLastSection(False)
         exp_hdr.setMinimumSectionSize(60)
-        exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         exp_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         exp_hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.export_server_list.setColumnWidth(0, 160)
-        self.export_server_list.setColumnWidth(1, 220)
-        self.export_server_list.setColumnWidth(2, 140)
+        self.export_server_list.setColumnWidth(1, 200)
+        self.export_server_list.setColumnWidth(2, 120)
         el_l.addWidget(self.export_server_list, 1)
         left_root.addWidget(self.export_ops, 1)
 

@@ -165,6 +165,17 @@ class DesignSystemSettingsTests(unittest.TestCase):
         self.assertEqual(design_system.density_metrics('compact').row_height, 32)
         self.assertEqual(design_system.density_metrics('comfortable').row_height, 40)
 
+    def test_compact_button_uses_28_pixel_height(self):
+        from PyQt6.QtWidgets import QPushButton
+        from ui.field_metrics import size_compact_button
+
+        button = QPushButton('刷新')
+        size_compact_button(button)
+
+        self.assertEqual(button.height(), 28)
+        self.assertEqual(button.minimumHeight(), 28)
+        self.assertEqual(button.property('compactAction'), True)
+
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class ResponsiveLayoutTests(unittest.TestCase):
