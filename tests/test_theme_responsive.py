@@ -153,6 +153,10 @@ class NightThemeTokenTests(unittest.TestCase):
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class DesignSystemSettingsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def test_normalize_settings_defaults_global_density_preferences(self):
         settings = normalize_settings({'ui_density': 'unknown', 'sidebar_collapsed': 'yes'})
         self.assertEqual(settings['ui_density'], 'compact')
