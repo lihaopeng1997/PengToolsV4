@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import tempfile
 
 def local_data_dir(executable=None, frozen=None):
     is_frozen = getattr(sys, 'frozen', False) if frozen is None else bool(frozen)
@@ -224,10 +225,23 @@ def load_settings():
 
 
 def save_settings(settings):
+    """原子写入界面设置，避免主题切换期间半写入导致下次启动配置损坏。"""
     ensure_config_dir()
     normalized = normalize_settings(settings)
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as stream:
-        json.dump(normalized, stream, ensure_ascii=False, indent=2)
+    directory = os.path.dirname(SETTINGS_FILE) or CONFIG_DIR
+    fd, temp_path = tempfile.mkstemp(prefix='.settings-', suffix='.tmp', dir=directory, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(normalized, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, SETTINGS_FILE)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
     return normalized
 
 

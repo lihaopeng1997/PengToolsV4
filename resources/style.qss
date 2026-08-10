@@ -2159,6 +2159,12 @@ QMainWindow[uiDensity="comfortable"] QTreeWidget::item,
 QMainWindow[uiDensity="comfortable"] QListWidget::item {
     min-height: __ROW_HEIGHT_COMFORTABLE__;
 }
+/* 行内操作始终保持 28px：密度只影响常规控件，不得挤占列表展示空间。 */
+QMainWindow[uiDensity="compact"] QPushButton[compactAction="true"],
+QMainWindow[uiDensity="comfortable"] QPushButton[compactAction="true"] {
+    min-height: 18px;
+    max-height: 18px;
+}
 QPushButton:focus,
 QLineEdit:focus,
 QComboBox:focus,

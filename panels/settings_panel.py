@@ -403,19 +403,13 @@ class SettingsPanel(QWidget):
         self.floating_opacity_preview.emit(value)
 
     def _on_theme_clicked(self, theme_id: str):
+        """将主题请求交给主窗口原子应用；失败时保持当前卡片与配置不变。"""
         theme_id = resolve_theme_id(theme_id)
-        self._ui_theme = theme_id
-        self._refresh_theme_cards()
-        # 即时预览 + 自动保存
-        try:
-            from ui.theme_manager import ThemeManager
-            ThemeManager.instance().apply(
-                None, theme_id, font_size=self.font_size.value()
-            )
-        except Exception:
-            pass
-        self.theme_preview.emit(theme_id)
-        self._save()
+        if theme_id == self._ui_theme:
+            return
+        settings = self.values()
+        settings['ui_theme'] = theme_id
+        self.settings_changed.emit(settings)
 
     def _refresh_theme_cards(self):
         current = resolve_theme_id(self._ui_theme)
@@ -605,8 +599,8 @@ class SettingsPanel(QWidget):
                 self.safety_note.hide()
 
     def _save(self):
-        settings = save_settings(self.values())
-        self.settings_changed.emit(settings)
+        """提交设置值；持久化与主题应用由主窗口统一完成。"""
+        self.settings_changed.emit(self.values())
         # 总保存时一并落盘日报提醒，避免只改了提醒却忘点「保存提醒」
         try:
             self._persist_reminder_settings(notify_ui=True, show_toast=False)

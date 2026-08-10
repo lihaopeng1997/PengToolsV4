@@ -30,7 +30,10 @@ from ui.navigation_model import GROUP_LABELS, NAV_MODEL, display_name
 from ui.quick_panel import QuickPanel
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from ui.tray_service import TrayService
-from config import APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text, load_settings, save_settings
+from config import (
+    APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text,
+    load_settings, normalize_settings, save_settings,
+)
 
 
 class MainWindow(QMainWindow):
@@ -82,7 +85,7 @@ class MainWindow(QMainWindow):
         language_index = 0 if self.language == 'zh' else 1
         self._language_index = language_index
         self._set_language(language_index)
-        self._apply_settings(self._settings)
+        self._apply_settings(self._settings, persist=False)
         self._apply_density_preferences(self._settings, apply_startup_sidebar=True)
         QTimer.singleShot(0, lambda: self._layout_controller.force(self.width(), self.height()))
 
@@ -685,28 +688,48 @@ class MainWindow(QMainWindow):
             self.tray_service.set_language(self.language)
         self._show_panel(self._current_nav_index)
 
-    def _apply_settings(self, settings):
-        self._settings = dict(settings)
+    def _apply_settings(self, settings, *, persist: bool = True):
+        """先完整应用主题，再原子保存并分发设置，避免视觉与持久化状态分裂。"""
+        candidate = normalize_settings(settings)
         # 设置保存不得覆盖已解锁彩蛋；两边取真
-        if bool(self._settings.get('private_unlocked', False)) or self._private_unlocked:
-            self._private_unlocked = True
-            self._settings['private_unlocked'] = True
-            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
+        if bool(candidate.get('private_unlocked', False)) or self._private_unlocked:
+            candidate['private_unlocked'] = True
         app = QApplication.instance()
+        previous_settings = dict(self._settings)
+        previous_font = app.font()
         font = app.font()
-        font.setPointSize(max(8, int(self._settings['font_size']) - 2))
-        app.setFont(font)
-        # 主题即时注入（唯一 QSS 入口）
+        font.setPointSize(max(8, int(candidate['font_size']) - 2))
         try:
             from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID
             ThemeManager.instance().apply(
                 app,
-                self._settings.get('ui_theme', DEFAULT_THEME_ID),
-                font_size=self._settings.get('font_size', 12),
+                candidate.get('ui_theme', DEFAULT_THEME_ID),
+                font_size=candidate.get('font_size', 12),
             )
-        except Exception:
-            base_qss = app.property('base_stylesheet') or app.styleSheet()
-            app.setStyleSheet(base_qss + f"\nQWidget {{ font-size: {self._settings['font_size']}px; }}")
+            app.setFont(font)
+            saved = save_settings(candidate) if persist else candidate
+        except Exception as exc:
+            app.setFont(previous_font)
+            try:
+                from ui.theme_manager import ThemeManager
+                ThemeManager.instance().apply(
+                    app,
+                    previous_settings.get('ui_theme', 'calm'),
+                    font_size=previous_settings.get('font_size', 12),
+                )
+            except Exception:
+                pass
+            self.status_bar.showMessage(
+                f'设置未应用：{exc}' if self.language == 'zh' else f'Settings were not applied: {exc}',
+                5000,
+            )
+            return False
+        self._settings = saved
+        if hasattr(self, 'settings_panel'):
+            self.settings_panel.load_values(self._settings)
+        if self._settings.get('private_unlocked'):
+            self._private_unlocked = True
+            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
         self._apply_density_preferences(self._settings)
         # 导航图标随主题重新染色
         self._apply_nav_texts()
@@ -730,6 +753,7 @@ class MainWindow(QMainWindow):
         if self._language_index != wanted_index:
             self._set_language(wanted_index)
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
+        return True
 
     def _open_floating_shortcuts_editor(self):
         from ui.floating_shortcuts_editor import open_floating_shortcuts_editor
@@ -741,12 +765,11 @@ class MainWindow(QMainWindow):
             on_saved=self._apply_settings,
         )
 
-    def apply_theme(self, theme_id: str) -> None:
-        """设置页主题卡即时预览入口。"""
-        self._settings['ui_theme'] = theme_id
-        from config import save_settings
-        self._settings = save_settings(self._settings)
-        self._apply_settings(self._settings)
+    def apply_theme(self, theme_id: str) -> bool:
+        """兼容主题切换入口：由统一设置事务负责应用与保存。"""
+        settings = dict(self._settings)
+        settings['ui_theme'] = theme_id
+        return self._apply_settings(settings)
 
     def _reset_floating_position(self):
         self.quick_panel.reset_position()
