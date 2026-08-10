@@ -117,6 +117,7 @@ def normalize_requirement(requirement):
     if item.get('code') is None:
         item['code'] = ''
     item['pinned'] = bool(item.get('pinned'))
+    item['is_monthly_release'] = bool(item.get('is_monthly_release'))
     if item['pinned']:
         item['pinned_at'] = str(item.get('pinned_at') or '')
     else:

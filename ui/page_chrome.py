@@ -49,7 +49,7 @@ class PageChrome(QWidget):
 
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
-from ui.layout_metrics import PAGE_HEADER_H, PRIMARY_SOFT, TEXT_MUTED
+from ui.layout_metrics import PAGE_HEADER_H
 
 
 def make_page_header(
@@ -59,7 +59,7 @@ def make_page_header(
     *,
     primary_button=None,
     trailing: QWidget | None = None,
-    accent: str = PRIMARY_SOFT,
+    accent: str | None = None,
 ) -> tuple[QFrame, QLabel, QLabel]:
     """创建标准页面标题区，返回 (frame, title_label, subtitle_label)。"""
     frame = QFrame()

@@ -34,7 +34,14 @@ def load_release_board(path=None):
         value = {}
     return {
         'manual_items': [_normalize_item(item) for item in value.get('manual_items', []) if isinstance(item, dict)],
+        # 兼容旧版“移除”记录；新版本不再提供从需求添加入口。
         'hidden_requirement_ids': [str(item) for item in value.get('hidden_requirement_ids', []) if str(item)],
+        'completed_requirement_keys': [
+            str(item) for item in value.get('completed_requirement_keys', []) if str(item)
+        ],
+        'completed_manual_keys': [
+            str(item) for item in value.get('completed_manual_keys', []) if str(item)
+        ],
     }
 
 
@@ -48,6 +55,12 @@ def save_release_board(board, path=None):
     value = {
         'manual_items': [_normalize_item(item) for item in payload.get('manual_items', []) if isinstance(item, dict)],
         'hidden_requirement_ids': sorted({str(item) for item in payload.get('hidden_requirement_ids', []) if str(item)}),
+        'completed_requirement_keys': sorted({
+            str(item) for item in payload.get('completed_requirement_keys', []) if str(item)
+        }),
+        'completed_manual_keys': sorted({
+            str(item) for item in payload.get('completed_manual_keys', []) if str(item)
+        }),
     }
     with open(target, 'w', encoding='utf-8') as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2)

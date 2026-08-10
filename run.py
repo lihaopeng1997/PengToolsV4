@@ -38,9 +38,8 @@ def _resolve_window_icon() -> QIcon:
 
 
 def main():
-    os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
-    os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
-
+    # Qt6 默认启用并统一处理高 DPI 缩放；不要再注入 Qt5 时代环境变量，
+    # 以避免多屏切换和系统缩放策略发生冲突。
     if sys.platform == 'win32':
         # AppUserModelID 区分 Private/标准，避免任务栏合并误判
         try:

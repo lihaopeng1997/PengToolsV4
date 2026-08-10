@@ -674,8 +674,12 @@ class RequirementDialog(QDialog):
         form.addWidget(QLabel('负责人'), 3, 2); form.addWidget(self.owner_edit, 3, 3)
         form.addWidget(QLabel('开发分支 SVN 地址'), 4, 0); form.addWidget(self.svn_url_edit, 4, 1, 1, 3)
         form.addWidget(QLabel('绑定本地目录'), 5, 0); form.addLayout(local_path_row, 5, 1, 1, 3)
+        self.monthly_release = QCheckBox('是否本月上线')
+        self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示。')
+        self.monthly_release.setChecked(bool(base.get('is_monthly_release')))
         form.addWidget(QLabel('上线月份'), 6, 0); form.addWidget(self.online_month, 6, 1)
         form.addWidget(QLabel('计划上线'), 6, 2); form.addWidget(self.planned_date, 6, 3)
+        form.addWidget(self.monthly_release, 7, 1)
         form.addWidget(QLabel('实际上线'), 7, 2); form.addWidget(self.actual_date, 7, 3)
         layout.addLayout(form)
 
@@ -924,6 +928,7 @@ class RequirementDialog(QDialog):
             'planned_online_date': planned_date,
             'actual_online_date': actual_date,
             'online_month': online_month,
+            'is_monthly_release': bool(self.monthly_release.isChecked()),
             'has_sql': bool(self.has_sql.isChecked() or self._sql_parts),
             'needs_peripheral_upgrade': bool(self.peripheral.isChecked()),
             'temporary_upgrade': bool(self.temporary.isChecked()),
@@ -1655,9 +1660,11 @@ class RequirementPanel(QWidget):
         query = self.search_edit.text().strip()
         current_id = self._current.get('id') if self._current else None
         status = self.status_filter.currentText(); kind = self.kind_filter.currentText(); system = self.system_filter.currentData()
+        # 完整重建树前记录用户当前浏览上下文。搜索有独立快照，以便清空搜索后恢复搜索前状态。
+        refresh_expand_snapshot = self._capture_tree_expand_state()
         # 有搜索时先快照展开状态，清除后恢复
         if query and self._search_expand_snapshot is None:
-            self._search_expand_snapshot = self._capture_tree_expand_state()
+            self._search_expand_snapshot = refresh_expand_snapshot
         elif not query and self._search_expand_snapshot is not None:
             # 将在填充后恢复
             pass
@@ -1854,7 +1861,10 @@ class RequirementPanel(QWidget):
         elif self._search_expand_snapshot is not None:
             self._restore_tree_expand_state(self._search_expand_snapshot)
             self._search_expand_snapshot = None
+        elif refresh_expand_snapshot:
+            self._restore_tree_expand_state(refresh_expand_snapshot)
         else:
+            # 首次填充没有可恢复的分组状态时，保持原有默认全部展开体验。
             self.requirement_list.expandAll()
         self._fit_requirement_code_column()
         # 有搜索词时优先定位第一条匹配；无搜索时尽量保持当前选中

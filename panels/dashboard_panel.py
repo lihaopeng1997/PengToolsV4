@@ -8,13 +8,12 @@ import datetime
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
-    QHBoxLayout, QBoxLayout, QScrollArea, QInputDialog,
+    QComboBox, QFrame, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QBoxLayout, QScrollArea,
 )
 
 from tools.dashboard_release_items import load_release_board, save_release_board
 from tools.requirements import load_requirements
-from ui.confirm_dialog import confirm_action
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
 from ui.responsive import set_subtitle_visible
@@ -158,16 +157,11 @@ class DashboardPanel(QWidget):
         self.release_more.setProperty('compactAction', True)
         self.release_more.clicked.connect(self.open_sql.emit)
         release_head.addWidget(self.release_more)
-        self.release_add_requirement_btn = QPushButton()
-        self.release_add_requirement_btn.setObjectName('ghost-btn')
-        self.release_add_requirement_btn.setProperty('compactAction', True)
-        self.release_add_requirement_btn.clicked.connect(self._add_requirement_to_release_board)
-        release_head.addWidget(self.release_add_requirement_btn)
-        self.release_add_manual_btn = QPushButton()
-        self.release_add_manual_btn.setObjectName('btn-secondary')
-        self.release_add_manual_btn.setProperty('compactAction', True)
-        self.release_add_manual_btn.clicked.connect(self._add_manual_release_item)
-        release_head.addWidget(self.release_add_manual_btn)
+        self.release_month_combo = QComboBox()
+        self.release_month_combo.setObjectName('release-month-filter')
+        self.release_month_combo.setMinimumWidth(116)
+        self.release_month_combo.currentIndexChanged.connect(self.refresh)
+        release_head.addWidget(self.release_month_combo)
         release_layout.addLayout(release_head)
         self.release_scroll = QScrollArea()
         self.release_scroll.setWidgetResizable(True)
@@ -320,118 +314,78 @@ class DashboardPanel(QWidget):
             row.clicked.connect(self._on_requirement_clicked)
             self.recent_list.addWidget(row)
 
+    @staticmethod
+    def _release_key(kind, item, month):
+        return f"{item.get('id') or ''}@{month}" if kind == 'requirement' else f"{item.get('id') or ''}@{month}"
+
+    def _fill_release_months(self, requirements, board):
+        current = self.release_month_combo.currentData() if hasattr(self, 'release_month_combo') else None
+        months = set()
+        months.update(
+            str(item.get('online_month') or '')[:7]
+            for item in requirements
+            if item.get('is_monthly_release') and str(item.get('online_month') or '')[:7]
+        )
+        months = sorted(months, reverse=True)
+        self.release_month_combo.blockSignals(True)
+        self.release_month_combo.clear()
+        for month in months:
+            self.release_month_combo.addItem(month.replace('-', '年', 1) + '月', month)
+        index = self.release_month_combo.findData(current)
+        self.release_month_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.release_month_combo.blockSignals(False)
+
     def _fill_release(self, requirements):
-        """待升级：仅展示当前自然月计划上线需求与当前月手工事项。"""
+        """按用户选择月份展示已勾选入选的需求。"""
         self._clear_layout(self.release_list)
-        today = datetime.date.today()
-        month_key = today.strftime('%Y-%m')
-        exclude = {'已上线', '已关闭', '已取消', '暂停'}
         board = load_release_board()
-        hidden_ids = set(board['hidden_requirement_ids'])
+        self._fill_release_months(requirements, board)
+        month_key = str(self.release_month_combo.currentData() or '')
+        if not month_key:
+            self.release_empty.setVisible(True)
+            return
+        completed_requirement_keys = set(board.get('completed_requirement_keys', []))
         upcoming = []
         for item in requirements:
-            status = str(item.get('status') or '')
-            planned = str(item.get('planned_online_date') or '')[:10]
-            parsed = _parse_date(planned)
-            if (status in exclude or str(item.get('id') or '') in hidden_ids
-                    or item.get('actual_online_date') or parsed is None
-                    or planned[:7] != month_key):
+            if not item.get('is_monthly_release') or str(item.get('online_month') or '')[:7] != month_key:
                 continue
-            upcoming.append(('requirement', item, parsed))
-        for item in board['manual_items']:
-            parsed = _parse_date(item.get('planned_date'))
-            if parsed is not None and str(item.get('planned_date') or '')[:7] == month_key:
-                upcoming.append(('manual', item, parsed))
+            upcoming.append(('requirement', item, _parse_date(item.get('planned_online_date'))))
+        def _sort_key(entry):
+            kind, item, date_value = entry
+            done = self._release_key(kind, item, month_key) in completed_requirement_keys
+            return (done, date_value or datetime.date.max, str(item.get('title') or ''))
 
         from tools.list_pin import decorate_title, is_pinned
-        upcoming.sort(key=lambda t: (0 if t[2] == today else 1, t[2].toordinal(), str(t[1].get('title') or '')))
+        upcoming.sort(key=_sort_key)
         zh = self.language == 'zh'
         self.release_empty.setVisible(not upcoming)
         for kind, item, planned_date in upcoming:
-            is_manual = kind == 'manual'
+            completed = self._release_key(kind, item, month_key) in completed_requirement_keys
             title = item.get('title') or ('未命名' if zh else 'Untitled')
-            if not is_manual:
-                title = decorate_title(title or item.get('code') or ('未命名' if zh else 'Untitled'), is_pinned(item))
-            planned = planned_date.isoformat()
-            badge = ('今天上线' if zh else 'Ships today') if planned_date == today else (f'计划 {planned}' if zh else f'Plan {planned}')
-            if is_manual:
-                meta = f'{item.get("note") or ("手工事项" if zh else "Manual item")} · {badge}'
-                actions = ((('编辑' if zh else 'Edit'), lambda current=item: self._edit_manual_release_item(current)),
-                           (('删除' if zh else 'Delete'), lambda current=item: self._delete_manual_release_item(current)))
-                row = TaskRow(item, title, meta, '', highlight=planned_date == today, actions=actions)
-            else:
-                system = item.get('system') or ('未选系统' if zh else 'No system')
-                meta = f'{system} · {badge}'
-                actions = ((('移除' if zh else 'Remove'), lambda current=item: self._hide_requirement_from_release_board(current)),)
-                row = TaskRow(item, title, meta, item.get('status') or '', highlight=planned_date == today or is_pinned(item), actions=actions)
-                row.clicked.connect(self._on_requirement_clicked)
+            title = decorate_title(title or item.get('code') or ('未命名' if zh else 'Untitled'), is_pinned(item))
+            date_text = planned_date.isoformat() if planned_date else month_key
+            badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
+            system = item.get('system') or ('未选系统' if zh else 'No system')
+            meta = f'{system} · {badge}'
+            action = ('撤销完成' if zh else 'Undo', lambda current=item: self._set_release_item_completed('requirement', current, month_key, False)) if completed else ('已完成' if zh else 'Complete', lambda current=item: self._set_release_item_completed('requirement', current, month_key, True))
+            row = TaskRow(item, title, meta, '已完成' if completed and zh else (item.get('status') or ''), highlight=completed or is_pinned(item), actions=(action,))
+            row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
 
     def _save_release_board(self, board):
         save_release_board(board)
         self.refresh()
 
-    def _add_requirement_to_release_board(self):
-        requirements = load_requirements()
-        candidates = [item for item in requirements if item.get('id')]
-        labels = [f"{item.get('code') or 'REQ'} · {item.get('title') or '未命名'}" for item in candidates]
-        if not labels:
-            return
-        value, accepted = QInputDialog.getItem(self, '添加需求事项', '选择需求：', labels, 0, False)
-        if not accepted:
-            return
-        selected = candidates[labels.index(value)]
+    def _set_release_item_completed(self, kind, item, month, completed):
+        """仅更新工作台任务进度，不修改需求业务状态或上线日期。"""
         board = load_release_board()
-        hidden = set(board['hidden_requirement_ids'])
-        hidden.discard(str(selected['id']))
-        board['hidden_requirement_ids'] = list(hidden)
-        self._save_release_board(board)
-
-    def _hide_requirement_from_release_board(self, item):
-        zh = self.language == 'zh'
-        if not confirm_action(
-            self, '移除待升级事项' if zh else 'Remove release item',
-            '仅从工作台待升级事项移除，不会删除需求管理中的原需求。是否继续？' if zh else 'This only removes the item from the dashboard. The requirement remains unchanged.',
-            confirm_text='移除' if zh else 'Remove', danger=False,
-        ):
-            return
-        board = load_release_board()
-        hidden = set(board['hidden_requirement_ids'])
-        hidden.add(str(item.get('id') or ''))
-        board['hidden_requirement_ids'] = list(hidden)
-        self._save_release_board(board)
-
-    def _add_manual_release_item(self):
-        self._edit_manual_release_item({'id': '', 'title': '', 'planned_date': datetime.date.today().isoformat(), 'note': ''})
-
-    def _edit_manual_release_item(self, item):
-        title, accepted = QInputDialog.getText(self, '手工升级事项', '事项标题：', text=item.get('title') or '')
-        if not accepted or not title.strip():
-            return
-        planned, accepted = QInputDialog.getText(self, '手工升级事项', '计划日期（YYYY-MM-DD）：', text=item.get('planned_date') or datetime.date.today().isoformat())
-        if not accepted or _parse_date(planned) is None:
-            return
-        note, accepted = QInputDialog.getText(self, '手工升级事项', '备注（可留空）：', text=item.get('note') or '')
-        if not accepted:
-            return
-        board = load_release_board()
-        updated = dict(item, title=title.strip(), planned_date=planned[:10], note=note.strip())
-        if updated.get('id'):
-            board['manual_items'] = [updated if row.get('id') == updated['id'] else row for row in board['manual_items']]
+        keys = set(board.get('completed_requirement_keys', []))
+        key = self._release_key(kind, item, month)
+        if completed:
+            keys.add(key)
         else:
-            board['manual_items'].append(updated)
-        self._save_release_board(board)
-
-    def _delete_manual_release_item(self, item):
-        zh = self.language == 'zh'
-        if not confirm_action(
-            self, '删除手工事项' if zh else 'Delete manual item',
-            f'确定删除“{item.get("title") or ""}”吗？此操作无法恢复。' if zh else 'Delete this manual item? This cannot be undone.',
-            confirm_text='删除' if zh else 'Delete', danger=True,
-        ):
-            return
-        board = load_release_board()
-        board['manual_items'] = [row for row in board['manual_items'] if row.get('id') != item.get('id')]
+            keys.discard(key)
+        board['completed_requirement_keys'] = sorted(keys)
         self._save_release_board(board)
 
     def _on_requirement_clicked(self, item):
@@ -452,9 +406,8 @@ class DashboardPanel(QWidget):
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
             self.release_title.setText('待升级事项')
             self.release_more.setText('发版联动')
-            self.release_add_requirement_btn.setText('从需求添加')
-            self.release_add_manual_btn.setText('手工添加')
-            self.release_empty.setText('暂无本月待升级事项')
+            self.release_month_combo.setToolTip('选择要查看的上线月份')
+            self.release_empty.setText('该月份暂无待升级事项')
             self.tools_label.setText('常用工具')
             self.gateway.setText('加解密')
             self.credit.setText('证件类型')
@@ -470,9 +423,8 @@ class DashboardPanel(QWidget):
             self.recent_empty.setText('No requirements yet. Add or scan in Requirements.')
             self.release_title.setText('Upcoming releases')
             self.release_more.setText('Release prep')
-            self.release_add_requirement_btn.setText('Add requirement')
-            self.release_add_manual_btn.setText('Add manual')
-            self.release_empty.setText('No releases planned this month')
+            self.release_month_combo.setToolTip('Choose a release month')
+            self.release_empty.setText('No release items for this month')
             self.tools_label.setText('TOOLS')
             self.gateway.setText('Crypto')
             self.credit.setText('Documents')

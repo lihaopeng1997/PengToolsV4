@@ -373,6 +373,7 @@ class ThemeManager:
         self._template: str | None = None
         self._template_path = ''
         self._listeners = []
+        self._listener_failures: list[dict[str, str]] = []
 
     @classmethod
     def instance(cls) -> 'ThemeManager':
@@ -462,8 +463,13 @@ class ThemeManager:
             for callback in list(self._listeners):
                 try:
                     callback(theme_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._listener_failures.append({
+                        'theme_id': theme_id,
+                        'listener': getattr(callback, '__qualname__', repr(callback)),
+                        'error_type': type(exc).__name__,
+                        'message': str(exc),
+                    })
             return theme_id
         except Exception:
             self._theme_id = prev
@@ -473,6 +479,13 @@ class ThemeManager:
                 except Exception:
                     pass
             raise
+
+    def listener_failures(self) -> tuple[dict[str, str], ...]:
+        """返回主题监听失败快照；失败监听不会阻断其余界面刷新。"""
+        return tuple(dict(item) for item in self._listener_failures)
+
+    def clear_listener_failures(self) -> None:
+        self._listener_failures.clear()
 
     def add_listener(self, callback) -> None:
         if callback not in self._listeners:
