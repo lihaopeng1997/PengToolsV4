@@ -520,12 +520,14 @@ class FormatToolsPanel(QWidget):
         self.tabs.addTab(self.text_tab, '文本与开发辅助')
 
         root.addWidget(self.tabs, 1)
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        """刷新常驻 Tab 图标，避免主题切换后保留旧主题色。"""
         try:
             from ui.icons import qicon
-            self.tabs.setTabIcon(0, qicon('json'))
-            self.tabs.setTabIcon(1, qicon('xml'))
-            self.tabs.setTabIcon(2, qicon('database'))
-            self.tabs.setTabIcon(3, qicon('terminal'))
+            for index, role in enumerate(('json', 'xml', 'database', 'terminal')):
+                self.tabs.setTabIcon(index, qicon(role))
         except Exception:
             pass
 

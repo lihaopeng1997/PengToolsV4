@@ -2171,6 +2171,10 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '代理' if zh else 'Proxy', str(exc))
 
     # ── 表格 ─────────────────────────────────────────
+    def refresh_theme(self):
+        """以当前主题 Token 重建会话状态色，不改变抓包数据或选择状态。"""
+        self._rebuild_table()
+
     def _rebuild_table(self):
         prev_id = self._selected_id
         at_top = self.table.rowCount() == 0 or (

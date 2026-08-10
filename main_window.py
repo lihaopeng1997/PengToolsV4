@@ -731,9 +731,18 @@ class MainWindow(QMainWindow):
             self._private_unlocked = True
             self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
         self._apply_density_preferences(self._settings)
-        # 导航图标随主题重新染色
+        # 导航图标与局部手工刷色随主题重新染色。
         self._apply_nav_texts()
         self._refresh_brand_icon()
+        for panel in (
+            self.personal_panel, self.requirement_panel,
+            self.format_panel, self.interface_debug_panel,
+        ):
+            if hasattr(panel, 'refresh_theme'):
+                try:
+                    panel.refresh_theme()
+                except Exception:
+                    pass
         self.quick_panel.apply_preferences(
             self._settings['floating_opacity'], self._settings['floating_always_on_top']
         )

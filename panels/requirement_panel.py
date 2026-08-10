@@ -1620,6 +1620,10 @@ class RequirementPanel(QWidget):
         self._fill_system_filter()
         self._refresh()
 
+    def refresh_theme(self):
+        """重建需求树中按主题写入的月份、状态与搜索刷色，保留筛选和当前选择。"""
+        self._refresh()
+
     def focus_requirement(self, requirement_or_id):
         """首页等入口：定位并选中指定需求。"""
         target_id = requirement_or_id

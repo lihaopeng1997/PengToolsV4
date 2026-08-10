@@ -162,8 +162,18 @@ def icon_pixmap(role: str, size: int = 20, tint: str = ICON_MUTED) -> QPixmap:
     return icon.pixmap(QSize(size, size))
 
 
-def qicon(role: str, *, size: int = 20, normal: str = ICON_MUTED, active: str = PRIMARY_ACTIVE) -> QIcon:
-    """带 Normal / Active / Selected 状态的 QIcon。"""
+def qicon(role: str, *, size: int = 20, normal: str | None = None, active: str | None = None) -> QIcon:
+    """带 Normal / Active / Selected 状态的 QIcon，默认色在调用时解析当前主题。"""
+    try:
+        from ui.theme_manager import ThemeManager
+        palette = ThemeManager.instance().palette()
+        normal = normal or palette.get('ICON_MUTED', ICON_MUTED)
+        active = active or palette.get('PRIMARY_ACTIVE', PRIMARY_ACTIVE)
+        disabled_tint = palette.get('DISABLED_ICON', palette.get('DISABLED_TEXT', '#A8B1C2'))
+    except Exception:
+        normal = normal or ICON_MUTED
+        active = active or PRIMARY_ACTIVE
+        disabled_tint = '#A8B1C2'
     icon = QIcon()
     normal_pix = icon_pixmap(role, size, normal)
     active_pix = icon_pixmap(role, size, active)
@@ -174,7 +184,7 @@ def qicon(role: str, *, size: int = 20, normal: str = ICON_MUTED, active: str = 
     icon.addPixmap(active_pix, QIcon.Mode.Active, QIcon.State.Off)
     icon.addPixmap(active_pix, QIcon.Mode.Selected, QIcon.State.On)
     icon.addPixmap(active_pix, QIcon.Mode.Normal, QIcon.State.On)
-    disabled = icon_pixmap(role, size, '#A8B1C2')
+    disabled = icon_pixmap(role, size, disabled_tint)
     if not disabled.isNull():
         icon.addPixmap(disabled, QIcon.Mode.Disabled, QIcon.State.Off)
     return icon

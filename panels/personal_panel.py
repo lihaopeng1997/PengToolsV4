@@ -586,6 +586,8 @@ class KnowledgeTab(QWidget):
     def _show_workbook(self, entry):
         rows = entry.get('rows', [])
         column_count = entry.get('column_count') or max((len(row) for row in rows), default=0)
+        # clear() 会销毁单元格；不得保留上一轮高亮中的 QTableWidgetItem 引用。
+        self._highlighted_cells = []
         self.table_view.setUpdatesEnabled(False)
         self.table_view.clear()
         self.table_view.setRowCount(len(rows))
@@ -618,6 +620,17 @@ class KnowledgeTab(QWidget):
             self.table_view.setColumnHidden(index, index in self._hidden_columns.get(entry.get('id'), set()))
         self.table_view.setUpdatesEnabled(True)
         self._filter_workbook_rows(entry)
+
+    def refresh_theme(self):
+        """重新绘制当前资料的主题相关刷色与搜索高亮。"""
+        entry = self._current
+        if not isinstance(entry, dict):
+            return
+        if entry.get('content_type') == 'workbook_sheet':
+            self._show_workbook(entry)
+            self._filter_workbook_rows(entry)
+        else:
+            self._highlight_entry_content(entry)
 
     def _filter_workbook_rows(self, entry):
         for item, background in self._highlighted_cells:
@@ -1465,6 +1478,10 @@ class PersonalPanel(QWidget):
                 self.daily_tab.apply_layout_mode(mode, low_height)
             except Exception:
                 pass
+
+    def refresh_theme(self):
+        if hasattr(self.knowledge_tab, 'refresh_theme'):
+            self.knowledge_tab.refresh_theme()
 
     def set_language(self, language):
         self.language = language
