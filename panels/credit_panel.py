@@ -17,6 +17,7 @@ from tools.id_documents import (
     validate_personal_document,
 )
 from tools.china_regions import REGIONS
+from ui.design_system import apply_button
 from ui.field_metrics import size_combo, size_line
 
 
@@ -71,17 +72,21 @@ class CreditCodePanel(QWidget):
         root.addWidget(self.table, 1)
 
         bottom = QHBoxLayout()
+        bottom.setSpacing(8)
         self.result_label = QLabel()
         self.result_label.setObjectName('small-label')
         bottom.addWidget(self.result_label)
         bottom.addStretch()
         self.copy_btn = QPushButton()
+        apply_button(self.copy_btn, 'secondary', compact=True)
         self.copy_btn.clicked.connect(self._copy_all)
         bottom.addWidget(self.copy_btn)
         self.export_btn = QPushButton()
+        apply_button(self.export_btn, 'secondary', compact=True)
         self.export_btn.clicked.connect(self._export_csv)
         bottom.addWidget(self.export_btn)
         self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True)
         self.clear_btn.clicked.connect(self._clear)
         bottom.addWidget(self.clear_btn)
         root.addLayout(bottom)
@@ -113,7 +118,7 @@ class CreditCodePanel(QWidget):
         first.addWidget(self.personal_qty)
         first.addStretch()
         self.personal_generate = QPushButton()
-        self.personal_generate.setObjectName('primary-btn')
+        apply_button(self.personal_generate, 'primary')
         self.personal_generate.clicked.connect(self._generate_personal)
         first.addWidget(self.personal_generate)
         layout.addLayout(first)
@@ -185,7 +190,7 @@ class CreditCodePanel(QWidget):
         first.addWidget(self.unit_qty)
         first.addStretch()
         self.unit_generate = QPushButton()
-        self.unit_generate.setObjectName('primary-btn')
+        apply_button(self.unit_generate, 'primary')
         self.unit_generate.clicked.connect(self._generate_unit)
         first.addWidget(self.unit_generate)
         layout.addLayout(first)

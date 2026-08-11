@@ -1043,7 +1043,8 @@ class DailyReportTab(QWidget):
         reminder_layout.addWidget(self.reminder_status, 1)
         self.reminder_settings_btn = QPushButton('提醒设置')
         self.reminder_settings_btn.setProperty('compactAction', True)
-        self.reminder_settings_btn.setObjectName('ghost-btn')
+        from ui.design_system import apply_button as _apply_btn
+        _apply_btn(self.reminder_settings_btn, 'ghost', compact=True)
         self.reminder_settings_btn.clicked.connect(self._open_reminder_settings)
         reminder_layout.addWidget(self.reminder_settings_btn)
         # 兼容旧引用（测试/外部）

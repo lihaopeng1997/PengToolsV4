@@ -381,13 +381,16 @@ class InterfaceDebugPanel(QWidget):
         self.clear_list_btn.clicked.connect(self._confirm_clear_session)
         tl.addWidget(self.clear_list_btn)
 
-        # 左侧栏隐藏/显示切换按钮
-        self._toggle_list_btn = QPushButton('隐藏')
-        self._toggle_list_btn.setObjectName('btn-ghost')
-        self._toggle_list_btn.setFixedHeight(28)
-        self._toggle_list_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._toggle_list_btn.setFixedWidth(52)
-        self._toggle_list_btn.setToolTip('隐藏 / 显示会话列表')
+        # 左侧栏隐藏/显示切换按钮（与全局 section_toggle 一致）
+        self._toggle_list_btn = QPushButton()
+        from ui.section_toggle import apply_visibility_toggle
+        apply_visibility_toggle(
+            self._toggle_list_btn,
+            content_visible=True,
+            language=self.language,
+            kind='session_list',
+            tooltip='隐藏或显示左侧会话列表' if self.language == 'zh' else 'Show or hide session list',
+        )
         self._toggle_list_btn.clicked.connect(self._toggle_session_list)
         tl.addWidget(self._toggle_list_btn)
 
@@ -745,9 +748,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_load_btn.clicked.connect(self._rt_lib_apply_selected)
         lib_btn_row.addWidget(self.rt_lib_load_btn)
         self.rt_lib_resend_btn = QPushButton('复制并重发')
-        self.rt_lib_resend_btn.setObjectName('btn-ghost')
-        self.rt_lib_resend_btn.setFixedHeight(28)
-        self.rt_lib_resend_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        apply_button(self.rt_lib_resend_btn, 'ghost', compact=True)
         self.rt_lib_resend_btn.setToolTip('加载选中条目到表单并立即发送')
         self.rt_lib_resend_btn.clicked.connect(self._rt_lib_resend_selected)
         lib_btn_row.addWidget(self.rt_lib_resend_btn)
@@ -894,9 +895,13 @@ class InterfaceDebugPanel(QWidget):
 
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
-        self.session_list_reveal_btn = QPushButton('显示会话列表')
+        self.session_list_reveal_btn = QPushButton()
         apply_button(self.session_list_reveal_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
-        self.session_list_reveal_btn.setToolTip('恢复左侧会话列表')
+        self.session_list_reveal_btn.setText('显示会话列表' if self.language == 'zh' else 'Show session list')
+        self.session_list_reveal_btn.setToolTip(
+            '恢复左侧会话列表' if self.language == 'zh' else 'Restore left session list'
+        )
+        self.session_list_reveal_btn.setMinimumWidth(110)
         self.session_list_reveal_btn.clicked.connect(self._toggle_session_list)
         self.session_list_reveal_btn.hide()
         rl.addWidget(self.session_list_reveal_btn, 0, Qt.AlignmentFlag.AlignLeft)
@@ -3936,6 +3941,25 @@ class InterfaceDebugPanel(QWidget):
             return 'Chromium'
         return source or '—'
 
+    def _sync_session_list_toggle_labels(self):
+        """按当前显隐状态刷新工具条与右侧恢复按钮文案。"""
+        from ui.section_toggle import apply_visibility_toggle
+        w = getattr(self, '_session_list_widget', None)
+        visible = w is not None and not w.isHidden()
+        apply_visibility_toggle(
+            self._toggle_list_btn,
+            content_visible=visible,
+            language=self.language,
+            kind='session_list',
+            tooltip='隐藏或显示左侧会话列表' if self.language == 'zh' else 'Show or hide session list',
+        )
+        zh = self.language == 'zh'
+        self.session_list_reveal_btn.setText('显示会话列表' if zh else 'Show session list')
+        self.session_list_reveal_btn.setToolTip(
+            '恢复左侧会话列表' if zh else 'Restore left session list'
+        )
+        self.session_list_reveal_btn.setVisible(not visible)
+
     def _toggle_session_list(self):
         """隐藏/显示会话列表（mid_splitter 左侧）。"""
         w = getattr(self, '_session_list_widget', None)
@@ -3943,12 +3967,9 @@ class InterfaceDebugPanel(QWidget):
             return
         if w.isHidden():
             w.show()
-            self._toggle_list_btn.setText('隐藏')
-            self.session_list_reveal_btn.hide()
         else:
             w.hide()
-            self._toggle_list_btn.setText('显示')
-            self.session_list_reveal_btn.show()
+        self._sync_session_list_toggle_labels()
         self._rebuild_session_actions_menu()
 
     def apply_layout_mode(self, mode, low_height=False):
@@ -4033,8 +4054,8 @@ class InterfaceDebugPanel(QWidget):
         ):
             button.setText('更多' if zh else 'More')
             button.setToolTip('显示收纳操作' if zh else 'Show overflow actions')
-        self.session_list_reveal_btn.setText('显示会话列表' if zh else 'Show session list')
-        self.session_list_reveal_btn.setToolTip('恢复左侧会话列表' if zh else 'Restore left session list')
+        if hasattr(self, '_sync_session_list_toggle_labels'):
+            self._sync_session_list_toggle_labels()
         self._rebuild_column_menu()
         widths = self._last_responsive_widths
         if widths:

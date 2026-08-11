@@ -253,9 +253,16 @@ class DocxUpdatePanel(QWidget):
         output_layout.setContentsMargins(0, 0, 0, 0)
         # 日志默认折叠为状态条，运行/失败时展开
         log_head = QHBoxLayout()
-        self.log_toggle = QPushButton('日志 ▸')
+        log_head.setSpacing(8)
+        self.log_toggle = QPushButton()
         self.log_toggle.setCheckable(True)
-        self.log_toggle.setProperty('compactAction', True)
+        from ui.section_toggle import apply_expand_toggle
+        apply_expand_toggle(
+            self.log_toggle,
+            expanded=False,
+            language=self.language,
+            kind='log',
+        )
         self.log_toggle.toggled.connect(self._toggle_log)
         log_head.addWidget(self.log_toggle)
         self.log_label = QLabel()
@@ -279,7 +286,8 @@ class DocxUpdatePanel(QWidget):
         self.hint.setWordWrap(True)
         bottom.addWidget(self.hint, 1)
         self.update_btn = QPushButton()
-        self.update_btn.setObjectName('primary-btn')
+        from ui.design_system import apply_button
+        apply_button(self.update_btn, 'primary')
         self.update_btn.clicked.connect(self._update_document)
         bottom.addWidget(self.update_btn)
         layout.addLayout(bottom)
@@ -366,9 +374,12 @@ class DocxUpdatePanel(QWidget):
         self.preview_btn.setText('预检' if zh else 'Preview')
         self.log_label.setText('' if zh else '')
         if hasattr(self, 'log_toggle'):
-            self.log_toggle.setText(
-                ('日志 ▾' if self.log_toggle.isChecked() else '日志 ▸') if zh else
-                ('Log ▾' if self.log_toggle.isChecked() else 'Log ▸')
+            from ui.section_toggle import apply_expand_toggle
+            apply_expand_toggle(
+                self.log_toggle,
+                expanded=bool(self.log_toggle.isChecked()),
+                language=language,
+                kind='log',
             )
         self.hint.setText('')
         self.hint.hide()
@@ -406,10 +417,12 @@ class DocxUpdatePanel(QWidget):
             self.log.setMinimumHeight(80)
         else:
             self.log.setMaximumHeight(32)
-        zh = self.language == 'zh'
-        self.log_toggle.setText(
-            ('日志 ▾' if checked else '日志 ▸') if zh else
-            ('Log ▾' if checked else 'Log ▸')
+        from ui.section_toggle import apply_expand_toggle
+        apply_expand_toggle(
+            self.log_toggle,
+            expanded=bool(checked),
+            language=self.language,
+            kind='log',
         )
 
     def _expand_log(self):

@@ -240,29 +240,40 @@ QPushButton#btn-danger:pressed, QPushButton#ops-delete-custom:pressed {
     background: __SURFACE_SOFT__;
     border-color: __DANGER__;
 }
-/* ghost：次级工具按钮（浅底+边框，确保可见） */
-QPushButton#btn-ghost {
+/* ghost：次级工具按钮（浅底+边框）；#ghost-btn 为历史别名，样式与 #btn-ghost 一致 */
+QPushButton#btn-ghost,
+QPushButton#ghost-btn {
     background: __SURFACE_SOFT__;
     color: __TEXT__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
+    border-radius: 8px;
     font-weight: 600;
 }
-QPushButton#btn-ghost:hover {
+QPushButton#btn-ghost:hover,
+QPushButton#ghost-btn:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
     color: __PRIMARY_ACTIVE__;
 }
-QPushButton#btn-ghost:pressed {
+QPushButton#btn-ghost:pressed,
+QPushButton#ghost-btn:pressed {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
 }
-QPushButton#btn-ghost:disabled {
+QPushButton#btn-ghost:disabled,
+QPushButton#ghost-btn:disabled {
     background: __DISABLED_BG__;
     color: __DISABLED_TEXT__;
     border-color: transparent;
 }
-QPushButton[compactAction="true"] { padding: 4px 10px; min-height: 16px; font-size: 12px; }
+/* 紧凑行内按钮：与 field_metrics.BTN_COMPACT_H=28 对齐 */
+QPushButton[compactAction="true"] {
+    padding: 3px 10px;
+    min-height: 22px;
+    max-height: 28px;
+    font-size: 12px;
+    border-radius: 8px;
+}
 /* 浅色导航项 */
 QPushButton#nav-btn, QPushButton#nav-btn-settings {
     background: transparent;
@@ -2219,8 +2230,8 @@ QMainWindow[uiDensity="comfortable"] QListWidget::item {
 /* 行内操作始终保持 28px：密度只影响常规控件，不得挤占列表展示空间。 */
 QMainWindow[uiDensity="compact"] QPushButton[compactAction="true"],
 QMainWindow[uiDensity="comfortable"] QPushButton[compactAction="true"] {
-    min-height: 18px;
-    max-height: 18px;
+    min-height: 22px;
+    max-height: 28px;
 }
 QPushButton:focus,
 QLineEdit:focus,

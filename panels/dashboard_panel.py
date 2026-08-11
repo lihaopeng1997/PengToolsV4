@@ -21,6 +21,7 @@ from tools.requirements import (
     restore_requirement_from_online,
 )
 from ui.confirm_dialog import confirm_action
+from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
 from ui.responsive import set_subtitle_visible
@@ -153,9 +154,7 @@ class TaskRow(QFrame):
         layout.addWidget(self.status_label)
         for text, callback in actions:
             action = QPushButton(text)
-            action.setObjectName('ghost-btn')
-            action.setProperty('compactAction', True)
-            action.setCursor(Qt.CursorShape.PointingHandCursor)
+            apply_button(action, 'ghost', compact=True)
             action.clicked.connect(callback)
             layout.addWidget(action)
         arrow = QLabel('›')
@@ -234,8 +233,7 @@ class DashboardPanel(QWidget):
         recent_head.addWidget(self.recent_title)
         recent_head.addStretch(1)
         self.recent_more = QPushButton()
-        self.recent_more.setObjectName('ghost-btn')
-        self.recent_more.setProperty('compactAction', True)
+        apply_button(self.recent_more, 'ghost', compact=True)
         self.recent_more.clicked.connect(self.open_requirements.emit)
         recent_head.addWidget(self.recent_more)
         recent_layout.addLayout(recent_head)
@@ -270,8 +268,7 @@ class DashboardPanel(QWidget):
         release_head.addWidget(self.release_title)
         release_head.addStretch(1)
         self.release_more = QPushButton()
-        self.release_more.setObjectName('ghost-btn')
-        self.release_more.setProperty('compactAction', True)
+        apply_button(self.release_more, 'ghost', compact=True)
         self.release_more.clicked.connect(self.open_sql.emit)
         release_head.addWidget(self.release_more)
         self.release_month_combo = QComboBox()
@@ -330,9 +327,7 @@ class DashboardPanel(QWidget):
             (self.vin, 'vin', self.open_vin),
             (self.ops, 'operations', self.open_ops),
         ):
-            btn.setObjectName('btn-secondary')
-            btn.setProperty('compactAction', True)
-            apply_icon(btn, icon, 16)
+            apply_button(btn, 'secondary', compact=True, icon=icon, icon_size=16)
             btn.clicked.connect(signal.emit)
             self.tools_row.addWidget(btn)
             self._tool_buttons.append(btn)
