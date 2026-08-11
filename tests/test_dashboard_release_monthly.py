@@ -138,6 +138,49 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             self.assertLess(panel.tasks_row.geometry().height(), 180)
             panel.close()
 
+    def test_current_month_is_preferred_and_task_cards_stay_aligned(self):
+        import datetime
+        from panels.dashboard_panel import DashboardPanel
+
+        current_month = datetime.date.today().strftime("%Y-%m")
+        next_month = (datetime.date.today().replace(day=28) + datetime.timedelta(days=4)).replace(day=1).strftime("%Y-%m")
+        requirements = [
+            {"id": "current-release", "title": "本月升级", "online_month": current_month, "is_monthly_release": True, "status": "开发中"},
+            {"id": "future-release", "title": "下月升级", "online_month": next_month, "is_monthly_release": True, "status": "待测试"},
+            {"id": "recent-two", "title": "最近需求二", "status": "待分析"},
+            {"id": "recent-three", "title": "最近需求三", "status": "待分析"},
+        ]
+        board = {"completed_requirement_keys": []}
+        with patch("panels.dashboard_panel.load_requirements", return_value=requirements), \
+                patch("panels.dashboard_panel.load_release_board", return_value=board):
+            panel = DashboardPanel("zh")
+            panel.resize(1200, 800)
+            panel.show()
+            self.app.processEvents()
+            self.assertEqual(panel.release_month_combo.currentData(), current_month)
+            self.assertEqual(panel.release_list.count(), 1)
+            self.assertEqual(panel.release_list.itemAt(0).widget()._payload["id"], "current-release")
+            self.assertEqual(panel.recent_card.height(), panel.release_card.height())
+            panel.close()
+
+    def test_saved_monthly_requirement_refreshes_and_focuses_its_month(self):
+        from panels.dashboard_panel import DashboardPanel
+
+        requirements = [
+            {"id": "future-release", "title": "下月升级", "online_month": "2026-09", "is_monthly_release": True, "status": "待测试"},
+        ]
+        saved = {"id": "current-release", "title": "本月升级", "online_month": "2026-08", "is_monthly_release": True, "status": "开发中"}
+        board = {"completed_requirement_keys": []}
+        with patch("panels.dashboard_panel.load_requirements", side_effect=lambda: list(requirements)), \
+                patch("panels.dashboard_panel.load_release_board", return_value=board):
+            panel = DashboardPanel("zh")
+            requirements.append(saved)
+            panel.refresh_for_requirement(saved)
+            self.assertEqual(panel.release_month_combo.currentData(), "2026-08")
+            self.assertEqual(panel.release_list.count(), 1)
+            self.assertEqual(panel.release_list.itemAt(0).widget()._payload["id"], "current-release")
+            panel.close()
+
     def test_requirement_dialog_roundtrip_keeps_monthly_release_flag(self):
         from panels.requirement_panel import RequirementDialog
 

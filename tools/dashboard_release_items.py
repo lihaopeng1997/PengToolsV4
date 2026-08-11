@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import uuid
 
 from config import DASHBOARD_RELEASE_ITEMS_FILE, ensure_config_dir
@@ -62,8 +63,21 @@ def save_release_board(board, path=None):
             str(item) for item in payload.get('completed_manual_keys', []) if str(item)
         }),
     }
-    with open(target, 'w', encoding='utf-8') as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2)
+    directory = os.path.dirname(os.path.abspath(target)) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix='.release-board-', suffix='.tmp', dir=directory, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, target)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 def load_release_items(path=None):

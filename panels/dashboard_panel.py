@@ -317,10 +317,30 @@ class DashboardPanel(QWidget):
         super().showEvent(event)
         self.refresh()
 
-    def refresh(self):
+    def refresh(self, preferred_release_month=None):
         requirements = load_requirements()
         self._fill_recent(requirements)
-        self._fill_release(requirements)
+        self._fill_release(requirements, preferred_release_month=preferred_release_month)
+        self._sync_task_card_heights()
+
+    def refresh_for_requirement(self, requirement):
+        """需求保存后刷新工作台；入选任务自动定位至其上线月份。"""
+        month = ''
+        if isinstance(requirement, dict) and requirement.get('is_monthly_release'):
+            month = str(requirement.get('online_month') or '')[:7]
+        self.refresh(preferred_release_month=month or None)
+
+    def _sync_task_card_heights(self):
+        """双任务卡取同一内容高度，保持外框对齐而不撑满页面。"""
+        self.recent_card.setMinimumHeight(0)
+        self.release_card.setMinimumHeight(0)
+        if self.tasks_row.direction() != QBoxLayout.Direction.LeftToRight:
+            return
+        recent_height = self.recent_card.sizeHint().height()
+        release_height = self.release_card.sizeHint().height()
+        target_height = max(recent_height, release_height)
+        self.recent_card.setMinimumHeight(target_height)
+        self.release_card.setMinimumHeight(target_height)
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -360,8 +380,8 @@ class DashboardPanel(QWidget):
     def _release_key(kind, item, month):
         return f"{item.get('id') or ''}@{month}" if kind == 'requirement' else f"{item.get('id') or ''}@{month}"
 
-    def _fill_release_months(self, requirements, board):
-        current = self.release_month_combo.currentData() if hasattr(self, 'release_month_combo') else None
+    def _fill_release_months(self, requirements, board, preferred_month=None):
+        current = preferred_month or (self.release_month_combo.currentData() if hasattr(self, 'release_month_combo') else None)
         months = set()
         months.update(
             str(item.get('online_month') or '')[:7]
@@ -369,11 +389,14 @@ class DashboardPanel(QWidget):
             if item.get('is_monthly_release') and str(item.get('online_month') or '')[:7]
         )
         months = sorted(months, reverse=True)
+        current_month = datetime.date.today().strftime('%Y-%m')
         self.release_month_combo.blockSignals(True)
         self.release_month_combo.clear()
         for month in months:
             self.release_month_combo.addItem(month.replace('-', '年', 1) + '月', month)
         index = self.release_month_combo.findData(current)
+        if index < 0:
+            index = self.release_month_combo.findData(current_month)
         self.release_month_combo.setCurrentIndex(index if index >= 0 else 0)
         self.release_month_combo.blockSignals(False)
 
@@ -387,11 +410,11 @@ class DashboardPanel(QWidget):
             height += count * TaskRow.ROW_HEIGHT + max(0, count - 1) * spacing
         self.release_scroll.setFixedHeight(height)
 
-    def _fill_release(self, requirements):
+    def _fill_release(self, requirements, preferred_release_month=None):
         """按用户选择月份展示已勾选入选的需求。"""
         self._clear_layout(self.release_list)
         board = load_release_board()
-        self._fill_release_months(requirements, board)
+        self._fill_release_months(requirements, board, preferred_month=preferred_release_month)
         month_key = str(self.release_month_combo.currentData() or '')
         if not month_key:
             self.release_empty.setVisible(True)

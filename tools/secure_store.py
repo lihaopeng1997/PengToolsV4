@@ -126,11 +126,14 @@ def _fernet():
         + os.environ.get('USERNAME', '').encode('utf-8', 'ignore')
     ).digest()
     key = base64.urlsafe_b64encode(material)
+    # 密钥必须能落盘；写失败则拒绝加密，避免下次无法解密得到空密码
     try:
         with open(path, 'wb') as stream:
             stream.write(key)
-    except OSError:
-        return Fernet(key)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except OSError as exc:
+        raise SecureStoreError(f'无法写入本机加密密钥文件: {exc}') from exc
     return Fernet(key)
 
 

@@ -154,6 +154,8 @@ class MainWindow(QMainWindow):
         self.requirement_panel.add_to_daily.connect(self._add_requirement_to_daily)
         self.requirement_panel.open_system_config.connect(self._open_system_config)
         self.requirement_panel.open_release_prep.connect(self._open_release_prep)
+        self.requirement_panel.requirement_saved.connect(self.dashboard_panel.refresh_for_requirement)
+        self.requirement_panel.requirements_changed.connect(self.dashboard_panel.refresh)
         self.settings_panel.settings_changed.connect(self._apply_settings)
         self.settings_panel.reset_floating_position.connect(self._reset_floating_position)
         # 设置页日报提醒 ↔ 日报模块状态条 双向同步

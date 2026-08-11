@@ -702,10 +702,16 @@ class RequirementDialog(QDialog):
         self.peripheral = QCheckBox('通知周边系统')
         self.temporary = QCheckBox('临时/紧急升级')
         self.interface_update = QCheckBox('更新接口文档')
-        self.has_sql.setChecked(bool(inferred.get('has_sql') or base.get('has_sql') or self._sql_parts))
-        self.peripheral.setChecked(bool(inferred.get('needs_peripheral_upgrade') or base.get('needs_peripheral_upgrade')))
-        self.temporary.setChecked(bool(inferred.get('temporary_upgrade') or base.get('temporary_upgrade')))
-        self.interface_update.setChecked(bool(inferred.get('needs_interface_update') or base.get('needs_interface_update')))
+        # 已有键（含用户显式 False）优先；仅缺失键才用推断结果
+        def _flag_checked(key, extra=False):
+            if key in base:
+                return bool(base.get(key) or extra)
+            return bool(inferred.get(key) or extra)
+
+        self.has_sql.setChecked(_flag_checked('has_sql', bool(self._sql_parts)))
+        self.peripheral.setChecked(_flag_checked('needs_peripheral_upgrade'))
+        self.temporary.setChecked(_flag_checked('temporary_upgrade'))
+        self.interface_update.setChecked(_flag_checked('needs_interface_update'))
         for index, widget in enumerate((self.has_sql, self.peripheral, self.temporary, self.interface_update)):
             widget.setObjectName('flag-check')
             widget.setMinimumHeight(28)
@@ -939,6 +945,8 @@ class RequirementDialog(QDialog):
 
 
 class RequirementPanel(QWidget):
+    requirement_saved = pyqtSignal(object)
+    requirements_changed = pyqtSignal()  # 删除/扫描/置顶等批量变更后刷新工作台
     send_to_sql = pyqtSignal(str, str)
     send_to_docx = pyqtSignal(str, str)
     add_to_daily = pyqtSignal(dict)
@@ -2038,6 +2046,7 @@ class RequirementPanel(QWidget):
         save_requirements(self._requirements)
         self._current = target
         self._refresh()
+        self.requirements_changed.emit()
 
     def _on_requirement_item_clicked(self, item, column):
         """左侧树单击仅选中；颜色切换请点右侧对应标记按钮。"""
@@ -2489,7 +2498,9 @@ class RequirementPanel(QWidget):
             apply_auto_inference(item, systems=self._systems, only_empty=True)
             for item in self._requirements
         ]
-        save_requirements(self._requirements); self._refresh()
+        save_requirements(self._requirements)
+        self._refresh()
+        self.requirements_changed.emit()
         missing = sum(not item.get('online_month') for item in copies)
         errors = sum(bool(item.get('error')) for item in copies)
         message = f'识别到 {len(copies)} 个需求目录；新增 {added} 条，更新 {updated} 条。\n已按月份分组，同月按文件最新修改时间排序。'
@@ -2519,7 +2530,9 @@ class RequirementPanel(QWidget):
         item['record_kind'] = values['record_kind']
         if values['record_kind'] == 'BUG': item['category'] = '缺陷优化'
         self._requirements.append(item); self._current = item
-        save_requirements(self._requirements); self._refresh()
+        save_requirements(self._requirements)
+        self._refresh()
+        self.requirements_changed.emit()
         show_success(self, 'SVN 拉取完成', f"已拉取到：\n{info['local_path']}")
 
     def _update_all(self):
@@ -2539,7 +2552,9 @@ class RequirementPanel(QWidget):
         successful = [item for item in results if item.get('ok')]
         failed = [item for item in results if not item.get('ok')]
         self._requirements, _added, _updated = merge_working_copies(self._requirements, successful)
-        save_requirements(self._requirements); self._refresh()
+        save_requirements(self._requirements)
+        self._refresh()
+        self.requirements_changed.emit()
         message = f'更新成功 {len(successful)} 个，失败 {len(failed)} 个。'
         if failed:
             message += '\n\n失败明细：\n' + '\n'.join(f"{item.get('path')}：{item.get('error')}" for item in failed[:8])
@@ -2560,7 +2575,9 @@ class RequirementPanel(QWidget):
         candidate['svn_url'] = svn_url.strip()
         apply_auto_inference(candidate, systems=self._systems, only_empty=True)
         self._requirements.append(candidate); self._current = candidate
-        save_requirements(self._requirements); self._refresh()
+        save_requirements(self._requirements)
+        self._refresh()
+        self.requirement_saved.emit(candidate)
         self._offer_next_steps(candidate, context='bug')
 
     def _current_path(self):
@@ -3334,6 +3351,7 @@ class RequirementPanel(QWidget):
 
         self._current = target
         self._refresh()
+        self.requirement_saved.emit(target)
         self.svn_activity.setText(
             f'已保存：{target.get("code") or "无编号"} · {target.get("title") or "未命名"}'
             f' · 标记 {flag_status_text(target)}'
@@ -3430,6 +3448,7 @@ class RequirementPanel(QWidget):
             self.select_all_check.blockSignals(False)
         save_requirements(self._requirements)
         self._refresh()
+        self.requirements_changed.emit()
         # 不二次弹窗打断：确认删除后状态栏轻提示即可
         parent = self.window()
         if parent and hasattr(parent, 'status_bar'):

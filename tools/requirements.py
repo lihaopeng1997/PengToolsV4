@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import re
+import tempfile
 import uuid
 
 from config import REQUIREMENTS_FILE, ensure_config_dir
@@ -138,6 +139,25 @@ def load_requirements(path=None):
         return []
 
 
+def _atomic_write_json(target, payload):
+    """先写临时文件再 replace，避免中途崩溃留下半截 JSON。"""
+    directory = os.path.dirname(os.path.abspath(target)) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix='.req-', suffix='.tmp', dir=directory, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, target)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
+
 def save_requirements(requirements, path=None):
     target = path or REQUIREMENTS_FILE
     if path is None:
@@ -145,8 +165,7 @@ def save_requirements(requirements, path=None):
     else:
         os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
     payload = [normalize_requirement(item) for item in (requirements or []) if isinstance(item, dict)]
-    with open(target, 'w', encoding='utf-8') as stream:
-        json.dump(payload, stream, ensure_ascii=False, indent=2)
+    _atomic_write_json(target, payload)
 
 
 def classify_requirement(text):
@@ -249,8 +268,10 @@ def infer_upgrade_flags(text, has_sql_parts=False):
 def apply_auto_inference(requirement, systems=None, only_empty=True):
     """填充空字段：系统、标记、上线月份；不覆盖已有明确值（only_empty=True）。
 
-    旧数据兼容：已有字段保持不变；仅补全空值。
+    旧数据兼容：已有字段保持不变；仅补全「键缺失」或文本空值。
+    注意：布尔 False 是用户显式选择，不能当空再推断勾回。
     """
+    raw = dict(requirement or {}) if isinstance(requirement, dict) else {}
     item = normalize_requirement(requirement)
     corpus = _requirement_corpus(item)
     flags = infer_upgrade_flags(corpus, has_sql_parts=bool(item.get('sql_parts')))
@@ -273,23 +294,36 @@ def apply_auto_inference(requirement, systems=None, only_empty=True):
             if not str(item.get('planned_online_date') or '').strip():
                 item['planned_online_date'] = month_end_date(month)
 
+    flag_keys = (
+        'has_sql',
+        'needs_peripheral_upgrade',
+        'temporary_upgrade',
+        'needs_interface_update',
+    )
     if only_empty:
-        if not item.get('has_sql') and not item.get('sql_parts'):
-            item['has_sql'] = flags['has_sql']
-        if not item.get('needs_peripheral_upgrade'):
-            item['needs_peripheral_upgrade'] = flags['needs_peripheral_upgrade']
-        if not item.get('temporary_upgrade'):
-            item['temporary_upgrade'] = flags['temporary_upgrade']
-        if not item.get('needs_interface_update'):
-            item['needs_interface_update'] = flags['needs_interface_update']
+        # 仅当原始记录缺少该键时才补全；已存在的 True/False 一律保留
+        for key in flag_keys:
+            if key not in raw:
+                if key == 'has_sql' and item.get('sql_parts'):
+                    item['has_sql'] = True
+                else:
+                    item[key] = flags[key]
+            elif key == 'has_sql' and item.get('sql_parts'):
+                item['has_sql'] = True
     else:
         item.update(flags)
         if item.get('sql_parts'):
             item['has_sql'] = True
 
-    if not str(item.get('category') or '').strip() or item.get('category') == '其他':
+    # 分类：only_empty 时不覆盖用户已选「其他」；强制模式才可重分类
+    category = str(item.get('category') or '').strip()
+    if not only_empty:
         classified = classify_requirement(corpus)
-        if classified != '其他' or not item.get('category'):
+        if classified != '其他' or not category:
+            item['category'] = classified
+    elif not category:
+        classified = classify_requirement(corpus)
+        if classified:
             item['category'] = classified
 
     if not str(item.get('record_kind') or '').strip():
