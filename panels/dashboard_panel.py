@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QComboBox, QFrame, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
@@ -45,29 +45,50 @@ class TaskRow(QFrame):
 
     clicked = pyqtSignal(object)
 
-    def __init__(self, payload, title, meta, status='', *, highlight: bool = False, actions=()):
+    ROW_HEIGHT = 64
+
+    def __init__(self, payload, title, meta, status='', *, identifier='', fixed_height=None, highlight: bool = False, actions=()):
         super().__init__()
         self._payload = payload
         self.setObjectName('dashboard-task-row-today' if highlight else 'dashboard-task-row')
         self.setProperty('todayRelease', bool(highlight))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if fixed_height is not None:
+            self.setFixedHeight(fixed_height)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(8)
         body = QVBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(2)
-        self.title_label = QLabel(title)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        self.identifier_label = QLabel(identifier)
+        self.identifier_label.setObjectName('dashboard-task-identifier')
+        self.identifier_label.setVisible(bool(identifier))
+        title_row.addWidget(self.identifier_label, 0)
+        self._full_title = str(title or '')
+        self.title_label = QLabel(self._full_title)
         self.title_label.setObjectName('dashboard-task-title')
         self.title_label.setWordWrap(False)
-        body.addWidget(self.title_label)
+        self.title_label.setToolTip(self._full_title)
+        self.title_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.title_label.setMinimumWidth(0)
+        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        title_row.addWidget(self.title_label, 1)
+        body.addLayout(title_row)
         self.meta_label = QLabel(meta)
         self.meta_label.setObjectName('small-label')
+        self.meta_label.setWordWrap(False)
+        self.meta_label.setMinimumWidth(0)
+        self.meta_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         body.addWidget(self.meta_label)
         layout.addLayout(body, 1)
-        if status:
-            pill = QLabel(status)
-            pill.setObjectName('status-pill-today' if highlight else 'status-pill')
-            layout.addWidget(pill)
+        self.status_label = QLabel(status)
+        self.status_label.setObjectName('status-pill-today' if highlight else 'status-pill')
+        self.status_label.setVisible(bool(status))
+        layout.addWidget(self.status_label)
         for text, callback in actions:
             action = QPushButton(text)
             action.setObjectName('ghost-btn')
@@ -77,6 +98,24 @@ class TaskRow(QFrame):
         arrow = QLabel('›')
         arrow.setObjectName('dashboard-row-arrow')
         layout.addWidget(arrow)
+
+    def _update_title_elision(self):
+        available = self.title_label.width()
+        if available > 0:
+            elided = self.title_label.fontMetrics().elidedText(
+                self._full_title,
+                Qt.TextElideMode.ElideRight,
+                available,
+            )
+            self.title_label.setText(elided)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_title_elision()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._update_title_elision)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -363,18 +402,26 @@ class DashboardPanel(QWidget):
             completed = self._release_key(kind, item, month_key) in completed_requirement_keys
             title = item.get('title') or ('未命名' if zh else 'Untitled')
             title = decorate_title(title or item.get('code') or ('未命名' if zh else 'Untitled'), is_pinned(item))
+            identifier = str(item.get('code') or '').strip() or str(item.get('record_kind') or ('需求' if zh else 'Requirement'))
             date_text = planned_date.isoformat() if planned_date else month_key
             badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
             system = item.get('system') or ('未选系统' if zh else 'No system')
             meta = f'{system} · {badge}'
-            action = ('撤销完成' if zh else 'Undo', lambda current=item: self._set_release_item_completed('requirement', current, month_key, False)) if completed else ('已完成' if zh else 'Complete', lambda current=item: self._set_release_item_completed('requirement', current, month_key, True))
-            row = TaskRow(item, title, meta, '已完成' if completed and zh else (item.get('status') or ''), highlight=completed or is_pinned(item), actions=(action,))
+            action = (
+                ('撤销完成' if zh else 'Undo', lambda _checked=False, current=item: self._set_release_item_completed('requirement', current, month_key, False))
+                if completed else
+                ('已完成' if zh else 'Complete', lambda _checked=False, current=item: self._set_release_item_completed('requirement', current, month_key, True))
+            )
+            row = TaskRow(item, title, meta, '已完成' if completed and zh else (item.get('status') or ''), identifier=identifier, fixed_height=TaskRow.ROW_HEIGHT, highlight=completed or is_pinned(item), actions=(action,))
             row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
 
     def _save_release_board(self, board):
         save_release_board(board)
-        self.refresh()
+
+    def _refresh_release_after_action(self):
+        """在按钮点击事件返回后刷新，避免事件派发中销毁当前任务行。"""
+        QTimer.singleShot(0, self.refresh)
 
     def _set_release_item_completed(self, kind, item, month, completed):
         """仅更新工作台任务进度，不修改需求业务状态或上线日期。"""
@@ -387,6 +434,7 @@ class DashboardPanel(QWidget):
             keys.discard(key)
         board['completed_requirement_keys'] = sorted(keys)
         self._save_release_board(board)
+        self._refresh_release_after_action()
 
     def _on_requirement_clicked(self, item):
         if isinstance(item, dict):

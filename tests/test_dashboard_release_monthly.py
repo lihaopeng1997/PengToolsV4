@@ -66,6 +66,55 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             self.assertIn("aug-on@2026-08", saved["completed_requirement_keys"])
             panel.close()
 
+    def test_release_row_has_fixed_height_identifier_and_safe_deferred_refresh(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QPushButton
+        from panels.dashboard_panel import DashboardPanel
+
+        requirement = {
+            "id": "bug-long",
+            "code": "BUG-20260811-101",
+            "record_kind": "BUG",
+            "title": "这是一个用于验证待升级事项标题过长时必须省略且不会挤压完成按钮的超长缺陷标题",
+            "online_month": "2026-08",
+            "is_monthly_release": True,
+            "status": "开发中",
+        }
+        board = {"manual_items": [], "hidden_requirement_ids": [], "completed_requirement_keys": []}
+
+        def persist(updated_board):
+            saved = dict(updated_board)
+            saved["completed_requirement_keys"] = list(updated_board.get("completed_requirement_keys", []))
+            board.clear()
+            board.update(saved)
+
+        with patch("panels.dashboard_panel.load_release_board", return_value=board), \
+                patch("panels.dashboard_panel.load_requirements", return_value=[requirement]), \
+                patch("panels.dashboard_panel.save_release_board", side_effect=persist) as save_board:
+            panel = DashboardPanel("zh")
+            panel._fill_release([requirement])
+            row = panel.release_list.itemAt(0).widget()
+            self.assertEqual(row.minimumHeight(), 64)
+            self.assertEqual(row.maximumHeight(), 64)
+            self.assertEqual(row.identifier_label.text(), "BUG-20260811-101")
+            self.assertEqual(row.title_label.textInteractionFlags(), Qt.TextInteractionFlag.NoTextInteraction)
+            self.assertEqual(row.title_label.wordWrap(), False)
+            self.assertEqual(row.title_label.toolTip(), requirement["title"])
+            row.title_label.setFixedWidth(120)
+            row._update_title_elision()
+            self.assertNotEqual(row.title_label.text(), requirement["title"])
+            self.assertIn("…", row.title_label.text())
+
+            complete_button = next(button for button in row.findChildren(QPushButton) if button.text() == "已完成")
+            complete_button.click()
+            self.assertEqual(panel.release_list.itemAt(0).widget(), row)
+            self.app.processEvents()
+            refreshed_row = panel.release_list.itemAt(0).widget()
+            self.assertIsNot(refreshed_row, row)
+            self.assertEqual(refreshed_row.status_label.text(), "已完成")
+            self.assertIn("bug-long@2026-08", save_board.call_args.args[0]["completed_requirement_keys"])
+            panel.close()
+
     def test_requirement_dialog_roundtrip_keeps_monthly_release_flag(self):
         from panels.requirement_panel import RequirementDialog
 
