@@ -45,18 +45,41 @@ function Assert-ReleaseArtifactsUnlocked {
         [string]$DistExe,
         [string]$InstallerExe
     )
+    $targets = @($DistExe, $InstallerExe) | Where-Object { $_ }
     $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -match '^(?i)PengToolsHub$'
     })
-    if ($running.Count -gt 0) {
-        $ids = ($running | ForEach-Object { $_.Id }) -join ', '
+    # 仅当进程映像路径仍指向即将覆盖的 EXE 文件时拦截；路径已不存在（如已改名备份）则警告后继续
+    $blocking = @()
+    foreach ($proc in $running) {
+        $img = $null
+        try { $img = $proc.Path } catch { $img = $null }
+        if (-not $img) { continue }
+        $resolvedTargets = @()
+        foreach ($t in $targets) {
+            if (Test-Path -LiteralPath $t) {
+                $resolvedTargets += (Resolve-Path -LiteralPath $t).Path
+            } else {
+                $resolvedTargets += [System.IO.Path]::GetFullPath($t)
+            }
+        }
+        $imgFull = [System.IO.Path]::GetFullPath($img)
+        if ($resolvedTargets -contains $imgFull -and (Test-Path -LiteralPath $img)) {
+            $blocking += $proc
+        }
+    }
+    if ($blocking.Count -gt 0) {
+        $ids = ($blocking | ForEach-Object { $_.Id }) -join ', '
         throw @"
-检测到正在运行的 PengToolsHub（PID: $ids）。
+检测到正在运行且占用目标 EXE 的 PengToolsHub（PID: $ids）。
 请先关闭程序后再打包，本脚本不会强制结束进程。
 "@
+    } elseif ($running.Count -gt 0) {
+        $ids = ($running | ForEach-Object { $_.Id }) -join ', '
+        Write-Host "Warning: PengToolsHub process still listed (PID: $ids) but image path is not an existing build target; continuing lock checks on output files."
     }
     $blocked = @()
-    foreach ($path in @($DistExe, $InstallerExe)) {
+    foreach ($path in $targets) {
         if ($path -and (Test-Path -LiteralPath $path) -and -not (Test-FileWritable $path)) {
             $blocked += $path
         }
