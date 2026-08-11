@@ -45,7 +45,8 @@ class PasteKnowledgeDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText('自动整理并保存')
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh', Save='自动整理并保存')
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -88,6 +89,8 @@ class KnowledgeEditDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh')
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

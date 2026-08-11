@@ -3522,6 +3522,8 @@ class InterfaceDebugPanel(QWidget):
         impact.setObjectName('field-hint')
         layout.addWidget(impact)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, self.language)
         clean_btn = buttons.addButton('清理所选范围' if zh else 'Clean selected scope', QDialogButtonBox.ButtonRole.AcceptRole)
         clean_btn.setObjectName('btn-danger')
         layout.addWidget(buttons)
@@ -3729,6 +3731,8 @@ class InterfaceDebugPanel(QWidget):
         actions.addStretch(1)
         layout.addLayout(actions)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, self.language)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         reload_list(self.local_target_combo.currentData() or '')
@@ -3795,6 +3799,8 @@ class InterfaceDebugPanel(QWidget):
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save,
             parent=dialog,
         )
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, self.language)
         buttons.rejected.connect(dialog.reject)
 
         def save_rules():

@@ -57,6 +57,8 @@ class CustomCommandDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, self.language)
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

@@ -1,15 +1,10 @@
-# 逻辑审计与修复：实施状态
+# 工作台固定双卡与中文按钮：实施状态
 
-## 已完成的代码修复
-- **自动推断不再覆盖用户选择**：`apply_auto_inference(only_empty=True)` 对布尔标记只在「键缺失」时补全；显式 `False` 与分类「其他」不再被正文关键词勾回。编辑对话框勾选框改为 base 优先。
-- **台账原子写入**：`save_requirements` / `save_release_board` 改为临时文件 + `os.replace`，降低崩溃半截 JSON 导致需求全丢的风险。
-- **工作台联动补齐**：需求保存 → `requirement_saved`（定位上线月份）；删除/扫描/置顶/SVN 更新等 → `requirements_changed` 触发工作台刷新。
-- **Fernet 密钥 fail-closed**：本机密钥文件写失败时拒绝加密，避免用不可持久密钥加密后下次解密为空。
-- 工作台双卡高度对齐、本月优先展示、保存后定位月份（上一轮）保留。
+## 已完成
+- **双卡固定高度**：最近需求 / 待升级事项模块外框等高，列表视口按 5（窄屏 3）行固定；任务行 64px，超出在模块内滚动，不再因新增任务把两卡撑歪。
+- **本月上线可见**：勾选「是否本月上线」时若上线月份为空，默认写入当前自然月；看板把缺月份的入选任务按当前月展示。
+- **月份切换 bug**：月份下拉不再把 index 误传给 `refresh(preferred_month)`，避免选月错乱导致任务「消失」。
+- **中文按钮**：统一 `localize_button_box`，需求/学习/运维/接口排查等 `QDialogButtonBox` 的 Close/Cancel/Save 在中文模式下显示中文。
 
-## 验证结果
-- 定向回归：dashboard / requirement flags / lazy workflow / secure store / core 等（见本轮测试输出）。
-- 已知不在本轮改动范围：SSH `AutoAddPolicy`、发版 Excel 追加去重、请求库敏感头落盘、网关私钥外置——记入后续加固。
-
-## 交付
-- 源码修复后提交 Git；按项目节奏重建离线包。
+## 验证
+- `tests.test_dashboard_release_monthly` 8/8 通过。

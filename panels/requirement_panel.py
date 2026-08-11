@@ -250,8 +250,8 @@ class MonthPickerDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText('确定')
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText('取消')
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh')
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -345,6 +345,8 @@ class DateInput(QWidget):
         calendar.setSelectedDate(current if current.isValid() else QDate.currentDate())
         layout.addWidget(calendar)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh')
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
@@ -392,7 +394,8 @@ class RequirementAttachmentDialog(QDialog):
         else:
             self.editor = QPlainTextEdit(entry.get('content', '')); root.addWidget(self.editor, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText('保存附件修改')
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh', Save='保存附件修改')
         buttons.accepted.connect(self._accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     @staticmethod
@@ -578,8 +581,8 @@ class SvnCheckoutDialog(QDialog):
         form.addRow('记录类型', self.kind_combo); form.addRow('上线月份', month_row); form.addRow('本机目录', folder_row)
         root.addLayout(form); root.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText('开始检出')
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText('取消')
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh', Ok='开始检出')
         buttons.accepted.connect(self._accept_checked); buttons.rejected.connect(self.reject); root.addWidget(buttons)
         self.kind_combo.currentTextChanged.connect(lambda value: self.month_enabled.setChecked(value != 'BUG'))
 
@@ -675,11 +678,14 @@ class RequirementDialog(QDialog):
         form.addWidget(QLabel('开发分支 SVN 地址'), 4, 0); form.addWidget(self.svn_url_edit, 4, 1, 1, 3)
         form.addWidget(QLabel('绑定本地目录'), 5, 0); form.addLayout(local_path_row, 5, 1, 1, 3)
         self.monthly_release = QCheckBox('是否本月上线')
-        self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示。')
+        self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示；若未填上线月份，将默认使用当前自然月。')
         self.monthly_release.setChecked(bool(base.get('is_monthly_release')))
+        self.monthly_release.toggled.connect(self._on_monthly_release_toggled)
         form.addWidget(QLabel('上线月份'), 6, 0); form.addWidget(self.online_month, 6, 1)
         form.addWidget(QLabel('计划上线'), 6, 2); form.addWidget(self.planned_date, 6, 3)
         form.addWidget(self.monthly_release, 7, 1)
+        if self.monthly_release.isChecked() and not str(self.online_month.text() or '').strip():
+            self._on_monthly_release_toggled(True)
         form.addWidget(QLabel('实际上线'), 7, 2); form.addWidget(self.actual_date, 7, 3)
         layout.addLayout(form)
 
@@ -760,11 +766,20 @@ class RequirementDialog(QDialog):
         root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText('保存需求')
+        from ui.dialog_buttons import localize_button_box
+        localize_button_box(buttons, 'zh', Save='保存需求')
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
         self._refresh_lists()
+
+    def _on_monthly_release_toggled(self, checked):
+        """勾选“是否本月上线”时，若上线月份为空则填入当前自然月。"""
+        if not checked:
+            return
+        if str(self.online_month.text() or '').strip():
+            return
+        self.online_month.edit.setText(datetime.date.today().strftime('%Y-%m'))
 
     def _bind_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', self.local_path_edit.text())
@@ -915,6 +930,9 @@ class RequirementDialog(QDialog):
 
     def values(self):
         online_month = self._normalize_month_text(self.online_month.text())
+        is_monthly = bool(self.monthly_release.isChecked())
+        if is_monthly and not online_month:
+            online_month = datetime.date.today().strftime('%Y-%m')
         planned_date = self._normalize_date_text(self.planned_date.text()) or month_end_date(online_month)
         actual_date = self._normalize_date_text(self.actual_date.text())
         local_path = self.local_path_edit.text().strip()
@@ -934,7 +952,7 @@ class RequirementDialog(QDialog):
             'planned_online_date': planned_date,
             'actual_online_date': actual_date,
             'online_month': online_month,
-            'is_monthly_release': bool(self.monthly_release.isChecked()),
+            'is_monthly_release': is_monthly,
             'has_sql': bool(self.has_sql.isChecked() or self._sql_parts),
             'needs_peripheral_upgrade': bool(self.peripheral.isChecked()),
             'temporary_upgrade': bool(self.temporary.isChecked()),
