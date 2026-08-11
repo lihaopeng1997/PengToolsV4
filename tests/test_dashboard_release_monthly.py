@@ -240,9 +240,11 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             panel.resize(1200, 800)
             panel.show()
             self.app.processEvents()
-            expected_list_h = 5 * TaskRow.ROW_HEIGHT + 4 * TaskRow.LIST_SPACING
-            self.assertEqual(panel.release_scroll.height(), expected_list_h)
+            min_list_h = 8 * TaskRow.ROW_HEIGHT + 7 * TaskRow.LIST_SPACING
+            self.assertGreaterEqual(panel.release_scroll.minimumHeight(), min_list_h)
             self.assertEqual(panel.recent_card.height(), panel.release_card.height())
+            # 双卡应明显大于仅 5 行的旧高度，中间区域被拉高
+            self.assertGreater(panel.release_card.height(), min_list_h + 40)
             before = panel.release_card.height()
             requirements.append(
                 {"id": "extra", "title": "额外", "online_month": "2026-08", "is_monthly_release": True, "status": "待测试"}
@@ -250,6 +252,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             panel.refresh()
             self.app.processEvents()
             self.assertEqual(panel.release_card.height(), before)
+            self.assertEqual(panel.recent_card.height(), panel.release_card.height())
             panel.close()
 
     def test_current_month_is_preferred_and_task_cards_stay_aligned(self):

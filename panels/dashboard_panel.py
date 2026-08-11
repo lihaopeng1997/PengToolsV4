@@ -223,7 +223,8 @@ class DashboardPanel(QWidget):
 
         self.recent_card = QFrame()
         self.recent_card.setObjectName('dashboard-task-card')
-        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # 纵向扩展占满中间区域，常用工具沉底
+        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(14, 12, 14, 12)
         recent_layout.setSpacing(8)
@@ -243,7 +244,7 @@ class DashboardPanel(QWidget):
         self.recent_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.recent_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.recent_list_host = QWidget()
         self.recent_list = QVBoxLayout(self.recent_list_host)
         self.recent_list.setContentsMargins(0, 0, 4, 0)
@@ -259,7 +260,7 @@ class DashboardPanel(QWidget):
 
         self.release_card = QFrame()
         self.release_card.setObjectName('dashboard-task-card')
-        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         release_layout = QVBoxLayout(self.release_card)
         release_layout.setContentsMargins(14, 12, 14, 12)
         release_layout.setSpacing(8)
@@ -289,7 +290,7 @@ class DashboardPanel(QWidget):
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.release_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.release_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.release_list_host = QWidget()
         self.release_list = QVBoxLayout(self.release_list_host)
         self.release_list.setContentsMargins(0, 0, 4, 0)
@@ -302,16 +303,17 @@ class DashboardPanel(QWidget):
         self.release_scroll.setWidget(self.release_list_host)
         release_layout.addWidget(self.release_scroll, 1)
         self.tasks_row.addWidget(self.release_card, 1)
-        layout.addLayout(self.tasks_row)
-        self._apply_fixed_list_geometry()
+        # 中间双卡占满剩余高度；常用工具固定在页面底部
+        layout.addLayout(self.tasks_row, 1)
+        self._apply_list_geometry()
 
-        # 常用工具：紧凑图标+文字
+        # 常用工具：沉底、不参与纵向拉伸
         tools_head = QHBoxLayout()
         self.tools_label = QLabel()
         self.tools_label.setObjectName('sidebar-section')
         tools_head.addWidget(self.tools_label)
         tools_head.addStretch(1)
-        layout.addLayout(tools_head)
+        layout.addLayout(tools_head, 0)
 
         self.tools_row = QHBoxLayout()
         self.tools_row.setSpacing(8)
@@ -344,8 +346,7 @@ class DashboardPanel(QWidget):
         self.tools_more.hide()
         self.tools_row.addWidget(self.tools_more)
         self.tools_row.addStretch(1)
-        layout.addLayout(self.tools_row)
-        layout.addStretch(0)
+        layout.addLayout(self.tools_row, 0)
 
         # 兼容旧属性，避免外部引用崩溃
         self.offline = self.local_status
@@ -388,27 +389,35 @@ class DashboardPanel(QWidget):
             for btn in self._tool_buttons:
                 btn.show()
             self.tools_more.hide()
-        # 模式切换后固定高度与列表一并刷新
-        self._apply_fixed_list_geometry()
+        # 模式切换后最小高度与列表一并刷新
+        self._apply_list_geometry()
         self.refresh()
 
     def _list_limit(self) -> int:
-        """可见槽位数（卡片固定高度按此计算；超出部分滚动）。"""
-        return 3 if self._mode in ('compact', 'narrow') else 5
+        """列表最小可见行数（模块会随窗口再拉高；超出滚动）。"""
+        return 5 if self._mode in ('compact', 'narrow') else 8
 
     def _list_viewport_height(self) -> int:
         capacity = self._list_limit()
         return capacity * TaskRow.ROW_HEIGHT + max(0, capacity - 1) * TaskRow.LIST_SPACING
 
-    def _apply_fixed_list_geometry(self):
-        """模块外框与列表视口高度固定，不因任务增减改变。"""
+    def _apply_list_geometry(self):
+        """双卡随窗口纵向扩展；列表只保证最小可见行数，多出部分在卡内滚动。"""
         list_h = self._list_viewport_height()
-        self.recent_scroll.setFixedHeight(list_h)
-        self.release_scroll.setFixedHeight(list_h)
-        # 顶栏 + 摘要行 + 边距，保证两卡外框一致
-        card_h = 12 + 34 + 8 + 18 + 8 + list_h + 12
-        self.recent_card.setFixedHeight(card_h)
-        self.release_card.setFixedHeight(card_h)
+        for scroll in (self.recent_scroll, self.release_scroll):
+            scroll.setMinimumHeight(list_h)
+            scroll.setMaximumHeight(16777215)
+            sp = scroll.sizePolicy()
+            sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+            sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+            scroll.setSizePolicy(sp)
+        for card in (self.recent_card, self.release_card):
+            card.setMinimumHeight(0)
+            card.setMaximumHeight(16777215)
+            sp = card.sizePolicy()
+            sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+            sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+            card.setSizePolicy(sp)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -418,7 +427,7 @@ class DashboardPanel(QWidget):
         requirements = load_requirements()
         self._fill_recent(requirements)
         self._fill_release(requirements, preferred_release_month=preferred_release_month)
-        self._apply_fixed_list_geometry()
+        self._apply_list_geometry()
 
     def refresh_for_requirement(self, requirement):
         """需求保存后刷新工作台；入选任务自动定位至其上线月份。"""
