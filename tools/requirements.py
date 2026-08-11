@@ -168,6 +168,75 @@ def save_requirements(requirements, path=None):
     _atomic_write_json(target, payload)
 
 
+# 工作台「标记上线 / 恢复待办」与需求状态对齐
+ONLINE_STATUS = '已上线'
+PENDING_ONLINE_STATUS = '待上线'
+
+
+def is_online_status(requirement) -> bool:
+    return str((requirement or {}).get('status') or '').strip() == ONLINE_STATUS
+
+
+def release_board_key(requirement_id, month: str) -> str:
+    return f"{requirement_id or ''}@{str(month or '')[:7]}"
+
+
+def is_release_item_completed(requirement, month: str, completed_keys) -> bool:
+    """展示层完成：台账已上线 或 看板完成键命中。"""
+    if is_online_status(requirement):
+        return True
+    keys = set(completed_keys or [])
+    return release_board_key((requirement or {}).get('id'), month) in keys
+
+
+def update_requirement_by_id(requirement_id, mutator, path=None):
+    """加载台账 → 原地修改匹配 id 的条目 → 写回。返回更新后的 dict，未找到返回 None。"""
+    req_id = str(requirement_id or '')
+    if not req_id:
+        return None
+    items = load_requirements(path)
+    target = next((item for item in items if str(item.get('id') or '') == req_id), None)
+    if target is None:
+        return None
+    mutator(target)
+    target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+    save_requirements(items, path)
+    return normalize_requirement(target)
+
+
+def mark_requirement_online(requirement_id, path=None, online_date=None):
+    """工作台标记上线：status=已上线；实际上线日期为空时写入今天。"""
+    day = str(online_date or datetime.date.today().isoformat())[:10]
+
+    def _apply(item):
+        item['status'] = ONLINE_STATUS
+        if not str(item.get('actual_online_date') or '').strip():
+            item['actual_online_date'] = day
+
+    return update_requirement_by_id(requirement_id, _apply, path=path)
+
+
+def restore_requirement_from_online(requirement_id, path=None, clear_actual_date=True):
+    """恢复待办：仅当当前为已上线时改回待上线；可选清空实际上线日期。
+
+    若台账已是其它状态，不覆盖业务状态，返回 (item, status_changed)。
+    """
+    items = load_requirements(path)
+    req_id = str(requirement_id or '')
+    target = next((item for item in items if str(item.get('id') or '') == req_id), None)
+    if target is None:
+        return None, False
+    changed = False
+    if is_online_status(target):
+        target['status'] = PENDING_ONLINE_STATUS
+        if clear_actual_date:
+            target['actual_online_date'] = ''
+        changed = True
+        target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+        save_requirements(items, path)
+    return normalize_requirement(target), changed
+
+
 def classify_requirement(text):
     lowered = str(text or '').casefold()
     scores = {

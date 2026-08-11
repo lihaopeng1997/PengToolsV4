@@ -1461,7 +1461,7 @@ QPushButton#floating-home:hover {
     border-color: __PRIMARY_SOFT__;
     background: __PRIMARY_SOFT__;
 }
-/* 今天上线：高亮提示 */
+/* 今天上线 / 置顶：高亮提示 */
 #dashboard-task-row-today {
     background: __PRIMARY_SOFT__;
     border: 1px solid __PRIMARY__;
@@ -1476,6 +1476,21 @@ QPushButton#floating-home:hover {
     color: __PRIMARY_ACTIVE__;
     font-weight: 700;
 }
+/* 已上线：降对比，与置顶高亮区分 */
+#dashboard-task-row-done {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-left: 4px solid __SUCCESS__;
+    border-radius: 10px;
+}
+#dashboard-task-row-done:hover {
+    border-color: __SUCCESS__;
+    background: __SURFACE__;
+}
+#dashboard-task-row-done #dashboard-task-title {
+    color: __TEXT_MUTED__;
+    font-weight: 600;
+}
 QLabel#status-pill-today {
     background: __PRIMARY__;
     color: __ON_PRIMARY__;
@@ -1483,6 +1498,39 @@ QLabel#status-pill-today {
     padding: 2px 8px;
     font-weight: 700;
     font-size: 11px;
+}
+QLabel#status-pill-done {
+    background: __SUCCESS__;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+QLabel#dashboard-task-mark,
+QLabel#dashboard-task-mark-done {
+    font-size: 12px;
+    font-weight: 700;
+}
+QLabel#dashboard-task-mark {
+    color: __TEXT_MUTED__;
+}
+QLabel#dashboard-task-mark-done {
+    color: __SUCCESS__;
+}
+#dashboard-section-header {
+    background: transparent;
+    border: none;
+}
+#dashboard-section-title {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    font-weight: 700;
+}
+#dashboard-section-chevron {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    min-width: 12px;
 }
 #dashboard-task-identifier {
     color: __PRIMARY_ACTIVE__;

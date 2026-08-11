@@ -33,6 +33,7 @@ def load_release_board(path=None):
         value = {'manual_items': value, 'hidden_requirement_ids': []}
     if not isinstance(value, dict):
         value = {}
+    prefs = value.get('ui_prefs') if isinstance(value.get('ui_prefs'), dict) else {}
     return {
         'manual_items': [_normalize_item(item) for item in value.get('manual_items', []) if isinstance(item, dict)],
         # 兼容旧版“移除”记录；新版本不再提供从需求添加入口。
@@ -43,6 +44,10 @@ def load_release_board(path=None):
         'completed_manual_keys': [
             str(item) for item in value.get('completed_manual_keys', []) if str(item)
         ],
+        'ui_prefs': {
+            # 已上线分区默认折叠，列表更干净
+            'completed_section_collapsed': bool(prefs.get('completed_section_collapsed', True)),
+        },
     }
 
 
@@ -53,6 +58,7 @@ def save_release_board(board, path=None):
     else:
         os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
     payload = board if isinstance(board, dict) else {}
+    prefs = payload.get('ui_prefs') if isinstance(payload.get('ui_prefs'), dict) else {}
     value = {
         'manual_items': [_normalize_item(item) for item in payload.get('manual_items', []) if isinstance(item, dict)],
         'hidden_requirement_ids': sorted({str(item) for item in payload.get('hidden_requirement_ids', []) if str(item)}),
@@ -62,6 +68,9 @@ def save_release_board(board, path=None):
         'completed_manual_keys': sorted({
             str(item) for item in payload.get('completed_manual_keys', []) if str(item)
         }),
+        'ui_prefs': {
+            'completed_section_collapsed': bool(prefs.get('completed_section_collapsed', True)),
+        },
     }
     directory = os.path.dirname(os.path.abspath(target)) or '.'
     os.makedirs(directory, exist_ok=True)

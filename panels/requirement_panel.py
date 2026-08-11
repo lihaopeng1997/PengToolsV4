@@ -1670,6 +1670,14 @@ class RequirementPanel(QWidget):
         self._refresh()
         return self._current is not None
 
+    def reload_requirements(self):
+        """外部（如工作台标记上线）写过台账后，重新加载并刷新树。"""
+        current_id = self._current.get('id') if isinstance(self._current, dict) else None
+        self._requirements = load_requirements()
+        if current_id:
+            self._current = next((item for item in self._requirements if item.get('id') == current_id), None)
+        self._refresh()
+
     def _refresh(self):
         if not hasattr(self, 'requirement_list'):
             return

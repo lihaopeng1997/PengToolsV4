@@ -13,7 +13,14 @@ from PyQt6.QtWidgets import (
 )
 
 from tools.dashboard_release_items import load_release_board, save_release_board
-from tools.requirements import load_requirements
+from tools.requirements import (
+    is_release_item_completed,
+    load_requirements,
+    mark_requirement_online,
+    release_board_key,
+    restore_requirement_from_online,
+)
+from ui.confirm_dialog import confirm_action
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
 from ui.responsive import set_subtitle_visible
@@ -26,6 +33,47 @@ def _parse_date(text: str):
         return None
 
 
+class SectionHeader(QFrame):
+    """列表分区标题；可折叠时点击切换。"""
+
+    toggled = pyqtSignal()
+
+    def __init__(self, title: str, *, collapsible: bool = False, collapsed: bool = False, parent=None):
+        super().__init__(parent)
+        self.setObjectName('dashboard-section-header')
+        self._collapsible = collapsible
+        self._collapsed = collapsed
+        self._title = title
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
+        self.chevron = QLabel()
+        self.chevron.setObjectName('dashboard-section-chevron')
+        self.chevron.setVisible(collapsible)
+        layout.addWidget(self.chevron)
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName('dashboard-section-title')
+        layout.addWidget(self.title_label, 1)
+        self.setFixedHeight(28)
+        if collapsible:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._sync_chevron()
+
+    def _sync_chevron(self):
+        if not self._collapsible:
+            return
+        self.chevron.setText('▸' if self._collapsed else '▾')
+
+    def set_collapsed(self, collapsed: bool):
+        self._collapsed = bool(collapsed)
+        self._sync_chevron()
+
+    def mouseReleaseEvent(self, event):
+        if self._collapsible and event.button() == Qt.MouseButton.LeftButton:
+            self.toggled.emit()
+        super().mouseReleaseEvent(event)
+
+
 class TaskRow(QFrame):
     """列表中的一条可点击任务。"""
 
@@ -34,17 +82,39 @@ class TaskRow(QFrame):
     ROW_HEIGHT = 64
     LIST_SPACING = 4
 
-    def __init__(self, payload, title, meta, status='', *, identifier='', fixed_height=None, highlight: bool = False, actions=()):
+    def __init__(
+        self,
+        payload,
+        title,
+        meta,
+        status='',
+        *,
+        identifier='',
+        fixed_height=None,
+        highlight: bool = False,
+        done: bool = False,
+        actions=(),
+    ):
         super().__init__()
         self._payload = payload
-        self.setObjectName('dashboard-task-row-today' if highlight else 'dashboard-task-row')
-        self.setProperty('todayRelease', bool(highlight))
+        if done:
+            self.setObjectName('dashboard-task-row-done')
+        elif highlight:
+            self.setObjectName('dashboard-task-row-today')
+        else:
+            self.setObjectName('dashboard-task-row')
+        self.setProperty('todayRelease', bool(highlight and not done))
+        self.setProperty('releaseDone', bool(done))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         if fixed_height is not None:
             self.setFixedHeight(fixed_height)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(8)
+        mark = QLabel('✓' if done else '○')
+        mark.setObjectName('dashboard-task-mark-done' if done else 'dashboard-task-mark')
+        mark.setFixedWidth(14)
+        layout.addWidget(mark, 0)
         body = QVBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(2)
@@ -73,13 +143,19 @@ class TaskRow(QFrame):
         body.addWidget(self.meta_label)
         layout.addLayout(body, 1)
         self.status_label = QLabel(status)
-        self.status_label.setObjectName('status-pill-today' if highlight else 'status-pill')
+        if done:
+            self.status_label.setObjectName('status-pill-done')
+        elif highlight:
+            self.status_label.setObjectName('status-pill-today')
+        else:
+            self.status_label.setObjectName('status-pill')
         self.status_label.setVisible(bool(status))
         layout.addWidget(self.status_label)
         for text, callback in actions:
             action = QPushButton(text)
             action.setObjectName('ghost-btn')
             action.setProperty('compactAction', True)
+            action.setCursor(Qt.CursorShape.PointingHandCursor)
             action.clicked.connect(callback)
             layout.addWidget(action)
         arrow = QLabel('›')
@@ -119,11 +195,13 @@ class DashboardPanel(QWidget):
     open_ops = pyqtSignal()
     open_requirements = pyqtSignal()
     open_requirement = pyqtSignal(object)  # 具体需求 dict 或 id
+    requirements_updated = pyqtSignal()  # 工作台改了需求台账（标记上线/恢复待办）
 
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
         self._mode = 'standard'
+        self._completed_section_collapsed = True
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(0, 0, 0, 0)
         self._root.setSpacing(12)
@@ -202,6 +280,10 @@ class DashboardPanel(QWidget):
         self.release_month_combo.currentIndexChanged.connect(self._on_release_month_changed)
         release_head.addWidget(self.release_month_combo)
         release_layout.addLayout(release_head)
+        self.release_summary = QLabel()
+        self.release_summary.setObjectName('field-hint')
+        self.release_summary.setWordWrap(False)
+        release_layout.addWidget(self.release_summary)
         self.release_scroll = QScrollArea()
         self.release_scroll.setWidgetResizable(True)
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -323,8 +405,8 @@ class DashboardPanel(QWidget):
         list_h = self._list_viewport_height()
         self.recent_scroll.setFixedHeight(list_h)
         self.release_scroll.setFixedHeight(list_h)
-        # 顶栏约 34 + 内外边距/间距，保证两卡外框一致
-        card_h = 12 + 34 + 8 + list_h + 12
+        # 顶栏 + 摘要行 + 边距，保证两卡外框一致
+        card_h = 12 + 34 + 8 + 18 + 8 + list_h + 12
         self.recent_card.setFixedHeight(card_h)
         self.release_card.setFixedHeight(card_h)
 
@@ -446,64 +528,117 @@ class DashboardPanel(QWidget):
 
     def _fill_release_items(self, requirements, board=None):
         board = board if board is not None else load_release_board()
+        prefs = board.get('ui_prefs') if isinstance(board.get('ui_prefs'), dict) else {}
+        self._completed_section_collapsed = bool(prefs.get('completed_section_collapsed', True))
         self._clear_task_rows(self.release_list, keep_widgets=(self.release_empty,))
         while self.release_list.count() and self.release_list.itemAt(self.release_list.count() - 1).spacerItem():
             self.release_list.takeAt(self.release_list.count() - 1)
         month_key = str(self.release_month_combo.currentData() or '')
+        zh = self.language == 'zh'
         if not month_key:
             self.release_empty.setVisible(True)
+            self.release_summary.setText('')
             self.release_list.addStretch(1)
             return
         completed_requirement_keys = set(board.get('completed_requirement_keys', []))
-        upcoming = []
+        pending = []
+        done_items = []
         for item in requirements:
             if not item.get('is_monthly_release'):
                 continue
             item_month = str(item.get('online_month') or '')[:7]
             if not item_month:
-                # 勾选本月上线但未写月份时，按当前自然月展示
                 item_month = datetime.date.today().strftime('%Y-%m')
             if item_month != month_key:
                 continue
-            upcoming.append(('requirement', item, _parse_date(item.get('planned_online_date'))))
+            entry = ('requirement', item, _parse_date(item.get('planned_online_date')))
+            if is_release_item_completed(item, month_key, completed_requirement_keys):
+                done_items.append(entry)
+            else:
+                pending.append(entry)
 
         def _sort_key(entry):
-            kind, item, date_value = entry
-            done = self._release_key(kind, item, month_key) in completed_requirement_keys
-            return (done, date_value or datetime.date.max, str(item.get('title') or ''))
+            _kind, item, date_value = entry
+            return (date_value or datetime.date.max, str(item.get('title') or ''))
 
-        from tools.list_pin import decorate_title, is_pinned
-        upcoming.sort(key=_sort_key)
-        zh = self.language == 'zh'
-        self.release_empty.setVisible(not upcoming)
-        for kind, item, planned_date in upcoming:
-            completed = self._release_key(kind, item, month_key) in completed_requirement_keys
-            title = item.get('title') or ('未命名' if zh else 'Untitled')
-            title = decorate_title(title or item.get('code') or ('未命名' if zh else 'Untitled'), is_pinned(item))
-            identifier = str(item.get('code') or '').strip() or str(item.get('record_kind') or ('需求' if zh else 'Requirement'))
-            date_text = planned_date.isoformat() if planned_date else month_key
-            badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
-            system = item.get('system') or ('未选系统' if zh else 'No system')
-            meta = f'{system} · {badge}'
-            action = (
-                ('撤销完成' if zh else 'Undo', lambda _checked=False, current=item: self._set_release_item_completed('requirement', current, month_key, False))
-                if completed else
-                ('已完成' if zh else 'Complete', lambda _checked=False, current=item: self._set_release_item_completed('requirement', current, month_key, True))
+        pending.sort(key=_sort_key)
+        done_items.sort(key=_sort_key)
+        total = len(pending) + len(done_items)
+        self.release_empty.setVisible(total == 0)
+        if zh:
+            self.release_summary.setText(f'待处理 {len(pending)} · 已上线 {len(done_items)}')
+            self.release_summary.setToolTip('「标记上线」会同步把需求状态改为「已上线」。')
+        else:
+            self.release_summary.setText(f'Open {len(pending)} · Live {len(done_items)}')
+            self.release_summary.setToolTip('Mark live updates the requirement status to Live.')
+
+        if pending:
+            if done_items:
+                self.release_list.addWidget(SectionHeader('待处理' if zh else 'Open'))
+            for kind, item, planned_date in pending:
+                self.release_list.addWidget(
+                    self._build_release_row(kind, item, planned_date, month_key, completed=False)
+                )
+
+        if done_items:
+            header = SectionHeader(
+                f'已上线 ({len(done_items)})' if zh else f'Live ({len(done_items)})',
+                collapsible=True,
+                collapsed=self._completed_section_collapsed,
             )
-            status_text = (
-                ('已完成' if zh else 'Done') if completed
-                else (item.get('status') or '')
-            )
-            row = TaskRow(
-                item, title, meta, status_text,
-                identifier=identifier,
-                fixed_height=TaskRow.ROW_HEIGHT,
-                highlight=completed or is_pinned(item),
-                actions=(action,),
-            )
-            row.clicked.connect(self._on_requirement_clicked)
-            self.release_list.addWidget(row)
+            header.toggled.connect(self._toggle_completed_section)
+            self.release_list.addWidget(header)
+            if not self._completed_section_collapsed:
+                for kind, item, planned_date in done_items:
+                    self.release_list.addWidget(
+                        self._build_release_row(kind, item, planned_date, month_key, completed=True)
+                    )
         self.release_list.addStretch(1)
+
+    def _build_release_row(self, kind, item, planned_date, month_key, *, completed: bool):
+        from tools.list_pin import decorate_title, is_pinned
+        zh = self.language == 'zh'
+        title = item.get('title') or ('未命名' if zh else 'Untitled')
+        title = decorate_title(title or item.get('code') or ('未命名' if zh else 'Untitled'), is_pinned(item))
+        identifier = str(item.get('code') or '').strip() or str(
+            item.get('record_kind') or ('需求' if zh else 'Requirement')
+        )
+        date_text = planned_date.isoformat() if planned_date else month_key
+        badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
+        system = item.get('system') or ('未选系统' if zh else 'No system')
+        meta = f'{system} · {badge}'
+        if completed:
+            action = (
+                '恢复待办' if zh else 'Reopen',
+                lambda _checked=False, current=item: self._confirm_restore_pending(current, month_key),
+            )
+            status_text = '已上线' if zh else 'Live'
+        else:
+            action = (
+                '标记上线' if zh else 'Mark live',
+                lambda _checked=False, current=item: self._confirm_mark_online(current, month_key),
+            )
+            status_text = item.get('status') or ''
+        row = TaskRow(
+            item, title, meta, status_text,
+            identifier=identifier,
+            fixed_height=TaskRow.ROW_HEIGHT,
+            highlight=is_pinned(item) and not completed,
+            done=completed,
+            actions=(action,),
+        )
+        row.clicked.connect(self._on_requirement_clicked)
+        return row
+
+    def _toggle_completed_section(self):
+        board = load_release_board()
+        prefs = board.setdefault('ui_prefs', {})
+        self._completed_section_collapsed = not bool(prefs.get('completed_section_collapsed', True))
+        prefs['completed_section_collapsed'] = self._completed_section_collapsed
+        save_release_board(board)
+        requirements = load_requirements()
+        self._fill_release_items(requirements, board)
+
     def _save_release_board(self, board):
         save_release_board(board)
 
@@ -511,8 +646,60 @@ class DashboardPanel(QWidget):
         """在按钮点击事件返回后刷新，避免事件派发中销毁当前任务行。"""
         QTimer.singleShot(0, self.refresh)
 
+    def _confirm_mark_online(self, item, month):
+        """标记上线：确认后写需求 status=已上线 + 看板完成键。"""
+        zh = self.language == 'zh'
+        name = ' '.join(part for part in (item.get('code'), item.get('title')) if part) or (
+            '当前需求' if zh else 'this item'
+        )
+        if not confirm_action(
+            self,
+            '确认标记为已上线？' if zh else 'Mark as live?',
+            (
+                f'将把「{name}」的需求状态改为「已上线」，\n'
+                f'实际上线日期若为空则写入今天，并记入本月升级进度。\n\n'
+                f'可在需求管理中再次修改。'
+            ) if zh else (
+                f'Requirement “{name}” will be set to Live.\n'
+                f'Empty actual online date becomes today.\n\n'
+                f'You can change it later in Requirements.'
+            ),
+            confirm_text='确认上线' if zh else 'Mark live',
+            danger=False,
+        ):
+            return
+        self._set_release_item_completed('requirement', item, month, True)
+
+    def _confirm_restore_pending(self, item, month):
+        """恢复待办：确认后尽量把已上线改回待上线，并清看板键。"""
+        zh = self.language == 'zh'
+        name = ' '.join(part for part in (item.get('code'), item.get('title')) if part) or (
+            '当前需求' if zh else 'this item'
+        )
+        if not confirm_action(
+            self,
+            '确认恢复为待办？' if zh else 'Reopen item?',
+            (
+                f'若「{name}」当前状态为「已上线」，将改回「待上线」并清空实际上线日期；\n'
+                f'若台账已是其它状态，则只取消看板勾选，不覆盖业务状态。'
+            ) if zh else (
+                f'If “{name}” is Live, status becomes Pending release and actual date clears.\n'
+                f'Other statuses are left unchanged; only board check is cleared.'
+            ),
+            confirm_text='恢复待办' if zh else 'Reopen',
+            danger=False,
+        ):
+            return
+        self._set_release_item_completed('requirement', item, month, False)
+
     def _set_release_item_completed(self, kind, item, month, completed):
-        """仅更新工作台任务进度，不修改需求业务状态或上线日期。"""
+        """同步需求台账与看板完成键。"""
+        req_id = (item or {}).get('id')
+        if completed:
+            mark_requirement_online(req_id)
+        else:
+            restore_requirement_from_online(req_id, clear_actual_date=True)
+
         board = load_release_board()
         keys = set(board.get('completed_requirement_keys', []))
         key = self._release_key(kind, item, month)
@@ -522,6 +709,7 @@ class DashboardPanel(QWidget):
             keys.discard(key)
         board['completed_requirement_keys'] = sorted(keys)
         self._save_release_board(board)
+        self.requirements_updated.emit()
         self._refresh_release_after_action()
 
     def _on_requirement_clicked(self, item):
@@ -543,7 +731,9 @@ class DashboardPanel(QWidget):
             self.release_title.setText('待升级事项')
             self.release_more.setText('发版联动')
             self.release_month_combo.setToolTip('选择要查看的上线月份')
-            self.release_empty.setText('该月份暂无待升级事项')
+            self.release_empty.setText('该月份暂无待升级事项。可在需求中勾选「是否本月上线」。')
+            if hasattr(self, 'release_summary') and not self.release_summary.text():
+                self.release_summary.setText('待处理 0 · 已上线 0')
             self.tools_label.setText('常用工具')
             self.gateway.setText('加解密')
             self.credit.setText('证件类型')
@@ -560,7 +750,9 @@ class DashboardPanel(QWidget):
             self.release_title.setText('Upcoming releases')
             self.release_more.setText('Release prep')
             self.release_month_combo.setToolTip('Choose a release month')
-            self.release_empty.setText('No release items for this month')
+            self.release_empty.setText('No release items for this month. Tick monthly release on a requirement.')
+            if hasattr(self, 'release_summary') and not self.release_summary.text():
+                self.release_summary.setText('Open 0 · Live 0')
             self.tools_label.setText('TOOLS')
             self.gateway.setText('Crypto')
             self.credit.setText('Documents')
