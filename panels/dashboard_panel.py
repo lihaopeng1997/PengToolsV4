@@ -158,6 +158,7 @@ class DashboardPanel(QWidget):
 
         self.recent_card = QFrame()
         self.recent_card.setObjectName('dashboard-task-card')
+        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(14, 12, 14, 12)
         recent_layout.setSpacing(8)
@@ -183,6 +184,7 @@ class DashboardPanel(QWidget):
 
         self.release_card = QFrame()
         self.release_card.setObjectName('dashboard-task-card')
+        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         release_layout = QVBoxLayout(self.release_card)
         release_layout.setContentsMargins(14, 12, 14, 12)
         release_layout.setSpacing(8)
@@ -207,19 +209,20 @@ class DashboardPanel(QWidget):
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.release_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.release_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.release_scroll.setMinimumHeight(180)
+        self.release_scroll.setMinimumHeight(0)
+        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.release_list_host = QWidget()
         self.release_list = QVBoxLayout(self.release_list_host)
         self.release_list.setContentsMargins(0, 0, 4, 0)
         self.release_list.setSpacing(4)
         self.release_scroll.setWidget(self.release_list_host)
-        release_layout.addWidget(self.release_scroll, 1)
+        release_layout.addWidget(self.release_scroll)
         self.release_empty = QLabel()
         self.release_empty.setObjectName('field-hint')
         self.release_empty.setWordWrap(True)
         release_layout.addWidget(self.release_empty)
         self.tasks_row.addWidget(self.release_card, 1)
-        layout.addLayout(self.tasks_row, 1)
+        layout.addLayout(self.tasks_row)
 
         # 常用工具：紧凑图标+文字
         tools_head = QHBoxLayout()
@@ -374,6 +377,16 @@ class DashboardPanel(QWidget):
         self.release_month_combo.setCurrentIndex(index if index >= 0 else 0)
         self.release_month_combo.blockSignals(False)
 
+    def _sync_release_list_height(self):
+        """按当前任务数收紧列表高度，超出可用空间时再由滚动区处理。"""
+        count = self.release_list.count()
+        spacing = self.release_list.spacing()
+        margins = self.release_list.contentsMargins()
+        height = margins.top() + margins.bottom()
+        if count:
+            height += count * TaskRow.ROW_HEIGHT + max(0, count - 1) * spacing
+        self.release_scroll.setFixedHeight(height)
+
     def _fill_release(self, requirements):
         """按用户选择月份展示已勾选入选的需求。"""
         self._clear_layout(self.release_list)
@@ -382,6 +395,7 @@ class DashboardPanel(QWidget):
         month_key = str(self.release_month_combo.currentData() or '')
         if not month_key:
             self.release_empty.setVisible(True)
+            self._sync_release_list_height()
             return
         completed_requirement_keys = set(board.get('completed_requirement_keys', []))
         upcoming = []
@@ -415,6 +429,7 @@ class DashboardPanel(QWidget):
             row = TaskRow(item, title, meta, '已完成' if completed and zh else (item.get('status') or ''), identifier=identifier, fixed_height=TaskRow.ROW_HEIGHT, highlight=completed or is_pinned(item), actions=(action,))
             row.clicked.connect(self._on_requirement_clicked)
             self.release_list.addWidget(row)
+        self._sync_release_list_height()
 
     def _save_release_board(self, board):
         save_release_board(board)

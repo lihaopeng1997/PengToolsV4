@@ -115,6 +115,29 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             self.assertIn("bug-long@2026-08", save_board.call_args.args[0]["completed_requirement_keys"])
             panel.close()
 
+    def test_release_area_shrinks_to_actual_item_height(self):
+        from panels.dashboard_panel import DashboardPanel
+
+        requirement = {
+            "id": "single-release",
+            "code": "REQ-ONE",
+            "title": "单条待升级任务",
+            "online_month": "2026-08",
+            "is_monthly_release": True,
+            "status": "开发中",
+        }
+        board = {"manual_items": [], "hidden_requirement_ids": [], "completed_requirement_keys": []}
+        with patch("panels.dashboard_panel.load_release_board", return_value=board), \
+                patch("panels.dashboard_panel.load_requirements", return_value=[requirement]):
+            panel = DashboardPanel("zh")
+            panel.resize(1200, 800)
+            panel.show()
+            self.app.processEvents()
+            self.assertEqual(panel.release_list.count(), 1)
+            self.assertLessEqual(panel.release_scroll.height(), 80)
+            self.assertLess(panel.tasks_row.geometry().height(), 180)
+            panel.close()
+
     def test_requirement_dialog_roundtrip_keeps_monthly_release_flag(self):
         from panels.requirement_panel import RequirementDialog
 
