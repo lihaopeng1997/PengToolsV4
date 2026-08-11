@@ -107,7 +107,7 @@ def load_release_board(path=None):
             str(item) for item in value.get('completed_manual_keys', []) if str(item)
         ],
         'ui_prefs': {
-            # 已上线分区默认折叠，列表更干净
+            # 已完成分区默认折叠，列表更干净
             'completed_section_collapsed': bool(prefs.get('completed_section_collapsed', True)),
         },
     }

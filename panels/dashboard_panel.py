@@ -460,13 +460,15 @@ class DashboardPanel(QWidget):
         if isinstance(requirement, dict) and requirement.get('is_monthly_release'):
             month = release_month_for(requirement, fallback_current=True)
         self.refresh(preferred_release_month=month or None)
+
     def _on_release_month_changed(self, *_args):
-        """月份切换：只刷新列表，不把 combo index 误当成 preferred month。"""
+        """月份切换：只刷新列表并重算高度，不把 combo index 误当成 preferred month。"""
         if self.release_month_combo.signalsBlocked():
             return
         requirements = load_requirements()
         board = load_release_board()
         self._fill_release_items(requirements, board)
+        self._apply_list_geometry()
 
     def _clear_task_rows(self, layout, keep_widgets=()):
         """清掉任务行，保留 empty 标签等常驻控件。"""
