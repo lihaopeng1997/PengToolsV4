@@ -154,9 +154,14 @@ class MainWindow(QMainWindow):
         self.requirement_panel.add_to_daily.connect(self._add_requirement_to_daily)
         self.requirement_panel.open_system_config.connect(self._open_system_config)
         self.requirement_panel.open_release_prep.connect(self._open_release_prep)
+        # 编辑保存且涉及上线字段时定位月份；其它变更只刷新数据并保留用户月份选择
         self.requirement_panel.requirement_saved.connect(self.dashboard_panel.refresh_for_requirement)
-        self.requirement_panel.requirements_changed.connect(self.dashboard_panel.refresh)
-        self.dashboard_panel.requirements_updated.connect(self.requirement_panel.reload_requirements)
+        self.requirement_panel.requirements_changed.connect(
+            lambda: self.dashboard_panel.refresh(preferred_release_month=None)
+        )
+        # 工作台若改台账才回刷需求树（当前完成态独立，通常不触发）
+        if hasattr(self.dashboard_panel, 'requirements_updated'):
+            self.dashboard_panel.requirements_updated.connect(self.requirement_panel.reload_requirements)
         self.settings_panel.settings_changed.connect(self._apply_settings)
         self.settings_panel.reset_floating_position.connect(self._reset_floating_position)
         # 设置页日报提醒 ↔ 日报模块状态条 双向同步

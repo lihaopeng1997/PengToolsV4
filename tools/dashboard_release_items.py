@@ -1,16 +1,78 @@
 # -*- coding: utf-8 -*-
-"""工作台待升级事项的独立持久化。
+"""工作台待升级事项的独立持久化与月份归属。
 
-仅保存手工事项和被用户从看板移除的需求 ID，避免影响需求台账与发版流程。
+仅保存手工事项、看板完成键与 UI 偏好，避免污染需求台账与发版流程。
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import re
 import tempfile
 import uuid
 
 from config import DASHBOARD_RELEASE_ITEMS_FILE, ensure_config_dir
+
+
+_MONTH_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])')
+
+
+def normalize_month_key(value) -> str:
+    """规范为 yyyy-MM；无法识别返回空串。"""
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    # 已是 yyyy-MM 或 yyyy-MM-dd
+    head = text[:7]
+    if _MONTH_RE.match(head):
+        return head
+    # 2026年8月 / 2026/8
+    match = re.match(r'^(20\d{2})[-/.年](0?[1-9]|1[0-2])', text)
+    if match:
+        return f'{int(match.group(1)):04d}-{int(match.group(2)):02d}'
+    return ''
+
+
+def release_month_for(item, *, fallback_current: bool = True, today=None) -> str:
+    """待升级事项的统一月份归属。
+
+    - 未勾选 is_monthly_release → 空（不进看板）
+    - 已填 online_month → 用该月
+    - 已勾选但未填月份 → fallback_current 时归入当前自然月，否则空
+    """
+    if not isinstance(item, dict) or not item.get('is_monthly_release'):
+        return ''
+    month = normalize_month_key(item.get('online_month'))
+    if month:
+        return month
+    if fallback_current:
+        day = today or datetime.date.today()
+        if hasattr(day, 'strftime'):
+            return day.strftime('%Y-%m')
+        return str(day)[:7]
+    return ''
+
+
+def collect_release_months(requirements, *, today=None) -> list[str]:
+    """仅收集已勾选入选任务的归属月份（含空月份→当前月），新到旧排序。"""
+    months = {
+        release_month_for(item, fallback_current=True, today=today)
+        for item in (requirements or [])
+        if isinstance(item, dict) and item.get('is_monthly_release')
+    }
+    return sorted((m for m in months if m), reverse=True)
+
+
+def is_board_item_completed(item, month: str, completed_keys) -> bool:
+    """工作台独立完成态：仅 completed_requirement_keys，不读需求业务 status。"""
+    req_id = str((item or {}).get('id') or '')
+    month_key = normalize_month_key(month) or str(month or '')[:7]
+    if not req_id or not month_key:
+        return False
+    key = f'{req_id}@{month_key}'
+    return key in set(completed_keys or [])
+
 
 
 def _normalize_item(item):

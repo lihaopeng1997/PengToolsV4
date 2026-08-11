@@ -15,21 +15,108 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir 'run.py'))) {
 
 $DistDir = Join-Path $ProjectDir 'dist'
 $InstallerDir = Join-Path $ProjectDir 'Installer'
-$TemplateSource = Get-ChildItem (Split-Path -Parent $ProjectDir) -Directory |
-    Where-Object { $_.Name -like '02-*' } |
-    Get-ChildItem -File -Filter '*.xlsx' |
-    Select-Object -First 1 -ExpandProperty FullName
+# 明确模板路径：优先仓库内资源；可选环境变量 PENGTOOLS_RELEASE_TEMPLATE 指向唯一外部模板
 $TemplateResource = Join-Path $ProjectDir 'resources\release_workbook_template.xlsx'
+$EnvTemplate = $env:PENGTOOLS_RELEASE_TEMPLATE
 $BuildInfoPath = Join-Path $ProjectDir 'resources\build_info.json'
 $BuildDate = Get-Date -Format 'yyyy-MM-dd'
 $BuildTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 
+function Test-FileWritable([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $true
+    }
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        $stream.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Assert-ReleaseArtifactsUnlocked {
+    param(
+        [string]$DistExe,
+        [string]$InstallerExe
+    )
+    $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessName -match '^(?i)PengToolsHub$'
+    })
+    if ($running.Count -gt 0) {
+        $ids = ($running | ForEach-Object { $_.Id }) -join ', '
+        throw @"
+检测到正在运行的 PengToolsHub（PID: $ids）。
+请先关闭程序后再打包，本脚本不会强制结束进程。
+"@
+    }
+    $blocked = @()
+    foreach ($path in @($DistExe, $InstallerExe)) {
+        if ($path -and (Test-Path -LiteralPath $path) -and -not (Test-FileWritable $path)) {
+            $blocked += $path
+        }
+    }
+    if ($blocked.Count -gt 0) {
+        $list = $blocked -join "`n  - "
+        throw @"
+以下 EXE 无法改名/覆盖（可能被资源管理器预览或安全软件占用）：
+  - $list
+
+请关闭：
+  - 正在运行的 PengToolsHub
+  - dist/PengToolsHub.exe 与 Installer/PengToolsHub.exe 的预览窗口
+  - 可能正在扫描这些文件的安全软件
+然后重新执行打包。本脚本不会强制结束用户进程。
+"@
+    }
+}
+
 Push-Location $ProjectDir
 try {
-    if ($TemplateSource) {
-        Copy-Item -LiteralPath $TemplateSource -Destination $TemplateResource -Force
-    } elseif (-not (Test-Path -LiteralPath $TemplateResource)) {
-        throw 'Release workbook template was not found.'
+    # —— 发版 Excel 模板：明确路径，禁止通配静默取第一份 ——
+    if ($EnvTemplate) {
+        if (-not (Test-Path -LiteralPath $EnvTemplate)) {
+            throw "PENGTOOLS_RELEASE_TEMPLATE 指向的文件不存在: $EnvTemplate"
+        }
+        $ext = [System.IO.Path]::GetExtension($EnvTemplate)
+        if ($ext -notin @('.xlsx', '.XLSX')) {
+            throw "PENGTOOLS_RELEASE_TEMPLATE 必须是 .xlsx: $EnvTemplate"
+        }
+        Copy-Item -LiteralPath $EnvTemplate -Destination $TemplateResource -Force
+        Write-Host "Using release template from env: $EnvTemplate"
+    } elseif (Test-Path -LiteralPath $TemplateResource) {
+        Write-Host "Using project release template: $TemplateResource"
+    } else {
+        # 可选：父目录 02-* 下有且仅有 1 份 xlsx 时才复制；多份直接失败
+        $parent = Split-Path -Parent $ProjectDir
+        $candidates = @()
+        if (Test-Path -LiteralPath $parent) {
+            $dirs = Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like '02-*' }
+            foreach ($dir in $dirs) {
+                $candidates += @(Get-ChildItem -LiteralPath $dir.FullName -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)
+            }
+        }
+        if ($candidates.Count -eq 1) {
+            Copy-Item -LiteralPath $candidates[0].FullName -Destination $TemplateResource -Force
+            Write-Host "Copied unique external template: $($candidates[0].FullName)"
+        } elseif ($candidates.Count -gt 1) {
+            $names = ($candidates | ForEach-Object { $_.FullName }) -join "`n  - "
+            throw @"
+找到多份候选发版 Excel 模板，拒绝静默选择：
+  - $names
+
+请将唯一模板放到 resources\release_workbook_template.xlsx，
+或设置环境变量 PENGTOOLS_RELEASE_TEMPLATE 为明确路径。
+"@
+        } else {
+            throw 'Release workbook template was not found (resources\release_workbook_template.xlsx).'
+        }
     }
 
     # 发布前敏感扫描：阻断账密/JWT/私钥等进入安装包
@@ -66,6 +153,11 @@ try {
     if (Test-Path -LiteralPath $InstallerDataDir) {
         cmd /c "rmdir /s /q `"$InstallerDataDir`"" 2>$null
     }
+
+    $ExePath = Join-Path $DistDir 'PengToolsHub.exe'
+    $InstallerExePath = Join-Path $InstallerDir 'PengToolsHub.exe'
+    Write-Host 'Checking EXE lock / running PengToolsHub before PyInstaller...'
+    Assert-ReleaseArtifactsUnlocked -DistExe $ExePath -InstallerExe $InstallerExePath
 
     # Safe seed templates only (secret scan already passed)
     $pyArgs = @(

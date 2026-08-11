@@ -12,15 +12,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QBoxLayout, QScrollArea,
 )
 
-from tools.dashboard_release_items import load_release_board, save_release_board
-from tools.requirements import (
-    is_release_item_completed,
-    load_requirements,
-    mark_requirement_online,
-    release_board_key,
-    restore_requirement_from_online,
+from tools.dashboard_release_items import (
+    collect_release_months,
+    is_board_item_completed,
+    load_release_board,
+    release_month_for,
+    save_release_board,
 )
-from ui.confirm_dialog import confirm_action
+from tools.requirements import load_requirements
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
@@ -222,8 +221,8 @@ class DashboardPanel(QWidget):
 
         self.recent_card = QFrame()
         self.recent_card.setObjectName('dashboard-task-card')
-        # 纵向扩展占满中间区域，常用工具沉底
-        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # 自然高度：少任务收缩，多任务滚动；双卡再对齐底边
+        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(14, 12, 14, 12)
         recent_layout.setSpacing(8)
@@ -242,7 +241,7 @@ class DashboardPanel(QWidget):
         self.recent_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.recent_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.recent_list_host = QWidget()
         self.recent_list = QVBoxLayout(self.recent_list_host)
         self.recent_list.setContentsMargins(0, 0, 4, 0)
@@ -258,7 +257,7 @@ class DashboardPanel(QWidget):
 
         self.release_card = QFrame()
         self.release_card.setObjectName('dashboard-task-card')
-        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         release_layout = QVBoxLayout(self.release_card)
         release_layout.setContentsMargins(14, 12, 14, 12)
         release_layout.setSpacing(8)
@@ -287,7 +286,7 @@ class DashboardPanel(QWidget):
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.release_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.release_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.release_list_host = QWidget()
         self.release_list = QVBoxLayout(self.release_list_host)
         self.release_list.setContentsMargins(0, 0, 4, 0)
@@ -300,11 +299,11 @@ class DashboardPanel(QWidget):
         self.release_scroll.setWidget(self.release_list_host)
         release_layout.addWidget(self.release_scroll, 1)
         self.tasks_row.addWidget(self.release_card, 1)
-        # 中间双卡占满剩余高度；常用工具固定在页面底部
-        layout.addLayout(self.tasks_row, 1)
+        # 双卡自然高度；常用工具固定在页面底部
+        layout.addLayout(self.tasks_row, 0)
         self._apply_list_geometry()
 
-        # 常用工具：沉底、不参与纵向拉伸
+        # 常用工具：固定底部
         tools_head = QHBoxLayout()
         self.tools_label = QLabel()
         self.tools_label.setObjectName('sidebar-section')
@@ -342,6 +341,7 @@ class DashboardPanel(QWidget):
         self.tools_row.addWidget(self.tools_more)
         self.tools_row.addStretch(1)
         layout.addLayout(self.tools_row, 0)
+        layout.addStretch(1)
 
         # 兼容旧属性，避免外部引用崩溃
         self.offline = self.local_status
@@ -389,50 +389,77 @@ class DashboardPanel(QWidget):
         self.refresh()
 
     def _list_limit(self) -> int:
-        """列表最小可见行数（模块会随窗口再拉高；超出滚动）。"""
-        return 5 if self._mode in ('compact', 'narrow') else 8
+        """各布局模式下列表最大可见行数（超出再滚动）。"""
+        if self._mode == 'narrow':
+            return 4
+        if self._mode == 'compact':
+            return 5
+        return 8
 
-    def _list_viewport_height(self) -> int:
-        capacity = self._list_limit()
-        return capacity * TaskRow.ROW_HEIGHT + max(0, capacity - 1) * TaskRow.LIST_SPACING
+    def _scroll_height_for_count(self, count: int) -> int:
+        """按任务行数计算列表视口高度：0 条给空态高度，否则 min(n, max_rows)*64。"""
+        if count <= 0:
+            return 40
+        visible = min(int(count), self._list_limit())
+        return visible * TaskRow.ROW_HEIGHT + max(0, visible - 1) * TaskRow.LIST_SPACING
+
+    @staticmethod
+    def _count_task_rows(layout) -> int:
+        total = 0
+        for i in range(layout.count()):
+            widget = layout.itemAt(i).widget()
+            if widget is not None and hasattr(widget, '_payload'):
+                total += 1
+        return total
 
     def _apply_list_geometry(self):
-        """双卡随窗口纵向扩展；列表只保证最小可见行数，多出部分在卡内滚动。"""
-        list_h = self._list_viewport_height()
-        for scroll in (self.recent_scroll, self.release_scroll):
-            scroll.setMinimumHeight(list_h)
-            scroll.setMaximumHeight(16777215)
-            sp = scroll.sizePolicy()
-            sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
-            sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
-            scroll.setSizePolicy(sp)
+        """布局契约：自然收缩 + 超限滚动；横向双卡外框底边对齐。"""
+        recent_n = self._count_task_rows(self.recent_list)
+        release_n = self._count_task_rows(self.release_list)
+        recent_h = self._scroll_height_for_count(recent_n)
+        release_h = self._scroll_height_for_count(release_n)
+        horizontal = self.tasks_row.direction() == QBoxLayout.Direction.LeftToRight
+        if horizontal:
+            list_h = max(recent_h, release_h)
+            self.recent_scroll.setFixedHeight(list_h)
+            self.release_scroll.setFixedHeight(list_h)
+        else:
+            self.recent_scroll.setFixedHeight(recent_h)
+            self.release_scroll.setFixedHeight(release_h)
+        # 解除强制撑满
         for card in (self.recent_card, self.release_card):
             card.setMinimumHeight(0)
             card.setMaximumHeight(16777215)
             sp = card.sizePolicy()
-            sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+            sp.setVerticalPolicy(QSizePolicy.Policy.Maximum)
             sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
             card.setSizePolicy(sp)
+        if horizontal:
+            # 双卡外框取同一内容高度，底边对齐且不撑满页面
+            recent_hint = self.recent_card.sizeHint().height()
+            release_hint = self.release_card.sizeHint().height()
+            target = max(recent_hint, release_hint)
+            if target > 0:
+                self.recent_card.setMinimumHeight(target)
+                self.release_card.setMinimumHeight(target)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh()
 
     def refresh(self, preferred_release_month=None):
+        """刷新工作台。preferred 仅在有明确目标月份时传入；普通刷新保留用户有效月份选择。"""
         requirements = load_requirements()
         self._fill_recent(requirements)
         self._fill_release(requirements, preferred_release_month=preferred_release_month)
         self._apply_list_geometry()
 
     def refresh_for_requirement(self, requirement):
-        """需求保存后刷新工作台；入选任务自动定位至其上线月份。"""
+        """需求编辑保存后刷新；仅当入选上线相关字段时定位到目标月份。"""
         month = ''
         if isinstance(requirement, dict) and requirement.get('is_monthly_release'):
-            month = str(requirement.get('online_month') or '')[:7]
-            if not month:
-                month = datetime.date.today().strftime('%Y-%m')
+            month = release_month_for(requirement, fallback_current=True)
         self.refresh(preferred_release_month=month or None)
-
     def _on_release_month_changed(self, *_args):
         """月份切换：只刷新列表，不把 combo index 误当成 preferred month。"""
         if self.release_month_combo.signalsBlocked():
@@ -496,32 +523,38 @@ class DashboardPanel(QWidget):
         return f"{item.get('id') or ''}@{month}"
 
     def _fill_release_months(self, requirements, preferred_month=None):
-        current = preferred_month if preferred_month else (
-            self.release_month_combo.currentData() if hasattr(self, 'release_month_combo') else None
-        )
-        if isinstance(current, int):
-            # 防御：误把 combo index 传入
-            current = None
-        months = set()
-        months.update(
-            str(item.get('online_month') or '')[:7]
-            for item in requirements
-            if item.get('is_monthly_release') and str(item.get('online_month') or '')[:7]
-        )
-        months = sorted((m for m in months if m), reverse=True)
+        """月份下拉与列表共用 collect_release_months / release_month_for。"""
+        months = collect_release_months(requirements)
+        preferred = preferred_month
+        if isinstance(preferred, int):
+            preferred = None
+        preferred = str(preferred)[:7] if preferred else None
+        if preferred and preferred not in months:
+            preferred = None
+        manual = self.release_month_combo.currentData() if hasattr(self, 'release_month_combo') else None
+        if isinstance(manual, int):
+            manual = None
+        manual = str(manual)[:7] if manual else None
         current_month = datetime.date.today().strftime('%Y-%m')
+        # 优先级：保存目标月 → 仍有效的手动选择 → 当前自然月 → 最新可用月
+        if preferred and preferred in months:
+            select = preferred
+        elif manual and manual in months:
+            select = manual
+        elif current_month in months:
+            select = current_month
+        elif months:
+            select = months[0]
+        else:
+            select = None
+
         self.release_month_combo.blockSignals(True)
         self.release_month_combo.clear()
         for month in months:
             self.release_month_combo.addItem(month.replace('-', '年', 1) + '月', month)
-        if not months:
-            # 无入选任务时仍提供当前月，便于保存后立刻挂上
-            self.release_month_combo.addItem(current_month.replace('-', '年', 1) + '月', current_month)
-            months = [current_month]
-        index = self.release_month_combo.findData(str(current)[:7] if current else None)
-        if index < 0:
-            index = self.release_month_combo.findData(current_month)
-        self.release_month_combo.setCurrentIndex(index if index >= 0 else 0)
+        if select:
+            index = self.release_month_combo.findData(select)
+            self.release_month_combo.setCurrentIndex(index if index >= 0 else 0)
         self.release_month_combo.blockSignals(False)
 
     def _fill_release(self, requirements, preferred_release_month=None):
@@ -541,7 +574,7 @@ class DashboardPanel(QWidget):
         zh = self.language == 'zh'
         if not month_key:
             self.release_empty.setVisible(True)
-            self.release_summary.setText('')
+            self.release_summary.setText('待处理 0 · 已完成 0' if zh else 'Open 0 · Done 0')
             self.release_list.addStretch(1)
             return
         completed_requirement_keys = set(board.get('completed_requirement_keys', []))
@@ -550,13 +583,11 @@ class DashboardPanel(QWidget):
         for item in requirements:
             if not item.get('is_monthly_release'):
                 continue
-            item_month = str(item.get('online_month') or '')[:7]
-            if not item_month:
-                item_month = datetime.date.today().strftime('%Y-%m')
-            if item_month != month_key:
+            item_month = release_month_for(item, fallback_current=True)
+            if not item_month or item_month != month_key:
                 continue
             entry = ('requirement', item, _parse_date(item.get('planned_online_date')))
-            if is_release_item_completed(item, month_key, completed_requirement_keys):
+            if is_board_item_completed(item, month_key, completed_requirement_keys):
                 done_items.append(entry)
             else:
                 pending.append(entry)
@@ -570,11 +601,11 @@ class DashboardPanel(QWidget):
         total = len(pending) + len(done_items)
         self.release_empty.setVisible(total == 0)
         if zh:
-            self.release_summary.setText(f'待处理 {len(pending)} · 已上线 {len(done_items)}')
-            self.release_summary.setToolTip('「标记上线」会同步把需求状态改为「已上线」。')
+            self.release_summary.setText(f'待处理 {len(pending)} · 已完成 {len(done_items)}')
+            self.release_summary.setToolTip('「已完成」仅记录工作台升级进度，不修改需求业务状态。')
         else:
-            self.release_summary.setText(f'Open {len(pending)} · Live {len(done_items)}')
-            self.release_summary.setToolTip('Mark live updates the requirement status to Live.')
+            self.release_summary.setText(f'Open {len(pending)} · Done {len(done_items)}')
+            self.release_summary.setToolTip('Done tracks board progress only; requirement status is unchanged.')
 
         if pending:
             if done_items:
@@ -586,7 +617,7 @@ class DashboardPanel(QWidget):
 
         if done_items:
             header = SectionHeader(
-                f'已上线 ({len(done_items)})' if zh else f'Live ({len(done_items)})',
+                f'已完成 ({len(done_items)})' if zh else f'Done ({len(done_items)})',
                 collapsible=True,
                 collapsed=self._completed_section_collapsed,
             )
@@ -613,14 +644,18 @@ class DashboardPanel(QWidget):
         meta = f'{system} · {badge}'
         if completed:
             action = (
-                '恢复待办' if zh else 'Reopen',
-                lambda _checked=False, current=item: self._confirm_restore_pending(current, month_key),
+                '撤销完成' if zh else 'Undo',
+                lambda _checked=False, current=item: self._set_release_item_completed(
+                    'requirement', current, month_key, False
+                ),
             )
-            status_text = '已上线' if zh else 'Live'
+            status_text = '已完成' if zh else 'Done'
         else:
             action = (
-                '标记上线' if zh else 'Mark live',
-                lambda _checked=False, current=item: self._confirm_mark_online(current, month_key),
+                '已完成' if zh else 'Complete',
+                lambda _checked=False, current=item: self._set_release_item_completed(
+                    'requirement', current, month_key, True
+                ),
             )
             status_text = item.get('status') or ''
         row = TaskRow(
@@ -642,68 +677,18 @@ class DashboardPanel(QWidget):
         save_release_board(board)
         requirements = load_requirements()
         self._fill_release_items(requirements, board)
+        self._apply_list_geometry()
 
     def _save_release_board(self, board):
         save_release_board(board)
 
     def _refresh_release_after_action(self):
         """在按钮点击事件返回后刷新，避免事件派发中销毁当前任务行。"""
-        QTimer.singleShot(0, self.refresh)
-
-    def _confirm_mark_online(self, item, month):
-        """标记上线：确认后写需求 status=已上线 + 看板完成键。"""
-        zh = self.language == 'zh'
-        name = ' '.join(part for part in (item.get('code'), item.get('title')) if part) or (
-            '当前需求' if zh else 'this item'
-        )
-        if not confirm_action(
-            self,
-            '确认标记为已上线？' if zh else 'Mark as live?',
-            (
-                f'将把「{name}」的需求状态改为「已上线」，\n'
-                f'实际上线日期若为空则写入今天，并记入本月升级进度。\n\n'
-                f'可在需求管理中再次修改。'
-            ) if zh else (
-                f'Requirement “{name}” will be set to Live.\n'
-                f'Empty actual online date becomes today.\n\n'
-                f'You can change it later in Requirements.'
-            ),
-            confirm_text='确认上线' if zh else 'Mark live',
-            danger=False,
-        ):
-            return
-        self._set_release_item_completed('requirement', item, month, True)
-
-    def _confirm_restore_pending(self, item, month):
-        """恢复待办：确认后尽量把已上线改回待上线，并清看板键。"""
-        zh = self.language == 'zh'
-        name = ' '.join(part for part in (item.get('code'), item.get('title')) if part) or (
-            '当前需求' if zh else 'this item'
-        )
-        if not confirm_action(
-            self,
-            '确认恢复为待办？' if zh else 'Reopen item?',
-            (
-                f'若「{name}」当前状态为「已上线」，将改回「待上线」并清空实际上线日期；\n'
-                f'若台账已是其它状态，则只取消看板勾选，不覆盖业务状态。'
-            ) if zh else (
-                f'If “{name}” is Live, status becomes Pending release and actual date clears.\n'
-                f'Other statuses are left unchanged; only board check is cleared.'
-            ),
-            confirm_text='恢复待办' if zh else 'Reopen',
-            danger=False,
-        ):
-            return
-        self._set_release_item_completed('requirement', item, month, False)
+        # 普通刷新：不传 preferred，保留用户当前月份选择
+        QTimer.singleShot(0, lambda: self.refresh(preferred_release_month=None))
 
     def _set_release_item_completed(self, kind, item, month, completed):
-        """同步需求台账与看板完成键。"""
-        req_id = (item or {}).get('id')
-        if completed:
-            mark_requirement_online(req_id)
-        else:
-            restore_requirement_from_online(req_id, clear_actual_date=True)
-
+        """仅更新工作台独立完成态，不修改需求业务状态/实际上线日期。"""
         board = load_release_board()
         keys = set(board.get('completed_requirement_keys', []))
         key = self._release_key(kind, item, month)
@@ -713,7 +698,6 @@ class DashboardPanel(QWidget):
             keys.discard(key)
         board['completed_requirement_keys'] = sorted(keys)
         self._save_release_board(board)
-        self.requirements_updated.emit()
         self._refresh_release_after_action()
 
     def _on_requirement_clicked(self, item):
@@ -737,7 +721,7 @@ class DashboardPanel(QWidget):
             self.release_month_combo.setToolTip('选择要查看的上线月份')
             self.release_empty.setText('该月份暂无待升级事项。可在需求中勾选「是否本月上线」。')
             if hasattr(self, 'release_summary') and not self.release_summary.text():
-                self.release_summary.setText('待处理 0 · 已上线 0')
+                self.release_summary.setText('待处理 0 · 已完成 0')
             self.tools_label.setText('常用工具')
             self.gateway.setText('加解密')
             self.credit.setText('证件类型')
@@ -756,7 +740,7 @@ class DashboardPanel(QWidget):
             self.release_month_combo.setToolTip('Choose a release month')
             self.release_empty.setText('No release items for this month. Tick monthly release on a requirement.')
             if hasattr(self, 'release_summary') and not self.release_summary.text():
-                self.release_summary.setText('Open 0 · Live 0')
+                self.release_summary.setText('Open 0 · Done 0')
             self.tools_label.setText('TOOLS')
             self.gateway.setText('Crypto')
             self.credit.setText('Documents')

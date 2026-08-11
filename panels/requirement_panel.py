@@ -2101,6 +2101,8 @@ class RequirementPanel(QWidget):
         # 轻量刷新：只改标记与左侧徽章，避免整树 clear 导致点击闪退
         self._apply_flag_ui(target)
         self._patch_requirement_tree_item(target)
+        # 通知工作台刷新最近需求（不重建树；月份选择由 dashboard 自行保留）
+        self.requirements_changed.emit()
 
     def _set_all_flags_done(self, requirement, done_value):
         target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
@@ -2113,6 +2115,7 @@ class RequirementPanel(QWidget):
         self._current = target
         self._apply_flag_ui(target)
         self._patch_requirement_tree_item(target)
+        self.requirements_changed.emit()
 
     def _apply_flag_ui(self, requirement):
         """同步右侧完成标记按钮状态（不重建树）。"""
