@@ -71,7 +71,10 @@ def is_board_item_completed(item, month: str, completed_keys) -> bool:
     if not req_id or not month_key:
         return False
     key = f'{req_id}@{month_key}'
-    return key in set(completed_keys or [])
+    # 调用方常在循环内传入同一集合；勿每次 set() 拷贝
+    if not completed_keys:
+        return False
+    return key in completed_keys
 
 
 

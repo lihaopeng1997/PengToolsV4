@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QBoxLayout, QScrollArea,
 )
 
+from config import DASHBOARD_RELEASE_ITEMS_FILE, REQUIREMENTS_FILE
 from tools.dashboard_release_items import (
     collect_release_months,
     is_board_item_completed,
@@ -200,6 +202,9 @@ class DashboardPanel(QWidget):
         self.language = language
         self._mode = 'standard'
         self._completed_section_collapsed = True
+        # 数据源 mtime 指纹：切回主页时若未变则跳过全量 rebuild
+        self._source_stamp = None
+        self._pending_show_refresh = False
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(0, 0, 0, 0)
         self._root.setSpacing(12)
@@ -350,8 +355,8 @@ class DashboardPanel(QWidget):
         self.req_card = self.recent_card
         self.sql = self.release_card
 
+        # set_language 末尾会 refresh 一次；勿再重复 rebuild
         self.set_language(language)
-        self.refresh()
 
     def apply_layout_mode(self, mode, low_height=False):
         self._mode = mode
@@ -384,9 +389,8 @@ class DashboardPanel(QWidget):
             for btn in self._tool_buttons:
                 btn.show()
             self.tools_more.hide()
-        # 模式切换后最小高度与列表一并刷新
+        # 布局模式只影响可视行数/方向；列表数据无需重读盘 rebuild
         self._apply_list_geometry()
-        self.refresh()
 
     def _list_limit(self) -> int:
         """各布局模式下列表最大可见行数（超出再滚动）。"""
@@ -443,16 +447,54 @@ class DashboardPanel(QWidget):
                 self.recent_card.setMinimumHeight(target)
                 self.release_card.setMinimumHeight(target)
 
+    @staticmethod
+    def _file_mtime(path: str) -> float:
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    def _current_source_stamp(self):
+        """需求台账 + 待升级看板 的磁盘指纹。"""
+        return (
+            self._file_mtime(REQUIREMENTS_FILE),
+            self._file_mtime(DASHBOARD_RELEASE_ITEMS_FILE),
+        )
+
+    def _sources_changed(self) -> bool:
+        if self._source_stamp is None:
+            return True
+        return self._current_source_stamp() != self._source_stamp
+
     def showEvent(self, event):
         super().showEvent(event)
-        self.refresh()
+        # 切回主页：数据未变则直接展示已有列表，避免每次读盘+销毁重建 TaskRow
+        if not self._sources_changed():
+            return
+        if self._pending_show_refresh:
+            return
+        self._pending_show_refresh = True
+        # 先让面板切出再异步刷新，减轻「点了导航还要等一会」的体感
+        QTimer.singleShot(0, self._refresh_if_stale_after_show)
+
+    def _refresh_if_stale_after_show(self):
+        self._pending_show_refresh = False
+        if not self.isVisible():
+            return
+        if self._sources_changed():
+            self.refresh()
 
     def refresh(self, preferred_release_month=None):
         """刷新工作台。preferred 仅在有明确目标月份时传入；普通刷新保留用户有效月份选择。"""
-        requirements = load_requirements()
-        self._fill_recent(requirements)
-        self._fill_release(requirements, preferred_release_month=preferred_release_month)
-        self._apply_list_geometry()
+        self.setUpdatesEnabled(False)
+        try:
+            requirements = load_requirements()
+            self._fill_recent(requirements)
+            self._fill_release(requirements, preferred_release_month=preferred_release_month)
+            self._apply_list_geometry()
+            self._source_stamp = self._current_source_stamp()
+        finally:
+            self.setUpdatesEnabled(True)
 
     def refresh_for_requirement(self, requirement):
         """需求编辑保存后刷新；仅当入选上线相关字段时定位到目标月份。"""
@@ -465,10 +507,15 @@ class DashboardPanel(QWidget):
         """月份切换：只刷新列表并重算高度，不把 combo index 误当成 preferred month。"""
         if self.release_month_combo.signalsBlocked():
             return
-        requirements = load_requirements()
-        board = load_release_board()
-        self._fill_release_items(requirements, board)
-        self._apply_list_geometry()
+        self.setUpdatesEnabled(False)
+        try:
+            requirements = load_requirements()
+            board = load_release_board()
+            self._fill_release_items(requirements, board)
+            self._apply_list_geometry()
+            self._source_stamp = self._current_source_stamp()
+        finally:
+            self.setUpdatesEnabled(True)
 
     def _clear_task_rows(self, layout, keep_widgets=()):
         """清掉任务行，保留 empty 标签等常驻控件。"""
@@ -677,9 +724,14 @@ class DashboardPanel(QWidget):
         self._completed_section_collapsed = not bool(prefs.get('completed_section_collapsed', True))
         prefs['completed_section_collapsed'] = self._completed_section_collapsed
         save_release_board(board)
-        requirements = load_requirements()
-        self._fill_release_items(requirements, board)
-        self._apply_list_geometry()
+        self.setUpdatesEnabled(False)
+        try:
+            requirements = load_requirements()
+            self._fill_release_items(requirements, board)
+            self._apply_list_geometry()
+            self._source_stamp = self._current_source_stamp()
+        finally:
+            self.setUpdatesEnabled(True)
 
     def _save_release_board(self, board):
         save_release_board(board)
