@@ -1684,9 +1684,11 @@ class RequirementPanel(QWidget):
         if getattr(self, '_refreshing_tree', False):
             return
         self._refreshing_tree = True
+        self.requirement_list.setUpdatesEnabled(False)
         try:
             self._refresh_impl()
         finally:
+            self.requirement_list.setUpdatesEnabled(True)
             self._refreshing_tree = False
 
     def _refresh_impl(self):
@@ -1718,12 +1720,10 @@ class RequirementPanel(QWidget):
             visible.append(requirement)
         total_all = len(self._requirements)
         if hasattr(self, 'tree_count_label'):
-            if query:
-                self.tree_count_label.setText(f'命中 {len(visible)}/{total_all}')
+            if len(visible) != total_all:
+                self.tree_count_label.setText(f'{len(visible)}/{total_all}')
             else:
-                self.tree_count_label.setText(
-                    f'{len(visible)}/{total_all}' if len(visible) != total_all else f'{total_all} 条'
-                )
+                self.tree_count_label.setText(f'{total_all} 条')
         from tools.list_pin import decorate_title, is_pinned, pinned_at_rank
         # 置顶优先，再按月份/更新时间
         visible.sort(
@@ -1792,8 +1792,7 @@ class RequirementPanel(QWidget):
 
         def _add_requirement_item(parent, requirement):
             nonlocal first_item, selected_item
-            from tools.pinyin_search import highlight_terms, match_snippet
-            from ui.search_highlight import paint_tree_item
+            # 搜索仅过滤：行文案/字色/行高与未搜索时完全一致，不做【】括词与黄底高亮
             requirement = normalize_requirement(requirement)
             count = len(requirement.get('sql_parts', []))
             modified = requirement.get('source_modified_at') or requirement.get('updated_at', '')
@@ -1806,29 +1805,9 @@ class RequirementPanel(QWidget):
             title = requirement.get('title') or os.path.basename(requirement.get('local_path', '').rstrip(os.sep)) or requirement.get('svn_url', '').rstrip('/').rsplit('/', 1)[-1] or '未命名'
             code = str(requirement.get('code') or '').strip() or '未编号'
             pinned = is_pinned(requirement)
-            hit = bool(query) and match_query(requirement_search_text(requirement), query)
             display_code = decorate_title(code, pinned)
             display_title = ('📌 ' + title) if pinned else title
-            if hit and query:
-                display_code = highlight_terms(display_code, query)
-                display_title = highlight_terms(display_title, query)
-            # 命中摘要：优先描述/路径，便于定位到哪里匹配
-            snippet = ''
-            if hit and query:
-                for field in (
-                    requirement.get('description'),
-                    requirement.get('local_path'),
-                    requirement.get('svn_url'),
-                    requirement.get('system'),
-                    requirement.get('owner'),
-                ):
-                    if field and match_query(str(field), query):
-                        snippet = match_snippet(str(field), query)
-                        if snippet:
-                            break
             line2 = f'{badge_text}  ·  {file_count}文件 · {modified_text}'
-            if snippet:
-                line2 = f'命中：{snippet}\n{line2}'
             item.setText(0, display_code)
             item.setText(1, f'{display_title}\n{line2}')
             item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
@@ -1843,13 +1822,9 @@ class RequirementPanel(QWidget):
                 mute_c = QColor(pal.get('TEXT_MUTED', '#4A5872'))
             except Exception:
                 code_c, mute_c = QColor('#4058C8'), QColor('#4A5872')
-            if not hit:
-                item.setForeground(0, code_c)
-                item.setForeground(1, mute_c)
-            is_current_hit = hit and first_item is None
-            if hit:
-                paint_tree_item(item, matched=True, current=is_current_hit)
-            if pinned and not hit:
+            item.setForeground(0, code_c)
+            item.setForeground(1, mute_c)
+            if pinned:
                 title_font = item.font(1); title_font.setBold(True); item.setFont(1, title_font)
             flag_tip = []
             done = normalize_flag_done(requirement)
@@ -1858,11 +1833,10 @@ class RequirementPanel(QWidget):
                 flag_tip.append(f'{full} · {state}')
             tip_flags = '\n'.join(flag_tip) if flag_tip else '无上线事项'
             pin_line = '置顶：是\n' if pinned else ''
-            hit_line = f'搜索命中：是\n命中摘要：{snippet}\n' if hit else ''
             full_tip = (
                 f"{requirement.get('record_kind', '需求')}：{code}\n"
                 f"{title}\n"
-                f"{pin_line}{hit_line}"
+                f"{pin_line}"
                 f"进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n"
                 f"{tip_flags}\n"
                 f"系统：{requirement.get('system') or '—'}\n"
@@ -1871,8 +1845,8 @@ class RequirementPanel(QWidget):
             item.setToolTip(0, full_tip)
             item.setToolTip(1, full_tip)
             from PyQt6.QtCore import QSize
-            item.setSizeHint(0, QSize(0, 56 if snippet else 44))
-            item.setSizeHint(1, QSize(0, 56 if snippet else 44))
+            item.setSizeHint(0, QSize(0, 44))
+            item.setSizeHint(1, QSize(0, 44))
             first_item = first_item or item
             if requirement.get('id') == current_id:
                 selected_item = item
@@ -2273,13 +2247,8 @@ class RequirementPanel(QWidget):
 
         requirement = normalize_requirement(self._current)
         self._current = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
-        query = self.search_edit.text().strip() if hasattr(self, 'search_edit') else ''
-        from tools.pinyin_search import highlight_terms
         title = requirement.get('title') or '未命名需求'
         code = requirement.get('code') or '无编号'
-        if query:
-            title = highlight_terms(title, query)
-            code = highlight_terms(code, query)
         kind = requirement.get('record_kind', '需求')
         system = requirement.get('system') or '未选系统'
         status = requirement.get('status') or '待分析'
@@ -2338,13 +2307,10 @@ class RequirementPanel(QWidget):
         if hasattr(self, 'sql_empty'):
             self.sql_empty.setVisible(not has_sql)
             self.sql_preview.setVisible(has_sql)
-        # 搜索时在 SQL 预览中高亮定位
+        # 列表搜索只做过滤，SQL 预览保持纯文本，不做搜索高亮
         try:
-            from ui.search_highlight import apply_text_highlights, clear_text_highlights
-            if query and has_sql:
-                apply_text_highlights(self.sql_preview, query, select_first=True, take_focus=False)
-            else:
-                clear_text_highlights(self.sql_preview)
+            from ui.search_highlight import clear_text_highlights
+            clear_text_highlights(self.sql_preview)
         except Exception:
             pass
         self.docx_btn.setEnabled(has_sql)
@@ -2800,15 +2766,10 @@ class RequirementPanel(QWidget):
                     item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
                 except Exception:
                     item.setForeground(0, QColor('#B24A24'))
+            # 文件库搜索：仅过滤 + 定位首个匹配，不改名称样式
             file_hit = bool(query and match_query(build_search_blob(name, relative, ftype), query))
-            if file_hit:
-                from tools.pinyin_search import highlight_terms
-                from ui.search_highlight import paint_tree_item
-                item.setText(0, highlight_terms(name, query))
-                is_first_file_hit = first_file_hit is None and not entry.get('is_dir')
-                paint_tree_item(item, matched=True, current=bool(is_first_file_hit))
-                if is_first_file_hit:
-                    first_file_hit = item
+            if file_hit and first_file_hit is None and not entry.get('is_dir'):
+                first_file_hit = item
             if entry['is_dir']:
                 nodes[relative] = item
             else:

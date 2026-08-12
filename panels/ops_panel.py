@@ -341,8 +341,6 @@ class OpsPanel(QWidget):
         zh = self.language == 'zh'
         query = self.search_edit.text().strip()
         from tools.list_pin import decorate_title, is_pinned
-        from tools.pinyin_search import highlight_terms, match_snippet
-        from ui.search_highlight import focus_list_item, paint_list_item
         first_hit = None
         for command in self._commands:
             title = command['title_zh' if zh else 'title_en']
@@ -351,45 +349,30 @@ class OpsPanel(QWidget):
                 display_command = display_command[:28] + '…'
             summary = title if len(title) <= 20 else title[:19] + '…'
             pinned = is_pinned(command)
-            if query:
-                display_command = highlight_terms(display_command, query)
-                summary = highlight_terms(summary, query)
+            # 搜索仅过滤：列表文案与未搜索时一致
             label = decorate_title(f'{display_command}\n{summary}', pinned)
             item = QListWidgetItem(label)
             full_description = command['description_zh' if zh else 'description_en']
             source = '用户自定义' if not command.get('builtin', True) else '内置只读'
             pin_tip = ('已置顶\n' if zh else 'Pinned\n') if pinned else ''
-            hit_tip = ''
-            if query:
-                sn = match_snippet(f'{command.get("command","")}\n{title}\n{full_description}', query)
-                if sn:
-                    hit_tip = (f'命中：{sn}\n\n' if zh else f'Match: {sn}\n\n')
             item.setToolTip(
-                f"{pin_tip}{hit_tip}{command['command']}\n\n{title}\n{full_description}\n\n"
+                f"{pin_tip}{command['command']}\n\n{title}\n{full_description}\n\n"
                 f"{source if zh else ('Custom' if source == '用户自定义' else 'Built-in read-only')}"
             )
             item.setData(Qt.ItemDataRole.UserRole, command)
-            matched = bool(query)
-            paint_list_item(item, matched=matched, current=matched and first_hit is None)
             self.command_list.addItem(item)
-            if matched and first_hit is None:
+            if query and first_hit is None:
                 first_hit = item
-        if query:
-            self.result_count.setText(
-                f'命中 {len(self._commands)} 条' if zh else f'{len(self._commands)} match(es)'
-            )
-        else:
-            self.result_count.setText(
-                f'{len(self._commands)} 条' if zh else f'{len(self._commands)} result(s)'
-            )
+        self.result_count.setText(
+            f'{len(self._commands)} 条' if zh else f'{len(self._commands)} result(s)'
+        )
         suggestions = [command_text(item, self.language) for item in self._commands[:15]]
         self._completion_model.setStringList(suggestions)
         if self.command_list.count():
             if first_hit is not None:
-                focus_list_item(self.command_list, first_hit)
+                self.command_list.setCurrentItem(first_hit)
             else:
                 self.command_list.setCurrentRow(0)
-            # 详情区也高亮命令文本
             self._highlight_command_detail()
         else:
             self._clear_detail()
@@ -468,10 +451,8 @@ class OpsPanel(QWidget):
         self._highlight_command_detail()
 
     def _highlight_command_detail(self):
-        """搜索时在标题/说明/预览中标出命中并滚动到预览首处。"""
-        query = self.search_edit.text().strip() if hasattr(self, 'search_edit') else ''
-        from tools.pinyin_search import highlight_terms
-        from ui.search_highlight import apply_text_highlights, clear_text_highlights
+        """恢复标题/说明纯文案；预览不做搜索高亮（列表搜索仅过滤）。"""
+        from ui.search_highlight import clear_text_highlights
         cmd = getattr(self, '_current_command', None)
         if not cmd:
             clear_text_highlights(self.preview)
@@ -479,20 +460,11 @@ class OpsPanel(QWidget):
                 clear_text_highlights(self.output_explanation)
             return
         zh = self.language == 'zh'
-        title = cmd['title_zh' if zh else 'title_en']
-        desc = cmd['description_zh' if zh else 'description_en']
-        if query:
-            self.title_label.setText(highlight_terms(title, query))
-            self.description.setText(highlight_terms(desc, query))
-            apply_text_highlights(self.preview, query, select_first=True, take_focus=False)
-            if hasattr(self, 'output_explanation'):
-                apply_text_highlights(self.output_explanation, query, select_first=False, take_focus=False)
-        else:
-            self.title_label.setText(title)
-            self.description.setText(desc)
-            clear_text_highlights(self.preview)
-            if hasattr(self, 'output_explanation'):
-                clear_text_highlights(self.output_explanation)
+        self.title_label.setText(cmd['title_zh' if zh else 'title_en'])
+        self.description.setText(cmd['description_zh' if zh else 'description_en'])
+        clear_text_highlights(self.preview)
+        if hasattr(self, 'output_explanation'):
+            clear_text_highlights(self.output_explanation)
 
     def _values(self):
         return {name: edit.text() for name, edit in self._param_edits.items()}
@@ -509,10 +481,6 @@ class OpsPanel(QWidget):
         except ValueError as exc:
             self.preview.setPlainText(str(exc))
             self.copy_btn.setEnabled(False)
-        # 参数变更后保持搜索高亮
-        if getattr(self, 'search_edit', None) and self.search_edit.text().strip():
-            from ui.search_highlight import apply_text_highlights
-            apply_text_highlights(self.preview, self.search_edit.text().strip(), select_first=True, take_focus=False)
 
     def _copy_command(self):
         text = self.preview.toPlainText().strip()

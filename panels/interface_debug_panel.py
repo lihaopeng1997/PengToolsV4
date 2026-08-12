@@ -48,6 +48,10 @@ from ui.confirm_dialog import confirm_action, show_info, show_success, show_warn
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_combo
 from ui.page_chrome import make_page_header
+
+# 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
+MAX_SESSION_RECORDS = 3000
+MAX_BODY_CHARS = 512 * 1024  # 512KB/字段
 from ui.responsive import apply_splitter_orientation, editor_min_height, set_subtitle_visible
 
 
@@ -1753,11 +1757,15 @@ class InterfaceDebugPanel(QWidget):
             datetime.fromtimestamp(self._last_request_at).strftime('%H:%M:%S')
             if self._last_request_at else '—'
         )
-        # Fiddler 式状态：正在抓取 / 会话条数 / 最近一条时间
+        # Fiddler 式状态：正在抓取 / 会话条数 / 最近一条时间；触顶提示内存上限
+        cap_note = ''
+        if n >= MAX_SESSION_RECORDS:
+            cap_note = (f' · 已达上限 {MAX_SESSION_RECORDS}（旧记录已淘汰）'
+                        if zh else f' · cap {MAX_SESSION_RECORDS} (oldest dropped)')
         self.live_status.setText(
-            f'抓包中 · 本机 HTTP/HTTPS · 会话 {n} · 最近 {last}'
+            f'抓包中 · 本机 HTTP/HTTPS · 会话 {n}{cap_note} · 最近 {last}'
             if zh else
-            f'Capturing · HTTP/HTTPS · sessions {n} · last {last}'
+            f'Capturing · HTTP/HTTPS · sessions {n}{cap_note} · last {last}'
         )
 
     def _recheck_channel(self):
@@ -1879,6 +1887,52 @@ class InterfaceDebugPanel(QWidget):
                 pass
             self._ie_worker = None
 
+    @staticmethod
+    def _clip_body(value):
+        """截断过大 body，降低内存峰值（仅内存会话，不落盘）。"""
+        if value is None:
+            return value
+        if not isinstance(value, str):
+            try:
+                value = str(value)
+            except Exception:
+                return value
+        if len(value) <= MAX_BODY_CHARS:
+            return value
+        return value[:MAX_BODY_CHARS] + f'\n…[truncated {len(value) - MAX_BODY_CHARS} chars]'
+
+    def _evict_old_records_if_needed(self):
+        """超限时按 seq 淘汰最旧，保持内存可预期。"""
+        overflow = len(self._records_by_id) - MAX_SESSION_RECORDS
+        if overflow <= 0:
+            return 0
+        ordered = sorted(
+            self._records_by_id.items(),
+            key=lambda kv: (kv[1].get('seq') is None, kv[1].get('seq') or 0, str(kv[0])),
+        )
+        removed = 0
+        for rid, _rec in ordered:
+            if removed >= overflow:
+                break
+            if rid == self._selected_id:
+                continue
+            self._records_by_id.pop(rid, None)
+            removed += 1
+        # 若仍超限（例如全部被当前选中占住），再强制丢最旧
+        while len(self._records_by_id) > MAX_SESSION_RECORDS:
+            rid = next(iter(sorted(
+                self._records_by_id.keys(),
+                key=lambda k: (self._records_by_id[k].get('seq') is None,
+                               self._records_by_id[k].get('seq') or 0),
+            )), None)
+            if rid is None:
+                break
+            self._records_by_id.pop(rid, None)
+            if rid == self._selected_id:
+                self._selected_id = None
+            removed += 1
+        return removed
+
     def _ingest_record(self, rec: dict):
         rid = rec.get('id') or ''
         if not rid:
@@ -1893,15 +1947,18 @@ class InterfaceDebugPanel(QWidget):
         if rec.get('failure'):
             merged['failure'] = rec.get('failure')
         if rec.get('response_body') is not None:
-            merged['response_body'] = rec.get('response_body')
+            merged['response_body'] = self._clip_body(rec.get('response_body'))
         if rec.get('request_body') is not None and rec.get('request_body') != '':
-            merged['request_body'] = rec.get('request_body')
+            merged['request_body'] = self._clip_body(rec.get('request_body'))
         # Fiddler 式会话序号：首次入库编号
         if 'seq' not in old:
             merged['seq'] = len(self._records_by_id) + 1
         else:
             merged['seq'] = old.get('seq')
         self._records_by_id[rid] = merged
+        if self._evict_old_records_if_needed():
+            # 淘汰后同步 list，避免 _records 残留已删 id
+            self._records = list(self._records_by_id.values())
         self._last_request_at = time.time()
         self._ingest_dirty = True
         self._ingest_count_since_flush += 1
@@ -3120,43 +3177,32 @@ class InterfaceDebugPanel(QWidget):
         source = lib.get('history') if mode == 'history' else lib.get('apis')
         items = filter_items(source or [], category_id=cat, keyword=kw)
         cat_map = {c.get('id'): c.get('name') for c in (lib.get('categories') or [])}
-        from tools.pinyin_search import highlight_terms, match_snippet
-        from ui.search_highlight import focus_list_item, paint_list_item
+        # 搜索仅过滤：列表文案与未搜索时一致
         self.rt_lib_list.blockSignals(True)
         self.rt_lib_list.clear()
         first_hit = None
         for it in items:
             label = display_label(it, mode=mode, category_map=cat_map)
-            if kw:
-                label = highlight_terms(label, kw)
             row = QListWidgetItem(label)
             row.setData(Qt.ItemDataRole.UserRole, it.get('id'))
-            sn = match_snippet(
-                f"{it.get('method') or ''} {it.get('url') or ''} {it.get('name') or ''} {it.get('note') or ''}",
-                kw,
-            ) if kw else ''
             tip = (
                 f"{it.get('method') or ''} {it.get('url') or ''}\n"
                 f"{cat_map.get(it.get('category_id'), '')}"
             )
-            if sn:
-                tip = f'命中：{sn}\n{tip}'
             row.setToolTip(tip)
-            matched = bool(kw)
-            paint_list_item(row, matched=matched, current=matched and first_hit is None)
             self.rt_lib_list.addItem(row)
-            if matched and first_hit is None:
+            if kw and first_hit is None:
                 first_hit = row
         self.rt_lib_list.blockSignals(False)
         if first_hit is not None:
-            focus_list_item(self.rt_lib_list, first_hit)
+            self.rt_lib_list.setCurrentItem(first_hit)
         zh = self.language == 'zh'
         total = len(source or [])
         shown = len(items)
         if mode == 'history':
-            text = (f'命中历史 {shown}/{total}' if zh and kw else (f'历史 {shown}/{total}' if zh else f'History {shown}/{total}'))
+            text = f'历史 {shown}/{total}' if zh else f'History {shown}/{total}'
         else:
-            text = (f'命中接口 {shown}/{total}' if zh and kw else (f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}'))
+            text = f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}'
         if hasattr(self, 'rt_lib_count'):
             self.rt_lib_count.setText(text)
 

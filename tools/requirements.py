@@ -137,6 +137,10 @@ def load_requirements(path=None):
         return [normalize_requirement(item) for item in value if isinstance(item, dict)]
     except (OSError, ValueError, TypeError):
         return []
+    finally:
+        # 磁盘台账变化后，旧搜索语料不可靠
+        if path is None or path == REQUIREMENTS_FILE:
+            clear_requirement_search_cache()
 
 
 def _atomic_write_json(target, payload):
@@ -166,6 +170,8 @@ def save_requirements(requirements, path=None):
         os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
     payload = [normalize_requirement(item) for item in (requirements or []) if isinstance(item, dict)]
     _atomic_write_json(target, payload)
+    if path is None or path == REQUIREMENTS_FILE:
+        clear_requirement_search_cache()
 
 
 # 工作台「标记上线 / 恢复待办」与需求状态对齐
@@ -457,9 +463,40 @@ def merged_sql(requirement):
     return '\n\n'.join(blocks)
 
 
+# 需求搜索语料缓存：避免每次树刷新对全表重算拼音 blob
+_REQUIREMENT_SEARCH_CACHE: dict[str, tuple[str, str]] = {}
+
+
+def clear_requirement_search_cache():
+    """台账重载/保存后清空，避免脏缓存。"""
+    _REQUIREMENT_SEARCH_CACHE.clear()
+
+
+def _requirement_search_cache_key(requirement) -> str:
+    """用 id + 更新时间 + 几个常搜字段拼缓存键。"""
+    if not isinstance(requirement, dict):
+        return ''
+    return '|'.join((
+        str(requirement.get('id') or ''),
+        str(requirement.get('updated_at') or ''),
+        str(requirement.get('source_modified_at') or ''),
+        str(requirement.get('title') or ''),
+        str(requirement.get('code') or ''),
+        str(requirement.get('status') or ''),
+        str(requirement.get('system') or ''),
+        str(len(requirement.get('sql_parts') or [])),
+        str(requirement.get('file_count') or 0),
+    ))
+
+
 def requirement_search_text(requirement):
     """搜索语料：元数据 + 拼音；不含密钥。SQL/附件正文仅取名称与有限摘要。"""
     from tools.pinyin_search import build_search_blob
+    cache_key = _requirement_search_cache_key(requirement)
+    if cache_key:
+        cached = _REQUIREMENT_SEARCH_CACHE.get(cache_key)
+        if cached is not None:
+            return cached[1]
     values = [requirement.get(key, '') for key in (
         'code', 'title', 'description', 'record_kind', 'category', 'status', 'priority',
         'system', 'owner', 'online_month', 'svn_url', 'local_path', 'svn_revision', 'svn_status'
@@ -475,7 +512,13 @@ def requirement_search_text(requirement):
         values.append(part.get('file_type', ''))
         for row in (part.get('rows', []) or [])[:40]:
             values.extend(str(value) for value in row[:12])
-    return build_search_blob(*values)
+    blob = build_search_blob(*values)
+    if cache_key:
+        # 简单 LRU：超上限时整表清空，避免无限涨
+        if len(_REQUIREMENT_SEARCH_CACHE) >= 4000:
+            _REQUIREMENT_SEARCH_CACHE.clear()
+        _REQUIREMENT_SEARCH_CACHE[cache_key] = (str(requirement.get('id') or ''), blob)
+    return blob
 
 
 def daily_template(requirement):

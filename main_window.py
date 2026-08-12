@@ -119,18 +119,25 @@ class MainWindow(QMainWindow):
         self.vin_panel = VinPanel(self.language)
         self.gateway_panel = GatewayDecodePanel(self.language)
         self.ops_panel = OpsPanel(self.language)
-        self.ops_log_panel = OpsLogPanel(self.language)
+        # 日志排查 / 接口排查体量大：占位 host + 首次进入再实例化，降低冷启动内存
+        self.ops_log_panel = None
+        self.interface_debug_panel = None
+        self._ops_log_host = QWidget()
+        self._ops_log_host_layout = QVBoxLayout(self._ops_log_host)
+        self._ops_log_host_layout.setContentsMargins(0, 0, 0, 0)
+        self._iface_host = QWidget()
+        self._iface_host_layout = QVBoxLayout(self._iface_host)
+        self._iface_host_layout.setContentsMargins(0, 0, 0, 0)
         self.settings_panel = SettingsPanel(self._settings, self.language)
         self.personal_panel = PersonalPanel(self.language)
         self.requirement_panel = RequirementPanel(self.language)
         self.format_panel = FormatToolsPanel(self.language)
-        self.interface_debug_panel = InterfaceDebugPanel(self.language)
         # stack 顺序保持 0–9 历史映射；格式工具 10；接口排查 11；日志排查 12（nav 13）
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
             self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
             self.personal_panel, self.requirement_panel, self.format_panel,
-            self.interface_debug_panel, self.ops_log_panel,
+            self._iface_host, self._ops_log_host,
         ):
             self.stack.addWidget(panel)
         self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
@@ -145,9 +152,6 @@ class MainWindow(QMainWindow):
             self.dashboard_panel.open_requirement.connect(self._open_requirement_from_dashboard)
         self.gateway_panel.open_format_xml.connect(self._open_format_xml)
         self.gateway_panel.open_interface_debug.connect(lambda: self._show_panel(12))
-        self.interface_debug_panel.open_gateway.connect(self._open_gateway_from_iface)
-        self.interface_debug_panel.open_format_json.connect(self._open_format_json)
-        self.interface_debug_panel.open_format_xml.connect(self._open_format_xml)
         self.personal_panel.reminder_due.connect(self._show_private_notification)
         self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
         self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
@@ -517,13 +521,54 @@ class MainWindow(QMainWindow):
             self.nav_buttons[7].setText('设置' if zh else 'Settings')
             apply_icon(self.nav_buttons[7], 'settings', size=20)
 
-    def _broadcast_layout_mode(self, mode: str, low_height: bool):
+    def _iter_created_panels(self):
+        """已实例化面板（懒加载未创建的跳过）。"""
         for panel in (
             self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
-            self.vin_panel, self.gateway_panel, self.ops_panel, self.ops_log_panel,
+            self.vin_panel, self.gateway_panel, self.ops_panel,
             self.settings_panel, self.personal_panel, self.requirement_panel,
-            self.format_panel, self.interface_debug_panel,
+            self.format_panel, self.interface_debug_panel, self.ops_log_panel,
         ):
+            if panel is not None:
+                yield panel
+
+    def _ensure_interface_debug_panel(self):
+        """首次进入接口排查时再构造，节省启动内存。"""
+        if self.interface_debug_panel is not None:
+            return self.interface_debug_panel
+        panel = InterfaceDebugPanel(self.language)
+        panel.open_gateway.connect(self._open_gateway_from_iface)
+        panel.open_format_json.connect(self._open_format_json)
+        panel.open_format_xml.connect(self._open_format_xml)
+        if hasattr(panel, 'set_language'):
+            panel.set_language(self.language)
+        if hasattr(panel, 'apply_layout_mode'):
+            try:
+                panel.apply_layout_mode(self._layout_mode, False)
+            except Exception:
+                pass
+        self._iface_host_layout.addWidget(panel)
+        self.interface_debug_panel = panel
+        return panel
+
+    def _ensure_ops_log_panel(self):
+        """首次进入日志排查时再构造。"""
+        if self.ops_log_panel is not None:
+            return self.ops_log_panel
+        panel = OpsLogPanel(self.language)
+        if hasattr(panel, 'set_language'):
+            panel.set_language(self.language)
+        if hasattr(panel, 'apply_layout_mode'):
+            try:
+                panel.apply_layout_mode(self._layout_mode, False)
+            except Exception:
+                pass
+        self._ops_log_host_layout.addWidget(panel)
+        self.ops_log_panel = panel
+        return panel
+
+    def _broadcast_layout_mode(self, mode: str, low_height: bool):
+        for panel in self._iter_created_panels():
             if hasattr(panel, 'apply_layout_mode'):
                 try:
                     panel.apply_layout_mode(mode, low_height)
@@ -552,16 +597,23 @@ class MainWindow(QMainWindow):
         # 离开接口排查：暂停系统代理，避免其它模块/外网操作全超时
         if prev == 12 and index != 12:
             try:
-                if hasattr(self.interface_debug_panel, 'on_panel_deactivated'):
-                    self.interface_debug_panel.on_panel_deactivated()
+                panel = self.interface_debug_panel
+                if panel is not None and hasattr(panel, 'on_panel_deactivated'):
+                    panel.on_panel_deactivated()
             except Exception:
                 pass
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
         if index == 12:
             try:
-                if hasattr(self.interface_debug_panel, 'on_panel_activated'):
-                    self.interface_debug_panel.on_panel_activated()
+                panel = self._ensure_interface_debug_panel()
+                if hasattr(panel, 'on_panel_activated'):
+                    panel.on_panel_activated()
+            except Exception:
+                pass
+        elif index == 13:
+            try:
+                self._ensure_ops_log_panel()
             except Exception:
                 pass
         if index == 7:
@@ -683,12 +735,7 @@ class MainWindow(QMainWindow):
             self.language_combo.blockSignals(False)
         self._apply_nav_texts()
         self._rebuild_user_menu()
-        for panel in (
-            self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
-            self.vin_panel, self.gateway_panel, self.ops_panel, self.ops_log_panel,
-            self.settings_panel, self.personal_panel, self.requirement_panel,
-            self.format_panel, self.interface_debug_panel,
-        ):
+        for panel in self._iter_created_panels():
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
         self.quick_panel.set_language(self.language)
@@ -746,6 +793,8 @@ class MainWindow(QMainWindow):
             self.personal_panel, self.requirement_panel,
             self.format_panel, self.interface_debug_panel,
         ):
+            if panel is None:
+                continue
             if hasattr(panel, 'refresh_theme'):
                 try:
                     panel.refresh_theme()
@@ -934,10 +983,11 @@ class MainWindow(QMainWindow):
         keep_awake_service = getattr(self, 'keep_awake_service', None)
         if keep_awake_service:
             keep_awake_service.stop()
-        # 接口排查：停止 CDP/IE 代理、恢复系统代理、清空内存报文
+        # 接口排查：停止 CDP/IE 代理、恢复系统代理、清空内存报文（未打开过则无需）
         try:
-            if hasattr(self, 'interface_debug_panel'):
-                self.interface_debug_panel.shutdown_cleanup()
+            panel = getattr(self, 'interface_debug_panel', None)
+            if panel is not None and hasattr(panel, 'shutdown_cleanup'):
+                panel.shutdown_cleanup()
         except Exception:
             pass
         self.quick_panel.close()

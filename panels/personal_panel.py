@@ -427,8 +427,6 @@ class KnowledgeTab(QWidget):
         self.entry_list.clear()
         selected_item = None
         from tools.list_pin import decorate_title, is_pinned
-        from tools.pinyin_search import highlight_terms, match_snippet
-        from ui.search_highlight import focus_list_item, paint_list_item
         query = self.search_edit.text().strip()
         first_hit = None
         for entry in self._filtered:
@@ -437,31 +435,9 @@ class KnowledgeTab(QWidget):
             file_type = entry.get('file_type') or ('EXCEL' if entry.get('content_type') == 'workbook_sheet' else 'TXT')
             raw_title = entry.get('title', '未命名')
             title = decorate_title(raw_title, is_pinned(entry))
-            if query:
-                title = highlight_terms(title, query)
             pin_tag = ' · 置顶' if is_pinned(entry) else ''
-            snippet = ''
-            if query:
-                if entry.get('content_type') == 'workbook_sheet':
-                    for row in (entry.get('rows') or [])[:200]:
-                        row_text = ' '.join(str(v) for v in (row or []) if str(v).strip())
-                        if row_text:
-                            sn = match_snippet(row_text, query)
-                            if '【' in sn or sn:
-                                # 仅当字面命中时用【】判断更准
-                                from tools.pinyin_search import find_term_spans
-                                if find_term_spans(row_text, query):
-                                    snippet = sn
-                                    break
-                else:
-                    body = entry.get('content') or ''
-                    if body:
-                        from tools.pinyin_search import find_term_spans
-                        if find_term_spans(body, query):
-                            snippet = match_snippet(body, query)
+            # 搜索仅过滤：列表文案与未搜索时一致
             meta = f'{file_type} · {category} · {source}{pin_tag}'
-            if snippet:
-                meta = f'命中：{snippet}\n{meta}'
             item = QListWidgetItem(f'{title}\n{meta}')
             if entry.get('content_type') == 'workbook_sheet':
                 tooltip = f"Excel 工作表：{entry.get('sheet_name', '')}\n{entry.get('row_count', 0)} 行 × {entry.get('column_count', 0)} 列"
@@ -469,27 +445,18 @@ class KnowledgeTab(QWidget):
                 tooltip = entry.get('content', '')[:800]
             if is_pinned(entry):
                 tooltip = '【已置顶】\n' + (tooltip or '')
-            if snippet:
-                tooltip = f'【搜索命中】{snippet}\n' + (tooltip or '')
             item.setToolTip(tooltip)
             item.setData(Qt.ItemDataRole.UserRole, entry)
-            matched = bool(query)
-            is_current = matched and first_hit is None
-            paint_list_item(item, matched=matched, current=is_current)
             self.entry_list.addItem(item)
-            if matched and first_hit is None:
+            if query and first_hit is None:
                 first_hit = item
             if entry.get('id') == current_id:
                 selected_item = item
-        if query:
-            self.result_count.setText(f'命中 {len(self._filtered)} 条')
-        else:
-            self.result_count.setText(f'{len(self._filtered)} 条')
+        self.result_count.setText(f'{len(self._filtered)} 条')
         if self.entry_list.count():
-            # 搜索时优先定位第一条命中；否则保持当前选中
             pick = first_hit if query else (selected_item or self.entry_list.item(0))
             selected_item = pick
-            focus_list_item(self.entry_list, selected_item)
+            self.entry_list.setCurrentItem(selected_item)
         self.entry_list.blockSignals(False)
         if selected_item:
             selected = selected_item.data(Qt.ItemDataRole.UserRole)
