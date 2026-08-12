@@ -52,8 +52,12 @@ class LazyUiSelfCheck(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with patch('panels.personal_panel.load_reports', return_value={}), \
                     patch('panels.personal_panel.save_reports') as save_reports, \
+                    patch('panels.personal_panel.load_drafts', return_value={}), \
+                    patch('panels.personal_panel.save_drafts'), \
                     patch('panels.personal_panel.load_reminder_settings', return_value={
                         'enabled': False, 'time': '18:00', 'last_reminder_date': '',
+                        'history_collapsed_months': [], 'history_expanded_months': [],
+                        'history_expand_pinned': True,
                     }), \
                     patch('panels.personal_panel.save_reminder_settings', side_effect=lambda settings: settings), \
                     patch('panels.personal_panel.show_success'), \
@@ -63,7 +67,7 @@ class LazyUiSelfCheck(unittest.TestCase):
                 today = QDate.currentDate()
                 self.assertEqual(tab.date_edit.displayFormat(), 'yyyy-MM-dd')
                 self.assertGreaterEqual(tab.date_edit.minimumWidth(), 150)
-                keys = [tab.date_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(tab.date_list.count())]
+                keys = tab.list_date_keys()
                 self.assertIn(today.toString('yyyy-MM-dd'), keys)
                 tab.completed.setPlainText('完成 A')
                 tab._save_report()
@@ -71,7 +75,7 @@ class LazyUiSelfCheck(unittest.TestCase):
                 yesterday = today.addDays(-1)
                 tab.date_edit.setDate(yesterday)
                 self.app.processEvents()
-                self.assertEqual(tab.completed.toPlainText(), '')
+                self.assertEqual(tab.completed.toPlainText().strip(), '')
                 # 未保存草稿：写昨天内容后切走再切回应保留
                 tab.completed.setPlainText('昨天未保存')
                 tab.date_edit.setDate(today)
@@ -85,6 +89,7 @@ class LazyUiSelfCheck(unittest.TestCase):
                 self.assertEqual(tab.date_edit.date(), today)
                 self.assertIn('昨天未保存', tab.completed.toPlainText())
                 self.assertTrue(hasattr(tab, 'copy_as_today_btn'))
+                self.assertTrue(hasattr(tab, 'date_tree'))
                 tab.resize(900, 600)
                 self.app.processEvents()
                 tab.close()

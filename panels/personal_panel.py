@@ -15,10 +15,13 @@ from PyQt6.QtWidgets import (
 )
 
 from tools.daily_reports import (
-    is_reminder_due, load_reminder_settings, load_reports, report_markdown,
-    save_reminder_settings, save_reports,
+    REPORT_FIELDS, days_in_month, fields_snapshot, group_dates_by_month,
+    is_reminder_due, is_report_dirty, load_drafts, load_reminder_settings, load_reports,
+    month_key, month_label, normalize_report, report_markdown, save_drafts,
+    save_reminder_settings, save_reports, cleanup_day_assets,
 )
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
+from ui.daily_rich_edit import DailyRichEdit
 from ui.field_metrics import size_combo, size_compact_button, size_date, size_line
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
@@ -978,7 +981,8 @@ class KnowledgeTab(QWidget):
 
 class DailyReportTab(QWidget):
     reminder_due = pyqtSignal(str, str)
-    _REPORT_FIELDS = ('completed', 'issues', 'tomorrow', 'notes')
+    _REPORT_FIELDS = REPORT_FIELDS
+    _ROLE_KIND = int(Qt.ItemDataRole.UserRole) + 1
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -987,17 +991,25 @@ class DailyReportTab(QWidget):
         self._reminder = load_reminder_settings()
         self._loading = False
         self._loaded_key = ''
-        # 未点保存的编辑缓存：切日期/历史后仍可恢复
-        self._drafts: dict[str, dict] = {}
+        # 未点保存的编辑缓存：内存 + 磁盘草稿
+        self._drafts: dict[str, dict] = load_drafts()
         self._setup_ui()
         self._refresh_dates()
         self._load_date(QDate.currentDate())
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._check_reminder)
         self._timer.start(30000)
+        self._draft_timer = QTimer(self)
+        self._draft_timer.setSingleShot(True)
+        self._draft_timer.setInterval(800)
+        self._draft_timer.timeout.connect(self._persist_drafts_quiet)
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.timeout.connect(self._autosave_tick)
+        self._autosave_timer.start(45000)
         QTimer.singleShot(1200, self._check_reminder)
 
     def _setup_ui(self):
+        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QHeaderView
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         # 提醒设置迁入设置页；此处仅简短状态 + 入口
@@ -1034,13 +1046,32 @@ class DailyReportTab(QWidget):
         left = QFrame()
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)
-        left_layout.addWidget(QLabel('日报历史'))
-        self.date_list = QListWidget()
-        self.date_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.date_list.customContextMenuRequested.connect(self._show_date_menu)
-        self.date_list.setObjectName('ops-command-list')
-        self.date_list.currentItemChanged.connect(self._select_history)
-        left_layout.addWidget(self.date_list)
+        head = QHBoxLayout()
+        head.addWidget(QLabel('日报历史'))
+        head.addStretch(1)
+        self.expand_all_btn = QPushButton('全展')
+        size_compact_button(self.expand_all_btn)
+        self.expand_all_btn.clicked.connect(lambda: self._set_all_months_expanded(True))
+        self.collapse_all_btn = QPushButton('全折')
+        size_compact_button(self.collapse_all_btn)
+        self.collapse_all_btn.clicked.connect(lambda: self._set_all_months_expanded(False))
+        head.addWidget(self.expand_all_btn)
+        head.addWidget(self.collapse_all_btn)
+        left_layout.addLayout(head)
+        self.date_tree = QTreeWidget()
+        self.date_tree.setObjectName('ops-command-list')
+        self.date_tree.setHeaderHidden(True)
+        self.date_tree.setRootIsDecorated(True)
+        self.date_tree.setAnimated(True)
+        self.date_tree.setIndentation(16)
+        self.date_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.date_tree.customContextMenuRequested.connect(self._show_date_menu)
+        self.date_tree.currentItemChanged.connect(self._select_history)
+        self.date_tree.itemExpanded.connect(self._on_month_expand_changed)
+        self.date_tree.itemCollapsed.connect(self._on_month_expand_changed)
+        left_layout.addWidget(self.date_tree)
+        # 兼容旧测试属性名
+        self.date_list = self.date_tree
         splitter.addWidget(left)
 
         scroll = QScrollArea()
@@ -1066,17 +1097,25 @@ class DailyReportTab(QWidget):
         self.copy_as_today_btn.setToolTip('把当前编辑中的内容一键写成今天的日报（可再改再保存）')
         self.copy_as_today_btn.clicked.connect(self._copy_as_today)
         date_row.addWidget(self.copy_as_today_btn)
+        self.insert_image_btn = QPushButton('插入图片')
+        size_compact_button(self.insert_image_btn)
+        self.insert_image_btn.setToolTip('插入图片到当前光标所在区块（也支持粘贴 / 拖入）')
+        self.insert_image_btn.clicked.connect(self._insert_image_to_focus)
+        date_row.addWidget(self.insert_image_btn)
         date_row.addStretch()
         self.unsaved_label = QLabel('')
         self.unsaved_label.setObjectName('field-hint')
         date_row.addWidget(self.unsaved_label)
         form_layout.addLayout(date_row)
-        self.completed = self._report_editor(form_layout, '今日完成', '完成的需求、问题处理、沟通结果……')
+        self.completed = self._report_editor(form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片')
         self.issues = self._report_editor(form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……')
         self.tomorrow = self._report_editor(form_layout, '明日计划', '下一步准备完成的事项……')
-        self.notes = self._report_editor(form_layout, '备注', '补充信息、链接或待跟踪内容……', 70)
-        for ed in (self.completed, self.issues, self.tomorrow, self.notes):
+        self.notes = self._report_editor(form_layout, '备注', '补充信息、链接、截图……', 90)
+        self._editors = (self.completed, self.issues, self.tomorrow, self.notes)
+        for ed in self._editors:
             ed.textChanged.connect(self._on_editor_changed)
+            ed.image_error.connect(self._on_image_error)
+            ed.assets_changed.connect(self._on_editor_changed)
         actions = QHBoxLayout()
         self.delete_btn = QPushButton('删除当日日报')
         self.delete_btn.setObjectName('ops-delete-custom')
@@ -1093,14 +1132,14 @@ class DailyReportTab(QWidget):
         form_layout.addLayout(actions)
         scroll.setWidget(editor)
         splitter.addWidget(scroll)
-        splitter.setSizes([235, 790])
+        splitter.setSizes([250, 780])
         root.addWidget(splitter, 1)
 
-    def _report_editor(self, layout, title, placeholder, height=105):
+    def _report_editor(self, layout, title, placeholder, height=120):
         label = QLabel(title)
         label.setObjectName('section-title')
         layout.addWidget(label)
-        editor = QPlainTextEdit()
+        editor = DailyRichEdit()
         editor.setPlaceholderText(placeholder)
         editor.setMinimumHeight(height)
         layout.addWidget(editor)
@@ -1109,23 +1148,45 @@ class DailyReportTab(QWidget):
     def _date_key(self):
         return self.date_edit.date().toString('yyyy-MM-dd')
 
+    def _sync_editors_date(self, key: str):
+        for ed in getattr(self, '_editors', ()):
+            ed.set_report_date(key)
+
     def _current_values(self):
-        return {
-            'completed': self.completed.toPlainText().strip(),
-            'issues': self.issues.toPlainText().strip(),
-            'tomorrow': self.tomorrow.toPlainText().strip(),
-            'notes': self.notes.toPlainText().strip(),
-            'updated_at': datetime.datetime.now().isoformat(timespec='seconds'),
-        }
+        values = {'updated_at': datetime.datetime.now().isoformat(timespec='seconds'), 'assets': []}
+        assets = []
+        for field, editor in zip(self._REPORT_FIELDS, self._editors):
+            plain, html_val, refs = editor.export_content()
+            values[field] = plain
+            values[f'{field}_html'] = html_val
+            assets.extend(refs)
+        # 去重保序
+        seen = set()
+        uniq = []
+        for a in assets:
+            if a not in seen:
+                seen.add(a)
+                uniq.append(a)
+        values['assets'] = uniq
+        return normalize_report(values)
 
     def _fields_snapshot(self, source: dict | None = None) -> dict:
-        src = source if isinstance(source, dict) else {}
-        return {k: str(src.get(k) or '').strip() for k in self._REPORT_FIELDS}
+        return fields_snapshot(source if isinstance(source, dict) else {})
 
     def _is_dirty(self, key: str, values: dict | None = None) -> bool:
-        vals = self._fields_snapshot(values if values is not None else self._current_values())
-        saved = self._fields_snapshot(self._reports.get(key) or {})
-        return any(vals[k] != saved[k] for k in self._REPORT_FIELDS)
+        current = values if values is not None else self._current_values()
+        return is_report_dirty(self._reports.get(key) or {}, current)
+
+    def _apply_report_to_editors(self, report: dict):
+        data = normalize_report(report or {})
+        mapping = (
+            (self.completed, 'completed'),
+            (self.issues, 'issues'),
+            (self.tomorrow, 'tomorrow'),
+            (self.notes, 'notes'),
+        )
+        for editor, key in mapping:
+            editor.set_plain_or_html(data.get(key, ''), data.get(f'{key}_html', ''))
 
     def _stash_current_editors(self):
         """切换日期前：把当前未保存编辑收进草稿缓存。"""
@@ -1134,15 +1195,36 @@ class DailyReportTab(QWidget):
         values = self._current_values()
         if self._is_dirty(self._loaded_key, values):
             self._drafts[self._loaded_key] = self._fields_snapshot(values)
+            self._schedule_draft_persist()
         else:
-            self._drafts.pop(self._loaded_key, None)
+            if self._loaded_key in self._drafts:
+                self._drafts.pop(self._loaded_key, None)
+                self._schedule_draft_persist()
+
+    def _schedule_draft_persist(self):
+        if hasattr(self, '_draft_timer'):
+            self._draft_timer.start()
+
+    def _persist_drafts_quiet(self):
+        try:
+            save_drafts(self._drafts)
+        except OSError:
+            pass
+
+    def _autosave_tick(self):
+        if self._loading or not self._loaded_key:
+            return
+        if self._is_dirty(self._loaded_key):
+            self._drafts[self._loaded_key] = self._fields_snapshot(self._current_values())
+            self._persist_drafts_quiet()
+            self._update_unsaved_hint()
 
     def _update_unsaved_hint(self):
         if not hasattr(self, 'unsaved_label'):
             return
         key = self._loaded_key or self._date_key()
         if self._is_dirty(key):
-            self.unsaved_label.setText('● 未保存（切换日期会保留草稿）')
+            self.unsaved_label.setText('● 未保存（草稿已自动缓存）')
         else:
             self.unsaved_label.setText('')
 
@@ -1150,6 +1232,37 @@ class DailyReportTab(QWidget):
         if self._loading:
             return
         self._update_unsaved_hint()
+        self._schedule_draft_persist()
+
+    def _on_image_error(self, message: str):
+        show_warning(self, '插入图片', message or '插入失败')
+
+    def _focused_editor(self) -> DailyRichEdit:
+        focus = self.focusWidget()
+        if isinstance(focus, DailyRichEdit):
+            return focus
+        return self.completed
+
+    def _insert_image_to_focus(self):
+        editor = self._focused_editor()
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, '选择图片', '',
+            'Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp);;All (*.*)',
+        )
+        for path in paths:
+            editor.insert_image_from_path(path)
+
+    def list_date_keys(self) -> list[str]:
+        """遍历历史树中的全部日期键（测试/外部用）。"""
+        keys = []
+        tree = self.date_tree
+        for i in range(tree.topLevelItemCount()):
+            group = tree.topLevelItem(i)
+            for j in range(group.childCount()):
+                child = group.child(j)
+                if child.data(0, self._ROLE_KIND) == 'date':
+                    keys.append(str(child.data(0, Qt.ItemDataRole.UserRole) or ''))
+        return [k for k in keys if k]
 
     def _go_today(self):
         today = QDate.currentDate()
@@ -1161,57 +1274,158 @@ class DailyReportTab(QWidget):
     def _on_date_edit_changed(self, date_value):
         self._load_date(date_value)
 
+    def _date_label(self, date_value: str) -> str:
+        from tools.list_pin import decorate_title, namespace_is_pinned
+        today = datetime.date.today().isoformat()
+        label = date_value
+        if date_value == today:
+            label = f'{date_value}（今天）'
+        if date_value in self._drafts and self._is_dirty(date_value, self._drafts[date_value]):
+            label = f'{label} · 未保存'
+        elif date_value not in self._reports:
+            label = f'{label} · 未写'
+        pinned = namespace_is_pinned('daily_report', date_value)
+        return decorate_title(label, pinned)
+
     def _refresh_dates(self):
-        from tools.list_pin import decorate_title, namespace_is_pinned, namespace_pinned_at
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        from tools.list_pin import namespace_is_pinned, namespace_pinned_at
         current = self._date_key() if hasattr(self, 'date_edit') else ''
         today = datetime.date.today().isoformat()
         keys = set(self._reports) | set(self._drafts)
         if current:
             keys.add(current)
         keys.add(today)
-        self.date_list.blockSignals(True)
-        self.date_list.clear()
+        keys = {str(k)[:10] for k in keys if str(k)[:10]}
+
+        collapsed = set(self._reminder.get('history_collapsed_months') or [])
+        current_month = today[:7]
+        expand_pinned = bool(self._reminder.get('history_expand_pinned', True))
+
+        self.date_tree.blockSignals(True)
+        self.date_tree.clear()
         selected = None
-        # 置顶日期优先，再按日期倒序
-        ordered = sorted(
-            keys,
-            key=lambda d: (
-                0 if namespace_is_pinned('daily_report', d) else 1,
-                namespace_pinned_at('daily_report', d) if namespace_is_pinned('daily_report', d) else '',
-                d,
-            ),
-            reverse=True,
-        )
-        # reverse 会让日期与 pinned_at 都倒序；置顶标志 0 会变成排在后？需要再分桶
+
         pinned_dates = [d for d in keys if namespace_is_pinned('daily_report', d)]
         plain_dates = [d for d in keys if not namespace_is_pinned('daily_report', d)]
         pinned_dates.sort(key=lambda d: (namespace_pinned_at('daily_report', d), d), reverse=True)
-        plain_dates.sort(reverse=True)
-        ordered = pinned_dates + plain_dates
-        for date_value in ordered:
-            label = date_value
-            if date_value == today:
-                label = f'{date_value}（今天）'
-            if date_value in self._drafts and self._is_dirty(date_value, self._drafts[date_value]):
-                label = f'{label} · 未保存'
-            elif date_value not in self._reports:
-                label = f'{label} · 未写'
-            pinned = namespace_is_pinned('daily_report', date_value)
-            item = QListWidgetItem(decorate_title(label, pinned))
-            item.setData(Qt.ItemDataRole.UserRole, date_value)
-            self.date_list.addItem(item)
-            if date_value == current:
-                selected = item
+
+        if pinned_dates:
+            pin_header = QTreeWidgetItem([f'置顶  ·  {len(pinned_dates)}'])
+            pin_header.setData(0, Qt.ItemDataRole.UserRole, '__pinned__')
+            pin_header.setData(0, self._ROLE_KIND, 'pinned')
+            font = pin_header.font(0)
+            font.setBold(True)
+            pin_header.setFont(0, font)
+            self.date_tree.addTopLevelItem(pin_header)
+            pin_header.setExpanded(expand_pinned)
+            for date_value in pinned_dates:
+                child = QTreeWidgetItem([self._date_label(date_value)])
+                child.setData(0, Qt.ItemDataRole.UserRole, date_value)
+                child.setData(0, self._ROLE_KIND, 'date')
+                pin_header.addChild(child)
+                if date_value == current:
+                    selected = child
+
+        groups = group_dates_by_month(plain_dates)
+        for mk in sorted(groups.keys(), reverse=True):
+            dates = groups[mk]
+            written = sum(1 for d in dates if d in self._reports)
+            total_days = days_in_month(mk) or len(dates)
+            header_text = f'{month_label(mk, self.language)}  ·  已写 {written}/{total_days}'
+            header = QTreeWidgetItem([header_text])
+            header.setData(0, Qt.ItemDataRole.UserRole, mk)
+            header.setData(0, self._ROLE_KIND, 'month')
+            font = header.font(0)
+            font.setBold(True)
+            header.setFont(0, font)
+            self.date_tree.addTopLevelItem(header)
+            # 当前月：默认展开，除非在 collapsed；其它月：仅当在 expanded_months
+            expanded_months = set(self._reminder.get('history_expanded_months') or [])
+            if mk == current_month:
+                expanded = mk not in collapsed
+            else:
+                expanded = mk in expanded_months
+            header.setExpanded(expanded)
+            for date_value in dates:
+                child = QTreeWidgetItem([self._date_label(date_value)])
+                child.setData(0, Qt.ItemDataRole.UserRole, date_value)
+                child.setData(0, self._ROLE_KIND, 'date')
+                header.addChild(child)
+                if date_value == current:
+                    selected = child
+
         if selected is not None:
-            self.date_list.setCurrentItem(selected)
-        self.date_list.blockSignals(False)
+            self.date_tree.setCurrentItem(selected)
+        self.date_tree.blockSignals(False)
+
+    def _on_month_expand_changed(self, item):
+        if item is None or self._loading:
+            return
+        kind = item.data(0, self._ROLE_KIND)
+        if kind not in ('month', 'pinned'):
+            return
+        key = str(item.data(0, Qt.ItemDataRole.UserRole) or '')
+        if kind == 'pinned':
+            self._reminder['history_expand_pinned'] = bool(item.isExpanded())
+            save_reminder_settings(self._reminder)
+            return
+        if not key:
+            return
+        today_month = datetime.date.today().strftime('%Y-%m')
+        collapsed = set(self._reminder.get('history_collapsed_months') or [])
+        expanded_months = set(self._reminder.get('history_expanded_months') or [])
+        if item.isExpanded():
+            collapsed.discard(key)
+            if key != today_month:
+                expanded_months.add(key)
+        else:
+            if key == today_month:
+                collapsed.add(key)
+            expanded_months.discard(key)
+        self._reminder['history_collapsed_months'] = sorted(collapsed)
+        self._reminder['history_expanded_months'] = sorted(expanded_months)
+        save_reminder_settings(self._reminder)
+
+    def _set_all_months_expanded(self, expanded: bool):
+        self.date_tree.blockSignals(True)
+        collapsed = set()
+        expanded_months = set()
+        today_month = datetime.date.today().strftime('%Y-%m')
+        for i in range(self.date_tree.topLevelItemCount()):
+            item = self.date_tree.topLevelItem(i)
+            kind = item.data(0, self._ROLE_KIND)
+            item.setExpanded(expanded)
+            if kind == 'month':
+                mk = str(item.data(0, Qt.ItemDataRole.UserRole) or '')
+                if not mk:
+                    continue
+                if expanded:
+                    if mk != today_month:
+                        expanded_months.add(mk)
+                else:
+                    if mk == today_month:
+                        collapsed.add(mk)
+            if kind == 'pinned':
+                self._reminder['history_expand_pinned'] = expanded
+        self.date_tree.blockSignals(False)
+        self._reminder['history_collapsed_months'] = sorted(collapsed)
+        self._reminder['history_expanded_months'] = sorted(expanded_months)
+        save_reminder_settings(self._reminder)
 
     def _show_date_menu(self, point):
-        item = self.date_list.itemAt(point)
+        item = self.date_tree.itemAt(point)
         if not item:
             return
-        date_value = item.data(Qt.ItemDataRole.UserRole)
-        if not date_value:
+        kind = item.data(0, self._ROLE_KIND)
+        if kind in ('month', 'pinned'):
+            menu = QMenu(self)
+            menu.addAction('全部展开', lambda: self._set_all_months_expanded(True))
+            menu.addAction('全部折叠', lambda: self._set_all_months_expanded(False))
+            menu.exec(self.date_tree.viewport().mapToGlobal(point))
+            return
+        date_value = item.data(0, Qt.ItemDataRole.UserRole)
+        if not date_value or kind != 'date':
             return
         from tools.list_pin import namespace_is_pinned, pin_action_label, set_namespace_pinned
         pinned = namespace_is_pinned('daily_report', date_value)
@@ -1223,7 +1437,7 @@ class DailyReportTab(QWidget):
                 self._refresh_dates(),
             )
         )
-        menu.exec(self.date_list.viewport().mapToGlobal(point))
+        menu.exec(self.date_tree.viewport().mapToGlobal(point))
 
     def _load_date(self, date_value):
         if self._loading:
@@ -1247,12 +1461,10 @@ class DailyReportTab(QWidget):
                     self.date_edit.blockSignals(False)
             if not key:
                 key = self._date_key()
+            self._sync_editors_date(key)
             # 优先未保存草稿，再回落已保存
             report = self._drafts.get(key) or self._reports.get(key) or {}
-            self.completed.setPlainText(report.get('completed', ''))
-            self.issues.setPlainText(report.get('issues', ''))
-            self.tomorrow.setPlainText(report.get('tomorrow', ''))
-            self.notes.setPlainText(report.get('notes', ''))
+            self._apply_report_to_editors(report)
             self._loaded_key = key
             self.delete_btn.setEnabled(key in self._reports)
             self._refresh_dates()
@@ -1263,7 +1475,10 @@ class DailyReportTab(QWidget):
     def _select_history(self, current, _previous=None):
         if not current or self._loading:
             return
-        date_value = current.data(Qt.ItemDataRole.UserRole)
+        kind = current.data(0, self._ROLE_KIND)
+        if kind != 'date':
+            return
+        date_value = current.data(0, Qt.ItemDataRole.UserRole)
         date = QDate.fromString(str(date_value), 'yyyy-MM-dd')
         if not date.isValid():
             return
@@ -1274,9 +1489,11 @@ class DailyReportTab(QWidget):
 
     def _save_report(self):
         key = self._date_key()
+        self._sync_editors_date(key)
         self._reports[key] = self._current_values()
         self._drafts.pop(key, None)
         save_reports(self._reports)
+        self._persist_drafts_quiet()
         self._loaded_key = key
         self._refresh_dates()
         self.delete_btn.setEnabled(True)
@@ -1290,7 +1507,7 @@ class DailyReportTab(QWidget):
         """把当前编辑内容（含未保存）一键写成今天的日报草稿。"""
         source_key = self._loaded_key or self._date_key()
         payload = self._fields_snapshot(self._current_values())
-        if not any(payload.values()):
+        if not any(payload.get(k) or payload.get(f'{k}_html') for k in self._REPORT_FIELDS):
             show_warning(self, '日报', '当前内容为空，没有可复制的内容。')
             return
         today = datetime.date.today().isoformat()
@@ -1301,16 +1518,15 @@ class DailyReportTab(QWidget):
         # 暂存源日草稿后切到今天并写入
         self._stash_current_editors()
         self._drafts[today] = dict(payload)
+        self._schedule_draft_persist()
         self._loading = True
         try:
             if self.date_edit.date() != today_date:
                 self.date_edit.blockSignals(True)
                 self.date_edit.setDate(today_date)
                 self.date_edit.blockSignals(False)
-            self.completed.setPlainText(payload.get('completed', ''))
-            self.issues.setPlainText(payload.get('issues', ''))
-            self.tomorrow.setPlainText(payload.get('tomorrow', ''))
-            self.notes.setPlainText(payload.get('notes', ''))
+            self._sync_editors_date(today)
+            self._apply_report_to_editors(payload)
             self._loaded_key = today
             self.delete_btn.setEnabled(today in self._reports)
             self._refresh_dates()
@@ -1326,11 +1542,19 @@ class DailyReportTab(QWidget):
         key = self._date_key()
         if key not in self._reports and key not in self._drafts:
             return
-        if not confirm_action(self, '删除日报', f'即将删除 {key} 的日报。\n\n删除后无法恢复，是否继续？'):
+        if not confirm_action(
+            self, '删除日报',
+            f'即将删除 {key} 的日报。\n\n将同时删除当日配图文件。\n删除后无法恢复，是否继续？',
+        ):
             return
         self._reports.pop(key, None)
         self._drafts.pop(key, None)
         save_reports(self._reports)
+        self._persist_drafts_quiet()
+        try:
+            cleanup_day_assets(key)
+        except OSError:
+            pass
         self._loaded_key = ''
         self._refresh_dates()
         self._load_date(self.date_edit.date())
@@ -1418,9 +1642,9 @@ class DailyReportTab(QWidget):
         template = daily_template(requirement)
         for editor, key in ((self.completed, 'completed'), (self.tomorrow, 'tomorrow'), (self.notes, 'notes')):
             current = editor.toPlainText().strip()
-            addition = template[key]
-            if addition not in current:
-                editor.setPlainText('\n'.join(part for part in (current, addition) if part))
+            addition = template.get(key) or ''
+            if addition and addition not in current:
+                editor.append(addition)
         self._save_report()
 
 

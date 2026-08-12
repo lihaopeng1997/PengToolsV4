@@ -57,6 +57,8 @@ SETTINGS_FILE = os.path.join(CONFIG_DIR, 'settings.json')
 PRIVATE_KNOWLEDGE_FILE = os.path.join(CONFIG_DIR, 'private_knowledge.json')
 DAILY_REPORTS_FILE = os.path.join(CONFIG_DIR, 'daily_reports.json')
 DAILY_REPORT_SETTINGS_FILE = os.path.join(CONFIG_DIR, 'daily_report_settings.json')
+DAILY_REPORT_DRAFTS_FILE = os.path.join(CONFIG_DIR, 'daily_report_drafts.json')
+DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
