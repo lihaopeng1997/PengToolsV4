@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import datetime
+import os
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -8,31 +9,23 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from panels.credit_panel import CreditCodePanel
-from panels.dashboard_panel import DashboardPanel
-from panels.docx_panel import DocxUpdatePanel
-from panels.format_panel import FormatToolsPanel
-from panels.gateway_panel import GatewayDecodePanel
-from panels.interface_debug_panel import InterfaceDebugPanel
-from panels.ops_log_panel import OpsLogPanel
-from panels.ops_panel import OpsPanel
-from panels.personal_panel import PersonalPanel
-from panels.requirement_panel import RequirementPanel
-from panels.settings_panel import SettingsPanel
-from panels.sql_panel import SqlToolPanel
-from panels.vin_panel import VinPanel
+# 业务面板按需 import/构造（见 _ensure_*），避免启动时一次加载全部模块
 from ui.confirm_dialog import ask_close_action
-from ui.hotkey_service import HotkeyService
-from ui.keep_awake_service import KeepAwakeService
 from ui.field_metrics import size_combo
 from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
 from ui.navigation_model import GROUP_LABELS, NAV_MODEL, display_name
-from ui.quick_panel import QuickPanel
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
-from ui.tray_service import TrayService
 from config import (
     APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text,
     load_settings, normalize_settings, save_settings,
+)
+
+# stack index → 属性名（与 _stack_index_for_nav 一致，0–12）
+_STACK_PANEL_ATTRS = (
+    'dashboard_panel', 'credit_panel', 'sql_panel', 'docx_panel',
+    'vin_panel', 'gateway_panel', 'ops_panel', 'settings_panel',
+    'personal_panel', 'requirement_panel', 'format_panel',
+    'interface_debug_panel', 'ops_log_panel',
 )
 
 
@@ -44,8 +37,13 @@ class MainWindow(QMainWindow):
         self._settings = load_settings()
         self.language = self._settings['default_language']
         self.hotkey_service = None
+        self.tray_service = None
+        self.keep_awake_service = None
+        self.quick_panel = None
         self._force_exit = False
         self._shutting_down = False
+        self._startup_ready = False
+        self._boot_step = 0
         # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
         self._private_unlocked = bool(self._settings.get('private_unlocked', False))
         self._current_nav_index = 0
@@ -58,42 +56,43 @@ class MainWindow(QMainWindow):
         self._center_on_screen()
         self._layout_controller = LayoutModeController(self)
         self._layout_controller.layout_mode_changed.connect(self._on_layout_mode)
-        self._setup_ui()
+        # 面板槽位先占位，仅工作台即时创建 → 主窗口可立刻 show
+        for attr in _STACK_PANEL_ATTRS:
+            setattr(self, attr, None)
+        self._setup_ui_shell()
         self._egg_clicks = 0
         self._completed_tasks = 0
         self.version_label.installEventFilter(self)
         self.clock_label.installEventFilter(self)
         self.user_chip.installEventFilter(self)
-        self.quick_panel = QuickPanel(self, self.language)
-        self.settings_panel.floating_opacity_preview.connect(self.quick_panel.set_opacity)
-        self.settings_panel.edit_floating_shortcuts.connect(self._open_floating_shortcuts_editor)
-        self.quick_panel.apply_preferences(
-            self._settings['floating_opacity'], self._settings['floating_always_on_top']
-        )
-        self.quick_panel.apply_shortcuts(
-            self._settings.get('floating_shortcuts'),
-            private_unlocked=self._private_unlocked,
-        )
-        if self._private_unlocked:
-            self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
-        if self._settings['floating_show_on_startup']:
-            self.quick_panel.show()
-        self.tray_service = TrayService(self)
-        self.keep_awake_service = KeepAwakeService(self)
-        self._setup_hotkeys()
         self._setup_clock()
         language_index = 0 if self.language == 'zh' else 1
         self._language_index = language_index
-        self._set_language(language_index)
-        self._apply_settings(self._settings, persist=False)
+        self._apply_nav_texts()
         self._apply_density_preferences(self._settings, apply_startup_sidebar=True)
-        QTimer.singleShot(0, lambda: self._layout_controller.force(self.width(), self.height()))
+        # 先建工作台，用户立刻看到首页骨架
+        self._ensure_dashboard_panel()
+        self.stack.setCurrentIndex(0)
+        self._show_startup_loading('正在加载模块…' if self.language == 'zh' else 'Loading modules…')
+        # 测试/offscreen：同步 boot，避免用例拿到半成品窗口
+        if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or os.environ.get('PENGTOOLS_SYNC_BOOT') == '1':
+            self._complete_startup_sync()
+        else:
+            QTimer.singleShot(0, self._startup_tick)
 
     def _center_on_screen(self):
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.center() - self.rect().center())
 
-    def _setup_ui(self):
+    def _make_stack_host(self):
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        return host, layout
+
+    def _setup_ui_shell(self):
+        """仅壳：侧栏 + Stack 占位 + 状态栏。重面板延后构造。"""
         central = QWidget()
         self.setCentralWidget(central)
         layout = QHBoxLayout(central)
@@ -112,69 +111,19 @@ class MainWindow(QMainWindow):
             self.stack.sizePolicy().horizontalPolicy(),
             self.stack.sizePolicy().verticalPolicy(),
         )
-        self.dashboard_panel = DashboardPanel(self.language)
-        self.credit_panel = CreditCodePanel()
-        self.sql_panel = SqlToolPanel()
-        self.docx_panel = DocxUpdatePanel(self.language)
-        self.vin_panel = VinPanel(self.language)
-        self.gateway_panel = GatewayDecodePanel(self.language)
-        self.ops_panel = OpsPanel(self.language)
-        # 日志排查 / 接口排查体量大：占位 host + 首次进入再实例化，降低冷启动内存
-        self.ops_log_panel = None
-        self.interface_debug_panel = None
-        self._ops_log_host = QWidget()
-        self._ops_log_host_layout = QVBoxLayout(self._ops_log_host)
-        self._ops_log_host_layout.setContentsMargins(0, 0, 0, 0)
-        self._iface_host = QWidget()
-        self._iface_host_layout = QVBoxLayout(self._iface_host)
-        self._iface_host_layout.setContentsMargins(0, 0, 0, 0)
-        self.settings_panel = SettingsPanel(self._settings, self.language)
-        self.personal_panel = PersonalPanel(self.language)
-        self.requirement_panel = RequirementPanel(self.language)
-        self.format_panel = FormatToolsPanel(self.language)
-        # stack 顺序保持 0–9 历史映射；格式工具 10；接口排查 11；日志排查 12（nav 13）
-        for panel in (
-            self.dashboard_panel, self.credit_panel, self.sql_panel, self.docx_panel,
-            self.vin_panel, self.gateway_panel, self.ops_panel, self.settings_panel,
-            self.personal_panel, self.requirement_panel, self.format_panel,
-            self._iface_host, self._ops_log_host,
-        ):
-            self.stack.addWidget(panel)
-        self.dashboard_panel.open_credit.connect(lambda: self._show_panel(1))
-        self.dashboard_panel.open_sql.connect(lambda: self._show_panel(2))
-        self.dashboard_panel.open_docx.connect(lambda: self._show_panel(3))
-        self.dashboard_panel.open_vin.connect(lambda: self._show_panel(4))
-        self.dashboard_panel.open_gateway.connect(lambda: self._show_panel(5))
-        self.dashboard_panel.open_ops.connect(lambda: self._show_panel(13))
-        if hasattr(self.dashboard_panel, 'open_requirements'):
-            self.dashboard_panel.open_requirements.connect(lambda: self._show_panel(10))
-        if hasattr(self.dashboard_panel, 'open_requirement'):
-            self.dashboard_panel.open_requirement.connect(self._open_requirement_from_dashboard)
-        self.gateway_panel.open_format_xml.connect(self._open_format_xml)
-        self.gateway_panel.open_interface_debug.connect(lambda: self._show_panel(12))
-        self.personal_panel.reminder_due.connect(self._show_private_notification)
-        self.requirement_panel.send_to_sql.connect(self._receive_requirement_sql)
-        self.requirement_panel.send_to_docx.connect(self._receive_requirement_docx)
-        self.requirement_panel.add_to_daily.connect(self._add_requirement_to_daily)
-        self.requirement_panel.open_system_config.connect(self._open_system_config)
-        self.requirement_panel.open_release_prep.connect(self._open_release_prep)
-        # 编辑保存且涉及上线字段时定位月份；其它变更只刷新数据并保留用户月份选择
-        self.requirement_panel.requirement_saved.connect(self.dashboard_panel.refresh_for_requirement)
-        self.requirement_panel.requirements_changed.connect(
-            lambda: self.dashboard_panel.refresh(preferred_release_month=None)
-        )
-        # 工作台若改台账才回刷需求树（当前完成态独立，通常不触发）
-        if hasattr(self.dashboard_panel, 'requirements_updated'):
-            self.dashboard_panel.requirements_updated.connect(self.requirement_panel.reload_requirements)
-        self.settings_panel.settings_changed.connect(self._apply_settings)
-        self.settings_panel.reset_floating_position.connect(self._reset_floating_position)
-        # 设置页日报提醒 ↔ 日报模块状态条 双向同步
-        if hasattr(self.settings_panel, 'reminder_settings_changed'):
-            self.settings_panel.reminder_settings_changed.connect(
-                self.personal_panel.reload_reminder_settings
-            )
-        self.sql_panel.task_completed.connect(self._record_success)
-        self.docx_panel.task_completed.connect(self._record_success)
+        self._panel_hosts = []
+        self._panel_host_layouts = []
+        for _ in range(len(_STACK_PANEL_ATTRS)):
+            host, host_layout = self._make_stack_host()
+            self._panel_hosts.append(host)
+            self._panel_host_layouts.append(host_layout)
+            self.stack.addWidget(host)
+        # 兼容旧引用：接口/日志 host
+        self._iface_host = self._panel_hosts[11]
+        self._iface_host_layout = self._panel_host_layouts[11]
+        self._ops_log_host = self._panel_hosts[12]
+        self._ops_log_host_layout = self._panel_host_layouts[12]
+
         self._content_layout.addWidget(self.stack)
         layout.addWidget(content, 1)
 
@@ -185,6 +134,346 @@ class MainWindow(QMainWindow):
         self.clock_label.setObjectName('clock-label')
         self.status_bar.addPermanentWidget(self.clock_label)
         self.layout_mode_changed.connect(self._broadcast_layout_mode)
+
+        from ui.aurora_progress import AuroraProgress
+        self._startup_loading = AuroraProgress(self.centralWidget())
+        self._startup_loading.hide()
+
+    def _show_startup_loading(self, message: str):
+        if not hasattr(self, '_startup_loading') or self._startup_loading is None:
+            return
+        self._startup_loading.setParent(self.centralWidget())
+        self._startup_loading.start_busy(message)
+        self._startup_loading.place_overlay(self.centralWidget())
+        self._startup_loading.raise_()
+
+    def _hide_startup_loading(self):
+        if hasattr(self, '_startup_loading') and self._startup_loading is not None:
+            try:
+                self._startup_loading._timer.stop()
+            except Exception:
+                pass
+            self._startup_loading.hide()
+
+    def _mount_panel(self, stack_index: int, panel: QWidget):
+        """把面板挂到 Stack 固定下标；替换占位 host，使 currentWidget() 即业务面板。"""
+        old = self.stack.widget(stack_index)
+        was_current = self.stack.currentIndex() == stack_index
+        # 先 insert 再 remove，避免 index 漂移
+        self.stack.insertWidget(stack_index, panel)
+        if old is not None and old is not panel:
+            self.stack.removeWidget(old)
+            old.setParent(None)
+            old.deleteLater()
+        # insert 后同 index 可能变成 panel 在 stack_index，再清掉挤到 stack_index+1 的旧件
+        # 上面 remove 已处理；再校正 current
+        if was_current:
+            self.stack.setCurrentIndex(stack_index)
+        if stack_index < len(self._panel_hosts):
+            self._panel_hosts[stack_index] = panel
+        if stack_index == 11:
+            self._iface_host = panel
+        elif stack_index == 12:
+            self._ops_log_host = panel
+
+    def _apply_panel_chrome(self, panel):
+        if panel is None:
+            return
+        if hasattr(panel, 'set_language'):
+            try:
+                panel.set_language(self.language)
+            except Exception:
+                pass
+        if hasattr(panel, 'apply_layout_mode'):
+            try:
+                panel.apply_layout_mode(self._layout_mode, False)
+            except Exception:
+                pass
+
+    def _ensure_dashboard_panel(self):
+        if self.dashboard_panel is not None:
+            return self.dashboard_panel
+        from panels.dashboard_panel import DashboardPanel
+        panel = DashboardPanel(self.language)
+        panel.open_credit.connect(lambda: self._show_panel(1))
+        panel.open_sql.connect(lambda: self._show_panel(2))
+        panel.open_docx.connect(lambda: self._show_panel(3))
+        panel.open_vin.connect(lambda: self._show_panel(4))
+        panel.open_gateway.connect(lambda: self._show_panel(5))
+        panel.open_ops.connect(lambda: self._show_panel(13))
+        if hasattr(panel, 'open_requirements'):
+            panel.open_requirements.connect(lambda: self._show_panel(10))
+        if hasattr(panel, 'open_requirement'):
+            panel.open_requirement.connect(self._open_requirement_from_dashboard)
+        self._mount_panel(0, panel)
+        self.dashboard_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_credit_panel(self):
+        if self.credit_panel is not None:
+            return self.credit_panel
+        from panels.credit_panel import CreditCodePanel
+        panel = CreditCodePanel()
+        self._mount_panel(1, panel)
+        self.credit_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_sql_panel(self):
+        if self.sql_panel is not None:
+            return self.sql_panel
+        from panels.sql_panel import SqlToolPanel
+        panel = SqlToolPanel()
+        panel.task_completed.connect(self._record_success)
+        self._mount_panel(2, panel)
+        self.sql_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_docx_panel(self):
+        if self.docx_panel is not None:
+            return self.docx_panel
+        from panels.docx_panel import DocxUpdatePanel
+        panel = DocxUpdatePanel(self.language)
+        panel.task_completed.connect(self._record_success)
+        self._mount_panel(3, panel)
+        self.docx_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_vin_panel(self):
+        if self.vin_panel is not None:
+            return self.vin_panel
+        from panels.vin_panel import VinPanel
+        panel = VinPanel(self.language)
+        self._mount_panel(4, panel)
+        self.vin_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_gateway_panel(self):
+        if self.gateway_panel is not None:
+            return self.gateway_panel
+        from panels.gateway_panel import GatewayDecodePanel
+        panel = GatewayDecodePanel(self.language)
+        panel.open_format_xml.connect(self._open_format_xml)
+        panel.open_interface_debug.connect(lambda: self._show_panel(12))
+        self._mount_panel(5, panel)
+        self.gateway_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_ops_panel(self):
+        if self.ops_panel is not None:
+            return self.ops_panel
+        from panels.ops_panel import OpsPanel
+        panel = OpsPanel(self.language)
+        self._mount_panel(6, panel)
+        self.ops_panel = panel
+        self._apply_panel_chrome(panel)
+        if self._settings:
+            try:
+                panel.set_copy_feedback_duration(self._settings.get('copy_feedback_ms', 1500))
+            except Exception:
+                pass
+        return panel
+
+    def _ensure_settings_panel(self):
+        if self.settings_panel is not None:
+            return self.settings_panel
+        from panels.settings_panel import SettingsPanel
+        panel = SettingsPanel(self._settings, self.language)
+        panel.settings_changed.connect(self._apply_settings)
+        panel.reset_floating_position.connect(self._reset_floating_position)
+        self._mount_panel(7, panel)
+        self.settings_panel = panel
+        self._apply_panel_chrome(panel)
+        # 与日报/悬浮栏的交叉信号在对方就绪后再接
+        self._try_wire_settings_cross()
+        return panel
+
+    def _ensure_personal_panel(self):
+        if self.personal_panel is not None:
+            return self.personal_panel
+        from panels.personal_panel import PersonalPanel
+        panel = PersonalPanel(self.language)
+        panel.reminder_due.connect(self._show_private_notification)
+        self._mount_panel(8, panel)
+        self.personal_panel = panel
+        self._apply_panel_chrome(panel)
+        self._try_wire_settings_cross()
+        return panel
+
+    def _ensure_requirement_panel(self):
+        if self.requirement_panel is not None:
+            return self.requirement_panel
+        from panels.requirement_panel import RequirementPanel
+        panel = RequirementPanel(self.language)
+        panel.send_to_sql.connect(self._receive_requirement_sql)
+        panel.send_to_docx.connect(self._receive_requirement_docx)
+        panel.add_to_daily.connect(self._add_requirement_to_daily)
+        panel.open_system_config.connect(self._open_system_config)
+        panel.open_release_prep.connect(self._open_release_prep)
+        if self.dashboard_panel is not None:
+            panel.requirement_saved.connect(self.dashboard_panel.refresh_for_requirement)
+            panel.requirements_changed.connect(
+                lambda: self.dashboard_panel.refresh(preferred_release_month=None)
+            )
+            if hasattr(self.dashboard_panel, 'requirements_updated'):
+                self.dashboard_panel.requirements_updated.connect(panel.reload_requirements)
+        self._mount_panel(9, panel)
+        self.requirement_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_format_panel(self):
+        if self.format_panel is not None:
+            return self.format_panel
+        from panels.format_panel import FormatToolsPanel
+        panel = FormatToolsPanel(self.language)
+        self._mount_panel(10, panel)
+        self.format_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _try_wire_settings_cross(self):
+        """设置 ↔ 日报提醒 / 悬浮栏：双方都创建后才接线。"""
+        settings = self.settings_panel
+        personal = self.personal_panel
+        if settings is not None and personal is not None:
+            if hasattr(settings, 'reminder_settings_changed') and not getattr(self, '_wired_reminder', False):
+                settings.reminder_settings_changed.connect(personal.reload_reminder_settings)
+                self._wired_reminder = True
+        if settings is not None and self.quick_panel is not None and not getattr(self, '_wired_float', False):
+            settings.floating_opacity_preview.connect(self.quick_panel.set_opacity)
+            settings.edit_floating_shortcuts.connect(self._open_floating_shortcuts_editor)
+            self._wired_float = True
+
+    def _ensure_services(self):
+        """托盘 / 热键 / 悬浮栏 / 防休眠（窗口显示后再建，缩短白屏前耗时）。"""
+        if self.quick_panel is None:
+            from ui.quick_panel import QuickPanel
+            self.quick_panel = QuickPanel(self, self.language)
+            self.quick_panel.apply_preferences(
+                self._settings['floating_opacity'], self._settings['floating_always_on_top']
+            )
+            self.quick_panel.apply_shortcuts(
+                self._settings.get('floating_shortcuts'),
+                private_unlocked=self._private_unlocked,
+            )
+            self._try_wire_settings_cross()
+            if self._private_unlocked:
+                self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
+            if self._settings.get('floating_show_on_startup') and self._startup_ready:
+                self.quick_panel.show()
+        if self.tray_service is None:
+            from ui.tray_service import TrayService
+            self.tray_service = TrayService(self)
+        if self.keep_awake_service is None:
+            from ui.keep_awake_service import KeepAwakeService
+            self.keep_awake_service = KeepAwakeService(self)
+            self.keep_awake_service.apply_preferences(
+                self._settings.get('keep_awake_enabled', False),
+                self._settings.get('keep_awake_interval_minutes', 5),
+            )
+        if self.hotkey_service is None:
+            self._setup_hotkeys()
+
+    def _ensure_panel_for_nav(self, nav_index: int):
+        """按导航进入时确保对应面板已创建。"""
+        stack = self._stack_index_for_nav(nav_index)
+        ensure_map = {
+            0: self._ensure_dashboard_panel,
+            1: self._ensure_credit_panel,
+            2: self._ensure_sql_panel,
+            3: self._ensure_docx_panel,
+            4: self._ensure_vin_panel,
+            5: self._ensure_gateway_panel,
+            6: self._ensure_ops_panel,
+            7: self._ensure_settings_panel,
+            8: self._ensure_personal_panel,
+            9: self._ensure_requirement_panel,
+            10: self._ensure_format_panel,
+            11: self._ensure_interface_debug_panel,
+            12: self._ensure_ops_log_panel,
+        }
+        fn = ensure_map.get(stack)
+        if fn is not None:
+            return fn()
+        return None
+
+    def _startup_tick(self):
+        """分步加载：每步构造一块，并 processEvents 保持可绘制。"""
+        if self._shutting_down:
+            return
+        steps = [
+            ('正在加载设置…', self._ensure_settings_panel),
+            ('正在加载证件与 VIN…', lambda: (self._ensure_credit_panel(), self._ensure_vin_panel())),
+            ('正在加载运维与网关…', lambda: (self._ensure_ops_panel(), self._ensure_gateway_panel())),
+            ('正在加载 SQL 与文档…', lambda: (self._ensure_sql_panel(), self._ensure_docx_panel())),
+            ('正在加载格式工具…', self._ensure_format_panel),
+            ('正在加载需求管理…', self._ensure_requirement_panel),
+            ('正在加载个人模块…', self._ensure_personal_panel),
+            ('正在启动托盘与快捷键…', self._ensure_services),
+        ]
+        if self._boot_step < len(steps):
+            message, action = steps[self._boot_step]
+            self._show_startup_loading(message if self.language == 'zh' else 'Loading…')
+            try:
+                action()
+            except Exception as exc:
+                self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
+            self._boot_step += 1
+            QApplication.processEvents()
+            QTimer.singleShot(0, self._startup_tick)
+            return
+        self._finish_startup()
+
+    def _complete_startup_sync(self):
+        """测试/同步模式：一次建齐常用面板（接口/日志仍按需）。"""
+        self._ensure_settings_panel()
+        self._ensure_credit_panel()
+        self._ensure_vin_panel()
+        self._ensure_ops_panel()
+        self._ensure_gateway_panel()
+        self._ensure_sql_panel()
+        self._ensure_docx_panel()
+        self._ensure_format_panel()
+        self._ensure_requirement_panel()
+        self._ensure_personal_panel()
+        self._ensure_services()
+        self._finish_startup()
+
+    def _finish_startup(self):
+        self._startup_ready = True
+        self._hide_startup_loading()
+        # 应用语言/设置到已创建面板
+        for panel in self._iter_created_panels():
+            if hasattr(panel, 'set_language'):
+                try:
+                    panel.set_language(self.language)
+                except Exception:
+                    pass
+        if self.quick_panel is not None:
+            self.quick_panel.set_language(self.language)
+            if self._settings.get('floating_show_on_startup'):
+                self.quick_panel.show()
+        if self.tray_service is not None:
+            try:
+                self.tray_service.set_language(self.language)
+            except Exception:
+                pass
+        try:
+            self._apply_settings(self._settings, persist=False)
+        except Exception:
+            pass
+        self._apply_density_preferences(self._settings, apply_startup_sidebar=False)
+        QTimer.singleShot(0, lambda: self._layout_controller.force(self.width(), self.height()))
+        self.status_bar.showMessage(
+            '离线工作台已就绪' if self.language == 'zh' else 'Offline workspace ready',
+            3000,
+        )
 
     def _create_sidebar(self):
         sidebar = QFrame()
@@ -536,35 +825,25 @@ class MainWindow(QMainWindow):
         """首次进入接口排查时再构造，节省启动内存。"""
         if self.interface_debug_panel is not None:
             return self.interface_debug_panel
+        from panels.interface_debug_panel import InterfaceDebugPanel
         panel = InterfaceDebugPanel(self.language)
         panel.open_gateway.connect(self._open_gateway_from_iface)
         panel.open_format_json.connect(self._open_format_json)
         panel.open_format_xml.connect(self._open_format_xml)
-        if hasattr(panel, 'set_language'):
-            panel.set_language(self.language)
-        if hasattr(panel, 'apply_layout_mode'):
-            try:
-                panel.apply_layout_mode(self._layout_mode, False)
-            except Exception:
-                pass
-        self._iface_host_layout.addWidget(panel)
+        self._mount_panel(11, panel)
         self.interface_debug_panel = panel
+        self._apply_panel_chrome(panel)
         return panel
 
     def _ensure_ops_log_panel(self):
         """首次进入日志排查时再构造。"""
         if self.ops_log_panel is not None:
             return self.ops_log_panel
+        from panels.ops_log_panel import OpsLogPanel
         panel = OpsLogPanel(self.language)
-        if hasattr(panel, 'set_language'):
-            panel.set_language(self.language)
-        if hasattr(panel, 'apply_layout_mode'):
-            try:
-                panel.apply_layout_mode(self._layout_mode, False)
-            except Exception:
-                pass
-        self._ops_log_host_layout.addWidget(panel)
+        self._mount_panel(12, panel)
         self.ops_log_panel = panel
+        self._apply_panel_chrome(panel)
         return panel
 
     def _broadcast_layout_mode(self, mode: str, low_height: bool):
@@ -604,30 +883,30 @@ class MainWindow(QMainWindow):
                 pass
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
+        # 按需创建目标页（启动未完成时也可点开）
+        try:
+            self._ensure_panel_for_nav(index)
+        except Exception as exc:
+            self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)
+            return
         if index == 12:
             try:
-                panel = self._ensure_interface_debug_panel()
-                if hasattr(panel, 'on_panel_activated'):
+                panel = self.interface_debug_panel
+                if panel is not None and hasattr(panel, 'on_panel_activated'):
                     panel.on_panel_activated()
             except Exception:
                 pass
-        elif index == 13:
-            try:
-                self._ensure_ops_log_panel()
-            except Exception:
-                pass
-        if index == 7:
-            # 进入设置：重载日报提醒控件，避免与日报页不同步
+        if index == 7 and self.settings_panel is not None:
             if hasattr(self.settings_panel, 'reload_reminder_from_store'):
                 try:
                     self.settings_panel.reload_reminder_from_store()
                 except Exception:
                     pass
-        elif index == 8:
+        elif index == 8 and self.personal_panel is not None:
             self.personal_panel.open_learning()
-        elif index == 9:
+        elif index == 9 and self.personal_panel is not None:
             self.personal_panel.open_daily_report()
-        elif index == 10:
+        elif index == 10 and self.requirement_panel is not None:
             self.requirement_panel.refresh_systems()
         self.stack.setCurrentIndex(stack_index)
         for position, button in enumerate(self.nav_buttons):
@@ -660,14 +939,16 @@ class MainWindow(QMainWindow):
     def _open_format_xml(self, text: str):
         self._show_panel(11)
         try:
-            self.format_panel.open_xml(text or '')
+            if self.format_panel is not None:
+                self.format_panel.open_xml(text or '')
         except Exception:
             pass
 
     def _open_format_json(self, text: str):
         self._show_panel(11)
         try:
-            self.format_panel.open_json(text or '')
+            if self.format_panel is not None:
+                self.format_panel.open_json(text or '')
         except Exception:
             pass
 
@@ -675,6 +956,8 @@ class MainWindow(QMainWindow):
         """接口排查送入：支持纯文本报文，或 dict{cipher,key}。"""
         self._show_panel(5)
         try:
+            if self.gateway_panel is None:
+                return
             if isinstance(payload, dict):
                 self.gateway_panel.set_cipher_and_key(
                     payload.get('cipher') or payload.get('body') or '',
@@ -688,16 +971,19 @@ class MainWindow(QMainWindow):
     def _open_requirement_from_dashboard(self, requirement):
         self._show_panel(10)
         try:
-            self.requirement_panel.focus_requirement(requirement)
+            if self.requirement_panel is not None:
+                self.requirement_panel.focus_requirement(requirement)
         except Exception:
             pass
 
     def _open_system_config(self):
+        self._ensure_sql_panel()
         self.sql_panel.refresh_config()
         self.sql_panel.tabs.setCurrentIndex(2)
         self._show_panel(2)
 
     def _open_release_prep(self, requirement=None):
+        self._ensure_sql_panel()
         self.sql_panel.refresh_config()
         self.sql_panel.tabs.setCurrentIndex(0)
         date_text = ''
@@ -738,9 +1024,13 @@ class MainWindow(QMainWindow):
         for panel in self._iter_created_panels():
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
-        self.quick_panel.set_language(self.language)
-        if hasattr(self, 'tray_service'):
-            self.tray_service.set_language(self.language)
+        if self.quick_panel is not None:
+            self.quick_panel.set_language(self.language)
+        if self.tray_service is not None:
+            try:
+                self.tray_service.set_language(self.language)
+            except Exception:
+                pass
         self._show_panel(self._current_nav_index)
 
     def _apply_settings(self, settings, *, persist: bool = True):
@@ -780,7 +1070,7 @@ class MainWindow(QMainWindow):
             )
             return False
         self._settings = saved
-        if hasattr(self, 'settings_panel'):
+        if self.settings_panel is not None:
             self.settings_panel.load_values(self._settings)
         if self._settings.get('private_unlocked'):
             self._private_unlocked = True
@@ -800,21 +1090,30 @@ class MainWindow(QMainWindow):
                     panel.refresh_theme()
                 except Exception:
                     pass
-        self.quick_panel.apply_preferences(
-            self._settings['floating_opacity'], self._settings['floating_always_on_top']
-        )
-        self.quick_panel.apply_shortcuts(
-            self._settings.get('floating_shortcuts'),
-            private_unlocked=self._private_unlocked,
-        )
-        self.quick_panel.refresh_brand_icons()
-        if hasattr(self, 'tray_service'):
-            self.tray_service.refresh_icon()
-        self.ops_panel.set_copy_feedback_duration(self._settings['copy_feedback_ms'])
-        self.keep_awake_service.apply_preferences(
-            self._settings['keep_awake_enabled'],
-            self._settings['keep_awake_interval_minutes'],
-        )
+        if self.quick_panel is not None:
+            self.quick_panel.apply_preferences(
+                self._settings['floating_opacity'], self._settings['floating_always_on_top']
+            )
+            self.quick_panel.apply_shortcuts(
+                self._settings.get('floating_shortcuts'),
+                private_unlocked=self._private_unlocked,
+            )
+            self.quick_panel.refresh_brand_icons()
+        if self.tray_service is not None:
+            try:
+                self.tray_service.refresh_icon()
+            except Exception:
+                pass
+        if self.ops_panel is not None:
+            try:
+                self.ops_panel.set_copy_feedback_duration(self._settings['copy_feedback_ms'])
+            except Exception:
+                pass
+        if self.keep_awake_service is not None:
+            self.keep_awake_service.apply_preferences(
+                self._settings['keep_awake_enabled'],
+                self._settings['keep_awake_interval_minutes'],
+            )
         wanted_index = 0 if self._settings['default_language'] == 'zh' else 1
         if self._language_index != wanted_index:
             self._set_language(wanted_index)
@@ -838,14 +1137,22 @@ class MainWindow(QMainWindow):
         return self._apply_settings(settings)
 
     def _reset_floating_position(self):
-        self.quick_panel.reset_position()
+        if self.quick_panel is None:
+            self._ensure_services()
+        if self.quick_panel is not None:
+            self.quick_panel.reset_position()
         self.status_bar.showMessage(
             '悬浮工具栏已重置到屏幕右侧' if self.language == 'zh' else 'Floating toolbar reset to screen right',
             3000,
         )
 
     def _setup_hotkeys(self):
-        self.hotkey_service = HotkeyService(QApplication.instance(), self.quick_panel.show_panel)
+        from ui.hotkey_service import HotkeyService
+        if self.quick_panel is None:
+            # 热键回调在服务创建时再绑悬浮栏
+            self.hotkey_service = HotkeyService(QApplication.instance(), self.toggle_quick_panel)
+        else:
+            self.hotkey_service = HotkeyService(QApplication.instance(), self.quick_panel.show_panel)
         self.hotkey_service.registration_failed.connect(
             lambda: self.status_bar.showMessage('Ctrl+Shift+P 已被其他程序占用', 5000)
         )
@@ -861,7 +1168,10 @@ class MainWindow(QMainWindow):
         self.clock_label.setText(datetime.datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
 
     def toggle_quick_panel(self):
-        self.quick_panel.show_panel()
+        if self.quick_panel is None:
+            self._ensure_services()
+        if self.quick_panel is not None:
+            self.quick_panel.show_panel()
 
     def navigate_to(self, index):
         self._show_panel(index)
@@ -902,14 +1212,19 @@ class MainWindow(QMainWindow):
         return True
 
     def _show_private_notification(self, title, message):
-        self.tray_service.show_message(title, message)
+        if self.tray_service is None:
+            self._ensure_services()
+        if self.tray_service is not None:
+            self.tray_service.show_message(title, message)
 
     def _receive_requirement_sql(self, title, sql):
+        self._ensure_sql_panel()
         self.sql_panel._append_sql_parts([(title, sql)], 'paste')
         self._show_panel(2)
         self.status_bar.showMessage(f'已把“{title}”的 SQL 发送到发版联动', 5000)
 
     def _receive_requirement_docx(self, title, sql):
+        self._ensure_docx_panel()
         current = self.docx_panel.sql_editor.toPlainText().strip()
         block = f'-- 来源需求：{title}\n{sql}'
         self.docx_panel.sql_editor.setPlainText('\n\n'.join(part for part in (current, block) if part))
@@ -917,6 +1232,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f'已把“{title}”的结构 SQL 发送到接口文档更新', 5000)
 
     def _add_requirement_to_daily(self, requirement):
+        self._ensure_personal_panel()
         self.personal_panel.add_requirement_to_daily(requirement)
         self._show_panel(9)
 
@@ -953,7 +1269,7 @@ class MainWindow(QMainWindow):
                 self._settings['close_ask_each_time'] = False
                 self._settings['close_default_action'] = action
                 self._settings = save_settings(self._settings)
-                if hasattr(self, 'settings_panel'):
+                if self.settings_panel is not None:
                     self.settings_panel.load_values(self._settings)
         if action != 'exit':
             event.ignore()
@@ -990,7 +1306,9 @@ class MainWindow(QMainWindow):
                 panel.shutdown_cleanup()
         except Exception:
             pass
-        self.quick_panel.close()
-        self.tray_service.hide()
+        if self.quick_panel is not None:
+            self.quick_panel.close()
+        if self.tray_service is not None:
+            self.tray_service.hide()
         event.accept()
         QApplication.instance().quit()

@@ -71,6 +71,12 @@ def main():
 
     from config import load_settings
     from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID
+    from ui.startup_splash import StartupSplash
+
+    # 尽早闪屏：先让用户看到界面，再加载重模块
+    splash = StartupSplash(app)
+    splash.show()
+    splash.show_status('正在加载主题…')
 
     settings = load_settings()
     theme_id = settings.get('ui_theme', DEFAULT_THEME_ID)
@@ -81,12 +87,14 @@ def main():
         ThemeManager.instance().apply(app, DEFAULT_THEME_ID, font_size=font_size)
 
     # 尽早清理：上次抓包强杀/崩溃残留的系统代理，避免其它接口全挂
+    splash.show_status('正在检查系统代理…')
     try:
         from tools.ie_proxy import ensure_system_proxy_safe
         ensure_system_proxy_safe(reason='app_startup')
     except Exception:
         pass
 
+    splash.show_status('正在打开主窗口…')
     from main_window import MainWindow
     window = MainWindow()
     window.setWindowIcon(app.windowIcon())
@@ -100,6 +108,8 @@ def main():
     # 退出时释放本地服务；最小化托盘不释放
     app.aboutToQuit.connect(guard.release)
     window.show()
+    splash.finish(window)
+    app.processEvents()
 
     return app.exec()
 
