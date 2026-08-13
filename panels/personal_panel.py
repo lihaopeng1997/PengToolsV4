@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
     QInputDialog, QLineEdit, QHeaderView,
-    QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTimeEdit, QVBoxLayout, QWidget,
 )
 
@@ -1107,10 +1107,23 @@ class DailyReportTab(QWidget):
         self.unsaved_label.setObjectName('field-hint')
         date_row.addWidget(self.unsaved_label)
         form_layout.addLayout(date_row)
-        self.completed = self._report_editor(form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片')
-        self.issues = self._report_editor(form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……')
-        self.tomorrow = self._report_editor(form_layout, '明日计划', '下一步准备完成的事项……')
-        self.notes = self._report_editor(form_layout, '备注', '补充信息、链接、截图……', 90)
+        form_layout.setSpacing(6)
+        self.completed = self._report_editor(
+            form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片',
+            height=200, preferred=280, stretch=6,
+        )
+        self.issues = self._report_editor(
+            form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……',
+            height=64, preferred=80, stretch=1,
+        )
+        self.tomorrow = self._report_editor(
+            form_layout, '明日计划', '下一步准备完成的事项……',
+            height=64, preferred=80, stretch=1,
+        )
+        self.notes = self._report_editor(
+            form_layout, '备注', '补充信息、链接、截图……',
+            height=56, preferred=72, stretch=1,
+        )
         self._editors = (self.completed, self.issues, self.tomorrow, self.notes)
         for ed in self._editors:
             ed.textChanged.connect(self._on_editor_changed)
@@ -1135,14 +1148,18 @@ class DailyReportTab(QWidget):
         splitter.setSizes([250, 780])
         root.addWidget(splitter, 1)
 
-    def _report_editor(self, layout, title, placeholder, height=120):
+    def _report_editor(self, layout, title, placeholder, height=72, preferred=80, stretch=1):
         label = QLabel(title)
         label.setObjectName('section-title')
-        layout.addWidget(label)
+        layout.addWidget(label, 0)
         editor = DailyRichEdit()
         editor.setPlaceholderText(placeholder)
         editor.setMinimumHeight(height)
-        layout.addWidget(editor)
+        editor.set_preferred_height(preferred)
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        policy.setVerticalStretch(stretch)
+        editor.setSizePolicy(policy)
+        layout.addWidget(editor, stretch)
         return editor
 
     def _date_key(self):

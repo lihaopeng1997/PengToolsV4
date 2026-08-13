@@ -100,6 +100,36 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertIn('带图段落', plain)
             tab.close()
 
+    def test_completed_editor_takes_most_vertical_space(self):
+        from unittest.mock import patch
+        from panels.personal_panel import DailyReportTab
+
+        with patch('panels.personal_panel.load_reports', return_value={}), \
+                patch('panels.personal_panel.save_reports'), \
+                patch('panels.personal_panel.load_drafts', return_value={}), \
+                patch('panels.personal_panel.save_drafts'), \
+                patch('panels.personal_panel.load_reminder_settings', return_value={
+                    'enabled': False, 'time': '17:30', 'last_reminder_date': '',
+                    'history_collapsed_months': [], 'history_expanded_months': [],
+                    'history_expand_pinned': True,
+                }):
+            tab = DailyReportTab()
+            form = tab.completed.parentWidget().layout()
+            completed_stretch = form.stretch(form.indexOf(tab.completed))
+            issues_stretch = form.stretch(form.indexOf(tab.issues))
+            tomorrow_stretch = form.stretch(form.indexOf(tab.tomorrow))
+            notes_stretch = form.stretch(form.indexOf(tab.notes))
+            self.assertGreater(completed_stretch, issues_stretch)
+            self.assertEqual(issues_stretch, tomorrow_stretch)
+            self.assertEqual(issues_stretch, notes_stretch)
+            self.assertGreaterEqual(tab.completed.minimumHeight(), 180)
+            self.assertLessEqual(tab.issues.minimumHeight(), 72)
+            self.assertLessEqual(tab.tomorrow.minimumHeight(), 72)
+            self.assertLessEqual(tab.notes.minimumHeight(), 64)
+            self.assertGreater(tab.completed.sizeHint().height(), tab.issues.sizeHint().height())
+            self.assertGreater(tab.completed.sizeHint().height(), tab.notes.sizeHint().height())
+            tab.close()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QMimeData, QUrl, Qt, pyqtSignal
+from PyQt6.QtCore import QMimeData, QSize, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QImageReader, QTextCursor, QTextDocument, QTextImageFormat
 from PyQt6.QtWidgets import QTextEdit
 
@@ -29,7 +29,20 @@ class DailyRichEdit(QTextEdit):
         self.setAcceptDrops(True)
         self._date_key = ''
         self._max_image_width = 640
+        self._preferred_height = 120
         self.document().setDocumentMargin(6)
+
+    def set_preferred_height(self, height: int):
+        self._preferred_height = max(40, int(height or 0))
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        return QSize(hint.width(), self._preferred_height)
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        floor = self.minimumHeight() if self.minimumHeight() > 0 else 40
+        return QSize(hint.width(), min(floor, self._preferred_height))
 
     def set_report_date(self, date_key: str):
         self._date_key = str(date_key or '')[:10]
