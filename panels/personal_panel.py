@@ -1099,7 +1099,7 @@ class DailyReportTab(QWidget):
         date_row.addWidget(self.copy_as_today_btn)
         self.insert_image_btn = QPushButton('插入图片')
         size_compact_button(self.insert_image_btn)
-        self.insert_image_btn.setToolTip('插入图片到当前光标所在区块（也支持粘贴 / 拖入）')
+        self.insert_image_btn.setToolTip('插入图片到当前光标所在区块（也支持粘贴 / 拖入）。插入后可拖右下角、右键或 Ctrl+滚轮调大小')
         self.insert_image_btn.clicked.connect(self._insert_image_to_focus)
         date_row.addWidget(self.insert_image_btn)
         date_row.addStretch()

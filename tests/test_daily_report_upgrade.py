@@ -130,6 +130,34 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertGreater(tab.completed.sizeHint().height(), tab.notes.sizeHint().height())
             tab.close()
 
+    def test_inserted_image_can_be_resized_and_persists_in_html(self):
+        from PyQt6.QtGui import QTextImageFormat
+        from ui.daily_rich_edit import DailyRichEdit
+
+        editor = DailyRichEdit()
+        editor.resize(480, 280)
+        fmt = QTextImageFormat()
+        fmt.setName('daily-demo')
+        fmt.setWidth(200)
+        fmt.setHeight(100)
+        editor.textCursor().insertImage(fmt)
+        hits = editor.list_images()
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]['width'], 200)
+        self.assertEqual(hits[0]['height'], 100)
+        self.assertTrue(editor.apply_image_width(hits[0], 80))
+        resized = editor.list_images()[0]
+        self.assertEqual(resized['width'], 80)
+        self.assertEqual(resized['height'], 40)
+        self.assertTrue(editor.apply_image_scale(resized, 2.0))
+        scaled = editor.list_images()[0]
+        self.assertEqual(scaled['width'], 160)
+        self.assertEqual(scaled['height'], 80)
+        html = editor.toHtml()
+        self.assertRegex(html, r'width="?160"?')
+        self.assertRegex(html, r'height="?80"?')
+        editor.close()
+
 
 if __name__ == '__main__':
     unittest.main()
