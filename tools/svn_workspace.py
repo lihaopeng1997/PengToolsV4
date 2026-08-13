@@ -80,41 +80,37 @@ def svn_status(path):
     }
 
 
-def working_copy_locks(path, show_updates=False, timeout=180):
-    """读取工作副本真实锁状态（以 SVN 为准，不是本机台账缓存）。
+SVN_DIRTY_STATUSES = frozenset({
+    'modified', 'added', 'deleted', 'replaced', 'missing',
+    'unversioned', 'conflicted', 'obstructed', 'incomplete',
+})
 
-    - 默认不访问服务器：仅本工作副本持有的锁（status 中的 K / wc-status/lock）
-    - show_updates=True 时带 -u，可看到他人持有的仓库锁（需内网）
 
-    返回：{ 相对路径: {owner, created, comment, token, scope} }
-    scope: 'wc' | 'repos'
-    """
-    root = os.path.abspath(path)
-    if not os.path.isdir(root):
-        return {}
-    args = ['status', '--xml', '-v', root]
-    if show_updates:
-        args.insert(1, '-u')
-    result = run_svn(args, check=False, timeout=timeout)
-    output = result.get('output') or ''
-    if not output.strip():
-        return {}
+def _rel_to_working_copy(root, entry_path):
+    abs_path = entry_path if os.path.isabs(entry_path) else os.path.abspath(os.path.join(root, entry_path))
     try:
-        tree = ET.fromstring(output)
+        rel = os.path.relpath(abs_path, root)
+    except ValueError:
+        rel = entry_path
+    if rel in ('.', ''):
+        return ''
+    return rel.replace('\\', '/')
+
+
+def parse_svn_status_xml(root, output):
+    """解析 `svn status --xml`：返回 (locks, statuses)。
+
+    locks: {系统分隔符相对路径: meta}
+    statuses: {posix 相对路径: wc-status item}
+    """
+    locks, statuses = {}, {}
+    text = str(output or '').strip()
+    if not text:
+        return locks, statuses
+    try:
+        tree = ET.fromstring(text)
     except ET.ParseError:
-        return {}
-
-    locks = {}
-
-    def _rel(entry_path):
-        abs_path = entry_path if os.path.isabs(entry_path) else os.path.abspath(os.path.join(root, entry_path))
-        try:
-            rel = os.path.relpath(abs_path, root)
-        except ValueError:
-            rel = entry_path
-        if rel in ('.', ''):
-            return ''
-        return rel.replace('\\', '/')
+        return locks, statuses
 
     def _lock_meta(lock_node, scope):
         if lock_node is None:
@@ -127,15 +123,20 @@ def working_copy_locks(path, show_updates=False, timeout=180):
             'scope': scope,
         }
 
+    root_abs = os.path.abspath(root)
     for entry in tree.findall('.//entry'):
         entry_path = entry.get('path') or ''
         if not entry_path:
             continue
-        rel = _rel(entry_path)
-        if not rel or rel in ('.',):
+        rel = _rel_to_working_copy(root_abs, entry_path)
+        if not rel:
             continue
         wc_status = entry.find('wc-status')
         repos_status = entry.find('repos-status')
+        item = 'normal'
+        if wc_status is not None:
+            item = (wc_status.get('item') or 'normal').strip() or 'normal'
+        statuses[rel] = item
         meta = None
         if wc_status is not None:
             meta = _lock_meta(wc_status.find('lock'), 'wc')
@@ -143,22 +144,75 @@ def working_copy_locks(path, show_updates=False, timeout=180):
             meta = _lock_meta(repos_status.find('lock'), 'repos')
         if meta is None:
             continue
-        norm = rel.replace('/', os.sep).replace('\\', os.sep)
-        locks[norm] = meta
+        locks[rel.replace('/', os.sep).replace('\\', os.sep)] = meta
+    return locks, statuses
+
+
+def attach_svn_status(files, statuses):
+    """把 SVN 状态写进文件条目；脏子项会把父目录标成 modified。"""
+    norm = {}
+    for key, value in (statuses or {}).items():
+        rel = str(key or '').replace('\\', '/').strip('/')
+        if rel:
+            norm[rel] = str(value or 'normal')
+    dirty = set()
+    for entry in files or []:
+        rel = str(entry.get('relative_path') or '').replace('\\', '/').strip('/')
+        code = norm.get(rel, 'normal')
+        entry['svn_status'] = code
+        if code in SVN_DIRTY_STATUSES:
+            dirty.add(rel)
+    for entry in files or []:
+        if not entry.get('is_dir'):
+            continue
+        rel = str(entry.get('relative_path') or '').replace('\\', '/').strip('/')
+        prefix = f'{rel}/' if rel else ''
+        if any(item == rel or (prefix and item.startswith(prefix)) for item in dirty):
+            if entry.get('svn_status') not in SVN_DIRTY_STATUSES:
+                entry['svn_status'] = 'modified'
+    return files
+
+
+def working_copy_state(path, show_updates=False, timeout=180):
+    """一次 `svn status --xml -v` 同时取锁与每文件状态。"""
+    root = os.path.abspath(path)
+    if not os.path.isdir(root):
+        return {}, {}
+    args = ['status', '--xml', '-v', root]
+    if show_updates:
+        args.insert(1, '-u')
+    result = run_svn(args, check=False, timeout=timeout)
+    return parse_svn_status_xml(root, result.get('output') or '')
+
+
+def working_copy_locks(path, show_updates=False, timeout=180):
+    """读取工作副本真实锁状态（以 SVN 为准，不是本机台账缓存）。
+
+    - 默认不访问服务器：仅本工作副本持有的锁（status 中的 K / wc-status/lock）
+    - show_updates=True 时带 -u，可看到他人持有的仓库锁（需内网）
+
+    返回：{ 相对路径: {owner, created, comment, token, scope} }
+    scope: 'wc' | 'repos'
+    """
+    try:
+        locks, _statuses = working_copy_state(path, show_updates=show_updates, timeout=timeout)
+    except SvnError:
+        return {}
     return locks
 
 
 def workspace_snapshot(path, *, sync_locks=True, lock_show_updates=False):
-    """文件列表 +（可选）真实 SVN 锁，供 UI 一次后台加载。"""
+    """文件列表 + SVN 锁 + 每文件提交状态，供 UI 一次后台加载。"""
     files = workspace_files(path)
-    locks = {}
+    locks, statuses = {}, {}
     if sync_locks and os.path.isdir(os.path.join(os.path.abspath(path), '.svn')):
         try:
-            locks = working_copy_locks(path, show_updates=lock_show_updates)
+            locks, statuses = working_copy_state(path, show_updates=lock_show_updates)
         except SvnError:
-            locks = {}
+            locks, statuses = {}, {}
         except Exception:
-            locks = {}
+            locks, statuses = {}, {}
+    attach_svn_status(files, statuses)
     return {'files': files, 'locks': locks}
 
 

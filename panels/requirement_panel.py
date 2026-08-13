@@ -40,6 +40,14 @@ class _ElideTextDelegate(QStyledItemDelegate):
         opt.textElideMode = Qt.TextElideMode.ElideRight
         opt.features &= ~QStyleOptionViewItem.ViewItemFeature.WrapText
         selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        if not selected:
+            fg = index.data(Qt.ItemDataRole.ForegroundRole)
+            if fg is not None:
+                color = fg.color() if hasattr(fg, 'color') else QColor(fg)
+                if color.isValid():
+                    opt.foregroundBrush = QBrush(color)
+                    opt.palette.setColor(opt.palette.ColorRole.Text, color)
+                    opt.palette.setColor(opt.palette.ColorRole.WindowText, color)
         if selected:
             _primary, on_primary, _text = self._theme_colors()
             opt.foregroundBrush = QBrush(on_primary)
@@ -166,7 +174,7 @@ from tools.requirements import (
     save_requirements,
 )
 from tools.svn_workspace import (
-    SvnError, add_existing_files, add_text_file, changed_paths, checkout, commit_paths,
+    SVN_DIRTY_STATUSES, SvnError, add_existing_files, add_text_file, changed_paths, checkout, commit_paths,
     commit_working_copy, lock_file, lock_files, month_end_date, revert_paths,
     safe_folder_name, scan_working_copies, svn_status, update_many,
     unlock_file, unlock_files, validate_svn_url, working_copy_info, workspace_files,
@@ -181,6 +189,29 @@ from ui.field_metrics import size_combo, size_compact_button, size_date, size_li
 
 IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 GROUP_MONTH_ROLE = int(Qt.ItemDataRole.UserRole) + 2
+SVN_STATUS_LABELS = {
+    'normal': '已提交',
+    'modified': '已修改未提交',
+    'added': '已添加未提交',
+    'deleted': '已删除未提交',
+    'replaced': '已替换未提交',
+    'missing': '工作副本缺失',
+    'unversioned': '未纳入版本库',
+    'conflicted': '冲突',
+    'obstructed': '路径冲突',
+    'incomplete': '不完整',
+}
+
+
+def _svn_status_color(code: str) -> QColor:
+    try:
+        from ui.theme_manager import ThemeManager
+        pal = ThemeManager.instance().palette()
+    except Exception:
+        pal = {}
+    if str(code or '') in SVN_DIRTY_STATUSES:
+        return QColor(pal.get('DANGER', '#B85C5C'))
+    return QColor(pal.get('SUCCESS', '#3E7A5C'))
 
 
 def normalize_content_splitter_sizes(stored=None, total_h: int = 800, top_h: int = 160) -> list[int]:
@@ -2784,7 +2815,11 @@ class RequirementPanel(QWidget):
                 item.setIcon(col, blank)
             item.setData(0, Qt.ItemDataRole.UserRole, entry['path'])
             item.setData(0, IS_DIR_ROLE, entry['is_dir'])
+            svn_code = str(entry.get('svn_status') or '')
+            show_svn = bool(self._current and self._current.get('workspace_kind', 'svn') == 'svn' and svn_code)
             tip = f"{name}\n类型：{ftype}\n路径：{relative}\n完整：{entry.get('path')}"
+            if show_svn:
+                tip += f"\nSVN：{SVN_STATUS_LABELS.get(svn_code, svn_code)}"
             if locked:
                 tip += '\n锁定：是（已与 SVN 同步）'
                 lock_val = lock_map.get(rel_norm) or lock_map.get(relative.replace('\\', '/')) or ''
@@ -2796,13 +2831,16 @@ class RequirementPanel(QWidget):
                 QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
                 if entry['is_dir'] else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator
             )
+            if show_svn:
+                item.setForeground(0, _svn_status_color(svn_code))
             if locked:
                 font = item.font(0); font.setBold(True); item.setFont(0, font)
-                try:
-                    from ui.theme_manager import ThemeManager
-                    item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
-                except Exception:
-                    item.setForeground(0, QColor('#B24A24'))
+                if not show_svn:
+                    try:
+                        from ui.theme_manager import ThemeManager
+                        item.setForeground(0, QColor(ThemeManager.instance().token('HIGHLIGHT_MARK')))
+                    except Exception:
+                        item.setForeground(0, QColor('#B24A24'))
             # 文件库搜索：仅过滤 + 定位首个匹配，不改名称样式
             file_hit = bool(query and match_query(build_search_blob(name, relative, ftype), query))
             if file_hit and first_file_hit is None and not entry.get('is_dir'):

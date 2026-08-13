@@ -13,8 +13,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from tools.svn_workspace import (
-    _normalize_file_paths, changed_paths, commit_paths, lock_files,
-    revert_paths, unlock_files, working_copy_locks,
+    _normalize_file_paths, attach_svn_status, changed_paths, commit_paths, lock_files,
+    parse_svn_status_xml, revert_paths, unlock_files, working_copy_locks,
 )
 
 
@@ -99,6 +99,41 @@ class SvnBatchPathTests(unittest.TestCase):
             self.assertIn('a.txt', locks)
             self.assertEqual(locks['a.txt']['owner'], 'lihp')
             self.assertNotIn('b.txt', locks)
+
+    def test_parse_svn_status_xml_marks_modified_and_normal(self):
+        xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<status>
+  <target path=".">
+    <entry path="done.sql">
+      <wc-status item="normal" revision="8" props="none"/>
+    </entry>
+    <entry path="todo.sql">
+      <wc-status item="modified" revision="8" props="none"/>
+    </entry>
+    <entry path="new.txt">
+      <wc-status item="unversioned" props="none"/>
+    </entry>
+  </target>
+</status>'''
+        with tempfile.TemporaryDirectory() as tmp:
+            locks, statuses = parse_svn_status_xml(tmp, xml)
+        self.assertEqual(statuses['done.sql'], 'normal')
+        self.assertEqual(statuses['todo.sql'], 'modified')
+        self.assertEqual(statuses['new.txt'], 'unversioned')
+        self.assertEqual(locks, {})
+        files = [
+            {'relative_path': 'docs', 'is_dir': True},
+            {'relative_path': os.path.join('docs', 'todo.sql'), 'is_dir': False},
+            {'relative_path': os.path.join('docs', 'done.sql'), 'is_dir': False},
+        ]
+        attach_svn_status(files, {
+            'docs/todo.sql': 'modified',
+            'docs/done.sql': 'normal',
+        })
+        by_rel = {item['relative_path'].replace('\\', '/'): item['svn_status'] for item in files}
+        self.assertEqual(by_rel['docs/todo.sql'], 'modified')
+        self.assertEqual(by_rel['docs/done.sql'], 'normal')
+        self.assertEqual(by_rel['docs'], 'modified')
 
     def test_lock_unlock_commit_revert_call_run_svn(self):
         with tempfile.TemporaryDirectory() as tmp:

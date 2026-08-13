@@ -363,6 +363,39 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertTrue(sql_folder.child(0).icon(1).isNull())
             panel.close()
 
+    def test_requirement_file_tree_uses_svn_status_colors(self):
+        from panels.requirement_panel import _svn_status_color
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        panel._current = {'id': 's', 'local_path': 'C:/tmp', 'workspace_kind': 'svn'}
+        panel._file_tree_path = 'C:/tmp'
+        panel._file_tree_loaded({
+            'files': [
+                {
+                    'path': r'C:\tmp\clean.sql', 'relative_path': 'clean.sql',
+                    'is_dir': False, 'file_type': 'SQL 脚本', 'modified_at': '2026-08-13 10:00',
+                    'size': '1 KB', 'svn_status': 'normal',
+                },
+                {
+                    'path': r'C:\tmp\dirty.sql', 'relative_path': 'dirty.sql',
+                    'is_dir': False, 'file_type': 'SQL 脚本', 'modified_at': '2026-08-13 10:01',
+                    'size': '1 KB', 'svn_status': 'modified',
+                },
+            ],
+            'locks': {},
+        })
+        by_name = {}
+        for index in range(panel.file_tree.topLevelItemCount()):
+            item = panel.file_tree.topLevelItem(index)
+            by_name[item.text(0)] = item
+        self.assertIn('clean.sql', by_name)
+        self.assertIn('dirty.sql', by_name)
+        self.assertEqual(by_name['clean.sql'].foreground(0).color().name().lower(), _svn_status_color('normal').name().lower())
+        self.assertEqual(by_name['dirty.sql'].foreground(0).color().name().lower(), _svn_status_color('modified').name().lower())
+        self.assertIn('已提交', by_name['clean.sql'].toolTip(0))
+        self.assertIn('未提交', by_name['dirty.sql'].toolTip(0))
+        panel.close()
+
     def test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls(self):
         with tempfile.TemporaryDirectory() as temp, \
                 patch('panels.requirement_panel.load_requirements', return_value=[]):
