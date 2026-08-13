@@ -6,8 +6,12 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QMimeData, QPoint, QRect, QSize, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QTextCursor, QTextImageFormat
-from PyQt6.QtWidgets import QApplication, QMenu, QTextEdit
+from PyQt6.QtGui import (
+    QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QTextCharFormat,
+    QTextCursor, QTextFrameFormat, QTextImageFormat, QTextLength, QTextListFormat,
+    QTextTableFormat,
+)
+from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QMenu, QScrollArea, QTextEdit, QVBoxLayout
 
 from tools.daily_reports import (
     absolute_asset_path,
@@ -19,6 +23,50 @@ from tools.daily_reports import (
 _MIN_IMAGE_WIDTH = 48
 _MAX_IMAGE_WIDTH = 2400
 _HANDLE = 12
+_DEFAULT_INSERT_WIDTH = 360
+
+
+class ImagePreviewDialog(QDialog):
+    """双击插图后的大图预览，单击或 Esc 关闭。"""
+
+    def __init__(self, image: QImage, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setObjectName('daily-image-preview')
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        screen = self.screen().availableGeometry() if self.screen() else QRect(0, 0, 1280, 720)
+        max_w = max(320, int(screen.width() * 0.9))
+        max_h = max(240, int(screen.height() * 0.86))
+        scaled = image
+        if image.width() > max_w or image.height() > max_h:
+            scaled = image.scaled(
+                max_w, max_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setPixmap(QPixmap.fromImage(scaled))
+        self.image_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.image_label.mousePressEvent = self._on_image_click
+        scroll = QScrollArea()
+        scroll.setWidget(self.image_label)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        hint = QLabel('单击图片或按 Esc 关闭')
+        hint.setObjectName('field-hint')
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 8)
+        layout.addWidget(scroll, 1)
+        layout.addWidget(hint)
+        self.resize(min(max_w, scaled.width() + 48), min(max_h, scaled.height() + 72))
+
+    def _on_image_click(self, event):
+        self.accept()
+        if event is not None:
+            event.accept()
 
 
 class DailyRichEdit(QTextEdit):
@@ -32,8 +80,12 @@ class DailyRichEdit(QTextEdit):
         self.setAcceptRichText(True)
         self.setAcceptDrops(True)
         self._date_key = ''
-        self._max_image_width = 640
+        self._max_image_width = _DEFAULT_INSERT_WIDTH
         self._preferred_height = 120
+        font = self.font()
+        if font.pointSize() < 11:
+            font.setPointSize(11)
+            self.setFont(font)
         self._hover_hit = None
         self._resize_state = None
         self.language = 'zh'
@@ -138,6 +190,89 @@ class DailyRichEdit(QTextEdit):
         cursor.insertBlock()
         self.setTextCursor(cursor)
         self.assets_changed.emit()
+        return True
+
+    def apply_font_point_size(self, point_size: int) -> None:
+        size = max(8, min(36, int(point_size or 11)))
+        fmt = QTextCharFormat()
+        fmt.setFontPointSize(size)
+        self.mergeCurrentCharFormat(fmt)
+
+    def apply_text_color(self, color: QColor) -> None:
+        if color is None or not color.isValid():
+            return
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        self.mergeCurrentCharFormat(fmt)
+
+    def toggle_bold(self) -> None:
+        fmt = QTextCharFormat()
+        current = self.currentCharFormat()
+        bold = current.fontWeight() < int(QFont.Weight.Bold)
+        fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
+        self.mergeCurrentCharFormat(fmt)
+
+    def toggle_italic(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontItalic(not self.currentCharFormat().fontItalic())
+        self.mergeCurrentCharFormat(fmt)
+
+    def toggle_underline(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontUnderline(not self.currentCharFormat().fontUnderline())
+        self.mergeCurrentCharFormat(fmt)
+
+    def current_font_point_size(self) -> int:
+        size = self.currentCharFormat().fontPointSize()
+        if size <= 0:
+            size = self.font().pointSizeF() or 11
+        return int(round(size))
+
+    def apply_bullet_list(self) -> None:
+        cursor = self.textCursor()
+        current = cursor.currentList()
+        if current is not None:
+            block_fmt = cursor.blockFormat()
+            block_fmt.setIndent(0)
+            cursor.setBlockFormat(block_fmt)
+            return
+        style = QTextListFormat()
+        style.setStyle(QTextListFormat.Style.ListDisc)
+        cursor.createList(style)
+
+    def insert_table(self, rows: int = 3, cols: int = 3) -> bool:
+        row_n = max(1, min(20, int(rows or 1)))
+        col_n = max(1, min(10, int(cols or 1)))
+        table_fmt = QTextTableFormat()
+        table_fmt.setBorder(0.7)
+        table_fmt.setBorderBrush(QColor('#D0CEC6'))
+        table_fmt.setBorderStyle(QTextFrameFormat.BorderStyle.BorderStyle_Solid)
+        table_fmt.setCellPadding(6)
+        table_fmt.setCellSpacing(0)
+        table_fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 100))
+        cursor = self.textCursor()
+        table = cursor.insertTable(row_n, col_n, table_fmt)
+        if table is None:
+            return False
+        self.setTextCursor(table.cellAt(0, 0).firstCursorPosition())
+        self.assets_changed.emit()
+        return True
+
+    def load_image_from_hit(self, hit: dict | None) -> QImage:
+        name = str((hit or {}).get('name') or '')
+        path = QUrl(name).toLocalFile() if name.startswith('file:') else name
+        if not path:
+            return QImage()
+        return QImage(path)
+
+    def preview_image(self, hit: dict | None) -> bool:
+        image = self.load_image_from_hit(hit)
+        if image.isNull():
+            self.image_error.emit('无法打开图片' if self._is_zh() else 'Cannot open image')
+            return False
+        title = '查看图片' if self._is_zh() else 'View image'
+        dialog = ImagePreviewDialog(image, title, self)
+        dialog.exec()
         return True
 
     def list_images(self) -> list[dict]:
@@ -270,6 +405,14 @@ class DailyRichEdit(QTextEdit):
                 return
         super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        hit = self._hit_image(event.pos())
+        if hit:
+            self.preview_image(hit)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def mouseMoveEvent(self, event):
         if self._resize_state:
             state = self._resize_state
@@ -351,6 +494,10 @@ class DailyRichEdit(QTextEdit):
         zh = self._is_zh()
         menu = QMenu(self)
         if hit:
+            menu.addAction(
+                '查看大图' if zh else 'View larger',
+                lambda current=hit: self.preview_image(current),
+            )
             menu.addAction(
                 '放大图片' if zh else 'Enlarge image',
                 lambda current=hit: self.apply_image_scale(current, 1.25),
