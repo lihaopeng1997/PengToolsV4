@@ -21,7 +21,9 @@ from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QSplitter
 
-from panels.requirement_panel import DateInput, RequirementDialog, RequirementPanel, format_online_month_label
+from panels.requirement_panel import (
+    DateInput, RequirementDialog, RequirementPanel, _ElideTextDelegate, format_online_month_label,
+)
 from panels.sql_panel import SqlToolPanel
 from tools.release_prep import RELEASE_HEADERS, RELEASE_WORKBOOK_NAME
 from main_window import MainWindow
@@ -348,9 +350,8 @@ class ReleaseUiTests(unittest.TestCase):
                 ['名称', '类型', '修改时间', '大小', '路径'],
             )
             header = panel.file_tree.header()
-            # 名称列 Stretch 吸收窗口放大后的剩余空间；其余列仍可拖动调整。
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for index in range(1, 5):
+            # 全部 Interactive：超长省略，拖宽列 / 横向滚动看全。
+            for index in range(5):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
             self.assertTrue(header.sectionsMovable())
             self.assertFalse(header.stretchLastSection())
@@ -378,10 +379,13 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
             self.assertTrue(hasattr(panel, 'file_search_edit'))
             header = panel.file_tree.header()
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for col in range(1, 5):
+            for col in range(5):
                 self.assertEqual(header.sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
             self.assertTrue(header.sectionsMovable())
+            self.assertFalse(header.stretchLastSection())
+            self.assertEqual(panel.file_tree.textElideMode(), Qt.TextElideMode.ElideRight)
+            self.assertTrue(panel.file_tree.uniformRowHeights())
+            self.assertFalse(panel.file_tree.wordWrap())
             panel.close()
 
     def test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space(self):
@@ -404,6 +408,40 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertFalse(panel.unlock_file_btn.isEnabled())
         self.assertFalse(panel.revert_btn.isEnabled())
         self.assertFalse(panel.commit_btn.isEnabled())
+        panel.close()
+
+    def test_requirement_file_tree_elides_long_names_and_keeps_compact_rows(self):
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        self.assertIsInstance(panel.file_tree.itemDelegate(), _ElideTextDelegate)
+        self.assertEqual(panel.file_tree.textElideMode(), Qt.TextElideMode.ElideRight)
+        self.assertTrue(panel.file_tree.uniformRowHeights())
+        self.assertFalse(panel.file_tree.wordWrap())
+        header = panel.file_tree.header()
+        for col in range(5):
+            self.assertEqual(header.sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
+        self.assertFalse(header.stretchLastSection())
+        panel._file_entries_cache = [
+            {
+                'path': r'C:\tmp\req\this_is_a_very_long_requirement_document_name_20260813.docx',
+                'relative_path': 'docs/this_is_a_very_long_requirement_document_name_20260813.docx',
+                'is_dir': False, 'file_type': 'DOCX', 'modified_at': '2026-08-13 10:00',
+                'size': '12 KB',
+            },
+            {
+                'path': r'C:\tmp\req\docs',
+                'relative_path': 'docs',
+                'is_dir': True, 'file_type': '文件夹', 'modified_at': '2026-08-13 10:00',
+                'size': '',
+            },
+        ]
+        panel._populate_file_tree_from_cache()
+        folder = panel.file_tree.topLevelItem(0)
+        self.assertIsNotNone(folder)
+        file_item = folder.child(0) if folder.childCount() else folder
+        self.assertLessEqual(file_item.sizeHint(0).height(), 0)
+        self.assertEqual(panel._file_row_delegate._row_height, 24)
+        self.assertIn('very_long_requirement', file_item.toolTip(0))
         panel.close()
 
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):
@@ -453,6 +491,8 @@ class ReleaseUiTests(unittest.TestCase):
             style = stream.read()
             self.assertIn('QSplitter#requirement-splitter::handle:horizontal', style)
             self.assertIn('QTreeWidget#requirement-file-tree QHeaderView::section', style)
+            self.assertIn('QTreeWidget#requirement-file-tree::item', style)
+            self.assertIn('min-height: 22px', style)
             # 浅色导航右边线（主题 token）
             self.assertIn('border-right: 1px solid __SIDEBAR_BORDER__', style)
 

@@ -684,7 +684,13 @@ QTreeWidget#ops-remote-tree {
     /* 0：图标装饰只出现在名称列，避免选中时其它列也像“带图标” */
     show-decoration-selected: 0;
 }
-QTreeWidget#requirement-file-tree::item,
+QTreeWidget#requirement-file-tree::item {
+    min-height: 22px;
+    padding: 1px 6px;
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    color: __TEXT_STRONG__;
+}
 QTreeWidget#ops-remote-tree::item {
     min-height: 30px;
     padding: 5px 8px;
@@ -717,8 +723,8 @@ QTreeWidget#requirement-file-tree QHeaderView::section {
     border: none;
     border-right: 1px solid __SCROLL_HANDLE__;
     border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 8px 10px;
-    font-weight: 800;
+    padding: 4px 8px;
+    font-weight: 700;
 }
 QTreeWidget#ops-remote-tree QHeaderView::section {
     background: __SURFACE_SOFT__;
@@ -739,8 +745,8 @@ QHeaderView#requirement-file-header::section {
     border: none;
     border-right: 1px solid __SCROLL_HANDLE__;
     border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 8px 10px;
-    font-weight: 800;
+    padding: 4px 8px;
+    font-weight: 700;
 }
 QFrame#detail-action-card {
     background: __SURFACE_SOFT__;

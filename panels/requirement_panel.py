@@ -15,6 +15,47 @@ from PyQt6.QtWidgets import (
 )
 
 
+class _ElideTextDelegate(QStyledItemDelegate):
+    """文件库：单行省略号；选中态强制高对比字色，避免 setForeground 盖住。"""
+
+    def __init__(self, parent=None, row_height: int = 24):
+        super().__init__(parent)
+        self._row_height = row_height
+
+    def _theme_colors(self):
+        try:
+            from ui.theme_manager import ThemeManager
+            pal = ThemeManager.instance().palette()
+            return (
+                QColor(pal.get('PRIMARY', '#668C78')),
+                QColor(pal.get('ON_PRIMARY', '#FFFFFF')),
+                QColor(pal.get('TEXT_STRONG', '#272B29')),
+            )
+        except Exception:
+            return QColor('#668C78'), QColor('#FFFFFF'), QColor('#272B29')
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.textElideMode = Qt.TextElideMode.ElideRight
+        opt.features &= ~QStyleOptionViewItem.ViewItemFeature.WrapText
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        if selected:
+            _primary, on_primary, _text = self._theme_colors()
+            opt.foregroundBrush = QBrush(on_primary)
+            opt.palette.setColor(opt.palette.ColorRole.Text, on_primary)
+            opt.palette.setColor(opt.palette.ColorRole.HighlightedText, on_primary)
+            opt.palette.setColor(opt.palette.ColorRole.WindowText, on_primary)
+        widget = option.widget
+        style = widget.style() if widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+
+    def sizeHint(self, option, index):
+        hint = super().sizeHint(option, index)
+        fm = QFontMetrics(option.font)
+        return QSize(hint.width(), max(self._row_height, fm.height() + 4))
+
+
 class _WrapTextDelegate(QStyledItemDelegate):
     """树/列表名称列：完整换行展示，禁止半截省略；选中态强制高对比字色。"""
 
@@ -1414,9 +1455,9 @@ class RequirementPanel(QWidget):
         self.file_tree.setItemsExpandable(True)
         self.file_tree.setExpandsOnDoubleClick(False)
         self.file_tree.setIndentation(16)
-        self.file_tree.setUniformRowHeights(False)
-        self.file_tree.setWordWrap(True)
-        self.file_tree.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.file_tree.setUniformRowHeights(True)
+        self.file_tree.setWordWrap(False)
+        self.file_tree.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.file_tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.file_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.file_tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -1430,8 +1471,8 @@ class RequirementPanel(QWidget):
         self.file_tree.viewport().setAcceptDrops(True)
         self.file_tree.viewport().installEventFilter(self)
         self.file_tree.installEventFilter(self)
-        self._file_name_delegate = _WrapTextDelegate(self.file_tree, min_height=32, max_lines=3)
-        self.file_tree.setItemDelegateForColumn(0, self._file_name_delegate)
+        self._file_row_delegate = _ElideTextDelegate(self.file_tree, row_height=24)
+        self.file_tree.setItemDelegate(self._file_row_delegate)
         self._file_sort_column = 0
         self._file_sort_order = Qt.SortOrder.AscendingOrder
         self._file_entries_cache = []
@@ -1439,26 +1480,24 @@ class RequirementPanel(QWidget):
         file_header.setObjectName('requirement-file-header')
         file_header.setSectionsClickable(True)
         file_header.setHighlightSections(False)
-        # 支持拖拽调整列顺序；全部 Interactive 才能左右滚动 + 拖动改列宽
+        # 全部 Interactive：超长以 … 省略，拖宽列 / 横向滚动可看全
         file_header.setSectionsMovable(True)
         file_header.setStretchLastSection(False)
-        file_header.setMinimumSectionSize(48)
+        file_header.setMinimumSectionSize(40)
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        # 名称列承接放大窗口的剩余空间；其余元数据列仍可手动拖拽调整。
-        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 5):
+        for col in range(5):
             file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
         file_header.sectionClicked.connect(self._on_file_header_clicked)
-        self.file_tree.setColumnWidth(0, 280)
-        self.file_tree.setColumnWidth(1, 96)
-        self.file_tree.setColumnWidth(2, 140)
-        self.file_tree.setColumnWidth(3, 80)
-        self.file_tree.setColumnWidth(4, 200)
+        self.file_tree.setColumnWidth(0, 200)
+        self.file_tree.setColumnWidth(1, 72)
+        self.file_tree.setColumnWidth(2, 124)
+        self.file_tree.setColumnWidth(3, 56)
+        self.file_tree.setColumnWidth(4, 148)
         for index in range(self.file_tree.columnCount()):
             self.file_tree.headerItem().setToolTip(
                 index,
-                '拖动列分隔线调列宽 · 拖列表头调列序 · 横向滚动看全 · '
-                '仅名称列带图标 · 可拖入本地文件 · 双击打开 · 右键更多',
+                '超长以 … 省略 · 拖动列分隔线看全 · 拖列表头调列序 · '
+                '横向滚动 · 仅名称列带图标 · 可拖入本地文件 · 双击打开 · 右键更多',
             )
         self.file_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_tree.customContextMenuRequested.connect(self._show_file_menu)
@@ -2689,7 +2728,6 @@ class RequirementPanel(QWidget):
 
     def _populate_file_tree_from_cache(self):
         from tools.pinyin_search import build_search_blob, match_query
-        from PyQt6.QtCore import QSize
         self.file_tree.blockSignals(True)
         try:
             self.file_tree.clear()
@@ -2754,7 +2792,6 @@ class RequirementPanel(QWidget):
                     tip += f'\n锁信息：{lock_val}'
             for col in range(5):
                 item.setToolTip(col, tip)
-            item.setSizeHint(0, QSize(0, 32 if len(name) < 28 else 44))
             item.setChildIndicatorPolicy(
                 QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
                 if entry['is_dir'] else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator
@@ -2775,14 +2812,6 @@ class RequirementPanel(QWidget):
             else:
                 shown += 1
         self.file_tree.expandAll()
-        # 名称列给足宽度，但保持 Interactive，便于横向滚动与手动调宽
-        try:
-            if self.file_tree.columnWidth(0) < 200:
-                self.file_tree.setColumnWidth(0, 280)
-            if self.file_tree.columnWidth(4) < 160:
-                self.file_tree.setColumnWidth(4, 320)
-        except Exception:
-            pass
         if first_file_hit is not None:
             from ui.search_highlight import focus_tree_item
             focus_tree_item(self.file_tree, first_file_hit)
