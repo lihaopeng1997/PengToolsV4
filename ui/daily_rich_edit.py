@@ -6,8 +6,8 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QMimeData, QPoint, QRect, QSize, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QTextCursor, QTextImageFormat
-from PyQt6.QtWidgets import QTextEdit
+from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QTextCursor, QTextImageFormat
+from PyQt6.QtWidgets import QApplication, QMenu, QTextEdit
 
 from tools.daily_reports import (
     absolute_asset_path,
@@ -36,6 +36,7 @@ class DailyRichEdit(QTextEdit):
         self._preferred_height = 120
         self._hover_hit = None
         self._resize_state = None
+        self.language = 'zh'
         self.document().setDocumentMargin(6)
         self.viewport().setMouseTracking(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
@@ -322,19 +323,94 @@ class DailyRichEdit(QTextEdit):
                 return
         super().wheelEvent(event)
 
+    def _is_zh(self) -> bool:
+        lang = getattr(self, 'language', None)
+        widget = self.parent()
+        while not lang and widget is not None:
+            lang = getattr(widget, 'language', None)
+            widget = widget.parent()
+        return str(lang or 'zh') != 'en'
+
+    def _select_image_hit(self, hit: dict) -> None:
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(int(hit['start']))
+        cursor.setPosition(int(hit['start']) + max(1, int(hit['length'])), QTextCursor.MoveMode.KeepAnchor)
+        self.setTextCursor(cursor)
+
+    def _copy_image_hit(self, hit: dict) -> None:
+        self._select_image_hit(hit)
+        self.copy()
+
+    def _delete_image_hit(self, hit: dict) -> None:
+        self._select_image_hit(hit)
+        self.textCursor().removeSelectedText()
+        self.assets_changed.emit()
+
+    def build_context_menu(self, hit=None) -> QMenu:
+        """自绘右键菜单，避免 Qt 标准菜单英文条目。"""
+        zh = self._is_zh()
+        menu = QMenu(self)
+        if hit:
+            menu.addAction(
+                '放大图片' if zh else 'Enlarge image',
+                lambda current=hit: self.apply_image_scale(current, 1.25),
+            )
+            menu.addAction(
+                '缩小图片' if zh else 'Shrink image',
+                lambda current=hit: self.apply_image_scale(current, 0.8),
+            )
+            menu.addAction(
+                '适应编辑区宽度' if zh else 'Fit editor width',
+                lambda current=hit: self.fit_image_to_viewport(current),
+            )
+            menu.addAction(
+                '原始大小' if zh else 'Original size',
+                lambda current=hit: self.reset_image_size(current),
+            )
+            menu.addSeparator()
+
+        def _add(text_zh, text_en, slot, enabled=True, shortcut=None):
+            action = menu.addAction(text_zh if zh else text_en, slot)
+            action.setEnabled(bool(enabled))
+            if shortcut is not None:
+                action.setShortcut(shortcut)
+            return action
+
+        has_selection = self.textCursor().hasSelection() or bool(hit)
+        clip = QApplication.clipboard().mimeData() if QApplication.instance() else None
+        can_paste = bool(clip and (clip.hasText() or clip.hasImage() or clip.hasUrls() or clip.hasHtml()))
+        if not hit:
+            _add('撤销', 'Undo', self.undo, self.document().isUndoAvailable(), QKeySequence.StandardKey.Undo)
+            _add('重做', 'Redo', self.redo, self.document().isRedoAvailable(), QKeySequence.StandardKey.Redo)
+            menu.addSeparator()
+            _add('剪切', 'Cut', self.cut, has_selection, QKeySequence.StandardKey.Cut)
+        _add(
+            '复制', 'Copy',
+            (lambda current=hit: self._copy_image_hit(current)) if hit else self.copy,
+            has_selection,
+            QKeySequence.StandardKey.Copy,
+        )
+        _add('粘贴', 'Paste', self.paste, can_paste, QKeySequence.StandardKey.Paste)
+        _add(
+            '删除', 'Delete',
+            (lambda current=hit: self._delete_image_hit(current)) if hit else (
+                lambda: self.textCursor().removeSelectedText()
+            ),
+            has_selection,
+        )
+        if not hit:
+            menu.addSeparator()
+            _add('全选', 'Select All', self.selectAll, True, QKeySequence.StandardKey.SelectAll)
+        return menu
+
     def contextMenuEvent(self, event):
         pos = event.pos()
         if not self.viewport().rect().contains(pos):
             pos = self.viewport().mapFrom(self, event.pos())
         hit = self._hit_image(pos)
-        menu = self.createStandardContextMenu()
-        if hit:
-            menu.addSeparator()
-            menu.addAction('放大图片', lambda current=hit: self.apply_image_scale(current, 1.25))
-            menu.addAction('缩小图片', lambda current=hit: self.apply_image_scale(current, 0.8))
-            menu.addAction('适应编辑区宽度', lambda current=hit: self.fit_image_to_viewport(current))
-            menu.addAction('原始大小', lambda current=hit: self.reset_image_size(current))
+        menu = self.build_context_menu(hit)
         menu.exec(event.globalPos())
+        menu.deleteLater()
 
     def paintEvent(self, event):
         super().paintEvent(event)

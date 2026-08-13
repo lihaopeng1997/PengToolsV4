@@ -158,6 +158,40 @@ class DailyReportUiSmokeTests(unittest.TestCase):
         self.assertRegex(html, r'height="?80"?')
         editor.close()
 
+    def test_image_context_menu_uses_chinese_not_qt_english(self):
+        from PyQt6.QtGui import QTextImageFormat
+        from ui.daily_rich_edit import DailyRichEdit
+
+        editor = DailyRichEdit()
+        editor.language = 'zh'
+        editor.resize(480, 280)
+        fmt = QTextImageFormat()
+        fmt.setName('daily-demo')
+        fmt.setWidth(120)
+        fmt.setHeight(60)
+        editor.textCursor().insertImage(fmt)
+        hit = editor.list_images()[0]
+        menu = editor.build_context_menu(hit)
+        texts = [action.text() for action in menu.actions() if action.text()]
+        self.assertIn('放大图片', texts)
+        self.assertIn('缩小图片', texts)
+        self.assertIn('适应编辑区宽度', texts)
+        self.assertIn('原始大小', texts)
+        self.assertIn('复制', texts)
+        self.assertIn('粘贴', texts)
+        self.assertIn('删除', texts)
+        for english in ('Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Delete', 'Select All'):
+            self.assertNotIn(english, texts)
+        menu.deleteLater()
+        editor.language = 'en'
+        en_menu = editor.build_context_menu(hit)
+        en_texts = [action.text() for action in en_menu.actions() if action.text()]
+        self.assertIn('Enlarge image', en_texts)
+        self.assertIn('Copy', en_texts)
+        self.assertNotIn('Undo', en_texts)
+        en_menu.deleteLater()
+        editor.close()
+
 
 if __name__ == '__main__':
     unittest.main()

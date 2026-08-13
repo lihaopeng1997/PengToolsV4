@@ -1153,6 +1153,7 @@ class DailyReportTab(QWidget):
         label.setObjectName('section-title')
         layout.addWidget(label, 0)
         editor = DailyRichEdit()
+        editor.language = getattr(self, 'language', 'zh')
         editor.setPlaceholderText(placeholder)
         editor.setMinimumHeight(height)
         editor.set_preferred_height(preferred)
@@ -1161,6 +1162,11 @@ class DailyReportTab(QWidget):
         editor.setSizePolicy(policy)
         layout.addWidget(editor, stretch)
         return editor
+
+    def set_language(self, language):
+        self.language = language
+        for editor in getattr(self, '_editors', ()):
+            editor.language = language
 
     def _date_key(self):
         return self.date_edit.date().toString('yyyy-MM-dd')
@@ -1698,7 +1704,10 @@ class PersonalPanel(QWidget):
     def set_language(self, language):
         self.language = language
         self.knowledge_tab.set_language(language)
-        self.daily_tab.language = language
+        if hasattr(self.daily_tab, 'set_language'):
+            self.daily_tab.set_language(language)
+        else:
+            self.daily_tab.language = language
         if hasattr(self.daily_tab, 'reload_reminder_settings'):
             self.daily_tab.reload_reminder_settings()
         if hasattr(self.daily_tab, 'reminder_settings_btn'):
