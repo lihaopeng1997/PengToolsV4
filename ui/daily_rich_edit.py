@@ -6,11 +6,7 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QMimeData, QPoint, QRect, QSize, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import (
-    QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QTextCharFormat,
-    QTextCursor, QTextFrameFormat, QTextImageFormat, QTextLength, QTextListFormat,
-    QTextTableFormat,
-)
+from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QTextCursor, QTextImageFormat
 from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QMenu, QScrollArea, QTextEdit, QVBoxLayout
 
 from tools.daily_reports import (
@@ -82,10 +78,6 @@ class DailyRichEdit(QTextEdit):
         self._date_key = ''
         self._max_image_width = _DEFAULT_INSERT_WIDTH
         self._preferred_height = 120
-        font = self.font()
-        if font.pointSize() < 11:
-            font.setPointSize(11)
-            self.setFont(font)
         self._hover_hit = None
         self._resize_state = None
         self.language = 'zh'
@@ -189,72 +181,6 @@ class DailyRichEdit(QTextEdit):
         cursor.insertImage(fmt)
         cursor.insertBlock()
         self.setTextCursor(cursor)
-        self.assets_changed.emit()
-        return True
-
-    def apply_font_point_size(self, point_size: int) -> None:
-        size = max(8, min(36, int(point_size or 11)))
-        fmt = QTextCharFormat()
-        fmt.setFontPointSize(size)
-        self.mergeCurrentCharFormat(fmt)
-
-    def apply_text_color(self, color: QColor) -> None:
-        if color is None or not color.isValid():
-            return
-        fmt = QTextCharFormat()
-        fmt.setForeground(color)
-        self.mergeCurrentCharFormat(fmt)
-
-    def toggle_bold(self) -> None:
-        fmt = QTextCharFormat()
-        current = self.currentCharFormat()
-        bold = current.fontWeight() < int(QFont.Weight.Bold)
-        fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
-        self.mergeCurrentCharFormat(fmt)
-
-    def toggle_italic(self) -> None:
-        fmt = QTextCharFormat()
-        fmt.setFontItalic(not self.currentCharFormat().fontItalic())
-        self.mergeCurrentCharFormat(fmt)
-
-    def toggle_underline(self) -> None:
-        fmt = QTextCharFormat()
-        fmt.setFontUnderline(not self.currentCharFormat().fontUnderline())
-        self.mergeCurrentCharFormat(fmt)
-
-    def current_font_point_size(self) -> int:
-        size = self.currentCharFormat().fontPointSize()
-        if size <= 0:
-            size = self.font().pointSizeF() or 11
-        return int(round(size))
-
-    def apply_bullet_list(self) -> None:
-        cursor = self.textCursor()
-        current = cursor.currentList()
-        if current is not None:
-            block_fmt = cursor.blockFormat()
-            block_fmt.setIndent(0)
-            cursor.setBlockFormat(block_fmt)
-            return
-        style = QTextListFormat()
-        style.setStyle(QTextListFormat.Style.ListDisc)
-        cursor.createList(style)
-
-    def insert_table(self, rows: int = 3, cols: int = 3) -> bool:
-        row_n = max(1, min(20, int(rows or 1)))
-        col_n = max(1, min(10, int(cols or 1)))
-        table_fmt = QTextTableFormat()
-        table_fmt.setBorder(0.7)
-        table_fmt.setBorderBrush(QColor('#D0CEC6'))
-        table_fmt.setBorderStyle(QTextFrameFormat.BorderStyle.BorderStyle_Solid)
-        table_fmt.setCellPadding(6)
-        table_fmt.setCellSpacing(0)
-        table_fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 100))
-        cursor = self.textCursor()
-        table = cursor.insertTable(row_n, col_n, table_fmt)
-        if table is None:
-            return False
-        self.setTextCursor(table.cellAt(0, 0).firstCursorPosition())
         self.assets_changed.emit()
         return True
 

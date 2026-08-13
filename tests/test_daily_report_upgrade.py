@@ -193,54 +193,6 @@ class DailyReportUiSmokeTests(unittest.TestCase):
         en_menu.deleteLater()
         editor.close()
 
-    def test_rich_format_table_font_color_and_small_default_image(self):
-        from PyQt6.QtGui import QColor, QTextImageFormat
-        from ui.daily_rich_edit import DailyRichEdit, _DEFAULT_INSERT_WIDTH
-
-        editor = DailyRichEdit()
-        editor.resize(480, 280)
-        self.assertLessEqual(_DEFAULT_INSERT_WIDTH, 360)
-        self.assertEqual(editor._max_image_width, _DEFAULT_INSERT_WIDTH)
-        editor.setPlainText('字体样例')
-        editor.selectAll()
-        editor.apply_font_point_size(18)
-        self.assertEqual(editor.current_font_point_size(), 18)
-        editor.apply_text_color(QColor('#B85C5C'))
-        self.assertEqual(editor.currentCharFormat().foreground().color().name().upper(), '#B85C5C')
-        editor.toggle_bold()
-        self.assertGreaterEqual(int(editor.currentCharFormat().fontWeight()), 600)
-        self.assertTrue(editor.insert_table(2, 3))
-        html = editor.toHtml().lower()
-        self.assertIn('<table', html)
-        fmt = QTextImageFormat()
-        fmt.setName('missing-file')
-        fmt.setWidth(80)
-        fmt.setHeight(40)
-        editor.textCursor().insertImage(fmt)
-        hit = editor.list_images()[-1]
-        self.assertTrue(editor.load_image_from_hit(hit).isNull())
-        editor.close()
-
-    def test_daily_tab_exposes_format_bar(self):
-        from unittest.mock import patch
-        from panels.personal_panel import DailyReportTab
-
-        with patch('panels.personal_panel.load_reports', return_value={}), \
-                patch('panels.personal_panel.save_reports'), \
-                patch('panels.personal_panel.load_drafts', return_value={}), \
-                patch('panels.personal_panel.save_drafts'), \
-                patch('panels.personal_panel.load_reminder_settings', return_value={
-                    'enabled': False, 'time': '17:30', 'last_reminder_date': '',
-                    'history_collapsed_months': [], 'history_expanded_months': [],
-                    'history_expand_pinned': True,
-                }):
-            tab = DailyReportTab()
-            self.assertEqual(tab.fmt_table_btn.text(), '表格')
-            self.assertEqual(tab.fmt_color_btn.text(), '颜色')
-            self.assertTrue(tab.completed.insert_table(2, 2))
-            self.assertIn('<table', tab.completed.toHtml().lower())
-            tab.close()
-
 
 if __name__ == '__main__':
     unittest.main()

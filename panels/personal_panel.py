@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
-    QColorDialog, QInputDialog, QLineEdit, QHeaderView,
-    QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QInputDialog, QLineEdit, QHeaderView,
+    QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTimeEdit, QVBoxLayout, QWidget,
 )
 
@@ -30,32 +30,6 @@ from tools.personal_knowledge import (
     search_entries,
 )
 from tools.requirements import daily_template
-
-
-class _TableInsertDialog(QDialog):
-    def __init__(self, parent=None, language='zh'):
-        super().__init__(parent)
-        zh = language != 'en'
-        self.setWindowTitle('插入表格' if zh else 'Insert table')
-        self.setModal(True)
-        form = QFormLayout(self)
-        self.rows_spin = QSpinBox()
-        self.rows_spin.setRange(1, 20)
-        self.rows_spin.setValue(3)
-        self.cols_spin = QSpinBox()
-        self.cols_spin.setRange(1, 10)
-        self.cols_spin.setValue(3)
-        form.addRow('行' if zh else 'Rows', self.rows_spin)
-        form.addRow('列' if zh else 'Columns', self.cols_spin)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
-
-    def values(self) -> tuple[int, int]:
-        return int(self.rows_spin.value()), int(self.cols_spin.value())
 
 
 class PasteKnowledgeDialog(QDialog):
@@ -1134,7 +1108,6 @@ class DailyReportTab(QWidget):
         date_row.addWidget(self.unsaved_label)
         form_layout.addLayout(date_row)
         form_layout.setSpacing(6)
-        form_layout.addLayout(self._build_format_bar())
         self.completed = self._report_editor(
             form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片',
             height=200, preferred=280, stretch=6,
@@ -1156,7 +1129,6 @@ class DailyReportTab(QWidget):
             ed.textChanged.connect(self._on_editor_changed)
             ed.image_error.connect(self._on_image_error)
             ed.assets_changed.connect(self._on_editor_changed)
-            ed.cursorPositionChanged.connect(self._sync_format_bar)
         actions = QHBoxLayout()
         self.delete_btn = QPushButton('删除当日日报')
         self.delete_btn.setObjectName('ops-delete-custom')
@@ -1191,107 +1163,10 @@ class DailyReportTab(QWidget):
         layout.addWidget(editor, stretch)
         return editor
 
-    def _build_format_bar(self) -> QHBoxLayout:
-        from ui.design_system import apply_button
-        zh = getattr(self, 'language', 'zh') != 'en'
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        self.fmt_bold_btn = QPushButton('B')
-        self.fmt_bold_btn.setCheckable(True)
-        self.fmt_bold_btn.setToolTip('加粗' if zh else 'Bold')
-        self.fmt_bold_btn.clicked.connect(lambda: self._focused_editor().toggle_bold())
-        self.fmt_italic_btn = QPushButton('I')
-        self.fmt_italic_btn.setCheckable(True)
-        self.fmt_italic_btn.setToolTip('斜体' if zh else 'Italic')
-        self.fmt_italic_btn.clicked.connect(lambda: self._focused_editor().toggle_italic())
-        self.fmt_underline_btn = QPushButton('U')
-        self.fmt_underline_btn.setCheckable(True)
-        self.fmt_underline_btn.setToolTip('下划线' if zh else 'Underline')
-        self.fmt_underline_btn.clicked.connect(lambda: self._focused_editor().toggle_underline())
-        for button in (self.fmt_bold_btn, self.fmt_italic_btn, self.fmt_underline_btn):
-            apply_button(button, 'ghost', compact=True)
-            button.setFixedWidth(32)
-            row.addWidget(button)
-        self.fmt_size = QComboBox()
-        self.fmt_size.setObjectName('daily-font-size')
-        self.fmt_size.addItems(['10', '11', '12', '14', '16', '18', '20', '24'])
-        self.fmt_size.setCurrentText('11')
-        self.fmt_size.setFixedHeight(28)
-        self.fmt_size.setMinimumWidth(64)
-        self.fmt_size.setMaximumWidth(80)
-        self.fmt_size.setToolTip('字号' if zh else 'Font size')
-        self.fmt_size.currentTextChanged.connect(self._on_font_size_changed)
-        row.addWidget(self.fmt_size)
-        self.fmt_color_btn = QPushButton('颜色' if zh else 'Color')
-        apply_button(self.fmt_color_btn, 'ghost', compact=True)
-        self.fmt_color_btn.setToolTip('文字颜色' if zh else 'Text color')
-        self.fmt_color_btn.clicked.connect(self._choose_text_color)
-        row.addWidget(self.fmt_color_btn)
-        self.fmt_list_btn = QPushButton('列表' if zh else 'List')
-        apply_button(self.fmt_list_btn, 'ghost', compact=True)
-        self.fmt_list_btn.setToolTip('项目符号列表' if zh else 'Bullet list')
-        self.fmt_list_btn.clicked.connect(lambda: self._focused_editor().apply_bullet_list())
-        row.addWidget(self.fmt_list_btn)
-        self.fmt_table_btn = QPushButton('表格' if zh else 'Table')
-        apply_button(self.fmt_table_btn, 'ghost', compact=True)
-        self.fmt_table_btn.setToolTip('插入表格' if zh else 'Insert table')
-        self.fmt_table_btn.clicked.connect(self._insert_table_to_focus)
-        row.addWidget(self.fmt_table_btn)
-        row.addStretch(1)
-        return row
-
-    def _on_font_size_changed(self, text: str):
-        try:
-            size = int(str(text).strip())
-        except (TypeError, ValueError):
-            return
-        self._focused_editor().apply_font_point_size(size)
-
-    def _choose_text_color(self):
-        zh = getattr(self, 'language', 'zh') != 'en'
-        color = QColorDialog.getColor(QColor('#272B29'), self, '文字颜色' if zh else 'Text color')
-        if color.isValid():
-            self._focused_editor().apply_text_color(color)
-
-    def _insert_table_to_focus(self):
-        dialog = _TableInsertDialog(self, getattr(self, 'language', 'zh'))
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        rows, cols = dialog.values()
-        self._focused_editor().insert_table(rows, cols)
-
-    def _sync_format_bar(self):
-        if not hasattr(self, 'fmt_size'):
-            return
-        editor = self.sender() if isinstance(self.sender(), DailyRichEdit) else self._focused_editor()
-        fmt = editor.currentCharFormat()
-        self.fmt_bold_btn.setChecked(fmt.fontWeight() >= int(600))
-        self.fmt_italic_btn.setChecked(bool(fmt.fontItalic()))
-        self.fmt_underline_btn.setChecked(bool(fmt.fontUnderline()))
-        size = str(editor.current_font_point_size())
-        if self.fmt_size.currentText() != size:
-            blocked = self.fmt_size.blockSignals(True)
-            index = self.fmt_size.findText(size)
-            if index >= 0:
-                self.fmt_size.setCurrentIndex(index)
-            self.fmt_size.blockSignals(blocked)
-
     def set_language(self, language):
         self.language = language
         for editor in getattr(self, '_editors', ()):
             editor.language = language
-        zh = language != 'en'
-        if hasattr(self, 'fmt_color_btn'):
-            self.fmt_bold_btn.setToolTip('加粗' if zh else 'Bold')
-            self.fmt_italic_btn.setToolTip('斜体' if zh else 'Italic')
-            self.fmt_underline_btn.setToolTip('下划线' if zh else 'Underline')
-            self.fmt_size.setToolTip('字号' if zh else 'Font size')
-            self.fmt_color_btn.setText('颜色' if zh else 'Color')
-            self.fmt_color_btn.setToolTip('文字颜色' if zh else 'Text color')
-            self.fmt_list_btn.setText('列表' if zh else 'List')
-            self.fmt_list_btn.setToolTip('项目符号列表' if zh else 'Bullet list')
-            self.fmt_table_btn.setText('表格' if zh else 'Table')
-            self.fmt_table_btn.setToolTip('插入表格' if zh else 'Insert table')
 
     def _date_key(self):
         return self.date_edit.date().toString('yyyy-MM-dd')
