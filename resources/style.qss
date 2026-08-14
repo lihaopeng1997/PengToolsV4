@@ -688,10 +688,12 @@ QTreeWidget#docx-output-browser QHeaderView::section {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
-    border-right: 1px solid __BORDER_STRONG__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 8px;
-    font-weight: 800;
+    border-right: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 3px 8px;
+    min-height: 20px;
+    font-weight: 700;
+    font-size: 12px;
 }
 QTreeWidget#ops-export-tree {
     border: 1px solid __BORDER__;
@@ -720,8 +722,10 @@ QTreeWidget#ops-export-tree QHeaderView::section {
     border: none;
     border-right: 1px solid __BORDER__;
     border-bottom: 2px solid __PRIMARY__;
-    padding: 6px 8px;
+    padding: 3px 8px;
+    min-height: 20px;
     font-weight: 700;
+    font-size: 12px;
 }
 QTreeWidget#requirement-file-tree,
 QTreeWidget#ops-remote-tree {
@@ -766,38 +770,26 @@ QTreeWidget#requirement-file-tree::branch:hover,
 QTreeWidget#ops-remote-tree::branch:hover { background: transparent; }
 QTreeWidget#requirement-file-tree::branch:selected,
 QTreeWidget#ops-remote-tree::branch:selected { background: transparent; }
-/* 表头：企业文件树风格；ops-remote-tree 窄栏用更紧凑 padding */
-QTreeWidget#requirement-file-tree QHeaderView::section {
-    background: __SURFACE_SOFT__;
-    color: __TEXT_STRONG__;
-    border: none;
-    border-right: 1px solid __SCROLL_HANDLE__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 4px 8px;
-    font-weight: 700;
-}
-QTreeWidget#ops-remote-tree QHeaderView::section {
-    background: __SURFACE_SOFT__;
-    color: __TEXT_STRONG__;
-    border: none;
-    border-right: 1px solid __SCROLL_HANDLE__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 4px 6px;
-    font-weight: 700;
-}
-QTreeWidget#requirement-file-tree QHeaderView::section:hover,
-QTreeWidget#ops-remote-tree QHeaderView::section:hover { background: __PRIMARY_SOFT__; }
-QTreeWidget#requirement-file-tree QHeaderView::section:last,
-QTreeWidget#ops-remote-tree QHeaderView::section:last { border-right: none; }
+/* 表头与全局统一（保留选择器供模块定向测试） */
+QTreeWidget#requirement-file-tree QHeaderView::section,
+QTreeWidget#ops-remote-tree QHeaderView::section,
 QHeaderView#requirement-file-header::section {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
-    border-right: 1px solid __SCROLL_HANDLE__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 4px 8px;
+    border-right: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 3px 8px;
+    min-height: 20px;
     font-weight: 700;
+    font-size: 12px;
 }
+QTreeWidget#requirement-file-tree QHeaderView::section:hover,
+QTreeWidget#ops-remote-tree QHeaderView::section:hover,
+QHeaderView#requirement-file-header::section:hover { background: __PRIMARY_SOFT__; }
+QTreeWidget#requirement-file-tree QHeaderView::section:last,
+QTreeWidget#ops-remote-tree QHeaderView::section:last,
+QHeaderView#requirement-file-header::section:last { border-right: none; }
 QFrame#detail-action-card {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;
@@ -1121,14 +1113,14 @@ QTableWidget::item:selected:!active {
 }
 QTableWidget#release-table QHeaderView::section,
 QHeaderView#release-table-header::section {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __PRIMARY_SOFT__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
-    border-right: 1px solid __BORDER_STRONG__;
+    border-right: 1px solid __BORDER__;
     border-bottom: 2px solid __PRIMARY__;
-    padding: 11px 10px;
-    font-weight: 800;
+    padding: 3px 8px;
+    min-height: 20px;
+    font-weight: 700;
     font-size: 12px;
 }
 QTableWidget#release-table QHeaderView::section:hover,
@@ -1283,15 +1275,21 @@ QTableWidget::item:selected {
 QTableWidget::item:hover {
     background: __PRIMARY_SOFT__;
 }
+QHeaderView {
+    background: __SURFACE_SOFT__;
+    min-height: 24px;
+    max-height: 26px;
+}
 QHeaderView::section {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE_SOFT__, stop:1 __PRIMARY_SOFT__);
+    background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
     border-right: 1px solid __BORDER__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 9px 10px;
-    font-weight: 800;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 3px 8px;
+    min-height: 20px;
+    font-weight: 700;
+    font-size: 12px;
 }
 QHeaderView::section:hover {
     background: __PRIMARY_SOFT__;
@@ -1352,52 +1350,45 @@ QTabWidget::pane {
     padding: 4px;
 }
 QTabWidget#module-tabs::pane {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
-    margin-top: 2px;
-    padding: 6px;
+    border-radius: 10px;
+    margin-top: 1px;
+    padding: 4px;
 }
+QTabBar {
+    min-height: 24px;
+    max-height: 28px;
+}
+QTabBar::tab,
 QTabWidget#module-tabs QTabBar::tab {
-    background: transparent;
+    background: __SURFACE_SOFT__;
     color: __TEXT_MUTED__;
-    padding: 10px 18px;
-    margin-right: 3px;
-    min-width: 80px;
+    padding: 3px 10px;
+    margin-right: 2px;
+    min-width: 48px;
+    min-height: 18px;
+    max-height: 24px;
     border: 1px solid transparent;
     border-bottom: none;
-    border-top-left-radius: 9px;
-    border-top-right-radius: 9px;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
     font-weight: 600;
+    font-size: 12px;
 }
+QTabBar::tab:hover,
 QTabWidget#module-tabs QTabBar::tab:hover {
     color: __PRIMARY_ACTIVE__;
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY_SOFT__;
 }
+QTabBar::tab:selected,
 QTabWidget#module-tabs QTabBar::tab:selected {
     color: __PRIMARY_ACTIVE__;
-    font-weight: 800;
+    font-weight: 700;
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-bottom: 2px solid __PRIMARY__;
-}
-QTabBar::tab {
-    background: transparent;
-    color: __TEXT_MUTED__;
-    padding: 10px 16px;
-    margin-right: 2px;
-    min-width: 72px;
-}
-QTabBar::tab:hover { color: __PRIMARY_ACTIVE__; background: __SURFACE_TECH__; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-QTabBar::tab:selected {
-    color: __PRIMARY_ACTIVE__;
-    font-weight: 750;
-    background: __SURFACE__;
-    border-bottom: 2px solid __PRIMARY__;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
 }
 QTabBar::scroller { width: 28px; }
 QTabBar QToolButton {
@@ -1806,14 +1797,15 @@ QTreeWidget#json-tree::item:selected:!active {
 }
 QTreeWidget#json-tree QHeaderView::section,
 QHeaderView#json-tree-header::section {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE_SOFT__, stop:1 __PRIMARY_SOFT__);
+    background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
     border-right: 1px solid __BORDER__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 8px 10px;
-    font-weight: 800;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 3px 8px;
+    min-height: 20px;
+    font-weight: 700;
+    font-size: 12px;
 }
 QTreeWidget#json-tree QHeaderView::section:hover,
 QHeaderView#json-tree-header::section:hover {
@@ -2135,11 +2127,15 @@ QTabWidget#ops-term-tabs QTabBar::tab {
     color: __TEXT_MUTED__;
     border: 1px solid __BORDER__;
     border-bottom: none;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-    padding: 7px 16px;
-    margin-right: 4px;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+    padding: 3px 10px;
+    margin-right: 2px;
+    min-width: 48px;
+    min-height: 18px;
+    max-height: 24px;
     font-weight: 600;
+    font-size: 12px;
 }
 QTabWidget#ops-term-tabs QTabBar::tab:selected {
     background: __TERM_BG__;
@@ -2174,10 +2170,12 @@ QTreeWidget#ops-export-tree QHeaderView::section {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: none;
-    border-right: 1px solid __SCROLL_HANDLE__;
-    border-bottom: 2px solid __BORDER_STRONG__;
-    padding: 4px 6px;
+    border-right: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 3px 8px;
+    min-height: 20px;
     font-weight: 700;
+    font-size: 12px;
 }
 /* 圆滑弹框 */
 QDialog#ops-dialog, QDialog#server-editor-dialog, QDialog#server-manage-dialog,

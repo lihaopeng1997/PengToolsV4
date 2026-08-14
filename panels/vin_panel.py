@@ -51,6 +51,11 @@ class VinPanel(QWidget):
         layout.addWidget(self.settings)
 
         self.table = QTableWidget(0, 5)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.table.horizontalHeader())
+        except Exception:
+            pass
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)

@@ -459,6 +459,11 @@ class InterfaceDebugPanel(QWidget):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         header_view = self.table.horizontalHeader()
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(header_view)
+        except Exception:
+            pass
         header_view.setStretchLastSection(False)
         header_view.setSectionsMovable(True)
         header_view.setMinimumSectionSize(40)
@@ -791,6 +796,7 @@ class InterfaceDebugPanel(QWidget):
         editor_layout.setSpacing(8)
 
         self.rt_tabs = QTabWidget()
+        self.rt_tabs.setObjectName('module-tabs')
         self.rt_tabs.setDocumentMode(True)
         self.rt_headers = QPlainTextEdit()
         self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')

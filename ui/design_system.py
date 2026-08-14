@@ -130,10 +130,17 @@ def apply_tree(tree: QTreeWidget, *, alternating: bool = True) -> None:
     tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     tree.setTextElideMode(Qt.TextElideMode.ElideRight)
-    header = tree.header()
-    if header is not None:
-        header.setHighlightSections(False)
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    apply_list_header(tree.header())
+
+
+def apply_list_header(header) -> None:
+    """列表/表格标题栏：统一矮栏，不改列宽策略。"""
+    if header is None:
+        return
+    header.setHighlightSections(False)
+    header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    header.setFixedHeight(int(_lm.TABLE_HEADER_H))
+    header.setMinimumSectionSize(48)
 
 
 def apply_table(table: QTableWidget, *, alternating: bool = True) -> None:
@@ -147,10 +154,9 @@ def apply_table(table: QTableWidget, *, alternating: bool = True) -> None:
     table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     table.verticalHeader().setVisible(False)
+    apply_list_header(table.horizontalHeader())
     header = table.horizontalHeader()
     if header is not None:
-        header.setHighlightSections(False)
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setMinimumSectionSize(52)
 
 

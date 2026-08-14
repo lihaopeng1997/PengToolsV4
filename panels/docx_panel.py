@@ -208,6 +208,11 @@ class DocxUpdatePanel(QWidget):
         self.output_browser.setAlternatingRowColors(True)
         self.output_browser.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         header = self.output_browser.header()
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(header)
+        except Exception:
+            pass
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)

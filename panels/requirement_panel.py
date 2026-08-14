@@ -469,6 +469,11 @@ class RequirementAttachmentDialog(QDialog):
         self.table = QTableWidget(len(rows), columns); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.table.horizontalHeader())
+        except Exception:
+            pass
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -1598,7 +1603,11 @@ class RequirementPanel(QWidget):
         file_header = self.file_tree.header()
         file_header.setObjectName('requirement-file-header')
         file_header.setSectionsClickable(True)
-        file_header.setHighlightSections(False)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(file_header)
+        except Exception:
+            file_header.setHighlightSections(False)
         # 全部 Interactive：超长以 … 省略，拖宽列 / 横向滚动可看全
         file_header.setSectionsMovable(True)
         file_header.setStretchLastSection(False)

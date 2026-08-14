@@ -81,6 +81,21 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertIn('QPushButton:focus', qss)
         self.assertNotIn('__CONTROL_HEIGHT_COMPACT__', qss)
 
+    def test_headers_and_tabs_share_compact_style(self):
+        from ui.layout_metrics import TAB_H, TABLE_HEADER_H
+
+        self.assertLessEqual(TABLE_HEADER_H, 28)
+        self.assertLessEqual(TAB_H, 28)
+        manager = ThemeManager.instance()
+        manager.load_template()
+        qss = manager.render('calm')
+        self.assertIn('QHeaderView::section', qss)
+        self.assertIn('QTabBar::tab', qss)
+        self.assertIn('padding: 3px 8px', qss)
+        self.assertIn('padding: 3px 10px', qss)
+        self.assertNotIn('padding: 11px 10px', qss)
+        self.assertNotIn('padding: 10px 18px', qss)
+
     def _avg_luma(self, hex_color: str) -> float:
         hexv = hex_color.upper().lstrip('#')
         r, g, b = int(hexv[0:2], 16), int(hexv[2:4], 16), int(hexv[4:6], 16)

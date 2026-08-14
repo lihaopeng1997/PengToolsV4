@@ -227,8 +227,12 @@ class SqlToolPanel(QWidget):
         )
         header = self.release_table.horizontalHeader()
         header.setObjectName('release-table-header')
-        header.setHighlightSections(False)
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(header)
+        except Exception:
+            header.setHighlightSections(False)
+            header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setMinimumSectionSize(52)
         header.setStretchLastSection(False)
         fixed_widths = {0: 52, 1: 58, 2: 128, 4: 108, 5: 178, 7: 108}

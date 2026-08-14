@@ -235,6 +235,11 @@ class KnowledgeTab(QWidget):
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setWordWrap(False)
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.table_view.horizontalHeader())
+        except Exception:
+            pass
         self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table_view.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_view.setTextElideMode(Qt.TextElideMode.ElideRight)

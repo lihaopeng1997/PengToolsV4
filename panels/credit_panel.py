@@ -44,6 +44,8 @@ class CreditCodePanel(QWidget):
         root.addWidget(self.subtitle)
 
         self.category_tabs = QTabWidget()
+        self.category_tabs.setObjectName('module-tabs')
+        self.category_tabs.setDocumentMode(True)
         self.category_tabs.addTab(self._create_personal_tab(), '')
         self.category_tabs.addTab(self._create_unit_tab(), '')
         root.addWidget(self.category_tabs)
@@ -56,6 +58,11 @@ class CreditCodePanel(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.table.horizontalHeader())
+        except Exception:
+            pass
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)

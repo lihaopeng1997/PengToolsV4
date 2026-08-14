@@ -134,6 +134,11 @@ class JsonViewer(QWidget):
         self.tree.setWordWrap(False)
         header = self.tree.header()
         header.setObjectName('json-tree-header')
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(header)
+        except Exception:
+            pass
         header.setSectionsMovable(False)
         header.setStretchLastSection(False)
         header.setMinimumSectionSize(64)

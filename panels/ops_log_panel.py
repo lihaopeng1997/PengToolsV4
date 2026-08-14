@@ -313,6 +313,11 @@ class ServerEditorDialog(QDialog):
         self.services_table.setHorizontalHeaderLabels(
             ['服务名', '日志路径', '启用'] if zh else ['Service', 'Log path', 'On']
         )
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.services_table.horizontalHeader())
+        except Exception:
+            pass
         self.services_table.horizontalHeader().setStretchLastSection(True)
         self.services_table.setMinimumHeight(180)
         self.services_table.setMaximumHeight(280)
@@ -1782,6 +1787,11 @@ class OpsLogPanel(QWidget):
         self.remote_tree.itemDoubleClicked.connect(self._remote_item_activated)
         self.remote_tree.itemClicked.connect(self._remote_item_clicked)
         hdr = self.remote_tree.header()
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(hdr)
+        except Exception:
+            pass
         hdr.setStretchLastSection(False)
         hdr.setSectionsMovable(False)
         hdr.setMinimumSectionSize(48)
@@ -1835,6 +1845,11 @@ class OpsLogPanel(QWidget):
         self.export_server_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.export_server_list.customContextMenuRequested.connect(self._on_export_tree_context_menu)
         exp_hdr = self.export_server_list.header()
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(exp_hdr)
+        except Exception:
+            pass
         exp_hdr.setStretchLastSection(False)
         exp_hdr.setMinimumSectionSize(72)
         # 路径列拉满剩余宽度；名称/指定文件可拖宽，避免路径被挤成半截
@@ -2010,6 +2025,11 @@ class OpsLogPanel(QWidget):
         apply_table(self.result_table)
         self.result_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        try:
+            from ui.design_system import apply_list_header
+            apply_list_header(self.result_table.horizontalHeader())
+        except Exception:
+            pass
         self.result_table.horizontalHeader().setStretchLastSection(True)
         self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
