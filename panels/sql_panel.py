@@ -113,8 +113,9 @@ class SqlToolPanel(QWidget):
 
         # 弱步骤条：选择日期 → 勾选事项 → 生成资料
         steps = QLabel('选择日期  →  勾选事项  →  生成资料')
-        steps.setObjectName('small-label')
+        steps.setObjectName('flow-steps')
         steps.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.release_steps = steps
         layout.addWidget(steps)
 
         # 默认摘要行：日期 / 候选数量 / 展开上下文
@@ -812,6 +813,12 @@ class SqlToolPanel(QWidget):
         self.tabs.setTabText(0, '升级准备' if zh else 'Release Prep')
         self.tabs.setTabText(1, '发版联动' if zh else 'Release Link')
         self.tabs.setTabText(2, '系统配置' if zh else 'Systems')
+        if hasattr(self, 'release_steps'):
+            self.release_steps.setText(
+                '选择日期  →  勾选事项  →  生成资料'
+                if zh else
+                'Pick a date  →  Check items  →  Generate'
+            )
         self.input_label.setText('输入' if zh else 'Input')
         self.sql_action_title.setText('导出' if zh else 'Export')
         self.env_label.setText('环境' if zh else 'Env')

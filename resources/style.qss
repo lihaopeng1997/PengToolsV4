@@ -172,7 +172,14 @@ QLabel#docx-template-status[matched="true"] {
     line-height: 1.35;
     font-size: 12px;
 }
-#section-title { color: __TEXT__; font-size: 13px; font-weight: 750; }
+#section-title { color: __TEXT_MUTED__; font-size: 11px; font-weight: 650; letter-spacing: 0.6px; }
+QLabel#flow-steps {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 2px 2px 6px 2px;
+}
 #hotkey-pill {
     color: __PRIMARY_ACTIVE__; background: __PRIMARY_SOFT__; border: 1px solid __PRIMARY_SOFT__;
     border-radius: 12px; padding: 8px;
@@ -411,8 +418,7 @@ QFrame#ds-card {
     border-radius: 12px;
 }
 QFrame#ds-zone {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __SURFACE__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
@@ -804,12 +810,11 @@ QFrame#detail-action-card {
 }
 QFrame#ops-list-card {
     background: __SURFACE__;
-    border: 1px solid __APP_BG__;
+    border: 1px solid __BORDER__;
     border-radius: 12px;
 }
 QFrame#detail-summary-card {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __SURFACE__, stop:1 __PRIMARY_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
@@ -942,10 +947,9 @@ QFrame#release-table-zone {
     border-top: 2px solid __TEXT_MUTED__;
 }
 QFrame#release-generate-zone {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __PRIMARY_SOFT__, stop:0.45 __SURFACE__, stop:1 __SURFACE__);
-    border: 1px solid __SUCCESS__;
-    border-left: 3px solid __SUCCESS__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
 }
 /* SQL 整理：工具 / 交付 / 编辑 / 动作 — 与升级准备同级分区语言 */
@@ -966,10 +970,9 @@ QFrame#sql-editor-zone {
     border-top: 2px solid __TEXT_MUTED__;
 }
 QFrame#sql-action-zone {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __PRIMARY_SOFT__, stop:0.45 __SURFACE__, stop:1 __SURFACE__);
-    border: 1px solid __SUCCESS__;
-    border-left: 3px solid __SUCCESS__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
 }
 QFrame#sql-tool-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
@@ -1864,7 +1867,7 @@ QTreeWidget#ops-command-list::branch:!has-children {
     image: none;
     border-image: none;
 }
-QLabel#ops-title { color: __TEXT_STRONG__; font-size: 20px; font-weight: 800; }
+QLabel#ops-title { color: __TEXT_STRONG__; font-size: 16px; font-weight: 650; letter-spacing: -0.2px; }
 QLabel#ops-description {
     color: __TEXT_MUTED__;
     background: __SURFACE__;
@@ -1894,9 +1897,15 @@ QLabel#ops-risk-badge[risk="caution"] { color: __WARNING__; background: __WARNIN
 QLabel#ops-risk-badge[risk="danger"] { color: __DANGER__; background: __DANGER_BG__; border-color: __DANGER_BORDER__; }
 
 QFrame#private-reminder-card {
-  background: __INFO_BG__;
-  border: 1px solid __INFO_BORDER__;
-  border-radius: 12px;
+  background: __SURFACE__;
+  border: 1px solid __BORDER__;
+  border-radius: 10px;
+}
+QLabel#daily-history-title {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.6px;
 }
 QLabel#private-sensitive-badge {
   color: __WARNING__;
@@ -2103,6 +2112,9 @@ QLabel#ssh-find-status {
     color: __TERM_SYS__;
     font-weight: 600;
     min-width: 48px;
+}
+QWidget#ops-left-panel {
+    background: transparent;
 }
 QWidget#ops-right-panel {
     background: transparent;

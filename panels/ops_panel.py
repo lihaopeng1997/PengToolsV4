@@ -146,6 +146,11 @@ class OpsPanel(QWidget):
         header.addWidget(self.category_combo)
         self.add_btn = QPushButton()
         self.add_btn.clicked.connect(self._add_custom_command)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.add_btn, 'secondary', compact=True)
+        except Exception:
+            pass
         header.addWidget(self.add_btn)
         root.addLayout(header)
 
@@ -230,11 +235,16 @@ class OpsPanel(QWidget):
 
         preview_top = QHBoxLayout()
         self.preview_title = QLabel()
-        self.preview_title.setObjectName('section-title')
+        self.preview_title.setObjectName('zone-title')
         preview_top.addWidget(self.preview_title)
         preview_top.addStretch()
         self.generate_btn = QPushButton()
         self.generate_btn.clicked.connect(self._generate_preview)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.generate_btn, 'secondary', compact=True)
+        except Exception:
+            pass
         preview_top.addWidget(self.generate_btn)
         detail.addLayout(preview_top)
         self.preview = QPlainTextEdit()
@@ -243,7 +253,7 @@ class OpsPanel(QWidget):
         self.preview.setMinimumHeight(125)
         detail.addWidget(self.preview)
         self.output_title = QLabel()
-        self.output_title.setObjectName('section-title')
+        self.output_title.setObjectName('zone-title')
         detail.addWidget(self.output_title)
         self.output_explanation = QLabel()
         self.output_explanation.setObjectName('ops-output-guide')
@@ -266,6 +276,12 @@ class OpsPanel(QWidget):
         self.copy_btn = QPushButton()
         self.copy_btn.setObjectName('primary-btn')
         self.copy_btn.clicked.connect(self._copy_command)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.delete_btn, 'danger', compact=True)
+            apply_button(self.copy_btn, 'primary', compact=True)
+        except Exception:
+            pass
         actions.addWidget(self.copy_btn)
         right_container_layout.addLayout(actions)
         splitter.addWidget(right_container)
@@ -313,7 +329,7 @@ class OpsPanel(QWidget):
         self.result_label.setText('命令与场景' if zh else 'Commands & scenarios')
         self.guide_title.setText('')
         self.preview_title.setText('命令' if zh else 'Command')
-        self.output_title.setText('结果说明' if zh else 'Result')
+        self.output_title.setText('结果' if zh else 'Result')
         if hasattr(self, 'safety_dismiss'):
             self.safety_dismiss.setText('知道了' if zh else 'Got it')
         self.generate_btn.setText('重新生成' if zh else 'Regenerate')

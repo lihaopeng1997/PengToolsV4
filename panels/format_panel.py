@@ -491,7 +491,7 @@ class FormatToolsPanel(QWidget):
         root.setSpacing(12)
         header, self.page_title, self.page_subtitle = make_page_header(
             '格式工具',
-            'JSON · XML · SQL · 文本辅助 · 离线整理 · 不联网、不落盘敏感内容',
+            '离线整理，不落盘',
             'json',
         )
         root.addWidget(header)
@@ -536,8 +536,7 @@ class FormatToolsPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('格式工具' if zh else 'Format tools')
         self.page_subtitle.setText(
-            'JSON · XML · SQL · 文本辅助 · 离线整理 · 不联网、不落盘敏感内容' if zh else
-            'JSON · XML · SQL · text helpers · offline · no network'
+            '离线整理，不落盘' if zh else 'Offline. Nothing is saved.'
         )
         self.tabs.setTabText(0, 'JSON')
         self.tabs.setTabText(1, 'XML')

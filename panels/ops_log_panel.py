@@ -1989,6 +1989,7 @@ class OpsLogPanel(QWidget):
         self.term_hint = QLabel()
         self.term_hint.setObjectName('field-hint')
         self.term_hint.setWordWrap(True)
+        self.term_hint.hide()
         right_l.addWidget(self.term_hint)
 
         result_card, er_l = self._card()
@@ -2294,13 +2295,17 @@ class OpsLogPanel(QWidget):
             if zh else
             'Browse remote dirs after connect; double-click fills log path.'
         )
-        # 底部灰字说明（用户问「提示」指的就是这行）
-        self.term_hint.setText(
+        # 底部灰字说明改为终端标题 tooltip，避免常驻占高
+        hint = (
             '每个终端标签是独立会话：连接/主机/服务/路径互不影响。'
             '新开标签默认未连接，不会断开其它标签。Backspace 可删；「历史」可带入命令。'
             if zh else
             'Each terminal tab is an independent session. New tab does not disconnect others.'
         )
+        self.term_hint.setText(hint)
+        self.term_hint.hide()
+        if hasattr(self, 'console_title'):
+            self.console_title.setToolTip(hint)
         self.path_edit.setPlaceholderText('例如 /app/logs' if zh else '/var/log')
         self.log_path_edit.setPlaceholderText('服务器上的日志完整路径' if zh else 'Remote log path')
         self.keyword_edit.setPlaceholderText(
