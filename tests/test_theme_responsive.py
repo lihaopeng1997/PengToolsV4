@@ -308,9 +308,9 @@ class PanelLayoutModeTests(unittest.TestCase):
     def test_dashboard_narrow_stacks_and_limits_tools(self):
         panel = DashboardPanel('zh')
         panel.apply_layout_mode('wide', False)
-        self.assertEqual(panel._list_limit(), 5)
+        self.assertEqual(panel._list_limit(), 8)
         panel.apply_layout_mode('narrow', True)
-        self.assertEqual(panel._list_limit(), 3)
+        self.assertEqual(panel._list_limit(), 4)
         self.assertTrue(panel.tools_more.isVisible() or panel.ops.isHidden())
         self.assertTrue(panel.subtitle.isHidden())
 

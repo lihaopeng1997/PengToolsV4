@@ -22,6 +22,12 @@ class CompactListLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls._prev_qss = cls.app.styleSheet()
+        cls.app.setStyleSheet('')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.setStyleSheet(cls._prev_qss)
 
     def test_ops_lists_stretch_name_columns_and_keep_metadata_resizable(self):
         panel = OpsLogPanel('zh')
@@ -61,6 +67,70 @@ class CompactListLayoutTests(unittest.TestCase):
             )
             self.assertTrue(all(button.height() == 28 for button in buttons))
             self.assertTrue(all(button.property('compactAction') is True for button in buttons))
+        finally:
+            panel._executor.shutdown(wait=False, cancel_futures=True)
+            panel.close()
+
+
+class DensityPassPanelTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        cls._prev_qss = cls.app.styleSheet()
+        cls.app.setStyleSheet('')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.setStyleSheet(cls._prev_qss)
+
+    def test_credit_qty_is_compact_spinbox(self):
+        from PyQt6.QtWidgets import QSpinBox
+        from panels.credit_panel import CreditCodePanel
+
+        panel = CreditCodePanel()
+        self.assertIsInstance(panel.personal_qty, QSpinBox)
+        self.assertEqual(panel.personal_qty.width(), 56)
+        self.assertEqual(panel.personal_qty.height(), 28)
+        self.assertEqual(panel.personal_generate.height(), 28)
+        panel.close()
+
+    def test_vin_fills_visible_rows_and_keeps_vin_column_readable(self):
+        from PyQt6.QtWidgets import QHeaderView
+        from panels.vin_panel import VinPanel
+
+        panel = VinPanel('zh')
+        panel.resize(1100, 720)
+        panel.show()
+        self.app.processEvents()
+        count = panel._visible_fill_count()
+        self.assertGreaterEqual(count, 8)
+        self.assertLessEqual(count, 40)
+        panel._generate()
+        self.assertEqual(panel.table.rowCount(), count)
+        self.assertEqual(
+            panel.table.horizontalHeader().sectionResizeMode(1),
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+        self.assertEqual(
+            panel.table.horizontalHeader().sectionResizeMode(4),
+            QHeaderView.ResizeMode.Stretch,
+        )
+        panel.close()
+
+    def test_docx_update_sits_on_date_author_row(self):
+        from panels.docx_panel import DocxUpdatePanel
+
+        panel = DocxUpdatePanel('zh')
+        self.assertIs(panel.update_btn.parentWidget(), panel.date_card)
+        self.assertEqual(panel.update_btn.text(), '一键更新文档')
+        self.assertEqual(panel.doc_list.minimumHeight(), 72)
+        self.assertEqual(panel.sql_editor.sizePolicy().verticalPolicy().name, 'Expanding')
+        panel.close()
+
+    def test_ops_export_offers_open_file_or_folder(self):
+        panel = OpsLogPanel('zh')
+        try:
+            self.assertTrue(callable(panel._offer_open_export))
         finally:
             panel._executor.shutdown(wait=False, cancel_futures=True)
             panel.close()

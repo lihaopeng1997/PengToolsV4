@@ -34,7 +34,7 @@ from tools.ops_ssh import (
     parse_keywords, save_server_store, save_servers, server_services, split_extra_keywords, test_connection,
 )
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
-from ui.confirm_dialog import confirm_action, show_error, show_success, show_warning
+from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import size_combo, size_line
 from ui.page_chrome import make_page_header
@@ -3850,17 +3850,43 @@ class OpsLogPanel(QWidget):
         self.status_label.setText(
             f'完成：{ok_n}/{len(results)} 成功' if self.language == 'zh' else f'Done: {ok_n}/{len(results)}'
         )
-        # 若有成功文件，状态栏提示关键字目录
-        for r in results or []:
-            lp = str(r.get('local_path') or '')
-            if r.get('ok') and lp:
-                parent = os.path.dirname(lp)
-                self.status_label.setText(
-                    (f'完成：{ok_n}/{len(results)} 成功 · 目录 {parent}'
-                     if self.language == 'zh' else
-                     f'Done: {ok_n}/{len(results)} · {parent}')
-                )
-                break
+        paths = [str(r.get('local_path') or '') for r in (results or []) if r.get('ok') and r.get('local_path')]
+        if paths:
+            parent = os.path.dirname(paths[0])
+            self.status_label.setText(
+                (f'完成：{ok_n}/{len(results)} 成功 · 目录 {parent}'
+                 if self.language == 'zh' else
+                 f'Done: {ok_n}/{len(results)} · {parent}')
+            )
+            self._offer_open_export(paths)
+
+    def _offer_open_export(self, paths: list[str]):
+        """导出成功后询问打开文件或所在文件夹。"""
+        existing = [p for p in paths if p and os.path.exists(p)]
+        if not existing:
+            return
+        zh = self.language == 'zh'
+        first = existing[0]
+        folder = first if os.path.isdir(first) else os.path.dirname(first)
+        actions = []
+        if os.path.isfile(first) and len(existing) == 1:
+            actions.append(('open_file', '打开文件' if zh else 'Open file', True))
+            actions.append(('open_folder', '打开文件夹' if zh else 'Open folder', False))
+        else:
+            actions.append(('open_folder', '打开文件夹' if zh else 'Open folder', True))
+        choice = offer_next_steps(
+            self,
+            '导出完成' if zh else 'Export done',
+            (f'已导出 {len(existing)} 个文件。\n{first}' if zh else f'Exported {len(existing)} file(s).\n{first}'),
+            actions,
+            recommended=actions[0][0],
+        )
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        if choice == 'open_file':
+            QDesktopServices.openUrl(QUrl.fromLocalFile(first))
+        elif choice == 'open_folder' and folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def _on_export_failed(self, message: str):
         self._running = False

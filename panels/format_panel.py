@@ -503,7 +503,7 @@ class FormatToolsPanel(QWidget):
         # JSON：复用 JsonViewer，不改其 API
         json_page = QWidget()
         json_layout = QVBoxLayout(json_page)
-        json_layout.setContentsMargins(0, 8, 0, 0)
+        json_layout.setContentsMargins(0, 4, 0, 0)
         self.json_viewer = JsonViewer(self.language)
         json_layout.addWidget(self.json_viewer)
         self.tabs.addTab(json_page, 'JSON')

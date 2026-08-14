@@ -44,11 +44,19 @@ class SectionToggleTests(unittest.TestCase):
 
 
 class CompactButtonMetricsTests(unittest.TestCase):
+    def setUp(self):
+        from PyQt6.QtWidgets import QApplication
+        self.app = QApplication.instance() or QApplication([])
+        self._prev_qss = self.app.styleSheet()
+        self.app.setStyleSheet('')
+
+    def tearDown(self):
+        self.app.setStyleSheet(self._prev_qss)
+
     def test_size_compact_button_height_is_28(self):
-        from PyQt6.QtWidgets import QApplication, QPushButton
+        from PyQt6.QtWidgets import QPushButton
         from ui.field_metrics import BTN_COMPACT_H, size_compact_button
 
-        app = QApplication.instance() or QApplication([])
         btn = QPushButton('操作')
         size_compact_button(btn)
         self.assertEqual(BTN_COMPACT_H, 28)
@@ -57,16 +65,41 @@ class CompactButtonMetricsTests(unittest.TestCase):
         btn.deleteLater()
 
     def test_design_system_ghost_maps_to_btn_ghost(self):
-        from PyQt6.QtWidgets import QApplication, QPushButton
+        from PyQt6.QtWidgets import QPushButton
         from ui.design_system import BUTTON_ROLES, apply_button
 
         self.assertEqual(BUTTON_ROLES['ghost'], 'btn-ghost')
-        app = QApplication.instance() or QApplication([])
         btn = QPushButton('次要')
         apply_button(btn, 'ghost', compact=True)
         self.assertEqual(btn.objectName(), 'btn-ghost')
         self.assertEqual(btn.height(), 28)
         btn.deleteLater()
+
+    def test_apply_button_always_uses_compact_28(self):
+        from PyQt6.QtWidgets import QPushButton, QSizePolicy
+        from ui.design_system import apply_button
+
+        btn = QPushButton('生成')
+        apply_button(btn, 'primary')
+        self.assertEqual(btn.height(), 28)
+        self.assertTrue(btn.property('compactAction'))
+        self.assertEqual(btn.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Maximum)
+        btn.deleteLater()
+
+    def test_size_combo_hugs_content(self):
+        from PyQt6.QtWidgets import QComboBox, QSizePolicy
+        from ui.field_metrics import COMBO_SM, FIELD_H, size_combo
+
+        combo = QComboBox()
+        combo.addItems(['GET', 'POST', 'OPTIONS'])
+        size_combo(combo, 'sm')
+        self.assertEqual(FIELD_H, 28)
+        self.assertEqual(combo.height(), 28)
+        self.assertEqual(combo.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Maximum)
+        self.assertEqual(combo.sizeAdjustPolicy(), QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.assertEqual(combo.minimumWidth(), COMBO_SM[0])
+        self.assertEqual(combo.maximumWidth(), COMBO_SM[1])
+        combo.deleteLater()
 
 
 if __name__ == '__main__':

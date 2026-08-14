@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 
 from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
+from ui.design_system import apply_button
 from ui.field_metrics import size_combo
 
 
@@ -21,7 +22,7 @@ class VinPanel(QWidget):
         self._results = []
         self._setup_ui()
         self.set_language(language)
-        self._generate()
+        self._pending_fill = True
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -45,7 +46,7 @@ class VinPanel(QWidget):
         row.addWidget(self.wmi_combo)
         row.addStretch()
         self.generate_btn = QPushButton()
-        self.generate_btn.setObjectName('primary-btn')
+        apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)
         row.addWidget(self.generate_btn)
         layout.addWidget(self.settings)
@@ -56,7 +57,12 @@ class VinPanel(QWidget):
             apply_list_header(self.table.horizontalHeader())
         except Exception:
             pass
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -65,18 +71,19 @@ class VinPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.itemDoubleClicked.connect(self._copy_cell)
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
 
         bottom = QHBoxLayout()
-        # 结果数量放表格右上区域语义：右侧状态 pill
         self.status = QLabel()
         self.status.setObjectName('status-pill')
-        bottom.addStretch()
         bottom.addWidget(self.status)
+        bottom.addStretch()
         self.copy_btn = QPushButton()
+        apply_button(self.copy_btn, 'secondary', compact=True)
         self.copy_btn.clicked.connect(self._copy)
         bottom.addWidget(self.copy_btn)
         self.export_btn = QPushButton()
+        apply_button(self.export_btn, 'ghost', compact=True)
         self.export_btn.clicked.connect(self._export)
         bottom.addWidget(self.export_btn)
         layout.addLayout(bottom)
@@ -92,7 +99,7 @@ class VinPanel(QWidget):
         self.settings.setTitle('中国车辆 VIN 测试数据' if zh else 'China Vehicle VIN Test Data')
         self.year_label.setText('车型年份' if zh else 'Model year')
         self.wmi_label.setText('制造商 WMI' if zh else 'Manufacturer WMI')
-        self.generate_btn.setText('生成 10 条并自动填充' if zh else 'Generate & fill 10')
+        self.generate_btn.setText('生成并填满列表' if zh else 'Fill visible rows')
         self.copy_btn.setText('复制全部' if zh else 'Copy all')
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
         self.table.setHorizontalHeaderLabels(
@@ -100,10 +107,25 @@ class VinPanel(QWidget):
             else ['#', 'VIN', 'WMI', 'Year code', 'Valid']
         )
 
+    def _visible_fill_count(self) -> int:
+        viewport = self.table.viewport().height() if self.table.viewport() else 0
+        row_h = max(int(self.table.verticalHeader().defaultSectionSize() or 24), 22)
+        if viewport < 40:
+            return 12
+        return max(8, min(40, viewport // row_h))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._pending_fill:
+            self._pending_fill = False
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._generate)
+
     def _generate(self):
         year = int(self.year_combo.currentText())
         wmi = self.wmi_combo.currentText()
-        self._results = generate_vin_batch(10, year, '' if wmi == 'AUTO' else wmi)
+        count = self._visible_fill_count()
+        self._results = generate_vin_batch(count, year, '' if wmi == 'AUTO' else wmi)
         self.table.setRowCount(len(self._results))
         for row, vin in enumerate(self._results):
             values = (str(row + 1), vin, vin[:3], vin[9], '✓' if validate_vin(vin) else '×')

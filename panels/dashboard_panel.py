@@ -226,14 +226,14 @@ class DashboardPanel(QWidget):
         )
         layout.addWidget(header)
 
-        # 两列任务卡：外框固定高度对齐；任务增多只在列表内滚动
+        # 两列任务卡撑满中间；任务增多只在列表内滚动，常用工具钉在底部
         self.tasks_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.tasks_row.setSpacing(12)
 
         self.recent_card = QFrame()
         self.recent_card.setObjectName('dashboard-task-card')
         # 自然高度：少任务收缩，多任务滚动；双卡再对齐底边
-        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(14, 12, 14, 12)
         recent_layout.setSpacing(8)
@@ -252,7 +252,7 @@ class DashboardPanel(QWidget):
         self.recent_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.recent_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.recent_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.recent_list_host = QWidget()
         self.recent_list = QVBoxLayout(self.recent_list_host)
         self.recent_list.setContentsMargins(0, 0, 4, 0)
@@ -268,7 +268,7 @@ class DashboardPanel(QWidget):
 
         self.release_card = QFrame()
         self.release_card.setObjectName('dashboard-task-card')
-        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.release_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         release_layout = QVBoxLayout(self.release_card)
         release_layout.setContentsMargins(14, 12, 14, 12)
         release_layout.setSpacing(8)
@@ -297,7 +297,7 @@ class DashboardPanel(QWidget):
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.release_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.release_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.release_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.release_list_host = QWidget()
         self.release_list = QVBoxLayout(self.release_list_host)
         self.release_list.setContentsMargins(0, 0, 4, 0)
@@ -310,8 +310,8 @@ class DashboardPanel(QWidget):
         self.release_scroll.setWidget(self.release_list_host)
         release_layout.addWidget(self.release_scroll, 1)
         self.tasks_row.addWidget(self.release_card, 1)
-        # 双卡自然高度；常用工具固定在页面底部
-        layout.addLayout(self.tasks_row, 0)
+        # 双卡占满中间；常用工具钉在页面最底部
+        layout.addLayout(self.tasks_row, 1)
         self._apply_list_geometry()
 
         # 常用工具：固定底部
@@ -352,7 +352,6 @@ class DashboardPanel(QWidget):
         self.tools_row.addWidget(self.tools_more)
         self.tools_row.addStretch(1)
         layout.addLayout(self.tools_row, 0)
-        layout.addStretch(1)
 
         # 兼容旧属性，避免外部引用崩溃
         self.offline = self.local_status
@@ -423,35 +422,16 @@ class DashboardPanel(QWidget):
         return total
 
     def _apply_list_geometry(self):
-        """布局契约：自然收缩 + 超限滚动；横向双卡外框底边对齐。"""
-        recent_n = self._count_task_rows(self.recent_list)
-        release_n = self._count_task_rows(self.release_list)
-        recent_h = self._scroll_height_for_count(recent_n)
-        release_h = self._scroll_height_for_count(release_n)
-        horizontal = self.tasks_row.direction() == QBoxLayout.Direction.LeftToRight
-        if horizontal:
-            list_h = max(recent_h, release_h)
-            self.recent_scroll.setFixedHeight(list_h)
-            self.release_scroll.setFixedHeight(list_h)
-        else:
-            self.recent_scroll.setFixedHeight(recent_h)
-            self.release_scroll.setFixedHeight(release_h)
-        # 解除强制撑满
+        """双卡等高撑满中间区域，条目在卡片内滚动；底栏常用工具固定。"""
+        floor = self._scroll_height_for_count(self._list_limit())
+        for scroll in (self.recent_scroll, self.release_scroll):
+            scroll.setMinimumHeight(floor)
+            scroll.setMaximumHeight(16777215)
+            scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for card in (self.recent_card, self.release_card):
             card.setMinimumHeight(0)
             card.setMaximumHeight(16777215)
-            sp = card.sizePolicy()
-            sp.setVerticalPolicy(QSizePolicy.Policy.Maximum)
-            sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
-            card.setSizePolicy(sp)
-        if horizontal:
-            # 双卡外框取同一内容高度，底边对齐且不撑满页面
-            recent_hint = self.recent_card.sizeHint().height()
-            release_hint = self.release_card.sizeHint().height()
-            target = max(recent_hint, release_hint)
-            if target > 0:
-                self.recent_card.setMinimumHeight(target)
-                self.release_card.setMinimumHeight(target)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     @staticmethod
     def _file_mtime(path: str) -> float:

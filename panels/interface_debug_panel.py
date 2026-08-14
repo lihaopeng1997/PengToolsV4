@@ -325,8 +325,9 @@ class InterfaceDebugPanel(QWidget):
         self.live_status.setObjectName('field-hint')
         self.live_status.setWordWrap(True)
         cl.addWidget(self.live_status)
-        # 抓包控制归入左侧“采集与定位”栏，而不是占据全宽顶部。
+        # 抓包按钮并入会话工具条，不再单独占一块空卡片。
         self.capture_zone = conn
+        self.capture_zone.hide()
 
         # 会话工具条
         tools = QFrame()
@@ -334,8 +335,11 @@ class InterfaceDebugPanel(QWidget):
         apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
         tl = QHBoxLayout(tools)
-        tl.setContentsMargins(10, 8, 10, 8)
-        tl.setSpacing(8)
+        tl.setContentsMargins(8, 4, 8, 4)
+        tl.setSpacing(6)
+        tl.addWidget(self.capture_toggle_btn)
+        tl.addWidget(self.test_listen_btn)
+        tl.addWidget(self.restore_proxy_btn)
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
         self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
@@ -421,8 +425,12 @@ class InterfaceDebugPanel(QWidget):
         left.setObjectName('iface-session-pane')
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(8)
+        ll.setSpacing(6)
+        ll.addWidget(self.status_label)
+        ll.addWidget(self.live_status)
+        # 抓包卡片已并入工具条；隐藏挂在左栏，避免无父级窗口闪现。
         ll.addWidget(self.capture_zone)
+        self.capture_zone.hide()
 
         # 工具条保持单行；窄屏时通过横向滚动保留完整操作，不挤压按钮文本。
         self.session_toolbar_scroll = QScrollArea()
@@ -618,17 +626,18 @@ class InterfaceDebugPanel(QWidget):
 
         # 环境：下拉选择已保存地址 + 当前 base 可编辑 + 保存/管理
         env_row = QHBoxLayout()
+        env_row.setSpacing(6)
         self.target_label = QLabel('环境')
         env_row.addWidget(self.target_label)
         self.local_target_combo = QComboBox()
-        self.local_target_combo.setMinimumWidth(160)
-        self.local_target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        size_combo(self.local_target_combo, 'md')
         self.local_target_combo.currentIndexChanged.connect(self._on_env_selected)
-        env_row.addWidget(self.local_target_combo, 1)
+        env_row.addWidget(self.local_target_combo)
         self.rt_environment_config_btn = QPushButton()
-        apply_button(self.rt_environment_config_btn, 'secondary', compact=True, icon='edit', icon_size=16)
+        apply_button(self.rt_environment_config_btn, 'secondary', compact=True)
         self.rt_environment_config_btn.clicked.connect(self._show_environment_config_dialog)
         env_row.addWidget(self.rt_environment_config_btn)
+        env_row.addStretch(1)
         # 旧控件保留隐藏兼容，避免破坏既有管理槽函数。
         self.add_target_btn = QPushButton(self)
         self.add_target_btn.hide()
@@ -648,25 +657,18 @@ class InterfaceDebugPanel(QWidget):
         self.rt_save_env_btn = QPushButton(self)
         self.rt_save_env_btn.hide()
         self.rt_fill_btn = QPushButton()
-        apply_button(self.rt_fill_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
+        apply_button(self.rt_fill_btn, 'secondary', compact=True)
         self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
         base_row.addWidget(self.rt_fill_btn)
-        dl.addLayout(base_row)
-
-        # URL 过滤规则收口到配置弹窗，主页面仅保留入口。
-        filter_row = QHBoxLayout()
-        filter_label = QLabel('过滤')
-        filter_row.addWidget(filter_label)
         self.rt_filter_config_btn = QPushButton()
-        apply_button(self.rt_filter_config_btn, 'secondary', compact=True, icon='edit', icon_size=16)
+        apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
         self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
-        filter_row.addWidget(self.rt_filter_config_btn)
-        filter_row.addStretch(1)
+        base_row.addWidget(self.rt_filter_config_btn)
         self.rt_url_filter_edit = QLineEdit(self)
         self.rt_url_filter_edit.hide()
         self.rt_url_filter_save_btn = QPushButton(self)
         self.rt_url_filter_save_btn.hide()
-        dl.addLayout(filter_row)
+        dl.addLayout(base_row)
 
         method_row = QHBoxLayout()
         self.rt_method = QComboBox()
@@ -694,12 +696,12 @@ class InterfaceDebugPanel(QWidget):
 
         # 分类 + 保存到接口库
         cat_row = QHBoxLayout()
+        cat_row.setSpacing(6)
         self.rt_cat_label = QLabel('分类')
         cat_row.addWidget(self.rt_cat_label)
         self.rt_category_combo = QComboBox()
-        self.rt_category_combo.setMinimumWidth(120)
         size_combo(self.rt_category_combo, 'sm')
-        cat_row.addWidget(self.rt_category_combo, 1)
+        cat_row.addWidget(self.rt_category_combo)
         self.rt_save_api_btn = QPushButton()
         apply_button(self.rt_save_api_btn, 'secondary', compact=True, icon='save', icon_size=16)
         self.rt_save_api_btn.clicked.connect(self._rt_save_api)
@@ -801,17 +803,17 @@ class InterfaceDebugPanel(QWidget):
         self.rt_headers = QPlainTextEdit()
         self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')
         self.rt_headers.setFont(mono)
-        self.rt_headers.setMinimumHeight(120)
+        self.rt_headers.setMinimumHeight(72)
         self.rt_tabs.addTab(self.rt_headers, 'Headers')
         self.rt_params = QPlainTextEdit()
         self.rt_params.setPlaceholderText('key=value\npage=1')
         self.rt_params.setFont(mono)
-        self.rt_params.setMinimumHeight(120)
+        self.rt_params.setMinimumHeight(72)
         self.rt_tabs.addTab(self.rt_params, 'Params')
         self.rt_body = QPlainTextEdit()
         self.rt_body.setPlaceholderText('请求 Body（优先解密后的明文）')
         self.rt_body.setFont(mono)
-        self.rt_body.setMinimumHeight(80)
+        self.rt_body.setMinimumHeight(120)
         self.rt_tabs.addTab(self.rt_body, 'Body')
         editor_layout.addWidget(self.rt_tabs, 1)
 
@@ -4133,6 +4135,10 @@ class InterfaceDebugPanel(QWidget):
             self.base_label.setText('Base')
         if hasattr(self, 'rt_fill_btn'):
             self.rt_fill_btn.setText('从会话填充' if zh else 'Fill from session')
+            if hasattr(self, 'rt_environment_config_btn'):
+                self.rt_environment_config_btn.setText('环境配置' if zh else 'Env')
+            if hasattr(self, 'rt_filter_config_btn'):
+                self.rt_filter_config_btn.setText('过滤' if zh else 'Filter')
             self.rt_send_btn.setText('发送' if zh else 'Send')
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')

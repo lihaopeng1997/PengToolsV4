@@ -125,7 +125,7 @@ class CreditCodePanel(QWidget):
         first.addWidget(self.personal_qty)
         first.addStretch()
         self.personal_generate = QPushButton()
-        apply_button(self.personal_generate, 'primary')
+        apply_button(self.personal_generate, 'primary', compact=True)
         self.personal_generate.clicked.connect(self._generate_personal)
         first.addWidget(self.personal_generate)
         layout.addLayout(first)
@@ -156,6 +156,8 @@ class CreditCodePanel(QWidget):
         self.id_min_age = QSpinBox()
         self.id_min_age.setRange(0, 120)
         self.id_min_age.setValue(18)
+        self.id_min_age.setFixedHeight(28)
+        self.id_min_age.setFixedWidth(56)
         self.id_min_age.valueChanged.connect(self._sync_age_range)
         custom.addWidget(self.id_min_age)
         self.id_age_separator = QLabel('—')
@@ -163,6 +165,8 @@ class CreditCodePanel(QWidget):
         self.id_max_age = QSpinBox()
         self.id_max_age.setRange(0, 120)
         self.id_max_age.setValue(60)
+        self.id_max_age.setFixedHeight(28)
+        self.id_max_age.setFixedWidth(56)
         self.id_max_age.setMinimum(self.id_min_age.value())
         custom.addWidget(self.id_max_age)
         self.id_gender_label = QLabel()
@@ -197,7 +201,7 @@ class CreditCodePanel(QWidget):
         first.addWidget(self.unit_qty)
         first.addStretch()
         self.unit_generate = QPushButton()
-        apply_button(self.unit_generate, 'primary')
+        apply_button(self.unit_generate, 'primary', compact=True)
         self.unit_generate.clicked.connect(self._generate_unit)
         first.addWidget(self.unit_generate)
         layout.addLayout(first)
@@ -225,17 +229,20 @@ class CreditCodePanel(QWidget):
 
     @staticmethod
     def _quantity_box():
-        box = QLineEdit('10')
-        size_line(box, 'num')
+        box = QSpinBox()
+        box.setRange(1, 200)
+        box.setValue(10)
+        box.setFixedWidth(56)
+        box.setFixedHeight(28)
         return box
 
     def _quantity(self, box):
         try:
-            return max(1, min(10000, int(box.text())))
+            return max(1, min(200, int(box.value() if hasattr(box, 'value') else box.text())))
         except ValueError:
             show_warning(
                 self, '数量无效' if self.language == 'zh' else 'Invalid Quantity',
-                '请输入 1 到 10000 之间的数字。' if self.language == 'zh' else 'Enter a number from 1 to 10000.',
+                '请输入 1 到 200 之间的数字。' if self.language == 'zh' else 'Enter a number from 1 to 200.',
             )
             return None
 

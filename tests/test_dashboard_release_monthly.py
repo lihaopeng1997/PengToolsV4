@@ -169,6 +169,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             panel.close()
 
     def test_layout_natural_height_single_and_many(self):
+        from PyQt6.QtWidgets import QSizePolicy
         from panels.dashboard_panel import DashboardPanel, TaskRow
 
         one = [{
@@ -183,6 +184,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             for i in range(12)
         ]
         board = {"completed_requirement_keys": [], "ui_prefs": {"completed_section_collapsed": True}}
+        floor = 8 * TaskRow.ROW_HEIGHT + 7 * TaskRow.LIST_SPACING
         with patch("panels.dashboard_panel.load_release_board", return_value=board):
             with patch("panels.dashboard_panel.load_requirements", return_value=one):
                 panel = DashboardPanel("zh")
@@ -191,9 +193,19 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
                 self.app.processEvents()
                 panel.refresh()
                 self.app.processEvents()
-                one_h = panel.release_scroll.height()
-                self.assertLessEqual(one_h, TaskRow.ROW_HEIGHT + 8)
+                self.assertGreaterEqual(panel.release_scroll.minimumHeight(), floor)
+                self.assertEqual(
+                    panel.release_scroll.sizePolicy().verticalPolicy(),
+                    QSizePolicy.Policy.Expanding,
+                )
                 self.assertEqual(panel.recent_card.height(), panel.release_card.height())
+                task_stretch = None
+                for i in range(panel._root.count()):
+                    item = panel._root.itemAt(i)
+                    if item is not None and item.layout() is panel.tasks_row:
+                        task_stretch = panel._root.stretch(i)
+                        break
+                self.assertEqual(task_stretch, 1)
                 panel.close()
 
             with patch("panels.dashboard_panel.load_requirements", return_value=many):
@@ -203,8 +215,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
                 self.app.processEvents()
                 panel.refresh()
                 self.app.processEvents()
-                max_h = 8 * TaskRow.ROW_HEIGHT + 7 * TaskRow.LIST_SPACING
-                self.assertEqual(panel.release_scroll.height(), max_h)
+                self.assertGreaterEqual(panel.release_scroll.height(), floor)
                 self.assertGreater(panel._count_task_rows(panel.release_list), 8)
                 self.assertEqual(panel.recent_card.height(), panel.release_card.height())
                 panel.close()

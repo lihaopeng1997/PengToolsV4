@@ -1133,7 +1133,9 @@ class DailyReportTab(QWidget):
         self.date_tree.setHeaderHidden(True)
         self.date_tree.setRootIsDecorated(True)
         self.date_tree.setAnimated(True)
-        self.date_tree.setIndentation(16)
+        self.date_tree.setIndentation(12)
+        self.date_tree.setItemsExpandable(True)
+        self.date_tree.setExpandsOnDoubleClick(False)
         self.date_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.date_tree.customContextMenuRequested.connect(self._show_date_menu)
         self.date_tree.currentItemChanged.connect(self._select_history)
@@ -1426,6 +1428,7 @@ class DailyReportTab(QWidget):
                 child = QTreeWidgetItem([self._date_label(date_value)])
                 child.setData(0, Qt.ItemDataRole.UserRole, date_value)
                 child.setData(0, self._ROLE_KIND, 'date')
+                child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
                 pin_header.addChild(child)
                 if date_value == current:
                     selected = child
@@ -1454,6 +1457,7 @@ class DailyReportTab(QWidget):
                 child = QTreeWidgetItem([self._date_label(date_value)])
                 child.setData(0, Qt.ItemDataRole.UserRole, date_value)
                 child.setData(0, self._ROLE_KIND, 'date')
+                child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
                 header.addChild(child)
                 if date_value == current:
                     selected = child

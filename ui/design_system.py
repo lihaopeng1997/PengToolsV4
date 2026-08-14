@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractItemView, QSizePolicy, QTableWidget, QTreeWidget, QWidget
 
-from ui.field_metrics import size_compact_button, size_field_height
+from ui.field_metrics import size_compact_button
 from ui.icons import apply_icon
 from ui import layout_metrics as _lm
 
@@ -73,12 +73,8 @@ def apply_button(
     """为按钮打上设计系统角色，不改 clicked 信号与文案。"""
     object_name = BUTTON_ROLES.get(role, BUTTON_ROLES['secondary'])
     button.setObjectName(object_name)
-    if compact:
-        size_compact_button(button)
-        button.setProperty('compactAction', True)
-    else:
-        size_field_height(button, CONTROL_HEIGHT)
-        button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    size_compact_button(button)
+    button.setProperty('compactAction', True)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon:
         icon_kwargs = {}

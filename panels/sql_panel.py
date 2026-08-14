@@ -25,6 +25,7 @@ from tools.release_prep import (
 from tools.requirements import load_requirements, merged_sql, save_requirements
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
+from ui.design_system import apply_button
 from ui.field_metrics import (
     size_caption, size_combo, size_compact_button, size_date, size_line,
     size_status_pill, size_system_chip,
@@ -133,8 +134,7 @@ class SqlToolPanel(QWidget):
         self.release_date.dateChanged.connect(self._release_date_changed)
         summary_layout.addWidget(self.release_date)
         self.refresh_release_btn = QPushButton('刷新候选')
-        self.refresh_release_btn.setObjectName('primary-btn')
-        size_compact_button(self.refresh_release_btn)
+        apply_button(self.refresh_release_btn, 'primary', compact=True)
         self.refresh_release_btn.clicked.connect(self._load_release_candidates)
         summary_layout.addWidget(self.refresh_release_btn)
         select_all = QPushButton('全选')
@@ -274,7 +274,7 @@ class SqlToolPanel(QWidget):
         bottom.addWidget(self.release_extra_sql_system)
         bottom.addStretch(1)
         self.release_generate = QPushButton('生成升级材料')
-        self.release_generate.setObjectName('primary-btn')
+        apply_button(self.release_generate, 'primary', compact=True)
         self.release_generate.clicked.connect(self._generate_release_materials)
         bottom.addWidget(self.release_generate)
         layout.addWidget(bottom_card)
@@ -632,7 +632,7 @@ class SqlToolPanel(QWidget):
         actions.addWidget(self.preview_btn)
         actions.addStretch()
         self.export_btn = QPushButton()
-        self.export_btn.setObjectName('primary-btn')
+        apply_button(self.export_btn, 'primary', compact=True)
         self.export_btn.clicked.connect(self._export_package)
         actions.addWidget(self.export_btn)
         layout.addWidget(action_zone)
