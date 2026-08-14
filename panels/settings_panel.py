@@ -178,23 +178,32 @@ class SettingsPanel(QWidget):
         root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         root.setContentsMargins(16, 10, 16, 16)
         root.setSpacing(12)
-        self.title = QLabel()
-        self.title.setObjectName('page-title')
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.title, self.subtitle = make_page_header(
+                '设置',
+                '外观与本机偏好',
+                'settings',
+            )
+            root.addWidget(header)
+        except Exception:
+            self.title = QLabel()
+            self.title.setObjectName('page-title')
+            root.addWidget(self.title)
+            self.subtitle = QLabel()
+            self.subtitle.setObjectName('page-subtitle')
+            root.addWidget(self.subtitle)
         self.title.installEventFilter(self)
-        root.addWidget(self.title)
-        self.subtitle = QLabel()
-        self.subtitle.setObjectName('page-subtitle')
-        root.addWidget(self.subtitle)
 
         self.appearance_group = QGroupBox()
         appearance_outer = QVBoxLayout(self.appearance_group)
         appearance_outer.setSpacing(12)
 
-        # 一层提示即可；详细说明进标题 tooltip
+        # 说明收进分组 tooltip，避免标题下再叠一行提示
         self.theme_hint = QLabel()
         self.theme_hint.setObjectName('field-hint')
         self.theme_hint.setWordWrap(True)
-        appearance_outer.addWidget(self.theme_hint)
+        self.theme_hint.hide()
         self.theme_title = self.theme_hint  # 兼容旧引用
         self.theme_note = QLabel()
         self.theme_note.hide()
@@ -651,12 +660,13 @@ class SettingsPanel(QWidget):
         self.language = language
         zh = language == 'zh'
         self.title.setText('设置' if zh else 'Settings')
-        self.subtitle.setText('个人偏好' if zh else 'Preferences')
+        self.subtitle.setText('外观与本机偏好' if zh else 'Appearance and local preferences')
         self.appearance_group.setTitle('外观' if zh else 'Appearance')
         self.theme_hint.setText(
             '选择界面外观；布局与数据不变。' if zh else
             'Choose appearance; layout and data stay the same.'
         )
+        self.theme_hint.hide()
         self.appearance_group.setToolTip(
             '主题仅改变外观，不影响文件、数据、SVN 与功能位置。' if zh else
             'Themes only change appearance — never files, data, SVN or feature placement.'

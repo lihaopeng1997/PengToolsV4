@@ -641,8 +641,7 @@ QFrame#req-sql-card {
     border-radius: 12px;
 }
 QFrame#req-toolbar-card {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __SURFACE__, stop:1 __PRIMARY_SOFT__);
+    background: __SURFACE__;
     border-left: 3px solid __PRIMARY__;
 }
 /* 需求顶栏：主流程（扫描/检出/更新/新建）与次流程（缺陷/导入/配置） */
@@ -1176,8 +1175,7 @@ QComboBox#table-combo:hover, QComboBox#release-extra-system:hover {
     background: __SURFACE__;
 }
 QDialog#confirm-dialog {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE_SOFT__, stop:1 __NAV_HOVER__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
 }
 QLabel#confirm-title {
@@ -1223,7 +1221,7 @@ QLabel#notice-badge-error {
     font-weight: 800;
     color: __SURFACE__;
 }
-QLabel#notice-badge-info { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 __PRIMARY_HOVER__, stop:1 __PRIMARY__); }
+QLabel#notice-badge-info { background: __PRIMARY__; }
 QLabel#notice-badge-success { background: __SUCCESS__; }
 QLabel#notice-badge-warning { background: __WARNING__; }
 QLabel#notice-badge-error { background: __DANGER__; }
