@@ -3,7 +3,7 @@ import datetime
 import copy
 import os
 
-from PyQt6.QtCore import QDate, QStringListModel, QTime, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QDate, QModelIndex, QStringListModel, QTime, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
@@ -30,6 +30,25 @@ from tools.personal_knowledge import (
     search_entries,
 )
 from tools.requirements import daily_template
+
+_SUGGEST_PREFIXES = ('资料 · ', '内容 · ', '表格 · ')
+
+
+class _KeepQueryCompleter(QCompleter):
+    """联想下拉只用于跳转条目，不把展示前缀写回搜索框。"""
+
+    def pathFromIndex(self, index):
+        host = self.parent()
+        query = str(getattr(host, '_suggestion_query', '') or '').strip()
+        if query:
+            return query
+        widget = self.widget()
+        if widget is not None:
+            return widget.text()
+        return super().pathFromIndex(index)
+
+    def splitPath(self, _path):
+        return ['']
 
 
 class PasteKnowledgeDialog(QDialog):
@@ -140,11 +159,15 @@ class KnowledgeTab(QWidget):
         self._suggestion_model = QStringListModel(self)
         self._suggestion_targets = {}
         self._suggestion_query = ''
-        self._completer = QCompleter(self._suggestion_model, self)
+        self._completer = _KeepQueryCompleter(self._suggestion_model, self)
         self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._completer.setMaxVisibleItems(10)
-        self._completer.activated[str].connect(self._activate_suggestion)
+        self._completer.activated[str].connect(self._on_suggestion_activated)
+        try:
+            self._completer.activated[QModelIndex].connect(self._on_suggestion_activated)
+        except TypeError:
+            pass
         self.search_edit.setCompleter(self._completer)
         self.search_edit.textChanged.connect(self._on_search_changed)
         self._search_debounce = QTimer(self)
@@ -346,8 +369,28 @@ class KnowledgeTab(QWidget):
         # 防抖：按键时只重启定时器，不立即搜索
         self._search_debounce.start()
 
+    def _sanitize_search_query(self, text):
+        """去掉误写入搜索框的「内容 · / 资料 · / 表格 ·」展示文案。"""
+        raw = str(text or '').strip()
+        if not raw:
+            return ''
+        if raw in self._suggestion_targets:
+            return str(self._suggestion_query or '').strip()
+        for prefix in _SUGGEST_PREFIXES:
+            if raw.startswith(prefix):
+                kept = str(self._suggestion_query or '').strip()
+                if kept and not any(kept.startswith(mark) for mark in _SUGGEST_PREFIXES):
+                    return kept
+                rest = raw[len(prefix):]
+                return rest.split(' · ', 1)[0].strip()
+        return raw
+
     def _do_search(self):
-        text = self.search_edit.text()
+        text = self._sanitize_search_query(self.search_edit.text())
+        if text != self.search_edit.text().strip():
+            self.search_edit.blockSignals(True)
+            self.search_edit.setText(text)
+            self.search_edit.blockSignals(False)
         self._refresh()
         self._update_suggestions(text)
 
@@ -355,8 +398,20 @@ class KnowledgeTab(QWidget):
         self._refresh()
         self._update_suggestions(self.search_edit.text())
 
+    def _on_suggestion_activated(self, value):
+        if isinstance(value, QModelIndex):
+            if not value.isValid():
+                return
+            label = str(value.data() or '')
+        else:
+            label = str(value or '')
+        if label in self._suggestion_targets:
+            self._activate_suggestion(label)
+
     def _update_suggestions(self, query):
-        query = query.strip()
+        query = self._sanitize_search_query(query)
+        if any(query.startswith(prefix) for prefix in _SUGGEST_PREFIXES):
+            query = ''
         self._suggestion_query = query
         self._suggestion_targets = {}
         if not query:
@@ -401,13 +456,14 @@ class KnowledgeTab(QWidget):
         target = self._suggestion_targets.get(label)
         if not target:
             return
-        # QCompleter inserts its full display label before emitting activated.
-        # Restore the user's actual keyword and use the label only for navigation.
-        if self.search_edit.text() != self._suggestion_query:
+        query = str(self._suggestion_query or '').strip()
+        if hasattr(self, '_search_debounce'):
+            self._search_debounce.stop()
+        if self.search_edit.text() != query:
             self.search_edit.blockSignals(True)
-            self.search_edit.setText(self._suggestion_query)
+            self.search_edit.setText(query)
             self.search_edit.blockSignals(False)
-            self._refresh()
+        self._refresh()
         entry_id, row_index = target
         for index in range(self.entry_list.count()):
             item = self.entry_list.item(index)
@@ -429,7 +485,9 @@ class KnowledgeTab(QWidget):
             return
         current_id = self._current.get('id') if self._current else None
         self._filtered = search_entries(
-            self.all_entries(), self.search_edit.text(), self.category_combo.currentData() or 'all'
+            self.all_entries(),
+            self._sanitize_search_query(self.search_edit.text()),
+            self.category_combo.currentData() or 'all',
         )
         self.entry_list.blockSignals(True)
         self.entry_list.clear()

@@ -529,12 +529,16 @@ class UiRegressionTests(unittest.TestCase):
         self.assertFalse(panel.table_view.isRowHidden(2))
         self.assertGreater(panel._suggestion_model.rowCount(), 0)
         suggestion = panel._suggestion_model.stringList()[0]
+        self.assertTrue(suggestion.startswith('表格 · ') or suggestion.startswith('内容 · ') or suggestion.startswith('资料 · '))
+        self.assertEqual(panel._completer.pathFromIndex(panel._suggestion_model.index(0, 0)), 'beta')
         panel.search_edit.blockSignals(True)
         panel.search_edit.setText(suggestion)
         panel.search_edit.blockSignals(False)
+        self.assertEqual(panel._sanitize_search_query(suggestion), 'beta')
         panel._activate_suggestion(suggestion)
         self.assertEqual(panel.search_edit.text(), 'beta')
         self.assertEqual(panel.table_view.currentRow(), 2)
+        self.assertTrue(any(entry.get('id') == 'table-test' for entry in panel._filtered))
 
     def test_learning_excel_copy_hide_restore_and_builtin_override(self):
         owner = PersonalPanel(); panel = owner.knowledge_tab
