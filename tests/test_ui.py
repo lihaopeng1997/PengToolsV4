@@ -648,7 +648,7 @@ class UiRegressionTests(unittest.TestCase):
         with open(os.path.join(PROJECT_DIR, 'resources', 'style.qss'), encoding='utf-8') as stream:
             stylesheet = stream.read()
         widget_rule = stylesheet.split('QWidget {', 1)[1].split('}', 1)[0]
-        self.assertNotIn('background:', widget_rule)
+        self.assertIn('background-color:', widget_rule)
         self.assertIn('QLabel, QCheckBox, QRadioButton { background: transparent; }', stylesheet)
 
     def test_aurora_progress_uses_light_card_background(self):

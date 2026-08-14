@@ -181,6 +181,33 @@ class NightThemeTokenTests(unittest.TestCase):
             self.assertEqual(style_name, 'fusion')
         tm.apply(app, 'calm')
 
+    def test_black_groupbox_and_combo_are_not_white(self):
+        from PyQt6.QtWidgets import QComboBox, QGroupBox, QVBoxLayout, QWidget
+
+        app = QApplication.instance() or QApplication([])
+        tm = ThemeManager.instance()
+        tm.load_template()
+        tm.apply(app, 'black')
+        host = QWidget()
+        host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(host)
+        box = QGroupBox('外观')
+        combo = QComboBox()
+        combo.addItem('全随机')
+        inner = QVBoxLayout(box)
+        inner.addWidget(combo)
+        layout.addWidget(box)
+        host.resize(320, 180)
+        host.show()
+        app.processEvents()
+        for widget, label in ((host, 'host'), (box, 'groupbox'), (combo, 'combo')):
+            image = widget.grab().toImage()
+            color = image.pixelColor(max(4, image.width() // 2), max(4, image.height() // 2))
+            luma = (color.red() + color.green() + color.blue()) / 3
+            self.assertLess(luma, 90, msg=f'{label} still light: {color.name()}')
+        host.close()
+        tm.apply(app, 'calm')
+
     def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
         tm = ThemeManager.instance()
         tm.load_template()

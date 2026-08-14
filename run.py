@@ -51,6 +51,13 @@ def main():
 
     from config import APP_NAME, APP_VERSION
     app = QApplication(sys.argv)
+    try:
+        from PyQt6.QtWidgets import QStyleFactory
+        fusion = QStyleFactory.create('Fusion')
+        if fusion is not None:
+            app.setStyle(fusion)
+    except Exception:
+        pass
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(str(APP_VERSION))
     app.setOrganizationName(APP_NAME)

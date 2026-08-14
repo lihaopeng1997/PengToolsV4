@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
 
     def _make_stack_host(self):
         host = QWidget()
+        host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
     def _setup_ui_shell(self):
         """仅壳：侧栏 + Stack 占位 + 状态栏。重面板延后构造。"""
         central = QWidget()
+        central.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCentralWidget(central)
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -102,6 +104,7 @@ class MainWindow(QMainWindow):
 
         content = QFrame()
         content.setObjectName('content_area')
+        content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._content_frame = content
         self._content_layout = QVBoxLayout(content)
         self._content_layout.setContentsMargins(24, 20, 24, 16)

@@ -470,8 +470,10 @@ class ThemeManager:
                 app.setProperty('base_stylesheet', qss)
                 app.setProperty('ui_theme', theme_id)
                 self._ensure_fusion_style(app)
-                self._apply_app_palette(app, THEMES[theme_id])
+                palette = build_app_palette(THEMES[theme_id])
+                app.setPalette(palette)
                 app.setStyleSheet(qss)
+                self._sync_widget_chrome(app, palette)
             for callback in list(self._listeners):
                 try:
                     callback(theme_id)
@@ -505,9 +507,22 @@ class ThemeManager:
             app.setStyle(style)
 
     @staticmethod
-    def _apply_app_palette(app: QApplication, tokens: dict[str, str]) -> None:
-        """整套 QPalette 跟主题走，避免未写 QSS 的控件露出系统白底/白边。"""
-        app.setPalette(build_app_palette(tokens))
+    def _sync_widget_chrome(app: QApplication, palette) -> None:
+        """QFrame/QWidget 默认不画 QSS 底；补 StyledBackground 并重刷已有控件。"""
+        from PyQt6.QtCore import Qt
+
+        skip = {'theme-card-preview', 'ssh-terminal-host', 'ssh-find-bar'}
+        for widget in app.allWidgets():
+            if (widget.objectName() or '') in skip:
+                continue
+            if widget.property('ownPalette'):
+                continue
+            widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            widget.setPalette(palette)
+            style = widget.style()
+            if style is not None:
+                style.unpolish(widget)
+                style.polish(widget)
 
     def listener_failures(self) -> tuple[dict[str, str], ...]:
         """返回主题监听失败快照；失败监听不会阻断其余界面刷新。"""

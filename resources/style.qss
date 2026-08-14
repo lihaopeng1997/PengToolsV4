@@ -13,6 +13,7 @@
  */
 QWidget {
     color: __TEXT__;
+    background-color: __APP_BG__;
     font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
     font-size: 13px;
 }
