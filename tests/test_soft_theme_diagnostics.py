@@ -42,14 +42,14 @@ class SoftThemeDiagnosticsTests(unittest.TestCase):
 
         self.manager.add_listener(broken_listener)
         try:
-            self.manager.apply(self.app, 'night', font_size=12)
+            self.manager.apply(self.app, 'black', font_size=12)
             failures = self.manager.listener_failures()
         finally:
             self.manager.remove_listener(broken_listener)
 
-        self.assertEqual(self.manager.theme_id, 'night')
+        self.assertEqual(self.manager.theme_id, 'black')
         self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0]['theme_id'], 'night')
+        self.assertEqual(failures[0]['theme_id'], 'black')
         self.assertEqual(failures[0]['error_type'], 'RuntimeError')
         self.assertIn('refresh failed', failures[0]['message'])
 
@@ -60,7 +60,7 @@ class SoftThemeDiagnosticsTests(unittest.TestCase):
             for x in range(calm_image.width()) for y in range(calm_image.height())
             if calm_image.pixelColor(x, y).alpha() > 0
         }
-        self.manager.apply(self.app, 'night', font_size=12)
+        self.manager.apply(self.app, 'black', font_size=12)
         night_image = qicon('json', size=20).pixmap(20, 20).toImage()
         night_colors = {
             night_image.pixelColor(x, y).name()

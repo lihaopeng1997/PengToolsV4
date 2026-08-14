@@ -37,11 +37,18 @@ except ImportError:
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class NightThemeTokenTests(unittest.TestCase):
     def test_night_display_name(self):
-        self.assertEqual(theme_display_name('night', 'zh'), '夜间安读')
+        self.assertEqual(theme_display_name('black', 'zh'), '墨黑')
+        self.assertEqual(theme_display_name('night', 'zh'), '墨黑')
         self.assertTrue(
-            '低眩光' in theme_subtitle('night', 'zh')
-            or '石板' in theme_subtitle('night', 'zh')
+            '近黑' in theme_subtitle('black', 'zh')
+            or '低眩光' in theme_subtitle('black', 'zh')
         )
+
+    def test_night_alias_resolves_to_black(self):
+        self.assertEqual(theme_manager.resolve_theme_id('night'), 'black')
+        self.assertEqual(theme_manager.resolve_theme_id('BLACK'), 'black')
+        self.assertNotIn('night', THEMES)
+        self.assertEqual(tuple(THEMES), theme_manager.THEME_IDS)
 
     def test_all_themes_have_extended_tokens(self):
         required = (
@@ -75,7 +82,7 @@ class NightThemeTokenTests(unittest.TestCase):
     def test_qss_contains_global_component_contract(self):
         manager = ThemeManager.instance()
         manager.load_template()
-        qss = manager.render('night')
+        qss = manager.render('black')
         for selector in ('#page-title', '#page-context', '#status-banner', '#primary-btn', '#danger-btn'):
             self.assertIn(selector, qss)
         self.assertIn('QPushButton:focus', qss)
@@ -102,7 +109,7 @@ class NightThemeTokenTests(unittest.TestCase):
         return (r + g + b) / 3
 
     def test_night_surfaces_not_white(self):
-        pal = THEMES['night']
+        pal = THEMES['black']
         # 最深底
         self.assertLess(self._avg_luma(pal['APP_BG']), 40)
         for key in (
@@ -115,7 +122,7 @@ class NightThemeTokenTests(unittest.TestCase):
 
     def test_night_hierarchy_and_selection_contrast(self):
         """夜间主题：层次递进 + 选中底不能比正文更亮导致看不清。"""
-        pal = THEMES['night']
+        pal = THEMES['black']
         app_l = self._avg_luma(pal['APP_BG'])
         side_l = self._avg_luma(pal['SIDEBAR_BG'])
         surf_l = self._avg_luma(pal['SURFACE'])
@@ -137,15 +144,15 @@ class NightThemeTokenTests(unittest.TestCase):
     def test_render_night_qss_has_tokens_applied(self):
         tm = ThemeManager.instance()
         tm.load_template()
-        qss = tm.render('night')
-        self.assertIn(THEMES['night']['APP_BG'], qss)
-        self.assertIn(THEMES['night']['SURFACE'], qss)
+        qss = tm.render('black')
+        self.assertIn(THEMES['black']['APP_BG'], qss)
+        self.assertIn(THEMES['black']['SURFACE'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
 
     def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
         tm = ThemeManager.instance()
         tm.load_template()
-        for theme_id in ('calm', 'clear', 'warm', 'night'):
+        for theme_id in ('calm', 'clear', 'warm', 'black'):
             qss = tm.render(theme_id)
             pal = THEMES[theme_id]
             self.assertIn(pal['TABLE_SELECT'], qss)
@@ -155,7 +162,7 @@ class NightThemeTokenTests(unittest.TestCase):
 
     def test_night_preview_not_blank(self):
         app = QApplication.instance() or QApplication([])
-        w = ThemePreviewWidget('night')
+        w = ThemePreviewWidget('black')
         w.resize(180, 64)
         w.show()
         app.processEvents()

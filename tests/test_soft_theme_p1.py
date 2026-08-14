@@ -71,6 +71,7 @@ class SoftThemeP1Tests(unittest.TestCase):
             window.style().polish(window)
             button.style().unpolish(button)
             button.style().polish(button)
+            size_compact_button(button)
             self.assertEqual(button.minimumHeight(), 28, density)
             self.assertEqual(button.maximumHeight(), 28, density)
 
@@ -106,7 +107,7 @@ class SoftThemeP1Tests(unittest.TestCase):
                 config.SETTINGS_FILE = os.path.join(directory, 'settings.json')
                 with patch.object(config.os, 'replace', wraps=os.replace) as replace:
                     saved = config.save_settings({'ui_theme': 'night'})
-                self.assertEqual(saved['ui_theme'], 'night')
+                self.assertEqual(saved['ui_theme'], 'black')
                 self.assertTrue(replace.called)
                 self.assertTrue(os.path.isfile(config.SETTINGS_FILE))
         finally:

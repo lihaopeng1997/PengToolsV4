@@ -652,6 +652,9 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn('QLabel, QCheckBox, QRadioButton { background: transparent; }', stylesheet)
 
     def test_aurora_progress_uses_light_card_background(self):
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().load_template(PROJECT_DIR)
+        ThemeManager.instance().apply(self.app, 'calm', font_size=12)
         progress = AuroraProgress()
         progress.resize(600, 62)
         progress.set_progress(50, 'Processing')

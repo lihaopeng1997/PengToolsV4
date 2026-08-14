@@ -1,6 +1,6 @@
 /* PengTools V4.27 · Quiet aesthetics + theme tokens
  * Placeholders injected by ui/theme_manager.py
- * Themes: calm (default) | clear | warm | night
+ * Themes: calm (default) | clear | warm | black（night 兼容别名）
  * Tokens: __APP_BG__ __SIDEBAR_BG__ __SURFACE__ __PRIMARY__ __TEXT__ ...
  */
 /*
@@ -271,7 +271,7 @@ QPushButton#ghost-btn:disabled {
 /* 紧凑行内按钮：与 field_metrics.BTN_COMPACT_H=28 对齐 */
 QPushButton[compactAction="true"] {
     padding: 3px 10px;
-    min-height: 22px;
+    min-height: 28px;
     max-height: 28px;
     font-size: 12px;
     border-radius: 8px;
@@ -343,12 +343,12 @@ QFrame#page-filter-bar {
 }
 /* 分区标题：左边线色块区分模块 */
 QLabel#zone-title {
-    color: __TEXT_STRONG__;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.5px;
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
     padding: 1px 0 2px 10px;
-    border-left: 3px solid __PRIMARY__;
+    border-left: 2px solid __PRIMARY__;
     background: transparent;
 }
 QLabel#zone-title-inline {
@@ -1021,9 +1021,17 @@ QTableWidget#iface-request-table::item:selected:!active {
     color: __PRIMARY_ACTIVE__;
 }
 QFrame#iface-conn-zone,
-QFrame#iface-draft-zone {
+QFrame#iface-draft-zone,
+QFrame#iface-session-pane,
+QFrame#iface-detail-workspace {
     border: 1px solid __BORDER__;
     border-radius: 12px;
+    background: __SURFACE__;
+}
+QFrame#iface-session-toolbar {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
 }
 /* sql-editor-splitter 已由全局 QSplitter::handle 统一管理 */
 QLineEdit#release-readonly {
@@ -1420,9 +1428,9 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 }
 #page-title {
     color: __TEXT_STRONG__;
-    font-size: 24px;
-    font-weight: 600;
-    letter-spacing: 0.1px;
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.3px;
 }
 #page-subtitle {
     color: __TEXT_MUTED__;
@@ -1439,10 +1447,9 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     font-weight: 750;
 }
 #tool-card {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __SURFACE__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 16px;
+    border-radius: 12px;
 }
 #tool-card:hover {
     border-color: __PRIMARY__;
@@ -1576,7 +1583,7 @@ QLabel#status-pill-today {
 }
 QLabel#status-pill-done {
     background: __SUCCESS__;
-    color: #ffffff;
+    color: __ON_STATUS__;
     border-radius: 8px;
     padding: 2px 8px;
     font-weight: 700;
@@ -1605,8 +1612,9 @@ QLabel#dashboard-task-mark-done {
 }
 #dashboard-section-title {
     color: __TEXT_MUTED__;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.6px;
 }
 #dashboard-section-header[collapsible="true"] #dashboard-section-title {
     color: __PRIMARY_ACTIVE__;
@@ -2288,7 +2296,6 @@ QFrame#theme-card {
 }
 
 /* ── Global workbench contract: density, focus, page chrome and status ── */
-QMainWindow[uiDensity="compact"] QPushButton,
 QMainWindow[uiDensity="compact"] QComboBox,
 QMainWindow[uiDensity="compact"] QLineEdit,
 QMainWindow[uiDensity="compact"] QDateEdit,
@@ -2301,7 +2308,6 @@ QMainWindow[uiDensity="compact"] QTreeWidget::item,
 QMainWindow[uiDensity="compact"] QListWidget::item {
     min-height: __ROW_HEIGHT_COMPACT__;
 }
-QMainWindow[uiDensity="comfortable"] QPushButton,
 QMainWindow[uiDensity="comfortable"] QComboBox,
 QMainWindow[uiDensity="comfortable"] QLineEdit,
 QMainWindow[uiDensity="comfortable"] QDateEdit,
@@ -2317,7 +2323,7 @@ QMainWindow[uiDensity="comfortable"] QListWidget::item {
 /* 行内操作始终保持 28px：密度只影响常规控件，不得挤占列表展示空间。 */
 QMainWindow[uiDensity="compact"] QPushButton[compactAction="true"],
 QMainWindow[uiDensity="comfortable"] QPushButton[compactAction="true"] {
-    min-height: 22px;
+    min-height: 28px;
     max-height: 28px;
 }
 QPushButton:focus,

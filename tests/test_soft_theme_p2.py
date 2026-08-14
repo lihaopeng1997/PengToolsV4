@@ -46,7 +46,7 @@ class SoftThemeP2Tests(unittest.TestCase):
             if calm_image.pixelColor(x, y).alpha() > 0
         }
 
-        ThemeManager.instance().apply(self.app, 'night', font_size=12)
+        ThemeManager.instance().apply(self.app, 'black', font_size=12)
         panel.refresh_theme()
         night_image = panel.tabs.tabIcon(0).pixmap(20, 20).toImage()
         night_colors = {
@@ -68,7 +68,7 @@ class SoftThemeP2Tests(unittest.TestCase):
         panel._rebuild_table()
         calm_color = panel.table.item(0, 1).foreground().color().name()
 
-        ThemeManager.instance().apply(self.app, 'night', font_size=12)
+        ThemeManager.instance().apply(self.app, 'black', font_size=12)
         panel.refresh_theme()
         night_color = panel.table.item(0, 1).foreground().color().name()
 
@@ -85,7 +85,7 @@ class SoftThemeP2Tests(unittest.TestCase):
         self.assertIsNotNone(calm_tree)
         calm_color = calm_tree.foreground(0).color().name()
 
-        ThemeManager.instance().apply(self.app, 'night', font_size=12)
+        ThemeManager.instance().apply(self.app, 'black', font_size=12)
         panel.refresh_theme()
         night_tree = panel.requirement_list.topLevelItem(0)
         self.assertIsNotNone(night_tree)
@@ -106,7 +106,7 @@ class SoftThemeP2Tests(unittest.TestCase):
         panel._filter_workbook_rows(entry)
         calm_color = panel.table_view.item(1, 0).background().color().name()
 
-        ThemeManager.instance().apply(self.app, 'night', font_size=12)
+        ThemeManager.instance().apply(self.app, 'black', font_size=12)
         panel.refresh_theme()
         night_color = panel.table_view.item(1, 0).background().color().name()
 

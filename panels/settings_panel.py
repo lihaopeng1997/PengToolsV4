@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_field_height
-from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
+from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
 
 
 class ThemePreviewWidget(QWidget):
@@ -202,7 +202,7 @@ class SettingsPanel(QWidget):
         self.theme_grid = QGridLayout()
         self.theme_grid.setSpacing(10)
         self._theme_cards = {}
-        for index, theme_id in enumerate(('calm', 'clear', 'warm', 'night')):
+        for index, theme_id in enumerate(THEME_IDS):
             card = ThemeCard(theme_id)
             card.clicked.connect(self._on_theme_clicked)
             self._theme_cards[theme_id] = card
@@ -434,7 +434,7 @@ class SettingsPanel(QWidget):
         set_subtitle_visible(self.subtitle, low_height)
         cols = 1 if mode in ('compact', 'narrow') else 2
         # 重新排布 theme_grid
-        for i, theme_id in enumerate(('calm', 'clear', 'warm', 'night')):
+        for i, theme_id in enumerate(THEME_IDS):
             card = self._theme_cards.get(theme_id)
             if card is None:
                 continue

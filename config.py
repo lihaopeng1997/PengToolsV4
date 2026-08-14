@@ -66,7 +66,7 @@ DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 DEFAULT_SETTINGS = {
     'font_size': 12,
-    'ui_theme': 'calm',  # calm | clear | warm | night
+    'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）
     'ui_density': 'compact',  # compact | comfortable
     'sidebar_collapsed': False,
     'floating_opacity': 96,
@@ -176,7 +176,9 @@ def normalize_settings(settings):
     result['floating_show_on_startup'] = bool(result['floating_show_on_startup'])
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
-    result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'night') else 'calm'
+    if theme == 'night':
+        theme = 'black'
+    result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'black') else 'calm'
     density = str(result.get('ui_density') or 'compact').strip().lower()
     result['ui_density'] = density if density in ('compact', 'comfortable') else 'compact'
     sidebar_value = result.get('sidebar_collapsed', False)
