@@ -5,7 +5,7 @@ import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QGroupBox, QHeaderView, QHBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
+    QLabel, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -30,9 +30,10 @@ class VinPanel(QWidget):
         layout.setSpacing(12)
 
         self.settings = QGroupBox()
+        self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         row = QHBoxLayout(self.settings)
         self.year_label = QLabel()
-        row.addWidget(self.year_label)
+        row.addWidget(self.year_label, 0, Qt.AlignmentFlag.AlignVCenter)
         self.year_combo = QComboBox()
         size_combo(self.year_combo, 'sm')
         self.year_combo.addItems([str(y) for y in range(2001, 2031)])
@@ -70,6 +71,9 @@ class VinPanel(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.setMinimumHeight(200)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
         layout.addWidget(self.table, 1)
 
@@ -120,6 +124,14 @@ class VinPanel(QWidget):
             self._pending_fill = False
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._generate)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._pending_fill or not self._results:
+            return
+        want = self._visible_fill_count()
+        if want > len(self._results):
+            self._generate()
 
     def _generate(self):
         year = int(self.year_combo.currentText())

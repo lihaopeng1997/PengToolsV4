@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """全应用统一的表单字段尺寸，保证下拉/录入/日期视觉整齐舒适。"""
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QSizePolicy, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QWidget
 
 # 统一控件高度：与「检出代码」等紧凑按钮对齐
 FIELD_H = 28
@@ -19,7 +19,7 @@ DATE_MONTH_W = (128, 150)  # yyyy-MM
 # 录入框
 LINE_STD_MIN = 160         # 普通文本
 LINE_PATH_MIN = 200        # 路径 / URL（布局里通常 stretch）
-LINE_NUM_W = 52            # 数量等短数字
+LINE_NUM_W = 56            # 数量等短数字（不含步进按钮）
 LINE_SEARCH_MIN = 180      # 搜索框下限
 
 # 标签与胶囊
@@ -122,3 +122,75 @@ def apply_button_role(button, role: str = 'secondary', *, compact: bool = False)
     """按钮角色入口（转发 design_system，避免业务面板直接耦合）。"""
     from ui.design_system import apply_button
     apply_button(button, role, compact=compact)
+
+
+class CompactStepper(QWidget):
+    """主题一致的数量步进：− 数字 +，数字单独一格不被箭头挡住。"""
+
+    valueChanged = pyqtSignal(int)
+
+    def __init__(self, minimum=0, maximum=200, value=0, parent=None):
+        super().__init__(parent)
+        self._min = int(minimum)
+        self._max = int(maximum)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.minus_btn = QPushButton('−')
+        self.plus_btn = QPushButton('+')
+        from ui.design_system import apply_button
+        for btn in (self.minus_btn, self.plus_btn):
+            apply_button(btn, 'ghost', compact=True)
+            btn.setFixedSize(28, 28)
+            btn.setMinimumWidth(28)
+        self.edit = QLineEdit()
+        self.edit.setObjectName('compact-step-value')
+        self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.edit.setFixedSize(LINE_NUM_W, FIELD_H)
+        layout.addWidget(self.minus_btn)
+        layout.addWidget(self.edit)
+        layout.addWidget(self.plus_btn)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.minus_btn.clicked.connect(lambda: self.setValue(self.value() - 1))
+        self.plus_btn.clicked.connect(lambda: self.setValue(self.value() + 1))
+        self.edit.editingFinished.connect(self._commit_edit)
+        self.setValue(value)
+
+    def value(self) -> int:
+        try:
+            return int(self.edit.text().strip())
+        except ValueError:
+            return self._min
+
+    def setValue(self, value: int):
+        clamped = max(self._min, min(self._max, int(value)))
+        current = self.edit.text().strip()
+        text = str(clamped)
+        if current != text:
+            self.edit.setText(text)
+            self.valueChanged.emit(clamped)
+        self.minus_btn.setEnabled(clamped > self._min)
+        self.plus_btn.setEnabled(clamped < self._max)
+
+    def setMinimum(self, minimum: int):
+        self._min = int(minimum)
+        if self._max < self._min:
+            self._max = self._min
+        self.setValue(self.value())
+
+    def setMaximum(self, maximum: int):
+        self._max = int(maximum)
+        if self._max < self._min:
+            self._min = self._max
+        self.setValue(self.value())
+
+    def setRange(self, minimum: int, maximum: int):
+        self._min = int(minimum)
+        self._max = int(maximum)
+        self.setValue(self.value())
+
+    def _commit_edit(self):
+        try:
+            self.setValue(int(self.edit.text().strip()))
+        except ValueError:
+            self.setValue(self._min)

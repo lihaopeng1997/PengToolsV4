@@ -4,8 +4,8 @@ import csv
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHeaderView,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget,
-    QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTabWidget,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ui.confirm_dialog import show_error, show_warning
@@ -18,7 +18,7 @@ from tools.id_documents import (
 )
 from tools.china_regions import REGIONS
 from ui.design_system import apply_button
-from ui.field_metrics import size_combo, size_line
+from ui.field_metrics import CompactStepper, size_combo, size_line
 
 
 class CreditCodePanel(QWidget):
@@ -48,7 +48,8 @@ class CreditCodePanel(QWidget):
         self.category_tabs.setDocumentMode(True)
         self.category_tabs.addTab(self._create_personal_tab(), '')
         self.category_tabs.addTab(self._create_unit_tab(), '')
-        root.addWidget(self.category_tabs)
+        self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        root.addWidget(self.category_tabs, 0)
 
         self.format_note = QLabel()
         self.format_note.setObjectName('path-note')
@@ -75,6 +76,9 @@ class CreditCodePanel(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.setMinimumHeight(160)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
         root.addWidget(self.table, 1)
 
@@ -153,21 +157,12 @@ class CreditCodePanel(QWidget):
         custom.addSpacing(10)
         self.id_age_label = QLabel()
         custom.addWidget(self.id_age_label)
-        self.id_min_age = QSpinBox()
-        self.id_min_age.setRange(0, 120)
-        self.id_min_age.setValue(18)
-        self.id_min_age.setFixedHeight(28)
-        self.id_min_age.setFixedWidth(56)
+        self.id_min_age = CompactStepper(0, 120, 18)
         self.id_min_age.valueChanged.connect(self._sync_age_range)
         custom.addWidget(self.id_min_age)
         self.id_age_separator = QLabel('—')
         custom.addWidget(self.id_age_separator)
-        self.id_max_age = QSpinBox()
-        self.id_max_age.setRange(0, 120)
-        self.id_max_age.setValue(60)
-        self.id_max_age.setFixedHeight(28)
-        self.id_max_age.setFixedWidth(56)
-        self.id_max_age.setMinimum(self.id_min_age.value())
+        self.id_max_age = CompactStepper(18, 120, 60)
         custom.addWidget(self.id_max_age)
         self.id_gender_label = QLabel()
         custom.addWidget(self.id_gender_label)
@@ -229,12 +224,7 @@ class CreditCodePanel(QWidget):
 
     @staticmethod
     def _quantity_box():
-        box = QSpinBox()
-        box.setRange(1, 200)
-        box.setValue(10)
-        box.setFixedWidth(56)
-        box.setFixedHeight(28)
-        return box
+        return CompactStepper(1, 200, 10)
 
     def _quantity(self, box):
         try:

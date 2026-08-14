@@ -55,6 +55,14 @@ MAX_BODY_CHARS = 512 * 1024  # 512KB/字段
 from ui.responsive import apply_splitter_orientation, editor_min_height, set_subtitle_visible
 
 
+class _HintLabel(QLabel):
+    """空文案不占布局，避免左栏顶部留白。"""
+
+    def setText(self, text):
+        super().setText(text or '')
+        self.setVisible(bool((text or '').strip()))
+
+
 def _looks_json(text: str) -> bool:
     s = (text or '').strip()
     return bool(s) and s[0] in '{['
@@ -317,16 +325,17 @@ class InterfaceDebugPanel(QWidget):
         row2.addStretch(1)
         cl.addLayout(row2)
 
-        self.status_label = QLabel()
+        self.status_label = _HintLabel()
         self.status_label.setObjectName('field-hint')
         self.status_label.setWordWrap(True)
-        cl.addWidget(self.status_label)
-        self.live_status = QLabel()
+        self.status_label.hide()
+        self.live_status = _HintLabel()
         self.live_status.setObjectName('field-hint')
         self.live_status.setWordWrap(True)
-        cl.addWidget(self.live_status)
-        # 抓包按钮并入会话工具条，不再单独占一块空卡片。
+        self.live_status.hide()
+        # 抓包按钮并入会话工具条；卡片仅挂到本面板，不进左栏布局。
         self.capture_zone = conn
+        self.capture_zone.setParent(self)
         self.capture_zone.hide()
 
         # 会话工具条
@@ -426,12 +435,6 @@ class InterfaceDebugPanel(QWidget):
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(6)
-        ll.addWidget(self.status_label)
-        ll.addWidget(self.live_status)
-        # 抓包卡片已并入工具条；隐藏挂在左栏，避免无父级窗口闪现。
-        ll.addWidget(self.capture_zone)
-        self.capture_zone.hide()
-
         # 工具条保持单行；窄屏时通过横向滚动保留完整操作，不挤压按钮文本。
         self.session_toolbar_scroll = QScrollArea()
         self.session_toolbar_scroll.setObjectName('iface-session-toolbar-scroll')
@@ -442,6 +445,8 @@ class InterfaceDebugPanel(QWidget):
         self.session_toolbar.setMinimumWidth(0)
         self.session_toolbar_scroll.setWidget(self.session_toolbar)
         ll.addWidget(self.session_toolbar_scroll)
+        ll.addWidget(self.status_label)
+        ll.addWidget(self.live_status)
 
         self.table = QTableWidget(0, len(COLUMN_KEYS))
         self.table.setObjectName('iface-request-table')

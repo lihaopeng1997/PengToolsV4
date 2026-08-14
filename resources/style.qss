@@ -451,11 +451,16 @@ QFrame#gateway-work-zone {
     border-top: 2px solid __TEXT_MUTED__;
 }
 QFrame#gateway-action-zone {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __SURFACE__, stop:1 __SURFACE_TECH__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-left: 3px solid __PRIMARY__;
-    border-radius: 12px;
+    border-radius: 10px;
+}
+QLineEdit#compact-step-value {
+    min-width: 48px;
+    max-width: 64px;
+    min-height: 18px;
+    max-height: 28px;
+    padding: 2px 4px;
 }
 QFrame#gateway-work-zone QLabel#zone-title {
     border-left-color: __TEXT_MUTED__;

@@ -83,15 +83,25 @@ class DensityPassPanelTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.app.setStyleSheet(cls._prev_qss)
 
-    def test_credit_qty_is_compact_spinbox(self):
-        from PyQt6.QtWidgets import QSpinBox
+    def test_credit_qty_is_compact_stepper(self):
+        from ui.field_metrics import CompactStepper
         from panels.credit_panel import CreditCodePanel
 
         panel = CreditCodePanel()
-        self.assertIsInstance(panel.personal_qty, QSpinBox)
-        self.assertEqual(panel.personal_qty.width(), 56)
-        self.assertEqual(panel.personal_qty.height(), 28)
+        self.assertIsInstance(panel.personal_qty, CompactStepper)
+        self.assertEqual(panel.personal_qty.edit.width(), 56)
+        self.assertEqual(panel.personal_qty.edit.height(), 28)
+        self.assertEqual(panel.personal_qty.minus_btn.text(), '−')
+        self.assertEqual(panel.personal_qty.plus_btn.text(), '+')
+        panel.personal_qty.setValue(10)
+        panel.personal_qty.plus_btn.click()
+        self.assertEqual(panel.personal_qty.value(), 11)
         self.assertEqual(panel.personal_generate.height(), 28)
+        self.assertEqual(
+            panel.category_tabs.sizePolicy().verticalPolicy().name,
+            'Maximum',
+        )
+        self.assertGreaterEqual(panel.table.minimumHeight(), 160)
         panel.close()
 
     def test_vin_fills_visible_rows_and_keeps_vin_column_readable(self):
@@ -106,7 +116,9 @@ class DensityPassPanelTests(unittest.TestCase):
         self.assertGreaterEqual(count, 8)
         self.assertLessEqual(count, 40)
         panel._generate()
+        self.assertGreaterEqual(panel.table.rowCount(), 8)
         self.assertEqual(panel.table.rowCount(), count)
+        self.assertGreaterEqual(panel.table.minimumHeight(), 200)
         self.assertEqual(
             panel.table.horizontalHeader().sectionResizeMode(1),
             QHeaderView.ResizeMode.ResizeToContents,
