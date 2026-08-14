@@ -148,6 +148,38 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertIn(THEMES['black']['APP_BG'], qss)
         self.assertIn(THEMES['black']['SURFACE'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
+        self.assertIn('QScrollArea::viewport', qss)
+        self.assertIn('QStackedWidget > QWidget', qss)
+
+    def test_black_app_palette_is_not_white(self):
+        from PyQt6.QtGui import QPalette
+        from ui.theme_manager import build_app_palette
+
+        pal = build_app_palette(THEMES['black'])
+        for role in (
+            QPalette.ColorRole.Window,
+            QPalette.ColorRole.Base,
+            QPalette.ColorRole.Button,
+            QPalette.ColorRole.AlternateBase,
+            QPalette.ColorRole.Light,
+            QPalette.ColorRole.Midlight,
+            QPalette.ColorRole.ToolTipBase,
+        ):
+            color = pal.color(role)
+            luma = (color.red() + color.green() + color.blue()) / 3
+            self.assertLess(luma, 80, msg=f'{role.name} too bright: {color.name()}')
+
+        app = QApplication.instance() or QApplication([])
+        tm = ThemeManager.instance()
+        tm.load_template()
+        tm.apply(app, 'black')
+        applied = app.palette().color(QPalette.ColorRole.Window)
+        self.assertLess((applied.red() + applied.green() + applied.blue()) / 3, 40)
+        style_name = (app.style().objectName() if app.style() else '').lower()
+        # offscreen 插件可能不回写 objectName；有名字时必须是 Fusion
+        if style_name:
+            self.assertEqual(style_name, 'fusion')
+        tm.apply(app, 'calm')
 
     def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
         tm = ThemeManager.instance()

@@ -469,7 +469,8 @@ class ThemeManager:
             if app is not None:
                 app.setProperty('base_stylesheet', qss)
                 app.setProperty('ui_theme', theme_id)
-                self._apply_selection_palette(app, THEMES[theme_id])
+                self._ensure_fusion_style(app)
+                self._apply_app_palette(app, THEMES[theme_id])
                 app.setStyleSheet(qss)
             for callback in list(self._listeners):
                 try:
@@ -492,17 +493,21 @@ class ThemeManager:
             raise
 
     @staticmethod
-    def _apply_selection_palette(app: QApplication, tokens: dict[str, str]) -> None:
-        """系统高亮跟主题走，避免树/列表漏出 Windows 默认蓝。"""
-        from PyQt6.QtGui import QColor, QPalette
+    def _ensure_fusion_style(app: QApplication) -> None:
+        """Windows 原生样式会画浅色立体边，墨黑必须走 Fusion 才能吃满调色板。"""
+        from PyQt6.QtWidgets import QStyleFactory
 
-        highlight = QColor(tokens.get('TABLE_SELECT') or '#E9F1EB')
-        text = QColor(tokens.get('PRIMARY_ACTIVE') or tokens.get('TEXT_STRONG') or '#272B29')
-        pal = app.palette()
-        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
-            pal.setColor(group, QPalette.ColorRole.Highlight, highlight)
-            pal.setColor(group, QPalette.ColorRole.HighlightedText, text)
-        app.setPalette(pal)
+        current = (app.style().objectName() if app.style() else '').lower()
+        if current == 'fusion':
+            return
+        style = QStyleFactory.create('Fusion')
+        if style is not None:
+            app.setStyle(style)
+
+    @staticmethod
+    def _apply_app_palette(app: QApplication, tokens: dict[str, str]) -> None:
+        """整套 QPalette 跟主题走，避免未写 QSS 的控件露出系统白底/白边。"""
+        app.setPalette(build_app_palette(tokens))
 
     def listener_failures(self) -> tuple[dict[str, str], ...]:
         """返回主题监听失败快照；失败监听不会阻断其余界面刷新。"""
@@ -518,6 +523,76 @@ class ThemeManager:
     def remove_listener(self, callback) -> None:
         if callback in self._listeners:
             self._listeners.remove(callback)
+
+
+def build_app_palette(tokens: dict[str, str]):
+    """由主题 token 构造应用级 QPalette，供 ThemeManager 与测试共用。"""
+    from PyQt6.QtGui import QColor, QPalette
+
+    def _color(key: str, fallback: str) -> QColor:
+        raw = str(tokens.get(key) or fallback).strip()
+        parsed = parse_color(raw)
+        if parsed:
+            r, g, b, a = parsed
+            return QColor(r, g, b, 255 if a < 32 else a)
+        color = QColor(raw)
+        return color if color.isValid() else QColor(fallback)
+
+    window = _color('APP_BG', '#F3F2EC')
+    base = _color('INPUT_BG', tokens.get('SURFACE', '#FFFEFB'))
+    alternate = _color('TABLE_ALT', tokens.get('SURFACE_SOFT', '#F6F5F0'))
+    button = _color('SURFACE', '#FFFEFB')
+    text = _color('TEXT', '#3A423D')
+    strong = _color('TEXT_STRONG', '#1A1F1C')
+    muted = _color('TEXT_MUTED', '#6B746E')
+    highlight = _color('TABLE_SELECT', '#E4EFE8')
+    highlighted = _color('TEXT_STRONG', '#1A1F1C')
+    border = _color('BORDER', '#DDDAD2')
+    border_strong = _color('BORDER_STRONG', '#C9C6BD')
+    disabled_bg = _color('DISABLED_BG', '#EEEDE7')
+    disabled_text = _color('DISABLED_TEXT', '#A3AAA5')
+    tooltip_bg = _color('ELEVATED_SURFACE', tokens.get('SURFACE', '#FFFEFB'))
+    link = _color('PRIMARY', '#3F6B56')
+
+    pal = QPalette()
+    active_roles = {
+        QPalette.ColorRole.Window: window,
+        QPalette.ColorRole.WindowText: text,
+        QPalette.ColorRole.Base: base,
+        QPalette.ColorRole.AlternateBase: alternate,
+        QPalette.ColorRole.ToolTipBase: tooltip_bg,
+        QPalette.ColorRole.ToolTipText: text,
+        QPalette.ColorRole.Text: text,
+        QPalette.ColorRole.Button: button,
+        QPalette.ColorRole.ButtonText: strong,
+        QPalette.ColorRole.BrightText: strong,
+        QPalette.ColorRole.Highlight: highlight,
+        QPalette.ColorRole.HighlightedText: highlighted,
+        QPalette.ColorRole.PlaceholderText: muted,
+        QPalette.ColorRole.Light: border,
+        QPalette.ColorRole.Midlight: border,
+        QPalette.ColorRole.Mid: border_strong,
+        QPalette.ColorRole.Dark: border_strong,
+        QPalette.ColorRole.Shadow: _color('APP_BG', '#09090B'),
+        QPalette.ColorRole.Link: link,
+        QPalette.ColorRole.LinkVisited: link,
+    }
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        for role, color in active_roles.items():
+            pal.setColor(group, role, color)
+    disabled = QPalette.ColorGroup.Disabled
+    pal.setColor(disabled, QPalette.ColorRole.Window, disabled_bg)
+    pal.setColor(disabled, QPalette.ColorRole.Base, disabled_bg)
+    pal.setColor(disabled, QPalette.ColorRole.Button, disabled_bg)
+    pal.setColor(disabled, QPalette.ColorRole.WindowText, disabled_text)
+    pal.setColor(disabled, QPalette.ColorRole.Text, disabled_text)
+    pal.setColor(disabled, QPalette.ColorRole.ButtonText, disabled_text)
+    pal.setColor(disabled, QPalette.ColorRole.Highlight, border)
+    pal.setColor(disabled, QPalette.ColorRole.HighlightedText, disabled_text)
+    pal.setColor(disabled, QPalette.ColorRole.Light, border)
+    pal.setColor(disabled, QPalette.ColorRole.Midlight, border)
+    pal.setColor(disabled, QPalette.ColorRole.PlaceholderText, disabled_text)
+    return pal
 
 
 def preview_swatches(theme_id: str) -> dict[str, str]:
