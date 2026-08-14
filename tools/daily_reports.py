@@ -108,6 +108,10 @@ def plain_from_html(html_text: str) -> str:
     text = str(html_text or '')
     if not text:
         return ''
+    # QTextEdit 空文档也会导出带 CSS 的完整 HTML，必须先丢掉 head/style
+    text = re.sub(r'<style\b[^>]*>.*?</style>', '', text, flags=re.I | re.S)
+    text = re.sub(r'<script\b[^>]*>.*?</script>', '', text, flags=re.I | re.S)
+    text = re.sub(r'<head\b[^>]*>.*?</head>', '', text, flags=re.I | re.S)
     # 图片用占位
     text = re.sub(r'<img\b[^>]*>', ' [图片] ', text, flags=re.I)
     text = re.sub(r'<\s*br\s*/?>', '\n', text, flags=re.I)
@@ -154,11 +158,37 @@ def fields_snapshot(report: dict | None) -> dict:
     return snap
 
 
+_IMG_TAG_RE = re.compile(r'<img\b[^>]*>', re.I)
+_IMG_ATTR_RE = re.compile(
+    r'(src|width|height)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))',
+    re.I,
+)
+
+
+def html_image_signature(html_text: str) -> tuple[tuple[str, str, str], ...]:
+    """只比较插图路径和尺寸，忽略 Qt 导出的完整 HTML 外壳。"""
+    sigs = []
+    for tag in _IMG_TAG_RE.findall(str(html_text or '')):
+        attrs = {}
+        for match in _IMG_ATTR_RE.finditer(tag):
+            key = match.group(1).lower()
+            attrs[key] = match.group(2) or match.group(3) or match.group(4) or ''
+        src = str(attrs.get('src') or '').replace('\\', '/')
+        idx = src.lower().find('daily_assets/')
+        if idx >= 0:
+            src = src[idx:]
+        sigs.append((src, str(attrs.get('width') or ''), str(attrs.get('height') or '')))
+    return tuple(sigs)
+
+
 def is_report_dirty(saved: dict | None, current: dict | None) -> bool:
-    a = fields_snapshot(saved)
-    b = fields_snapshot(current)
-    for k in REPORT_FIELDS:
-        if a[k] != b[k] or a[f'{k}_html'] != b[f'{k}_html']:
+    """比较用户可见正文和插图，不把 QTextEdit 重写 HTML 当成未保存。"""
+    a = normalize_report(saved or {})
+    b = normalize_report(current or {})
+    for key in REPORT_FIELDS:
+        if str(a.get(key) or '').strip() != str(b.get(key) or '').strip():
+            return True
+        if html_image_signature(a.get(f'{key}_html')) != html_image_signature(b.get(f'{key}_html')):
             return True
     return False
 

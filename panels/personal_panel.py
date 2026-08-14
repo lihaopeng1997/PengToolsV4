@@ -1092,6 +1092,11 @@ class DailyReportTab(QWidget):
         size_compact_button(self.today_btn)
         self.today_btn.clicked.connect(self._go_today)
         date_row.addWidget(self.today_btn)
+        self.import_yesterday_btn = QPushButton('带入昨日计划')
+        size_compact_button(self.import_yesterday_btn)
+        self.import_yesterday_btn.setToolTip('读取昨天日报的「明日计划」，填到今天的「今日完成」作为开写底稿')
+        self.import_yesterday_btn.clicked.connect(self._import_yesterday_plan)
+        date_row.addWidget(self.import_yesterday_btn)
         self.copy_as_today_btn = QPushButton('复制为今日')
         size_compact_button(self.copy_as_today_btn)
         self.copy_as_today_btn.setToolTip('把当前编辑中的内容一键写成今天的日报（可再改再保存）')
@@ -1106,6 +1111,20 @@ class DailyReportTab(QWidget):
         self.unsaved_label = QLabel('')
         self.unsaved_label.setObjectName('field-hint')
         date_row.addWidget(self.unsaved_label)
+        self.delete_btn = QPushButton('删除日报')
+        self.delete_btn.setObjectName('ops-delete-custom')
+        size_compact_button(self.delete_btn)
+        self.delete_btn.clicked.connect(self._delete_report)
+        date_row.addWidget(self.delete_btn)
+        self.copy_btn = QPushButton('复制 Markdown')
+        size_compact_button(self.copy_btn)
+        self.copy_btn.clicked.connect(self._copy_report)
+        date_row.addWidget(self.copy_btn)
+        self.save_btn = QPushButton('保存日报')
+        self.save_btn.setObjectName('primary-btn')
+        size_compact_button(self.save_btn)
+        self.save_btn.clicked.connect(self._save_report)
+        date_row.addWidget(self.save_btn)
         form_layout.addLayout(date_row)
         form_layout.setSpacing(6)
         self.completed = self._report_editor(
@@ -1129,20 +1148,6 @@ class DailyReportTab(QWidget):
             ed.textChanged.connect(self._on_editor_changed)
             ed.image_error.connect(self._on_image_error)
             ed.assets_changed.connect(self._on_editor_changed)
-        actions = QHBoxLayout()
-        self.delete_btn = QPushButton('删除当日日报')
-        self.delete_btn.setObjectName('ops-delete-custom')
-        self.delete_btn.clicked.connect(self._delete_report)
-        actions.addWidget(self.delete_btn)
-        actions.addStretch()
-        self.copy_btn = QPushButton('复制 Markdown')
-        self.copy_btn.clicked.connect(self._copy_report)
-        actions.addWidget(self.copy_btn)
-        self.save_btn = QPushButton('保存日报')
-        self.save_btn.setObjectName('primary-btn')
-        self.save_btn.clicked.connect(self._save_report)
-        actions.addWidget(self.save_btn)
-        form_layout.addLayout(actions)
         scroll.setWidget(editor)
         splitter.addWidget(scroll)
         splitter.setSizes([250, 780])
@@ -1313,6 +1318,11 @@ class DailyReportTab(QWidget):
     def _refresh_dates(self):
         from PyQt6.QtWidgets import QTreeWidgetItem
         from tools.list_pin import namespace_is_pinned, namespace_pinned_at
+        stale = [key for key, draft in list(self._drafts.items()) if not self._is_dirty(key, draft)]
+        if stale:
+            for key in stale:
+                self._drafts.pop(key, None)
+            self._schedule_draft_persist()
         current = self._date_key() if hasattr(self, 'date_edit') else ''
         today = datetime.date.today().isoformat()
         keys = set(self._reports) | set(self._drafts)
@@ -1489,6 +1499,9 @@ class DailyReportTab(QWidget):
             report = self._drafts.get(key) or self._reports.get(key) or {}
             self._apply_report_to_editors(report)
             self._loaded_key = key
+            if key in self._drafts and not self._is_dirty(key):
+                self._drafts.pop(key, None)
+                self._schedule_draft_persist()
             self.delete_btn.setEnabled(key in self._reports)
             self._refresh_dates()
             self._update_unsaved_hint()
@@ -1559,6 +1572,55 @@ class DailyReportTab(QWidget):
         show_success(
             self, '日报',
             f'已把 {source_key} 的内容复制为今日（{today}）草稿，请确认后点「保存日报」。',
+        )
+
+    def _import_yesterday_plan(self):
+        """把昨天「明日计划」填进今天的「今日完成」。"""
+        today = datetime.date.today()
+        yesterday = (today - datetime.timedelta(days=1)).isoformat()
+        today_key = today.isoformat()
+        source = normalize_report(self._drafts.get(yesterday) or self._reports.get(yesterday) or {})
+        plan_plain = str(source.get('tomorrow') or '').strip()
+        plan_html = str(source.get('tomorrow_html') or '').strip()
+        if not plan_plain and not plan_html:
+            show_info(self, '带入昨日计划', f'昨天（{yesterday}）没有填写明日计划。')
+            return
+        today_report = normalize_report(self._drafts.get(today_key) or self._reports.get(today_key) or {})
+        if self._loaded_key == today_key:
+            today_report = self._current_values()
+        existing = str(today_report.get('completed') or '').strip()
+        if existing and existing != plan_plain:
+            if not confirm_action(
+                self, '带入昨日计划',
+                f'今天的「今日完成」已有内容。\n\n是否用昨天（{yesterday}）的明日计划覆盖？',
+                confirm_text='覆盖并填入',
+                danger=True,
+            ):
+                return
+        self._stash_current_editors()
+        today_date = QDate.currentDate()
+        payload = dict(today_report)
+        payload['completed'] = plan_plain
+        payload['completed_html'] = plan_html or ''
+        self._drafts[today_key] = self._fields_snapshot(payload)
+        self._schedule_draft_persist()
+        self._loading = True
+        try:
+            if self.date_edit.date() != today_date:
+                self.date_edit.blockSignals(True)
+                self.date_edit.setDate(today_date)
+                self.date_edit.blockSignals(False)
+            self._sync_editors_date(today_key)
+            self._apply_report_to_editors(payload)
+            self._loaded_key = today_key
+            self.delete_btn.setEnabled(today_key in self._reports)
+            self._refresh_dates()
+            self._update_unsaved_hint()
+        finally:
+            self._loading = False
+        show_success(
+            self, '带入昨日计划',
+            f'已把昨天（{yesterday}）的明日计划填入今日完成，请改完后点「保存日报」。',
         )
 
     def _delete_report(self):

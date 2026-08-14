@@ -27,6 +27,70 @@ class DailyReportModelTests(unittest.TestCase):
         self.assertIn('做完 A', report['completed'])
         self.assertIn('做完 A', report['completed_html'])
         self.assertEqual(plain_from_html('<p>x<br/>y</p>').replace('\n', ' '), 'x y')
+        chrome = (
+            '<!DOCTYPE HTML><html><head><style type="text/css">'
+            'p, li { white-space: pre-wrap; }</style></head>'
+            '<body style="font-family:Microsoft YaHei UI;"><p><br></p></body></html>'
+        )
+        self.assertEqual(plain_from_html(chrome), '')
+        empty = normalize_report({'completed_html': chrome, 'issues': '', 'tomorrow': '', 'notes': ''})
+        self.assertEqual(empty['completed'], '')
+
+    def test_qt_html_wrapper_is_not_dirty(self):
+        from tools.daily_reports import is_report_dirty
+
+        saved = {
+            'completed': '做完 A',
+            'completed_html': '<p>做完 A</p>',
+            'issues': '',
+            'tomorrow': '继续联调',
+            'tomorrow_html': '<p>继续联调</p>',
+            'notes': '',
+        }
+        current = {
+            'completed': '做完 A',
+            'completed_html': (
+                '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" '
+                '"http://www.w3.org/TR/REC-html40/strict.dtd">'
+                '<html><body style="font-family:Microsoft YaHei UI;">'
+                '<p style="margin-top:0px;">做完 A</p></body></html>'
+            ),
+            'issues': '',
+            'issues_html': '<!DOCTYPE HTML><html><body><p><br></p></body></html>',
+            'tomorrow': '继续联调',
+            'tomorrow_html': '<p style="margin-top:0px;">继续联调</p>',
+            'notes': '',
+        }
+        self.assertFalse(is_report_dirty(saved, current))
+        current['completed'] = '做完 A 又改了一点'
+        self.assertTrue(is_report_dirty(saved, current))
+
+    def test_image_size_change_is_dirty(self):
+        from tools.daily_reports import is_report_dirty
+
+        saved = {
+            'completed': '[图片]',
+            'completed_html': '<img src="daily_assets/2026-08-13/a.png" width="200" height="100">',
+            'issues': '',
+            'tomorrow': '',
+            'notes': '',
+        }
+        same = {
+            'completed': '[图片]',
+            'completed_html': '<img src="file:///C:/data/daily_assets/2026-08-13/a.png" width="200" height="100">',
+            'issues': '',
+            'tomorrow': '',
+            'notes': '',
+        }
+        resized = {
+            'completed': '[图片]',
+            'completed_html': '<img src="daily_assets/2026-08-13/a.png" width="80" height="40">',
+            'issues': '',
+            'tomorrow': '',
+            'notes': '',
+        }
+        self.assertFalse(is_report_dirty(saved, same))
+        self.assertTrue(is_report_dirty(saved, resized))
 
     def test_group_dates_by_month(self):
         from tools.daily_reports import group_dates_by_month, month_label
@@ -128,6 +192,102 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertLessEqual(tab.notes.minimumHeight(), 64)
             self.assertGreater(tab.completed.sizeHint().height(), tab.issues.sizeHint().height())
             self.assertGreater(tab.completed.sizeHint().height(), tab.notes.sizeHint().height())
+            tab.close()
+
+    def test_clicking_saved_date_is_not_marked_unsaved(self):
+        from unittest.mock import patch
+        from panels.personal_panel import DailyReportTab
+        from PyQt6.QtCore import QDate
+
+        seed = {
+            '2026-08-13': {
+                'completed': '昨天写过',
+                'completed_html': '<p>昨天写过</p>',
+                'issues': '',
+                'tomorrow': '明天联调',
+                'tomorrow_html': '<p>明天联调</p>',
+                'notes': '',
+            },
+        }
+        with patch('panels.personal_panel.load_reports', return_value=seed), \
+                patch('panels.personal_panel.save_reports'), \
+                patch('panels.personal_panel.load_drafts', return_value={}), \
+                patch('panels.personal_panel.save_drafts'), \
+                patch('panels.personal_panel.load_reminder_settings', return_value={
+                    'enabled': False, 'time': '17:30', 'last_reminder_date': '',
+                    'history_collapsed_months': [], 'history_expanded_months': [],
+                    'history_expand_pinned': True,
+                }), \
+                patch('panels.personal_panel.save_reminder_settings', side_effect=lambda s: s):
+            tab = DailyReportTab()
+            tab._load_date(QDate(2026, 8, 13))
+            self.assertFalse(tab._is_dirty('2026-08-13'))
+            self.assertEqual(tab.unsaved_label.text(), '')
+            self.assertNotIn('2026-08-13', tab._drafts)
+            tab.close()
+
+    def test_action_buttons_share_date_row(self):
+        from unittest.mock import patch
+        from panels.personal_panel import DailyReportTab
+
+        with patch('panels.personal_panel.load_reports', return_value={}), \
+                patch('panels.personal_panel.save_reports'), \
+                patch('panels.personal_panel.load_drafts', return_value={}), \
+                patch('panels.personal_panel.save_drafts'), \
+                patch('panels.personal_panel.load_reminder_settings', return_value={
+                    'enabled': False, 'time': '17:30', 'last_reminder_date': '',
+                    'history_collapsed_months': [], 'history_expanded_months': [],
+                    'history_expand_pinned': True,
+                }):
+            tab = DailyReportTab()
+            date_row = tab.date_edit.parentWidget().layout().itemAt(0).layout()
+            widgets = []
+            for index in range(date_row.count()):
+                item = date_row.itemAt(index)
+                widget = item.widget() if item else None
+                if widget is not None:
+                    widgets.append(widget)
+            self.assertIn(tab.date_edit, widgets)
+            self.assertIn(tab.delete_btn, widgets)
+            self.assertIn(tab.copy_btn, widgets)
+            self.assertIn(tab.save_btn, widgets)
+            self.assertIn(tab.import_yesterday_btn, widgets)
+            self.assertEqual(tab.import_yesterday_btn.text(), '带入昨日计划')
+            tab.close()
+
+    def test_import_yesterday_plan_fills_today_completed(self):
+        from unittest.mock import patch
+        import datetime
+        from panels.personal_panel import DailyReportTab
+
+        today = datetime.date.today().isoformat()
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        seed = {
+            yesterday: {
+                'completed': '昨天做完了',
+                'tomorrow': '今天要做的事',
+                'tomorrow_html': '<p>今天要做的事</p>',
+                'issues': '',
+                'notes': '',
+            },
+        }
+        with patch('panels.personal_panel.load_reports', return_value=seed), \
+                patch('panels.personal_panel.save_reports'), \
+                patch('panels.personal_panel.load_drafts', return_value={}), \
+                patch('panels.personal_panel.save_drafts'), \
+                patch('panels.personal_panel.load_reminder_settings', return_value={
+                    'enabled': False, 'time': '17:30', 'last_reminder_date': '',
+                    'history_collapsed_months': [], 'history_expanded_months': [],
+                    'history_expand_pinned': True,
+                }), \
+                patch('panels.personal_panel.save_reminder_settings', side_effect=lambda s: s), \
+                patch('panels.personal_panel.show_success'), \
+                patch('panels.personal_panel.show_info'):
+            tab = DailyReportTab()
+            tab._import_yesterday_plan()
+            self.assertEqual(tab._date_key(), today)
+            self.assertIn('今天要做的事', tab.completed.toPlainText())
+            self.assertTrue(tab._is_dirty(today))
             tab.close()
 
     def test_inserted_image_can_be_resized_and_persists_in_html(self):
