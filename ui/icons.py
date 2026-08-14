@@ -26,6 +26,8 @@ ICON_FILES = {
     'app_legacy_ico': ('resources', 'app.ico'),
     'app_legacy_png': ('resources', 'app-icon.png'),
     'dropdown': ('resources', 'chevron_down.svg'),
+    'chevron-right': ('resources', 'icons', 'chevron-right.svg'),
+    'chevron-down-tree': ('resources', 'icons', 'chevron-down-tree.svg'),
     'check': ('resources', 'check_white.svg'),
     'home': ('resources', 'icons', 'home.svg'),
     'requirements': ('resources', 'icons', 'requirements.svg'),
@@ -122,6 +124,32 @@ def icon_file(role: str) -> str:
 def icon_url(role: str) -> str:
     path = icon_file(role)
     return path.replace('\\', '/') if path else ''
+
+
+def tinted_icon_url(role: str, tint: str) -> str:
+    """按主题色写出临时 SVG，供 QSS 的 tree branch 等使用。"""
+    import re
+    import tempfile
+
+    src = icon_file(role)
+    if not src or not src.lower().endswith('.svg'):
+        return icon_url(role)
+    safe = re.sub(r'[^A-Za-z0-9]+', '', str(tint or ''))[:12] or 'default'
+    cache_dir = os.path.join(tempfile.gettempdir(), 'pengtools-theme-icons')
+    os.makedirs(cache_dir, exist_ok=True)
+    dest = os.path.join(cache_dir, f'{role}-{safe}.svg')
+    data = _svg_data_with_tint(src, tint)
+    try:
+        current = b''
+        if os.path.isfile(dest):
+            with open(dest, 'rb') as reader:
+                current = reader.read()
+        if current != data:
+            with open(dest, 'wb') as stream:
+                stream.write(data)
+    except OSError:
+        return icon_url(role)
+    return dest.replace('\\', '/')
 
 
 def _svg_data_with_tint(path: str, tint: str) -> bytes:

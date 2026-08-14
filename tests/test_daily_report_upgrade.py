@@ -159,6 +159,9 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertIn('2026-07-01', keys)
             # 至少有一个月份组头
             self.assertGreaterEqual(tab.date_tree.topLevelItemCount(), 1)
+            self.assertEqual(tab.expand_all_btn.text(), '全部展开')
+            self.assertEqual(tab.collapse_all_btn.text(), '全部折叠')
+            self.assertEqual(tab.expand_all_btn.objectName(), 'fold-action-btn')
             tab.completed.setPlainText('带图段落')
             plain, html, _assets = tab.completed.export_content()
             self.assertIn('带图段落', plain)

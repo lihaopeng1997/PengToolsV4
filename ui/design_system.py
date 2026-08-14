@@ -35,6 +35,7 @@ BUTTON_ROLES = {
     'secondary': 'btn-secondary',
     'danger': 'btn-danger',
     'ghost': 'btn-ghost',
+    'fold': 'fold-action-btn',
     'nav': 'nav-btn',
     'delete': 'btn-danger',
     'card': 'card-action',
@@ -94,12 +95,27 @@ def apply_button(
             except Exception:
                 danger = '#B42318'
             icon_kwargs = {'normal': danger, 'active': danger}
+        elif role == 'fold':
+            try:
+                from ui.theme_manager import ThemeManager
+                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#3D594A'
+            except Exception:
+                accent = '#3D594A'
+            icon_kwargs = {'normal': accent, 'active': accent}
         apply_icon(button, icon, size=icon_size, **icon_kwargs)
     style = button.style()
     if style is not None:
         style.unpolish(button)
         style.polish(button)
     button.update()
+
+
+def apply_fold_button(button, kind: str = 'expand', *, text: str | None = None) -> None:
+    """展开/折叠按钮：可见边框 + 主题色图标，避免只剩两个看不懂的字。"""
+    if text is not None:
+        button.setText(text)
+    icon = 'expand' if kind == 'expand' else 'collapse'
+    apply_button(button, 'fold', compact=True, icon=icon, icon_size=14)
 
 
 def apply_tree(tree: QTreeWidget, *, alternating: bool = True) -> None:

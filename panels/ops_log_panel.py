@@ -1821,11 +1821,13 @@ class OpsLogPanel(QWidget):
         self.export_server_list = QTreeWidget()
         self.export_server_list.setObjectName('ops-export-tree')
         self.export_server_list.setColumnCount(3)
-        self.export_server_list.setHeaderLabels(['服务器 / 服务', '日志路径', '指定文件'])
+        self.export_server_list.setHeaderLabels(['服务器 / 服务', '地址 / 日志路径', '指定文件'])
         self.export_server_list.setHeaderHidden(False)
         self.export_server_list.setRootIsDecorated(True)
-        self.export_server_list.setUniformRowHeights(True)
+        self.export_server_list.setUniformRowHeights(False)
+        self.export_server_list.setWordWrap(True)
         self.export_server_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.export_server_list.setAlternatingRowColors(True)
         self.export_server_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.export_server_list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.export_server_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -1834,13 +1836,19 @@ class OpsLogPanel(QWidget):
         self.export_server_list.customContextMenuRequested.connect(self._on_export_tree_context_menu)
         exp_hdr = self.export_server_list.header()
         exp_hdr.setStretchLastSection(False)
-        exp_hdr.setMinimumSectionSize(60)
-        exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        exp_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        exp_hdr.setMinimumSectionSize(72)
+        # 路径列拉满剩余宽度；名称/指定文件可拖宽，避免路径被挤成半截
+        exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        exp_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         exp_hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.export_server_list.setColumnWidth(0, 160)
-        self.export_server_list.setColumnWidth(1, 200)
-        self.export_server_list.setColumnWidth(2, 120)
+        self.export_server_list.setColumnWidth(0, 180)
+        self.export_server_list.setColumnWidth(2, 140)
+        try:
+            from ui.selection_delegate import WrappingSelectDelegate
+            self._export_tree_delegate = WrappingSelectDelegate(self.export_server_list, max_lines=3)
+            self.export_server_list.setItemDelegate(self._export_tree_delegate)
+        except Exception:
+            pass
         el_l.addWidget(self.export_server_list, 1)
         left_root.addWidget(self.export_ops, 1)
 
@@ -2330,9 +2338,10 @@ class OpsLogPanel(QWidget):
         }.items():
             if key in self._export_labels:
                 self._export_labels[key].setText(lab)
-        if hasattr(self, 'export_server_list') and self.export_server_list.columnCount() >= 2:
+        if hasattr(self, 'export_server_list') and self.export_server_list.columnCount() >= 3:
             self.export_server_list.setHeaderLabels(
-                ['服务器 / 服务', '日志路径'] if zh else ['Host / service', 'Log path']
+                ['服务器 / 服务', '地址 / 日志路径', '指定文件'] if zh else
+                ['Host / service', 'Address / log path', 'File']
             )
         if hasattr(self, 'session_export_btn'):
             self.session_export_btn.setToolTip(
@@ -3317,9 +3326,14 @@ class OpsLogPanel(QWidget):
                 tree.addTopLevelItem(cat_item)
                 last_cid = cid
             parent = cat_item if cat_item is not None else tree.invisibleRootItem()
+            host_addr = str(server.get('host') or '')
+            port = server.get('port')
+            if port and str(port) not in ('22', ''):
+                host_addr = f'{host_addr}:{port}'
             host = QTreeWidgetItem([
                 self._server_label(server, with_category=False),
-                str(server.get('host') or ''),
+                host_addr,
+                '',
             ])
             host.setFlags(
                 Qt.ItemFlag.ItemIsEnabled
@@ -3329,7 +3343,7 @@ class OpsLogPanel(QWidget):
             host.setCheckState(0, Qt.CheckState.Checked if server.get('enabled', True) else Qt.CheckState.Unchecked)
             host.setData(0, Qt.ItemDataRole.UserRole, {'type': 'server', 'server_id': server.get('id')})
             host.setToolTip(0, self._server_label(server, with_category=True))
-            host.setToolTip(1, str(server.get('host') or ''))
+            host.setToolTip(1, host_addr)
             if cat_item is not None:
                 cat_item.addChild(host)
             else:
@@ -3342,7 +3356,8 @@ class OpsLogPanel(QWidget):
             for svc in services:
                 path = str(svc.get('log_path') or '').strip()
                 svc_name = str(svc.get('name') or '服务')
-                child = QTreeWidgetItem([svc_name, path or '（未配置路径）', ''])
+                file_hint = '右键指定' if self.language == 'zh' else 'Right-click'
+                child = QTreeWidgetItem([svc_name, path or ('（未配置路径）' if self.language == 'zh' else '(no path)'), file_hint])
                 child.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
                 on = bool(svc.get('enabled', True)) and bool(path)
                 child.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
@@ -3366,11 +3381,11 @@ class OpsLogPanel(QWidget):
                 cat_item.setExpanded(True)
         tree.blockSignals(False)
         try:
-            # 给路径列足够宽度，过长时靠横向滚动查看
-            if tree.columnWidth(0) < 140:
-                tree.setColumnWidth(0, 160)
-            if tree.columnWidth(1) < 160:
-                tree.setColumnWidth(1, 240)
+            tree.resizeColumnToContents(0)
+            name_w = tree.columnWidth(0)
+            tree.setColumnWidth(0, min(max(name_w, 160), 260))
+            if tree.columnWidth(2) < 110:
+                tree.setColumnWidth(2, 140)
         except Exception:
             pass
 
@@ -3510,7 +3525,7 @@ class OpsLogPanel(QWidget):
         zh = self.language == 'zh'
         data['override_log_path'] = ''
         item.setData(0, Qt.ItemDataRole.UserRole, data)
-        item.setText(2, '')
+        item.setText(2, '右键指定' if zh else 'Right-click')
         item.setToolTip(2, '右键选择具体日志文件' if zh else 'Right-click to pick file')
 
     def _set_all_checked(self, checked: bool):

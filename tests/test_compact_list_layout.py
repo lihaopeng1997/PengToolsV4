@@ -32,9 +32,11 @@ class CompactListLayoutTests(unittest.TestCase):
                 self.assertEqual(remote_header.sectionResizeMode(column), QHeaderView.ResizeMode.Interactive)
 
             export_header = panel.export_server_list.header()
-            self.assertEqual(export_header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for column in range(1, 3):
-                self.assertEqual(export_header.sectionResizeMode(column), QHeaderView.ResizeMode.Interactive)
+            self.assertEqual(export_header.sectionResizeMode(0), QHeaderView.ResizeMode.Interactive)
+            self.assertEqual(export_header.sectionResizeMode(1), QHeaderView.ResizeMode.Stretch)
+            self.assertEqual(export_header.sectionResizeMode(2), QHeaderView.ResizeMode.Interactive)
+            self.assertGreaterEqual(panel.export_server_list.columnCount(), 3)
+            self.assertIn('日志路径', panel.export_server_list.headerItem().text(1))
         finally:
             panel._executor.shutdown(wait=False, cancel_futures=True)
             panel.close()

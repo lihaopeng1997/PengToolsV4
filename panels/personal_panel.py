@@ -1049,12 +1049,19 @@ class DailyReportTab(QWidget):
         head = QHBoxLayout()
         head.addWidget(QLabel('日报历史'))
         head.addStretch(1)
-        self.expand_all_btn = QPushButton('全展')
-        size_compact_button(self.expand_all_btn)
+        self.expand_all_btn = QPushButton('全部展开')
+        self.expand_all_btn.setToolTip('展开全部月份')
         self.expand_all_btn.clicked.connect(lambda: self._set_all_months_expanded(True))
-        self.collapse_all_btn = QPushButton('全折')
-        size_compact_button(self.collapse_all_btn)
+        self.collapse_all_btn = QPushButton('全部折叠')
+        self.collapse_all_btn.setToolTip('折叠全部月份')
         self.collapse_all_btn.clicked.connect(lambda: self._set_all_months_expanded(False))
+        try:
+            from ui.design_system import apply_fold_button
+            apply_fold_button(self.expand_all_btn, 'expand')
+            apply_fold_button(self.collapse_all_btn, 'collapse')
+        except Exception:
+            size_compact_button(self.expand_all_btn)
+            size_compact_button(self.collapse_all_btn)
         head.addWidget(self.expand_all_btn)
         head.addWidget(self.collapse_all_btn)
         left_layout.addLayout(head)

@@ -118,14 +118,16 @@ QCheckBox#flag-check::indicator {
     margin: 6px 2px 4px 2px;
 }
 #sidebar-collapse-btn {
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    color: __TEXT_MUTED__;
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 8px;
+    color: __PRIMARY_ACTIVE__;
     padding: 0px;
 }
 #sidebar-collapse-btn:hover {
     color: __PRIMARY_ACTIVE__;
+    background: __TABLE_SELECT__;
+    border-color: __PRIMARY__;
 }
 #sidebar-scroll, #sidebar-nav-host {
     background: transparent;
@@ -273,6 +275,23 @@ QPushButton[compactAction="true"] {
     max-height: 28px;
     font-size: 12px;
     border-radius: 8px;
+}
+QPushButton#fold-action-btn {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 8px;
+    font-weight: 700;
+    padding: 3px 10px;
+}
+QPushButton#fold-action-btn:hover {
+    background: __TABLE_SELECT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPushButton#fold-action-btn:pressed {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
 }
 /* 浅色导航项 */
 QPushButton#nav-btn, QPushButton#nav-btn-settings {
@@ -565,21 +584,21 @@ QTreeWidget#requirement-tree::item:has-children:hover {
     background: __PRIMARY_SOFT__;
     color: __TEXT_STRONG__;
 }
-/* 选中：主色底 + 高对比字（浅色白字 / 夜间深字），避免看不清 */
+/* 选中：主题软底 + 主色字 + 左侧强调，避免晴空/系统蓝块 */
 QTreeWidget#requirement-tree::item:selected,
 QTreeWidget#requirement-tree::item:selected:active,
 QTreeWidget#requirement-tree::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
-    border-left: 3px solid __PRIMARY_ACTIVE__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 3px solid __PRIMARY__;
     font-weight: 700;
 }
 QTreeWidget#requirement-tree::item:has-children:selected,
 QTreeWidget#requirement-tree::item:has-children:selected:active,
 QTreeWidget#requirement-tree::item:has-children:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
-    border-left: 3px solid __PRIMARY_ACTIVE__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 3px solid __PRIMARY__;
 }
 QTreeWidget#requirement-tree::branch { background: transparent; }
 QTreeWidget#requirement-tree::branch:hover { background: transparent; }
@@ -651,8 +670,9 @@ QListWidget#docx-doc-list::item {
 QListWidget#docx-doc-list::item:selected,
 QListWidget#docx-doc-list::item:selected:active,
 QListWidget#docx-doc-list::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 3px solid __PRIMARY__;
 }
 QTreeWidget#docx-output-browser {
     background: __SURFACE__;
@@ -672,6 +692,36 @@ QTreeWidget#docx-output-browser QHeaderView::section {
     border-bottom: 2px solid __BORDER_STRONG__;
     padding: 8px;
     font-weight: 800;
+}
+QTreeWidget#ops-export-tree {
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    background: __SURFACE__;
+    alternate-background-color: __TABLE_ALT__;
+    color: __TEXT_STRONG__;
+    outline: 0;
+    show-decoration-selected: 0;
+}
+QTreeWidget#ops-export-tree::item {
+    min-height: 28px;
+    padding: 4px 6px;
+    color: __TEXT_STRONG__;
+}
+QTreeWidget#ops-export-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
+QTreeWidget#ops-export-tree::item:selected,
+QTreeWidget#ops-export-tree::item:selected:active,
+QTreeWidget#ops-export-tree::item:selected:!active {
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QTreeWidget#ops-export-tree QHeaderView::section {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: none;
+    border-right: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    padding: 6px 8px;
+    font-weight: 700;
 }
 QTreeWidget#requirement-file-tree,
 QTreeWidget#ops-remote-tree {
@@ -706,9 +756,9 @@ QTreeWidget#requirement-file-tree::item:selected:!active,
 QTreeWidget#ops-remote-tree::item:selected,
 QTreeWidget#ops-remote-tree::item:selected:active,
 QTreeWidget#ops-remote-tree::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
-    border-left: 2px solid __PRIMARY_ACTIVE__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 2px solid __PRIMARY__;
 }
 QTreeWidget#requirement-file-tree::branch,
 QTreeWidget#ops-remote-tree::branch { background: transparent; }
@@ -962,8 +1012,8 @@ QTableWidget#iface-request-table {
     border: 1px solid __BORDER__;
     border-radius: 10px;
     gridline-color: __BORDER__;
-    selection-background-color: __PRIMARY__;
-    selection-color: __ON_PRIMARY__;
+    selection-background-color: __TABLE_SELECT__;
+    selection-color: __PRIMARY_ACTIVE__;
 }
 QTableWidget#iface-request-table::item {
     padding: 4px 6px;
@@ -972,8 +1022,8 @@ QTableWidget#iface-request-table::item {
 QTableWidget#iface-request-table::item:selected,
 QTableWidget#iface-request-table::item:selected:active,
 QTableWidget#iface-request-table::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
 }
 QFrame#iface-conn-zone,
 QFrame#iface-draft-zone {
@@ -1051,11 +1101,12 @@ QTableWidget#release-table::item {
 QTableWidget#release-table::item:selected,
 QTableWidget#release-table::item:selected:active,
 QTableWidget#release-table::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 2px solid __PRIMARY__;
 }
 
-/* 通用列表/树/表选中兜底：高对比 */
+/* 通用列表/树/表选中兜底：跟主题软底，不要系统蓝/实心主色块 */
 QListWidget::item:selected,
 QListWidget::item:selected:active,
 QListWidget::item:selected:!active,
@@ -1065,8 +1116,8 @@ QTreeWidget::item:selected:!active,
 QTableWidget::item:selected,
 QTableWidget::item:selected:active,
 QTableWidget::item:selected:!active {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
 }
 QTableWidget#release-table QHeaderView::section,
 QHeaderView#release-table-header::section {
@@ -1269,7 +1320,9 @@ QTreeWidget::item:hover {
     background: __PRIMARY_SOFT__;
     color: __TEXT_STRONG__;
 }
-QTreeWidget::item:selected {
+QTreeWidget::item:selected,
+QTreeWidget::item:selected:active,
+QTreeWidget::item:selected:!active {
     background: __TABLE_SELECT__;
     color: __PRIMARY_ACTIVE__;
     border-left: 2px solid __PRIMARY__;
@@ -1280,6 +1333,16 @@ QTreeWidget::branch {
 QTreeWidget::branch:hover,
 QTreeWidget::branch:selected {
     background: transparent;
+}
+QTreeWidget::branch:has-children:!has-siblings:closed,
+QTreeWidget::branch:closed:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_CLOSED__");
+}
+QTreeWidget::branch:open:has-children:!has-siblings,
+QTreeWidget::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_OPEN__");
 }
 QTabWidget::pane {
     background: __SURFACE__;
@@ -1539,15 +1602,25 @@ QLabel#dashboard-task-mark-done {
     background: transparent;
     border: none;
 }
+#dashboard-section-header[collapsible="true"] {
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    padding: 0 4px;
+}
 #dashboard-section-title {
     color: __TEXT_MUTED__;
     font-size: 12px;
     font-weight: 700;
 }
+#dashboard-section-header[collapsible="true"] #dashboard-section-title {
+    color: __PRIMARY_ACTIVE__;
+}
 #dashboard-section-chevron {
-    color: __TEXT_MUTED__;
-    font-size: 12px;
-    min-width: 12px;
+    color: __PRIMARY_ACTIVE__;
+    font-size: 14px;
+    font-weight: 800;
+    min-width: 16px;
 }
 #dashboard-task-identifier {
     color: __PRIMARY_ACTIVE__;
@@ -1724,9 +1797,11 @@ QTreeWidget#json-tree::item {
     border-bottom: 1px solid __SURFACE_SOFT__;
 }
 QTreeWidget#json-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
-QTreeWidget#json-tree::item:selected {
+QTreeWidget#json-tree::item:selected,
+QTreeWidget#json-tree::item:selected:active,
+QTreeWidget#json-tree::item:selected:!active {
     background: __TABLE_SELECT__;
-    color: __TEXT_STRONG__;
+    color: __PRIMARY_ACTIVE__;
     border-left: 2px solid __PRIMARY__;
 }
 QTreeWidget#json-tree QHeaderView::section,
@@ -1766,20 +1841,29 @@ QFrame#ops-list-card, QFrame#ops-param-card {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-QListWidget#ops-command-list {
+QListWidget#ops-command-list,
+QTreeWidget#ops-command-list {
     background: __SURFACE__;
     border: none;
     outline: 0;
+    show-decoration-selected: 0;
 }
-QListWidget#ops-command-list::item {
+QListWidget#ops-command-list::item,
+QTreeWidget#ops-command-list::item {
     color: __TEXT_STRONG__;
     border-bottom: 1px solid __SURFACE_SOFT__;
     border-radius: 8px;
     padding: 9px 10px;
 }
-QListWidget#ops-command-list::item:hover { background: __PRIMARY_SOFT__; }
-QListWidget#ops-command-list::item:selected {
-    background: __PRIMARY_SOFT__;
+QListWidget#ops-command-list::item:hover,
+QTreeWidget#ops-command-list::item:hover { background: __PRIMARY_SOFT__; }
+QListWidget#ops-command-list::item:selected,
+QListWidget#ops-command-list::item:selected:active,
+QListWidget#ops-command-list::item:selected:!active,
+QTreeWidget#ops-command-list::item:selected,
+QTreeWidget#ops-command-list::item:selected:active,
+QTreeWidget#ops-command-list::item:selected:!active {
+    background: __TABLE_SELECT__;
     color: __PRIMARY_ACTIVE__;
     border-left: 3px solid __PRIMARY__;
 }
@@ -2080,9 +2164,11 @@ QTreeWidget#ops-export-tree::item {
     min-height: 26px;
     padding: 3px 6px;
 }
-QTreeWidget#ops-export-tree::item:selected {
-    background: __PRIMARY__;
-    color: __ON_PRIMARY__;
+QTreeWidget#ops-export-tree::item:selected,
+QTreeWidget#ops-export-tree::item:selected:active,
+QTreeWidget#ops-export-tree::item:selected:!active {
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
 }
 QTreeWidget#ops-export-tree QHeaderView::section {
     background: __SURFACE_SOFT__;

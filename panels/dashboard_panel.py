@@ -43,6 +43,7 @@ class SectionHeader(QFrame):
     def __init__(self, title: str, *, collapsible: bool = False, collapsed: bool = False, parent=None):
         super().__init__(parent)
         self.setObjectName('dashboard-section-header')
+        self.setProperty('collapsible', bool(collapsible))
         self._collapsible = collapsible
         self._collapsed = collapsed
         self._title = title
@@ -60,11 +61,16 @@ class SectionHeader(QFrame):
         if collapsible:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self._sync_chevron()
+            style = self.style()
+            if style is not None:
+                style.unpolish(self)
+                style.polish(self)
 
     def _sync_chevron(self):
         if not self._collapsible:
             return
-        self.chevron.setText('▸' if self._collapsed else '▾')
+        self.chevron.setText('▶' if self._collapsed else '▼')
+        self.chevron.setToolTip('点击展开此分区' if self._collapsed else '点击收起此分区')
 
     def set_collapsed(self, collapsed: bool):
         self._collapsed = bool(collapsed)

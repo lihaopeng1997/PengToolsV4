@@ -127,6 +127,17 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertIn(THEMES['night']['SURFACE'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
 
+    def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
+        tm = ThemeManager.instance()
+        tm.load_template()
+        for theme_id in ('calm', 'clear', 'warm', 'night'):
+            qss = tm.render(theme_id)
+            pal = THEMES[theme_id]
+            self.assertIn(pal['TABLE_SELECT'], qss)
+            self.assertNotIn('__BRANCH_CLOSED__', qss)
+            self.assertNotIn('__BRANCH_OPEN__', qss)
+            self.assertIn('QTreeWidget#ops-command-list::item:selected', qss)
+
     def test_night_preview_not_blank(self):
         app = QApplication.instance() or QApplication([])
         w = ThemePreviewWidget('night')

@@ -23,16 +23,8 @@ class _ElideTextDelegate(QStyledItemDelegate):
         self._row_height = row_height
 
     def _theme_colors(self):
-        try:
-            from ui.theme_manager import ThemeManager
-            pal = ThemeManager.instance().palette()
-            return (
-                QColor(pal.get('PRIMARY', '#668C78')),
-                QColor(pal.get('ON_PRIMARY', '#FFFFFF')),
-                QColor(pal.get('TEXT_STRONG', '#272B29')),
-            )
-        except Exception:
-            return QColor('#668C78'), QColor('#FFFFFF'), QColor('#272B29')
+        from ui.selection_delegate import theme_select_colors
+        return theme_select_colors()
 
     def paint(self, painter, option, index):
         opt = QStyleOptionViewItem(option)
@@ -49,11 +41,12 @@ class _ElideTextDelegate(QStyledItemDelegate):
                     opt.palette.setColor(opt.palette.ColorRole.Text, color)
                     opt.palette.setColor(opt.palette.ColorRole.WindowText, color)
         if selected:
-            _primary, on_primary, _text = self._theme_colors()
-            opt.foregroundBrush = QBrush(on_primary)
-            opt.palette.setColor(opt.palette.ColorRole.Text, on_primary)
-            opt.palette.setColor(opt.palette.ColorRole.HighlightedText, on_primary)
-            opt.palette.setColor(opt.palette.ColorRole.WindowText, on_primary)
+            fill, accent, _text = self._theme_colors()
+            opt.backgroundBrush = fill
+            opt.foregroundBrush = QBrush(accent)
+            opt.palette.setColor(opt.palette.ColorRole.Text, accent)
+            opt.palette.setColor(opt.palette.ColorRole.HighlightedText, accent)
+            opt.palette.setColor(opt.palette.ColorRole.WindowText, accent)
         widget = option.widget
         style = widget.style() if widget else QApplication.style()
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
@@ -73,27 +66,18 @@ class _WrapTextDelegate(QStyledItemDelegate):
         self._max_lines = max_lines
 
     def _theme_colors(self):
-        try:
-            from ui.theme_manager import ThemeManager
-            pal = ThemeManager.instance().palette()
-            return (
-                QColor(pal.get('PRIMARY', '#668C78')),
-                QColor(pal.get('ON_PRIMARY', '#FFFFFF')),
-                QColor(pal.get('TEXT_STRONG', '#272B29')),
-            )
-        except Exception:
-            return QColor('#668C78'), QColor('#FFFFFF'), QColor('#272B29')
+        from ui.selection_delegate import theme_select_colors
+        return theme_select_colors()
 
     def paint(self, painter, option, index):
         self.initStyleOption(option, index)
         option.textElideMode = Qt.TextElideMode.ElideNone
         text = index.data(Qt.ItemDataRole.DisplayRole) or ''
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        primary, on_primary, text_strong = self._theme_colors()
-        # 选中：自绘主色底，忽略 setForeground 带来的低对比色
+        fill, accent, text_strong = self._theme_colors()
         if selected:
             painter.save()
-            painter.fillRect(option.rect.adjusted(1, 1, -1, -1), primary)
+            painter.fillRect(option.rect.adjusted(1, 1, -1, -1), fill)
             painter.restore()
         else:
             style = option.widget.style() if option.widget else QApplication.style()
@@ -110,7 +94,7 @@ class _WrapTextDelegate(QStyledItemDelegate):
             left = icon_rect.right() + 6
         text_rect = QRect(left, option.rect.top() + 2, option.rect.right() - left - 4, option.rect.height() - 4)
         painter.save()
-        painter.setPen(on_primary if selected else text_strong)
+        painter.setPen(accent if selected else text_strong)
         # 多行完整绘制
         fm = QFontMetrics(option.font)
         line_h = fm.lineSpacing()
@@ -1270,19 +1254,18 @@ class RequirementPanel(QWidget):
         except Exception:
             pass
         self.expand_tree_btn = QPushButton('全部展开')
-        self.expand_tree_btn.setProperty('compactAction', True)
         self.expand_tree_btn.setToolTip('全部展开目录分组')
         self.expand_tree_btn.clicked.connect(lambda: self.requirement_list.expandAll())
         self.collapse_tree_btn = QPushButton('全部折叠')
-        self.collapse_tree_btn.setProperty('compactAction', True)
         self.collapse_tree_btn.setToolTip('全部折叠目录分组')
         self.collapse_tree_btn.clicked.connect(lambda: self.requirement_list.collapseAll())
         try:
-            from ui.icons import apply_icon
-            apply_icon(self.expand_tree_btn, 'expand', 16)
-            apply_icon(self.collapse_tree_btn, 'collapse', 16)
+            from ui.design_system import apply_fold_button
+            apply_fold_button(self.expand_tree_btn, 'expand')
+            apply_fold_button(self.collapse_tree_btn, 'collapse')
         except Exception:
-            pass
+            self.expand_tree_btn.setProperty('compactAction', True)
+            self.collapse_tree_btn.setProperty('compactAction', True)
         tree_tools.addWidget(self.select_all_check)
         tree_tools.addWidget(self.batch_delete_btn)
         tree_tools.addStretch(1)
@@ -1565,11 +1548,18 @@ class RequirementPanel(QWidget):
         self.file_search_edit.textChanged.connect(lambda *_: self._file_search_timer.start())
         file_tools.addWidget(self.file_search_edit, 1)
         self.file_expand_btn = QPushButton('全部展开')
-        self.file_expand_btn.setProperty('compactAction', True)
+        self.file_expand_btn.setToolTip('展开文件库全部文件夹')
         self.file_expand_btn.clicked.connect(lambda: self.file_tree.expandAll())
         self.file_collapse_btn = QPushButton('全部折叠')
-        self.file_collapse_btn.setProperty('compactAction', True)
+        self.file_collapse_btn.setToolTip('折叠文件库全部文件夹')
         self.file_collapse_btn.clicked.connect(lambda: self.file_tree.collapseAll())
+        try:
+            from ui.design_system import apply_fold_button
+            apply_fold_button(self.file_expand_btn, 'expand')
+            apply_fold_button(self.file_collapse_btn, 'collapse')
+        except Exception:
+            self.file_expand_btn.setProperty('compactAction', True)
+            self.file_collapse_btn.setProperty('compactAction', True)
         self.file_count_label = QLabel('')
         self.file_count_label.setObjectName('small-label')
         file_tools.addWidget(self.file_count_label)

@@ -564,8 +564,8 @@ class MainWindow(QMainWindow):
         self._collapse_btn = QPushButton()
         self._collapse_btn.setObjectName('sidebar-collapse-btn')
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setFixedSize(22, 22)
-        apply_icon(self._collapse_btn, 'collapse', size=12)
+        self._collapse_btn.setFixedSize(26, 26)
+        apply_icon(self._collapse_btn, 'collapse', size=14)
         self._collapse_btn.setToolTip('收起导航栏' if self.language == 'zh' else 'Collapse sidebar')
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
         collapse_row.addWidget(self._collapse_btn)
@@ -744,10 +744,10 @@ class MainWindow(QMainWindow):
         zh = self.language == 'zh'
         self._nav_collapsed = bool(collapsed)
         if self._nav_collapsed:
-            apply_icon(self._collapse_btn, 'expand', size=12)
+            apply_icon(self._collapse_btn, 'expand', size=14)
             self._collapse_btn.setToolTip('展开导航栏' if zh else 'Expand sidebar')
         else:
-            apply_icon(self._collapse_btn, 'collapse', size=12)
+            apply_icon(self._collapse_btn, 'collapse', size=14)
             self._collapse_btn.setToolTip('收起导航栏' if zh else 'Collapse sidebar')
         self._sidebar.setProperty('collapsed', self._nav_collapsed)
         self._on_layout_mode(self._layout_mode, False)

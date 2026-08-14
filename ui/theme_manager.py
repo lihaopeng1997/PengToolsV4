@@ -432,6 +432,13 @@ class ThemeManager:
             arrow = os.path.join(resource_dir, 'chevron_down.svg').replace('\\', '/')
             check = os.path.join(resource_dir, 'check_white.svg').replace('\\', '/')
         qss = qss.replace('__DROPDOWN_ARROW__', arrow).replace('__CHECKMARK__', check)
+        try:
+            from ui.icons import tinted_icon_url
+            tint = palette.get('PRIMARY_ACTIVE') or palette.get('TEXT_STRONG') or '#3D594A'
+            qss = qss.replace('__BRANCH_CLOSED__', tinted_icon_url('chevron-right', tint) or arrow)
+            qss = qss.replace('__BRANCH_OPEN__', tinted_icon_url('chevron-down-tree', tint) or arrow)
+        except Exception:
+            qss = qss.replace('__BRANCH_CLOSED__', arrow).replace('__BRANCH_OPEN__', arrow)
         unresolved = unresolved_qss_tokens(qss)
         if unresolved:
             raise RuntimeError(f'unresolved QSS tokens: {", ".join(unresolved)}')
@@ -459,6 +466,7 @@ class ThemeManager:
             if app is not None:
                 app.setProperty('base_stylesheet', qss)
                 app.setProperty('ui_theme', theme_id)
+                self._apply_selection_palette(app, THEMES[theme_id])
                 app.setStyleSheet(qss)
             for callback in list(self._listeners):
                 try:
@@ -479,6 +487,19 @@ class ThemeManager:
                 except Exception:
                     pass
             raise
+
+    @staticmethod
+    def _apply_selection_palette(app: QApplication, tokens: dict[str, str]) -> None:
+        """系统高亮跟主题走，避免树/列表漏出 Windows 默认蓝。"""
+        from PyQt6.QtGui import QColor, QPalette
+
+        highlight = QColor(tokens.get('TABLE_SELECT') or '#E9F1EB')
+        text = QColor(tokens.get('PRIMARY_ACTIVE') or tokens.get('TEXT_STRONG') or '#272B29')
+        pal = app.palette()
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
+            pal.setColor(group, QPalette.ColorRole.Highlight, highlight)
+            pal.setColor(group, QPalette.ColorRole.HighlightedText, text)
+        app.setPalette(pal)
 
     def listener_failures(self) -> tuple[dict[str, str], ...]:
         """返回主题监听失败快照；失败监听不会阻断其余界面刷新。"""

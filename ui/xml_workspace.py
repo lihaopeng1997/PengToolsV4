@@ -227,6 +227,12 @@ class XmlWorkspace(QWidget):
             '展开输出区折叠块' if zh else 'Expand all folds in output'
         )
         self.collapse_btn.setText('全部折叠' if zh else 'Collapse all')
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.expand_btn, 'expand', 14)
+            apply_icon(self.collapse_btn, 'collapse', 14)
+        except Exception:
+            pass
         self.collapse_btn.setToolTip(
             '折叠输出区（参考 HiJson 格式化文本折叠）' if zh else
             'Collapse output folds (HiJson-style)'

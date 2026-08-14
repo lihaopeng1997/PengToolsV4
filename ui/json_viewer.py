@@ -186,6 +186,12 @@ class JsonViewer(QWidget):
         self.copy_path_btn.setText('复制路径' if zh else 'Copy path')
         self.expand_btn.setText('全部展开' if zh else 'Expand all')
         self.collapse_btn.setText('全部折叠' if zh else 'Collapse all')
+        try:
+            from ui.icons import apply_icon
+            apply_icon(self.expand_btn, 'expand', 14)
+            apply_icon(self.collapse_btn, 'collapse', 14)
+        except Exception:
+            pass
         self.expand_btn.setToolTip(
             '展开格式化文本的折叠块，并展开树形节点' if zh else
             'Expand folded text blocks and tree nodes'
