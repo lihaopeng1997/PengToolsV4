@@ -216,6 +216,56 @@ class RequirementFlagTests(unittest.TestCase):
         self.assertEqual(flag_chip_text('has_sql', False), '○ SQL · 待完成')
         self.assertEqual(flag_chip_text('has_sql', True), '✓ SQL · 已完成')
 
+    def test_dialog_can_delete_uploaded_documents_and_sql(self):
+        dialog = RequirementDialog({
+            'title': '传错附件',
+            'code': 'REQ-DEL',
+            'source_files': [
+                {'name': '错的需求.docx', 'content': 'doc-a', 'file_type': 'Word'},
+                {'name': '对的需求.docx', 'content': 'doc-b', 'file_type': 'Word'},
+            ],
+            'sql_parts': [
+                {'name': 'wrong.sql', 'content': 'select 1'},
+                {'name': 'right.sql', 'content': 'select 2'},
+            ],
+        })
+        self.assertEqual(dialog.source_list.count(), 2)
+        self.assertEqual(dialog.sql_list.count(), 2)
+        dialog.source_list.item(0).setSelected(True)
+        dialog.source_list.setCurrentRow(0)
+        dialog.sql_list.item(0).setSelected(True)
+        dialog.sql_list.setCurrentRow(0)
+        with patch('panels.requirement_panel.confirm_action', return_value=True), \
+             patch('panels.requirement_panel.show_info'):
+            dialog._delete_source_parts()
+            dialog._delete_sql_parts()
+        self.assertEqual([part['name'] for part in dialog._source_files], ['对的需求.docx'])
+        self.assertEqual([part['name'] for part in dialog._sql_parts], ['right.sql'])
+        self.assertEqual(dialog.source_list.count(), 1)
+        self.assertEqual(dialog.sql_list.count(), 1)
+        values = dialog.values()
+        self.assertEqual([part['name'] for part in values['source_files']], ['对的需求.docx'])
+        self.assertEqual([part['name'] for part in values['sql_parts']], ['right.sql'])
+        dialog.close()
+
+    def test_dialog_delete_attachment_cancel_keeps_items(self):
+        dialog = RequirementDialog({
+            'title': '取消删除',
+            'source_files': [{'name': 'keep.docx', 'content': 'x', 'file_type': 'Word'}],
+            'sql_parts': [{'name': 'keep.sql', 'content': 'select 1'}],
+        })
+        dialog.source_list.item(0).setSelected(True)
+        dialog.source_list.setCurrentRow(0)
+        dialog.sql_list.item(0).setSelected(True)
+        dialog.sql_list.setCurrentRow(0)
+        with patch('panels.requirement_panel.confirm_action', return_value=False), \
+             patch('panels.requirement_panel.show_info'):
+            dialog._delete_source_parts()
+            dialog._delete_sql_parts()
+        self.assertEqual(len(dialog._source_files), 1)
+        self.assertEqual(len(dialog._sql_parts), 1)
+        dialog.close()
+
 
 if __name__ == '__main__':
     unittest.main()

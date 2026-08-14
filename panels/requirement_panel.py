@@ -816,9 +816,18 @@ class RequirementDialog(QDialog):
         source_top.addWidget(source_btn)
         source_edit_btn = QPushButton('编辑选中附件'); source_edit_btn.clicked.connect(self._edit_source_part)
         source_top.addWidget(source_edit_btn)
+        source_del_btn = QPushButton('删除选中文档')
+        source_del_btn.setObjectName('btn-danger')
+        source_del_btn.setToolTip('从本条需求中移除选中文档，不删除电脑上的原文件。可用 Delete 键。')
+        source_del_btn.clicked.connect(self._delete_source_parts)
+        source_top.addWidget(source_del_btn)
         layout.addLayout(source_top)
         self.source_list = QListWidget(); self.source_list.setMaximumHeight(95)
+        self.source_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.source_list.itemDoubleClicked.connect(lambda _item: self._edit_source_part())
+        self.source_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.source_list.customContextMenuRequested.connect(self._show_source_menu)
+        self.source_list.installEventFilter(self)
         layout.addWidget(self.source_list)
 
         sql_top = QHBoxLayout()
@@ -827,8 +836,17 @@ class RequirementDialog(QDialog):
         load_btn = QPushButton('上传多个 SQL')
         load_btn.clicked.connect(self._load_sql)
         sql_top.addWidget(load_btn)
+        sql_del_btn = QPushButton('删除选中 SQL')
+        sql_del_btn.setObjectName('btn-danger')
+        sql_del_btn.setToolTip('从本条需求中移除选中 SQL，不删除电脑上的原文件。可用 Delete 键。')
+        sql_del_btn.clicked.connect(self._delete_sql_parts)
+        sql_top.addWidget(sql_del_btn)
         layout.addLayout(sql_top)
         self.sql_list = QListWidget(); self.sql_list.setMaximumHeight(105)
+        self.sql_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.sql_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sql_list.customContextMenuRequested.connect(self._show_sql_menu)
+        self.sql_list.installEventFilter(self)
         layout.addWidget(self.sql_list)
         self.sql_paste = QPlainTextEdit()
         self.sql_paste.setPlaceholderText('也可以直接粘贴需求 SQL；保存后可一键发送到发版联动和接口 DOCX。')
@@ -896,17 +914,97 @@ class RequirementDialog(QDialog):
             self.has_sql.setChecked(True)
         self._refresh_lists()
 
-    def _refresh_lists(self):
-        self.source_list.clear()
-        for part in self._source_files:
-            file_type = part.get('file_type') or '文本'
-            size = f"{part.get('row_count', 0)} 行 × {part.get('column_count', 0)} 列" if part.get('content_type') == 'workbook_sheet' else f"{len(part.get('content', ''))} 字符"
-            self.source_list.addItem(f"[{file_type}] {part.get('name')} · {size}")
-        self.sql_list.clear()
-        for part in self._sql_parts:
-            item = QListWidgetItem(f"{part.get('name')} · {len(part.get('content', ''))} 字符")
-            item.setToolTip(part.get('content', '')[:1000])
-            self.sql_list.addItem(item)
+    def _refresh_lists(self, which=None):
+        if which in (None, 'source'):
+            self.source_list.clear()
+            for part in self._source_files:
+                file_type = part.get('file_type') or '文本'
+                size = f"{part.get('row_count', 0)} 行 × {part.get('column_count', 0)} 列" if part.get('content_type') == 'workbook_sheet' else f"{len(part.get('content', ''))} 字符"
+                self.source_list.addItem(f"[{file_type}] {part.get('name')} · {size}")
+        if which in (None, 'sql'):
+            self.sql_list.clear()
+            for part in self._sql_parts:
+                item = QListWidgetItem(f"{part.get('name')} · {len(part.get('content', ''))} 字符")
+                item.setToolTip(part.get('content', '')[:1000])
+                self.sql_list.addItem(item)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if obj is self.source_list:
+                self._delete_source_parts()
+                return True
+            if obj is self.sql_list:
+                self._delete_sql_parts()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _selected_list_rows(self, list_widget):
+        rows = sorted({index.row() for index in list_widget.selectedIndexes()})
+        if rows:
+            return rows
+        current = list_widget.currentRow()
+        return [current] if current >= 0 else []
+
+    def _show_source_menu(self, point):
+        item = self.source_list.itemAt(point)
+        if item and not item.isSelected():
+            self.source_list.clearSelection()
+            item.setSelected(True)
+            self.source_list.setCurrentItem(item)
+        menu = QMenu(self)
+        menu.addAction('编辑选中附件', self._edit_source_part)
+        menu.addAction('删除选中文档', self._delete_source_parts)
+        menu.exec(self.source_list.mapToGlobal(point))
+
+    def _show_sql_menu(self, point):
+        item = self.sql_list.itemAt(point)
+        if item and not item.isSelected():
+            self.sql_list.clearSelection()
+            item.setSelected(True)
+            self.sql_list.setCurrentItem(item)
+        menu = QMenu(self)
+        menu.addAction('删除选中 SQL', self._delete_sql_parts)
+        menu.exec(self.sql_list.mapToGlobal(point))
+
+    def _delete_source_parts(self):
+        rows = self._selected_list_rows(self.source_list)
+        if not rows:
+            show_info(self, '删除文档', '请先选择要删除的文档。')
+            return
+        names = '\n'.join(f"• {self._source_files[row].get('name') or '未命名'}" for row in rows[:8])
+        if len(rows) > 8:
+            names += f'\n• 另外 {len(rows) - 8} 项……'
+        if not confirm_action(
+            self,
+            f'删除选中的 {len(rows)} 个文档',
+            f'即将从本条需求中移除：\n\n{names}\n\n只移除需求里的附件记录，不会删除电脑上的原文件。\n保存需求后生效。',
+            confirm_text=f'删除 {len(rows)} 个文档',
+            danger=True,
+        ):
+            return
+        for row in reversed(rows):
+            del self._source_files[row]
+        self._refresh_lists('source')
+
+    def _delete_sql_parts(self):
+        rows = self._selected_list_rows(self.sql_list)
+        if not rows:
+            show_info(self, '删除 SQL', '请先选择要删除的 SQL。')
+            return
+        names = '\n'.join(f"• {self._sql_parts[row].get('name') or '未命名'}" for row in rows[:8])
+        if len(rows) > 8:
+            names += f'\n• 另外 {len(rows) - 8} 项……'
+        if not confirm_action(
+            self,
+            f'删除选中的 {len(rows)} 条 SQL',
+            f'即将从本条需求中移除：\n\n{names}\n\n只移除需求里的 SQL 记录，不会删除电脑上的原文件。\n保存需求后生效。',
+            confirm_text=f'删除 {len(rows)} 条 SQL',
+            danger=True,
+        ):
+            return
+        for row in reversed(rows):
+            del self._sql_parts[row]
+        self._refresh_lists('sql')
 
     def _edit_source_part(self):
         row = self.source_list.currentRow()
@@ -914,7 +1012,7 @@ class RequirementDialog(QDialog):
             show_info(self, '附件编辑器', '请先选择一个附件。'); return
         dialog = RequirementAttachmentDialog(self._source_files[row], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._source_files[row] = dialog.entry(); self._refresh_lists()
+            self._source_files[row] = dialog.entry(); self._refresh_lists('source')
 
     def _classify(self):
         content = self.description_edit.toPlainText()
