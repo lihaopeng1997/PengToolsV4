@@ -36,12 +36,23 @@ class CreditCodePanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
-        self.title = QLabel()
-        self.title.setObjectName('page-title')
-        root.addWidget(self.title)
-        self.subtitle = QLabel()
-        self.subtitle.setObjectName('page-subtitle')
-        root.addWidget(self.subtitle)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.title, self.subtitle = make_page_header(
+                '证件类型',
+                '离线测试数据，不落盘',
+                'document-id',
+            )
+            root.addWidget(header)
+        except Exception:
+            self.title = QLabel()
+            self.title.setObjectName('page-title')
+            root.addWidget(self.title)
+            self.subtitle = QLabel()
+            self.subtitle.setObjectName('page-subtitle')
+            root.addWidget(self.subtitle)
+        self.page_title = self.title
+        self.page_subtitle = self.subtitle
 
         self.category_tabs = QTabWidget()
         self.category_tabs.setObjectName('module-tabs')
@@ -107,6 +118,7 @@ class CreditCodePanel(QWidget):
         layout = QVBoxLayout(tab)
         first = QHBoxLayout()
         self.personal_type_label = QLabel()
+        self.personal_type_label.setObjectName('field-caption')
         first.addWidget(self.personal_type_label)
         self.personal_type = QComboBox()
         size_combo(self.personal_type, 'md')
@@ -385,8 +397,8 @@ class CreditCodePanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.title.setText('证件类型模拟生成' if zh else 'Document Test Data Generator')
-        self.subtitle.setText('个人与单位证件分区生成 · 数据仅用于离线开发测试' if zh else 'Personal and unit documents · offline test data only')
+        self.title.setText('证件类型' if zh else 'Documents')
+        self.subtitle.setText('离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.')
         self.category_tabs.setTabText(0, '个人证件' if zh else 'Personal Documents')
         self.category_tabs.setTabText(1, '单位证件' if zh else 'Unit Documents')
         self.personal_type_label.setText('证件类型：' if zh else 'Document type:')

@@ -448,7 +448,23 @@ QFrame#gateway-work-zone {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
-    border-top: 2px solid __TEXT_MUTED__;
+}
+QGroupBox#vin-settings,
+QGroupBox#docx-file-group {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    margin-top: 4px;
+    padding-top: 8px;
+    font-weight: 650;
+    color: __TEXT_MUTED__;
+}
+QGroupBox#vin-settings::title,
+QGroupBox#docx-file-group::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 4px;
+    color: __TEXT_MUTED__;
 }
 QFrame#gateway-action-zone {
     background: __SURFACE__;
@@ -485,8 +501,7 @@ QPlainTextEdit#gateway-cipher-edit:focus {
 /* xml-splitter 已由全局 QSplitter::handle 统一管理 */
 /* XML 工具工作区 */
 QFrame#xml-workspace-header {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __PRIMARY_SOFT__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
@@ -495,10 +510,8 @@ QFrame#xml-workspace-header QLabel#zone-title {
     border-left-color: __PRIMARY__;
 }
 QFrame#xml-toolbar {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 __SURFACE__, stop:1 __SURFACE_SOFT__);
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
 }
 QFrame#xml-work-zone {

@@ -28,8 +28,20 @@ class VinPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.page_title, self.page_subtitle = make_page_header(
+                '车辆 VIN',
+                '离线测试数据，不落盘',
+                'vin',
+            )
+            layout.addWidget(header)
+        except Exception:
+            self.page_title = None
+            self.page_subtitle = None
 
         self.settings = QGroupBox()
+        self.settings.setObjectName('vin-settings')
         self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         row = QHBoxLayout(self.settings)
         self.year_label = QLabel()
@@ -100,7 +112,13 @@ class VinPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.settings.setTitle('中国车辆 VIN 测试数据' if zh else 'China Vehicle VIN Test Data')
+        self.settings.setTitle('')
+        if getattr(self, 'page_title', None) is not None:
+            self.page_title.setText('车辆 VIN' if zh else 'Vehicle VIN')
+        if getattr(self, 'page_subtitle', None) is not None:
+            self.page_subtitle.setText(
+                '离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.'
+            )
         self.year_label.setText('车型年份' if zh else 'Model year')
         self.wmi_label.setText('制造商 WMI' if zh else 'Manufacturer WMI')
         self.generate_btn.setText('生成并填满列表' if zh else 'Fill visible rows')

@@ -54,14 +54,14 @@ class GatewayDecodePanel(QWidget):
         layout.setSpacing(12)
 
         self.offline_pill = QLabel()
-        self.offline_pill.setObjectName('offline-pill')
+        self.offline_pill.setObjectName('dashboard-local-status')
+        self.offline_pill.hide()
         try:
             from ui.page_chrome import make_page_header
             header, self.page_title, self.page_subtitle = make_page_header(
                 '加解密',
                 '本地处理，内容不保存',
                 'shield-key',
-                trailing=self.offline_pill,
             )
             layout.addWidget(header)
         except Exception:
@@ -100,6 +100,12 @@ class GatewayDecodePanel(QWidget):
         self.encoding_label = QLabel()
         self.encoding_value = QLabel('Key=Hex · 正文=Base64 · 明文=UTF-8')
         config.addRow(self.encoding_label, self.encoding_value)
+        for _fixed in (
+            self.system_label, self.system_value, self.algo_label, self.algo_value,
+            self.mode_label, self.mode_value, self.padding_label, self.padding_value,
+            self.encoding_label, self.encoding_value,
+        ):
+            _fixed.hide()
 
         self.environment = QComboBox()
         size_combo(self.environment, 'sm')
@@ -131,6 +137,7 @@ class GatewayDecodePanel(QWidget):
         self.key_hint = QLabel()
         self.key_hint.setObjectName('field-hint')
         self.key_hint.setWordWrap(True)
+        self.key_hint.hide()
         key_layout.addWidget(self.key_hint)
         config.addRow(key_wrap)
 
@@ -140,11 +147,14 @@ class GatewayDecodePanel(QWidget):
         self.iv_value.setObjectName('field-hint')
         self.iv_value.setWordWrap(True)
         config.addRow(self.iv_label, self.iv_value)
+        self.iv_label.hide()
+        self.iv_value.hide()
 
         self.param_note = QLabel()
         self.param_note.setObjectName('field-hint')
         self.param_note.setWordWrap(True)
         config.addRow(self.param_note)
+        self.param_note.hide()
 
         # 兼容旧代码：config_toggle 仍存在但不隐藏参数区
         self.config_toggle = QPushButton('解密参数（始终显示）')
@@ -276,11 +286,14 @@ class GatewayDecodePanel(QWidget):
             if zh else
             'No separate IV field: SM4-CBC uses the decrypted SM4 key as both key and IV.'
         )
+        self.iv_value.hide()
+        self.iv_label.hide()
         self.param_note.setText(
             '算法固定为国密 SM2 解 Key + SM4-CBC 解正文；Padding 与 Mode 由协议固定，无需手工切换。密钥仅本机内存使用，不落盘。'
             if zh else
             'Fixed SM2+SM4-CBC protocol. Keys stay in memory only.'
         )
+        self.param_note.hide()
         # 始终显示参数组
         self.config_group.show()
 
@@ -328,8 +341,13 @@ class GatewayDecodePanel(QWidget):
             '本地处理，内容不保存' if zh else 'Processed locally · nothing is saved'
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
-        self.offline_pill.setObjectName('dashboard-local-status')
+        self.offline_pill.hide()
         self.config_group.setTitle('解密参数' if zh else 'Decrypt parameters')
+        self.config_group.setToolTip(
+            '新车险固定兼容：SM2 解 Key + SM4-CBC 解正文；Key=Hex，正文=Base64。密钥只留内存。'
+            if zh else
+            'Fixed SM2+SM4-CBC. Key=Hex, payload=Base64. Keys stay in memory.'
+        )
         self.system_label.setText('系统' if zh else 'System')
         self.system_value.setText(
             '新车险系统（固定兼容模式）' if zh else 'New Auto Insurance (fixed compatibility mode)'
@@ -350,11 +368,14 @@ class GatewayDecodePanel(QWidget):
         for index, name in enumerate(env_names):
             self.environment.setItemText(index, name)
         self.key_label.setText('Key（密钥）' if zh else 'Key')
-        self.key_hint.setText(
-            '请在此录入 SM2 加密后的 SM4 Key 密文（十六进制）。示例格式：a1b2c3…（请勿把真实密钥写入示例或日志）'
+        key_tip = (
+            '请在此录入 SM2 加密后的 SM4 Key 密文（十六进制）。请勿把真实密钥写入示例或日志。'
             if zh else
             'Paste SM2-encrypted SM4 key ciphertext (hex). Do not log real keys.'
         )
+        self.key_hint.setText(key_tip)
+        self.key_hint.hide()
+        self.key_label.setToolTip(key_tip)
         self.key_reveal_cb.setText('显示 Key' if zh else 'Show Key')
         self.cipher_label.setText('输入报文' if zh else 'Ciphertext')
         self.cipher_label.setToolTip(

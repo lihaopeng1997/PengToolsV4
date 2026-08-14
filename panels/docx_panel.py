@@ -74,8 +74,20 @@ class DocxUpdatePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.page_title, self.page_subtitle = make_page_header(
+                '接口文档更新',
+                '选文档，填 SQL，生成本地稿',
+                'doc-update',
+            )
+            layout.addWidget(header)
+        except Exception:
+            self.page_title = None
+            self.page_subtitle = None
 
         self.file_group = QGroupBox()
+        self.file_group.setObjectName('docx-file-group')
         form = QFormLayout(self.file_group)
         apply_form(form)
 
@@ -205,6 +217,7 @@ class DocxUpdatePanel(QWidget):
         browser_layout.setContentsMargins(0, 0, 0, 0)
         browser_top = QHBoxLayout()
         self.browser_label = QLabel()
+        self.browser_label.setObjectName('zone-title')
         browser_top.addWidget(self.browser_label)
         browser_top.addStretch()
         self.browser_refresh = QPushButton()
@@ -355,7 +368,13 @@ class DocxUpdatePanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.file_group.setTitle('① 选文档  ·  ② 拉 SVN（可选）  ·  ③ 填 SQL 更新' if zh else '1 Pick doc · 2 Optional SVN · 3 Update with SQL')
+        if getattr(self, 'page_title', None) is not None:
+            self.page_title.setText('接口文档更新' if zh else 'Interface Docs')
+        if getattr(self, 'page_subtitle', None) is not None:
+            self.page_subtitle.setText(
+                '选文档，填 SQL，生成本地稿' if zh else 'Pick a document, paste SQL, write locally'
+            )
+        self.file_group.setTitle('' if zh else '')
         self.folder_row_label.setText('文档目录' if zh else 'Folder')
         self.doc_list_label.setText('点选文档' if zh else 'Pick document')
         self.docx_row_label.setText('当前文档' if zh else 'Current doc')
