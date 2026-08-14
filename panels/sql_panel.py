@@ -8,7 +8,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDateEdit, QFileDialog, QFormLayout,
     QFrame, QGroupBox, QHeaderView, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -732,6 +732,8 @@ class SqlToolPanel(QWidget):
         self.delete_sys_btn = QPushButton()
         self.delete_sys_btn.clicked.connect(self._delete_system)
         buttons.addWidget(self.delete_sys_btn)
+        for _btn in (self.add_sys_btn, self.save_sys_btn, self.delete_sys_btn):
+            _btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         buttons.addStretch()
         layout.addLayout(buttons)
         layout.addStretch()

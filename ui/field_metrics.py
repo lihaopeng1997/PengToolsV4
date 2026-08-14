@@ -118,6 +118,7 @@ def size_compact_button(button) -> None:
     button.setProperty('compactAction', True)
     button.setMinimumWidth(BTN_COMPACT_MIN_W)
     size_field_height(button, BTN_COMPACT_H)
+    button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
 
 def apply_button_role(button, role: str = 'secondary', *, compact: bool = False) -> None:

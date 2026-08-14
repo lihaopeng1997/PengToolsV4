@@ -13,7 +13,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
-from PyQt6.QtWidgets import QApplication, QHeaderView
+from PyQt6.QtWidgets import QApplication, QHeaderView, QSizePolicy
 
 from panels.ops_log_panel import OpsLogPanel
 
@@ -37,6 +37,11 @@ class CompactListLayoutTests(unittest.TestCase):
             self.assertEqual(export_header.sectionResizeMode(2), QHeaderView.ResizeMode.Interactive)
             self.assertGreaterEqual(panel.export_server_list.columnCount(), 3)
             self.assertIn('日志路径', panel.export_server_list.headerItem().text(1))
+            self.assertIs(panel.export_btn.parentWidget(), panel.select_all_btn.parentWidget())
+            self.assertEqual(
+                panel.export_btn.sizePolicy().horizontalPolicy(),
+                QSizePolicy.Policy.Maximum,
+            )
         finally:
             panel._executor.shutdown(wait=False, cancel_futures=True)
             panel.close()

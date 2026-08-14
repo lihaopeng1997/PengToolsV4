@@ -1424,13 +1424,14 @@ class RequirementPanel(QWidget):
             btn.setMinimumHeight(30)
             btn.setMaximumHeight(34)
             btn.setMinimumWidth(72)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
             self._flag_buttons[key] = btn
-            # 常驻布局，只 show/hide，避免点击时反复 takeAt/addWidget 触发 Qt 布局重入闪退
-            self.flag_chips_layout.addWidget(btn, 1)
+            # 常驻布局，只 show/hide；宽度按文案，不拉满整行
+            self.flag_chips_layout.addWidget(btn, 0)
             btn.hide()
+        self.flag_chips_layout.addStretch(1)
         flag_section_layout.addWidget(self.flag_chips)
         self.flag_section.hide()
         card.addWidget(self.flag_section, 0)

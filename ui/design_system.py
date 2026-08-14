@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QTreeWidget, QWidget
+from PyQt6.QtWidgets import QAbstractItemView, QSizePolicy, QTableWidget, QTreeWidget, QWidget
 
 from ui.field_metrics import size_compact_button, size_field_height
 from ui.icons import apply_icon
@@ -78,6 +78,7 @@ def apply_button(
         button.setProperty('compactAction', True)
     else:
         size_field_height(button, CONTROL_HEIGHT)
+        button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon:
         icon_kwargs = {}
