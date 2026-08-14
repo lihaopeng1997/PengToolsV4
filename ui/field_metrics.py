@@ -2,7 +2,7 @@
 """全应用统一的表单字段尺寸，保证下拉/录入/日期视觉整齐舒适。"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QWidget
 
 # 统一控件高度：与「检出代码」等紧凑按钮对齐
 FIELD_H = 28
@@ -22,8 +22,8 @@ LINE_PATH_MIN = 200        # 路径 / URL（布局里通常 stretch）
 LINE_NUM_W = 56            # 数量等短数字（不含步进按钮）
 LINE_SEARCH_MIN = 180      # 搜索框下限
 
-# 标签与胶囊
-CAPTION_W = (72, 92)
+# 标签与胶囊：固定列宽，保证表单字段左缘对齐
+CAPTION_W = 80
 STATUS_PILL_MAX = 200
 SYSTEM_CHIP_MAX = 220
 BTN_COMPACT_MIN_W = 72
@@ -93,11 +93,30 @@ def size_line(widget, role: str = 'std') -> None:
     widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
 
+def apply_caption(label, width: int = CAPTION_W) -> None:
+    """表单/行内短标题：固定宽、与 28px 控件垂直居中。"""
+    label.setObjectName('field-caption')
+    label.setFixedWidth(int(width))
+    label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+
 def size_caption(label) -> None:
-    """表单左侧短标题宽度统一。"""
-    lo, hi = CAPTION_W
-    _apply_width(label, lo, hi)
-    label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+    """兼容旧名，转发 apply_caption。"""
+    apply_caption(label)
+
+
+def apply_form(form) -> None:
+    """统一表单：标签左齐垂直居中，行距 8，字段可伸展。"""
+    from PyQt6.QtWidgets import QFormLayout
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    form.setHorizontalSpacing(8)
+    form.setVerticalSpacing(8)
+    try:
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    except Exception:
+        pass
 
 
 def size_status_pill(label, max_width: int = STATUS_PILL_MAX) -> None:
@@ -129,7 +148,7 @@ class CompactStepper(QWidget):
 
     valueChanged = pyqtSignal(int)
 
-    def __init__(self, minimum=0, maximum=200, value=0, parent=None):
+    def __init__(self, minimum=0, maximum=200, value=0, parent=None, *, edit_width=None, suffix=''):
         super().__init__(parent)
         self._min = int(minimum)
         self._max = int(maximum)
@@ -146,10 +165,14 @@ class CompactStepper(QWidget):
         self.edit = QLineEdit()
         self.edit.setObjectName('compact-step-value')
         self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.edit.setFixedSize(LINE_NUM_W, FIELD_H)
+        self.edit.setFixedSize(int(edit_width or LINE_NUM_W), FIELD_H)
+        self.suffix_label = QLabel(suffix or '')
+        self.suffix_label.setObjectName('field-hint')
+        self.suffix_label.setVisible(bool(suffix))
         layout.addWidget(self.minus_btn)
         layout.addWidget(self.edit)
         layout.addWidget(self.plus_btn)
+        layout.addWidget(self.suffix_label)
         self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.minus_btn.clicked.connect(lambda: self.setValue(self.value() - 1))
         self.plus_btn.clicked.connect(lambda: self.setValue(self.value() + 1))
@@ -188,6 +211,10 @@ class CompactStepper(QWidget):
         self._min = int(minimum)
         self._max = int(maximum)
         self.setValue(self.value())
+
+    def setSuffix(self, text: str):
+        self.suffix_label.setText(text or '')
+        self.suffix_label.setVisible(bool(text))
 
     def _commit_edit(self):
         try:

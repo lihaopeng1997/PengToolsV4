@@ -24,7 +24,7 @@ from tools.svn_workspace import (
 )
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
-from ui.field_metrics import size_compact_button, size_date, size_line
+from ui.field_metrics import apply_caption, apply_form, size_compact_button, size_date, size_field_height, size_line
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
@@ -77,7 +77,7 @@ class DocxUpdatePanel(QWidget):
 
         self.file_group = QGroupBox()
         form = QFormLayout(self.file_group)
-        form.setSpacing(8)
+        apply_form(form)
 
         self.folder_path = QLineEdit()
         size_line(self.folder_path, 'path')
@@ -91,6 +91,7 @@ class DocxUpdatePanel(QWidget):
         size_compact_button(self.folder_open)
         self.folder_open.clicked.connect(lambda: self._open_path(self.folder_path.text().strip()))
         self.folder_row_label = QLabel()
+        apply_caption(self.folder_row_label)
         form.addRow(self.folder_row_label, self._multi_button_row(
             self.folder_path, self.folder_browse, self.folder_refresh, self.folder_open
         ))
@@ -105,6 +106,7 @@ class DocxUpdatePanel(QWidget):
         self.doc_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.doc_list.customContextMenuRequested.connect(self._show_doc_list_menu)
         self.doc_list_label = QLabel()
+        apply_caption(self.doc_list_label)
         form.addRow(self.doc_list_label, self.doc_list)
 
         self.docx_path = QLineEdit()
@@ -114,12 +116,14 @@ class DocxUpdatePanel(QWidget):
         self.docx_browse.clicked.connect(self._choose_docx)
         self.docx_path.textChanged.connect(self._on_docx_path_changed)
         self.docx_row_label = QLabel()
+        apply_caption(self.docx_row_label)
         form.addRow(self.docx_row_label, self._path_row(self.docx_path, self.docx_browse))
 
         self.template_status = QLabel()
         self.template_status.setWordWrap(True)
         self.template_status.setObjectName('docx-template-status')
         self.template_row_label = QLabel()
+        apply_caption(self.template_row_label)
         form.addRow(self.template_row_label, self.template_status)
 
         self.svn_url = QLineEdit()
@@ -128,6 +132,7 @@ class DocxUpdatePanel(QWidget):
         size_compact_button(self.svn_pull_btn)
         self.svn_pull_btn.clicked.connect(self._pull_svn_docs)
         self.svn_row_label = QLabel()
+        apply_caption(self.svn_row_label)
         form.addRow(self.svn_row_label, self._path_row(self.svn_url, self.svn_pull_btn))
 
         self.output_dir = QLineEdit()
@@ -140,6 +145,7 @@ class DocxUpdatePanel(QWidget):
         self.output_dir_open.clicked.connect(lambda: self._open_path(self.output_dir.text().strip()))
         self.output_dir.textChanged.connect(self._sync_output_path)
         self.output_dir_label = QLabel()
+        apply_caption(self.output_dir_label)
         form.addRow(self.output_dir_label, self._multi_button_row(
             self.output_dir, self.output_dir_browse, self.output_dir_open
         ))
@@ -148,12 +154,9 @@ class DocxUpdatePanel(QWidget):
         size_line(self.output_path, 'path')
         self.output_path.setReadOnly(True)
         self.output_row_label = QLabel()
+        apply_caption(self.output_row_label)
         form.addRow(self.output_row_label, self.output_path)
 
-        self.author = QLineEdit('System')
-        size_line(self.author, 'std')
-        self.author.setMaximumWidth(180)
-        self.author_row_label = QLabel()
         self.update_date = QDateEdit(QDate.currentDate())
         self.update_date.setObjectName('docx-date')
         self.update_date.setDisplayFormat('yyyy-MM-dd')
@@ -170,22 +173,27 @@ class DocxUpdatePanel(QWidget):
         from ui.design_system import apply_button
         apply_button(self.update_btn, 'primary', compact=True)
         self.update_btn.clicked.connect(self._update_document)
-        meta_row = QWidget()
-        meta_l = QHBoxLayout(meta_row)
-        meta_l.setContentsMargins(0, 0, 0, 0)
-        meta_l.setSpacing(8)
+        date_field = QWidget()
+        date_l = QHBoxLayout(date_field)
+        date_l.setContentsMargins(0, 0, 0, 0)
+        date_l.setSpacing(8)
+        date_l.addWidget(self.update_date)
+        date_l.addWidget(self.today_btn)
+        date_l.addStretch(1)
+        date_l.addWidget(self.update_btn)
         self.date_row_label = QLabel()
-        meta_l.addWidget(self.date_row_label)
-        meta_l.addWidget(self.update_date)
-        meta_l.addWidget(self.today_btn)
-        meta_l.addWidget(self.author_row_label)
-        meta_l.addWidget(self.author)
-        meta_l.addStretch(1)
-        meta_l.addWidget(self.update_btn)
-        self.date_card = meta_row
+        apply_caption(self.date_row_label)
+        form.addRow(self.date_row_label, date_field)
+        self.date_card = date_field
         self.date_badge = QLabel()
         self.date_badge.hide()
-        form.addRow(meta_row)
+
+        self.author = QLineEdit('System')
+        size_field_height(self.author)
+        self.author.setFixedWidth(160)
+        self.author_row_label = QLabel()
+        apply_caption(self.author_row_label)
+        form.addRow(self.author_row_label, self.author)
         layout.addWidget(self.file_group)
 
         mid = QSplitter(Qt.Orientation.Horizontal)

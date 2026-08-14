@@ -129,19 +129,29 @@ class DensityPassPanelTests(unittest.TestCase):
         )
         panel.close()
 
-    def test_docx_update_sits_on_date_author_row(self):
+    def test_docx_date_and_author_align_with_form_rows(self):
         from panels.docx_panel import DocxUpdatePanel
 
         panel = DocxUpdatePanel('zh')
         self.assertIs(panel.update_btn.parentWidget(), panel.date_card)
         self.assertEqual(panel.update_btn.text(), '一键更新文档')
+        self.assertEqual(panel.update_date.height(), 28)
+        self.assertEqual(panel.author.height(), 28)
+        self.assertEqual(panel.author.width(), 160)
+        self.assertEqual(panel.date_row_label.objectName(), 'field-caption')
+        self.assertEqual(panel.author_row_label.objectName(), 'field-caption')
+        self.assertEqual(panel.folder_row_label.width(), 80)
         self.assertEqual(panel.doc_list.minimumHeight(), 72)
         self.assertEqual(panel.sql_editor.sizePolicy().verticalPolicy().name, 'Expanding')
         panel.close()
 
-    def test_ops_export_offers_open_file_or_folder(self):
+    def test_ops_numeric_fields_use_theme_stepper(self):
+        from ui.field_metrics import CompactStepper
         panel = OpsLogPanel('zh')
         try:
+            self.assertIsInstance(panel.context_spin, CompactStepper)
+            self.assertIsInstance(panel.export_context, CompactStepper)
+            self.assertEqual(panel.context_spin.minus_btn.text(), '−')
             self.assertTrue(callable(panel._offer_open_export))
         finally:
             panel._executor.shutdown(wait=False, cancel_futures=True)

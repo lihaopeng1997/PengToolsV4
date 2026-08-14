@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFileIconProvider, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -36,7 +36,7 @@ from tools.ops_ssh import (
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
-from ui.field_metrics import size_combo, size_line
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line
 from ui.page_chrome import make_page_header
 from ui.ssh_terminal import SshTerminalWidget
 
@@ -256,15 +256,12 @@ class ServerEditorDialog(QDialog):
         title.setObjectName('dialog-title')
         layout.addWidget(title)
         form = QFormLayout()
-        form.setSpacing(10)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        apply_form(form)
         self.name_edit = QLineEdit(self._server.get('name', ''))
         size_line(self.name_edit, 'std')
         self.host_edit = QLineEdit(self._server.get('host', ''))
         size_line(self.host_edit, 'std')
-        self.port_spin = QSpinBox()
-        self.port_spin.setRange(1, 65535)
-        self.port_spin.setValue(int(self._server.get('port') or 22))
+        self.port_spin = CompactStepper(1, 65535, int(self._server.get('port') or 22), edit_width=64)
         self.user_edit = QLineEdit(self._server.get('username', ''))
         size_line(self.user_edit, 'std')
         # 密码：可粘贴 + 可保存（DPAPI/Fernet 加密写入 data/）
@@ -635,19 +632,12 @@ class LogSettingsDialog(QDialog):
         self.setMinimumHeight(360)
         layout = QVBoxLayout(self)
         form = QFormLayout()
+        apply_form(form)
         s = load_log_settings()
-        self.context_spin = QSpinBox()
-        self.context_spin.setRange(0, 200)
-        self.context_spin.setValue(int(s.get('context_lines') or 20))
-        self.tail_spin = QSpinBox()
-        self.tail_spin.setRange(20, 5000)
-        self.tail_spin.setValue(int(s.get('tail_lines') or 100))
-        self.workers_spin = QSpinBox()
-        self.workers_spin.setRange(1, 16)
-        self.workers_spin.setValue(int(s.get('max_workers') or 4))
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setRange(5, 300)
-        self.timeout_spin.setValue(int(s.get('timeout_sec') or 30))
+        self.context_spin = CompactStepper(0, 200, int(s.get('context_lines') or 20))
+        self.tail_spin = CompactStepper(20, 5000, int(s.get('tail_lines') or 100), edit_width=64)
+        self.workers_spin = CompactStepper(1, 16, int(s.get('max_workers') or 4))
+        self.timeout_spin = CompactStepper(5, 300, int(s.get('timeout_sec') or 30))
         self.case_check = QCheckBox('忽略大小写' if zh else 'Ignore case')
         self.case_check.setChecked(bool(s.get('case_insensitive', True)))
         self.remote_check = QCheckBox('默认展开远端目录' if zh else 'Show remote browser by default')
@@ -1647,7 +1637,7 @@ class OpsLogPanel(QWidget):
         self.quick_title.setObjectName('section-title')
         sess_l.addWidget(self.quick_title)
         form = QFormLayout()
-        form.setSpacing(4)
+        apply_form(form)
         form.setContentsMargins(0, 0, 0, 0)
         self.service_combo = QComboBox()
         size_combo(self.service_combo, 'md')
@@ -1675,14 +1665,11 @@ class OpsLogPanel(QWidget):
         self.extra_edit = QPlainTextEdit()
         self.extra_edit.hide()
         # 会话区可直接调上下文行数（与设置同步）
-        self.context_spin = QSpinBox()
-        self.context_spin.setRange(0, 200)
-        self.context_spin.setValue(20)
+        self.context_spin = CompactStepper(0, 200, 20)
         self.context_spin.setToolTip('命中行上下各保留多少行')
         self.case_check = QCheckBox()
         self.case_check.hide()
-        self.tail_spin = QSpinBox()
-        self.tail_spin.setRange(20, 5000)
+        self.tail_spin = CompactStepper(20, 5000, 100)
         self.tail_spin.hide()
         self._form_labels = {}
         self._log_files_loading = False
@@ -1879,7 +1866,7 @@ class OpsLogPanel(QWidget):
         self.export_rule_title.setObjectName('section-title')
         em_l.addWidget(self.export_rule_title)
         eform = QFormLayout()
-        eform.setSpacing(4)
+        apply_form(eform)
         self.export_keyword = QLineEdit()
         size_line(self.export_keyword, 'std')
         self.export_extra = QPlainTextEdit()
@@ -1898,15 +1885,11 @@ class OpsLogPanel(QWidget):
         dir_host = QWidget()
         dir_host.setLayout(dir_row)
         # 上下文字数（与会话区/设置同步）
-        self.export_context = QSpinBox()
-        self.export_context.setRange(0, 200)
-        self.export_context.setValue(20)
+        self.export_context = CompactStepper(0, 200, 20)
         self.export_context.setToolTip('命中行上下各保留多少行')
-        self.workers_spin = QSpinBox()
-        self.workers_spin.setRange(1, 16)
+        self.workers_spin = CompactStepper(1, 16, 4)
         self.workers_spin.hide()
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setRange(5, 300)
+        self.timeout_spin = CompactStepper(5, 300, 30)
         self.timeout_spin.hide()
         self.export_case = QCheckBox()
         self.export_case.hide()

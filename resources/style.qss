@@ -368,32 +368,26 @@ QFrame#release-filter-zone QLabel#zone-title { border-left-color: __PRIMARY__; c
 QFrame#release-table-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
 QFrame#release-generate-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
 /* —— 输入 / 下拉 / 多行：统一高度、圆角、焦点环 —— */
-QComboBox, QLineEdit, QTextEdit, QPlainTextEdit {
+QComboBox, QLineEdit, QDateEdit, QTimeEdit {
+    background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
+    border-radius: 10px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+    min-height: 18px;
+    max-height: 28px;
+}
+QTextEdit, QPlainTextEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
     border-radius: 10px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
-QComboBox, QLineEdit {
-    min-height: 18px;
-    max-height: 28px;
-}
-QSpinBox, QDateEdit {
-    background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 10px; padding: 1px 6px;
-    min-height: 18px;
-    max-height: 28px;
-    selection-background-color: __PRIMARY_SOFT__;
-    selection-color: __TEXT_STRONG__;
-}
 QComboBox { padding-right: 38px; }
-QLineEdit { min-width: 160px; }
-QSpinBox { padding-right: 16px; }
-QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDateEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
-QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QDateEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+QDateEdit, QTimeEdit { min-width: 150px; max-width: 160px; padding-right: 36px; }
+QComboBox:hover, QLineEdit:hover, QDateEdit:hover, QTimeEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
+QComboBox:focus, QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
     border-color: __PRIMARY__;
     background: __SURFACE__;
 }
-QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDateEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
+QComboBox:disabled, QLineEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
     color: __TEXT_MUTED__;
     background: __SURFACE_SOFT__;
     border-color: __BORDER__;
@@ -926,8 +920,9 @@ QLabel#field-caption {
     color: __TEXT__;
     font-weight: 700;
     background: transparent;
-    min-width: 72px;
-    max-width: 92px;
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 28px;
 }
 QFrame#release-card {
     background: __SURFACE__;
@@ -1667,21 +1662,10 @@ QLabel#docx-date-badge {
     font-weight: 800;
 }
 QDateEdit#docx-date {
-    background: __SURFACE__;
-    color: __TEXT_STRONG__;
-    border: 1px solid __PRIMARY__;
-    border-radius: 10px;
-    padding: 4px 38px 4px 11px;
     min-width: 150px;
     max-width: 160px;
     max-height: 28px;
-    font-size: 13px;
-    font-weight: 700;
-    selection-background-color: __PRIMARY__;
-    selection-color: __SURFACE__;
 }
-QDateEdit#docx-date:hover { border-color: __PRIMARY__; background: __SURFACE__; }
-QDateEdit#docx-date:focus { border: 2px solid __PRIMARY__; padding: 3px 37px 3px 10px; }
 QDateEdit#docx-date::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
-    QHeaderView, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QHeaderView, QScrollArea, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -168,7 +168,7 @@ from ui.confirm_dialog import (
     confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
 )
 from ui.aurora_progress import AuroraProgress
-from ui.field_metrics import size_combo, size_compact_button, size_date, size_line
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_date, size_line
 
 
 IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -289,10 +289,7 @@ class MonthPickerDialog(QDialog):
         row = QHBoxLayout()
         row.setSpacing(8)
         row.addWidget(QLabel('年'))
-        self.year_spin = QSpinBox()
-        self.year_spin.setRange(2000, 2099)
-        self.year_spin.setValue(max(2000, min(2099, year)))
-        self.year_spin.setFixedWidth(100)
+        self.year_spin = CompactStepper(2000, 2099, max(2000, min(2099, year)), edit_width=52)
         row.addWidget(self.year_spin)
         row.addWidget(QLabel('月'))
         self.month_combo = QComboBox()
@@ -325,12 +322,7 @@ class MonthSelect(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        self.year_spin = QSpinBox()
-        self.year_spin.setRange(2000, 2099)
-        self.year_spin.setValue(year)
-        self.year_spin.setFixedWidth(92)
-        self.year_spin.setFixedHeight(34)
-        self.year_spin.setSuffix(' 年')
+        self.year_spin = CompactStepper(2000, 2099, year, edit_width=52, suffix=' 年')
         self.month_combo = QComboBox()
         size_combo(self.month_combo, 'sm')
         for value in range(1, 13):
@@ -623,6 +615,7 @@ class SvnCheckoutDialog(QDialog):
         note = QLabel('填写 SVN 地址，选择类型与上线月份后检出到本机。使用本机已缓存认证，不保存密码。')
         note.setObjectName('ops-safety-note'); note.setWordWrap(True); root.addWidget(note)
         form = QFormLayout()
+        apply_form(form)
         self.url_edit = QLineEdit(); self.url_edit.setPlaceholderText('svn://... 或 https://...')
         size_line(self.url_edit, 'path')
         self.title_edit = QLineEdit(); self.title_edit.setPlaceholderText('可留空，默认取路径最后一级')
@@ -1187,8 +1180,7 @@ class RequirementPanel(QWidget):
         self.import_btn = QPushButton('导入资料'); self.import_btn.clicked.connect(self._import_requirement)
         self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
         for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(32)
+            size_compact_button(button)
             toolbar_layout.addWidget(button)
         toolbar_layout.addStretch(1)
         # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明
@@ -1677,8 +1669,7 @@ class RequirementPanel(QWidget):
         self.release_link_btn.clicked.connect(lambda: self.open_release_prep.emit(self._current or {}))
         self.delete_btn = QPushButton('删除需求'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
         for button in (self.daily_btn, self.docx_btn, self.release_link_btn, self.delete_btn):
-            button.setProperty('compactAction', True)
-            button.setMinimumHeight(32)
+            size_compact_button(button)
             link_actions.addWidget(button)
         link_actions.addStretch(1)
         link_layout.addLayout(link_actions)

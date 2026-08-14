@@ -4,11 +4,11 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
     QInputDialog, QLabel, QLineEdit, QPushButton, QSlider,
-    QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
-from ui.field_metrics import size_combo
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_field_height
 from ui.theme_manager import THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
 
 
@@ -210,9 +210,8 @@ class SettingsPanel(QWidget):
         appearance_outer.addLayout(self.theme_grid)
 
         appearance = QFormLayout()
-        self.font_size = QSpinBox()
-        self.font_size.setRange(10, 18)
-        self.font_size.setSuffix(' px')
+        apply_form(appearance)
+        self.font_size = CompactStepper(10, 18, 13, suffix=' px')
         self.font_label = QLabel()
         appearance.addRow(self.font_label, self.font_size)
         self.density_combo = QComboBox()
@@ -237,6 +236,7 @@ class SettingsPanel(QWidget):
 
         self.float_group = QGroupBox()
         floating = QFormLayout(self.float_group)
+        apply_form(floating)
         opacity_row = QWidget()
         opacity_layout = QHBoxLayout(opacity_row)
         opacity_layout.setContentsMargins(0, 0, 0, 0)
@@ -256,6 +256,7 @@ class SettingsPanel(QWidget):
         self.show_on_startup_label = QLabel()
         floating.addRow(self.show_on_startup_label, self.show_on_startup)
         self.reset_position_btn = QPushButton()
+        size_compact_button(self.reset_position_btn)
         self.reset_position_btn.clicked.connect(self.reset_floating_position.emit)
         self.reset_position_label = QLabel()
         floating.addRow(self.reset_position_label, self.reset_position_btn)
@@ -264,6 +265,7 @@ class SettingsPanel(QWidget):
         # 快捷入口独立分组，避免与透明度/置顶混在一起
         self.shortcuts_group = QGroupBox()
         shortcuts_form = QFormLayout(self.shortcuts_group)
+        apply_form(shortcuts_form)
         self.edit_shortcuts_btn = QPushButton()
         self.edit_shortcuts_btn.clicked.connect(self.edit_floating_shortcuts.emit)
         self.edit_shortcuts_label = QLabel()
@@ -277,29 +279,32 @@ class SettingsPanel(QWidget):
         # 日报提醒（从日报页迁入）
         self.reminder_group = QGroupBox()
         reminder_form = QFormLayout(self.reminder_group)
+        apply_form(reminder_form)
         self.reminder_enabled = QCheckBox()
         self.reminder_enabled_label = QLabel()
         reminder_form.addRow(self.reminder_enabled_label, self.reminder_enabled)
-        self.reminder_time = QSpinBox()  # placeholder; replaced below with time if available
+        self.reminder_time = CompactStepper(0, 23, 17)
         try:
             from PyQt6.QtWidgets import QTimeEdit
             from PyQt6.QtCore import QTime
             self.reminder_time = QTimeEdit()
             self.reminder_time.setDisplayFormat('HH:mm')
+            size_field_height(self.reminder_time)
             self._reminder_uses_timeedit = True
         except Exception:
-            self.reminder_time = QSpinBox()
-            self.reminder_time.setRange(0, 23)
+            self.reminder_time = CompactStepper(0, 23, 17)
             self._reminder_uses_timeedit = False
         self.reminder_time_label = QLabel()
         reminder_form.addRow(self.reminder_time_label, self.reminder_time)
         self.reminder_save_btn = QPushButton()
+        size_compact_button(self.reminder_save_btn)
         self.reminder_save_btn.clicked.connect(self._save_reminder_settings)
         reminder_form.addRow(self.reminder_save_btn)
         root.addWidget(self.reminder_group)
 
         self.behavior_group = QGroupBox()
         behavior = QFormLayout(self.behavior_group)
+        apply_form(behavior)
         self.close_ask = QCheckBox()
         self.close_ask_label = QLabel()
         behavior.addRow(self.close_ask_label, self.close_ask)
@@ -330,11 +335,11 @@ class SettingsPanel(QWidget):
 
         self.keep_awake_group = QGroupBox()
         keep_awake = QFormLayout(self.keep_awake_group)
+        apply_form(keep_awake)
         self.keep_awake_enabled = QCheckBox()
         self.keep_awake_enabled_label = QLabel()
         keep_awake.addRow(self.keep_awake_enabled_label, self.keep_awake_enabled)
-        self.keep_awake_interval = QSpinBox()
-        self.keep_awake_interval.setRange(1, 60)
+        self.keep_awake_interval = CompactStepper(1, 60, 5)
         self.keep_awake_interval_label = QLabel()
         keep_awake.addRow(self.keep_awake_interval_label, self.keep_awake_interval)
         self.keep_awake_note = QLabel()
@@ -348,6 +353,7 @@ class SettingsPanel(QWidget):
         # 安测 / 安全基线
         self.security_group = QGroupBox()
         security = QFormLayout(self.security_group)
+        apply_form(security)
         self.security_ssl_verify = QCheckBox()
         self.security_ssl_verify_label = QLabel()
         security.addRow(self.security_ssl_verify_label, self.security_ssl_verify)

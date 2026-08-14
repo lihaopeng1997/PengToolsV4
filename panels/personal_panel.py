@@ -22,7 +22,7 @@ from tools.daily_reports import (
 )
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.daily_rich_edit import DailyRichEdit
-from ui.field_metrics import size_combo, size_compact_button, size_date, size_line
+from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
     extract_document_entries, extract_document_text, extract_workbook_entries,
@@ -90,6 +90,7 @@ class KnowledgeEditDialog(QDialog):
         self.resize(680, 560)
         layout = QVBoxLayout(self)
         form = QFormLayout()
+        apply_form(form)
         self.title_edit = QLineEdit(entry.get('title', '') if entry else '')
         size_line(self.title_edit, 'std')
         self.category_combo = QComboBox()
@@ -1153,7 +1154,9 @@ class DailyReportTab(QWidget):
         form_layout = QVBoxLayout(editor)
         date_row = QHBoxLayout()
         date_row.setSpacing(8)
-        date_row.addWidget(QLabel('日报日期'))
+        date_caption = QLabel('日报日期')
+        apply_caption(date_caption)
+        date_row.addWidget(date_caption)
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setObjectName('release-date')
         self.date_edit.setDisplayFormat('yyyy-MM-dd')

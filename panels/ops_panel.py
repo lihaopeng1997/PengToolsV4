@@ -13,7 +13,7 @@ from tools.ops_commands import (
     output_guide, save_custom_commands, search_commands,
 )
 from ui.confirm_dialog import confirm_action, show_error, show_warning
-from ui.field_metrics import size_combo, size_line
+from ui.field_metrics import apply_form, size_combo, size_line
 
 
 class CustomCommandDialog(QDialog):
@@ -33,6 +33,7 @@ class CustomCommandDialog(QDialog):
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QFormLayout()
+        apply_form(form)
         self.title_edit = QLineEdit()
         size_line(self.title_edit, 'std')
         self.command_edit = QPlainTextEdit()
@@ -223,8 +224,8 @@ class OpsPanel(QWidget):
         self.param_frame = QFrame()
         self.param_frame.setObjectName('ops-param-card')
         self.param_form = QFormLayout(self.param_frame)
+        apply_form(self.param_form)
         self.param_form.setContentsMargins(14, 12, 14, 12)
-        self.param_form.setSpacing(8)
         detail.addWidget(self.param_frame)
 
         preview_top = QHBoxLayout()

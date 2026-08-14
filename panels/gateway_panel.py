@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from tools.gateway_crypto import decrypt_gateway_payload
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import size_combo
+from ui.field_metrics import apply_form, size_combo
 from ui.json_viewer import JsonViewer
 
 
@@ -77,10 +77,8 @@ class GatewayDecodePanel(QWidget):
         self.config_group.setObjectName('gateway-config-group')
         self.config_group.setTitle('解密参数')
         config = QFormLayout(self.config_group)
-        # 参数保持完整可见，但采用紧凑节奏，将垂直空间交还给报文与结果阅读区。
+        apply_form(config)
         config.setContentsMargins(12, 10, 12, 8)
-        config.setHorizontalSpacing(12)
-        config.setVerticalSpacing(5)
 
         self.system_label = QLabel()
         self.system_value = QLabel('新车险系统（固定兼容模式）')

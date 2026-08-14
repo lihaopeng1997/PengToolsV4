@@ -27,7 +27,7 @@ from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import (
-    size_caption, size_combo, size_compact_button, size_date, size_line,
+    apply_form, size_caption, size_combo, size_compact_button, size_date, size_line,
     size_status_pill, size_system_chip,
 )
 
@@ -687,6 +687,7 @@ class SqlToolPanel(QWidget):
 
         self.identity_group = QGroupBox()
         identity_form = QFormLayout(self.identity_group)
+        apply_form(identity_form)
         self.name_box = self._hinted_field(identity_form, 'name', '客户信息平台（ECIF）', '下拉框显示名称', 'Name shown in the selector')
         self.title_box = self._hinted_field(identity_form, 'title', 'ECIF', '用于文件名：【ECIF】', 'Used in filename: 【ECIF】')
         self.folder_box = self._hinted_field(identity_form, 'folder', '客户信息平台-张小龙', 'SVN 系统目录名称', 'SVN system folder name')
@@ -695,6 +696,7 @@ class SqlToolPanel(QWidget):
 
         self.sim_group = QGroupBox()
         sim_form = QFormLayout(self.sim_group)
+        apply_form(sim_form)
         self.sim_addr_box = self._hinted_field(sim_form, 'sim_addr', '10.128.23.211', '表头第一行地址', 'Header address')
         self.sim_sid_box = self._hinted_field(sim_form, 'sim_sid', 'simutfdb', '表头第二行 SID', 'Header SID')
         self.sim_user_box = self._hinted_field(sim_form, 'sim_user', 'sitecif', '表头第三行用户名', 'Header user')
@@ -702,6 +704,7 @@ class SqlToolPanel(QWidget):
 
         self.prod_group = QGroupBox()
         prod_form = QFormLayout(self.prod_group)
+        apply_form(prod_form)
         self.prod_addr_box = self._hinted_field(prod_form, 'prod_addr', '10.0.129.207', '表头第一行地址', 'Header address')
         self.prod_sid_box = self._hinted_field(prod_form, 'prod_sid', 'hxutf', '表头第二行 SID', 'Header SID')
         self.prod_user_box = self._hinted_field(prod_form, 'prod_user', 'ecif', '表头第三行用户名', 'Header user')
@@ -709,6 +712,7 @@ class SqlToolPanel(QWidget):
 
         self.path_group = QGroupBox()
         path_form = QFormLayout(self.path_group)
+        apply_form(path_form)
         self.delivery_template_box = self._hinted_field(
             path_form, 'delivery', DELIVERY_TEMPLATE,
             '示例：20260629/生产环境/DML/客户信息平台-张小龙/升级SQL',
