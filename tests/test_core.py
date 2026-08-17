@@ -17,8 +17,8 @@ sys.path.insert(0, PROJECT_DIR)
 
 from tools.credit_code import generate_batch, validate_code
 from tools.id_documents import (
-    DOCUMENT_TYPES, generate_personal_batch, resident_id_age,
-    resident_id_gender, validate_personal_document,
+    DOCUMENT_TYPES, generate_personal_batch, generate_personal_records,
+    resident_id_age, resident_id_gender, validate_personal_document,
 )
 from tools.sql_tool import (
     build_sql_package, classify_sql_type, export_sql_package,
@@ -250,6 +250,16 @@ class PersonalDocumentTests(unittest.TestCase):
         self.assertTrue(all(resident_id_age(number) == 35 for number in documents))
         self.assertTrue(all(resident_id_gender(number) == 'female' for number in documents))
         self.assertTrue(all(validate_personal_document('resident_id', number) for number in documents))
+
+    def test_personal_records_include_contact_and_validity(self):
+        rows = generate_personal_records('resident_id', 20, ethnicity='回族', valid_term=10)
+        self.assertEqual(len(rows), 20)
+        self.assertTrue(all(item['ethnicity'] == '回族' for item in rows))
+        self.assertTrue(all(item['mobile'].startswith('1') and len(item['mobile']) == 11 for item in rows))
+        self.assertTrue(all('@' in item['email'] for item in rows))
+        self.assertTrue(all(len(item['postal_code']) == 6 for item in rows))
+        self.assertTrue(all(item['issuer'].endswith('公安局') for item in rows))
+        self.assertTrue(all(item['valid_from'] < item['valid_to'] for item in rows if item['valid_to'] != '长期'))
 
 
 class SqlToolTests(unittest.TestCase):
