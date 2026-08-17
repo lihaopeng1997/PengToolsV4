@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMenu, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ui.design_system import apply_button
 from ui.icons import apply_icon, brand_pixmap, icon_pixmap, qicon
 from ui.navigation_model import (
     DEFAULT_FLOATING_SHORTCUTS,
@@ -131,6 +132,18 @@ class QuickPanel(QWidget):
         self.preview_title = QLabel()
         self.preview_title.setObjectName('floating-title')
         preview_head.addWidget(self.preview_title, 1)
+        self.preview_gen_personal = QPushButton()
+        apply_button(self.preview_gen_personal, 'primary', compact=True)
+        self.preview_gen_personal.clicked.connect(lambda: self._generate_from_preview('personal'))
+        preview_head.addWidget(self.preview_gen_personal)
+        self.preview_gen_unit = QPushButton()
+        apply_button(self.preview_gen_unit, 'secondary', compact=True)
+        self.preview_gen_unit.clicked.connect(lambda: self._generate_from_preview('unit'))
+        preview_head.addWidget(self.preview_gen_unit)
+        self.preview_gen_vin = QPushButton()
+        apply_button(self.preview_gen_vin, 'primary', compact=True)
+        self.preview_gen_vin.clicked.connect(lambda: self._generate_from_preview('vin'))
+        preview_head.addWidget(self.preview_gen_vin)
         preview_l.addLayout(preview_head)
         self.preview_hint = QLabel()
         self.preview_hint.setObjectName('field-hint')
@@ -187,6 +200,9 @@ class QuickPanel(QWidget):
         self.collapse_btn.setToolTip('收起' if zh else 'Collapse')
         self.toggle_btn.setToolTip('打开快捷工具' if zh else 'Open quick tools')
         self.preview_back.setText('返回' if zh else 'Back')
+        self.preview_gen_personal.setText('生成个人' if zh else 'Personal')
+        self.preview_gen_unit.setText('生成单位' if zh else 'Company')
+        self.preview_gen_vin.setText('生成' if zh else 'Generate')
         self.preview_table.setToolTip('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
         self._rebuild_cards()
         if self.preview.isVisible() and getattr(self, '_preview_index', None) is not None:
@@ -510,6 +526,9 @@ class QuickPanel(QWidget):
     def _fill_result_preview(self, index: int):
         zh = self.language == 'zh'
         win = self._main_window
+        self.preview_gen_personal.setVisible(index == 1)
+        self.preview_gen_unit.setVisible(index == 1)
+        self.preview_gen_vin.setVisible(index == 4)
         if index == 1:
             self.preview_title.setText('证件类型' if zh else 'Documents')
             ensure = getattr(win, '_ensure_credit_panel', None)
@@ -537,13 +556,10 @@ class QuickPanel(QWidget):
         self.preview_table.setHorizontalHeaderLabels(headers)
         if not rows:
             self.preview_hint.setText(
-                '还没有生成数据。双击表格可打开工作台。' if zh else
-                'No generated data yet. Double-click the table to open the workspace.'
+                '点右上角生成。双击单元格复制该字段。' if zh else
+                'Use Generate. Double-click a cell to copy that field.'
             )
-            self.preview_table.setRowCount(1)
-            item = QTableWidgetItem('打开工作台生成' if zh else 'Open workspace')
-            item.setData(Qt.ItemDataRole.UserRole, {'navigate': index})
-            self.preview_table.setItem(0, 0, item)
+            self.preview_table.setRowCount(0)
             return
         self.preview_hint.setText('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
         self.preview_table.setRowCount(len(rows))
@@ -580,6 +596,34 @@ class QuickPanel(QWidget):
                 str(record.get('engine_no') or ''),
             ])
         return rows
+
+    def _generate_from_preview(self, kind: str):
+        win = self._main_window
+        try:
+            if kind in ('personal', 'unit'):
+                ensure = getattr(win, '_ensure_credit_panel', None)
+                if callable(ensure):
+                    ensure()
+                panel = getattr(win, 'credit_panel', None)
+                if panel is None:
+                    return
+                if kind == 'personal':
+                    panel._generate_personal()
+                else:
+                    panel._generate_unit()
+            else:
+                ensure = getattr(win, '_ensure_vin_panel', None)
+                if callable(ensure):
+                    ensure()
+                panel = getattr(win, 'vin_panel', None)
+                if panel is None:
+                    return
+                panel._generate()
+        except Exception:
+            return
+        index = 1 if kind in ('personal', 'unit') else 4
+        self._preview_index = index
+        self._fill_result_preview(index)
 
     def _copy_preview_item(self, item):
         payload = item.data(Qt.ItemDataRole.UserRole) or {}

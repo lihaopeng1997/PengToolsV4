@@ -122,17 +122,32 @@ class UiRegressionTests(unittest.TestCase):
         panel.close()
 
     def test_floating_preview_shows_document_and_vin_keys(self):
-        class Win(_MainWindowStub):
+        class Credit:
             def __init__(self):
-                self.credit_panel = type('C', (), {
-                    '_personal_results': [{'name': '张三', 'document': '110101199001011234'}],
-                    '_unit_results': [{'name': '鑫润科技有限公司', 'document': '91110000MA0012345X'}],
-                })()
-                self.vin_panel = type('V', (), {'_results': [{
+                self._personal_results = [{'name': '张三', 'document': '110101199001011234'}]
+                self._unit_results = []
+
+            def _generate_personal(self):
+                self._personal_results = [{'name': '李四', 'document': '110101199003033456'}]
+
+            def _generate_unit(self):
+                self._unit_results = [{'name': '鑫润科技有限公司', 'document': '91110000MA0012345X'}]
+
+        class Vin:
+            def __init__(self):
+                self._results = []
+
+            def _generate(self):
+                self._results = [{
                     'plate': '粤BD12345',
                     'vin': 'LSV12345678901234',
                     'engine_no': 'TZ180XSA000001',
-                }]})()
+                }]
+
+        class Win(_MainWindowStub):
+            def __init__(self):
+                self.credit_panel = Credit()
+                self.vin_panel = Vin()
 
         panel = QuickPanel(Win())
         panel.show()
@@ -147,7 +162,14 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(QApplication.clipboard().text(), '张三')
         panel._copy_preview_item(panel.preview_table.item(0, 1))
         self.assertEqual(QApplication.clipboard().text(), '110101199001011234')
+        panel.preview_gen_personal.click()
+        self.assertEqual(panel.preview_table.item(0, 0).text(), '李四')
+        panel.preview_gen_unit.click()
+        self.assertEqual(panel.preview_table.item(1, 0).text(), '鑫润科技有限公司')
         panel._open_result_preview(4)
+        self.assertTrue(panel.preview_gen_vin.isVisible())
+        self.assertFalse(panel.preview_gen_personal.isVisible())
+        panel.preview_gen_vin.click()
         self.assertEqual(panel.preview_table.horizontalHeaderItem(0).text(), '车牌号')
         self.assertEqual(panel.preview_table.item(0, 0).text(), '粤BD12345')
         self.assertEqual(panel.preview_table.item(0, 1).text(), 'LSV12345678901234')
