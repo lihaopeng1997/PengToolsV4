@@ -148,6 +148,7 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertIn(THEMES['black']['APP_BG'], qss)
         self.assertIn(THEMES['black']['SURFACE'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
+        self.assertNotIn('#536DFE', qss.upper())
         self.assertIn('QScrollArea::viewport', qss)
         self.assertIn('QStackedWidget > QWidget', qss)
 

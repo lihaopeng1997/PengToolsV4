@@ -442,6 +442,25 @@ QComboBox QAbstractItemView {
     border-radius: 8px; padding: 5px; outline: 0;
     selection-background-color: __PRIMARY__; selection-color: __ON_PRIMARY__;
 }
+QComboBox QLineEdit {
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+    border: none;
+    padding: 0 4px;
+    min-height: 16px;
+    max-height: 24px;
+}
+QTabWidget#module-tabs {
+    background: transparent;
+}
+QFrame#credit-filter-card,
+QWidget#credit-tab {
+    background: __SURFACE__;
+}
+QFrame#credit-filter-card {
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
 /* 设计系统表面 */
 QFrame#ds-card {
     background: __SURFACE__;

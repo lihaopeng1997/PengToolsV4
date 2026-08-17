@@ -42,16 +42,23 @@ def size_field_height(widget: QWidget, height: int = FIELD_H) -> None:
     widget.setFixedHeight(height)
 
 
-def size_combo(widget, size: str = 'md') -> None:
-    """下拉框：高度与紧凑按钮一致，宽度跟最长选项走，不人为拉长。"""
+def size_combo(widget, size: str = 'md', *, fill: bool = False) -> None:
+    """下拉框：高度与紧凑按钮一致。默认跟选项收窄；fill=True 时铺满行宽。"""
     from PyQt6.QtWidgets import QComboBox
     mapping = {'sm': COMBO_SM, 'md': COMBO_MD, 'lg': COMBO_LG}
     lo, hi = mapping.get(size, COMBO_MD)
     size_field_height(widget)
     if isinstance(widget, QComboBox):
-        widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        widget.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            if fill else QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         widget.setMinimumContentsLength(0)
     widget.setMinimumWidth(lo)
+    if fill:
+        widget.setMaximumWidth(16777215)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        return
     widget.setMaximumWidth(hi)
     widget.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 

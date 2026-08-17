@@ -427,8 +427,9 @@ class ThemeManager:
         for key, value in palette.items():
             qss = qss.replace(f'__{key}__', value)
         try:
-            from ui.icons import icon_url
-            arrow = icon_url('dropdown')
+            from ui.icons import icon_url, tinted_icon_url
+            arrow_tint = palette.get('ICON_MUTED') or palette.get('TEXT_MUTED') or '#8A8A90'
+            arrow = tinted_icon_url('dropdown', arrow_tint) or icon_url('dropdown')
             check = icon_url('check')
         except Exception:
             resource_dir = os.path.dirname(self._template_path) if self._template_path else ''
