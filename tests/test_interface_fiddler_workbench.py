@@ -213,7 +213,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(p.draft_preview.minimumHeight(), 120)
         sizes = p.rt_editor_response_splitter.sizes()
         self.assertGreaterEqual(len(sizes), 2)
-        self.assertGreater(sizes[1], sizes[0])
+        self.assertGreater(sizes[0], sizes[1])
 
     def test_request_test_splitter_persists_only_visual_sizes(self):
         p = InterfaceDebugPanel('zh')

@@ -258,6 +258,11 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         self.assertEqual(p.detail_tabs.tabText(3), '请求测试')
         self.assertEqual(p.export_detail_btn.text(), '导出明细')
         self.assertEqual(p.rt_send_btn.text(), '发送')
+        from ui.key_value_editor import KeyValueEditor
+        self.assertIsInstance(p.rt_headers, KeyValueEditor)
+        self.assertIsInstance(p.rt_params, KeyValueEditor)
+        self.assertIn('Content-Type: application/json', p.rt_headers.toPlainText())
+        self.assertTrue(p.rt_body.toPlainText().lstrip().startswith('{'))
         # 停止不清空：模拟有记录后 stop 逻辑只停引擎
         p._records = [{'id': '1', 'url': 'http://x/a', 'method': 'GET'}]
         p._records_by_id = {'1': p._records[0]}
@@ -267,6 +272,17 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         self.assertFalse(p._listening)
         p.clear_session()
         self.assertEqual(len(p._records), 0)
+
+    def test_key_value_editors_roundtrip_headers_and_params(self):
+        from ui.key_value_editor import KeyValueEditor
+
+        headers = KeyValueEditor(mode='header')
+        headers.setPlainText('Content-Type: application/json\nX-Token: abc')
+        self.assertIn('Content-Type: application/json', headers.toPlainText())
+        self.assertIn('X-Token: abc', headers.toPlainText())
+        params = KeyValueEditor(mode='query')
+        params.setPlainText('page=1\nsize=20')
+        self.assertEqual(params.toPlainText(), 'page=1\nsize=20')
 
     def test_fill_and_export_from_panel(self):
         from panels.interface_debug_panel import InterfaceDebugPanel

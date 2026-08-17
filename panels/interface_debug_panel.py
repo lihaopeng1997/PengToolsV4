@@ -47,6 +47,7 @@ from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_enum_combo, size_pick_combo
+from ui.key_value_editor import KeyValueEditor
 from ui.page_chrome import make_page_header
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
@@ -817,21 +818,20 @@ class InterfaceDebugPanel(QWidget):
         self.rt_tabs = QTabWidget()
         self.rt_tabs.setObjectName('module-tabs')
         self.rt_tabs.setDocumentMode(False)
-        self.rt_headers = QPlainTextEdit()
-        self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')
-        self.rt_headers.setFont(mono)
-        self.rt_headers.setMinimumHeight(72)
+        self.rt_headers = KeyValueEditor(mode='header')
+        self.rt_headers.setPlainText('Content-Type: application/json')
         self.rt_tabs.addTab(self.rt_headers, 'Headers')
-        self.rt_params = QPlainTextEdit()
-        self.rt_params.setPlaceholderText('key=value\npage=1')
-        self.rt_params.setFont(mono)
-        self.rt_params.setMinimumHeight(72)
+        self.rt_params = KeyValueEditor(mode='query')
         self.rt_tabs.addTab(self.rt_params, 'Params')
         self.rt_body = QPlainTextEdit()
-        self.rt_body.setPlaceholderText('请求 Body（优先解密后的明文）')
+        self.rt_body.setObjectName('rt-json-body')
+        self.rt_body.setPlaceholderText('{\n  "key": "value"\n}')
         self.rt_body.setFont(mono)
-        self.rt_body.setMinimumHeight(120)
+        self.rt_body.setPlainText('{\n  \n}')
+        self.rt_body.setMinimumHeight(240)
         self.rt_tabs.addTab(self.rt_body, 'Body')
+        self.rt_tabs.setCurrentWidget(self.rt_body)
+        self.rt_tabs.setMinimumHeight(280)
         editor_layout.addWidget(self.rt_tabs, 1)
 
         io_row = QHBoxLayout()
@@ -893,9 +893,9 @@ class InterfaceDebugPanel(QWidget):
             pass
         response_layout.addWidget(self.draft_preview, 1)
         self.rt_editor_response_splitter.addWidget(response_panel)
-        self.rt_editor_response_splitter.setStretchFactor(0, 1)
+        self.rt_editor_response_splitter.setStretchFactor(0, 3)
         self.rt_editor_response_splitter.setStretchFactor(1, 2)
-        request_test_sizes = self._prefs.get('request_test_splitter_sizes') or [360, 640]
+        request_test_sizes = self._prefs.get('request_test_splitter_sizes') or [560, 320]
         self.rt_editor_response_splitter.setSizes(request_test_sizes)
         self.rt_editor_response_splitter.splitterMoved.connect(self._save_request_test_splitter_sizes)
         rf.addWidget(self.rt_editor_response_splitter, 1)
@@ -2702,10 +2702,11 @@ class InterfaceDebugPanel(QWidget):
         idx = self.rt_method.findText(method)
         self.rt_method.setCurrentIndex(max(0, idx))
         self.rt_url.setText(form.get('url') or '')
-        self.rt_headers.setPlainText(form.get('headers_text') or '')
+        self.rt_headers.setPlainText(form.get('headers_text') or 'Content-Type: application/json')
         self.rt_params.setPlainText(form.get('params_text') or '')
-        self.rt_body.setPlainText(form.get('body') or '')
-        self._rt_last_request_body = form.get('body') or ''
+        body = str(form.get('body') or '')
+        self.rt_body.setPlainText(body if body.strip() else '{\n  \n}')
+        self._rt_last_request_body = body
         if form.get('category_id'):
             self._rt_select_category(form.get('category_id'))
         sample = form.get('response_body_sample') or ''
@@ -2718,6 +2719,13 @@ class InterfaceDebugPanel(QWidget):
             )
         else:
             self._rt_set_response_view(body='', meta='', headers=None)
+
+    def _rt_body_payload(self) -> str:
+        raw = self.rt_body.toPlainText() if hasattr(self, 'rt_body') else ''
+        stripped = (raw or '').strip()
+        if stripped in ('{', '{ }', '{\n}', '{\n  \n}'):
+            return '{}'
+        return raw or ''
 
     def _rt_set_response_view(self, body: str, meta: str = '', headers: dict | None = None):
         """写入响应预览：元信息 + 完整 Body（pretty 失败则原文）。"""
@@ -2891,7 +2899,7 @@ class InterfaceDebugPanel(QWidget):
             url = merge_url_with_params(url, self.rt_params.toPlainText())
             method = self.rt_method.currentText() or 'GET'
             headers = headers_dict_from_text(self.rt_headers.toPlainText())
-            body = self.rt_body.toPlainText() or ''
+            body = self._rt_body_payload()
         except RequestTestError as exc:
             show_warning(self, '请求测试', str(exc))
             return
@@ -2899,6 +2907,8 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '请求测试', str(exc))
             return
 
+        if body and not any(str(key).lower() == 'content-type' for key in headers):
+            headers['Content-Type'] = 'application/json'
         if not self._rt_confirm_remote_if_needed(url, method):
             return
 
