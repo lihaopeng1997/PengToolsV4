@@ -10,7 +10,10 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.confirm_dialog import show_error
-from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
+from tools.vin_generator import (
+    CHINA_WMIS, VEHICLE_HEADERS_EN, VEHICLE_HEADERS_ZH, generate_vehicle_batch,
+    vehicle_row_values,
+)
 from ui.design_system import apply_button
 from ui.field_metrics import CompactStepper, size_enum_combo
 
@@ -68,18 +71,19 @@ class VinPanel(QWidget):
         row.addStretch(1)
         layout.addWidget(self.settings)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, len(VEHICLE_HEADERS_ZH))
         try:
             from ui.design_system import apply_list_header
             apply_list_header(self.table.horizontalHeader())
         except Exception:
             pass
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        for column in range(len(VEHICLE_HEADERS_ZH)):
+            mode = (
+                QHeaderView.ResizeMode.Stretch
+                if column == 3 else QHeaderView.ResizeMode.ResizeToContents
+            )
+            header.setSectionResizeMode(column, mode)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -132,10 +136,7 @@ class VinPanel(QWidget):
         self.generate_btn.setText('生成' if zh else 'Generate')
         self.copy_btn.setText('复制全部' if zh else 'Copy all')
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
-        self.table.setHorizontalHeaderLabels(
-            ['序号', 'VIN', 'WMI', '年份码', '校验'] if zh
-            else ['#', 'VIN', 'WMI', 'Year code', 'Valid']
-        )
+        self.table.setHorizontalHeaderLabels(VEHICLE_HEADERS_ZH if zh else VEHICLE_HEADERS_EN)
         size_enum_combo(self.year_combo)
         size_enum_combo(self.wmi_combo)
 
@@ -158,14 +159,17 @@ class VinPanel(QWidget):
         year = int(self.year_combo.currentText())
         wmi = self.wmi_combo.currentText()
         count = self._visible_fill_count()
-        self._results = generate_vin_batch(count, year, '' if wmi == 'AUTO' else wmi)
+        self._results = generate_vehicle_batch(count, year, '' if wmi == 'AUTO' else wmi)
         self.table.setRowCount(len(self._results))
         self.table.verticalHeader().setDefaultSectionSize(32)
-        for row, vin in enumerate(self._results):
-            values = (str(row + 1), vin, vin[:3], vin[9], '✓' if validate_vin(vin) else '×')
+        for row, record in enumerate(self._results):
+            values = vehicle_row_values(record, row + 1)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if column in (0, 4, 8, 9):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
                 self.table.setItem(row, column, item)
             self.table.setRowHeight(row, 32)
         self.table.scrollToTop()
@@ -173,13 +177,17 @@ class VinPanel(QWidget):
             f'{len(self._results)} 条' if self.language == 'zh' else f'{len(self._results)} rows'
         )
         self.status.setToolTip(
-            'GB 16735 校验位' if self.language == 'zh' else 'GB 16735 check digit'
+            'VIN 按 GB 16735；号牌按 GA 36（新能源 D/F）' if self.language == 'zh'
+            else 'VIN per GB 16735; plates per GA 36'
         )
 
     def _copy(self):
-        if self._results:
-            QApplication.clipboard().setText('\n'.join(self._results))
-            self.status.setText('已复制到剪贴板' if self.language == 'zh' else 'Copied to clipboard')
+        if not self._results:
+            return
+        lines = ['\t'.join(VEHICLE_HEADERS_ZH if self.language == 'zh' else VEHICLE_HEADERS_EN)]
+        lines.extend('\t'.join(vehicle_row_values(record, index)) for index, record in enumerate(self._results, 1))
+        QApplication.clipboard().setText('\n'.join(lines))
+        self.status.setText('已复制到剪贴板' if self.language == 'zh' else 'Copied to clipboard')
 
     def _copy_cell(self, item):
         QApplication.clipboard().setText(item.text())
@@ -194,8 +202,8 @@ class VinPanel(QWidget):
         try:
             with open(path, 'w', newline='', encoding='utf-8-sig') as stream:
                 writer = csv.writer(stream)
-                writer.writerow(['VIN', 'WMI', 'YEAR_CODE', 'VALID'])
-                writer.writerows((vin, vin[:3], vin[9], validate_vin(vin)) for vin in self._results)
+                writer.writerow(VEHICLE_HEADERS_ZH if self.language == 'zh' else VEHICLE_HEADERS_EN)
+                writer.writerows(vehicle_row_values(record, index) for index, record in enumerate(self._results, 1))
             self.status.setText(path)
         except OSError as exc:
             show_error(self, 'Error', str(exc))

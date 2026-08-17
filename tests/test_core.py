@@ -34,7 +34,9 @@ from tools.docx_updater import (
     process, refined_docx_path,
 )
 from tools.docx_template_registry import TEMPLATE_PROFILES, match_document_template
-from tools.vin_generator import generate_vin_batch, validate_vin
+from tools.vin_generator import (
+    generate_vehicle_batch, generate_vin_batch, validate_plate, validate_vin,
+)
 from tools.gateway_crypto import KEYS, decrypt_gateway_payload
 from tools.ops_commands import (
     COMMANDS, build_command, contains_forbidden_delete, infer_risk,
@@ -400,6 +402,29 @@ class VinTests(unittest.TestCase):
         vins = generate_vin_batch(200, 2026)
         self.assertEqual(len(vins), 200)
         self.assertTrue(all(vin.startswith('L') and validate_vin(vin) for vin in vins))
+
+    def test_vehicle_records_match_national_test_rules(self):
+        rows = generate_vehicle_batch(40, 2026)
+        self.assertEqual(len(rows), 40)
+        vins = [item['vin'] for item in rows]
+        plates = [item['plate'] for item in rows]
+        self.assertEqual(len(set(vins)), 40)
+        self.assertEqual(len(set(plates)), 40)
+        today = datetime.date.today().isoformat()
+        for item in rows:
+            self.assertTrue(validate_vin(item['vin']))
+            self.assertTrue(validate_plate(item['plate'], item['energy']))
+            self.assertIn(item['energy'], ('汽油', '柴油', '纯电', '油电混动', '插电混动'))
+            self.assertTrue(item['model'])
+            self.assertTrue(item['engine_no'])
+            self.assertIn(item['category'], ('载客汽车', '载货汽车'))
+            self.assertGreaterEqual(item['first_reg'], '2026-01-01')
+            self.assertLessEqual(item['first_reg'], today)
+            if item['energy'] == '纯电':
+                self.assertIn('D', item['plate'][2:3])
+                self.assertTrue(item['engine_no'].startswith('TZ'))
+            if item['energy'] == '插电混动':
+                self.assertIn('F', item['plate'][2:3])
 
 
 class GatewayCryptoTests(unittest.TestCase):

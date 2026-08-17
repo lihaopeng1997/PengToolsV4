@@ -120,14 +120,17 @@ class DensityPassPanelTests(unittest.TestCase):
         self.assertGreaterEqual(panel.table.rowHeight(0), 28)
         self.assertGreaterEqual(panel.table.rowHeight(9), 28)
         self.assertGreaterEqual(panel.table.minimumHeight(), 200)
+        self.assertEqual(panel.table.columnCount(), 10)
         self.assertEqual(
-            panel.table.horizontalHeader().sectionResizeMode(1),
+            panel.table.horizontalHeader().sectionResizeMode(2),
             QHeaderView.ResizeMode.ResizeToContents,
         )
         self.assertEqual(
-            panel.table.horizontalHeader().sectionResizeMode(4),
+            panel.table.horizontalHeader().sectionResizeMode(3),
             QHeaderView.ResizeMode.Stretch,
         )
+        self.assertTrue(panel.table.item(0, 1).text())
+        self.assertEqual(len(panel.table.item(0, 2).text()), 17)
         panel.close()
 
     def test_docx_date_and_author_align_with_form_rows(self):
