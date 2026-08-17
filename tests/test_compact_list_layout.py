@@ -131,6 +131,13 @@ class DensityPassPanelTests(unittest.TestCase):
         )
         self.assertTrue(panel.table.item(0, 1).text())
         self.assertEqual(len(panel.table.item(0, 2).text()), 17)
+        self.assertTrue(panel.custom.isHidden())
+        panel.mode_combo.setCurrentIndex(1)
+        self.assertFalse(panel.custom.isHidden())
+        panel.energy_combo.setCurrentIndex(panel.energy_combo.findData('纯电'))
+        panel._generate()
+        self.assertEqual(panel.table.rowCount(), 10)
+        self.assertTrue(all(panel._results[i]['energy'] == '纯电' for i in range(10)))
         panel.close()
 
     def test_docx_date_and_author_align_with_form_rows(self):

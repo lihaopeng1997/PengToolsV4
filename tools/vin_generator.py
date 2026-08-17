@@ -177,24 +177,68 @@ def generate_vin_batch(count=10, year=2026, wmi=''):
     return sorted(vins)
 
 
-def _pick_profile(wmi, rng):
-    code = wmi if wmi in WMI_PROFILES else rng.choice(tuple(WMI_PROFILES))
-    profile = WMI_PROFILES[code]
-    model = rng.choice(profile['models'])
-    return code, profile['brand'], model
+class VehicleFilterError(ValueError):
+    """指定条件与车型库无交集。"""
 
 
-def _generate_plate(energy, rng, used):
+def list_energy_options():
+    return tuple(sorted({item[2] for profile in WMI_PROFILES.values() for item in profile['models']}))
+
+
+def list_category_options():
+    return tuple(sorted({item[3] for profile in WMI_PROFILES.values() for item in profile['models']}))
+
+
+def list_kind_options(category=''):
+    wanted = str(category or '').strip()
+    return tuple(sorted({
+        item[4]
+        for profile in WMI_PROFILES.values()
+        for item in profile['models']
+        if not wanted or item[3] == wanted
+    }))
+
+
+def matching_models(wmi='', energy='', category='', kind=''):
+    wanted_wmi = str(wmi or '').strip()
+    wanted_energy = str(energy or '').strip()
+    wanted_category = str(category or '').strip()
+    wanted_kind = str(kind or '').strip()
+    hits = []
+    for code, profile in WMI_PROFILES.items():
+        if wanted_wmi and code != wanted_wmi:
+            continue
+        for model in profile['models']:
+            _name, _code, model_energy, model_category, model_kind = model
+            if wanted_energy and model_energy != wanted_energy:
+                continue
+            if wanted_category and model_category != wanted_category:
+                continue
+            if wanted_kind and model_kind != wanted_kind:
+                continue
+            hits.append((code, profile['brand'], model))
+    return hits
+
+
+def _pick_profile(wmi, rng, *, energy='', category='', kind=''):
+    hits = matching_models(wmi, energy, category, kind)
+    if not hits:
+        raise VehicleFilterError('没有同时满足这些条件的车型，请放宽条件')
+    return rng.choice(hits)
+
+
+def _generate_plate(energy, rng, used, province=''):
+    prefix = province if province in PROVINCE_PREFIXES else ''
     for _ in range(80):
-        province = rng.choice(PROVINCE_PREFIXES)
+        chosen = prefix or rng.choice(PROVINCE_PREFIXES)
         office = rng.choice(PLATE_LETTERS)
         if energy == '纯电':
-            plate = f'{province}{office}D{rng.randint(0, 99999):05d}'
+            plate = f'{chosen}{office}D{rng.randint(0, 99999):05d}'
         elif energy == '插电混动':
-            plate = f'{province}{office}F{rng.randint(0, 99999):05d}'
+            plate = f'{chosen}{office}F{rng.randint(0, 99999):05d}'
         else:
             serial = ''.join(rng.choice(PLATE_SERIAL) for _ in range(5))
-            plate = f'{province}{office}{serial}'
+            plate = f'{chosen}{office}{serial}'
         if plate not in used and validate_plate(plate, energy):
             used.add(plate)
             return plate
@@ -222,17 +266,22 @@ def _first_reg_date(year, rng, today=None):
     return (start + datetime.timedelta(days=rng.randint(0, max(span, 0)))).isoformat()
 
 
-def generate_vehicle_record(year=2026, wmi='', *, used_vins=None, used_plates=None):
+def generate_vehicle_record(
+    year=2026, wmi='', *, energy='', category='', kind='', plate_province='',
+    used_vins=None, used_plates=None,
+):
     rng = random.SystemRandom()
     used_vins = used_vins if used_vins is not None else set()
     used_plates = used_plates if used_plates is not None else set()
-    selected_wmi, brand, model = _pick_profile(wmi, rng)
+    selected_wmi, brand, model = _pick_profile(
+        wmi, rng, energy=energy, category=category, kind=kind,
+    )
     name, model_code, energy, category, kind = model
     vin = generate_vin(year, selected_wmi)
     while vin in used_vins:
         vin = generate_vin(year, selected_wmi)
     used_vins.add(vin)
-    plate = _generate_plate(energy, rng, used_plates)
+    plate = _generate_plate(energy, rng, used_plates, plate_province)
     return {
         'vin': vin,
         'wmi': selected_wmi,
@@ -250,12 +299,17 @@ def generate_vehicle_record(year=2026, wmi='', *, used_vins=None, used_plates=No
     }
 
 
-def generate_vehicle_batch(count=10, year=2026, wmi=''):
+def generate_vehicle_batch(
+    count=10, year=2026, wmi='', *, energy='', category='', kind='', plate_province='',
+):
     used_vins = set()
     used_plates = set()
     rows = []
     for _ in range(max(1, int(count))):
-        rows.append(generate_vehicle_record(year, wmi, used_vins=used_vins, used_plates=used_plates))
+        rows.append(generate_vehicle_record(
+            year, wmi, energy=energy, category=category, kind=kind,
+            plate_province=plate_province, used_vins=used_vins, used_plates=used_plates,
+        ))
     return rows
 
 

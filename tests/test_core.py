@@ -426,6 +426,15 @@ class VinTests(unittest.TestCase):
             if item['energy'] == '插电混动':
                 self.assertIn('F', item['plate'][2:3])
 
+    def test_vehicle_batch_honors_specified_filters(self):
+        ev = generate_vehicle_batch(12, 2026, energy='纯电', plate_province='粤')
+        self.assertTrue(all(item['energy'] == '纯电' for item in ev))
+        self.assertTrue(all(item['plate'].startswith('粤') and item['plate'][2] == 'D' for item in ev))
+        trucks = generate_vehicle_batch(8, 2025, category='载货汽车')
+        self.assertTrue(all(item['category'] == '载货汽车' for item in trucks))
+        with self.assertRaises(Exception):
+            generate_vehicle_batch(2, 2026, energy='纯电', category='载货汽车')
+
 
 class GatewayCryptoTests(unittest.TestCase):
     @staticmethod

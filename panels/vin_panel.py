@@ -9,13 +9,14 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from ui.confirm_dialog import show_error
+from ui.confirm_dialog import show_error, show_warning
 from tools.vin_generator import (
-    CHINA_WMIS, VEHICLE_HEADERS_EN, VEHICLE_HEADERS_ZH, generate_vehicle_batch,
-    vehicle_row_values,
+    CHINA_WMIS, PROVINCE_PREFIXES, VEHICLE_HEADERS_EN, VEHICLE_HEADERS_ZH,
+    VehicleFilterError, generate_vehicle_batch, list_category_options,
+    list_energy_options, list_kind_options, vehicle_row_values,
 )
 from ui.design_system import apply_button
-from ui.field_metrics import CompactStepper, size_enum_combo
+from ui.field_metrics import CompactStepper, apply_caption, size_enum_combo
 
 
 class VinPanel(QWidget):
@@ -46,22 +47,37 @@ class VinPanel(QWidget):
         self.settings = QGroupBox()
         self.settings.setObjectName('vin-settings')
         self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        row = QHBoxLayout(self.settings)
+        settings_l = QVBoxLayout(self.settings)
+        settings_l.setContentsMargins(12, 12, 12, 12)
+        settings_l.setSpacing(8)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.mode_label = QLabel()
+        apply_caption(self.mode_label)
+        row.addWidget(self.mode_label)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(['全随机', '指定条件'])
+        size_enum_combo(self.mode_combo)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        row.addWidget(self.mode_combo)
         self.year_label = QLabel()
-        row.addWidget(self.year_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        apply_caption(self.year_label)
+        row.addWidget(self.year_label)
         self.year_combo = QComboBox()
         self.year_combo.addItems([str(y) for y in range(2001, 2031)])
         self.year_combo.setCurrentText(str(datetime.date.today().year))
         size_enum_combo(self.year_combo)
         row.addWidget(self.year_combo)
         self.wmi_label = QLabel()
+        apply_caption(self.wmi_label)
         row.addWidget(self.wmi_label)
         self.wmi_combo = QComboBox()
         self.wmi_combo.addItems(['AUTO'] + list(CHINA_WMIS))
         size_enum_combo(self.wmi_combo)
         row.addWidget(self.wmi_combo)
         self.qty_label = QLabel()
-        row.addWidget(self.qty_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        apply_caption(self.qty_label)
+        row.addWidget(self.qty_label)
         self.qty = CompactStepper(1, 200, 10)
         row.addWidget(self.qty)
         self.generate_btn = QPushButton()
@@ -69,6 +85,49 @@ class VinPanel(QWidget):
         self.generate_btn.clicked.connect(self._generate)
         row.addWidget(self.generate_btn)
         row.addStretch(1)
+        settings_l.addLayout(row)
+
+        self.custom = QWidget()
+        custom = QHBoxLayout(self.custom)
+        custom.setContentsMargins(0, 0, 0, 0)
+        custom.setSpacing(8)
+        self.energy_label = QLabel()
+        apply_caption(self.energy_label)
+        custom.addWidget(self.energy_label)
+        self.energy_combo = QComboBox()
+        self.energy_combo.addItem('随机', '')
+        for item in list_energy_options():
+            self.energy_combo.addItem(item, item)
+        size_enum_combo(self.energy_combo)
+        custom.addWidget(self.energy_combo)
+        self.category_label = QLabel()
+        apply_caption(self.category_label)
+        custom.addWidget(self.category_label)
+        self.category_combo = QComboBox()
+        self.category_combo.addItem('随机', '')
+        for item in list_category_options():
+            self.category_combo.addItem(item, item)
+        size_enum_combo(self.category_combo)
+        self.category_combo.currentIndexChanged.connect(self._refresh_kind_options)
+        custom.addWidget(self.category_combo)
+        self.kind_label = QLabel()
+        apply_caption(self.kind_label)
+        custom.addWidget(self.kind_label)
+        self.kind_combo = QComboBox()
+        self._refresh_kind_options()
+        custom.addWidget(self.kind_combo)
+        self.plate_label = QLabel()
+        apply_caption(self.plate_label)
+        custom.addWidget(self.plate_label)
+        self.plate_combo = QComboBox()
+        self.plate_combo.addItem('随机', '')
+        for item in PROVINCE_PREFIXES:
+            self.plate_combo.addItem(item, item)
+        size_enum_combo(self.plate_combo)
+        custom.addWidget(self.plate_combo)
+        custom.addStretch(1)
+        self.custom.hide()
+        settings_l.addWidget(self.custom)
         layout.addWidget(self.settings)
 
         self.table = QTableWidget(0, len(VEHICLE_HEADERS_ZH))
@@ -130,15 +189,30 @@ class VinPanel(QWidget):
             self.page_subtitle.setText(
                 '离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.'
             )
+        self.mode_label.setText('模式' if zh else 'Mode')
+        self.mode_combo.setItemText(0, '全随机' if zh else 'Random')
+        self.mode_combo.setItemText(1, '指定条件' if zh else 'Custom')
         self.year_label.setText('车型年份' if zh else 'Model year')
-        self.wmi_label.setText('制造商 WMI' if zh else 'Manufacturer WMI')
+        self.wmi_label.setText('制造商' if zh else 'Maker')
         self.qty_label.setText('数量' if zh else 'Qty')
+        self.energy_label.setText('能源' if zh else 'Energy')
+        self.category_label.setText('车辆大类' if zh else 'Category')
+        self.kind_label.setText('车辆种类' if zh else 'Kind')
+        self.plate_label.setText('号牌省份' if zh else 'Plate')
+        self.energy_combo.setItemText(0, '随机' if zh else 'Any')
+        self.category_combo.setItemText(0, '随机' if zh else 'Any')
+        self.plate_combo.setItemText(0, '随机' if zh else 'Any')
         self.generate_btn.setText('生成' if zh else 'Generate')
         self.copy_btn.setText('复制全部' if zh else 'Copy all')
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
         self.table.setHorizontalHeaderLabels(VEHICLE_HEADERS_ZH if zh else VEHICLE_HEADERS_EN)
+        size_enum_combo(self.mode_combo)
         size_enum_combo(self.year_combo)
         size_enum_combo(self.wmi_combo)
+        size_enum_combo(self.energy_combo)
+        size_enum_combo(self.category_combo)
+        size_enum_combo(self.kind_combo)
+        size_enum_combo(self.plate_combo)
 
     def _visible_fill_count(self) -> int:
         try:
@@ -155,11 +229,43 @@ class VinPanel(QWidget):
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._generate)
 
+    def _on_mode_changed(self, index):
+        self.custom.setVisible(index == 1)
+
+    def _refresh_kind_options(self, *_):
+        current = self.kind_combo.currentData() if hasattr(self, 'kind_combo') and self.kind_combo.count() else ''
+        self.kind_combo.blockSignals(True)
+        self.kind_combo.clear()
+        self.kind_combo.addItem('随机' if self.language == 'zh' else 'Any', '')
+        for item in list_kind_options(self.category_combo.currentData() or ''):
+            self.kind_combo.addItem(item, item)
+        idx = self.kind_combo.findData(current)
+        self.kind_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.kind_combo.blockSignals(False)
+        size_enum_combo(self.kind_combo)
+
+    def _combo_filter(self, combo):
+        value = combo.currentData()
+        return '' if value is None else str(value)
+
     def _generate(self):
         year = int(self.year_combo.currentText())
         wmi = self.wmi_combo.currentText()
         count = self._visible_fill_count()
-        self._results = generate_vehicle_batch(count, year, '' if wmi == 'AUTO' else wmi)
+        energy = category = kind = plate = ''
+        if self.mode_combo.currentIndex() == 1:
+            energy = self._combo_filter(self.energy_combo)
+            category = self._combo_filter(self.category_combo)
+            kind = self._combo_filter(self.kind_combo)
+            plate = self._combo_filter(self.plate_combo)
+        try:
+            self._results = generate_vehicle_batch(
+                count, year, '' if wmi == 'AUTO' else wmi,
+                energy=energy, category=category, kind=kind, plate_province=plate,
+            )
+        except VehicleFilterError as exc:
+            show_warning(self, '车辆 VIN' if self.language == 'zh' else 'VIN', str(exc))
+            return
         self.table.setRowCount(len(self._results))
         self.table.verticalHeader().setDefaultSectionSize(32)
         for row, record in enumerate(self._results):
