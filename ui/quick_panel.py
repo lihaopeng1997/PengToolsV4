@@ -133,15 +133,18 @@ class QuickPanel(QWidget):
         self.preview_title.setObjectName('floating-title')
         preview_head.addWidget(self.preview_title, 1)
         self.preview_gen_personal = QPushButton()
-        apply_button(self.preview_gen_personal, 'primary', compact=True)
+        apply_button(self.preview_gen_personal, 'secondary', compact=True)
+        self.preview_gen_personal.setMinimumWidth(80)
         self.preview_gen_personal.clicked.connect(lambda: self._generate_from_preview('personal'))
         preview_head.addWidget(self.preview_gen_personal)
         self.preview_gen_unit = QPushButton()
         apply_button(self.preview_gen_unit, 'secondary', compact=True)
+        self.preview_gen_unit.setMinimumWidth(80)
         self.preview_gen_unit.clicked.connect(lambda: self._generate_from_preview('unit'))
         preview_head.addWidget(self.preview_gen_unit)
         self.preview_gen_vin = QPushButton()
-        apply_button(self.preview_gen_vin, 'primary', compact=True)
+        apply_button(self.preview_gen_vin, 'secondary', compact=True)
+        self.preview_gen_vin.setMinimumWidth(80)
         self.preview_gen_vin.clicked.connect(lambda: self._generate_from_preview('vin'))
         preview_head.addWidget(self.preview_gen_vin)
         preview_l.addLayout(preview_head)
@@ -511,6 +514,8 @@ class QuickPanel(QWidget):
         if not self.expanded:
             self.toggle_expanded()
         self._preview_index = index
+        if index == 1 and getattr(self, '_preview_credit_side', None) is None:
+            self._preview_credit_side = 'personal'
         self.grid_host.hide()
         self.preview.show()
         self._fill_result_preview(index)
@@ -539,7 +544,16 @@ class QuickPanel(QWidget):
                     pass
             panel = getattr(win, 'credit_panel', None)
             headers = ('名称', '证件号码') if zh else ('Name', 'Number')
-            rows = self._credit_preview_rows(panel)
+            side = getattr(self, '_preview_credit_side', None) or 'personal'
+            if panel is not None:
+                personal = list(getattr(panel, '_personal_results', None) or [])
+                unit = list(getattr(panel, '_unit_results', None) or [])
+                if side == 'personal' and not personal and unit:
+                    side = 'unit'
+                if side == 'unit' and not unit and personal:
+                    side = 'personal'
+                self._preview_credit_side = side
+            rows = self._credit_preview_rows(panel, side)
         else:
             self.preview_title.setText('车辆 VIN' if zh else 'VIN')
             ensure = getattr(win, '_ensure_vin_panel', None)
@@ -571,13 +585,15 @@ class QuickPanel(QWidget):
                 self.preview_table.setRowHeight(row, 28)
 
     @staticmethod
-    def _credit_preview_rows(panel) -> list[list[str]]:
+    def _credit_preview_rows(panel, side: str = 'personal') -> list[list[str]]:
         rows = []
         if panel is None:
             return rows
-        personal = list(getattr(panel, '_personal_results', None) or [])
-        unit = list(getattr(panel, '_unit_results', None) or [])
-        for record in personal + unit:
+        source = (
+            getattr(panel, '_unit_results', None)
+            if side == 'unit' else getattr(panel, '_personal_results', None)
+        )
+        for record in list(source or []):
             rows.append([
                 str(record.get('name') or ''),
                 str(record.get('document') or ''),
@@ -599,31 +615,68 @@ class QuickPanel(QWidget):
 
     def _generate_from_preview(self, kind: str):
         win = self._main_window
-        try:
-            if kind in ('personal', 'unit'):
-                ensure = getattr(win, '_ensure_credit_panel', None)
-                if callable(ensure):
-                    ensure()
-                panel = getattr(win, 'credit_panel', None)
-                if panel is None:
-                    return
-                if kind == 'personal':
-                    panel._generate_personal()
-                else:
-                    panel._generate_unit()
+        count = 10
+        if kind in ('personal', 'unit'):
+            ensure = getattr(win, '_ensure_credit_panel', None)
+            if callable(ensure):
+                ensure()
+            panel = getattr(win, 'credit_panel', None)
+            if panel is None:
+                return
+            if kind == 'personal':
+                from tools.id_documents import generate_personal_records
+                doc_kind = 'resident_id'
+                if hasattr(panel, 'personal_type') and panel.personal_type.currentData():
+                    doc_kind = panel.personal_type.currentData()
+                if hasattr(panel, 'personal_qty'):
+                    try:
+                        count = max(1, min(200, int(panel.personal_qty.value())))
+                    except Exception:
+                        count = 10
+                panel._personal_results = generate_personal_records(doc_kind, count)
             else:
-                ensure = getattr(win, '_ensure_vin_panel', None)
-                if callable(ensure):
-                    ensure()
-                panel = getattr(win, 'vin_panel', None)
-                if panel is None:
-                    return
-                panel._generate()
-        except Exception:
+                from tools.credit_code import generate_unit_records
+                if hasattr(panel, 'unit_qty'):
+                    try:
+                        count = max(1, min(200, int(panel.unit_qty.value())))
+                    except Exception:
+                        count = 10
+                panel._unit_results = generate_unit_records(count)
+            self._preview_credit_side = kind
+            if hasattr(panel, 'isVisible') and panel.isVisible() and hasattr(panel, '_update_table'):
+                if hasattr(panel, 'category_tabs'):
+                    panel.category_tabs.setCurrentIndex(0 if kind == 'personal' else 1)
+                panel._update_table()
+            self._preview_index = 1
+            self._fill_result_preview(1)
             return
-        index = 1 if kind in ('personal', 'unit') else 4
-        self._preview_index = index
-        self._fill_result_preview(index)
+        ensure = getattr(win, '_ensure_vin_panel', None)
+        if callable(ensure):
+            ensure()
+        panel = getattr(win, 'vin_panel', None)
+        if panel is None:
+            return
+        from tools.vin_generator import generate_vehicle_batch
+        if hasattr(panel, 'qty'):
+            try:
+                count = max(1, min(200, int(panel.qty.value())))
+            except Exception:
+                count = 10
+        year = 2026
+        if hasattr(panel, 'year_combo') and panel.year_combo.currentText():
+            try:
+                year = int(panel.year_combo.currentText())
+            except Exception:
+                year = 2026
+        panel._results = generate_vehicle_batch(count, year)
+        if hasattr(panel, 'isVisible') and panel.isVisible() and hasattr(panel, '_generate'):
+            # 主界面已打开时同步表格
+            try:
+                panel._generate()
+            except Exception:
+                pass
+        self._preview_index = 4
+        self._fill_result_preview(4)
 
     def _copy_preview_item(self, item):
         payload = item.data(Qt.ItemDataRole.UserRole) or {}
