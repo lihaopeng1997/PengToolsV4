@@ -345,16 +345,23 @@ class InterfaceDebugPanel(QWidget):
         apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
         tv = QVBoxLayout(tools)
-        tv.setContentsMargins(8, 4, 8, 4)
-        tv.setSpacing(6)
+        tv.setContentsMargins(8, 8, 8, 10)
+        tv.setSpacing(8)
         tl = QHBoxLayout()
         tl.setSpacing(6)
         tl.addWidget(self.capture_toggle_btn)
         tl.addWidget(self.test_listen_btn)
         tl.addWidget(self.restore_proxy_btn)
+        tl.addWidget(self.capture_actions_more_btn)
         self.filter_edit = QLineEdit()
+        self.filter_edit.setObjectName('iface-session-search')
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
         self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
+        try:
+            from ui.field_metrics import size_field_height
+            size_field_height(self.filter_edit)
+        except Exception:
+            self.filter_edit.setMinimumHeight(32)
 
         self._filter_chips: dict[str, _FilterChip] = {}
         chip_defs = [
@@ -427,6 +434,7 @@ class InterfaceDebugPanel(QWidget):
         self._rebuild_session_actions_menu()
         tv.addLayout(tl)
         tv.addWidget(self.filter_edit)
+        self.session_toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
         # 中部：左侧采集/定位/会话，右侧诊断/复测。
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -449,6 +457,7 @@ class InterfaceDebugPanel(QWidget):
         self.session_toolbar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.session_toolbar.setMinimumWidth(0)
         self.session_toolbar_scroll.setWidget(self.session_toolbar)
+        self.session_toolbar_scroll.setMinimumHeight(78)
         ll.addWidget(self.session_toolbar_scroll)
         ll.addWidget(self.status_label)
         ll.addWidget(self.live_status)
@@ -1053,6 +1062,18 @@ class InterfaceDebugPanel(QWidget):
         """构建窄左栏的收纳菜单；复用原按钮行为，保证所有操作仍可访问。"""
         menu = self._session_actions_menu
         menu.clear()
+        if self.test_listen_btn.isHidden():
+            menu.addAction(
+                '测试连接' if self.language == 'zh' else 'Test connection',
+                self._test_listen_loopback,
+            )
+        if self.restore_proxy_btn.isHidden():
+            menu.addAction(
+                '恢复系统代理' if self.language == 'zh' else 'Restore proxy',
+                self._manual_restore_proxy,
+            )
+        if self.test_listen_btn.isHidden() or self.restore_proxy_btn.isHidden():
+            menu.addSeparator()
         for chip in self._filter_chips.values():
             action = menu.addAction(chip.text())
             action.setCheckable(True)
@@ -1070,15 +1091,17 @@ class InterfaceDebugPanel(QWidget):
         toggle_action.triggered.connect(self._toggle_session_list)
 
     def _update_session_toolbar_overflow(self, available_width=None):
-        """左栏随分隔条宽度在完整工具条与收纳菜单间切换。"""
+        """搜索已单独成行；第一行按宽度分档收纳抓包/筛选/导出。"""
         if not hasattr(self, 'session_actions_more_btn'):
             return
         width = int(available_width if available_width is not None else self._session_list_widget.width())
-        compact = width < 760
+        show_chips = width >= 640
+        show_io = width >= 760
+        compact = not (show_chips and show_io)
         for chip in self._filter_chips.values():
-            chip.setVisible(not compact)
-        self.export_list_btn.setVisible(not compact)
-        self.clear_list_btn.setVisible(not compact)
+            chip.setVisible(show_chips)
+        self.export_list_btn.setVisible(show_io)
+        self.clear_list_btn.setVisible(show_io)
         # 会话栏显隐是窄屏下恢复阅读区的主控件，始终保持可达。
         self._toggle_list_btn.show()
         self.session_actions_more_btn.setVisible(compact)

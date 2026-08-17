@@ -1100,6 +1100,22 @@ QFrame#iface-session-toolbar {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
+    padding: 2px 0 4px;
+}
+QScrollArea#iface-session-toolbar-scroll {
+    background: transparent;
+    border: none;
+}
+QLineEdit#iface-session-search {
+    min-height: 28px;
+    max-height: 32px;
+    padding: 4px 10px;
+    border: 1px solid __BORDER__;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
+}
+QLineEdit#iface-session-search:focus {
+    border: 1px solid __FOCUS_RING__;
 }
 /* sql-editor-splitter 已由全局 QSplitter::handle 统一管理 */
 QLineEdit#release-readonly {
