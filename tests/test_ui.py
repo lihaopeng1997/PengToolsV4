@@ -121,6 +121,35 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(len(panel.current_shortcuts()), 6)
         panel.close()
 
+    def test_floating_preview_shows_document_and_vin_keys(self):
+        class Win(_MainWindowStub):
+            def __init__(self):
+                self.credit_panel = type('C', (), {
+                    '_personal_results': [{'name': '张三', 'document': '110101199001011234'}],
+                    '_unit_results': [{'name': '鑫润科技有限公司', 'document': '91110000MA0012345X'}],
+                })()
+                self.vin_panel = type('V', (), {'_results': [{
+                    'plate': '粤BD12345',
+                    'vin': 'LSV12345678901234',
+                    'engine_no': 'TZ180XSA000001',
+                }]})()
+
+        panel = QuickPanel(Win())
+        panel.show()
+        panel._open_result_preview(1)
+        self.assertTrue(panel.preview.isVisible())
+        self.assertFalse(panel.grid_host.isVisible())
+        self.assertIn('张三', panel.preview_list.item(0).text())
+        self.assertIn('110101199001011234', panel.preview_list.item(0).text())
+        panel._copy_preview_item(panel.preview_list.item(0))
+        self.assertEqual(QApplication.clipboard().text(), '110101199001011234')
+        panel._open_result_preview(4)
+        text = panel.preview_list.item(0).text()
+        self.assertIn('粤BD12345', text)
+        self.assertIn('LSV12345678901234', text)
+        self.assertIn('TZ180XSA000001', text)
+        panel.close()
+
     def test_brand_icon_resources_exist(self):
         from ui.icons import brand_file, brand_pixmap, brand_window_icon
         self.assertTrue(os.path.exists(brand_file('app')))
