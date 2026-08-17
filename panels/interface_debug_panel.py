@@ -734,9 +734,13 @@ class InterfaceDebugPanel(QWidget):
         lib_l.setContentsMargins(0, 0, 4, 0)
         lib_l.setSpacing(4)
         mode_row = QHBoxLayout()
+        self.rt_lib_mode_label = QLabel('列表')
+        apply_caption(self.rt_lib_mode_label, 48)
+        mode_row.addWidget(self.rt_lib_mode_label)
         self.rt_lib_mode = QComboBox()
-        self.rt_lib_mode.addItem('接口库', 'library')
-        self.rt_lib_mode.addItem('历史', 'history')
+        self.rt_lib_mode.addItem('已保存', 'library')
+        self.rt_lib_mode.addItem('发送记录', 'history')
+        self.rt_lib_mode.setToolTip('已保存：点「保存接口」收藏的请求。发送记录：点「发送」后自动留下的记录。')
         size_enum_combo(self.rt_lib_mode)
         self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
         mode_row.addWidget(self.rt_lib_mode)
@@ -3223,9 +3227,9 @@ class InterfaceDebugPanel(QWidget):
         total = len(source or [])
         shown = len(items)
         if mode == 'history':
-            text = f'历史 {shown}/{total}' if zh else f'History {shown}/{total}'
+            text = f'发送记录 {shown}/{total}' if zh else f'Sent {shown}/{total}'
         else:
-            text = f'接口 {shown}/{total}' if zh else f'APIs {shown}/{total}'
+            text = f'已保存 {shown}/{total}' if zh else f'Saved {shown}/{total}'
         if hasattr(self, 'rt_lib_count'):
             self.rt_lib_count.setText(text)
 
@@ -4142,8 +4146,8 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求测试 · 环境 / 接口库 / 历史' if zh else
-            'Request test · env / library / history'
+            '请求测试 · 环境 / 已保存 / 发送记录' if zh else
+            'Request test · env / saved / sent'
         )
         self.target_label.setText('环境' if zh else 'Environment')
         if hasattr(self, 'base_label'):
@@ -4199,13 +4203,20 @@ class InterfaceDebugPanel(QWidget):
                 '新增 / 重命名 / 删除接口分类' if zh else 'Add / rename / delete categories'
             )
         if hasattr(self, 'rt_lib_mode'):
+            if hasattr(self, 'rt_lib_mode_label'):
+                self.rt_lib_mode_label.setText('列表' if zh else 'List')
             # 保留 data，只改显示文案
             for i in range(self.rt_lib_mode.count()):
                 data = self.rt_lib_mode.itemData(i)
                 if data == 'library':
-                    self.rt_lib_mode.setItemText(i, '接口库' if zh else 'Library')
+                    self.rt_lib_mode.setItemText(i, '已保存' if zh else 'Saved')
                 elif data == 'history':
-                    self.rt_lib_mode.setItemText(i, '历史' if zh else 'History')
+                    self.rt_lib_mode.setItemText(i, '发送记录' if zh else 'Sent')
+            self.rt_lib_mode.setToolTip(
+                '已保存：点「保存接口」收藏的请求。发送记录：点「发送」后自动留下的记录。'
+                if zh else
+                'Saved: requests you bookmarked. Sent: auto-logged after Send.'
+            )
             size_enum_combo(self.rt_lib_mode)
             self.rt_lib_search.setPlaceholderText(
                 '搜索名称 / URL' if zh else 'Search name / URL'
@@ -4235,9 +4246,9 @@ class InterfaceDebugPanel(QWidget):
         if hasattr(self, 'export_list_btn'):
             self.export_list_btn.setText('导出明细' if zh else 'Export')
         self.draft_hint.setText(
-            '左侧接口库可分类收藏；发送后自动记入历史。环境 Base 替换 host，保留 path/query。'
+            '「已保存」是收藏的请求；「发送记录」是点发送后自动留下的。环境 Base 只替换 host。'
             if zh else
-            'Left: categorized library & history. Send auto-saves history. Env rewrites host.'
+            'Saved = bookmarked requests. Sent = auto log after Send. Env rewrites host only.'
         )
         self._apply_mode_ui()
         labels = self.COL_LABELS_ZH if zh else self.COL_LABELS_EN

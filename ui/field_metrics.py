@@ -70,9 +70,18 @@ def size_pick_combo(combo, width: int = COMBO_PICK_W) -> None:
             view.setTextElideMode(Qt.TextElideMode.ElideRight)
 
 
-def size_enum_combo(combo, *, extra: int = 72, min_w: int = 72, max_w: int = 360) -> None:
-    """封闭码值：按当前选项最长文案一次定宽。"""
-    fit_combo(combo, extra=extra, min_w=min_w, max_w=max_w)
+def size_enum_combo(combo, *, extra: int = 16, min_w: int = 80, max_w: int = 360) -> None:
+    """封闭码值：用 Qt sizeHint（已含箭头/内边距）一次定宽，避免汉字被裁。"""
+    from PyQt6.QtWidgets import QComboBox
+    if not isinstance(combo, QComboBox):
+        return
+    size_field_height(combo)
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    combo.setMinimumContentsLength(0)
+    combo.setMinimumWidth(0)
+    combo.setMaximumWidth(16777215)
+    width = max(int(min_w), min(int(max_w), int(combo.sizeHint().width()) + int(extra)))
+    combo.setFixedWidth(width)
 
 
 def fit_combo(combo, *, extra: int = 72, min_w: int = 72, max_w: int = 400) -> None:
