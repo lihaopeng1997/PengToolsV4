@@ -46,7 +46,7 @@ from tools.interface_session_view import (
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import size_combo
+from ui.field_metrics import fit_combo, size_combo
 from ui.page_chrome import make_page_header
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
@@ -679,6 +679,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_method = QComboBox()
         self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
         size_combo(self.rt_method, 'sm')
+        fit_combo(self.rt_method)
         method_row.addWidget(self.rt_method)
         self.rt_url = QLineEdit()
         self.rt_url.setPlaceholderText('http://host:port/path')
@@ -733,7 +734,9 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_mode.addItem('历史', 'history')
         size_combo(self.rt_lib_mode, 'sm')
         self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
-        mode_row.addWidget(self.rt_lib_mode, 1)
+        fit_combo(self.rt_lib_mode)
+        mode_row.addWidget(self.rt_lib_mode)
+        mode_row.addStretch(1)
         self.rt_history_cleanup_btn = QPushButton()
         apply_button(self.rt_history_cleanup_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.rt_history_cleanup_btn.clicked.connect(self._show_history_cleanup_dialog)
@@ -744,7 +747,8 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_cat_filter = QComboBox()
         size_combo(self.rt_lib_cat_filter, 'sm')
         self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
-        filter_row.addWidget(self.rt_lib_cat_filter, 1)
+        filter_row.addWidget(self.rt_lib_cat_filter)
+        filter_row.addStretch(1)
         lib_l.addLayout(filter_row)
         self.rt_lib_search = QLineEdit()
         self.rt_lib_search.setPlaceholderText('搜索名称 / URL')
@@ -804,7 +808,7 @@ class InterfaceDebugPanel(QWidget):
 
         self.rt_tabs = QTabWidget()
         self.rt_tabs.setObjectName('module-tabs')
-        self.rt_tabs.setDocumentMode(True)
+        self.rt_tabs.setDocumentMode(False)
         self.rt_headers = QPlainTextEdit()
         self.rt_headers.setPlaceholderText('Header-Name: value\nContent-Type: application/json')
         self.rt_headers.setFont(mono)
@@ -3125,6 +3129,7 @@ class InterfaceDebugPanel(QWidget):
                 self.rt_category_combo.addItem(c.get('name') or '', c.get('id'))
             self._rt_select_category(last)
             self.rt_category_combo.blockSignals(False)
+            fit_combo(self.rt_category_combo)
         # 列表筛选：全部 + 各分类
         if hasattr(self, 'rt_lib_cat_filter'):
             self.rt_lib_cat_filter.blockSignals(True)
@@ -3142,6 +3147,7 @@ class InterfaceDebugPanel(QWidget):
                     break
             self.rt_lib_cat_filter.setCurrentIndex(sel)
             self.rt_lib_cat_filter.blockSignals(False)
+            fit_combo(self.rt_lib_cat_filter)
 
     def _rt_lib_sync_mode_combo(self):
         if not hasattr(self, 'rt_lib_mode'):

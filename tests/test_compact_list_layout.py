@@ -101,7 +101,7 @@ class DensityPassPanelTests(unittest.TestCase):
             panel.category_tabs.sizePolicy().verticalPolicy().name,
             'Maximum',
         )
-        self.assertGreaterEqual(panel.table.minimumHeight(), 160)
+        self.assertGreaterEqual(panel.table.minimumHeight(), 240)
         panel.close()
 
     def test_vin_fills_visible_rows_and_keeps_vin_column_readable(self):

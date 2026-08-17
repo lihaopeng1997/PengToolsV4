@@ -191,6 +191,13 @@ class DocxUpdatePanel(QWidget):
         date_l.setSpacing(8)
         date_l.addWidget(self.update_date)
         date_l.addWidget(self.today_btn)
+        self.author_row_label = QLabel()
+        apply_caption(self.author_row_label)
+        date_l.addWidget(self.author_row_label)
+        self.author = QLineEdit('System')
+        size_field_height(self.author)
+        self.author.setFixedWidth(160)
+        date_l.addWidget(self.author)
         date_l.addStretch(1)
         date_l.addWidget(self.update_btn)
         self.date_row_label = QLabel()
@@ -199,13 +206,6 @@ class DocxUpdatePanel(QWidget):
         self.date_card = date_field
         self.date_badge = QLabel()
         self.date_badge.hide()
-
-        self.author = QLineEdit('System')
-        size_field_height(self.author)
-        self.author.setFixedWidth(160)
-        self.author_row_label = QLabel()
-        apply_caption(self.author_row_label)
-        form.addRow(self.author_row_label, self.author)
         layout.addWidget(self.file_group)
 
         mid = QSplitter(Qt.Orientation.Horizontal)

@@ -511,12 +511,25 @@ class ThemeManager:
     def _sync_widget_chrome(app: QApplication, palette) -> None:
         """QFrame/QWidget 默认不画 QSS 底；补 StyledBackground 并重刷已有控件。"""
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QAbstractItemView, QComboBox, QHeaderView, QLineEdit, QMenu,
+            QPlainTextEdit, QScrollBar, QTextEdit,
+        )
 
-        skip = {'theme-card-preview', 'ssh-terminal-host', 'ssh-find-bar'}
+        skip_names = {'theme-card-preview', 'ssh-terminal-host', 'ssh-find-bar'}
+        skip_types = (
+            QAbstractItemView, QHeaderView, QScrollBar, QComboBox,
+            QLineEdit, QTextEdit, QPlainTextEdit, QMenu,
+        )
         for widget in app.allWidgets():
-            if (widget.objectName() or '') in skip:
+            if (widget.objectName() or '') in skip_names:
                 continue
             if widget.property('ownPalette'):
+                continue
+            if isinstance(widget, skip_types):
+                continue
+            parent = widget.parentWidget()
+            if parent is not None and isinstance(parent, (QAbstractItemView, QComboBox, QLineEdit)):
                 continue
             widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             widget.setPalette(palette)

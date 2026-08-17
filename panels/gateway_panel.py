@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from tools.gateway_crypto import decrypt_gateway_payload
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import apply_form, size_combo
+from ui.field_metrics import apply_form, fit_combo, size_combo
 from ui.json_viewer import JsonViewer
 
 
@@ -367,6 +367,7 @@ class GatewayDecodePanel(QWidget):
         env_names = ['集成环境', '用户环境', '生产环境'] if zh else ['Integration', 'User / UAT', 'Production']
         for index, name in enumerate(env_names):
             self.environment.setItemText(index, name)
+        fit_combo(self.environment)
         self.key_label.setText('Key（密钥）' if zh else 'Key')
         key_tip = (
             '请在此录入 SM2 加密后的 SM4 Key 密文（十六进制）。请勿把真实密钥写入示例或日志。'

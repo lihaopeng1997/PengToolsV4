@@ -63,6 +63,24 @@ def size_combo(widget, size: str = 'md', *, fill: bool = False) -> None:
     widget.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
 
+def fit_combo(combo, *, extra: int = 44, min_w: int = 56, max_w: int = 280) -> None:
+    """按当前选项里最长文案收窄，不拉满整行。"""
+    from PyQt6.QtWidgets import QComboBox
+    if not isinstance(combo, QComboBox):
+        return
+    size_field_height(combo)
+    metrics = combo.fontMetrics()
+    widest = 0
+    for index in range(combo.count()):
+        widest = max(widest, metrics.horizontalAdvance(combo.itemText(index)))
+    width = max(int(min_w), min(int(max_w), int(widest) + int(extra)))
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    combo.setMinimumContentsLength(0)
+    combo.setMinimumWidth(width)
+    combo.setMaximumWidth(width)
+    combo.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+
+
 def size_date(widget, month: bool = False) -> None:
     """统一日期控件；month=True 用于 yyyy-MM。"""
     lo, hi = DATE_MONTH_W if month else DATE_W

@@ -322,6 +322,11 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(len(panel._results), 20)
         self.assertTrue(all(item[2].startswith('440304') for item in panel._results))
         self.assertTrue(all(int(item[2][16]) % 2 == 1 for item in panel._results))
+        self.assertEqual(panel.table.rowCount(), 20)
+        self.assertGreaterEqual(panel.table.rowHeight(0), 28)
+        self.assertGreaterEqual(panel.table.rowHeight(19), 28)
+        self.assertLessEqual(panel.personal_mode.maximumWidth(), 160)
+        self.assertLessEqual(panel.id_gender.maximumWidth(), 120)
 
     def test_sql_switch_keeps_unsaved_form_edits(self):
         panel = SqlToolPanel()

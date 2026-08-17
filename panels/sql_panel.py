@@ -27,7 +27,7 @@ from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import (
-    apply_form, size_caption, size_combo, size_compact_button, size_date, size_line,
+    apply_form, fit_combo, size_caption, size_combo, size_compact_button, size_date, size_line,
     size_status_pill, size_system_chip,
 )
 
@@ -89,7 +89,7 @@ class SqlToolPanel(QWidget):
         # 顶栏不再放 SQL 按钮，避免切换 Sheet 时“突然冒出一排按钮”
         self.tabs = QTabWidget()
         self.tabs.setObjectName('module-tabs')
-        self.tabs.setDocumentMode(True)
+        self.tabs.setDocumentMode(False)
         self.tabs.setMovable(False)
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
@@ -548,6 +548,7 @@ class SqlToolPanel(QWidget):
         self.env_combo = QComboBox()
         size_combo(self.env_combo, 'sm')
         self.env_combo.addItems(['模拟环境', '生产环境'])
+        fit_combo(self.env_combo)
         first.addWidget(self.env_combo)
         self.date_label = QLabel()
         self.date_label.setObjectName('field-caption')
@@ -602,7 +603,7 @@ class SqlToolPanel(QWidget):
         preview_outer.addWidget(self.preview_label)
         self.preview_tabs = QTabWidget()
         self.preview_tabs.setObjectName('module-tabs')
-        self.preview_tabs.setDocumentMode(True)
+        self.preview_tabs.setDocumentMode(False)
         self.preview_tabs.setUsesScrollButtons(True)
         self.preview_tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self.upgrade_preview = self._preview_editor()
@@ -824,6 +825,7 @@ class SqlToolPanel(QWidget):
         self.env_label.setText('环境' if zh else 'Env')
         self.env_combo.setItemText(0, '模拟环境' if zh else 'Simulation')
         self.env_combo.setItemText(1, '生产环境' if zh else 'Production')
+        fit_combo(self.env_combo)
         self.date_label.setText('日期' if zh else 'Date')
         self.root_label.setText('输出目录' if zh else 'Output')
         self.root_btn.setText('选择' if zh else 'Browse')
@@ -868,11 +870,13 @@ class SqlToolPanel(QWidget):
         self.system_combo.clear()
         self.system_combo.addItems([system['name'] for system in self._systems])
         self.system_combo.blockSignals(False)
+        fit_combo(self.system_combo)
         if hasattr(self, 'work_system_combo'):
             self.work_system_combo.blockSignals(True)
             self.work_system_combo.clear()
             self.work_system_combo.addItems([system['name'] for system in self._systems])
             self.work_system_combo.blockSignals(False)
+            fit_combo(self.work_system_combo)
         if self._systems:
             self._current_system_idx = min(self._current_system_idx, len(self._systems) - 1)
             self.system_combo.setCurrentIndex(self._current_system_idx)

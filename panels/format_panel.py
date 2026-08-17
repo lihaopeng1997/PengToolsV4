@@ -24,7 +24,7 @@ from tools.text_dev_helpers import (
 )
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import size_combo
+from ui.field_metrics import fit_combo, size_combo
 from ui.json_viewer import JsonViewer
 from ui.page_chrome import make_page_header
 from ui.xml_workspace import XmlWorkspace
@@ -309,6 +309,7 @@ class _TextDevHelpersTab(QWidget):
         size_combo(self.mode_combo, 'md')
         self.mode_combo.addItems(list(self.MODES))
         self.mode_combo.currentIndexChanged.connect(self._on_mode)
+        fit_combo(self.mode_combo)
         tools.addWidget(self.mode_combo)
         tools.addStretch(1)
         self.encode_btn = QPushButton()
@@ -498,7 +499,7 @@ class FormatToolsPanel(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName('module-tabs')
-        self.tabs.setDocumentMode(True)
+        self.tabs.setDocumentMode(False)
 
         # JSON：复用 JsonViewer，不改其 API
         json_page = QWidget()

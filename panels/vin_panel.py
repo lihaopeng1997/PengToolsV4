@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
 from ui.design_system import apply_button
-from ui.field_metrics import size_combo
+from ui.field_metrics import fit_combo, size_combo
 
 
 class VinPanel(QWidget):
@@ -54,9 +54,10 @@ class VinPanel(QWidget):
         self.wmi_label = QLabel()
         row.addWidget(self.wmi_label)
         self.wmi_combo = QComboBox()
-        size_combo(self.wmi_combo, 'md', fill=True)
+        size_combo(self.wmi_combo, 'sm')
         self.wmi_combo.addItems(['AUTO'] + list(CHINA_WMIS))
-        row.addWidget(self.wmi_combo, 1)
+        row.addWidget(self.wmi_combo)
+        row.addStretch(1)
         self.generate_btn = QPushButton()
         apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)
@@ -83,7 +84,7 @@ class VinPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(32)
-        self.table.setMinimumHeight(200)
+        self.table.setMinimumHeight(240)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
         layout.addWidget(self.table, 1)
@@ -127,13 +128,15 @@ class VinPanel(QWidget):
             ['序号', 'VIN', 'WMI', '年份码', '校验'] if zh
             else ['#', 'VIN', 'WMI', 'Year code', 'Valid']
         )
+        fit_combo(self.year_combo)
+        fit_combo(self.wmi_combo)
 
     def _visible_fill_count(self) -> int:
         viewport = self.table.viewport().height() if self.table.viewport() else 0
-        row_h = max(int(self.table.verticalHeader().defaultSectionSize() or 24), 22)
-        if viewport < 40:
+        row_h = max(int(self.table.verticalHeader().defaultSectionSize() or 32), 28)
+        if viewport < 80:
             return 12
-        return max(8, min(40, viewport // row_h))
+        return max(12, min(40, viewport // row_h))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -162,6 +165,8 @@ class VinPanel(QWidget):
                 item = QTableWidgetItem(value)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, column, item)
+            self.table.setRowHeight(row, 32)
+        self.table.scrollToTop()
         self.status.setText(
             f'{len(self._results)} 条' if self.language == 'zh' else f'{len(self._results)} rows'
         )
