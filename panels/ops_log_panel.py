@@ -36,7 +36,7 @@ from tools.ops_ssh import (
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
-from ui.field_metrics import CompactStepper, apply_form, fit_combo, size_combo, size_line
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
 from ui.page_chrome import make_page_header
 from ui.ssh_terminal import SshTerminalWidget
 
@@ -1443,7 +1443,7 @@ class OpsLogPanel(QWidget):
                 )
         self.log_file_combo.setCurrentIndex(pick)
         self.log_file_combo.blockSignals(False)
-        fit_combo(self.log_file_combo, max_w=320)
+        size_pick_combo(self.log_file_combo)
         self._log_files_loading = False
         self._refresh_output_context()
 
@@ -1512,7 +1512,7 @@ class OpsLogPanel(QWidget):
             if p:
                 self.service_combo.addItem('默认' if self.language == 'zh' else 'Default', p)
         self.service_combo.blockSignals(False)
-        fit_combo(self.service_combo)
+        size_pick_combo(self.service_combo)
         if self.service_combo.count():
             self.service_combo.setCurrentIndex(0)
             self._on_service_combo_changed()
@@ -1599,7 +1599,7 @@ class OpsLogPanel(QWidget):
         self.server_title.setObjectName('section-title')
         pick_row.addWidget(self.server_title)
         self.server_combo = QComboBox()
-        size_combo(self.server_combo, 'md')
+        size_pick_combo(self.server_combo)
         self.server_combo.currentIndexChanged.connect(self._on_server_combo_changed)
         pick_row.addWidget(self.server_combo)
         pick_row.addStretch(1)
@@ -1643,7 +1643,7 @@ class OpsLogPanel(QWidget):
         apply_form(form)
         form.setContentsMargins(0, 0, 0, 0)
         self.service_combo = QComboBox()
-        size_combo(self.service_combo, 'md')
+        size_pick_combo(self.service_combo)
         self.service_combo.currentIndexChanged.connect(self._on_service_combo_changed)
         # 可绑目录：路径框 + 刷新日志列表
         path_wrap = QWidget()
@@ -1660,7 +1660,7 @@ class OpsLogPanel(QWidget):
         path_l.addWidget(self.refresh_logs_btn)
         # 目录下的 .log 文件下拉（按日期新→旧）
         self.log_file_combo = QComboBox()
-        size_combo(self.log_file_combo, 'md')
+        size_pick_combo(self.log_file_combo)
         self.log_file_combo.currentIndexChanged.connect(self._on_log_file_combo_changed)
         self.keyword_edit = QLineEdit()
         size_line(self.keyword_edit, 'std')
@@ -2199,7 +2199,7 @@ class OpsLogPanel(QWidget):
             if idx >= 0:
                 self.server_combo.setCurrentIndex(idx)
         self.server_combo.blockSignals(False)
-        fit_combo(self.server_combo, max_w=260)
+        size_pick_combo(self.server_combo)
 
     # ── 语言 ────────────────────────────────────────────
     def set_language(self, language):

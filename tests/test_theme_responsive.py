@@ -197,6 +197,20 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertGreater(combo.maximumWidth(), 140)
         self.assertLessEqual(combo.maximumWidth(), 400)
 
+    def test_pick_combo_keeps_stable_width(self):
+        from PyQt6.QtWidgets import QApplication, QComboBox
+        from ui.field_metrics import COMBO_PICK_W, size_pick_combo
+
+        QApplication.instance() or QApplication([])
+        combo = QComboBox()
+        combo.addItems(['A'])
+        size_pick_combo(combo)
+        self.assertEqual(combo.maximumWidth(), COMBO_PICK_W)
+        combo.addItems(['这是一个会被刷新的很长服务器名'])
+        size_pick_combo(combo)
+        self.assertEqual(combo.maximumWidth(), COMBO_PICK_W)
+        self.assertEqual(combo.minimumWidth(), COMBO_PICK_W)
+
     def test_black_groupbox_and_combo_are_not_white(self):
         from PyQt6.QtWidgets import QComboBox, QGroupBox, QVBoxLayout, QWidget
 

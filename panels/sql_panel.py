@@ -27,8 +27,8 @@ from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import (
-    apply_form, fit_combo, size_caption, size_combo, size_compact_button, size_date, size_line,
-    size_status_pill, size_system_chip,
+    apply_form, size_caption, size_combo, size_compact_button, size_date,
+    size_enum_combo, size_line, size_pick_combo, size_status_pill, size_system_chip,
 )
 
 
@@ -552,7 +552,7 @@ class SqlToolPanel(QWidget):
         first.addWidget(self.work_system_label)
         # 输入区直接选择系统（与配置页 system_combo 双向同步）
         self.work_system_combo = QComboBox()
-        size_combo(self.work_system_combo, 'md')
+        size_pick_combo(self.work_system_combo)
         self.work_system_combo.currentIndexChanged.connect(self._on_work_system_changed)
         first.addWidget(self.work_system_combo)
         self.work_system_empty = QPushButton()
@@ -571,9 +571,8 @@ class SqlToolPanel(QWidget):
         size_caption(self.env_label)
         first.addWidget(self.env_label)
         self.env_combo = QComboBox()
-        size_combo(self.env_combo, 'sm')
         self.env_combo.addItems(['模拟环境', '生产环境'])
-        fit_combo(self.env_combo)
+        size_enum_combo(self.env_combo)
         first.addWidget(self.env_combo)
         self.date_label = QLabel()
         self.date_label.setObjectName('field-caption')
@@ -850,7 +849,7 @@ class SqlToolPanel(QWidget):
         self.env_label.setText('环境' if zh else 'Env')
         self.env_combo.setItemText(0, '模拟环境' if zh else 'Simulation')
         self.env_combo.setItemText(1, '生产环境' if zh else 'Production')
-        fit_combo(self.env_combo)
+        size_enum_combo(self.env_combo)
         self.date_label.setText('日期' if zh else 'Date')
         self.root_label.setText('输出目录' if zh else 'Output')
         self.root_btn.setText('选择' if zh else 'Browse')
@@ -895,13 +894,13 @@ class SqlToolPanel(QWidget):
         self.system_combo.clear()
         self.system_combo.addItems([system['name'] for system in self._systems])
         self.system_combo.blockSignals(False)
-        fit_combo(self.system_combo)
+        size_pick_combo(self.system_combo)
         if hasattr(self, 'work_system_combo'):
             self.work_system_combo.blockSignals(True)
             self.work_system_combo.clear()
             self.work_system_combo.addItems([system['name'] for system in self._systems])
             self.work_system_combo.blockSignals(False)
-            fit_combo(self.work_system_combo)
+            size_pick_combo(self.work_system_combo)
         if self._systems:
             self._current_system_idx = min(self._current_system_idx, len(self._systems) - 1)
             self.system_combo.setCurrentIndex(self._current_system_idx)

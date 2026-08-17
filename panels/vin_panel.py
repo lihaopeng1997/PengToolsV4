@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
 from ui.design_system import apply_button
-from ui.field_metrics import CompactStepper, fit_combo, size_combo
+from ui.field_metrics import CompactStepper, size_enum_combo
 
 
 class VinPanel(QWidget):
@@ -47,15 +47,15 @@ class VinPanel(QWidget):
         self.year_label = QLabel()
         row.addWidget(self.year_label, 0, Qt.AlignmentFlag.AlignVCenter)
         self.year_combo = QComboBox()
-        size_combo(self.year_combo, 'sm')
         self.year_combo.addItems([str(y) for y in range(2001, 2031)])
         self.year_combo.setCurrentText(str(datetime.date.today().year))
+        size_enum_combo(self.year_combo)
         row.addWidget(self.year_combo)
         self.wmi_label = QLabel()
         row.addWidget(self.wmi_label)
         self.wmi_combo = QComboBox()
-        size_combo(self.wmi_combo, 'sm')
         self.wmi_combo.addItems(['AUTO'] + list(CHINA_WMIS))
+        size_enum_combo(self.wmi_combo)
         row.addWidget(self.wmi_combo)
         self.qty_label = QLabel()
         row.addWidget(self.qty_label, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -136,8 +136,8 @@ class VinPanel(QWidget):
             ['序号', 'VIN', 'WMI', '年份码', '校验'] if zh
             else ['#', 'VIN', 'WMI', 'Year code', 'Valid']
         )
-        fit_combo(self.year_combo)
-        fit_combo(self.wmi_combo)
+        size_enum_combo(self.year_combo)
+        size_enum_combo(self.wmi_combo)
 
     def _visible_fill_count(self) -> int:
         try:
@@ -147,8 +147,8 @@ class VinPanel(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        fit_combo(self.year_combo)
-        fit_combo(self.wmi_combo)
+        size_enum_combo(self.year_combo)
+        size_enum_combo(self.wmi_combo)
         if self._pending_fill:
             self._pending_fill = False
             from PyQt6.QtCore import QTimer

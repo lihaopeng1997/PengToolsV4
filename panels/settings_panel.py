@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
-from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_field_height
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo, size_field_height
 from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
 
 
@@ -225,9 +225,9 @@ class SettingsPanel(QWidget):
         appearance.addRow(self.font_label, self.font_size)
         self.density_combo = QComboBox()
         self.density_combo.setObjectName('density-combo')
-        size_combo(self.density_combo, 'sm')
         self.density_combo.addItem('紧凑', 'compact')
         self.density_combo.addItem('舒适', 'comfortable')
+        size_enum_combo(self.density_combo)
         self.density_label = QLabel()
         appearance.addRow(self.density_label, self.density_combo)
         self.sidebar_collapsed_check = QCheckBox()
@@ -235,9 +235,9 @@ class SettingsPanel(QWidget):
         self.sidebar_collapsed_label = QLabel()
         appearance.addRow(self.sidebar_collapsed_label, self.sidebar_collapsed_check)
         self.language_combo = QComboBox()
-        size_combo(self.language_combo, 'sm')
         self.language_combo.addItem('中文', 'zh')
         self.language_combo.addItem('English', 'en')
+        size_enum_combo(self.language_combo)
         self.default_language_label = QLabel()
         appearance.addRow(self.default_language_label, self.language_combo)
         appearance_outer.addLayout(appearance)

@@ -18,7 +18,7 @@ from tools.id_documents import (
 )
 from tools.china_regions import REGIONS
 from ui.design_system import apply_button
-from ui.field_metrics import CompactStepper, apply_caption, fit_combo, size_combo
+from ui.field_metrics import CompactStepper, apply_caption, size_enum_combo, size_pick_combo
 
 
 class CreditCodePanel(QWidget):
@@ -140,17 +140,17 @@ class CreditCodePanel(QWidget):
         apply_caption(self.personal_type_label)
         first.addWidget(self.personal_type_label)
         self.personal_type = QComboBox()
-        size_combo(self.personal_type, 'md')
         for key, labels in DOCUMENT_TYPES.items():
             self.personal_type.addItem(labels[0], key)
+        size_enum_combo(self.personal_type)
         self.personal_type.currentIndexChanged.connect(self._on_personal_type_changed)
         first.addWidget(self.personal_type)
         self.personal_mode_label = QLabel()
         apply_caption(self.personal_mode_label)
         first.addWidget(self.personal_mode_label)
         self.personal_mode = QComboBox()
-        size_combo(self.personal_mode, 'sm')
         self.personal_mode.addItems(['全随机', '指定条件'])
+        size_enum_combo(self.personal_mode)
         self.personal_mode.currentIndexChanged.connect(self._on_personal_mode_changed)
         first.addWidget(self.personal_mode)
         self.personal_qty_label = QLabel()
@@ -177,21 +177,21 @@ class CreditCodePanel(QWidget):
         apply_caption(self.id_province_label)
         region.addWidget(self.id_province_label)
         self.id_province = QComboBox()
-        size_combo(self.id_province, 'md')
+        size_enum_combo(self.id_province)
         self.id_province.currentIndexChanged.connect(self._load_id_cities)
         region.addWidget(self.id_province)
         self.id_city_label = QLabel()
         apply_caption(self.id_city_label)
         region.addWidget(self.id_city_label)
         self.id_city = QComboBox()
-        size_combo(self.id_city, 'md')
+        size_pick_combo(self.id_city)
         self.id_city.currentIndexChanged.connect(self._load_id_districts)
         region.addWidget(self.id_city)
         self.id_district_label = QLabel()
         apply_caption(self.id_district_label)
         region.addWidget(self.id_district_label)
         self.id_district = QComboBox()
-        size_combo(self.id_district, 'md')
+        size_pick_combo(self.id_district)
         region.addWidget(self.id_district)
         region.addStretch(1)
         custom.addLayout(region)
@@ -212,10 +212,10 @@ class CreditCodePanel(QWidget):
         apply_caption(self.id_gender_label)
         demo.addWidget(self.id_gender_label)
         self.id_gender = QComboBox()
-        size_combo(self.id_gender, 'sm')
         self.id_gender.addItem('随机', 'random')
         self.id_gender.addItem('男', 'male')
         self.id_gender.addItem('女', 'female')
+        size_enum_combo(self.id_gender)
         demo.addWidget(self.id_gender)
         demo.addStretch(1)
         custom.addLayout(demo)
@@ -238,8 +238,8 @@ class CreditCodePanel(QWidget):
         apply_caption(self.unit_mode_label)
         first.addWidget(self.unit_mode_label)
         self.unit_mode = QComboBox()
-        size_combo(self.unit_mode, 'sm')
         self.unit_mode.addItems(['随机', '指定条件'])
+        size_enum_combo(self.unit_mode)
         self.unit_mode.currentIndexChanged.connect(self._on_unit_mode_changed)
         first.addWidget(self.unit_mode)
         self.unit_qty_label = QLabel()
@@ -263,15 +263,15 @@ class CreditCodePanel(QWidget):
         apply_caption(self.province_label)
         custom.addWidget(self.province_label)
         self.province_combo = QComboBox()
-        size_combo(self.province_combo, 'md')
         self.province_combo.addItems([f'{key} - {value}' for key, value in sorted(PROVINCES.items())])
+        size_enum_combo(self.province_combo)
         custom.addWidget(self.province_combo)
         self.org_type_label = QLabel()
         apply_caption(self.org_type_label)
         custom.addWidget(self.org_type_label)
         self.org_type_combo = QComboBox()
-        size_combo(self.org_type_combo, 'md')
         self.org_type_combo.addItems([f'{key} - {value}' for key, value in sorted(ORG_TYPES.items())])
+        size_enum_combo(self.org_type_combo)
         custom.addWidget(self.org_type_combo)
         custom.addStretch(1)
         self.unit_custom.hide()
@@ -348,10 +348,12 @@ class CreditCodePanel(QWidget):
         for combo in (
             self.personal_type, self.personal_mode, self.id_gender,
             self.unit_mode, self.province_combo, self.org_type_combo,
-            self.id_province, self.id_city, self.id_district,
+            self.id_province,
         ):
             if combo is not None and combo.count():
-                fit_combo(combo)
+                size_enum_combo(combo)
+        size_pick_combo(self.id_city)
+        size_pick_combo(self.id_district)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -390,7 +392,7 @@ class CreditCodePanel(QWidget):
         for code, (name, _) in REGIONS.items():
             self.id_province.addItem(name, code)
         self.id_province.blockSignals(False)
-        fit_combo(self.id_province)
+        size_enum_combo(self.id_province)
         self._load_id_cities()
 
     def _load_id_cities(self, *_):
@@ -401,7 +403,7 @@ class CreditCodePanel(QWidget):
             for code, (name, _) in province[1].items():
                 self.id_city.addItem(name, code)
         self.id_city.blockSignals(False)
-        fit_combo(self.id_city)
+        size_pick_combo(self.id_city)
         self._load_id_districts()
 
     def _load_id_districts(self, *_):
@@ -411,7 +413,7 @@ class CreditCodePanel(QWidget):
         if city:
             for code, name in city[1].items():
                 self.id_district.addItem(name, code)
-        fit_combo(self.id_district)
+        size_pick_combo(self.id_district)
 
     def _sync_age_range(self, minimum):
         self.id_max_age.setMinimum(minimum)

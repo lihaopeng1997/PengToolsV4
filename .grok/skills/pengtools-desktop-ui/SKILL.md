@@ -20,6 +20,10 @@ Web skills (ui-ux-pro-max, impeccable, taste, react-bits) supply **judgment only
 5. One Primary per work surface. Motion 150–250ms hover/focus only.
 6. Do not change nav index ↔ Stack mapping, `data/` root, or sensitive persistence.
 7. Dark theme is **ink black**, not mint-on-slate. No white cards on `black`.
+8. Combo sizing (must):
+   - Closed enums (`GET` / 全随机 / 接口库|历史) → `size_enum_combo` once, longest label + arrow.
+   - Dynamic lists (server / log file / user category / env name) → `size_pick_combo` fixed 200px. Never `fit_combo` on reload.
+   - Action buttons sit after the field they belong to; leftover space is a trailing stretch only.
 
 ## Forbidden
 

@@ -46,7 +46,7 @@ from tools.interface_session_view import (
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import fit_combo, size_combo
+from ui.field_metrics import apply_caption, size_enum_combo, size_pick_combo
 from ui.page_chrome import make_page_header
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
@@ -631,11 +631,12 @@ class InterfaceDebugPanel(QWidget):
 
         # 环境：下拉选择已保存地址 + 当前 base 可编辑 + 保存/管理
         env_row = QHBoxLayout()
-        env_row.setSpacing(6)
+        env_row.setSpacing(8)
         self.target_label = QLabel('环境')
+        apply_caption(self.target_label, 48)
         env_row.addWidget(self.target_label)
         self.local_target_combo = QComboBox()
-        size_combo(self.local_target_combo, 'md')
+        size_pick_combo(self.local_target_combo)
         self.local_target_combo.currentIndexChanged.connect(self._on_env_selected)
         env_row.addWidget(self.local_target_combo)
         self.rt_environment_config_btn = QPushButton()
@@ -653,7 +654,9 @@ class InterfaceDebugPanel(QWidget):
         dl.addLayout(env_row)
 
         base_row = QHBoxLayout()
+        base_row.setSpacing(8)
         self.base_label = QLabel('Base')
+        apply_caption(self.base_label, 48)
         base_row.addWidget(self.base_label)
         self.rt_base_edit = QLineEdit()
         self.rt_base_edit.setText('http://localhost:18031')
@@ -676,10 +679,10 @@ class InterfaceDebugPanel(QWidget):
         dl.addLayout(base_row)
 
         method_row = QHBoxLayout()
+        method_row.setSpacing(8)
         self.rt_method = QComboBox()
         self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
-        size_combo(self.rt_method, 'sm')
-        fit_combo(self.rt_method)
+        size_enum_combo(self.rt_method)
         method_row.addWidget(self.rt_method)
         self.rt_url = QLineEdit()
         self.rt_url.setPlaceholderText('http://host:port/path')
@@ -702,11 +705,12 @@ class InterfaceDebugPanel(QWidget):
 
         # 分类 + 保存到接口库
         cat_row = QHBoxLayout()
-        cat_row.setSpacing(6)
+        cat_row.setSpacing(8)
         self.rt_cat_label = QLabel('分类')
+        apply_caption(self.rt_cat_label, 48)
         cat_row.addWidget(self.rt_cat_label)
         self.rt_category_combo = QComboBox()
-        size_combo(self.rt_category_combo, 'sm')
+        size_pick_combo(self.rt_category_combo)
         cat_row.addWidget(self.rt_category_combo)
         self.rt_save_api_btn = QPushButton()
         apply_button(self.rt_save_api_btn, 'secondary', compact=True, icon='save', icon_size=16)
@@ -716,6 +720,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_manage_cat_btn, 'ghost', compact=True, icon='edit', icon_size=16)
         self.rt_manage_cat_btn.clicked.connect(self._rt_manage_categories)
         cat_row.addWidget(self.rt_manage_cat_btn)
+        cat_row.addStretch(1)
         self.rt_form_more_btn, self._rt_form_actions_menu = self._make_overflow_button(cat_row)
         dl.addLayout(cat_row)
 
@@ -732,9 +737,8 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_mode = QComboBox()
         self.rt_lib_mode.addItem('接口库', 'library')
         self.rt_lib_mode.addItem('历史', 'history')
-        size_combo(self.rt_lib_mode, 'sm')
+        size_enum_combo(self.rt_lib_mode)
         self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
-        fit_combo(self.rt_lib_mode)
         mode_row.addWidget(self.rt_lib_mode)
         mode_row.addStretch(1)
         self.rt_history_cleanup_btn = QPushButton()
@@ -745,7 +749,7 @@ class InterfaceDebugPanel(QWidget):
         lib_l.addLayout(mode_row)
         filter_row = QHBoxLayout()
         self.rt_lib_cat_filter = QComboBox()
-        size_combo(self.rt_lib_cat_filter, 'sm')
+        size_pick_combo(self.rt_lib_cat_filter)
         self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
         filter_row.addWidget(self.rt_lib_cat_filter)
         filter_row.addStretch(1)
@@ -3129,7 +3133,7 @@ class InterfaceDebugPanel(QWidget):
                 self.rt_category_combo.addItem(c.get('name') or '', c.get('id'))
             self._rt_select_category(last)
             self.rt_category_combo.blockSignals(False)
-            fit_combo(self.rt_category_combo)
+            size_pick_combo(self.rt_category_combo)
         # 列表筛选：全部 + 各分类
         if hasattr(self, 'rt_lib_cat_filter'):
             self.rt_lib_cat_filter.blockSignals(True)
@@ -3147,7 +3151,7 @@ class InterfaceDebugPanel(QWidget):
                     break
             self.rt_lib_cat_filter.setCurrentIndex(sel)
             self.rt_lib_cat_filter.blockSignals(False)
-            fit_combo(self.rt_lib_cat_filter)
+            size_pick_combo(self.rt_lib_cat_filter)
 
     def _rt_lib_sync_mode_combo(self):
         if not hasattr(self, 'rt_lib_mode'):
@@ -4190,7 +4194,7 @@ class InterfaceDebugPanel(QWidget):
             self.rt_save_api_btn.setToolTip(
                 '把当前请求保存到接口库（可分类）' if zh else 'Save current request to library'
             )
-            self.rt_manage_cat_btn.setText('分类' if zh else 'Cats')
+            self.rt_manage_cat_btn.setText('管理分类' if zh else 'Categories')
             self.rt_manage_cat_btn.setToolTip(
                 '新增 / 重命名 / 删除接口分类' if zh else 'Add / rename / delete categories'
             )
@@ -4202,6 +4206,7 @@ class InterfaceDebugPanel(QWidget):
                     self.rt_lib_mode.setItemText(i, '接口库' if zh else 'Library')
                 elif data == 'history':
                     self.rt_lib_mode.setItemText(i, '历史' if zh else 'History')
+            size_enum_combo(self.rt_lib_mode)
             self.rt_lib_search.setPlaceholderText(
                 '搜索名称 / URL' if zh else 'Search name / URL'
             )

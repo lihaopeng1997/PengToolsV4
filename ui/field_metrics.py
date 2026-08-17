@@ -7,7 +7,10 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePo
 # 统一控件高度：与「检出代码」等紧凑按钮对齐
 FIELD_H = 28
 
-# 下拉框：按最长选项收窄，不再用大号保底宽度把短项撑肿
+# 下拉框
+# pick：无封闭码值（服务器/分类/日志文件）— 固定宽度，禁止随选项忽大忽小
+# enum：封闭码值（GET/模式/主题）— 按最长项 + 箭头一次定宽
+COMBO_PICK_W = 200
 COMBO_SM = (56, 220)
 COMBO_MD = (72, 280)
 COMBO_LG = (96, 360)
@@ -43,24 +46,33 @@ def size_field_height(widget: QWidget, height: int = FIELD_H) -> None:
 
 
 def size_combo(widget, size: str = 'md', *, fill: bool = False) -> None:
-    """下拉框：高度与紧凑按钮一致。默认跟选项收窄；fill=True 时铺满行宽。"""
-    from PyQt6.QtWidgets import QComboBox
-    mapping = {'sm': COMBO_SM, 'md': COMBO_MD, 'lg': COMBO_LG}
-    lo, hi = mapping.get(size, COMBO_MD)
-    size_field_height(widget)
-    if isinstance(widget, QComboBox):
-        widget.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-            if fill else QComboBox.SizeAdjustPolicy.AdjustToContents
-        )
-        widget.setMinimumContentsLength(0)
-    widget.setMinimumWidth(lo)
+    """兼容入口。无封闭码值时请用 size_pick_combo；封闭码值用 size_enum_combo。"""
     if fill:
+        size_field_height(widget)
+        widget.setMinimumWidth(COMBO_MD[0])
         widget.setMaximumWidth(16777215)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return
-    widget.setMaximumWidth(hi)
-    widget.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    size_pick_combo(widget, COMBO_PICK_W)
+
+
+def size_pick_combo(combo, width: int = COMBO_PICK_W) -> None:
+    """动态列表：固定宽度，刷新选项时不要重算。"""
+    from PyQt6.QtWidgets import QComboBox
+    size_field_height(combo)
+    combo.setFixedWidth(int(width))
+    combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    if isinstance(combo, QComboBox):
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        combo.setMinimumContentsLength(6)
+        view = combo.view()
+        if view is not None:
+            view.setTextElideMode(Qt.TextElideMode.ElideRight)
+
+
+def size_enum_combo(combo, *, extra: int = 72, min_w: int = 72, max_w: int = 360) -> None:
+    """封闭码值：按当前选项最长文案一次定宽。"""
+    fit_combo(combo, extra=extra, min_w=min_w, max_w=max_w)
 
 
 def fit_combo(combo, *, extra: int = 72, min_w: int = 72, max_w: int = 400) -> None:

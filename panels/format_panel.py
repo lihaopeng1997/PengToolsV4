@@ -24,7 +24,7 @@ from tools.text_dev_helpers import (
 )
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import fit_combo, size_combo
+from ui.field_metrics import size_enum_combo
 from ui.json_viewer import JsonViewer
 from ui.page_chrome import make_page_header
 from ui.xml_workspace import XmlWorkspace
@@ -306,10 +306,9 @@ class _TextDevHelpersTab(QWidget):
         self.mode_label = QLabel()
         tools.addWidget(self.mode_label)
         self.mode_combo = QComboBox()
-        size_combo(self.mode_combo, 'md')
         self.mode_combo.addItems(list(self.MODES))
         self.mode_combo.currentIndexChanged.connect(self._on_mode)
-        fit_combo(self.mode_combo)
+        size_enum_combo(self.mode_combo)
         tools.addWidget(self.mode_combo)
         tools.addStretch(1)
         self.encode_btn = QPushButton()
