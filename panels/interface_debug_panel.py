@@ -46,7 +46,7 @@ from tools.interface_session_view import (
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface
-from ui.field_metrics import apply_caption, size_enum_combo, size_pick_combo
+from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
 from ui.page_chrome import make_page_header
 
@@ -728,34 +728,36 @@ class InterfaceDebugPanel(QWidget):
         self.rt_split = QSplitter(Qt.Orientation.Horizontal)
         self.rt_split.setChildrenCollapsible(False)
         lib_panel = QWidget()
-        lib_panel.setMinimumWidth(180)
-        lib_panel.setMaximumWidth(360)
+        lib_panel.setMinimumWidth(240)
+        lib_panel.setMaximumWidth(480)
         lib_l = QVBoxLayout(lib_panel)
         lib_l.setContentsMargins(0, 0, 4, 0)
-        lib_l.setSpacing(4)
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(6)
+        lib_l.setSpacing(6)
         self.rt_lib_mode_label = QLabel('列表')
-        mode_row.addWidget(self.rt_lib_mode_label)
+        self.rt_lib_mode_label.hide()
         self.rt_lib_mode = QComboBox()
         self.rt_lib_mode.addItem('已保存', 'library')
         self.rt_lib_mode.addItem('发送记录', 'history')
         self.rt_lib_mode.setToolTip('已保存：点「保存接口」收藏的请求。发送记录：点「发送」后自动留下的记录。')
         size_enum_combo(self.rt_lib_mode)
+        self.rt_lib_mode.setMaximumWidth(16777215)
+        self.rt_lib_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
-        mode_row.addWidget(self.rt_lib_mode)
-        self.rt_lib_cat_label = QLabel('分类')
-        mode_row.addWidget(self.rt_lib_cat_label)
-        self.rt_lib_cat_filter = QComboBox()
-        size_pick_combo(self.rt_lib_cat_filter, 160)
-        self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
-        mode_row.addWidget(self.rt_lib_cat_filter, 1)
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        mode_row.addWidget(self.rt_lib_mode, 1)
         self.rt_history_cleanup_btn = QPushButton()
         apply_button(self.rt_history_cleanup_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.rt_history_cleanup_btn.clicked.connect(self._show_history_cleanup_dialog)
         self.rt_history_cleanup_btn.hide()
         mode_row.addWidget(self.rt_history_cleanup_btn)
         lib_l.addLayout(mode_row)
+        self.rt_lib_cat_label = QLabel('分类')
+        self.rt_lib_cat_label.hide()
+        self.rt_lib_cat_filter = QComboBox()
+        size_combo(self.rt_lib_cat_filter, fill=True)
+        self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
+        lib_l.addWidget(self.rt_lib_cat_filter)
         self.rt_lib_search = QLineEdit()
         self.rt_lib_search.setPlaceholderText('搜索名称 / URL')
         self.rt_lib_search.setClearButtonEnabled(True)
@@ -763,35 +765,26 @@ class InterfaceDebugPanel(QWidget):
         lib_l.addWidget(self.rt_lib_search)
         self.rt_lib_list = QListWidget()
         self.rt_lib_list.setObjectName('iface-rt-lib-list')
+        self.rt_lib_list.setWordWrap(True)
+        self.rt_lib_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.rt_lib_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.rt_lib_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.rt_lib_list.customContextMenuRequested.connect(self._rt_lib_show_menu)
         self.rt_lib_list.itemDoubleClicked.connect(self._rt_lib_apply_selected)
         self.rt_lib_list.itemActivated.connect(self._rt_lib_apply_selected)
         lib_l.addWidget(self.rt_lib_list, 1)
-        lib_btn_row = QHBoxLayout()
-        self.rt_lib_load_btn = QPushButton()
-        apply_button(self.rt_lib_load_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
-        self.rt_lib_load_btn.clicked.connect(self._rt_lib_apply_selected)
-        lib_btn_row.addWidget(self.rt_lib_load_btn)
-        self.rt_lib_resend_btn = QPushButton('复制并重发')
-        apply_button(self.rt_lib_resend_btn, 'ghost', compact=True)
-        self.rt_lib_resend_btn.setToolTip('加载选中条目到表单并立即发送')
-        self.rt_lib_resend_btn.clicked.connect(self._rt_lib_resend_selected)
-        lib_btn_row.addWidget(self.rt_lib_resend_btn)
-        self.rt_lib_del_btn = QPushButton()
-        apply_button(self.rt_lib_del_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.rt_lib_del_btn.clicked.connect(self._rt_lib_delete_selected)
-        lib_btn_row.addWidget(self.rt_lib_del_btn)
-        self.rt_lib_clear_btn = QPushButton()
-        apply_button(self.rt_lib_clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.rt_lib_clear_btn.clicked.connect(self._rt_lib_clear_history)
-        self.rt_lib_clear_btn.hide()
-        lib_btn_row.addWidget(self.rt_lib_clear_btn)
-        self.rt_lib_load_btn.hide()
-        self.rt_lib_resend_btn.hide()
-        self.rt_lib_del_btn.hide()
-        lib_btn_row.addStretch(1)
-        lib_l.addLayout(lib_btn_row)
+        self.rt_lib_load_btn = QPushButton(lib_panel)
+        self.rt_lib_resend_btn = QPushButton(lib_panel)
+        self.rt_lib_del_btn = QPushButton(lib_panel)
+        self.rt_lib_clear_btn = QPushButton(lib_panel)
+        for btn, handler in (
+            (self.rt_lib_load_btn, self._rt_lib_apply_selected),
+            (self.rt_lib_resend_btn, self._rt_lib_resend_selected),
+            (self.rt_lib_del_btn, self._rt_lib_delete_selected),
+            (self.rt_lib_clear_btn, self._rt_lib_clear_history),
+        ):
+            btn.hide()
+            btn.clicked.connect(handler)
         self.rt_lib_count = QLabel('')
         self.rt_lib_count.setObjectName('field-hint')
         lib_l.addWidget(self.rt_lib_count)
@@ -899,7 +892,7 @@ class InterfaceDebugPanel(QWidget):
         self.rt_split.addWidget(right_form)
         self.rt_split.setStretchFactor(0, 0)
         self.rt_split.setStretchFactor(1, 1)
-        self.rt_split.setSizes([220, 480])
+        self.rt_split.setSizes([280, 520])
         dl.addWidget(self.rt_split, 1)
 
         self._rt_last_request_body = ''
@@ -3162,7 +3155,7 @@ class InterfaceDebugPanel(QWidget):
                     break
             self.rt_lib_cat_filter.setCurrentIndex(sel)
             self.rt_lib_cat_filter.blockSignals(False)
-            size_pick_combo(self.rt_lib_cat_filter)
+            size_combo(self.rt_lib_cat_filter, fill=True)
 
     def _rt_lib_sync_mode_combo(self):
         if not hasattr(self, 'rt_lib_mode'):

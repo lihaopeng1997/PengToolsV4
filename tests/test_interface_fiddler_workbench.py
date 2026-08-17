@@ -150,6 +150,9 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p.rt_lib_clear_btn.isVisible())
         self.assertTrue(hasattr(p, 'rt_history_cleanup_btn'))
         self.assertTrue(p.rt_lib_list.contextMenuPolicy().name == 'CustomContextMenu')
+        self.assertGreaterEqual(p.rt_lib_list.parentWidget().minimumWidth(), 240)
+        self.assertTrue(p.rt_lib_mode_label.isHidden())
+        self.assertTrue(p.rt_lib_cat_label.isHidden())
 
     def test_history_fill_url_preserves_request_editor_content(self):
         p = InterfaceDebugPanel('zh')
