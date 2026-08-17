@@ -344,8 +344,10 @@ class InterfaceDebugPanel(QWidget):
         self.session_toolbar = tools
         apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
-        tl = QHBoxLayout(tools)
-        tl.setContentsMargins(8, 4, 8, 4)
+        tv = QVBoxLayout(tools)
+        tv.setContentsMargins(8, 4, 8, 4)
+        tv.setSpacing(6)
+        tl = QHBoxLayout()
         tl.setSpacing(6)
         tl.addWidget(self.capture_toggle_btn)
         tl.addWidget(self.test_listen_btn)
@@ -353,7 +355,6 @@ class InterfaceDebugPanel(QWidget):
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
         self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
-        tl.addWidget(self.filter_edit, 1)
 
         self._filter_chips: dict[str, _FilterChip] = {}
         chip_defs = [
@@ -378,6 +379,7 @@ class InterfaceDebugPanel(QWidget):
         for key, chip in self._filter_chips.items():
             chip.toggled.connect(lambda checked, k=key: self._on_filter_chip(k, checked))
 
+        tl.addStretch(1)
         self.session_count = QLabel('0 / 0')
         self.session_count.setObjectName('field-hint')
         tl.addWidget(self.session_count)
@@ -423,6 +425,8 @@ class InterfaceDebugPanel(QWidget):
         self.session_actions_more_btn.hide()
         tl.addWidget(self.session_actions_more_btn)
         self._rebuild_session_actions_menu()
+        tv.addLayout(tl)
+        tv.addWidget(self.filter_edit)
 
         # 中部：左侧采集/定位/会话，右侧诊断/复测。
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
