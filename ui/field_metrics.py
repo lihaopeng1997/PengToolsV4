@@ -63,16 +63,22 @@ def size_combo(widget, size: str = 'md', *, fill: bool = False) -> None:
     widget.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
 
-def fit_combo(combo, *, extra: int = 44, min_w: int = 56, max_w: int = 280) -> None:
-    """按当前选项里最长文案收窄，不拉满整行。"""
-    from PyQt6.QtWidgets import QComboBox
+def fit_combo(combo, *, extra: int = 72, min_w: int = 72, max_w: int = 400) -> None:
+    """按最长选项留足箭头和内边距，完整显示，不拉满整行。"""
+    from PyQt6.QtGui import QFontMetrics
+    from PyQt6.QtWidgets import QApplication, QComboBox
     if not isinstance(combo, QComboBox):
         return
     size_field_height(combo)
-    metrics = combo.fontMetrics()
+    font = combo.font()
+    app = QApplication.instance()
+    if app is not None and (font.pointSize() < 10 or font.pixelSize() in (0, -1)):
+        font = app.font()
+    metrics = QFontMetrics(font)
     widest = 0
     for index in range(combo.count()):
         widest = max(widest, metrics.horizontalAdvance(combo.itemText(index)))
+    # QSS 右侧箭头约 32px + 左右 padding，必须算进去，否则汉字被裁
     width = max(int(min_w), min(int(max_w), int(widest) + int(extra)))
     combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     combo.setMinimumContentsLength(0)

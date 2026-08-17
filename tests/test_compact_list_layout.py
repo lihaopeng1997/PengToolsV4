@@ -101,7 +101,7 @@ class DensityPassPanelTests(unittest.TestCase):
             panel.category_tabs.sizePolicy().verticalPolicy().name,
             'Maximum',
         )
-        self.assertGreaterEqual(panel.table.minimumHeight(), 240)
+        self.assertGreaterEqual(panel.table.minimumHeight(), 280)
         panel.close()
 
     def test_vin_fills_visible_rows_and_keeps_vin_column_readable(self):
@@ -112,12 +112,13 @@ class DensityPassPanelTests(unittest.TestCase):
         panel.resize(1100, 720)
         panel.show()
         self.app.processEvents()
+        self.assertEqual(panel.qty.value(), 10)
         count = panel._visible_fill_count()
-        self.assertGreaterEqual(count, 8)
-        self.assertLessEqual(count, 40)
+        self.assertEqual(count, 10)
         panel._generate()
-        self.assertGreaterEqual(panel.table.rowCount(), 8)
-        self.assertEqual(panel.table.rowCount(), count)
+        self.assertEqual(panel.table.rowCount(), 10)
+        self.assertGreaterEqual(panel.table.rowHeight(0), 28)
+        self.assertGreaterEqual(panel.table.rowHeight(9), 28)
         self.assertGreaterEqual(panel.table.minimumHeight(), 200)
         self.assertEqual(
             panel.table.horizontalHeader().sectionResizeMode(1),

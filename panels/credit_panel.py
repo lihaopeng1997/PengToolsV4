@@ -89,8 +89,11 @@ class CreditCodePanel(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(32)
-        self.table.setMinimumHeight(240)
+        self.table.setMinimumHeight(280)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table.verticalHeader().setMinimumSectionSize(32)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
         root.addWidget(self.table, 1)
 
@@ -150,7 +153,6 @@ class CreditCodePanel(QWidget):
         self.personal_mode.addItems(['全随机', '指定条件'])
         self.personal_mode.currentIndexChanged.connect(self._on_personal_mode_changed)
         first.addWidget(self.personal_mode)
-        first.addStretch(1)
         self.personal_qty_label = QLabel()
         apply_caption(self.personal_qty_label)
         first.addWidget(self.personal_qty_label)
@@ -160,6 +162,7 @@ class CreditCodePanel(QWidget):
         apply_button(self.personal_generate, 'primary', compact=True)
         self.personal_generate.clicked.connect(self._generate_personal)
         first.addWidget(self.personal_generate)
+        first.addStretch(1)
         layout.addLayout(first)
 
         self.id_custom = QWidget()
@@ -239,7 +242,6 @@ class CreditCodePanel(QWidget):
         self.unit_mode.addItems(['随机', '指定条件'])
         self.unit_mode.currentIndexChanged.connect(self._on_unit_mode_changed)
         first.addWidget(self.unit_mode)
-        first.addStretch(1)
         self.unit_qty_label = QLabel()
         apply_caption(self.unit_qty_label)
         first.addWidget(self.unit_qty_label)
@@ -249,6 +251,7 @@ class CreditCodePanel(QWidget):
         apply_button(self.unit_generate, 'primary', compact=True)
         self.unit_generate.clicked.connect(self._generate_unit)
         first.addWidget(self.unit_generate)
+        first.addStretch(1)
         layout.addLayout(first)
 
         self.unit_custom = QWidget()
@@ -341,8 +344,22 @@ class CreditCodePanel(QWidget):
             return '统一社会信用代码' if self.language == 'zh' else 'Unified Social Credit Code'
         return DOCUMENT_TYPES[kind][0 if self.language == 'zh' else 1]
 
+    def _fit_fixed_combos(self):
+        for combo in (
+            self.personal_type, self.personal_mode, self.id_gender,
+            self.unit_mode, self.province_combo, self.org_type_combo,
+            self.id_province, self.id_city, self.id_district,
+        ):
+            if combo is not None and combo.count():
+                fit_combo(combo)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fit_fixed_combos()
+
     def _update_table(self):
         self.table.setRowCount(len(self._results))
+        self.table.verticalHeader().setDefaultSectionSize(32)
         for row, (number, kind, document, name) in enumerate(self._results):
             self.table.setItem(row, 0, QTableWidgetItem(str(number)))
             self.table.setItem(row, 1, QTableWidgetItem(self._type_label(kind)))
@@ -485,11 +502,7 @@ class CreditCodePanel(QWidget):
         self.copy_btn.setText('复制全部' if zh else 'Copy All')
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
         self.clear_btn.setText('清空' if zh else 'Clear')
-        for combo in (
-            self.personal_type, self.personal_mode, self.id_gender,
-            self.unit_mode, self.province_combo, self.org_type_combo,
-        ):
-            fit_combo(combo)
+        self._fit_fixed_combos()
         if self._results:
             self._update_table()
         else:

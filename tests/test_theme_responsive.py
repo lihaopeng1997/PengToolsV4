@@ -190,11 +190,12 @@ class NightThemeTokenTests(unittest.TestCase):
         combo = QComboBox()
         combo.addItems(['AUTO', 'LSV', 'LHG'])
         fit_combo(combo)
-        self.assertLessEqual(combo.maximumWidth(), 120)
+        self.assertGreaterEqual(combo.maximumWidth(), 72)
+        self.assertLessEqual(combo.maximumWidth(), 180)
         combo.addItem('这是一个很长的固定选项')
         fit_combo(combo)
-        self.assertGreater(combo.maximumWidth(), 80)
-        self.assertLessEqual(combo.maximumWidth(), 280)
+        self.assertGreater(combo.maximumWidth(), 140)
+        self.assertLessEqual(combo.maximumWidth(), 400)
 
     def test_black_groupbox_and_combo_are_not_white(self):
         from PyQt6.QtWidgets import QComboBox, QGroupBox, QVBoxLayout, QWidget

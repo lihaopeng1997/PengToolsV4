@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from ui.confirm_dialog import show_error
 from tools.vin_generator import CHINA_WMIS, generate_vin_batch, validate_vin
 from ui.design_system import apply_button
-from ui.field_metrics import fit_combo, size_combo
+from ui.field_metrics import CompactStepper, fit_combo, size_combo
 
 
 class VinPanel(QWidget):
@@ -57,11 +57,15 @@ class VinPanel(QWidget):
         size_combo(self.wmi_combo, 'sm')
         self.wmi_combo.addItems(['AUTO'] + list(CHINA_WMIS))
         row.addWidget(self.wmi_combo)
-        row.addStretch(1)
+        self.qty_label = QLabel()
+        row.addWidget(self.qty_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.qty = CompactStepper(1, 200, 10)
+        row.addWidget(self.qty)
         self.generate_btn = QPushButton()
         apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)
         row.addWidget(self.generate_btn)
+        row.addStretch(1)
         layout.addWidget(self.settings)
 
         self.table = QTableWidget(0, 5)
@@ -84,8 +88,11 @@ class VinPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(32)
-        self.table.setMinimumHeight(240)
+        self.table.setMinimumHeight(280)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table.verticalHeader().setMinimumSectionSize(32)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
         layout.addWidget(self.table, 1)
 
@@ -121,7 +128,8 @@ class VinPanel(QWidget):
             )
         self.year_label.setText('车型年份' if zh else 'Model year')
         self.wmi_label.setText('制造商 WMI' if zh else 'Manufacturer WMI')
-        self.generate_btn.setText('生成并填满列表' if zh else 'Fill visible rows')
+        self.qty_label.setText('数量' if zh else 'Qty')
+        self.generate_btn.setText('生成' if zh else 'Generate')
         self.copy_btn.setText('复制全部' if zh else 'Copy all')
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
         self.table.setHorizontalHeaderLabels(
@@ -132,26 +140,19 @@ class VinPanel(QWidget):
         fit_combo(self.wmi_combo)
 
     def _visible_fill_count(self) -> int:
-        viewport = self.table.viewport().height() if self.table.viewport() else 0
-        row_h = max(int(self.table.verticalHeader().defaultSectionSize() or 32), 28)
-        if viewport < 80:
-            return 12
-        return max(12, min(40, viewport // row_h))
+        try:
+            return max(1, min(200, int(self.qty.value())))
+        except Exception:
+            return 10
 
     def showEvent(self, event):
         super().showEvent(event)
+        fit_combo(self.year_combo)
+        fit_combo(self.wmi_combo)
         if self._pending_fill:
             self._pending_fill = False
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._generate)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._pending_fill or not self._results:
-            return
-        want = self._visible_fill_count()
-        if want > len(self._results):
-            self._generate()
 
     def _generate(self):
         year = int(self.year_combo.currentText())
@@ -159,6 +160,7 @@ class VinPanel(QWidget):
         count = self._visible_fill_count()
         self._results = generate_vin_batch(count, year, '' if wmi == 'AUTO' else wmi)
         self.table.setRowCount(len(self._results))
+        self.table.verticalHeader().setDefaultSectionSize(32)
         for row, vin in enumerate(self._results):
             values = (str(row + 1), vin, vin[:3], vin[9], '✓' if validate_vin(vin) else '×')
             for column, value in enumerate(values):
