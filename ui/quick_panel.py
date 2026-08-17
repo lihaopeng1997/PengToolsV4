@@ -10,8 +10,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QMenu, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ui.icons import apply_icon, brand_pixmap, icon_pixmap, qicon
@@ -136,10 +136,18 @@ class QuickPanel(QWidget):
         self.preview_hint.setObjectName('field-hint')
         self.preview_hint.setWordWrap(True)
         preview_l.addWidget(self.preview_hint)
-        self.preview_list = QListWidget()
-        self.preview_list.setObjectName('floating-preview-list')
-        self.preview_list.itemDoubleClicked.connect(self._copy_preview_item)
-        preview_l.addWidget(self.preview_list, 1)
+        self.preview_table = QTableWidget(0, 2)
+        self.preview_table.setObjectName('floating-preview-table')
+        self.preview_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.preview_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)
+        self.preview_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.preview_table.verticalHeader().setVisible(False)
+        self.preview_table.verticalHeader().setDefaultSectionSize(28)
+        self.preview_table.horizontalHeader().setStretchLastSection(True)
+        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.preview_table.setShowGrid(False)
+        self.preview_table.itemDoubleClicked.connect(self._copy_preview_item)
+        preview_l.addWidget(self.preview_table, 1)
         self.preview.hide()
         tools_layout.addWidget(self.preview, 1)
 
@@ -179,7 +187,7 @@ class QuickPanel(QWidget):
         self.collapse_btn.setToolTip('收起' if zh else 'Collapse')
         self.toggle_btn.setToolTip('打开快捷工具' if zh else 'Open quick tools')
         self.preview_back.setText('返回' if zh else 'Back')
-        self.preview_list.setToolTip('双击复制' if zh else 'Double-click to copy')
+        self.preview_table.setToolTip('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
         self._rebuild_cards()
         if self.preview.isVisible() and getattr(self, '_preview_index', None) is not None:
             self._fill_result_preview(self._preview_index)
@@ -501,7 +509,6 @@ class QuickPanel(QWidget):
 
     def _fill_result_preview(self, index: int):
         zh = self.language == 'zh'
-        self.preview_list.clear()
         win = self._main_window
         if index == 1:
             self.preview_title.setText('证件类型' if zh else 'Documents')
@@ -512,6 +519,7 @@ class QuickPanel(QWidget):
                 except Exception:
                     pass
             panel = getattr(win, 'credit_panel', None)
+            headers = ('名称', '证件号码') if zh else ('Name', 'Number')
             rows = self._credit_preview_rows(panel)
         else:
             self.preview_title.setText('车辆 VIN' if zh else 'VIN')
@@ -522,51 +530,55 @@ class QuickPanel(QWidget):
                 except Exception:
                     pass
             panel = getattr(win, 'vin_panel', None)
+            headers = ('车牌号', 'VIN', '发动机号') if zh else ('Plate', 'VIN', 'Engine')
             rows = self._vin_preview_rows(panel)
+        self.preview_table.clear()
+        self.preview_table.setColumnCount(len(headers))
+        self.preview_table.setHorizontalHeaderLabels(headers)
         if not rows:
             self.preview_hint.setText(
-                '还没有生成数据。双击下面提示可打开工作台。' if zh else
-                'No generated data yet. Double-click to open the workspace.'
+                '还没有生成数据。双击表格可打开工作台。' if zh else
+                'No generated data yet. Double-click the table to open the workspace.'
             )
-            empty = QListWidgetItem('打开工作台生成' if zh else 'Open workspace')
-            empty.setData(Qt.ItemDataRole.UserRole, {'navigate': index, 'copy': ''})
-            self.preview_list.addItem(empty)
+            self.preview_table.setRowCount(1)
+            item = QTableWidgetItem('打开工作台生成' if zh else 'Open workspace')
+            item.setData(Qt.ItemDataRole.UserRole, {'navigate': index})
+            self.preview_table.setItem(0, 0, item)
             return
-        self.preview_hint.setText('双击一行复制重点字段' if zh else 'Double-click a row to copy')
-        for row in rows:
-            item = QListWidgetItem(row['label'])
-            item.setToolTip(row['label'] + '\n' + ('双击复制' if zh else 'Double-click to copy'))
-            item.setData(Qt.ItemDataRole.UserRole, {'navigate': None, 'copy': row['copy']})
-            self.preview_list.addItem(item)
+        self.preview_hint.setText('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
+        self.preview_table.setRowCount(len(rows))
+        for row, values in enumerate(rows):
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(('双击复制：' if zh else 'Double-click to copy: ') + value)
+                self.preview_table.setItem(row, column, item)
+                self.preview_table.setRowHeight(row, 28)
 
     @staticmethod
-    def _credit_preview_rows(panel) -> list[dict]:
+    def _credit_preview_rows(panel) -> list[list[str]]:
         rows = []
         if panel is None:
             return rows
         personal = list(getattr(panel, '_personal_results', None) or [])
         unit = list(getattr(panel, '_unit_results', None) or [])
-        for record in personal:
-            name = str(record.get('name') or '')
-            number = str(record.get('document') or '')
-            rows.append({'label': f'{name}  {number}'.strip(), 'copy': number or name})
-        for record in unit:
-            name = str(record.get('name') or '')
-            number = str(record.get('document') or '')
-            rows.append({'label': f'{name}  {number}'.strip(), 'copy': number or name})
+        for record in personal + unit:
+            rows.append([
+                str(record.get('name') or ''),
+                str(record.get('document') or ''),
+            ])
         return rows
 
     @staticmethod
-    def _vin_preview_rows(panel) -> list[dict]:
+    def _vin_preview_rows(panel) -> list[list[str]]:
         rows = []
         if panel is None:
             return rows
         for record in list(getattr(panel, '_results', None) or []):
-            plate = str(record.get('plate') or '')
-            vin = str(record.get('vin') or '')
-            engine = str(record.get('engine_no') or '')
-            label = '  '.join(part for part in (plate, vin, engine) if part)
-            rows.append({'label': label, 'copy': vin or plate or engine})
+            rows.append([
+                str(record.get('plate') or ''),
+                str(record.get('vin') or ''),
+                str(record.get('engine_no') or ''),
+            ])
         return rows
 
     def _copy_preview_item(self, item):
@@ -578,7 +590,7 @@ class QuickPanel(QWidget):
             self._main_window.activateWindow()
             self._main_window.navigate_to(int(navigate))
             return
-        text = str(payload.get('copy') or item.text() or '').strip()
+        text = (item.text() or '').strip()
         if text:
             QApplication.clipboard().setText(text)
 
