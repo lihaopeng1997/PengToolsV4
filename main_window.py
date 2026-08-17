@@ -988,32 +988,15 @@ class MainWindow(QMainWindow):
     def _open_release_prep(self, requirement=None):
         self._ensure_sql_panel()
         self.sql_panel.refresh_config()
-        self.sql_panel.tabs.setCurrentIndex(0)
-        date_text = ''
-        if isinstance(requirement, dict):
-            date_text = str(
-                requirement.get('actual_online_date')
-                or requirement.get('planned_online_date')
-                or ''
-            )[:10]
-            if not date_text and requirement.get('online_month'):
-                month = str(requirement.get('online_month'))
-                if len(month) >= 7:
-                    date_text = f'{month[:7]}-01'
-        if date_text:
-            from PyQt6.QtCore import QDate
-            parsed = QDate.fromString(date_text, 'yyyy-MM-dd')
-            if parsed.isValid():
-                self.sql_panel.release_date.setDate(parsed)
-        self.sql_panel._load_release_candidates()
+        self.sql_panel.focus_release_requirement(requirement if isinstance(requirement, dict) else None)
         self._show_panel(2)
         title = ''
         if isinstance(requirement, dict):
             title = requirement.get('title') or requirement.get('code') or ''
         if title:
-            self.status_bar.showMessage(f'已进入发版联动，并刷新候选（来自：{title}）', 5000)
+            self.status_bar.showMessage(f'已进入升级准备，并勾选「{title}」', 5000)
         else:
-            self.status_bar.showMessage('已进入发版联动', 3000)
+            self.status_bar.showMessage('已进入升级准备', 3000)
 
     def _set_language(self, combo_index):
         self.language = 'zh' if combo_index == 0 else 'en'
@@ -1222,9 +1205,15 @@ class MainWindow(QMainWindow):
 
     def _receive_requirement_sql(self, title, sql):
         self._ensure_sql_panel()
-        self.sql_panel._append_sql_parts([(title, sql)], 'paste')
+        current = None
+        if self.requirement_panel is not None:
+            current = getattr(self.requirement_panel, '_current', None)
+        landed = self.sql_panel.receive_from_requirement(title, sql, current)
         self._show_panel(2)
-        self.status_bar.showMessage(f'已把“{title}”的 SQL 发送到发版联动', 5000)
+        if landed == 'sql':
+            self.status_bar.showMessage(f'已把“{title}”的 SQL 送到发版联动整理页', 5000)
+        else:
+            self.status_bar.showMessage(f'“{title}”还没有 SQL，已在升级准备中勾选该条', 5000)
 
     def _receive_requirement_docx(self, title, sql):
         self._ensure_docx_panel()

@@ -463,6 +463,13 @@ def merged_sql(requirement):
     return '\n\n'.join(blocks)
 
 
+def requirement_identity(item) -> str:
+    """发版勾选/看板定位用的稳定键：id > code > path > title。"""
+    if not isinstance(item, dict):
+        return ''
+    return str(item.get('id') or item.get('code') or item.get('path') or item.get('title') or '').strip()
+
+
 # 需求搜索语料缓存：避免每次树刷新对全表重算拼音 blob
 _REQUIREMENT_SEARCH_CACHE: dict[str, tuple[str, str]] = {}
 

@@ -153,6 +153,8 @@ class DensityPassPanelTests(unittest.TestCase):
             self.assertIsInstance(panel.export_context, CompactStepper)
             self.assertEqual(panel.context_spin.minus_btn.text(), '−')
             self.assertTrue(callable(panel._offer_open_export))
+            receivers = panel.keyword_edit.receivers(panel.keyword_edit.returnPressed)
+            self.assertGreater(receivers, 0)
         finally:
             panel._executor.shutdown(wait=False, cancel_futures=True)
             panel.close()

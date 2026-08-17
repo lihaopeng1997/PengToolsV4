@@ -17,6 +17,7 @@ from tools.release_prep import (
     RELEASE_HEADERS, branch_name_from_svn, rank_requirements,
     release_row_from_requirement, update_release_workbook,
 )
+from tools.requirements import requirement_identity
 
 
 class ReleasePrepTests(unittest.TestCase):
@@ -34,6 +35,12 @@ class ReleasePrepTests(unittest.TestCase):
             sheet.cell(3, column).fill = PatternFill('solid', fgColor='DDEBF7')
         workbook.save(path)
         workbook.close()
+
+    def test_requirement_identity_prefers_id_then_code(self):
+        self.assertEqual(requirement_identity({'id': 'u1', 'code': 'REQ-1', 'title': 'A'}), 'u1')
+        self.assertEqual(requirement_identity({'code': 'REQ-1', 'title': 'A'}), 'REQ-1')
+        self.assertEqual(requirement_identity({'title': '仅标题'}), '仅标题')
+        self.assertEqual(requirement_identity(None), '')
 
     def test_branch_and_date_priority(self):
         self.assertEqual(

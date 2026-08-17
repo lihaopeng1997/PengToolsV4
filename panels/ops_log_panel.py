@@ -1664,6 +1664,8 @@ class OpsLogPanel(QWidget):
         self.log_file_combo.currentIndexChanged.connect(self._on_log_file_combo_changed)
         self.keyword_edit = QLineEdit()
         size_line(self.keyword_edit, 'std')
+        self.keyword_edit.returnPressed.connect(self._run_grep_on_session)
+        self.keyword_edit.textChanged.connect(self._sync_keyword_to_export)
         # 兼容旧字段：隐藏，解析统一走 keyword_edit
         self.extra_edit = QPlainTextEdit()
         self.extra_edit.hide()
@@ -3230,16 +3232,26 @@ class OpsLogPanel(QWidget):
 
     # ── 会话命令 / 截取（发到交互终端，实时刷） ─────────
     def _run_console_command(self):
-        """兼容：把快捷命令行发到 PTY。"""
-        if not self.terminal.shell_alive:
+        """兼容：把快捷命令行发到当前会话 PTY。"""
+        term = self._current_terminal()
+        if term is None or not getattr(term, 'shell_alive', False):
             show_warning(self, 'PengTools', '请先连接服务器' if self.language == 'zh' else 'Connect first')
             return
         cmd = self.cmd_edit.text().strip()
         if not cmd:
             return
         self.cmd_edit.clear()
-        self.terminal.setFocus()
-        self.terminal.send_command_line(cmd)
+        term.setFocus()
+        term.send_command_line(cmd)
+
+    def _sync_keyword_to_export(self, text=''):
+        if not hasattr(self, 'export_keyword'):
+            return
+        if self.export_keyword.hasFocus():
+            return
+        self.export_keyword.blockSignals(True)
+        self.export_keyword.setText(text)
+        self.export_keyword.blockSignals(False)
 
     def _session_keywords(self) -> tuple[str, list[str]]:
         raw = self.keyword_edit.text().strip()
@@ -3290,9 +3302,9 @@ class OpsLogPanel(QWidget):
         except OpsSshError as exc:
             show_warning(self, 'PengTools', str(exc))
             return
-        self.terminal.setFocus()
-        # 直接打进 shell，输出实时回来
-        self.terminal.send_command_line(cmd)
+        term.setFocus()
+        # 打进当前会话，不要误写到第一个标签页
+        term.send_command_line(cmd)
 
     def _run_tail_on_session(self):
         term = self._current_terminal()

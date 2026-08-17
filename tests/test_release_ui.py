@@ -562,6 +562,7 @@ class ReleaseUiTests(unittest.TestCase):
             # 人为标记日期未同步，触发生成路径的自动重载
             panel._release_date_confirmed = ''
             with patch('panels.sql_panel.show_warning'), patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.save_requirements'):
                 try:
                     panel._generate_release_materials()
@@ -581,6 +582,35 @@ class ReleaseUiTests(unittest.TestCase):
         screenshot = os.path.join(ROOT, '.codex_work', 'release_prep_ui.png')
         os.makedirs(os.path.dirname(screenshot), exist_ok=True)
         self.assertTrue(panel.grab().save(screenshot))
+        panel.close()
+
+    def test_requirement_sql_lands_on_organize_tab_and_empty_focuses_row(self):
+        panel = SqlToolPanel()
+        landed = panel.receive_from_requirement(
+            '补发保单',
+            'select 1 from dual',
+            {'code': 'REQ-SQL', 'title': '补发保单', 'system': ''},
+        )
+        self.assertEqual(landed, 'sql')
+        self.assertEqual(panel.tabs.currentIndex(), 1)
+        self.assertIn('select 1 from dual', panel.input_sql.toPlainText())
+        records = [{
+            'code': 'REQ-FOCUS',
+            'title': '来源需求',
+            'planned_online_date': '2026-08-17',
+            'system': '',
+        }]
+        with patch('panels.sql_panel.load_requirements', return_value=records):
+            landed = panel.receive_from_requirement('来源需求', '', records[0])
+        self.assertEqual(landed, 'release')
+        self.assertEqual(panel.tabs.currentIndex(), 0)
+        self.assertEqual(panel._prefer_requirement_key, 'REQ-FOCUS')
+        checked = [
+            row for row in range(panel.release_table.rowCount())
+            if panel.release_table.item(row, 0)
+            and panel.release_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        self.assertTrue(checked)
         panel.close()
 
     def test_only_learning_module_is_hidden(self):

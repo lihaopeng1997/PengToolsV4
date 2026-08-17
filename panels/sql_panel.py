@@ -22,9 +22,9 @@ from tools.release_prep import (
     RELEASE_SVN_URL, RELEASE_WORKBOOK_NAME, branch_name_from_svn,
     rank_requirements, release_row_from_requirement, update_release_workbook,
 )
-from tools.requirements import load_requirements, merged_sql, save_requirements
+from tools.requirements import load_requirements, merged_sql, requirement_identity, save_requirements
 from ui.aurora_progress import AuroraProgress
-from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
+from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import (
     apply_form, fit_combo, size_caption, size_combo, size_compact_button, size_date, size_line,
@@ -71,6 +71,7 @@ class SqlToolPanel(QWidget):
         self._release_requirements = []
         self._release_all_requirements = []
         self._release_date_confirmed = ''
+        self._prefer_requirement_key = ''
         self._release_reload_timer = QTimer(self)
         self._release_reload_timer.setSingleShot(True)
         self._release_reload_timer.setInterval(280)
@@ -322,7 +323,11 @@ class SqlToolPanel(QWidget):
         system_names = [system['name'] for system in self._systems]
         for row, requirement in enumerate(self._release_requirements):
             date_value = str(requirement.get('actual_online_date') or requirement.get('planned_online_date') or '')[:10]
-            checked = date_value == target
+            prefer = bool(
+                self._prefer_requirement_key
+                and requirement_identity(requirement) == self._prefer_requirement_key
+            )
+            checked = date_value == target or prefer
             exact += int(checked)
             choose = QTableWidgetItem()
             choose.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
@@ -372,6 +377,9 @@ class SqlToolPanel(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.release_table.setItem(row, column, item)
             self.release_table.setRowHeight(row, 42)
+            if prefer:
+                self.release_table.selectRow(row)
+                self.release_table.scrollToItem(code_item)
         self._set_status_label(
             self.release_count,
             f'已载 {len(self._release_requirements)} · 勾选 {exact}',
@@ -470,12 +478,29 @@ class SqlToolPanel(QWidget):
             show_warning(self, '升级准备', str(exc))
             return
         self.task_completed.emit()
-        show_success(
-            self, '升级材料已生成',
+        message = (
             f'发版清单：{result["path"]}\n'
             f'写入 Sheet：{result["sheet_name"]} 第 {result["start_row"]}-{result["end_row"]} 行\n'
-            f'系统：{len(sql_by_system)} 个 · SQL 文件：{len(sql_paths)} 个',
+            f'系统：{len(sql_by_system)} 个 · SQL 文件：{len(sql_paths)} 个'
         )
+        workbook_path = result.get('path') or ''
+        folder = os.path.dirname(workbook_path) if workbook_path else ''
+        choice = offer_next_steps(
+            self,
+            '升级材料已生成',
+            message,
+            [
+                ('open_file', '打开发版清单', bool(workbook_path and os.path.isfile(workbook_path))),
+                ('open_folder', '打开目录', bool(folder and os.path.isdir(folder))),
+            ],
+            recommended='open_file',
+        )
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        if choice == 'open_file' and workbook_path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(workbook_path))
+        elif choice == 'open_folder' and folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def _create_processing_tab(self):
         tab = QWidget()
@@ -1057,6 +1082,59 @@ class SqlToolPanel(QWidget):
         )
         self._mixed_source_confirmed = accepted
         return self._mixed_source_confirmed
+
+    def _select_work_system(self, system_name: str) -> bool:
+        matched = self._matched_system_name(system_name)
+        if not matched or not hasattr(self, 'work_system_combo'):
+            return False
+        index = self.work_system_combo.findText(matched)
+        if index < 0:
+            return False
+        self.work_system_combo.setCurrentIndex(index)
+        extra = getattr(self, 'release_extra_sql_system', None)
+        if extra is not None:
+            extra_index = extra.findData(matched)
+            if extra_index < 0:
+                extra_index = extra.findText(matched)
+            if extra_index >= 0:
+                extra.setCurrentIndex(extra_index)
+        return True
+
+    def receive_from_requirement(self, title, sql, requirement=None):
+        """需求台账送过来：有 SQL 进整理页，没有则落到升级准备并勾上该条。"""
+        requirement = requirement if isinstance(requirement, dict) else {}
+        system_name = str(requirement.get('system') or '').strip()
+        if system_name:
+            self._select_work_system(system_name)
+        text = str(sql or '').strip()
+        if text:
+            self._append_sql_parts([(title, text)], 'paste')
+            self.tabs.setCurrentIndex(1)
+            return 'sql'
+        self.focus_release_requirement(requirement)
+        return 'release'
+
+    def focus_release_requirement(self, requirement=None):
+        """按需求的上线日刷新候选，并保证来源条目被勾选、滚到可见。"""
+        requirement = requirement if isinstance(requirement, dict) else {}
+        self._prefer_requirement_key = requirement_identity(requirement)
+        date_text = str(
+            requirement.get('actual_online_date')
+            or requirement.get('planned_online_date')
+            or ''
+        )[:10]
+        if not date_text and requirement.get('online_month'):
+            month = str(requirement.get('online_month'))
+            if len(month) >= 7:
+                date_text = f'{month[:7]}-01'
+        if date_text:
+            parsed = QDate.fromString(date_text, 'yyyy-MM-dd')
+            if parsed.isValid():
+                self.release_date.blockSignals(True)
+                self.release_date.setDate(parsed)
+                self.release_date.blockSignals(False)
+        self.tabs.setCurrentIndex(0)
+        self._load_release_candidates()
 
     def _append_sql_parts(self, parts, source_kind):
         blocks = []
