@@ -15,7 +15,7 @@ from docx import Document
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
-from tools.credit_code import generate_batch, validate_code
+from tools.credit_code import company_email, company_name_abbrev, generate_batch, generate_unit_records, validate_code
 from tools.id_documents import (
     DOCUMENT_TYPES, generate_personal_batch, generate_personal_records,
     resident_id_age, resident_id_gender, validate_personal_document,
@@ -69,6 +69,17 @@ class CreditCodeTests(unittest.TestCase):
         self.assertEqual(len(codes), 200)
         self.assertEqual(len(set(codes)), 200)
         self.assertTrue(all(validate_code(code) for code in codes))
+
+    def test_company_email_uses_name_abbrev(self):
+        self.assertEqual(company_name_abbrev('北京鑫润科技有限公司'), 'xrkj')
+        mail = company_email('北京鑫润科技有限公司')
+        local, _sep, domain = mail.partition('@')
+        self.assertEqual(local, 'xrkj')
+        self.assertTrue(domain.startswith('xrkj.'))
+        rows = generate_unit_records(5)
+        for item in rows:
+            abbr = company_name_abbrev(item['name'])
+            self.assertTrue(item['email'].startswith(abbr + '@'))
 
 
 class PrivateWorkspaceTests(unittest.TestCase):

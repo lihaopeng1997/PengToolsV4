@@ -308,6 +308,13 @@ class UiRegressionTests(unittest.TestCase):
         self.assertTrue(all(item.get('business_scope') for item in panel._results))
         panel._copy_all()
         self.assertIn('统一社会信用代码', QApplication.clipboard().text())
+        local, _sep, domain = panel._results[0]['email'].partition('@')
+        self.assertTrue(local)
+        self.assertTrue(domain.startswith(local))
+        panel.category_tabs.setCurrentIndex(0)
+        self.assertEqual(len(panel._results), 10)
+        self.assertNotEqual(panel._results[0]['kind'], 'credit_code')
+        self.assertGreater(panel.table.columnCount(), 4)
 
     def test_resident_id_custom_region_age_and_gender_controls(self):
         panel = CreditCodePanel()

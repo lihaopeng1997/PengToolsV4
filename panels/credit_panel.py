@@ -52,7 +52,8 @@ class CreditCodePanel(QWidget):
     def __init__(self):
         super().__init__()
         self.language = 'zh'
-        self._results = []
+        self._personal_results = []
+        self._unit_results = []
         self._setup_ui()
         self.set_language('zh')
 
@@ -85,7 +86,7 @@ class CreditCodePanel(QWidget):
         self.category_tabs.addTab(self._create_personal_tab(), '')
         self.category_tabs.addTab(self._create_unit_tab(), '')
         self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        self.category_tabs.currentChanged.connect(lambda *_: self._sync_tab_height())
+        self.category_tabs.currentChanged.connect(self._on_category_tab_changed)
         root.addWidget(self.category_tabs, 0)
         self._sync_tab_height()
 
@@ -384,7 +385,7 @@ class CreditCodePanel(QWidget):
                     'gender': self.id_gender.currentData(),
                 })
         records = generate_personal_records(kind, quantity, **options)
-        self._results = records
+        self._personal_results = records
         valid = sum(validate_personal_document(kind, item['document']) for item in records)
         self._update_table()
         self._show_result(quantity, valid)
@@ -404,7 +405,7 @@ class CreditCodePanel(QWidget):
             quantity, province=province, org_type=org_type,
             business=business, valid_term=valid_term,
         )
-        self._results = records
+        self._unit_results = records
         valid = sum(validate_code(item['document']) for item in records)
         self._update_table()
         self._show_result(quantity, valid)
@@ -449,10 +450,25 @@ class CreditCodePanel(QWidget):
         self.category_tabs.setMinimumHeight(height)
         self.category_tabs.setMaximumHeight(height)
 
+    @property
+    def _results(self):
+        if getattr(self, 'category_tabs', None) is not None and self.category_tabs.currentIndex() == 1:
+            return self._unit_results
+        return self._personal_results
+
     def _result_kind(self):
-        if self._results and self._results[0].get('kind') == 'credit_code':
+        if getattr(self, 'category_tabs', None) is not None and self.category_tabs.currentIndex() == 1:
             return 'unit'
         return 'personal'
+
+    def _on_category_tab_changed(self, *_):
+        self._sync_tab_height()
+        self._update_table()
+        if self._results:
+            self._show_result(len(self._results), len(self._results))
+        else:
+            zh = self.language == 'zh'
+            self.result_label.setText('选择个人或单位证件后生成' if zh else 'Choose personal or unit documents to generate')
 
     def _headers_and_keys(self):
         zh = self.language == 'zh'
@@ -464,10 +480,39 @@ class CreditCodePanel(QWidget):
 
     def _apply_column_widths(self, count):
         header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 48)
         for column in range(1, count):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+
+    def _fit_table_to_row(self):
+        """内容不够宽则按比例铺满；超出则可横向拖动查看。"""
+        table = self.table
+        count = table.columnCount()
+        if count <= 0:
+            return
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        for column in range(1, count):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        table.resizeColumnsToContents()
+        table.setColumnWidth(0, 48)
+        used = sum(table.columnWidth(column) for column in range(count))
+        viewport = table.viewport().width() if table.viewport() else table.width()
+        leftover = viewport - used
+        if leftover > 8 and count > 1:
+            weights = [max(table.columnWidth(column), 1) for column in range(1, count)]
+            total = sum(weights) or 1
+            for offset, weight in enumerate(weights):
+                column = offset + 1
+                extra = int(leftover * weight / total)
+                table.setColumnWidth(column, table.columnWidth(column) + extra)
+        for column in range(1, count):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(0, 48)
 
     def _record_value(self, record, key, index):
         if key == 'index':
@@ -488,15 +533,13 @@ class CreditCodePanel(QWidget):
                 item = QTableWidgetItem(self._record_value(record, key, row + 1))
                 self.table.setItem(row, column, item)
             self.table.setRowHeight(row, 32)
-        self.table.resizeColumnsToContents()
-        if self.table.columnWidth(0) < 48:
-            self.table.setColumnWidth(0, 48)
         try:
             from ui.design_system import finish_result_rows
             finish_result_rows(self.table)
         except Exception:
             if self._results:
                 self.table.scrollToTop()
+        self._fit_table_to_row()
 
     def _on_unit_mode_changed(self, index):
         self.unit_custom.setVisible(index == 1)
@@ -583,9 +626,16 @@ class CreditCodePanel(QWidget):
             show_error(self, 'Export Failed', str(exc))
 
     def _clear(self):
-        self._results = []
-        self.table.setRowCount(0)
+        if self.category_tabs.currentIndex() == 1:
+            self._unit_results = []
+        else:
+            self._personal_results = []
+        self._update_table()
         self.result_label.setText('已清空' if self.language == 'zh' else 'Cleared')
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_table_to_row()
 
     def refresh_config(self):
         pass
@@ -654,7 +704,6 @@ class CreditCodePanel(QWidget):
         self.export_btn.setText('导出 CSV' if zh else 'Export CSV')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self._fit_fixed_combos()
-        if self._results:
-            self._update_table()
-        else:
+        self._update_table()
+        if not self._results:
             self.result_label.setText('选择个人或单位证件后生成' if zh else 'Choose personal or unit documents to generate')

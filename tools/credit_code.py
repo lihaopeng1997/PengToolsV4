@@ -111,6 +111,34 @@ def generate_names_for_codes(count, province='', city='', org_type=''):
     return [generate_company_name(province, city, org_type) for _ in range(count)]
 
 
+def company_name_abbrev(name: str) -> str:
+    """企业名称去掉行政区划和公司形态后的拼音首字母，如 北京鑫润科技有限公司 → xrkj。"""
+    text = str(name or '').strip()
+    for city in sorted((item for item in CITIES if item), key=len, reverse=True):
+        if text.startswith(city):
+            text = text[len(city):]
+            break
+    for form in sorted(LEGAL_FORMS, key=len, reverse=True):
+        if text.endswith(form):
+            text = text[:-len(form)]
+            break
+    letters = ''
+    try:
+        from pypinyin import Style, lazy_pinyin
+        letters = ''.join(lazy_pinyin(text, style=Style.FIRST_LETTER))
+    except Exception:
+        letters = ''.join(ch.lower() for ch in text if 'a' <= ch.lower() <= 'z')
+    cleaned = ''.join(ch for ch in letters.lower() if 'a' <= ch <= 'z')
+    return cleaned or 'corp'
+
+
+def company_email(name: str, rng=None) -> str:
+    rng = rng or random.Random()
+    abbr = company_name_abbrev(name)
+    domain = rng.choice(('com', 'com.cn', 'cn'))
+    return f'{abbr}@{abbr}.{domain}'
+
+
 BUSINESS_SCOPES = (
     '软件开发；信息技术咨询；信息系统集成服务。',
     '货物进出口；技术进出口；国内贸易代理。',
@@ -155,8 +183,7 @@ def generate_unit_record(province='', org_type='', business='', valid_term=None)
                 end = start.replace(year=start.year + years, day=28).isoformat()
     area = AREA_CODES_PHONE.get(str(province or code[:2]), f'0{rng.randint(10, 29)}')
     phone = f'{area}-{rng.randint(20000000, 88999999)}'
-    local = ''.join(rng.choice(string.ascii_lowercase) for _ in range(6))
-    email = f'{rng.choice(("service", "info", "admin"))}@{local}.com'
+    email = company_email(name, rng)
     postal = f'{rng.randint(100000, 859999)}'
     street = rng.choice(('创业路', '科技大道', '工业园路', '商务中心路', '滨江大道'))
     address = f'{PROVINCES.get(str(province or code[:2]), "")}{street}{rng.randint(1, 288)}号'
