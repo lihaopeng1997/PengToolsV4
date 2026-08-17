@@ -233,8 +233,13 @@ class CloseActionDialog(QDialog):
         footer.addWidget(self.cancel_button)
         root.addLayout(footer)
 
-        # 默认焦点：安全动作（隐藏）
-        self.minimize_button.setFocus()
+        # 默认焦点落在安全控件：隐藏；若默认动作为退出，则落在取消
+        if default_action == 'exit':
+            self.cancel_button.setAutoDefault(True)
+            self.cancel_button.setDefault(True)
+            self.cancel_button.setFocus()
+        else:
+            self.minimize_button.setFocus()
 
     def _choose(self, action):
         self._result = action

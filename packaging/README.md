@@ -4,7 +4,8 @@
 
 | 目录 | 说明 | Git |
 |---|---|---|
-| `Installer/` | 正式安装模板：`setup.cmd` + `README.txt` + `PengToolsHub.exe` | 已 gitignore（含 EXE） |
+| `packaging/setup.cmd`、`README.txt` | 安装脚本源文件（纳入 Git） | 跟踪 |
+| `Installer/` | 构建时复制脚本 + 写入 EXE | 已 gitignore |
 | `PrivateInstaller/` | 兼容旧路径，构建时同步 EXE | 已 gitignore |
 | 根目录 `PengToolsHub_Offline_Setup.zip` | 离线安装包产物 | 已 gitignore |
 

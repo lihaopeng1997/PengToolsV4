@@ -1215,7 +1215,7 @@ class RequirementPanel(QWidget):
 
         self.detail_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.detail_splitter.setObjectName('requirement-splitter')
-        self.detail_splitter.setHandleWidth(6)
+        self.detail_splitter.setHandleWidth(8)
         self.detail_splitter.setChildrenCollapsible(False)
         self.detail_splitter.setOpaqueResize(True)
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)

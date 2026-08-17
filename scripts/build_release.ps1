@@ -171,6 +171,13 @@ try {
     if (-not (Test-Path -LiteralPath $InstallerDir)) {
         New-Item -ItemType Directory -Path $InstallerDir | Out-Null
     }
+    $PackagingDir = Join-Path $ProjectDir 'packaging'
+    foreach ($name in @('setup.cmd', 'README.txt')) {
+        $src = Join-Path $PackagingDir $name
+        if (Test-Path -LiteralPath $src) {
+            Copy-Item $src (Join-Path $InstallerDir $name) -Force
+        }
+    }
     Get-ChildItem $InstallerDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
     $InstallerDataDir = Join-Path $InstallerDir 'data'
     if (Test-Path -LiteralPath $InstallerDataDir) {

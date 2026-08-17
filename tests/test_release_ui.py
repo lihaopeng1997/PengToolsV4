@@ -103,7 +103,7 @@ class ReleaseUiTests(unittest.TestCase):
         close_dialog = CloseActionDialog(language='zh', default_action='minimize')
         close_dialog.show()
         self.app.processEvents()
-        self.assertEqual(close_dialog.windowTitle(), '关闭 PengTools？')
+        self.assertEqual(close_dialog.windowTitle(), '关闭 PengToolsHub？')
         self.assertTrue(close_dialog.minimize_button.hasFocus())
         self.assertFalse(close_dialog.dont_ask_again())
         close_dialog.dont_ask_check.setChecked(True)
@@ -676,6 +676,7 @@ class ReleaseUiTests(unittest.TestCase):
                 panel._load_release_candidates()
             with patch('panels.sql_panel.save_requirements'), \
                     patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.show_info'), \
                     patch('panels.sql_panel.show_warning') as warning:
                 panel._generate_release_materials()
@@ -737,6 +738,7 @@ class ReleaseUiTests(unittest.TestCase):
             with patch('panels.sql_panel.load_requirements', return_value=requirements), \
                     patch('panels.sql_panel.save_requirements'), \
                     patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.show_info'), \
                     patch('panels.sql_panel.show_warning') as warning:
                 panel._generate_release_materials()
@@ -763,7 +765,7 @@ class ReleaseUiTests(unittest.TestCase):
             panel.close()
 
     def test_private_setup_does_not_touch_local_data(self):
-        setup_path = os.path.join(ROOT, 'PrivateInstaller', 'setup.cmd')
+        setup_path = os.path.join(ROOT, 'packaging', 'setup.cmd')
         with open(setup_path, 'r', encoding='utf-8') as stream:
             setup = stream.read().casefold()
         self.assertNotIn('rmdir', setup)

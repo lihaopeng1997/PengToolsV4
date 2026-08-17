@@ -613,6 +613,12 @@ QSplitter::handle:horizontal {
 QSplitter::handle:horizontal:hover {
     background: __PRIMARY_SOFT__;
 }
+QSplitter#requirement-splitter::handle:horizontal {
+    width: 8px;
+    margin: 0;
+    background: __BORDER__;
+    border: none;
+}
 QSplitter::handle:vertical {
     height: 6px;
     margin: 0;
