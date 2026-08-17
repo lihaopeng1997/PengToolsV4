@@ -60,7 +60,9 @@ class CreditCodePanel(QWidget):
         self.category_tabs.addTab(self._create_personal_tab(), '')
         self.category_tabs.addTab(self._create_unit_tab(), '')
         self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.category_tabs.currentChanged.connect(lambda *_: self._sync_tab_height())
         root.addWidget(self.category_tabs, 0)
+        self._sync_tab_height()
 
         self.format_note = QLabel()
         self.format_note.setObjectName('path-note')
@@ -129,9 +131,12 @@ class CreditCodePanel(QWidget):
     def _create_personal_tab(self):
         tab = QWidget()
         tab.setObjectName('credit-tab')
+        tab.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(tab)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         card, layout = self._filter_card()
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         outer.addWidget(card)
 
         first = QHBoxLayout()
@@ -227,9 +232,12 @@ class CreditCodePanel(QWidget):
     def _create_unit_tab(self):
         tab = QWidget()
         tab.setObjectName('credit-tab')
+        tab.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(tab)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         card, layout = self._filter_card()
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         outer.addWidget(card)
 
         first = QHBoxLayout()
@@ -358,6 +366,19 @@ class CreditCodePanel(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._fit_fixed_combos()
+        self._sync_tab_height()
+
+    def _sync_tab_height(self):
+        """QTabWidget 默认按最高一页定高，个人指定条件不能把单位页一起撑高。"""
+        current = self.category_tabs.currentWidget()
+        if current is None:
+            return
+        current.adjustSize()
+        bar = self.category_tabs.tabBar()
+        bar_h = bar.sizeHint().height() if bar is not None else 28
+        height = max(72, int(current.sizeHint().height()) + int(bar_h) + 16)
+        self.category_tabs.setMinimumHeight(height)
+        self.category_tabs.setMaximumHeight(height)
 
     def _update_table(self):
         self.table.setRowCount(len(self._results))
@@ -373,6 +394,7 @@ class CreditCodePanel(QWidget):
 
     def _on_unit_mode_changed(self, index):
         self.unit_custom.setVisible(index == 1)
+        self._sync_tab_height()
 
     def _on_personal_type_changed(self, *_):
         is_resident_id = self.personal_type.currentData() == 'resident_id'
@@ -382,9 +404,11 @@ class CreditCodePanel(QWidget):
         # 切换类型时短暂展示格式说明
         if hasattr(self, 'format_note') and self.format_note.text():
             self.format_note.show()
+        self._sync_tab_height()
 
     def _on_personal_mode_changed(self, index):
         self.id_custom.setVisible(self.personal_type.currentData() == 'resident_id' and index == 1)
+        self._sync_tab_height()
 
     def _load_id_provinces(self):
         self.id_province.blockSignals(True)

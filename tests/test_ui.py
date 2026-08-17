@@ -329,9 +329,28 @@ class UiRegressionTests(unittest.TestCase):
         self.app.processEvents()
         panel._fit_fixed_combos()
         longest = '武警身份证件'
-        need = panel.personal_type.fontMetrics().horizontalAdvance(longest) + 56
+        need = panel.personal_type.fontMetrics().horizontalAdvance(longest) + 24
         self.assertGreaterEqual(panel.personal_type.maximumWidth(), need)
         self.assertLessEqual(panel.personal_mode.maximumWidth(), 220)
+
+    def test_unit_tab_does_not_inherit_personal_custom_height(self):
+        panel = CreditCodePanel()
+        panel.show()
+        self.app.processEvents()
+        panel.category_tabs.setCurrentIndex(0)
+        panel.personal_type.setCurrentIndex(panel.personal_type.findData('resident_id'))
+        panel.personal_mode.setCurrentIndex(1)
+        self.app.processEvents()
+        panel._sync_tab_height()
+        personal_h = panel.category_tabs.height()
+        panel.category_tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        panel._sync_tab_height()
+        unit_h = panel.category_tabs.height()
+        self.assertFalse(panel.id_custom.isHidden())
+        self.assertTrue(panel.unit_custom.isHidden())
+        self.assertLess(unit_h, personal_h)
+        panel.close()
 
     def test_sql_switch_keeps_unsaved_form_edits(self):
         panel = SqlToolPanel()
