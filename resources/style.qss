@@ -26,9 +26,6 @@ QFrame#content_area, QStackedWidget {
 QStackedWidget > QWidget {
     background: __APP_BG__;
 }
-QAbstractScrollArea::viewport {
-    background: __SURFACE__;
-}
 QScrollArea {
     background: __APP_BG__;
     border: none;
@@ -1338,10 +1335,14 @@ QTableWidget {
     outline: 0;
 }
 QTableWidget::item {
-    padding: 8px 9px;
+    padding: 2px 8px;
     border: none;
     border-bottom: 1px solid __BORDER__;
     color: __TEXT__;
+    background: __SURFACE__;
+}
+QTableWidget::item:alternate {
+    background: __TABLE_ALT__;
 }
 QTableWidget::item:selected {
     background: __TABLE_SELECT__;
@@ -1352,6 +1353,9 @@ QTableWidget::item:hover {
 }
 QHeaderView {
     background: __SURFACE_SOFT__;
+}
+QTableWidget QHeaderView:horizontal,
+QTreeWidget QHeaderView:horizontal {
     min-height: 24px;
     max-height: 26px;
 }

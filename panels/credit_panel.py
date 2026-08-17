@@ -376,7 +376,7 @@ class CreditCodePanel(QWidget):
         current.adjustSize()
         bar = self.category_tabs.tabBar()
         bar_h = bar.sizeHint().height() if bar is not None else 28
-        height = max(72, int(current.sizeHint().height()) + int(bar_h) + 16)
+        height = max(72, min(240, int(current.sizeHint().height()) + int(bar_h) + 16))
         self.category_tabs.setMinimumHeight(height)
         self.category_tabs.setMaximumHeight(height)
 
@@ -389,8 +389,12 @@ class CreditCodePanel(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(document))
             self.table.setItem(row, 3, QTableWidgetItem(name))
             self.table.setRowHeight(row, 32)
-        if self._results:
-            self.table.scrollToTop()
+        try:
+            from ui.design_system import finish_result_rows
+            finish_result_rows(self.table)
+        except Exception:
+            if self._results:
+                self.table.scrollToTop()
 
     def _on_unit_mode_changed(self, index):
         self.unit_custom.setVisible(index == 1)

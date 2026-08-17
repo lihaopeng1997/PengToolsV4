@@ -6,7 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QAbstractItemView, QSizePolicy, QTableWidget, QTreeWidget, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QTreeWidget, QWidget,
+)
 
 from ui.field_metrics import size_compact_button
 from ui.icons import apply_icon
@@ -150,11 +152,35 @@ def apply_table(table: QTableWidget, *, alternating: bool = True) -> None:
     table.setTextElideMode(Qt.TextElideMode.ElideRight)
     table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-    table.verticalHeader().setVisible(False)
+    table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    table.setMinimumHeight(320)
+    table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    vertical = table.verticalHeader()
+    vertical.setVisible(False)
+    vertical.setDefaultSectionSize(32)
+    vertical.setMinimumSectionSize(32)
+    vertical.setMaximumSectionSize(36)
+    vertical.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
     apply_list_header(table.horizontalHeader())
     header = table.horizontalHeader()
     if header is not None:
         header.setMinimumSectionSize(52)
+
+
+def finish_result_rows(table: QTableWidget, row_height: int = 32) -> None:
+    """生成结果后锁行高，避免样式把除第一行外的行挤没。"""
+    vertical = table.verticalHeader()
+    vertical.setDefaultSectionSize(row_height)
+    vertical.setMinimumSectionSize(row_height)
+    vertical.setMaximumSectionSize(row_height)
+    vertical.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+    for row in range(table.rowCount()):
+        table.setRowHeight(row, row_height)
+    table.scrollToTop()
+    view = table.viewport()
+    if view is not None:
+        view.update()
 
 
 def apply_surface(frame: QWidget, kind: str = 'card') -> None:

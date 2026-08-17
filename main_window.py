@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         self._ops_log_host = self._panel_hosts[12]
         self._ops_log_host_layout = self._panel_host_layouts[12]
 
-        self._content_layout.addWidget(self.stack)
+        self._content_layout.addWidget(self.stack, 1)
         layout.addWidget(content, 1)
 
         self.status_bar = QStatusBar()

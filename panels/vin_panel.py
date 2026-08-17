@@ -132,7 +132,8 @@ class VinPanel(QWidget):
 
         self.table = QTableWidget(0, len(VEHICLE_HEADERS_ZH))
         try:
-            from ui.design_system import apply_list_header
+            from ui.design_system import apply_list_header, apply_table
+            apply_table(self.table)
             apply_list_header(self.table.horizontalHeader())
         except Exception:
             pass
@@ -278,7 +279,11 @@ class VinPanel(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
                 self.table.setItem(row, column, item)
             self.table.setRowHeight(row, 32)
-        self.table.scrollToTop()
+        try:
+            from ui.design_system import finish_result_rows
+            finish_result_rows(self.table)
+        except Exception:
+            self.table.scrollToTop()
         self.status.setText(
             f'{len(self._results)} 条' if self.language == 'zh' else f'{len(self._results)} rows'
         )

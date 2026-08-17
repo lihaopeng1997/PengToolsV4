@@ -352,6 +352,44 @@ class UiRegressionTests(unittest.TestCase):
         self.assertLess(unit_h, personal_h)
         panel.close()
 
+    def test_generated_document_and_vin_rows_are_visible(self):
+        from PyQt6.QtWidgets import QMainWindow
+        from ui.theme_manager import ThemeManager
+        from panels.vin_panel import VinPanel
+
+        tm = ThemeManager.instance()
+        tm.load_template()
+        tm.apply(self.app, 'calm')
+        win = QMainWindow()
+        win.setProperty('uiDensity', 'compact')
+        credit = CreditCodePanel()
+        win.setCentralWidget(credit)
+        win.resize(1100, 720)
+        win.show()
+        self.app.processEvents()
+        credit.personal_qty.setValue(10)
+        credit._generate_personal()
+        self.app.processEvents()
+        first = credit.table.visualItemRect(credit.table.item(0, 0))
+        fifth = credit.table.visualItemRect(credit.table.item(4, 0))
+        self.assertEqual(credit.table.rowCount(), 10)
+        self.assertGreater(fifth.y(), first.y())
+        self.assertLess(fifth.bottom(), credit.table.viewport().height())
+        vin = VinPanel('zh')
+        win.setCentralWidget(vin)
+        win.show()
+        self.app.processEvents()
+        vin.qty.setValue(10)
+        vin._generate()
+        self.app.processEvents()
+        first = vin.table.visualItemRect(vin.table.item(0, 0))
+        fifth = vin.table.visualItemRect(vin.table.item(4, 0))
+        self.assertEqual(vin.table.rowCount(), 10)
+        self.assertGreater(fifth.y(), first.y())
+        self.assertLess(fifth.bottom(), vin.table.viewport().height())
+        win.close()
+        tm.apply(self.app, 'calm')
+
     def test_sql_switch_keeps_unsaved_form_edits(self):
         panel = SqlToolPanel()
         if len(panel._systems) < 2:
