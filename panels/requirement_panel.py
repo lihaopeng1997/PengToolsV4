@@ -152,10 +152,11 @@ from tools.personal_knowledge import (
 )
 from tools.requirements import (
     CATEGORIES, FLAG_DEFS, FLAG_CHIP_LABELS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
-    classify_requirement, flag_chip_text, flag_is_active, flag_status_text, load_requirements,
-    merge_working_copies, merged_sql, normalize_flag_done, normalize_requirement,
-    requirement_from_text, requirement_from_working_copy, requirement_search_text,
-    save_requirements,
+    binding_for, classify_requirement, flag_chip_text, flag_is_active, flag_status_text,
+    load_requirements, merge_working_copies, merged_sql, normalize_flag_done,
+    normalize_requirement, requirement_from_text, requirement_from_working_copy,
+    requirement_matches_system, requirement_search_text, requirement_systems,
+    save_requirements, sync_system_fields, systems_display_text,
 )
 from tools.svn_workspace import (
     SVN_DIRTY_STATUSES, SvnError, add_existing_files, add_text_file, changed_paths, checkout, commit_paths,
@@ -663,6 +664,42 @@ class SvnCheckoutDialog(QDialog):
         return {'url': url, 'title': title, 'record_kind': kind, 'online_month': month, 'target': target}
 
 
+class _SystemPickWidget(QWidget):
+    """已配置系统的勾选列表。"""
+
+    changed = pyqtSignal()
+
+    def __init__(self, options, selected=None, parent=None):
+        super().__init__(parent)
+        self._boxes = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        selected = list(selected or [])
+        wrap = QHBoxLayout()
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(12)
+        for name in options:
+            box = QCheckBox(name)
+            box.setChecked(name in selected)
+            box.toggled.connect(self.changed.emit)
+            self._boxes.append(box)
+            wrap.addWidget(box)
+        wrap.addStretch(1)
+        layout.addLayout(wrap)
+
+    def selected_names(self):
+        return [box.text() for box in self._boxes if box.isChecked()]
+
+    def set_selected_names(self, names):
+        wanted = set(names or [])
+        for box in self._boxes:
+            box.blockSignals(True)
+            box.setChecked(box.text() in wanted)
+            box.blockSignals(False)
+        self.changed.emit()
+
+
 class RequirementDialog(QDialog):
     def __init__(self, requirement=None, parent=None):
         super().__init__(parent)
@@ -688,38 +725,48 @@ class RequirementDialog(QDialog):
         self.category_combo = QComboBox(); self.category_combo.addItems(CATEGORIES); size_combo(self.category_combo, 'md')
         self.status_combo = QComboBox(); self.status_combo.addItems(STATUSES); size_combo(self.status_combo, 'sm')
         self.priority_combo = QComboBox(); self.priority_combo.addItems(PRIORITIES); size_combo(self.priority_combo, 'sm')
-        self.system_edit = QComboBox()
-        size_combo(self.system_edit, 'md')
-        self.system_edit.addItem('请选择系统', '')
-        for system in load_systems():
-            self.system_edit.addItem(system['name'], system['name'])
-        # 打开对话框时对空字段做一次自动推断（不覆盖已有值）
-        inferred = apply_auto_inference(dict(base), systems=load_systems(), only_empty=True)
-        current_system = inferred.get('system', '') or base.get('system', '')
-        system_index = self.system_edit.findData(current_system)
-        if current_system and system_index < 0:
-            self.system_edit.addItem(f'{current_system}（旧配置）', current_system)
-            system_index = self.system_edit.count() - 1
-        self.system_edit.setCurrentIndex(max(0, system_index))
+        configured_systems = load_systems()
+        inferred = apply_auto_inference(dict(base), systems=configured_systems, only_empty=True)
+        option_names = [system['name'] for system in configured_systems]
+        selected_systems = requirement_systems(inferred) or requirement_systems(base)
+        for name in selected_systems:
+            if name and name not in option_names:
+                option_names.append(name)
+        self.system_pick = _SystemPickWidget(option_names, selected_systems)
+        self.system_pick.changed.connect(self._rebuild_system_bindings)
         self.owner_edit = QLineEdit(base.get('owner', ''))
         size_line(self.owner_edit, 'std')
+        self._binding_cache = {}
+        for name in selected_systems:
+            bound = binding_for(inferred if inferred.get('system_bindings') else base, name)
+            if not bound.get('svn_url') and not bound.get('dev_local_path') and name == (selected_systems[0] if selected_systems else ''):
+                bound = {
+                    'svn_url': str(base.get('svn_url') or inferred.get('svn_url') or '').strip(),
+                    'dev_local_path': str(base.get('dev_local_path') or inferred.get('dev_local_path') or '').strip(),
+                }
+            self._binding_cache[name] = bound
         self.svn_url_edit = QLineEdit(base.get('svn_url', ''))
         size_line(self.svn_url_edit, 'path')
         self.svn_url_edit.setPlaceholderText('未配置则留空；有开发分支时再填，例如 svn://服务器/.../DEV_prpcar_...')
         self.dev_local_path_edit = QLineEdit(base.get('dev_local_path', ''))
         size_line(self.dev_local_path_edit, 'path')
         self.dev_local_path_edit.setPlaceholderText('本机开发工程目录，配置后可在需求列表右键打开')
-        pick_dev_btn = QPushButton('选择目录')
-        size_compact_button(pick_dev_btn)
-        pick_dev_btn.clicked.connect(self._pick_dev_local_path)
-        dev_path_row = QHBoxLayout()
-        dev_path_row.addWidget(self.dev_local_path_edit, 1)
-        dev_path_row.addWidget(pick_dev_btn)
+        self._standalone_dev_btn = QPushButton('选择目录')
+        size_compact_button(self._standalone_dev_btn)
+        self._standalone_dev_btn.clicked.connect(self._pick_dev_local_path)
+        self._standalone_dev_row = QHBoxLayout()
+        self._standalone_dev_row.addWidget(self.dev_local_path_edit, 1)
+        self._standalone_dev_row.addWidget(self._standalone_dev_btn)
         self.local_path_edit = QLineEdit(base.get('local_path', ''))
         size_line(self.local_path_edit, 'path')
         self.local_path_edit.setPlaceholderText('可绑定本机已有的 SVN 工作副本或需求资料目录')
         bind_folder_btn = QPushButton('绑定目录'); size_compact_button(bind_folder_btn); bind_folder_btn.clicked.connect(self._bind_local_folder)
         local_path_row = QHBoxLayout(); local_path_row.addWidget(self.local_path_edit, 1); local_path_row.addWidget(bind_folder_btn)
+        self.system_bindings_host = QWidget()
+        self.system_bindings_layout = QVBoxLayout(self.system_bindings_host)
+        self.system_bindings_layout.setContentsMargins(0, 0, 0, 0)
+        self.system_bindings_layout.setSpacing(6)
+        self._binding_rows = {}
         self.planned_date = DateInput(inferred.get('planned_online_date') or base.get('planned_online_date', ''))
         self.actual_date = DateInput(base.get('actual_online_date', ''))
         self.online_month = DateInput(inferred.get('online_month') or base.get('online_month', ''), month_only=True)
@@ -736,21 +783,25 @@ class RequirementDialog(QDialog):
         form.addWidget(QLabel('自动分类'), 1, 2); form.addWidget(self.category_combo, 1, 3)
         form.addWidget(QLabel('当前状态'), 2, 0); form.addWidget(self.status_combo, 2, 1)
         form.addWidget(QLabel('优先级'), 2, 2); form.addWidget(self.priority_combo, 2, 3)
-        form.addWidget(QLabel('所属系统'), 3, 0); form.addWidget(self.system_edit, 3, 1)
-        form.addWidget(QLabel('负责人'), 3, 2); form.addWidget(self.owner_edit, 3, 3)
-        form.addWidget(QLabel('开发分支 SVN 地址'), 4, 0); form.addWidget(self.svn_url_edit, 4, 1, 1, 3)
-        form.addWidget(QLabel('本地开发项目地址'), 5, 0); form.addLayout(dev_path_row, 5, 1, 1, 3)
-        form.addWidget(QLabel('绑定本地目录'), 6, 0); form.addLayout(local_path_row, 6, 1, 1, 3)
+        form.addWidget(QLabel('负责人'), 3, 0); form.addWidget(self.owner_edit, 3, 1, 1, 3)
+        form.addWidget(QLabel('所属系统'), 4, 0); form.addWidget(self.system_pick, 4, 1, 1, 3)
+        form.addWidget(self.system_bindings_host, 5, 0, 1, 4)
+        self.svn_label = QLabel('开发分支 SVN 地址')
+        self.dev_label = QLabel('本地开发项目地址')
+        form.addWidget(self.svn_label, 6, 0); form.addWidget(self.svn_url_edit, 6, 1, 1, 3)
+        form.addWidget(self.dev_label, 7, 0); form.addLayout(self._standalone_dev_row, 7, 1, 1, 3)
+        form.addWidget(QLabel('绑定本地目录'), 8, 0); form.addLayout(local_path_row, 8, 1, 1, 3)
         self.monthly_release = QCheckBox('是否本月上线')
         self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示；若未填上线月份，将默认使用当前自然月。')
         self.monthly_release.setChecked(bool(base.get('is_monthly_release')))
         self.monthly_release.toggled.connect(self._on_monthly_release_toggled)
-        form.addWidget(QLabel('上线月份'), 7, 0); form.addWidget(self.online_month, 7, 1)
-        form.addWidget(QLabel('计划上线'), 7, 2); form.addWidget(self.planned_date, 7, 3)
-        form.addWidget(self.monthly_release, 8, 1)
+        form.addWidget(QLabel('上线月份'), 9, 0); form.addWidget(self.online_month, 9, 1)
+        form.addWidget(QLabel('计划上线'), 9, 2); form.addWidget(self.planned_date, 9, 3)
+        form.addWidget(self.monthly_release, 10, 1)
         if self.monthly_release.isChecked() and not str(self.online_month.text() or '').strip():
             self._on_monthly_release_toggled(True)
-        form.addWidget(QLabel('实际上线'), 8, 2); form.addWidget(self.actual_date, 8, 3)
+        form.addWidget(QLabel('实际上线'), 10, 2); form.addWidget(self.actual_date, 10, 3)
+        self._rebuild_system_bindings()
         layout.addLayout(form)
 
         flag_card = QFrame()
@@ -839,7 +890,16 @@ class RequirementDialog(QDialog):
         self.sql_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sql_list.customContextMenuRequested.connect(self._show_sql_menu)
         self.sql_list.installEventFilter(self)
+        self.sql_list.currentRowChanged.connect(self._sync_sql_system_combo)
         layout.addWidget(self.sql_list)
+        sql_assign = QHBoxLayout()
+        sql_assign.addWidget(QLabel('选中 SQL 归属'))
+        self.sql_system_combo = QComboBox()
+        size_combo(self.sql_system_combo, 'md')
+        self.sql_system_combo.currentIndexChanged.connect(self._apply_sql_system)
+        sql_assign.addWidget(self.sql_system_combo)
+        sql_assign.addStretch(1)
+        layout.addLayout(sql_assign)
         self.sql_paste = QPlainTextEdit()
         self.sql_paste.setPlaceholderText('也可以直接粘贴需求 SQL；保存后可一键发送到发版联动和接口 DOCX。')
         self.sql_paste.setMaximumHeight(95)
@@ -863,11 +923,123 @@ class RequirementDialog(QDialog):
             return
         self.online_month.edit.setText(datetime.date.today().strftime('%Y-%m'))
 
-    def _pick_dev_local_path(self):
-        start = self.dev_local_path_edit.text().strip() or self.local_path_edit.text().strip()
+    def selected_systems(self):
+        return self.system_pick.selected_names()
+
+    def set_selected_systems(self, names):
+        self.system_pick.set_selected_names(names)
+
+    def _cache_binding_rows(self):
+        for name, widgets in self._binding_rows.items():
+            self._binding_cache[name] = {
+                'svn_url': widgets['svn'].text().strip(),
+                'dev_local_path': widgets['dev'].text().strip(),
+            }
+
+    def _rebuild_system_bindings(self):
+        self._cache_binding_rows()
+        while self.system_bindings_layout.count():
+            item = self.system_bindings_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._binding_rows = {}
+        names = self.selected_systems()
+        has_systems = bool(names)
+        if names and not self._binding_rows:
+            first = names[0]
+            seeded = self._binding_cache.get(first) or {}
+            if not str(seeded.get('svn_url') or '').strip():
+                seeded['svn_url'] = self.svn_url_edit.text().strip()
+            if not str(seeded.get('dev_local_path') or '').strip():
+                seeded['dev_local_path'] = self.dev_local_path_edit.text().strip()
+            self._binding_cache[first] = seeded
+        self.svn_label.setVisible(not has_systems)
+        self.svn_url_edit.setVisible(not has_systems)
+        self.dev_label.setVisible(not has_systems)
+        self.dev_local_path_edit.setVisible(not has_systems)
+        self._standalone_dev_btn.setVisible(not has_systems)
+        for name in names:
+            cached = self._binding_cache.get(name) or {'svn_url': '', 'dev_local_path': ''}
+            row = QWidget()
+            box = QVBoxLayout(row)
+            box.setContentsMargins(0, 0, 0, 4)
+            box.setSpacing(4)
+            title = QLabel(f'{name} 的开发绑定')
+            title.setObjectName('field-hint')
+            box.addWidget(title)
+            svn_edit = QLineEdit(cached.get('svn_url', ''))
+            size_line(svn_edit, 'path')
+            svn_edit.setPlaceholderText('未配置则留空')
+            box.addWidget(svn_edit)
+            dev_row = QHBoxLayout()
+            dev_edit = QLineEdit(cached.get('dev_local_path', ''))
+            size_line(dev_edit, 'path')
+            dev_edit.setPlaceholderText('本机开发工程目录')
+            pick_btn = QPushButton('选择目录')
+            size_compact_button(pick_btn)
+            pick_btn.clicked.connect(lambda _=False, editor=dev_edit: self._pick_path_into(editor))
+            dev_row.addWidget(dev_edit, 1)
+            dev_row.addWidget(pick_btn)
+            box.addLayout(dev_row)
+            self.system_bindings_layout.addWidget(row)
+            self._binding_rows[name] = {'svn': svn_edit, 'dev': dev_edit}
+        if hasattr(self, 'sql_system_combo'):
+            self._refresh_sql_system_combo()
+
+    def _pick_path_into(self, editor):
+        start = editor.text().strip() or self.local_path_edit.text().strip()
         path = QFileDialog.getExistingDirectory(self, '选择本地开发项目目录', start)
         if path:
-            self.dev_local_path_edit.setText(path)
+            editor.setText(path)
+
+    def _pick_dev_local_path(self):
+        self._pick_path_into(self.dev_local_path_edit)
+
+    def _current_binding_map(self):
+        self._cache_binding_rows()
+        names = self.selected_systems()
+        result = {}
+        for name in names:
+            cached = self._binding_cache.get(name) or {}
+            result[name] = {
+                'svn_url': str(cached.get('svn_url') or '').strip(),
+                'dev_local_path': str(cached.get('dev_local_path') or '').strip(),
+            }
+        return result
+
+    def _refresh_sql_system_combo(self):
+        if not hasattr(self, 'sql_system_combo'):
+            return
+        current = self.sql_system_combo.currentData()
+        self.sql_system_combo.blockSignals(True)
+        self.sql_system_combo.clear()
+        self.sql_system_combo.addItem('未指定', '')
+        for name in self.selected_systems():
+            self.sql_system_combo.addItem(name, name)
+        index = self.sql_system_combo.findData(current)
+        self.sql_system_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.sql_system_combo.blockSignals(False)
+        self._sync_sql_system_combo()
+
+    def _sync_sql_system_combo(self, _row=None):
+        if not hasattr(self, 'sql_system_combo'):
+            return
+        row = self.sql_list.currentRow()
+        self.sql_system_combo.blockSignals(True)
+        if 0 <= row < len(self._sql_parts):
+            assigned = str(self._sql_parts[row].get('system') or '').strip()
+            index = self.sql_system_combo.findData(assigned)
+            self.sql_system_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.sql_system_combo.blockSignals(False)
+
+    def _apply_sql_system(self):
+        row = self.sql_list.currentRow()
+        if row < 0 or row >= len(self._sql_parts):
+            return
+        self._sql_parts[row]['system'] = self.sql_system_combo.currentData() or ''
+        self._refresh_lists('sql')
+        self.sql_list.setCurrentRow(row)
 
     def _bind_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', self.local_path_edit.text())
@@ -923,9 +1095,12 @@ class RequirementDialog(QDialog):
         if which in (None, 'sql'):
             self.sql_list.clear()
             for part in self._sql_parts:
-                item = QListWidgetItem(f"{part.get('name')} · {len(part.get('content', ''))} 字符")
+                assigned = str(part.get('system') or '').strip() or '未指定'
+                item = QListWidgetItem(f"[{assigned}] {part.get('name')} · {len(part.get('content', ''))} 字符")
                 item.setToolTip(part.get('content', '')[:1000])
                 self.sql_list.addItem(item)
+            if hasattr(self, 'sql_system_combo'):
+                self._refresh_sql_system_combo()
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
@@ -1021,7 +1196,8 @@ class RequirementDialog(QDialog):
             'description': content,
             'svn_url': self.svn_url_edit.text(),
             'local_path': self.local_path_edit.text(),
-            'system': self.system_edit.currentData() or '',
+            'system': (self.selected_systems() or [''])[0],
+            'systems': self.selected_systems(),
             'sql_parts': list(self._sql_parts),
             'source_files': list(self._source_files),
             'has_sql': self.has_sql.isChecked(),
@@ -1035,10 +1211,8 @@ class RequirementDialog(QDialog):
         self.category_combo.setCurrentIndex(max(0, self.category_combo.findText(
             inferred.get('category') or classify_requirement(content)
         )))
-        if not self.system_edit.currentData() and inferred.get('system'):
-            index = self.system_edit.findData(inferred['system'])
-            if index >= 0:
-                self.system_edit.setCurrentIndex(index)
+        if not self.selected_systems() and requirement_systems(inferred):
+            self.set_selected_systems(requirement_systems(inferred))
         if not self.online_month.text().strip() and inferred.get('online_month'):
             self.online_month.edit.setText(inferred['online_month'])
         if inferred.get('has_sql') or self._sql_parts:
@@ -1075,6 +1249,22 @@ class RequirementDialog(QDialog):
             show_warning(self, '需求工作台', '请填写需求标题。')
             return
         local_path = self.local_path_edit.text().strip()
+        bindings = self._current_binding_map()
+        for name, bound in bindings.items():
+            dev_path = bound.get('dev_local_path') or ''
+            if dev_path and not os.path.isdir(dev_path):
+                if not confirm_action(
+                    self, '本地开发项目地址',
+                    f'{name} 的本地开发目录不存在：\n{dev_path}\n\n是否清空该地址并继续保存其他字段？',
+                    confirm_text='清空并继续',
+                    danger=False,
+                ):
+                    return
+                bound['dev_local_path'] = ''
+                self._binding_cache[name] = bound
+                widgets = self._binding_rows.get(name)
+                if widgets:
+                    widgets['dev'].clear()
         # 目录失效不应阻止保存台账字段（标题/勾选/日期等）
         if local_path and not os.path.isdir(local_path):
             if not confirm_action(
@@ -1116,15 +1306,27 @@ class RequirementDialog(QDialog):
         planned_date = self._normalize_date_text(self.planned_date.text()) or month_end_date(online_month)
         actual_date = self._normalize_date_text(self.actual_date.text())
         local_path = self.local_path_edit.text().strip()
-        return {
+        names = self.selected_systems()
+        bindings = self._current_binding_map()
+        if names:
+            primary = bindings.get(names[0]) or {}
+            svn_url = primary.get('svn_url') or self.svn_url_edit.text().strip()
+            dev_local_path = primary.get('dev_local_path') or self.dev_local_path_edit.text().strip()
+        else:
+            svn_url = self.svn_url_edit.text().strip()
+            dev_local_path = self.dev_local_path_edit.text().strip()
+        payload = {
             'code': self.code_edit.text().strip(), 'title': self.title_edit.text().strip(),
             'record_kind': self.kind_combo.currentText(),
             'description': self.description_edit.toPlainText().strip(),
             'category': self.category_combo.currentText(), 'status': self.status_combo.currentText(),
-            'priority': self.priority_combo.currentText(), 'system': self.system_edit.currentData() or '',
+            'priority': self.priority_combo.currentText(),
+            'system': names[0] if names else '',
+            'systems': names,
+            'system_bindings': bindings,
             'owner': self.owner_edit.text().strip(),
-            'svn_url': self.svn_url_edit.text().strip(),
-            'dev_local_path': self.dev_local_path_edit.text().strip(),
+            'svn_url': svn_url,
+            'dev_local_path': dev_local_path,
             'local_path': local_path,
             'workspace_kind': (
                 'folder' if local_path and not os.path.isdir(os.path.join(local_path, '.svn'))
@@ -1141,6 +1343,7 @@ class RequirementDialog(QDialog):
             'sql_parts': list(self._sql_parts),
             'source_files': list(self._source_files),
         }
+        return sync_system_fields(payload)
 
 
 class RequirementPanel(QWidget):
@@ -1906,7 +2109,7 @@ class RequirementPanel(QWidget):
                 continue
             if kind != '全部类型' and requirement.get('record_kind', '需求') != kind: continue
             if status != '全部状态' and requirement.get('status', '待分析') != status: continue
-            if system and requirement.get('system', '') != system: continue
+            if system and not requirement_matches_system(requirement, system): continue
             visible.append(requirement)
         total_all = len(self._requirements)
         if hasattr(self, 'tree_count_label'):
@@ -2029,7 +2232,7 @@ class RequirementPanel(QWidget):
                 f"{pin_line}"
                 f"进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n"
                 f"{tip_flags}\n"
-                f"系统：{requirement.get('system') or '—'}\n"
+                f"系统：{systems_display_text(requirement, empty='—')}\n"
                 f"路径：{requirement.get('local_path') or requirement.get('svn_url') or '—'}\n"
                 f"开发目录：{requirement.get('dev_local_path') or '—'}"
             )
@@ -2220,9 +2423,27 @@ class RequirementPanel(QWidget):
         if requirement.get('local_path') and os.path.isdir(requirement['local_path']):
             open_action = menu.addAction('打开文件夹')
             open_action.triggered.connect(lambda: self._open_requirement_folder(requirement))
-        if str(requirement.get('dev_local_path') or '').strip():
+        dev_targets = []
+        for name in requirement_systems(requirement):
+            path = binding_for(requirement, name).get('dev_local_path')
+            if path:
+                dev_targets.append((name, path))
+        if not dev_targets:
+            fallback = str(requirement.get('dev_local_path') or '').strip()
+            if fallback:
+                dev_targets.append(('', fallback))
+        if len(dev_targets) == 1:
             open_dev = menu.addAction('打开本地开发地址')
-            open_dev.triggered.connect(lambda: self._open_dev_project_folder(requirement))
+            open_dev.triggered.connect(
+                lambda _=False, req=requirement, name=dev_targets[0][0]: self._open_dev_project_folder(req, name or None)
+            )
+        elif len(dev_targets) > 1:
+            sub = menu.addMenu('打开本地开发地址')
+            for name, _path in dev_targets:
+                sub.addAction(
+                    name,
+                    lambda _=False, req=requirement, system=name: self._open_dev_project_folder(req, system),
+                )
         menu.addSeparator()
         delete_action = menu.addAction(f"删除选中的 {len(self._selected_requirements())} 项")
         delete_action.triggered.connect(self._delete_requirement)
@@ -2385,8 +2606,17 @@ class RequirementPanel(QWidget):
         if path and os.path.isdir(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    def _open_dev_project_folder(self, requirement):
-        path = str((requirement or {}).get('dev_local_path') or '').strip()
+    def _open_dev_project_folder(self, requirement, system_name=None):
+        requirement = requirement or {}
+        if system_name:
+            path = binding_for(requirement, system_name).get('dev_local_path') or ''
+        else:
+            names = requirement_systems(requirement)
+            if len(names) == 1:
+                path = binding_for(requirement, names[0]).get('dev_local_path') or ''
+            else:
+                path = str(requirement.get('dev_local_path') or '').strip()
+        path = str(path or '').strip()
         if not path:
             show_info(self, '本地开发地址', '这条需求还没有配置本地开发项目地址。')
             return
@@ -2454,7 +2684,7 @@ class RequirementPanel(QWidget):
         title = requirement.get('title') or '未命名需求'
         code = requirement.get('code') or '无编号'
         kind = requirement.get('record_kind', '需求')
-        system = requirement.get('system') or '未选系统'
+        system = systems_display_text(requirement, empty='未选系统')
         status = requirement.get('status') or '待分析'
         month = requirement.get('online_month') or ''
         planned = requirement.get('planned_online_date') or ''

@@ -22,7 +22,11 @@ from tools.release_prep import (
     RELEASE_SVN_URL, RELEASE_WORKBOOK_NAME, branch_name_from_svn,
     rank_requirements, release_row_from_requirement, update_release_workbook,
 )
-from tools.requirements import load_requirements, merged_sql, requirement_identity, save_requirements
+from tools.requirements import (
+    apply_release_system_writeback, explode_requirement_for_release,
+    has_unassigned_sql_when_multi_system, load_requirements,
+    merged_sql_for_system, requirement_identity, save_requirements,
+)
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
@@ -317,7 +321,12 @@ class SqlToolPanel(QWidget):
         target = self.release_date.date().toString('yyyy-MM-dd')
         self._release_date_confirmed = target
         self._release_all_requirements = load_requirements()
-        self._release_requirements = rank_requirements(self._release_all_requirements, target)
+        ranked = rank_requirements(self._release_all_requirements, target)
+        self._release_requirements = []
+        for requirement in ranked:
+            for exploded in explode_requirement_for_release(requirement):
+                exploded['_source_id'] = requirement.get('id')
+                self._release_requirements.append(exploded)
         self.release_table.setRowCount(len(self._release_requirements))
         exact = 0
         system_names = [system['name'] for system in self._systems]
@@ -418,6 +427,24 @@ class SqlToolPanel(QWidget):
             requirement['svn_url'] = svn_url
             requirement['system'] = system_name
             requirement['release_scope'] = self.release_table.item(row, 7).text().strip() or '后端：全部'
+            source = next(
+                (
+                    item for item in (self._release_all_requirements or [])
+                    if item.get('id') and item.get('id') == requirement.get('_source_id')
+                ),
+                requirement,
+            )
+            apply_release_system_writeback(
+                source,
+                system_name,
+                svn_url=svn_url,
+                release_scope=requirement['release_scope'],
+            )
+            if has_unassigned_sql_when_multi_system(source):
+                raise ValueError(
+                    f'“{requirement.get("title", "") or requirement.get("code", "")}”涉及多个系统，'
+                    '请先在需求里为每条 SQL 指定归属系统。'
+                )
             overrides = {
                 '系统名': system_name,
                 '前端：全部': requirement['release_scope'],
@@ -446,7 +473,7 @@ class SqlToolPanel(QWidget):
                 raise ValueError(f'未找到生产发版清单模板：\n{template}')
             sql_by_system = {}
             for requirement, _row in selected:
-                sql = merged_sql(requirement).strip()
+                sql = merged_sql_for_system(requirement, requirement.get('system')).strip()
                 if sql:
                     sql_by_system.setdefault(requirement['system'], []).append(sql)
             editor_sql = self.input_sql.toPlainText().strip()

@@ -53,8 +53,10 @@ from tools.personal_knowledge import (
     organize_content, search_entries,
 )
 from tools.requirements import (
-    classify_requirement, daily_template, requirement_from_text,
-    merge_working_copies, requirement_search_text,
+    classify_requirement, daily_template, explode_requirement_for_release,
+    has_unassigned_sql_when_multi_system, merged_sql_for_system,
+    merge_working_copies, normalize_requirement, requirement_from_text,
+    requirement_matches_system, requirement_search_text, requirement_systems,
 )
 from tools.svn_workspace import (
     add_text_file, checkout, commit_working_copy, infer_online_month,
@@ -193,6 +195,45 @@ class PrivateWorkspaceTests(unittest.TestCase):
     def test_requirement_classification_covers_common_types(self):
         self.assertEqual(classify_requirement('修复 BUG：保存时报错'), '缺陷优化')
         self.assertEqual(classify_requirement('新增字段并执行 DDL SQL'), '数据变更')
+
+    def test_requirement_multi_system_normalize_explode_and_sql_split(self):
+        legacy = normalize_requirement({
+            'title': '旧数据', 'system': '车险承保中心', 'svn_url': 'svn://a',
+            'legacy_custom_field': 'keep',
+        })
+        self.assertEqual(requirement_systems(legacy), ['车险承保中心'])
+        self.assertEqual(legacy['system'], '车险承保中心')
+        self.assertEqual(legacy['system_bindings']['车险承保中心']['svn_url'], 'svn://a')
+        self.assertEqual(legacy['legacy_custom_field'], 'keep')
+
+        empty = normalize_requirement({'title': '空系统'})
+        self.assertEqual(empty['systems'], [])
+        self.assertEqual(empty['system'], '')
+
+        item = normalize_requirement({
+            'title': '双系统',
+            'systems': ['车险承保中心', '客户信息平台（ECIF）'],
+            'system_bindings': {
+                '车险承保中心': {'svn_url': 'svn://car', 'dev_local_path': 'D:/car'},
+                '客户信息平台（ECIF）': {'svn_url': '', 'dev_local_path': 'D:/ecif'},
+            },
+            'sql_parts': [
+                {'name': 'car.sql', 'content': 'select 1', 'system': '车险承保中心'},
+                {'name': 'ecif.sql', 'content': 'select 2', 'system': '客户信息平台（ECIF）'},
+            ],
+        })
+        self.assertTrue(requirement_matches_system(item, '客户信息平台（ECIF）'))
+        self.assertFalse(requirement_matches_system(item, '共享中心'))
+        rows = explode_requirement_for_release(item)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['system'], '车险承保中心')
+        self.assertEqual(rows[1]['dev_local_path'], 'D:/ecif')
+        self.assertIn('select 1', merged_sql_for_system(item, '车险承保中心'))
+        self.assertNotIn('select 2', merged_sql_for_system(item, '车险承保中心'))
+        self.assertFalse(has_unassigned_sql_when_multi_system(item))
+        item['sql_parts'].append({'name': 'loose.sql', 'content': 'select 3', 'system': ''})
+        self.assertTrue(has_unassigned_sql_when_multi_system(item))
+        self.assertIn('系统：车险承保中心、客户信息平台（ECIF）', daily_template(item)['notes'])
 
 
 class SvnWorkspaceTests(unittest.TestCase):

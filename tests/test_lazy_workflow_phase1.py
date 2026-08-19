@@ -60,6 +60,7 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
             'paste',
         )
         self.assertEqual(item['system'], '车险承保中心')
+        self.assertEqual(item['systems'], ['车险承保中心'])
         self.assertTrue(item['has_sql'])
         self.assertTrue(item['needs_interface_update'])
         self.assertTrue(item['needs_peripheral_upgrade'])

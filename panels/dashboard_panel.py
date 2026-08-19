@@ -21,7 +21,7 @@ from tools.dashboard_release_items import (
     release_month_for,
     save_release_board,
 )
-from tools.requirements import load_requirements
+from tools.requirements import load_requirements, systems_display_text
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
@@ -538,7 +538,7 @@ class DashboardPanel(QWidget):
         self.recent_empty.setVisible(not items)
         for item in items:
             title = decorate_title(item.get('title') or item.get('code') or '未命名', is_pinned(item))
-            system = item.get('system') or '未选系统'
+            system = systems_display_text(item, empty='未选系统')
             status = item.get('status') or ''
             updated = str(item.get('updated_at') or '')[:16].replace('T', ' ')
             meta = f'{system} · {updated}' if updated else system
@@ -675,7 +675,7 @@ class DashboardPanel(QWidget):
         )
         date_text = planned_date.isoformat() if planned_date else month_key
         badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
-        system = item.get('system') or ('未选系统' if zh else 'No system')
+        system = systems_display_text(item, empty=('未选系统' if zh else 'No system'))
         meta = f'{system} · {badge}'
         if completed:
             action = (

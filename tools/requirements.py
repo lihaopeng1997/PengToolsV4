@@ -99,6 +99,164 @@ def flag_chip_text(key, is_done: bool) -> str:
     return f'{mark} {label} · {state}'
 
 
+def _clean_system_name(value):
+    return str(value or '').strip()
+
+
+def requirement_systems(item):
+    """权威系统列表：优先 systems，否则回退旧字段 system。"""
+    if not isinstance(item, dict):
+        return []
+    names = []
+    raw = item.get('systems')
+    if isinstance(raw, (list, tuple)):
+        for value in raw:
+            name = _clean_system_name(value)
+            if name and name not in names:
+                names.append(name)
+    if not names:
+        name = _clean_system_name(item.get('system'))
+        if name:
+            names.append(name)
+    return names
+
+
+def requirement_matches_system(item, name):
+    wanted = _clean_system_name(name)
+    if not wanted:
+        return True
+    return wanted in requirement_systems(item)
+
+
+def systems_display_text(item, empty='未选系统'):
+    names = requirement_systems(item)
+    return '、'.join(names) if names else empty
+
+
+def binding_for(item, name):
+    name = _clean_system_name(name)
+    bindings = item.get('system_bindings') if isinstance(item, dict) else None
+    raw = bindings.get(name) if isinstance(bindings, dict) else None
+    if not isinstance(raw, dict):
+        raw = {}
+    svn = str(raw.get('svn_url') or '').strip()
+    dev = str(raw.get('dev_local_path') or '').strip()
+    names = requirement_systems(item) if isinstance(item, dict) else []
+    if name and names and name == names[0] and isinstance(item, dict):
+        svn = svn or str(item.get('svn_url') or '').strip()
+        dev = dev or str(item.get('dev_local_path') or '').strip()
+    return {'svn_url': svn, 'dev_local_path': dev}
+
+
+def sync_system_fields(item):
+    """systems 与旧字段 system / 顶层 svn_url / dev_local_path 双写对齐。"""
+    if not isinstance(item, dict):
+        return item
+    names = requirement_systems(item)
+    item['systems'] = list(names)
+    item['system'] = names[0] if names else ''
+    previous = item.get('system_bindings')
+    if not isinstance(previous, dict):
+        previous = {}
+    cleaned = {}
+    for name in names:
+        bound = binding_for({**item, 'system_bindings': previous}, name)
+        cleaned[name] = {
+            'svn_url': bound['svn_url'],
+            'dev_local_path': bound['dev_local_path'],
+        }
+    item['system_bindings'] = cleaned
+    if item['system']:
+        primary = cleaned.get(item['system']) or {}
+        item['svn_url'] = str(primary.get('svn_url') or '').strip()
+        item['dev_local_path'] = str(primary.get('dev_local_path') or '').strip()
+    return item
+
+
+def explode_requirement_for_release(item):
+    """一条需求按系统展开为发版行；无系统时仍返回一行（系统空）。"""
+    source = dict(item or {})
+    names = requirement_systems(source)
+    if not names:
+        row = dict(source)
+        row['system'] = ''
+        row['_release_system'] = ''
+        return [row]
+    rows = []
+    for name in names:
+        row = dict(source)
+        bound = binding_for(source, name)
+        row['system'] = name
+        row['svn_url'] = bound['svn_url']
+        row['dev_local_path'] = bound['dev_local_path']
+        row['_release_system'] = name
+        rows.append(row)
+    return rows
+
+
+def apply_release_system_writeback(source, system_name, *, svn_url=None, release_scope=None):
+    """发版表改某一系统时，只回写该系统绑定，不覆盖整条 systems。"""
+    if not isinstance(source, dict):
+        return source
+    name = _clean_system_name(system_name)
+    sync_system_fields(source)
+    if name:
+        if name not in source['systems']:
+            source['systems'].append(name)
+        bindings = source.setdefault('system_bindings', {})
+        current = dict(bindings.get(name) or {}) if isinstance(bindings.get(name), dict) else {}
+        if svn_url is not None:
+            current['svn_url'] = str(svn_url or '').strip()
+        current.setdefault('dev_local_path', str(current.get('dev_local_path') or '').strip())
+        bindings[name] = current
+    if release_scope is not None:
+        source['release_scope'] = str(release_scope or '').strip() or '后端：全部'
+    return sync_system_fields(source)
+
+
+def sql_part_system(part):
+    if not isinstance(part, dict):
+        return ''
+    return _clean_system_name(part.get('system'))
+
+
+def unassigned_sql_parts(item):
+    return [
+        part for part in ((item or {}).get('sql_parts') or [])
+        if isinstance(part, dict) and not sql_part_system(part)
+    ]
+
+
+def has_unassigned_sql_when_multi_system(item):
+    return len(requirement_systems(item)) > 1 and bool(unassigned_sql_parts(item))
+
+
+def sql_parts_for_system(item, system_name):
+    names = requirement_systems(item)
+    wanted = _clean_system_name(system_name)
+    allow_unassigned = len(names) <= 1
+    result = []
+    for part in ((item or {}).get('sql_parts') or []):
+        if not isinstance(part, dict):
+            continue
+        assigned = sql_part_system(part)
+        if assigned:
+            if assigned == wanted:
+                result.append(part)
+        elif allow_unassigned:
+            result.append(part)
+    return result
+
+
+def merged_sql_for_system(requirement, system_name):
+    blocks = []
+    for part in sql_parts_for_system(requirement, system_name):
+        content = str(part.get('content', '')).strip()
+        if content:
+            blocks.append(f"-- 需求 SQL：{part.get('name', '未命名.sql')}\n{content}")
+    return '\n\n'.join(blocks)
+
+
 def normalize_requirement(requirement):
     item = dict(requirement or {})
     # 保留 id，避免保存后无法回写同一条
@@ -111,6 +269,14 @@ def normalize_requirement(requirement):
             item[key] = bool(item.get(key))
     if not isinstance(item.get('sql_parts'), list):
         item['sql_parts'] = []
+    cleaned_parts = []
+    for part in item['sql_parts']:
+        if not isinstance(part, dict):
+            continue
+        entry = dict(part)
+        entry['system'] = sql_part_system(entry)
+        cleaned_parts.append(entry)
+    item['sql_parts'] = cleaned_parts
     if not isinstance(item.get('source_files'), list):
         item['source_files'] = []
     if item.get('title') is None:
@@ -126,6 +292,7 @@ def normalize_requirement(requirement):
     item['svn_url'] = str(item.get('svn_url') or '').strip()
     item['local_path'] = str(item.get('local_path') or '').strip()
     item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
+    sync_system_fields(item)
     normalize_flag_done(item)
     return item
 
@@ -267,7 +434,15 @@ def _requirement_corpus(requirement):
         requirement.get('local_path', ''),
         requirement.get('dev_local_path', ''),
         requirement.get('system', ''),
+        ' '.join(requirement_systems(requirement)),
     ]
+    bindings = requirement.get('system_bindings')
+    if isinstance(bindings, dict):
+        for name, bound in bindings.items():
+            chunks.append(name)
+            if isinstance(bound, dict):
+                chunks.append(bound.get('svn_url', ''))
+                chunks.append(bound.get('dev_local_path', ''))
     for part in requirement.get('sql_parts') or []:
         chunks.append(part.get('name', ''))
         chunks.append(part.get('content', ''))
@@ -277,11 +452,11 @@ def _requirement_corpus(requirement):
     return '\n'.join(str(value or '') for value in chunks)
 
 
-def infer_system_name(text, systems=None):
-    """从文本推断所属系统；无法确定返回空串。systems 为 load_systems() 列表时优先匹配配置名。"""
+def infer_system_names(text, systems=None):
+    """从文本推断全部命中的系统；无法确定返回空列表。"""
     corpus = str(text or '')
     if not corpus.strip():
-        return ''
+        return []
     lowered = corpus.casefold()
     configured = []
     if systems:
@@ -289,26 +464,29 @@ def infer_system_name(text, systems=None):
             name = str(item.get('name', '') if isinstance(item, dict) else item or '').strip()
             if name:
                 configured.append(name)
-    # 完整配置名优先
+    hits = []
     for name in configured:
-        if name and name.casefold() in lowered:
-            return name
-    best_name, best_score = '', 0
+        if name and name.casefold() in lowered and name not in hits:
+            hits.append(name)
     for name, keywords in SYSTEM_HINTS:
         score = sum(lowered.count(keyword.casefold()) for keyword in keywords)
         for keyword in keywords:
             if re.search(r'(?i)(?:^|[/_\-\s])' + re.escape(keyword) + r'(?:[/_\-\s.]|$)', corpus):
                 score += 2
-        if score > best_score:
-            best_name, best_score = name, score
-    if best_score <= 0:
-        return ''
-    if configured and best_name not in configured:
-        for name in configured:
-            if best_name in name or name in best_name:
-                return name
-        return best_name
-    return best_name
+        if score <= 0:
+            continue
+        resolved = name
+        if configured and name not in configured:
+            resolved = next((item for item in configured if name in item or item in name), name)
+        if resolved and resolved not in hits:
+            hits.append(resolved)
+    return hits
+
+
+def infer_system_name(text, systems=None):
+    """从文本推断所属系统；无法确定返回空串。systems 为 load_systems() 列表时优先匹配配置名。"""
+    names = infer_system_names(text, systems=systems)
+    return names[0] if names else ''
 
 
 def infer_online_month_from_text(text, default_year=None):
@@ -355,10 +533,11 @@ def apply_auto_inference(requirement, systems=None, only_empty=True):
     corpus = _requirement_corpus(item)
     flags = infer_upgrade_flags(corpus, has_sql_parts=bool(item.get('sql_parts')))
 
-    if not only_empty or not str(item.get('system') or '').strip():
-        inferred = infer_system_name(corpus, systems=systems)
+    if not only_empty or not requirement_systems(item):
+        inferred = infer_system_names(corpus, systems=systems)
         if inferred:
-            item['system'] = inferred
+            item['systems'] = list(inferred)
+            sync_system_fields(item)
 
     if not only_empty or not str(item.get('online_month') or '').strip():
         month = infer_online_month_from_text(corpus)
@@ -514,6 +693,14 @@ def requirement_search_text(requirement):
         'system', 'owner', 'online_month', 'svn_url', 'local_path', 'dev_local_path',
         'svn_revision', 'svn_status',
     )]
+    values.extend(requirement_systems(requirement))
+    bindings = requirement.get('system_bindings')
+    if isinstance(bindings, dict):
+        for name, bound in bindings.items():
+            values.append(name)
+            if isinstance(bound, dict):
+                values.append(bound.get('svn_url', ''))
+                values.append(bound.get('dev_local_path', ''))
     for part in requirement.get('sql_parts', []) or []:
         values.append(part.get('name', ''))
         # 正文过长时只索引前 2k，避免把大报文永久驻留在搜索串
@@ -547,10 +734,14 @@ def daily_template(requirement):
         flags.append('临时升级')
     detail = '、'.join(flags) if flags else '暂无特殊升级项'
     kind = requirement.get('record_kind', '需求')
+    system_text = systems_display_text(requirement, empty='未选系统')
     return {
         'completed': f'- [{kind}] {name}：已接收并完成资料归档',
         'tomorrow': f'- [{kind}] {name}：继续推进分析、开发或验证',
-        'notes': f'- 分类：{requirement.get("category", "其他")}；状态：{requirement.get("status", "待分析")}；{detail}',
+        'notes': (
+            f'- 分类：{requirement.get("category", "其他")}；状态：{requirement.get("status", "待分析")}；'
+            f'系统：{system_text}；{detail}'
+        ),
     }
 
 

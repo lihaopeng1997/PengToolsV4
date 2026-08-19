@@ -27,7 +27,7 @@ from panels.requirement_panel import (
 from panels.sql_panel import SqlToolPanel
 from tools.release_prep import RELEASE_HEADERS, RELEASE_WORKBOOK_NAME
 from main_window import MainWindow
-from config import DEFAULT_SETTINGS, local_data_dir
+from config import DEFAULT_SETTINGS, load_systems, local_data_dir
 from ui.confirm_dialog import AppNoticeDialog, CloseActionDialog, ConfirmActionDialog, NextStepDialog
 from tools.svn_workspace import add_text_file, checkout, commit_working_copy, run_svn, scan_working_copies, workspace_files
 
@@ -39,21 +39,23 @@ class ReleaseUiTests(unittest.TestCase):
         cls.app.setFont(QFont('Microsoft YaHei UI', 10))
 
     def test_requirement_allows_empty_development_svn(self):
+        system_name = load_systems()[0]['name']
         dialog = RequirementDialog()
-        dialog.system_edit.setCurrentIndex(1)
+        dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], '')
         self.assertEqual(dialog.values()['dev_local_path'], '')
         dialog = RequirementDialog()
-        dialog.system_edit.setCurrentIndex(1)
+        dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog.svn_url_edit.setText('svn://10/x/DEV_REQ_TEST')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], 'svn://10/x/DEV_REQ_TEST')
-        self.assertEqual(dialog.values()['system'], dialog.system_edit.currentData())
+        self.assertEqual(dialog.values()['system'], system_name)
+        self.assertEqual(dialog.values()['systems'], [system_name])
 
     def test_requirement_dev_local_path_saved_and_opens_from_list(self):
         from tools.requirements import normalize_requirement
@@ -84,6 +86,49 @@ class ReleaseUiTests(unittest.TestCase):
             with patch('panels.requirement_panel.show_warning', side_effect=lambda *args, **kwargs: missing.append(args[1])):
                 panel._open_dev_project_folder({'dev_local_path': os.path.join(temp, 'gone')})
             self.assertEqual(missing, ['本地开发地址'])
+            panel.close()
+
+    def test_requirement_dialog_supports_multiple_systems_and_bindings(self):
+        names = [item['name'] for item in load_systems()[:2]]
+        self.assertGreaterEqual(len(names), 2)
+        with tempfile.TemporaryDirectory() as temp:
+            dialog = RequirementDialog()
+            dialog.title_edit.setText('跨系统需求')
+            dialog.set_selected_systems(names)
+            self.app.processEvents()
+            first, second = names
+            self.assertIn(first, dialog._binding_rows)
+            self.assertIn(second, dialog._binding_rows)
+            dialog._binding_rows[first]['svn'].setText('svn://car/DEV')
+            dialog._binding_rows[second]['dev'].setText(temp)
+            dialog._sql_parts = [
+                {'name': 'a.sql', 'content': 'select 1', 'system': first},
+                {'name': 'b.sql', 'content': 'select 2', 'system': ''},
+            ]
+            dialog._accept_checked()
+            values = dialog.values()
+            self.assertEqual(values['systems'], names)
+            self.assertEqual(values['system'], first)
+            self.assertEqual(values['system_bindings'][first]['svn_url'], 'svn://car/DEV')
+            self.assertEqual(values['system_bindings'][second]['dev_local_path'], temp)
+            self.assertEqual(values['svn_url'], 'svn://car/DEV')
+            dialog.close()
+
+            from tools.requirements import explode_requirement_for_release, has_unassigned_sql_when_multi_system
+            self.assertTrue(has_unassigned_sql_when_multi_system(values))
+            rows = explode_requirement_for_release(values)
+            self.assertEqual(len(rows), 2)
+
+            panel = SqlToolPanel()
+            panel._release_reload_timer.stop()
+            with patch('panels.sql_panel.load_requirements', return_value=[values]):
+                panel._load_release_candidates()
+            self.assertEqual(panel.release_table.rowCount(), 2)
+            for row in range(panel.release_table.rowCount()):
+                panel.release_table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+            with self.assertRaises(ValueError) as ctx:
+                panel._selected_release_rows()
+            self.assertIn('多个系统', str(ctx.exception))
             panel.close()
 
     def test_requirement_status_flow_is_available_in_editor_and_filter(self):
