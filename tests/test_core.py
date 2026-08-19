@@ -48,7 +48,8 @@ from tools.json_viewer import (
 )
 from tools.daily_reports import is_reminder_due, normalize_reminder
 from tools.personal_knowledge import (
-    entry_fingerprint, export_word_entry, export_workbook_entry, extract_word_entry,
+    collect_knowledge_entries, entry_fingerprint, export_word_entry,
+    export_workbook_entry, extract_word_entry, merge_knowledge_entries,
     organize_content, search_entries,
 )
 from tools.requirements import (
@@ -106,6 +107,22 @@ class PrivateWorkspaceTests(unittest.TestCase):
         self.assertEqual(search_entries([entry], 'server-b'), [entry])
         self.assertEqual(search_entries([entry], 'server-b', 'database'), [])
         self.assertEqual(entry_fingerprint(entry), entry_fingerprint(dict(entry)))
+
+    def test_merge_knowledge_entries_overrides_seed_and_keeps_custom(self):
+        seed = [{'id': 'seed-a', 'title': '内置', 'content': 'old', 'builtin': True}]
+        custom = [
+            {'id': 'mine', 'base_seed_id': 'seed-a', 'title': '覆盖', 'content': 'new'},
+            {'id': 'extra', 'title': '自建', 'content': 'note'},
+        ]
+        merged = merge_knowledge_entries(seed, custom)
+        titles = [item['title'] for item in merged]
+        self.assertIn('覆盖', titles)
+        self.assertIn('自建', titles)
+        self.assertNotIn('内置', titles)
+        empty = merge_knowledge_entries(None, None)
+        self.assertEqual(empty, [])
+        collected = collect_knowledge_entries()
+        self.assertIsInstance(collected, list)
 
     def test_visible_excel_export_and_word_type(self):
         from openpyxl import load_workbook

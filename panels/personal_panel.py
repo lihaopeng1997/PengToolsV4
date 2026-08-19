@@ -26,7 +26,8 @@ from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
     extract_document_entries, extract_document_text, extract_workbook_entries,
-    load_custom_entries, load_seed_entries, organize_content, save_custom_entries,
+    load_custom_entries, load_seed_entries, merge_knowledge_entries,
+    organize_content, save_custom_entries,
     search_entries,
 )
 from tools.requirements import daily_template
@@ -359,12 +360,7 @@ class KnowledgeTab(QWidget):
         )
 
     def all_entries(self):
-        from tools.list_pin import apply_namespace_pins
-        overrides = {entry.get('base_seed_id'): entry for entry in self._custom_entries if entry.get('base_seed_id')}
-        entries = [overrides.get(entry.get('id'), entry) for entry in self._seed_entries]
-        entries.extend(entry for entry in self._custom_entries if not entry.get('base_seed_id'))
-        # 置顶状态统一存 list_pins（内置/我的资料共用 id）
-        return apply_namespace_pins(entries, 'knowledge')
+        return merge_knowledge_entries(self._seed_entries, self._custom_entries)
 
     def _on_search_changed(self, text):
         # 防抖：按键时只重启定时器，不立即搜索

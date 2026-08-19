@@ -387,6 +387,26 @@ def load_custom_entries(path=None):
         return []
 
 
+def merge_knowledge_entries(seed_entries, custom_entries):
+    """合并内置种子与本机条目：自定义覆盖同 id 种子，再套置顶状态。"""
+    from tools.list_pin import apply_namespace_pins
+    custom = [entry for entry in (custom_entries or []) if isinstance(entry, dict)]
+    seeds = [entry for entry in (seed_entries or []) if isinstance(entry, dict)]
+    overrides = {
+        entry.get('base_seed_id'): entry
+        for entry in custom
+        if entry.get('base_seed_id')
+    }
+    entries = [overrides.get(entry.get('id'), entry) for entry in seeds]
+    entries.extend(entry for entry in custom if not entry.get('base_seed_id'))
+    return apply_namespace_pins(entries, 'knowledge')
+
+
+def collect_knowledge_entries():
+    """从磁盘加载完整学习库，供主界面与悬浮窗共用。"""
+    return merge_knowledge_entries(load_seed_entries(), load_custom_entries())
+
+
 def save_custom_entries(entries, path=None):
     target = path or PRIVATE_KNOWLEDGE_FILE
     if path is None:

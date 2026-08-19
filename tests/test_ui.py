@@ -183,6 +183,80 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(QApplication.clipboard().text(), panel.preview_table.item(0, 1).text())
         panel.close()
 
+    def test_floating_learning_search_without_opening_workspace(self):
+        entries = [
+            {
+                'id': 'k1', 'title': '网关解密步骤', 'category': 'learning',
+                'content': '先取密钥再解密报文', 'tags': '网关', 'source': '手工',
+            },
+            {
+                'id': 'k2', 'title': 'VIN 规则', 'category': 'auto_business',
+                'content': '车架号十七位', 'tags': 'vin', 'source': '手工',
+            },
+        ]
+
+        class Win(_MainWindowStub):
+            def __init__(self):
+                self.navigated = []
+                self.shown = False
+
+            def showNormal(self):
+                self.shown = True
+
+            def navigate_to(self, index):
+                self.navigated.append(index)
+
+        win = Win()
+        panel = QuickPanel(win)
+        panel.show()
+        with patch('tools.personal_knowledge.collect_knowledge_entries', return_value=entries), \
+                patch('tools.personal_knowledge.rebuild_search_index'):
+            panel._activate(8)
+        self.assertFalse(win.shown)
+        self.assertEqual(win.navigated, [])
+        self.assertTrue(panel.learn_search.isVisible())
+        self.assertFalse(panel.grid_host.isVisible())
+        self.assertFalse(panel.preview.isVisible())
+        self.assertEqual(panel.learn_list.count(), 2)
+        panel.learn_search_edit.setText('网关')
+        panel._run_learning_search()
+        self.assertEqual(panel.learn_list.count(), 1)
+        self.assertIn('先取密钥再解密报文', panel.learn_content.toPlainText())
+        panel._copy_learning_entry()
+        self.assertEqual(QApplication.clipboard().text(), '先取密钥再解密报文')
+        panel.learn_search_edit.setText('不存在的关键字xyz')
+        panel._run_learning_search()
+        self.assertEqual(panel.learn_list.count(), 0)
+        self.assertIn('没有匹配', panel.learn_hint.text())
+        panel.learn_back.click()
+        self.assertFalse(panel.learn_search.isVisible())
+        self.assertTrue(panel.grid_host.isVisible())
+        panel.close()
+
+    def test_floating_learning_search_uses_live_knowledge_tab(self):
+        class Tab:
+            def all_entries(self):
+                return [{
+                    'id': 'live', 'title': '现场条目', 'category': 'learning',
+                    'content': '未落盘也能搜到', 'tags': '', 'source': '手工',
+                }]
+
+        class Panel:
+            knowledge_tab = Tab()
+
+        class Win(_MainWindowStub):
+            personal_panel = Panel()
+
+            def navigate_to(self, _index):
+                raise AssertionError('悬浮搜索不应打开主窗口')
+
+        panel = QuickPanel(Win())
+        panel._activate(8)
+        self.assertTrue(panel.learn_search.isVisible())
+        self.assertEqual(panel.learn_list.count(), 1)
+        self.assertIn('未落盘也能搜到', panel.learn_content.toPlainText())
+        panel.close()
+
     def test_brand_icon_resources_exist(self):
         from ui.icons import brand_file, brand_pixmap, brand_window_icon
         self.assertTrue(os.path.exists(brand_file('app')))

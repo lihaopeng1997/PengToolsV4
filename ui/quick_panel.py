@@ -11,10 +11,12 @@ from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-    QMenu, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ui.design_system import apply_button
+from ui.field_metrics import size_line
 from ui.icons import apply_icon, brand_pixmap, icon_pixmap, qicon
 from ui.navigation_model import (
     DEFAULT_FLOATING_SHORTCUTS,
@@ -32,11 +34,13 @@ class QuickPanel(QWidget):
     BUTTON_SIZE = 44
     BUTTON_MARGIN = 4
     PANEL_WIDTH = 300
+    LEARN_PANEL_WIDTH = 360
     HEADER_HEIGHT = 48
     FOOTER_HEIGHT = 40
     CARD_HEIGHT = 58
     GRID_GAP = 8
     PANEL_PAD = 12
+    LEARN_SEARCH_HEIGHT = 520
 
     def __init__(self, main_window, language='zh'):
         super().__init__(None)
@@ -167,6 +171,60 @@ class QuickPanel(QWidget):
         self.preview.hide()
         tools_layout.addWidget(self.preview, 1)
 
+        self.learn_search = QWidget()
+        self.learn_search.setObjectName('floating-learn-search')
+        learn_l = QVBoxLayout(self.learn_search)
+        learn_l.setContentsMargins(0, 0, 0, 0)
+        learn_l.setSpacing(6)
+        learn_head = QHBoxLayout()
+        self.learn_back = QPushButton()
+        self.learn_back.setObjectName('floating-icon-btn')
+        self.learn_back.setFixedHeight(28)
+        self.learn_back.clicked.connect(self._hide_learning_search)
+        learn_head.addWidget(self.learn_back)
+        self.learn_title = QLabel()
+        self.learn_title.setObjectName('floating-title')
+        learn_head.addWidget(self.learn_title, 1)
+        self.learn_count = QLabel()
+        self.learn_count.setObjectName('small-label')
+        learn_head.addWidget(self.learn_count)
+        learn_l.addLayout(learn_head)
+        self.learn_search_edit = QLineEdit()
+        self.learn_search_edit.setObjectName('ops-search')
+        self.learn_search_edit.setClearButtonEnabled(True)
+        size_line(self.learn_search_edit, 'search')
+        self.learn_search_edit.textChanged.connect(self._on_learning_search_changed)
+        learn_l.addWidget(self.learn_search_edit)
+        self._learn_search_debounce = QTimer(self)
+        self._learn_search_debounce.setSingleShot(True)
+        self._learn_search_debounce.setInterval(220)
+        self._learn_search_debounce.timeout.connect(self._run_learning_search)
+        self.learn_hint = QLabel()
+        self.learn_hint.setObjectName('field-hint')
+        self.learn_hint.setWordWrap(True)
+        learn_l.addWidget(self.learn_hint)
+        self.learn_list = QListWidget()
+        self.learn_list.setObjectName('floating-learn-list')
+        self.learn_list.setUniformItemSizes(False)
+        self.learn_list.currentItemChanged.connect(self._show_learning_entry)
+        self.learn_list.itemDoubleClicked.connect(self._copy_learning_entry)
+        learn_l.addWidget(self.learn_list, 1)
+        self.learn_content = QPlainTextEdit()
+        self.learn_content.setObjectName('floating-learn-content')
+        self.learn_content.setReadOnly(True)
+        learn_l.addWidget(self.learn_content, 1)
+        learn_actions = QHBoxLayout()
+        learn_actions.addStretch()
+        self.learn_copy_btn = QPushButton()
+        apply_button(self.learn_copy_btn, 'primary', compact=True)
+        self.learn_copy_btn.clicked.connect(self._copy_learning_entry)
+        learn_actions.addWidget(self.learn_copy_btn)
+        learn_l.addLayout(learn_actions)
+        self.learn_search.hide()
+        tools_layout.addWidget(self.learn_search, 1)
+        self._learn_entries = []
+        self._learn_current = None
+
         # 底部：打开完整工作台 + 设置快捷入口
         footer = QHBoxLayout()
         footer.setSpacing(8)
@@ -207,6 +265,16 @@ class QuickPanel(QWidget):
         self.preview_gen_unit.setText('生成单位' if zh else 'Company')
         self.preview_gen_vin.setText('生成' if zh else 'Generate')
         self.preview_table.setToolTip('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
+        self.learn_back.setText('返回' if zh else 'Back')
+        self.learn_title.setText('自我学习' if zh else 'Learning')
+        self.learn_search_edit.setPlaceholderText(
+            '全文搜索：标题、正文、标签、来源……' if zh else
+            'Search title, content, tags and source…'
+        )
+        self.learn_copy_btn.setText('复制内容' if zh else 'Copy')
+        self.learn_list.setToolTip('单击查看，双击复制内容' if zh else 'Click to view, double-click to copy')
+        if self.learn_search.isVisible():
+            self._run_learning_search()
         self._rebuild_cards()
         if self.preview.isVisible() and getattr(self, '_preview_index', None) is not None:
             self._fill_result_preview(self._preview_index)
@@ -261,6 +329,8 @@ class QuickPanel(QWidget):
             self.tool_buttons.append(button)
 
     def _content_height(self) -> int:
+        if self.learn_search.isVisible():
+            return self.LEARN_SEARCH_HEIGHT
         if self.preview.isVisible():
             return 420
         count = max(1, len(self._shortcuts))
@@ -275,6 +345,8 @@ class QuickPanel(QWidget):
         )
 
     def _expanded_size(self) -> tuple[int, int]:
+        if self.learn_search.isVisible():
+            return self.LEARN_PANEL_WIDTH + 16, self.LEARN_SEARCH_HEIGHT + 16
         height = max(200, min(380, self._content_height()))
         return self.PANEL_WIDTH + 16, height + 16
 
@@ -444,6 +516,7 @@ class QuickPanel(QWidget):
             self._layout_expanded()
         else:
             self._hide_result_preview()
+            self._hide_learning_search(relayout=False)
             self.expanded = False
             width, height = self.COMPACT_SIZE
             self.setGeometry(
@@ -465,6 +538,8 @@ class QuickPanel(QWidget):
     def hide_panel(self):
         if self.preview.isVisible():
             self._hide_result_preview()
+        if self.learn_search.isVisible():
+            self._hide_learning_search()
         if self.expanded:
             self.toggle_expanded()
 
@@ -504,6 +579,9 @@ class QuickPanel(QWidget):
         if index in (1, 4):
             self._open_result_preview(index)
             return
+        if index == 8:
+            self._open_learning_search()
+            return
         self._main_window.showNormal()
         self._main_window.raise_()
         self._main_window.activateWindow()
@@ -516,6 +594,7 @@ class QuickPanel(QWidget):
         self._preview_index = index
         if index == 1 and getattr(self, '_preview_credit_side', None) is None:
             self._preview_credit_side = 'personal'
+        self._hide_learning_search(relayout=False)
         self.grid_host.hide()
         self.preview.show()
         self._fill_result_preview(index)
@@ -523,10 +602,129 @@ class QuickPanel(QWidget):
 
     def _hide_result_preview(self):
         self.preview.hide()
-        self.grid_host.show()
+        if not self.learn_search.isVisible():
+            self.grid_host.show()
         self._preview_index = None
         if self.expanded:
             self._layout_expanded()
+
+    def _open_learning_search(self):
+        if not self.expanded:
+            self.toggle_expanded()
+        self.preview.hide()
+        self.grid_host.hide()
+        self.learn_search.show()
+        self._learn_entries = self._load_learning_entries()
+        self._run_learning_search()
+        self._layout_expanded()
+        self.learn_search_edit.setFocus()
+        self.learn_search_edit.selectAll()
+
+    def _hide_learning_search(self, *, relayout=True):
+        if hasattr(self, '_learn_search_debounce'):
+            self._learn_search_debounce.stop()
+        self.learn_search.hide()
+        if not self.preview.isVisible():
+            self.grid_host.show()
+        if relayout and self.expanded:
+            self._layout_expanded()
+
+    def _load_learning_entries(self) -> list:
+        win = self._main_window
+        panel = getattr(win, 'personal_panel', None)
+        tab = getattr(panel, 'knowledge_tab', None) if panel is not None else None
+        if tab is not None and hasattr(tab, 'all_entries'):
+            try:
+                return list(tab.all_entries() or [])
+            except Exception:
+                pass
+        from tools.personal_knowledge import collect_knowledge_entries, rebuild_search_index
+        entries = collect_knowledge_entries()
+        rebuild_search_index(entries)
+        return entries
+
+    def _on_learning_search_changed(self, _text):
+        self._learn_search_debounce.start()
+
+    def _run_learning_search(self):
+        from tools.personal_knowledge import search_entries
+        zh = self.language == 'zh'
+        query = (self.learn_search_edit.text() or '').strip()
+        hits = search_entries(self._learn_entries, query)
+        self.learn_count.setText(f'{len(hits)} 条' if zh else f'{len(hits)}')
+        if not self._learn_entries:
+            self.learn_hint.setText(
+                '还没有学习资料。打开完整工作台后可粘贴或导入。' if zh else
+                'No notes yet. Open the workspace to paste or import.'
+            )
+        elif not hits:
+            self.learn_hint.setText('没有匹配内容' if zh else 'No matching notes')
+        else:
+            self.learn_hint.setText(
+                '单击查看，双击或点「复制内容」复制。' if zh else
+                'Click to view. Double-click or Copy to copy.'
+            )
+        current_id = self._learn_current.get('id') if self._learn_current else None
+        self.learn_list.blockSignals(True)
+        self.learn_list.clear()
+        selected = None
+        for entry in hits:
+            item = QListWidgetItem(self._learning_item_label(entry))
+            item.setData(Qt.ItemDataRole.UserRole, entry)
+            item.setSizeHint(QSize(0, 42))
+            tooltip = self._learning_entry_text(entry)[:800]
+            if tooltip:
+                item.setToolTip(tooltip)
+            self.learn_list.addItem(item)
+            if current_id and entry.get('id') == current_id:
+                selected = item
+        if selected is None and self.learn_list.count():
+            selected = self.learn_list.item(0)
+        self.learn_list.blockSignals(False)
+        if selected is not None:
+            self.learn_list.setCurrentItem(selected)
+        else:
+            self._show_learning_entry(None)
+
+    @staticmethod
+    def _learning_item_label(entry: dict) -> str:
+        from tools.list_pin import decorate_title, is_pinned
+        from tools.personal_knowledge import CATEGORIES
+        raw_title = entry.get('title') or '未命名'
+        title = decorate_title(raw_title, is_pinned(entry))
+        category = CATEGORIES.get(entry.get('category'), CATEGORIES['other'])
+        source = '已更新' if entry.get('builtin_source') else ('内置' if entry.get('builtin') else '我的')
+        file_type = entry.get('file_type') or (
+            'EXCEL' if entry.get('content_type') == 'workbook_sheet' else 'TXT'
+        )
+        pin_tag = ' · 置顶' if is_pinned(entry) else ''
+        return f'{title}\n{file_type} · {category} · {source}{pin_tag}'
+
+    @staticmethod
+    def _learning_entry_text(entry: dict | None) -> str:
+        if not entry:
+            return ''
+        if entry.get('content_type') == 'workbook_sheet':
+            rows = entry.get('rows') or []
+            return '\n'.join(
+                '\t'.join('' if cell is None else str(cell) for cell in (row or []))
+                for row in rows
+            )
+        return str(entry.get('content') or '')
+
+    def _show_learning_entry(self, current, _previous=None):
+        entry = current.data(Qt.ItemDataRole.UserRole) if current else None
+        self._learn_current = entry if isinstance(entry, dict) else None
+        text = self._learning_entry_text(self._learn_current)
+        self.learn_content.setPlainText(text)
+        self.learn_copy_btn.setEnabled(bool(text.strip()))
+
+    def _copy_learning_entry(self, *_args):
+        cursor = self.learn_content.textCursor()
+        selected = cursor.selectedText().replace('\u2029', '\n').strip()
+        text = selected or (self.learn_content.toPlainText() or '').strip()
+        if text:
+            QApplication.clipboard().setText(text)
 
     def _fill_result_preview(self, index: int):
         zh = self.language == 'zh'

@@ -1613,6 +1613,30 @@ QPushButton#floating-home:hover {
     color: __PRIMARY_ACTIVE__;
     border-color: __PRIMARY__;
 }
+QListWidget#floating-learn-list {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 4px;
+    outline: none;
+}
+QListWidget#floating-learn-list::item {
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: __TEXT_STRONG__;
+}
+QListWidget#floating-learn-list::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPlainTextEdit#floating-learn-content {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 12px;
+    color: __TEXT_STRONG__;
+}
 #sidebar-brand-icon {
     background: __PRIMARY_SOFT__;
     border-radius: 10px;
