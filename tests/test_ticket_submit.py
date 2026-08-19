@@ -160,6 +160,33 @@ class TicketSubmitTests(unittest.TestCase):
         self.assertIn('INT_INT_ECIF_2026081910B-李浩鹏', result['url'])
         self.assertEqual([item[0] for item in calls], ['list', 'export', 'import'])
 
+    def test_config_dialog_switch_profile_does_not_overwrite_target(self):
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QApplication
+        from panels.ticket_submit_dialog import TicketSubmitConfigDialog
+        from tools.ticket_submit import default_ticket_profiles, normalize_ticket_profile
+        app = QApplication.instance() or QApplication([])
+        seeded = [normalize_ticket_profile(item) for item in default_ticket_profiles()]
+        with patch('panels.ticket_submit_dialog.load_ticket_profiles', return_value=seeded):
+            dialog = TicketSubmitConfigDialog()
+        names = [dialog.list.item(i).text() for i in range(dialog.list.count())]
+        self.assertIn('客户信息平台', names)
+        self.assertIn('车险共享中心', names)
+        dialog.list.setCurrentRow(0)
+        dialog._show_profile(0)
+        self.assertEqual(dialog.name_edit.text(), '客户信息平台')
+        self.assertEqual(dialog.code_edit.text(), 'ECIF')
+        share_row = names.index('车险共享中心')
+        dialog.list.setCurrentRow(share_row)
+        dialog._show_profile(share_row)
+        self.assertEqual(dialog.name_edit.text(), '车险共享中心')
+        self.assertEqual(dialog.code_edit.text(), 'prpcar')
+        self.assertEqual(dialog._profiles[0]['name'], '客户信息平台')
+        self.assertEqual(dialog._profiles[share_row]['name'], '车险共享中心')
+        dialog.close()
+        app
+
     def test_submit_dialog_lists_selected_requirements(self):
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
         from PyQt6.QtWidgets import QApplication

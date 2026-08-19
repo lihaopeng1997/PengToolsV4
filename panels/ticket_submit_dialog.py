@@ -100,27 +100,34 @@ class TicketSubmitConfigDialog(QDialog):
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self._save)
         root.addWidget(buttons)
+        self._last_row = -1
         self._refresh_list(0)
 
     def _refresh_list(self, row=0):
         self.list.blockSignals(True)
         self.list.clear()
         for profile in self._profiles:
-            self.list.addItem(profile.get('name') or profile.get('id'))
-        self.list.blockSignals(False)
+            item = QListWidgetItem(profile.get('name') or profile.get('id'))
+            item.setData(Qt.ItemDataRole.UserRole, profile.get('id'))
+            self.list.addItem(item)
         if self._profiles:
-            self.list.setCurrentRow(max(0, min(row, len(self._profiles) - 1)))
+            target = max(0, min(row, len(self._profiles) - 1))
+            self.list.setCurrentRow(target)
+            self.list.blockSignals(False)
+            self._show_profile(target)
         else:
+            self.list.blockSignals(False)
             self._show_profile(-1)
 
     def _current_index(self):
         return self.list.currentRow()
 
-    def _collect_form(self):
-        index = self._current_index()
+    def _collect_form(self, index=None):
+        if index is None:
+            index = getattr(self, '_last_row', -1)
         if index < 0 or index >= len(self._profiles):
             return
-        profile = self._profiles[index]
+        profile = dict(self._profiles[index])
         profile['name'] = self.name_edit.text().strip()
         profile['folder_code'] = self.code_edit.text().strip()
         profile['owner_default'] = self.owner_edit.text().strip()
@@ -132,28 +139,47 @@ class TicketSubmitConfigDialog(QDialog):
                 'host': host.text().strip(),
             }
         self._profiles[index] = normalize_ticket_profile(profile)
+        item = self.list.item(index)
+        if item is not None:
+            item.setText(self._profiles[index].get('name') or self._profiles[index].get('id'))
+            item.setData(Qt.ItemDataRole.UserRole, self._profiles[index].get('id'))
 
     def _show_profile(self, row):
-        if 0 <= getattr(self, '_last_row', -1) < len(self._profiles):
-            self._collect_form()
+        last = getattr(self, '_last_row', -1)
+        if last != row and 0 <= last < len(self._profiles):
+            self._collect_form(last)
         self._last_row = row
         if row < 0 or row >= len(self._profiles):
             return
         profile = self._profiles[row]
+        self.name_edit.blockSignals(True)
+        self.code_edit.blockSignals(True)
+        self.owner_edit.blockSignals(True)
+        self.seed_edit.blockSignals(True)
         self.name_edit.setText(profile.get('name', ''))
         self.code_edit.setText(profile.get('folder_code', ''))
         self.owner_edit.setText(profile.get('owner_default', ''))
         self.seed_edit.setText(profile.get('seed_xls', ''))
         selected = set(profile.get('source_systems') or [])
         for box in self.system_boxes:
+            box.blockSignals(True)
             box.setChecked(box.text() in selected)
+            box.blockSignals(False)
         for env, (url, host) in self.env_edits.items():
             block = (profile.get('envs') or {}).get(env) or {}
+            url.blockSignals(True)
+            host.blockSignals(True)
             url.setText(block.get('svn_url', ''))
             host.setText(block.get('host', ''))
+            url.blockSignals(False)
+            host.blockSignals(False)
+        self.name_edit.blockSignals(False)
+        self.code_edit.blockSignals(False)
+        self.owner_edit.blockSignals(False)
+        self.seed_edit.blockSignals(False)
 
     def _add_profile(self):
-        self._collect_form()
+        self._collect_form(self._last_row)
         self._profiles.append(normalize_ticket_profile({
             'name': '新提签族',
             'folder_code': 'SYS',
@@ -165,6 +191,7 @@ class TicketSubmitConfigDialog(QDialog):
         if index < 0:
             return
         del self._profiles[index]
+        self._last_row = -1
         self._refresh_list(min(index, len(self._profiles) - 1))
 
     def _pick_seed(self):
@@ -276,13 +303,11 @@ class TicketSubmitDialog(QDialog):
 
     def _reload_requirements(self):
         profile = self._current_profile()
-        if profile and not self.owner_edit.text().strip():
-            self.owner_edit.setText(profile.get('owner_default') or '')
         if profile:
+            self.owner_edit.setText(profile.get('owner_default') or '')
             env = self.env_combo.currentData()
             host = ((profile.get('envs') or {}).get(env) or {}).get('host') or ''
-            if not self.host_edit.text().strip():
-                self.host_edit.setText(host)
+            self.host_edit.setText(host)
         items = requirement_candidates_for_profile(self._all_requirements, profile or {})
         self.req_list.clear()
         for req in items:
