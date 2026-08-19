@@ -1499,7 +1499,7 @@ class RequirementPanel(QWidget):
         tree_tools.addWidget(self.batch_delete_btn)
         self.ticket_btn = QPushButton('一键提签')
         self.ticket_btn.setProperty('compactAction', True)
-        self.ticket_btn.setToolTip('把勾选的需求生成环境签文档并提交到 SVN')
+        self.ticket_btn.setToolTip('把勾选的需求写进环境签文档，并提交到签库 SVN')
         self.ticket_btn.clicked.connect(self._open_ticket_submit)
         try:
             from ui.design_system import apply_button as _apply_ticket_btn

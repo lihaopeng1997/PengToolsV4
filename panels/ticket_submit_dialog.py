@@ -9,8 +9,8 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from config import load_systems
@@ -26,64 +26,134 @@ from ui.dialog_buttons import localize_button_box
 from ui.field_metrics import size_compact_button, size_enum_combo, size_line, size_pick_combo
 
 
+ENV_LABELS = {
+    'SIT': '系统测试（SIT）',
+    'INT': '集成测试（INT）',
+    'UAT': '用户测试（UAT）',
+}
+
+
+def _hint_label(text):
+    lab = QLabel(text)
+    lab.setObjectName('field-hint')
+    lab.setWordWrap(True)
+    return lab
+
+
+def _field_block(title, hint, widget):
+    host = QWidget()
+    box = QVBoxLayout(host)
+    box.setContentsMargins(0, 0, 0, 8)
+    box.setSpacing(3)
+    caption = QLabel(title)
+    caption.setObjectName('section-title')
+    box.addWidget(caption)
+    if hint:
+        box.addWidget(_hint_label(hint))
+    box.addWidget(widget)
+    return host
+
+
 class TicketSubmitConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('配置提签 SVN')
-        self.resize(640, 520)
+        self.setWindowTitle('配置签库地址')
+        self.resize(760, 620)
         self._profiles = [normalize_ticket_profile(item) for item in load_ticket_profiles()]
         root = QVBoxLayout(self)
-        hint = QLabel('按「提签族」配置各环境签库 SVN。未填地址的环境不能提交。空库可指定一份本机种子 xls。')
-        hint.setObjectName('field-hint')
-        hint.setWordWrap(True)
-        root.addWidget(hint)
+        root.addWidget(_hint_label(
+            '左边选一套签（比如客户信息平台、车险共享中心），右边填这套签在各环境的 SVN 目录。'
+            '没填 SVN 的环境，一键提签时选不了。'
+        ))
         body = QHBoxLayout()
+        left = QVBoxLayout()
+        left.addWidget(QLabel('签文档所属系统'))
         self.list = QListWidget()
+        self.list.setMinimumWidth(160)
         self.list.currentRowChanged.connect(self._show_profile)
-        body.addWidget(self.list, 1)
+        left.addWidget(self.list, 1)
+        body.addLayout(left, 1)
         form_host = QWidget()
-        form = QFormLayout(form_host)
+        form = QVBoxLayout(form_host)
+        form.setContentsMargins(0, 0, 8, 0)
+        form.setSpacing(2)
         self.name_edit = QLineEdit()
         size_line(self.name_edit, 'std')
+        self.name_edit.setPlaceholderText('例如：客户信息平台、车险共享中心')
+        form.addWidget(_field_block('显示名称', '出现在左边列表和提签下拉里。', self.name_edit))
         self.code_edit = QLineEdit()
         size_line(self.code_edit, 'std')
+        self.code_edit.setPlaceholderText('例如：ECIF 或 prpcar')
+        form.addWidget(_field_block(
+            '签文件夹里的系统代号',
+            '会出现在签目录名里。例：INT_INT_ECIF_2026081910A-李浩鹏 里的 ECIF。',
+            self.code_edit,
+        ))
         self.owner_edit = QLineEdit()
         size_line(self.owner_edit, 'std')
-        self.seed_edit = QLineEdit()
-        size_line(self.seed_edit, 'path')
-        seed_btn = QPushButton('选择')
-        size_compact_button(seed_btn)
-        seed_btn.clicked.connect(self._pick_seed)
-        seed_row = QHBoxLayout()
-        seed_row.addWidget(self.seed_edit, 1)
-        seed_row.addWidget(seed_btn)
-        form.addRow('名称', self.name_edit)
-        form.addRow('目录代号', self.code_edit)
-        form.addRow('默认责任人', self.owner_edit)
-        form.addRow('种子 xls', seed_row)
+        self.owner_edit.setPlaceholderText('例如：李浩鹏')
+        form.addWidget(_field_block('默认责任人', '提签时自动填到签文档「责任人」。', self.owner_edit))
+        sys_host = QWidget()
+        sys_box = QVBoxLayout(sys_host)
+        sys_box.setContentsMargins(0, 0, 0, 0)
+        sys_box.setSpacing(4)
         self.system_boxes = []
-        sys_box = QVBoxLayout()
         for system in load_systems():
             box = QCheckBox(system['name'])
             self.system_boxes.append(box)
             sys_box.addWidget(box)
-        form.addRow('关联台账系统', sys_box)
+        form.addWidget(_field_block(
+            '这份签要带哪些需求',
+            '勾选后，点「一键提签」只会列出这些系统的需求。可多选。',
+            sys_host,
+        ))
+        form.addWidget(_hint_label('下面按环境分别填签库。SIT=系统测试，INT=集成测试，UAT=用户测试。'))
         self.env_edits = {}
         for env in TICKET_ENVS:
             url = QLineEdit()
             size_line(url, 'path')
-            url.setPlaceholderText(f'{env} 签库 SVN，可空')
+            url.setPlaceholderText(f'粘贴 {ENV_LABELS[env]} 签所在的 SVN 目录，没有就留空')
             host = QLineEdit()
             size_line(host, 'std')
-            host.setPlaceholderText('默认升级环境地址，可空')
-            form.addRow(f'{env} SVN', url)
-            form.addRow(f'{env} 地址', host)
+            host.setPlaceholderText('填到签上的升级环境地址，例如 10.128.24.72')
+            env_host = QWidget()
+            env_box = QVBoxLayout(env_host)
+            env_box.setContentsMargins(0, 0, 0, 0)
+            env_box.setSpacing(4)
+            env_box.addWidget(url)
+            env_box.addWidget(host)
+            form.addWidget(_field_block(
+                f'{ENV_LABELS[env]} 的签库',
+                '第一行：签文件夹所在的 SVN 地址。第二行：写进签文档的机器地址，可空。',
+                env_host,
+            ))
             self.env_edits[env] = (url, host)
-        body.addWidget(form_host, 2)
+        self.seed_edit = QLineEdit()
+        size_line(self.seed_edit, 'path')
+        self.seed_edit.setPlaceholderText('一般不用填。只有这个环境 SVN 上还没有任何历史签时才需要')
+        seed_btn = QPushButton('选择本机文件')
+        size_compact_button(seed_btn)
+        seed_btn.clicked.connect(self._pick_seed)
+        seed_row = QWidget()
+        seed_l = QHBoxLayout(seed_row)
+        seed_l.setContentsMargins(0, 0, 0, 0)
+        seed_l.addWidget(self.seed_edit, 1)
+        seed_l.addWidget(seed_btn)
+        form.addWidget(_field_block(
+            '本机模板（可选）',
+            'SVN 上已有历史签时，软件会自动复制最新一份，不用选这个。',
+            seed_row,
+        ))
+        form.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(form_host)
+        body.addWidget(scroll, 3)
         root.addLayout(body, 1)
         tools = QHBoxLayout()
-        add_btn = QPushButton('新增提签族')
-        del_btn = QPushButton('删除')
+        add_btn = QPushButton('新增一套签')
+        del_btn = QPushButton('删除这套')
         size_compact_button(add_btn)
         size_compact_button(del_btn)
         add_btn.clicked.connect(self._add_profile)
@@ -181,7 +251,7 @@ class TicketSubmitConfigDialog(QDialog):
     def _add_profile(self):
         self._collect_form(self._last_row)
         self._profiles.append(normalize_ticket_profile({
-            'name': '新提签族',
+            'name': '新系统签',
             'folder_code': 'SYS',
         }))
         self._refresh_list(len(self._profiles) - 1)
@@ -209,59 +279,65 @@ class TicketSubmitDialog(QDialog):
     def __init__(self, requirements, selected_ids=None, parent=None, compact=False):
         super().__init__(parent)
         self.setWindowTitle('一键提签')
-        self.resize(560 if compact else 640, 480 if compact else 560)
+        self.resize(560 if compact else 680, 500 if compact else 620)
         self._all_requirements = list(requirements or [])
         self._compact = bool(compact)
         root = QVBoxLayout(self)
-        hint = QLabel('会从该环境 SVN 拉最新一份签当模板，填入所选需求后提交新文件夹。内网 SVN 以你本机为准。')
-        hint.setObjectName('field-hint')
-        hint.setWordWrap(True)
-        root.addWidget(hint)
-        form = QFormLayout()
+        root.addWidget(_hint_label(
+            '选好签和需求后点「确认提签」。软件会复制该环境最新一份签，把需求写进去，再提交到 SVN。'
+        ))
+        form = QVBoxLayout()
+        form.setSpacing(2)
         self.profile_combo = QComboBox()
         size_pick_combo(self.profile_combo)
+        form.addWidget(_field_block('提到哪套签', '客户信息平台、车险共享中心等。没有的话先点下面「配置签库地址」。', self.profile_combo))
         self.env_combo = QComboBox()
-        size_enum_combo(self.env_combo)
         for env in TICKET_ENVS:
-            self.env_combo.addItem(env, env)
+            self.env_combo.addItem(ENV_LABELS[env], env)
+        size_enum_combo(self.env_combo)
+        form.addWidget(_field_block('提到哪个环境', '系统测试 SIT / 集成测试 INT / 用户测试 UAT。', self.env_combo))
         self.slot_combo = QComboBox()
+        self.slot_combo.addItem('上午 10 点', '10')
+        self.slot_combo.addItem('下午 15 点', '15')
+        self.slot_combo.addItem('11 点', '11')
+        self.slot_combo.addItem('19 点', '19')
         size_enum_combo(self.slot_combo)
-        for slot in ('10', '15', '11', '19'):
-            self.slot_combo.addItem(f'{slot} 点', slot)
         self.slot_combo.setCurrentIndex(0 if default_slot() == '10' else 1)
+        form.addWidget(_field_block('几点的签', '上午默认 10 点，下午默认 15 点。会写进文件夹名字。', self.slot_combo))
         self.owner_edit = QLineEdit()
         size_line(self.owner_edit, 'std')
+        self.owner_edit.setPlaceholderText('写在签上和文件夹名后面的人，例如 李浩鹏')
+        form.addWidget(_field_block('责任人', '签文档「责任人」和目录名末尾。', self.owner_edit))
         self.host_edit = QLineEdit()
         size_line(self.host_edit, 'std')
-        form.addRow('提签族', self.profile_combo)
-        form.addRow('环境', self.env_combo)
-        form.addRow('场次', self.slot_combo)
-        form.addRow('责任人', self.owner_edit)
+        self.host_edit.setPlaceholderText('写进签里的升级环境地址，例如 10.128.24.72')
+        self.program_edit = QLineEdit()
+        size_line(self.program_edit, 'std')
+        self.program_edit.setPlaceholderText('例如：后端 或 ecif-service，可空')
+        self.remark_edit = QLineEdit()
+        size_line(self.remark_edit, 'std')
+        self.remark_edit.setPlaceholderText('签上的备注，没有就空着')
+        self.jar_check = QCheckBox('这次升级带 jar 包')
         if not compact:
-            form.addRow('升级环境地址', self.host_edit)
-            self.program_edit = QLineEdit()
-            size_line(self.program_edit, 'std')
-            self.program_edit.setPlaceholderText('程序清单，可空')
-            self.remark_edit = QLineEdit()
-            size_line(self.remark_edit, 'std')
-            self.jar_check = QCheckBox('有 jar 包')
-            form.addRow('程序清单', self.program_edit)
-            form.addRow('备注', self.remark_edit)
-            form.addRow('', self.jar_check)
+            form.addWidget(_field_block('升级环境地址', '填到签文档「升级环境地址」那一格。', self.host_edit))
+            form.addWidget(_field_block('程序清单', '填到签上「修改的程序清单」，如 后端、前端、jar 名。', self.program_edit))
+            form.addWidget(_field_block('备注', '', self.remark_edit))
+            form.addWidget(self.jar_check)
         else:
-            self.program_edit = QLineEdit()
-            self.remark_edit = QLineEdit()
-            self.jar_check = QCheckBox()
             self.host_edit.hide()
+            self.program_edit.hide()
+            self.remark_edit.hide()
+            self.jar_check.hide()
         root.addLayout(form)
         self.preview = QLabel()
         self.preview.setObjectName('field-hint')
         self.preview.setWordWrap(True)
         root.addWidget(self.preview)
+        root.addWidget(QLabel('勾选要写进这份签的需求（可多条）'))
         self.req_list = QListWidget()
         self.req_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         root.addWidget(self.req_list, 1)
-        cfg = QPushButton('配置提签 SVN…')
+        cfg = QPushButton('配置签库地址…')
         apply_button(cfg, 'secondary', compact=True)
         cfg.clicked.connect(self._open_config)
         root.addWidget(cfg, 0, Qt.AlignmentFlag.AlignLeft)
@@ -279,7 +355,7 @@ class TicketSubmitDialog(QDialog):
         buttons.accepted.connect(self._submit)
         root.addWidget(buttons)
         self.profile_combo.currentIndexChanged.connect(self._reload_requirements)
-        self.env_combo.currentIndexChanged.connect(self._refresh_preview)
+        self.env_combo.currentIndexChanged.connect(self._on_env_changed)
         self.slot_combo.currentIndexChanged.connect(self._refresh_preview)
         self.owner_edit.textChanged.connect(lambda _t: self._refresh_preview())
         self._selected_ids = set(selected_ids or [])
@@ -328,10 +404,18 @@ class TicketSubmitDialog(QDialog):
                 result.append(item.data(Qt.ItemDataRole.UserRole))
         return result
 
+    def _on_env_changed(self):
+        profile = self._current_profile()
+        if profile:
+            env = self.env_combo.currentData()
+            host = ((profile.get('envs') or {}).get(env) or {}).get('host') or ''
+            self.host_edit.setText(host)
+        self._refresh_preview()
+
     def _refresh_preview(self):
         profile = self._current_profile()
         if not profile:
-            self.preview.setText('还没有提签族，请先配置。')
+            self.preview.setText('还没有配置任何签。请先点「配置签库地址」。')
             return
         env = self.env_combo.currentData() or 'INT'
         svn_url = ((profile.get('envs') or {}).get(env) or {}).get('svn_url') or ''
@@ -339,10 +423,18 @@ class TicketSubmitDialog(QDialog):
             [], env, profile.get('folder_code'), self.owner_edit.text().strip() or profile.get('owner_default'),
             slot=self.slot_combo.currentData(),
         )
+        env_name = ENV_LABELS.get(env, env)
         if not svn_url:
-            self.preview.setText(f'将生成 {folder}\n当前环境未配置 SVN，不能提交。')
+            self.preview.setText(
+                f'将生成文件夹：{folder}\n'
+                f'{env_name} 还没有填签库 SVN，请先点「配置签库地址」。'
+            )
         else:
-            self.preview.setText(f'将生成 {folder}\n提交到：{svn_url.rstrip("/")}/{datetime.date.today().year}/')
+            self.preview.setText(
+                f'将生成文件夹：{folder}\n'
+                f'提交到：{svn_url.rstrip("/")}/{datetime.date.today().year}/\n'
+                '软件会复制该环境最新一份签当模板，再改需求后提交。'
+            )
 
     def _open_config(self):
         dialog = TicketSubmitConfigDialog(self)
@@ -353,7 +445,7 @@ class TicketSubmitDialog(QDialog):
     def _submit(self):
         profile = self._current_profile()
         if not profile:
-            show_warning(self, '一键提签', '请先配置提签族。')
+            show_warning(self, '一键提签', '请先点「配置签库地址」，把这套签的 SVN 填上。')
             return
         reqs = self._checked_requirements()
         if not reqs:
@@ -361,7 +453,7 @@ class TicketSubmitDialog(QDialog):
             return
         env = self.env_combo.currentData()
         if not ((profile.get('envs') or {}).get(env) or {}).get('svn_url'):
-            show_warning(self, '一键提签', '这个环境还没有配置提签 SVN。')
+            show_warning(self, '一键提签', f'{ENV_LABELS.get(env, env)} 还没有填签库 SVN，请先配置。')
             return
         try:
             result = submit_ticket(
