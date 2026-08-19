@@ -253,6 +253,10 @@ class SvnWorkspaceTests(unittest.TestCase):
                 'svn://10.128.23.145:13690/YDPIC/int',
                 sample,
             )
+        self.assertEqual(
+            validate_svn_url('svn://10.128.23.145:13690/Project_Management'),
+            'svn://10.128.23.145:13690/Project_Management',
+        )
         with self.assertRaises(ValueError) as ctx:
             validate_svn_url('不是地址')
         self.assertIn('当前填的是', str(ctx.exception))

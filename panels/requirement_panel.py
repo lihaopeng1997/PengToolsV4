@@ -145,7 +145,7 @@ class _WrapTextDelegate(QStyledItemDelegate):
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
-from config import SVN_WORKSPACE_DIR, load_requirement_ui, load_systems, save_requirement_ui
+from config import SVN_WORKSPACE_DIR, load_last_choices, load_requirement_ui, load_systems, save_requirement_ui, update_last_choices
 from tools.personal_knowledge import (
     export_word_entry, export_workbook_entry, extract_document_entries,
     read_text_file,
@@ -1438,11 +1438,12 @@ class RequirementPanel(QWidget):
         self._req_search_timer.setInterval(150)
         self._req_search_timer.timeout.connect(self._refresh)
         self.search_edit.textChanged.connect(lambda *_: self._req_search_timer.start())
-        self.status_filter = QComboBox(); self.status_filter.addItems(('全部状态',) + STATUSES); self.status_filter.currentIndexChanged.connect(self._refresh)
-        self.kind_filter = QComboBox(); self.kind_filter.addItems(('全部类型', '需求', 'BUG')); self.kind_filter.currentIndexChanged.connect(self._refresh)
-        self.system_filter = QComboBox(); self._fill_system_filter(); self.system_filter.currentIndexChanged.connect(self._refresh)
+        self.status_filter = QComboBox(); self.status_filter.addItems(('全部状态',) + STATUSES); self.status_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self.kind_filter = QComboBox(); self.kind_filter.addItems(('全部类型', '需求', 'BUG')); self.kind_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self.system_filter = QComboBox(); self._fill_system_filter(); self.system_filter.currentIndexChanged.connect(self._on_filter_changed)
         size_combo(self.system_filter, 'md'); size_combo(self.kind_filter, 'sm'); size_combo(self.status_filter, 'sm')
         filters.addWidget(self.search_edit, 1); filters.addWidget(self.system_filter); filters.addWidget(self.kind_filter); filters.addWidget(self.status_filter)
+        self._restore_last_filters()
         root.addWidget(filter_card)
 
         self.detail_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -2037,6 +2038,38 @@ class RequirementPanel(QWidget):
 
     def set_language(self, language):
         self.language = language
+
+    def _restore_last_filters(self):
+        last = (load_last_choices().get('requirement_filters') or {})
+        system = last.get('system')
+        if system:
+            index = self.system_filter.findData(system)
+            if index >= 0:
+                self.system_filter.blockSignals(True)
+                self.system_filter.setCurrentIndex(index)
+                self.system_filter.blockSignals(False)
+        kind = last.get('kind')
+        if kind:
+            index = self.kind_filter.findText(kind)
+            if index >= 0:
+                self.kind_filter.blockSignals(True)
+                self.kind_filter.setCurrentIndex(index)
+                self.kind_filter.blockSignals(False)
+        status = last.get('status')
+        if status:
+            index = self.status_filter.findText(status)
+            if index >= 0:
+                self.status_filter.blockSignals(True)
+                self.status_filter.setCurrentIndex(index)
+                self.status_filter.blockSignals(False)
+
+    def _on_filter_changed(self):
+        update_last_choices(requirement_filters={
+            'system': self.system_filter.currentData() or '',
+            'kind': self.kind_filter.currentText(),
+            'status': self.status_filter.currentText(),
+        })
+        self._refresh()
 
     def _fill_system_filter(self):
         current = self.system_filter.currentData() if hasattr(self, 'system_filter') else ''

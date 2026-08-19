@@ -96,31 +96,58 @@ def normalize_ticket_profile(raw):
     return item
 
 
-def load_ticket_profiles(path=None):
+def _read_ticket_store(path=None):
     target = path or TICKET_SUBMIT_FILE
     try:
         with open(target, 'r', encoding='utf-8') as stream:
             loaded = json.load(stream)
-        raw = loaded.get('profiles') if isinstance(loaded, dict) else loaded
-        if isinstance(raw, list) and raw:
-            return [normalize_ticket_profile(item) for item in raw if isinstance(item, dict)]
+        if isinstance(loaded, dict):
+            return loaded
+        if isinstance(loaded, list):
+            return {'profiles': loaded}
     except (OSError, ValueError, TypeError):
         pass
-    return [normalize_ticket_profile(item) for item in default_ticket_profiles()]
+    return {}
 
 
-def save_ticket_profiles(profiles, path=None):
+def _write_ticket_store(payload, path=None):
     target = path or TICKET_SUBMIT_FILE
     if path is None:
         ensure_config_dir()
     else:
         os.makedirs(os.path.dirname(os.path.abspath(target)) or '.', exist_ok=True)
-    payload = {
-        'profiles': [normalize_ticket_profile(item) for item in (profiles or []) if isinstance(item, dict)],
-    }
     with open(target, 'w', encoding='utf-8') as stream:
         json.dump(payload, stream, ensure_ascii=False, indent=2)
     return target
+
+
+def load_ticket_profiles(path=None):
+    loaded = _read_ticket_store(path)
+    raw = loaded.get('profiles')
+    if isinstance(raw, list) and raw:
+        return [normalize_ticket_profile(item) for item in raw if isinstance(item, dict)]
+    return [normalize_ticket_profile(item) for item in default_ticket_profiles()]
+
+
+def save_ticket_profiles(profiles, path=None):
+    payload = dict(_read_ticket_store(path))
+    payload['profiles'] = [
+        normalize_ticket_profile(item) for item in (profiles or []) if isinstance(item, dict)
+    ]
+    return _write_ticket_store(payload, path)
+
+
+def load_last_submit(path=None):
+    last = _read_ticket_store(path).get('last_submit')
+    return dict(last) if isinstance(last, dict) else {}
+
+
+def save_last_submit(last, path=None):
+    payload = dict(_read_ticket_store(path))
+    if not payload.get('profiles'):
+        payload['profiles'] = [normalize_ticket_profile(item) for item in default_ticket_profiles()]
+    payload['last_submit'] = dict(last or {})
+    return _write_ticket_store(payload, path)
 
 
 def configured_ticket_profiles(profiles=None):

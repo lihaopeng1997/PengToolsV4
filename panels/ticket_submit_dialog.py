@@ -16,9 +16,9 @@ from PyQt6.QtWidgets import (
 from config import load_systems
 from tools.requirements import requirement_identity
 from tools.ticket_submit import (
-    TICKET_ENVS, default_slot, load_ticket_profiles, next_ticket_folder,
-    normalize_ticket_profile, requirement_candidates_for_profile,
-    save_ticket_profiles, submit_ticket,
+    TICKET_ENVS, default_slot, load_last_submit, load_ticket_profiles,
+    next_ticket_folder, normalize_ticket_profile, requirement_candidates_for_profile,
+    save_last_submit, save_ticket_profiles, submit_ticket,
 )
 from ui.confirm_dialog import show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
@@ -362,7 +362,7 @@ class TicketSubmitDialog(QDialog):
         self.owner_edit.textChanged.connect(lambda _t: self._refresh_preview())
         self._selected_ids = set(selected_ids or [])
         self._load_profiles()
-        self._reload_requirements()
+        self._apply_last_submit()
 
     def _load_profiles(self):
         self._profiles = load_ticket_profiles()
@@ -378,6 +378,37 @@ class TicketSubmitDialog(QDialog):
     def _current_profile(self):
         wanted = self.profile_combo.currentData()
         return next((item for item in self._profiles if item.get('id') == wanted), None)
+
+    def _apply_last_submit(self):
+        last = load_last_submit()
+        if last.get('profile_id'):
+            index = self.profile_combo.findData(last['profile_id'])
+            if index >= 0:
+                self.profile_combo.blockSignals(True)
+                self.profile_combo.setCurrentIndex(index)
+                self.profile_combo.blockSignals(False)
+        if last.get('env'):
+            index = self.env_combo.findData(last['env'])
+            if index >= 0:
+                self.env_combo.blockSignals(True)
+                self.env_combo.setCurrentIndex(index)
+                self.env_combo.blockSignals(False)
+        if last.get('slot'):
+            index = self.slot_combo.findData(str(last['slot']))
+            if index >= 0:
+                self.slot_combo.setCurrentIndex(index)
+        self._reload_requirements()
+        if last.get('owner'):
+            self.owner_edit.setText(last.get('owner') or '')
+        if 'host' in last:
+            self.host_edit.setText(last.get('host') or '')
+        if 'program_list' in last:
+            self.program_edit.setText(last.get('program_list') or '')
+        if 'remark' in last:
+            self.remark_edit.setText(last.get('remark') or '')
+        if 'has_jar' in last:
+            self.jar_check.setChecked(bool(last.get('has_jar')))
+        self._refresh_preview()
 
     def _reload_requirements(self):
         profile = self._current_profile()
@@ -470,6 +501,16 @@ class TicketSubmitDialog(QDialog):
         except Exception as exc:
             show_error(self, '提签失败', str(exc))
             return
+        save_last_submit({
+            'profile_id': profile.get('id') or '',
+            'env': env,
+            'slot': self.slot_combo.currentData() or '',
+            'owner': self.owner_edit.text().strip(),
+            'host': self.host_edit.text().strip(),
+            'program_list': self.program_edit.text().strip(),
+            'remark': self.remark_edit.text().strip(),
+            'has_jar': self.jar_check.isChecked(),
+        })
         show_success(
             self, '提签已提交',
             f"目录：{result.get('folder')}\nSVN：{result.get('url')}\n\n请在内网核对提交结果。",

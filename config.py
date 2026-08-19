@@ -62,6 +62,7 @@ DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
 TICKET_SUBMIT_FILE = os.path.join(CONFIG_DIR, 'ticket_submit.json')
+LAST_CHOICES_FILE = os.path.join(CONFIG_DIR, 'last_choices.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
 DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
@@ -266,6 +267,34 @@ def load_requirement_ui():
     except (OSError, ValueError, TypeError):
         pass
     return result
+
+
+def load_last_choices():
+    ensure_config_dir()
+    try:
+        with open(LAST_CHOICES_FILE, 'r', encoding='utf-8') as stream:
+            loaded = json.load(stream)
+        if isinstance(loaded, dict):
+            return loaded
+    except (OSError, ValueError, TypeError):
+        pass
+    return {}
+
+
+def update_last_choices(**sections):
+    """合并写入上次选择；传入的 section 为 dict 时与旧值合并。"""
+    ensure_config_dir()
+    data = load_last_choices()
+    for key, value in sections.items():
+        if isinstance(value, dict) and isinstance(data.get(key), dict):
+            merged = dict(data[key])
+            merged.update(value)
+            data[key] = merged
+        else:
+            data[key] = value
+    with open(LAST_CHOICES_FILE, 'w', encoding='utf-8') as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=2)
+    return data
 
 
 def save_requirement_ui(settings):

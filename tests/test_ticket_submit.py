@@ -12,9 +12,10 @@ if ROOT not in sys.path:
 
 from tools.ticket_submit import (
     TicketSubmitError, build_ticket_payload, default_slot, fill_ticket_xls,
-    find_latest_ticket, format_numbered_cell, load_ticket_profiles,
-    next_ticket_folder, normalize_ticket_profile, parse_ticket_folder,
-    requirement_candidates_for_profile, submit_ticket,
+    find_latest_ticket, format_numbered_cell, load_last_submit,
+    load_ticket_profiles, next_ticket_folder, normalize_ticket_profile,
+    parse_ticket_folder, requirement_candidates_for_profile, save_last_submit,
+    save_ticket_profiles, submit_ticket,
 )
 
 ECIF_XLS = os.path.join(
@@ -203,6 +204,19 @@ class TicketSubmitTests(unittest.TestCase):
         self.assertEqual(dialog.slot_combo.currentData() in ('10', '15'), True)
         dialog.close()
         app  # keep ref
+
+    def test_last_submit_survives_profile_save(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, 'ticket_submit.json')
+            save_ticket_profiles([
+                normalize_ticket_profile({'id': 'ecif', 'name': '客户信息平台', 'folder_code': 'ECIF'}),
+            ], path)
+            save_last_submit({'profile_id': 'ecif', 'env': 'INT', 'slot': '15', 'owner': '李浩鹏'}, path)
+            save_ticket_profiles(load_ticket_profiles(path), path)
+            last = load_last_submit(path)
+            self.assertEqual(last['env'], 'INT')
+            self.assertEqual(last['slot'], '15')
+            self.assertEqual(last['owner'], '李浩鹏')
 
     def test_load_profiles_fallback(self):
         with tempfile.TemporaryDirectory() as temp:

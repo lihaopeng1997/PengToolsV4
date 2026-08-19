@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from config import DELIVERY_TEMPLATE, VALIDATION_TEMPLATE, load_systems, save_systems
+from config import DELIVERY_TEMPLATE, VALIDATION_TEMPLATE, load_last_choices, load_systems, save_systems, update_last_choices
 from tools.sql_tool import (
     build_sql_package, classify_sql_type, export_sql_package,
     deduplicate_sql_statements, read_file_auto_encoding, validate_oracle_sql,
@@ -82,6 +82,7 @@ class SqlToolPanel(QWidget):
         self._release_reload_timer.timeout.connect(self._load_release_candidates)
         self._setup_ui()
         self._load_systems()
+        self._restore_last_sql_choices()
         self.set_language('zh')
         # 懒人流程：打开后按当前升级日自动载入候选，无需再点确认日期
         self._load_release_candidates()
@@ -600,6 +601,7 @@ class SqlToolPanel(QWidget):
         self.env_combo = QComboBox()
         self.env_combo.addItems(['模拟环境', '生产环境'])
         size_enum_combo(self.env_combo)
+        self.env_combo.currentIndexChanged.connect(self._remember_sql_choices)
         first.addWidget(self.env_combo)
         self.date_label = QLabel()
         self.date_label.setObjectName('field-caption')
@@ -619,6 +621,7 @@ class SqlToolPanel(QWidget):
         second.addWidget(self.root_label)
         self.output_root = QLineEdit(os.path.join(os.path.expanduser('~'), 'Desktop'))
         size_line(self.output_root, 'path')
+        self.output_root.editingFinished.connect(self._remember_sql_choices)
         second.addWidget(self.output_root, 1)
         self.root_btn = QPushButton()
         size_compact_button(self.root_btn)
@@ -997,6 +1000,34 @@ class SqlToolPanel(QWidget):
                 self.system_combo.setCurrentIndex(index)
             else:
                 self._on_system_changed(index)
+        self._remember_sql_choices()
+
+    def _remember_sql_choices(self):
+        if not hasattr(self, 'work_system_combo') or not hasattr(self, 'env_combo'):
+            return
+        update_last_choices(sql={
+            'system': self.work_system_combo.currentText(),
+            'env': self.env_combo.currentText(),
+            'output_root': self.output_root.text().strip() if hasattr(self, 'output_root') else '',
+        })
+
+    def _restore_last_sql_choices(self):
+        last = (load_last_choices().get('sql') or {})
+        system = last.get('system')
+        if system and hasattr(self, 'work_system_combo'):
+            index = self.work_system_combo.findText(system)
+            if index >= 0:
+                self.work_system_combo.setCurrentIndex(index)
+        env = last.get('env')
+        if env and hasattr(self, 'env_combo'):
+            index = self.env_combo.findText(env)
+            if index >= 0:
+                self.env_combo.blockSignals(True)
+                self.env_combo.setCurrentIndex(index)
+                self.env_combo.blockSignals(False)
+        root = last.get('output_root')
+        if root and hasattr(self, 'output_root'):
+            self.output_root.setText(root)
 
     def _set_status_label(self, label, text, tip=None, max_chars=18):
         """状态胶囊：按内容收缩；过长省略，完整文案放 tooltip。"""
