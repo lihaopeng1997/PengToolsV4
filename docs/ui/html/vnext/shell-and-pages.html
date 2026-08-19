@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PengToolsHub · 新视觉语言原型</title>
+<style>
+:root {
+  --font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --mono: Consolas, "Cascadia Mono", monospace;
+  --r-ctl: 8px; --r-card: 12px;
+}
+[data-theme="calm"] {
+  --app: #F3F2EC; --side: #F8F7F2; --surf: #FFFEFB; --soft: #F6F5F0;
+  --ink: #1A1F1C; --text: #3A423D; --muted: #6B746E;
+  --line: #DDDAD2; --pri: #3F6B56; --pri-soft: #E4EFE8; --pri-on: #2F5342;
+}
+[data-theme="clear"] {
+  --app: #F2F4F7; --side: #F7F9FC; --surf: #FFFFFF; --soft: #F5F8FB;
+  --ink: #161D26; --text: #38424E; --muted: #667486;
+  --line: #D7DEE7; --pri: #3A5770; --pri-soft: #E6EEF5; --pri-on: #2C4559;
+}
+[data-theme="warm"] {
+  --app: #F6F2EA; --side: #FBF8F2; --surf: #FFFCF7; --soft: #F7F1E7;
+  --ink: #241C16; --text: #4A3E33; --muted: #7A6C5C;
+  --line: #E6DCCE; --pri: #7A5133; --pri-soft: #F1E6D8; --pri-on: #5E3C25;
+}
+[data-theme="black"] {
+  --app: #09090B; --side: #111114; --surf: #161618; --soft: #1C1C1F;
+  --ink: #F4F4F5; --text: #C8C8CC; --muted: #8A8A90;
+  --line: #2A2A2E; --pri: #8FBB9E; --pri-soft: #152019; --pri-on: #A8CDB4;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 13px/1.5 var(--font);
+  background: #1a1a1c;
+  color: var(--text);
+}
+.stage {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: calc(100vh - 56px);
+  margin: 56px 0 0;
+  background: var(--app);
+}
+.topbar {
+  position: fixed; inset: 0 0 auto 0; height: 56px;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px;
+  background: #111114; color: #e8e8ea;
+  border-bottom: 1px solid #2a2a2e;
+  z-index: 4;
+}
+.topbar b { font-size: 13px; letter-spacing: .04em; }
+.themes { display: flex; gap: 8px; margin-left: auto; }
+.themes button {
+  border: 1px solid #3a3a40; background: #1a1a1e; color: #d4d4d8;
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit;
+}
+.themes button[aria-pressed="true"] { border-color: #8FBB9E; color: #8FBB9E; }
+.pages { display: flex; gap: 6px; }
+.pages button {
+  border: 0; background: transparent; color: #a1a1aa;
+  padding: 6px 10px; cursor: pointer; font: inherit;
+}
+.pages button[aria-pressed="true"] { color: #fff; }
+.side {
+  background: var(--side);
+  border-right: 1px solid var(--line);
+  padding: 16px 12px;
+}
+.brand { font-size: 16px; font-weight: 650; color: var(--ink); margin: 0 0 18px 8px; }
+.group { font-size: 10px; letter-spacing: .14em; color: var(--muted); padding: 12px 8px 6px; }
+.nav {
+  display: block; width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--text);
+  border-radius: 10px; padding: 9px 12px; margin: 2px 0;
+  font: inherit; cursor: pointer;
+}
+.nav.on { background: var(--pri-soft); color: var(--pri-on); font-weight: 600; }
+.main { padding: 22px 24px; overflow: auto; }
+h1 { margin: 0; font-size: 20px; letter-spacing: -.3px; color: var(--ink); font-weight: 650; }
+.sub { margin: 4px 0 18px; color: var(--muted); font-size: 12px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card {
+  background: var(--surf); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: 14px;
+}
+.card h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 650; }
+.row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 10px; border-radius: 10px; background: var(--soft); margin-bottom: 6px;
+}
+.row b { color: var(--ink); font-weight: 600; }
+.tools { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.chip {
+  border: 1px solid var(--line); background: var(--surf); color: var(--text);
+  border-radius: 8px; padding: 6px 10px; font-size: 12px;
+}
+.btn {
+  border: 0; background: var(--pri); color: #fff;
+  border-radius: var(--r-ctl); padding: 8px 14px; font: inherit; cursor: pointer;
+}
+[data-theme="black"] .btn { color: #0A100C; }
+.split { display: grid; grid-template-columns: 240px 1fr; gap: 12px; min-height: 420px; }
+.tree { font-size: 13px; }
+.item { padding: 7px 8px; border-radius: 8px; }
+.item.on { background: var(--pri-soft); color: var(--pri-on); }
+.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.table td { padding: 7px 8px; border-bottom: 1px solid var(--line); color: var(--text); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.hidden { display: none; }
+@media (max-width: 960px) {
+  .stage { grid-template-columns: 72px 1fr; }
+  .brand, .group, .nav span { display: none; }
+  .grid, .split { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body data-theme="calm">
+<header class="topbar">
+  <b>PengToolsHub · 新视觉语言</b>
+  <nav class="pages" aria-label="页面">
+    <button type="button" data-page="home" aria-pressed="true">工作台</button>
+    <button type="button" data-page="req">需求管理</button>
+    <button type="button" data-page="api">接口排查</button>
+  </nav>
+  <div class="themes" aria-label="主题">
+    <button type="button" data-theme="calm" aria-pressed="true">静谧办公</button>
+    <button type="button" data-theme="clear">晴空清晰</button>
+    <button type="button" data-theme="warm">暖书房</button>
+    <button type="button" data-theme="black">墨黑</button>
+  </div>
+</header>
+<div class="stage">
+  <aside class="side">
+    <p class="brand">PengTools</p>
+    <div class="group">工作台</div>
+    <button class="nav on" type="button">首页</button>
+    <div class="group">交付</div>
+    <button class="nav" type="button">需求管理</button>
+    <button class="nav" type="button">发版联动</button>
+    <div class="group">开发</div>
+    <button class="nav" type="button">接口排查</button>
+    <button class="nav" type="button">加解密</button>
+  </aside>
+  <main class="main">
+    <section id="page-home">
+      <h1>工作台</h1>
+      <p class="sub">今天先处理最近的交付事项</p>
+      <div class="grid">
+        <article class="card">
+          <h2>最近需求</h2>
+          <div class="row"><span><b>承保中心字段校验</b></span><span>车险</span></div>
+          <div class="row"><span><b>ECIF 客户查询超时</b></span><span>BUG</span></div>
+          <div class="row"><span><b>发版 Excel 23 列对齐</b></span><span>工具</span></div>
+        </article>
+        <article class="card">
+          <h2>待升级事项</h2>
+          <div class="row"><span><b>本月 3 项</b></span><span>8/18</span></div>
+          <div class="row"><span><b>未定 2 项</b></span><span>—</span></div>
+        </article>
+      </div>
+      <div class="tools">
+        <span class="chip">加解密</span>
+        <span class="chip">证件类型</span>
+        <span class="chip">VIN</span>
+        <span class="chip">格式工具</span>
+      </div>
+    </section>
+    <section id="page-req" class="hidden">
+      <h1>需求管理</h1>
+      <p class="sub">目录、文件库与升级联动</p>
+      <div class="split">
+        <article class="card tree">
+          <h2>需求目录</h2>
+          <div class="item on">车险承保中心 · 12</div>
+          <div class="item">ECIF · 4</div>
+          <div class="item">共享中心 · 7</div>
+        </article>
+        <article class="card">
+          <h2>详情</h2>
+          <p><b style="color:var(--ink)">承保中心字段校验</b></p>
+          <table class="table">
+            <tr><th>系统</th><td>车险承保中心</td></tr>
+            <tr><th>状态</th><td>进行中</td></tr>
+            <tr><th>资料</th><td>已绑定</td></tr>
+          </table>
+          <p style="margin-top:14px"><button class="btn" type="button">打开文件库</button></p>
+        </article>
+      </div>
+    </section>
+    <section id="page-api" class="hidden">
+      <h1>接口排查</h1>
+      <p class="sub">会话在内存；停止抓包后仍可导出</p>
+      <article class="card">
+        <h2>会话</h2>
+        <table class="table mono">
+          <tr><th>方法</th><th>路径</th><th>状态</th></tr>
+          <tr><td>POST</td><td>/autocore/quote</td><td>200</td></tr>
+          <tr><td>GET</td><td>/ecif/customer</td><td>504</td></tr>
+          <tr><td>POST</td><td>/gateway/decrypt</td><td>200</td></tr>
+        </table>
+      </article>
+    </section>
+  </main>
+</div>
+<script>
+const root = document.body;
+document.querySelectorAll('.themes button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    root.dataset.theme = btn.dataset.theme;
+    document.querySelectorAll('.themes button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  });
+});
+const pages = { home: 'page-home', req: 'page-req', api: 'page-api' };
+document.querySelectorAll('.pages button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    Object.values(pages).forEach((id) => document.getElementById(id).classList.add('hidden'));
+    document.getElementById(pages[btn.dataset.page]).classList.remove('hidden');
+    document.querySelectorAll('.pages button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  });
+});
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import tempfile
 
 def local_data_dir(executable=None, frozen=None):
     is_frozen = getattr(sys, 'frozen', False) if frozen is None else bool(frozen)
@@ -11,7 +12,7 @@ def local_data_dir(executable=None, frozen=None):
 
 
 # 版本与构建日期（build_private_release.ps1 打包时会写入 resources/build_info.json）
-APP_NAME = 'PengTools Hub'
+APP_NAME = 'PengToolsHub'
 APP_VERSION = '4.27'
 APP_EDITION = 'Private'
 
@@ -36,38 +37,60 @@ def _load_build_info():
 
 _BUILD_INFO = _load_build_info()
 APP_BUILD_DATE = str(_BUILD_INFO.get('build_date') or '2026-07-17')
-APP_VERSION_LABEL = f"V{_BUILD_INFO.get('version') or APP_VERSION}"
+# 界面展示用简写：V4 Private（避免 V4.27 Private · 日期 · 日期 冗余）
+_APP_MAJOR = str((_BUILD_INFO.get('version') or APP_VERSION) or '4').split('.')[0] or '4'
+APP_VERSION_LABEL = f'V{_APP_MAJOR}'
 
 
 def app_version_text(with_date=True):
-    base = f'{APP_VERSION_LABEL} {APP_EDITION}'
-    if with_date and APP_BUILD_DATE:
-        return f'{base} · {APP_BUILD_DATE}'
-    return base
+    """界面版本文案：固定为「V4 Private」。构建日期仅在关于/tooltip 单独展示。"""
+    return f'{APP_VERSION_LABEL} {APP_EDITION}'
 
 
 CONFIG_DIR = local_data_dir()
 
 SYSTEMS_FILE = os.path.join(CONFIG_DIR, 'systems.json')
 CUSTOM_OPS_FILE = os.path.join(CONFIG_DIR, 'ops_custom_commands.json')
+OPS_SERVERS_FILE = os.path.join(CONFIG_DIR, 'ops_servers.json')
+OPS_LOG_SETTINGS_FILE = os.path.join(CONFIG_DIR, 'ops_log_settings.json')
 SETTINGS_FILE = os.path.join(CONFIG_DIR, 'settings.json')
 PRIVATE_KNOWLEDGE_FILE = os.path.join(CONFIG_DIR, 'private_knowledge.json')
 DAILY_REPORTS_FILE = os.path.join(CONFIG_DIR, 'daily_reports.json')
 DAILY_REPORT_SETTINGS_FILE = os.path.join(CONFIG_DIR, 'daily_report_settings.json')
+DAILY_REPORT_DRAFTS_FILE = os.path.join(CONFIG_DIR, 'daily_report_drafts.json')
+DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
+TICKET_SUBMIT_FILE = os.path.join(CONFIG_DIR, 'ticket_submit.json')
+LAST_CHOICES_FILE = os.path.join(CONFIG_DIR, 'last_choices.json')
+# 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
+DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 DEFAULT_SETTINGS = {
     'font_size': 12,
+    'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）
+    'ui_density': 'compact',  # compact | comfortable
+    'sidebar_collapsed': False,
     'floating_opacity': 96,
     'floating_always_on_top': True,
     'floating_show_on_startup': True,
+    # 悬浮快捷入口：需求管理、升级准备、日报、加解密（导航 index）
+    'floating_shortcuts': [10, 2, 9, 5],
     'copy_feedback_ms': 1500,
     'default_language': 'zh',
     'close_ask_each_time': True,
     'close_default_action': 'minimize',
     'keep_awake_enabled': False,
     'keep_awake_interval_minutes': 3,
+    # 彩蛋「自我学习」解锁：写在 data/settings.json，升级换 EXE 后仍保留
+    'private_unlocked': False,
+    # ── 安测 / 安全基线（默认收紧）──
+    # HTTPS 请求测试默认校验证书；内网自签可在设置或请求页临时关闭
+    'security_ssl_verify': True,
+    # 向非本机目标发请求前二次确认
+    'security_confirm_remote_request': True,
+    # 生产类主机名关键词提示（命中时确认文案更醒目）
+    'security_prod_host_hints': ['prod', 'production', '生产', 'hxutf', 'prd'],
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -154,6 +177,17 @@ def normalize_settings(settings):
     result['floating_always_on_top'] = bool(result['floating_always_on_top'])
     result['floating_show_on_startup'] = bool(result['floating_show_on_startup'])
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
+    theme = str(result.get('ui_theme') or 'calm').strip().lower()
+    if theme == 'night':
+        theme = 'black'
+    result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'black') else 'calm'
+    density = str(result.get('ui_density') or 'compact').strip().lower()
+    result['ui_density'] = density if density in ('compact', 'comfortable') else 'compact'
+    sidebar_value = result.get('sidebar_collapsed', False)
+    if isinstance(sidebar_value, str):
+        result['sidebar_collapsed'] = sidebar_value.strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        result['sidebar_collapsed'] = bool(sidebar_value)
     result['close_ask_each_time'] = bool(result['close_ask_each_time'])
     result['close_default_action'] = (
         'exit' if result['close_default_action'] == 'exit' else 'minimize'
@@ -161,6 +195,28 @@ def normalize_settings(settings):
     result['keep_awake_enabled'] = bool(result['keep_awake_enabled'])
     result['keep_awake_interval_minutes'] = max(
         1, min(60, int(result['keep_awake_interval_minutes']))
+    )
+    result['private_unlocked'] = bool(result.get('private_unlocked', False))
+    result['security_ssl_verify'] = bool(result.get('security_ssl_verify', True))
+    result['security_confirm_remote_request'] = bool(
+        result.get('security_confirm_remote_request', True)
+    )
+    hints = result.get('security_prod_host_hints')
+    if not isinstance(hints, list):
+        hints = list(DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
+    cleaned = []
+    for item in hints:
+        text = str(item or '').strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    result['security_prod_host_hints'] = cleaned or list(
+        DEFAULT_SETTINGS.get('security_prod_host_hints') or []
+    )
+    # 悬浮快捷：去重/过滤非法 index；彩蛋模块在 UI 层按解锁状态再过滤
+    from ui.navigation_model import normalize_floating_shortcuts
+    result['floating_shortcuts'] = normalize_floating_shortcuts(
+        result.get('floating_shortcuts'),
+        private_unlocked=True,
     )
     return result
 
@@ -175,17 +231,31 @@ def load_settings():
 
 
 def save_settings(settings):
+    """原子写入界面设置，避免主题切换期间半写入导致下次启动配置损坏。"""
     ensure_config_dir()
     normalized = normalize_settings(settings)
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as stream:
-        json.dump(normalized, stream, ensure_ascii=False, indent=2)
+    directory = os.path.dirname(SETTINGS_FILE) or CONFIG_DIR
+    fd, temp_path = tempfile.mkstemp(prefix='.settings-', suffix='.tmp', dir=directory, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(normalized, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, SETTINGS_FILE)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
     return normalized
 
 
 def load_requirement_ui():
     ensure_config_dir()
     # 右侧以文件浏览为主：文件区默认远大于 SQL 预览区
-    result = {'splitter_sizes': [320, 780], 'content_splitter_sizes': [520, 140]}
+    # content：上摘要紧凑高度 + 下文件库剩余（仅兼容字段，布局按内容）
+    result = {'splitter_sizes': [320, 780], 'content_splitter_sizes': [160, 640]}
     try:
         with open(REQUIREMENT_UI_FILE, 'r', encoding='utf-8') as stream:
             loaded = json.load(stream)
@@ -199,10 +269,38 @@ def load_requirement_ui():
     return result
 
 
+def load_last_choices():
+    ensure_config_dir()
+    try:
+        with open(LAST_CHOICES_FILE, 'r', encoding='utf-8') as stream:
+            loaded = json.load(stream)
+        if isinstance(loaded, dict):
+            return loaded
+    except (OSError, ValueError, TypeError):
+        pass
+    return {}
+
+
+def update_last_choices(**sections):
+    """合并写入上次选择；传入的 section 为 dict 时与旧值合并。"""
+    ensure_config_dir()
+    data = load_last_choices()
+    for key, value in sections.items():
+        if isinstance(value, dict) and isinstance(data.get(key), dict):
+            merged = dict(data[key])
+            merged.update(value)
+            data[key] = merged
+        else:
+            data[key] = value
+    with open(LAST_CHOICES_FILE, 'w', encoding='utf-8') as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=2)
+    return data
+
+
 def save_requirement_ui(settings):
     ensure_config_dir()
     result = {}
-    for key, default in (('splitter_sizes', [320, 780]), ('content_splitter_sizes', [520, 140])):
+    for key, default in (('splitter_sizes', [320, 780]), ('content_splitter_sizes', [240, 560])):
         sizes = settings.get(key, default)
         result[key] = sizes if isinstance(sizes, list) and len(sizes) == 2 and all(isinstance(size, int) and size > 0 for size in sizes) else default
     with open(REQUIREMENT_UI_FILE, 'w', encoding='utf-8') as stream:

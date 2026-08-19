@@ -1,25 +1,165 @@
 # -*- coding: utf-8 -*-
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLayout,
-    QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QSlider,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
+    QInputDialog, QLabel, QLineEdit, QPushButton, QSlider,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
-from ui.field_metrics import size_combo
+from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo, size_field_height
+from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
+
+
+class ThemePreviewWidget(QWidget):
+    """在自身 paintEvent 中绘制微型界面预览，避免父卡片绘制被子控件覆盖。"""
+
+    def __init__(self, theme_id: str, parent=None):
+        super().__init__(parent)
+        self.theme_id = theme_id
+        self._swatches = preview_swatches(theme_id)
+        self.setObjectName('theme-card-preview')
+        self.setMinimumHeight(56)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+
+    def set_theme_id(self, theme_id: str):
+        self.theme_id = theme_id
+        self._swatches = preview_swatches(theme_id)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self._swatches
+        rect = self.rect()
+        # 主背景
+        painter.fillRect(rect, QColor(s['bg']))
+        # 左侧导航
+        sidebar_w = max(14, int(rect.width() * 0.18))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(s['sidebar']))
+        painter.drawRoundedRect(2, 2, sidebar_w, rect.height() - 4, 3, 3)
+        # 导航项条
+        painter.setBrush(QColor(s['primary']))
+        painter.setOpacity(0.85)
+        painter.drawRoundedRect(5, 10, sidebar_w - 6, 6, 2, 2)
+        painter.setOpacity(0.35)
+        painter.drawRoundedRect(5, 20, sidebar_w - 8, 5, 2, 2)
+        painter.setOpacity(1.0)
+        # 内容卡 + 输入区 + 正文六层（夜间也必须可见深色层级）
+        card_x = sidebar_w + 8
+        card_w = max(24, rect.width() - card_x - 6)
+        card_h = max(20, rect.height() - 14)
+        painter.setPen(QPen(QColor(s['border']), 1))
+        painter.setBrush(QColor(s['surface']))
+        painter.drawRoundedRect(card_x, 6, card_w, card_h, 4, 4)
+        # 输入区（CODE/INPUT）
+        input_bg = QColor(s.get('input') or s['surface'])
+        painter.setBrush(input_bg)
+        painter.setPen(QPen(QColor(s['border']), 1))
+        inp_h = max(8, int(card_h * 0.28))
+        painter.drawRoundedRect(card_x + 6, 10, max(16, card_w - 12), inp_h, 3, 3)
+        # 分隔线
+        painter.setPen(QPen(QColor(s['border']), 1))
+        line_y = 12 + inp_h + 2
+        painter.drawLine(card_x + 6, line_y, card_x + card_w - 6, line_y)
+        # 正文条
+        painter.setPen(Qt.PenStyle.NoPen)
+        strong = QColor(s.get('text_strong') or s.get('text_muted') or s['border'])
+        muted = QColor(s.get('text_muted') or s['border'])
+        painter.setBrush(strong)
+        painter.setOpacity(0.75)
+        painter.drawRoundedRect(card_x + 6, line_y + 5, max(12, card_w // 2), 3, 2, 2)
+        painter.setBrush(muted)
+        painter.setOpacity(0.45)
+        painter.drawRoundedRect(card_x + 6, line_y + 11, max(10, card_w // 3), 3, 2, 2)
+        painter.setOpacity(1.0)
+        # 主按钮
+        btn_w = max(16, min(36, card_w // 3))
+        btn_h = 8
+        painter.setBrush(QColor(s['primary']))
+        painter.drawRoundedRect(card_x + card_w - btn_w - 6, card_h - 2, btn_w, btn_h, 3, 3)
+        painter.end()
+
+
+class ThemeCard(QFrame):
+    """自适应主题预览卡：完整微型界面 + 当前使用标识。"""
+
+    clicked = pyqtSignal(str)
+
+    def __init__(self, theme_id: str, parent=None):
+        super().__init__(parent)
+        self.theme_id = theme_id
+        self.setObjectName('theme-card')
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumSize(148, 96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setProperty('selected', False)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        self.preview = ThemePreviewWidget(theme_id)
+        layout.addWidget(self.preview, 1)
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.setSpacing(4)
+        self.name_label = QLabel()
+        self.name_label.setObjectName('theme-card-name')
+        self.name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        name_row.addWidget(self.name_label, 1)
+        self.current_badge = QLabel()
+        self.current_badge.setObjectName('theme-current-badge')
+        self.current_badge.hide()
+        name_row.addWidget(self.current_badge, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(name_row)
+        self.subtitle_label = QLabel()
+        self.subtitle_label.setObjectName('field-hint')
+        self.subtitle_label.setWordWrap(True)
+        layout.addWidget(self.subtitle_label)
+        self._swatches = preview_swatches(theme_id)
+
+    def set_selected(self, selected: bool):
+        self.setProperty('selected', selected)
+        self.current_badge.setVisible(bool(selected))
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def set_title(self, title: str, *, current_label: str = '', subtitle: str = ''):
+        # 标题不带 ✓ 前缀；当前状态用角标
+        clean = title[2:].strip() if title.startswith('✓ ') else title
+        self.name_label.setText(clean)
+        if subtitle:
+            self.subtitle_label.setText(subtitle)
+            self.subtitle_label.show()
+        if current_label:
+            self.current_badge.setText(current_label)
+        elif not self.current_badge.text():
+            self.current_badge.setText('当前使用')
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.theme_id)
+        super().mouseReleaseEvent(event)
 
 
 class SettingsPanel(QWidget):
     settings_changed = pyqtSignal(object)
     reset_floating_position = pyqtSignal()
     floating_opacity_preview = pyqtSignal(int)
+    theme_preview = pyqtSignal(str)
+    edit_floating_shortcuts = pyqtSignal()
+    # 日报提醒已写入 data/daily_report_settings.json，供日报页即时同步
+    reminder_settings_changed = pyqtSignal(object)
 
     def __init__(self, settings, language='zh'):
         super().__init__()
         self.language = language
         self._secret_clicks = 0
         self._secret_unlocked = False
+        self._ui_theme = 'calm'
         self._setup_ui()
         self.load_values(settings)
         self.set_language(language)
@@ -37,32 +177,75 @@ class SettingsPanel(QWidget):
         root = QVBoxLayout(content)
         root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         root.setContentsMargins(16, 10, 16, 16)
-        root.setSpacing(14)
-        self.title = QLabel()
-        self.title.setObjectName('page-title')
+        root.setSpacing(12)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.title, self.subtitle = make_page_header(
+                '设置',
+                '外观与本机偏好',
+                'settings',
+            )
+            root.addWidget(header)
+        except Exception:
+            self.title = QLabel()
+            self.title.setObjectName('page-title')
+            root.addWidget(self.title)
+            self.subtitle = QLabel()
+            self.subtitle.setObjectName('page-subtitle')
+            root.addWidget(self.subtitle)
         self.title.installEventFilter(self)
-        root.addWidget(self.title)
-        self.subtitle = QLabel()
-        self.subtitle.setObjectName('page-subtitle')
-        root.addWidget(self.subtitle)
 
         self.appearance_group = QGroupBox()
-        appearance = QFormLayout(self.appearance_group)
-        self.font_size = QSpinBox()
-        self.font_size.setRange(10, 18)
-        self.font_size.setSuffix(' px')
+        appearance_outer = QVBoxLayout(self.appearance_group)
+        appearance_outer.setSpacing(12)
+
+        # 说明收进分组 tooltip，避免标题下再叠一行提示
+        self.theme_hint = QLabel()
+        self.theme_hint.setObjectName('field-hint')
+        self.theme_hint.setWordWrap(True)
+        self.theme_hint.hide()
+        self.theme_title = self.theme_hint  # 兼容旧引用
+        self.theme_note = QLabel()
+        self.theme_note.hide()
+
+        self.theme_grid = QGridLayout()
+        self.theme_grid.setSpacing(10)
+        self._theme_cards = {}
+        for index, theme_id in enumerate(THEME_IDS):
+            card = ThemeCard(theme_id)
+            card.clicked.connect(self._on_theme_clicked)
+            self._theme_cards[theme_id] = card
+            self.theme_grid.addWidget(card, index // 2, index % 2)
+        appearance_outer.addLayout(self.theme_grid)
+
+        appearance = QFormLayout()
+        apply_form(appearance)
+        self.font_size = CompactStepper(10, 18, 13, suffix=' px')
         self.font_label = QLabel()
         appearance.addRow(self.font_label, self.font_size)
+        self.density_combo = QComboBox()
+        self.density_combo.setObjectName('density-combo')
+        self.density_combo.addItem('紧凑', 'compact')
+        self.density_combo.addItem('舒适', 'comfortable')
+        size_enum_combo(self.density_combo)
+        self.density_label = QLabel()
+        appearance.addRow(self.density_label, self.density_combo)
+        self.sidebar_collapsed_check = QCheckBox()
+        self.sidebar_collapsed_check.setObjectName('sidebar-collapsed-check')
+        self.sidebar_collapsed_label = QLabel()
+        appearance.addRow(self.sidebar_collapsed_label, self.sidebar_collapsed_check)
         self.language_combo = QComboBox()
-        size_combo(self.language_combo, 'sm')
         self.language_combo.addItem('中文', 'zh')
         self.language_combo.addItem('English', 'en')
+        size_enum_combo(self.language_combo)
         self.default_language_label = QLabel()
         appearance.addRow(self.default_language_label, self.language_combo)
+        appearance_outer.addLayout(appearance)
         root.addWidget(self.appearance_group)
 
         self.float_group = QGroupBox()
         floating = QFormLayout(self.float_group)
+        apply_form(floating)
         opacity_row = QWidget()
         opacity_layout = QHBoxLayout(opacity_row)
         opacity_layout.setContentsMargins(0, 0, 0, 0)
@@ -82,13 +265,55 @@ class SettingsPanel(QWidget):
         self.show_on_startup_label = QLabel()
         floating.addRow(self.show_on_startup_label, self.show_on_startup)
         self.reset_position_btn = QPushButton()
+        size_compact_button(self.reset_position_btn)
         self.reset_position_btn.clicked.connect(self.reset_floating_position.emit)
         self.reset_position_label = QLabel()
         floating.addRow(self.reset_position_label, self.reset_position_btn)
         root.addWidget(self.float_group)
 
+        # 快捷入口独立分组，避免与透明度/置顶混在一起
+        self.shortcuts_group = QGroupBox()
+        shortcuts_form = QFormLayout(self.shortcuts_group)
+        apply_form(shortcuts_form)
+        self.edit_shortcuts_btn = QPushButton()
+        self.edit_shortcuts_btn.clicked.connect(self.edit_floating_shortcuts.emit)
+        self.edit_shortcuts_label = QLabel()
+        shortcuts_form.addRow(self.edit_shortcuts_label, self.edit_shortcuts_btn)
+        self.shortcuts_summary = QLabel()
+        self.shortcuts_summary.setObjectName('field-hint')
+        self.shortcuts_summary.setWordWrap(True)
+        shortcuts_form.addRow(self.shortcuts_summary)
+        root.addWidget(self.shortcuts_group)
+
+        # 日报提醒（从日报页迁入）
+        self.reminder_group = QGroupBox()
+        reminder_form = QFormLayout(self.reminder_group)
+        apply_form(reminder_form)
+        self.reminder_enabled = QCheckBox()
+        self.reminder_enabled_label = QLabel()
+        reminder_form.addRow(self.reminder_enabled_label, self.reminder_enabled)
+        self.reminder_time = CompactStepper(0, 23, 17)
+        try:
+            from PyQt6.QtWidgets import QTimeEdit
+            from PyQt6.QtCore import QTime
+            self.reminder_time = QTimeEdit()
+            self.reminder_time.setDisplayFormat('HH:mm')
+            size_field_height(self.reminder_time)
+            self._reminder_uses_timeedit = True
+        except Exception:
+            self.reminder_time = CompactStepper(0, 23, 17)
+            self._reminder_uses_timeedit = False
+        self.reminder_time_label = QLabel()
+        reminder_form.addRow(self.reminder_time_label, self.reminder_time)
+        self.reminder_save_btn = QPushButton()
+        size_compact_button(self.reminder_save_btn)
+        self.reminder_save_btn.clicked.connect(self._save_reminder_settings)
+        reminder_form.addRow(self.reminder_save_btn)
+        root.addWidget(self.reminder_group)
+
         self.behavior_group = QGroupBox()
         behavior = QFormLayout(self.behavior_group)
+        apply_form(behavior)
         self.close_ask = QCheckBox()
         self.close_ask_label = QLabel()
         behavior.addRow(self.close_ask_label, self.close_ask)
@@ -98,6 +323,10 @@ class SettingsPanel(QWidget):
         self.close_default_action.addItem('', 'exit')
         self.close_default_label = QLabel()
         behavior.addRow(self.close_default_label, self.close_default_action)
+        self.close_behavior_hint = QLabel()
+        self.close_behavior_hint.setObjectName('field-hint')
+        self.close_behavior_hint.setWordWrap(True)
+        behavior.addRow(self.close_behavior_hint)
         self.copy_duration = QComboBox()
         size_combo(self.copy_duration, 'sm')
         for milliseconds in (1000, 1500, 2000, 3000):
@@ -107,16 +336,19 @@ class SettingsPanel(QWidget):
         self.safety_note = QLabel()
         self.safety_note.setObjectName('ops-safety-note')
         self.safety_note.setWordWrap(True)
+        self.safety_note.hide()  # 仅「直接退出」时显示
         behavior.addRow(self.safety_note)
         root.addWidget(self.behavior_group)
+        self.close_ask.toggled.connect(self._refresh_close_behavior_hint)
+        self.close_default_action.currentIndexChanged.connect(self._refresh_close_behavior_hint)
 
         self.keep_awake_group = QGroupBox()
         keep_awake = QFormLayout(self.keep_awake_group)
+        apply_form(keep_awake)
         self.keep_awake_enabled = QCheckBox()
         self.keep_awake_enabled_label = QLabel()
         keep_awake.addRow(self.keep_awake_enabled_label, self.keep_awake_enabled)
-        self.keep_awake_interval = QSpinBox()
-        self.keep_awake_interval.setRange(1, 60)
+        self.keep_awake_interval = CompactStepper(1, 60, 5)
         self.keep_awake_interval_label = QLabel()
         keep_awake.addRow(self.keep_awake_interval_label, self.keep_awake_interval)
         self.keep_awake_note = QLabel()
@@ -126,6 +358,22 @@ class SettingsPanel(QWidget):
         keep_awake.addRow(self.keep_awake_note)
         self.keep_awake_group.hide()
         root.addWidget(self.keep_awake_group)
+
+        # 安测 / 安全基线
+        self.security_group = QGroupBox()
+        security = QFormLayout(self.security_group)
+        apply_form(security)
+        self.security_ssl_verify = QCheckBox()
+        self.security_ssl_verify_label = QLabel()
+        security.addRow(self.security_ssl_verify_label, self.security_ssl_verify)
+        self.security_confirm_remote = QCheckBox()
+        self.security_confirm_remote_label = QLabel()
+        security.addRow(self.security_confirm_remote_label, self.security_confirm_remote)
+        self.security_note = QLabel()
+        self.security_note.setObjectName('ops-safety-note')
+        self.security_note.setWordWrap(True)
+        security.addRow(self.security_note)
+        root.addWidget(self.security_group)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -142,41 +390,237 @@ class SettingsPanel(QWidget):
     def values(self):
         return normalize_settings({
             'font_size': self.font_size.value(),
+            'ui_theme': resolve_theme_id(self._ui_theme),
+            'ui_density': self.density_combo.currentData(),
+            'sidebar_collapsed': self.sidebar_collapsed_check.isChecked(),
             'floating_opacity': self.opacity.value(),
             'floating_always_on_top': self.always_on_top.isChecked(),
             'floating_show_on_startup': self.show_on_startup.isChecked(),
+            'floating_shortcuts': list(getattr(self, '_floating_shortcuts', DEFAULT_SETTINGS.get('floating_shortcuts', [10, 2, 9, 5]))),
             'copy_feedback_ms': self.copy_duration.currentData(),
             'default_language': self.language_combo.currentData(),
             'close_ask_each_time': self.close_ask.isChecked(),
             'close_default_action': self.close_default_action.currentData(),
             'keep_awake_enabled': self.keep_awake_enabled.isChecked(),
             'keep_awake_interval_minutes': self.keep_awake_interval.value(),
+            # 设置页不提供关闭彩蛋入口，保存时必须保留已解锁状态
+            'private_unlocked': bool(getattr(self, '_private_unlocked', False)),
+            'security_ssl_verify': self.security_ssl_verify.isChecked(),
+            'security_confirm_remote_request': self.security_confirm_remote.isChecked(),
+            # 生产主机关键词仅配置层维护，UI 不直接编辑
+            'security_prod_host_hints': list(
+                getattr(self, '_security_prod_host_hints', DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
+            ),
         })
 
     def _preview_opacity(self, value):
         self.opacity_value.setText(f'{value}%')
         self.floating_opacity_preview.emit(value)
 
+    def _on_theme_clicked(self, theme_id: str):
+        """将主题请求交给主窗口原子应用；失败时保持当前卡片与配置不变。"""
+        theme_id = resolve_theme_id(theme_id)
+        if theme_id == self._ui_theme:
+            return
+        settings = self.values()
+        settings['ui_theme'] = theme_id
+        self.settings_changed.emit(settings)
+
+    def _refresh_theme_cards(self):
+        current = resolve_theme_id(self._ui_theme)
+        zh = self.language == 'zh'
+        current_label = '当前使用' if zh else 'Current'
+        for theme_id, card in self._theme_cards.items():
+            card.set_selected(theme_id == current)
+            name = theme_display_name(theme_id, self.language)
+            sub = theme_subtitle(theme_id, self.language)
+            card.set_title(name, current_label=current_label, subtitle=sub)
+            card.preview.set_theme_id(theme_id)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        """主题卡 Wide/Standard 两列，Compact/Narrow 一列。"""
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(self.subtitle, low_height)
+        cols = 1 if mode in ('compact', 'narrow') else 2
+        # 重新排布 theme_grid
+        for i, theme_id in enumerate(THEME_IDS):
+            card = self._theme_cards.get(theme_id)
+            if card is None:
+                continue
+            self.theme_grid.addWidget(card, i // cols, i % cols)
+
     def load_values(self, settings):
         settings = normalize_settings(settings)
+        self._private_unlocked = bool(settings.get('private_unlocked', False))
         self.font_size.setValue(settings['font_size'])
+        self.density_combo.setCurrentIndex(
+            max(0, self.density_combo.findData(settings.get('ui_density', 'compact')))
+        )
+        self.sidebar_collapsed_check.setChecked(bool(settings.get('sidebar_collapsed', False)))
+        self._ui_theme = resolve_theme_id(settings.get('ui_theme', 'calm'))
+        self._refresh_theme_cards()
         self.opacity.setValue(settings['floating_opacity'])
         self.opacity_value.setText(f"{settings['floating_opacity']}%")
         self.always_on_top.setChecked(settings['floating_always_on_top'])
         self.show_on_startup.setChecked(settings['floating_show_on_startup'])
+        self._floating_shortcuts = list(settings.get('floating_shortcuts') or DEFAULT_SETTINGS['floating_shortcuts'])
+        self._refresh_shortcuts_summary()
         self.language_combo.setCurrentIndex(self.language_combo.findData(settings['default_language']))
+        self.close_ask.blockSignals(True)
+        self.close_default_action.blockSignals(True)
         self.close_ask.setChecked(settings['close_ask_each_time'])
         self.close_default_action.setCurrentIndex(
             self.close_default_action.findData(settings['close_default_action'])
         )
+        self.close_ask.blockSignals(False)
+        self.close_default_action.blockSignals(False)
         self.keep_awake_enabled.setChecked(settings['keep_awake_enabled'])
         self.keep_awake_interval.setValue(settings['keep_awake_interval_minutes'])
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
+        self.security_ssl_verify.setChecked(bool(settings.get('security_ssl_verify', True)))
+        self.security_confirm_remote.setChecked(
+            bool(settings.get('security_confirm_remote_request', True))
+        )
+        self._security_prod_host_hints = list(
+            settings.get('security_prod_host_hints')
+            or DEFAULT_SETTINGS.get('security_prod_host_hints')
+            or []
+        )
+        self._load_reminder_values()
+        self._refresh_close_behavior_hint()
+
+    def _load_reminder_values(self):
+        """从磁盘重载提醒控件，与日报模块共用 daily_report_settings.json。"""
+        try:
+            from tools.daily_reports import DEFAULT_REMINDER, load_reminder_settings
+            from PyQt6.QtCore import QTime
+            reminder = load_reminder_settings()
+            default_time = str(DEFAULT_REMINDER.get('time') or '17:30')
+            self.reminder_enabled.blockSignals(True)
+            self.reminder_enabled.setChecked(bool(reminder.get('enabled')))
+            self.reminder_enabled.blockSignals(False)
+            time_text = str(reminder.get('time') or default_time)
+            if getattr(self, '_reminder_uses_timeedit', False):
+                parsed = QTime.fromString(time_text, 'HH:mm')
+                if not parsed.isValid():
+                    parsed = QTime.fromString(default_time, 'HH:mm')
+                self.reminder_time.blockSignals(True)
+                self.reminder_time.setTime(parsed)
+                self.reminder_time.blockSignals(False)
+            else:
+                try:
+                    hour = int(time_text.split(':', 1)[0])
+                except (TypeError, ValueError, IndexError):
+                    hour = 17
+                self.reminder_time.blockSignals(True)
+                self.reminder_time.setValue(max(0, min(23, hour)))
+                self.reminder_time.blockSignals(False)
+        except Exception:
+            pass
+
+    def reload_reminder_from_store(self):
+        """进入设置页或外部改完提醒后刷新 UI。"""
+        self._load_reminder_values()
+
+    def _current_reminder_time_text(self) -> str:
+        from tools.daily_reports import DEFAULT_REMINDER
+        if getattr(self, '_reminder_uses_timeedit', False):
+            return self.reminder_time.time().toString('HH:mm')
+        # SpinBox 仅小时时补 :00
+        try:
+            hour = int(self.reminder_time.value())
+        except Exception:
+            hour = int(str(DEFAULT_REMINDER.get('time') or '17:30').split(':', 1)[0])
+        return f'{max(0, min(23, hour)):02d}:00'
+
+    def _persist_reminder_settings(self, *, notify_ui: bool = True, show_toast: bool = True):
+        """写入日报提醒并通知日报页；返回规范化后的设置。"""
+        from tools.daily_reports import load_reminder_settings, save_reminder_settings
+        current = load_reminder_settings()
+        time_text = self._current_reminder_time_text()
+        previous_time = current.get('time')
+        previous_enabled = bool(current.get('enabled'))
+        current['enabled'] = self.reminder_enabled.isChecked()
+        current['time'] = time_text
+        # 改时间或重新开启时允许当天再提醒一次
+        if previous_time != time_text or (not previous_enabled and current['enabled']):
+            current['last_reminder_date'] = ''
+        normalized = save_reminder_settings(current)
+        if notify_ui:
+            self.reminder_settings_changed.emit(normalized)
+        if show_toast:
+            from ui.confirm_dialog import show_success
+            show_success(
+                self,
+                '日报提醒' if self.language == 'zh' else 'Daily reminder',
+                '提醒设置已保存，已与日报页同步。' if self.language == 'zh' else
+                'Reminder saved and synced with Daily Report.',
+            )
+        return normalized
+
+    def _save_reminder_settings(self):
+        try:
+            self._persist_reminder_settings(notify_ui=True, show_toast=True)
+        except Exception as exc:
+            from ui.confirm_dialog import show_warning
+            show_warning(self, '日报提醒', str(exc))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 从日报改过文件、或其它入口改过时，进入设置页立刻对齐
+        self._load_reminder_values()
+
+    def _refresh_shortcuts_summary(self):
+        from ui.navigation_model import display_name
+        zh = self.language == 'zh'
+        names = [display_name(i, self.language) for i in getattr(self, '_floating_shortcuts', [])]
+        if not names:
+            self.shortcuts_summary.setText('' if zh else '')
+            return
+        joined = ' · '.join(names)
+        self.shortcuts_summary.setText(
+            f'当前快捷：{joined}' if zh else f'Shortcuts: {joined}'
+        )
+
+    def _refresh_close_behavior_hint(self, *_args):
+        zh = self.language == 'zh'
+        ask = self.close_ask.isChecked()
+        action = self.close_default_action.currentData()
+        action_text = (
+            ('隐藏到系统托盘' if zh else 'hide to tray')
+            if action == 'minimize' else
+            ('退出软件' if zh else 'exit the app')
+        )
+        if ask:
+            self.close_behavior_hint.setText(
+                '关闭时会弹出选择：隐藏到托盘或退出；可勾选“关闭时不再提示”。' if zh else
+                'Closing will ask: tray or exit; you can choose not to ask again.'
+            )
+            self.safety_note.hide()
+        else:
+            self.close_behavior_hint.setText(
+                f'关闭时不再提示，直接「{action_text}」；勾选“恢复关闭提示”可重新弹出选择。' if zh else
+                f'Close will immediately {action_text}; enable Restore close prompt to ask again.'
+            )
+            # 安全提醒仅对「直接退出」显示
+            if action == 'exit':
+                self.safety_note.setText(
+                    '直接退出会关闭主窗口、悬浮栏与托盘。' if zh else
+                    'Exit closes the main window, floating bar and tray.'
+                )
+                self.safety_note.show()
+            else:
+                self.safety_note.hide()
 
     def _save(self):
-        settings = save_settings(self.values())
-        self.settings_changed.emit(settings)
+        """提交设置值；持久化与主题应用由主窗口统一完成。"""
+        self.settings_changed.emit(self.values())
+        # 总保存时一并落盘日报提醒，避免只改了提醒却忘点「保存提醒」
+        try:
+            self._persist_reminder_settings(notify_ui=True, show_toast=False)
+        except Exception:
+            pass
 
     def _restore_defaults(self):
         self.load_values(DEFAULT_SETTINGS)
@@ -202,7 +646,8 @@ class SettingsPanel(QWidget):
         if not accepted:
             return
         if key != 'Lihp':
-            QMessageBox.warning(
+            from ui.confirm_dialog import show_warning
+            show_warning(
                 self,
                 '验证失败' if self.language == 'zh' else 'Verification failed',
                 '密钥不正确。' if self.language == 'zh' else 'Incorrect key.',
@@ -215,9 +660,26 @@ class SettingsPanel(QWidget):
         self.language = language
         zh = language == 'zh'
         self.title.setText('设置' if zh else 'Settings')
-        self.subtitle.setText('调整界面、悬浮工具栏和交互反馈 · 设置仅保存在本机' if zh else 'Customize interface, floating toolbar and feedback · local only')
-        self.appearance_group.setTitle('界面外观' if zh else 'Appearance')
+        self.subtitle.setText('外观与本机偏好' if zh else 'Appearance and local preferences')
+        self.appearance_group.setTitle('外观' if zh else 'Appearance')
+        self.theme_hint.setText(
+            '选择界面外观；布局与数据不变。' if zh else
+            'Choose appearance; layout and data stay the same.'
+        )
+        self.theme_hint.hide()
+        self.appearance_group.setToolTip(
+            '主题仅改变外观，不影响文件、数据、SVN 与功能位置。' if zh else
+            'Themes only change appearance — never files, data, SVN or feature placement.'
+        )
+        self._refresh_theme_cards()
         self.font_label.setText('全局字体大小' if zh else 'Global font size')
+        self.density_label.setText('信息密度' if zh else 'Information density')
+        self.density_combo.setItemText(0, '紧凑' if zh else 'Compact')
+        self.density_combo.setItemText(1, '舒适' if zh else 'Comfortable')
+        self.sidebar_collapsed_label.setText('导航栏' if zh else 'Navigation')
+        self.sidebar_collapsed_check.setText(
+            '启动时收起侧栏' if zh else 'Collapse sidebar on startup'
+        )
         self.default_language_label.setText('默认界面语言' if zh else 'Default language')
         self.float_group.setTitle('悬浮工具栏' if zh else 'Floating toolbar')
         self.opacity_label.setText('透明度' if zh else 'Opacity')
@@ -225,16 +687,25 @@ class SettingsPanel(QWidget):
         self.always_on_top.setText('启用' if zh else 'Enabled')
         self.show_on_startup_label.setText('启动软件时显示' if zh else 'Show on startup')
         self.show_on_startup.setText('启用' if zh else 'Enabled')
+        self.shortcuts_group.setTitle('快捷入口' if zh else 'Shortcuts')
+        self.edit_shortcuts_label.setText('编辑' if zh else 'Edit')
+        self.edit_shortcuts_btn.setText('编辑快捷入口' if zh else 'Edit shortcuts')
+        self._refresh_shortcuts_summary()
         self.reset_position_label.setText('位置异常时' if zh else 'If position is lost')
         self.reset_position_btn.setText('重置到屏幕右侧' if zh else 'Reset to screen right')
-        self.behavior_group.setTitle('交互反馈' if zh else 'Interaction feedback')
-        self.close_ask_label.setText('关闭主窗口时' if zh else 'When closing the main window')
-        self.close_ask.setText('每次询问' if zh else 'Ask every time')
-        self.close_default_label.setText('关闭操作默认选择' if zh else 'Default close action')
+        self.reminder_group.setTitle('日报提醒' if zh else 'Daily report reminder')
+        self.reminder_enabled_label.setText('每日提醒' if zh else 'Daily reminder')
+        self.reminder_enabled.setText('启用' if zh else 'Enabled')
+        self.reminder_time_label.setText('提醒时间' if zh else 'Time')
+        self.reminder_save_btn.setText('保存提醒' if zh else 'Save reminder')
+        self.behavior_group.setTitle('关闭与交互' if zh else 'Close & interaction')
+        self.close_ask_label.setText('关闭提示' if zh else 'Close prompt')
+        self.close_ask.setText('恢复关闭提示' if zh else 'Restore close prompt')
+        self.close_default_label.setText('关闭时不再提示 · 默认操作' if zh else 'Default when not asking')
         self.close_default_action.setItemText(0, '隐藏到系统托盘' if zh else 'Hide to system tray')
         self.close_default_action.setItemText(1, '退出软件' if zh else 'Exit application')
-        self.copy_duration_label.setText('“已复制”显示时间' if zh else 'Copied feedback duration')
-        self.safety_note.setText('高风险确认、禁止删除命令等安全规则始终启用，不能在设置中关闭。' if zh else 'Risk confirmation and delete-command blocking are always enabled.')
+        self.copy_duration_label.setText('“已复制”提示时长' if zh else '“Copied” toast duration')
+        self._refresh_close_behavior_hint()
         self.keep_awake_group.setTitle('远程会话守护' if zh else 'Remote session guard')
         self.keep_awake_enabled_label.setText('防止自动锁屏' if zh else 'Prevent automatic lock')
         self.keep_awake_enabled.setText('启用' if zh else 'Enabled')
@@ -244,6 +715,19 @@ class SettingsPanel(QWidget):
             '启用后按设定间隔发送极小鼠标活动并立即复位，仅在 PengTools 运行期间生效。'
             if zh else
             'Sends tiny mouse activity at the selected interval and immediately restores it; active only while PengTools runs.'
+        )
+        self.security_group.setTitle('安全与安测' if zh else 'Security')
+        self.security_ssl_verify_label.setText('HTTPS 校验证书' if zh else 'Verify HTTPS certs')
+        self.security_ssl_verify.setText('启用（推荐）' if zh else 'Enabled (recommended)')
+        self.security_confirm_remote_label.setText('远程请求确认' if zh else 'Confirm remote requests')
+        self.security_confirm_remote.setText('启用（推荐）' if zh else 'Enabled (recommended)')
+        self.security_note.setText(
+            '默认校验证书并对非本机目标二次确认。内网自签可在请求测试页临时关闭校验。'
+            'SSH 密码使用 Windows DPAPI 加密存本机 data/。'
+            if zh else
+            'TLS verification and remote-target confirmation are on by default. '
+            'You may disable TLS check temporarily for self-signed hosts. '
+            'SSH passwords use Windows DPAPI in local data/.'
         )
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')

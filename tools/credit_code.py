@@ -109,3 +109,105 @@ def generate_company_name(province_code='', city_code='', org_type_code=''):
 
 def generate_names_for_codes(count, province='', city='', org_type=''):
     return [generate_company_name(province, city, org_type) for _ in range(count)]
+
+
+def company_name_abbrev(name: str) -> str:
+    """企业名称去掉行政区划和公司形态后的拼音首字母，如 北京鑫润科技有限公司 → xrkj。"""
+    text = str(name or '').strip()
+    for city in sorted((item for item in CITIES if item), key=len, reverse=True):
+        if text.startswith(city):
+            text = text[len(city):]
+            break
+    for form in sorted(LEGAL_FORMS, key=len, reverse=True):
+        if text.endswith(form):
+            text = text[:-len(form)]
+            break
+    letters = ''
+    try:
+        from pypinyin import Style, lazy_pinyin
+        letters = ''.join(lazy_pinyin(text, style=Style.FIRST_LETTER))
+    except Exception:
+        letters = ''.join(ch.lower() for ch in text if 'a' <= ch.lower() <= 'z')
+    cleaned = ''.join(ch for ch in letters.lower() if 'a' <= ch <= 'z')
+    return cleaned or 'corp'
+
+
+def company_email(name: str, rng=None) -> str:
+    rng = rng or random.Random()
+    abbr = company_name_abbrev(name)
+    domain = rng.choice(('com', 'com.cn', 'cn'))
+    return f'{abbr}@{abbr}.{domain}'
+
+
+BUSINESS_SCOPES = (
+    '软件开发；信息技术咨询；信息系统集成服务。',
+    '货物进出口；技术进出口；国内贸易代理。',
+    '房屋建筑和市政基础设施工程施工。',
+    '汽车销售；汽车配件零售；机动车维修。',
+    '药品零售；医疗器械销售；健康咨询服务（不含诊疗）。',
+    '普通货物道路运输；仓储服务；装卸搬运。',
+    '教育咨询；职业技能培训（不含发证）。',
+    '餐饮服务；食品销售；会议及展览服务。',
+    '房地产开发经营；物业管理；房地产中介。',
+    '新能源技术研发；节能环保工程；合同能源管理。',
+)
+AREA_CODES_PHONE = {
+    '11': '010', '12': '022', '31': '021', '44': '020', '32': '025',
+    '33': '0571', '42': '027', '51': '028', '50': '023', '37': '0531',
+    '41': '0371', '61': '029', '21': '024', '35': '0591',
+}
+
+
+def generate_unit_record(province='', org_type='', business='', valid_term=None):
+    import datetime
+    rng = random.Random()
+    code = generate_code(province, org_type=org_type)
+    name = generate_company_name(province, org_type_code=org_type)
+    scope = business if business in BUSINESS_SCOPES else rng.choice(BUSINESS_SCOPES)
+    start = datetime.date.today() - datetime.timedelta(days=rng.randint(60, 3600))
+    if valid_term == 'long':
+        end = '长期'
+    elif valid_term in (1, 3, 5, 10):
+        try:
+            end = start.replace(year=start.year + int(valid_term)).isoformat()
+        except ValueError:
+            end = start.replace(year=start.year + int(valid_term), day=28).isoformat()
+    else:
+        if rng.random() < 0.25:
+            end = '长期'
+        else:
+            years = rng.choice((3, 5, 10, 20))
+            try:
+                end = start.replace(year=start.year + years).isoformat()
+            except ValueError:
+                end = start.replace(year=start.year + years, day=28).isoformat()
+    area = AREA_CODES_PHONE.get(str(province or code[:2]), f'0{rng.randint(10, 29)}')
+    phone = f'{area}-{rng.randint(20000000, 88999999)}'
+    email = company_email(name, rng)
+    postal = f'{rng.randint(100000, 859999)}'
+    street = rng.choice(('创业路', '科技大道', '工业园路', '商务中心路', '滨江大道'))
+    address = f'{PROVINCES.get(str(province or code[:2]), "")}{street}{rng.randint(1, 288)}号'
+    return {
+        'kind': 'credit_code',
+        'name': name,
+        'document': code,
+        'valid_from': start.isoformat(),
+        'valid_to': end,
+        'business_scope': scope,
+        'phone': phone,
+        'email': email,
+        'postal_code': postal,
+        'address': address,
+    }
+
+
+def generate_unit_records(count, province='', org_type='', business='', valid_term=None):
+    rows = []
+    seen = set()
+    while len(rows) < count:
+        record = generate_unit_record(province, org_type, business, valid_term)
+        if record['document'] in seen:
+            continue
+        seen.add(record['document'])
+        rows.append(record)
+    return rows

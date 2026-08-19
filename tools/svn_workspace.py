@@ -42,12 +42,83 @@ def run_svn(arguments, cwd=None, check=True, timeout=300):
     return {'returncode': result.returncode, 'output': output}
 
 
-def validate_svn_url(url):
-    value = str(url or '').strip()
-    parsed = urlparse(value)
-    if parsed.scheme not in ('http', 'https', 'svn', 'svn+ssh', 'file'):
-        raise ValueError('请输入 http、https、svn、svn+ssh 或 file 开头的 SVN 地址。')
+def normalize_svn_url(url):
+    """清洗从记事本/资源管理器粘贴的地址：BOM、全角冒号、反斜杠、多余空白。"""
+    value = str(url or '').replace('\ufeff', '').replace('\u200b', '').strip()
+    value = value.translate(str.maketrans({
+        '：': ':', '／': '/', '＼': '\\',
+        '＂': '"', '＇': "'",
+    }))
+    value = value.strip('\'"“”‘’「」『』')
+    value = re.sub(r'\s+', '', value)
+    value = value.replace('\\', '/')
+    match = re.match(r'^(svn\+ssh|svn|https|http|file)(?::/*)?(.*)$', value, re.I)
+    if match:
+        rest = match.group(2).lstrip('/')
+        value = f'{match.group(1).lower()}://{rest}'
     return value.rstrip('/')
+
+
+def validate_svn_url(url):
+    raw = str(url or '').strip()
+    value = normalize_svn_url(raw)
+    parsed = urlparse(value)
+    scheme = (parsed.scheme or '').lower()
+    if scheme not in ('http', 'https', 'svn', 'svn+ssh', 'file') or not (parsed.netloc or parsed.path):
+        shown = raw[:80] or '（空）'
+        raise ValueError(
+            'SVN 地址请写成 svn://服务器/路径\n'
+            '例如：svn://10.128.23.145:13690/项目名/int\n'
+            f'当前填的是：{shown}'
+        )
+    return value
+
+
+def join_svn_url(*parts):
+    chunks = [str(parts[0] or '').rstrip('/')]
+    for part in parts[1:]:
+        text = str(part or '').strip().strip('/')
+        if text:
+            chunks.append(text)
+    return '/'.join(chunks)
+
+
+def svn_list(url, recursive=False):
+    """列出远程目录条目名。目录名不带末尾 /。"""
+    clean = validate_svn_url(url)
+    args = ['list', clean]
+    if recursive:
+        args.insert(1, '--recursive')
+    result = run_svn(args)
+    names = []
+    for line in result['output'].splitlines():
+        text = line.strip().rstrip('/')
+        if text:
+            names.append(text)
+    return names
+
+
+def svn_export(url, target_path):
+    clean = validate_svn_url(url)
+    target = os.path.abspath(target_path)
+    parent = os.path.dirname(target)
+    os.makedirs(parent, exist_ok=True)
+    result = run_svn(['export', '--force', clean, target], timeout=300)
+    return {'path': target, 'output': result['output']}
+
+
+def svn_mkdir_remote(url, message='create directory'):
+    clean = validate_svn_url(url)
+    return run_svn(['mkdir', '--parents', clean, '-m', str(message or 'create directory')])
+
+
+def svn_import(local_path, url, message):
+    target = os.path.abspath(local_path)
+    if not os.path.isdir(target):
+        raise ValueError(f'本地目录不存在：{target}')
+    clean = validate_svn_url(url)
+    result = run_svn(['import', target, clean, '-m', str(message or 'import')], timeout=300)
+    return {'url': clean, 'output': result['output']}
 
 
 def working_copy_info(path):
@@ -78,6 +149,142 @@ def svn_status(path):
         'text': '\n'.join(lines) if lines else '工作副本干净，无本地改动',
         'returncode': result['returncode'],
     }
+
+
+SVN_DIRTY_STATUSES = frozenset({
+    'modified', 'added', 'deleted', 'replaced', 'missing',
+    'unversioned', 'conflicted', 'obstructed', 'incomplete',
+})
+
+
+def _rel_to_working_copy(root, entry_path):
+    abs_path = entry_path if os.path.isabs(entry_path) else os.path.abspath(os.path.join(root, entry_path))
+    try:
+        rel = os.path.relpath(abs_path, root)
+    except ValueError:
+        rel = entry_path
+    if rel in ('.', ''):
+        return ''
+    return rel.replace('\\', '/')
+
+
+def parse_svn_status_xml(root, output):
+    """解析 `svn status --xml`：返回 (locks, statuses)。
+
+    locks: {系统分隔符相对路径: meta}
+    statuses: {posix 相对路径: wc-status item}
+    """
+    locks, statuses = {}, {}
+    text = str(output or '').strip()
+    if not text:
+        return locks, statuses
+    try:
+        tree = ET.fromstring(text)
+    except ET.ParseError:
+        return locks, statuses
+
+    def _lock_meta(lock_node, scope):
+        if lock_node is None:
+            return None
+        return {
+            'owner': (lock_node.findtext('owner') or '').strip(),
+            'created': (lock_node.findtext('created') or '').strip(),
+            'comment': (lock_node.findtext('comment') or '').strip(),
+            'token': (lock_node.findtext('token') or '').strip(),
+            'scope': scope,
+        }
+
+    root_abs = os.path.abspath(root)
+    for entry in tree.findall('.//entry'):
+        entry_path = entry.get('path') or ''
+        if not entry_path:
+            continue
+        rel = _rel_to_working_copy(root_abs, entry_path)
+        if not rel:
+            continue
+        wc_status = entry.find('wc-status')
+        repos_status = entry.find('repos-status')
+        item = 'normal'
+        if wc_status is not None:
+            item = (wc_status.get('item') or 'normal').strip() or 'normal'
+        statuses[rel] = item
+        meta = None
+        if wc_status is not None:
+            meta = _lock_meta(wc_status.find('lock'), 'wc')
+        if meta is None and repos_status is not None:
+            meta = _lock_meta(repos_status.find('lock'), 'repos')
+        if meta is None:
+            continue
+        locks[rel.replace('/', os.sep).replace('\\', os.sep)] = meta
+    return locks, statuses
+
+
+def attach_svn_status(files, statuses):
+    """把 SVN 状态写进文件条目；脏子项会把父目录标成 modified。"""
+    norm = {}
+    for key, value in (statuses or {}).items():
+        rel = str(key or '').replace('\\', '/').strip('/')
+        if rel:
+            norm[rel] = str(value or 'normal')
+    dirty = set()
+    for entry in files or []:
+        rel = str(entry.get('relative_path') or '').replace('\\', '/').strip('/')
+        code = norm.get(rel, 'normal')
+        entry['svn_status'] = code
+        if code in SVN_DIRTY_STATUSES:
+            dirty.add(rel)
+    for entry in files or []:
+        if not entry.get('is_dir'):
+            continue
+        rel = str(entry.get('relative_path') or '').replace('\\', '/').strip('/')
+        prefix = f'{rel}/' if rel else ''
+        if any(item == rel or (prefix and item.startswith(prefix)) for item in dirty):
+            if entry.get('svn_status') not in SVN_DIRTY_STATUSES:
+                entry['svn_status'] = 'modified'
+    return files
+
+
+def working_copy_state(path, show_updates=False, timeout=180):
+    """一次 `svn status --xml -v` 同时取锁与每文件状态。"""
+    root = os.path.abspath(path)
+    if not os.path.isdir(root):
+        return {}, {}
+    args = ['status', '--xml', '-v', root]
+    if show_updates:
+        args.insert(1, '-u')
+    result = run_svn(args, check=False, timeout=timeout)
+    return parse_svn_status_xml(root, result.get('output') or '')
+
+
+def working_copy_locks(path, show_updates=False, timeout=180):
+    """读取工作副本真实锁状态（以 SVN 为准，不是本机台账缓存）。
+
+    - 默认不访问服务器：仅本工作副本持有的锁（status 中的 K / wc-status/lock）
+    - show_updates=True 时带 -u，可看到他人持有的仓库锁（需内网）
+
+    返回：{ 相对路径: {owner, created, comment, token, scope} }
+    scope: 'wc' | 'repos'
+    """
+    try:
+        locks, _statuses = working_copy_state(path, show_updates=show_updates, timeout=timeout)
+    except SvnError:
+        return {}
+    return locks
+
+
+def workspace_snapshot(path, *, sync_locks=True, lock_show_updates=False):
+    """文件列表 + SVN 锁 + 每文件提交状态，供 UI 一次后台加载。"""
+    files = workspace_files(path)
+    locks, statuses = {}, {}
+    if sync_locks and os.path.isdir(os.path.join(os.path.abspath(path), '.svn')):
+        try:
+            locks, statuses = working_copy_state(path, show_updates=lock_show_updates)
+        except SvnError:
+            locks, statuses = {}, {}
+        except Exception:
+            locks, statuses = {}, {}
+    attach_svn_status(files, statuses)
+    return {'files': files, 'locks': locks}
 
 
 MONTH_PATTERNS = (
@@ -292,32 +499,163 @@ def add_existing_files(root, source_paths, relative_folder=''):
 
 
 def commit_working_copy(path, message):
+    """提交整个工作副本（兼容旧入口）。"""
+    return commit_paths([os.path.abspath(path)], message, working_copy=path)
+
+
+def _chunked(items, size=40):
+    seq = list(items)
+    for index in range(0, len(seq), size):
+        yield seq[index:index + size]
+
+
+def _normalize_existing_paths(paths):
+    result = []
+    seen = set()
+    for path in paths or []:
+        target = os.path.abspath(str(path or '').strip())
+        if not target or target in seen:
+            continue
+        if not os.path.exists(target):
+            continue
+        seen.add(target)
+        result.append(target)
+    return result
+
+
+def _normalize_file_paths(paths):
+    return [p for p in _normalize_existing_paths(paths) if os.path.isfile(p)]
+
+
+def changed_paths(working_copy, limit=5000):
+    """解析 `svn status`，返回工作副本内有本地改动的路径列表。"""
+    root = os.path.abspath(working_copy)
+    if not os.path.isdir(root):
+        raise ValueError('工作副本路径无效。')
+    status = svn_status(root)
+    paths = []
+    for line in status.get('changes') or []:
+        # 标准 8 列状态前缀： "M       path" / "?       path" / "A  +    path"
+        if not line or line.startswith('---') or line.startswith('Summary'):
+            continue
+        if len(line) >= 8:
+            candidate = line[8:].strip()
+        else:
+            candidate = re.sub(r'^[A-Z?!~*\s]+', '', line).strip()
+        if not candidate:
+            continue
+        if ' -> ' in candidate:
+            candidate = candidate.split(' -> ', 1)[-1].strip()
+        abs_path = candidate if os.path.isabs(candidate) else os.path.abspath(os.path.join(root, candidate))
+        if abs_path not in paths:
+            paths.append(abs_path)
+        if len(paths) >= limit:
+            break
+    return {
+        'clean': status['clean'],
+        'paths': paths,
+        'text': status['text'],
+        'returncode': status['returncode'],
+    }
+
+
+def commit_paths(paths, message, working_copy=None):
+    """提交指定路径；paths 可含文件/目录。working_copy 用于回读 info。"""
     text = str(message or '').strip()
     if not text:
         raise ValueError('提交说明不能为空。')
-    status = svn_status(path)
-    if status['clean']:
-        raise ValueError('工作副本没有可提交的改动。')
-    result = run_svn(['commit', os.path.abspath(path), '-m', text], timeout=900)
-    info = working_copy_info(path)
-    info.update({'output': result['output'], 'svn_status': svn_status(path)['text']})
+    targets = _normalize_existing_paths(paths)
+    if not targets:
+        raise ValueError('没有可提交的路径，请先选择文件或确认存在本地改动。')
+    base = os.path.abspath(working_copy) if working_copy else os.path.commonpath(targets)
+    # 单路径提交整个副本时先检查干净
+    if len(targets) == 1 and os.path.isdir(targets[0]):
+        status = svn_status(targets[0])
+        if status['clean']:
+            raise ValueError('工作副本没有可提交的改动。')
+    outputs = []
+    # Windows 命令行长度限制：分批提交同一说明
+    for batch in _chunked(targets, 35):
+        result = run_svn(['commit', *batch, '-m', text], timeout=900)
+        if result.get('output'):
+            outputs.append(result['output'])
+    info = {}
+    try:
+        info = working_copy_info(base)
+    except Exception:
+        info = {'local_path': base}
+    info.update({
+        'output': '\n'.join(outputs).strip() or '提交完成',
+        'svn_status': svn_status(base)['text'] if os.path.isdir(base) else '',
+        'committed_paths': targets,
+        'count': len(targets),
+    })
     return info
 
 
+def revert_paths(paths, recursive=True):
+    """回滚本地修改（`svn revert`），不接触服务器内容。"""
+    targets = _normalize_existing_paths(paths)
+    if not targets:
+        raise ValueError('没有可回滚的路径。')
+    outputs = []
+    # 目录用 infinity，文件用 empty 等价于默认
+    for batch in _chunked(targets, 35):
+        args = ['revert']
+        if recursive:
+            args.extend(['--depth', 'infinity'])
+        args.extend(batch)
+        result = run_svn(args, timeout=600)
+        if result.get('output'):
+            outputs.append(result['output'])
+    return {
+        'paths': targets,
+        'count': len(targets),
+        'output': '\n'.join(outputs).strip() or f'已回滚 {len(targets)} 项',
+    }
+
+
 def lock_file(path, message='PengTools 开发锁定'):
-    target = os.path.abspath(path)
-    if not os.path.isfile(target):
-        raise ValueError('SVN 只能锁定文件，请在文件树中选择一个文件。')
-    result = run_svn(['lock', target, '-m', str(message or 'PengTools 开发锁定').strip()])
-    return {'path': target, 'output': result['output']}
+    return lock_files([path], message=message)
+
+
+def lock_files(paths, message='PengTools 开发锁定'):
+    files = _normalize_file_paths(paths)
+    if not files:
+        raise ValueError('SVN 只能锁定文件，请选择一个或多个文件。')
+    outputs = []
+    note = str(message or 'PengTools 开发锁定').strip() or 'PengTools 开发锁定'
+    for batch in _chunked(files, 35):
+        result = run_svn(['lock', *batch, '-m', note])
+        if result.get('output'):
+            outputs.append(result['output'])
+    return {
+        'path': files[0],
+        'paths': files,
+        'count': len(files),
+        'output': '\n'.join(outputs).strip() or f'已锁定 {len(files)} 个文件',
+    }
 
 
 def unlock_file(path):
-    target = os.path.abspath(path)
-    if not os.path.isfile(target):
-        raise ValueError('SVN 只能解锁文件，请在文件树中选择一个文件。')
-    result = run_svn(['unlock', target])
-    return {'path': target, 'output': result['output']}
+    return unlock_files([path])
+
+
+def unlock_files(paths):
+    files = _normalize_file_paths(paths)
+    if not files:
+        raise ValueError('SVN 只能解锁文件，请选择一个或多个文件。')
+    outputs = []
+    for batch in _chunked(files, 35):
+        result = run_svn(['unlock', *batch])
+        if result.get('output'):
+            outputs.append(result['output'])
+    return {
+        'path': files[0],
+        'paths': files,
+        'count': len(files),
+        'output': '\n'.join(outputs).strip() or f'已解锁 {len(files)} 个文件',
+    }
 
 
 def _file_size_text(size):

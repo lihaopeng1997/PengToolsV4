@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import re
+import tempfile
 import uuid
 
 from config import REQUIREMENTS_FILE, ensure_config_dir
@@ -10,16 +11,27 @@ from tools.svn_workspace import month_end_date
 
 
 CATEGORIES = ('功能需求', '缺陷优化', '接口联动', '数据变更', '配置调整', '其他')
-STATUSES = ('待分析', '开发中', '待测试', '待上线', '已上线', '暂停')
+STATUSES = (
+    '待分析', '待开发', '开发中', '待测试', '集成测试',
+    '用户测试', '模拟测试', '待上线', '已上线', '暂停',
+)
 PRIORITIES = ('普通', '重要', '紧急')
 
-# key, 树节点短名, 对话框全名
+# key, 树节点短名, 对话框全名（适用项名称，≠完成状态）
 FLAG_DEFS = (
-    ('has_sql', 'SQL', '包含 SQL'),
-    ('needs_peripheral_upgrade', '周边', '需通知周边系统升级'),
-    ('needs_interface_update', '接口', '需整理接口文档'),
-    ('temporary_upgrade', '临时', '临时升级'),
+    ('has_sql', 'SQL', '涉及 SQL'),
+    ('needs_peripheral_upgrade', '周边', '通知周边系统'),
+    ('needs_interface_update', '接口', '更新接口文档'),
+    ('temporary_upgrade', '临时', '临时/紧急升级'),
 )
+
+# 详情「完成标记」按钮展示名（与 FLAG_DEFS 的 key 对应）
+FLAG_CHIP_LABELS = {
+    'has_sql': 'SQL',
+    'needs_peripheral_upgrade': '周边通知',
+    'needs_interface_update': '接口文档',
+    'temporary_upgrade': '临时升级',
+}
 
 CATEGORY_KEYWORDS = {
     '缺陷优化': ('bug', '缺陷', '修复', '异常', '报错', '优化'),
@@ -71,12 +83,178 @@ def normalize_flag_done(requirement):
 
 
 def flag_status_text(requirement):
-    """左侧树用：未完成红点，完成绿点。"""
+    """左侧树用：待完成 / 已完成文字，不依赖红绿点。"""
     parts = []
     done = normalize_flag_done(requirement)
     for key, short, _full in active_flags(requirement):
-        parts.append(f"{'🟢' if done.get(key) else '🔴'}{short}")
-    return '  '.join(parts) if parts else '○无升级标记'
+        state = '已完成' if done.get(key) else '待完成'
+        parts.append(f'{short}·{state}')
+    return '  '.join(parts) if parts else '○ 无上线事项'
+
+
+def flag_chip_text(key, is_done: bool) -> str:
+    label = FLAG_CHIP_LABELS.get(key) or key
+    mark = '✓' if is_done else '○'
+    state = '已完成' if is_done else '待完成'
+    return f'{mark} {label} · {state}'
+
+
+def _clean_system_name(value):
+    return str(value or '').strip()
+
+
+def requirement_systems(item):
+    """权威系统列表：优先 systems，否则回退旧字段 system。"""
+    if not isinstance(item, dict):
+        return []
+    names = []
+    raw = item.get('systems')
+    if isinstance(raw, (list, tuple)):
+        for value in raw:
+            name = _clean_system_name(value)
+            if name and name not in names:
+                names.append(name)
+    if not names:
+        name = _clean_system_name(item.get('system'))
+        if name:
+            names.append(name)
+    return names
+
+
+def requirement_matches_system(item, name):
+    wanted = _clean_system_name(name)
+    if not wanted:
+        return True
+    return wanted in requirement_systems(item)
+
+
+def systems_display_text(item, empty='未选系统'):
+    names = requirement_systems(item)
+    return '、'.join(names) if names else empty
+
+
+def binding_for(item, name):
+    name = _clean_system_name(name)
+    bindings = item.get('system_bindings') if isinstance(item, dict) else None
+    raw = bindings.get(name) if isinstance(bindings, dict) else None
+    if not isinstance(raw, dict):
+        raw = {}
+    svn = str(raw.get('svn_url') or '').strip()
+    dev = str(raw.get('dev_local_path') or '').strip()
+    names = requirement_systems(item) if isinstance(item, dict) else []
+    if name and names and name == names[0] and isinstance(item, dict):
+        svn = svn or str(item.get('svn_url') or '').strip()
+        dev = dev or str(item.get('dev_local_path') or '').strip()
+    return {'svn_url': svn, 'dev_local_path': dev}
+
+
+def sync_system_fields(item):
+    """systems 与旧字段 system / 顶层 svn_url / dev_local_path 双写对齐。"""
+    if not isinstance(item, dict):
+        return item
+    names = requirement_systems(item)
+    item['systems'] = list(names)
+    item['system'] = names[0] if names else ''
+    previous = item.get('system_bindings')
+    if not isinstance(previous, dict):
+        previous = {}
+    cleaned = {}
+    for name in names:
+        bound = binding_for({**item, 'system_bindings': previous}, name)
+        cleaned[name] = {
+            'svn_url': bound['svn_url'],
+            'dev_local_path': bound['dev_local_path'],
+        }
+    item['system_bindings'] = cleaned
+    if item['system']:
+        primary = cleaned.get(item['system']) or {}
+        item['svn_url'] = str(primary.get('svn_url') or '').strip()
+        item['dev_local_path'] = str(primary.get('dev_local_path') or '').strip()
+    return item
+
+
+def explode_requirement_for_release(item):
+    """一条需求按系统展开为发版行；无系统时仍返回一行（系统空）。"""
+    source = dict(item or {})
+    names = requirement_systems(source)
+    if not names:
+        row = dict(source)
+        row['system'] = ''
+        row['_release_system'] = ''
+        return [row]
+    rows = []
+    for name in names:
+        row = dict(source)
+        bound = binding_for(source, name)
+        row['system'] = name
+        row['svn_url'] = bound['svn_url']
+        row['dev_local_path'] = bound['dev_local_path']
+        row['_release_system'] = name
+        rows.append(row)
+    return rows
+
+
+def apply_release_system_writeback(source, system_name, *, svn_url=None, release_scope=None):
+    """发版表改某一系统时，只回写该系统绑定，不覆盖整条 systems。"""
+    if not isinstance(source, dict):
+        return source
+    name = _clean_system_name(system_name)
+    sync_system_fields(source)
+    if name:
+        if name not in source['systems']:
+            source['systems'].append(name)
+        bindings = source.setdefault('system_bindings', {})
+        current = dict(bindings.get(name) or {}) if isinstance(bindings.get(name), dict) else {}
+        if svn_url is not None:
+            current['svn_url'] = str(svn_url or '').strip()
+        current.setdefault('dev_local_path', str(current.get('dev_local_path') or '').strip())
+        bindings[name] = current
+    if release_scope is not None:
+        source['release_scope'] = str(release_scope or '').strip() or '后端：全部'
+    return sync_system_fields(source)
+
+
+def sql_part_system(part):
+    if not isinstance(part, dict):
+        return ''
+    return _clean_system_name(part.get('system'))
+
+
+def unassigned_sql_parts(item):
+    return [
+        part for part in ((item or {}).get('sql_parts') or [])
+        if isinstance(part, dict) and not sql_part_system(part)
+    ]
+
+
+def has_unassigned_sql_when_multi_system(item):
+    return len(requirement_systems(item)) > 1 and bool(unassigned_sql_parts(item))
+
+
+def sql_parts_for_system(item, system_name):
+    names = requirement_systems(item)
+    wanted = _clean_system_name(system_name)
+    allow_unassigned = len(names) <= 1
+    result = []
+    for part in ((item or {}).get('sql_parts') or []):
+        if not isinstance(part, dict):
+            continue
+        assigned = sql_part_system(part)
+        if assigned:
+            if assigned == wanted:
+                result.append(part)
+        elif allow_unassigned:
+            result.append(part)
+    return result
+
+
+def merged_sql_for_system(requirement, system_name):
+    blocks = []
+    for part in sql_parts_for_system(requirement, system_name):
+        content = str(part.get('content', '')).strip()
+        if content:
+            blocks.append(f"-- 需求 SQL：{part.get('name', '未命名.sql')}\n{content}")
+    return '\n\n'.join(blocks)
 
 
 def normalize_requirement(requirement):
@@ -91,12 +269,30 @@ def normalize_requirement(requirement):
             item[key] = bool(item.get(key))
     if not isinstance(item.get('sql_parts'), list):
         item['sql_parts'] = []
+    cleaned_parts = []
+    for part in item['sql_parts']:
+        if not isinstance(part, dict):
+            continue
+        entry = dict(part)
+        entry['system'] = sql_part_system(entry)
+        cleaned_parts.append(entry)
+    item['sql_parts'] = cleaned_parts
     if not isinstance(item.get('source_files'), list):
         item['source_files'] = []
     if item.get('title') is None:
         item['title'] = ''
     if item.get('code') is None:
         item['code'] = ''
+    item['pinned'] = bool(item.get('pinned'))
+    item['is_monthly_release'] = bool(item.get('is_monthly_release'))
+    if item['pinned']:
+        item['pinned_at'] = str(item.get('pinned_at') or '')
+    else:
+        item.pop('pinned_at', None)
+    item['svn_url'] = str(item.get('svn_url') or '').strip()
+    item['local_path'] = str(item.get('local_path') or '').strip()
+    item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
+    sync_system_fields(item)
     normalize_flag_done(item)
     return item
 
@@ -111,6 +307,29 @@ def load_requirements(path=None):
         return [normalize_requirement(item) for item in value if isinstance(item, dict)]
     except (OSError, ValueError, TypeError):
         return []
+    finally:
+        # 磁盘台账变化后，旧搜索语料不可靠
+        if path is None or path == REQUIREMENTS_FILE:
+            clear_requirement_search_cache()
+
+
+def _atomic_write_json(target, payload):
+    """先写临时文件再 replace，避免中途崩溃留下半截 JSON。"""
+    directory = os.path.dirname(os.path.abspath(target)) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix='.req-', suffix='.tmp', dir=directory, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, target)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 def save_requirements(requirements, path=None):
@@ -120,8 +339,78 @@ def save_requirements(requirements, path=None):
     else:
         os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
     payload = [normalize_requirement(item) for item in (requirements or []) if isinstance(item, dict)]
-    with open(target, 'w', encoding='utf-8') as stream:
-        json.dump(payload, stream, ensure_ascii=False, indent=2)
+    _atomic_write_json(target, payload)
+    if path is None or path == REQUIREMENTS_FILE:
+        clear_requirement_search_cache()
+
+
+# 工作台「标记上线 / 恢复待办」与需求状态对齐
+ONLINE_STATUS = '已上线'
+PENDING_ONLINE_STATUS = '待上线'
+
+
+def is_online_status(requirement) -> bool:
+    return str((requirement or {}).get('status') or '').strip() == ONLINE_STATUS
+
+
+def release_board_key(requirement_id, month: str) -> str:
+    return f"{requirement_id or ''}@{str(month or '')[:7]}"
+
+
+def is_release_item_completed(requirement, month: str, completed_keys) -> bool:
+    """展示层完成：台账已上线 或 看板完成键命中。"""
+    if is_online_status(requirement):
+        return True
+    keys = set(completed_keys or [])
+    return release_board_key((requirement or {}).get('id'), month) in keys
+
+
+def update_requirement_by_id(requirement_id, mutator, path=None):
+    """加载台账 → 原地修改匹配 id 的条目 → 写回。返回更新后的 dict，未找到返回 None。"""
+    req_id = str(requirement_id or '')
+    if not req_id:
+        return None
+    items = load_requirements(path)
+    target = next((item for item in items if str(item.get('id') or '') == req_id), None)
+    if target is None:
+        return None
+    mutator(target)
+    target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+    save_requirements(items, path)
+    return normalize_requirement(target)
+
+
+def mark_requirement_online(requirement_id, path=None, online_date=None):
+    """工作台标记上线：status=已上线；实际上线日期为空时写入今天。"""
+    day = str(online_date or datetime.date.today().isoformat())[:10]
+
+    def _apply(item):
+        item['status'] = ONLINE_STATUS
+        if not str(item.get('actual_online_date') or '').strip():
+            item['actual_online_date'] = day
+
+    return update_requirement_by_id(requirement_id, _apply, path=path)
+
+
+def restore_requirement_from_online(requirement_id, path=None, clear_actual_date=True):
+    """恢复待办：仅当当前为已上线时改回待上线；可选清空实际上线日期。
+
+    若台账已是其它状态，不覆盖业务状态，返回 (item, status_changed)。
+    """
+    items = load_requirements(path)
+    req_id = str(requirement_id or '')
+    target = next((item for item in items if str(item.get('id') or '') == req_id), None)
+    if target is None:
+        return None, False
+    changed = False
+    if is_online_status(target):
+        target['status'] = PENDING_ONLINE_STATUS
+        if clear_actual_date:
+            target['actual_online_date'] = ''
+        changed = True
+        target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+        save_requirements(items, path)
+    return normalize_requirement(target), changed
 
 
 def classify_requirement(text):
@@ -143,8 +432,17 @@ def _requirement_corpus(requirement):
         requirement.get('description', ''),
         requirement.get('svn_url', ''),
         requirement.get('local_path', ''),
+        requirement.get('dev_local_path', ''),
         requirement.get('system', ''),
+        ' '.join(requirement_systems(requirement)),
     ]
+    bindings = requirement.get('system_bindings')
+    if isinstance(bindings, dict):
+        for name, bound in bindings.items():
+            chunks.append(name)
+            if isinstance(bound, dict):
+                chunks.append(bound.get('svn_url', ''))
+                chunks.append(bound.get('dev_local_path', ''))
     for part in requirement.get('sql_parts') or []:
         chunks.append(part.get('name', ''))
         chunks.append(part.get('content', ''))
@@ -154,11 +452,11 @@ def _requirement_corpus(requirement):
     return '\n'.join(str(value or '') for value in chunks)
 
 
-def infer_system_name(text, systems=None):
-    """从文本推断所属系统；无法确定返回空串。systems 为 load_systems() 列表时优先匹配配置名。"""
+def infer_system_names(text, systems=None):
+    """从文本推断全部命中的系统；无法确定返回空列表。"""
     corpus = str(text or '')
     if not corpus.strip():
-        return ''
+        return []
     lowered = corpus.casefold()
     configured = []
     if systems:
@@ -166,26 +464,29 @@ def infer_system_name(text, systems=None):
             name = str(item.get('name', '') if isinstance(item, dict) else item or '').strip()
             if name:
                 configured.append(name)
-    # 完整配置名优先
+    hits = []
     for name in configured:
-        if name and name.casefold() in lowered:
-            return name
-    best_name, best_score = '', 0
+        if name and name.casefold() in lowered and name not in hits:
+            hits.append(name)
     for name, keywords in SYSTEM_HINTS:
         score = sum(lowered.count(keyword.casefold()) for keyword in keywords)
         for keyword in keywords:
             if re.search(r'(?i)(?:^|[/_\-\s])' + re.escape(keyword) + r'(?:[/_\-\s.]|$)', corpus):
                 score += 2
-        if score > best_score:
-            best_name, best_score = name, score
-    if best_score <= 0:
-        return ''
-    if configured and best_name not in configured:
-        for name in configured:
-            if best_name in name or name in best_name:
-                return name
-        return best_name
-    return best_name
+        if score <= 0:
+            continue
+        resolved = name
+        if configured and name not in configured:
+            resolved = next((item for item in configured if name in item or item in name), name)
+        if resolved and resolved not in hits:
+            hits.append(resolved)
+    return hits
+
+
+def infer_system_name(text, systems=None):
+    """从文本推断所属系统；无法确定返回空串。systems 为 load_systems() 列表时优先匹配配置名。"""
+    names = infer_system_names(text, systems=systems)
+    return names[0] if names else ''
 
 
 def infer_online_month_from_text(text, default_year=None):
@@ -224,16 +525,19 @@ def infer_upgrade_flags(text, has_sql_parts=False):
 def apply_auto_inference(requirement, systems=None, only_empty=True):
     """填充空字段：系统、标记、上线月份；不覆盖已有明确值（only_empty=True）。
 
-    旧数据兼容：已有字段保持不变；仅补全空值。
+    旧数据兼容：已有字段保持不变；仅补全「键缺失」或文本空值。
+    注意：布尔 False 是用户显式选择，不能当空再推断勾回。
     """
+    raw = dict(requirement or {}) if isinstance(requirement, dict) else {}
     item = normalize_requirement(requirement)
     corpus = _requirement_corpus(item)
     flags = infer_upgrade_flags(corpus, has_sql_parts=bool(item.get('sql_parts')))
 
-    if not only_empty or not str(item.get('system') or '').strip():
-        inferred = infer_system_name(corpus, systems=systems)
+    if not only_empty or not requirement_systems(item):
+        inferred = infer_system_names(corpus, systems=systems)
         if inferred:
-            item['system'] = inferred
+            item['systems'] = list(inferred)
+            sync_system_fields(item)
 
     if not only_empty or not str(item.get('online_month') or '').strip():
         month = infer_online_month_from_text(corpus)
@@ -248,23 +552,36 @@ def apply_auto_inference(requirement, systems=None, only_empty=True):
             if not str(item.get('planned_online_date') or '').strip():
                 item['planned_online_date'] = month_end_date(month)
 
+    flag_keys = (
+        'has_sql',
+        'needs_peripheral_upgrade',
+        'temporary_upgrade',
+        'needs_interface_update',
+    )
     if only_empty:
-        if not item.get('has_sql') and not item.get('sql_parts'):
-            item['has_sql'] = flags['has_sql']
-        if not item.get('needs_peripheral_upgrade'):
-            item['needs_peripheral_upgrade'] = flags['needs_peripheral_upgrade']
-        if not item.get('temporary_upgrade'):
-            item['temporary_upgrade'] = flags['temporary_upgrade']
-        if not item.get('needs_interface_update'):
-            item['needs_interface_update'] = flags['needs_interface_update']
+        # 仅当原始记录缺少该键时才补全；已存在的 True/False 一律保留
+        for key in flag_keys:
+            if key not in raw:
+                if key == 'has_sql' and item.get('sql_parts'):
+                    item['has_sql'] = True
+                else:
+                    item[key] = flags[key]
+            elif key == 'has_sql' and item.get('sql_parts'):
+                item['has_sql'] = True
     else:
         item.update(flags)
         if item.get('sql_parts'):
             item['has_sql'] = True
 
-    if not str(item.get('category') or '').strip() or item.get('category') == '其他':
+    # 分类：only_empty 时不覆盖用户已选「其他」；强制模式才可重分类
+    category = str(item.get('category') or '').strip()
+    if not only_empty:
         classified = classify_requirement(corpus)
-        if classified != '其他' or not item.get('category'):
+        if classified != '其他' or not category:
+            item['category'] = classified
+    elif not category:
+        classified = classify_requirement(corpus)
+        if classified:
             item['category'] = classified
 
     if not str(item.get('record_kind') or '').strip():
@@ -312,6 +629,7 @@ def requirement_from_text(text, source_name='直接粘贴', systems=None):
         'source_files': [{'name': source_name, 'content': normalized}] if source_name else [],
         'svn_url': '',
         'local_path': '',
+        'dev_local_path': '',
         'svn_revision': '',
         'svn_status': '',
         'created_at': now,
@@ -329,17 +647,78 @@ def merged_sql(requirement):
     return '\n\n'.join(blocks)
 
 
+def requirement_identity(item) -> str:
+    """发版勾选/看板定位用的稳定键：id > code > path > title。"""
+    if not isinstance(item, dict):
+        return ''
+    return str(item.get('id') or item.get('code') or item.get('path') or item.get('title') or '').strip()
+
+
+# 需求搜索语料缓存：避免每次树刷新对全表重算拼音 blob
+_REQUIREMENT_SEARCH_CACHE: dict[str, tuple[str, str]] = {}
+
+
+def clear_requirement_search_cache():
+    """台账重载/保存后清空，避免脏缓存。"""
+    _REQUIREMENT_SEARCH_CACHE.clear()
+
+
+def _requirement_search_cache_key(requirement) -> str:
+    """用 id + 更新时间 + 几个常搜字段拼缓存键。"""
+    if not isinstance(requirement, dict):
+        return ''
+    return '|'.join((
+        str(requirement.get('id') or ''),
+        str(requirement.get('updated_at') or ''),
+        str(requirement.get('source_modified_at') or ''),
+        str(requirement.get('title') or ''),
+        str(requirement.get('code') or ''),
+        str(requirement.get('status') or ''),
+        str(requirement.get('system') or ''),
+        str(len(requirement.get('sql_parts') or [])),
+        str(requirement.get('file_count') or 0),
+    ))
+
+
 def requirement_search_text(requirement):
+    """搜索语料：元数据 + 拼音；不含密钥。SQL/附件正文仅取名称与有限摘要。"""
+    from tools.pinyin_search import build_search_blob
+    cache_key = _requirement_search_cache_key(requirement)
+    if cache_key:
+        cached = _REQUIREMENT_SEARCH_CACHE.get(cache_key)
+        if cached is not None:
+            return cached[1]
     values = [requirement.get(key, '') for key in (
         'code', 'title', 'description', 'record_kind', 'category', 'status', 'priority',
-        'system', 'owner', 'online_month', 'svn_url', 'local_path', 'svn_revision', 'svn_status'
+        'system', 'owner', 'online_month', 'svn_url', 'local_path', 'dev_local_path',
+        'svn_revision', 'svn_status',
     )]
-    values.extend(part.get('name', '') + '\n' + part.get('content', '')
-                  for part in requirement.get('sql_parts', []))
-    for part in requirement.get('source_files', []):
-        values.append(part.get('name', '') + '\n' + part.get('content', ''))
-        values.extend(str(value) for row in part.get('rows', []) for value in row)
-    return '\n'.join(str(value) for value in values).casefold()
+    values.extend(requirement_systems(requirement))
+    bindings = requirement.get('system_bindings')
+    if isinstance(bindings, dict):
+        for name, bound in bindings.items():
+            values.append(name)
+            if isinstance(bound, dict):
+                values.append(bound.get('svn_url', ''))
+                values.append(bound.get('dev_local_path', ''))
+    for part in requirement.get('sql_parts', []) or []:
+        values.append(part.get('name', ''))
+        # 正文过长时只索引前 2k，避免把大报文永久驻留在搜索串
+        content = str(part.get('content', '') or '')
+        if content:
+            values.append(content[:2000])
+    for part in requirement.get('source_files', []) or []:
+        values.append(part.get('name', ''))
+        values.append(part.get('file_type', ''))
+        for row in (part.get('rows', []) or [])[:40]:
+            values.extend(str(value) for value in row[:12])
+    blob = build_search_blob(*values)
+    if cache_key:
+        # 简单 LRU：超上限时整表清空，避免无限涨
+        if len(_REQUIREMENT_SEARCH_CACHE) >= 4000:
+            _REQUIREMENT_SEARCH_CACHE.clear()
+        _REQUIREMENT_SEARCH_CACHE[cache_key] = (str(requirement.get('id') or ''), blob)
+    return blob
 
 
 def daily_template(requirement):
@@ -355,10 +734,14 @@ def daily_template(requirement):
         flags.append('临时升级')
     detail = '、'.join(flags) if flags else '暂无特殊升级项'
     kind = requirement.get('record_kind', '需求')
+    system_text = systems_display_text(requirement, empty='未选系统')
     return {
         'completed': f'- [{kind}] {name}：已接收并完成资料归档',
         'tomorrow': f'- [{kind}] {name}：继续推进分析、开发或验证',
-        'notes': f'- 分类：{requirement.get("category", "其他")}；状态：{requirement.get("status", "待分析")}；{detail}',
+        'notes': (
+            f'- 分类：{requirement.get("category", "其他")}；状态：{requirement.get("status", "待分析")}；'
+            f'系统：{system_text}；{detail}'
+        ),
     }
 
 

@@ -15,10 +15,10 @@ from docx import Document
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
-from tools.credit_code import generate_batch, validate_code
+from tools.credit_code import company_email, company_name_abbrev, generate_batch, generate_unit_records, validate_code
 from tools.id_documents import (
-    DOCUMENT_TYPES, generate_personal_batch, resident_id_age,
-    resident_id_gender, validate_personal_document,
+    DOCUMENT_TYPES, generate_personal_batch, generate_personal_records,
+    resident_id_age, resident_id_gender, validate_personal_document,
 )
 from tools.sql_tool import (
     build_sql_package, classify_sql_type, export_sql_package,
@@ -34,7 +34,9 @@ from tools.docx_updater import (
     process, refined_docx_path,
 )
 from tools.docx_template_registry import TEMPLATE_PROFILES, match_document_template
-from tools.vin_generator import generate_vin_batch, validate_vin
+from tools.vin_generator import (
+    generate_vehicle_batch, generate_vin_batch, validate_plate, validate_vin,
+)
 from tools.gateway_crypto import KEYS, decrypt_gateway_payload
 from tools.ops_commands import (
     COMMANDS, build_command, contains_forbidden_delete, infer_risk,
@@ -46,12 +48,15 @@ from tools.json_viewer import (
 )
 from tools.daily_reports import is_reminder_due, normalize_reminder
 from tools.personal_knowledge import (
-    entry_fingerprint, export_word_entry, export_workbook_entry, extract_word_entry,
+    collect_knowledge_entries, entry_fingerprint, export_word_entry,
+    export_workbook_entry, extract_word_entry, merge_knowledge_entries,
     organize_content, search_entries,
 )
 from tools.requirements import (
-    classify_requirement, daily_template, requirement_from_text,
-    merge_working_copies, requirement_search_text,
+    classify_requirement, daily_template, explode_requirement_for_release,
+    has_unassigned_sql_when_multi_system, merged_sql_for_system,
+    merge_working_copies, normalize_requirement, requirement_from_text,
+    requirement_matches_system, requirement_search_text, requirement_systems,
 )
 from tools.svn_workspace import (
     add_text_file, checkout, commit_working_copy, infer_online_month,
@@ -67,6 +72,17 @@ class CreditCodeTests(unittest.TestCase):
         self.assertEqual(len(codes), 200)
         self.assertEqual(len(set(codes)), 200)
         self.assertTrue(all(validate_code(code) for code in codes))
+
+    def test_company_email_uses_name_abbrev(self):
+        self.assertEqual(company_name_abbrev('北京鑫润科技有限公司'), 'xrkj')
+        mail = company_email('北京鑫润科技有限公司')
+        local, _sep, domain = mail.partition('@')
+        self.assertEqual(local, 'xrkj')
+        self.assertTrue(domain.startswith('xrkj.'))
+        rows = generate_unit_records(5)
+        for item in rows:
+            abbr = company_name_abbrev(item['name'])
+            self.assertTrue(item['email'].startswith(abbr + '@'))
 
 
 class PrivateWorkspaceTests(unittest.TestCase):
@@ -93,6 +109,22 @@ class PrivateWorkspaceTests(unittest.TestCase):
         self.assertEqual(search_entries([entry], 'server-b'), [entry])
         self.assertEqual(search_entries([entry], 'server-b', 'database'), [])
         self.assertEqual(entry_fingerprint(entry), entry_fingerprint(dict(entry)))
+
+    def test_merge_knowledge_entries_overrides_seed_and_keeps_custom(self):
+        seed = [{'id': 'seed-a', 'title': '内置', 'content': 'old', 'builtin': True}]
+        custom = [
+            {'id': 'mine', 'base_seed_id': 'seed-a', 'title': '覆盖', 'content': 'new'},
+            {'id': 'extra', 'title': '自建', 'content': 'note'},
+        ]
+        merged = merge_knowledge_entries(seed, custom)
+        titles = [item['title'] for item in merged]
+        self.assertIn('覆盖', titles)
+        self.assertIn('自建', titles)
+        self.assertNotIn('内置', titles)
+        empty = merge_knowledge_entries(None, None)
+        self.assertEqual(empty, [])
+        collected = collect_knowledge_entries()
+        self.assertIsInstance(collected, list)
 
     def test_visible_excel_export_and_word_type(self):
         from openpyxl import load_workbook
@@ -136,12 +168,100 @@ class PrivateWorkspaceTests(unittest.TestCase):
         self.assertIn('含 SQL', template['notes'])
         self.assertIn('周边系统', template['notes'])
 
+    def test_reminder_settings_file_roundtrip_shared_store(self):
+        """设置页与日报页共用 daily_report_settings.json。"""
+        import tempfile
+        from tools.daily_reports import load_reminder_settings, save_reminder_settings
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'daily_report_settings.json')
+            saved = save_reminder_settings(
+                {'enabled': True, 'time': '16:40', 'last_reminder_date': ''},
+                path=path,
+            )
+            self.assertTrue(saved['enabled'])
+            self.assertEqual(saved['time'], '16:40')
+            loaded = load_reminder_settings(path)
+            self.assertEqual(loaded['time'], '16:40')
+            self.assertTrue(loaded['enabled'])
+            # 改时间后清空 last_reminder_date 由 UI 层负责；文件层原样读写
+            again = save_reminder_settings(
+                {'enabled': False, 'time': '08:05', 'last_reminder_date': '2026-07-21'},
+                path=path,
+            )
+            self.assertFalse(again['enabled'])
+            self.assertEqual(again['time'], '08:05')
+            self.assertEqual(load_reminder_settings(path)['last_reminder_date'], '2026-07-21')
+
     def test_requirement_classification_covers_common_types(self):
         self.assertEqual(classify_requirement('修复 BUG：保存时报错'), '缺陷优化')
         self.assertEqual(classify_requirement('新增字段并执行 DDL SQL'), '数据变更')
 
+    def test_requirement_multi_system_normalize_explode_and_sql_split(self):
+        legacy = normalize_requirement({
+            'title': '旧数据', 'system': '车险承保中心', 'svn_url': 'svn://a',
+            'legacy_custom_field': 'keep',
+        })
+        self.assertEqual(requirement_systems(legacy), ['车险承保中心'])
+        self.assertEqual(legacy['system'], '车险承保中心')
+        self.assertEqual(legacy['system_bindings']['车险承保中心']['svn_url'], 'svn://a')
+        self.assertEqual(legacy['legacy_custom_field'], 'keep')
+
+        empty = normalize_requirement({'title': '空系统'})
+        self.assertEqual(empty['systems'], [])
+        self.assertEqual(empty['system'], '')
+
+        item = normalize_requirement({
+            'title': '双系统',
+            'systems': ['车险承保中心', '客户信息平台（ECIF）'],
+            'system_bindings': {
+                '车险承保中心': {'svn_url': 'svn://car', 'dev_local_path': 'D:/car'},
+                '客户信息平台（ECIF）': {'svn_url': '', 'dev_local_path': 'D:/ecif'},
+            },
+            'sql_parts': [
+                {'name': 'car.sql', 'content': 'select 1', 'system': '车险承保中心'},
+                {'name': 'ecif.sql', 'content': 'select 2', 'system': '客户信息平台（ECIF）'},
+            ],
+        })
+        self.assertTrue(requirement_matches_system(item, '客户信息平台（ECIF）'))
+        self.assertFalse(requirement_matches_system(item, '共享中心'))
+        rows = explode_requirement_for_release(item)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['system'], '车险承保中心')
+        self.assertEqual(rows[1]['dev_local_path'], 'D:/ecif')
+        self.assertIn('select 1', merged_sql_for_system(item, '车险承保中心'))
+        self.assertNotIn('select 2', merged_sql_for_system(item, '车险承保中心'))
+        self.assertFalse(has_unassigned_sql_when_multi_system(item))
+        item['sql_parts'].append({'name': 'loose.sql', 'content': 'select 3', 'system': ''})
+        self.assertTrue(has_unassigned_sql_when_multi_system(item))
+        self.assertIn('系统：车险承保中心、客户信息平台（ECIF）', daily_template(item)['notes'])
+
 
 class SvnWorkspaceTests(unittest.TestCase):
+    def test_validate_svn_url_accepts_pasted_intranet_forms(self):
+        from tools.svn_workspace import validate_svn_url
+        samples = [
+            'svn://10.128.23.145:13690/YDPIC/int',
+            'SVN://10.128.23.145:13690/YDPIC/int',
+            r'svn:\\10.128.23.145:13690\YDPIC\int',
+            '\ufeffsvn://10.128.23.145:13690/YDPIC/int',
+            'svn：//10.128.23.145:13690/YDPIC/int',
+            ' svn://10.128.23.145:13690/YDPIC/int ',
+        ]
+        for sample in samples:
+            self.assertEqual(
+                validate_svn_url(sample),
+                'svn://10.128.23.145:13690/YDPIC/int',
+                sample,
+            )
+        self.assertEqual(
+            validate_svn_url('svn://10.128.23.145:13690/Project_Management'),
+            'svn://10.128.23.145:13690/Project_Management',
+        )
+        with self.assertRaises(ValueError) as ctx:
+            validate_svn_url('不是地址')
+        self.assertIn('当前填的是', str(ctx.exception))
+        self.assertIn('svn://', str(ctx.exception))
+
     def test_month_and_bug_are_inferred_from_folder_names(self):
         self.assertEqual(infer_online_month(r'C:\需求\2026-02车险需求\REQ-001'), '2026-02')
         self.assertEqual(infer_online_month(r'C:\需求\3月上线\REQ-002', default_year=2027), '2027-03')
@@ -225,6 +345,16 @@ class PersonalDocumentTests(unittest.TestCase):
         self.assertTrue(all(resident_id_gender(number) == 'female' for number in documents))
         self.assertTrue(all(validate_personal_document('resident_id', number) for number in documents))
 
+    def test_personal_records_include_contact_and_validity(self):
+        rows = generate_personal_records('resident_id', 20, ethnicity='回族', valid_term=10)
+        self.assertEqual(len(rows), 20)
+        self.assertTrue(all(item['ethnicity'] == '回族' for item in rows))
+        self.assertTrue(all(item['mobile'].startswith('1') and len(item['mobile']) == 11 for item in rows))
+        self.assertTrue(all('@' in item['email'] for item in rows))
+        self.assertTrue(all(len(item['postal_code']) == 6 for item in rows))
+        self.assertTrue(all(item['issuer'].endswith('公安局') for item in rows))
+        self.assertTrue(all(item['valid_from'] < item['valid_to'] for item in rows if item['valid_to'] != '长期'))
+
 
 class SqlToolTests(unittest.TestCase):
     def test_semicolon_inside_string_is_not_split(self):
@@ -268,6 +398,57 @@ class SqlToolTests(unittest.TestCase):
         rollback = generate_reverse_sql(sql)
         self.assertIn("NAME='LiHaopeng'", rollback)
 
+    def test_rollback_drops_primary_key_before_table(self):
+        """建表回滚必须先删主键/约束，再 DROP TABLE。"""
+        named = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(\n  ID NUMBER,\n  CONSTRAINT PK_T_DEMO PRIMARY KEY (ID)\n);"
+        ).upper()
+        self.assertLess(named.find('DROP CONSTRAINT PK_T_DEMO'), named.find('DROP TABLE T_DEMO'))
+        inline = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER PRIMARY KEY, NAME VARCHAR2(20));"
+        ).upper()
+        self.assertLess(inline.find('DROP PRIMARY KEY'), inline.find('DROP TABLE T_DEMO'))
+        added = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER);\n"
+            "ALTER TABLE T_DEMO ADD CONSTRAINT PK_T_DEMO PRIMARY KEY (ID);"
+        ).upper()
+        self.assertLess(added.find('DROP CONSTRAINT PK_T_DEMO'), added.find('DROP TABLE T_DEMO'))
+        unnamed = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER);\nALTER TABLE T_DEMO ADD PRIMARY KEY (ID);"
+        ).upper()
+        self.assertLess(unnamed.find('DROP PRIMARY KEY'), unnamed.find('DROP TABLE T_DEMO'))
+        self.assertNotIn('DROP COLUMN PRIMARY', unnamed)
+
+    def test_rollback_drops_index_before_table(self):
+        """升级 CREATE TABLE + CREATE INDEX 时，回滚不得先 DROP TABLE 再 DROP INDEX。"""
+        sql = (
+            "CREATE TABLE T_DEMO(ID NUMBER);\n"
+            "CREATE INDEX IDX_T_DEMO_ID ON T_DEMO(ID);\n"
+            "CREATE UNIQUE INDEX UK_T_DEMO_CODE ON T_DEMO(CODE);"
+        )
+        rollback = generate_reverse_sql(sql).upper()
+        idx_pos = rollback.find('DROP INDEX IDX_T_DEMO_ID')
+        uk_pos = rollback.find('DROP INDEX UK_T_DEMO_CODE')
+        table_pos = rollback.find('DROP TABLE T_DEMO')
+        self.assertGreaterEqual(idx_pos, 0)
+        self.assertGreaterEqual(uk_pos, 0)
+        self.assertGreaterEqual(table_pos, 0)
+        self.assertLess(idx_pos, table_pos)
+        self.assertLess(uk_pos, table_pos)
+
+    def test_rollback_order_with_insert_after_ddl(self):
+        sql = (
+            "CREATE TABLE T_DEMO(ID NUMBER);\n"
+            "CREATE INDEX IDX_T_DEMO ON T_DEMO(ID);\n"
+            "INSERT INTO T_DEMO(ID) VALUES (1);"
+        )
+        rollback = generate_reverse_sql(sql).upper()
+        del_pos = rollback.find('DELETE FROM T_DEMO')
+        idx_pos = rollback.find('DROP INDEX IDX_T_DEMO')
+        table_pos = rollback.find('DROP TABLE T_DEMO')
+        self.assertLess(del_pos, idx_pos)
+        self.assertLess(idx_pos, table_pos)
+
     def test_valid_ddl_has_no_false_semicolon_warning(self):
         self.assertEqual(validate_oracle_sql('CREATE TABLE T(ID NUMBER);'), [])
 
@@ -288,7 +469,9 @@ class SqlToolTests(unittest.TestCase):
         self.assertTrue(any(item['code'] == 'dialect' for item in issues))
 
     def test_sample_header_and_delivery_paths(self):
-        system = DEFAULT_SYSTEMS[1]
+        # 用例内用中性作者名，避免把真实姓名写进断言
+        system = dict(DEFAULT_SYSTEMS[1])
+        system['script_author'] = '示例作者'
         self.assertEqual(
             generate_file_header(system, '模拟环境'),
             '---- 地址：10.128.23.211\n---- sid： simutfdb\n---- 用户名：sitecif\n\n',
@@ -296,9 +479,9 @@ class SqlToolTests(unittest.TestCase):
         sql = "CREATE TABLE T_DEMO(ID NUMBER); INSERT INTO T_DEMO(ID) VALUES (1);"
         artifacts = build_sql_package(sql, system, '生产环境', '20260629')
         paths = [item['relative_path'].replace('\\', '/') for item in artifacts]
-        self.assertIn('20260629/生产环境/DDL/客户信息平台-张小龙/升级SQL/李浩鹏-【ECIF】升级SQL.sql', paths)
-        self.assertIn('20260629/生产环境/DML/客户信息平台-张小龙/回滚SQL/李浩鹏-【ECIF】回滚SQL.sql', paths)
-        self.assertIn('20260629/验证SQL/客户信息平台-张小龙/李浩鹏-【ECIF】验证SQL.sql', paths)
+        self.assertIn('20260629/生产环境/DDL/客户信息平台-张小龙/升级SQL/示例作者-【ECIF】升级SQL.sql', paths)
+        self.assertIn('20260629/生产环境/DML/客户信息平台-张小龙/回滚SQL/示例作者-【ECIF】回滚SQL.sql', paths)
+        self.assertIn('20260629/验证SQL/客户信息平台-张小龙/示例作者-【ECIF】验证SQL.sql', paths)
 
     def test_update_rollback_marks_manual_original_values(self):
         rollback = generate_reverse_sql("UPDATE T_USER SET NAME='NEW', FLAG='1' WHERE ID=9;")
@@ -345,6 +528,38 @@ class VinTests(unittest.TestCase):
         self.assertEqual(len(vins), 200)
         self.assertTrue(all(vin.startswith('L') and validate_vin(vin) for vin in vins))
 
+    def test_vehicle_records_match_national_test_rules(self):
+        rows = generate_vehicle_batch(40, 2026)
+        self.assertEqual(len(rows), 40)
+        vins = [item['vin'] for item in rows]
+        plates = [item['plate'] for item in rows]
+        self.assertEqual(len(set(vins)), 40)
+        self.assertEqual(len(set(plates)), 40)
+        today = datetime.date.today().isoformat()
+        for item in rows:
+            self.assertTrue(validate_vin(item['vin']))
+            self.assertTrue(validate_plate(item['plate'], item['energy']))
+            self.assertIn(item['energy'], ('汽油', '柴油', '纯电', '油电混动', '插电混动'))
+            self.assertTrue(item['model'])
+            self.assertTrue(item['engine_no'])
+            self.assertIn(item['category'], ('载客汽车', '载货汽车'))
+            self.assertGreaterEqual(item['first_reg'], '2026-01-01')
+            self.assertLessEqual(item['first_reg'], today)
+            if item['energy'] == '纯电':
+                self.assertIn('D', item['plate'][2:3])
+                self.assertTrue(item['engine_no'].startswith('TZ'))
+            if item['energy'] == '插电混动':
+                self.assertIn('F', item['plate'][2:3])
+
+    def test_vehicle_batch_honors_specified_filters(self):
+        ev = generate_vehicle_batch(12, 2026, energy='纯电', plate_province='粤')
+        self.assertTrue(all(item['energy'] == '纯电' for item in ev))
+        self.assertTrue(all(item['plate'].startswith('粤') and item['plate'][2] == 'D' for item in ev))
+        trucks = generate_vehicle_batch(8, 2025, category='载货汽车')
+        self.assertTrue(all(item['category'] == '载货汽车' for item in trucks))
+        with self.assertRaises(Exception):
+            generate_vehicle_batch(2, 2026, energy='纯电', category='载货汽车')
+
 
 class GatewayCryptoTests(unittest.TestCase):
     @staticmethod
@@ -373,9 +588,19 @@ class GatewayCryptoTests(unittest.TestCase):
 
 
 class JsonViewerLogicTests(unittest.TestCase):
+    def test_format_sorts_object_keys_recursively_but_keeps_array_order(self):
+        formatted = format_json_text(
+            '{"z":1,"a":{"zebra":1,"apple":2},"items":[{"z":3,"a":4},2,1]}'
+        )
+        self.assertLess(formatted.index('"a": {'), formatted.index('"items": ['))
+        self.assertLess(formatted.index('"items": ['), formatted.index('"z": 1'))
+        self.assertLess(formatted.index('"apple": 2'), formatted.index('"zebra": 1'))
+        self.assertLess(formatted.index('"a": 4'), formatted.index('"z": 3'))
+        self.assertLess(formatted.index('    2,'), formatted.index('    1'))
+
     def test_format_keeps_chinese_boolean_and_null(self):
-        formatted = format_json_text('{"姓名":"李浩鹏","ok":true,"value":null}')
-        self.assertIn('"姓名": "李浩鹏"', formatted)
+        formatted = format_json_text('{"姓名":"示例用户","ok":true,"value":null}')
+        self.assertIn('"姓名": "示例用户"', formatted)
         self.assertIn('"ok": true', formatted)
         self.assertIn('"value": null', formatted)
 
@@ -385,9 +610,9 @@ class JsonViewerLogicTests(unittest.TestCase):
         self.assertEqual(json_path_child('$', "a'b"), "$['a\\'b']")
 
     def test_search_matches_key_path_and_value(self):
-        data = parse_json_text('{"data":{"users":[{"name":"Lihp"}]}}')
+        data = parse_json_text('{"data":{"users":[{"name":"demo_user"}]}}')
         self.assertEqual(search_json_nodes(data, 'users')[0][0], '$.data.users')
-        self.assertEqual(search_json_nodes(data, 'Lihp')[0][0], '$.data.users[0].name')
+        self.assertEqual(search_json_nodes(data, 'demo_user')[0][0], '$.data.users[0].name')
         self.assertTrue(search_json_nodes(data, '$.data.users[0]'))
 
     def test_node_copy_text_distinguishes_value_and_json(self):
@@ -395,8 +620,17 @@ class JsonViewerLogicTests(unittest.TestCase):
         self.assertEqual(node_value_text(True), 'true')
         self.assertIn('\n', node_json_text({'a': 1}))
 
+    def test_node_json_text_sorts_nested_object_keys_but_keeps_arrays(self):
+        text = node_json_text({'z': 1, 'a': {'zebra': 2, 'apple': 3}, 'items': [2, 1]})
+        self.assertLess(text.index('"a": {'), text.index('"items": ['))
+        self.assertLess(text.index('"items": ['), text.index('"z": 1'))
+        self.assertLess(text.index('"apple": 3'), text.index('"zebra": 2'))
+        self.assertLess(text.index('    2,'), text.index('    1'))
+
     def test_invalid_json_reports_line_and_column(self):
-        with self.assertRaisesRegex(ValueError, '第 2 行，第 1 列'):
+        # Python 3.13 对尾逗号报错位置与旧版不同（旧：第2行第1列；3.13：第1行第8列），
+        # 兼容两种位置。
+        with self.assertRaisesRegex(ValueError, r'第 [12] 行，第 \d+ 列'):
             parse_json_text('{"a": 1,\n}')
 
 
@@ -470,6 +704,25 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings['keep_awake_enabled'])
         self.assertEqual(settings['keep_awake_interval_minutes'], 60)
         self.assertTrue(DEFAULT_SETTINGS['floating_always_on_top'])
+        self.assertEqual(DEFAULT_SETTINGS['floating_shortcuts'], [10, 2, 9, 5])
+        # 安测默认收紧
+        self.assertTrue(DEFAULT_SETTINGS.get('security_ssl_verify', False))
+        self.assertTrue(DEFAULT_SETTINGS.get('security_confirm_remote_request', False))
+
+    def test_floating_shortcuts_are_normalized(self):
+        from ui.navigation_model import normalize_floating_shortcuts
+        # 去重、非法、最多 6、至少 1
+        self.assertEqual(
+            normalize_floating_shortcuts([10, 10, 2, 99, 9, 5, 1, 4, 6, 3]),
+            [10, 2, 9, 5, 1, 4],
+        )
+        self.assertEqual(normalize_floating_shortcuts([]), [10, 2, 9, 5])
+        self.assertEqual(
+            normalize_floating_shortcuts([8, 10], private_unlocked=False),
+            [10],
+        )
+        settings = normalize_settings({'floating_shortcuts': [10, 'x', 2]})
+        self.assertEqual(settings['floating_shortcuts'], [10, 2])
 
 
 class DocxUpdaterTests(unittest.TestCase):

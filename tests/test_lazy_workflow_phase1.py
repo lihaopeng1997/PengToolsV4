@@ -19,7 +19,7 @@ from panels.requirement_panel import RequirementPanel
 from panels.sql_panel import SqlToolPanel
 from tools.requirements import (
     apply_auto_inference, infer_online_month_from_text, infer_system_name,
-    infer_upgrade_flags, requirement_from_text,
+    infer_upgrade_flags, load_requirements, requirement_from_text, save_requirements,
 )
 from ui.confirm_dialog import NextStepDialog, offer_next_steps
 
@@ -60,6 +60,7 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
             'paste',
         )
         self.assertEqual(item['system'], '车险承保中心')
+        self.assertEqual(item['systems'], ['车险承保中心'])
         self.assertTrue(item['has_sql'])
         self.assertTrue(item['needs_interface_update'])
         self.assertTrue(item['needs_peripheral_upgrade'])
@@ -71,13 +72,72 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
         )
         self.assertEqual(kept['system'], '共享中心')
 
+    def test_only_empty_does_not_override_explicit_false_flags_or_other_category(self):
+        """用户关掉的标记与「其他」分类不得被 only_empty 推断勾回。"""
+        item = apply_auto_inference(
+            {
+                'title': '接口联调并通知周边系统临时升级',
+                'description': '需整理接口文档，通知周边系统；update t set a=1; 临时升级',
+                'has_sql': False,
+                'needs_interface_update': False,
+                'needs_peripheral_upgrade': False,
+                'temporary_upgrade': False,
+                'category': '其他',
+                'system': '共享中心',
+            },
+            only_empty=True,
+        )
+        self.assertFalse(item['has_sql'])
+        self.assertFalse(item['needs_interface_update'])
+        self.assertFalse(item['needs_peripheral_upgrade'])
+        self.assertFalse(item['temporary_upgrade'])
+        self.assertEqual(item['category'], '其他')
+        self.assertEqual(item['system'], '共享中心')
+
+        # 键缺失时仍可补全
+        filled = apply_auto_inference(
+            {
+                'title': '接口联调',
+                'description': '更新接口文档，通知周边系统升级；insert into t values(1)',
+            },
+            only_empty=True,
+        )
+        self.assertTrue(filled['has_sql'])
+        self.assertTrue(filled['needs_interface_update'])
+        self.assertTrue(filled['needs_peripheral_upgrade'])
+
+    def test_save_requirements_is_atomic_and_roundtrips(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'requirements.json')
+            payload = [
+                {
+                    'id': 'a1',
+                    'title': '原子写入',
+                    'has_sql': False,
+                    'needs_interface_update': False,
+                    'category': '其他',
+                }
+            ]
+            save_requirements(payload, path=path)
+            self.assertTrue(os.path.isfile(path))
+            loaded = load_requirements(path)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]['title'], '原子写入')
+            self.assertFalse(loaded[0]['has_sql'])
+            self.assertEqual(loaded[0]['category'], '其他')
+            # 临时文件不应残留
+            leftovers = [name for name in os.listdir(tmp) if name.endswith('.tmp')]
+            self.assertEqual(leftovers, [])
+
     def test_next_step_dialog_layout_and_selection(self):
         dialog = NextStepDialog(
             '已保存',
             '推荐：加入今日日报',
             actions=[
                 ('daily', '加入今日日报', True),
-                ('release', '进入升级准备', False),
+                ('release', '准备本次升级', False),
             ],
             recommended='daily',
         )

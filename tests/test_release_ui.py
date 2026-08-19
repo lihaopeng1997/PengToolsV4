@@ -21,11 +21,13 @@ from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QSplitter
 
-from panels.requirement_panel import DateInput, RequirementDialog, RequirementPanel, format_online_month_label
+from panels.requirement_panel import (
+    DateInput, RequirementDialog, RequirementPanel, _ElideTextDelegate, format_online_month_label,
+)
 from panels.sql_panel import SqlToolPanel
 from tools.release_prep import RELEASE_HEADERS, RELEASE_WORKBOOK_NAME
 from main_window import MainWindow
-from config import local_data_dir
+from config import DEFAULT_SETTINGS, load_systems, local_data_dir
 from ui.confirm_dialog import AppNoticeDialog, CloseActionDialog, ConfirmActionDialog, NextStepDialog
 from tools.svn_workspace import add_text_file, checkout, commit_working_copy, run_svn, scan_working_copies, workspace_files
 
@@ -37,20 +39,111 @@ class ReleaseUiTests(unittest.TestCase):
         cls.app.setFont(QFont('Microsoft YaHei UI', 10))
 
     def test_requirement_allows_empty_development_svn(self):
+        system_name = load_systems()[0]['name']
         dialog = RequirementDialog()
-        dialog.system_edit.setCurrentIndex(1)
+        dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], '')
+        self.assertEqual(dialog.values()['dev_local_path'], '')
         dialog = RequirementDialog()
-        dialog.system_edit.setCurrentIndex(1)
+        dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog.svn_url_edit.setText('svn://10/x/DEV_REQ_TEST')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], 'svn://10/x/DEV_REQ_TEST')
-        self.assertEqual(dialog.values()['system'], dialog.system_edit.currentData())
+        self.assertEqual(dialog.values()['system'], system_name)
+        self.assertEqual(dialog.values()['systems'], [system_name])
+
+    def test_requirement_dev_local_path_saved_and_opens_from_list(self):
+        from tools.requirements import normalize_requirement
+        with tempfile.TemporaryDirectory() as temp:
+            dialog = RequirementDialog()
+            dialog.title_edit.setText('本地开发地址')
+            dialog.dev_local_path_edit.setText(temp)
+            dialog._accept_checked()
+            values = dialog.values()
+            self.assertEqual(values['svn_url'], '')
+            self.assertEqual(values['dev_local_path'], temp)
+            dialog.close()
+
+            item = normalize_requirement({'title': '旧台账', 'svn_url': None})
+            self.assertEqual(item['svn_url'], '')
+            self.assertEqual(item['dev_local_path'], '')
+
+            requirement = normalize_requirement({
+                'id': 'dev-1', 'title': '可打开', 'dev_local_path': temp,
+            })
+            panel = RequirementPanel()
+            opened = []
+            with patch('panels.requirement_panel.QDesktopServices.openUrl', side_effect=lambda url: opened.append(url.toLocalFile())):
+                panel._open_dev_project_folder(requirement)
+            self.assertEqual(len(opened), 1)
+            self.assertEqual(os.path.normcase(os.path.abspath(opened[0])), os.path.normcase(os.path.abspath(temp)))
+            missing = []
+            with patch('panels.requirement_panel.show_warning', side_effect=lambda *args, **kwargs: missing.append(args[1])):
+                panel._open_dev_project_folder({'dev_local_path': os.path.join(temp, 'gone')})
+            self.assertEqual(missing, ['本地开发地址'])
+            panel.close()
+
+    def test_requirement_dialog_supports_multiple_systems_and_bindings(self):
+        names = [item['name'] for item in load_systems()[:2]]
+        self.assertGreaterEqual(len(names), 2)
+        with tempfile.TemporaryDirectory() as temp:
+            dialog = RequirementDialog()
+            dialog.title_edit.setText('跨系统需求')
+            dialog.set_selected_systems(names)
+            self.app.processEvents()
+            first, second = names
+            self.assertIn(first, dialog._binding_rows)
+            self.assertIn(second, dialog._binding_rows)
+            dialog._binding_rows[first]['svn'].setText('svn://car/DEV')
+            dialog._binding_rows[second]['dev'].setText(temp)
+            dialog._sql_parts = [
+                {'name': 'a.sql', 'content': 'select 1', 'system': first},
+                {'name': 'b.sql', 'content': 'select 2', 'system': ''},
+            ]
+            dialog._accept_checked()
+            values = dialog.values()
+            self.assertEqual(values['systems'], names)
+            self.assertEqual(values['system'], first)
+            self.assertEqual(values['system_bindings'][first]['svn_url'], 'svn://car/DEV')
+            self.assertEqual(values['system_bindings'][second]['dev_local_path'], temp)
+            self.assertEqual(values['svn_url'], 'svn://car/DEV')
+            dialog.close()
+
+            from tools.requirements import explode_requirement_for_release, has_unassigned_sql_when_multi_system
+            self.assertTrue(has_unassigned_sql_when_multi_system(values))
+            rows = explode_requirement_for_release(values)
+            self.assertEqual(len(rows), 2)
+
+            panel = SqlToolPanel()
+            panel._release_reload_timer.stop()
+            with patch('panels.sql_panel.load_requirements', return_value=[values]):
+                panel._load_release_candidates()
+            self.assertEqual(panel.release_table.rowCount(), 2)
+            for row in range(panel.release_table.rowCount()):
+                panel.release_table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+            with self.assertRaises(ValueError) as ctx:
+                panel._selected_release_rows()
+            self.assertIn('多个系统', str(ctx.exception))
+            panel.close()
+
+    def test_requirement_status_flow_is_available_in_editor_and_filter(self):
+        expected = [
+            '待分析', '待开发', '开发中', '待测试', '集成测试',
+            '用户测试', '模拟测试', '待上线', '已上线', '暂停',
+        ]
+        dialog = RequirementDialog()
+        panel = RequirementPanel()
+        self.assertEqual([dialog.status_combo.itemText(index) for index in range(dialog.status_combo.count())], expected)
+        self.assertEqual(
+            [panel.status_filter.itemText(index) for index in range(1, panel.status_filter.count())],
+            expected,
+        )
+        dialog.close(); panel.close()
 
     def test_requirement_system_configuration_is_shared(self):
         panel = RequirementPanel()
@@ -87,9 +180,20 @@ class ReleaseUiTests(unittest.TestCase):
         close_dialog = CloseActionDialog(language='zh', default_action='minimize')
         close_dialog.show()
         self.app.processEvents()
+        self.assertEqual(close_dialog.windowTitle(), '关闭 PengToolsHub？')
         self.assertTrue(close_dialog.minimize_button.hasFocus())
+        self.assertFalse(close_dialog.dont_ask_again())
+        close_dialog.dont_ask_check.setChecked(True)
         close_dialog.minimize_button.clicked.emit()
         self.assertEqual(close_dialog.selected_action(), 'minimize')
+        self.assertTrue(close_dialog.dont_ask_again())
+
+        # 默认动作若为 exit：焦点仍落在安全控件（取消），不误触危险卡
+        close_exit_default = CloseActionDialog(language='zh', default_action='exit')
+        close_exit_default.show()
+        self.app.processEvents()
+        self.assertTrue(close_exit_default.cancel_button.hasFocus())
+        close_exit_default.reject()
 
         panel = SqlToolPanel()
         original_count = len(panel._systems)
@@ -105,9 +209,9 @@ class ReleaseUiTests(unittest.TestCase):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
             panel = RequirementPanel()
         self.assertFalse(hasattr(panel, 'category_filter'))
-        self.assertEqual(panel.lock_file_btn.text(), '锁定文件')
-        self.assertEqual(panel.unlock_file_btn.text(), '解锁文件')
-        self.assertEqual(panel.scan_btn.text(), '扫描目录')
+        self.assertEqual(panel.lock_file_btn.text(), '锁定')
+        self.assertEqual(panel.unlock_file_btn.text(), '解锁')
+        self.assertEqual(panel.scan_btn.text(), '扫描需求目录')
         self.assertEqual(panel.checkout_btn.text(), '检出代码')
         self.assertEqual(panel.bug_btn.text(), '登记缺陷')
         with patch('panels.requirement_panel.QInputDialog.getMultiLineText', return_value=('BUG-100 测试问题', True)), \
@@ -240,8 +344,11 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreater(june.font(0).pointSize(), sql_item.font(0).pointSize())
             self.assertEqual(sql_item.text(0), 'REQ-SQL')
             self.assertIn('SQL change', sql_item.text(1))
-            self.assertIn('🔴SQL', sql_item.text(1))
-            self.assertIn('🔴周边', sql_item.text(1))
+            self.assertIn('SQL·待完成', sql_item.text(1))
+            self.assertTrue(
+                '周边·待完成' in sql_item.text(1) or '周边' in sql_item.text(1),
+                sql_item.text(1),
+            )
 
             panel._move_requirements(['keep'], '2026-06')
             self.assertEqual(next(item for item in panel._requirements if item['id'] == 'keep')['online_month'], '2026-06')
@@ -314,18 +421,57 @@ class ReleaseUiTests(unittest.TestCase):
             }
             panel._file_tree_path = temp
             panel._file_tree_loaded(entries)
-            self.assertEqual(panel.file_tree.columnCount(), 4)
-            self.assertEqual([panel.file_tree.headerItem().text(index) for index in range(4)], ['名称', '修改时间', '类型', '大小'])
+            self.assertEqual(panel.file_tree.columnCount(), 5)
+            self.assertEqual(
+                [panel.file_tree.headerItem().text(index) for index in range(5)],
+                ['名称', '类型', '修改时间', '大小', '路径'],
+            )
             header = panel.file_tree.header()
-            self.assertEqual(header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
-            for index in range(1, 4):
+            # 全部 Interactive：超长省略，拖宽列 / 横向滚动看全。
+            for index in range(5):
                 self.assertEqual(header.sectionResizeMode(index), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(header.sectionsMovable())
             self.assertFalse(header.stretchLastSection())
             sql_folder = next(panel.file_tree.topLevelItem(index) for index in range(panel.file_tree.topLevelItemCount()) if 'SQL' in panel.file_tree.topLevelItem(index).text(0))
             self.assertTrue(sql_folder.isExpanded())
             self.assertTrue(sql_folder.child(0).text(0).startswith('🔒'))
             self.assertFalse(sql_folder.child(0).icon(0).isNull())
+            # 仅名称列有图标
+            self.assertTrue(sql_folder.child(0).icon(1).isNull())
             panel.close()
+
+    def test_requirement_file_tree_uses_svn_status_colors(self):
+        from panels.requirement_panel import _svn_status_color
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        panel._current = {'id': 's', 'local_path': 'C:/tmp', 'workspace_kind': 'svn'}
+        panel._file_tree_path = 'C:/tmp'
+        panel._file_tree_loaded({
+            'files': [
+                {
+                    'path': r'C:\tmp\clean.sql', 'relative_path': 'clean.sql',
+                    'is_dir': False, 'file_type': 'SQL 脚本', 'modified_at': '2026-08-13 10:00',
+                    'size': '1 KB', 'svn_status': 'normal',
+                },
+                {
+                    'path': r'C:\tmp\dirty.sql', 'relative_path': 'dirty.sql',
+                    'is_dir': False, 'file_type': 'SQL 脚本', 'modified_at': '2026-08-13 10:01',
+                    'size': '1 KB', 'svn_status': 'modified',
+                },
+            ],
+            'locks': {},
+        })
+        by_name = {}
+        for index in range(panel.file_tree.topLevelItemCount()):
+            item = panel.file_tree.topLevelItem(index)
+            by_name[item.text(0)] = item
+        self.assertIn('clean.sql', by_name)
+        self.assertIn('dirty.sql', by_name)
+        self.assertEqual(by_name['clean.sql'].foreground(0).color().name().lower(), _svn_status_color('normal').name().lower())
+        self.assertEqual(by_name['dirty.sql'].foreground(0).color().name().lower(), _svn_status_color('modified').name().lower())
+        self.assertIn('已提交', by_name['clean.sql'].toolTip(0))
+        self.assertIn('未提交', by_name['dirty.sql'].toolTip(0))
+        panel.close()
 
     def test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls(self):
         with tempfile.TemporaryDirectory() as temp, \
@@ -341,9 +487,72 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertFalse(panel.batch_delete_btn.isEnabled())
             self.assertEqual(panel.expand_tree_btn.text(), '全部展开')
             self.assertEqual(panel.collapse_tree_btn.text(), '全部折叠')
-            self.assertTrue(panel.file_tree.header().sectionsMovable())
-            self.assertEqual(panel.file_tree.header().sectionResizeMode(0), QHeaderView.ResizeMode.Stretch)
+            self.assertTrue(hasattr(panel, 'file_search_edit'))
+            header = panel.file_tree.header()
+            for col in range(5):
+                self.assertEqual(header.sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
+            self.assertTrue(header.sectionsMovable())
+            self.assertFalse(header.stretchLastSection())
+            self.assertEqual(panel.file_tree.textElideMode(), Qt.TextElideMode.ElideRight)
+            self.assertTrue(panel.file_tree.uniformRowHeights())
+            self.assertFalse(panel.file_tree.wordWrap())
             panel.close()
+
+    def test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space(self):
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        self.assertFalse(hasattr(panel, 'vcs_scope_combo'))
+        self.assertFalse(hasattr(panel, 'select_all_files_btn'))
+        self.assertFalse(hasattr(panel, 'clear_file_sel_btn'))
+        self.assertEqual(
+            [button.text() for button in panel.file_library_action_buttons],
+            ['打开目录', '刷新', '更新', '添加文件', '新建文本', '锁定', '解锁', '回滚', '提交'],
+        )
+        self.assertTrue(all(button.height() == 28 for button in panel.file_library_action_buttons))
+        self.assertTrue(hasattr(panel, 'file_library_action_scroll'))
+        self.assertFalse(panel.file_library_action_scroll.widgetResizable())
+        self.assertGreaterEqual(panel.file_tree.minimumHeight(), 240)
+        with patch.object(panel, '_resolve_vcs_targets', return_value=([], '选中项 0 个')):
+            panel._update_vcs_action_state()
+        self.assertFalse(panel.lock_file_btn.isEnabled())
+        self.assertFalse(panel.unlock_file_btn.isEnabled())
+        self.assertFalse(panel.revert_btn.isEnabled())
+        self.assertFalse(panel.commit_btn.isEnabled())
+        panel.close()
+
+    def test_requirement_file_tree_elides_long_names_and_keeps_compact_rows(self):
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        self.assertIsInstance(panel.file_tree.itemDelegate(), _ElideTextDelegate)
+        self.assertEqual(panel.file_tree.textElideMode(), Qt.TextElideMode.ElideRight)
+        self.assertTrue(panel.file_tree.uniformRowHeights())
+        self.assertFalse(panel.file_tree.wordWrap())
+        header = panel.file_tree.header()
+        for col in range(5):
+            self.assertEqual(header.sectionResizeMode(col), QHeaderView.ResizeMode.Interactive)
+        self.assertFalse(header.stretchLastSection())
+        panel._file_entries_cache = [
+            {
+                'path': r'C:\tmp\req\this_is_a_very_long_requirement_document_name_20260813.docx',
+                'relative_path': 'docs/this_is_a_very_long_requirement_document_name_20260813.docx',
+                'is_dir': False, 'file_type': 'DOCX', 'modified_at': '2026-08-13 10:00',
+                'size': '12 KB',
+            },
+            {
+                'path': r'C:\tmp\req\docs',
+                'relative_path': 'docs',
+                'is_dir': True, 'file_type': '文件夹', 'modified_at': '2026-08-13 10:00',
+                'size': '',
+            },
+        ]
+        panel._populate_file_tree_from_cache()
+        folder = panel.file_tree.topLevelItem(0)
+        self.assertIsNotNone(folder)
+        file_item = folder.child(0) if folder.childCount() else folder
+        self.assertLessEqual(file_item.sizeHint(0).height(), 0)
+        self.assertEqual(panel._file_row_delegate._row_height, 24)
+        self.assertIn('very_long_requirement', file_item.toolTip(0))
+        panel.close()
 
     def test_requirement_detail_splitter_is_resizable_and_persistent(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[]), \
@@ -359,26 +568,32 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertGreaterEqual(panel.detail_splitter.handleWidth(), 8)
             self.assertFalse(panel.detail_splitter.childrenCollapsible())
             self.assertGreaterEqual(panel.detail_splitter.widget(1).minimumWidth(), 360)
-            self.assertEqual(panel.file_sql_splitter.orientation(), Qt.Orientation.Vertical)
-            self.assertFalse(panel.file_sql_splitter.childrenCollapsible())
+            # 上下：摘要紧凑 + 文件库占满，无垂直 splitter
+            self.assertIsNone(panel.file_sql_splitter)
+            from PyQt6.QtWidgets import QSizePolicy
+            self.assertEqual(panel.detail_card.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum)
+            from panels.requirement_panel import normalize_content_splitter_sizes
+            self.assertEqual(normalize_content_splitter_sizes(total_h=1000, top_h=160), [160, 840])
             panel.detail_splitter.setSizes([520, 500])
             self.app.processEvents()
             sizes = panel.detail_splitter.sizes()
             self.assertGreater(sizes[0], 430)
             self.assertGreaterEqual(panel.detail_splitter.widget(0).minimumWidth(), 200)
-            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 180)
-            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 112)
-            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 112)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 0).widget(), panel.open_folder_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(0, 3).widget(), panel.add_file_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 0).widget(), panel.new_text_btn)
-            self.assertEqual(panel.svn_actions.itemAtPosition(1, 3).widget(), panel.commit_btn)
+            self.assertGreaterEqual(panel.system_filter.minimumWidth(), 160)
+            self.assertGreaterEqual(panel.kind_filter.minimumWidth(), 100)
+            self.assertGreaterEqual(panel.status_filter.minimumWidth(), 100)
+            for button in (panel.open_folder_btn, panel.add_file_btn, panel.new_text_btn, panel.commit_btn):
+                self.assertIsNotNone(button)
+                self.assertTrue(button.property('compactAction') or button.objectName() == 'primary-btn')
             self.assertTrue(panel.sql_btn.property('compactAction'))
             self.assertEqual(panel.open_folder_btn.text(), '打开目录')
-            self.assertEqual(panel.sql_btn.text(), '整理 SQL')
+            self.assertEqual(panel.sql_btn.text(), '打开发版联动')
+            self.assertTrue(hasattr(panel, 'bind_status'))
+            self.assertTrue(panel.svn_activity.isHidden())
 
             panel._save_splitter_sizes()
-            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': panel.file_sql_splitter.sizes()})
+            content_sizes = panel._content_stack_sizes()
+            save_ui.assert_called_with({'splitter_sizes': sizes, 'content_splitter_sizes': content_sizes})
             panel.close()
 
         style_path = os.path.join(ROOT, 'resources', 'style.qss')
@@ -386,7 +601,10 @@ class ReleaseUiTests(unittest.TestCase):
             style = stream.read()
             self.assertIn('QSplitter#requirement-splitter::handle:horizontal', style)
             self.assertIn('QTreeWidget#requirement-file-tree QHeaderView::section', style)
-            self.assertIn('border-right: 2px solid #1F2A3D', style)
+            self.assertIn('QTreeWidget#requirement-file-tree::item', style)
+            self.assertIn('min-height: 22px', style)
+            # 浅色导航右边线（主题 token）
+            self.assertIn('border-right: 1px solid __SIDEBAR_BORDER__', style)
 
     def test_global_combo_and_date_styles_have_visible_drop_down_affordance(self):
         style_path = os.path.join(ROOT, 'resources', 'style.qss')
@@ -400,7 +618,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_release_page_is_first_and_date_auto_loads_candidates(self):
         panel = SqlToolPanel()
         self.assertEqual(panel.tabs.tabText(0), '升级准备')
-        self.assertEqual(panel.tabs.tabText(1), 'SQL 整理')
+        self.assertEqual(panel.tabs.tabText(1), '发版联动')
         self.assertEqual(panel.tabs.tabText(2), '系统配置')
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
@@ -421,6 +639,7 @@ class ReleaseUiTests(unittest.TestCase):
             # 人为标记日期未同步，触发生成路径的自动重载
             panel._release_date_confirmed = ''
             with patch('panels.sql_panel.show_warning'), patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.save_requirements'):
                 try:
                     panel._generate_release_materials()
@@ -442,23 +661,69 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertTrue(panel.grab().save(screenshot))
         panel.close()
 
+    def test_requirement_sql_lands_on_organize_tab_and_empty_focuses_row(self):
+        panel = SqlToolPanel()
+        landed = panel.receive_from_requirement(
+            '补发保单',
+            'select 1 from dual',
+            {'code': 'REQ-SQL', 'title': '补发保单', 'system': ''},
+        )
+        self.assertEqual(landed, 'sql')
+        self.assertEqual(panel.tabs.currentIndex(), 1)
+        self.assertIn('select 1 from dual', panel.input_sql.toPlainText())
+        records = [{
+            'code': 'REQ-FOCUS',
+            'title': '来源需求',
+            'planned_online_date': '2026-08-17',
+            'system': '',
+        }]
+        with patch('panels.sql_panel.load_requirements', return_value=records):
+            landed = panel.receive_from_requirement('来源需求', '', records[0])
+        self.assertEqual(landed, 'release')
+        self.assertEqual(panel.tabs.currentIndex(), 0)
+        self.assertEqual(panel._prefer_requirement_key, 'REQ-FOCUS')
+        checked = [
+            row for row in range(panel.release_table.rowCount())
+            if panel.release_table.item(row, 0)
+            and panel.release_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        self.assertTrue(checked)
+        panel.close()
+
     def test_only_learning_module_is_hidden(self):
-        window = MainWindow()
-        self.assertTrue(window.nav_buttons[8].isHidden())
-        self.assertFalse(window.nav_buttons[9].isHidden())
-        self.assertFalse(window.nav_buttons[10].isHidden())
-        window._show_panel(9)
-        self.assertEqual(window._current_nav_index, 9)
-        window._show_panel(8)
-        self.assertEqual(window._current_nav_index, 9)
-        with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
-            self.assertTrue(window._unlock_private_tools())
-        self.assertFalse(window.nav_buttons[8].isHidden())
-        window._open_system_config()
-        self.assertEqual(window._current_nav_index, 2)
-        self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
-        window._force_exit = True
-        window.close()
+        locked = dict(DEFAULT_SETTINGS)
+        locked['private_unlocked'] = False
+        with patch('main_window.load_settings', return_value=locked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[9].isHidden())
+            self.assertFalse(window.nav_buttons[10].isHidden())
+            window._show_panel(9)
+            self.assertEqual(window._current_nav_index, 9)
+            window._show_panel(8)
+            self.assertEqual(window._current_nav_index, 9)
+            with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
+                self.assertTrue(window._unlock_private_tools())
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            self.assertTrue(window._settings.get('private_unlocked'))
+            window._open_system_config()
+            self.assertEqual(window._current_nav_index, 2)
+            self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
+            window._force_exit = True
+            window.close()
+
+    def test_private_unlock_persists_across_reopen(self):
+        """彩蛋解锁写入 data 后，重新打开应一直展示自我学习。"""
+        unlocked = dict(DEFAULT_SETTINGS)
+        unlocked['private_unlocked'] = True
+        with patch('main_window.load_settings', return_value=unlocked), \
+                patch('main_window.save_settings', side_effect=lambda s: dict(s)):
+            window = MainWindow()
+            self.assertTrue(window._private_unlocked)
+            self.assertFalse(window.nav_buttons[8].isHidden())
+            window._force_exit = True
+            window.close()
 
     def test_one_click_generates_workbook_and_sql(self):
         requirement = {
@@ -488,6 +753,7 @@ class ReleaseUiTests(unittest.TestCase):
                 panel._load_release_candidates()
             with patch('panels.sql_panel.save_requirements'), \
                     patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.show_info'), \
                     patch('panels.sql_panel.show_warning') as warning:
                 panel._generate_release_materials()
@@ -549,6 +815,7 @@ class ReleaseUiTests(unittest.TestCase):
             with patch('panels.sql_panel.load_requirements', return_value=requirements), \
                     patch('panels.sql_panel.save_requirements'), \
                     patch('panels.sql_panel.show_success'), \
+                    patch('panels.sql_panel.offer_next_steps', return_value=None), \
                     patch('panels.sql_panel.show_info'), \
                     patch('panels.sql_panel.show_warning') as warning:
                 panel._generate_release_materials()
@@ -575,7 +842,7 @@ class ReleaseUiTests(unittest.TestCase):
             panel.close()
 
     def test_private_setup_does_not_touch_local_data(self):
-        setup_path = os.path.join(ROOT, 'PrivateInstaller', 'setup.cmd')
+        setup_path = os.path.join(ROOT, 'packaging', 'setup.cmd')
         with open(setup_path, 'r', encoding='utf-8') as stream:
             setup = stream.read().casefold()
         self.assertNotIn('rmdir', setup)
@@ -585,7 +852,7 @@ class ReleaseUiTests(unittest.TestCase):
 
     def test_upgrade_reuses_data_directory_and_accepts_legacy_requirement(self):
         old_exe = r'D:\PengToolsPrivate\PengToolsHub_Private_V4.24.exe'
-        new_exe = r'D:\PengToolsPrivate\PengToolsHub_Private.exe'
+        new_exe = r'D:\PengToolsPrivate\PengToolsHub.exe'
         self.assertEqual(local_data_dir(old_exe, True), local_data_dir(new_exe, True))
 
         legacy = {

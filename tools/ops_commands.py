@@ -56,9 +56,25 @@ COMMANDS = [
          'tail -n {lines} {log_path}', [_param('lines', '行数', 'Lines', '500', 'int'), _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log')]),
     _cmd('head -n 100 app.log', 'logs', '查看日志开头', '读取日志前若干行，常用于检查启动信息和文件格式。', 'Read first log lines', 'Read the first lines from a log file.',
          'head -n {lines} {log_path}', [_param('lines', '行数', 'Lines', '100', 'int'), _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log')]),
-    _cmd("grep -n -C 20 'ERROR' app.log", 'logs', '按关键词定位并显示上下文', '查找关键词并显示命中行号及前后上下文，不区分大小写可勾选对应命令。', 'Locate keyword with context', 'Find a keyword with line numbers and surrounding context.',
+    _cmd("grep -n -C 20 'ERROR' app.log", 'logs', '按关键词定位并显示上下文', '查找关键词并显示命中行号及前后上下文，不区分大小写。', 'Locate keyword with context', 'Find a keyword with line numbers and surrounding context.',
          'grep -n -i -C {context} -- {keyword} {log_path}', [_param('context', '上下文行数', 'Context lines', '20', 'int'), _param('keyword', '日志关键词', 'Keyword', 'ERROR'), _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log')]),
-    _cmd('日志定位并截取到新文件', 'logs', '日志路径不确定：先定位，再截取', '第一步在指定目录寻找候选日志；确认准确路径后，第二步把关键词及上下文截取到另一个文件。不会改动原日志。', 'Locate then extract a log', 'Find candidate logs first, then extract keyword context into another file without changing the source.',
+    _cmd("grep A | grep B | grep C", 'logs', '多关键字 AND 截取（同时包含）', '主关键字带上下文，再依次过滤必须同时包含的其它关键字（XX 和 XX 和 XX）。适合「单号 + ERROR + 接口名」类排查。', 'AND multi-keyword extract', 'Primary keyword with context, then filter lines that also contain other keywords.',
+         workflow='log_and_keywords', risk='safe', tags='日志 多关键字 AND 同时包含',
+         params=[
+             _param('keyword', '主关键字', 'Primary keyword', 'ERROR'),
+             _param('also_1', '也包含 1', 'Also contain 1', ''),
+             _param('also_2', '也包含 2', 'Also contain 2', ''),
+             _param('also_3', '也包含 3', 'Also contain 3', ''),
+             _param('context', '上下文行数', 'Context lines', '20', 'int'),
+             _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log'),
+         ]),
+    _cmd("grep -nE 'A|B|C'", 'logs', '多关键字 OR 截取（任一包含）', '匹配多个关键字中的任意一个，适合一批错误码或一批接口名。', 'OR multi-keyword extract', 'Match any of several keywords.',
+         'grep -n -i -E -C {context} -- {pattern} {log_path}', [
+             _param('pattern', '关键字模式(用|分隔)', 'Pattern A|B|C', 'ERROR|Exception|Timeout'),
+             _param('context', '上下文行数', 'Context lines', '10', 'int'),
+             _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log'),
+         ], tags='日志 OR 多关键字'),
+    _cmd('日志定位并截取到新文件', 'logs', '日志路径不确定：先定位，再截取', '第一步在指定目录寻找候选日志；确认准确路径后，第二步把关键词及上下文截取到另一个文件。不会改动原日志。注意：此模板会在服务器写输出文件；PengTools「日志排查」模块默认流式导出、不写远端文件。', 'Locate then extract a log', 'Find candidate logs first, then extract keyword context into another file without changing the source.',
          params=[_param('search_root', '日志搜索目录', 'Search root', '/var/log'), _param('file_pattern', '文件名模式', 'Filename pattern', '*.log'), _param('days', '最近修改天数', 'Modified within days', '7', 'int'), _param('log_path', '确认后的日志路径（可先留空）', 'Confirmed log path (optional first)', ''), _param('keyword', '截取关键词', 'Extract keyword', 'ERROR'), _param('context', '上下文行数', 'Context lines', '20', 'int'), _param('output_file', '输出文件', 'Output file', '/tmp/log_extract.txt')], workflow='log_extract', risk='caution', tags='日志截取 日志定位 find grep output'),
     _cmd("find /var/log -type f -name '*.log'", 'logs', '查找日志文件位置', '按文件名模式递归查找日志，并限制展示数量；只进行读取和目录遍历。', 'Find log files', 'Recursively find log files by filename pattern.',
          'find {search_root} -type f -name {file_pattern} 2>/dev/null | head -n {limit}', [_param('search_root', '搜索目录', 'Search root', '/var/log'), _param('file_pattern', '文件名模式', 'Filename pattern', '*.log'), _param('limit', '最多显示', 'Maximum results', '100', 'int')]),
@@ -236,6 +252,8 @@ def command_text(command, language='zh'):
 
 
 def search_commands(query='', category='all', limit=None, commands=None):
+    from tools.list_pin import is_pinned, ops_command_pin_id, pinned_at_rank, namespace_is_pinned, namespace_pinned_at
+
     query = re.sub(r'\s+', ' ', query.strip().casefold())
     scored = []
     source = commands if commands is not None else COMMANDS
@@ -268,10 +286,19 @@ def search_commands(query='', category='all', limit=None, commands=None):
                 score = max(token_ratio * 4.0, fuzzy * 3.0)
                 if score < 1.45:
                     continue
-        scored.append((score, index, command))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    commands = [item[2] for item in scored]
-    return commands[:limit] if limit else commands
+        cmd = dict(command)
+        pin_id = ops_command_pin_id(cmd)
+        cmd['pinned'] = namespace_is_pinned('ops_command', pin_id)
+        if cmd['pinned']:
+            cmd['pinned_at'] = namespace_pinned_at('ops_command', pin_id)
+        scored.append((score, index, cmd))
+
+    pinned_rows = [row for row in scored if is_pinned(row[2])]
+    plain_rows = [row for row in scored if not is_pinned(row[2])]
+    pinned_rows.sort(key=lambda row: (pinned_at_rank(row[2]), row[0]), reverse=True)
+    plain_rows.sort(key=lambda row: (-row[0], row[1]))
+    result = [row[2] for row in pinned_rows + plain_rows]
+    return result[:limit] if limit else result
 
 
 def _safe_value(param, value):
@@ -290,11 +317,32 @@ def _safe_value(param, value):
 def build_command(command, values):
     if command.get('workflow') == 'log_extract':
         return _build_log_extract(command, values)
+    if command.get('workflow') == 'log_and_keywords':
+        return _build_log_and_keywords(command, values)
     rendered = {}
     for param in command['params']:
         raw = values.get(param['name'], param.get('default', ''))
         rendered[param['name']] = _safe_value(param, raw)
     return command['template'].format(**rendered)
+
+
+def _build_log_and_keywords(command, values):
+    params = {param['name']: param for param in command['params']}
+    keyword = _safe_value(params['keyword'], values.get('keyword', 'ERROR'))
+    context = _safe_value(params['context'], values.get('context', '20'))
+    log_path = _safe_value(params['log_path'], values.get('log_path', '/var/log/app/app.log'))
+    extras = []
+    for key in ('also_1', 'also_2', 'also_3'):
+        raw = str(values.get(key, '')).strip()
+        if not raw:
+            continue
+        extras.append(_safe_value(params[key], raw) if key in params else shlex.quote(raw))
+    cmd = f'grep -a -n -i -C {context} -- {keyword} {log_path}'
+    for extra in extras:
+        cmd += f' | grep -a -i -- {extra}'
+    if not extras:
+        cmd += '\n# 提示：也包含 1/2/3 可填多个必须同时出现的关键字'
+    return cmd
 
 
 def _build_log_extract(command, values):

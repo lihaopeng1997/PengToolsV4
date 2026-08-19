@@ -48,14 +48,29 @@ class XmlFormatterTests(unittest.TestCase):
         self.assertIn('encoding="UTF-8"', out.splitlines()[0])
         self.assertIn('<a>1</a>', out)
 
+    def test_gbk_declaration_parses_and_preserves(self):
+        """Expat 不支持 multi-byte；声明 GBK 时应仍可格式化并保留原声明。"""
+        raw = '<?xml version="1.0" encoding="GBK"?><报文><姓名>示例用户</姓名></报文>'
+        out = format_xml_text(raw)
+        self.assertIn('encoding="GBK"', out.splitlines()[0])
+        self.assertIn('示例用户', out)
+        self.assertIn('<姓名>', out)
+
+    def test_gb2312_and_gb18030_declarations(self):
+        for enc in ('GB2312', 'gb18030', 'Big5'):
+            raw = f'<?xml version="1.0" encoding="{enc}"?><root><a>中文</a></root>'
+            out = format_xml_text(raw)
+            self.assertIn(f'encoding="{enc}"', out.splitlines()[0], enc)
+            self.assertIn('中文', out)
+
     def test_no_declaration_when_input_has_none(self):
         out = format_xml_text('<root><a>1</a></root>')
         self.assertFalse(out.lstrip().lower().startswith('<?xml'))
 
     def test_keeps_chinese_text(self):
-        raw = '<报文><姓名>李浩鹏</姓名><说明>中文内容</说明></报文>'
+        raw = '<报文><姓名>示例用户</姓名><说明>中文内容</说明></报文>'
         out = format_xml_text(raw)
-        self.assertIn('李浩鹏', out)
+        self.assertIn('示例用户', out)
         self.assertIn('中文内容', out)
         self.assertNotIn('\\u', out)
 

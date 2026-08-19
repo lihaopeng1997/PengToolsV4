@@ -46,7 +46,9 @@ def rank_requirements(requirements, upgrade_date):
             rank = 3
         else:
             rank = 2
-        return rank, date_value or '9999-99-99', item.get('record_kind', '需求'), item.get('code', '')
+        # 置顶优先（0），再按上线日期匹配度
+        pin_rank = 0 if item.get('pinned') else 1
+        return pin_rank, rank, date_value or '9999-99-99', item.get('record_kind', '需求'), item.get('code', '')
     return sorted(requirements, key=score)
 
 

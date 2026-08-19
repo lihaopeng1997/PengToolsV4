@@ -191,10 +191,64 @@ def split_mixed_sql(sql):
     return {'ddl': '\n'.join(ddl_parts), 'dml': '\n'.join(dml_parts)}
 
 
+def _clean_ident(name):
+    return re.sub(r'[\s(]+$', '', str(name or '').strip())
+
+
+def _create_table_constraint_rollbacks(table, create_sql):
+    """建表体内的主键/唯一约束：回滚时必须先于 DROP TABLE。"""
+    results = []
+    seen = set()
+    for match in re.finditer(r'\bCONSTRAINT\s+(\S+)\s+PRIMARY\s+KEY\b', create_sql, re.I):
+        name = match.group(1).strip().strip('"')
+        sql = f'ALTER TABLE {table} DROP CONSTRAINT {name};'
+        if sql not in seen:
+            seen.add(sql)
+            results.append(sql)
+    for match in re.finditer(r'\bCONSTRAINT\s+(\S+)\s+UNIQUE\b', create_sql, re.I):
+        name = match.group(1).strip().strip('"')
+        sql = f'ALTER TABLE {table} DROP CONSTRAINT {name};'
+        if sql not in seen:
+            seen.add(sql)
+            results.append(sql)
+    if re.search(r'\bPRIMARY\s+KEY\b', create_sql, re.I) and not re.search(
+        r'\bCONSTRAINT\s+\S+\s+PRIMARY\s+KEY\b', create_sql, re.I
+    ):
+        results.append(f'ALTER TABLE {table} DROP PRIMARY KEY;')
+    return results
+
+
+def _alter_add_rollbacks(table_name, body):
+    text = (body or '').strip().rstrip(';').strip()
+    if text.startswith('(') and text.endswith(')'):
+        text = text[1:-1]
+    if re.match(r'PRIMARY\s+KEY\b', text, re.I):
+        return [f'ALTER TABLE {table_name} DROP PRIMARY KEY;']
+    if re.match(r'UNIQUE\b', text, re.I):
+        return [f'-- [必须人工补充] ALTER TABLE {table_name} DROP UNIQUE (...);']
+    columns = []
+    for definition in _split_csv(text):
+        raw = definition.strip()
+        if not raw:
+            continue
+        parts = raw.split()
+        name = parts[0].strip('"') if parts else ''
+        if name.upper() == 'CONSTRAINT' and len(parts) > 1:
+            columns.append(f'ALTER TABLE {table_name} DROP CONSTRAINT {parts[1].strip("\"")};')
+        elif re.match(r'PRIMARY\s+KEY\b', raw, re.I):
+            columns.append(f'ALTER TABLE {table_name} DROP PRIMARY KEY;')
+        elif name:
+            columns.append(f'ALTER TABLE {table_name} DROP COLUMN {name};')
+    return columns
+
+
 def generate_rollback(orig_stmt, upper_stmt):
     m = re.match(r'^\s*CREATE\s+TABLE\s+(\S+)', upper_stmt)
     if m:
-        return f'DROP TABLE {m.group(1)};\n-- CASCADE CONSTRAINTS may be needed'
+        table = _clean_ident(m.group(1))
+        parts = _create_table_constraint_rollbacks(table, orig_stmt)
+        parts.append(f'DROP TABLE {table};')
+        return '\n'.join(parts)
 
     m = re.match(r'^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+(\S+)', upper_stmt)
     if m:
@@ -206,19 +260,8 @@ def generate_rollback(orig_stmt, upper_stmt):
 
     m = re.match(r'^\s*ALTER\s+TABLE\s+(\S+)\s+ADD(?:\s+COLUMN)?\s+(.+?)\s*$', orig_stmt, re.I | re.S)
     if m:
-        table_name = m.group(1)
-        body = m.group(2).strip().rstrip(';').strip()
-        if body.startswith('(') and body.endswith(')'):
-            body = body[1:-1]
-        columns = []
-        for definition in _split_csv(body):
-            name = definition.strip().split()[0].strip('"') if definition.strip() else ''
-            if name.upper() == 'CONSTRAINT':
-                parts = definition.strip().split()
-                if len(parts) > 1:
-                    columns.append(f'ALTER TABLE {table_name} DROP CONSTRAINT {parts[1]};')
-            elif name:
-                columns.append(f'ALTER TABLE {table_name} DROP COLUMN {name};')
+        table_name = _clean_ident(m.group(1))
+        columns = _alter_add_rollbacks(table_name, m.group(2))
         return '\n'.join(columns) or f'-- [必须人工补充] 无法解析 ALTER TABLE {table_name} ADD 的回滚列'
 
     if re.match(r'^\s*ALTER\s+TABLE\s+\S+\s+MODIFY', upper_stmt):
@@ -338,15 +381,89 @@ def _split_csv(text):
     return parts
 
 
+def _rollback_execution_rank(statement: str) -> int:
+    """回滚语句执行优先级：数值越小越先执行。
+
+    典型依赖：先还原 DML → 再 DROP INDEX/CONSTRAINT/COLUMN → 最后 DROP TABLE。
+    避免「先 DROP TABLE 再 DROP INDEX」导致 ORA 异常。
+    """
+    text = (statement or '').strip()
+    if not text:
+        return 999
+    # 取第一条有效 SQL 行参与排序（跳过纯注释引导）
+    code_line = ''
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith('--'):
+            continue
+        code_line = stripped
+        break
+    if not code_line:
+        return 900
+    upper = code_line.upper()
+    if re.match(r'^(DELETE|UPDATE|INSERT)\b', upper):
+        return 10
+    if re.match(r'^DROP\s+(UNIQUE\s+)?INDEX\b', upper):
+        return 20
+    if re.search(r'\bDROP\s+CONSTRAINT\b', upper) or re.search(r'\bDROP\s+PRIMARY\s+KEY\b', upper):
+        return 30
+    if re.search(r'\bDROP\s+COLUMN\b', upper):
+        return 40
+    if re.match(r'^DROP\s+SEQUENCE\b', upper):
+        return 50
+    if re.match(r'^DROP\s+VIEW\b', upper):
+        return 55
+    if re.match(r'^DROP\s+TABLE\b', upper):
+        return 60
+    if re.match(r'^ALTER\s+TABLE\b', upper):
+        return 45
+    return 70
+
+
+def _atomic_rollback_blocks(text):
+    """把一段回滚结果拆成可独立排序的语句块，避免 DROP TABLE 带着后面的删主键一起排。"""
+    raw = str(text or '').strip()
+    if not raw:
+        return []
+    statements = split_statements(raw)
+    if len(statements) <= 1:
+        return [raw]
+    return [item.rstrip(';').strip() + ';' for item in statements if item.strip()]
+
+
+def order_rollback_statements(statements):
+    """对回滚语句块排序：先逆序（对应升级逆过程），再按依赖稳定排序。"""
+    blocks = [str(item).strip() for item in (statements or []) if str(item).strip()]
+    # 1) 升级语句生成的回滚块先按原顺序的逆序（后升级的先回滚）
+    reversed_blocks = list(reversed(blocks))
+    # 2) 稳定排序：DROP INDEX 等先于 DROP TABLE，防止表已删仍删索引
+    return sorted(reversed_blocks, key=_rollback_execution_rank)
+
+
 def generate_reverse_sql(sql, direction='upgrade'):
+    """从升级 SQL 生成回滚 SQL（或反向提示）。
+
+    回滚语句会按安全执行顺序整理：
+    - 对应升级脚本的逆序
+    - 且 DROP INDEX / DROP CONSTRAINT / DROP COLUMN 一定在 DROP TABLE 之前
+    """
     clean = strip_comments(sql)
     clean_stmts = split_statements(clean)
     results = []
     for statement in clean_stmts:
         if direction == 'upgrade':
-            results.append(generate_rollback(statement, statement.upper()))
+            results.extend(_atomic_rollback_blocks(generate_rollback(statement, statement.upper())))
         else:
             results.append(f'-- [必须人工补充] 请根据回滚语句还原升级 SQL\n-- {statement}')
+    if direction == 'upgrade':
+        results = order_rollback_statements(results)
+        if results:
+            header = (
+                '-- 回滚顺序说明：已按依赖自动整理'
+                '（先还原 DML，再 DROP INDEX/CONSTRAINT/COLUMN，最后 DROP TABLE）\n'
+                '-- 请在目标库执行前人工复核\n'
+            )
+            return header + '\n\n'.join(results)
     return '\n\n'.join(results)
 
 

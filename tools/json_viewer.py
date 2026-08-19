@@ -17,7 +17,8 @@ def parse_json_text(text):
 
 
 def format_json_text(text):
-    return json.dumps(parse_json_text(text), ensure_ascii=False, indent=2)
+    """格式化 JSON：对象字段按 A-Z 字典序递归排序，数组元素保持原序。"""
+    return json.dumps(parse_json_text(text), ensure_ascii=False, indent=2, sort_keys=True)
 
 
 def json_path_child(parent, key):
@@ -33,7 +34,8 @@ def iter_json_nodes(value, path='$', key='$'):
     """按深度优先顺序返回 (path, key, value)。"""
     yield path, key, value
     if isinstance(value, dict):
-        for child_key, child_value in value.items():
+        for child_key in sorted(value):
+            child_value = value[child_key]
             child_path = json_path_child(path, child_key)
             yield from iter_json_nodes(child_value, child_path, child_key)
     elif isinstance(value, list):
@@ -65,7 +67,8 @@ def node_value_text(value):
 
 
 def node_json_text(value):
-    return json.dumps(value, ensure_ascii=False, indent=2)
+    """节点复制使用与格式化文本一致的对象键排序规则。"""
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
 
 
 def search_json_nodes(value, query):

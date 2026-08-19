@@ -64,3 +64,25 @@ def all_district_codes():
         for _, districts in cities.values()
         for district_code in districts
     )
+
+
+def lookup_region(area_code):
+    """返回 (省, 市, 区县)。区划码不足或不在子集里时尽量回退到已知上级。"""
+    code = str(area_code or '').strip()
+    province = REGIONS.get(code[:2])
+    if not province:
+        return '', '', ''
+    province_name, cities = province
+    city = cities.get(code[:4]) if len(code) >= 4 else None
+    if city is None:
+        first_city = next(iter(cities.values()), None)
+        if not first_city:
+            return province_name, '', ''
+        city_name, districts = first_city
+        district_name = next(iter(districts.values()), '')
+        return province_name, city_name, district_name
+    city_name, districts = city
+    district_name = districts.get(code, '') if len(code) >= 6 else ''
+    if not district_name:
+        district_name = next(iter(districts.values()), '')
+    return province_name, city_name, district_name

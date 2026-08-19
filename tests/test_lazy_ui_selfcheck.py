@@ -30,7 +30,7 @@ class LazyUiSelfCheck(unittest.TestCase):
 
     def test_sql_tabs_are_consistent_and_buttons_live_inside_sql_sheet(self):
         panel = SqlToolPanel()
-        self.assertEqual([panel.tabs.tabText(i) for i in range(3)], ['升级准备', 'SQL 整理', '系统配置'])
+        self.assertEqual([panel.tabs.tabText(i) for i in range(3)], ['升级准备', '发版联动', '系统配置'])
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
         self.assertIs(panel.load_btn.parent().parent(), panel.tabs.widget(1))
@@ -52,16 +52,22 @@ class LazyUiSelfCheck(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with patch('panels.personal_panel.load_reports', return_value={}), \
                     patch('panels.personal_panel.save_reports') as save_reports, \
+                    patch('panels.personal_panel.load_drafts', return_value={}), \
+                    patch('panels.personal_panel.save_drafts'), \
                     patch('panels.personal_panel.load_reminder_settings', return_value={
                         'enabled': False, 'time': '18:00', 'last_reminder_date': '',
+                        'history_collapsed_months': [], 'history_expanded_months': [],
+                        'history_expand_pinned': True,
                     }), \
                     patch('panels.personal_panel.save_reminder_settings', side_effect=lambda settings: settings), \
-                    patch('panels.personal_panel.show_success'):
+                    patch('panels.personal_panel.show_success'), \
+                    patch('panels.personal_panel.show_info'), \
+                    patch('panels.personal_panel.show_warning'):
                 tab = DailyReportTab()
                 today = QDate.currentDate()
                 self.assertEqual(tab.date_edit.displayFormat(), 'yyyy-MM-dd')
                 self.assertGreaterEqual(tab.date_edit.minimumWidth(), 150)
-                keys = [tab.date_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(tab.date_list.count())]
+                keys = tab.list_date_keys()
                 self.assertIn(today.toString('yyyy-MM-dd'), keys)
                 tab.completed.setPlainText('完成 A')
                 tab._save_report()
@@ -69,13 +75,21 @@ class LazyUiSelfCheck(unittest.TestCase):
                 yesterday = today.addDays(-1)
                 tab.date_edit.setDate(yesterday)
                 self.app.processEvents()
-                self.assertEqual(tab.completed.toPlainText(), '')
-                tab._reports[today.toString('yyyy-MM-dd')] = {
-                    'completed': '完成 A', 'issues': '', 'tomorrow': '', 'notes': '',
-                }
-                tab._load_date(today)
+                self.assertEqual(tab.completed.toPlainText().strip(), '')
+                # 未保存草稿：写昨天内容后切走再切回应保留
+                tab.completed.setPlainText('昨天未保存')
+                tab.date_edit.setDate(today)
+                self.app.processEvents()
                 self.assertIn('完成 A', tab.completed.toPlainText())
+                tab.date_edit.setDate(yesterday)
+                self.app.processEvents()
+                self.assertIn('昨天未保存', tab.completed.toPlainText())
+                # 一键复制为今日
+                tab._copy_as_today()
                 self.assertEqual(tab.date_edit.date(), today)
+                self.assertIn('昨天未保存', tab.completed.toPlainText())
+                self.assertTrue(hasattr(tab, 'copy_as_today_btn'))
+                self.assertTrue(hasattr(tab, 'date_tree'))
                 tab.resize(900, 600)
                 self.app.processEvents()
                 tab.close()

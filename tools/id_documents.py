@@ -3,7 +3,7 @@ import datetime
 import random
 import re
 
-from tools.china_regions import all_district_codes
+from tools.china_regions import all_district_codes, lookup_region
 
 
 DOCUMENT_TYPES = {
@@ -106,6 +106,155 @@ def generate_person_name():
     rng = random.Random()
     length = rng.choice((1, 2))
     return rng.choice(SURNAMES) + ''.join(rng.choice(GIVEN_CHARS) for _ in range(length))
+
+
+ETHNIC_GROUPS = (
+    '汉族', '蒙古族', '回族', '藏族', '维吾尔族', '苗族', '彝族', '壮族', '布依族', '朝鲜族',
+    '满族', '侗族', '瑶族', '白族', '土家族', '哈尼族', '哈萨克族', '傣族', '黎族', '傈僳族',
+    '佤族', '畲族', '高山族', '拉祜族', '水族', '东乡族', '纳西族', '景颇族', '柯尔克孜族',
+    '土族', '达斡尔族', '仫佬族', '羌族', '布朗族', '撒拉族', '毛南族', '仡佬族', '锡伯族',
+    '阿昌族', '普米族', '塔吉克族', '怒族', '乌孜别克族', '俄罗斯族', '鄂温克族', '德昂族',
+    '保安族', '裕固族', '京族', '塔塔尔族', '独龙族', '鄂伦春族', '赫哲族', '门巴族',
+    '珞巴族', '基诺族',
+)
+MOBILE_PREFIXES = (
+    '130', '131', '132', '133', '135', '136', '137', '138', '139',
+    '150', '151', '152', '155', '156', '157', '158', '159',
+    '166', '171', '172', '175', '176', '177', '178',
+    '180', '181', '182', '183', '185', '186', '187', '188', '189',
+    '191', '193', '195', '198', '199',
+)
+EMAIL_DOMAINS = ('163.com', '126.com', 'qq.com', 'sina.com', '139.com', 'yeah.net')
+STREETS = ('人民路', '解放路', '中山路', '建设路', '和平路', '文化路', '花园路', '滨河路', '科技路')
+POSTAL_PREFIX = {
+    '11': '100', '12': '300', '13': '050', '14': '030', '15': '010',
+    '21': '110', '22': '130', '23': '150', '31': '200', '32': '210',
+    '33': '310', '34': '230', '35': '350', '36': '330', '37': '250',
+    '41': '450', '42': '430', '43': '410', '44': '510', '45': '530',
+    '46': '570', '50': '400', '51': '610', '52': '550', '53': '650',
+    '54': '850', '61': '710', '62': '730', '63': '810', '64': '750', '65': '830',
+}
+
+
+def generate_mobile(rng=None):
+    rng = rng or random.Random()
+    return rng.choice(MOBILE_PREFIXES) + f'{rng.randint(0, 99999999):08d}'
+
+
+def generate_email(name, rng=None):
+    rng = rng or random.Random()
+    local = f'{rng.choice("abcdefghijklmnopqrstuvwxyz")}{rng.randint(1000, 999999)}'
+    return f'{local}@{rng.choice(EMAIL_DOMAINS)}'
+
+
+def generate_postal_code(area_code='', rng=None):
+    rng = rng or random.Random()
+    prefix = POSTAL_PREFIX.get(str(area_code or '')[:2], f'{rng.randint(100, 859):03d}')
+    return prefix + f'{rng.randint(0, 999):03d}'
+
+
+def generate_cn_address(area_code='', rng=None):
+    rng = rng or random.Random()
+    province, city, district = lookup_region(area_code)
+    if not province:
+        province, city, district = lookup_region(rng.choice(AREA_CODES))
+    if city in ('北京市', '天津市', '上海市', '重庆市') or city == province:
+        city = ''
+    street = rng.choice(STREETS)
+    number = rng.randint(1, 888)
+    room = rng.randint(101, 2599)
+    return f'{province}{city}{district}{street}{number}号{room}室'
+
+
+def _validity_for_kind(kind, age, term, today, rng):
+    if term in (5, 10, 20):
+        years = int(term)
+        long_term = False
+    elif term == 'long':
+        years = 0
+        long_term = True
+    elif kind == 'resident_id':
+        if age < 16:
+            years, long_term = 5, False
+        elif age <= 25:
+            years, long_term = 10, False
+        elif age <= 45:
+            years, long_term = 20, False
+        else:
+            years, long_term = 0, True
+    elif kind == 'passport':
+        years, long_term = (5, False) if age < 16 else (10, False)
+    else:
+        years, long_term = 10, False
+    start = today - datetime.timedelta(days=rng.randint(30, 800))
+    if long_term:
+        return start.isoformat(), '长期'
+    end = _safe_year_shift(start, years)
+    return start.isoformat(), end.isoformat()
+
+
+def _issuer_for_kind(kind, area_code, rng):
+    province, city, district = lookup_region(area_code)
+    place = district or city or province or '本市'
+    if kind == 'resident_id':
+        return f'{place}公安局'
+    if kind == 'passport':
+        return '国家移民管理局'
+    if kind == 'military_officer':
+        return '中国人民解放军'
+    if kind == 'armed_police':
+        return '中国人民武装警察部队'
+    return f'{place}公安局'
+
+
+def generate_personal_record(kind, **options):
+    rng = random.Random()
+    area_code = options.get('area_code') or rng.choice(AREA_CODES)
+    if kind == 'resident_id':
+        number = generate_resident_id(
+            area_code=area_code,
+            min_age=options.get('min_age'),
+            max_age=options.get('max_age'),
+            gender=options.get('gender', 'random'),
+        )
+        age = resident_id_age(number)
+        area_code = number[:6]
+    else:
+        generators = {
+            'passport': generate_passport,
+            'military_officer': generate_military_officer_card,
+            'armed_police': generate_armed_police_document,
+        }
+        number = generators[kind]()
+        age = rng.randint(18, 60)
+    name = generate_person_name()
+    ethnicity = options.get('ethnicity') or rng.choice(ETHNIC_GROUPS)
+    start, end = _validity_for_kind(kind, age, options.get('valid_term'), datetime.date.today(), rng)
+    return {
+        'kind': kind,
+        'name': name,
+        'document': number,
+        'ethnicity': ethnicity,
+        'valid_from': start,
+        'valid_to': end,
+        'issuer': _issuer_for_kind(kind, area_code, rng),
+        'mobile': generate_mobile(rng),
+        'email': generate_email(name, rng),
+        'postal_code': generate_postal_code(area_code, rng),
+        'address': generate_cn_address(area_code, rng),
+    }
+
+
+def generate_personal_records(kind, count, **options):
+    rows = []
+    seen = set()
+    while len(rows) < count:
+        record = generate_personal_record(kind, **options)
+        if record['document'] in seen:
+            continue
+        seen.add(record['document'])
+        rows.append(record)
+    return rows
 
 
 def generate_personal_batch(kind, count, **options):
