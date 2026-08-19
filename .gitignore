@@ -1,5 +1,6 @@
 # 用户数据与构建产物
 data/
+tiqian/
 dist/
 build/
 Installer/

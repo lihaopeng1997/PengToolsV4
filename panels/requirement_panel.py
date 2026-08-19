@@ -1497,6 +1497,16 @@ class RequirementPanel(QWidget):
             self.collapse_tree_btn.setProperty('compactAction', True)
         tree_tools.addWidget(self.select_all_check)
         tree_tools.addWidget(self.batch_delete_btn)
+        self.ticket_btn = QPushButton('一键提签')
+        self.ticket_btn.setProperty('compactAction', True)
+        self.ticket_btn.setToolTip('把勾选的需求生成环境签文档并提交到 SVN')
+        self.ticket_btn.clicked.connect(self._open_ticket_submit)
+        try:
+            from ui.design_system import apply_button as _apply_ticket_btn
+            _apply_ticket_btn(self.ticket_btn, 'secondary', compact=True)
+        except Exception:
+            pass
+        tree_tools.addWidget(self.ticket_btn)
         tree_tools.addStretch(1)
         tree_tools.addWidget(self.expand_tree_btn)
         tree_tools.addWidget(self.collapse_tree_btn)
@@ -2311,6 +2321,16 @@ class RequirementPanel(QWidget):
         width = self.requirement_list.columnWidth(0) + 18
         self.requirement_list.setColumnWidth(0, max(180, min(width, 360)))
 
+    def _open_ticket_submit(self):
+        from tools.requirements import requirement_identity
+        from panels.ticket_submit_dialog import open_ticket_submit_dialog
+        selected_ids = [
+            requirement_identity(item)
+            for item in self._selected_requirements()
+            if requirement_identity(item)
+        ]
+        open_ticket_submit_dialog(self._requirements, selected_ids=selected_ids, parent=self)
+
     def _selected_requirements(self):
         selected = []
         seen = set()
@@ -2764,7 +2784,7 @@ class RequirementPanel(QWidget):
             self.scan_btn, self.checkout_btn, self.update_all_btn, self.system_config_btn,
             self.bug_btn, self.import_btn, self.add_btn, self.search_edit, self.system_filter,
             self.kind_filter, self.status_filter, self.requirement_list, self.select_all_check,
-            self.batch_delete_btn, self.expand_tree_btn, self.collapse_tree_btn, self.file_tree,
+            self.batch_delete_btn, self.ticket_btn, self.expand_tree_btn, self.collapse_tree_btn, self.file_tree,
             self.open_folder_btn, self.refresh_svn_btn,
             self.update_current_btn, self.add_file_btn, self.new_text_btn, self.lock_file_btn,
             self.unlock_file_btn, self.revert_btn, self.commit_btn,

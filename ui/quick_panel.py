@@ -233,6 +233,11 @@ class QuickPanel(QWidget):
         self.home_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.home_btn.clicked.connect(lambda: self._activate(0))
         footer.addWidget(self.home_btn, 1)
+        self.ticket_btn = QPushButton()
+        self.ticket_btn.setObjectName('floating-home')
+        self.ticket_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ticket_btn.clicked.connect(self._open_ticket_submit)
+        footer.addWidget(self.ticket_btn)
         self.footer_edit_btn = QPushButton()
         self.footer_edit_btn.setObjectName('floating-home')
         self.footer_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -256,7 +261,9 @@ class QuickPanel(QWidget):
         zh = language == 'zh'
         self.title.setText('快捷工具' if zh else 'Quick Tools')
         self.home_btn.setText('打开完整工作台' if zh else 'Open workspace')
+        self.ticket_btn.setText('一键提签' if zh else 'Submit ticket')
         self.footer_edit_btn.setText('设置快捷入口' if zh else 'Edit shortcuts')
+        self._refresh_ticket_button()
         self.edit_btn.setToolTip('编辑快捷入口' if zh else 'Edit shortcuts')
         self.collapse_btn.setToolTip('收起' if zh else 'Collapse')
         self.toggle_btn.setToolTip('打开快捷工具' if zh else 'Open quick tools')
@@ -288,6 +295,8 @@ class QuickPanel(QWidget):
         )
         was_expanded = self.expanded
         self._rebuild_cards()
+        if hasattr(self, 'ticket_btn'):
+            self._refresh_ticket_button()
         if was_expanded:
             self._layout_expanded()
         else:
@@ -299,6 +308,8 @@ class QuickPanel(QWidget):
             self._shortcuts, private_unlocked=self._private_unlocked
         )
         self._rebuild_cards()
+        if hasattr(self, 'ticket_btn'):
+            self._refresh_ticket_button()
         if self.expanded:
             self._layout_expanded()
 
@@ -534,6 +545,26 @@ class QuickPanel(QWidget):
             self.show()
             self.raise_()
             self.activateWindow()
+
+    def _refresh_ticket_button(self):
+        try:
+            from tools.ticket_submit import configured_ticket_profiles
+            visible = bool(configured_ticket_profiles())
+        except Exception:
+            visible = False
+        self.ticket_btn.setVisible(visible)
+        self.ticket_btn.setToolTip(
+            '一键提签（无需打开主窗口）' if self.language == 'zh' else 'Submit upgrade ticket'
+        )
+
+    def _open_ticket_submit(self):
+        opener = getattr(self._main_window, 'open_ticket_submit', None)
+        if callable(opener):
+            opener(compact=True)
+            return
+        show_info = getattr(self._main_window, 'statusBar', None)
+        if callable(show_info):
+            return
 
     def hide_panel(self):
         if self.preview.isVisible():

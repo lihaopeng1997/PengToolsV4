@@ -50,6 +50,53 @@ def validate_svn_url(url):
     return value.rstrip('/')
 
 
+def join_svn_url(*parts):
+    chunks = [str(parts[0] or '').rstrip('/')]
+    for part in parts[1:]:
+        text = str(part or '').strip().strip('/')
+        if text:
+            chunks.append(text)
+    return '/'.join(chunks)
+
+
+def svn_list(url, recursive=False):
+    """列出远程目录条目名。目录名不带末尾 /。"""
+    clean = validate_svn_url(url)
+    args = ['list', clean]
+    if recursive:
+        args.insert(1, '--recursive')
+    result = run_svn(args)
+    names = []
+    for line in result['output'].splitlines():
+        text = line.strip().rstrip('/')
+        if text:
+            names.append(text)
+    return names
+
+
+def svn_export(url, target_path):
+    clean = validate_svn_url(url)
+    target = os.path.abspath(target_path)
+    parent = os.path.dirname(target)
+    os.makedirs(parent, exist_ok=True)
+    result = run_svn(['export', '--force', clean, target], timeout=300)
+    return {'path': target, 'output': result['output']}
+
+
+def svn_mkdir_remote(url, message='create directory'):
+    clean = validate_svn_url(url)
+    return run_svn(['mkdir', '--parents', clean, '-m', str(message or 'create directory')])
+
+
+def svn_import(local_path, url, message):
+    target = os.path.abspath(local_path)
+    if not os.path.isdir(target):
+        raise ValueError(f'本地目录不存在：{target}')
+    clean = validate_svn_url(url)
+    result = run_svn(['import', target, clean, '-m', str(message or 'import')], timeout=300)
+    return {'url': clean, 'output': result['output']}
+
+
 def working_copy_info(path):
     target = os.path.abspath(path)
     result = run_svn(['info', '--xml', target])

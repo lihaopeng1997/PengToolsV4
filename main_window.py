@@ -1153,6 +1153,27 @@ class MainWindow(QMainWindow):
     def _update_clock(self):
         self.clock_label.setText(datetime.datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
 
+    def open_ticket_submit(self, compact=False):
+        from panels.ticket_submit_dialog import open_ticket_submit_dialog
+        from tools.requirements import load_requirements
+        selected = []
+        if self.requirement_panel is not None:
+            try:
+                from tools.requirements import requirement_identity
+                selected = [
+                    requirement_identity(item)
+                    for item in self.requirement_panel._selected_requirements()
+                    if requirement_identity(item)
+                ]
+            except Exception:
+                selected = []
+        open_ticket_submit_dialog(
+            load_requirements(),
+            selected_ids=selected,
+            parent=self if not compact else self.quick_panel,
+            compact=bool(compact),
+        )
+
     def toggle_quick_panel(self):
         if self.quick_panel is None:
             self._ensure_services()

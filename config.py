@@ -61,6 +61,7 @@ DAILY_REPORT_DRAFTS_FILE = os.path.join(CONFIG_DIR, 'daily_report_drafts.json')
 DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
+TICKET_SUBMIT_FILE = os.path.join(CONFIG_DIR, 'ticket_submit.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
 DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
