@@ -373,6 +373,27 @@ class SqlToolTests(unittest.TestCase):
         rollback = generate_reverse_sql(sql)
         self.assertIn("NAME='LiHaopeng'", rollback)
 
+    def test_rollback_drops_primary_key_before_table(self):
+        """建表回滚必须先删主键/约束，再 DROP TABLE。"""
+        named = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(\n  ID NUMBER,\n  CONSTRAINT PK_T_DEMO PRIMARY KEY (ID)\n);"
+        ).upper()
+        self.assertLess(named.find('DROP CONSTRAINT PK_T_DEMO'), named.find('DROP TABLE T_DEMO'))
+        inline = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER PRIMARY KEY, NAME VARCHAR2(20));"
+        ).upper()
+        self.assertLess(inline.find('DROP PRIMARY KEY'), inline.find('DROP TABLE T_DEMO'))
+        added = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER);\n"
+            "ALTER TABLE T_DEMO ADD CONSTRAINT PK_T_DEMO PRIMARY KEY (ID);"
+        ).upper()
+        self.assertLess(added.find('DROP CONSTRAINT PK_T_DEMO'), added.find('DROP TABLE T_DEMO'))
+        unnamed = generate_reverse_sql(
+            "CREATE TABLE T_DEMO(ID NUMBER);\nALTER TABLE T_DEMO ADD PRIMARY KEY (ID);"
+        ).upper()
+        self.assertLess(unnamed.find('DROP PRIMARY KEY'), unnamed.find('DROP TABLE T_DEMO'))
+        self.assertNotIn('DROP COLUMN PRIMARY', unnamed)
+
     def test_rollback_drops_index_before_table(self):
         """升级 CREATE TABLE + CREATE INDEX 时，回滚不得先 DROP TABLE 再 DROP INDEX。"""
         sql = (
