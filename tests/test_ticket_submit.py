@@ -62,8 +62,12 @@ class TicketSubmitTests(unittest.TestCase):
         )
         self.assertEqual(payload['需求编号'], '1.REQ-1  2.REQ-2')
         self.assertEqual(payload['功能描述'], '1.功能甲  2.功能乙')
-        self.assertEqual(payload['是否有SQL'], '是')
+        self.assertEqual(payload['是否有SQL'], '否')
         self.assertEqual(payload['是否有jar包'], '否')
+        self.assertEqual(
+            build_ticket_payload([{'code': 'REQ-1', 'title': '甲', 'has_sql': True}], owner='李', has_sql=True)['是否有SQL'],
+            '是',
+        )
         self.assertEqual(payload['责任人'], '李浩鹏')
         self.assertEqual(payload['文件个数'], '')
         self.assertEqual(payload['升级环境地址'], '')

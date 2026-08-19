@@ -327,7 +327,7 @@ def build_ticket_payload(requirements, *, owner, host='', program_list='', remar
     codes = [item.get('code') or item.get('title') or '' for item in items]
     titles = [item.get('title') or item.get('code') or '' for item in items]
     if has_sql is None:
-        has_sql = any(item.get('has_sql') or item.get('sql_parts') for item in items)
+        has_sql = False
     return {
         '需求编号': format_numbered_cell(codes),
         '功能描述': format_numbered_cell(titles),

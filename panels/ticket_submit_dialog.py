@@ -342,7 +342,6 @@ class TicketSubmitDialog(QDialog):
         root.addWidget(QLabel('勾选要写进这份签的需求（可多条）'))
         self.req_list = QListWidget()
         self.req_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.req_list.itemChanged.connect(self._sync_sql_check)
         root.addWidget(self.req_list, 1)
         cfg = QPushButton('配置签库地址…')
         apply_button(cfg, 'secondary', compact=True)
@@ -411,10 +410,8 @@ class TicketSubmitDialog(QDialog):
             self.program_edit.setText(last.get('program_list') or '')
         if 'remark' in last:
             self.remark_edit.setText(last.get('remark') or '')
-        if 'has_jar' in last:
-            self.jar_check.setChecked(bool(last.get('has_jar')))
-        if 'has_sql' in last:
-            self.sql_check.setChecked(bool(last.get('has_sql')))
+        self.jar_check.setChecked(False)
+        self.sql_check.setChecked(False)
         self._refresh_preview()
 
     def _reload_requirements(self):
@@ -433,15 +430,7 @@ class TicketSubmitDialog(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, req)
             self.req_list.addItem(item)
         self.req_list.blockSignals(False)
-        self._sync_sql_check()
         self._refresh_preview()
-
-    def _sync_sql_check(self):
-        has_sql = any(
-            item.get('has_sql') or item.get('sql_parts')
-            for item in self._checked_requirements()
-        )
-        self.sql_check.setChecked(has_sql)
 
     def _checked_requirements(self):
         result = []
