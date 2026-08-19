@@ -332,12 +332,12 @@ def build_ticket_payload(requirements, *, owner, host='', program_list='', remar
         '需求编号': format_numbered_cell(codes),
         '功能描述': format_numbered_cell(titles),
         '责任人': _clean_text(owner),
-        '升级环境地址': _clean_text(host),
+        '升级环境地址': '',
         '程序清单': _clean_text(program_list),
         '备注': _clean_text(remark),
         '是否有jar包': yes_no(has_jar),
         '是否有SQL': yes_no(has_sql),
-        '文件个数': _clean_text(program_list) or ('后端' if items else ''),
+        '文件个数': '',
     }
 
 

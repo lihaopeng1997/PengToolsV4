@@ -311,25 +311,29 @@ class TicketSubmitDialog(QDialog):
         self.owner_edit.setPlaceholderText('写在签上和文件夹名后面的人，例如 李浩鹏')
         form.addWidget(_field_block('责任人', '签文档「责任人」和目录名末尾。', self.owner_edit))
         self.host_edit = QLineEdit()
-        size_line(self.host_edit, 'std')
-        self.host_edit.setPlaceholderText('写进签里的升级环境地址，例如 10.128.24.72')
+        self.host_edit.hide()
         self.program_edit = QLineEdit()
         size_line(self.program_edit, 'std')
         self.program_edit.setPlaceholderText('例如：后端 或 ecif-service，可空')
         self.remark_edit = QLineEdit()
         size_line(self.remark_edit, 'std')
         self.remark_edit.setPlaceholderText('签上的备注，没有就空着')
-        self.jar_check = QCheckBox('这次升级带 jar 包')
+        self.jar_check = QCheckBox('是否有 jar 包')
+        self.sql_check = QCheckBox('是否有 SQL')
+        flag_row = QWidget()
+        flag_l = QHBoxLayout(flag_row)
+        flag_l.setContentsMargins(0, 0, 0, 0)
+        flag_l.addWidget(self.jar_check)
+        flag_l.addWidget(self.sql_check)
+        flag_l.addStretch(1)
         if not compact:
-            form.addWidget(_field_block('升级环境地址', '填到签文档「升级环境地址」那一格。', self.host_edit))
-            form.addWidget(_field_block('程序清单', '填到签上「修改的程序清单」，如 后端、前端、jar 名。', self.program_edit))
+            form.addWidget(_field_block('程序清单', '填到签上「修改的程序清单」，如 后端、前端。文件个数和升级环境地址不填。', self.program_edit))
             form.addWidget(_field_block('备注', '', self.remark_edit))
-            form.addWidget(self.jar_check)
+            form.addWidget(_field_block('是否有 jar / SQL', '按这次升级勾选，会写进签上的「是 / 否」。', flag_row))
         else:
-            self.host_edit.hide()
             self.program_edit.hide()
             self.remark_edit.hide()
-            self.jar_check.hide()
+            form.addWidget(flag_row)
         root.addLayout(form)
         self.preview = QLabel()
         self.preview.setObjectName('field-hint')
@@ -338,6 +342,7 @@ class TicketSubmitDialog(QDialog):
         root.addWidget(QLabel('勾选要写进这份签的需求（可多条）'))
         self.req_list = QListWidget()
         self.req_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.req_list.itemChanged.connect(self._sync_sql_check)
         root.addWidget(self.req_list, 1)
         cfg = QPushButton('配置签库地址…')
         apply_button(cfg, 'secondary', compact=True)
@@ -408,16 +413,16 @@ class TicketSubmitDialog(QDialog):
             self.remark_edit.setText(last.get('remark') or '')
         if 'has_jar' in last:
             self.jar_check.setChecked(bool(last.get('has_jar')))
+        if 'has_sql' in last:
+            self.sql_check.setChecked(bool(last.get('has_sql')))
         self._refresh_preview()
 
     def _reload_requirements(self):
         profile = self._current_profile()
         if profile:
             self.owner_edit.setText(profile.get('owner_default') or '')
-            env = self.env_combo.currentData()
-            host = ((profile.get('envs') or {}).get(env) or {}).get('host') or ''
-            self.host_edit.setText(host)
         items = requirement_candidates_for_profile(self._all_requirements, profile or {})
+        self.req_list.blockSignals(True)
         self.req_list.clear()
         for req in items:
             label = ' '.join(part for part in (req.get('code'), req.get('title')) if part) or '未命名'
@@ -427,7 +432,16 @@ class TicketSubmitDialog(QDialog):
             item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole, req)
             self.req_list.addItem(item)
+        self.req_list.blockSignals(False)
+        self._sync_sql_check()
         self._refresh_preview()
+
+    def _sync_sql_check(self):
+        has_sql = any(
+            item.get('has_sql') or item.get('sql_parts')
+            for item in self._checked_requirements()
+        )
+        self.sql_check.setChecked(has_sql)
 
     def _checked_requirements(self):
         result = []
@@ -493,10 +507,11 @@ class TicketSubmitDialog(QDialog):
                 profile, env, reqs,
                 owner=self.owner_edit.text().strip(),
                 slot=self.slot_combo.currentData(),
-                host=self.host_edit.text().strip(),
+                host='',
                 program_list=self.program_edit.text().strip(),
                 remark=self.remark_edit.text().strip(),
                 has_jar=self.jar_check.isChecked(),
+                has_sql=self.sql_check.isChecked(),
             )
         except Exception as exc:
             show_error(self, '提签失败', str(exc))
@@ -506,10 +521,11 @@ class TicketSubmitDialog(QDialog):
             'env': env,
             'slot': self.slot_combo.currentData() or '',
             'owner': self.owner_edit.text().strip(),
-            'host': self.host_edit.text().strip(),
+            'host': '',
             'program_list': self.program_edit.text().strip(),
             'remark': self.remark_edit.text().strip(),
             'has_jar': self.jar_check.isChecked(),
+            'has_sql': self.sql_check.isChecked(),
         })
         show_success(
             self, '提签已提交',
