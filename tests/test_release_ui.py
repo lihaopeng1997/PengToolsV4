@@ -45,6 +45,7 @@ class ReleaseUiTests(unittest.TestCase):
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], '')
+        self.assertEqual(dialog.values()['dev_local_path'], '')
         dialog = RequirementDialog()
         dialog.system_edit.setCurrentIndex(1)
         dialog.title_edit.setText('测试需求')
@@ -53,6 +54,37 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], 'svn://10/x/DEV_REQ_TEST')
         self.assertEqual(dialog.values()['system'], dialog.system_edit.currentData())
+
+    def test_requirement_dev_local_path_saved_and_opens_from_list(self):
+        from tools.requirements import normalize_requirement
+        with tempfile.TemporaryDirectory() as temp:
+            dialog = RequirementDialog()
+            dialog.title_edit.setText('本地开发地址')
+            dialog.dev_local_path_edit.setText(temp)
+            dialog._accept_checked()
+            values = dialog.values()
+            self.assertEqual(values['svn_url'], '')
+            self.assertEqual(values['dev_local_path'], temp)
+            dialog.close()
+
+            item = normalize_requirement({'title': '旧台账', 'svn_url': None})
+            self.assertEqual(item['svn_url'], '')
+            self.assertEqual(item['dev_local_path'], '')
+
+            requirement = normalize_requirement({
+                'id': 'dev-1', 'title': '可打开', 'dev_local_path': temp,
+            })
+            panel = RequirementPanel()
+            opened = []
+            with patch('panels.requirement_panel.QDesktopServices.openUrl', side_effect=lambda url: opened.append(url.toLocalFile())):
+                panel._open_dev_project_folder(requirement)
+            self.assertEqual(len(opened), 1)
+            self.assertEqual(os.path.normcase(os.path.abspath(opened[0])), os.path.normcase(os.path.abspath(temp)))
+            missing = []
+            with patch('panels.requirement_panel.show_warning', side_effect=lambda *args, **kwargs: missing.append(args[1])):
+                panel._open_dev_project_folder({'dev_local_path': os.path.join(temp, 'gone')})
+            self.assertEqual(missing, ['本地开发地址'])
+            panel.close()
 
     def test_requirement_status_flow_is_available_in_editor_and_filter(self):
         expected = [

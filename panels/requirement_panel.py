@@ -705,7 +705,16 @@ class RequirementDialog(QDialog):
         size_line(self.owner_edit, 'std')
         self.svn_url_edit = QLineEdit(base.get('svn_url', ''))
         size_line(self.svn_url_edit, 'path')
-        self.svn_url_edit.setPlaceholderText('可留空；有开发分支时填写，例如 svn://服务器/.../DEV_prpcar_20260715-REQ-...')
+        self.svn_url_edit.setPlaceholderText('未配置则留空；有开发分支时再填，例如 svn://服务器/.../DEV_prpcar_...')
+        self.dev_local_path_edit = QLineEdit(base.get('dev_local_path', ''))
+        size_line(self.dev_local_path_edit, 'path')
+        self.dev_local_path_edit.setPlaceholderText('本机开发工程目录，配置后可在需求列表右键打开')
+        pick_dev_btn = QPushButton('选择目录')
+        size_compact_button(pick_dev_btn)
+        pick_dev_btn.clicked.connect(self._pick_dev_local_path)
+        dev_path_row = QHBoxLayout()
+        dev_path_row.addWidget(self.dev_local_path_edit, 1)
+        dev_path_row.addWidget(pick_dev_btn)
         self.local_path_edit = QLineEdit(base.get('local_path', ''))
         size_line(self.local_path_edit, 'path')
         self.local_path_edit.setPlaceholderText('可绑定本机已有的 SVN 工作副本或需求资料目录')
@@ -730,17 +739,18 @@ class RequirementDialog(QDialog):
         form.addWidget(QLabel('所属系统'), 3, 0); form.addWidget(self.system_edit, 3, 1)
         form.addWidget(QLabel('负责人'), 3, 2); form.addWidget(self.owner_edit, 3, 3)
         form.addWidget(QLabel('开发分支 SVN 地址'), 4, 0); form.addWidget(self.svn_url_edit, 4, 1, 1, 3)
-        form.addWidget(QLabel('绑定本地目录'), 5, 0); form.addLayout(local_path_row, 5, 1, 1, 3)
+        form.addWidget(QLabel('本地开发项目地址'), 5, 0); form.addLayout(dev_path_row, 5, 1, 1, 3)
+        form.addWidget(QLabel('绑定本地目录'), 6, 0); form.addLayout(local_path_row, 6, 1, 1, 3)
         self.monthly_release = QCheckBox('是否本月上线')
         self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示；若未填上线月份，将默认使用当前自然月。')
         self.monthly_release.setChecked(bool(base.get('is_monthly_release')))
         self.monthly_release.toggled.connect(self._on_monthly_release_toggled)
-        form.addWidget(QLabel('上线月份'), 6, 0); form.addWidget(self.online_month, 6, 1)
-        form.addWidget(QLabel('计划上线'), 6, 2); form.addWidget(self.planned_date, 6, 3)
-        form.addWidget(self.monthly_release, 7, 1)
+        form.addWidget(QLabel('上线月份'), 7, 0); form.addWidget(self.online_month, 7, 1)
+        form.addWidget(QLabel('计划上线'), 7, 2); form.addWidget(self.planned_date, 7, 3)
+        form.addWidget(self.monthly_release, 8, 1)
         if self.monthly_release.isChecked() and not str(self.online_month.text() or '').strip():
             self._on_monthly_release_toggled(True)
-        form.addWidget(QLabel('实际上线'), 7, 2); form.addWidget(self.actual_date, 7, 3)
+        form.addWidget(QLabel('实际上线'), 8, 2); form.addWidget(self.actual_date, 8, 3)
         layout.addLayout(form)
 
         flag_card = QFrame()
@@ -853,6 +863,12 @@ class RequirementDialog(QDialog):
             return
         self.online_month.edit.setText(datetime.date.today().strftime('%Y-%m'))
 
+    def _pick_dev_local_path(self):
+        start = self.dev_local_path_edit.text().strip() or self.local_path_edit.text().strip()
+        path = QFileDialog.getExistingDirectory(self, '选择本地开发项目目录', start)
+        if path:
+            self.dev_local_path_edit.setText(path)
+
     def _bind_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', self.local_path_edit.text())
         if not path:
@@ -861,7 +877,8 @@ class RequirementDialog(QDialog):
         if os.path.isdir(os.path.join(path, '.svn')):
             try:
                 info = working_copy_info(path)
-                if info.get('svn_url'):
+                # 仅当用户尚未填写开发分支时才回填；未配置则保持空
+                if info.get('svn_url') and not self.svn_url_edit.text().strip():
                     self.svn_url_edit.setText(info['svn_url'])
             except SvnError as exc:
                 show_warning(self, '绑定 SVN 目录', f'目录已绑定，但 SVN 信息读取失败：\n{exc}')
@@ -1069,6 +1086,17 @@ class RequirementDialog(QDialog):
                 self.local_path_edit.setFocus()
                 return
             self.local_path_edit.clear()
+        dev_path = self.dev_local_path_edit.text().strip()
+        if dev_path and not os.path.isdir(dev_path):
+            if not confirm_action(
+                self, '本地开发项目地址',
+                f'本地开发目录不存在：\n{dev_path}\n\n是否清空该地址并继续保存其他字段？',
+                confirm_text='清空并继续',
+                danger=False,
+            ):
+                self.dev_local_path_edit.setFocus()
+                return
+            self.dev_local_path_edit.clear()
         for field, label in ((self.online_month, '上线月份'), (self.planned_date, '计划上线'), (self.actual_date, '实际上线')):
             if not field.is_valid():
                 tip = '选月份' if getattr(field, 'month_only', False) else '选日期'
@@ -1096,6 +1124,7 @@ class RequirementDialog(QDialog):
             'priority': self.priority_combo.currentText(), 'system': self.system_edit.currentData() or '',
             'owner': self.owner_edit.text().strip(),
             'svn_url': self.svn_url_edit.text().strip(),
+            'dev_local_path': self.dev_local_path_edit.text().strip(),
             'local_path': local_path,
             'workspace_kind': (
                 'folder' if local_path and not os.path.isdir(os.path.join(local_path, '.svn'))
@@ -2001,7 +2030,8 @@ class RequirementPanel(QWidget):
                 f"进度：{requirement.get('status', '待分析')} · SQL：{count} 个 · 文件：{file_count} 个\n"
                 f"{tip_flags}\n"
                 f"系统：{requirement.get('system') or '—'}\n"
-                f"路径：{requirement.get('local_path') or requirement.get('svn_url') or '—'}"
+                f"路径：{requirement.get('local_path') or requirement.get('svn_url') or '—'}\n"
+                f"开发目录：{requirement.get('dev_local_path') or '—'}"
             )
             item.setToolTip(0, full_tip)
             item.setToolTip(1, full_tip)
@@ -2190,6 +2220,9 @@ class RequirementPanel(QWidget):
         if requirement.get('local_path') and os.path.isdir(requirement['local_path']):
             open_action = menu.addAction('打开文件夹')
             open_action.triggered.connect(lambda: self._open_requirement_folder(requirement))
+        if str(requirement.get('dev_local_path') or '').strip():
+            open_dev = menu.addAction('打开本地开发地址')
+            open_dev.triggered.connect(lambda: self._open_dev_project_folder(requirement))
         menu.addSeparator()
         delete_action = menu.addAction(f"删除选中的 {len(self._selected_requirements())} 项")
         delete_action.triggered.connect(self._delete_requirement)
@@ -2352,6 +2385,16 @@ class RequirementPanel(QWidget):
         if path and os.path.isdir(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _open_dev_project_folder(self, requirement):
+        path = str((requirement or {}).get('dev_local_path') or '').strip()
+        if not path:
+            show_info(self, '本地开发地址', '这条需求还没有配置本地开发项目地址。')
+            return
+        if not os.path.isdir(path):
+            show_warning(self, '本地开发地址', f'目录不存在：\n{path}')
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def _show_requirement(self, current, _previous=None, refresh_files=True):
         # currentItemChanged 在树重建时可能传入已销毁节点
         if getattr(self, '_showing_requirement', False):
@@ -2458,7 +2501,9 @@ class RequirementPanel(QWidget):
         else:
             self.svn_meta.setText('尚未关联代码目录')
         self.svn_meta.setToolTip(
-            f"分支：{requirement.get('svn_url') or '无'}\n本地：{local_path or '无'}"
+            f"分支：{requirement.get('svn_url') or '无'}\n"
+            f"资料：{local_path or '无'}\n"
+            f"开发：{requirement.get('dev_local_path') or '无'}"
         )
         if refresh_files:
             self._refresh_file_tree()

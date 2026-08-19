@@ -123,6 +123,9 @@ def normalize_requirement(requirement):
         item['pinned_at'] = str(item.get('pinned_at') or '')
     else:
         item.pop('pinned_at', None)
+    item['svn_url'] = str(item.get('svn_url') or '').strip()
+    item['local_path'] = str(item.get('local_path') or '').strip()
+    item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
     normalize_flag_done(item)
     return item
 
@@ -262,6 +265,7 @@ def _requirement_corpus(requirement):
         requirement.get('description', ''),
         requirement.get('svn_url', ''),
         requirement.get('local_path', ''),
+        requirement.get('dev_local_path', ''),
         requirement.get('system', ''),
     ]
     for part in requirement.get('sql_parts') or []:
@@ -446,6 +450,7 @@ def requirement_from_text(text, source_name='直接粘贴', systems=None):
         'source_files': [{'name': source_name, 'content': normalized}] if source_name else [],
         'svn_url': '',
         'local_path': '',
+        'dev_local_path': '',
         'svn_revision': '',
         'svn_status': '',
         'created_at': now,
@@ -506,7 +511,8 @@ def requirement_search_text(requirement):
             return cached[1]
     values = [requirement.get(key, '') for key in (
         'code', 'title', 'description', 'record_kind', 'category', 'status', 'priority',
-        'system', 'owner', 'online_month', 'svn_url', 'local_path', 'svn_revision', 'svn_status'
+        'system', 'owner', 'online_month', 'svn_url', 'local_path', 'dev_local_path',
+        'svn_revision', 'svn_status',
     )]
     for part in requirement.get('sql_parts', []) or []:
         values.append(part.get('name', ''))
