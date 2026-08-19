@@ -42,12 +42,36 @@ def run_svn(arguments, cwd=None, check=True, timeout=300):
     return {'returncode': result.returncode, 'output': output}
 
 
-def validate_svn_url(url):
-    value = str(url or '').strip()
-    parsed = urlparse(value)
-    if parsed.scheme not in ('http', 'https', 'svn', 'svn+ssh', 'file'):
-        raise ValueError('请输入 http、https、svn、svn+ssh 或 file 开头的 SVN 地址。')
+def normalize_svn_url(url):
+    """清洗从记事本/资源管理器粘贴的地址：BOM、全角冒号、反斜杠、多余空白。"""
+    value = str(url or '').replace('\ufeff', '').replace('\u200b', '').strip()
+    value = value.translate(str.maketrans({
+        '：': ':', '／': '/', '＼': '\\',
+        '＂': '"', '＇': "'",
+    }))
+    value = value.strip('\'"“”‘’「」『』')
+    value = re.sub(r'\s+', '', value)
+    value = value.replace('\\', '/')
+    match = re.match(r'^(svn\+ssh|svn|https|http|file)(?::/*)?(.*)$', value, re.I)
+    if match:
+        rest = match.group(2).lstrip('/')
+        value = f'{match.group(1).lower()}://{rest}'
     return value.rstrip('/')
+
+
+def validate_svn_url(url):
+    raw = str(url or '').strip()
+    value = normalize_svn_url(raw)
+    parsed = urlparse(value)
+    scheme = (parsed.scheme or '').lower()
+    if scheme not in ('http', 'https', 'svn', 'svn+ssh', 'file') or not (parsed.netloc or parsed.path):
+        shown = raw[:80] or '（空）'
+        raise ValueError(
+            'SVN 地址请写成 svn://服务器/路径\n'
+            '例如：svn://10.128.23.145:13690/项目名/int\n'
+            f'当前填的是：{shown}'
+        )
+    return value
 
 
 def join_svn_url(*parts):

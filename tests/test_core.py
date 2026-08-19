@@ -237,6 +237,27 @@ class PrivateWorkspaceTests(unittest.TestCase):
 
 
 class SvnWorkspaceTests(unittest.TestCase):
+    def test_validate_svn_url_accepts_pasted_intranet_forms(self):
+        from tools.svn_workspace import validate_svn_url
+        samples = [
+            'svn://10.128.23.145:13690/YDPIC/int',
+            'SVN://10.128.23.145:13690/YDPIC/int',
+            r'svn:\\10.128.23.145:13690\YDPIC\int',
+            '\ufeffsvn://10.128.23.145:13690/YDPIC/int',
+            'svn：//10.128.23.145:13690/YDPIC/int',
+            ' svn://10.128.23.145:13690/YDPIC/int ',
+        ]
+        for sample in samples:
+            self.assertEqual(
+                validate_svn_url(sample),
+                'svn://10.128.23.145:13690/YDPIC/int',
+                sample,
+            )
+        with self.assertRaises(ValueError) as ctx:
+            validate_svn_url('不是地址')
+        self.assertIn('当前填的是', str(ctx.exception))
+        self.assertIn('svn://', str(ctx.exception))
+
     def test_month_and_bug_are_inferred_from_folder_names(self):
         self.assertEqual(infer_online_month(r'C:\需求\2026-02车险需求\REQ-001'), '2026-02')
         self.assertEqual(infer_online_month(r'C:\需求\3月上线\REQ-002', default_year=2027), '2027-03')

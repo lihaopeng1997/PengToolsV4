@@ -112,7 +112,7 @@ class TicketSubmitConfigDialog(QDialog):
         for env in TICKET_ENVS:
             url = QLineEdit()
             size_line(url, 'path')
-            url.setPlaceholderText(f'粘贴 {ENV_LABELS[env]} 签所在的 SVN 目录，没有就留空')
+            url.setPlaceholderText(f'例如 svn://10.128.23.145:13690/…/{env.lower()} ，没有就留空')
             host = QLineEdit()
             size_line(host, 'std')
             host.setPlaceholderText('填到签上的升级环境地址，例如 10.128.24.72')
@@ -203,9 +203,11 @@ class TicketSubmitConfigDialog(QDialog):
         profile['owner_default'] = self.owner_edit.text().strip()
         profile['seed_xls'] = self.seed_edit.text().strip()
         profile['source_systems'] = [box.text() for box in self.system_boxes if box.isChecked()]
+        from tools.svn_workspace import normalize_svn_url
         for env, (url, host) in self.env_edits.items():
+            raw = url.text().strip()
             profile.setdefault('envs', {})[env] = {
-                'svn_url': url.text().strip(),
+                'svn_url': normalize_svn_url(raw) if raw else '',
                 'host': host.text().strip(),
             }
         self._profiles[index] = normalize_ticket_profile(profile)
