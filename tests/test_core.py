@@ -262,6 +262,33 @@ class SvnWorkspaceTests(unittest.TestCase):
         self.assertIn('当前填的是', str(ctx.exception))
         self.assertIn('svn://', str(ctx.exception))
 
+    def test_validate_svn_url_keeps_spaces_and_cn_brackets_in_path(self):
+        from urllib.parse import unquote
+        from tools.svn_workspace import encode_svn_url_for_cli, safe_folder_name, validate_svn_url
+        raw = (
+            'svn://10.128.23.145:13690/Project_Management/项目管理文档/需求设计文档/车险核心/2026/'
+            'REQ-20260410-0004-SP 北分关于交强险电子保单内展示【完税凭证号】及【开具税务机关】相应信息的申请'
+        )
+        self.assertEqual(validate_svn_url(raw), raw)
+        self.assertEqual(validate_svn_url(f' {raw} '), raw)
+        self.assertIn('SP 北分', validate_svn_url(raw))
+        self.assertEqual(
+            validate_svn_url('svn://10.128.23.145:13690/YDPIC / int'),
+            'svn://10.128.23.145:13690/YDPIC/int',
+        )
+        self.assertEqual(
+            validate_svn_url('file:///C:/Users/Lenovo/repo'),
+            'file:///C:/Users/Lenovo/repo',
+        )
+        encoded = encode_svn_url_for_cli(validate_svn_url(raw))
+        self.assertIn('REQ-20260410-0004-SP%20', encoded)
+        self.assertNotIn(' ', encoded.split('svn://', 1)[-1].replace('%20', ''))
+        self.assertEqual(unquote(encoded), raw)
+        self.assertEqual(encode_svn_url_for_cli(encoded), encoded)
+        leaf = raw.rsplit('/', 1)[-1]
+        self.assertEqual(safe_folder_name(leaf), leaf)
+        self.assertEqual(safe_folder_name('REQ-1%20北分【完税凭证号】'), 'REQ-1 北分【完税凭证号】')
+
     def test_month_and_bug_are_inferred_from_folder_names(self):
         self.assertEqual(infer_online_month(r'C:\需求\2026-02车险需求\REQ-001'), '2026-02')
         self.assertEqual(infer_online_month(r'C:\需求\3月上线\REQ-002', default_year=2027), '2027-03')

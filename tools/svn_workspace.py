@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse, urlsplit, urlunsplit
 
 
 class SvnError(RuntimeError):
@@ -43,20 +43,37 @@ def run_svn(arguments, cwd=None, check=True, timeout=300):
 
 
 def normalize_svn_url(url):
-    """清洗从记事本/资源管理器粘贴的地址：BOM、全角冒号、反斜杠、多余空白。"""
+    """清洗从记事本/资源管理器粘贴的地址：BOM、全角冒号、反斜杠、首尾空白。
+
+    路径段内的空格必须保留（需求文档目录常含空格，如「REQ-xxxx-SP 北分…」）。
+    只去掉换行/制表，以及「://」「/」两侧因粘贴产生的空白。
+    """
     value = str(url or '').replace('\ufeff', '').replace('\u200b', '').strip()
     value = value.translate(str.maketrans({
         '：': ':', '／': '/', '＼': '\\',
         '＂': '"', '＇': "'",
     }))
     value = value.strip('\'"“”‘’「」『』')
-    value = re.sub(r'\s+', '', value)
+    value = re.sub(r'[\r\n\t]+', '', value)
     value = value.replace('\\', '/')
+    value = re.sub(r'\s*:\s*/\s*/\s*', '://', value)
+    value = re.sub(r'(://)\s+', r'\1', value)
+    value = re.sub(r'\s*/\s*', '/', value)
     match = re.match(r'^(svn\+ssh|svn|https|http|file)(?::/*)?(.*)$', value, re.I)
     if match:
+        scheme = match.group(1).lower()
         rest = match.group(2).lstrip('/')
-        value = f'{match.group(1).lower()}://{rest}'
+        # file:///C:/... 必须保留第三斜杠，否则 Windows 盘符会被 svn 解析成 host
+        prefix = ':///' if scheme == 'file' else '://'
+        value = f'{scheme}{prefix}{rest}'
     return value.rstrip('/')
+
+
+def encode_svn_url_for_cli(url):
+    """IRI → URI：空格、中文、【】等编码后再交给 svn 命令行，已编码的 %XX 不二次编码。"""
+    parsed = urlsplit(str(url or ''))
+    path = quote(unquote(parsed.path), safe='/%:')
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
 
 
 def validate_svn_url(url):
@@ -74,6 +91,10 @@ def validate_svn_url(url):
     return value
 
 
+def _remote_svn_url(url):
+    return encode_svn_url_for_cli(validate_svn_url(url))
+
+
 def join_svn_url(*parts):
     chunks = [str(parts[0] or '').rstrip('/')]
     for part in parts[1:]:
@@ -85,7 +106,7 @@ def join_svn_url(*parts):
 
 def svn_list(url, recursive=False):
     """列出远程目录条目名。目录名不带末尾 /。"""
-    clean = validate_svn_url(url)
+    clean = _remote_svn_url(url)
     args = ['list', clean]
     if recursive:
         args.insert(1, '--recursive')
@@ -99,7 +120,7 @@ def svn_list(url, recursive=False):
 
 
 def svn_export(url, target_path):
-    clean = validate_svn_url(url)
+    clean = _remote_svn_url(url)
     target = os.path.abspath(target_path)
     parent = os.path.dirname(target)
     os.makedirs(parent, exist_ok=True)
@@ -108,7 +129,7 @@ def svn_export(url, target_path):
 
 
 def svn_mkdir_remote(url, message='create directory'):
-    clean = validate_svn_url(url)
+    clean = _remote_svn_url(url)
     return run_svn(['mkdir', '--parents', clean, '-m', str(message or 'create directory')])
 
 
@@ -116,7 +137,7 @@ def svn_import(local_path, url, message):
     target = os.path.abspath(local_path)
     if not os.path.isdir(target):
         raise ValueError(f'本地目录不存在：{target}')
-    clean = validate_svn_url(url)
+    clean = _remote_svn_url(url)
     result = run_svn(['import', target, clean, '-m', str(message or 'import')], timeout=300)
     return {'url': clean, 'output': result['output']}
 
@@ -418,7 +439,7 @@ def scan_working_copies(root):
 
 
 def checkout(url, target_path):
-    clean_url = validate_svn_url(url)
+    clean_url = _remote_svn_url(url)
     target = os.path.abspath(target_path)
     if os.path.exists(target) and os.listdir(target):
         raise ValueError('目标目录已存在且不为空，请更换需求名称或目录。')
@@ -705,5 +726,6 @@ def workspace_files(root, limit=None):
 
 
 def safe_folder_name(value):
-    name = re.sub(r'[\\/:*?"<>|]+', '_', str(value or '').strip()).strip(' .')
+    name = unquote(str(value or '').strip())
+    name = re.sub(r'[\\/:*?"<>|]+', '_', name).strip(' .')
     return name[:80] or '未命名需求'
