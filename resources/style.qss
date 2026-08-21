@@ -2498,3 +2498,46 @@ QPushButton#danger-btn {
 QPushButton#danger-btn:hover {
     background: __STATUS_DANGER_BG__;
 }
+
+/* 测试任务点清单 */
+QFrame#req-test-points-card {
+    background: __SURFACE__;
+    border: none;
+}
+QWidget#test-points-editor {
+    background: transparent;
+}
+QLabel#test-points-hint {
+    color: __PRIMARY_ACTIVE__;
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+QLabel#test-points-empty {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    padding: 16px 8px;
+}
+QFrame#test-point-row {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+QFrame#test-point-row:hover {
+    border-color: __PRIMARY_SOFT__;
+}
+QFrame#test-point-row[done="true"] {
+    background: __SURFACE__;
+}
+QLabel#test-point-text {
+    color: __TEXT_STRONG__;
+    font-size: 13px;
+}
+QFrame#test-point-row[done="true"] QLabel#test-point-text {
+    color: __TEXT_MUTED__;
+}
+QDialog#test-points-dialog {
+    background: __SURFACE__;
+}

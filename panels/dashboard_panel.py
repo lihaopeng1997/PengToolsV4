@@ -21,7 +21,7 @@ from tools.dashboard_release_items import (
     release_month_for,
     save_release_board,
 )
-from tools.requirements import load_requirements, systems_display_text
+from tools.requirements import load_requirements, systems_display_text, test_points_button_text
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.page_chrome import make_page_header
@@ -159,10 +159,12 @@ class TaskRow(QFrame):
             self.status_label.setObjectName('status-pill')
         self.status_label.setVisible(bool(status))
         layout.addWidget(self.status_label)
+        self.action_buttons = []
         for text, callback in actions:
             action = QPushButton(text)
             apply_button(action, 'ghost', compact=True)
             action.clicked.connect(callback)
+            self.action_buttons.append(action)
             layout.addWidget(action)
         arrow = QLabel('›')
         arrow.setObjectName('dashboard-row-arrow')
@@ -188,6 +190,13 @@ class TaskRow(QFrame):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            widget = self.childAt(event.position().toPoint()) if hasattr(event, 'position') else None
+            current = widget
+            while current is not None and current is not self:
+                if isinstance(current, QPushButton):
+                    super().mouseReleaseEvent(event)
+                    return
+                current = current.parentWidget()
             self.clicked.emit(self._payload)
         super().mouseReleaseEvent(event)
 
@@ -693,15 +702,21 @@ class DashboardPanel(QWidget):
                 ),
             )
             status_text = item.get('status') or ''
+        test_action = (
+            test_points_button_text(item.get('test_points'), zh=zh),
+            lambda _checked=False, current=item: self._open_test_points(current),
+        )
         row = TaskRow(
             item, title, meta, status_text,
             identifier=identifier,
             fixed_height=TaskRow.ROW_HEIGHT,
             highlight=is_pinned(item) and not completed,
             done=completed,
-            actions=(action,),
+            actions=(test_action, action),
         )
         row.clicked.connect(self._on_requirement_clicked)
+        if row.action_buttons:
+            row.test_points_btn = row.action_buttons[0]
         return row
 
     def _toggle_completed_section(self):
@@ -738,6 +753,25 @@ class DashboardPanel(QWidget):
             keys.discard(key)
         board['completed_requirement_keys'] = sorted(keys)
         self._save_release_board(board)
+        self._refresh_release_after_action()
+
+    def _open_test_points(self, item):
+        """首页直接维护测试点，不进入完整需求编辑。"""
+        from panels.test_points_editor import TestPointsDialog
+
+        current = item if isinstance(item, dict) else {}
+        req_id = str(current.get('id') or '')
+        if req_id:
+            fresh = next(
+                (entry for entry in load_requirements() if str(entry.get('id') or '') == req_id),
+                None,
+            )
+            if fresh:
+                current = fresh
+        dialog = TestPointsDialog(current, parent=self, persist=True)
+        dialog.exec()
+        if dialog.saved():
+            self.requirements_updated.emit()
         self._refresh_release_after_action()
 
     def _on_requirement_clicked(self, item):

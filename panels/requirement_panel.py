@@ -154,10 +154,11 @@ from tools.requirements import (
     CATEGORIES, FLAG_DEFS, FLAG_CHIP_LABELS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
     binding_for, classify_requirement, flag_chip_text, flag_is_active, flag_status_text,
     load_requirements, merge_working_copies, merged_sql, normalize_flag_done,
-    normalize_requirement, requirement_from_text, requirement_from_working_copy,
+    normalize_requirement, normalize_test_points, requirement_from_text, requirement_from_working_copy,
     requirement_matches_system, requirement_search_text, requirement_systems,
     save_requirements, sync_system_fields, systems_display_text,
 )
+from panels.test_points_editor import TestPointsEditor
 from tools.svn_workspace import (
     SVN_DIRTY_STATUSES, SvnError, add_existing_files, add_text_file, changed_paths, checkout, commit_paths,
     commit_working_copy, lock_file, lock_files, month_end_date, revert_paths,
@@ -850,6 +851,17 @@ class RequirementDialog(QDialog):
         self.description_edit = QPlainTextEdit(base.get('description', ''))
         self.description_edit.setMinimumHeight(150)
         layout.addWidget(self.description_edit)
+        layout.addWidget(QLabel('测试任务点'))
+        self.test_points_editor = TestPointsEditor(
+            base.get('test_points'),
+            description=base.get('description', ''),
+            persist_callback=None,
+            compact=True,
+            auto_seed=False,
+            parent=self,
+        )
+        layout.addWidget(self.test_points_editor)
+        self.description_edit.textChanged.connect(self._sync_test_points_description)
 
         source_top = QHBoxLayout()
         source_top.addWidget(QLabel('需求相关文档'))
@@ -1188,6 +1200,10 @@ class RequirementDialog(QDialog):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._source_files[row] = dialog.entry(); self._refresh_lists('source')
 
+    def _sync_test_points_description(self):
+        if hasattr(self, 'test_points_editor'):
+            self.test_points_editor.set_description(self.description_edit.toPlainText())
+
     def _classify(self):
         content = self.description_edit.toPlainText()
         seed = {
@@ -1319,6 +1335,7 @@ class RequirementDialog(QDialog):
             'code': self.code_edit.text().strip(), 'title': self.title_edit.text().strip(),
             'record_kind': self.kind_combo.currentText(),
             'description': self.description_edit.toPlainText().strip(),
+            'test_points': self.test_points_editor.points() if hasattr(self, 'test_points_editor') else [],
             'category': self.category_combo.currentText(), 'status': self.status_combo.currentText(),
             'priority': self.priority_combo.currentText(),
             'system': names[0] if names else '',
@@ -1920,6 +1937,24 @@ class RequirementPanel(QWidget):
         link_layout.addLayout(link_actions)
         link_layout.addStretch(1)
         self.detail_tabs.addTab(link_section, '发布与联动')
+
+        test_section = QFrame()
+        test_section.setObjectName('req-test-points-card')
+        test_layout = QVBoxLayout(test_section)
+        test_layout.setContentsMargins(12, 10, 12, 10)
+        test_layout.setSpacing(8)
+        test_head = QLabel('勾选、添加或从需求说明提取测试点；修改会立刻保存，不必打开完整编辑。')
+        test_head.setObjectName('field-hint')
+        test_head.setWordWrap(True)
+        test_layout.addWidget(test_head)
+        self.test_points_editor = TestPointsEditor(
+            persist_callback=self._persist_test_points,
+            compact=False,
+            auto_seed=True,
+            parent=self,
+        )
+        test_layout.addWidget(self.test_points_editor, 1)
+        self.detail_tabs.addTab(test_section, '测试点')
 
         self.actions_card = QFrame(); self.actions_card.hide()
 
@@ -2528,6 +2563,23 @@ class RequirementPanel(QWidget):
             return
         self._toggle_flag_done(self._current, flag_key)
 
+    def _persist_test_points(self, points):
+        if not isinstance(self._current, dict):
+            return
+        target = next(
+            (item for item in self._requirements if item.get('id') == self._current.get('id')),
+            self._current,
+        )
+        target['test_points'] = normalize_test_points(points)
+        target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+        try:
+            save_requirements(self._requirements)
+        except OSError as exc:
+            show_error(self, '保存失败', f'无法写入测试点：\n{exc}')
+            return
+        self._current = target
+        self.requirements_changed.emit()
+
     def _toggle_flag_done(self, requirement, flag_key, force_done=None):
         if not isinstance(requirement, dict):
             return
@@ -2730,6 +2782,9 @@ class RequirementPanel(QWidget):
                 self.file_tree.clear()
             finally:
                 self.file_tree.blockSignals(False)
+            if hasattr(self, 'test_points_editor'):
+                self.test_points_editor.setEnabled(False)
+                self.test_points_editor.set_source(points=[], description='')
             return
 
         requirement = normalize_requirement(self._current)
@@ -2804,6 +2859,12 @@ class RequirementPanel(QWidget):
             pass
         self.docx_btn.setEnabled(has_sql)
         self.sql_btn.setEnabled(has_sql)
+        if hasattr(self, 'test_points_editor'):
+            self.test_points_editor.setEnabled(True)
+            self.test_points_editor.set_source(
+                points=requirement.get('test_points'),
+                description=requirement.get('description') or '',
+            )
 
     def _set_busy(self, message=''):
         busy = bool(message)
@@ -3806,6 +3867,9 @@ class RequirementPanel(QWidget):
         target['temporary_upgrade'] = bool(values.get('temporary_upgrade'))
         target['sql_parts'] = list(values.get('sql_parts') or [])
         target['source_files'] = list(values.get('source_files') or [])
+        target['test_points'] = normalize_test_points(
+            values['test_points'] if 'test_points' in values else target.get('test_points')
+        )
         target['flag_done'] = {
             key: bool(old_done.get(key)) if flag_is_active(target, key) else False
             for key, _short, _full in FLAG_DEFS

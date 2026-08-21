@@ -99,6 +99,92 @@ def flag_chip_text(key, is_done: bool) -> str:
     return f'{mark} {label} · {state}'
 
 
+# 测试任务点：只认列表行，不把普通段落拆成条目
+_TEST_POINT_MAX_LEN = 160
+_TEST_POINT_LIST_RE = re.compile(
+    r'^\s*(?:'
+    r'(?:[-*•·□☐☑✓✔])\s+'
+    r'|\[(?: |x|X|✓)\]\s+'
+    r'|\d+[\.、\)]\s*'
+    r')(.+?)\s*$'
+)
+_TEST_POINT_DONE_PREFIX_RE = re.compile(r'^\s*(?:☑|✓|✔|\[(?:x|X|✓)\])')
+
+
+def normalize_test_points(value):
+    """把任意输入收成 [{id, text, done}]；非法/空文案丢弃。"""
+    items = []
+    seen_ids = set()
+    if not isinstance(value, list):
+        return items
+    for raw in value:
+        existing_id = ''
+        if isinstance(raw, str):
+            text = raw.strip()
+            done = False
+        elif isinstance(raw, dict):
+            text = str(raw.get('text') or '').strip()
+            done = bool(raw.get('done'))
+            existing_id = str(raw.get('id') or '').strip()
+        else:
+            continue
+        if not text:
+            continue
+        point_id = existing_id or uuid.uuid4().hex
+        if point_id in seen_ids:
+            point_id = uuid.uuid4().hex
+        seen_ids.add(point_id)
+        items.append({'id': point_id, 'text': text, 'done': done})
+    return items
+
+
+def extract_test_points_from_text(text):
+    """从需求说明中识别列表行。普通段落、过长行不提取。"""
+    points = []
+    seen = set()
+    for raw in str(text or '').splitlines():
+        match = _TEST_POINT_LIST_RE.match(raw)
+        if not match:
+            continue
+        body = match.group(1).strip()
+        if not body or len(body) > _TEST_POINT_MAX_LEN:
+            continue
+        key = body.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append({
+            'id': uuid.uuid4().hex,
+            'text': body,
+            'done': bool(_TEST_POINT_DONE_PREFIX_RE.match(raw)),
+        })
+    return points
+
+
+def test_points_progress(points):
+    items = normalize_test_points(points)
+    total = len(items)
+    done = sum(1 for item in items if item.get('done'))
+    return done, total
+
+
+def test_points_button_text(points, zh=True):
+    done, total = test_points_progress(points)
+    if total <= 0:
+        return '测试点' if zh else 'Tests'
+    return f'{done}/{total}'
+
+
+def save_requirement_test_points(requirement_id, points, path=None):
+    """即时写回测试点，不改需求业务状态。"""
+    normalized = normalize_test_points(points)
+
+    def _apply(item):
+        item['test_points'] = normalized
+
+    return update_requirement_by_id(requirement_id, _apply, path=path)
+
+
 def _clean_system_name(value):
     return str(value or '').strip()
 
@@ -294,6 +380,7 @@ def normalize_requirement(requirement):
     item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
     sync_system_fields(item)
     normalize_flag_done(item)
+    item['test_points'] = normalize_test_points(item.get('test_points'))
     return item
 
 
@@ -712,6 +799,11 @@ def requirement_search_text(requirement):
         values.append(part.get('file_type', ''))
         for row in (part.get('rows', []) or [])[:40]:
             values.extend(str(value) for value in row[:12])
+    for point in requirement.get('test_points') or []:
+        if isinstance(point, dict):
+            values.append(point.get('text', ''))
+        else:
+            values.append(str(point or ''))
     blob = build_search_blob(*values)
     if cache_key:
         # 简单 LRU：超上限时整表清空，避免无限涨
