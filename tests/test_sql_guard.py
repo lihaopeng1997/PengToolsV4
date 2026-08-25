@@ -24,6 +24,14 @@ class SqlGuardTests(unittest.TestCase):
         self.assertFalse(is_read_query('drop table prpCmain'))
         self.assertIn('DELETE', reject_reason('delete from t'))
 
+    def test_redis_and_mongo_read_only(self):
+        self.assertEqual(reject_reason('GET user:1', 'redis'), '')
+        self.assertEqual(reject_reason('SCAN 0 MATCH * COUNT 20', 'redis'), '')
+        self.assertIn('DEL', reject_reason('DEL user:1', 'redis'))
+        self.assertIn('SET', reject_reason('SET k v', 'redis'))
+        self.assertEqual(reject_reason('{"collection":"user","filter":{}}', 'mongodb'), '')
+        self.assertIn('drop', reject_reason('db.user.drop()', 'mongodb').lower())
+
     def test_nav_14_is_workbench(self):
         self.assertEqual(display_name(14, 'zh'), '模型工作台')
         self.assertIn(14, NAV_ITEMS)

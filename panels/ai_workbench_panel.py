@@ -142,11 +142,18 @@ class _ConnectionDialog(QDialog):
         elif dialect == 'dameng':
             self.database_label.setText('模式/库名' if zh else 'Schema')
             self.database.setPlaceholderText('')
+        elif dialect == 'redis':
+            self.database_label.setText('DB 序号' if zh else 'DB index')
+            self.database.setPlaceholderText('0')
+        elif dialect == 'mongodb':
+            self.database_label.setText('库名' if zh else 'Database')
+            self.database.setPlaceholderText('例如 admin / prpcar')
         else:
             self.database_label.setText('库名' if zh else 'Database')
             self.database.setPlaceholderText('mysql 库名，例如 test')
-        if not self.port.text().strip() or self.port.text().strip() in {'1521', '2881', '3306', '5236'}:
-            self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306 if dialect == 'mysql' else 1521)))
+        defaults = {'1521', '2881', '3306', '5236', '6379', '27017'}
+        if not self.port.text().strip() or self.port.text().strip() in defaults:
+            self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
 
     def payload(self) -> tuple[dict, str]:
         item = dict(self._item)
@@ -251,7 +258,7 @@ class AiWorkbenchPanel(QWidget):
 
         self.sql_edit = QPlainTextEdit()
         self.sql_edit.setFont(QFont('Consolas', 10))
-        self.sql_edit.setPlaceholderText('SELECT ...')
+        self.sql_edit.setPlaceholderText('SELECT ...  /  Redis GET key  /  Mongo {"collection":"t","filter":{}}')
         self.sql_edit.setMinimumHeight(120)
         right_l.addWidget(self.sql_edit, 1)
 
@@ -296,7 +303,7 @@ class AiWorkbenchPanel(QWidget):
         self.conn_del_btn.setText('删除' if zh else 'Delete')
         self.test_btn.setText('测试连接' if zh else 'Test')
         self.sync_btn.setText('同步表' if zh else 'Sync tables')
-        self.table_title.setText('表' if zh else 'Tables')
+        self.table_title.setText('表 / 集合 / 键' if zh else 'Tables / collections / keys')
         self.nl_input.setPlaceholderText(
             '例如：帮我查询 prpCmain 表中的数据' if zh else
             'e.g. show rows from prpCmain'
@@ -379,7 +386,7 @@ class AiWorkbenchPanel(QWidget):
             return
         if kind == 'query':
             sql = str(kwargs.get('sql') or self.sql_edit.toPlainText())
-            reason = reject_reason(sql)
+            reason = reject_reason(sql, str(item.get('dialect') or 'oracle'))
             if reason:
                 show_warning(self, '模型工作台', reason)
                 return
@@ -398,7 +405,10 @@ class AiWorkbenchPanel(QWidget):
             self.table_list.clear()
             for name in tables:
                 self.table_list.addItem(QListWidgetItem(str(name)))
-            show_info(self, '模型工作台', f'已同步 {len(tables)} 张表' if zh else f'{len(tables)} table(s)')
+            kind_name = '键' if str((self._current_conn() or {}).get('dialect')) == 'redis' else (
+                '集合' if str((self._current_conn() or {}).get('dialect')) == 'mongodb' else '表'
+            )
+            show_info(self, '模型工作台', f'已同步 {len(tables)} 个{kind_name}' if zh else f'{len(tables)} item(s)')
             return
         if kind == 'schema':
             self._schema_text = str(payload.get('summary') or '')
@@ -406,7 +416,7 @@ class AiWorkbenchPanel(QWidget):
         if kind == 'query':
             append = bool(kwargs.get('append'))
             self._last_sql = str(payload.get('sql') or self._last_sql)
-            self._offset = int(payload.get('offset') or 0) + len(payload.get('rows') or [])
+            self._offset = int(payload.get('offset') or 0)
             self._has_more = bool(payload.get('has_more'))
             self._fill_result(payload, append=append)
             shown = self.result.rowCount()
@@ -465,7 +475,11 @@ class AiWorkbenchPanel(QWidget):
         if not name:
             return
         dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
-        if dialect in ('oceanbase', 'mysql'):
+        if dialect == 'redis':
+            sql = f'SCAN 0 MATCH {name} COUNT 20'
+        elif dialect == 'mongodb':
+            sql = '{"collection":"%s","filter":{}}' % name.replace('"', '')
+        elif dialect in ('oceanbase', 'mysql'):
             sql = f'SELECT * FROM `{name}`'
         else:
             sql = f'SELECT * FROM {name}'
@@ -483,10 +497,16 @@ class AiWorkbenchPanel(QWidget):
             return
         item = self._current_conn() or {}
         dialect = str(item.get('dialect') or 'oracle')
+        if dialect == 'redis':
+            output_hint = '只输出一条只读 Redis 命令，例如 GET key 或 SCAN 0 MATCH user:* COUNT 20。不要 SQL，不要 DEL/SET/FLUSH/KEYS。'
+        elif dialect == 'mongodb':
+            output_hint = '只输出 JSON：{"collection":"集合名","filter":{}}。不要 Oracle/MySQL SQL，不要 drop/delete/insert。'
+        else:
+            output_hint = '只生成一条可执行的 SELECT 查询，不要解释，不要改数。'
         context_parts = [
             f'当前已选择数据库：{dialect}',
             f'连接名：{item.get("name") or ""}',
-            '只生成一条可执行的 SELECT 查询，不要解释。',
+            output_hint,
         ]
         if self._schema_text:
             context_parts.append(self._schema_text)
@@ -494,7 +514,7 @@ class AiWorkbenchPanel(QWidget):
             names = [self.table_list.item(i).text() for i in range(min(40, self.table_list.count()))]
             context_parts.append('已知表：' + '、'.join(names))
         self._busy(True)
-        self.result_status.setText('正在让模型生成 SQL…' if zh else 'Generating SQL…')
+        self.result_status.setText('正在生成查询…' if zh else 'Generating query…')
         self._nl_worker = _NlWorker(prompt, '\n'.join(context_parts), load_ai_local())
         self._nl_worker.completed.connect(lambda sql: self._on_nl_sql(sql, sql_only=bool(sql_only)))
         self._nl_worker.failed.connect(self._on_nl_fail)
@@ -508,15 +528,13 @@ class AiWorkbenchPanel(QWidget):
         text = str(sql or '').strip()
         self.sql_edit.setPlainText(text)
         if sql_only:
-            self.result_status.setText('已生成 SQL，未执行' if self.language == 'zh' else 'SQL generated')
+            self.result_status.setText('已生成查询，未执行' if self.language == 'zh' else 'Query generated')
             self._busy(False)
             return
-        reason = reject_reason(text)
-        if reason or not is_read_query(text):
-            show_warning(
-                self, '模型工作台',
-                (reason or '不是查询语句') + '\nSQL 已放入编辑器，不会自动执行。',
-            )
+        dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
+        reason = reject_reason(text, dialect)
+        if reason:
+            show_warning(self, '模型工作台', reason + '\n内容已放入编辑器，不会自动执行。')
             self._busy(False)
             return
         self._run_sql(reset=True)

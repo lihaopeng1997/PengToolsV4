@@ -20,6 +20,8 @@ DIALECTS = (
     ('mysql', 'MySQL'),
     ('oceanbase', 'OceanBase'),
     ('dameng', '达梦'),
+    ('redis', 'Redis'),
+    ('mongodb', 'MongoDB'),
 )
 
 DEFAULT_PORTS = {
@@ -27,7 +29,11 @@ DEFAULT_PORTS = {
     'oceanbase': 2881,
     'mysql': 3306,
     'dameng': 5236,
+    'redis': 6379,
+    'mongodb': 27017,
 }
+
+NOSQL = frozenset({'redis', 'mongodb'})
 
 
 class DbError(Exception):
@@ -148,12 +154,61 @@ def open_connection(item: dict):
             return dmPython.connect(user=username, password=password, server=f'{host}:{port}', schema=database or None)
         except Exception as exc:
             raise DbError(f'达梦连接失败：{exc}') from exc
+    if dialect == 'redis':
+        try:
+            import redis
+        except ImportError as exc:
+            raise DbError('未安装 redis，请安装依赖后重试') from exc
+        db_index = 0
+        try:
+            db_index = int(database or 0)
+        except ValueError:
+            db_index = 0
+        try:
+            client = redis.Redis(
+                host=host or '127.0.0.1',
+                port=port,
+                password=password or None,
+                username=username or None,
+                db=db_index,
+                decode_responses=True,
+                socket_connect_timeout=8,
+            )
+            client.ping()
+            return client
+        except Exception as exc:
+            raise DbError(f'Redis 连接失败：{exc}') from exc
+    if dialect == 'mongodb':
+        try:
+            from pymongo import MongoClient
+        except ImportError as exc:
+            raise DbError('未安装 pymongo，请安装依赖后重试') from exc
+        if not database:
+            raise DbError('MongoDB 请填写库名')
+        try:
+            kwargs = {'host': host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
+            if username:
+                kwargs['username'] = username
+                kwargs['password'] = password
+            client = MongoClient(**kwargs)
+            client.admin.command('ping')
+            db = client[database]
+            return db
+        except Exception as exc:
+            raise DbError(f'MongoDB 连接失败：{exc}') from exc
     raise DbError(f'不支持的数据库类型：{dialect}')
 
 
 def close_connection(conn) -> None:
     if conn is None:
         return
+    client = getattr(conn, 'client', None)
+    if client is not None and client is not conn:
+        try:
+            client.close()
+            return
+        except Exception:
+            pass
     try:
         conn.close()
     except Exception:
@@ -166,6 +221,13 @@ def _cursor(conn):
 
 def list_tables(conn, dialect: str) -> list[str]:
     dialect = (dialect or 'oracle').lower()
+    if dialect == 'redis':
+        return _redis_list_keys(conn, limit=80)
+    if dialect == 'mongodb':
+        try:
+            return sorted(str(name) for name in conn.list_collection_names())
+        except Exception as exc:
+            raise DbError(f'读取集合失败：{exc}') from exc
     cur = _cursor(conn)
     try:
         if dialect in ('oceanbase', 'mysql'):
@@ -190,6 +252,17 @@ def list_tables(conn, dialect: str) -> list[str]:
 def list_columns(conn, dialect: str, table: str) -> list[str]:
     dialect = (dialect or 'oracle').lower()
     table = str(table or '').strip()
+    if dialect == 'redis':
+        try:
+            return [str(conn.type(table) or 'none')]
+        except Exception:
+            return []
+    if dialect == 'mongodb':
+        try:
+            doc = conn[table].find_one() or {}
+            return [str(key) for key in list(doc.keys())[:20]]
+        except Exception:
+            return []
     cur = _cursor(conn)
     try:
         if dialect in ('oceanbase', 'mysql'):
@@ -241,6 +314,151 @@ def _wrap_paged(sql: str, dialect: str, offset: int, limit: int) -> str:
     )
 
 
+def _redis_list_keys(conn, limit: int = 80) -> list[str]:
+    keys = []
+    try:
+        for key in conn.scan_iter(match='*', count=min(int(limit), 200)):
+            keys.append(str(key))
+            if len(keys) >= int(limit):
+                break
+    except Exception as exc:
+        raise DbError(f'Redis SCAN 失败：{exc}') from exc
+    return keys
+
+
+def _parse_redis_command(text: str) -> list[str]:
+    import shlex
+    raw = strip_sql_comments(text)
+    if raw.endswith(';'):
+        raw = raw[:-1].strip()
+    try:
+        parts = shlex.split(raw)
+    except ValueError:
+        parts = raw.split()
+    return [str(item) for item in parts if str(item)]
+
+
+def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
+    parts = _parse_redis_command(sql)
+    if not parts:
+        raise DbError('Redis 命令为空')
+    cmd = parts[0].lower()
+    args = parts[1:]
+    rows = []
+    columns = ['field', 'value']
+    cursor_out = 0
+    has_more = False
+    if cmd == 'scan':
+        cursor = int(offset or 0)
+        match = '*'
+        count = int(limit)
+        if 'match' in [a.lower() for a in args]:
+            for i, token in enumerate(args):
+                if str(token).lower() == 'match' and i + 1 < len(args):
+                    match = args[i + 1]
+                if str(token).lower() == 'count' and i + 1 < len(args):
+                    try:
+                        count = int(args[i + 1])
+                    except ValueError:
+                        pass
+        cursor_out, keys = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
+        columns = ['key']
+        rows = [[str(key)] for key in keys]
+        has_more = int(cursor_out or 0) != 0
+        return {
+            'columns': columns, 'rows': rows, 'offset': int(cursor_out or 0),
+            'limit': int(limit), 'has_more': has_more, 'sql': sql,
+        }
+    if cmd in ('get', 'type', 'ttl', 'pttl', 'strlen', 'exists'):
+        key = args[0] if args else ''
+        value = conn.execute_command(*parts)
+        rows = [[cmd, _stringify(value)]]
+    elif cmd == 'mget':
+        values = conn.mget(args) if args else []
+        rows = [[key, _stringify(val)] for key, val in zip(args, values)]
+    elif cmd == 'hgetall':
+        mapping = conn.hgetall(args[0]) if args else {}
+        rows = [[str(k), _stringify(v)] for k, v in mapping.items()]
+    elif cmd in ('hkeys', 'hvals'):
+        values = conn.execute_command(*parts) or []
+        rows = [[str(item)] for item in values]
+        columns = ['value']
+    elif cmd == 'lrange':
+        values = conn.execute_command(*parts) or []
+        rows = [[str(i), _stringify(v)] for i, v in enumerate(values)]
+        columns = ['index', 'value']
+    elif cmd in ('smembers',):
+        values = list(conn.smembers(args[0]) if args else [])
+        rows = [[_stringify(v)] for v in values]
+        columns = ['value']
+    else:
+        value = conn.execute_command(*parts)
+        if isinstance(value, (list, tuple)):
+            rows = [[_stringify(item)] for item in value]
+            columns = ['value']
+        elif isinstance(value, dict):
+            rows = [[str(k), _stringify(v)] for k, v in value.items()]
+        else:
+            rows = [[cmd, _stringify(value)]]
+    sliced = rows[int(offset): int(offset) + int(limit)]
+    return {
+        'columns': columns,
+        'rows': sliced,
+        'offset': int(offset) + len(sliced),
+        'limit': int(limit),
+        'has_more': int(offset) + len(sliced) < len(rows),
+        'sql': sql,
+    }
+
+
+def _parse_mongo_query(text: str) -> tuple[str, dict]:
+    import json
+    import re
+    from tools.ai_harness import strip_markdown_fence
+    raw = strip_markdown_fence(strip_sql_comments(text))
+    match = re.search(r'db\.([A-Za-z0-9_]+)\.find\((.*)\)', raw, re.DOTALL)
+    if match:
+        collection = match.group(1)
+        body = (match.group(2) or '').strip()
+        filt = json.loads(body) if body else {}
+        if not isinstance(filt, dict):
+            filt = {}
+        return collection, filt
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise DbError('MongoDB 查询必须是 JSON 对象')
+    collection = str(data.get('collection') or data.get('coll') or '').strip()
+    if not collection:
+        raise DbError('MongoDB JSON 需要 collection')
+    filt = data.get('filter') if isinstance(data.get('filter'), dict) else {}
+    return collection, filt
+
+
+def _run_mongo(conn, sql: str, offset: int, limit: int) -> dict:
+    collection, filt = _parse_mongo_query(sql)
+    cursor = conn[collection].find(filt).skip(int(offset)).limit(int(limit) + 1)
+    docs = list(cursor)
+    has_more = len(docs) > int(limit)
+    docs = docs[: int(limit)]
+    keys = []
+    for doc in docs:
+        for key in doc.keys():
+            if key not in keys:
+                keys.append(str(key))
+    columns = keys or ['_id']
+    rows = []
+    for doc in docs:
+        rows.append([_stringify(doc.get(col)) for col in columns])
+    return {
+        'columns': columns,
+        'rows': rows,
+        'offset': int(offset) + len(rows),
+        'limit': int(limit),
+        'has_more': has_more,
+        'sql': sql,
+    }
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ''
@@ -251,9 +469,14 @@ def _stringify(value: Any) -> str:
 
 
 def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:
-    reason = reject_reason(sql)
+    kind = str(dialect or 'oracle').lower()
+    reason = reject_reason(sql, kind)
     if reason:
         raise DbError(reason)
+    if kind == 'redis':
+        return _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+    if kind == 'mongodb':
+        return _run_mongo(conn, sql, int(offset), min(int(limit), MAX_ROWS))
     if not is_read_query(sql):
         raise DbError('仅允许查询语句')
     wrapped = _wrap_paged(sql, dialect, offset, min(int(limit), MAX_ROWS))
@@ -274,7 +497,7 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
         return {
             'columns': columns,
             'rows': data,
-            'offset': int(offset),
+            'offset': int(offset) + len(data),
             'limit': int(limit),
             'has_more': has_more,
             'sql': sql,

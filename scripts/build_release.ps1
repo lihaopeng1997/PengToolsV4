@@ -235,6 +235,8 @@ try {
         '--hidden-import', 'tools.harness_project',
         '--hidden-import', 'oracledb',
         '--hidden-import', 'pymysql',
+        '--hidden-import', 'redis',
+        '--hidden-import', 'pymongo',
         '--hidden-import', 'panels.ai_workbench_panel',
         '--hidden-import', 'tools.db_connect',
         '--hidden-import', 'tools.sql_guard',
