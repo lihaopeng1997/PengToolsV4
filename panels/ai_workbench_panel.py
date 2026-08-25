@@ -39,13 +39,14 @@ class _DbWorker(QThread):
         try:
             conn = open_connection(self.item)
             dialect = str(self.item.get('dialect') or 'oracle')
-            if self.kind == 'test':
+            if self.kind in ('test', 'tables'):
                 tables = list_tables(conn, dialect)
-                self.completed.emit({'ok': True, 'tables': tables})
-            elif self.kind == 'tables':
-                self.completed.emit({'tables': list_tables(conn, dialect)})
-            elif self.kind == 'schema':
-                self.completed.emit({'summary': schema_summary(conn, dialect)})
+                summary = ''
+                try:
+                    summary = schema_summary(conn, dialect)
+                except Exception:
+                    summary = ''
+                self.completed.emit({'ok': True, 'tables': tables, 'summary': summary})
             elif self.kind == 'query':
                 result = run_read_query(
                     conn, dialect, self.kwargs.get('sql') or '',
@@ -65,17 +66,17 @@ class _NlWorker(QThread):
     completed = pyqtSignal(str)
     failed = pyqtSignal(str)
 
-    def __init__(self, prompt: str, context: str, cfg):
+    def __init__(self, prompt: str, context: str, cfg, task='sql.draft'):
         super().__init__()
         self.prompt = prompt
         self.context = context
         self.cfg = cfg
+        self.task = task or 'sql.draft'
 
     def run(self):
         try:
             from tools.ptools_harness import run_task
-            sql = run_task('sql.draft', self.prompt, context=self.context, cfg=self.cfg)
-            self.completed.emit(str(sql or ''))
+            self.completed.emit(run_task(self.task, self.prompt, context=self.context, cfg=self.cfg))
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -242,6 +243,8 @@ class AiWorkbenchPanel(QWidget):
         right_l.setContentsMargins(0, 0, 0, 0)
         right_l.setSpacing(8)
         nl_row = QHBoxLayout()
+        self.mode_combo = QComboBox()
+        size_enum_combo(self.mode_combo)
         self.nl_input = QLineEdit()
         size_line(self.nl_input, 'path')
         self.nl_input.returnPressed.connect(self._run_natural_query)
@@ -251,6 +254,7 @@ class AiWorkbenchPanel(QWidget):
         self.nl_sql_btn = QPushButton()
         apply_button(self.nl_sql_btn, 'secondary', compact=True)
         self.nl_sql_btn.clicked.connect(lambda: self._run_natural_query(sql_only=True))
+        nl_row.addWidget(self.mode_combo)
         nl_row.addWidget(self.nl_input, 1)
         nl_row.addWidget(self.nl_run_btn)
         nl_row.addWidget(self.nl_sql_btn)
@@ -304,13 +308,16 @@ class AiWorkbenchPanel(QWidget):
         self.test_btn.setText('测试连接' if zh else 'Test')
         self.sync_btn.setText('同步表' if zh else 'Sync tables')
         self.table_title.setText('表 / 集合 / 键' if zh else 'Tables / collections / keys')
+        self.mode_combo.clear()
+        self.mode_combo.addItem('查库' if zh else 'Query DB', 'db')
+        self.mode_combo.addItem('Linux 命令' if zh else 'Linux', 'linux')
         self.nl_input.setPlaceholderText(
-            '例如：帮我查询 prpCmain 表中的数据' if zh else
-            'e.g. show rows from prpCmain'
+            '查库：帮我查询 prpCmain；Linux：查最近 OOM' if zh else
+            'DB: query prpCmain · Linux: find recent OOM'
         )
         self.nl_run_btn.setText('查询' if zh else 'Query')
-        self.nl_sql_btn.setText('只生成 SQL' if zh else 'SQL only')
-        self.run_sql_btn.setText('执行 SQL' if zh else 'Run SQL')
+        self.nl_sql_btn.setText('只生成' if zh else 'Generate only')
+        self.run_sql_btn.setText('执行' if zh else 'Run')
         self.next_btn.setText('下一页' if zh else 'Next page')
         self.all_btn.setText('获取全部' if zh else 'Fetch all')
         self._refresh_model_status()
@@ -402,16 +409,14 @@ class AiWorkbenchPanel(QWidget):
         zh = self.language == 'zh'
         if kind in ('test', 'tables'):
             tables = payload.get('tables') or []
+            self._schema_text = str(payload.get('summary') or '')
             self.table_list.clear()
             for name in tables:
                 self.table_list.addItem(QListWidgetItem(str(name)))
-            kind_name = '键' if str((self._current_conn() or {}).get('dialect')) == 'redis' else (
-                '集合' if str((self._current_conn() or {}).get('dialect')) == 'mongodb' else '表'
-            )
-            show_info(self, '模型工作台', f'已同步 {len(tables)} 个{kind_name}' if zh else f'{len(tables)} item(s)')
-            return
-        if kind == 'schema':
-            self._schema_text = str(payload.get('summary') or '')
+            dialect = str((self._current_conn() or {}).get('dialect') or '')
+            kind_name = '键' if dialect == 'redis' else ('集合' if dialect == 'mongodb' else '表')
+            extra = '，已提供给模型作表结构' if self._schema_text and zh else ''
+            show_info(self, '模型工作台', f'已同步 {len(tables)} 个{kind_name}{extra}' if zh else f'{len(tables)} item(s)')
             return
         if kind == 'query':
             append = bool(kwargs.get('append'))
@@ -495,6 +500,10 @@ class AiWorkbenchPanel(QWidget):
         if not prompt:
             show_warning(self, '模型工作台', '请输入要查询的内容' if zh else 'Enter a question')
             return
+        mode = self.mode_combo.currentData() if hasattr(self, 'mode_combo') else 'db'
+        if mode == 'linux':
+            self._run_linux_nl()
+            return
         item = self._current_conn() or {}
         dialect = str(item.get('dialect') or 'oracle')
         if dialect == 'redis':
@@ -515,10 +524,45 @@ class AiWorkbenchPanel(QWidget):
             context_parts.append('已知表：' + '、'.join(names))
         self._busy(True)
         self.result_status.setText('正在生成查询…' if zh else 'Generating query…')
-        self._nl_worker = _NlWorker(prompt, '\n'.join(context_parts), load_ai_local())
-        self._nl_worker.completed.connect(lambda sql: self._on_nl_sql(sql, sql_only=bool(sql_only)))
+        self._nl_worker = _NlWorker(prompt, '\n'.join(context_parts), load_ai_local(), task='sql.draft')
+        self._nl_worker.completed.connect(lambda sql: self._on_nl_sql(str(sql or ''), sql_only=bool(sql_only)))
         self._nl_worker.failed.connect(self._on_nl_fail)
         self._nl_worker.start()
+
+    def _run_linux_nl(self):
+        zh = self.language == 'zh'
+        prompt = self.nl_input.text().strip()
+        self._busy(True)
+        self.result_status.setText('正在生成只读 Linux 命令…' if zh else 'Generating Linux command…')
+        self._nl_worker = _NlWorker(prompt, '只允许 grep/tail/ls/cat 等只读命令。', load_ai_local(), task='linux.query')
+        self._nl_worker.completed.connect(self._on_linux_nl)
+        self._nl_worker.failed.connect(self._on_nl_fail)
+        self._nl_worker.start()
+
+    def _on_linux_nl(self, payload):
+        zh = self.language == 'zh'
+        data = payload if isinstance(payload, dict) else {}
+        allowed = list(data.get('allowed') or [])
+        rejected = list(data.get('rejected') or [])
+        summary = str(data.get('summary') or '')
+        lines = []
+        if summary:
+            lines.append('# ' + summary)
+        lines.extend(allowed)
+        self.sql_edit.setPlainText('\n'.join(lines) if lines else (summary or ''))
+        self._fill_result({
+            'columns': ['command', 'status'],
+            'rows': [[cmd, '可复制到日志排查执行' if zh else 'copy to log inspect'] for cmd in allowed]
+            + [[cmd, reason] for cmd, reason in rejected],
+        })
+        self.next_btn.setEnabled(False)
+        self.all_btn.setEnabled(False)
+        self.result_status.setText(
+            'Linux 只读命令已生成，不会自动上机。复制到「日志排查」再执行。'
+            if zh else
+            'Read-only Linux commands generated. Copy to Log Inspect to run.'
+        )
+        self._busy(False)
 
     def _on_nl_fail(self, message: str):
         self._on_db_fail(message)
