@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""模型工作台：多方言查询连接（Oracle / MySQL / OceanBase / 达梦）。"""
+"""模型工作台：多方言查询连接（Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB）。
+
+Oracle 瘦模式依赖 cryptography 的 pbkdf2 等子模块；打包时必须显式导入，否则 DPY-3016。
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,17 @@ import uuid
 from typing import Any
 
 from config import HARNESS_CONNECTIONS_FILE, ensure_config_dir
+
+# PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
+try:
+    from cryptography import x509  # noqa: F401
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: F401
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes  # noqa: F401
+    from cryptography.hazmat.primitives.asymmetric import padding  # noqa: F401
+    from cryptography.hazmat.primitives.kdf import pbkdf2  # noqa: F401
+    import encodings.idna  # noqa: F401
+except Exception:
+    pass
 from tools.sql_guard import is_read_query, leading_verb, reject_reason, strip_sql_comments
 
 PAGE_SIZE = 20
@@ -131,7 +145,14 @@ def open_connection(item: dict):
         try:
             return oracledb.connect(user=username, password=password, dsn=dsn)
         except Exception as exc:
-            raise DbError(f'Oracle 连接失败：{exc}') from exc
+            text = str(exc)
+            if 'DPY-3016' in text or 'pbkdf2' in text:
+                raise DbError(
+                    'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
+                    '或本机已装 Instant Client 时，把其 bin 加入 PATH 后重试。'
+                    f' 原始错误：{text}'
+                ) from exc
+            raise DbError(f'Oracle 连接失败：{text}') from exc
     if dialect in ('oceanbase', 'mysql'):
         try:
             import pymysql

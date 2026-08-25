@@ -32,6 +32,10 @@ class SqlGuardTests(unittest.TestCase):
         self.assertEqual(reject_reason('{"collection":"user","filter":{}}', 'mongodb'), '')
         self.assertIn('drop', reject_reason('db.user.drop()', 'mongodb').lower())
 
+    def test_oracledb_thin_crypto_imports(self):
+        from cryptography.hazmat.primitives.kdf import pbkdf2
+        self.assertTrue(hasattr(pbkdf2, 'PBKDF2HMAC'))
+
     def test_nav_14_is_workbench(self):
         self.assertEqual(display_name(14, 'zh'), '模型工作台')
         self.assertIn(14, NAV_ITEMS)
