@@ -401,13 +401,15 @@ class SettingsPanel(QWidget):
         self.ai_enabled_label = QLabel()
         ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
         self.ai_base_url = QLineEdit()
-        self.ai_base_url.setPlaceholderText('http://10.x.x.x:8000/v1')
+        self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
         size_line(self.ai_base_url, 'path')
         self.ai_base_url_label = QLabel()
         ai_form.addRow(self.ai_base_url_label, self.ai_base_url)
         self.ai_model = QComboBox()
         self.ai_model.setEditable(True)
         size_pick_combo(self.ai_model)
+        if self.ai_model.lineEdit() is not None:
+            self.ai_model.lineEdit().setPlaceholderText('qwen3.6')
         self.ai_model_label = QLabel()
         ai_form.addRow(self.ai_model_label, self.ai_model)
         self.ai_token = QLineEdit()
@@ -415,7 +417,12 @@ class SettingsPanel(QWidget):
         size_line(self.ai_token, 'path')
         self.ai_token_label = QLabel()
         ai_form.addRow(self.ai_token_label, self.ai_token)
-        self.ai_timeout = CompactStepper(5, 300, 60, suffix=' s')
+        self.ai_app_tag = QLineEdit()
+        self.ai_app_tag.setText('proxyai')
+        size_line(self.ai_app_tag, 'std')
+        self.ai_app_tag_label = QLabel()
+        ai_form.addRow(self.ai_app_tag_label, self.ai_app_tag)
+        self.ai_timeout = CompactStepper(5, 300, 120, suffix=' s')
         self.ai_timeout_label = QLabel()
         ai_form.addRow(self.ai_timeout_label, self.ai_timeout)
         self.ai_ssl_verify = QCheckBox()
@@ -611,7 +618,8 @@ class SettingsPanel(QWidget):
             self.ai_model.setCurrentText(model)
         self.ai_model.blockSignals(False)
         self.ai_token.setText(decrypt_token(cfg.get('token') or ''))
-        self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 60))
+        self.ai_app_tag.setText(str(cfg.get('app_tag') or 'proxyai'))
+        self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
         if cfg.get('enabled') and cfg.get('base_url'):
             self.ai_status.setText('已保存，可点探测检查连通' if self.language == 'zh' else 'Saved. Probe to verify.')
@@ -627,17 +635,22 @@ class SettingsPanel(QWidget):
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'token': encrypt_token(self.ai_token.text()),
+            'app_tag': self.ai_app_tag.text().strip() or 'proxyai',
         })
 
     def _save_intranet_model(self):
         from ui.confirm_dialog import show_error, show_success
         zh = self.language == 'zh'
         try:
-            from tools.intranet_llm import save_ai_local, validate_base_url
+            from tools.intranet_llm import canonical_base_url, save_ai_local, validate_base_url
             cfg = self._ai_cfg_from_ui()
             if cfg.get('enabled'):
+                cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
+            elif cfg.get('base_url'):
                 validate_base_url(cfg.get('base_url') or '')
-            save_ai_local(cfg)
+            saved = save_ai_local(cfg)
+            if saved.get('base_url'):
+                self.ai_base_url.setText(saved['base_url'])
             self.ai_status.setText('已保存' if zh else 'Saved')
             show_success(self, '内网模型' if zh else 'Intranet model', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
         except Exception as exc:
@@ -648,11 +661,15 @@ class SettingsPanel(QWidget):
         from ui.confirm_dialog import show_error
         zh = self.language == 'zh'
         try:
-            from tools.intranet_llm import save_ai_local, validate_base_url
+            from tools.intranet_llm import canonical_base_url, save_ai_local
             cfg = self._ai_cfg_from_ui()
             cfg['enabled'] = True
-            validate_base_url(cfg.get('base_url') or '')
+            cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
+            if not cfg.get('model'):
+                cfg['model'] = 'qwen3.6'
+                self.ai_model.setCurrentText('qwen3.6')
             save_ai_local(cfg)
+            self.ai_base_url.setText(cfg['base_url'])
             self.ai_enabled.setChecked(True)
         except Exception as exc:
             self.ai_status.setText(str(exc))
@@ -920,15 +937,23 @@ class SettingsPanel(QWidget):
         self.ai_enabled_label.setText('启用' if zh else 'Enable')
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
         self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
+        self.ai_base_url.setToolTip(
+            '可粘贴 JetBrains ProxyAI 的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'
+            if zh else
+            'Paste the JetBrains ProxyAI Chat Completions URL; /chat/completions is stripped.'
+        )
         self.ai_model_label.setText('模型' if zh else 'Model')
-        self.ai_token_label.setText('Token（可选）' if zh else 'Token (optional)')
+        self.ai_token_label.setText('API Key' if zh else 'API Key')
+        self.ai_app_tag_label.setText('应用标签' if zh else 'App tag')
+        self.ai_app_tag.setToolTip('请求头 X-LLM-Application-Tag，ProxyAI 网关为 proxyai')
         self.ai_timeout_label.setText('超时' if zh else 'Timeout')
         self.ai_ssl_label.setText('HTTPS 证书' if zh else 'TLS verify')
         self.ai_ssl_verify.setText('校验（内网自签可关）' if zh else 'Verify (off for self-signed)')
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
-            '只连你填写的内网地址（10/172/192.168 或本机）。默认关闭，不访问公网模型。Token 用 DPAPI 存 data/ai_local.json。'
+            '对齐 JetBrains ProxyAI：可粘贴 /v1/chat/completions 完整 URL；请求带 Authorization 与 X-LLM-Application-Tag: proxyai；'
+            'stream + max_tokens=8192。只连内网/本机，Token 用 DPAPI 存 data/ai_local.json。'
             if zh else
-            'Only the configured private/loopback URL. Off by default; public model hosts are blocked. Token is DPAPI-stored in data/ai_local.json.'
+            'Matches JetBrains ProxyAI: paste the full /v1/chat/completions URL. Sends Bearer + X-LLM-Application-Tag: proxyai.'
         )
