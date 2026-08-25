@@ -40,6 +40,9 @@ class StartupBootTests(unittest.TestCase):
             self.assertIsNotNone(window.interface_debug_panel)
             self.assertIs(window.stack.currentWidget(), window.interface_debug_panel)
             self.assertTrue(window._startup_loading.isHidden())
+            window._show_panel(14)
+            self.assertIsNotNone(window.ai_workbench_panel)
+            self.assertIs(window.stack.currentWidget(), window.ai_workbench_panel)
         finally:
             if window.hotkey_service:
                 window.hotkey_service.unregister()

@@ -18,6 +18,7 @@ MAX_FLOATING_SHORTCUTS = 6
 NAV_MODEL = [
     ('workspace', [
         (0, '首页', 'Home', 'home'),
+        (14, '模型工作台', 'Model Workbench', 'database'),
     ]),
     ('delivery', [
         (10, '需求管理', 'Requirements', 'requirements'),
@@ -79,10 +80,11 @@ def _build_items() -> dict[int, NavItem]:
         11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
         12: ('多浏览器接口实时排查与本机请求测试', 'Multi-browser API capture and local request test'),
         13: ('SSH 多机并行日志关键字截取与本地导出', 'SSH multi-host log keyword extract and local export'),
+        14: ('自然语言查库与只读 SQL 结果', 'Natural-language database query'),
     }
     # 首页固定为底部入口；设置不进悬浮快捷位
     # 11 = 格式工具；12 = 接口排查；13 = 日志排查（不改 0–10 历史含义）
-    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13}
+    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
         for nav_index, name_zh, name_en, icon_role in entries:
@@ -116,7 +118,7 @@ def _build_items() -> dict[int, NavItem]:
 NAV_ITEMS: dict[int, NavItem] = _build_items()
 
 # 编辑列表展示顺序（不含首页、设置）
-FLOATING_EDIT_ORDER = [10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
+FLOATING_EDIT_ORDER = [14, 10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
 
 
 def get_nav_item(index: int) -> NavItem | None:

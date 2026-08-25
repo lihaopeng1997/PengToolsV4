@@ -77,8 +77,10 @@
 | 10 | 需求管理 | **常显，禁止再隐藏** |
 | 11 | 格式工具 | 常显 |
 | 12 | 接口排查 | 常显（Private） |
+| 13 | 日志排查 | 常显 |
+| 14 | 模型工作台 | 常显 |
 
-- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）；导航 11 → Stack 10（FormatToolsPanel）；导航 12 → Stack 11（InterfaceDebugPanel）。
+- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）；导航 11 → Stack 10（FormatToolsPanel）；导航 12 → Stack 11（InterfaceDebugPanel）；导航 13 → Stack 12（OpsLogPanel）；导航 14 → Stack 13（AiWorkbenchPanel）。
 - 只有「自我学习」允许彩蛋隐藏；密钥与解锁入口勿擅自改、勿写进普通 UI 文案。
 
 ## 数据与升级硬规则

@@ -102,6 +102,7 @@ NAV_ICON_BY_INDEX = {
     11: 'json',  # 格式工具
     12: 'api-debug',  # 接口排查
     13: 'search',  # 日志排查
+    14: 'database',  # 模型工作台（stack 13，nav 14）
 }
 
 

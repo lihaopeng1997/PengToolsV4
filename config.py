@@ -72,6 +72,7 @@ AI_LOCAL_FILE = os.path.join(CONFIG_DIR, 'ai_local.json')
 HARNESS_DIR = os.path.join(CONFIG_DIR, 'harness')
 HARNESS_SKILLS_DIR = os.path.join(HARNESS_DIR, 'skills')
 HARNESS_PROJECTS_DIR = os.path.join(HARNESS_DIR, 'projects')
+HARNESS_CONNECTIONS_FILE = os.path.join(HARNESS_DIR, 'connections.json')
 DEFAULT_SETTINGS = {
     'font_size': 12,
     'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）

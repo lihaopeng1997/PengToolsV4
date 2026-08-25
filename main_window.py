@@ -20,12 +20,12 @@ from config import (
     load_settings, normalize_settings, save_settings,
 )
 
-# stack index → 属性名（与 _stack_index_for_nav 一致，0–12）
+# stack index → 属性名（与 _stack_index_for_nav 一致，0–13）
 _STACK_PANEL_ATTRS = (
     'dashboard_panel', 'credit_panel', 'sql_panel', 'docx_panel',
     'vin_panel', 'gateway_panel', 'ops_panel', 'settings_panel',
     'personal_panel', 'requirement_panel', 'format_panel',
-    'interface_debug_panel', 'ops_log_panel',
+    'interface_debug_panel', 'ops_log_panel', 'ai_workbench_panel',
 )
 
 
@@ -208,6 +208,8 @@ class MainWindow(QMainWindow):
         panel.open_vin.connect(lambda: self._show_panel(4))
         panel.open_gateway.connect(lambda: self._show_panel(5))
         panel.open_ops.connect(lambda: self._show_panel(13))
+        if hasattr(panel, 'open_ai_workbench'):
+            panel.open_ai_workbench.connect(lambda: self._show_panel(14))
         if hasattr(panel, 'open_requirements'):
             panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(panel, 'open_requirement'):
@@ -410,6 +412,7 @@ class MainWindow(QMainWindow):
             10: self._ensure_format_panel,
             11: self._ensure_interface_debug_panel,
             12: self._ensure_ops_log_panel,
+            13: self._ensure_ai_workbench_panel,
         }
         fn = ensure_map.get(stack)
         if fn is not None:
@@ -575,8 +578,8 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–10 历史 nav index + 11 格式工具 + 12 接口排查 + 13 日志排查
-        self.nav_buttons = [None] * 14
+        # 0–13 历史 + 14 模型工作台
+        self.nav_buttons = [None] * 15
         self._group_labels = {}
         self._nav_order = []
 
@@ -865,6 +868,7 @@ class MainWindow(QMainWindow):
             self.vin_panel, self.gateway_panel, self.ops_panel,
             self.settings_panel, self.personal_panel, self.requirement_panel,
             self.format_panel, self.interface_debug_panel, self.ops_log_panel,
+            self.ai_workbench_panel,
         ):
             if panel is not None:
                 yield panel
@@ -894,6 +898,16 @@ class MainWindow(QMainWindow):
         self._apply_panel_chrome(panel)
         return panel
 
+    def _ensure_ai_workbench_panel(self):
+        if self.ai_workbench_panel is not None:
+            return self.ai_workbench_panel
+        from panels.ai_workbench_panel import AiWorkbenchPanel
+        panel = AiWorkbenchPanel(self.language)
+        self._mount_panel(13, panel)
+        self.ai_workbench_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
     def _broadcast_layout_mode(self, mode: str, low_height: bool):
         for panel in self._iter_created_panels():
             if hasattr(panel, 'apply_layout_mode'):
@@ -915,6 +929,8 @@ class MainWindow(QMainWindow):
             return 11  # interface debug
         if index == 13:
             return 12  # ops log inspect
+        if index == 14:
+            return 13  # model workbench
         return index
 
     def _show_panel(self, index):
@@ -979,6 +995,7 @@ class MainWindow(QMainWindow):
             11: 'JSON / XML / SQL / 文本辅助离线格式化',
             12: '接口排查 · 抓包中会占用系统代理，离开本页自动暂停代理',
             13: '日志排查 · SSH 会话 / 多机日志导出',
+            14: '模型工作台 · 自然语言查库，一页 20 行',
         }
         statuses_en = {
             0: 'Offline workspace ready', 1: 'Personal and unit document test data',
@@ -991,6 +1008,7 @@ class MainWindow(QMainWindow):
             11: 'Offline JSON / XML / SQL / text helpers',
             12: 'API debug · system proxy paused when you leave this page',
             13: 'Log inspect · SSH session / multi-host export',
+            14: 'Model workbench · NL query, 20 rows per page',
         }
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
