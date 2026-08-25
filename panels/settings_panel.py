@@ -683,7 +683,7 @@ class SettingsPanel(QWidget):
         from ui.confirm_dialog import show_error, show_success
         zh = self.language == 'zh'
         folder = QFileDialog.getExistingDirectory(
-            self, '选择 mapper 目录（MyBatis XML）' if zh else 'Pick mapper folder'
+            self, '选择含表名的 XML 目录（可选）' if zh else 'Pick XML folder (optional)'
         )
         if not folder:
             return
@@ -1018,7 +1018,7 @@ class SettingsPanel(QWidget):
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
-            'PTools Harness：选项目包（默认车险约定），可安装本地 .md 技能。扫描表名只读 MyBatis XML，不内置 CodeGraph、不打包源码。'
+            '选项目包、安装本地技能。真正查数请到「模型工作台」连接 Oracle / MySQL / OceanBase / 达梦。'
             if zh else
-            'PTools Harness: pick a project pack, install local .md skills. Table scan reads MyBatis XML only — no CodeGraph in the EXE.'
+            'Project packs and local skills. Query data in Model Workbench via Oracle / MySQL / OceanBase / Dameng.'
         )

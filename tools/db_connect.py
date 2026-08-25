@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""模型工作台：多方言查询连接（Oracle / OceanBase-MySQL / 达梦）。"""
+"""模型工作台：多方言查询连接（Oracle / MySQL / OceanBase / 达梦）。"""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ CELL_MAX = 200
 
 DIALECTS = (
     ('oracle', 'Oracle'),
-    ('oceanbase', 'OceanBase（MySQL 协议）'),
     ('mysql', 'MySQL'),
+    ('oceanbase', 'OceanBase'),
     ('dameng', '达梦'),
 )
 

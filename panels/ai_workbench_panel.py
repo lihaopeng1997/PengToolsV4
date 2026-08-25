@@ -98,7 +98,7 @@ class _ConnectionDialog(QDialog):
         index = self.dialect.findData(str(self._item.get('dialect') or 'oracle'))
         self.dialect.setCurrentIndex(index if index >= 0 else 0)
         size_enum_combo(self.dialect)
-        self.dialect.currentIndexChanged.connect(self._fill_default_port)
+        self.dialect.currentIndexChanged.connect(self._on_dialect_changed)
         self.host = QLineEdit(str(self._item.get('host') or ''))
         size_line(self.host, 'path')
         self.port = QLineEdit(str(self._item.get('port') or DEFAULT_PORTS['oracle']))
@@ -115,7 +115,8 @@ class _ConnectionDialog(QDialog):
         form.addRow('类型' if zh else 'Type', self.dialect)
         form.addRow('主机' if zh else 'Host', self.host)
         form.addRow('端口' if zh else 'Port', self.port)
-        form.addRow('库/SID' if zh else 'Database', self.database)
+        self.database_label = QLabel('库名' if zh else 'Database')
+        form.addRow(self.database_label, self.database)
         form.addRow('用户' if zh else 'User', self.username)
         form.addRow('密码' if zh else 'Password', self.password)
         root.addLayout(form)
@@ -130,13 +131,22 @@ class _ConnectionDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(ok)
         root.addLayout(buttons)
-        if not self._item.get('port'):
-            self._fill_default_port()
+        self._on_dialect_changed()
 
-    def _fill_default_port(self):
+    def _on_dialect_changed(self):
         dialect = self.dialect.currentData() or 'oracle'
+        zh = self.language == 'zh'
+        if dialect == 'oracle':
+            self.database_label.setText('SID/服务名' if zh else 'SID')
+            self.database.setPlaceholderText('ORCL / 服务名')
+        elif dialect == 'dameng':
+            self.database_label.setText('模式/库名' if zh else 'Schema')
+            self.database.setPlaceholderText('')
+        else:
+            self.database_label.setText('库名' if zh else 'Database')
+            self.database.setPlaceholderText('mysql 库名，例如 test')
         if not self.port.text().strip() or self.port.text().strip() in {'1521', '2881', '3306', '5236'}:
-            self.port.setText(str(DEFAULT_PORTS.get(dialect, 1521)))
+            self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306 if dialect == 'mysql' else 1521)))
 
     def payload(self) -> tuple[dict, str]:
         item = dict(self._item)
