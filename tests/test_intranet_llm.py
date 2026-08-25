@@ -51,7 +51,7 @@ class IntranetLlmTests(unittest.TestCase):
         self.assertEqual(strip_markdown_fence('```sql\nselect 1;\n```'), 'select 1;')
         self.assertEqual(strip_markdown_fence('select 1;'), 'select 1;')
 
-    def test_canonical_url_strips_proxyai_chat_path(self):
+    def test_canonical_url_strips_chat_completions_path(self):
         full = 'http://10.128.25.142:18002/v1/chat/completions'
         self.assertEqual(canonical_base_url(full), 'http://10.128.25.142:18002/v1')
         self.assertEqual(
@@ -60,11 +60,13 @@ class IntranetLlmTests(unittest.TestCase):
         )
         self.assertTrue(host_allowed('10.128.25.142')[0])
 
-    def test_proxyai_headers_include_app_tag(self):
-        headers = build_headers({'app_tag': 'proxyai', 'token': ''})
-        self.assertEqual(headers['X-LLM-Application-Tag'], 'proxyai')
+    def test_headers_omit_app_tag_when_empty(self):
+        headers = build_headers({'app_tag': '', 'token': ''})
         self.assertEqual(headers['Content-Type'], 'application/json')
         self.assertNotIn('Authorization', headers)
+        self.assertNotIn('X-LLM-Application-Tag', headers)
+        tagged = build_headers({'app_tag': 'pengtools', 'token': ''})
+        self.assertEqual(tagged['X-LLM-Application-Tag'], 'pengtools')
 
     def test_parse_sse_concatenates_delta_content(self):
         raw = (
@@ -74,9 +76,9 @@ class IntranetLlmTests(unittest.TestCase):
         )
         self.assertEqual(_parse_sse_text(raw), 'select 1')
 
-    def test_defaults_match_proxyai_body(self):
+    def test_defaults_match_openai_compat_body(self):
         cfg = normalize_ai_local({})
-        self.assertEqual(cfg['app_tag'], 'proxyai')
+        self.assertEqual(cfg['app_tag'], '')
         self.assertEqual(cfg['max_tokens'], 8192)
         self.assertEqual(cfg['timeout_seconds'], 120)
 

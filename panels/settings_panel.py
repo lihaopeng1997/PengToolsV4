@@ -418,7 +418,7 @@ class SettingsPanel(QWidget):
         self.ai_token_label = QLabel()
         ai_form.addRow(self.ai_token_label, self.ai_token)
         self.ai_app_tag = QLineEdit()
-        self.ai_app_tag.setText('proxyai')
+        self.ai_app_tag.setPlaceholderText('一般不用填')
         size_line(self.ai_app_tag, 'std')
         self.ai_app_tag_label = QLabel()
         ai_form.addRow(self.ai_app_tag_label, self.ai_app_tag)
@@ -618,7 +618,7 @@ class SettingsPanel(QWidget):
             self.ai_model.setCurrentText(model)
         self.ai_model.blockSignals(False)
         self.ai_token.setText(decrypt_token(cfg.get('token') or ''))
-        self.ai_app_tag.setText(str(cfg.get('app_tag') or 'proxyai'))
+        self.ai_app_tag.setText(str(cfg.get('app_tag') or ''))
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
         if cfg.get('enabled') and cfg.get('base_url'):
@@ -635,7 +635,7 @@ class SettingsPanel(QWidget):
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'token': encrypt_token(self.ai_token.text()),
-            'app_tag': self.ai_app_tag.text().strip() or 'proxyai',
+            'app_tag': self.ai_app_tag.text().strip(),
         })
 
     def _save_intranet_model(self):
@@ -938,22 +938,21 @@ class SettingsPanel(QWidget):
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
         self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
         self.ai_base_url.setToolTip(
-            '可粘贴 JetBrains ProxyAI 的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'
+            '可粘贴内网已验证的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'
             if zh else
-            'Paste the JetBrains ProxyAI Chat Completions URL; /chat/completions is stripped.'
+            'Paste a working intranet Chat Completions URL; /chat/completions is stripped.'
         )
         self.ai_model_label.setText('模型' if zh else 'Model')
         self.ai_token_label.setText('API Key' if zh else 'API Key')
-        self.ai_app_tag_label.setText('应用标签' if zh else 'App tag')
-        self.ai_app_tag.setToolTip('请求头 X-LLM-Application-Tag，ProxyAI 网关为 proxyai')
+        self.ai_app_tag_label.setText('应用标签（可选）' if zh else 'App tag (optional)')
+        self.ai_app_tag.setToolTip('对应请求头 X-LLM-Application-Tag；网关不要求则留空')
         self.ai_timeout_label.setText('超时' if zh else 'Timeout')
         self.ai_ssl_label.setText('HTTPS 证书' if zh else 'TLS verify')
         self.ai_ssl_verify.setText('校验（内网自签可关）' if zh else 'Verify (off for self-signed)')
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
-            '对齐 JetBrains ProxyAI：可粘贴 /v1/chat/completions 完整 URL；请求带 Authorization 与 X-LLM-Application-Tag: proxyai；'
-            'stream + max_tokens=8192。只连内网/本机，Token 用 DPAPI 存 data/ai_local.json。'
+            '按 OpenAI 兼容接口连接内网模型。可粘贴完整 /v1/chat/completions 地址；只连内网/本机，Key 用 DPAPI 存 data/ai_local.json。'
             if zh else
-            'Matches JetBrains ProxyAI: paste the full /v1/chat/completions URL. Sends Bearer + X-LLM-Application-Tag: proxyai.'
+            'OpenAI-compatible intranet endpoint. Paste the full /v1/chat/completions URL. Key is DPAPI-stored in data/ai_local.json.'
         )

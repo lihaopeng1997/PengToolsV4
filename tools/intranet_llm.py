@@ -23,11 +23,11 @@ DEFAULT_AI_LOCAL = {
     'timeout_seconds': 120,
     'ssl_verify': True,
     'token': '',
-    'app_tag': 'proxyai',
+    'app_tag': '',
     'max_tokens': 8192,
 }
 
-# JetBrains ProxyAI Custom OpenAI 实际在用的路径后缀，粘贴完整 URL 时剥掉
+# 粘贴完整 Chat Completions URL 时剥掉的后缀
 _CHAT_SUFFIXES = (
     '/chat/completions',
     '/completions',
@@ -59,8 +59,7 @@ def normalize_ai_local(raw) -> dict:
         result['model'] = str(raw.get('model') or '').strip()
         result['ssl_verify'] = bool(raw.get('ssl_verify', True))
         result['token'] = str(raw.get('token') or '')
-        tag = str(raw.get('app_tag') if raw.get('app_tag') is not None else 'proxyai').strip()
-        result['app_tag'] = tag or 'proxyai'
+        result['app_tag'] = str(raw.get('app_tag') or '').strip()
         try:
             result['max_tokens'] = max(16, min(8192, int(raw.get('max_tokens') or 8192)))
         except (TypeError, ValueError):
@@ -163,7 +162,7 @@ def validate_base_url(url: str) -> str:
 
 
 def canonical_base_url(url: str) -> str:
-    """接受 JetBrains ProxyAI 的完整 Chat Completions URL，归约到 /v1。"""
+    """完整 Chat Completions URL 归约到 /v1，便于再拼 /chat/completions。"""
     text = validate_base_url(url)
     parsed = urlparse(text)
     path = (parsed.path or '').rstrip('/')
@@ -196,7 +195,7 @@ def _join(base_url: str, suffix: str) -> str:
 
 
 def build_headers(cfg: dict) -> dict:
-    """对齐 JetBrains ProxyAI：Bearer + X-LLM-Application-Tag: proxyai。"""
+    """OpenAI 兼容：Bearer；应用标签仅在用户填写时带上。"""
     headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
@@ -204,8 +203,9 @@ def build_headers(cfg: dict) -> dict:
     token = decrypt_token(cfg.get('token') or '')
     if token:
         headers['Authorization'] = f'Bearer {token}'
-    tag = str(cfg.get('app_tag') or 'proxyai').strip() or 'proxyai'
-    headers['X-LLM-Application-Tag'] = tag
+    tag = str(cfg.get('app_tag') or '').strip()
+    if tag:
+        headers['X-LLM-Application-Tag'] = tag
     return headers
 
 
@@ -286,7 +286,7 @@ def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
 
 
 def list_models(cfg=None) -> list[str]:
-    """先 GET /models；网关没有该接口时，改走 Chat Completions 探测（对齐 ProxyAI TEST CONNECTION）。"""
+    """先 GET /models；网关没有该接口时改走 Chat Completions 探测。"""
     cfg = normalize_ai_local(cfg if cfg is not None else load_ai_local())
     names = []
     try:
