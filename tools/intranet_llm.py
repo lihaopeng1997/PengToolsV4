@@ -25,6 +25,7 @@ DEFAULT_AI_LOCAL = {
     'token': '',
     'app_tag': '',
     'max_tokens': 8192,
+    'project_id': 'prpcar',
 }
 
 # 粘贴完整 Chat Completions URL 时剥掉的后缀
@@ -60,6 +61,7 @@ def normalize_ai_local(raw) -> dict:
         result['ssl_verify'] = bool(raw.get('ssl_verify', True))
         result['token'] = str(raw.get('token') or '')
         result['app_tag'] = str(raw.get('app_tag') or '').strip()
+        result['project_id'] = str(raw.get('project_id') or 'prpcar').strip() or 'prpcar'
         try:
             result['max_tokens'] = max(16, min(8192, int(raw.get('max_tokens') or 8192)))
         except (TypeError, ValueError):

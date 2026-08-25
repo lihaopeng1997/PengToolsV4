@@ -1,0 +1,30 @@
+{
+  "id": "prpcar",
+  "name": "车险承保中心",
+  "dialect": "oracle",
+  "table_prefixes": ["prpT", "prpC", "prpP", "prpD", "prpJ"],
+  "key_tables": [
+    "prpTmain",
+    "prpCmain",
+    "prpPhead",
+    "prpCitemCar",
+    "prpTitemCar",
+    "prpCinsured",
+    "prpTinsured"
+  ],
+  "modules": [
+    {"id": "gateway", "port": 18030, "title": "网关"},
+    {"id": "core", "port": 18031, "title": "投保/保单/批单"},
+    {"id": "undwrt", "port": 18032, "title": "核保"},
+    {"id": "caculate", "port": 18034, "title": "保费计算"},
+    {"id": "interface", "port": 18035, "title": "对外接口"},
+    {"id": "platform", "port": 18036, "title": "平台"},
+    {"id": "doc", "port": 18037, "title": "单证打印"},
+    {"id": "vehicle", "port": 18038, "title": "车型查询"}
+  ],
+  "log_hints": [
+    "日志目录约定：${sinoLogDir}/${spring.application.name}/",
+    "核心服务常见名：prpcar-core"
+  ],
+  "notes": "T=投保单 C=保单 P=批单 D=代码/配置。不要把源码打进安装包。CodeGraph 是开发机索引，不是运行时必选项。"
+}

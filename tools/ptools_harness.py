@@ -8,17 +8,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 
 from tools.ai_harness import strip_markdown_fence
+from tools.harness_project import active_project_id, load_project, load_skill_text, project_context
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.linux_guard import inspect_commands
-
-_SKILL_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'resources', 'ai_skills',
-)
 
 TASKS = {
     'sql.draft': 'sql.md',
@@ -41,22 +36,15 @@ _LINUX_FALLBACK = (
 )
 
 
-def _load_skill(filename: str, fallback: str) -> str:
-    path = os.path.join(_SKILL_DIR, filename)
-    try:
-        with open(path, 'r', encoding='utf-8') as stream:
-            text = stream.read().strip()
-        return text or fallback
-    except OSError:
-        return fallback
-
-
-def _skill_for(task: str) -> str:
+def _skill_for(task: str, project: dict | None = None) -> str:
+    filename = TASKS.get(task) or 'sql.md'
     if task == 'sql.optimize':
-        return _load_skill(TASKS[task], _OPTIMIZE_FALLBACK)
-    if task == 'linux.query':
-        return _load_skill(TASKS[task], _LINUX_FALLBACK)
-    return _load_skill(TASKS.get(task) or 'sql.md', _SQL_FALLBACK)
+        fallback = _OPTIMIZE_FALLBACK
+    elif task == 'linux.query':
+        fallback = _LINUX_FALLBACK
+    else:
+        fallback = _SQL_FALLBACK
+    return load_skill_text(filename, fallback, project=project)
 
 
 def _extract_json_object(text: str) -> dict:
@@ -94,9 +82,13 @@ def run_task(task: str, user_text: str, *, context: str = '', cfg=None):
     settings = cfg if isinstance(cfg, dict) else load_ai_local()
     if not is_enabled(settings):
         raise IntranetLlmError('未启用内网模型，请先在设置中填写 URL 并探测')
+    project = load_project(active_project_id(settings))
+    hint = project_context(project)
+    if hint:
+        prompt = f'{prompt}\n\n---\n项目约定：\n{hint}'.strip()
     content = chat_completions(
         [
-            {'role': 'system', 'content': _skill_for(name)},
+            {'role': 'system', 'content': _skill_for(name, project)},
             {'role': 'user', 'content': prompt},
         ],
         cfg=settings,

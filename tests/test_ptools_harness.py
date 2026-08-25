@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from tools.harness_project import list_projects, load_project, project_context, scan_mybatis_tables
 from tools.linux_guard import inspect_command, inspect_commands
 from tools.ptools_harness import TASKS, _extract_json_object
 
@@ -45,6 +46,32 @@ class PtoolsHarnessParseTests(unittest.TestCase):
         self.assertIn('sql.draft', TASKS)
         self.assertIn('sql.optimize', TASKS)
         self.assertIn('linux.query', TASKS)
+
+    def test_builtin_prpcar_project_pack(self):
+        ids = [item.get('id') for item in list_projects()]
+        self.assertIn('prpcar', ids)
+        project = load_project('prpcar')
+        self.assertEqual(project.get('dialect'), 'oracle')
+        text = project_context(project)
+        self.assertIn('prpTmain', text)
+        self.assertIn('车险', text)
+
+    def test_scan_mybatis_tables_from_xml(self):
+        import tempfile
+        xml = '''<?xml version="1.0"?>
+        <mapper namespace="x">
+          <select id="a">select * from prpTmain t join prpCmain c on 1=1</select>
+          <insert id="b">insert into prpPhead (ENDORSENo) values (1)</insert>
+        </mapper>
+        '''
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'PrpTmainDao.xml')
+            with open(path, 'w', encoding='utf-8') as stream:
+                stream.write(xml)
+            tables = scan_mybatis_tables(tmp)
+        self.assertIn('prpTmain', tables)
+        self.assertIn('prpCmain', tables)
+        self.assertIn('prpPhead', tables)
 
     def test_extract_json_object_from_fence(self):
         data = _extract_json_object('```json\n{"summary":"oom","commands":["tail -n 20 a.log"],"risk":"safe"}\n```')

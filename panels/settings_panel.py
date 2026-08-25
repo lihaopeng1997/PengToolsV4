@@ -2,7 +2,7 @@
 from PyQt6.QtCore import QEvent, QRectF, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
+    QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
     QInputDialog, QLabel, QLineEdit, QPushButton, QSlider,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
@@ -400,6 +400,10 @@ class SettingsPanel(QWidget):
         self.ai_enabled = QCheckBox()
         self.ai_enabled_label = QLabel()
         ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
+        self.ai_project = QComboBox()
+        size_pick_combo(self.ai_project)
+        self.ai_project_label = QLabel()
+        ai_form.addRow(self.ai_project_label, self.ai_project)
         self.ai_base_url = QLineEdit()
         self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
         size_line(self.ai_base_url, 'path')
@@ -440,6 +444,14 @@ class SettingsPanel(QWidget):
         size_compact_button(self.ai_save_btn)
         self.ai_save_btn.clicked.connect(self._save_intranet_model)
         probe_layout.addWidget(self.ai_save_btn)
+        self.ai_skill_btn = QPushButton()
+        size_compact_button(self.ai_skill_btn)
+        self.ai_skill_btn.clicked.connect(self._install_harness_skill)
+        probe_layout.addWidget(self.ai_skill_btn)
+        self.ai_scan_btn = QPushButton()
+        size_compact_button(self.ai_scan_btn)
+        self.ai_scan_btn.clicked.connect(self._scan_project_tables)
+        probe_layout.addWidget(self.ai_scan_btn)
         probe_layout.addStretch(1)
         ai_form.addRow(probe_row)
         self.ai_status = QLabel()
@@ -621,6 +633,7 @@ class SettingsPanel(QWidget):
         self.ai_app_tag.setText(str(cfg.get('app_tag') or ''))
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
+        self._reload_harness_projects(cfg.get('project_id') or 'prpcar')
         if cfg.get('enabled') and cfg.get('base_url'):
             self.ai_status.setText('已保存，可点探测检查连通' if self.language == 'zh' else 'Saved. Probe to verify.')
         else:
@@ -636,7 +649,57 @@ class SettingsPanel(QWidget):
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'token': encrypt_token(self.ai_token.text()),
             'app_tag': self.ai_app_tag.text().strip(),
+            'project_id': self.ai_project.currentData() or 'prpcar',
         })
+
+    def _reload_harness_projects(self, current: str = 'prpcar'):
+        from tools.harness_project import list_projects
+        self.ai_project.blockSignals(True)
+        self.ai_project.clear()
+        for item in list_projects():
+            self.ai_project.addItem(str(item.get('name') or item.get('id')), item.get('id'))
+        if self.ai_project.count() == 0:
+            self.ai_project.addItem('车险承保中心', 'prpcar')
+        index = self.ai_project.findData(current)
+        self.ai_project.setCurrentIndex(index if index >= 0 else 0)
+        self.ai_project.blockSignals(False)
+
+    def _install_harness_skill(self):
+        from ui.confirm_dialog import show_error, show_success
+        zh = self.language == 'zh'
+        path, _filter = QFileDialog.getOpenFileName(
+            self, '安装技能' if zh else 'Install skill', '', 'Markdown (*.md)'
+        )
+        if not path:
+            return
+        try:
+            from tools.harness_project import install_skill
+            dest = install_skill(path)
+            show_success(self, 'PTools Harness', f'已安装到 {dest}' if zh else f'Installed: {dest}')
+        except Exception as exc:
+            show_error(self, 'PTools Harness', str(exc))
+
+    def _scan_project_tables(self):
+        from ui.confirm_dialog import show_error, show_success
+        zh = self.language == 'zh'
+        folder = QFileDialog.getExistingDirectory(
+            self, '选择 mapper 目录（MyBatis XML）' if zh else 'Pick mapper folder'
+        )
+        if not folder:
+            return
+        try:
+            from tools.harness_project import save_project_tables, scan_mybatis_tables
+            tables = scan_mybatis_tables(folder)
+            pid = self.ai_project.currentData() or 'prpcar'
+            save_project_tables(pid, tables)
+            show_success(
+                self, 'PTools Harness',
+                f'已提取 {len(tables)} 张表，写入本机项目包（不扫描 Java / 不建图谱）。'
+                if zh else
+                f'Saved {len(tables)} table name(s) to the local project pack.',
+            )
+        except Exception as exc:
+            show_error(self, 'PTools Harness', str(exc))
 
     def _save_intranet_model(self):
         from ui.confirm_dialog import show_error, show_success
@@ -936,6 +999,9 @@ class SettingsPanel(QWidget):
         self.ai_group.setTitle('内网模型' if zh else 'Intranet model')
         self.ai_enabled_label.setText('启用' if zh else 'Enable')
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
+        self.ai_project_label.setText('项目包' if zh else 'Project pack')
+        self.ai_skill_btn.setText('安装技能' if zh else 'Install skill')
+        self.ai_scan_btn.setText('扫描表名' if zh else 'Scan tables')
         self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
         self.ai_base_url.setToolTip(
             '可粘贴内网已验证的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'
@@ -952,7 +1018,7 @@ class SettingsPanel(QWidget):
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
-            '按 OpenAI 兼容接口连接内网模型。可粘贴完整 /v1/chat/completions 地址；只连内网/本机，Key 用 DPAPI 存 data/ai_local.json。'
+            'PTools Harness：选项目包（默认车险约定），可安装本地 .md 技能。扫描表名只读 MyBatis XML，不内置 CodeGraph、不打包源码。'
             if zh else
-            'OpenAI-compatible intranet endpoint. Paste the full /v1/chat/completions URL. Key is DPAPI-stored in data/ai_local.json.'
+            'PTools Harness: pick a project pack, install local .md skills. Table scan reads MyBatis XML only — no CodeGraph in the EXE.'
         )
