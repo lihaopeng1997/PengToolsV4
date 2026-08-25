@@ -261,6 +261,47 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             self.assertEqual([r._payload["id"] for r in self._task_rows(panel)], ["cur"])
             panel.close()
 
+    def test_completed_section_toggle_hides_rows_without_rebuild(self):
+        from panels.dashboard_panel import DashboardPanel, SectionHeader
+
+        pending = {
+            'id': 'open', 'title': '待处理', 'online_month': '2026-08',
+            'is_monthly_release': True, 'status': '开发中',
+        }
+        done = {
+            'id': 'done', 'title': '已完成项', 'online_month': '2026-08',
+            'is_monthly_release': True, 'status': '开发中',
+        }
+        board = {
+            'completed_requirement_keys': ['done@2026-08'],
+            'ui_prefs': {'completed_section_collapsed': True},
+        }
+
+        def persist(updated):
+            board['ui_prefs'] = dict(updated.get('ui_prefs') or {})
+
+        with patch('panels.dashboard_panel.load_requirements', return_value=[pending, done]) as loader, \
+                patch('panels.dashboard_panel.load_release_board', return_value=board), \
+                patch('panels.dashboard_panel.save_release_board', side_effect=persist):
+            panel = DashboardPanel('zh')
+            panel._fill_release([pending, done], preferred_release_month='2026-08')
+            self.assertEqual(len(panel._completed_rows), 1)
+            done_row = panel._completed_rows[0]
+            self.assertTrue(done_row.isHidden())
+            loader.reset_mock()
+            panel._toggle_completed_section()
+            loader.assert_not_called()
+            self.assertIs(panel._completed_rows[0], done_row)
+            self.assertFalse(done_row.isHidden())
+            self.assertFalse(panel._completed_section_collapsed)
+            header = panel._completed_header
+            self.assertIsInstance(header, SectionHeader)
+            self.assertFalse(header._collapsed)
+            panel._toggle_completed_section()
+            self.assertTrue(done_row.isHidden())
+            self.assertTrue(panel._completed_section_collapsed)
+            panel.close()
+
 
 class FlagDoneWorkbenchSyncTests(unittest.TestCase):
     @classmethod

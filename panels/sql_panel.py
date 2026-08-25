@@ -29,7 +29,7 @@ from tools.requirements import (
 )
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
-from ui.design_system import apply_button
+from ui.design_system import apply_button, apply_module_tabs
 from ui.field_metrics import (
     apply_form, size_caption, size_combo, size_compact_button, size_date,
     size_enum_combo, size_line, size_pick_combo, size_status_pill, size_system_chip,
@@ -114,11 +114,8 @@ class SqlToolPanel(QWidget):
 
         # 顶栏不再放 SQL 按钮，避免切换 Sheet 时“突然冒出一排按钮”
         self.tabs = QTabWidget()
-        self.tabs.setObjectName('module-tabs')
-        self.tabs.setDocumentMode(False)
         self.tabs.setMovable(False)
-        self.tabs.setUsesScrollButtons(True)
-        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        apply_module_tabs(self.tabs)
         self.tabs.addTab(self._create_release_tab(), '')
         self.tabs.addTab(self._create_processing_tab(), '')
         self.tabs.addTab(self._create_config_tab(), '')
@@ -697,10 +694,7 @@ class SqlToolPanel(QWidget):
         self.preview_label.setObjectName('zone-title')
         preview_outer.addWidget(self.preview_label)
         self.preview_tabs = QTabWidget()
-        self.preview_tabs.setObjectName('module-tabs')
-        self.preview_tabs.setDocumentMode(False)
-        self.preview_tabs.setUsesScrollButtons(True)
-        self.preview_tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        apply_module_tabs(self.preview_tabs)
         self.upgrade_preview = self._preview_editor()
         self.rollback_preview = self._preview_editor()
         self.validation_preview = self._preview_editor()

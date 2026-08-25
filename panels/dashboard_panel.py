@@ -217,6 +217,8 @@ class DashboardPanel(QWidget):
         self.language = language
         self._mode = 'standard'
         self._completed_section_collapsed = True
+        self._completed_header = None
+        self._completed_rows = []
         # 数据源 mtime 指纹：切回主页时若未变则跳过全量 rebuild
         self._source_stamp = None
         self._pending_show_refresh = False
@@ -611,6 +613,8 @@ class DashboardPanel(QWidget):
         board = board if board is not None else load_release_board()
         prefs = board.get('ui_prefs') if isinstance(board.get('ui_prefs'), dict) else {}
         self._completed_section_collapsed = bool(prefs.get('completed_section_collapsed', True))
+        self._completed_header = None
+        self._completed_rows = []
         self._clear_task_rows(self.release_list, keep_widgets=(self.release_empty,))
         while self.release_list.count() and self.release_list.itemAt(self.release_list.count() - 1).spacerItem():
             self.release_list.takeAt(self.release_list.count() - 1)
@@ -667,11 +671,12 @@ class DashboardPanel(QWidget):
             )
             header.toggled.connect(self._toggle_completed_section)
             self.release_list.addWidget(header)
-            if not self._completed_section_collapsed:
-                for kind, item, planned_date in done_items:
-                    self.release_list.addWidget(
-                        self._build_release_row(kind, item, planned_date, month_key, completed=True)
-                    )
+            self._completed_header = header
+            for kind, item, planned_date in done_items:
+                row = self._build_release_row(kind, item, planned_date, month_key, completed=True)
+                row.setVisible(not self._completed_section_collapsed)
+                self.release_list.addWidget(row)
+                self._completed_rows.append(row)
         self.release_list.addStretch(1)
 
     def _build_release_row(self, kind, item, planned_date, month_key, *, completed: bool):
@@ -720,19 +725,25 @@ class DashboardPanel(QWidget):
         return row
 
     def _toggle_completed_section(self):
-        board = load_release_board()
-        prefs = board.setdefault('ui_prefs', {})
-        self._completed_section_collapsed = not bool(prefs.get('completed_section_collapsed', True))
-        prefs['completed_section_collapsed'] = self._completed_section_collapsed
-        save_release_board(board)
-        self.setUpdatesEnabled(False)
+        """只显隐已完成行，不拆列表、不读盘重建，避免折叠时闪 Loading。"""
+        self._completed_section_collapsed = not self._completed_section_collapsed
+        header = self._completed_header
+        sender = self.sender()
+        if isinstance(sender, SectionHeader):
+            header = sender
+            self._completed_header = sender
+        if header is not None:
+            header.set_collapsed(self._completed_section_collapsed)
+        for row in self._completed_rows:
+            row.setVisible(not self._completed_section_collapsed)
         try:
-            requirements = load_requirements()
-            self._fill_release_items(requirements, board)
-            self._apply_list_geometry()
+            board = load_release_board()
+            prefs = board.setdefault('ui_prefs', {})
+            prefs['completed_section_collapsed'] = self._completed_section_collapsed
+            save_release_board(board)
             self._source_stamp = self._current_source_stamp()
-        finally:
-            self.setUpdatesEnabled(True)
+        except Exception:
+            pass
 
     def _save_release_board(self, board):
         save_release_board(board)

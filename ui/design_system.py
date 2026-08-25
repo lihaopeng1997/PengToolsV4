@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QTreeWidget, QWidget,
+    QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QTabWidget, QTreeWidget, QWidget,
 )
 
 from ui.field_metrics import size_compact_button
@@ -130,6 +130,20 @@ def apply_tree(tree: QTreeWidget, *, alternating: bool = True) -> None:
     tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     tree.setTextElideMode(Qt.TextElideMode.ElideRight)
     apply_list_header(tree.header())
+
+
+def apply_module_tabs(tabs: QTabWidget) -> None:
+    """模块 Tab：按文案完整显示，不够宽时出滚动箭头，不截成省略号。"""
+    if tabs is None:
+        return
+    tabs.setObjectName('module-tabs')
+    tabs.setDocumentMode(False)
+    tabs.setElideMode(Qt.TextElideMode.ElideNone)
+    tabs.setUsesScrollButtons(True)
+    bar = tabs.tabBar()
+    if bar is not None:
+        bar.setExpanding(False)
+        bar.setElideMode(Qt.TextElideMode.ElideNone)
 
 
 def apply_list_header(header) -> None:

@@ -36,11 +36,19 @@ class LazyUiSelfCheck(unittest.TestCase):
         self.assertIs(panel.load_btn.parent().parent(), panel.tabs.widget(1))
         self.assertEqual(panel.preview_tabs.tabText(0), '升级 SQL')
         self.assertEqual(panel.preview_tabs.tabText(2), '验证 SQL')
+        self.assertEqual(panel.tabs.elideMode(), Qt.TextElideMode.ElideNone)
+        self.assertEqual(panel.preview_tabs.elideMode(), Qt.TextElideMode.ElideNone)
+        self.assertFalse(panel.tabs.tabBar().expanding())
         panel.show()
         for width, height in ((1220, 780), (1000, 700), (960, 640)):
             panel.resize(width, height)
             self.app.processEvents()
             self.assertGreaterEqual(panel.width(), 900)
+            bar = panel.tabs.tabBar()
+            for index, text in enumerate(['升级准备', '发版联动', '系统配置']):
+                rect = bar.tabRect(index)
+                need = bar.fontMetrics().horizontalAdvance(text) + 16
+                self.assertGreaterEqual(rect.width(), need, f'tab {text!r} clipped at {width}px')
         panel.tabs.setCurrentIndex(1)
         self.app.processEvents()
         # offscreen 下父链可见性可能为 False，这里验证“属于 SQL sheet 且未隐藏”
