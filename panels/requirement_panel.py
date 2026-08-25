@@ -145,7 +145,10 @@ class _WrapTextDelegate(QStyledItemDelegate):
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
-from config import SVN_WORKSPACE_DIR, load_last_choices, load_requirement_ui, load_systems, save_requirement_ui, update_last_choices
+from config import (
+    REQUIREMENTS_FILE, SVN_WORKSPACE_DIR, SYSTEMS_FILE,
+    load_last_choices, load_requirement_ui, load_systems, save_requirement_ui, update_last_choices,
+)
 from tools.personal_knowledge import (
     export_word_entry, export_workbook_entry, extract_document_entries,
     read_text_file,
@@ -1386,7 +1389,9 @@ class RequirementPanel(QWidget):
         self._file_sort_column = 0
         self._file_sort_order = Qt.SortOrder.AscendingOrder
         self._search_expand_snapshot = None
+        self._sources_stamp = None
         self._setup_ui(); self.set_language(language); self._refresh()
+        self._sources_stamp = self._current_sources_stamp()
 
     def _setup_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
@@ -2117,10 +2122,24 @@ class RequirementPanel(QWidget):
             self.system_filter.addItem(system['name'], system['name'])
         self.system_filter.setCurrentIndex(max(0, self.system_filter.findData(current)))
 
-    def refresh_systems(self):
+    @staticmethod
+    def _file_mtime(path: str) -> float:
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    def _current_sources_stamp(self):
+        return (self._file_mtime(SYSTEMS_FILE), self._file_mtime(REQUIREMENTS_FILE))
+
+    def refresh_systems(self, force=False):
+        stamp = self._current_sources_stamp()
+        if not force and self._sources_stamp == stamp:
+            return
         self._systems = load_systems()
         self._fill_system_filter()
         self._refresh()
+        self._sources_stamp = stamp
 
     def refresh_theme(self):
         """重建需求树中按主题写入的月份、状态与搜索刷色，保留筛选和当前选择。"""
@@ -2148,6 +2167,7 @@ class RequirementPanel(QWidget):
         if current_id:
             self._current = next((item for item in self._requirements if item.get('id') == current_id), None)
         self._refresh()
+        self._sources_stamp = self._current_sources_stamp()
 
     def _refresh(self):
         if not hasattr(self, 'requirement_list'):
@@ -2161,6 +2181,7 @@ class RequirementPanel(QWidget):
         finally:
             self.requirement_list.setUpdatesEnabled(True)
             self._refreshing_tree = False
+            self._sources_stamp = self._current_sources_stamp()
 
     def _refresh_impl(self):
         from tools.pinyin_search import match_query

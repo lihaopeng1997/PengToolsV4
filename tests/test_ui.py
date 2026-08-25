@@ -894,6 +894,10 @@ class UiRegressionTests(unittest.TestCase):
         # 浮层不参与 layout：完成态仅改内部状态，不依赖 addWidget
         progress.finish('导出完成')
         self.assertEqual(progress._value, 100)
+        from ui.aurora_progress import SUCCESS_LINGER_MS
+        self.assertEqual(SUCCESS_LINGER_MS, 180)
+        progress.hide_now()
+        self.assertTrue(progress.isHidden())
         host.close()
 
     def test_requirement_finish_label_from_busy_message(self):

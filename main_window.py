@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self._shutting_down = False
         self._startup_ready = False
         self._boot_step = 0
+        self._user_navigated = False
         # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
         self._private_unlocked = bool(self._settings.get('private_unlocked', False))
         self._current_nav_index = 0
@@ -152,6 +153,9 @@ class MainWindow(QMainWindow):
 
     def _hide_startup_loading(self):
         if hasattr(self, '_startup_loading') and self._startup_loading is not None:
+            if hasattr(self._startup_loading, 'hide_now'):
+                self._startup_loading.hide_now()
+                return
             try:
                 self._startup_loading._timer.stop()
             except Exception:
@@ -383,6 +387,12 @@ class MainWindow(QMainWindow):
         if self.hotkey_service is None:
             self._setup_hotkeys()
 
+    def _panel_needs_create(self, nav_index: int) -> bool:
+        stack = self._stack_index_for_nav(nav_index)
+        if stack < 0 or stack >= len(_STACK_PANEL_ATTRS):
+            return False
+        return getattr(self, _STACK_PANEL_ATTRS[stack], None) is None
+
     def _ensure_panel_for_nav(self, nav_index: int):
         """按导航进入时确保对应面板已创建。"""
         stack = self._stack_index_for_nav(nav_index)
@@ -406,58 +416,30 @@ class MainWindow(QMainWindow):
             return fn()
         return None
 
-    def _startup_tick(self):
-        """分步加载：每步构造一块，并 processEvents 保持可绘制。"""
-        if self._shutting_down:
-            return
-        steps = [
-            ('正在加载设置…', self._ensure_settings_panel),
-            ('正在加载证件与 VIN…', lambda: (self._ensure_credit_panel(), self._ensure_vin_panel())),
-            ('正在加载运维与网关…', lambda: (self._ensure_ops_panel(), self._ensure_gateway_panel())),
-            ('正在加载 SQL 与文档…', lambda: (self._ensure_sql_panel(), self._ensure_docx_panel())),
-            ('正在加载格式工具…', self._ensure_format_panel),
-            ('正在加载需求管理…', self._ensure_requirement_panel),
-            ('正在加载个人模块…', self._ensure_personal_panel),
-            ('正在启动托盘与快捷键…', self._ensure_services),
+    def _interactive_boot_steps(self):
+        zh = self.language == 'zh'
+        return [
+            ('正在加载设置…' if zh else 'Loading settings…', self._ensure_settings_panel),
+            ('正在启动托盘与快捷键…' if zh else 'Starting tray…', self._ensure_services),
         ]
-        if self._boot_step < len(steps):
-            message, action = steps[self._boot_step]
-            self._show_startup_loading(message if self.language == 'zh' else 'Loading…')
-            try:
-                action()
-            except Exception as exc:
-                self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
-            self._boot_step += 1
-            QApplication.processEvents()
-            QTimer.singleShot(0, self._startup_tick)
+
+    def _warmup_boot_steps(self):
+        zh = self.language == 'zh'
+        return [
+            ('证件与 VIN' if zh else 'IDs & VIN', lambda: (self._ensure_credit_panel(), self._ensure_vin_panel())),
+            ('运维与网关' if zh else 'Ops & gateway', lambda: (self._ensure_ops_panel(), self._ensure_gateway_panel())),
+            ('SQL 与文档' if zh else 'SQL & docs', lambda: (self._ensure_sql_panel(), self._ensure_docx_panel())),
+            ('格式工具' if zh else 'Format tools', self._ensure_format_panel),
+            ('需求管理' if zh else 'Requirements', self._ensure_requirement_panel),
+            ('个人模块' if zh else 'Personal', self._ensure_personal_panel),
+        ]
+
+    def _become_interactive(self):
+        """首页可用后立刻收起全局 Loading，其余面板后台预热。"""
+        if self._startup_ready:
             return
-        self._finish_startup()
-
-    def _complete_startup_sync(self):
-        """测试/同步模式：一次建齐常用面板（接口/日志仍按需）。"""
-        self._ensure_settings_panel()
-        self._ensure_credit_panel()
-        self._ensure_vin_panel()
-        self._ensure_ops_panel()
-        self._ensure_gateway_panel()
-        self._ensure_sql_panel()
-        self._ensure_docx_panel()
-        self._ensure_format_panel()
-        self._ensure_requirement_panel()
-        self._ensure_personal_panel()
-        self._ensure_services()
-        self._finish_startup()
-
-    def _finish_startup(self):
         self._startup_ready = True
         self._hide_startup_loading()
-        # 应用语言/设置到已创建面板
-        for panel in self._iter_created_panels():
-            if hasattr(panel, 'set_language'):
-                try:
-                    panel.set_language(self.language)
-                except Exception:
-                    pass
         if self.quick_panel is not None:
             self.quick_panel.set_language(self.language)
             if self._settings.get('floating_show_on_startup'):
@@ -477,6 +459,69 @@ class MainWindow(QMainWindow):
             '离线工作台已就绪' if self.language == 'zh' else 'Offline workspace ready',
             3000,
         )
+
+    def _startup_tick(self):
+        """先让窗口可点，再后台预热其余面板，不再用全局浮层罩到全部完成。"""
+        if self._shutting_down:
+            return
+        interactive = self._interactive_boot_steps()
+        if self._boot_step < len(interactive):
+            message, action = interactive[self._boot_step]
+            if not self._user_navigated:
+                self._show_startup_loading(message)
+            try:
+                action()
+            except Exception as exc:
+                self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
+            self._boot_step += 1
+            QApplication.processEvents()
+            QTimer.singleShot(0, self._startup_tick)
+            return
+        if not self._startup_ready:
+            self._become_interactive()
+        warmup = self._warmup_boot_steps()
+        warmup_index = self._boot_step - len(interactive)
+        if warmup_index < len(warmup):
+            label, action = warmup[warmup_index]
+            if self.language == 'zh':
+                self.status_bar.showMessage(f'后台预热{label}…', 1500)
+            else:
+                self.status_bar.showMessage(f'Warming up {label}…', 1500)
+            try:
+                action()
+            except Exception as exc:
+                self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
+            self._boot_step += 1
+            QTimer.singleShot(0, self._startup_tick)
+            return
+        self._apply_language_to_created_panels()
+
+    def _apply_language_to_created_panels(self):
+        for panel in self._iter_created_panels():
+            if hasattr(panel, 'set_language'):
+                try:
+                    panel.set_language(self.language)
+                except Exception:
+                    pass
+
+    def _complete_startup_sync(self):
+        """测试/同步模式：一次建齐常用面板（接口/日志仍按需）。"""
+        self._ensure_settings_panel()
+        self._ensure_credit_panel()
+        self._ensure_vin_panel()
+        self._ensure_ops_panel()
+        self._ensure_gateway_panel()
+        self._ensure_sql_panel()
+        self._ensure_docx_panel()
+        self._ensure_format_panel()
+        self._ensure_requirement_panel()
+        self._ensure_personal_panel()
+        self._ensure_services()
+        self._finish_startup()
+
+    def _finish_startup(self):
+        self._become_interactive()
+        self._apply_language_to_created_panels()
 
     def _create_sidebar(self):
         sidebar = QFrame()
@@ -886,12 +931,23 @@ class MainWindow(QMainWindow):
                 pass
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
-        # 按需创建目标页（启动未完成时也可点开）
+        # 用户已点导航：立刻收起启动浮层，不要等后台预热结束
+        self._user_navigated = True
+        self._hide_startup_loading()
+        creating = self._panel_needs_create(index)
+        if creating:
+            from ui.navigation_model import display_name
+            name = display_name(index, self.language)
+            prefix = '正在打开' if self.language == 'zh' else 'Opening '
+            self._show_startup_loading(f'{prefix}{name}…' if self.language == 'zh' else f'{prefix}{name}…')
         try:
             self._ensure_panel_for_nav(index)
         except Exception as exc:
+            self._hide_startup_loading()
             self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)
             return
+        if creating:
+            self._hide_startup_loading()
         if index == 12:
             try:
                 panel = self.interface_debug_panel

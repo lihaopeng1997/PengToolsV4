@@ -38,7 +38,7 @@ PengTools Hub 是面向 Windows 内网办公环境的离线工具工作台。产
 
 ## 4. 离线与数据边界
 
-- 运行代码中不使用 HTTP、WebSocket、浏览器内核或在线 CDN
+- 运行代码中不使用 HTTP、WebSocket、浏览器内核或在线 CDN（接口排查 loopback 与用户启用的内网模型 URL 除外）
 - 所有生成、校验和文件处理均在本机完成
 - 系统配置存放于本机 `data/systems.json`
 - 安装包包含 Python 和 Qt 运行时，内网电脑无需安装 Python

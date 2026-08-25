@@ -70,6 +70,24 @@ class RequirementTreeExpandStateTests(unittest.TestCase):
             self.assertTrue(refreshed_august.isExpanded())
             panel.close()
 
+    def test_refresh_systems_skips_when_sources_unchanged(self):
+        from panels.requirement_panel import RequirementPanel
+
+        requirements = [{
+            'id': 'req-1', 'code': 'REQ-1', 'title': '一项',
+            'online_month': '2026-08', 'sql_parts': [], 'source_files': [],
+        }]
+        with patch('panels.requirement_panel.load_requirements', return_value=requirements), \
+                patch('panels.requirement_panel.load_requirement_ui', return_value={}), \
+                patch('panels.requirement_panel.RequirementPanel._refresh_file_tree', lambda self: None):
+            panel = RequirementPanel('zh')
+            with patch.object(panel, '_refresh') as refresh:
+                panel.refresh_systems()
+                refresh.assert_not_called()
+                panel.refresh_systems(force=True)
+                refresh.assert_called()
+            panel.close()
+
 
 if __name__ == "__main__":
     unittest.main()

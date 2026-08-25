@@ -4,9 +4,13 @@
 使用约定：
 - 作为 parent 子控件创建（不进 layout），由 place_overlay() 居中浮于宿主上方
 - 仅长任务触发；成功 / 失败 / 异常均需 finish 或 fail
+- 切页 / 首次打开面板用 hide_now()，不要走 finish 停留
 - 标签优先写任务语义（「正在提交 SVN…」），不要只写「请稍候」
 - 颜色一律来自 ThemeManager，禁止硬编码浅色白卡
 """
+
+SUCCESS_LINGER_MS = 180
+FAIL_LINGER_MS = 3600
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
@@ -73,7 +77,6 @@ class AuroraProgress(QWidget):
         self.raise_()
         self._timer.start(28)
         self.update()
-        # 同步长任务前给界面一次绘制机会（调用方若 processEvents 更稳）
         try:
             from PyQt6.QtWidgets import QApplication
             QApplication.processEvents()
@@ -99,8 +102,17 @@ class AuroraProgress(QWidget):
         self.raise_()
         self._timer.start(28)
         self.update()
-        # 缩短停留，减少遮挡感（不挡鼠标，但仍尽快消失）
-        QTimer.singleShot(600, self._fade_out)
+        QTimer.singleShot(SUCCESS_LINGER_MS, self._fade_out)
+
+    def hide_now(self):
+        """立刻收起，用于切页 / 首次打开，不走成功停留。"""
+        try:
+            self._timer.stop()
+        except Exception:
+            pass
+        self._value = -1
+        self._label = ''
+        self.hide()
 
     def fail(self, label):
         self._label = label or ''
@@ -110,7 +122,7 @@ class AuroraProgress(QWidget):
         self.show()
         self.raise_()
         self.update()
-        QTimer.singleShot(3600, self._fade_out_failed)
+        QTimer.singleShot(FAIL_LINGER_MS, self._fade_out_failed)
 
     def _fade_out(self):
         if self._value == 100:

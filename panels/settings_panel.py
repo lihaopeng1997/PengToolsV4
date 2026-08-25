@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from PyQt6.QtCore import QEvent, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
@@ -8,8 +8,27 @@ from PyQt6.QtWidgets import (
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
-from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo, size_field_height
+from ui.field_metrics import (
+    CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo,
+    size_field_height, size_line, size_pick_combo,
+)
 from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
+
+
+class _AiProbeWorker(QThread):
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, cfg, parent=None):
+        super().__init__(parent)
+        self.cfg = cfg
+
+    def run(self):
+        try:
+            from tools.intranet_llm import list_models
+            self.completed.emit(list_models(self.cfg))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class ThemePreviewWidget(QWidget):
@@ -375,6 +394,58 @@ class SettingsPanel(QWidget):
         security.addRow(self.security_note)
         root.addWidget(self.security_group)
 
+        self.ai_group = QGroupBox()
+        ai_form = QFormLayout(self.ai_group)
+        apply_form(ai_form)
+        self.ai_enabled = QCheckBox()
+        self.ai_enabled_label = QLabel()
+        ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
+        self.ai_base_url = QLineEdit()
+        self.ai_base_url.setPlaceholderText('http://10.x.x.x:8000/v1')
+        size_line(self.ai_base_url, 'path')
+        self.ai_base_url_label = QLabel()
+        ai_form.addRow(self.ai_base_url_label, self.ai_base_url)
+        self.ai_model = QComboBox()
+        self.ai_model.setEditable(True)
+        size_pick_combo(self.ai_model)
+        self.ai_model_label = QLabel()
+        ai_form.addRow(self.ai_model_label, self.ai_model)
+        self.ai_token = QLineEdit()
+        self.ai_token.setEchoMode(QLineEdit.EchoMode.Password)
+        size_line(self.ai_token, 'path')
+        self.ai_token_label = QLabel()
+        ai_form.addRow(self.ai_token_label, self.ai_token)
+        self.ai_timeout = CompactStepper(5, 300, 60, suffix=' s')
+        self.ai_timeout_label = QLabel()
+        ai_form.addRow(self.ai_timeout_label, self.ai_timeout)
+        self.ai_ssl_verify = QCheckBox()
+        self.ai_ssl_label = QLabel()
+        ai_form.addRow(self.ai_ssl_label, self.ai_ssl_verify)
+        probe_row = QWidget()
+        probe_layout = QHBoxLayout(probe_row)
+        probe_layout.setContentsMargins(0, 0, 0, 0)
+        probe_layout.setSpacing(8)
+        self.ai_probe_btn = QPushButton()
+        size_compact_button(self.ai_probe_btn)
+        self.ai_probe_btn.clicked.connect(self._probe_intranet_model)
+        probe_layout.addWidget(self.ai_probe_btn)
+        self.ai_save_btn = QPushButton()
+        size_compact_button(self.ai_save_btn)
+        self.ai_save_btn.clicked.connect(self._save_intranet_model)
+        probe_layout.addWidget(self.ai_save_btn)
+        probe_layout.addStretch(1)
+        ai_form.addRow(probe_row)
+        self.ai_status = QLabel()
+        self.ai_status.setObjectName('field-hint')
+        self.ai_status.setWordWrap(True)
+        ai_form.addRow(self.ai_status)
+        self.ai_note = QLabel()
+        self.ai_note.setObjectName('ops-safety-note')
+        self.ai_note.setWordWrap(True)
+        ai_form.addRow(self.ai_note)
+        root.addWidget(self.ai_group)
+        self._ai_probe_worker = None
+
         buttons = QHBoxLayout()
         buttons.addStretch()
         self.restore_btn = QPushButton()
@@ -488,6 +559,7 @@ class SettingsPanel(QWidget):
             or []
         )
         self._load_reminder_values()
+        self._load_ai_local_values()
         self._refresh_close_behavior_hint()
 
     def _load_reminder_values(self):
@@ -522,6 +594,119 @@ class SettingsPanel(QWidget):
     def reload_reminder_from_store(self):
         """进入设置页或外部改完提醒后刷新 UI。"""
         self._load_reminder_values()
+
+    def _load_ai_local_values(self):
+        try:
+            from tools.intranet_llm import decrypt_token, load_ai_local
+            cfg = load_ai_local()
+        except Exception:
+            return
+        self.ai_enabled.setChecked(bool(cfg.get('enabled')))
+        self.ai_base_url.setText(str(cfg.get('base_url') or ''))
+        self.ai_model.blockSignals(True)
+        self.ai_model.clear()
+        model = str(cfg.get('model') or '')
+        if model:
+            self.ai_model.addItem(model)
+            self.ai_model.setCurrentText(model)
+        self.ai_model.blockSignals(False)
+        self.ai_token.setText(decrypt_token(cfg.get('token') or ''))
+        self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 60))
+        self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
+        if cfg.get('enabled') and cfg.get('base_url'):
+            self.ai_status.setText('已保存，可点探测检查连通' if self.language == 'zh' else 'Saved. Probe to verify.')
+        else:
+            self.ai_status.setText('默认关闭。启用后填写内网 URL 再探测。' if self.language == 'zh' else 'Off by default.')
+
+    def _ai_cfg_from_ui(self):
+        from tools.intranet_llm import encrypt_token, normalize_ai_local
+        return normalize_ai_local({
+            'enabled': self.ai_enabled.isChecked(),
+            'base_url': self.ai_base_url.text().strip(),
+            'model': self.ai_model.currentText().strip(),
+            'timeout_seconds': self.ai_timeout.value(),
+            'ssl_verify': self.ai_ssl_verify.isChecked(),
+            'token': encrypt_token(self.ai_token.text()),
+        })
+
+    def _save_intranet_model(self):
+        from ui.confirm_dialog import show_error, show_success
+        zh = self.language == 'zh'
+        try:
+            from tools.intranet_llm import save_ai_local, validate_base_url
+            cfg = self._ai_cfg_from_ui()
+            if cfg.get('enabled'):
+                validate_base_url(cfg.get('base_url') or '')
+            save_ai_local(cfg)
+            self.ai_status.setText('已保存' if zh else 'Saved')
+            show_success(self, '内网模型' if zh else 'Intranet model', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
+        except Exception as exc:
+            self.ai_status.setText(str(exc))
+            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+
+    def _probe_intranet_model(self):
+        from ui.confirm_dialog import show_error
+        zh = self.language == 'zh'
+        try:
+            from tools.intranet_llm import save_ai_local, validate_base_url
+            cfg = self._ai_cfg_from_ui()
+            cfg['enabled'] = True
+            validate_base_url(cfg.get('base_url') or '')
+            save_ai_local(cfg)
+            self.ai_enabled.setChecked(True)
+        except Exception as exc:
+            self.ai_status.setText(str(exc))
+            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+            return
+        self.ai_probe_btn.setEnabled(False)
+        self.ai_status.setText('正在探测…' if zh else 'Probing…')
+        self._ai_probe_worker = _AiProbeWorker(cfg, self)
+        self._ai_probe_worker.completed.connect(self._on_ai_probe_ok)
+        self._ai_probe_worker.failed.connect(self._on_ai_probe_fail)
+        self._ai_probe_worker.finished.connect(lambda: self.ai_probe_btn.setEnabled(True))
+        self._ai_probe_worker.start()
+
+    def _on_ai_probe_ok(self, models):
+        zh = self.language == 'zh'
+        names = [str(item) for item in (models or []) if str(item).strip()]
+        current = self.ai_model.currentText().strip()
+        self.ai_model.blockSignals(True)
+        self.ai_model.clear()
+        for name in names:
+            self.ai_model.addItem(name)
+        if current:
+            index = self.ai_model.findText(current)
+            if index < 0:
+                self.ai_model.insertItem(0, current)
+                index = 0
+            self.ai_model.setCurrentIndex(max(0, index))
+        elif names:
+            self.ai_model.setCurrentIndex(0)
+        self.ai_model.blockSignals(False)
+        if names:
+            self.ai_status.setText(
+                f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
+            )
+            try:
+                from tools.intranet_llm import save_ai_local
+                cfg = self._ai_cfg_from_ui()
+                cfg['enabled'] = True
+                if not cfg.get('model') and names:
+                    cfg['model'] = names[0]
+                    self.ai_model.setCurrentText(names[0])
+                save_ai_local(cfg)
+            except Exception:
+                pass
+        else:
+            self.ai_status.setText(
+                '已连通，但 /v1/models 列表为空，请手填模型名' if zh else
+                'Reachable, but /v1/models is empty. Type the model name.'
+            )
+
+    def _on_ai_probe_fail(self, message):
+        self.ai_status.setText(str(message or ''))
+        from ui.confirm_dialog import show_error
+        show_error(self, '内网模型' if self.language == 'zh' else 'Intranet model', str(message or ''))
 
     def _current_reminder_time_text(self) -> str:
         from tools.daily_reports import DEFAULT_REMINDER
@@ -731,3 +916,19 @@ class SettingsPanel(QWidget):
         )
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')
+        self.ai_group.setTitle('内网模型' if zh else 'Intranet model')
+        self.ai_enabled_label.setText('启用' if zh else 'Enable')
+        self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
+        self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
+        self.ai_model_label.setText('模型' if zh else 'Model')
+        self.ai_token_label.setText('Token（可选）' if zh else 'Token (optional)')
+        self.ai_timeout_label.setText('超时' if zh else 'Timeout')
+        self.ai_ssl_label.setText('HTTPS 证书' if zh else 'TLS verify')
+        self.ai_ssl_verify.setText('校验（内网自签可关）' if zh else 'Verify (off for self-signed)')
+        self.ai_probe_btn.setText('探测' if zh else 'Probe')
+        self.ai_save_btn.setText('保存' if zh else 'Save')
+        self.ai_note.setText(
+            '只连你填写的内网地址（10/172/192.168 或本机）。默认关闭，不访问公网模型。Token 用 DPAPI 存 data/ai_local.json。'
+            if zh else
+            'Only the configured private/loopback URL. Off by default; public model hosts are blocked. Token is DPAPI-stored in data/ai_local.json.'
+        )

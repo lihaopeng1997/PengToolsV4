@@ -39,6 +39,7 @@
 | 安装包无敏感种子 | `resources/private_knowledge_seed*`、`scan_release_secrets.py` | 扫描 PASS；种子为空/假数据 |
 | 日志/抓包本机边界 | 抓包监听 `127.0.0.1`；报文默认内存 | 不把会话默认上传外网 |
 | 本地数据目录 | `config.local_data_dir()` → `data/` | 升级 EXE 不覆盖用户 `data/` |
+| 内网模型默认关闭 | `data/ai_local.json`；`tools/intranet_llm.py` | 未启用零 HTTP；拒绝 api.openai.com / 公网 IP；Token DPAPI |
 
 ## 4. 自动化自检
 

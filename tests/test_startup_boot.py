@@ -35,9 +35,11 @@ class StartupBootTests(unittest.TestCase):
             # 接口/日志仍可延后
             self.assertIsNone(window.interface_debug_panel)
             self.assertIsNone(window.ops_log_panel)
+            self.assertTrue(window._startup_loading.isHidden())
             window._show_panel(12)
             self.assertIsNotNone(window.interface_debug_panel)
             self.assertIs(window.stack.currentWidget(), window.interface_debug_panel)
+            self.assertTrue(window._startup_loading.isHidden())
         finally:
             if window.hotkey_service:
                 window.hotkey_service.unregister()

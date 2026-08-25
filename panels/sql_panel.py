@@ -6,7 +6,7 @@ import sys
 from PyQt6.QtCore import QDate, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDateEdit, QFileDialog, QFormLayout,
+    QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFileDialog, QFormLayout,
     QFrame, QGroupBox, QHeaderView, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
@@ -34,6 +34,23 @@ from ui.field_metrics import (
     apply_form, size_caption, size_combo, size_compact_button, size_date,
     size_enum_combo, size_line, size_pick_combo, size_status_pill, size_system_chip,
 )
+
+
+class SqlDraftWorker(QThread):
+    completed = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, prompt_text, cfg):
+        super().__init__()
+        self.prompt_text = prompt_text
+        self.cfg = cfg
+
+    def run(self):
+        try:
+            from tools.ai_harness import draft_sql
+            self.completed.emit(draft_sql(self.prompt_text, cfg=self.cfg))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class SqlExportWorker(QThread):
@@ -76,6 +93,9 @@ class SqlToolPanel(QWidget):
         self._release_all_requirements = []
         self._release_date_confirmed = ''
         self._prefer_requirement_key = ''
+        self._release_loaded = False
+        self._draft_worker = None
+        self._draft_buffer = ''
         self._release_reload_timer = QTimer(self)
         self._release_reload_timer.setSingleShot(True)
         self._release_reload_timer.setInterval(280)
@@ -84,8 +104,8 @@ class SqlToolPanel(QWidget):
         self._load_systems()
         self._restore_last_sql_choices()
         self.set_language('zh')
-        # 懒人流程：打开后按当前升级日自动载入候选，无需再点确认日期
-        self._load_release_candidates()
+        self.tabs.currentChanged.connect(self._on_sql_tab_changed)
+        self._refresh_ai_draft_button()
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -296,6 +316,22 @@ class SqlToolPanel(QWidget):
         if path:
             self.release_root.setText(path)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._ensure_release_candidates()
+        self._refresh_ai_draft_button()
+
+    def _on_sql_tab_changed(self, index):
+        if index == 0:
+            self._ensure_release_candidates()
+        if index == 1:
+            self._refresh_ai_draft_button()
+
+    def _ensure_release_candidates(self):
+        if self._release_loaded:
+            return
+        self._load_release_candidates()
+
     def _release_date_changed(self):
         self._set_status_label(self.release_count, '正在加载…', '升级日期已改变，正在重新加载候选需求', max_chars=12)
         self._release_reload_timer.start()
@@ -317,6 +353,7 @@ class SqlToolPanel(QWidget):
 
     def _load_release_candidates(self):
         """按当前升级日期加载/刷新候选需求（替代「确认日期」）。"""
+        self._release_loaded = True
         if self._release_reload_timer.isActive():
             self._release_reload_timer.stop()
         target = self.release_date.date().toString('yyyy-MM-dd')
@@ -556,6 +593,10 @@ class SqlToolPanel(QWidget):
         self.paste_btn.setProperty('compactAction', True)
         self.paste_btn.clicked.connect(self._paste_sql)
         input_head.addWidget(self.paste_btn)
+        self.draft_btn = QPushButton()
+        self.draft_btn.setProperty('compactAction', True)
+        self.draft_btn.clicked.connect(self._draft_sql_with_intranet)
+        input_head.addWidget(self.draft_btn)
         self.clear_btn = QPushButton()
         self.clear_btn.setProperty('compactAction', True)
         self.clear_btn.clicked.connect(self._clear_sql)
@@ -834,7 +875,7 @@ class SqlToolPanel(QWidget):
             if w is not None:
                 secondary.append(w)
         primary_keep = []
-        for name in ('load_btn', 'paste_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
+        for name in ('load_btn', 'paste_btn', 'draft_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
             w = getattr(self, name, None)
             if w is not None:
                 primary_keep.append(w)
@@ -890,6 +931,14 @@ class SqlToolPanel(QWidget):
         self.analyze_btn.setText('检查 SQL' if zh else 'Check SQL')
         self.preview_btn.setText('生成预览' if zh else 'Preview')
         self.export_btn.setText('导出全部' if zh else 'Export all')
+        if hasattr(self, 'draft_btn'):
+            self.draft_btn.setText('生成草稿' if zh else 'Draft SQL')
+            self.draft_btn.setToolTip(
+                '用设置中的内网模型根据当前输入生成 SQL 草稿，确认后才写入'
+                if zh else
+                'Generate a SQL draft from the intranet model; apply only after confirm'
+            )
+            self._refresh_ai_draft_button()
         self._refresh_path_note_visibility()
         self.identity_group.setTitle('系统与文件名' if zh else 'System & filename')
         self.sim_group.setTitle('模拟环境' if zh else 'Simulation')
@@ -1235,6 +1284,107 @@ class SqlToolPanel(QWidget):
     def _date_str(self):
         return self.date_edit.date().toString('yyyyMMdd')
 
+    def _refresh_ai_draft_button(self):
+        if not hasattr(self, 'draft_btn'):
+            return
+        try:
+            from tools.intranet_llm import is_enabled
+            ready = is_enabled()
+        except Exception:
+            ready = False
+        self.draft_btn.setEnabled(ready)
+        if not ready:
+            zh = self.language == 'zh'
+            self.draft_btn.setToolTip(
+                '请先在设置中启用内网模型并探测成功' if zh else 'Enable the intranet model in Settings first'
+            )
+
+    def _draft_sql_with_intranet(self):
+        from tools.intranet_llm import IntranetLlmError, is_enabled, load_ai_local
+        zh = self.language == 'zh'
+        if not is_enabled():
+            show_warning(
+                self, 'PengTools · SQL',
+                '未启用内网模型。请到设置填写 Base URL 并探测。' if zh else 'Intranet model is not enabled.',
+            )
+            return
+        prompt = self.input_sql.toPlainText().strip()
+        if not prompt:
+            show_warning(
+                self, 'PengTools · SQL',
+                '请先在输入框写需求说明或 SQL。' if zh else 'Enter a requirement note or SQL first.',
+            )
+            return
+        if not confirm_action(
+            self, 'PengTools · SQL',
+            ('将把当前输入发给内网模型生成草稿，不会自动导出或写入 SVN。是否继续？'
+             if zh else
+             'Send the current text to the intranet model for a draft. It will not export or write SVN. Continue?'),
+            confirm_text='生成草稿' if zh else 'Generate',
+            danger=False,
+        ):
+            return
+        self.draft_btn.setEnabled(False)
+        self.progress.start_busy('正在生成 SQL 草稿…' if zh else 'Drafting SQL…')
+        self._draft_worker = SqlDraftWorker(prompt, load_ai_local())
+        self._draft_worker.completed.connect(self._on_draft_completed)
+        self._draft_worker.failed.connect(self._on_draft_failed)
+        self._draft_worker.finished.connect(self._on_draft_finished)
+        self._draft_worker.start()
+
+    def _on_draft_completed(self, text):
+        self._draft_buffer = str(text or '').strip()
+        self.progress.hide_now()
+        if not self._draft_buffer:
+            show_warning(self, 'PengTools · SQL', '模型没有返回内容。' if self.language == 'zh' else 'Empty draft.')
+            return
+        if self._offer_apply_draft(self._draft_buffer):
+            self.input_sql.setPlainText(self._draft_buffer)
+            self._set_status_label(
+                self.status,
+                '已应用草稿' if self.language == 'zh' else 'Draft applied',
+                '内网模型草稿已写入输入框，请检查后再预览/导出',
+                max_chars=12,
+            )
+
+    def _on_draft_failed(self, message):
+        self.progress.fail(str(message or '草稿失败')[:40])
+        show_error(self, 'PengTools · SQL', str(message or '草稿失败'))
+
+    def _on_draft_finished(self):
+        self._refresh_ai_draft_button()
+        self._draft_worker = None
+
+    def _offer_apply_draft(self, text) -> bool:
+        zh = self.language == 'zh'
+        dialog = QDialog(self)
+        dialog.setWindowTitle('SQL 草稿' if zh else 'SQL draft')
+        dialog.setModal(True)
+        dialog.setMinimumSize(640, 420)
+        root = QVBoxLayout(dialog)
+        hint = QLabel('确认后才会写入输入框；取消保持原文。' if zh else 'Apply writes the input box; Cancel keeps the original.')
+        hint.setObjectName('field-hint')
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+        editor = QPlainTextEdit()
+        editor.setFont(QFont('Consolas', 10))
+        editor.setPlainText(text)
+        editor.setReadOnly(True)
+        root.addWidget(editor, 1)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel = QPushButton('取消' if zh else 'Cancel')
+        apply_button(cancel, 'secondary', compact=True)
+        cancel.setDefault(True)
+        cancel.clicked.connect(dialog.reject)
+        apply = QPushButton('应用草稿' if zh else 'Apply draft')
+        apply_button(apply, 'primary', compact=True)
+        apply.clicked.connect(dialog.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(apply)
+        root.addLayout(buttons)
+        return dialog.exec() == QDialog.DialogCode.Accepted
+
     def _analyze(self):
         sql, duplicates = self._prepared_sql()
         if not sql.strip():
@@ -1305,11 +1455,7 @@ class SqlToolPanel(QWidget):
         system = self._get_system()
         if not sql.strip() or not system:
             return []
-        self.progress.set_progress(18, '正在拆分 DDL / DML 数据流…' if self.language == 'zh' else 'Splitting DDL / DML streams…')
-        QApplication.processEvents()
         artifacts = build_sql_package(sql, system, self._env_name(), self._date_str())
-        self.progress.set_progress(72, '正在编排升级、回滚与验证脚本…' if self.language == 'zh' else 'Composing upgrade, rollback, and verification scripts…')
-        QApplication.processEvents()
         editors = {'upgrade': self.upgrade_preview, 'rollback': self.rollback_preview, 'validation': self.validation_preview}
         for kind, editor in editors.items():
             parts = []
@@ -1325,7 +1471,6 @@ class SqlToolPanel(QWidget):
             f'Previewed {len(artifacts)} files; removed {len(duplicates)} duplicate(s)',
             max_chars=16,
         )
-        self.progress.finish('脚本拓扑已生成' if self.language == 'zh' else 'Script topology generated')
         return artifacts
 
     def _export_package(self):

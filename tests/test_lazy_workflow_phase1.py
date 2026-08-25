@@ -156,6 +156,8 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
     def test_sql_panel_refresh_button_and_auto_load(self):
         panel = SqlToolPanel()
         self.assertEqual(panel.refresh_release_btn.text(), '刷新候选')
+        self.assertFalse(panel._release_loaded)
+        self.assertTrue(hasattr(panel, 'draft_btn'))
         panel._load_release_candidates()
         self.assertEqual(panel._release_date_confirmed, panel.release_date.date().toString('yyyy-MM-dd'))
         # 生成时若日期不同会自动重载

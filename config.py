@@ -66,6 +66,8 @@ LAST_CHOICES_FILE = os.path.join(CONFIG_DIR, 'last_choices.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
 DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items.json')
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
+# 内网模型：仅 URL/模型名/超时；Token 经 DPAPI 写入此文件，禁止进 resources/
+AI_LOCAL_FILE = os.path.join(CONFIG_DIR, 'ai_local.json')
 DEFAULT_SETTINGS = {
     'font_size': 12,
     'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）
