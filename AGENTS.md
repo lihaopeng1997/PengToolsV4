@@ -26,7 +26,7 @@
 - **禁止**把真实账密/VPN/Token/私钥写入 `resources/`（会打进 EXE）；私有笔记只存 `data/`。发布前必须 `python scripts/scan_release_secrets.py` 通过（`build_release.ps1` 已集成）。
 - **Private 版 HTTP 例外**：
   1. **接口排查 nav 12**：本机 `127.0.0.1` 的 Chromium CDP（`websocket-client`）与 IE MITM 代理（`mitmproxy`，仅监听 loopback）。禁止把代理暴露到局域网。
-  2. **内网模型（默认关闭）**：仅当用户在设置中启用后，才允许访问 `data/ai_local.json` 里配置的 **那一个** Base URL（OpenAI 兼容 `/v1`）。允许 loopback 与 RFC1918；拒绝已知公网模型域名。Token 用 DPAPI 存 `data/`，禁止进 `resources/`。网关明文/抓包 Cookie/SSH 密码默认不进提示词。请求绕过系统代理。
+  2. **内网模型（默认关闭）**：仅当用户在设置中启用后，才允许访问 `data/ai_local.json` 里配置的 **那一个** Base URL（OpenAI 兼容 `/v1`）。允许 loopback 与 RFC1918；拒绝已知公网模型域名。Token 用 DPAPI 存 `data/`，禁止进 `resources/`。网关明文/抓包 Cookie/SSH 密码默认不进提示词。请求绕过系统代理。业务入口走 **PTools Harness**（`tools/ptools_harness.py`）：自然语言→SQL、自然语言→Linux **只读**查询；禁止 `rm`/`reboot`/`kill` 等；查询需人点「执行查询」才发 SSH。
 - 接口排查抓到的请求/响应/令牌/Cookie/密钥/明文 **只存内存**；禁止写日志与 JSON。停止抓包**保留会话**（可继续导出/请求测试）；仅「清空」按钮与应用退出调用 `clear_session()`。配置仅允许 `data/interface_debug.json`（路径、端口、本地地址、证书指纹、代理恢复快照）。
 - 请求测试按用户在 `interface_debug.json` 保存的**环境 Base**（scheme://host:port）替换抓包 URL 的 host 后发送；可新增/编辑/删除环境。导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
 - IE 代理：启动前备份 WinINet 设置；停止/失败/退出必须恢复；证书仅删除配置中记录的指纹。

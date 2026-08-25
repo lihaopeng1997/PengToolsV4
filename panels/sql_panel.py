@@ -40,15 +40,16 @@ class SqlDraftWorker(QThread):
     completed = pyqtSignal(str)
     failed = pyqtSignal(str)
 
-    def __init__(self, prompt_text, cfg):
+    def __init__(self, prompt_text, cfg, task='sql.draft'):
         super().__init__()
         self.prompt_text = prompt_text
         self.cfg = cfg
+        self.task = task or 'sql.draft'
 
     def run(self):
         try:
-            from tools.ai_harness import draft_sql
-            self.completed.emit(draft_sql(self.prompt_text, cfg=self.cfg))
+            from tools.ptools_harness import run_task
+            self.completed.emit(run_task(self.task, self.prompt_text, cfg=self.cfg))
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -592,8 +593,12 @@ class SqlToolPanel(QWidget):
         input_head.addWidget(self.paste_btn)
         self.draft_btn = QPushButton()
         self.draft_btn.setProperty('compactAction', True)
-        self.draft_btn.clicked.connect(self._draft_sql_with_intranet)
+        self.draft_btn.clicked.connect(lambda: self._run_sql_harness('sql.draft'))
         input_head.addWidget(self.draft_btn)
+        self.optimize_btn = QPushButton()
+        self.optimize_btn.setProperty('compactAction', True)
+        self.optimize_btn.clicked.connect(lambda: self._run_sql_harness('sql.optimize'))
+        input_head.addWidget(self.optimize_btn)
         self.clear_btn = QPushButton()
         self.clear_btn.setProperty('compactAction', True)
         self.clear_btn.clicked.connect(self._clear_sql)
@@ -869,7 +874,7 @@ class SqlToolPanel(QWidget):
             if w is not None:
                 secondary.append(w)
         primary_keep = []
-        for name in ('load_btn', 'paste_btn', 'draft_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
+        for name in ('load_btn', 'paste_btn', 'draft_btn', 'optimize_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
             w = getattr(self, name, None)
             if w is not None:
                 primary_keep.append(w)
@@ -926,13 +931,18 @@ class SqlToolPanel(QWidget):
         self.preview_btn.setText('生成预览' if zh else 'Preview')
         self.export_btn.setText('导出全部' if zh else 'Export all')
         if hasattr(self, 'draft_btn'):
-            self.draft_btn.setText('生成草稿' if zh else 'Draft SQL')
+            self.draft_btn.setText('编写' if zh else 'Write SQL')
             self.draft_btn.setToolTip(
-                '用设置中的内网模型根据当前输入生成 SQL 草稿，确认后才写入'
+                '自然语言或需求说明 → Oracle SQL 草稿，确认后才写入'
                 if zh else
-                'Generate a SQL draft from the intranet model; apply only after confirm'
+                'Natural language to Oracle SQL draft; apply after confirm'
             )
-            self._refresh_ai_draft_button()
+        if hasattr(self, 'optimize_btn'):
+            self.optimize_btn.setText('优化' if zh else 'Optimize')
+            self.optimize_btn.setToolTip(
+                '优化当前 SQL，确认后才写入' if zh else 'Optimize current SQL; apply after confirm'
+            )
+        self._refresh_ai_draft_button()
         self._refresh_path_note_visibility()
         self.identity_group.setTitle('系统与文件名' if zh else 'System & filename')
         self.sim_group.setTitle('模拟环境' if zh else 'Simulation')
@@ -1279,22 +1289,22 @@ class SqlToolPanel(QWidget):
         return self.date_edit.date().toString('yyyyMMdd')
 
     def _refresh_ai_draft_button(self):
-        if not hasattr(self, 'draft_btn'):
-            return
         try:
             from tools.intranet_llm import is_enabled
             ready = is_enabled()
         except Exception:
             ready = False
-        self.draft_btn.setEnabled(ready)
-        if not ready:
-            zh = self.language == 'zh'
-            self.draft_btn.setToolTip(
-                '请先在设置中启用内网模型并探测成功' if zh else 'Enable the intranet model in Settings first'
-            )
+        tip = '请先在设置中启用内网模型并探测成功' if self.language == 'zh' else 'Enable the intranet model in Settings first'
+        for name in ('draft_btn', 'optimize_btn'):
+            btn = getattr(self, name, None)
+            if btn is None:
+                continue
+            btn.setEnabled(ready)
+            if not ready:
+                btn.setToolTip(tip)
 
-    def _draft_sql_with_intranet(self):
-        from tools.intranet_llm import IntranetLlmError, is_enabled, load_ai_local
+    def _run_sql_harness(self, task: str):
+        from tools.intranet_llm import is_enabled, load_ai_local
         zh = self.language == 'zh'
         if not is_enabled():
             show_warning(
@@ -1309,22 +1319,31 @@ class SqlToolPanel(QWidget):
                 '请先在输入框写需求说明或 SQL。' if zh else 'Enter a requirement note or SQL first.',
             )
             return
+        label = '优化' if task == 'sql.optimize' else '编写'
         if not confirm_action(
             self, 'PengTools · SQL',
-            ('将把当前输入发给内网模型生成草稿，不会自动导出或写入 SVN。是否继续？'
+            (f'将把当前输入发给内网模型做「{label}」，不会自动导出或写入 SVN。是否继续？'
              if zh else
-             'Send the current text to the intranet model for a draft. It will not export or write SVN. Continue?'),
-            confirm_text='生成草稿' if zh else 'Generate',
+             f'Send the current text to the intranet model ({label}). It will not export or write SVN. Continue?'),
+            confirm_text=label if zh else 'Generate',
             danger=False,
         ):
             return
         self.draft_btn.setEnabled(False)
-        self.progress.start_busy('正在生成 SQL 草稿…' if zh else 'Drafting SQL…')
-        self._draft_worker = SqlDraftWorker(prompt, load_ai_local())
+        if hasattr(self, 'optimize_btn'):
+            self.optimize_btn.setEnabled(False)
+        self.progress.start_busy(
+            '正在优化 SQL…' if task == 'sql.optimize' and zh else
+            '正在编写 SQL…' if zh else 'Working…'
+        )
+        self._draft_worker = SqlDraftWorker(prompt, load_ai_local(), task=task)
         self._draft_worker.completed.connect(self._on_draft_completed)
         self._draft_worker.failed.connect(self._on_draft_failed)
         self._draft_worker.finished.connect(self._on_draft_finished)
         self._draft_worker.start()
+
+    def _draft_sql_with_intranet(self):
+        self._run_sql_harness('sql.draft')
 
     def _on_draft_completed(self, text):
         self._draft_buffer = str(text or '').strip()

@@ -34,11 +34,29 @@ from tools.ops_ssh import (
     parse_keywords, save_server_store, save_servers, server_services, split_extra_keywords, test_connection,
 )
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
-from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_success, show_warning
+from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
 from ui.page_chrome import make_page_header
 from ui.ssh_terminal import SshTerminalWidget
+
+
+class _LinuxQueryWorker(QThread):
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, prompt: str, context: str, cfg, parent=None):
+        super().__init__(parent)
+        self.prompt = prompt
+        self.context = context
+        self.cfg = cfg
+
+    def run(self):
+        try:
+            from tools.ptools_harness import run_task
+            self.completed.emit(run_task('linux.query', self.prompt, context=self.context, cfg=self.cfg))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class _SshTestWorker(QThread):
@@ -1023,6 +1041,8 @@ class OpsLogPanel(QWidget):
         self._active_term_index: int | None = None
         self._restoring_session = False
         self._worker: _Worker | None = None
+        self._query_worker: _LinuxQueryWorker | None = None
+        self._harness_allowed_cmds: list[str] = []
         self._executor = ThreadPoolExecutor(max_workers=2)
         self._bridge = _ExportBridge(self)
         self._bridge.result_ready.connect(self._on_result_row)
@@ -1367,6 +1387,110 @@ class OpsLogPanel(QWidget):
         append_command(text, host=host)
         self._set_cmd_bar_text('')
         term.setFocus()
+
+    def _linux_query_context(self) -> str:
+        term = self._current_terminal()
+        if term is None:
+            return ''
+        try:
+            selected = term.textCursor().selectedText().replace('\u2029', '\n').strip()
+            if selected:
+                return selected[-8000:]
+            return (term.toPlainText() or '')[-4000:]
+        except Exception:
+            return ''
+
+    def _refresh_linux_query_buttons(self):
+        try:
+            from tools.intranet_llm import is_enabled
+            ready = is_enabled()
+        except Exception:
+            ready = False
+        if hasattr(self, 'nl_query_btn'):
+            self.nl_query_btn.setEnabled(ready)
+        self._refresh_exec_query_button()
+
+    def _refresh_exec_query_button(self, *_args):
+        if not hasattr(self, 'exec_query_btn'):
+            return
+        from tools.linux_guard import inspect_command
+        text = self._cmd_bar_text().strip()
+        ok, _reason = inspect_command(text) if text else (False, '')
+        connected = False
+        term = self._current_terminal()
+        if term is not None:
+            connected = bool(getattr(term, 'shell_alive', False))
+        self.exec_query_btn.setEnabled(bool(ok and connected))
+
+    def _generate_linux_query(self):
+        from tools.intranet_llm import is_enabled, load_ai_local
+        zh = self.language == 'zh'
+        if not is_enabled():
+            show_warning(self, 'PengTools', '请先在设置中启用内网模型并探测。' if zh else 'Enable intranet model first.')
+            return
+        prompt = self._cmd_bar_text().strip() or (self.keyword_edit.text().strip() if hasattr(self, 'keyword_edit') else '')
+        context = self._linux_query_context()
+        if not prompt and not context:
+            show_warning(self, 'PengTools', '请输入中文排查意图，或在终端选中一段日志。' if zh else 'Type an intent or select log text.')
+            return
+        if not prompt:
+            prompt = '根据下面日志找出只读查询命令'
+        self.nl_query_btn.setEnabled(False)
+        self._query_worker = _LinuxQueryWorker(prompt, context, load_ai_local(), self)
+        self._query_worker.completed.connect(self._on_linux_query_ok)
+        self._query_worker.failed.connect(self._on_linux_query_fail)
+        self._query_worker.finished.connect(self._refresh_linux_query_buttons)
+        self._query_worker.start()
+        self.status_label.setText('正在生成只读查询…' if zh else 'Generating query…')
+
+    def _on_linux_query_ok(self, payload):
+        zh = self.language == 'zh'
+        data = payload if isinstance(payload, dict) else {}
+        allowed = list(data.get('allowed') or [])
+        rejected = list(data.get('rejected') or [])
+        summary = str(data.get('summary') or '')
+        self._harness_allowed_cmds = allowed
+        lines = []
+        if summary:
+            lines.append(summary)
+        if allowed:
+            lines.append('可执行：' if zh else 'Allowed:')
+            lines.extend(f'  {cmd}' for cmd in allowed)
+        if rejected:
+            lines.append('已拒绝：' if zh else 'Rejected:')
+            lines.extend(f'  {cmd}  ({reason})' for cmd, reason in rejected)
+        preview = '\n'.join(lines) or ('模型没有给出可用查询' if zh else 'No query')
+        if allowed:
+            self._set_cmd_bar_text(allowed[0])
+            show_info(
+                self, 'PengTools · 查询',
+                preview + ('\n\n第一条已填入命令框，点「执行查询」才会发到服务器。' if zh else '\n\nFirst command filled. Run query to send.'),
+            )
+        else:
+            show_warning(self, 'PengTools · 查询', preview)
+        self._refresh_exec_query_button()
+        self.status_label.setText('就绪' if zh else 'Ready')
+
+    def _on_linux_query_fail(self, message):
+        show_error(self, 'PengTools', str(message or ''))
+        self.status_label.setText('就绪' if self.language == 'zh' else 'Ready')
+
+    def _execute_linux_query(self):
+        from tools.linux_guard import inspect_command
+        zh = self.language == 'zh'
+        text = self._cmd_bar_text().strip()
+        ok, reason = inspect_command(text)
+        if not ok:
+            show_warning(self, 'PengTools', f'不是只读查询，已拦截：{reason}' if zh else f'Blocked: {reason}')
+            return
+        if not confirm_action(
+            self, 'PengTools · 查询',
+            (f'将把下面命令发到当前 SSH 终端（只读查询）：\n{text}' if zh else f'Send read-only query:\n{text}'),
+            confirm_text='执行查询' if zh else 'Run',
+            danger=False,
+        ):
+            return
+        self._send_cmd_bar(text)
 
     def _fill_cmd_bar_from_history(self):
         self._open_cmd_history_dialog()
@@ -1968,7 +2092,17 @@ class OpsLogPanel(QWidget):
         self.cmd_fill_btn = QPushButton()  # 现为「历史」
         apply_button(self.cmd_fill_btn, 'ghost', compact=True)
         self.cmd_fill_btn.clicked.connect(self._open_cmd_history_dialog)
+        self.nl_query_btn = QPushButton()
+        apply_button(self.nl_query_btn, 'secondary', compact=True)
+        self.nl_query_btn.clicked.connect(self._generate_linux_query)
+        self.exec_query_btn = QPushButton()
+        apply_button(self.exec_query_btn, 'primary', compact=True)
+        self.exec_query_btn.clicked.connect(self._execute_linux_query)
+        self.exec_query_btn.setEnabled(False)
+        self.cmd_input.textChanged.connect(self._refresh_exec_query_button)
         cmd_row.addWidget(self.cmd_input, 1)
+        cmd_row.addWidget(self.nl_query_btn)
+        cmd_row.addWidget(self.exec_query_btn)
         cmd_row.addWidget(self.cmd_fill_btn)
         cmd_row.addWidget(self.cmd_send_btn)
         right_l.addLayout(cmd_row)
@@ -2394,9 +2528,19 @@ class OpsLogPanel(QWidget):
             self.cmd_send_btn.setToolTip('发送到当前终端并记入本机历史' if zh else 'Send to terminal + local history')
             self.cmd_fill_btn.setText('历史' if zh else 'History')
             self.cmd_fill_btn.setToolTip('打开带日期的命令历史，可右键带入/发送' if zh else 'History with dates')
+        if hasattr(self, 'nl_query_btn'):
+            self.nl_query_btn.setText('生成查询' if zh else 'NL query')
+            self.nl_query_btn.setToolTip(
+                '把中文排查意图转成只读 Linux 命令，禁止删除/重启' if zh else 'Natural language to read-only Linux commands'
+            )
+            self.exec_query_btn.setText('执行查询' if zh else 'Run query')
+            self.exec_query_btn.setToolTip(
+                '仅白名单只读命令可执行' if zh else 'Only allowlisted read-only commands'
+            )
+            self._refresh_linux_query_buttons()
         if hasattr(self, 'cmd_input'):
             self.cmd_input.setPlaceholderText(
-                '输入命令后回车或点发送…' if zh else 'Type command, Enter to send…'
+                '中文排查意图或 Linux 命令…' if zh else 'Chinese intent or Linux command…'
             )
         self._update_connect_button_text()
 
@@ -2814,6 +2958,7 @@ class OpsLogPanel(QWidget):
                 except Exception:
                     pass
         self._update_connect_button_text()
+        self._refresh_exec_query_button()
 
     def _update_connect_button_text(self):
         zh = self.language == 'zh'

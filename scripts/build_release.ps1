@@ -229,6 +229,8 @@ try {
         '--hidden-import', 'nacl',
         '--hidden-import', 'tools.intranet_llm',
         '--hidden-import', 'tools.ai_harness',
+        '--hidden-import', 'tools.ptools_harness',
+        '--hidden-import', 'tools.linux_guard',
         '--exclude-module', 'PyQt5',
         '--exclude-module', 'PySide2',
         '--exclude-module', 'PySide6',
