@@ -17,7 +17,7 @@ from tools.db_connect import (
     schema_summary, upsert_connection,
 )
 from tools.intranet_llm import is_enabled, load_ai_local
-from tools.sql_guard import is_read_query, reject_reason
+from tools.sql_guard import reject_reason
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_enum_combo, size_line, size_pick_combo
