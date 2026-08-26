@@ -26,7 +26,7 @@
 - **禁止**把真实账密/VPN/Token/私钥写入 `resources/`（会打进 EXE）；私有笔记只存 `data/`。发布前必须 `python scripts/scan_release_secrets.py` 通过（`build_release.ps1` 已集成）。
 - **Private 版 HTTP 例外**：
   1. **接口排查 nav 12**：本机 `127.0.0.1` 的 Chromium CDP（`websocket-client`）与 IE MITM 代理（`mitmproxy`，仅监听 loopback）。禁止把代理暴露到局域网。
-  2. **内网模型（默认关闭）**：仅当用户在设置中启用后，才允许访问 `data/ai_local.json` 里配置的 **那一个** Base URL（OpenAI 兼容 `/v1`）。允许 loopback 与 RFC1918；拒绝已知公网模型域名。Token 用 DPAPI 存 `data/`，禁止进 `resources/`。网关明文/抓包 Cookie/SSH 密码默认不进提示词。请求绕过系统代理。业务入口走 **PTools Harness**（`tools/ptools_harness.py`）：自然语言→SQL、自然语言→Linux **只读**查询；禁止 `rm`/`reboot`/`kill` 等；查询需人点「执行查询」才发 SSH。项目约定用 `resources/harness/projects/` + 用户 `data/harness/`（技能安装、表名扫描）；**不要**把业务源码或 CodeGraph 打进 EXE。
+  2. **内网模型（默认关闭）**：仅当用户在设置中启用后，才允许访问 `data/ai_local.json` 里配置的内网 Base URL（可多条完整配置；OpenAI 兼容 `/v1`）。允许 loopback 与 RFC1918；拒绝已知公网模型域名与 DNS rebinding。Token 用 DPAPI 存 `data/`，禁止进 `resources/`。网关明文/抓包 Cookie/SSH 密码默认不进提示词。请求绕过系统代理。SQL 控制台走默认配置生成草案且**绝不自动执行**；通用聊天走导航「模型对话」。业务入口走 **PTools Harness**（`tools/ptools_harness.py`）：自然语言→SQL、自然语言→Linux **只读**查询；禁止 `rm`/`reboot`/`kill` 等；查询需人点「执行查询」才发 SSH。项目约定用 `resources/harness/projects/` + 用户 `data/harness/`（技能安装、表名扫描）；**不要**把业务源码或 CodeGraph 打进 EXE。
 - 接口排查抓到的请求/响应/令牌/Cookie/密钥/明文 **只存内存**；禁止写日志与 JSON。停止抓包**保留会话**（可继续导出/请求测试）；仅「清空」按钮与应用退出调用 `clear_session()`。配置仅允许 `data/interface_debug.json`（路径、端口、本地地址、证书指纹、代理恢复快照）。
 - 请求测试按用户在 `interface_debug.json` 保存的**环境 Base**（scheme://host:port）替换抓包 URL 的 host 后发送；可新增/编辑/删除环境。导出明细格式 `pengtools_iface_session_v1`（URL + 优先解密后的请求/响应），可再导入/拖入回填。
 - IE 代理：启动前备份 WinINet 设置；停止/失败/退出必须恢复；证书仅删除配置中记录的指纹。
@@ -78,9 +78,10 @@
 | 11 | 格式工具 | 常显 |
 | 12 | 接口排查 | 常显（Private） |
 | 13 | 日志排查 | 常显 |
-| 14 | 模型工作台 | 常显 |
+| 14 | SQL 控制台 | 常显 |
+| 15 | 模型对话 | 常显 |
 
-- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）；导航 11 → Stack 10（FormatToolsPanel）；导航 12 → Stack 11（InterfaceDebugPanel）；导航 13 → Stack 12（OpsLogPanel）；导航 14 → Stack 13（AiWorkbenchPanel）。
+- 导航 8/9 → Stack 8（PersonalPanel）；导航 10 → Stack 9（RequirementPanel）；导航 11 → Stack 10（FormatToolsPanel）；导航 12 → Stack 11（InterfaceDebugPanel）；导航 13 → Stack 12（OpsLogPanel）；导航 14 → Stack 13（AiWorkbenchPanel / SQL 控制台）；导航 15 → Stack 14（ModelChatPanel）。
 - 只有「自我学习」允许彩蛋隐藏；密钥与解锁入口勿擅自改、勿写进普通 UI 文案。
 
 ## 数据与升级硬规则
@@ -104,6 +105,7 @@
 ## UI / 交互约束
 
 - 样式统一用 `resources/style.qss`；QComboBox/QDateEdit 复用下拉箭头样式。
+- **页面骨架四层（规范 v1，全称见根目录《页面骨架与控件分层规范v1.html》）**：L1 页头（`make_page_header`，主操作唯一置于右上，≤2 个 ghost 次要操作）→ L2 工具栏（`QFrame#page-toolbar`，≤8 个按钮语义分组，操作与筛选分离）→ L3 筛选条（`make_filter_bar`，禁止混入改数据按钮）→ L4 内容区（`ds-card`/`ds-zone`/`ds-muted` + `make_empty_state` 空状态四要素）。骨架自检：`tests/test_page_skeleton.py`（棘轮基线表只降不升，新页面必须直接满足主操作 ≤1）。
 - Loading 为不占布局浮层；文件树后台刷新等静默任务 `show_loading=False`。
 - 成功/失败/异常三条路径都要结束 Loading。
 - 网关解密的密钥/明文/报文默认不落盘、不写日志。

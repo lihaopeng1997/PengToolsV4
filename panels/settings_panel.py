@@ -3,7 +3,7 @@ from PyQt6.QtCore import QEvent, QRectF, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
-    QInputDialog, QLabel, QLineEdit, QPushButton, QSlider,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSlider,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -395,8 +395,34 @@ class SettingsPanel(QWidget):
         root.addWidget(self.security_group)
 
         self.ai_group = QGroupBox()
-        ai_form = QFormLayout(self.ai_group)
+        ai_outer = QVBoxLayout(self.ai_group)
+        self.ai_list = QListWidget()
+        self.ai_list.setMaximumHeight(110)
+        self.ai_list.currentItemChanged.connect(self._on_ai_item_changed)
+        ai_outer.addWidget(self.ai_list)
+        ai_crud = QHBoxLayout()
+        self.ai_new_btn = QPushButton()
+        size_compact_button(self.ai_new_btn)
+        self.ai_new_btn.clicked.connect(self._new_model_config)
+        self.ai_copy_btn = QPushButton()
+        size_compact_button(self.ai_copy_btn)
+        self.ai_copy_btn.clicked.connect(self._copy_model_config)
+        self.ai_del_btn = QPushButton()
+        size_compact_button(self.ai_del_btn)
+        self.ai_del_btn.clicked.connect(self._delete_model_config)
+        self.ai_default_btn = QPushButton()
+        size_compact_button(self.ai_default_btn)
+        self.ai_default_btn.clicked.connect(self._set_default_model_config)
+        for btn in (self.ai_new_btn, self.ai_copy_btn, self.ai_del_btn, self.ai_default_btn):
+            ai_crud.addWidget(btn)
+        ai_crud.addStretch(1)
+        ai_outer.addLayout(ai_crud)
+        ai_form = QFormLayout()
         apply_form(ai_form)
+        self.ai_name = QLineEdit()
+        size_line(self.ai_name, 'path')
+        self.ai_name_label = QLabel()
+        ai_form.addRow(self.ai_name_label, self.ai_name)
         self.ai_enabled = QCheckBox()
         self.ai_enabled_label = QLabel()
         ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
@@ -462,8 +488,11 @@ class SettingsPanel(QWidget):
         self.ai_note.setObjectName('ops-safety-note')
         self.ai_note.setWordWrap(True)
         ai_form.addRow(self.ai_note)
+        ai_outer.addLayout(ai_form)
         root.addWidget(self.ai_group)
         self._ai_probe_worker = None
+        self._ai_editing_id = ''
+        self._ai_loading = False
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -616,17 +645,52 @@ class SettingsPanel(QWidget):
 
     def _load_ai_local_values(self):
         try:
-            from tools.intranet_llm import decrypt_token, load_ai_local
-            cfg = load_ai_local()
+            from tools.intranet_llm import load_model_catalog
+            catalog = load_model_catalog()
         except Exception:
             return
+        self._refresh_ai_list(catalog)
+
+    def _refresh_ai_list(self, catalog=None):
+        from tools.intranet_llm import get_active_item, load_model_catalog
+        data = catalog if isinstance(catalog, dict) else load_model_catalog()
+        current = self._ai_editing_id or str(data.get('active_model_id') or '')
+        self._ai_loading = True
+        self.ai_list.blockSignals(True)
+        self.ai_list.clear()
+        for item in data.get('items') or []:
+            mark = '★ ' if item.get('id') == data.get('active_model_id') else ''
+            label = f"{mark}{item.get('name') or ''} · {item.get('model') or ''}"
+            row = QListWidgetItem(label)
+            row.setData(Qt.ItemDataRole.UserRole, item)
+            self.ai_list.addItem(row)
+            if item.get('id') == current:
+                self.ai_list.setCurrentItem(row)
+        if self.ai_list.count() and self.ai_list.currentItem() is None:
+            self.ai_list.setCurrentRow(0)
+        self.ai_list.blockSignals(False)
+        self._ai_loading = False
+        row = self.ai_list.currentItem()
+        if row is not None:
+            self._fill_ai_form(row.data(Qt.ItemDataRole.UserRole) or {})
+        else:
+            self._fill_ai_form(get_active_item(data))
+
+    def _fill_ai_form(self, cfg):
+        from tools.intranet_llm import decrypt_token
+        cfg = cfg if isinstance(cfg, dict) else {}
+        self._ai_editing_id = str(cfg.get('id') or '')
+        self.ai_name.setText(str(cfg.get('name') or ''))
         self.ai_enabled.setChecked(bool(cfg.get('enabled')))
         self.ai_base_url.setText(str(cfg.get('base_url') or ''))
         self.ai_model.blockSignals(True)
         self.ai_model.clear()
+        for name in cfg.get('available_models') or []:
+            self.ai_model.addItem(str(name))
         model = str(cfg.get('model') or '')
         if model:
-            self.ai_model.addItem(model)
+            if self.ai_model.findText(model) < 0:
+                self.ai_model.addItem(model)
             self.ai_model.setCurrentText(model)
         self.ai_model.blockSignals(False)
         self.ai_token.setText(decrypt_token(cfg.get('token') or ''))
@@ -634,23 +698,34 @@ class SettingsPanel(QWidget):
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
         self._reload_harness_projects(cfg.get('project_id') or 'prpcar')
+        zh = self.language == 'zh'
         if cfg.get('enabled') and cfg.get('base_url'):
-            self.ai_status.setText('已保存，可点探测检查连通' if self.language == 'zh' else 'Saved. Probe to verify.')
+            self.ai_status.setText('已保存，可点探测检查连通' if zh else 'Saved. Probe to verify.')
         else:
-            self.ai_status.setText('默认关闭。启用后填写内网 URL 再探测。' if self.language == 'zh' else 'Off by default.')
+            self.ai_status.setText('默认关闭。启用后填写内网 URL 再探测。' if zh else 'Off by default.')
+
+    def _on_ai_item_changed(self, current, _previous=None):
+        if self._ai_loading or current is None:
+            return
+        data = current.data(Qt.ItemDataRole.UserRole) or {}
+        self._fill_ai_form(data)
 
     def _ai_cfg_from_ui(self):
-        from tools.intranet_llm import encrypt_token, normalize_ai_local
-        return normalize_ai_local({
+        from tools.intranet_llm import encrypt_token, normalize_model_item
+        token_plain = self.ai_token.text()
+        payload = {
+            'id': self._ai_editing_id,
+            'name': self.ai_name.text().strip() or '未命名配置',
             'enabled': self.ai_enabled.isChecked(),
             'base_url': self.ai_base_url.text().strip(),
             'model': self.ai_model.currentText().strip(),
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
-            'token': encrypt_token(self.ai_token.text()),
+            'token': encrypt_token(token_plain) if token_plain else '',
             'app_tag': self.ai_app_tag.text().strip(),
             'project_id': self.ai_project.currentData() or 'prpcar',
-        })
+        }
+        return normalize_model_item(payload)
 
     def _reload_harness_projects(self, current: str = 'prpcar'):
         from tools.harness_project import list_projects
@@ -705,33 +780,68 @@ class SettingsPanel(QWidget):
         from ui.confirm_dialog import show_error, show_success
         zh = self.language == 'zh'
         try:
-            from tools.intranet_llm import canonical_base_url, save_ai_local, validate_base_url
+            from tools.intranet_llm import canonical_base_url, upsert_model_item, validate_base_url
             cfg = self._ai_cfg_from_ui()
             if cfg.get('enabled'):
                 cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
             elif cfg.get('base_url'):
                 validate_base_url(cfg.get('base_url') or '')
-            saved = save_ai_local(cfg)
+            saved = upsert_model_item(cfg)
+            self._ai_editing_id = saved.get('id')
             if saved.get('base_url'):
                 self.ai_base_url.setText(saved['base_url'])
+            self._refresh_ai_list()
             self.ai_status.setText('已保存' if zh else 'Saved')
             show_success(self, '内网模型' if zh else 'Intranet model', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
         except Exception as exc:
             self.ai_status.setText(str(exc))
             show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
 
+    def _new_model_config(self):
+        from tools.intranet_llm import upsert_model_item
+        import uuid
+        item = upsert_model_item({'name': f'新配置 {uuid.uuid4().hex[:6]}', 'enabled': False})
+        self._ai_editing_id = item.get('id')
+        self._refresh_ai_list()
+
+    def _copy_model_config(self):
+        from tools.intranet_llm import upsert_model_item
+        cfg = self._ai_cfg_from_ui()
+        cfg['id'] = ''
+        cfg['name'] = (cfg.get('name') or '配置') + ' 副本'
+        saved = upsert_model_item(cfg)
+        self._ai_editing_id = saved.get('id')
+        self._refresh_ai_list()
+
+    def _delete_model_config(self):
+        from tools.intranet_llm import delete_model_item
+        from ui.confirm_dialog import confirm_action
+        zh = self.language == 'zh'
+        if not self._ai_editing_id:
+            return
+        if not confirm_action(self, '内网模型' if zh else 'Intranet model', '删除该模型配置？' if zh else 'Delete this model config?', confirm_text='删除' if zh else 'Delete', danger=True):
+            return
+        delete_model_item(self._ai_editing_id)
+        self._ai_editing_id = ''
+        self._refresh_ai_list()
+
+    def _set_default_model_config(self):
+        from tools.intranet_llm import set_active_model
+        if self._ai_editing_id:
+            set_active_model(self._ai_editing_id)
+            self._refresh_ai_list()
+
     def _probe_intranet_model(self):
         from ui.confirm_dialog import show_error
         zh = self.language == 'zh'
         try:
-            from tools.intranet_llm import canonical_base_url, save_ai_local
+            from tools.intranet_llm import canonical_base_url
             cfg = self._ai_cfg_from_ui()
             cfg['enabled'] = True
             cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
             if not cfg.get('model'):
                 cfg['model'] = 'qwen3.6'
                 self.ai_model.setCurrentText('qwen3.6')
-            save_ai_local(cfg)
             self.ai_base_url.setText(cfg['base_url'])
             self.ai_enabled.setChecked(True)
         except Exception as exc:
@@ -768,13 +878,16 @@ class SettingsPanel(QWidget):
                 f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
             )
             try:
-                from tools.intranet_llm import save_ai_local
+                from tools.intranet_llm import upsert_model_item
                 cfg = self._ai_cfg_from_ui()
                 cfg['enabled'] = True
+                cfg['available_models'] = names
                 if not cfg.get('model') and names:
                     cfg['model'] = names[0]
                     self.ai_model.setCurrentText(names[0])
-                save_ai_local(cfg)
+                saved = upsert_model_item(cfg)
+                self._ai_editing_id = saved.get('id')
+                self._refresh_ai_list()
             except Exception:
                 pass
         else:
@@ -997,6 +1110,11 @@ class SettingsPanel(QWidget):
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')
         self.ai_group.setTitle('内网模型' if zh else 'Intranet model')
+        self.ai_name_label.setText('配置名称' if zh else 'Config name')
+        self.ai_new_btn.setText('新建' if zh else 'New')
+        self.ai_copy_btn.setText('复制' if zh else 'Copy')
+        self.ai_del_btn.setText('删除' if zh else 'Delete')
+        self.ai_default_btn.setText('设为默认' if zh else 'Set default')
         self.ai_enabled_label.setText('启用' if zh else 'Enable')
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
         self.ai_project_label.setText('项目包' if zh else 'Project pack')
@@ -1018,7 +1136,9 @@ class SettingsPanel(QWidget):
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
-            '选项目包、安装本地技能。真正查数请到「模型工作台」连接 Oracle / MySQL / OceanBase / 达梦。'
+            '聊天记录以明文保存在本机 data 目录，请勿输入密码、Token、客户隐私或生产敏感数据。'
+            'SQL 控制台使用默认配置；模型对话可切换任一启用配置。'
             if zh else
-            'Project packs and local skills. Query data in Model Workbench via Oracle / MySQL / OceanBase / Dameng.'
+            'Chats are stored as plain JSON in local data/. Do not paste secrets. '
+            'SQL Console uses the default config; Model Chat can switch any enabled config.'
         )

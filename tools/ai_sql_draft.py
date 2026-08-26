@@ -1,0 +1,219 @@
+# -*- coding: utf-8 -*-
+"""内网模型 SQL 草案：结构化说明 + SQL，绝不执行数据库。"""
+
+from __future__ import annotations
+
+import json
+import re
+
+from tools.ai_harness import strip_markdown_fence
+from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
+from tools.schema_snapshot import clip_snapshot_for_prompt
+from tools.sql_guard import classify_statement
+
+_SQL_KEYWORDS = frozenset({
+    'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as',
+    'join', 'left', 'right', 'inner', 'outer', 'on', 'group', 'by', 'order',
+    'asc', 'desc', 'having', 'union', 'all', 'distinct', 'count', 'sum',
+    'avg', 'min', 'max', 'case', 'when', 'then', 'else', 'end', 'insert',
+    'into', 'values', 'update', 'set', 'delete', 'create', 'alter', 'drop',
+    'table', 'view', 'index', 'with', 'exists', 'like', 'between', 'limit',
+    'offset', 'dual', 'rownum', 'fetch', 'first', 'rows', 'only', 'scan',
+    'get', 'match', 'hgetall', 'collection', 'filter', 'true', 'false',
+})
+
+ACTIONS = {
+    'generate': '根据问题生成',
+    'explain': '解释当前 SQL',
+    'optimize': '优化当前 SQL',
+    'fix': '修复报错',
+}
+
+_SYSTEM = (
+    '你是内网数据库 SQL 助手。只返回一个 JSON 对象，不要 Markdown 围栏，不要隐藏思维链，'
+    '不要输出 host、端口、用户名、密码、Token 或任何行数据。'
+    '字段：summary, intent, objects_used, selected_fields, condition_interpretation, '
+    'join_assumptions, risk_level, warnings, sql。'
+    'risk_level 只能是 low、medium、high。sql 是可粘贴的 SQL/Redis 命令/Mongo JSON。'
+    '多表且关联不明确时，join_assumptions 必须说明，并把 risk_level 设为 high，'
+    'warnings 必须包含「需人工补充 Join 条件」。'
+)
+
+
+def _extract_json(text: str) -> dict:
+    raw = strip_markdown_fence(str(text or ''))
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+    except ValueError:
+        pass
+    match = re.search(r'\{[\s\S]*\}', raw)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict):
+                return data
+        except ValueError:
+            pass
+    return {'summary': raw[:800], 'sql': raw, 'warnings': ['模型未返回标准 JSON，已尽量提取 SQL']}
+
+
+def empty_draft(**overrides) -> dict:
+    data = {
+        'summary': '',
+        'intent': '',
+        'objects_used': [],
+        'selected_fields': [],
+        'condition_interpretation': '',
+        'join_assumptions': '',
+        'risk_level': 'medium',
+        'warnings': [],
+        'sql': '',
+    }
+    data.update(overrides)
+    return data
+
+
+def build_safe_context(
+    *,
+    dialect: str,
+    alias: str,
+    question: str,
+    action: str,
+    snapshot=None,
+    selected_tables=None,
+    selected_fields=None,
+    current_sql: str = '',
+    error_text: str = '',
+    stale: bool = False,
+) -> str:
+    tables = [str(item).strip() for item in (selected_tables or []) if str(item).strip()]
+    fields = [str(item).strip() for item in (selected_fields or []) if str(item).strip()]
+    parts = [
+        f'方言：{dialect}',
+        f'连接别名：{alias or "未命名"}',
+        f'动作：{ACTIONS.get(action, action)}',
+    ]
+    if stale:
+        parts.append('结构快照已过期或缺失，生成结果仅供参考，请先重新扫描。')
+    if tables:
+        parts.append('用户选中对象：' + ', '.join(tables))
+    if fields:
+        parts.append('用户选中字段：' + ', '.join(fields))
+        parts.append('SQL 只允许引用选中字段、选中对象和 COUNT(*)。')
+    clipped = clip_snapshot_for_prompt(snapshot, selected_tables=tables, selected_fields=fields)
+    if clipped:
+        parts.append('结构快照（已裁剪，仅元数据）：\n' + clipped)
+    if current_sql and action in ('explain', 'optimize', 'fix', 'generate'):
+        parts.append('当前编辑器 SQL：\n' + str(current_sql)[:4000])
+    if error_text and action == 'fix':
+        parts.append('用户粘贴的错误：\n' + str(error_text)[:1500])
+    parts.append('用户问题：\n' + str(question or ''))
+    return '\n'.join(parts)
+
+
+def _idents(sql: str) -> set[str]:
+    return {item.upper() for item in re.findall(r'[A-Za-z_][A-Za-z0-9_]*', str(sql or ''))}
+
+
+def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dialect: str = 'oracle') -> dict:
+    data = empty_draft(**{k: v for k, v in (draft or {}).items() if k in empty_draft()})
+    warnings = [str(item) for item in (data.get('warnings') or []) if str(item).strip()]
+    tables = [str(item).strip() for item in (selected_tables or data.get('objects_used') or []) if str(item).strip()]
+    fields = [str(item).strip() for item in (selected_fields or []) if str(item).strip()]
+    sql = str(data.get('sql') or '').strip()
+    data['sql'] = sql
+    if fields and sql:
+        allowed = {item.upper() for item in fields} | {item.upper() for item in tables} | {'COUNT'}
+        leftover = []
+        for token in _idents(sql):
+            if token.lower() in _SQL_KEYWORDS:
+                continue
+            if token in allowed:
+                continue
+            leftover.append(token)
+        if leftover:
+            warnings.append('选中字段约束：SQL 出现了未勾选标识符 ' + ', '.join(sorted(set(leftover))[:12]))
+    if len(tables) > 1:
+        lowered = sql.lower()
+        if 'join' not in lowered and '=' not in lowered:
+            if '需人工补充 Join 条件' not in ''.join(warnings):
+                warnings.append('需人工补充 Join 条件')
+            data['risk_level'] = 'high'
+            if not data.get('join_assumptions'):
+                data['join_assumptions'] = '多表无明确关联，不能视为可安全执行'
+    if not data.get('objects_used'):
+        data['objects_used'] = tables
+    if not data.get('selected_fields'):
+        data['selected_fields'] = fields
+    info = classify_statement(sql, dialect) if sql else {}
+    if info.get('needs_confirm') and '写入/结构变更草案，必须人工确认后才会执行' not in warnings:
+        warnings.append('写入/结构变更草案，必须人工确认后才会执行')
+        if data.get('risk_level') == 'low':
+            data['risk_level'] = 'high'
+    data['warnings'] = warnings
+    data['risk_level'] = str(data.get('risk_level') or 'medium').lower()
+    if data['risk_level'] not in ('low', 'medium', 'high'):
+        data['risk_level'] = 'medium'
+    return data
+
+
+def format_explanation(draft: dict) -> str:
+    data = draft if isinstance(draft, dict) else empty_draft()
+    lines = [
+        f"摘要：{data.get('summary') or '（无）'}",
+        f"意图：{data.get('intent') or '（无）'}",
+        '对象：' + (', '.join(data.get('objects_used') or []) or '（未标明）'),
+        '字段：' + (', '.join(data.get('selected_fields') or []) or '（未限定）'),
+        f"条件：{data.get('condition_interpretation') or '（无）'}",
+        f"Join 假设：{data.get('join_assumptions') or '（无）'}",
+        f"风险：{data.get('risk_level') or 'medium'}",
+    ]
+    warnings = [str(item) for item in (data.get('warnings') or []) if str(item).strip()]
+    if warnings:
+        lines.append('警告：')
+        lines.extend(f'- {item}' for item in warnings)
+    return '\n'.join(lines)
+
+
+def generate_sql_draft(
+    question: str,
+    *,
+    action: str = 'generate',
+    dialect: str = 'oracle',
+    alias: str = '',
+    snapshot=None,
+    selected_tables=None,
+    selected_fields=None,
+    current_sql: str = '',
+    error_text: str = '',
+    stale: bool = False,
+    cfg=None,
+) -> dict:
+    settings = cfg if isinstance(cfg, dict) else load_ai_local()
+    if not is_enabled(settings):
+        raise IntranetLlmError('未启用内网模型，请先在设置中配置并探测')
+    context = build_safe_context(
+        dialect=dialect,
+        alias=alias,
+        question=question,
+        action=action or 'generate',
+        snapshot=snapshot,
+        selected_tables=selected_tables,
+        selected_fields=selected_fields,
+        current_sql=current_sql,
+        error_text=error_text,
+        stale=stale,
+    )
+    content = chat_completions(
+        [
+            {'role': 'system', 'content': _SYSTEM},
+            {'role': 'user', 'content': context},
+        ],
+        cfg=settings,
+    )
+    parsed = _extract_json(content)
+    if not parsed.get('sql'):
+        parsed['sql'] = strip_markdown_fence(content)
+    return validate_draft(parsed, selected_tables, selected_fields, dialect)

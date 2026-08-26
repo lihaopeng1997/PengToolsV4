@@ -376,6 +376,55 @@ QFrame#page-filter-bar {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
+/* 页面骨架 L2 工具栏（规范 v1 §4）：批量操作按钮组容器；
+ * 默认透明；divided="true" 时加底部分隔线用于与内容区强分层 */
+QFrame#page-toolbar {
+    background: transparent;
+    border: none;
+}
+QFrame#page-toolbar[divided="true"] {
+    border-bottom: 1px solid __BORDER__;
+}
+/* 页面骨架 L4 空状态（规范 v1 §6.3）：图标 + 标题 + 引导 + 可选按钮 */
+QFrame#empty-state {
+    background: __SURFACE__;
+    border: 1px dashed __BORDER_STRONG__;
+    border-radius: 12px;
+}
+QLabel#empty-state-icon {
+    background: transparent;
+    color: __TEXT_MUTED__;
+}
+QLabel#empty-state-title {
+    background: transparent;
+    color: __TEXT_STRONG__;
+    font-size: 14px;
+    font-weight: 600;
+}
+QLabel#empty-state-text {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+}
+QFrame#chat-risk-banner {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-left: 3px solid __WARNING__;
+    border-radius: 10px;
+}
+QFrame#chat-bubble-user, QFrame#chat-bubble-assistant {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QFrame#chat-bubble-user {
+    background: __PRIMARY_SOFT__;
+}
+QTextEdit#ai-explain {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+}
 /* 分区标题：左边线色块区分模块 */
 QLabel#zone-title {
     color: __TEXT_MUTED__;

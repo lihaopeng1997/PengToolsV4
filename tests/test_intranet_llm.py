@@ -12,7 +12,7 @@ from tools.ai_harness import strip_markdown_fence
 from tools.intranet_llm import (
     DEFAULT_AI_LOCAL, IntranetLlmError, _parse_sse_text, build_headers,
     canonical_base_url, host_allowed, is_enabled, normalize_ai_local,
-    validate_base_url,
+    normalize_catalog, resolve_private_host, validate_base_url,
 )
 
 
@@ -81,6 +81,28 @@ class IntranetLlmTests(unittest.TestCase):
         self.assertEqual(cfg['app_tag'], '')
         self.assertEqual(cfg['max_tokens'], 8192)
         self.assertEqual(cfg['timeout_seconds'], 120)
+
+    def test_legacy_single_config_migrates_to_catalog(self):
+        catalog = normalize_catalog({
+            'enabled': True,
+            'base_url': 'http://10.0.0.8:8000/v1',
+            'model': 'qwen3.6',
+            'token': 'enc:old',
+        })
+        self.assertEqual(len(catalog['items']), 1)
+        self.assertEqual(catalog['items'][0]['token'], 'enc:old')
+        self.assertEqual(catalog['items'][0]['model'], 'qwen3.6')
+        self.assertTrue(catalog['active_model_id'])
+
+    def test_dns_rebinding_rejects_public_ip(self):
+        from unittest.mock import patch
+        fake = [(None, None, None, None, ('8.8.8.8', 0))]
+        with patch('tools.intranet_llm.socket.getaddrinfo', return_value=fake):
+            with self.assertRaises(IntranetLlmError):
+                resolve_private_host('internal.example.local')
+
+    def test_private_ip_skips_dns(self):
+        self.assertEqual(resolve_private_host('10.128.1.2'), ['10.128.1.2'])
 
 
 if __name__ == '__main__':

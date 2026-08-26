@@ -816,7 +816,7 @@ class DashboardPanel(QWidget):
             self.docx.setText('接口文档')
             self.vin.setText('车辆 VIN')
             self.ops.setText('运维工作台')
-            self.ai_workbench.setText('模型工作台')
+            self.ai_workbench.setText('SQL 控制台')
         else:
             self.title.setText('Workbench')
             self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · Focus on nearby delivery work')
@@ -836,5 +836,5 @@ class DashboardPanel(QWidget):
             self.docx.setText('Interface Docs')
             self.vin.setText('Vehicle VIN')
             self.ops.setText('Ops Workbench')
-            self.ai_workbench.setText('Model Workbench')
+            self.ai_workbench.setText('SQL Console')
         self.refresh()

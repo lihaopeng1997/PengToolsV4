@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""模型工作台：多方言查询连接（Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB）。
+"""SQL 控制台：多方言连接（Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB）。
 
 Oracle 瘦模式依赖 cryptography 的 pbkdf2 等子模块；打包时必须显式导入，否则 DPY-3016。
 """
@@ -23,7 +23,11 @@ try:
     import encodings.idna  # noqa: F401
 except Exception:
     pass
-from tools.sql_guard import is_read_query, leading_verb, reject_reason, strip_sql_comments
+from tools.oracle_runtime import OracleRuntimeError, ensure_oracle_client, thick_required_message
+from tools.sql_guard import (
+    classify_statement, is_read_query, leading_verb, redact_error, reject_reason,
+    strip_sql_comments,
+)
 
 PAGE_SIZE = 20
 MAX_ROWS = 2000
@@ -107,6 +111,8 @@ def upsert_connection(item: dict, plain_password: str | None = None) -> dict:
         data['port'] = DEFAULT_PORTS.get(data['dialect'], 1521)
     data['database'] = str(data.get('database') or '').strip()
     data['username'] = str(data.get('username') or '').strip()
+    data['oracle_mode'] = str(data.get('oracle_mode') or 'auto').strip().lower() or 'auto'
+    data['oracle_lib_dir'] = str(data.get('oracle_lib_dir') or '').strip()
     if plain_password is not None:
         data['password'] = _encrypt(plain_password)
     elif 'password' not in data:
@@ -141,15 +147,31 @@ def open_connection(item: dict):
             import oracledb
         except ImportError as exc:
             raise DbError('未安装 oracledb，请安装依赖后重试') from exc
+        mode = str(item.get('oracle_mode') or '').strip()
+        lib_dir = str(item.get('oracle_lib_dir') or '').strip()
+        if not mode or mode == 'auto':
+            try:
+                from config import load_settings
+                settings = load_settings()
+                mode = str(settings.get('oracle_client_mode') or 'auto')
+                lib_dir = lib_dir or str(settings.get('oracle_client_lib_dir') or '')
+            except Exception:
+                mode = mode or 'auto'
+        try:
+            ensure_oracle_client(mode, lib_dir)
+        except OracleRuntimeError as exc:
+            raise DbError(str(exc)) from exc
         dsn = database if '/' in database or ':' in database else f'{host}:{port}/{database}'
         try:
             return oracledb.connect(user=username, password=password, dsn=dsn)
         except Exception as exc:
-            text = str(exc)
+            text = redact_error(str(exc))
+            if 'DPY-3010' in text:
+                raise DbError(thick_required_message(text)) from exc
             if 'DPY-3016' in text or 'pbkdf2' in text:
                 raise DbError(
                     'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
-                    '或本机已装 Instant Client 时，把其 bin 加入 PATH 后重试。'
+                    '或本机已装 Instant Client 时，在连接中指定 Thick 与 Instant Client 目录后重启。'
                     f' 原始错误：{text}'
                 ) from exc
             raise DbError(f'Oracle 连接失败：{text}') from exc
@@ -524,9 +546,143 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
             'sql': sql,
         }
     except Exception as exc:
-        raise DbError(f'查询失败：{exc}') from exc
+        raise DbError(f'查询失败：{redact_error(str(exc))}') from exc
     finally:
         try:
             cur.close()
         except Exception:
             pass
+
+
+def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:
+    """手工控制台执行：读语句分页，写语句确认后由调用方决定才进入这里。"""
+    import time
+    kind = str(dialect or 'oracle').lower()
+    info = classify_statement(sql, kind)
+    started = time.perf_counter()
+    if info.get('empty'):
+        raise DbError('语句为空')
+    if info.get('is_read'):
+        result = run_read_query(conn, dialect, sql, offset=offset, limit=limit)
+        result['elapsed_ms'] = int((time.perf_counter() - started) * 1000)
+        result['category'] = info.get('category')
+        result['rowcount'] = len(result.get('rows') or [])
+        result['tx'] = ''
+        return result
+    if kind == 'redis':
+        result = _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+        result['elapsed_ms'] = int((time.perf_counter() - started) * 1000)
+        result['category'] = info.get('category')
+        result['rowcount'] = len(result.get('rows') or [])
+        result['tx'] = ''
+        return result
+    if kind == 'mongodb':
+        result = _run_mongo_write(conn, sql)
+        result['elapsed_ms'] = int((time.perf_counter() - started) * 1000)
+        result['category'] = info.get('category')
+        return result
+    cur = _cursor(conn)
+    tx = ''
+    try:
+        body = strip_sql_comments(sql)
+        if body.endswith(';'):
+            body = body[:-1].strip()
+        cur.execute(body)
+        rowcount = cur.rowcount if cur.rowcount is not None else 0
+        columns = [str(item[0]) for item in (cur.description or [])]
+        rows = []
+        if columns:
+            fetched = cur.fetchall() or []
+            rows = [[_stringify(cell) for cell in row] for row in fetched]
+        category = str(info.get('category') or '')
+        if category == 'dml':
+            try:
+                conn.commit()
+                tx = 'committed'
+            except Exception as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise DbError(f'提交失败，已尝试回滚：{redact_error(str(exc))}') from exc
+        elif category == 'ddl':
+            tx = 'implicit'
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return {
+            'columns': columns or ['result'],
+            'rows': rows or ([[f'affected {rowcount}']] if not rows else rows),
+            'offset': int(offset),
+            'limit': int(limit),
+            'has_more': False,
+            'sql': sql,
+            'rowcount': int(rowcount or len(rows)),
+            'elapsed_ms': elapsed,
+            'category': category,
+            'tx': tx,
+        }
+    except DbError:
+        raise
+    except Exception as exc:
+        if info.get('category') == 'dml':
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise DbError(f'执行失败：{redact_error(str(exc))}') from exc
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _run_mongo_write(conn, sql: str) -> dict:
+    import json
+    from tools.ai_harness import strip_markdown_fence
+    raw = strip_markdown_fence(strip_sql_comments(sql))
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise DbError('MongoDB 写操作需要 JSON 对象') from exc
+    if not isinstance(data, dict):
+        raise DbError('MongoDB 写操作需要 JSON 对象')
+    collection = str(data.get('collection') or data.get('coll') or '').strip()
+    if not collection:
+        raise DbError('MongoDB JSON 需要 collection')
+    coll = conn[collection]
+    result_text = ''
+    count = 0
+    if data.get('insert') is not None:
+        payload = data.get('insert')
+        if isinstance(payload, list):
+            info = coll.insert_many(payload)
+            count = len(list(info.inserted_ids or []))
+        else:
+            info = coll.insert_one(payload if isinstance(payload, dict) else {'value': payload})
+            count = 1
+            result_text = str(getattr(info, 'inserted_id', ''))
+    elif data.get('delete') is not None or data.get('delete_many') is not None:
+        filt = data.get('delete') or data.get('delete_many') or {}
+        if not isinstance(filt, dict):
+            filt = {}
+        info = coll.delete_many(filt)
+        count = int(getattr(info, 'deleted_count', 0) or 0)
+    elif data.get('update') is not None:
+        filt = data.get('filter') if isinstance(data.get('filter'), dict) else {}
+        update = data.get('update')
+        if not isinstance(update, dict):
+            raise DbError('Mongo update 需要文档')
+        info = coll.update_many(filt, update)
+        count = int(getattr(info, 'modified_count', 0) or 0)
+    else:
+        raise DbError('无法识别的 Mongo 写操作，请使用 insert/update/delete 字段')
+    return {
+        'columns': ['result', 'count'],
+        'rows': [[result_text or 'ok', str(count)]],
+        'offset': 0,
+        'limit': PAGE_SIZE,
+        'has_more': False,
+        'sql': sql,
+        'rowcount': count,
+        'tx': '',
+    }

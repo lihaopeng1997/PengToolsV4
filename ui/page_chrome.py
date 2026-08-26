@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 
@@ -106,6 +106,17 @@ def make_page_header(
     return frame, title_label, subtitle_label
 
 
+def make_page_toolbar(*, divided: bool = False) -> tuple[QFrame, QHBoxLayout]:
+    frame = QFrame()
+    frame.setObjectName('page-toolbar')
+    if divided:
+        frame.setProperty('divided', True)
+    layout = QHBoxLayout(frame)
+    layout.setContentsMargins(0, 4, 0, 8)
+    layout.setSpacing(8)
+    return frame, layout
+
+
 def make_filter_bar() -> tuple[QFrame, QHBoxLayout]:
     """标准筛选条容器。"""
     frame = QFrame()
@@ -123,3 +134,60 @@ def make_zone_card(object_name: str = 'ds-card') -> tuple[QFrame, QVBoxLayout]:
     layout.setContentsMargins(12, 10, 12, 12)
     layout.setSpacing(8)
     return frame, layout
+
+
+def make_empty_state(
+    title: str,
+    text: str = '',
+    icon_role: str | None = None,
+    button: QPushButton | None = None,
+) -> QFrame:
+    """空状态四要素模板（页面骨架规范 v1 §6.3）。
+
+    title：一句话说明空的原因（禁止"暂无数据"式无信息量文案）；
+    text：引导用户第一步做什么（≤2 行）；
+    icon_role：可选，取 ui.icons 注册的图标名，按 TEXT_MUTED 着色；
+    button：可选，调用方创建并接好 clicked 信号（建议 secondary 角色），
+    这里只负责居中排版，不承载业务状态。
+    """
+    frame = QFrame()
+    frame.setObjectName('empty-state')
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(24, 26, 24, 26)
+    layout.setSpacing(6)
+    layout.addStretch(1)
+
+    if icon_role:
+        icon_label = QLabel()
+        icon_label.setObjectName('empty-state-icon')
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        try:
+            from ui.theme_manager import ThemeManager
+            tint = ThemeManager.instance().token('TEXT_MUTED') or '#6B746E'
+        except Exception:
+            tint = '#6B746E'
+        pix = icon_pixmap(icon_role, 28, tint)
+        if not pix.isNull():
+            icon_label.setPixmap(pix)
+            layout.addWidget(icon_label)
+        else:
+            icon_label.deleteLater()
+
+    title_label = QLabel(title)
+    title_label.setObjectName('empty-state-title')
+    title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(title_label)
+
+    if text:
+        text_label = QLabel(text)
+        text_label.setObjectName('empty-state-text')
+        text_label.setWordWrap(True)
+        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text_label)
+
+    if button is not None:
+        layout.addSpacing(4)
+        layout.addWidget(button, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    layout.addStretch(1)
+    return frame

@@ -68,6 +68,10 @@ DASHBOARD_RELEASE_ITEMS_FILE = os.path.join(CONFIG_DIR, 'dashboard_release_items
 SVN_WORKSPACE_DIR = os.path.join(CONFIG_DIR, 'svn_workspaces')
 # 内网模型：仅 URL/模型名/超时；Token 经 DPAPI 写入此文件，禁止进 resources/
 AI_LOCAL_FILE = os.path.join(CONFIG_DIR, 'ai_local.json')
+# SQL 控制台结构快照（仅元数据）与模型对话明文会话
+SCHEMA_SNAPSHOT_DIR = os.path.join(CONFIG_DIR, 'schema_snapshots')
+MODEL_CHAT_DIR = os.path.join(CONFIG_DIR, 'model_chat')
+SQL_DRAFTS_DIR = os.path.join(CONFIG_DIR, 'sql_drafts')
 # PTools Harness：用户技能/项目包（不打进 EXE）；内置约定在 resources/harness/
 HARNESS_DIR = os.path.join(CONFIG_DIR, 'harness')
 HARNESS_SKILLS_DIR = os.path.join(HARNESS_DIR, 'skills')
@@ -98,6 +102,14 @@ DEFAULT_SETTINGS = {
     'security_confirm_remote_request': True,
     # 生产类主机名关键词提示（命中时确认文案更醒目）
     'security_prod_host_hints': ['prod', 'production', '生产', 'hxutf', 'prd'],
+    # Oracle 客户端：auto/thin/thick；Thick 需本机 Instant Client，改完需重启
+    'oracle_client_mode': 'auto',
+    'oracle_client_lib_dir': '',
+    # 模型对话：明文风险提示关闭状态、上次会话/模型
+    'model_chat_banner_dismissed': False,
+    'model_chat_last_session_id': '',
+    'model_chat_last_model_id': '',
+    'model_chat_send_with_ctrl_enter': True,
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -204,6 +216,16 @@ def normalize_settings(settings):
         1, min(60, int(result['keep_awake_interval_minutes']))
     )
     result['private_unlocked'] = bool(result.get('private_unlocked', False))
+    result['oracle_client_mode'] = (
+        result.get('oracle_client_mode')
+        if str(result.get('oracle_client_mode') or '') in ('auto', 'thin', 'thick')
+        else 'auto'
+    )
+    result['oracle_client_lib_dir'] = str(result.get('oracle_client_lib_dir') or '')
+    result['model_chat_banner_dismissed'] = bool(result.get('model_chat_banner_dismissed', False))
+    result['model_chat_last_session_id'] = str(result.get('model_chat_last_session_id') or '')
+    result['model_chat_last_model_id'] = str(result.get('model_chat_last_model_id') or '')
+    result['model_chat_send_with_ctrl_enter'] = bool(result.get('model_chat_send_with_ctrl_enter', True))
     result['security_ssl_verify'] = bool(result.get('security_ssl_verify', True))
     result['security_confirm_remote_request'] = bool(
         result.get('security_confirm_remote_request', True)

@@ -66,6 +66,7 @@ ICON_FILES = {
     'save': ('resources', 'icons', 'save.svg'),
     'terminal': ('resources', 'icons', 'terminal.svg'),
     'database': ('resources', 'icons', 'database.svg'),
+    'chat': ('resources', 'icons', 'chat.svg'),
     'external-open': ('resources', 'icons', 'external-open.svg'),
     'api-debug': ('resources', 'icons', 'api-debug.svg'),
 }
@@ -102,7 +103,8 @@ NAV_ICON_BY_INDEX = {
     11: 'json',  # 格式工具
     12: 'api-debug',  # 接口排查
     13: 'search',  # 日志排查
-    14: 'database',  # 模型工作台（stack 13，nav 14）
+    14: 'database',  # SQL 控制台（stack 13，nav 14）
+    15: 'chat',  # 模型对话（stack 14，nav 15）
 }
 
 

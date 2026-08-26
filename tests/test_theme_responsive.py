@@ -361,6 +361,8 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         self.assertEqual(MainWindow._stack_index_for_nav(11), 10)
         self.assertEqual(MainWindow._stack_index_for_nav(12), 11)
         self.assertEqual(MainWindow._stack_index_for_nav(13), 12)
+        self.assertEqual(MainWindow._stack_index_for_nav(14), 13)
+        self.assertEqual(MainWindow._stack_index_for_nav(15), 14)
 
     def test_apply_density_sets_window_property(self):
         from main_window import MainWindow
