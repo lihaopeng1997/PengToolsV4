@@ -104,10 +104,24 @@ def ensure_oracle_client(mode: str = 'auto', lib_dir: str = '') -> dict:
     return client_state()
 
 
+def load_oracle_client_config(settings=None) -> tuple[str, str]:
+    """全局 Oracle 客户端：模式 + Instant Client 目录。与具体连接无关。"""
+    data = settings
+    if not isinstance(data, dict):
+        try:
+            from config import load_settings
+            data = load_settings()
+        except Exception:
+            data = {}
+    mode = normalize_mode(str((data or {}).get('oracle_client_mode') or 'auto'))
+    lib_dir = str((data or {}).get('oracle_client_lib_dir') or '').strip()
+    return mode, lib_dir
+
+
 def thick_required_message(original: str) -> str:
     return (
         '当前为 Thin 模式，Oracle 11.2 及更早版本会报 DPY-3010。'
-        '请在连接中选择 Thick，指定 Instant Client 目录，然后重启应用。'
-        '不会改系统 PATH，也不会自动下载 Client。'
+        '请到「设置 → Oracle 兼容」选择 Thick，指定本机 Instant Client 目录，然后重启应用。'
+        '该配置对所有 Oracle 连接共用。不会改系统 PATH，也不会自动下载 Client。'
         f' 原始错误：{original}'
     )

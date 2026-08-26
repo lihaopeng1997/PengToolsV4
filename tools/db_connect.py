@@ -23,7 +23,9 @@ try:
     import encodings.idna  # noqa: F401
 except Exception:
     pass
-from tools.oracle_runtime import OracleRuntimeError, ensure_oracle_client, thick_required_message
+from tools.oracle_runtime import (
+    OracleRuntimeError, ensure_oracle_client, load_oracle_client_config, thick_required_message,
+)
 from tools.sql_guard import (
     classify_statement, is_read_query, leading_verb, redact_error, reject_reason,
     strip_sql_comments,
@@ -111,8 +113,6 @@ def upsert_connection(item: dict, plain_password: str | None = None) -> dict:
         data['port'] = DEFAULT_PORTS.get(data['dialect'], 1521)
     data['database'] = str(data.get('database') or '').strip()
     data['username'] = str(data.get('username') or '').strip()
-    data['oracle_mode'] = str(data.get('oracle_mode') or 'auto').strip().lower() or 'auto'
-    data['oracle_lib_dir'] = str(data.get('oracle_lib_dir') or '').strip()
     if plain_password is not None:
         data['password'] = _encrypt(plain_password)
     elif 'password' not in data:
@@ -147,16 +147,7 @@ def open_connection(item: dict):
             import oracledb
         except ImportError as exc:
             raise DbError('未安装 oracledb，请安装依赖后重试') from exc
-        mode = str(item.get('oracle_mode') or '').strip()
-        lib_dir = str(item.get('oracle_lib_dir') or '').strip()
-        if not mode or mode == 'auto':
-            try:
-                from config import load_settings
-                settings = load_settings()
-                mode = str(settings.get('oracle_client_mode') or 'auto')
-                lib_dir = lib_dir or str(settings.get('oracle_client_lib_dir') or '')
-            except Exception:
-                mode = mode or 'auto'
+        mode, lib_dir = load_oracle_client_config()
         try:
             ensure_oracle_client(mode, lib_dir)
         except OracleRuntimeError as exc:
@@ -171,7 +162,7 @@ def open_connection(item: dict):
             if 'DPY-3016' in text or 'pbkdf2' in text:
                 raise DbError(
                     'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
-                    '或本机已装 Instant Client 时，在连接中指定 Thick 与 Instant Client 目录后重启。'
+                    '或本机已装 Instant Client 时，到设置的 Oracle 兼容中选择 Thick 并指定目录后重启。'
                     f' 原始错误：{text}'
                 ) from exc
             raise DbError(f'Oracle 连接失败：{text}') from exc

@@ -394,6 +394,43 @@ class SettingsPanel(QWidget):
         security.addRow(self.security_note)
         root.addWidget(self.security_group)
 
+        self.oracle_group = QGroupBox()
+        oracle_form = QFormLayout(self.oracle_group)
+        apply_form(oracle_form)
+        self.oracle_mode = QComboBox()
+        self.oracle_mode.addItem('', 'auto')
+        self.oracle_mode.addItem('Thin', 'thin')
+        self.oracle_mode.addItem('Thick', 'thick')
+        size_enum_combo(self.oracle_mode)
+        self.oracle_mode_label = QLabel()
+        oracle_form.addRow(self.oracle_mode_label, self.oracle_mode)
+        lib_row = QWidget()
+        lib_l = QHBoxLayout(lib_row)
+        lib_l.setContentsMargins(0, 0, 0, 0)
+        lib_l.setSpacing(8)
+        self.oracle_lib = QLineEdit()
+        size_line(self.oracle_lib, 'path')
+        self.oracle_browse = QPushButton()
+        size_compact_button(self.oracle_browse)
+        self.oracle_browse.clicked.connect(self._browse_oracle_client)
+        self.oracle_diag_btn = QPushButton()
+        size_compact_button(self.oracle_diag_btn)
+        self.oracle_diag_btn.clicked.connect(self._diagnose_oracle_client)
+        lib_l.addWidget(self.oracle_lib, 1)
+        lib_l.addWidget(self.oracle_browse)
+        lib_l.addWidget(self.oracle_diag_btn)
+        self.oracle_lib_label = QLabel()
+        oracle_form.addRow(self.oracle_lib_label, lib_row)
+        self.oracle_status = QLabel()
+        self.oracle_status.setObjectName('field-hint')
+        self.oracle_status.setWordWrap(True)
+        oracle_form.addRow(self.oracle_status)
+        self.oracle_note = QLabel()
+        self.oracle_note.setObjectName('ops-safety-note')
+        self.oracle_note.setWordWrap(True)
+        oracle_form.addRow(self.oracle_note)
+        root.addWidget(self.oracle_group)
+
         self.ai_group = QGroupBox()
         ai_outer = QVBoxLayout(self.ai_group)
         self.ai_list = QListWidget()
@@ -530,6 +567,8 @@ class SettingsPanel(QWidget):
             'security_prod_host_hints': list(
                 getattr(self, '_security_prod_host_hints', DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
             ),
+            'oracle_client_mode': self.oracle_mode.currentData() or 'auto',
+            'oracle_client_lib_dir': self.oracle_lib.text().strip(),
         })
 
     def _preview_opacity(self, value):
@@ -606,9 +645,40 @@ class SettingsPanel(QWidget):
             or DEFAULT_SETTINGS.get('security_prod_host_hints')
             or []
         )
+        self._load_oracle_values(settings)
         self._load_reminder_values()
         self._load_ai_local_values()
         self._refresh_close_behavior_hint()
+
+    def _load_oracle_values(self, settings):
+        mode = str(settings.get('oracle_client_mode') or 'auto')
+        index = self.oracle_mode.findData(mode)
+        self.oracle_mode.setCurrentIndex(index if index >= 0 else 0)
+        self.oracle_lib.setText(str(settings.get('oracle_client_lib_dir') or ''))
+        self._refresh_oracle_status()
+
+    def _browse_oracle_client(self):
+        zh = self.language == 'zh'
+        path = QFileDialog.getExistingDirectory(self, '选择 Instant Client 目录' if zh else 'Instant Client folder')
+        if path:
+            self.oracle_lib.setText(path)
+            self._refresh_oracle_status()
+
+    def _refresh_oracle_status(self):
+        from tools.oracle_runtime import diagnose_instant_client
+        zh = self.language == 'zh'
+        diag = diagnose_instant_client(self.oracle_lib.text())
+        if not self.oracle_lib.text().strip():
+            self.oracle_status.setText(
+                '未指定目录。Thin 模式可不填；Thick 必须指向含 oci.dll 的文件夹。'
+                if zh else
+                'No folder set. Thin can skip this; Thick needs the Instant Client directory.'
+            )
+            return
+        self.oracle_status.setText(str(diag.get('hint') or ''))
+
+    def _diagnose_oracle_client(self):
+        self._refresh_oracle_status()
 
     def _load_reminder_values(self):
         """从磁盘重载提醒控件，与日报模块共用 daily_report_settings.json。"""
@@ -1107,6 +1177,18 @@ class SettingsPanel(QWidget):
             'You may disable TLS check temporarily for self-signed hosts. '
             'SSH passwords use Windows DPAPI in local data/.'
         )
+        self.oracle_group.setTitle('Oracle 兼容' if zh else 'Oracle compatibility')
+        self.oracle_mode_label.setText('客户端模式' if zh else 'Client mode')
+        self.oracle_mode.setItemText(0, '自动（优先 Thin）' if zh else 'Auto (Thin first)')
+        self.oracle_lib_label.setText('Instant Client 目录' if zh else 'Instant Client folder')
+        self.oracle_browse.setText('浏览' if zh else 'Browse')
+        self.oracle_diag_btn.setText('诊断目录' if zh else 'Diagnose')
+        self.oracle_note.setText(
+            '所有 Oracle 连接共用此配置。Thick 需要本机 Instant Client（含 oci.dll），不改系统 PATH、不下载。改模式或目录后请重启应用。'
+            if zh else
+            'Shared by all Oracle connections. Thick needs local Instant Client (oci.dll). Restart after changing mode or folder.'
+        )
+        self._refresh_oracle_status()
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')
         self.ai_group.setTitle('内网模型' if zh else 'Intranet model')

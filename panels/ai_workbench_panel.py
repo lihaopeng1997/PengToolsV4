@@ -140,27 +140,10 @@ class _ConnectionDialog(QDialog):
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         size_line(self.password, 'path')
-        self.oracle_mode = QComboBox()
-        self.oracle_mode.addItem('自动（优先 Thin）' if zh else 'Auto (Thin first)', 'auto')
-        self.oracle_mode.addItem('Thin', 'thin')
-        self.oracle_mode.addItem('Thick', 'thick')
-        size_enum_combo(self.oracle_mode)
-        mode_index = self.oracle_mode.findData(str(self._item.get('oracle_mode') or 'auto'))
-        self.oracle_mode.setCurrentIndex(mode_index if mode_index >= 0 else 0)
-        self.oracle_lib = QLineEdit(str(self._item.get('oracle_lib_dir') or ''))
-        size_line(self.oracle_lib, 'path')
-        self.oracle_browse = QPushButton('浏览' if zh else 'Browse')
-        apply_button(self.oracle_browse, 'ghost', compact=True)
-        self.oracle_browse.clicked.connect(self._browse_client)
-        lib_row = QWidget()
-        lib_l = QHBoxLayout(lib_row)
-        lib_l.setContentsMargins(0, 0, 0, 0)
-        lib_l.addWidget(self.oracle_lib, 1)
-        lib_l.addWidget(self.oracle_browse)
         self.oracle_hint = QLabel(
-            'Thick 使用 oracledb.init_oracle_client；不改 PATH、不下载 Client。改模式后请重启应用。'
+            'Oracle 客户端（Thin/Thick、Instant Client 目录）在「设置 → Oracle 兼容」中统一配置，所有 Oracle 连接共用。'
             if zh else
-            'Thick calls init_oracle_client once. Restart the app after changing mode/path.'
+            'Oracle Thin/Thick and Instant Client are configured once in Settings → Oracle.'
         )
         self.oracle_hint.setObjectName('field-hint')
         self.oracle_hint.setWordWrap(True)
@@ -172,10 +155,6 @@ class _ConnectionDialog(QDialog):
         form.addRow(self.database_label, self.database)
         form.addRow('用户' if zh else 'User', self.username)
         form.addRow('密码' if zh else 'Password', self.password)
-        self.oracle_mode_label = QLabel('Oracle 模式' if zh else 'Oracle mode')
-        form.addRow(self.oracle_mode_label, self.oracle_mode)
-        self.oracle_lib_label = QLabel('Instant Client' if zh else 'Instant Client')
-        form.addRow(self.oracle_lib_label, lib_row)
         form.addRow(self.oracle_hint)
         root.addLayout(form)
         buttons = QHBoxLayout()
@@ -191,18 +170,10 @@ class _ConnectionDialog(QDialog):
         root.addLayout(buttons)
         self._on_dialect_changed()
 
-    def _browse_client(self):
-        zh = self.language == 'zh'
-        path = QFileDialog.getExistingDirectory(self, '选择 Instant Client 目录' if zh else 'Instant Client folder')
-        if path:
-            self.oracle_lib.setText(path)
-
     def _on_dialect_changed(self):
         dialect = self.dialect.currentData() or 'oracle'
         zh = self.language == 'zh'
-        oracle = dialect == 'oracle'
-        for widget in (self.oracle_mode, self.oracle_lib, self.oracle_browse, self.oracle_hint, self.oracle_mode_label, self.oracle_lib_label):
-            widget.setVisible(oracle)
+        self.oracle_hint.setVisible(dialect == 'oracle')
         if dialect == 'oracle':
             self.database_label.setText('SID/服务名' if zh else 'SID')
             self.database.setPlaceholderText('ORCL / 服务名')
@@ -233,8 +204,6 @@ class _ConnectionDialog(QDialog):
             item['port'] = DEFAULT_PORTS.get(item['dialect'], 1521)
         item['database'] = self.database.text().strip()
         item['username'] = self.username.text().strip()
-        item['oracle_mode'] = self.oracle_mode.currentData() or 'auto'
-        item['oracle_lib_dir'] = self.oracle_lib.text().strip()
         return item, self.password.text()
 
 

@@ -72,6 +72,18 @@ class OracleRuntimeTests(unittest.TestCase):
             state2 = runtime.ensure_oracle_client('thin', '')
             self.assertEqual(state2['mode'], 'thin')
 
+    def test_client_config_is_global_not_per_connection(self):
+        from tools.oracle_runtime import load_oracle_client_config
+        mode, lib_dir = load_oracle_client_config({
+            'oracle_client_mode': 'thick',
+            'oracle_client_lib_dir': r'C:\oracle\instantclient_19_23',
+        })
+        self.assertEqual(mode, 'thick')
+        self.assertTrue(lib_dir.endswith('instantclient_19_23'))
+        thin, empty = load_oracle_client_config({'oracle_client_mode': 'auto'})
+        self.assertEqual(thin, 'auto')
+        self.assertEqual(empty, '')
+
     def test_mode_switch_requires_restart(self):
         import tools.oracle_runtime as runtime
         runtime._STATE.update({'initialized': True, 'mode': 'thin', 'lib_dir': '', 'error': ''})
