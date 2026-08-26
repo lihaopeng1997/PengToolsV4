@@ -1119,7 +1119,7 @@ class SettingsPanel(QWidget):
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
         self.ai_project_label.setText('项目包' if zh else 'Project pack')
         self.ai_skill_btn.setText('安装技能' if zh else 'Install skill')
-        self.ai_scan_btn.setText('扫描表名' if zh else 'Scan tables')
+        self.ai_scan_btn.setText('从 MyBatis XML 提取业务表名（可选）' if zh else 'Extract table names from MyBatis XML')
         self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
         self.ai_base_url.setToolTip(
             '可粘贴内网已验证的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'

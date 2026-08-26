@@ -9,12 +9,14 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
+    QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
     QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from config import SQL_DRAFTS_DIR
+from panels.ai_token_edit import AiPromptEdit, ObjectPickDialog
+from tools.ai_object_context import add_field, add_object, context_matches_snapshot, selected_field_names, selected_table_names
 from tools.db_connect import (
     DIALECTS, DEFAULT_PORTS, PAGE_SIZE, MAX_ROWS, DbError, delete_connection,
     load_connections, open_connection, close_connection, run_console_statement,
@@ -25,7 +27,7 @@ from tools.schema_snapshot import (
     clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, load_snapshot,
     save_snapshot, scan_schema, snapshot_status,
 )
-from tools.sql_guard import classify_statement, redact_error, statement_at_cursor
+from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_enum_combo, size_line, size_pick_combo
@@ -58,6 +60,7 @@ class _DbWorker(QThread):
         self.kind = kind
         self.item = item
         self.kwargs = kwargs
+        self.cancelled = False
 
     def run(self):
         conn = None
@@ -67,7 +70,12 @@ class _DbWorker(QThread):
             if self.kind == 'test':
                 self.completed.emit({'ok': True})
             elif self.kind == 'scan':
-                payload = scan_schema(conn, self.item)
+                payload = scan_schema(conn, self.item, cancel=lambda: self.cancelled)
+                if self.cancelled:
+                    payload['status'] = 'failed'
+                    payload['warning'] = '扫描已取消'
+                    self.completed.emit(payload)
+                    return
                 save_snapshot(payload)
                 self.completed.emit(payload)
             elif self.kind == 'query':
@@ -231,10 +239,11 @@ class _ConnectionDialog(QDialog):
 
 
 class _SqlTab(QWidget):
-    def __init__(self, title: str, parent=None):
+    def __init__(self, title: str, conn_item=None, parent=None):
         super().__init__(parent)
         self.base_title = title
         self.dirty = False
+        self.conn_item = dict(conn_item) if isinstance(conn_item, dict) else None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.editor = SqlEditor()
@@ -300,6 +309,10 @@ class AiWorkbenchPanel(QWidget):
         self.scan_btn = QPushButton()
         apply_button(self.scan_btn, 'secondary', compact=True)
         self.scan_btn.clicked.connect(lambda: self._start_db('scan'))
+        self.scan_cancel_btn = QPushButton()
+        apply_button(self.scan_cancel_btn, 'ghost', compact=True)
+        self.scan_cancel_btn.clicked.connect(self._cancel_scan)
+        self.scan_cancel_btn.setEnabled(False)
         self.view_snap_btn = QPushButton()
         apply_button(self.view_snap_btn, 'ghost', compact=True)
         self.view_snap_btn.clicked.connect(self._view_snapshot)
@@ -311,7 +324,7 @@ class AiWorkbenchPanel(QWidget):
         self.model_btn.clicked.connect(self._open_settings)
         for widget in (
             self.conn_combo, self.conn_new_btn, self.conn_edit_btn, self.conn_del_btn,
-            self.test_btn, self.scan_btn, self.view_snap_btn, self.del_snap_btn, self.model_btn,
+            self.test_btn, self.scan_btn, self.scan_cancel_btn, self.view_snap_btn, self.del_snap_btn, self.model_btn,
         ):
             tool_l.addWidget(widget)
         tool_l.addStretch(1)
@@ -338,27 +351,6 @@ class AiWorkbenchPanel(QWidget):
         self.object_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.object_tree.customContextMenuRequested.connect(self._tree_menu)
         left_l.addWidget(self.object_tree, 1)
-        self.column_title = QLabel()
-        self.column_title.setObjectName('section-title')
-        left_l.addWidget(self.column_title)
-        self.column_list = QListWidget()
-        self.column_list.itemChanged.connect(self._on_column_changed)
-        self.column_list.itemDoubleClicked.connect(self._insert_column_item)
-        left_l.addWidget(self.column_list, 1)
-        pick_row = QHBoxLayout()
-        self.insert_table_btn = QPushButton()
-        apply_button(self.insert_table_btn, 'secondary', compact=True)
-        self.insert_table_btn.clicked.connect(self._insert_table_name)
-        self.insert_cols_btn = QPushButton()
-        apply_button(self.insert_cols_btn, 'secondary', compact=True)
-        self.insert_cols_btn.clicked.connect(self._insert_column_names)
-        self.fill_nl_btn = QPushButton()
-        apply_button(self.fill_nl_btn, 'secondary', compact=True)
-        self.fill_nl_btn.clicked.connect(self._fill_nl_from_picks)
-        pick_row.addWidget(self.insert_table_btn)
-        pick_row.addWidget(self.insert_cols_btn)
-        pick_row.addWidget(self.fill_nl_btn)
-        left_l.addLayout(pick_row)
         self.tree_empty = make_empty_state('尚未扫描结构', '点击工具栏「扫描结构」加载当前账号可见对象')
         self.tree_empty.hide()
         left_l.addWidget(self.tree_empty)
@@ -394,9 +386,9 @@ class AiWorkbenchPanel(QWidget):
         mid_l.addWidget(self.sql_tabs, 1)
         columns.addWidget(middle)
 
-        right = QFrame()
-        right.setObjectName('dashboard-task-card')
-        right_l = QVBoxLayout(right)
+        self.side_tabs = QTabWidget()
+        ai_page = QWidget()
+        right_l = QVBoxLayout(ai_page)
         right_l.setContentsMargins(10, 10, 10, 10)
         self.ai_title = QLabel()
         self.ai_title.setObjectName('section-title')
@@ -405,10 +397,21 @@ class AiWorkbenchPanel(QWidget):
         self.model_status.setObjectName('field-hint')
         self.model_status.setWordWrap(True)
         right_l.addWidget(self.model_status)
-        self.nl_input = QPlainTextEdit()
-        self.nl_input.setMinimumHeight(72)
-        self.nl_input.setMaximumHeight(120)
+        self.ai_hint = QLabel()
+        self.ai_hint.setObjectName('field-hint')
+        self.ai_hint.setWordWrap(True)
+        right_l.addWidget(self.ai_hint)
+        self.nl_input = AiPromptEdit()
+        self.nl_input.setMinimumHeight(88)
+        self.nl_input.setMaximumHeight(140)
+        self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
+        self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
+        self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
         right_l.addWidget(self.nl_input)
+        self.ai_chips = QLabel()
+        self.ai_chips.setObjectName('field-hint')
+        self.ai_chips.setWordWrap(True)
+        right_l.addWidget(self.ai_chips)
         ai_btns = QHBoxLayout()
         self.ai_gen_btn = QPushButton()
         apply_button(self.ai_gen_btn, 'secondary', compact=True)
@@ -429,7 +432,47 @@ class AiWorkbenchPanel(QWidget):
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
         right_l.addWidget(self.ai_explain, 1)
-        columns.addWidget(right)
+        self.side_tabs.addTab(ai_page, 'AI 助手')
+
+        detail = QWidget()
+        det_l = QVBoxLayout(detail)
+        det_l.setContentsMargins(10, 10, 10, 10)
+        self.detail_title = QLabel()
+        self.detail_title.setObjectName('section-title')
+        det_l.addWidget(self.detail_title)
+        self.detail_meta = QLabel()
+        self.detail_meta.setObjectName('field-hint')
+        self.detail_meta.setWordWrap(True)
+        det_l.addWidget(self.detail_meta)
+        self.field_filter = QLineEdit()
+        self.field_filter.textChanged.connect(self._fill_detail_fields)
+        det_l.addWidget(self.field_filter)
+        self.field_table = QTableWidget()
+        apply_table(self.field_table, alternating=True)
+        det_l.addWidget(self.field_table, 1)
+        field_btns = QHBoxLayout()
+        self.insert_fields_btn = QPushButton()
+        apply_button(self.insert_fields_btn, 'secondary', compact=True)
+        self.insert_fields_btn.clicked.connect(self._insert_detail_fields)
+        self.send_ai_btn = QPushButton()
+        apply_button(self.send_ai_btn, 'ghost', compact=True)
+        self.send_ai_btn.clicked.connect(self._send_detail_to_ai)
+        self.field_prev_btn = QPushButton()
+        apply_button(self.field_prev_btn, 'ghost', compact=True)
+        self.field_prev_btn.clicked.connect(lambda: self._shift_field_page(-1))
+        self.field_next_btn = QPushButton()
+        apply_button(self.field_next_btn, 'ghost', compact=True)
+        self.field_next_btn.clicked.connect(lambda: self._shift_field_page(1))
+        field_btns.addWidget(self.insert_fields_btn)
+        field_btns.addWidget(self.send_ai_btn)
+        field_btns.addStretch(1)
+        field_btns.addWidget(self.field_prev_btn)
+        field_btns.addWidget(self.field_next_btn)
+        det_l.addLayout(field_btns)
+        self._detail_object = None
+        self._field_page = 0
+        self.side_tabs.addTab(detail, '对象详情')
+        columns.addWidget(self.side_tabs)
         columns.setStretchFactor(0, 2)
         columns.setStretchFactor(1, 5)
         columns.setStretchFactor(2, 3)
@@ -489,25 +532,35 @@ class AiWorkbenchPanel(QWidget):
         self.conn_del_btn.setText('删除' if zh else 'Delete')
         self.test_btn.setText('测试连接' if zh else 'Test')
         self.scan_btn.setText('扫描结构' if zh else 'Scan schema')
+        self.scan_cancel_btn.setText('取消扫描' if zh else 'Cancel scan')
         self.view_snap_btn.setText('查看快照' if zh else 'View snapshot')
         self.del_snap_btn.setText('删除快照' if zh else 'Delete snapshot')
         self.model_btn.setText('模型配置' if zh else 'Model settings')
-        self.tree_title.setText('对象' if zh else 'Objects')
-        self.object_filter.setPlaceholderText('筛选对象' if zh else 'Filter objects')
-        self.column_title.setText('字段（勾选后作为 AI 上下文）' if zh else 'Columns (checked for AI)')
-        self.insert_table_btn.setText('插入表名' if zh else 'Insert table')
-        self.insert_cols_btn.setText('插入字段' if zh else 'Insert columns')
-        self.fill_nl_btn.setText('填入问句' if zh else 'Fill prompt')
+        self.tree_title.setText('对象目录' if zh else 'Objects')
+        self.object_filter.setPlaceholderText('搜索对象名 / 注释' if zh else 'Filter objects')
         self.run_btn.setText('执行' if zh else 'Run')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
         self.ai_title.setText('AI 助手' if zh else 'AI assistant')
-        self.nl_input.setPlaceholderText(
-            '用自然语言描述要生成或改写的 SQL；AI 只写入新 Tab，绝不自动执行'
+        self.ai_hint.setText(
+            '右键输入框：添加表 / 添加字段。Token 可删除；AI 只生成草案。'
             if zh else
-            'Describe the SQL to generate. AI never executes.'
+            'Right-click to add table/field tokens. AI never executes.'
         )
+        self.nl_input.setPlaceholderText(
+            '用自然语言描述要生成的 SQL，右键添加当前库对象'
+            if zh else
+            'Describe the SQL; right-click to add objects from the current snapshot'
+        )
+        self.side_tabs.setTabText(0, 'AI 助手' if zh else 'AI assistant')
+        self.side_tabs.setTabText(1, '对象详情' if zh else 'Object details')
+        self.detail_title.setText('对象详情' if zh else 'Object details')
+        self.field_filter.setPlaceholderText('搜索字段' if zh else 'Filter fields')
+        self.insert_fields_btn.setText('插入选中字段' if zh else 'Insert fields')
+        self.send_ai_btn.setText('发送给 AI' if zh else 'Send to AI')
+        self.field_prev_btn.setText('上一页' if zh else 'Prev')
+        self.field_next_btn.setText('下一页' if zh else 'Next')
         self.ai_gen_btn.setText('生成 SQL' if zh else 'Generate')
         self.ai_explain_btn.setText('解释' if zh else 'Explain')
         self.ai_opt_btn.setText('优化' if zh else 'Optimize')
@@ -528,6 +581,13 @@ class AiWorkbenchPanel(QWidget):
         return 'SQL 控制台' if self.language == 'zh' else 'SQL Console'
 
     def _current_conn(self) -> dict | None:
+        tab = self._current_tab()
+        if tab is not None and isinstance(tab.conn_item, dict):
+            return dict(tab.conn_item)
+        data = self.conn_combo.currentData()
+        return dict(data) if isinstance(data, dict) else None
+
+    def _browse_conn(self) -> dict | None:
         data = self.conn_combo.currentData()
         return dict(data) if isinstance(data, dict) else None
 
@@ -550,15 +610,17 @@ class AiWorkbenchPanel(QWidget):
         self._on_connection_changed()
 
     def _on_connection_changed(self):
-        item = self._current_conn()
+        item = self._browse_conn()
         self._snapshot = load_snapshot(str(item.get('id') or '')) if item else None
+        self.nl_input.bind_snapshot(self._snapshot)
         self._rebuild_tree()
         self._refresh_header()
         self._refresh_model_status()
+        self._refresh_ai_pick_state()
 
     def _refresh_header(self):
         zh = self.language == 'zh'
-        item = self._current_conn()
+        item = self._browse_conn()
         if not item:
             self.conn_meta.setText('未选择连接' if zh else 'No connection')
             return
@@ -665,18 +727,24 @@ class AiWorkbenchPanel(QWidget):
             self.all_btn.setEnabled(self._has_more)
 
     def _start_db(self, kind: str, **kwargs):
-        item = self._current_conn()
+        item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
         zh = self.language == 'zh'
         if not item:
             show_warning(self, self._title(), '请先新建并选择连接' if zh else 'Create a connection first')
             return
         self._busy(True)
+        if kind == 'scan':
+            self.scan_cancel_btn.setEnabled(True)
         self.result_status.setText('正在连接…' if zh else 'Working…')
         self._worker = _DbWorker(kind, item, **kwargs)
         self._worker.completed.connect(lambda payload: self._on_db_ok(kind, payload, kwargs))
         self._worker.failed.connect(self._on_db_fail)
-        self._worker.finished.connect(lambda: self._busy(False))
+        self._worker.finished.connect(lambda: (self.scan_cancel_btn.setEnabled(False), self._busy(False)))
         self._worker.start()
+
+    def _cancel_scan(self):
+        if self._worker is not None:
+            self._worker.cancelled = True
 
     def _on_db_ok(self, kind: str, payload: dict, kwargs: dict):
         zh = self.language == 'zh'
@@ -686,8 +754,10 @@ class AiWorkbenchPanel(QWidget):
             return
         if kind == 'scan':
             self._snapshot = payload
+            self.nl_input.bind_snapshot(self._snapshot)
             self._rebuild_tree()
             self._refresh_header()
+            self._refresh_ai_pick_state()
             count = len((payload or {}).get('objects') or [])
             show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             self._log_msg(f'扫描完成，对象 {count}')
@@ -811,7 +881,7 @@ class AiWorkbenchPanel(QWidget):
         zh = self.language == 'zh'
         name = title or (f'未命名 SQL {self._tab_seq}' if zh else f'Untitled {self._tab_seq}')
         self._tab_seq += 1
-        tab = _SqlTab(name)
+        tab = _SqlTab(name, self._browse_conn())
         if text:
             tab.editor.setPlainText(text)
             tab.dirty = False
@@ -867,7 +937,6 @@ class AiWorkbenchPanel(QWidget):
 
     def _rebuild_tree(self):
         self.object_tree.clear()
-        self.column_list.clear()
         snap = self._snapshot or {}
         objects = list(snap.get('objects') or [])
         empty = not objects
@@ -879,19 +948,24 @@ class AiWorkbenchPanel(QWidget):
         for obj in objects:
             owner = str(obj.get('owner') or obj.get('object_type') or 'default')
             groups.setdefault(owner, []).append(obj)
-        item = self._current_conn() or {}
+        item = self._browse_conn() or {}
         root = QTreeWidgetItem([str(item.get('name') or 'connection')])
         root.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'conn'})
         for owner, rows in groups.items():
             schema = QTreeWidgetItem([owner])
             schema.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'schema', 'name': owner})
             for obj in rows:
-                node = QTreeWidgetItem([str(obj.get('name') or '')])
+                kind = str(obj.get('object_type') or 'TABLE')
+                qn = str(obj.get('name') or '')
+                if obj.get('owner'):
+                    same = [x for x in rows if str(x.get('name') or '') == qn]
+                    if len(same) > 1 or any(
+                        str(other.get('name') or '') == qn and str(other.get('owner') or '') != str(obj.get('owner') or '')
+                        for other in objects
+                    ):
+                        qn = f"{obj.get('owner')}.{obj.get('name')}"
+                node = QTreeWidgetItem([f'{qn}  [{kind}]'])
                 node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
-                for col in obj.get('columns') or []:
-                    child = QTreeWidgetItem([str(col.get('name') or '')])
-                    child.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'column', 'object': obj, 'column': col})
-                    node.addChild(child)
                 schema.addChild(node)
             root.addChild(schema)
         self.object_tree.addTopLevelItem(root)
@@ -923,49 +997,12 @@ class AiWorkbenchPanel(QWidget):
         data = items[0].data(0, Qt.ItemDataRole.UserRole) or {}
         return data if isinstance(data, dict) else None
 
-    def _current_table_name(self) -> str:
-        data = self._selected_object() or {}
-        obj = data.get('object') if isinstance(data.get('object'), dict) else None
-        if obj:
-            return str(obj.get('name') or '')
-        if data.get('kind') == 'schema':
-            return str(data.get('name') or '')
-        return ''
-
-    def _checked_columns(self) -> list[str]:
-        names = []
-        for index in range(self.column_list.count()):
-            item = self.column_list.item(index)
-            if item is not None and item.checkState() == Qt.CheckState.Checked:
-                names.append(item.text().strip())
-        return names
-
     def _on_tree_selected(self):
         data = self._selected_object() or {}
         obj = data.get('object') if isinstance(data.get('object'), dict) else None
-        if obj:
-            self._fill_column_list(obj.get('columns') or [])
-        if self._nl_auto() :
-            text = compose_nl_query(self._current_table_name(), self._checked_columns(), self.language)
-            if text and not self.nl_input.toPlainText().strip():
-                self.nl_input.setPlainText(text)
-
-    def _nl_auto(self) -> bool:
-        return True
-
-    def _fill_column_list(self, columns):
-        self.column_list.blockSignals(True)
-        self.column_list.clear()
-        for col in columns or []:
-            name = col.get('name') if isinstance(col, dict) else col
-            row = QListWidgetItem(str(name))
-            row.setFlags(row.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            row.setCheckState(Qt.CheckState.Unchecked)
-            self.column_list.addItem(row)
-        self.column_list.blockSignals(False)
-
-    def _on_column_changed(self, _item):
-        return
+        self._detail_object = obj
+        self._field_page = 0
+        self._fill_detail_fields()
 
     def _qualified(self, obj: dict) -> str:
         dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
@@ -983,31 +1020,10 @@ class AiWorkbenchPanel(QWidget):
             return
         editor.insertPlainText(piece)
 
-    def _insert_table_name(self):
-        data = self._selected_object() or {}
-        obj = data.get('object') if isinstance(data.get('object'), dict) else None
-        if obj:
-            self._insert_text(self._qualified(obj))
-
-    def _insert_column_names(self):
-        cols = self._checked_columns()
-        self._insert_text(', '.join(cols))
-
-    def _insert_column_item(self, item: QListWidgetItem):
-        if item is not None:
-            self._insert_text(item.text())
-
-    def _fill_nl_from_picks(self):
-        text = compose_nl_query(self._current_table_name(), self._checked_columns(), self.language)
-        if text:
-            self.nl_input.setPlainText(text)
-
     def _on_tree_double(self, item: QTreeWidgetItem, _column: int):
         data = item.data(0, Qt.ItemDataRole.UserRole) or {}
         if data.get('kind') == 'table' and isinstance(data.get('object'), dict):
             self._insert_text(self._qualified(data['object']))
-        elif data.get('kind') == 'column' and isinstance(data.get('column'), dict):
-            self._insert_text(str(data['column'].get('name') or ''))
 
     def _tree_menu(self, pos):
         item = self.object_tree.itemAt(pos)
@@ -1021,11 +1037,10 @@ class AiWorkbenchPanel(QWidget):
         menu = QMenu(self)
         act_select = menu.addAction('生成 SELECT *' if zh else 'Generate SELECT *')
         act_copy = menu.addAction('复制限定名' if zh else 'Copy qualified name')
-        act_ai = menu.addAction('发送给 AI' if zh else 'Send to AI')
         chosen = menu.exec(self.object_tree.viewport().mapToGlobal(pos))
         name = self._qualified(obj)
         if chosen == act_select:
-            dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
+            dialect = str((self._browse_conn() or {}).get('dialect') or 'oracle')
             if dialect == 'redis':
                 sql = f'SCAN 0 MATCH {obj.get("name")} COUNT 20'
             elif dialect == 'mongodb':
@@ -1036,15 +1051,13 @@ class AiWorkbenchPanel(QWidget):
         elif chosen == act_copy:
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setText(name)
-        elif chosen == act_ai:
-            self.nl_input.setPlainText(compose_nl_query(str(obj.get('name') or ''), self._checked_columns(), self.language))
 
     def _run_ai(self, action: str):
         zh = self.language == 'zh'
         if not is_enabled():
             show_warning(self, self._title(), '请先在设置中启用内网模型' if zh else 'Enable the intranet model first')
             return
-        question = self.nl_input.toPlainText().strip()
+        question = self.nl_input.plain_question()
         editor = self._current_editor()
         current_sql = editor.toPlainText() if editor is not None else ''
         if action in ('explain', 'optimize') and not current_sql.strip():
@@ -1053,8 +1066,12 @@ class AiWorkbenchPanel(QWidget):
         if action == 'generate' and not question:
             show_warning(self, self._title(), '请输入要生成的内容' if zh else 'Enter a prompt')
             return
-        item = self._current_conn() or {}
-        stale = snapshot_status(item, self._snapshot).get('stale') or snapshot_status(item, self._snapshot).get('status') in ('missing', 'failed')
+        item = self._browse_conn() or {}
+        ok, reason = context_matches_snapshot(self.nl_input.context, self._snapshot, item)
+        stale = not ok
+        if action == 'generate' and (self.nl_input.context.get('selected_objects') or self.nl_input.context.get('selected_fields')) and not ok:
+            show_warning(self, self._title(), reason + '\n请先扫描/更新结构。' if zh else reason)
+            return
         self._busy(True)
         self.result_status.setText('正在生成草案…' if zh else 'Generating draft…')
         self._ai_worker = _AiWorker({
@@ -1063,8 +1080,8 @@ class AiWorkbenchPanel(QWidget):
             'dialect': str(item.get('dialect') or 'oracle'),
             'alias': str(item.get('name') or ''),
             'snapshot': self._snapshot,
-            'selected_tables': [self._current_table_name()] if self._current_table_name() else [],
-            'selected_fields': self._checked_columns(),
+            'selected_tables': selected_table_names(self.nl_input.context),
+            'selected_fields': selected_field_names(self.nl_input.context),
             'current_sql': current_sql,
             'error_text': question if action == 'fix' else '',
             'stale': bool(stale),
@@ -1080,9 +1097,146 @@ class AiWorkbenchPanel(QWidget):
         zh = self.language == 'zh'
         sql = str((draft or {}).get('sql') or '')
         self.ai_explain.setPlainText(format_explanation(draft or {}))
+        safety = ai_draft_safety(sql, str((self._browse_conn() or {}).get('dialect') or 'oracle'))
         title = 'AI 草案，未执行' if zh else 'AI draft, not executed'
+        if safety.get('fail_closed'):
+            title = '仅草案 / 不可安全执行' if zh else 'Draft only / not safe to run'
+            self.ai_explain.append('\n' + str(safety.get('reason') or ''))
         tab = self._new_sql_tab(sql, title)
         tab.base_title = title
         self._refresh_tab_titles()
         self.result_status.setText(title)
         self._log_msg(title)
+
+    def _refresh_ai_chips(self):
+        zh = self.language == 'zh'
+        ctx = self.nl_input.context
+        objs = [str(item.get('qualified_name') or item.get('name')) for item in ctx.get('selected_objects') or []]
+        fields = [str(item.get('name') or '') for item in ctx.get('selected_fields') or []]
+        if not objs and not fields:
+            self.ai_chips.setText('尚未添加表或字段 Token' if zh else 'No object tokens yet')
+            return
+        self.ai_chips.setText(
+            ('已添加：' if zh else 'Added: ') +
+            '；'.join((['表 ' + ', '.join(objs)] if objs else []) + (['字段 ' + ', '.join(fields)] if fields else []))
+        )
+
+    def _refresh_ai_pick_state(self):
+        item = self._browse_conn()
+        ok, reason = context_matches_snapshot({}, self._snapshot, item)
+        self.nl_input.setEnabled(True)
+        if not ok:
+            self.model_status.setText((self.model_status.text() + ' ' + reason).strip())
+
+    def _pick_ai_object(self, mode: str, position: int):
+        zh = self.language == 'zh'
+        item = self._browse_conn()
+        ok, reason = context_matches_snapshot({}, self._snapshot, item)
+        if not ok:
+            show_warning(self, self._title(), reason + '\n请先扫描/更新结构。' if zh else reason)
+            return
+        redis = str((item or {}).get('dialect') or '') == 'redis'
+        if mode == 'field' and redis:
+            show_warning(self, self._title(), 'Redis 不提供关系型字段选择' if zh else 'Redis has no table fields')
+            return
+        dialog = ObjectPickDialog(self.language, self._snapshot, mode=mode, parent=self, redis=redis)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        obj = dialog.chosen_object()
+        if not obj:
+            return
+        self.nl_input.bind_snapshot(self._snapshot)
+        if mode == 'table':
+            token = add_object(self.nl_input.context, obj)
+            self.nl_input.insert_token('object', token, position)
+        else:
+            fields = dialog.chosen_fields()
+            if not fields:
+                show_warning(self, self._title(), '请先选择表再勾选字段' if zh else 'Pick a table then fields')
+                return
+            for field in fields:
+                token = add_field(self.nl_input.context, obj, field)
+                self.nl_input.insert_token('field', token, position)
+                position = self.nl_input.textCursor().position()
+
+    def _fill_detail_fields(self, _text=''):
+        obj = self._detail_object
+        zh = self.language == 'zh'
+        self.field_table.clear()
+        self.field_table.setColumnCount(5)
+        self.field_table.setHorizontalHeaderLabels(
+            ['字段名', '类型', '可空', '键', '注释'] if zh else ['Name', 'Type', 'Null', 'Key', 'Comment']
+        )
+        if not obj:
+            self.detail_title.setText('对象详情' if zh else 'Object details')
+            self.detail_meta.setText('在左侧选择一个对象' if zh else 'Select an object')
+            self.field_table.setRowCount(0)
+            return
+        qn = self._qualified(obj)
+        cols = list(obj.get('columns') or [])
+        needle = self.field_filter.text().strip().lower()
+        if needle:
+            cols = [c for c in cols if needle in str(c.get('name') or '').lower() or needle in str(c.get('comment') or '').lower()]
+        page_size = 100
+        pages = max(1, (len(cols) + page_size - 1) // page_size)
+        self._field_page = max(0, min(self._field_page, pages - 1))
+        start = self._field_page * page_size
+        view = cols[start:start + page_size]
+        self.detail_title.setText(f"{qn}  [{obj.get('object_type') or 'TABLE'}]")
+        extra = ' · 推断字段' if obj.get('inferred') and zh else ''
+        self.detail_meta.setText(
+            f"{qn} · {len(cols)} 个字段 · 第 {self._field_page + 1}/{pages} 页{extra}"
+            if zh else
+            f'{qn} · {len(cols)} field(s) · page {self._field_page + 1}/{pages}{extra}'
+        )
+        self.field_table.setRowCount(len(view))
+        for i, col in enumerate(view):
+            key = 'PK' if col.get('primary_key') else ('IDX' if col.get('indexed') else '')
+            values = [
+                str(col.get('name') or ''),
+                str(col.get('data_type') or ''),
+                ('否' if not col.get('nullable') else '是') if zh else ('NO' if not col.get('nullable') else 'YES'),
+                key,
+                str(col.get('comment') or ''),
+            ]
+            for c, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, col if c == 0 else None)
+                self.field_table.setItem(i, c, item)
+        self.field_table.setSelectionBehavior(self.field_table.SelectionBehavior.SelectRows)
+        self.field_prev_btn.setEnabled(self._field_page > 0)
+        self.field_next_btn.setEnabled(self._field_page + 1 < pages)
+
+    def _shift_field_page(self, delta: int):
+        self._field_page += int(delta)
+        self._fill_detail_fields()
+
+    def _selected_detail_fields(self) -> list:
+        rows = []
+        for index in self.field_table.selectionModel().selectedRows() if self.field_table.selectionModel() else []:
+            item = self.field_table.item(index.row(), 0)
+            data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if isinstance(data, dict):
+                rows.append(data)
+        return rows
+
+    def _insert_detail_fields(self):
+        names = [str(col.get('name') or '') for col in self._selected_detail_fields()]
+        self._insert_text(', '.join(names))
+
+    def _send_detail_to_ai(self):
+        if not self._detail_object:
+            return
+        self._send_object_to_ai(self._detail_object, self._selected_detail_fields())
+
+    def _send_object_to_ai(self, obj: dict, fields: list):
+        self.nl_input.bind_snapshot(self._snapshot)
+        pos = self.nl_input.textCursor().position()
+        token = add_object(self.nl_input.context, obj)
+        self.nl_input.insert_token('object', token, pos)
+        pos = self.nl_input.textCursor().position()
+        for field in fields or []:
+            token = add_field(self.nl_input.context, obj, field)
+            self.nl_input.insert_token('field', token, pos)
+            pos = self.nl_input.textCursor().position()
+        self.side_tabs.setCurrentIndex(0)

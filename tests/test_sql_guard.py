@@ -67,6 +67,12 @@ class SqlGuardTests(unittest.TestCase):
         self.assertEqual(ddl['category'], 'ddl')
         self.assertTrue(classify_statement('SET k v', 'redis')['needs_confirm'])
         self.assertFalse(classify_statement('GET k', 'redis')['needs_confirm'])
+        with_dml = classify_statement('WITH x AS (SELECT 1 a FROM dual) DELETE FROM t', 'oracle')
+        self.assertEqual(with_dml['category'], 'dml')
+        self.assertTrue(with_dml['needs_confirm'])
+        from tools.sql_guard import ai_draft_safety
+        safety = ai_draft_safety('INSERT INTO t VALUES (1); SELECT 1 FROM dual')
+        self.assertTrue(safety['fail_closed'])
 
     def test_redact_error_hides_secrets(self):
         text = redact_error('password=secret token=abc Bearer xyz http://u:p@10.0.0.1/v1')

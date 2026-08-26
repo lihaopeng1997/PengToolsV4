@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navicat 风格 AI SQL 控制台改造需求 v2.2</title>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--text:#1f2937;--muted:#667085;--line:#e5e7eb;--blue:#2f6fed;--blue-bg:#eef4ff;--green:#166534;--green-bg:#edf8f0;--orange:#9a6700;--orange-bg:#fff8e6;--red:#b42318;--red-bg:#fff1f0;--code:#f3f4f6}*{box-sizing:border-box}body{max-width:1160px;margin:0 auto;padding:24px;background:var(--bg);color:var(--text);font:14px/1.75 "Microsoft YaHei UI",Arial,sans-serif}header,section{margin:16px 0;padding:24px;background:var(--card);border:1px solid var(--line);border-radius:12px}h1{margin:0;font-size:26px;text-align:center}header p{text-align:center;color:var(--muted);margin:8px 0 0}h2{font-size:19px;margin:0 0 14px;padding-left:10px;border-left:4px solid var(--blue)}h3{font-size:16px;margin:18px 0 9px}h4{font-size:14px;margin:14px 0 6px}p,li{margin:5px 0}table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}th,td{padding:9px;border:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f8fafc;white-space:nowrap}code{padding:1px 5px;border-radius:4px;background:var(--code);color:#9d174d;font-family:Consolas,"Microsoft YaHei UI",monospace}.tag{display:inline-block;padding:3px 9px;margin:11px 4px 0 0;border-radius:99px;background:var(--blue-bg);color:var(--blue);font-size:12px;font-weight:700}.note,.warn,.risk,.success{padding:11px 13px;border-radius:6px;margin:10px 0}.note{border-left:4px solid var(--blue);background:var(--blue-bg)}.warn{border-left:4px solid var(--orange);background:var(--orange-bg)}.risk{border-left:4px solid var(--red);background:var(--red-bg)}.success{border-left:4px solid var(--green);background:var(--green-bg)}.prompt,.flow{white-space:pre-wrap;overflow:auto;padding:16px;border-radius:8px;background:#111827;color:#e5e7eb;font:12px/1.75 Consolas,"Microsoft YaHei UI",monospace}.check{padding-left:0;list-style:none}.check li:before{content:"□ ";color:var(--blue);font-weight:bold}.priority{font-weight:700}.p0{color:var(--red)}.p1{color:var(--orange)}.p2{color:var(--muted)}.small{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>PengToolsHub：Navicat 风格 AI SQL 控制台改造需求</h1>
+  <p>需求版本 2.2 · 2026-08-26 · 唯一实施基线 · 可直接交给 Grok</p>
+  <span class="tag">导航 14：SQL 控制台</span><span class="tag">导航 15：模型对话</span><span class="tag">右键表字段引用</span><span class="tag">六类数据库</span><span class="tag">AI 仅生成草案</span>
+</header>
+
+<section>
+  <h2>0. Grok 执行入口（本节即唯一聊天提示词）</h2>
+  <div class="note"><strong>请直接阅读并实施本文档：</strong><code>D:\development\workspace\WorkBuddy\PengTools\Navicat风格AI_SQL控制台改造需求文档.html</code>。本文档 v2.2 是本期唯一需求基线；无需向用户索要额外长提示词。</div>
+  <h3>必读材料与覆盖顺序</h3>
+  <ol>
+    <li>先读 <code>AGENTS.md</code>、<code>docs/SECURITY.md</code>、<code>docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md</code>、本文档。</li>
+    <li>再读根目录设计稿：<code>AI_SQL控制台与模型对话模块设计图.html</code>、<code>数据库对象导航优化设计图.html</code>、<code>自然语言表字段选择交互设计图.html</code>。</li>
+    <li>视觉规则冲突时，依次以本文档 v2.2 → 《自然语言表字段选择交互设计图》→《数据库对象导航优化设计图》→《AI_SQL控制台与模型对话模块设计图》为准；任何安全规则与 <code>AGENTS.md</code> 冲突时，以 <code>AGENTS.md</code> 为准。</li>
+    <li>先执行 <code>git status --short</code>、<code>git diff --stat</code>，保护现有未提交内容。尤其不得覆盖 <code>panels/ai_workbench_panel.py</code> 中既有的表筛选、字段勾选及 <code>compose_nl_query()</code> 相关改动；应兼容合并或迁移。</li>
+  </ol>
+  <div class="risk"><strong>不可违背：</strong>AI 永不连接数据库、永不自动执行 SQL/Redis/Mongo 命令；AI 的任何结果均只能写入新的“AI 生成”编辑 Tab。手工执行由用户在控制台明确点击触发，危险操作必须二次确认。</div>
+  <div class="prompt">实施目标：
+1. 将现有导航 14 的模型工作台重构为 Navicat 风格“SQL 控制台”（Stack 13）；新增导航 15“模型对话”（Stack 14）。
+2. 支持既有 6 类数据库连接、受控执行、全量结构快照、Oracle Thick 兼容和多内网模型配置。
+3. AI 自然语言输入框右键“添加表 / 添加字段”是选择 AI 上下文的唯一主入口；字段选择必须先选择表，并基于当前连接的有效本地快照搜索。
+4. 以可见、可删除的结构化 Token 回填输入框；绝不可把不可见 JSON 或伪装标记混入普通用户文本。
+5. 完成定向测试、敏感扫描、离线构建、发布产物核验与精确提交推送；不得把 data、凭据、会话、安装包或临时文件提交。</div>
+</section>
+
+<section>
+  <h2>1. 背景、问题与目标</h2>
+  <h3>1.1 问题陈述</h3>
+  <p>当前应用已具备多数据库连接、简化表字段查询和单一内网模型配置的基础，但并非面向日常 SQL 工作的专业控制台：对象层级混合展示时难以分辨表与字段；模型上下文选择不够直观；模型配置与通用对话能力也无法独立验证。用户需要在离线桌面应用中，以接近 Navicat 的工作流连接数据库、浏览结构、编辑并手动执行 SQL，同时利用内网大模型把自然语言可靠地转换为可审计 SQL 草案。</p>
+  <h3>1.2 目标</h3>
+  <ul>
+    <li>提供一套 SQL 控制台：连接、对象浏览、多 Tab 编辑、结果展示、危险操作确认均在同一桌面工作区完成。</li>
+    <li>让用户能在 AI 输入区通过右键搜索当前库对象，先选表再选字段，以可见引用 Token 精确限定模型上下文。</li>
+    <li>模型输出 SQL 草案和结构化生成说明，不展示或请求隐藏原始思维链，不自动执行。</li>
+    <li>设置页可维护多个完整内网模型配置；新增独立“模型对话”页用于连续聊天与真实最小 ping 验证。</li>
+    <li>对当前账号可见结构做全量元数据快照，减少每次请求扫描，并确保不把业务行数据、密码、Token 等敏感信息发给模型或写入日志。</li>
+  </ul>
+  <h3>1.3 非目标（本期不做）</h3>
+  <ul>
+    <li>不引入浏览器内核、Monaco、WebSocket、外网模型、云同步、账号体系或插件市场。</li>
+    <li>不实现 AI 自动执行、自动修复线上数据、自动提交事务或生产写入绕过。</li>
+    <li>不把完整数据库、业务源码、结果集、抓包内容、密码、Token 或完整连接串上传到模型 Prompt。</li>
+    <li>不把对象目录改造成字段混合树；字段不作为树子节点展示。</li>
+    <li>不新增固定 AND/OR 规则控件；多字段条件含义由模型依据用户自然语言推断，并在生成说明中披露。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>2. 已确认的产品决策与约束</h2>
+  <table>
+    <tr><th>主题</th><th>已确认决策</th></tr>
+    <tr><td>数据库范围</td><td>仅支持现有六类：Oracle、MySQL、OceanBase、达梦、Redis、MongoDB。不得在本期扩展其他方言或外部服务。</td></tr>
+    <tr><td>导航与 Stack</td><td><strong>nav 14 = SQL 控制台 / Stack 13</strong>，由现有 <code>AiWorkbenchPanel</code> 重构或兼容迁移；<strong>nav 15 = 模型对话 / Stack 14</strong>，新增 <code>ModelChatPanel</code>。同步导航模型、侧栏、状态栏、中英文、悬浮快捷、懒加载、Stack 属性和测试。此前“只重构 nav 14、不新增导航”的文本已废止。</td></tr>
+    <tr><td>元数据</td><td>全量扫描当前账号有权限查看的结构，持久化为本地元数据快照；模型调用只使用按当前任务裁剪后的元数据，不发送业务行数据。</td></tr>
+    <tr><td>手工执行</td><td>SQL 控制台允许用户手动执行读写、DDL 以及受支持的 Redis/Mongo 命令。生产账号无写权限不替代客户端安全流程：DML、DDL、DCL、PL/SQL、Redis/Mongo 写操作仍须危险确认。</td></tr>
+    <tr><td>AI 执行边界</td><td>AI 可生成 SELECT、DML、DDL、Redis 命令、Mongo JSON 草案；只能写入新“AI 生成”Tab，绝不自动执行、绝不连接数据库、绝不复用当前结果集。</td></tr>
+    <tr><td>可审计说明</td><td>展示 <code>summary</code>、<code>intent</code>、<code>objects_used</code>、<code>selected_fields</code>、<code>condition_interpretation</code>、<code>join_assumptions</code>、<code>risk_level</code>、<code>warnings</code>；不得要求、存储或展示模型原始隐藏 CoT。</td></tr>
+    <tr><td>模型对话记录</td><td>按用户决定，以 UTF-8 明文 JSON 保存在 <code>config.local_data_dir()</code> 下；页面长期提示风险。记录不含 Token、Base URL、数据库凭据、SQL 控制台结果集或抓包内容。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>3. 信息架构与页面布局</h2>
+  <div class="note">SQL 控制台采用“对象目录 + 编辑与结果主区 + 右侧工作面板”的三栏布局。右侧工作面板采用 Tabs：<strong>AI 助手</strong>为默认页；选择对象时可切到<strong>对象详情</strong>查看字段元数据。这样既避免字段混入对象树，也不挤占 AI 生成工作流。</div>
+  <table>
+    <tr><th>区域</th><th>功能要求</th><th>边界与交互</th></tr>
+    <tr><td>L1 页头</td><td>标题“SQL 控制台”、当前连接别名、数据库类型、快照状态/时间；“新建 SQL Tab”为唯一主操作。</td><td>不得显示 host、端口、用户名、密码或 Token。</td></tr>
+    <tr><td>L2 连接工具栏</td><td>新建/编辑/删除连接、测试连接、扫描/更新结构、查看快照、删除快照、模型配置快捷入口。</td><td>删除连接/快照必须走 <code>confirm_action</code>；未连接或无快照时禁用依赖动作并说明原因。</td></tr>
+    <tr><td>左侧对象目录</td><td>仅展示：连接 → schema/数据库 → 表、视图、集合、Redis 键模式等对象。提供对象名/注释搜索及对象类型固定图标、标签。</td><td><strong>字段绝不进入树。</strong>对象目录仅用于浏览和手工 SQL 辅助；不作为 AI 表/字段选择主入口。对象同名时必须显示 <code>OWNER.OBJECT_NAME</code>。</td></tr>
+    <tr><td>中部编辑主区</td><td>多标签 SQL/命令编辑器：新建、关闭、未保存标识、执行当前/选中语句、格式化、清空、保存本地草稿；下方结果区显示结果表、执行消息、受影响行数、耗时、分页与会话内历史。</td><td>使用 PyQt 原生实现，不引入浏览器/Monaco。结果与执行历史默认仅内存，禁止将业务数据写入模型上下文或日志。</td></tr>
+    <tr><td>右侧 AI 助手</td><td>支持自然语言输入、输入框右键添加对象、可见 Token、生成 SQL、结构化说明、查看已添加对象；成功后仅新建 AI 生成 Tab。</td><td>AI 只生成；不得存在调用 <code>_run_sql()</code> 或任何数据库执行函数的自动路径。</td></tr>
+    <tr><td>右侧对象详情</td><td>选择左侧对象后显示字段元数据表：字段名、类型、可空、主键/索引、注释；支持字段搜索、分页/虚拟列表和插入当前手工 SQL Tab。</td><td>字段详情的“发送给 AI”（如保留）必须复用第 4.4 节同一套 Token 与上下文模型，不得另建 checkbox 上下文或绕过右键交互规则。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>4. 核心功能需求</h2>
+  <h3>4.1 多数据库连接与全量结构快照（P0）</h3>
+  <table>
+    <tr><th>编号</th><th>需求</th><th>验收要点</th></tr>
+    <tr><td>DB-01</td><td>复用 <code>tools/db_connect.py</code> 的 Oracle/MySQL/OceanBase/达梦/Redis/MongoDB 配置 CRUD 和 DPAPI/enc 凭据处理；所有新增数据经 <code>config.local_data_dir()</code> 保存。</td><td>不新增 b64 明文密码；不得写入 <code>resources/</code>、<code>_MEIPASS</code> 或用户主目录。</td></tr>
+    <tr><td>DB-02</td><td>为关系型数据库全量扫描当前账号可见的 schema、表、视图、字段、字段类型、可空、主键/索引、注释等元数据；支持进度、取消、完成/失败状态。</td><td>无快照时显示真实空状态与“扫描/更新结构”入口，绝不伪造树；对象/字段量大时后台执行，不冻结 UI。</td></tr>
+    <tr><td>DB-03</td><td>Redis 只保存数据库编号、键模式/类型/TTL 等安全元数据，严禁使用 <code>KEYS *</code>；Mongo 只保存 collection 与受控采样得到的字段形状/类型统计，禁止持久化 document value。</td><td>快照不含行数据、键值、文档内容、密码、Token。</td></tr>
+    <tr><td>DB-04</td><td>快照包含连接指纹、数据库方言、扫描时间、版本、状态和失效标记；连接关键字段修改后使对应快照过期。提供删除与重新扫描。</td><td>连接指纹不得包含明文密码；无法证明属于当前连接的快照不得用于对象选择或 Prompt。</td></tr>
+  </table>
+
+  <h3>4.2 Oracle Thin/Thick 兼容（P0）</h3>
+  <ul>
+    <li>新增 <code>tools/oracle_runtime.py</code> 或等价无界面模块，管理 <code>auto / thin / thick</code>、Instant Client 目录、目录诊断及进程级单次初始化。</li>
+    <li>Windows Thick 使用 <code>oracledb.init_oracle_client(lib_dir=...)</code>；不下载 Client、不修改系统 PATH、不重复初始化。模式/路径变化后明确提示重启应用再生效。</li>
+    <li>对于 DPY-3010，以脱敏诊断说明 Oracle 11.2 或更早版本可能需 Thick 模式和可用 Instant Client；不得记录连接 ID、账号或连接串。</li>
+  </ul>
+
+  <h3>4.3 SQL 控制台执行与危险确认（P0）</h3>
+  <ul>
+    <li>手工编辑器允许自由输入 SQL/命令；执行前根据方言和语句分类显示危险确认。确认框须明确连接别名、方言、操作类型、风险说明和取消默认焦点。</li>
+    <li>增强 <code>tools/sql_guard.py</code>：识别多语句、<code>WITH ... INSERT/UPDATE/DELETE</code>、DDL/DCL/PLSQL、Redis 写命令、Mongo 写操作。手工执行与 AI 草案校验必须分开实现。</li>
+    <li>静态分析无法可靠判断安全范围的复杂 AI SQL，必须 fail closed：可生成、可查看，但标为“仅草案 / 不可安全执行”，不得通过任何快捷路径直接执行。</li>
+    <li>会话连接必须 per-tab，禁止全局 disconnect；执行、断开、取消等操作只能影响当前 Tab 所属连接。</li>
+  </ul>
+
+  <h3>4.4 AI 自然语言对象选择：右键主入口（P0）</h3>
+  <div class="success"><strong>最终规则：</strong>AI 自然语言输入框右键菜单是选择表/字段上下文的<strong>唯一主入口</strong>。对象目录只用于浏览和手工 SQL 辅助；若对象详情保留“发送给 AI”，也只能打开/调用同一右键选择模型，最终写入同一种 Token 和同一个 <code>model_context</code>。</div>
+  <table>
+    <tr><th>编号</th><th>需求</th><th>详细交互与边界</th></tr>
+    <tr><td>AI-OBJ-01</td><td>输入组件与右键菜单</td><td>将现有 <code>QLineEdit</code> 替换为 <code>QTextEdit</code>、受控富文本组件或等效自定义输入组件。右键菜单至少有“添加表… / 添加字段… / 查看已添加对象 / 清除本次已添加对象”。保留普通输入、复制、粘贴、撤销等合理编辑能力。</td></tr>
+    <tr><td>AI-OBJ-02</td><td>添加表弹窗</td><td>基于当前连接且状态有效的本地快照，支持搜索并选择表、视图、集合或适配 Redis 的键模式；列表展示对象类型、schema/数据库、限定名和注释。确认后在右键触发时的光标位置插入“表 Token”。允许同一次添加多个对象，但重复选择同一限定对象只保留一个 Token。</td></tr>
+    <tr><td>AI-OBJ-03</td><td>添加字段两步弹窗</td><td>第一步必须先搜索并选择一个当前快照中的对象；第二步才加载该对象字段列表并支持字段名/注释搜索、类型展示与多选。确认后插入属于该对象的“字段 Token”。未选择表时“下一步/确认字段”不可用；不得让用户从所有库字段的混合列表中直接检索。</td></tr>
+    <tr><td>AI-OBJ-04</td><td>Token 显示、删除与回填</td><td>Token 必须肉眼可区分普通文本，显示如“表：PRPCMAIN”“字段：PRPCMAIN.SUM_PREMIUM”，支持悬浮/点击查看限定名、类型、快照时间等元信息，支持选中后退格或删除按钮移除。不得把不可见 JSON、HTML 注释或伪 SQL 标识隐藏进用户文本。用户编辑普通文本时不得丢失 Token；删除 Token 时同步从上下文移除。</td></tr>
+    <tr><td>AI-OBJ-05</td><td>上下文数据模型</td><td>每个输入会话维护独立 <code>model_context</code>，至少含 <code>snapshot_id</code>、<code>connection_fingerprint</code>、<code>selected_objects</code>、<code>selected_fields</code>、<code>token_id</code>、限定名、对象/字段类型。Token 视觉状态与上下文模型一一对应，不通过从普通文本反向猜测对象。</td></tr>
+    <tr><td>AI-OBJ-06</td><td>失效与异常状态</td><td>未选择连接、未扫描快照、连接指纹不匹配、快照已过期、对象已不存在、字段加载失败时，禁用“添加表/添加字段”并展示原因与“扫描/更新结构”入口。不得使用上一次连接、其他库或过期快照中的对象回填。</td></tr>
+    <tr><td>AI-OBJ-07</td><td>光标位置保护</td><td>确认后优先插入右键触发时记录的光标位置；若弹窗期间输入框失焦、文本已变化或位置不可恢复，则插入当前光标末尾并给出轻提示。任何情况下不得覆盖用户已输入的自然语言。</td></tr>
+    <tr><td>AI-OBJ-08</td><td>方言边界</td><td>关系型库的字段来自真实字段快照。Mongo 字段仅在受控 schema 快照可用时允许选择，标记为“推断字段”；Redis 以键模式/命令上下文为主，不伪造表字段，字段动作应禁用并解释原因。</td></tr>
+  </table>
+  <div class="flow">用户在 AI 输入框编写普通自然语言
+  └─ 右键添加表 / 添加字段
+       ├─ 校验当前连接 + 有效快照
+       ├─ 添加表：搜索对象 → 插入对象 Token
+       └─ 添加字段：搜索对象 → 选择字段（多选）→ 插入字段 Token
+            ↓
+      受控 model_context（仅本次输入会话）
+            ↓
+      方言 + 已选对象/字段元数据 + 普通自然语言
+            ↓
+      结构化生成说明 + SQL 草案
+            ↓
+      新建“AI 生成”Tab（绝不执行）</div>
+
+  <h3>4.5 AI Prompt、结构化输出与草案写入（P0）</h3>
+  <ul>
+    <li>Prompt 仅发送：方言、经裁剪的当前有效快照元数据、Token 对应的限定对象/字段、用户显式自然语言。禁止上传密码、Token、host、端口、用户名、完整连接串、业务行数据、结果集、抓包内容。</li>
+    <li>如果用户添加了字段，生成 SQL 不得引用未选择的业务字段（允许 <code>COUNT(*)</code>）；如因主键、关联键或方言要求必须使用额外字段，必须在 <code>warnings</code> 说明，且标为需用户复核。</li>
+    <li>用户添加多个表/集合但未提供关联条件时，必须输出 <code>join_assumptions</code> 与警告；SQL 仅为草案，不得成为“可安全执行”状态。</li>
+    <li>修改 <code>resources/ai_skills/sql.md</code> 与 <code>tools/ptools_harness.py</code>：SQL 任务必须要求单条草案或受控结构化 JSON，禁止旧规则“多语句用分号分隔”。对模型输出做严格 JSON 校验、字段默认值补齐和 SQL fence 清理。</li>
+  </ul>
+  <div class="prompt">结构化输出契约（仅展示可审计摘要，不是隐藏思维链）：
+{
+  "summary": "",
+  "intent": "",
+  "objects_used": ["SCHEMA.TABLE"],
+  "selected_fields": ["SCHEMA.TABLE.COLUMN"],
+  "condition_interpretation": "",
+  "join_assumptions": [""],
+  "risk_level": "read|write|ddl|unknown",
+  "warnings": [""],
+  "sql": ""
+}</div>
+</section>
+
+<section>
+  <h2>5. 设置页多模型配置与独立模型对话</h2>
+  <h3>5.1 设置页多完整模型配置（P0）</h3>
+  <table>
+    <tr><th>编号</th><th>需求</th><th>交互与边界</th></tr>
+    <tr><td>MC-SET-01</td><td>模型配置列表</td><td>将 <code>data/ai_local.json</code> 的单配置兼容升级为 <code>{version, active_model_id, items:[...]}</code>。旧配置首次加载自动迁移为一条完整配置，保留原 token enc 值和已知字段。</td></tr>
+    <tr><td>MC-SET-02</td><td>完整配置 CRUD</td><td>每条包含 id、name、enabled、base_url、model、token、app_tag、timeout_seconds、ssl_verify、max_tokens、project_id 等。支持新增、复制、编辑、删除、设置默认与真实最小 ping。删除默认项前要求重新选择默认项或明确处理。</td></tr>
+    <tr><td>MC-SET-03</td><td>内网安全</td><td>每次模型请求前用 <code>socket.getaddrinfo</code> 解析主机名，所有解析 IP 必须是 loopback、RFC1918 或允许的 link-local；拒绝已知公网模型域名；使用 <code>ProxyHandler({})</code> 绕过系统代理。Token 继续 DPAPI/enc 存储。</td></tr>
+    <tr><td>MC-SET-04</td><td>本地 XML 表名提取</td><td>原“扫描表名”改名为“从 MyBatis XML 提取业务表名（可选）”；明确它只扫描用户指定本地目录的 XML，不扫描真实数据库结构，且结果不替代 schema snapshot。</td></tr>
+  </table>
+
+  <h3>5.2 新增 nav 15「模型对话」（P0）</h3>
+  <table>
+    <tr><th>编号</th><th>需求</th><th>交互与边界</th></tr>
+    <tr><td>CHAT-01</td><td>会话管理</td><td>左侧会话按更新时间倒序；支持新建、重命名、删除、关键词搜索。首条消息成功后可用前 20 个字符生成默认标题；手工名称不得被覆盖。</td></tr>
+    <tr><td>CHAT-02</td><td>连续聊天</td><td>中部气泡流展示用户与助手消息；助手消息显示“配置名称 · 模型名 · 完成时间”。可复制消息、重新生成最近一条、停止当前生成。上下文最多 30 条或 12,000 字符，超限仅裁剪发送上下文，不删除本地完整记录。</td></tr>
+    <tr><td>CHAT-03</td><td>模型切换与测试</td><td>顶部只显示启用配置；切换仅影响后续消息。测试当前模型应发送真实最小 ping、显示成功/失败和耗时，但绝不创建会话消息。配置删除/停用后，历史会话可查看但不能继续发送，直到选择有效配置。</td></tr>
+    <tr><td>CHAT-04</td><td>本地明文持久化</td><td>会话 JSON 保存在 data 目录，原子写入；首次进入与页面常驻提示“聊天记录明文保存在本机，请勿输入密码、Token、客户隐私、生产敏感数据或抓包报文”。记录只含会话元信息、用户/助手文本、配置 ID 与模型名。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>6. 涉及模块与实施任务拆分</h2>
+  <table>
+    <tr><th>优先级</th><th>任务</th><th>主要影响文件/模块</th><th>完成定义</th></tr>
+    <tr><td class="priority p0">P0-1</td><td>导航与面板架构</td><td><code>main_window.py</code>、<code>ui/navigation_model.py</code>、新增/迁移 <code>panels/model_chat_panel.py</code></td><td>nav 14/15 与 Stack 13/14 映射、懒加载、状态栏、语言和快捷入口一致。</td></tr>
+    <tr><td class="priority p0">P0-2</td><td>模型配置与 Oracle Runtime</td><td><code>config.py</code>、<code>tools/intranet_llm.py</code>、<code>tools/oracle_runtime.py</code>、<code>panels/settings_panel.py</code></td><td>多完整模型迁移/CRUD/ping、安全 URL 校验、Oracle Thick 诊断完成。</td></tr>
+    <tr><td class="priority p0">P0-3</td><td>Schema Snapshot</td><td><code>tools/db_connect.py</code>、新增快照工具/路径、SQL 控制台面板</td><td>六类数据库按边界扫描并保存元数据，状态、失效和对象浏览可用。</td></tr>
+    <tr><td class="priority p0">P0-4</td><td>SQL 控制台与执行 Guard</td><td><code>panels/ai_workbench_panel.py</code>（重构）、<code>tools/sql_guard.py</code></td><td>多 Tab、per-tab 连接、对象目录/详情、手工执行风险确认和结果区可用。</td></tr>
+    <tr><td class="priority p0">P0-5</td><td>AI 右键对象 Token</td><td>SQL 控制台 AI 输入组件、弹窗、快照读取、<code>ptools_harness.py</code>、<code>resources/ai_skills/sql.md</code></td><td>AI-OBJ-01 至 AI-OBJ-08 全部满足，AI 生成仅写入新 Tab。</td></tr>
+    <tr><td class="priority p0">P0-6</td><td>模型对话页</td><td>新增 <code>panels/model_chat_panel.py</code>、会话存储工具</td><td>聊天、切换、ping、会话明文风险提示与持久化完成。</td></tr>
+    <tr><td class="priority p1">P1-1</td><td>对象详情体验优化</td><td>SQL 控制台对象详情面板</td><td>字段搜索、虚拟列表/分页、字段插入当前手工 SQL；“发送给 AI”仅复用同一 Token 流。</td></tr>
+    <tr><td class="priority p2">P2-1</td><td>后续体验项</td><td>后续版本</td><td>收藏 SQL、命令历史持久化、更多方言和导入导出能力另立需求，不混入本期。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>7. 非功能与安全要求</h2>
+  <ul>
+    <li><strong>依赖方向：</strong>严格保持 <code>run → main_window → panels → tools|ui|config</code>；<code>tools</code> 不 import <code>panels</code>，<code>ui</code> 不 import <code>panels/tools</code>。</li>
+    <li><strong>数据根：</strong>所有新增文件均在 <code>config.local_data_dir()</code>；升级不得覆盖安装目录 data；安装包不得包含用户 data。</li>
+    <li><strong>隐私：</strong>连接密码和模型 Token 继续用 DPAPI/enc；聊天明文保存是用户明确决策，但聊天页必须提示风险。接口排查、网关解密、数据库结果、模型 Prompt 均不得落入普通日志。</li>
+    <li><strong>性能：</strong>全量扫描和大字段列表必须后台化；字段超过 100 使用搜索 + 分页/虚拟列表；取消、异常、成功三条路径都结束 Loading。</li>
+    <li><strong>兼容：</strong>保留旧 <code>ai_local.json</code>、已有连接配置和既有 AI 工作台未提交功能的兼容迁移；读取 JSON 使用默认值兼容旧字段，写入保留已知旧字段。</li>
+    <li><strong>UI：</strong>遵循现有 <code>resources/style.qss</code>、PageChrome、四层页面骨架与主题 Token；禁止临时硬编码破坏现有主题。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>8. 验收标准与定向测试</h2>
+  <h3>8.1 功能验收清单</h3>
+  <ul class="check">
+    <li>导航显示 nav 14“SQL 控制台”、nav 15“模型对话”；Stack、侧栏、状态栏、中英文、快捷入口和懒加载映射正确。</li>
+    <li>SQL 控制台对象目录仅显示对象，不显示字段子节点；对象详情展示字段元数据；无快照时显示空状态。</li>
+    <li>AI 输入区右键显示“添加表 / 添加字段 / 查看已添加对象 / 清除本次已添加对象”。</li>
+    <li>添加表只能搜索当前连接、当前有效快照中的对象；不同 schema 同名对象可区分；重复对象不会重复插入。</li>
+    <li>添加字段必须经历“先选表、后多选字段”两步；未选表不得确认字段；Redis 禁止伪字段选择。</li>
+    <li>Token 可见、可查看元信息、可删除；删除后上下文同步移除；编辑普通文本不破坏 Token；弹窗回填不覆盖用户文本。</li>
+    <li>快照过期、连接切换、对象不存在或字段加载失败时，禁用对象选择并提供明确提示和扫描入口。</li>
+    <li>AI Prompt 只使用当前有效 Token 对应对象/字段及裁剪快照；选字段后不引用未选业务字段；多表无关联条件时输出 Join 假设与警告。</li>
+    <li>AI 输出创建新的“AI 生成”Tab，任何生成路径均不自动执行；复杂或无法静态判断的草案 fail closed。</li>
+    <li>手工 DML/DDL/DCL/PLSQL/Redis/Mongo 写操作均有危险确认；连接按 Tab 隔离。</li>
+    <li>多模型配置可新增、复制、编辑、删除、设默认、真实 ping；旧单条配置自动迁移且原 token 可继续使用。</li>
+    <li>Oracle DPY-3010 有 Thick 模式、Instant Client 目录诊断与重启提示；不改变系统 PATH。</li>
+    <li>模型对话支持新建/重命名/删除/搜索/连续消息/模型切换/真实 ping；明文 JSON 提示和数据边界符合本需求。</li>
+  </ul>
+  <h3>8.2 测试要求</h3>
+  <ul>
+    <li>为 Snapshot、连接指纹、Redis 禁止 KEYS、Mongo 无 value 持久化、Oracle Runtime、模型配置迁移/URL 安全、SQL Guard、结构化输出解析、聊天记录过滤新增工具层定向单测。</li>
+    <li>为右键菜单、表搜索、两步字段选择、快照无效、Token 插入/删除、光标回填、普通文本编辑、多表 Join 警告、Prompt 选表选字段约束新增 UI/逻辑定向测试。</li>
+    <li>运行本次修改覆盖的定向回归、<code>python scripts/scan_release_secrets.py</code>、<code>powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1</code>；核对 <code>dist\PengToolsHub.exe</code>、<code>Installer\</code>、<code>PengToolsHub_Offline_Setup.zip</code> 及 <code>resources/build_info.json</code>。</li>
+    <li>提交前只纳入源码、资源、测试与需求文档的必要变更；不得提交 <code>data/</code>、凭据、会话、安装包、临时截图、日志；精确提交并推送 <code>origin main</code>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>9. 实施风险与处理原则</h2>
+  <table>
+    <tr><th>风险</th><th>处理原则</th></tr>
+    <tr><td>富文本 Token 破坏普通文本编辑</td><td>采用受控输入组件和独立 <code>model_context</code> 映射；Token 不通过隐藏文本序列化表达；增加删除、撤销、回填和焦点丢失测试。</td></tr>
+    <tr><td>旧对象树和新设计冲突</td><td>字段不进入树为强制规则；对象详情承载字段浏览；AI 选择一律以右键 Token 流为准。</td></tr>
+    <tr><td>快照/连接串联错误</td><td>以 connection fingerprint + snapshot_id 双重校验；失效或不匹配时 fail closed，禁止回填和生成。</td></tr>
+    <tr><td>模型返回非结构化内容</td><td>严格解析和默认字段补齐；无法验证时显示“生成失败/仅原始草案待复核”，不自动执行。</td></tr>
+    <tr><td>复杂 SQL 静态分析误判</td><td>AI 草案只生成；无法证明安全时不提供安全执行状态。手工执行仍由用户危险确认承担明确操作意图。</td></tr>
+    <tr><td>现有未提交代码冲突</td><td>先查看 diff，采取兼容重构，保留现有表/字段选择能力中可复用部分；不得粗暴覆盖文件。</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>10. Grok 完工回报格式</h2>
+  <div class="note">实施完成后，请按以下顺序汇报：①改动文件与每个文件职责；②用户可见交互变化；③新增/调整测试及结果；④敏感扫描、构建、三项产物和 <code>build_info.json</code> 核对结果；⑤提交 hash 与推送结果；⑥任何待用户内网验证的事项。不得把未执行的测试、构建或推送写成已完成。</div>
+</section>
+</body>
+</html>

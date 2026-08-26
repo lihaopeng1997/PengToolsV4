@@ -93,7 +93,7 @@ class AiSqlDraftTests(unittest.TestCase):
         )
         joined = '\n'.join(draft['warnings'])
         self.assertIn('需人工补充 Join 条件', joined)
-        self.assertEqual(draft['risk_level'], 'high')
+        self.assertEqual(draft['risk_level'], 'unknown')
         self.assertTrue(any('SECRET' in item or '未勾选' in item for item in draft['warnings']))
 
 

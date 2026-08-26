@@ -22,8 +22,9 @@ TASKS = {
 }
 
 _SQL_FALLBACK = (
-    '你是 Oracle SQL 助手。只输出 SQL，不要解释，不要 Markdown 围栏。'
-    '不要 DROP DATABASE。'
+    '你是 Oracle SQL 助手。只输出一个 JSON 对象，字段含 summary/intent/objects_used/'
+    'selected_fields/condition_interpretation/join_assumptions/risk_level/warnings/sql。'
+    'sql 只能是单条草案，禁止分号拼接多语句。不要 DROP DATABASE。'
 )
 _OPTIMIZE_FALLBACK = (
     '优化用户给出的 Oracle SQL：更清晰、可维护，保持表名。只输出 SQL。'

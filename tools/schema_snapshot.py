@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from datetime import datetime, timezone
 
 from config import SCHEMA_SNAPSHOT_DIR, ensure_config_dir
@@ -62,6 +63,8 @@ def empty_snapshot(item: dict, *, status='empty') -> dict:
         'alias': str(data.get('name') or ''),
         'dialect': str(data.get('dialect') or 'oracle').lower(),
         'fingerprint': connection_fingerprint(data),
+        'snapshot_id': uuid.uuid4().hex,
+        'version': 1,
         'scanned_at': '',
         'status': status,
         'truncated': False,
@@ -133,12 +136,15 @@ def _clean_object(item: dict) -> dict:
             'nullable': bool(col.get('nullable', True)),
             'position': int(col.get('position') or 0),
             'comment': str(col.get('comment') or ''),
+            'primary_key': bool(col.get('primary_key')),
+            'indexed': bool(col.get('indexed') or col.get('primary_key')),
         })
     return {
         'owner': str(item.get('owner') or ''),
         'name': str(item.get('name') or ''),
         'object_type': str(item.get('object_type') or 'TABLE'),
         'comment': str(item.get('comment') or ''),
+        'inferred': bool(item.get('inferred')),
         'columns': columns,
     }
 
@@ -149,10 +155,14 @@ def _type_name(value) -> str:
     return type(value).__name__
 
 
-def scan_schema(conn, item: dict) -> dict:
+def scan_schema(conn, item: dict, cancel=None) -> dict:
     dialect = str((item or {}).get('dialect') or 'oracle').lower()
     payload = empty_snapshot(item, status='ok')
     payload['scanned_at'] = _now()
+    if callable(cancel) and cancel():
+        payload['status'] = 'failed'
+        payload['warning'] = '扫描已取消'
+        return payload
     try:
         if dialect == 'redis':
             objects, truncated = _scan_redis(conn)
@@ -228,7 +238,42 @@ def _scan_oracle_like(conn, dialect: str) -> tuple[list, bool]:
                 'nullable': str(row[4] or 'Y').upper() != 'N',
                 'position': int(row[5] or 0),
                 'comment': str(row[6] or ''),
+                'primary_key': False,
+                'indexed': False,
             })
+        if dialect != 'dameng':
+            try:
+                cur.execute(
+                    "SELECT cols.owner, cols.table_name, cols.column_name "
+                    "FROM all_constraints cons JOIN all_cons_columns cols "
+                    "ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name "
+                    "WHERE cons.constraint_type = 'P'"
+                )
+                for row in cur.fetchall() or []:
+                    target = objects.get((str(row[0] or ''), str(row[1] or '')))
+                    if not target:
+                        continue
+                    wanted = str(row[2] or '').upper()
+                    for col in target.get('columns') or []:
+                        if str(col.get('name') or '').upper() == wanted:
+                            col['primary_key'] = True
+                            col['indexed'] = True
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "SELECT table_owner, table_name, column_name FROM all_ind_columns"
+                )
+                for row in cur.fetchall() or []:
+                    target = objects.get((str(row[0] or ''), str(row[1] or '')))
+                    if not target:
+                        continue
+                    wanted = str(row[2] or '').upper()
+                    for col in target.get('columns') or []:
+                        if str(col.get('name') or '').upper() == wanted:
+                            col['indexed'] = True
+            except Exception:
+                pass
     finally:
         try:
             cur.close()
@@ -266,14 +311,14 @@ def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
         if database:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-                "ORDINAL_POSITION, COLUMN_COMMENT FROM information_schema.columns "
+                "ORDINAL_POSITION, COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns "
                 "WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME, ORDINAL_POSITION",
                 (database,),
             )
         else:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-                "ORDINAL_POSITION, COLUMN_COMMENT FROM information_schema.columns "
+                "ORDINAL_POSITION, COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns "
                 "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
             )
         for row in cur.fetchall() or []:
@@ -281,12 +326,15 @@ def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
             target = objects.setdefault(key, {
                 'owner': key[0], 'name': key[1], 'object_type': 'TABLE', 'comment': '', 'columns': [],
             })
+            key_flag = str(row[7] or '').upper() if len(row) > 7 else ''
             target['columns'].append({
                 'name': str(row[2] or ''),
                 'data_type': str(row[3] or ''),
                 'nullable': str(row[4] or 'YES').upper() != 'NO',
                 'position': int(row[5] or 0),
                 'comment': str(row[6] or ''),
+                'primary_key': key_flag == 'PRI',
+                'indexed': key_flag in ('PRI', 'UNI', 'MUL'),
             })
     finally:
         try:
@@ -319,6 +367,7 @@ def _scan_mongo(conn) -> tuple[list, bool]:
             'name': str(name),
             'object_type': 'COLLECTION',
             'comment': '',
+            'inferred': True,
             'columns': columns,
         })
     return [_clean_object(item) for item in objects], False
@@ -383,3 +432,30 @@ def clip_snapshot_for_prompt(
             break
     text = '\n'.join(lines)
     return text[:max_chars]
+
+
+def search_objects(snap: dict | None, keyword: str = '') -> list[dict]:
+    needle = str(keyword or '').strip().lower()
+    result = []
+    for obj in (snap or {}).get('objects') or []:
+        hay = ' '.join([
+            str(obj.get('name') or ''),
+            str(obj.get('owner') or ''),
+            str(obj.get('comment') or ''),
+            str(obj.get('object_type') or ''),
+        ]).lower()
+        if needle and needle not in hay:
+            continue
+        result.append(obj)
+    return result
+
+
+def search_fields(obj: dict | None, keyword: str = '') -> list[dict]:
+    needle = str(keyword or '').strip().lower()
+    result = []
+    for col in (obj or {}).get('columns') or []:
+        hay = ' '.join([str(col.get('name') or ''), str(col.get('comment') or ''), str(col.get('data_type') or '')]).lower()
+        if needle and needle not in hay:
+            continue
+        result.append(col)
+    return result

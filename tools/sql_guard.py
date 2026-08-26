@@ -48,10 +48,8 @@ def leading_verb(sql: str) -> str:
 
 
 def is_read_query(sql: str) -> bool:
-    verb = leading_verb(sql)
-    if verb in QUERY_VERBS:
-        return True
-    return False
+    info = classify_statement(sql)
+    return bool(info.get('is_read'))
 
 
 _REDACT_KV = re.compile(
@@ -231,6 +229,16 @@ def classify_statement(sql: str, dialect: str = 'oracle') -> dict:
         return result
     verb = leading_verb(text)
     result['verb'] = verb
+    lowered = strip_sql_comments(text).lower()
+    if verb == 'with' and re.search(r'\b(insert|update|delete|merge)\b', lowered):
+        result.update(category='dml', needs_confirm=True, label='WITH DML')
+        return result
+    if verb in ('begin', 'declare'):
+        result.update(category='plsql', needs_confirm=True, label='PL/SQL')
+        return result
+    if verb in ('grant', 'revoke'):
+        result.update(category='dcl', needs_confirm=True, label=f'DCL {verb.upper()}')
+        return result
     if verb in QUERY_VERBS:
         result.update(category='select', is_read=True, label='查询')
         return result
@@ -242,6 +250,30 @@ def classify_statement(sql: str, dialect: str = 'oracle') -> dict:
         return result
     result.update(category='unknown', needs_confirm=True, label=verb.upper() or '未知')
     return result
+
+
+def ai_draft_safety(sql: str, dialect: str = 'oracle') -> dict:
+    """AI 草案永不自动执行；无法静态证明只读时 fail closed。"""
+    parts = split_sql_statements(sql)
+    if len(parts) != 1:
+        return {
+            'safe_to_execute': False,
+            'fail_closed': True,
+            'reason': '多语句或无法可靠切分，仅草案 / 不可安全执行',
+        }
+    info = classify_statement(parts[0], dialect)
+    if info.get('is_read') and info.get('category') == 'select':
+        return {
+            'safe_to_execute': False,
+            'fail_closed': False,
+            'reason': '只读草案，仍须在控制台手工执行',
+        }
+    return {
+        'safe_to_execute': False,
+        'fail_closed': True,
+        'reason': '仅草案 / 不可安全执行',
+        'category': info.get('category'),
+    }
 
 
 def reject_reason(sql: str, dialect: str = 'oracle') -> str:

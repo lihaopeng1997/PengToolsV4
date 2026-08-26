@@ -9,7 +9,7 @@ import re
 from tools.ai_harness import strip_markdown_fence
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.schema_snapshot import clip_snapshot_for_prompt
-from tools.sql_guard import classify_statement
+from tools.sql_guard import ai_draft_safety, classify_statement
 
 _SQL_KEYWORDS = frozenset({
     'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as',
@@ -34,9 +34,9 @@ _SYSTEM = (
     '不要输出 host、端口、用户名、密码、Token 或任何行数据。'
     '字段：summary, intent, objects_used, selected_fields, condition_interpretation, '
     'join_assumptions, risk_level, warnings, sql。'
-    'risk_level 只能是 low、medium、high。sql 是可粘贴的 SQL/Redis 命令/Mongo JSON。'
-    '多表且关联不明确时，join_assumptions 必须说明，并把 risk_level 设为 high，'
-    'warnings 必须包含「需人工补充 Join 条件」。'
+    'risk_level 只能是 read、write、ddl、unknown。sql 必须是单条草案，禁止用分号拼多条。'
+    '多表且关联不明确时，join_assumptions 必须给出假设列表，risk_level 不得视为 read，'
+    'warnings 必须包含「需人工补充 Join 条件」。不要隐藏思维链。'
 )
 
 
@@ -66,10 +66,11 @@ def empty_draft(**overrides) -> dict:
         'objects_used': [],
         'selected_fields': [],
         'condition_interpretation': '',
-        'join_assumptions': '',
-        'risk_level': 'medium',
+        'join_assumptions': [],
+        'risk_level': 'unknown',
         'warnings': [],
         'sql': '',
+        'fail_closed': False,
     }
     data.update(overrides)
     return data
@@ -135,14 +136,19 @@ def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dial
             leftover.append(token)
         if leftover:
             warnings.append('选中字段约束：SQL 出现了未勾选标识符 ' + ', '.join(sorted(set(leftover))[:12]))
+    joins = data.get('join_assumptions')
+    if isinstance(joins, str):
+        joins = [joins] if joins.strip() else []
+    if not isinstance(joins, list):
+        joins = []
     if len(tables) > 1:
         lowered = sql.lower()
         if 'join' not in lowered and '=' not in lowered:
             if '需人工补充 Join 条件' not in ''.join(warnings):
                 warnings.append('需人工补充 Join 条件')
-            data['risk_level'] = 'high'
-            if not data.get('join_assumptions'):
-                data['join_assumptions'] = '多表无明确关联，不能视为可安全执行'
+            data['risk_level'] = 'unknown'
+            if not joins:
+                joins = ['多表无明确关联，不能视为可安全执行']
     if not data.get('objects_used'):
         data['objects_used'] = tables
     if not data.get('selected_fields'):
@@ -150,12 +156,29 @@ def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dial
     info = classify_statement(sql, dialect) if sql else {}
     if info.get('needs_confirm') and '写入/结构变更草案，必须人工确认后才会执行' not in warnings:
         warnings.append('写入/结构变更草案，必须人工确认后才会执行')
-        if data.get('risk_level') == 'low':
-            data['risk_level'] = 'high'
+    safety = ai_draft_safety(sql, dialect)
+    data['fail_closed'] = bool(safety.get('fail_closed'))
+    if safety.get('fail_closed') and safety.get('reason') not in warnings:
+        warnings.append(str(safety.get('reason')))
+    data['join_assumptions'] = [str(item) for item in joins if str(item).strip()]
     data['warnings'] = warnings
-    data['risk_level'] = str(data.get('risk_level') or 'medium').lower()
-    if data['risk_level'] not in ('low', 'medium', 'high'):
-        data['risk_level'] = 'medium'
+    level = str(data.get('risk_level') or 'unknown').lower()
+    if level in ('low', 'medium'):
+        level = 'read'
+    if level == 'high':
+        level = 'write' if info.get('category') in ('dml', 'redis_write', 'mongo_write') else 'unknown'
+    join_blocked = '需人工补充 Join 条件' in ''.join(warnings)
+    if info.get('category') == 'ddl':
+        level = 'ddl'
+    elif join_blocked:
+        level = 'unknown'
+    elif info.get('is_read'):
+        level = 'read' if level not in ('write', 'ddl') else level
+    elif info.get('category') in ('dml', 'redis_write', 'mongo_write'):
+        level = 'write'
+    if level not in ('read', 'write', 'ddl', 'unknown'):
+        level = 'unknown'
+    data['risk_level'] = level
     return data
 
 
@@ -167,8 +190,8 @@ def format_explanation(draft: dict) -> str:
         '对象：' + (', '.join(data.get('objects_used') or []) or '（未标明）'),
         '字段：' + (', '.join(data.get('selected_fields') or []) or '（未限定）'),
         f"条件：{data.get('condition_interpretation') or '（无）'}",
-        f"Join 假设：{data.get('join_assumptions') or '（无）'}",
-        f"风险：{data.get('risk_level') or 'medium'}",
+        'Join 假设：' + ('；'.join(data.get('join_assumptions') or []) or '（无）'),
+        f"风险：{data.get('risk_level') or 'unknown'}",
     ]
     warnings = [str(item) for item in (data.get('warnings') or []) if str(item).strip()]
     if warnings:
