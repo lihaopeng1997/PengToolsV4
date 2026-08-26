@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
 from ui.field_metrics import (
     CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo,
-    size_field_height, size_line, size_pick_combo,
+    size_field_height, size_line, size_pick_combo, wrap_path_field, wrap_secret_field,
 )
 from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
 
@@ -404,23 +404,22 @@ class SettingsPanel(QWidget):
         size_enum_combo(self.oracle_mode)
         self.oracle_mode_label = QLabel()
         oracle_form.addRow(self.oracle_mode_label, self.oracle_mode)
-        lib_row = QWidget()
-        lib_l = QHBoxLayout(lib_row)
-        lib_l.setContentsMargins(0, 0, 0, 0)
-        lib_l.setSpacing(8)
-        self.oracle_lib = QLineEdit()
-        size_line(self.oracle_lib, 'path')
-        self.oracle_browse = QPushButton()
-        size_compact_button(self.oracle_browse)
-        self.oracle_browse.clicked.connect(self._browse_oracle_client)
+        self.oracle_home = QLineEdit()
+        self.oracle_home_browse = QPushButton()
+        size_compact_button(self.oracle_home_browse)
+        self.oracle_home_browse.clicked.connect(self._browse_oracle_home)
+        self.oracle_home_label = QLabel()
+        oracle_form.addRow(self.oracle_home_label, wrap_path_field(self.oracle_home, self.oracle_home_browse))
+        self.oracle_oci = QLineEdit()
+        self.oracle_oci_browse = QPushButton()
+        size_compact_button(self.oracle_oci_browse)
+        self.oracle_oci_browse.clicked.connect(self._browse_oracle_oci)
+        self.oracle_oci_label = QLabel()
+        oracle_form.addRow(self.oracle_oci_label, wrap_path_field(self.oracle_oci, self.oracle_oci_browse))
         self.oracle_diag_btn = QPushButton()
         size_compact_button(self.oracle_diag_btn)
         self.oracle_diag_btn.clicked.connect(self._diagnose_oracle_client)
-        lib_l.addWidget(self.oracle_lib, 1)
-        lib_l.addWidget(self.oracle_browse)
-        lib_l.addWidget(self.oracle_diag_btn)
-        self.oracle_lib_label = QLabel()
-        oracle_form.addRow(self.oracle_lib_label, lib_row)
+        oracle_form.addRow(self.oracle_diag_btn)
         self.oracle_status = QLabel()
         self.oracle_status.setObjectName('field-hint')
         self.oracle_status.setWordWrap(True)
@@ -469,9 +468,8 @@ class SettingsPanel(QWidget):
         ai_form.addRow(self.ai_project_label, self.ai_project)
         self.ai_base_url = QLineEdit()
         self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
-        size_line(self.ai_base_url, 'path')
         self.ai_base_url_label = QLabel()
-        ai_form.addRow(self.ai_base_url_label, self.ai_base_url)
+        ai_form.addRow(self.ai_base_url_label, wrap_path_field(self.ai_base_url))
         self.ai_model = QComboBox()
         self.ai_model.setEditable(True)
         size_pick_combo(self.ai_model)
@@ -480,10 +478,9 @@ class SettingsPanel(QWidget):
         self.ai_model_label = QLabel()
         ai_form.addRow(self.ai_model_label, self.ai_model)
         self.ai_token = QLineEdit()
-        self.ai_token.setEchoMode(QLineEdit.EchoMode.Password)
-        size_line(self.ai_token, 'path')
+        self.ai_token_row, self.ai_token_reveal = wrap_secret_field(self.ai_token)
         self.ai_token_label = QLabel()
-        ai_form.addRow(self.ai_token_label, self.ai_token)
+        ai_form.addRow(self.ai_token_label, self.ai_token_row)
         self.ai_app_tag = QLineEdit()
         self.ai_app_tag.setPlaceholderText('一般不用填')
         size_line(self.ai_app_tag, 'std')
@@ -568,7 +565,9 @@ class SettingsPanel(QWidget):
                 getattr(self, '_security_prod_host_hints', DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
             ),
             'oracle_client_mode': self.oracle_mode.currentData() or 'auto',
-            'oracle_client_lib_dir': self.oracle_lib.text().strip(),
+            'oracle_home': self.oracle_home.text().strip(),
+            'oracle_oci_lib': self.oracle_oci.text().strip(),
+            'oracle_client_lib_dir': self.oracle_home.text().strip(),
         })
 
     def _preview_opacity(self, value):
@@ -654,27 +653,47 @@ class SettingsPanel(QWidget):
         mode = str(settings.get('oracle_client_mode') or 'auto')
         index = self.oracle_mode.findData(mode)
         self.oracle_mode.setCurrentIndex(index if index >= 0 else 0)
-        self.oracle_lib.setText(str(settings.get('oracle_client_lib_dir') or ''))
+        home = str(settings.get('oracle_home') or settings.get('oracle_client_lib_dir') or '')
+        self.oracle_home.setText(home)
+        self.oracle_oci.setText(str(settings.get('oracle_oci_lib') or ''))
         self._refresh_oracle_status()
 
-    def _browse_oracle_client(self):
+    def _browse_oracle_home(self):
         zh = self.language == 'zh'
-        path = QFileDialog.getExistingDirectory(self, '选择 Instant Client 目录' if zh else 'Instant Client folder')
+        path = QFileDialog.getExistingDirectory(
+            self, '选择 Oracle 主目录' if zh else 'Oracle home folder',
+            self.oracle_home.text().strip(),
+        )
         if path:
-            self.oracle_lib.setText(path)
+            self.oracle_home.setText(path)
+            self._refresh_oracle_status()
+
+    def _browse_oracle_oci(self):
+        zh = self.language == 'zh'
+        start = self.oracle_oci.text().strip() or self.oracle_home.text().strip()
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            '选择 oci.dll' if zh else 'Choose oci.dll',
+            start,
+            'OCI 库 (oci.dll);;DLL (*.dll);;所有文件 (*.*)' if zh else 'OCI library (oci.dll);;DLL (*.dll);;All (*.*)',
+        )
+        if path:
+            self.oracle_oci.setText(path)
             self._refresh_oracle_status()
 
     def _refresh_oracle_status(self):
         from tools.oracle_runtime import diagnose_instant_client
         zh = self.language == 'zh'
-        diag = diagnose_instant_client(self.oracle_lib.text())
-        if not self.oracle_lib.text().strip():
+        home = self.oracle_home.text().strip()
+        oci = self.oracle_oci.text().strip()
+        if not home and not oci:
             self.oracle_status.setText(
-                '未指定目录。Thin 模式可不填；Thick 必须指向含 oci.dll 的文件夹。'
+                'Thin 可不填。Thick 请指定 Oracle 主目录，并选择 oci.dll 文件。'
                 if zh else
-                'No folder set. Thin can skip this; Thick needs the Instant Client directory.'
+                'Thin can skip this. Thick needs Oracle home and oci.dll.'
             )
             return
+        diag = diagnose_instant_client(home, home=home, oci_lib=oci)
         self.oracle_status.setText(str(diag.get('hint') or ''))
 
     def _diagnose_oracle_client(self):
@@ -1180,14 +1199,20 @@ class SettingsPanel(QWidget):
         self.oracle_group.setTitle('Oracle 兼容' if zh else 'Oracle compatibility')
         self.oracle_mode_label.setText('客户端模式' if zh else 'Client mode')
         self.oracle_mode.setItemText(0, '自动（优先 Thin）' if zh else 'Auto (Thin first)')
-        self.oracle_lib_label.setText('Instant Client 目录' if zh else 'Instant Client folder')
-        self.oracle_browse.setText('浏览' if zh else 'Browse')
-        self.oracle_diag_btn.setText('诊断目录' if zh else 'Diagnose')
+        self.oracle_home_label.setText('Oracle 主目录' if zh else 'Oracle home')
+        self.oracle_home_browse.setText('浏览' if zh else 'Browse')
+        self.oracle_oci_label.setText('OCI 库（oci.dll）' if zh else 'OCI library (oci.dll)')
+        self.oracle_oci_browse.setText('选择文件' if zh else 'Choose file')
+        self.oracle_diag_btn.setText('诊断' if zh else 'Diagnose')
         self.oracle_note.setText(
-            '所有 Oracle 连接共用此配置。Thick 需要本机 Instant Client（含 oci.dll），不改系统 PATH、不下载。改模式或目录后请重启应用。'
+            '所有 Oracle 连接共用。Thick 需填写 Oracle 主目录，并选择 oci.dll 文件。不改系统 PATH、不下载。改完请重启应用。'
             if zh else
-            'Shared by all Oracle connections. Thick needs local Instant Client (oci.dll). Restart after changing mode or folder.'
+            'Shared by all Oracle connections. Thick needs Oracle home and oci.dll. Restart after changes.'
         )
+        if self.ai_token_reveal.isChecked():
+            self.ai_token_reveal.setText('隐藏' if zh else 'Hide')
+        else:
+            self.ai_token_reveal.setText('查看' if zh else 'Show')
         self._refresh_oracle_status()
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self.save_btn.setText('应用并保存' if zh else 'Apply and save')

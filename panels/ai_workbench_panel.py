@@ -30,7 +30,7 @@ from tools.schema_snapshot import (
 from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_table
-from ui.field_metrics import size_enum_combo, size_line, size_pick_combo
+from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_secret_field
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
 from ui.sql_editor import SqlEditor
 
@@ -138,12 +138,13 @@ class _ConnectionDialog(QDialog):
         self.username = QLineEdit(str(self._item.get('username') or ''))
         size_line(self.username, 'path')
         self.password = QLineEdit()
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        size_line(self.password, 'path')
+        self.password_row, self.password_reveal = wrap_secret_field(
+            self.password, reveal_text='查看' if zh else 'Show', hide_text='隐藏' if zh else 'Hide'
+        )
         self.oracle_hint = QLabel(
-            'Oracle 客户端（Thin/Thick、Instant Client 目录）在「设置 → Oracle 兼容」中统一配置，所有 Oracle 连接共用。'
+            'Oracle 客户端在「设置 → Oracle 兼容」中统一配置主目录和 oci.dll，所有 Oracle 连接共用。'
             if zh else
-            'Oracle Thin/Thick and Instant Client are configured once in Settings → Oracle.'
+            'Oracle home and oci.dll are configured once in Settings → Oracle.'
         )
         self.oracle_hint.setObjectName('field-hint')
         self.oracle_hint.setWordWrap(True)
@@ -154,7 +155,7 @@ class _ConnectionDialog(QDialog):
         self.database_label = QLabel('库名' if zh else 'Database')
         form.addRow(self.database_label, self.database)
         form.addRow('用户' if zh else 'User', self.username)
-        form.addRow('密码' if zh else 'Password', self.password)
+        form.addRow('密码' if zh else 'Password', self.password_row)
         form.addRow(self.oracle_hint)
         root.addLayout(form)
         buttons = QHBoxLayout()

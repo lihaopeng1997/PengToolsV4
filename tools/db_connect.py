@@ -24,7 +24,7 @@ try:
 except Exception:
     pass
 from tools.oracle_runtime import (
-    OracleRuntimeError, ensure_oracle_client, load_oracle_client_config, thick_required_message,
+    OracleRuntimeError, ensure_oracle_client, load_oracle_paths, thick_required_message,
 )
 from tools.sql_guard import (
     classify_statement, is_read_query, leading_verb, redact_error, reject_reason,
@@ -147,9 +147,14 @@ def open_connection(item: dict):
             import oracledb
         except ImportError as exc:
             raise DbError('未安装 oracledb，请安装依赖后重试') from exc
-        mode, lib_dir = load_oracle_client_config()
+        oracle = load_oracle_paths()
         try:
-            ensure_oracle_client(mode, lib_dir)
+            ensure_oracle_client(
+                oracle['mode'],
+                lib_dir=oracle['lib_dir'],
+                home=oracle['home'],
+                oci_lib=oracle['oci_lib'],
+            )
         except OracleRuntimeError as exc:
             raise DbError(str(exc)) from exc
         dsn = database if '/' in database or ':' in database else f'{host}:{port}/{database}'
@@ -162,7 +167,7 @@ def open_connection(item: dict):
             if 'DPY-3016' in text or 'pbkdf2' in text:
                 raise DbError(
                     'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
-                    '或本机已装 Instant Client 时，到设置的 Oracle 兼容中选择 Thick 并指定目录后重启。'
+                    '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
                     f' 原始错误：{text}'
                 ) from exc
             raise DbError(f'Oracle 连接失败：{text}') from exc

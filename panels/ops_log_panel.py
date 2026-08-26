@@ -307,11 +307,11 @@ class ServerEditorDialog(QDialog):
             'Paste supported; saved encrypted to local data/'
         )
         self.password_edit.textChanged.connect(self._on_password_changed)
-        pwd_row.addWidget(self.password_edit, 1)
-        self.show_password_check = QCheckBox('显示' if zh else 'Show')
-        self.show_password_check.setToolTip('临时显示明文，便于确认粘贴是否正确' if zh else 'Reveal password text')
-        self.show_password_check.toggled.connect(self._toggle_password_visible)
-        pwd_row.addWidget(self.show_password_check)
+        from ui.field_metrics import wrap_secret_field
+        pwd_wrap_inner, self.show_password_btn = wrap_secret_field(
+            self.password_edit, reveal_text='查看' if zh else 'Show', hide_text='隐藏' if zh else 'Hide'
+        )
+        pwd_row.addWidget(pwd_wrap_inner, 1)
         pwd_wrap = QWidget()
         pwd_wrap.setLayout(pwd_row)
         self.save_password_check = QCheckBox('保存密码到本机' if zh else 'Save password locally')
@@ -505,11 +505,6 @@ class ServerEditorDialog(QDialog):
 
     def _on_password_changed(self, *_args):
         self._password_dirty = True
-
-    def _toggle_password_visible(self, checked: bool):
-        self.password_edit.setEchoMode(
-            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
-        )
 
     def _password_for_use(self) -> str:
         from tools.ops_ssh import _clean_password

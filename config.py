@@ -105,6 +105,8 @@ DEFAULT_SETTINGS = {
     # Oracle 客户端：auto/thin/thick；Thick 需本机 Instant Client，改完需重启
     'oracle_client_mode': 'auto',
     'oracle_client_lib_dir': '',
+    'oracle_home': '',
+    'oracle_oci_lib': '',
     # 模型对话：明文风险提示关闭状态、上次会话/模型
     'model_chat_banner_dismissed': False,
     'model_chat_last_session_id': '',
@@ -222,6 +224,10 @@ def normalize_settings(settings):
         else 'auto'
     )
     result['oracle_client_lib_dir'] = str(result.get('oracle_client_lib_dir') or '')
+    result['oracle_home'] = str(result.get('oracle_home') or result['oracle_client_lib_dir'] or '')
+    result['oracle_oci_lib'] = str(result.get('oracle_oci_lib') or '')
+    if result['oracle_home'] and not result['oracle_client_lib_dir']:
+        result['oracle_client_lib_dir'] = result['oracle_home']
     result['model_chat_banner_dismissed'] = bool(result.get('model_chat_banner_dismissed', False))
     result['model_chat_last_session_id'] = str(result.get('model_chat_last_session_id') or '')
     result['model_chat_last_model_id'] = str(result.get('model_chat_last_model_id') or '')

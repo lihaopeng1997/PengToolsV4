@@ -181,6 +181,47 @@ def size_system_chip(label, max_width: int = SYSTEM_CHIP_MAX) -> None:
     label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
 
+def wrap_secret_field(edit: QLineEdit, *, reveal_text='查看', hide_text='隐藏') -> tuple[QWidget, QPushButton]:
+    """密码默认黑点隐藏，旁边按钮切换明文。"""
+    from PyQt6.QtWidgets import QLineEdit as _QLineEdit
+    size_line(edit, 'path')
+    edit.setEchoMode(_QLineEdit.EchoMode.Password)
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    button = QPushButton(reveal_text)
+    size_compact_button(button)
+    button.setCheckable(True)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _toggle(checked: bool):
+        edit.setEchoMode(_QLineEdit.EchoMode.Normal if checked else _QLineEdit.EchoMode.Password)
+        button.setText(hide_text if checked else reveal_text)
+
+    button.toggled.connect(_toggle)
+    layout.addWidget(edit, 1)
+    layout.addWidget(button)
+    row._reveal_texts = (reveal_text, hide_text)
+    return row, button
+
+
+def wrap_path_field(edit: QLineEdit, *buttons: QWidget) -> QWidget:
+    """路径完整展示（可伸展），右侧放浏览等按钮。"""
+    size_line(edit, 'path')
+    edit.setToolTip(edit.text())
+    edit.textChanged.connect(edit.setToolTip)
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    layout.addWidget(edit, 1)
+    for button in buttons:
+        if button is not None:
+            layout.addWidget(button)
+    return row
+
+
 def size_compact_button(button) -> None:
     """设置行内操作的紧凑规格，避免工具条挤压列表展示空间。"""
     button.setProperty('compactAction', True)
