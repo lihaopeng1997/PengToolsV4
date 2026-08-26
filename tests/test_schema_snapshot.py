@@ -91,12 +91,42 @@ class OracleRuntimeTests(unittest.TestCase):
             r'C:\oracle\instantclient_19_23',
         )
 
+    def test_non_ascii_path_and_incomplete_bundle_are_flagged(self):
+        from tools.oracle_runtime import has_non_ascii, thick_client_error
+        self.assertTrue(has_non_ascii(r'F:\AI\AI辅助编程\dist\22\instantclient_19_24'))
+        self.assertFalse(has_non_ascii(r'C:\oracle\instantclient_19_24'))
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, 'oci.dll'), 'wb').close()
+            message = thick_client_error('DPI-1072: unsupported', lib_dir=tmp, oci_lib=os.path.join(tmp, 'oci.dll'))
+            self.assertIn('oraociei19.dll', message)
+
+    def test_ensure_ascii_lib_dir_keeps_english_path(self):
+        from tools.oracle_runtime import ensure_ascii_lib_dir, has_non_ascii
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = ensure_ascii_lib_dir(tmp)
+            self.assertTrue(os.path.isdir(resolved))
+            self.assertFalse(has_non_ascii(resolved))
+
+    def test_ensure_ascii_lib_dir_junctions_chinese_path(self):
+        from tools import oracle_runtime as runtime
+        if os.name != 'nt':
+            self.skipTest('Windows only')
+        with tempfile.TemporaryDirectory() as tmp:
+            chinese = os.path.join(tmp, 'AI辅助编程', 'instantclient_19_24')
+            os.makedirs(chinese)
+            link_root = os.path.join(tmp, 'data')
+            with patch.object(runtime, 'ascii_client_link_path', return_value=os.path.join(link_root, 'oracle_thick_lib')):
+                resolved = runtime.ensure_ascii_lib_dir(chinese)
+            self.assertTrue(os.path.isdir(resolved))
+            self.assertFalse(runtime.has_non_ascii(resolved))
+            self.assertTrue(os.path.samefile(resolved, chinese))
+
     def test_detects_old_instant_client_and_32bit_dll(self):
         import struct
         import tempfile
         from tools.oracle_runtime import (
             detect_client_major, detect_pe_machine, prepare_thick_environment,
-            thick_client_error,
+            thick_client_error, windows_short_path,
         )
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, 'oraociei11.dll'), 'wb').close()
@@ -118,7 +148,9 @@ class OracleRuntimeTests(unittest.TestCase):
             with patch.dict(os.environ, {'ORACLE_HOME': foreign_home, 'PATH': 'C:\\old'}, clear=False):
                 prepare_thick_environment(tmp, foreign_home)
                 self.assertNotEqual(os.environ.get('ORACLE_HOME', ''), os.path.abspath(foreign_home))
-                self.assertTrue(os.environ.get('PATH', '').startswith(os.path.abspath(tmp)))
+                first = os.environ.get('PATH', '').split(os.pathsep)[0]
+                expected = {os.path.normcase(os.path.abspath(tmp)), os.path.normcase(windows_short_path(tmp))}
+                self.assertIn(os.path.normcase(first), expected)
 
     def test_mode_switch_requires_restart(self):
         import tools.oracle_runtime as runtime

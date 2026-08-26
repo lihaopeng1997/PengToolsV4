@@ -1205,7 +1205,9 @@ class SettingsPanel(QWidget):
         self.oracle_oci_browse.setText('选择文件' if zh else 'Choose file')
         self.oracle_diag_btn.setText('诊断' if zh else 'Diagnose')
         self.oracle_note.setText(
-            '所有 Oracle 连接共用。Thick 必须用 64 位 Instant Client 19 的 oci.dll，不能直接套 PL/SQL Developer 的 11g/32 位客户端。主目录可填 TNS 所在 Oracle Home。改完请重启。'
+            '所有 Oracle 连接共用。Thick 必须指向完整的 64 位 Instant Client 19（含 oci.dll 和 oraociei19.dll）。'
+            '路径含中文（如「AI辅助编程」）时 OCI 会加载失败并误报 DPI-1072，请整夹拷到 C:\\oracle\\instantclient_19_24。'
+            '不要用 PL/SQL 的 11g/32 位库。改完请重启。'
             if zh else
             'Shared by all Oracle connections. Thick needs 64-bit Instant Client 19 oci.dll, not the 11g/32-bit client used by PL/SQL Developer. Restart after changes.'
         )
