@@ -343,6 +343,20 @@ def merged_sql_for_system(requirement, system_name):
     return '\n\n'.join(blocks)
 
 
+def clear_workspace_binding(item):
+    """用户主动解绑资料目录：路径与目录衍生字段一并清空，避免保存后看起来仍已绑定。"""
+    if not isinstance(item, dict):
+        return item
+    item['local_path'] = ''
+    item['workspace_kind'] = ''
+    item['file_count'] = 0
+    item['svn_revision'] = ''
+    item['svn_status'] = ''
+    item['svn_locks'] = {}
+    item['source_modified_at'] = ''
+    return item
+
+
 def normalize_requirement(requirement):
     item = dict(requirement or {})
     # 保留 id，避免保存后无法回写同一条
@@ -378,6 +392,8 @@ def normalize_requirement(requirement):
     item['svn_url'] = str(item.get('svn_url') or '').strip()
     item['local_path'] = str(item.get('local_path') or '').strip()
     item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
+    if not item['local_path']:
+        clear_workspace_binding(item)
     sync_system_fields(item)
     normalize_flag_done(item)
     item['test_points'] = normalize_test_points(item.get('test_points'))

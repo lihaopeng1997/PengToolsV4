@@ -50,7 +50,7 @@ class ReleaseUiTests(unittest.TestCase):
         dialog = RequirementDialog()
         dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
-        dialog.svn_url_edit.setText('svn://10/x/DEV_REQ_TEST')
+        dialog._binding_rows[system_name]['svn'].setText('svn://10/x/DEV_REQ_TEST')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], 'svn://10/x/DEV_REQ_TEST')
@@ -112,6 +112,14 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(values['system_bindings'][first]['svn_url'], 'svn://car/DEV')
             self.assertEqual(values['system_bindings'][second]['dev_local_path'], temp)
             self.assertEqual(values['svn_url'], 'svn://car/DEV')
+            dialog.dev_local_path_edit.setText(r'D:\should-not-restore')
+            dialog._binding_rows[second]['dev'].clear()
+            dialog._binding_rows[first]['svn'].clear()
+            emptied = dialog.values()
+            self.assertEqual(emptied['system_bindings'][second]['dev_local_path'], '')
+            self.assertEqual(emptied['system_bindings'][first]['svn_url'], '')
+            self.assertEqual(emptied['svn_url'], '')
+            self.assertEqual(emptied['dev_local_path'], '')
             dialog.close()
 
             from tools.requirements import explode_requirement_for_release, has_unassigned_sql_when_multi_system
@@ -401,7 +409,28 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(values['workspace_kind'], 'svn')
             self.assertEqual(values['online_month'], '2026-07')
             self.assertEqual(values['planned_online_date'], '2026-07-23')
+            dialog.local_path_edit.clear()
+            cleared = dialog.values()
+            self.assertEqual(cleared['local_path'], '')
+            self.assertEqual(cleared['workspace_kind'], '')
+            self.assertEqual(cleared['file_count'], 0)
             dialog.close()
+
+            from tools.requirements import apply_auto_inference, clear_workspace_binding, normalize_requirement
+            existing = normalize_requirement({
+                'id': 'bind-1',
+                'title': '已绑定',
+                'local_path': temp,
+                'file_count': 12,
+                'svn_revision': '88',
+                'workspace_kind': 'svn',
+            })
+            existing.update(cleared)
+            saved = apply_auto_inference(normalize_requirement(existing), only_empty=True)
+            self.assertEqual(saved['local_path'], '')
+            self.assertEqual(saved['file_count'], 0)
+            self.assertEqual(saved['svn_revision'], '')
+            self.assertEqual(clear_workspace_binding({'local_path': temp, 'file_count': 3})['local_path'], '')
 
     def test_requirement_file_tree_shows_all_files_and_lock_icon_without_svn_status_column(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -155,7 +155,7 @@ from tools.personal_knowledge import (
 )
 from tools.requirements import (
     CATEGORIES, FLAG_DEFS, FLAG_CHIP_LABELS, PRIORITIES, STATUSES, active_flags, apply_auto_inference,
-    binding_for, classify_requirement, flag_chip_text, flag_is_active, flag_status_text,
+    binding_for, classify_requirement, clear_workspace_binding, flag_chip_text, flag_is_active, flag_status_text,
     load_requirements, merge_working_copies, merged_sql, normalize_flag_done,
     normalize_requirement, normalize_test_points, requirement_from_text, requirement_from_working_copy,
     requirement_matches_system, requirement_search_text, requirement_systems,
@@ -761,11 +761,16 @@ class RequirementDialog(QDialog):
         self._standalone_dev_row = QHBoxLayout()
         self._standalone_dev_row.addWidget(self.dev_local_path_edit, 1)
         self._standalone_dev_row.addWidget(self._standalone_dev_btn)
+        self._standalone_dev_clear = QPushButton('清除')
+        size_compact_button(self._standalone_dev_clear)
+        self._standalone_dev_clear.clicked.connect(self.dev_local_path_edit.clear)
+        self._standalone_dev_row.addWidget(self._standalone_dev_clear)
         self.local_path_edit = QLineEdit(base.get('local_path', ''))
         size_line(self.local_path_edit, 'path')
         self.local_path_edit.setPlaceholderText('可绑定本机已有的 SVN 工作副本或需求资料目录')
         bind_folder_btn = QPushButton('绑定目录'); size_compact_button(bind_folder_btn); bind_folder_btn.clicked.connect(self._bind_local_folder)
-        local_path_row = QHBoxLayout(); local_path_row.addWidget(self.local_path_edit, 1); local_path_row.addWidget(bind_folder_btn)
+        clear_folder_btn = QPushButton('清除'); size_compact_button(clear_folder_btn); clear_folder_btn.clicked.connect(self._clear_local_folder)
+        local_path_row = QHBoxLayout(); local_path_row.addWidget(self.local_path_edit, 1); local_path_row.addWidget(bind_folder_btn); local_path_row.addWidget(clear_folder_btn)
         self.system_bindings_host = QWidget()
         self.system_bindings_layout = QVBoxLayout(self.system_bindings_host)
         self.system_bindings_layout.setContentsMargins(0, 0, 0, 0)
@@ -974,6 +979,8 @@ class RequirementDialog(QDialog):
         self.dev_label.setVisible(not has_systems)
         self.dev_local_path_edit.setVisible(not has_systems)
         self._standalone_dev_btn.setVisible(not has_systems)
+        if hasattr(self, '_standalone_dev_clear'):
+            self._standalone_dev_clear.setVisible(not has_systems)
         for name in names:
             cached = self._binding_cache.get(name) or {'svn_url': '', 'dev_local_path': ''}
             row = QWidget()
@@ -994,8 +1001,12 @@ class RequirementDialog(QDialog):
             pick_btn = QPushButton('选择目录')
             size_compact_button(pick_btn)
             pick_btn.clicked.connect(lambda _=False, editor=dev_edit: self._pick_path_into(editor))
+            clear_btn = QPushButton('清除')
+            size_compact_button(clear_btn)
+            clear_btn.clicked.connect(dev_edit.clear)
             dev_row.addWidget(dev_edit, 1)
             dev_row.addWidget(pick_btn)
+            dev_row.addWidget(clear_btn)
             box.addLayout(dev_row)
             self.system_bindings_layout.addWidget(row)
             self._binding_rows[name] = {'svn': svn_edit, 'dev': dev_edit}
@@ -1055,6 +1066,9 @@ class RequirementDialog(QDialog):
         self._sql_parts[row]['system'] = self.sql_system_combo.currentData() or ''
         self._refresh_lists('sql')
         self.sql_list.setCurrentRow(row)
+
+    def _clear_local_folder(self):
+        self.local_path_edit.clear()
 
     def _bind_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', self.local_path_edit.text())
@@ -1329,8 +1343,9 @@ class RequirementDialog(QDialog):
         bindings = self._current_binding_map()
         if names:
             primary = bindings.get(names[0]) or {}
-            svn_url = primary.get('svn_url') or self.svn_url_edit.text().strip()
-            dev_local_path = primary.get('dev_local_path') or self.dev_local_path_edit.text().strip()
+            # 已选系统时以各系统绑定为准，空字符串表示用户主动清空，不得用隐藏的独立栏回填
+            svn_url = str(primary.get('svn_url') or '').strip()
+            dev_local_path = str(primary.get('dev_local_path') or '').strip()
         else:
             svn_url = self.svn_url_edit.text().strip()
             dev_local_path = self.dev_local_path_edit.text().strip()
@@ -1350,7 +1365,7 @@ class RequirementDialog(QDialog):
             'local_path': local_path,
             'workspace_kind': (
                 'folder' if local_path and not os.path.isdir(os.path.join(local_path, '.svn'))
-                else 'svn'
+                else ('svn' if local_path else '')
             ),
             'planned_online_date': planned_date,
             'actual_online_date': actual_date,
@@ -1363,6 +1378,8 @@ class RequirementDialog(QDialog):
             'sql_parts': list(self._sql_parts),
             'source_files': list(self._source_files),
         }
+        if not local_path:
+            clear_workspace_binding(payload)
         return sync_system_fields(payload)
 
 
@@ -3160,6 +3177,7 @@ class RequirementPanel(QWidget):
         self._file_entries_cache = []
         path = self._current_path()
         if not path:
+            self._file_tree_path = ''
             if hasattr(self, 'file_count_label'):
                 self.file_count_label.setText('')
             return
@@ -3881,6 +3899,8 @@ class RequirementPanel(QWidget):
         old_done = dict(target.get('flag_done') or {})
         # 原地更新，保持列表引用稳定
         target.update(values)
+        if not str(values.get('local_path') or '').strip():
+            clear_workspace_binding(target)
         target['id'] = req_id
         target['has_sql'] = bool(values.get('has_sql') or values.get('sql_parts'))
         target['needs_peripheral_upgrade'] = bool(values.get('needs_peripheral_upgrade'))
