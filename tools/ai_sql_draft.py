@@ -10,6 +10,7 @@ from tools.ai_harness import strip_markdown_fence
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.schema_snapshot import clip_snapshot_for_prompt
 from tools.sql_guard import ai_draft_safety, classify_statement
+from tools.tameng_agent import evidence_prompt_text
 
 _SQL_KEYWORDS = frozenset({
     'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as',
@@ -32,9 +33,10 @@ ACTIONS = {
 _SYSTEM = (
     '你是内网数据库 SQL 助手。只返回一个 JSON 对象，不要 Markdown 围栏，不要隐藏思维链，'
     '不要输出 host、端口、用户名、密码、Token 或任何行数据。'
-    '字段：summary, intent, objects_used, selected_fields, condition_interpretation, '
+    '字段：summary, intent, objects_used, selected_fields, evidence, condition_interpretation, '
     'join_assumptions, risk_level, warnings, sql。'
     'risk_level 只能是 read、write、ddl、unknown。sql 必须是单条草案，禁止用分号拼多条。'
+    '只能使用用户消息中已确认的真实表和字段，禁止猜测不存在的字段名。'
     '多表且关联不明确时，join_assumptions 必须给出假设列表，risk_level 不得视为 read，'
     'warnings 必须包含「需人工补充 Join 条件」。不要隐藏思维链。'
 )
@@ -70,6 +72,7 @@ def empty_draft(**overrides) -> dict:
         'risk_level': 'unknown',
         'warnings': [],
         'sql': '',
+        'evidence': [],
         'fail_closed': False,
     }
     data.update(overrides)
@@ -88,6 +91,7 @@ def build_safe_context(
     current_sql: str = '',
     error_text: str = '',
     stale: bool = False,
+    evidence=None,
 ) -> str:
     tables = [str(item).strip() for item in (selected_tables or []) if str(item).strip()]
     fields = [str(item).strip() for item in (selected_fields or []) if str(item).strip()]
@@ -96,16 +100,23 @@ def build_safe_context(
         f'连接别名：{alias or "未命名"}',
         f'动作：{ACTIONS.get(action, action)}',
     ]
-    if stale:
-        parts.append('结构快照已过期或缺失，生成结果仅供参考，请先重新扫描。')
-    if tables:
-        parts.append('用户选中对象：' + ', '.join(tables))
-    if fields:
-        parts.append('用户选中字段：' + ', '.join(fields))
-        parts.append('SQL 只允许引用选中字段、选中对象和 COUNT(*)。')
-    clipped = clip_snapshot_for_prompt(snapshot, selected_tables=tables, selected_fields=fields)
-    if clipped:
-        parts.append('结构快照（已裁剪，仅元数据）：\n' + clipped)
+    if stale and action == 'generate':
+        parts.append('结构快照无效，禁止生成 SQL。')
+        return '\n'.join(parts)
+    if isinstance(evidence, dict) and evidence.get('tables'):
+        parts.append('已确认结构证据（仅元数据，禁止猜测未列出的字段）：\n' + evidence_prompt_text(evidence))
+        confirmed = [str(item) for item in (evidence.get('confirmed_fields') or []) if str(item)]
+        if confirmed:
+            parts.append('SQL 只允许引用已确认字段：' + ', '.join(confirmed))
+    else:
+        if tables:
+            parts.append('用户选中对象：' + ', '.join(tables))
+        if fields:
+            parts.append('用户选中字段：' + ', '.join(fields))
+            parts.append('SQL 只允许引用选中字段、选中对象和 COUNT(*)。')
+        clipped = clip_snapshot_for_prompt(snapshot, selected_tables=tables, selected_fields=fields)
+        if clipped:
+            parts.append('结构快照（已裁剪，仅元数据）：\n' + clipped)
     if current_sql and action in ('explain', 'optimize', 'fix', 'generate'):
         parts.append('当前编辑器 SQL：\n' + str(current_sql)[:4000])
     if error_text and action == 'fix':
@@ -189,6 +200,7 @@ def format_explanation(draft: dict) -> str:
         f"意图：{data.get('intent') or '（无）'}",
         '对象：' + (', '.join(data.get('objects_used') or []) or '（未标明）'),
         '字段：' + (', '.join(data.get('selected_fields') or []) or '（未限定）'),
+        '证据：' + (', '.join(str(item) for item in (data.get('evidence') or []) if str(item)) or '（无）'),
         f"条件：{data.get('condition_interpretation') or '（无）'}",
         'Join 假设：' + ('；'.join(data.get('join_assumptions') or []) or '（无）'),
         f"风险：{data.get('risk_level') or 'unknown'}",
@@ -212,22 +224,32 @@ def generate_sql_draft(
     current_sql: str = '',
     error_text: str = '',
     stale: bool = False,
+    evidence=None,
     cfg=None,
 ) -> dict:
     settings = cfg if isinstance(cfg, dict) else load_ai_local()
     if not is_enabled(settings):
         raise IntranetLlmError('未启用内网模型，请先在设置中配置并探测')
+    wanted = action or 'generate'
+    if wanted == 'generate':
+        if stale or not isinstance(evidence, dict) or not evidence.get('tables'):
+            return empty_draft(
+                summary='无有效字段证据，已拒绝调用模型',
+                warnings=['无有效快照或字段证据，TamengAgent 不会猜测表或字段。'],
+                fail_closed=True,
+            )
     context = build_safe_context(
         dialect=dialect,
         alias=alias,
         question=question,
-        action=action or 'generate',
-        snapshot=snapshot,
+        action=wanted,
+        snapshot=snapshot if wanted != 'generate' else None,
         selected_tables=selected_tables,
         selected_fields=selected_fields,
         current_sql=current_sql,
         error_text=error_text,
-        stale=stale,
+        stale=False if wanted == 'generate' else stale,
+        evidence=evidence if wanted == 'generate' else None,
     )
     content = chat_completions(
         [

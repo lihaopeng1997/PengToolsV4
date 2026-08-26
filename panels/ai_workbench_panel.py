@@ -4,25 +4,30 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
-    QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
+    QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from config import SQL_DRAFTS_DIR
 from panels.ai_token_edit import AiPromptEdit, ObjectPickDialog
-from tools.ai_object_context import add_field, add_object, context_matches_snapshot, selected_field_names, selected_table_names
+from tools.ai_object_context import (
+    add_field, add_object, context_matches_snapshot, field_qualified,
+    selected_field_names, selected_table_names,
+)
 from tools.db_connect import (
     DIALECTS, DEFAULT_PORTS, PAGE_SIZE, MAX_ROWS, DbError, delete_connection,
     load_connections, open_connection, close_connection, run_console_statement,
     upsert_connection,
 )
 from tools.intranet_llm import is_enabled, load_ai_local
+from tools.tameng_agent import format_evidence_bar, prepare_request, validate_generated_sql
 from tools.schema_snapshot import (
     clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, format_object_label,
     load_snapshot, save_snapshot, scan_schema, search_fields, snapshot_status,
@@ -101,12 +106,18 @@ class _AiWorker(QThread):
     def __init__(self, kwargs: dict):
         super().__init__()
         self.kwargs = kwargs
+        self.cancelled = False
 
     def run(self):
         try:
             from tools.ai_sql_draft import generate_sql_draft
-            self.completed.emit(generate_sql_draft(**self.kwargs))
+            draft = generate_sql_draft(**self.kwargs)
+            if self.cancelled:
+                return
+            self.completed.emit(draft)
         except Exception as exc:
+            if self.cancelled:
+                return
             self.failed.emit(redact_error(str(exc)))
 
 
@@ -237,6 +248,13 @@ class AiWorkbenchPanel(QWidget):
         self._last_sql = ''
         self._history = []
         self._tab_seq = 1
+        self._agent_busy = False
+        self._agent_started = 0.0
+        self._pending_evidence = None
+        self._last_block = ''
+        self._agent_timer = QTimer(self)
+        self._agent_timer.setInterval(200)
+        self._agent_timer.timeout.connect(self._tick_agent_stage)
         self._setup_ui()
         self.set_language(language)
         self._reload_connections()
@@ -333,7 +351,7 @@ class AiWorkbenchPanel(QWidget):
         mid_l.setSpacing(8)
         editor_row = QHBoxLayout()
         self.run_btn = QPushButton()
-        apply_button(self.run_btn, 'secondary', compact=True)
+        apply_button(self.run_btn, 'primary', compact=True)
         self.run_btn.clicked.connect(lambda: self._run_sql(reset=True))
         self.format_btn = QPushButton()
         apply_button(self.format_btn, 'ghost', compact=True)
@@ -364,6 +382,10 @@ class AiWorkbenchPanel(QWidget):
         self.ai_title = QLabel()
         self.ai_title.setObjectName('section-title')
         right_l.addWidget(self.ai_title)
+        self.agent_status = QLabel()
+        self.agent_status.setObjectName('page-context')
+        self.agent_status.setWordWrap(True)
+        right_l.addWidget(self.agent_status)
         self.model_status = QLabel()
         self.model_status.setObjectName('field-hint')
         self.model_status.setWordWrap(True)
@@ -374,19 +396,47 @@ class AiWorkbenchPanel(QWidget):
         right_l.addWidget(self.ai_hint)
         self.nl_input = AiPromptEdit()
         self.nl_input.setMinimumHeight(88)
-        self.nl_input.setMaximumHeight(140)
         self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
         self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
         self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
-        right_l.addWidget(self.nl_input)
+        right_l.addWidget(self.nl_input, 1)
         self.ai_chips = QLabel()
         self.ai_chips.setObjectName('field-hint')
         self.ai_chips.setWordWrap(True)
         right_l.addWidget(self.ai_chips)
+        self.agent_evidence = QLabel()
+        self.agent_evidence.setObjectName('field-hint')
+        self.agent_evidence.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.agent_evidence.setWordWrap(True)
+        right_l.addWidget(self.agent_evidence)
+        self.agent_candidates = QListWidget()
+        self.agent_candidates.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.agent_candidates.hide()
+        right_l.addWidget(self.agent_candidates)
+        self.agent_confirm_btn = QPushButton()
+        apply_button(self.agent_confirm_btn, 'secondary', compact=True)
+        self.agent_confirm_btn.clicked.connect(self._confirm_agent_fields)
+        self.agent_confirm_btn.hide()
+        right_l.addWidget(self.agent_confirm_btn)
+        self.agent_stage = QLabel()
+        self.agent_stage.setObjectName('field-hint')
+        self.agent_stage.setWordWrap(True)
+        self.agent_stage.hide()
+        right_l.addWidget(self.agent_stage)
         ai_btns = QHBoxLayout()
         self.ai_gen_btn = QPushButton()
-        apply_button(self.ai_gen_btn, 'secondary', compact=True)
+        apply_button(self.ai_gen_btn, 'primary', compact=True)
         self.ai_gen_btn.clicked.connect(lambda: self._run_ai('generate'))
+        self.ai_pick_btn = QPushButton()
+        apply_button(self.ai_pick_btn, 'secondary', compact=True)
+        self.ai_pick_btn.clicked.connect(lambda: self._pick_ai_object('field', self.nl_input.textCursor().position()))
+        self.ai_snap_btn = QPushButton()
+        apply_button(self.ai_snap_btn, 'ghost', compact=True)
+        self.ai_snap_btn.clicked.connect(self._view_snapshot)
+        self.agent_cancel_btn = QPushButton()
+        apply_button(self.agent_cancel_btn, 'ghost', compact=True)
+        self.agent_cancel_btn.clicked.connect(self._cancel_agent)
+        self.agent_cancel_btn.hide()
         self.ai_explain_btn = QPushButton()
         apply_button(self.ai_explain_btn, 'ghost', compact=True)
         self.ai_explain_btn.clicked.connect(lambda: self._run_ai('explain'))
@@ -396,14 +446,28 @@ class AiWorkbenchPanel(QWidget):
         self.ai_fix_btn = QPushButton()
         apply_button(self.ai_fix_btn, 'ghost', compact=True)
         self.ai_fix_btn.clicked.connect(lambda: self._run_ai('fix'))
-        for btn in (self.ai_gen_btn, self.ai_explain_btn, self.ai_opt_btn, self.ai_fix_btn):
+        self.agent_more = QToolButton()
+        self.agent_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        apply_button(self.agent_more, 'ghost', compact=True)
+        more_menu = QMenu(self.agent_more)
+        more_menu.addAction(self.ai_explain_btn.text() or '解释当前 SQL', lambda: self._run_ai('explain'))
+        more_menu.addAction('优化当前 SQL', lambda: self._run_ai('optimize'))
+        more_menu.addAction('修复报错', lambda: self._run_ai('fix'))
+        more_menu.addAction('复制拦截详情', self._copy_block_detail)
+        self.agent_more.setMenu(more_menu)
+        self._agent_more_menu = more_menu
+        for btn in (self.ai_gen_btn, self.ai_pick_btn, self.ai_snap_btn, self.agent_more, self.agent_cancel_btn):
             ai_btns.addWidget(btn)
+        ai_btns.addStretch(1)
         right_l.addLayout(ai_btns)
+        self.ai_explain_btn.hide()
+        self.ai_opt_btn.hide()
+        self.ai_fix_btn.hide()
         self.ai_explain = QTextEdit()
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
         right_l.addWidget(self.ai_explain, 1)
-        self.side_tabs.addTab(ai_page, 'AI 助手')
+        self.side_tabs.addTab(ai_page, 'TamengAgent')
 
         detail = QWidget()
         det_l = QVBoxLayout(detail)
@@ -495,11 +559,11 @@ class AiWorkbenchPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
         self.page_subtitle.setText(
-            '多标签编辑 · 结构快照 · AI 只生成不执行' if zh else
-            'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            '多标签编辑 · 结构快照 · TamengAgent 只生成不执行' if zh else
+            'Multi-tab SQL · schema snapshot · TamengAgent drafts never auto-run'
         )
-        self.new_tab_btn.setText('新建 SQL Tab' if zh else 'New SQL tab')
-        self.conn_new_btn.setText('新建连接' if zh else 'New')
+        self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
+        self.conn_new_btn.setText('新建数据库连接' if zh else 'New connection')
         self.conn_edit_btn.setText('编辑' if zh else 'Edit')
         self.conn_del_btn.setText('删除' if zh else 'Delete')
         self.test_btn.setText('测试连接' if zh else 'Test')
@@ -510,22 +574,28 @@ class AiWorkbenchPanel(QWidget):
         self.model_btn.setText('模型配置' if zh else 'Model settings')
         self.tree_title.setText('对象目录' if zh else 'Objects')
         self.object_filter.setPlaceholderText('搜索对象名 / 注释' if zh else 'Filter objects')
-        self.run_btn.setText('执行' if zh else 'Run')
+        self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
-        self.ai_title.setText('AI 助手' if zh else 'AI assistant')
+        self.ai_title.setText('TamengAgent')
         self.ai_hint.setText(
-            '右键输入框：添加表 / 添加字段。Token 可删除；AI 只生成草案。'
+            '右键输入框添加表/字段。主按钮只生成草案，不会执行。'
             if zh else
-            'Right-click to add table/field tokens. AI never executes.'
+            'Right-click to add table/field tokens. Generate never executes.'
         )
         self.nl_input.setPlaceholderText(
-            '用自然语言描述要生成的 SQL，右键添加当前库对象'
+            '用自然语言描述要生成的 SQL，例如：查询 prpcmain 中创建日期倒序'
             if zh else
-            'Describe the SQL; right-click to add objects from the current snapshot'
+            'Describe the SQL; TamengAgent only uses the current snapshot'
         )
-        self.side_tabs.setTabText(0, 'AI 助手' if zh else 'AI assistant')
+        self.side_tabs.setTabText(0, 'TamengAgent')
+        self.ai_pick_btn.setText('选择表和字段' if zh else 'Pick tables/fields')
+        self.ai_snap_btn.setText('查看快照' if zh else 'View snapshot')
+        self.agent_more.setText('更多操作' if zh else 'More')
+        self.agent_cancel_btn.setText('取消' if zh else 'Cancel')
+        self.agent_confirm_btn.setText('使用选中字段生成' if zh else 'Generate with selected fields')
+        self._refresh_agent_more_menu()
         self.side_tabs.setTabText(1, '对象详情' if zh else 'Object details')
         self.detail_title.setText('对象详情' if zh else 'Object details')
         self.field_filter.setPlaceholderText('搜索字段' if zh else 'Filter fields')
@@ -533,9 +603,9 @@ class AiWorkbenchPanel(QWidget):
         self.send_ai_btn.setText('发送给 AI' if zh else 'Send to AI')
         self.field_prev_btn.setText('上一页' if zh else 'Prev')
         self.field_next_btn.setText('下一页' if zh else 'Next')
-        self.ai_gen_btn.setText('生成 SQL' if zh else 'Generate')
-        self.ai_explain_btn.setText('解释' if zh else 'Explain')
-        self.ai_opt_btn.setText('优化' if zh else 'Optimize')
+        self.ai_gen_btn.setText('生成 SQL 草案' if zh else 'Generate SQL draft')
+        self.ai_explain_btn.setText('解释当前 SQL' if zh else 'Explain current SQL')
+        self.ai_opt_btn.setText('优化当前 SQL' if zh else 'Optimize current SQL')
         self.ai_fix_btn.setText('修复报错' if zh else 'Fix error')
         self.next_btn.setText('下一页' if zh else 'Next')
         self.all_btn.setText('获取全部' if zh else 'Fetch all')
@@ -574,7 +644,11 @@ class AiWorkbenchPanel(QWidget):
     def _reload_connections(self, select_id: str = ''):
         self.conn_combo.blockSignals(True)
         self.conn_combo.clear()
-        for item in load_connections():
+        rows = load_connections()
+        if not rows:
+            zh = self.language == 'zh'
+            self.conn_combo.addItem('未配置数据库连接' if zh else 'No database connection', None)
+        for item in rows:
             self.conn_combo.addItem(str(item.get('name') or item.get('id')), item)
             if select_id and item.get('id') == select_id:
                 self.conn_combo.setCurrentIndex(self.conn_combo.count() - 1)
@@ -589,6 +663,7 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_header()
         self._refresh_model_status()
         self._refresh_ai_pick_state()
+        self._refresh_agent_status()
 
     def _refresh_header(self):
         zh = self.language == 'zh'
@@ -620,12 +695,13 @@ class AiWorkbenchPanel(QWidget):
         elif stale:
             extra = ' Snapshot missing/stale; scan before generating.'
         self.model_status.setText(
-            ('内网模型已启用。AI 只生成草案，不会执行。' if ready and zh else
-             'Intranet model ready. AI never executes.' if ready else
+            ('TamengAgent 只生成 SQL 草案，不会执行。' if ready and zh else
+             'TamengAgent only drafts SQL and never executes.' if ready else
              '未配置内网模型，可手写 SQL。' if zh else
              'Configure an intranet model in Settings.')
             + extra
         )
+        self._refresh_agent_status()
 
     def _edit_connection(self, new=False):
         current = None if new else self._current_conn()
@@ -648,7 +724,12 @@ class AiWorkbenchPanel(QWidget):
         if not item:
             return
         zh = self.language == 'zh'
-        if not confirm_action(self, self._title(), '删除该连接？' if zh else 'Delete this connection?', confirm_text='删除' if zh else 'Delete', danger=True):
+        detail = (
+            f"删除连接「{item.get('name') or ''}」及其本机结构快照？不会删除数据库中的对象。"
+            if zh else
+            f"Delete connection '{item.get('name') or ''}' and its local snapshot? Database objects are not dropped."
+        )
+        if not confirm_action(self, self._title(), detail, confirm_text='删除连接和快照' if zh else 'Delete connection and snapshot', danger=True):
             return
         delete_snapshot(item.get('id'))
         delete_connection(item.get('id'))
@@ -659,7 +740,12 @@ class AiWorkbenchPanel(QWidget):
         if not item:
             return
         zh = self.language == 'zh'
-        if not confirm_action(self, self._title(), '删除该连接的结构快照？' if zh else 'Delete schema snapshot?', confirm_text='删除' if zh else 'Delete', danger=True):
+        detail = (
+            f"删除「{item.get('name') or ''}」的本机结构快照？重新扫描后才能恢复对象目录和 TamengAgent 上下文。"
+            if zh else
+            f"Delete the local snapshot for '{item.get('name') or ''}'? Scan again to restore objects and TamengAgent context."
+        )
+        if not confirm_action(self, self._title(), detail, confirm_text='删除' if zh else 'Delete', danger=True):
             return
         delete_snapshot(item.get('id'))
         self._snapshot = None
@@ -873,7 +959,7 @@ class AiWorkbenchPanel(QWidget):
 
     def _new_sql_tab(self, text: str = '', title: str = ''):
         zh = self.language == 'zh'
-        name = title or (f'未命名 SQL {self._tab_seq}' if zh else f'Untitled {self._tab_seq}')
+        name = title or (f'未命名查询 {self._tab_seq}' if zh else f'Untitled query {self._tab_seq}')
         self._tab_seq += 1
         tab = _SqlTab(name, self._browse_conn())
         if text:
@@ -1037,8 +1123,11 @@ class AiWorkbenchPanel(QWidget):
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setText(name)
 
-    def _run_ai(self, action: str):
+    def _run_ai(self, action: str, *, confirmed=None):
         zh = self.language == 'zh'
+        if self._agent_busy:
+            show_warning(self, self._title(), '当前草案任务仍在运行' if zh else 'A draft task is still running')
+            return
         if not is_enabled():
             show_warning(self, self._title(), '请先在设置中启用内网模型' if zh else 'Enable the intranet model first')
             return
@@ -1051,48 +1140,225 @@ class AiWorkbenchPanel(QWidget):
         if action == 'generate' and not question:
             show_warning(self, self._title(), '请输入要生成的内容' if zh else 'Enter a prompt')
             return
-        item = self._browse_conn() or {}
-        ok, reason = context_matches_snapshot(self.nl_input.context, self._snapshot, item)
-        stale = not ok
-        if action == 'generate' and (self.nl_input.context.get('selected_objects') or self.nl_input.context.get('selected_fields')) and not ok:
-            show_warning(self, self._title(), reason + '\n请先扫描/更新结构。' if zh else reason)
-            return
-        self._busy(True, '正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
-        self.result_status.setText('正在生成草案…' if zh else 'Generating draft…')
-        self._ai_worker = _AiWorker({
+        item = self._browse_conn()
+        evidence = None
+        if action == 'generate':
+            prepared = prepare_request(
+                question, self._snapshot, item,
+                tokens=self.nl_input.context,
+                confirmed=confirmed,
+            )
+            if prepared.get('state') == 'NEEDS_SELECTION':
+                self._show_agent_candidates(prepared)
+                return
+            if not prepared.get('ok'):
+                self._block_agent(prepared.get('reason') or '', prepared.get('next_action') or '')
+                return
+            evidence = prepared.get('evidence')
+            self._pending_evidence = evidence
+            self.agent_evidence.setText(format_evidence_bar(evidence) or '')
+            self._hide_agent_candidates()
+        self._start_agent_task({
             'question': question or current_sql,
             'action': action,
-            'dialect': str(item.get('dialect') or 'oracle'),
-            'alias': str(item.get('name') or ''),
-            'snapshot': self._snapshot,
+            'dialect': str((item or {}).get('dialect') or 'oracle'),
+            'alias': str((item or {}).get('name') or ''),
+            'snapshot': self._snapshot if action != 'generate' else None,
             'selected_tables': selected_table_names(self.nl_input.context),
             'selected_fields': selected_field_names(self.nl_input.context),
             'current_sql': current_sql,
             'error_text': question if action == 'fix' else '',
-            'stale': bool(stale),
+            'stale': False,
+            'evidence': evidence,
             'cfg': load_ai_local(),
-        })
-        self._ai_worker.completed.connect(self._on_ai_ok)
-        self._ai_worker.failed.connect(self._on_db_fail)
-        self._ai_worker.finished.connect(lambda: self._busy(False))
-        self._ai_worker.start()
+        }, action)
 
     def _on_ai_ok(self, draft: dict):
         from tools.ai_sql_draft import format_explanation
         zh = self.language == 'zh'
+        if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
+            self._finish_agent_task(cancelled=True)
+            return
         sql = str((draft or {}).get('sql') or '')
+        dialect = str((self._browse_conn() or {}).get('dialect') or 'oracle')
+        evidence = self._pending_evidence
+        if evidence is not None:
+            checked = validate_generated_sql(sql, evidence, dialect)
+            if not checked.get('allowed'):
+                self._block_agent(checked.get('reason') or '草案被拦截', '选择字段后重试')
+                self.ai_explain.setPlainText(format_explanation(draft or {}) + '\n' + str(checked.get('reason') or ''))
+                self._finish_agent_task()
+                return
+            bar = format_evidence_bar(evidence)
+            self.agent_evidence.setText(bar)
+            explain = format_explanation(draft or {})
+            extra = [
+                f"快照：{evidence.get('snapshot_id') or ''} · {evidence.get('scanned_at') or ''}",
+                f"字段证据：{bar}" if bar else '',
+                '状态：未执行',
+            ]
+            self.ai_explain.setPlainText(explain + '\n' + '\n'.join(item for item in extra if item))
+            title = 'TamengAgent 草案 · 未执行'
+            tab = self._new_sql_tab(sql, title)
+            tab.base_title = title
+            self._refresh_tab_titles()
+            self.result_status.setText(title)
+            self._log_msg(title)
+            self._finish_agent_task()
+            return
         self.ai_explain.setPlainText(format_explanation(draft or {}))
-        safety = ai_draft_safety(sql, str((self._browse_conn() or {}).get('dialect') or 'oracle'))
-        title = 'AI 草案，未执行' if zh else 'AI draft, not executed'
+        safety = ai_draft_safety(sql, dialect)
+        title = 'TamengAgent 草案 · 未执行'
         if safety.get('fail_closed'):
-            title = '仅草案 / 不可安全执行' if zh else 'Draft only / not safe to run'
             self.ai_explain.append('\n' + str(safety.get('reason') or ''))
-        tab = self._new_sql_tab(sql, title)
-        tab.base_title = title
-        self._refresh_tab_titles()
+            self.result_status.setText(title)
+            self._finish_agent_task()
+            return
+        if sql:
+            tab = self._new_sql_tab(sql, title)
+            tab.base_title = title
+            self._refresh_tab_titles()
         self.result_status.setText(title)
         self._log_msg(title)
-        self.loading.finish(title)
+        self._finish_agent_task()
+
+    def _refresh_agent_status(self):
+        zh = self.language == 'zh'
+        item = self._browse_conn()
+        if not item:
+            self.agent_status.setText('未选择连接' if zh else 'No connection')
+            return
+        dialect = str(item.get('dialect') or '')
+        label = dict(DIALECTS).get(dialect, dialect)
+        status = snapshot_status(item, self._snapshot)
+        scanned = str((self._snapshot or {}).get('scanned_at') or '')
+        self.agent_status.setText(
+            f"{item.get('name') or ''} · {label} · {status.get('label') or ''} · {scanned}".strip(' ·')
+        )
+
+    def _refresh_agent_more_menu(self):
+        zh = self.language == 'zh'
+        menu = getattr(self, '_agent_more_menu', None)
+        if menu is None:
+            return
+        menu.clear()
+        menu.addAction('解释当前 SQL' if zh else 'Explain current SQL', lambda: self._run_ai('explain'))
+        menu.addAction('优化当前 SQL' if zh else 'Optimize current SQL', lambda: self._run_ai('optimize'))
+        menu.addAction('修复报错' if zh else 'Fix error', lambda: self._run_ai('fix'))
+        menu.addAction('复制拦截详情' if zh else 'Copy block details', self._copy_block_detail)
+        menu.addAction('查看快照' if zh else 'View snapshot', self._view_snapshot)
+
+    def _show_agent_candidates(self, prepared: dict):
+        zh = self.language == 'zh'
+        self.agent_candidates.clear()
+        fields = ((prepared.get('resolution') or {}).get('fields') or [])
+        for item in fields:
+            obj = item.get('object') or {}
+            col = item.get('column') or {}
+            text = (
+                f"{obj.get('name')}.{col.get('name')}  {col.get('data_type') or ''}  "
+                f"{col.get('comment') or ''}  [{item.get('reason') or ''}]"
+            )
+            row = QListWidgetItem(text.strip())
+            row.setData(Qt.ItemDataRole.UserRole, field_qualified(obj, col))
+            self.agent_candidates.addItem(row)
+        self.agent_candidates.show()
+        self.agent_confirm_btn.show()
+        self.ai_explain.setPlainText(prepared.get('reason') or ('找到多个“创建日期”候选，请选择要使用的字段。' if zh else 'Pick a field'))
+        self._last_block = prepared.get('reason') or ''
+
+    def _hide_agent_candidates(self):
+        self.agent_candidates.hide()
+        self.agent_confirm_btn.hide()
+
+    def _confirm_agent_fields(self):
+        chosen = []
+        for item in self.agent_candidates.selectedItems():
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                chosen.append(str(data))
+        if not chosen:
+            show_warning(self, self._title(), '请选择要使用的字段' if self.language == 'zh' else 'Select fields')
+            return
+        self._hide_agent_candidates()
+        self._run_ai('generate', confirmed=chosen)
+
+    def _block_agent(self, reason: str, next_action: str = ''):
+        zh = self.language == 'zh'
+        text = str(reason or '')
+        if next_action:
+            text = f'{text}\n下一步：{next_action}' if zh else f'{text}\nNext: {next_action}'
+        self._last_block = text
+        self.ai_explain.setPlainText('草案被拦截\n' + text)
+        show_warning(self, self._title(), text)
+
+    def _copy_block_detail(self):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._last_block or self.ai_explain.toPlainText())
+
+    def _start_agent_task(self, kwargs: dict, action: str):
+        zh = self.language == 'zh'
+        self._agent_busy = True
+        self._agent_started = time.monotonic()
+        self._agent_action = action
+        self.ai_gen_btn.setEnabled(False)
+        self.agent_cancel_btn.show()
+        self.agent_stage.setText('正在校验 Schema 字段…' if zh else 'Checking schema fields…')
+        self.agent_stage.hide()
+        self._agent_timer.start()
+        self._ai_worker = _AiWorker(kwargs)
+        self._ai_worker.completed.connect(self._on_ai_ok)
+        self._ai_worker.failed.connect(self._on_agent_fail)
+        self._ai_worker.finished.connect(lambda: None)
+        self._ai_worker.start()
+
+    def _tick_agent_stage(self):
+        if not self._agent_busy:
+            self._agent_timer.stop()
+            return
+        elapsed = time.monotonic() - self._agent_started
+        zh = self.language == 'zh'
+        if elapsed < 0.4:
+            return
+        self.agent_stage.show()
+        if elapsed < 2:
+            self.agent_stage.setText('正在校验 Schema 字段…' if zh else 'Checking schema fields…')
+            return
+        seconds = int(elapsed)
+        self.agent_stage.setText(
+            f'校验快照 → 匹配表字段 → 生成草案 → 复核 SQL · 已耗时 {seconds}s'
+            if zh else
+            f'validate → match → draft → review · {seconds}s'
+        )
+
+    def _cancel_agent(self):
+        zh = self.language == 'zh'
+        if not self._agent_busy:
+            return
+        self.agent_stage.show()
+        self.agent_stage.setText('正在取消…' if zh else 'Cancelling…')
+        if self._ai_worker is not None:
+            self._ai_worker.cancelled = True
+
+    def _finish_agent_task(self, *, cancelled: bool = False):
+        self._agent_busy = False
+        self._agent_timer.stop()
+        self.agent_cancel_btn.hide()
+        if cancelled:
+            self.agent_stage.setText('已取消' if self.language == 'zh' else 'Cancelled')
+        else:
+            self.agent_stage.hide()
+        self._refresh_model_status()
+
+    def _on_agent_fail(self, message: str):
+        if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
+            self._finish_agent_task(cancelled=True)
+            return
+        text = redact_error(str(message or ''))
+        self._last_block = text
+        self.ai_explain.setPlainText(text)
+        show_error(self, self._title(), text)
+        self._finish_agent_task()
 
     def _refresh_ai_chips(self):
         zh = self.language == 'zh'

@@ -104,11 +104,32 @@ class SqlConsoleUiTests(unittest.TestCase):
         self.assertTrue(hasattr(panel, 'loading'))
         self.assertIn('start_busy', source)
         self.assertIn('正在执行查询', source)
+        self.assertEqual(panel.side_tabs.tabText(0), 'TamengAgent')
+        self.assertEqual(panel.ai_gen_btn.text(), '生成 SQL 草案')
+        self.assertEqual(panel.run_btn.text(), '执行当前 SQL')
+        self.assertIn('prepare_request', source)
+        self.assertIn('validate_generated_sql', source)
+        self.assertIn('TamengAgent 草案 · 未执行', source)
+        self.assertIn('当前草案任务仍在运行', source)
         panel.nl_input.insertPlainText('帮我查一下')
         self.assertIn('帮我查一下', panel.nl_input.toPlainText())
         panel.nl_input.clear_tokens()
         self.assertIn('帮我查一下', panel.nl_input.toPlainText())
         self.assertNotIn('表：PRPCMAIN', panel.nl_input.toPlainText())
+        panel.close()
+
+    def test_generate_without_snapshot_does_not_start_worker(self):
+        from unittest.mock import patch
+        from panels.ai_workbench_panel import AiWorkbenchPanel
+        panel = AiWorkbenchPanel('zh')
+        panel._snapshot = None
+        panel.nl_input.setPlainText('查询 prpcmain 中创建日期倒序')
+        with patch('panels.ai_workbench_panel.is_enabled', return_value=True):
+            with patch('panels.ai_workbench_panel.show_warning') as warned:
+                panel._run_ai('generate')
+        self.assertTrue(warned.called)
+        self.assertFalse(panel._agent_busy)
+        self.assertIsNone(panel._ai_worker)
         panel.close()
 
     def test_field_dialog_has_separate_search_and_comments(self):

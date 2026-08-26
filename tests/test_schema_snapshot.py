@@ -60,6 +60,49 @@ class SchemaSnapshotTests(unittest.TestCase):
                 loaded = schema_snapshot.load_snapshot('c1')
                 self.assertEqual(loaded['objects'][0]['name'], 'T')
                 self.assertNotIn('rows', loaded)
+                self.assertEqual(payload['version'], 2)
+                self.assertEqual(loaded['objects'][0]['index_metadata_status'], 'incomplete')
+
+    def test_v2_keeps_indexes_and_v1_is_incomplete(self):
+        from tools import schema_snapshot
+        obj = schema_snapshot._clean_object({
+            'owner': 'PRP', 'name': 'PRPCMAIN', 'object_type': 'TABLE', 'comment': '保单主表',
+            'columns': [{'name': 'CREATED_DATE', 'data_type': 'DATE', 'comment': '创建日期'}],
+            'indexes': [{
+                'name': 'IDX_PRPCMAIN_CREATED_DATE', 'unique': False, 'index_type': 'NORMAL',
+                'columns': [{'name': 'CREATED_DATE', 'position': 1}],
+            }],
+        })
+        self.assertEqual(obj['indexes'][0]['name'], 'IDX_PRPCMAIN_CREATED_DATE')
+        self.assertTrue(obj['columns'][0]['indexed'])
+        v1 = schema_snapshot._clean_object({
+            'name': 'OLD', 'columns': [{'name': 'A'}],
+        })
+        self.assertEqual(v1['indexes'], [])
+        self.assertEqual(v1['index_metadata_status'], 'incomplete')
+        self.assertFalse(schema_snapshot.dameng_index_scan_ready())
+
+    def test_mysql_index_scan_from_statistics(self):
+        from tools.schema_snapshot import _attach_mysql_indexes
+        cur = MagicMock()
+        cur.fetchall.return_value = [
+            ('test', 'PRPCMAIN', 'IDX_CREATED', 1, 'BTREE', 'CREATED_DATE', 1),
+        ]
+        objects = {('test', 'PRPCMAIN'): {'owner': 'test', 'name': 'PRPCMAIN', 'columns': []}}
+        _attach_mysql_indexes(cur, objects, 'test')
+        self.assertEqual(objects[('test', 'PRPCMAIN')]['indexes'][0]['name'], 'IDX_CREATED')
+        self.assertEqual(objects[('test', 'PRPCMAIN')]['index_metadata_status'], 'ok')
+
+    def test_index_scan_failure_keeps_columns(self):
+        from tools.schema_snapshot import _attach_oracle_indexes
+        cur = MagicMock()
+        cur.execute.side_effect = RuntimeError('password=secret ORA-01031')
+        objects = {('PRP', 'T'): {'owner': 'PRP', 'name': 'T', 'columns': [{'name': 'A'}]}}
+        _attach_oracle_indexes(cur, objects)
+        self.assertEqual(objects[('PRP', 'T')]['index_metadata_status'], 'unavailable')
+        self.assertEqual(objects[('PRP', 'T')]['indexes'], [])
+        self.assertEqual(objects[('PRP', 'T')]['columns'][0]['name'], 'A')
+        self.assertNotIn('secret', str(objects[('PRP', 'T')].get('index_warning') or ''))
 
 
 class OracleRuntimeTests(unittest.TestCase):

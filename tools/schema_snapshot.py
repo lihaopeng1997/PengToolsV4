@@ -64,10 +64,11 @@ def empty_snapshot(item: dict, *, status='empty') -> dict:
         'dialect': str(data.get('dialect') or 'oracle').lower(),
         'fingerprint': connection_fingerprint(data),
         'snapshot_id': uuid.uuid4().hex,
-        'version': 1,
+        'version': 2,
         'scanned_at': '',
         'status': status,
         'truncated': False,
+        'index_metadata_status': 'ok',
         'warning': '',
         'objects': [],
     }
@@ -86,6 +87,17 @@ def load_snapshot(conn_id: str) -> dict | None:
     data.setdefault('status', 'ok')
     data.setdefault('truncated', False)
     data.setdefault('warning', '')
+    data.setdefault('version', 1)
+    try:
+        version = int(data.get('version') or 1)
+    except (TypeError, ValueError):
+        version = 1
+        data['version'] = 1
+    if version < 2:
+        data.setdefault('index_metadata_status', 'incomplete')
+    else:
+        data.setdefault('index_metadata_status', 'ok')
+    data['objects'] = [_clean_object(item) for item in data.get('objects') or [] if isinstance(item, dict)]
     return data
 
 
@@ -125,6 +137,38 @@ def snapshot_status(item: dict, snap: dict | None) -> dict:
     return {'status': status, 'stale': stale, 'label': label.strip()}
 
 
+def _clean_index(item) -> dict | None:
+    if isinstance(item, str):
+        name = item.strip()
+        return {'name': name, 'unique': False, 'index_type': '', 'columns': []} if name else None
+    if not isinstance(item, dict):
+        return None
+    columns = []
+    for col in item.get('columns') or []:
+        if isinstance(col, str) and col.strip():
+            columns.append({'name': col.strip(), 'position': len(columns) + 1})
+        elif isinstance(col, dict) and str(col.get('name') or '').strip():
+            try:
+                position = int(col.get('position') or len(columns) + 1)
+            except (TypeError, ValueError):
+                position = len(columns) + 1
+            columns.append({'name': str(col.get('name')).strip(), 'position': position})
+    name = str(item.get('name') or '').strip()
+    if not name and not columns:
+        return None
+    return {
+        'name': name,
+        'unique': bool(item.get('unique')),
+        'index_type': str(item.get('index_type') or ''),
+        'columns': columns,
+    }
+
+
+def dameng_index_scan_ready() -> bool:
+    """达梦索引视图须在目标版本验证后才能接入，未验证前不得编造 SQL。"""
+    return False
+
+
 def _clean_object(item: dict) -> dict:
     columns = []
     for col in item.get('columns') or []:
@@ -139,6 +183,27 @@ def _clean_object(item: dict) -> dict:
             'primary_key': bool(col.get('primary_key')),
             'indexed': bool(col.get('indexed') or col.get('primary_key')),
         })
+    has_indexes_key = 'indexes' in item
+    indexes = []
+    for raw in item.get('indexes') or []:
+        cleaned = _clean_index(raw)
+        if cleaned:
+            indexes.append(cleaned)
+    status = str(item.get('index_metadata_status') or '').strip().lower()
+    if status not in ('ok', 'unavailable', 'incomplete'):
+        if has_indexes_key:
+            status = 'ok'
+        else:
+            status = 'incomplete'
+    indexed_names = {
+        str(col.get('name') or '').upper()
+        for idx in indexes
+        for col in idx.get('columns') or []
+    }
+    if indexed_names:
+        for col in columns:
+            if str(col.get('name') or '').upper() in indexed_names:
+                col['indexed'] = True
     return {
         'owner': str(item.get('owner') or ''),
         'name': str(item.get('name') or ''),
@@ -146,6 +211,8 @@ def _clean_object(item: dict) -> dict:
         'comment': str(item.get('comment') or ''),
         'inferred': bool(item.get('inferred')),
         'columns': columns,
+        'indexes': indexes,
+        'index_metadata_status': status,
     }
 
 
@@ -175,8 +242,32 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
         payload['objects'] = objects
         payload['truncated'] = truncated
         payload['status'] = 'ok'
+        payload['version'] = 2
+        if dialect in ('redis', 'mongodb') or (dialect == 'dameng' and not dameng_index_scan_ready()):
+            for obj in objects:
+                if isinstance(obj, dict):
+                    obj['indexes'] = []
+                    obj['index_metadata_status'] = 'unavailable'
+            payload['index_metadata_status'] = 'unavailable'
+            if dialect == 'dameng':
+                extra = '达梦索引元数据待目标环境验证，当前不可用'
+                payload['warning'] = ((payload.get('warning') or '') + ' ' + extra).strip()
+        else:
+            statuses = {
+                str(obj.get('index_metadata_status') or 'ok')
+                for obj in objects
+                if isinstance(obj, dict)
+            }
+            payload['index_metadata_status'] = 'unavailable' if 'unavailable' in statuses else 'ok'
+            if payload['index_metadata_status'] == 'unavailable':
+                extra = '索引元数据不可用'
+                for obj in objects:
+                    if isinstance(obj, dict) and obj.get('index_warning'):
+                        extra = str(obj.get('index_warning'))
+                        break
+                payload['warning'] = ((payload.get('warning') or '') + ' ' + extra).strip()
         if truncated:
-            payload['warning'] = '对象数量已截断，仅保留可见范围内的前若干项'
+            payload['warning'] = ((payload.get('warning') or '') + ' 对象数量已截断，仅保留可见范围内的前若干项').strip()
     except Exception as exc:
         old = load_snapshot(str((item or {}).get('id') or ''))
         if old and old.get('objects'):
@@ -274,12 +365,65 @@ def _scan_oracle_like(conn, dialect: str) -> tuple[list, bool]:
                             col['indexed'] = True
             except Exception:
                 pass
+            _attach_oracle_indexes(cur, objects)
+        else:
+            for target in objects.values():
+                target['indexes'] = []
+                target['index_metadata_status'] = 'unavailable'
     finally:
         try:
             cur.close()
         except Exception:
             pass
     return [_clean_object(item) for item in objects.values()], False
+
+
+def _attach_oracle_indexes(cur, objects: dict) -> None:
+    for target in objects.values():
+        target.setdefault('indexes', [])
+        target['index_metadata_status'] = 'ok'
+    try:
+        cur.execute(
+            "SELECT table_owner, table_name, index_name, uniqueness, index_type "
+            "FROM all_indexes"
+        )
+        meta = {}
+        for row in cur.fetchall() or []:
+            key = (str(row[0] or ''), str(row[1] or ''), str(row[2] or ''))
+            meta[key] = {
+                'name': str(row[2] or ''),
+                'unique': str(row[3] or '').upper() == 'UNIQUE',
+                'index_type': str(row[4] or ''),
+                'columns': [],
+            }
+        cur.execute(
+            "SELECT table_owner, table_name, index_name, column_name, column_position "
+            "FROM all_ind_columns ORDER BY table_owner, table_name, index_name, column_position"
+        )
+        for row in cur.fetchall() or []:
+            key = (str(row[0] or ''), str(row[1] or ''), str(row[2] or ''))
+            item = meta.setdefault(key, {
+                'name': str(row[2] or ''),
+                'unique': False,
+                'index_type': '',
+                'columns': [],
+            })
+            item['columns'].append({'name': str(row[3] or ''), 'position': int(row[4] or 0)})
+        grouped = {}
+        for (owner, table, _index), item in meta.items():
+            grouped.setdefault((owner, table), []).append(item)
+        for key, indexes in grouped.items():
+            target = objects.get(key)
+            if not target:
+                continue
+            target['indexes'] = indexes
+            target['index_metadata_status'] = 'ok'
+    except Exception as exc:
+        warning = redact_error(str(exc))
+        for target in objects.values():
+            target['indexes'] = []
+            target['index_metadata_status'] = 'unavailable'
+            target['index_warning'] = warning
 
 
 def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
@@ -336,12 +480,52 @@ def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
                 'primary_key': key_flag == 'PRI',
                 'indexed': key_flag in ('PRI', 'UNI', 'MUL'),
             })
+        _attach_mysql_indexes(cur, objects, database)
     finally:
         try:
             cur.close()
         except Exception:
             pass
     return [_clean_object(item) for item in objects.values()], False
+
+
+def _attach_mysql_indexes(cur, objects: dict, database: str) -> None:
+    for target in objects.values():
+        target.setdefault('indexes', [])
+        target['index_metadata_status'] = 'ok'
+    sql = (
+        "SELECT TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, NON_UNIQUE, INDEX_TYPE, "
+        "COLUMN_NAME, SEQ_IN_INDEX FROM information_schema.statistics"
+    )
+    try:
+        if database:
+            cur.execute(sql + " WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX", (database,))
+        else:
+            cur.execute(sql + " WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX")
+        grouped = {}
+        for row in cur.fetchall() or []:
+            key = (str(row[0] or ''), str(row[1] or ''))
+            name = str(row[2] or '')
+            bucket = grouped.setdefault(key, {})
+            item = bucket.setdefault(name, {
+                'name': name,
+                'unique': str(row[3]) in ('0', '0.0', 'false', 'False') or row[3] == 0,
+                'index_type': str(row[4] or ''),
+                'columns': [],
+            })
+            item['columns'].append({'name': str(row[5] or ''), 'position': int(row[6] or 0)})
+        for key, indexes in grouped.items():
+            target = objects.get(key)
+            if not target:
+                continue
+            target['indexes'] = list(indexes.values())
+            target['index_metadata_status'] = 'ok'
+    except Exception as exc:
+        warning = redact_error(str(exc))
+        for target in objects.values():
+            target['indexes'] = []
+            target['index_metadata_status'] = 'unavailable'
+            target['index_warning'] = warning
 
 
 def _scan_mongo(conn) -> tuple[list, bool]:
