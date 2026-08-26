@@ -434,6 +434,28 @@ def clip_snapshot_for_prompt(
     return text[:max_chars]
 
 
+def format_object_label(obj: dict | None) -> str:
+    data = obj if isinstance(obj, dict) else {}
+    owner = str(data.get('owner') or '').strip()
+    name = str(data.get('name') or '').strip()
+    qn = f'{owner}.{name}' if owner and name else (name or owner)
+    kind = str(data.get('object_type') or 'TABLE')
+    comment = str(data.get('comment') or '').strip()
+    label = f'{qn}  [{kind}]' if qn else f'[{kind}]'
+    if comment:
+        label = f'{label}  {comment}'
+    return label
+
+
+def format_field_label(col: dict | None) -> str:
+    data = col if isinstance(col, dict) else {}
+    name = str(data.get('name') or '').strip()
+    dtype = str(data.get('data_type') or '').strip()
+    comment = str(data.get('comment') or '').strip()
+    parts = [part for part in (name, dtype, comment) if part]
+    return '  '.join(parts)
+
+
 def search_objects(snap: dict | None, keyword: str = '') -> list[dict]:
     needle = str(keyword or '').strip().lower()
     result = []
@@ -458,4 +480,5 @@ def search_fields(obj: dict | None, keyword: str = '') -> list[dict]:
         if needle and needle not in hay:
             continue
         result.append(col)
+    result.sort(key=lambda col: str(col.get('name') or '').lower())
     return result

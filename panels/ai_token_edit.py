@@ -10,14 +10,17 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QMenu, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from tools.ai_object_context import (
-    add_field, add_object, context_matches_snapshot, empty_context, keep_tokens,
-    qualified_name, remove_token, selected_field_names, selected_table_names,
-)
-from tools.schema_snapshot import search_fields, search_objects
+from tools.ai_object_context import empty_context, keep_tokens, remove_token
+from tools.schema_snapshot import format_field_label, format_object_label, search_fields, search_objects
 from ui.design_system import apply_button
 
 TOKEN_PROP = 0x0A11
+
+
+def _plain_format() -> QTextCharFormat:
+    fmt = QTextCharFormat()
+    fmt.clearProperty(TOKEN_PROP)
+    return fmt
 
 
 def _token_format(kind: str, token_id: str) -> QTextCharFormat:
@@ -64,29 +67,36 @@ class AiPromptEdit(QTextEdit):
         if position is not None:
             cursor.setPosition(max(0, min(int(position), len(self.toPlainText()))))
         cursor.insertText(label, _token_format(kind, str(token.get('token_id') or '')))
-        cursor.insertText(' ')
+        cursor.setCharFormat(_plain_format())
+        cursor.insertText(' ', _plain_format())
         self.setTextCursor(cursor)
+        self.setCurrentCharFormat(_plain_format())
         self.tokens_changed.emit()
 
     def clear_tokens(self):
+        self._remove_token_spans()
         self.context['selected_objects'] = []
         self.context['selected_fields'] = []
-        cursor = self.textCursor()
-        cursor.select(QTextCursor.SelectionType.Document)
+        self.tokens_changed.emit()
+
+    def _remove_token_spans(self):
+        spans = []
         block = self.document().firstBlock()
         while block.isValid():
             it = block.begin()
             while not it.atEnd():
                 frag = it.fragment()
-                fmt = frag.charFormat()
-                if fmt.property(TOKEN_PROP):
-                    cur = QTextCursor(self.document())
-                    cur.setPosition(frag.position())
-                    cur.setPosition(frag.position() + frag.length(), QTextCursor.MoveMode.KeepAnchor)
-                    cur.removeSelectedText()
+                if frag.charFormat().property(TOKEN_PROP):
+                    spans.append((frag.position(), frag.length()))
                 it += 1
             block = block.next()
-        self.tokens_changed.emit()
+        self.blockSignals(True)
+        for pos, length in reversed(spans):
+            cur = QTextCursor(self.document())
+            cur.setPosition(pos)
+            cur.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
+            cur.removeSelectedText()
+        self.blockSignals(False)
 
     def token_ids_in_document(self) -> list[str]:
         ids = []
@@ -139,27 +149,7 @@ class AiPromptEdit(QTextEdit):
         menu.exec(self.mapToGlobal(pos))
 
     def _clear_tokens_keep_text(self):
-        # 只删 Token 片段，保留自然语言
-        self.blockSignals(True)
-        block = self.document().firstBlock()
-        spans = []
-        while block.isValid():
-            it = block.begin()
-            while not it.atEnd():
-                frag = it.fragment()
-                if frag.charFormat().property(TOKEN_PROP):
-                    spans.append((frag.position(), frag.length()))
-                it += 1
-            block = block.next()
-        for pos, length in reversed(spans):
-            cur = QTextCursor(self.document())
-            cur.setPosition(pos)
-            cur.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
-            cur.removeSelectedText()
-        self.blockSignals(False)
-        self.context['selected_objects'] = []
-        self.context['selected_fields'] = []
-        self.tokens_changed.emit()
+        self.clear_tokens()
 
     def _view_tokens(self):
         dialog = QDialog(self)
@@ -178,6 +168,40 @@ class AiPromptEdit(QTextEdit):
         close.clicked.connect(dialog.accept)
         root.addWidget(close)
         dialog.exec()
+
+    def _token_span_at(self, pos: int):
+        block = self.document().findBlock(max(0, pos))
+        it = block.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            token_id = frag.charFormat().property(TOKEN_PROP)
+            start, end = frag.position(), frag.position() + frag.length()
+            if token_id and start <= pos <= end:
+                return str(token_id), start, end
+            it += 1
+        return None
+
+    def _ensure_plain_insert(self):
+        cursor = self.textCursor()
+        pos = cursor.position()
+        hit = self._token_span_at(pos) or self._token_span_at(max(0, pos - 1))
+        if hit:
+            _token_id, start, end = hit
+            if start < pos < end:
+                cursor.setPosition(end)
+                self.setTextCursor(cursor)
+        cursor = self.textCursor()
+        cursor.setCharFormat(_plain_format())
+        self.setTextCursor(cursor)
+        self.setCurrentCharFormat(_plain_format())
+
+    def insertFromMimeData(self, source):
+        text = source.text() if source is not None else ''
+        self._ensure_plain_insert()
+        cursor = self.textCursor()
+        cursor.insertText(text, _plain_format())
+        self.setTextCursor(cursor)
+        self.setCurrentCharFormat(_plain_format())
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
@@ -198,9 +222,12 @@ class AiPromptEdit(QTextEdit):
                     cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
                     cur.removeSelectedText()
                     remove_token(self.context, str(token_id))
+                    self.setCurrentCharFormat(_plain_format())
                     self.tokens_changed.emit()
                     return
                 it += 1
+        elif event.text():
+            self._ensure_plain_insert()
         super().keyPressEvent(event)
 
 
@@ -213,22 +240,31 @@ class ObjectPickDialog(QDialog):
         self.redis = redis
         zh = language == 'zh'
         self.setWindowTitle('添加字段到自然语言' if mode == 'field' and zh else ('添加表到自然语言' if zh else 'Add object'))
-        self.resize(720, 460)
+        self.resize(760, 500)
         self._object = None
         root = QVBoxLayout(self)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText('搜索对象名 / 注释' if zh else 'Search objects')
-        self.search.textChanged.connect(self._fill_objects)
-        root.addWidget(self.search)
         cols = QHBoxLayout()
+        left = QVBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('搜索表名 / 注释' if zh else 'Search tables')
+        self.search.textChanged.connect(self._fill_objects)
+        left.addWidget(self.search)
         self.obj_list = QListWidget()
         self.obj_list.currentItemChanged.connect(self._on_object)
-        cols.addWidget(self.obj_list, 1)
+        left.addWidget(self.obj_list, 1)
+        cols.addLayout(left, 1)
+        self.field_search = QLineEdit()
         self.field_list = QListWidget()
         self.field_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.field_list.itemSelectionChanged.connect(self._refresh_ok)
         if mode == 'field':
-            cols.addWidget(self.field_list, 1)
+            right = QVBoxLayout()
+            self.field_search.setPlaceholderText('搜索字段名 / 注释' if zh else 'Search fields')
+            self.field_search.setEnabled(False)
+            self.field_search.textChanged.connect(self._fill_fields)
+            right.addWidget(self.field_search)
+            right.addWidget(self.field_list, 1)
+            cols.addLayout(right, 1)
         root.addLayout(cols, 1)
         self.hint = QLabel()
         self.hint.setObjectName('field-hint')
@@ -251,9 +287,7 @@ class ObjectPickDialog(QDialog):
     def _fill_objects(self, _text=''):
         self.obj_list.clear()
         for obj in search_objects(self.snapshot, self.search.text()):
-            label = qualified_name(obj) or str(obj.get('name') or '')
-            kind = str(obj.get('object_type') or 'TABLE')
-            item = QListWidgetItem(f'{label}  [{kind}]')
+            item = QListWidgetItem(format_object_label(obj))
             item.setData(Qt.ItemDataRole.UserRole, obj)
             self.obj_list.addItem(item)
         if self.obj_list.count() == 0:
@@ -264,25 +298,47 @@ class ObjectPickDialog(QDialog):
 
     def _on_object(self, current, _prev=None):
         self._object = current.data(Qt.ItemDataRole.UserRole) if current is not None else None
-        self.field_list.clear()
         if self.mode != 'field':
             self._refresh_ok()
             return
         zh = self.language == 'zh'
+        can_fields = isinstance(self._object, dict) and not self.redis
+        self.field_search.setEnabled(can_fields)
+        self.field_search.blockSignals(True)
+        self.field_search.clear()
+        self.field_search.blockSignals(False)
         if self.redis:
             self.hint.setText('Redis 以键模式为主，不提供关系型字段选择。' if zh else 'Redis has no relational fields.')
+            self.field_list.clear()
             self._refresh_ok()
             return
         if not isinstance(self._object, dict):
+            self.field_list.clear()
             self._refresh_ok()
             return
         inferred = bool(self._object.get('inferred'))
         self.hint.setText('Mongo 字段来自受控样本推断，不含文档值。' if inferred and zh else '')
-        for col in search_fields(self._object, ''):
-            extra = str(col.get('data_type') or '')
-            item = QListWidgetItem(f"{col.get('name')}  {extra}")
+        self._fill_fields()
+
+    def _fill_fields(self, _text=''):
+        selected = set()
+        for item in self.field_list.selectedItems():
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict) and data.get('name'):
+                selected.add(str(data.get('name')))
+        self.field_list.blockSignals(True)
+        self.field_list.clear()
+        if not isinstance(self._object, dict) or self.redis:
+            self.field_list.blockSignals(False)
+            self._refresh_ok()
+            return
+        for col in search_fields(self._object, self.field_search.text()):
+            item = QListWidgetItem(format_field_label(col))
             item.setData(Qt.ItemDataRole.UserRole, col)
             self.field_list.addItem(item)
+            if str(col.get('name') or '') in selected:
+                item.setSelected(True)
+        self.field_list.blockSignals(False)
         self._refresh_ok()
 
     def _refresh_ok(self):

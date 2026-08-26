@@ -24,9 +24,10 @@ from tools.db_connect import (
 )
 from tools.intranet_llm import is_enabled, load_ai_local
 from tools.schema_snapshot import (
-    clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, load_snapshot,
-    save_snapshot, scan_schema, snapshot_status,
+    clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, format_object_label,
+    load_snapshot, save_snapshot, scan_schema, search_fields, snapshot_status,
 )
+from ui.aurora_progress import AuroraProgress
 from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_table
@@ -487,6 +488,7 @@ class AiWorkbenchPanel(QWidget):
         QShortcut(QKeySequence('Ctrl+W'), self, activated=self._close_current_tab)
         QShortcut(QKeySequence('Ctrl+Return'), self, activated=lambda: self._run_sql(reset=True))
         QShortcut(QKeySequence('F5'), self, activated=lambda: self._run_sql(reset=True))
+        self.loading = AuroraProgress(self)
 
     def set_language(self, language):
         self.language = language
@@ -685,13 +687,22 @@ class AiWorkbenchPanel(QWidget):
         if hasattr(window, '_show_panel'):
             window._show_panel(7)
 
-    def _busy(self, on: bool):
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'loading'):
+            self.loading.place_overlay(self)
+
+    def _busy(self, on: bool, message: str = ''):
+        zh = self.language == 'zh'
         for btn in (
-            self.test_btn, self.scan_btn, self.run_btn, self.ai_gen_btn,
+            self.test_btn, self.scan_btn, self.run_btn,
+            self.ai_gen_btn, self.ai_explain_btn, self.ai_opt_btn, self.ai_fix_btn,
             self.next_btn, self.all_btn,
         ):
             btn.setEnabled(not on)
-        if not on:
+        if on:
+            self.loading.start_busy(message or ('处理中…' if zh else 'Working…'))
+        else:
             self._refresh_model_status()
             self.next_btn.setEnabled(self._has_more)
             self.all_btn.setEnabled(self._has_more)
@@ -702,10 +713,15 @@ class AiWorkbenchPanel(QWidget):
         if not item:
             show_warning(self, self._title(), '请先新建并选择连接' if zh else 'Create a connection first')
             return
-        self._busy(True)
+        labels = {
+            'test': '正在测试连接…' if zh else 'Testing connection…',
+            'scan': '正在扫描结构…' if zh else 'Scanning schema…',
+            'query': '正在执行查询…' if zh else 'Running query…',
+        }
+        self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'))
         if kind == 'scan':
             self.scan_cancel_btn.setEnabled(True)
-        self.result_status.setText('正在连接…' if zh else 'Working…')
+        self.result_status.setText(labels.get(kind, '正在连接…' if zh else 'Working…'))
         self._worker = _DbWorker(kind, item, **kwargs)
         self._worker.completed.connect(lambda payload: self._on_db_ok(kind, payload, kwargs))
         self._worker.failed.connect(self._on_db_fail)
@@ -719,6 +735,7 @@ class AiWorkbenchPanel(QWidget):
     def _on_db_ok(self, kind: str, payload: dict, kwargs: dict):
         zh = self.language == 'zh'
         if kind == 'test':
+            self.loading.finish('连接成功' if zh else 'Connected')
             show_info(self, self._title(), '连接成功' if zh else 'Connected')
             self._log_msg('连接测试成功' if zh else 'Connection ok')
             return
@@ -729,6 +746,11 @@ class AiWorkbenchPanel(QWidget):
             self._refresh_header()
             self._refresh_ai_pick_state()
             count = len((payload or {}).get('objects') or [])
+            warning = str((payload or {}).get('warning') or '')
+            if str((payload or {}).get('status') or '') == 'failed':
+                self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'))
+            else:
+                self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             self._log_msg(f'扫描完成，对象 {count}')
             return
@@ -761,9 +783,11 @@ class AiWorkbenchPanel(QWidget):
             self._hist_refresh()
             self.next_btn.setEnabled(self._has_more)
             self.all_btn.setEnabled(self._has_more)
+            self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'))
 
     def _on_db_fail(self, message: str):
         text = redact_error(str(message or ''))
+        self.loading.fail(text or ('失败' if self.language == 'zh' else 'Failed'))
         show_error(self, self._title(), text)
         self.result_status.setText('失败' if self.language == 'zh' else 'Failed')
         self._log_msg(text)
@@ -925,16 +949,7 @@ class AiWorkbenchPanel(QWidget):
             schema = QTreeWidgetItem([owner])
             schema.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'schema', 'name': owner})
             for obj in rows:
-                kind = str(obj.get('object_type') or 'TABLE')
-                qn = str(obj.get('name') or '')
-                if obj.get('owner'):
-                    same = [x for x in rows if str(x.get('name') or '') == qn]
-                    if len(same) > 1 or any(
-                        str(other.get('name') or '') == qn and str(other.get('owner') or '') != str(obj.get('owner') or '')
-                        for other in objects
-                    ):
-                        qn = f"{obj.get('owner')}.{obj.get('name')}"
-                node = QTreeWidgetItem([f'{qn}  [{kind}]'])
+                node = QTreeWidgetItem([format_object_label(obj)])
                 node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
                 schema.addChild(node)
             root.addChild(schema)
@@ -1042,7 +1057,7 @@ class AiWorkbenchPanel(QWidget):
         if action == 'generate' and (self.nl_input.context.get('selected_objects') or self.nl_input.context.get('selected_fields')) and not ok:
             show_warning(self, self._title(), reason + '\n请先扫描/更新结构。' if zh else reason)
             return
-        self._busy(True)
+        self._busy(True, '正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
         self.result_status.setText('正在生成草案…' if zh else 'Generating draft…')
         self._ai_worker = _AiWorker({
             'question': question or current_sql,
@@ -1077,6 +1092,7 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_tab_titles()
         self.result_status.setText(title)
         self._log_msg(title)
+        self.loading.finish(title)
 
     def _refresh_ai_chips(self):
         zh = self.language == 'zh'
@@ -1143,16 +1159,17 @@ class AiWorkbenchPanel(QWidget):
             self.field_table.setRowCount(0)
             return
         qn = self._qualified(obj)
-        cols = list(obj.get('columns') or [])
-        needle = self.field_filter.text().strip().lower()
-        if needle:
-            cols = [c for c in cols if needle in str(c.get('name') or '').lower() or needle in str(c.get('comment') or '').lower()]
+        cols = search_fields(obj, self.field_filter.text())
         page_size = 100
         pages = max(1, (len(cols) + page_size - 1) // page_size)
         self._field_page = max(0, min(self._field_page, pages - 1))
         start = self._field_page * page_size
         view = cols[start:start + page_size]
-        self.detail_title.setText(f"{qn}  [{obj.get('object_type') or 'TABLE'}]")
+        comment = str(obj.get('comment') or '').strip()
+        title = f"{qn}  [{obj.get('object_type') or 'TABLE'}]"
+        if comment:
+            title = f'{title}  {comment}'
+        self.detail_title.setText(title)
         extra = ' · 推断字段' if obj.get('inferred') and zh else ''
         self.detail_meta.setText(
             f"{qn} · {len(cols)} 个字段 · 第 {self._field_page + 1}/{pages} 页{extra}"

@@ -11,7 +11,7 @@ if ROOT not in sys.path:
 from tools.ai_object_context import (
     add_field, add_object, empty_context, keep_tokens, qualified_name, remove_token,
 )
-from tools.schema_snapshot import search_objects
+from tools.schema_snapshot import format_field_label, format_object_label, search_fields, search_objects
 
 
 class AiObjectContextTests(unittest.TestCase):
@@ -43,6 +43,22 @@ class AiObjectContextTests(unittest.TestCase):
         hits = search_objects(snap, '保单')
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]['name'], 'PRPCMAIN')
+        self.assertIn('保单主表', format_object_label(hits[0]))
+
+    def test_search_fields_sorts_and_matches_comment(self):
+        obj = {
+            'name': 'PRPCMAIN',
+            'columns': [
+                {'name': 'ZFLAG', 'data_type': 'CHAR', 'comment': '标志'},
+                {'name': 'POLICYNO', 'data_type': 'VARCHAR2', 'comment': '保单号'},
+                {'name': 'AMOUNT', 'data_type': 'NUMBER', 'comment': '保额'},
+            ],
+        }
+        names = [col['name'] for col in search_fields(obj, '')]
+        self.assertEqual(names, ['AMOUNT', 'POLICYNO', 'ZFLAG'])
+        hits = search_fields(obj, '保单号')
+        self.assertEqual([col['name'] for col in hits], ['POLICYNO'])
+        self.assertIn('保单号', format_field_label(hits[0]))
 
 
 class SqlConsoleUiTests(unittest.TestCase):
@@ -85,7 +101,43 @@ class SqlConsoleUiTests(unittest.TestCase):
             source = stream.read()
         self.assertNotRegex(source, r'def _on_ai_ok[\s\S]*?self\._run_sql')
         self.assertIn('_on_ai_ok', source)
+        self.assertTrue(hasattr(panel, 'loading'))
+        self.assertIn('start_busy', source)
+        self.assertIn('正在执行查询', source)
+        panel.nl_input.insertPlainText('帮我查一下')
+        self.assertIn('帮我查一下', panel.nl_input.toPlainText())
+        panel.nl_input.clear_tokens()
+        self.assertIn('帮我查一下', panel.nl_input.toPlainText())
+        self.assertNotIn('表：PRPCMAIN', panel.nl_input.toPlainText())
         panel.close()
+
+    def test_field_dialog_has_separate_search_and_comments(self):
+        from PyQt6.QtCore import Qt
+        from panels.ai_token_edit import ObjectPickDialog
+        snap = {
+            'objects': [{
+                'owner': 'AUTO', 'name': 'PRPCMAIN', 'object_type': 'TABLE', 'comment': '保单主表',
+                'columns': [
+                    {'name': 'ZFLAG', 'data_type': 'CHAR', 'comment': '标志'},
+                    {'name': 'POLICYNO', 'data_type': 'VARCHAR2', 'comment': '保单号'},
+                ],
+            }],
+        }
+        dialog = ObjectPickDialog('zh', snap, mode='field')
+        self.assertTrue(dialog.search.placeholderText().startswith('搜索表名'))
+        self.assertTrue(dialog.field_search.placeholderText().startswith('搜索字段名'))
+        self.assertIn('保单主表', dialog.obj_list.item(0).text())
+        dialog.obj_list.setCurrentRow(0)
+        names = [
+            dialog.field_list.item(i).data(Qt.ItemDataRole.UserRole)['name']
+            for i in range(dialog.field_list.count())
+        ]
+        self.assertEqual(names, ['POLICYNO', 'ZFLAG'])
+        self.assertIn('保单号', dialog.field_list.item(0).text())
+        dialog.field_search.setText('标志')
+        self.assertEqual(dialog.field_list.count(), 1)
+        self.assertEqual(dialog.field_list.item(0).data(Qt.ItemDataRole.UserRole)['name'], 'ZFLAG')
+        dialog.close()
 
 
 if __name__ == '__main__':
