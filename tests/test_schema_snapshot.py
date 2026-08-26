@@ -91,6 +91,35 @@ class OracleRuntimeTests(unittest.TestCase):
             r'C:\oracle\instantclient_19_23',
         )
 
+    def test_detects_old_instant_client_and_32bit_dll(self):
+        import struct
+        import tempfile
+        from tools.oracle_runtime import (
+            detect_client_major, detect_pe_machine, prepare_thick_environment,
+            thick_client_error,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, 'oraociei11.dll'), 'wb').close()
+            self.assertEqual(detect_client_major(tmp), 11)
+            pe = bytearray(70)
+            pe[0:2] = b'MZ'
+            struct.pack_into('<I', pe, 60, 64)
+            pe[64:68] = b'PE\x00\x00'
+            struct.pack_into('<H', pe, 68, 0x14C)
+            oci = os.path.join(tmp, 'oci.dll')
+            with open(oci, 'wb') as stream:
+                stream.write(pe)
+            self.assertEqual(detect_pe_machine(oci), 'x86')
+            message = thick_client_error('DPI-1072: the Oracle Client library version is unsupported', lib_dir=tmp, oci_lib=oci)
+            self.assertIn('Instant Client 19', message)
+            self.assertIn('PL/SQL Developer', message)
+            foreign_home = os.path.join(tmp, 'old_home')
+            os.makedirs(foreign_home)
+            with patch.dict(os.environ, {'ORACLE_HOME': foreign_home, 'PATH': 'C:\\old'}, clear=False):
+                prepare_thick_environment(tmp, foreign_home)
+                self.assertNotEqual(os.environ.get('ORACLE_HOME', ''), os.path.abspath(foreign_home))
+                self.assertTrue(os.environ.get('PATH', '').startswith(os.path.abspath(tmp)))
+
     def test_mode_switch_requires_restart(self):
         import tools.oracle_runtime as runtime
         runtime._STATE.update({'initialized': True, 'mode': 'thin', 'lib_dir': '', 'error': ''})

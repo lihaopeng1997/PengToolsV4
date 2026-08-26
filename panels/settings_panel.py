@@ -1205,9 +1205,9 @@ class SettingsPanel(QWidget):
         self.oracle_oci_browse.setText('选择文件' if zh else 'Choose file')
         self.oracle_diag_btn.setText('诊断' if zh else 'Diagnose')
         self.oracle_note.setText(
-            '所有 Oracle 连接共用。Thick 需填写 Oracle 主目录，并选择 oci.dll 文件。不改系统 PATH、不下载。改完请重启应用。'
+            '所有 Oracle 连接共用。Thick 必须用 64 位 Instant Client 19 的 oci.dll，不能直接套 PL/SQL Developer 的 11g/32 位客户端。主目录可填 TNS 所在 Oracle Home。改完请重启。'
             if zh else
-            'Shared by all Oracle connections. Thick needs Oracle home and oci.dll. Restart after changes.'
+            'Shared by all Oracle connections. Thick needs 64-bit Instant Client 19 oci.dll, not the 11g/32-bit client used by PL/SQL Developer. Restart after changes.'
         )
         if self.ai_token_reveal.isChecked():
             self.ai_token_reveal.setText('隐藏' if zh else 'Hide')
