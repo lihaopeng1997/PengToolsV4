@@ -108,4 +108,9 @@
 
 ## 5. 交付产物
 
-打包与提交在交接后执行；路径以当时 `resources/build_info.json` 与 `PengToolsHub_Offline_Setup.zip` 为准。
+| 项 | 路径 / 值 |
+|----|-----------|
+| 提交 | `d69240c`（`main`） |
+| EXE | `dist\PengToolsHub.exe` |
+| 安装包 | `PengToolsHub_Offline_Setup.zip` |
+| 构建时间 | `2026-08-27 10:13:13`（见 `resources/build_info.json`） |
