@@ -388,6 +388,11 @@ QFrame#page-toolbar {
 QFrame#page-toolbar[divided="true"] {
     border-bottom: 1px solid __BORDER__;
 }
+/* SQL 控制台窄屏显式开关条（非 L2 工具栏，避免第二块 page-toolbar Token） */
+QFrame#page-narrow-chrome {
+    background: transparent;
+    border: none;
+}
 /* 接口排查 · 请求验证两行紧凑上下文（非凸起大卡；§8.3 单行 36–40） */
 QFrame#request-verify-context {
     background: __SURFACE__;
@@ -857,8 +862,8 @@ QTreeWidget#ops-export-tree {
     show-decoration-selected: 0;
 }
 QTreeWidget#ops-export-tree::item {
-    min-height: 28px;
-    padding: 4px 6px;
+    min-height: 36px;
+    padding: 4px 8px;
     color: __TEXT_STRONG__;
 }
 QTreeWidget#ops-export-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
@@ -898,8 +903,8 @@ QTreeWidget#requirement-file-tree::item {
     color: __TEXT_STRONG__;
 }
 QTreeWidget#ops-remote-tree::item {
-    min-height: 30px;
-    padding: 5px 8px;
+    min-height: 36px;
+    padding: 4px 8px;
     border: none;
     border-bottom: 1px solid __BORDER__;
     color: __TEXT_STRONG__;
@@ -1181,9 +1186,9 @@ QScrollArea#iface-session-toolbar-scroll {
     border: none;
 }
 QLineEdit#iface-session-search {
-    min-height: 28px;
-    max-height: 32px;
-    padding: 4px 10px;
+    min-height: 36px;
+    max-height: 40px;
+    padding: 6px 10px;
     border: 1px solid __BORDER__;
     background: __INPUT_BG__;
     color: __TEXT_STRONG__;
@@ -2368,8 +2373,8 @@ QTreeWidget#ops-export-tree {
     show-decoration-selected: 0;
 }
 QTreeWidget#ops-export-tree::item {
-    min-height: 26px;
-    padding: 3px 6px;
+    min-height: 36px;
+    padding: 4px 8px;
 }
 QTreeWidget#ops-export-tree::item:selected,
 QTreeWidget#ops-export-tree::item:selected:active,

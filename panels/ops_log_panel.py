@@ -1132,7 +1132,7 @@ class OpsLogPanel(QWidget):
     def _create_terminal_tab(self, title: str = '会话', *, copy_from_current: bool = False):
         from ui.ssh_terminal import SshTerminalWidget
         term = SshTerminalWidget()
-        term.setMinimumHeight(180)
+        term.setMinimumHeight(220)
         if getattr(self, 'term_tabs', None) is not None and self.term_tabs.count() > 0:
             self._save_session_at(self.term_tabs.currentIndex())
         idx = self.term_tabs.addTab(term, title)
@@ -1697,17 +1697,20 @@ class OpsLogPanel(QWidget):
             self._on_service_combo_changed()
 
     def _card(self):
+        from ui.layout_metrics import SPACING_CARD
         frame = QFrame()
         apply_surface(frame, 'card')
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(SPACING_CARD)
         return frame, layout
 
     def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
 
         self.header_status = QLabel()
         self.header_status.setObjectName('page-context')
@@ -2688,8 +2691,10 @@ class OpsLogPanel(QWidget):
         self._update_connect_button_text()
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible
+        from ui.responsive import page_spacing_for_mode, set_subtitle_visible
         from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(self.subtitle_label, low_height or mode == 'narrow')
         if not hasattr(self, 'main_split'):
             return
@@ -2716,7 +2721,7 @@ class OpsLogPanel(QWidget):
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(260 if i == 0 else 420)
+                    w.setMinimumWidth(260 if i == 0 else 480)
                     w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
@@ -2724,7 +2729,11 @@ class OpsLogPanel(QWidget):
             page_id='ops-log',
             tab_id='main',
             bucket=layout_bucket(mode),
-            min_sizes=[200, 220] if mode == 'narrow' else [260, 360],
+            min_sizes=(
+                [200, 220] if mode == 'narrow'
+                else [240, 360] if mode == 'compact'
+                else [260, 480]
+            ),
             accessible_name='日志排查主分隔',
         )
 

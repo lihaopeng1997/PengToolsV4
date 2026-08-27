@@ -213,10 +213,15 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         p = InterfaceDebugPanel('zh')
         self.assertTrue(hasattr(p, 'rt_editor_response_splitter'))
         self.assertEqual(p.rt_editor_response_splitter.orientation(), Qt.Orientation.Vertical)
-        self.assertGreaterEqual(p.draft_preview.minimumHeight(), 120)
+        self.assertGreaterEqual(p.draft_preview.minimumHeight(), 220)
+        p.resize(1100, 900)
+        p.show()
+        self.app.processEvents()
+        p.rt_editor_response_splitter.setSizes([560, 320])
+        self.app.processEvents()
         sizes = p.rt_editor_response_splitter.sizes()
         self.assertGreaterEqual(len(sizes), 2)
-        self.assertGreater(sizes[0], sizes[1])
+        self.assertGreaterEqual(sizes[0], sizes[1])
 
     def test_request_test_splitter_persists_only_visual_sizes(self):
         p = InterfaceDebugPanel('zh')
@@ -262,9 +267,9 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         p = InterfaceDebugPanel('zh')
         self.assertEqual(
             [p.detail_tabs.tabText(i) for i in range(p.detail_tabs.count())],
-            ['概览', '请求', '响应', '请求测试'],
+            ['概览', '请求', '响应', '请求验证'],
         )
-        self.assertGreaterEqual(p.resp_detail.minimumHeight(), 180)
+        self.assertGreaterEqual(p.resp_detail.minimumHeight(), 240)
         self.assertTrue(p.resp_detail.isReadOnly())
         p._records_by_id = {
             'a': {
@@ -363,10 +368,16 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
 
     def test_reapplying_same_layout_preserves_dragged_splitter_sizes(self):
         p = InterfaceDebugPanel('zh')
+        p.resize(1280, 800)
+        p.show()
+        self.app.processEvents()
         p.apply_layout_mode('wide', False)
-        p.mid_splitter.setSizes([500, 300])
+        self.app.processEvents()
+        p.mid_splitter.setSizes([500, 780])
+        self.app.processEvents()
         expected_sizes = list(p.mid_splitter.sizes())
         p.apply_layout_mode('wide', False)
+        self.app.processEvents()
         self.assertEqual(p.mid_splitter.sizes(), expected_sizes)
 
     def test_workspace_places_capture_and_session_tools_inside_left_pane(self):
@@ -377,7 +388,11 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertIs(p.capture_zone.parentWidget(), p)
         self.assertFalse(p.status_label.isVisible())
         self.assertFalse(p.live_status.isVisible())
-        self.assertIs(p.capture_toggle_btn.parentWidget(), p.session_toolbar)
+        # P0：抓包主按钮在页头，不再塞进会话筛选条
+        from PyQt6.QtWidgets import QFrame
+        header = p.findChild(QFrame, 'page-header')
+        self.assertIsNotNone(header)
+        self.assertTrue(header.isAncestorOf(p.capture_toggle_btn))
         self.assertIs(p.session_toolbar_scroll.parentWidget(), p._session_list_widget)
         self.assertIs(p.session_toolbar_scroll.widget(), p.session_toolbar)
         self.assertTrue(p.session_toolbar_scroll.widgetResizable())

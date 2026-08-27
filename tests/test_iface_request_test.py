@@ -255,9 +255,13 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         self.assertTrue(hasattr(p, 'rt_import_btn'))
         self.assertTrue(hasattr(p, 'export_list_btn'))
         p.set_language('zh')
-        self.assertEqual(p.detail_tabs.tabText(3), '请求测试')
+        self.assertEqual(p.detail_tabs.tabText(3), '请求验证')
         self.assertEqual(p.export_detail_btn.text(), '导出明细')
-        self.assertEqual(p.rt_send_btn.text(), '发送')
+        # P0 三态文案：发送 · 到 {host} / 选择环境后发送 / 发送 · 到所选环境
+        self.assertTrue(
+            p.rt_send_btn.text().startswith('发送'),
+            p.rt_send_btn.text(),
+        )
         from ui.key_value_editor import KeyValueEditor
         self.assertIsInstance(p.rt_headers, KeyValueEditor)
         self.assertIsInstance(p.rt_params, KeyValueEditor)

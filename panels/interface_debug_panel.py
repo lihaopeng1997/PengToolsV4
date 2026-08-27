@@ -247,9 +247,12 @@ class InterfaceDebugPanel(QWidget):
 
     # ── UI ──────────────────────────────────────────────
     def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE
+        from ui.responsive import editor_min_height
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
 
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('offline-pill')
@@ -354,25 +357,22 @@ class InterfaceDebugPanel(QWidget):
         self.capture_zone.setParent(self)
         self.capture_zone.hide()
 
-        # 会话筛选条（搜索/chip，不含主监听按钮）
+        # 会话筛选条（搜索/chip，不含主监听按钮）；保留 iface-session-toolbar，避免 chip 计入 page-filter-bar 基线
         tools = QFrame()
         self.session_toolbar = tools
         apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
         tv = QVBoxLayout(tools)
-        tv.setContentsMargins(8, 8, 8, 10)
+        tv.setContentsMargins(12, 8, 12, 8)
         tv.setSpacing(8)
         tl = QHBoxLayout()
-        tl.setSpacing(6)
+        tl.setSpacing(8)
         self.filter_edit = QLineEdit()
         self.filter_edit.setObjectName('iface-session-search')
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
         self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
-        try:
-            from ui.field_metrics import size_field_height
-            size_field_height(self.filter_edit)
-        except Exception:
-            self.filter_edit.setMinimumHeight(32)
+        self.filter_edit.setMinimumHeight(36)
+        self.filter_edit.setMaximumHeight(40)
 
         self._filter_chips: dict[str, _FilterChip] = {}
         chip_defs = [
@@ -566,7 +566,7 @@ class InterfaceDebugPanel(QWidget):
         self.overview_edit.setReadOnly(True)
         self.overview_edit.setObjectName('iface-detail-edit')
         self.overview_edit.setFont(mono)
-        self.overview_edit.setMinimumHeight(180)
+        self.overview_edit.setMinimumHeight(editor_min_height())
         ov.addWidget(self.overview_edit, 1)
         self.detail_tabs.addTab(self.overview_page, '概览')
 
@@ -594,7 +594,7 @@ class InterfaceDebugPanel(QWidget):
         self.req_detail.setReadOnly(True)
         self.req_detail.setObjectName('iface-detail-edit')
         self.req_detail.setFont(mono)
-        self.req_detail.setMinimumHeight(180)
+        self.req_detail.setMinimumHeight(editor_min_height())
         rq.addWidget(self.req_detail, 1)
         self.detail_tabs.addTab(self.req_page, '请求')
 
@@ -622,7 +622,7 @@ class InterfaceDebugPanel(QWidget):
         self.resp_detail.setReadOnly(True)
         self.resp_detail.setObjectName('iface-detail-edit')
         self.resp_detail.setFont(mono)
-        self.resp_detail.setMinimumHeight(180)
+        self.resp_detail.setMinimumHeight(editor_min_height())
         rs.addWidget(self.resp_detail, 1)
         self.detail_tabs.addTab(self.resp_page, '响应')
 
@@ -911,7 +911,7 @@ class InterfaceDebugPanel(QWidget):
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMinimumHeight(120)
+        self.draft_preview.setMinimumHeight(220)
         self.draft_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.draft_preview.setPlaceholderText(
             '发送后此处显示完整响应 Body（不截断）；左侧可收藏接口与查看历史'
@@ -972,7 +972,7 @@ class InterfaceDebugPanel(QWidget):
             page_id='interface-debug',
             tab_id='session-detail',
             bucket=layout_bucket('standard'),
-            min_sizes=[240, 420],
+            min_sizes=[240, 480],
             accessible_name='接口排查会话/详情分隔',
             on_changed=lambda values: self._save_splitter_sizes(*values[:2]),
         )
@@ -4245,9 +4245,12 @@ class InterfaceDebugPanel(QWidget):
         self._rebuild_session_actions_menu()
 
     def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import page_spacing_for_mode
         from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         previous_mode = self._layout_mode
         self._layout_mode = mode
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height or mode == 'narrow')
         prev_orient = self.mid_splitter.orientation()
         # Compact/Narrow：会话/详情改为上下堆叠，并抬高编辑区下限（§8.2/8.3）
@@ -4261,13 +4264,20 @@ class InterfaceDebugPanel(QWidget):
         if self.mid_splitter.orientation() == Qt.Orientation.Horizontal:
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)
-            mins = [240, 420]
+            # prefs 夹紧用 240/480；宽屏下再把详情区硬下限提到 520（小窗不强塞）
+            mins = [240, 480]
             defaults = [420, 580]
+            right = self.mid_splitter.widget(1)
+            if right is not None:
+                right.setMinimumWidth(520 if mode in ('wide', 'standard') else 420)
         else:
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)
             mins = [200, 240]
             defaults = [220, 420]
+            right = self.mid_splitter.widget(1)
+            if right is not None:
+                right.setMinimumWidth(0)
         prefs = (self._prefs.get('splitter_sizes') or {}).get(mode)
         install_splitter_prefs(
             self.mid_splitter,

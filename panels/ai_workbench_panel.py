@@ -229,7 +229,9 @@ class _SqlTab(QWidget):
         self.conn_item = dict(conn_item) if isinstance(conn_item, dict) else None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        from ui.responsive import editor_min_height
         self.editor = SqlEditor()
+        self.editor.setMinimumHeight(editor_min_height())
         self.editor.textChanged.connect(self._mark_dirty)
         layout.addWidget(self.editor)
 
@@ -263,9 +265,11 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_header()
 
     def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE, TABLE_ROW_H
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
         self.run_btn = QPushButton()
         apply_button(self.run_btn, 'primary', compact=True)
         self.run_btn.clicked.connect(lambda: self._run_sql(reset=True))
@@ -338,7 +342,7 @@ class AiWorkbenchPanel(QWidget):
         columns = QSplitter(Qt.Orientation.Horizontal)
 
         self.narrow_chrome = QFrame()
-        self.narrow_chrome.setObjectName('page-toolbar')
+        self.narrow_chrome.setObjectName('page-narrow-chrome')
         narrow_l = QHBoxLayout(self.narrow_chrome)
         narrow_l.setContentsMargins(0, 0, 0, 4)
         narrow_l.setSpacing(8)
@@ -521,6 +525,10 @@ class AiWorkbenchPanel(QWidget):
         det_l.addWidget(self.field_filter)
         self.field_table = QTableWidget()
         apply_table(self.field_table, alternating=True)
+        try:
+            self.field_table.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
+        except Exception:
+            pass
         det_l.addWidget(self.field_table, 1)
         field_btns = QHBoxLayout()
         self.insert_fields_btn = QPushButton()
@@ -553,6 +561,10 @@ class AiWorkbenchPanel(QWidget):
         bottom = QTabWidget()
         self.result = QTableWidget()
         apply_table(self.result, alternating=True)
+        try:
+            self.result.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
+        except Exception:
+            pass
         result_page = QWidget()
         result_l = QVBoxLayout(result_page)
         result_l.setContentsMargins(0, 8, 0, 0)
@@ -590,7 +602,7 @@ class AiWorkbenchPanel(QWidget):
             defaults=[240, 560, 320],
             page_id='sql-console',
             tab_id='columns',
-            min_sizes=[160, 320, 200],
+            min_sizes=[240, 520, 240],
             accessible_name='SQL 控制台列分隔',
         )
         install_splitter_prefs(
@@ -598,7 +610,7 @@ class AiWorkbenchPanel(QWidget):
             defaults=[540, 360],
             page_id='sql-console',
             tab_id='body',
-            min_sizes=[280, 160],
+            min_sizes=[240, 220],
             accessible_name='SQL 控制台上下分隔',
         )
         root.addWidget(body, 1)
@@ -685,12 +697,22 @@ class AiWorkbenchPanel(QWidget):
             self.side_tabs.setVisible(self._narrow_show_ai)
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible
+        from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
         from ui.splitter_prefs import layout_bucket
         self._layout_mode = mode
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
         if hasattr(self, 'narrow_chrome'):
             self.narrow_chrome.setVisible(mode == 'narrow')
+        min_h = editor_min_height()
+        tabs = getattr(self, 'sql_tabs', None)
+        if tabs is not None:
+            for index in range(tabs.count()):
+                tab = tabs.widget(index)
+                editor = getattr(tab, 'editor', None) if tab is not None else None
+                if editor is not None and hasattr(editor, 'setMinimumHeight'):
+                    editor.setMinimumHeight(min_h)
         if not hasattr(self, 'columns_splitter'):
             return
         if mode == 'narrow':
@@ -712,8 +734,8 @@ class AiWorkbenchPanel(QWidget):
         elif mode == 'compact':
             self.left_pane.setVisible(True)
             self.side_tabs.setVisible(True)
-            self.columns_splitter.setSizes([200, 640, 240])
-            self.left_pane.setMinimumWidth(200)
+            self.columns_splitter.setSizes([240, 640, 240])
+            self.left_pane.setMinimumWidth(240)
             self.side_tabs.setMinimumWidth(200)
             mid = self.columns_splitter.widget(1)
             if mid is not None:
@@ -734,7 +756,7 @@ class AiWorkbenchPanel(QWidget):
                 200 if self._narrow_show_ai else 0,
             ]
         elif mode == 'compact':
-            col_mins = [200, 360, 200]
+            col_mins = [240, 360, 200]
         else:
             col_mins = [240, 520, 240]
         install_splitter_prefs(
