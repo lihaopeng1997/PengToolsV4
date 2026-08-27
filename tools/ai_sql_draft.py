@@ -235,7 +235,7 @@ def generate_sql_draft(
         if stale or not isinstance(evidence, dict) or not evidence.get('tables'):
             return empty_draft(
                 summary='无有效字段证据，已拒绝调用模型',
-                warnings=['无有效快照或字段证据，TamengAgent 不会猜测表或字段。'],
+                warnings=['无有效快照或字段证据，不会猜测表或字段。'],
                 fail_closed=True,
             )
     context = build_safe_context(

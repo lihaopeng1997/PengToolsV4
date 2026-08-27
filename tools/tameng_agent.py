@@ -69,7 +69,7 @@ def snapshot_gate(connection: dict | None, snapshot: dict | None, *, wants_index
         return {
             'ok': False,
             'state': 'SNAPSHOT_MISSING',
-            'reason': '尚未扫描当前连接的结构，TamengAgent 不会猜测表或字段。',
+            'reason': '尚未扫描当前连接的结构，不会猜测表或字段。',
             'next_action': '扫描结构',
         }
     status = snapshot_status(connection, snapshot)
@@ -85,7 +85,7 @@ def snapshot_gate(connection: dict | None, snapshot: dict | None, *, wants_index
         return {
             'ok': False,
             'state': 'SNAPSHOT_MISSING',
-            'reason': '尚未扫描当前连接的结构，TamengAgent 不会猜测表或字段。',
+            'reason': '尚未扫描当前连接的结构，不会猜测表或字段。',
             'next_action': '扫描结构',
         }
     if snap_status == 'failed':
@@ -99,7 +99,7 @@ def snapshot_gate(connection: dict | None, snapshot: dict | None, *, wants_index
         return {
             'ok': False,
             'state': 'SNAPSHOT_MISSING',
-            'reason': '尚未扫描当前连接的结构，TamengAgent 不会猜测表或字段。',
+            'reason': '尚未扫描当前连接的结构，不会猜测表或字段。',
             'next_action': '扫描结构',
         }
     version = _snapshot_version(snapshot)

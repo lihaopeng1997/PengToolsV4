@@ -27,6 +27,7 @@ from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_enum_combo
 from ui.json_viewer import JsonViewer
 from ui.page_chrome import make_page_header
+from ui.splitter_prefs import install_splitter_prefs
 from ui.xml_workspace import XmlWorkspace
 
 
@@ -510,6 +511,10 @@ class FormatToolsPanel(QWidget):
 
         # XML：复用 XmlWorkspace
         self.xml_workspace = XmlWorkspace(self.language)
+        if hasattr(self.xml_workspace, 'splitter') and self.xml_workspace.splitter is not None:
+            install_splitter_prefs(
+                self.xml_workspace.splitter, defaults=[480, 520], on_changed=None
+            )
         # 精简 XML 页顶区说明（工具内已有 zone）
         self.tabs.addTab(self.xml_workspace, 'XML')
 

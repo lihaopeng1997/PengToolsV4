@@ -18,6 +18,8 @@ from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_form, size_enum_combo, size_combo
 from ui.json_viewer import JsonViewer
+from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.splitter_prefs import install_splitter_prefs
 
 
 def _looks_like_xml(text: str) -> bool:
@@ -56,21 +58,50 @@ class GatewayDecodePanel(QWidget):
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('dashboard-local-status')
         self.offline_pill.hide()
-        try:
-            from ui.page_chrome import make_page_header
-            header, self.page_title, self.page_subtitle = make_page_header(
-                '加解密',
-                '本地处理，内容不保存',
-                'shield-key',
-            )
-            layout.addWidget(header)
-        except Exception:
-            head = QHBoxLayout()
-            self.page_title = QLabel(); self.page_title.setObjectName('page-title')
-            self.page_subtitle = QLabel(); self.page_subtitle.setObjectName('page-subtitle')
-            titles = QVBoxLayout(); titles.addWidget(self.page_title); titles.addWidget(self.page_subtitle)
-            head.addLayout(titles, 1); head.addWidget(self.offline_pill)
-            layout.addLayout(head)
+
+        self.response_btn = QPushButton()
+        apply_button(self.response_btn, 'primary', compact=True, icon='shield-key', icon_size=16)
+        self.response_btn.clicked.connect(lambda: self._decrypt('response'))
+        header, self.page_title, self.page_subtitle = make_page_header(
+            '加解密',
+            '本地处理，内容不保存',
+            'shield-key',
+            primary_button=self.response_btn,
+            trailing=self.offline_pill,
+        )
+        layout.addWidget(header)
+
+        toolbar, tool_l = make_page_toolbar(divided=True)
+        self.to_iface_btn = QPushButton()
+        apply_button(self.to_iface_btn, 'ghost', compact=True, icon='api-debug', icon_size=16)
+        self.to_iface_btn.clicked.connect(self.open_interface_debug.emit)
+        tool_l.addWidget(self.to_iface_btn)
+        self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
+        self.clear_btn.clicked.connect(self._clear)
+        tool_l.addWidget(self.clear_btn)
+        self.copy_btn = QPushButton()
+        apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
+        self.copy_btn.clicked.connect(self._copy)
+        tool_l.addWidget(self.copy_btn)
+        self.request_btn = QPushButton()
+        apply_button(self.request_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
+        self.request_btn.clicked.connect(lambda: self._decrypt('request'))
+        tool_l.addWidget(self.request_btn)
+        self.more_btn = QToolButton()
+        self.more_btn.setObjectName('responsive-more-btn')
+        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._more_menu = QMenu(self.more_btn)
+        self.more_btn.setMenu(self._more_menu)
+        self.more_btn.hide()
+        tool_l.addWidget(self.more_btn)
+        tool_l.addStretch(1)
+        self.note = QLabel()
+        self.note.setObjectName('field-hint')
+        self.note.hide()
+        tool_l.addWidget(self.note)
+        layout.addWidget(toolbar)
+        self._secondary_btns = [self.to_iface_btn, self.clear_btn, self.copy_btn, self.request_btn]
 
         # 解密参数区：始终显示，不得默认折叠
         self.config_group = QGroupBox()
@@ -212,51 +243,11 @@ class GatewayDecodePanel(QWidget):
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
         # 输入报文与解密结果默认均衡分配，用户仍可按需拖动。
-        splitter.setSizes([520, 520])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
+        install_splitter_prefs(splitter, defaults=[520, 520], on_changed=None)
         work_layout.addWidget(splitter, 1)
         layout.addWidget(work_zone, 1)
-
-        action_bar = QFrame()
-        apply_surface(action_bar, 'zone')
-        action_bar.setObjectName('gateway-action-zone')
-        actions = QHBoxLayout(action_bar)
-        actions.setContentsMargins(8, 6, 8, 6)
-        actions.setSpacing(8)
-        self.note = QLabel()
-        self.note.setObjectName('field-hint')
-        self.note.hide()
-        self.to_iface_btn = QPushButton()
-        apply_button(self.to_iface_btn, 'ghost', compact=True, icon='api-debug', icon_size=16)
-        self.to_iface_btn.clicked.connect(self.open_interface_debug.emit)
-        actions.addWidget(self.to_iface_btn)
-        self.clear_btn = QPushButton()
-        apply_button(self.clear_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.clear_btn.clicked.connect(self._clear)
-        actions.addWidget(self.clear_btn)
-        actions.addStretch(1)
-        self.copy_btn = QPushButton()
-        apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
-        self.copy_btn.clicked.connect(self._copy)
-        actions.addWidget(self.copy_btn)
-        self.request_btn = QPushButton()
-        apply_button(self.request_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
-        self.request_btn.clicked.connect(lambda: self._decrypt('request'))
-        actions.addWidget(self.request_btn)
-        self.response_btn = QPushButton()
-        apply_button(self.response_btn, 'primary', compact=True, icon='shield-key', icon_size=16)
-        self.response_btn.clicked.connect(lambda: self._decrypt('response'))
-        actions.addWidget(self.response_btn)
-        self.more_btn = QToolButton()
-        self.more_btn.setObjectName('responsive-more-btn')
-        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._more_menu = QMenu(self.more_btn)
-        self.more_btn.setMenu(self._more_menu)
-        self.more_btn.hide()
-        actions.addWidget(self.more_btn)
-        self._secondary_btns = [self.to_iface_btn, self.clear_btn, self.copy_btn, self.request_btn]
-        layout.addWidget(action_bar)
 
         self.work_tabs = None
         self.xml_workspace = None

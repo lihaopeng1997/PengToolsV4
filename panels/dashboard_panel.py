@@ -548,7 +548,8 @@ class DashboardPanel(QWidget):
             reverse=True,
         )
         # 列表视口固定高度；条数可超过可见槽位，多出部分滚动查看
-        items = (pinned + plain)[:20]
+        # 摘要条数：工作台只作入口，不与需求管理完整目录重复
+        items = (pinned + plain)[:8]
         self.recent_empty.setVisible(not items)
         for item in items:
             title = decorate_title(item.get('title') or item.get('code') or '未命名', is_pinned(item))
@@ -801,9 +802,10 @@ class DashboardPanel(QWidget):
             self.title.setText('工作台')
             self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · 今天先处理最近的交付事项')
             self.local_status.setText('● 本地工作')
-            self.recent_title.setText('最近需求')
+            self.recent_title.setText('最近需求（摘要）')
             self.recent_more.setText('全部')
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
+            self.recent_more.setToolTip('打开需求管理查看完整目录')
             self.release_title.setText('待升级事项')
             self.release_more.setText('发版联动')
             self.release_month_combo.setToolTip('选择要查看的上线月份')
@@ -821,9 +823,10 @@ class DashboardPanel(QWidget):
             self.title.setText('Workbench')
             self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · Focus on nearby delivery work')
             self.local_status.setText('● Local')
-            self.recent_title.setText('Recent requirements')
+            self.recent_title.setText('Recent requirements (summary)')
             self.recent_more.setText('All')
             self.recent_empty.setText('No requirements yet. Add or scan in Requirements.')
+            self.recent_more.setToolTip('Open Requirements for the full library')
             self.release_title.setText('Upcoming releases')
             self.release_more.setText('Release prep')
             self.release_month_combo.setToolTip('Choose a release month')

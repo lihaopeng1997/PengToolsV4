@@ -56,6 +56,7 @@ class NightThemeTokenTests(unittest.TestCase):
             'INFO_BG', 'SUCCESS_BG', 'WARNING_BG', 'DANGER_BG',
             'SEARCH_MATCH', 'SEARCH_CURRENT', 'LOADING_TRACK',
             'MONTH_HEADER_BG', 'MONTH_HEADER_FG',
+            'GLASS_BG', 'GLASS_BORDER', 'TERM_BG', 'TERM_FG',
         )
         for tid, pal in THEMES.items():
             for key in required:
@@ -310,8 +311,9 @@ class ResponsiveLayoutTests(unittest.TestCase):
         self.assertEqual(classify_layout(1439), 'standard')
         self.assertEqual(classify_layout(1280), 'standard')
         self.assertEqual(classify_layout(1279), 'compact')
-        self.assertEqual(classify_layout(1080), 'compact')
-        self.assertEqual(classify_layout(1079), 'narrow')
+        self.assertEqual(classify_layout(1100), 'compact')
+        self.assertEqual(classify_layout(1099), 'narrow')
+        self.assertEqual(classify_layout(1080), 'narrow')
         self.assertEqual(classify_layout(960), 'narrow')
         self.assertTrue(is_low_height(700))
         self.assertFalse(is_low_height(720))

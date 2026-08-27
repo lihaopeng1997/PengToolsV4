@@ -4,7 +4,7 @@ import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QGroupBox, QHeaderView, QHBoxLayout,
+    QApplication, QComboBox, QFileDialog, QHeaderView, QHBoxLayout,
     QLabel, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -17,6 +17,7 @@ from tools.vin_generator import (
 )
 from ui.design_system import apply_button
 from ui.field_metrics import CompactStepper, apply_caption, size_enum_combo
+from ui.page_chrome import make_page_header, make_page_toolbar
 
 
 class VinPanel(QWidget):
@@ -32,26 +33,18 @@ class VinPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
-        try:
-            from ui.page_chrome import make_page_header
-            header, self.page_title, self.page_subtitle = make_page_header(
-                '车辆 VIN',
-                '离线测试数据，不落盘',
-                'vin',
-            )
-            layout.addWidget(header)
-        except Exception:
-            self.page_title = None
-            self.page_subtitle = None
+        self.generate_btn = QPushButton()
+        apply_button(self.generate_btn, 'primary', compact=True)
+        self.generate_btn.clicked.connect(self._generate)
+        header, self.page_title, self.page_subtitle = make_page_header(
+            '车辆 VIN',
+            '离线测试数据，不落盘',
+            'vin',
+            primary_button=self.generate_btn,
+        )
+        layout.addWidget(header)
 
-        self.settings = QGroupBox()
-        self.settings.setObjectName('vin-settings')
-        self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        settings_l = QVBoxLayout(self.settings)
-        settings_l.setContentsMargins(12, 12, 12, 12)
-        settings_l.setSpacing(8)
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        toolbar, row = make_page_toolbar(divided=True)
         self.mode_label = QLabel()
         apply_caption(self.mode_label)
         row.addWidget(self.mode_label)
@@ -80,12 +73,16 @@ class VinPanel(QWidget):
         row.addWidget(self.qty_label)
         self.qty = CompactStepper(1, 200, 10)
         row.addWidget(self.qty)
-        self.generate_btn = QPushButton()
-        apply_button(self.generate_btn, 'primary', compact=True)
-        self.generate_btn.clicked.connect(self._generate)
-        row.addWidget(self.generate_btn)
         row.addStretch(1)
-        settings_l.addLayout(row)
+        layout.addWidget(toolbar)
+
+        # 兼容旧引用：指定条件区即原 settings 容器
+        self.settings = QWidget()
+        self.settings.setObjectName('vin-settings')
+        self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        settings_l = QVBoxLayout(self.settings)
+        settings_l.setContentsMargins(0, 0, 0, 0)
+        settings_l.setSpacing(8)
 
         self.custom = QWidget()
         custom = QHBoxLayout(self.custom)
@@ -183,13 +180,10 @@ class VinPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.settings.setTitle('')
-        if getattr(self, 'page_title', None) is not None:
-            self.page_title.setText('车辆 VIN' if zh else 'Vehicle VIN')
-        if getattr(self, 'page_subtitle', None) is not None:
-            self.page_subtitle.setText(
-                '离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.'
-            )
+        self.page_title.setText('车辆 VIN' if zh else 'Vehicle VIN')
+        self.page_subtitle.setText(
+            '离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.'
+        )
         self.mode_label.setText('模式' if zh else 'Mode')
         self.mode_combo.setItemText(0, '全随机' if zh else 'Random')
         self.mode_combo.setItemText(1, '指定条件' if zh else 'Custom')

@@ -1440,7 +1440,7 @@ class RequirementPanel(QWidget):
 
         # 次级工具条（扫描/检出/更新等，不抢 Primary）
         toolbar_card = QFrame()
-        toolbar_card.setObjectName('page-filter-bar')
+        toolbar_card.setObjectName('page-toolbar')
         toolbar_layout = QHBoxLayout(toolbar_card)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(8)
@@ -2016,6 +2016,16 @@ class RequirementPanel(QWidget):
             'splitter_sizes': self.detail_splitter.sizes(),
             'content_splitter_sizes': self._content_stack_sizes(),
         })
+
+    def apply_default_splitter_sizes(self):
+        """套用 requirement_ui 默认/已复位的左右分栏尺寸。"""
+        if not hasattr(self, 'detail_splitter') or self.detail_splitter is None:
+            return
+        requirement_ui = load_requirement_ui()
+        sizes = requirement_ui.get('splitter_sizes') or [320, 780]
+        if len(sizes) >= 2 and sizes[0] < 200:
+            sizes = [320, max(520, sizes[1])]
+        self.detail_splitter.setSizes(sizes)
 
     def apply_layout_mode(self, mode, low_height=False):
         """响应主窗口断点：收紧左栏、收纳次要工具栏。"""

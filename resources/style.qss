@@ -1537,8 +1537,8 @@ QTabBar::tab:selected,
 QTabWidget#module-tabs QTabBar::tab:selected {
     color: __PRIMARY_ACTIVE__;
     font-weight: 700;
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: __GLASS_BG__;
+    border: 1px solid __GLASS_BORDER__;
     border-bottom: 2px solid __PRIMARY__;
 }
 QTabBar::scroller { width: 28px; }
@@ -2162,9 +2162,9 @@ QToolTip {
     border-radius: 6px;
 }
 QMenu {
-    background: __ELEVATED_SURFACE__;
+    background: __GLASS_BG__;
     color: __TEXT_STRONG__;
-    border: 1px solid __BORDER__;
+    border: 1px solid __GLASS_BORDER__;
     padding: 6px;
 }
 QMenu::item {
@@ -2183,8 +2183,17 @@ QMenu::separator {
     margin: 4px 8px;
 }
 QDialog {
-    background: __ELEVATED_SURFACE__;
+    background: __GLASS_BG__;
     color: __TEXT_STRONG__;
+    border: 1px solid __GLASS_BORDER__;
+}
+/* 实底高对比面：SQL/日志/终端/表格/密钥不使用玻璃 */
+QPlainTextEdit#ai-prompt-edit,
+QPlainTextEdit#ai-explain,
+QWidget#SqlEditor,
+QTableWidget,
+QTreeWidget {
+    background: __SURFACE__;
 }
 QToolButton#responsive-more-btn {
     background: __SURFACE__;

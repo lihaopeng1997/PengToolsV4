@@ -122,6 +122,18 @@ class OpsPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
+        try:
+            from ui.page_chrome import make_page_header
+            page_header, self.page_title, self.page_subtitle = make_page_header(
+                '命令库',
+                '仅生成与复制命令，不连接服务器、不自动执行',
+                'operations',
+            )
+            root.addWidget(page_header)
+        except Exception:
+            self.page_title = None
+            self.page_subtitle = None
+
         header = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName('ops-search')
@@ -307,6 +319,14 @@ class OpsPanel(QWidget):
         self.language = language
         self._copy_feedback_timer.stop()
         zh = language == 'zh'
+        if getattr(self, 'page_title', None) is not None:
+            self.page_title.setText('命令库' if zh else 'Command Library')
+        if getattr(self, 'page_subtitle', None) is not None:
+            self.page_subtitle.setText(
+                '仅生成与复制命令，不连接服务器、不自动执行'
+                if zh else
+                'Generate and copy commands only — no SSH, no auto-run'
+            )
         current_category = self.category_combo.currentData()
         self.category_combo.blockSignals(True)
         self.category_combo.clear()

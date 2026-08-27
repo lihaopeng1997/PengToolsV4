@@ -296,6 +296,7 @@ class MainWindow(QMainWindow):
         panel = SettingsPanel(self._settings, self.language)
         panel.settings_changed.connect(self._apply_settings)
         panel.reset_floating_position.connect(self._reset_floating_position)
+        panel.layout_prefs_reset.connect(self._on_layout_prefs_reset)
         self._mount_panel(7, panel)
         self.settings_panel = panel
         self._apply_panel_chrome(panel)
@@ -1221,6 +1222,21 @@ class MainWindow(QMainWindow):
             '悬浮工具栏已重置到屏幕右侧' if self.language == 'zh' else 'Floating toolbar reset to screen right',
             3000,
         )
+
+    def _on_layout_prefs_reset(self):
+        """设置页复位分栏后，对已加载面板即时套用默认尺寸。"""
+        req = getattr(self, 'requirement_panel', None)
+        if req is not None and hasattr(req, 'apply_default_splitter_sizes'):
+            try:
+                req.apply_default_splitter_sizes()
+            except Exception:
+                pass
+        iface = getattr(self, 'interface_debug_panel', None)
+        if iface is not None and hasattr(iface, 'apply_default_splitter_sizes'):
+            try:
+                iface.apply_default_splitter_sizes()
+            except Exception:
+                pass
 
     def _setup_hotkeys(self):
         from ui.hotkey_service import HotkeyService

@@ -38,6 +38,7 @@ from ui.confirm_dialog import confirm_action, show_error, show_info, show_warnin
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_secret_field
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
+from ui.splitter_prefs import install_splitter_prefs
 from ui.sql_editor import SqlEditor
 
 
@@ -266,7 +267,7 @@ class AiWorkbenchPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
         self.new_tab_btn = QPushButton()
-        apply_button(self.new_tab_btn, 'primary', compact=True)
+        apply_button(self.new_tab_btn, 'secondary', compact=True)
         self.new_tab_btn.clicked.connect(self._new_sql_tab)
         self.conn_meta = QLabel()
         self.conn_meta.setObjectName('page-context')
@@ -425,7 +426,7 @@ class AiWorkbenchPanel(QWidget):
         right_l.addWidget(self.agent_stage)
         ai_btns = QHBoxLayout()
         self.ai_gen_btn = QPushButton()
-        apply_button(self.ai_gen_btn, 'primary', compact=True)
+        apply_button(self.ai_gen_btn, 'secondary', compact=True)
         self.ai_gen_btn.clicked.connect(lambda: self._run_ai('generate'))
         self.ai_pick_btn = QPushButton()
         apply_button(self.ai_pick_btn, 'secondary', compact=True)
@@ -467,7 +468,7 @@ class AiWorkbenchPanel(QWidget):
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
         right_l.addWidget(self.ai_explain, 1)
-        self.side_tabs.addTab(ai_page, 'TamengAgent')
+        self.side_tabs.addTab(ai_page, 'AI 助手')
 
         detail = QWidget()
         det_l = QVBoxLayout(detail)
@@ -546,6 +547,10 @@ class AiWorkbenchPanel(QWidget):
         body.addWidget(bottom)
         body.setStretchFactor(0, 3)
         body.setStretchFactor(1, 2)
+        self.body_splitter = body
+        self.columns_splitter = columns
+        install_splitter_prefs(columns, defaults=[240, 560, 320], on_changed=None)
+        install_splitter_prefs(body, defaults=[540, 360], on_changed=None)
         root.addWidget(body, 1)
 
         QShortcut(QKeySequence('Ctrl+N'), self, activated=self._new_sql_tab)
@@ -559,8 +564,8 @@ class AiWorkbenchPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
         self.page_subtitle.setText(
-            '多标签编辑 · 结构快照 · TamengAgent 只生成不执行' if zh else
-            'Multi-tab SQL · schema snapshot · TamengAgent drafts never auto-run'
+            '多标签编辑 · 结构快照 · AI 助手只生成不执行' if zh else
+            'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
         )
         self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
         self.conn_new_btn.setText('新建数据库连接' if zh else 'New connection')
@@ -578,7 +583,7 @@ class AiWorkbenchPanel(QWidget):
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
-        self.ai_title.setText('TamengAgent')
+        self.ai_title.setText('AI 助手' if zh else 'AI assistant')
         self.ai_hint.setText(
             '右键输入框添加表/字段。主按钮只生成草案，不会执行。'
             if zh else
@@ -587,9 +592,9 @@ class AiWorkbenchPanel(QWidget):
         self.nl_input.setPlaceholderText(
             '用自然语言描述要生成的 SQL，例如：查询 prpcmain 中创建日期倒序'
             if zh else
-            'Describe the SQL; TamengAgent only uses the current snapshot'
+            'Describe the SQL; only the current snapshot is used'
         )
-        self.side_tabs.setTabText(0, 'TamengAgent')
+        self.side_tabs.setTabText(0, 'AI 助手' if zh else 'AI assistant')
         self.ai_pick_btn.setText('选择表和字段' if zh else 'Pick tables/fields')
         self.ai_snap_btn.setText('查看快照' if zh else 'View snapshot')
         self.agent_more.setText('更多操作' if zh else 'More')
@@ -695,8 +700,8 @@ class AiWorkbenchPanel(QWidget):
         elif stale:
             extra = ' Snapshot missing/stale; scan before generating.'
         self.model_status.setText(
-            ('TamengAgent 只生成 SQL 草案，不会执行。' if ready and zh else
-             'TamengAgent only drafts SQL and never executes.' if ready else
+            ('AI 助手只生成 SQL 草案，不会执行。' if ready and zh else
+             'AI assistant only drafts SQL and never executes.' if ready else
              '未配置内网模型，可手写 SQL。' if zh else
              'Configure an intranet model in Settings.')
             + extra
@@ -741,9 +746,9 @@ class AiWorkbenchPanel(QWidget):
             return
         zh = self.language == 'zh'
         detail = (
-            f"删除「{item.get('name') or ''}」的本机结构快照？重新扫描后才能恢复对象目录和 TamengAgent 上下文。"
+            f"删除「{item.get('name') or ''}」的本机结构快照？重新扫描后才能恢复对象目录和 AI 助手上下文。"
             if zh else
-            f"Delete the local snapshot for '{item.get('name') or ''}'? Scan again to restore objects and TamengAgent context."
+            f"Delete the local snapshot for '{item.get('name') or ''}'? Scan again to restore objects and AI assistant context."
         )
         if not confirm_action(self, self._title(), detail, confirm_text='删除' if zh else 'Delete', danger=True):
             return
@@ -1198,7 +1203,7 @@ class AiWorkbenchPanel(QWidget):
                 '状态：未执行',
             ]
             self.ai_explain.setPlainText(explain + '\n' + '\n'.join(item for item in extra if item))
-            title = 'TamengAgent 草案 · 未执行'
+            title = 'SQL 草案 · 未执行'
             tab = self._new_sql_tab(sql, title)
             tab.base_title = title
             self._refresh_tab_titles()
@@ -1208,7 +1213,7 @@ class AiWorkbenchPanel(QWidget):
             return
         self.ai_explain.setPlainText(format_explanation(draft or {}))
         safety = ai_draft_safety(sql, dialect)
-        title = 'TamengAgent 草案 · 未执行'
+        title = 'SQL 草案 · 未执行'
         if safety.get('fail_closed'):
             self.ai_explain.append('\n' + str(safety.get('reason') or ''))
             self.result_status.setText(title)

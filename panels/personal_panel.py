@@ -1816,6 +1816,18 @@ class PersonalPanel(QWidget):
         self.language = language
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.page_title, self.page_subtitle = make_page_header(
+                '自我学习',
+                '本地知识条目，离线整理',
+                'learning',
+            )
+            root.addWidget(header)
+        except Exception:
+            self.page_title = None
+            self.page_subtitle = None
         self.stack = QStackedWidget()
         self.knowledge_tab = KnowledgeTab(language)
         self.daily_tab = DailyReportTab(language)
@@ -1826,6 +1838,8 @@ class PersonalPanel(QWidget):
         self.set_language(language)
 
     def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         if hasattr(self.knowledge_tab, 'apply_layout_mode'):
             self.knowledge_tab.apply_layout_mode(mode, low_height)
         if hasattr(self.daily_tab, 'apply_layout_mode'):
@@ -1837,6 +1851,24 @@ class PersonalPanel(QWidget):
     def refresh_theme(self):
         if hasattr(self.knowledge_tab, 'refresh_theme'):
             self.knowledge_tab.refresh_theme()
+
+    def _sync_page_header(self):
+        zh = self.language == 'zh'
+        on_daily = self.stack.currentWidget() is self.daily_tab
+        if getattr(self, 'page_title', None) is not None:
+            if on_daily:
+                self.page_title.setText('日报' if zh else 'Daily Report')
+            else:
+                self.page_title.setText('自我学习' if zh else 'Personal Learning')
+        if getattr(self, 'page_subtitle', None) is not None:
+            if on_daily:
+                self.page_subtitle.setText(
+                    '按日整理完成事项与明日计划' if zh else 'Log completed work and tomorrow plans'
+                )
+            else:
+                self.page_subtitle.setText(
+                    '本地知识条目，离线整理' if zh else 'Local knowledge entries, offline only'
+                )
 
     def set_language(self, language):
         self.language = language
@@ -1851,15 +1883,18 @@ class PersonalPanel(QWidget):
             self.daily_tab.reminder_settings_btn.setText(
                 '提醒设置' if language == 'zh' else 'Reminder settings'
             )
+        self._sync_page_header()
 
     def open_daily_report(self):
         self.stack.setCurrentWidget(self.daily_tab)
+        self._sync_page_header()
         # 从设置页改完提醒后切回：必须主动刷新，不能只靠 showEvent
         if hasattr(self.daily_tab, 'reload_reminder_settings'):
             self.daily_tab.reload_reminder_settings()
 
     def open_learning(self):
         self.stack.setCurrentWidget(self.knowledge_tab)
+        self._sync_page_header()
 
     def reload_reminder_settings(self, settings=None):
         """主窗口：设置页保存提醒后回调。"""

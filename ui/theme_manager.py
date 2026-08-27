@@ -57,6 +57,10 @@ _LIGHT_EXTRA = {
     'MONTH_HEADER_BG': '#F0F3FA',
     'MONTH_HEADER_FG': '#1E2A44',
     'HIGHLIGHT_MARK': '#B24A24',
+    # 轻玻璃：仅 Tab/Menu/Dialog/Toast/Loading；SQL/终端/表格仍用实底 SURFACE
+    'GLASS_BG': 'rgba(255, 254, 251, 236)',
+    'GLASS_BORDER': 'rgba(221, 218, 210, 200)',
+    'GLASS_SHADOW': 'rgba(26, 31, 28, 28)',
     # 默认 calm 系终端
     'TERM_BG': '#121A22',
     'TERM_FG': '#E8EEF4',
@@ -307,6 +311,9 @@ THEMES: dict[str, dict[str, str]] = {
         'STATUS_SUCCESS_BG': '#142018',
         'STATUS_WARNING_BG': '#2A2214',
         'STATUS_DANGER_BG': '#2A1618',
+        'GLASS_BG': 'rgba(22, 22, 24, 230)',
+        'GLASS_BORDER': 'rgba(63, 63, 70, 200)',
+        'GLASS_SHADOW': 'rgba(0, 0, 0, 90)',
     },
 }
 

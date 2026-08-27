@@ -19,6 +19,7 @@ from tools.id_documents import (
 from tools.china_regions import REGIONS
 from ui.design_system import apply_button
 from ui.field_metrics import CompactStepper, apply_caption, size_enum_combo, size_pick_combo
+from ui.page_chrome import make_page_header
 
 
 class CreditCodePanel(QWidget):
@@ -62,21 +63,12 @@ class CreditCodePanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
-        try:
-            from ui.page_chrome import make_page_header
-            header, self.title, self.subtitle = make_page_header(
-                '证件类型',
-                '离线测试数据，不落盘',
-                'document-id',
-            )
-            root.addWidget(header)
-        except Exception:
-            self.title = QLabel()
-            self.title.setObjectName('page-title')
-            root.addWidget(self.title)
-            self.subtitle = QLabel()
-            self.subtitle.setObjectName('page-subtitle')
-            root.addWidget(self.subtitle)
+        header, self.title, self.subtitle = make_page_header(
+            '证件类型',
+            '离线测试数据，不落盘',
+            'document-id',
+        )
+        root.addWidget(header)
         self.page_title = self.title
         self.page_subtitle = self.subtitle
 

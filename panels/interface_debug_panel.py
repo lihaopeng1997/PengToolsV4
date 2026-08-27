@@ -1439,6 +1439,22 @@ class InterfaceDebugPanel(QWidget):
         self._prefs['request_test_splitter_sizes'] = saved
         update_ui_prefs({'request_test_splitter_sizes': saved})
 
+    def apply_default_splitter_sizes(self):
+        """套用已复位的 ui_prefs 分栏默认值（不改会话/报文）。"""
+        self._config = load_interface_debug_config()
+        self._prefs = dict(self._config.get('ui_prefs') or {})
+        mode = getattr(self, '_layout_mode', 'standard') or 'standard'
+        sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
+        if hasattr(self, 'mid_splitter') and sizes and len(sizes) >= 2:
+            self.mid_splitter.setSizes([int(sizes[0]), int(sizes[1])])
+        rt_sizes = self._prefs.get('request_test_splitter_sizes')
+        if (
+            hasattr(self, 'rt_editor_response_splitter')
+            and isinstance(rt_sizes, (list, tuple))
+            and len(rt_sizes) >= 2
+        ):
+            self.rt_editor_response_splitter.setSizes([int(rt_sizes[0]), int(rt_sizes[1])])
+
     # ── 模式 ──────────────────────────────────────────
     def _mode_from_index(self, index: int) -> str:
         return {0: 'proxy', 1: 'chromium', 2: 'ie'}.get(int(index), 'proxy')

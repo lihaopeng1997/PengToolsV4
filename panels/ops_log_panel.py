@@ -38,6 +38,7 @@ from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
 from ui.page_chrome import make_page_header
+from ui.splitter_prefs import install_splitter_prefs
 from ui.ssh_terminal import SshTerminalWidget
 
 
@@ -2178,7 +2179,7 @@ class OpsLogPanel(QWidget):
         self.main_split.addWidget(right_host)
         self.main_split.setStretchFactor(0, 0)
         self.main_split.setStretchFactor(1, 1)
-        self.main_split.setSizes([420, 860])
+        install_splitter_prefs(self.main_split, defaults=[420, 860], on_changed=None)
         # 允许把左侧拖宽看全路径/表单
         try:
             self.main_split.setCollapsible(0, False)

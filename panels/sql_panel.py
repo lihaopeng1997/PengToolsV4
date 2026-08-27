@@ -111,7 +111,19 @@ class SqlToolPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setSpacing(12)
+
+        try:
+            from ui.page_chrome import make_page_header
+            header, self.page_title, self.page_subtitle = make_page_header(
+                '升级准备',
+                '勾选需求，生成 SQL 与发版资料',
+                'release',
+            )
+            root.addWidget(header)
+        except Exception:
+            self.page_title = None
+            self.page_subtitle = None
 
         # 顶栏不再放 SQL 按钮，避免切换 Sheet 时“突然冒出一排按钮”
         self.tabs = QTabWidget()
@@ -902,6 +914,14 @@ class SqlToolPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
+        if getattr(self, 'page_title', None) is not None:
+            self.page_title.setText('升级准备' if zh else 'Release Prep')
+        if getattr(self, 'page_subtitle', None) is not None:
+            self.page_subtitle.setText(
+                '勾选需求，生成 SQL 与发版资料'
+                if zh else
+                'Select requirements, generate SQL and release package'
+            )
         self.load_btn.setText('导入 SQL' if zh else 'Import SQL')
         self.paste_btn.setText('粘贴 SQL' if zh else 'Paste SQL')
         self.clear_btn.setText('清空' if zh else 'Clear')

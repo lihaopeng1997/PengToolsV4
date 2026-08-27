@@ -24,7 +24,9 @@ from tools.svn_workspace import (
 )
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
+from ui.design_system import apply_button
 from ui.field_metrics import apply_caption, apply_form, size_compact_button, size_date, size_field_height, size_line
+from ui.page_chrome import make_page_header
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
 
@@ -74,17 +76,16 @@ class DocxUpdatePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        try:
-            from ui.page_chrome import make_page_header
-            header, self.page_title, self.page_subtitle = make_page_header(
-                '接口文档更新',
-                '选文档，填 SQL，生成本地稿',
-                'doc-update',
-            )
-            layout.addWidget(header)
-        except Exception:
-            self.page_title = None
-            self.page_subtitle = None
+        self.update_btn = QPushButton()
+        apply_button(self.update_btn, 'primary', compact=True)
+        self.update_btn.clicked.connect(self._update_document)
+        header, self.page_title, self.page_subtitle = make_page_header(
+            '接口文档更新',
+            '选文档，填 SQL，生成本地稿',
+            'doc-update',
+            primary_button=self.update_btn,
+        )
+        layout.addWidget(header)
 
         self.file_group = QGroupBox()
         self.file_group.setObjectName('docx-file-group')
@@ -181,10 +182,6 @@ class DocxUpdatePanel(QWidget):
         self.today_btn = QPushButton()
         size_compact_button(self.today_btn)
         self.today_btn.clicked.connect(lambda: self.update_date.setDate(QDate.currentDate()))
-        self.update_btn = QPushButton()
-        from ui.design_system import apply_button
-        apply_button(self.update_btn, 'primary', compact=True)
-        self.update_btn.clicked.connect(self._update_document)
         date_field = QWidget()
         date_l = QHBoxLayout(date_field)
         date_l.setContentsMargins(0, 0, 0, 0)
@@ -199,7 +196,6 @@ class DocxUpdatePanel(QWidget):
         self.author.setFixedWidth(160)
         date_l.addWidget(self.author)
         date_l.addStretch(1)
-        date_l.addWidget(self.update_btn)
         self.date_row_label = QLabel()
         apply_caption(self.date_row_label)
         form.addRow(self.date_row_label, date_field)
@@ -368,9 +364,8 @@ class DocxUpdatePanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        if getattr(self, 'page_title', None) is not None:
-            self.page_title.setText('接口文档更新' if zh else 'Interface Docs')
-        if getattr(self, 'page_subtitle', None) is not None:
+        self.page_title.setText('接口文档更新' if zh else 'Interface Docs')
+        if self.page_subtitle is not None:
             self.page_subtitle.setText(
                 '选文档，填 SQL，生成本地稿' if zh else 'Pick a document, paste SQL, write locally'
             )

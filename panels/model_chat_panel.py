@@ -22,7 +22,8 @@ from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import size_line, size_pick_combo
-from ui.page_chrome import make_empty_state, make_page_header
+from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
+from ui.splitter_prefs import install_splitter_prefs
 
 
 class _ChatWorker(QThread):
@@ -97,7 +98,7 @@ class ModelChatPanel(QWidget):
         banner_l.addWidget(self.banner_close)
         root.addWidget(self.banner)
 
-        top = QHBoxLayout()
+        toolbar, top = make_page_toolbar(divided=True)
         self.model_combo = QComboBox()
         size_pick_combo(self.model_combo)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
@@ -110,7 +111,7 @@ class ModelChatPanel(QWidget):
         top.addWidget(self.model_combo)
         top.addWidget(self.ping_btn)
         top.addWidget(self.ping_status, 1)
-        root.addLayout(top)
+        root.addWidget(toolbar)
 
         split = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
@@ -186,6 +187,8 @@ class ModelChatPanel(QWidget):
         split.addWidget(right)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 3)
+        self.chat_splitter = split
+        install_splitter_prefs(split, defaults=[260, 780], on_changed=None)
         root.addWidget(split, 1)
 
     def eventFilter(self, watched, event):

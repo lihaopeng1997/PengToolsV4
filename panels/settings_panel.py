@@ -167,6 +167,7 @@ class ThemeCard(QFrame):
 class SettingsPanel(QWidget):
     settings_changed = pyqtSignal(object)
     reset_floating_position = pyqtSignal()
+    layout_prefs_reset = pyqtSignal()
     floating_opacity_preview = pyqtSignal(int)
     theme_preview = pyqtSignal(str)
     edit_floating_shortcuts = pyqtSignal()
@@ -197,21 +198,13 @@ class SettingsPanel(QWidget):
         root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         root.setContentsMargins(16, 10, 16, 16)
         root.setSpacing(12)
-        try:
-            from ui.page_chrome import make_page_header
-            header, self.title, self.subtitle = make_page_header(
-                '设置',
-                '外观与本机偏好',
-                'settings',
-            )
-            root.addWidget(header)
-        except Exception:
-            self.title = QLabel()
-            self.title.setObjectName('page-title')
-            root.addWidget(self.title)
-            self.subtitle = QLabel()
-            self.subtitle.setObjectName('page-subtitle')
-            root.addWidget(self.subtitle)
+        from ui.page_chrome import make_page_header
+        header, self.title, self.subtitle = make_page_header(
+            '设置',
+            '外观与本机偏好',
+            'settings',
+        )
+        root.addWidget(header)
         self.title.installEventFilter(self)
 
         self.appearance_group = QGroupBox()
@@ -259,6 +252,11 @@ class SettingsPanel(QWidget):
         size_enum_combo(self.language_combo)
         self.default_language_label = QLabel()
         appearance.addRow(self.default_language_label, self.language_combo)
+        self.reset_layout_btn = QPushButton()
+        size_compact_button(self.reset_layout_btn)
+        self.reset_layout_btn.clicked.connect(self._reset_layout_prefs)
+        self.reset_layout_label = QLabel()
+        appearance.addRow(self.reset_layout_label, self.reset_layout_btn)
         appearance_outer.addLayout(appearance)
         root.addWidget(self.appearance_group)
 
@@ -1093,6 +1091,37 @@ class SettingsPanel(QWidget):
         self.load_values(DEFAULT_SETTINGS)
         self._save()
 
+    def _reset_layout_prefs(self):
+        """复位已知分栏偏好；不删业务数据/主题/字体。"""
+        from config import save_requirement_ui
+        save_requirement_ui({
+            'splitter_sizes': [320, 780],
+            'content_splitter_sizes': [160, 640],
+        })
+        try:
+            from tools.interface_debug_store import DEFAULT_UI_PREFS, update_ui_prefs
+            update_ui_prefs({
+                'splitter_sizes': {
+                    mode: list(sizes)
+                    for mode, sizes in DEFAULT_UI_PREFS['splitter_sizes'].items()
+                },
+                'request_test_splitter_sizes': list(
+                    DEFAULT_UI_PREFS['request_test_splitter_sizes']
+                ),
+            })
+        except Exception:
+            pass
+        self.layout_prefs_reset.emit()
+        from ui.confirm_dialog import show_info
+        zh = self.language == 'zh'
+        show_info(
+            self,
+            '布局已复位' if zh else 'Layout reset',
+            '已恢复需求管理与接口排查的分栏默认尺寸；其它数据未改动。'
+            if zh else
+            'Requirement and interface-debug splitter sizes were restored. Other data is unchanged.',
+        )
+
     def eventFilter(self, watched, event):
         if watched is self.title and event.type() == QEvent.Type.MouseButtonRelease:
             self._secret_clicks += 1
@@ -1148,6 +1177,13 @@ class SettingsPanel(QWidget):
             '启动时收起侧栏' if zh else 'Collapse sidebar on startup'
         )
         self.default_language_label.setText('默认界面语言' if zh else 'Default language')
+        self.reset_layout_label.setText('分栏布局' if zh else 'Splitter layout')
+        self.reset_layout_btn.setText('复位界面布局' if zh else 'Reset layout')
+        self.reset_layout_btn.setToolTip(
+            '恢复需求管理、接口排查等页面分栏默认尺寸，不删除业务数据。'
+            if zh else
+            'Restore default splitter sizes for Requirements and Interface Debug. Does not delete data.'
+        )
         self.float_group.setTitle('悬浮工具栏' if zh else 'Floating toolbar')
         self.opacity_label.setText('透明度' if zh else 'Opacity')
         self.always_on_top_label.setText('保持在其他窗口上方' if zh else 'Always on top')

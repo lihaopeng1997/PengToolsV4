@@ -5,9 +5,6 @@
 1. 每个 Stack 页面必须有 L1 页头（#page-header）；
 2. 每页 primary 主操作按钮数量不超基线（棘轮：只降不升，批次 2 收口到 ≤1）；
 3. #page-filter-bar 内不允许出现改数据的按钮（已知违例走基线表，批次 2 迁移后清零）。
-
-已知缺页头的 3 个页面（升级准备/命令库/自我学习·日报）用 expectedFailure 标记，
-批次 1 补齐页头后测试会以 unexpected success 报警，届时移除装饰器与基线表条目。
 """
 import os
 import sys
@@ -40,9 +37,6 @@ STACK_PAGES = [
     (15, '模型对话'),
 ]
 
-# 已知缺 L1 页头的页面（批次 1 补齐后从此移除）
-KNOWN_MISSING_HEADER = {2, 6, 9}
-
 # primary 按钮当前基线（面板树内，弹窗不计；2026-08-26 实测校准）：
 # 只降不升；批次 2 主操作收口后逐页下调到 ≤1
 PRIMARY_BASELINE = {
@@ -50,8 +44,8 @@ PRIMARY_BASELINE = {
     9: 3, 10: 4, 11: 4, 12: 2, 13: 6, 14: 1, 15: 1,
 }
 
-# #page-filter-bar 内 QPushButton 当前基线（nav 10 需求管理把工具栏误挂为筛选条，批次 2 迁移）
-FILTER_BAR_BUTTON_BASELINE = {10: 6}
+# #page-filter-bar 内 QPushButton 基线（批次 2：需求管理工具栏已迁至 #page-toolbar，筛选条应为 0）
+FILTER_BAR_BUTTON_BASELINE = {}
 
 _WINDOW_CACHE = {}
 
@@ -84,28 +78,11 @@ class PageHeaderTests(unittest.TestCase):
     def test_complete_pages_have_header(self):
         problems = []
         for nav, label in STACK_PAGES:
-            if nav in KNOWN_MISSING_HEADER:
-                continue
             panel = _panel_for(nav)
             header = panel.findChild(QFrame, 'page-header')
             if header is None:
                 problems.append(label)
         self.assertEqual(problems, [], f'以下页面缺少 L1 页头: {problems}')
-
-    @unittest.expectedFailure
-    def test_release_page_header_missing(self):
-        panel = _panel_for(2)
-        self.assertIsNotNone(panel.findChild(QFrame, 'page-header'), '升级准备应有 L1 页头')
-
-    @unittest.expectedFailure
-    def test_ops_page_header_missing(self):
-        panel = _panel_for(6)
-        self.assertIsNotNone(panel.findChild(QFrame, 'page-header'), '命令库应有 L1 页头')
-
-    @unittest.expectedFailure
-    def test_personal_page_header_missing(self):
-        panel = _panel_for(9)
-        self.assertIsNotNone(panel.findChild(QFrame, 'page-header'), '自我学习/日报应有 L1 页头')
 
 
 class PrimaryActionTests(unittest.TestCase):
