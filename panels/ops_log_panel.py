@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFileIconProvider, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QToolButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -37,7 +37,7 @@ from tools.ops_cmd_history import append_command, command_list, load_history, sa
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
-from ui.page_chrome import make_page_header
+from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 from ui.ssh_terminal import SshTerminalWidget
 
@@ -1076,6 +1076,59 @@ class OpsLogPanel(QWidget):
             'title': '',
         }
 
+
+    def _session_index_label(self, index: int | None = None) -> int:
+        if index is None:
+            index = self.term_tabs.currentIndex() if hasattr(self, 'term_tabs') else 0
+        return max(1, int(index) + 1)
+
+    def _session_tab_title(self, index: int | None = None, *, connected: bool | None = None) -> str:
+        zh = self.language == 'zh'
+        n = self._session_index_label(index)
+        if connected is None:
+            sess = None
+            if hasattr(self, '_term_sessions') and index is not None and 0 <= index < len(self._term_sessions):
+                sess = self._term_sessions[index]
+            elif index is None:
+                sess = self._current_session()
+            connected = bool(sess and sess.get('client') and sess.get('connected'))
+        if zh:
+            return f'会话 {n} · {"已连接" if connected else "未连接"}'
+        return f'Session {n} · {"Connected" if connected else "Disconnected"}'
+
+    def _tab_close_tooltip(self) -> str:
+        return (
+            '关闭此 SSH 会话（将断开连接）'
+            if self.language == 'zh' else
+            'Close this SSH session (will disconnect)'
+        )
+
+    def _apply_tab_chrome(self, index: int, *, connected: bool | None = None):
+        if not hasattr(self, 'term_tabs') or index < 0 or index >= self.term_tabs.count():
+            return
+        title = self._session_tab_title(index, connected=connected)
+        self.term_tabs.setTabText(index, title)
+        self.term_tabs.setTabToolTip(index, self._tab_close_tooltip())
+        if 0 <= index < len(getattr(self, '_term_sessions', [])):
+            self._term_sessions[index]['title'] = title
+
+    def _refresh_header_session_status(self):
+        if not hasattr(self, 'header_status'):
+            return
+        zh = self.language == 'zh'
+        idx = self.term_tabs.currentIndex() if hasattr(self, 'term_tabs') else 0
+        n = self._session_index_label(idx)
+        sess = self._current_session() or {}
+        connected = bool(sess.get('client') and sess.get('connected'))
+        if zh:
+            self.header_status.setText(f'会话 {n} · {"已连接" if connected else "未连接"}')
+        else:
+            self.header_status.setText(
+                f'Session {n} · {"Connected" if connected else "Disconnected"}'
+            )
+        if hasattr(self, 'disconnect_btn'):
+            self.disconnect_btn.setEnabled(connected)
+
     def _create_terminal_tab(self, title: str = '会话', *, copy_from_current: bool = False):
         from ui.ssh_terminal import SshTerminalWidget
         term = SshTerminalWidget()
@@ -1084,6 +1137,7 @@ class OpsLogPanel(QWidget):
             self._save_session_at(self.term_tabs.currentIndex())
         idx = self.term_tabs.addTab(term, title)
         sess = self._new_session_dict(term)
+        # title finalized after append so index-based naming is stable
         sess['title'] = title
         if copy_from_current and self._term_sessions:
             prev_idx = self._active_term_index
@@ -1093,6 +1147,7 @@ class OpsLogPanel(QWidget):
             for k in ('server_id', 'log_path', 'log_file', 'service_path', 'service_name', 'keyword', 'context_lines'):
                 sess[k] = prev.get(k)
         self._term_sessions.append(sess)
+        self._apply_tab_chrome(idx, connected=False)
         self.term_tabs.blockSignals(True)
         self.term_tabs.setCurrentIndex(idx)
         self.term_tabs.blockSignals(False)
@@ -1100,6 +1155,7 @@ class OpsLogPanel(QWidget):
         self.terminal = term
         self.console = term
         self._restore_session_at(idx)
+        self._refresh_header_session_status()
         return term
 
     def _current_session(self) -> dict | None:
@@ -1251,6 +1307,8 @@ class OpsLogPanel(QWidget):
             connected = bool(sess.get('client') and sess.get('connected'))
             self._set_session_connected(connected)
             self._update_session_status_label(sess)
+            self._apply_tab_chrome(index, connected=connected)
+            self._refresh_header_session_status()
             self._refresh_output_context()
             if term is not None:
                 term.setFocus()
@@ -1313,9 +1371,10 @@ class OpsLogPanel(QWidget):
             if 0 <= index < len(self._term_sessions):
                 self._close_session_resources(self._term_sessions[index])
                 self._term_sessions[index] = self._new_session_dict(self.term_tabs.widget(index))
-                self.term_tabs.setTabText(index, '会话1' if zh else 'Session 1')
+                self._apply_tab_chrome(index, connected=False)
             self._active_term_index = index
             self._restore_session_at(index)
+            self._refresh_header_session_status()
             self._console_append('[本会话已断开，标签仍保留]' if zh else '[session disconnected]')
             return
         if 0 <= index < len(self._term_sessions):
@@ -1335,7 +1394,7 @@ class OpsLogPanel(QWidget):
             return
         n = self.term_tabs.count() + 1
         self._create_terminal_tab(
-            f'会话{n}' if self.language == 'zh' else f'Session {n}',
+            f'会话 {n} · 未连接' if self.language == 'zh' else f'Session {n} · Disconnected',
             copy_from_current=True,
         )
         self._console_append(
@@ -1650,13 +1709,44 @@ class OpsLogPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
-        self.connect_btn = QPushButton()
-        apply_button(self.connect_btn, 'primary', icon='terminal', icon_size=16)
-        self.connect_btn.clicked.connect(self._toggle_connect)
+        self.header_status = QLabel()
+        self.header_status.setObjectName('page-context')
+        self.cmd_send_btn = QPushButton()
+        apply_button(self.cmd_send_btn, 'primary', compact=True, icon='terminal', icon_size=16)
+        self.cmd_send_btn.clicked.connect(self._send_cmd_bar)
+        self.disconnect_btn = QPushButton()
+        apply_button(self.disconnect_btn, 'secondary', compact=True)
+        self.disconnect_btn.clicked.connect(self._disconnect_session)
+        self.disconnect_btn.setEnabled(False)
         self.header, self.title_label, self.subtitle_label = make_page_header(
-            '', '', icon_role='search', primary_button=self.connect_btn,
+            '', '', icon_role='search',
+            primary_button=self.cmd_send_btn,
+            trailing=self.header_status,
         )
+        # 设计稿顺序：状态 → 主操作(执行) → 次要(断开)
+        self.header.layout().addWidget(self.disconnect_btn, 0, Qt.AlignmentFlag.AlignTop)
         root.addWidget(self.header)
+
+        toolbar, tool_l = make_page_toolbar(divided=True)
+        self.connect_btn = QPushButton()
+        apply_button(self.connect_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
+        self.connect_btn.clicked.connect(self._connect_session)
+        self.toolbar_export_btn = QPushButton()
+        apply_button(self.toolbar_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
+        self.toolbar_export_btn.clicked.connect(lambda: self._set_work_mode('export'))
+        self.more_btn = QToolButton()
+        self.more_btn.setObjectName('responsive-more-btn')
+        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._more_menu = QMenu(self.more_btn)
+        self.more_btn.setMenu(self._more_menu)
+        self.toolbar_hint = QLabel()
+        self.toolbar_hint.setObjectName('field-hint')
+        tool_l.addWidget(self.connect_btn)
+        tool_l.addWidget(self.toolbar_export_btn)
+        tool_l.addWidget(self.more_btn)
+        tool_l.addStretch(1)
+        tool_l.addWidget(self.toolbar_hint)
+        root.addWidget(toolbar)
 
         if not paramiko_available():
             self.dep_note = QLabel()
@@ -1707,7 +1797,7 @@ class OpsLogPanel(QWidget):
         self.settings_btn = QPushButton()
         apply_button(self.settings_btn, 'ghost', compact=True, icon='settings', icon_size=16)
         self.settings_btn.clicked.connect(self._open_log_settings)
-        mode_row.addWidget(self.settings_btn)
+        self.settings_btn.hide()  # 设置改入页工具栏「更多操作」
         mode_row.addStretch(1)
         left_root.addLayout(mode_row)
 
@@ -2082,10 +2172,14 @@ class OpsLogPanel(QWidget):
         # 兼容旧名
         self.cmd_history_combo = QComboBox()
         self.cmd_history_combo.hide()
-        self.cmd_send_btn = QPushButton()
-        apply_button(self.cmd_send_btn, 'secondary', compact=True)
-        self.cmd_send_btn.clicked.connect(self._send_cmd_bar)
-        self.cmd_fill_btn = QPushButton()  # 现为「历史」
+        # 页头已占用唯一 primary「执行」；底部同动作必须 secondary
+        self.cmd_send_bottom_btn = QPushButton()
+        apply_button(self.cmd_send_bottom_btn, 'secondary', compact=True)
+        self.cmd_send_bottom_btn.clicked.connect(self._send_cmd_bar)
+        self.cmd_fill_terminal_btn = QPushButton()
+        apply_button(self.cmd_fill_terminal_btn, 'secondary', compact=True)
+        self.cmd_fill_terminal_btn.clicked.connect(self._fill_terminal_from_last_cmd)
+        self.cmd_fill_btn = QPushButton()  # 「历史」
         apply_button(self.cmd_fill_btn, 'ghost', compact=True)
         self.cmd_fill_btn.clicked.connect(self._open_cmd_history_dialog)
         self.nl_query_btn = QPushButton()
@@ -2099,8 +2193,9 @@ class OpsLogPanel(QWidget):
         cmd_row.addWidget(self.cmd_input, 1)
         cmd_row.addWidget(self.nl_query_btn)
         cmd_row.addWidget(self.exec_query_btn)
+        cmd_row.addWidget(self.cmd_fill_terminal_btn)
         cmd_row.addWidget(self.cmd_fill_btn)
-        cmd_row.addWidget(self.cmd_send_btn)
+        cmd_row.addWidget(self.cmd_send_bottom_btn)
         right_l.addLayout(cmd_row)
 
         # 浅色外壳 + 深色控制台：与页面 sheet 协调，终端仍鲜明
@@ -2116,10 +2211,13 @@ class OpsLogPanel(QWidget):
         self.term_tabs.tabCloseRequested.connect(self._close_term_tab)
         self.term_tabs.currentChanged.connect(self._on_term_tab_changed)
         self._term_sessions: list[dict] = []
-        self.terminal = self._create_terminal_tab('会话1')
+        self._last_fill_cmd = ''
+        self.terminal = self._create_terminal_tab('会话 1 · 未连接')
         term_shell_l.addWidget(self.term_tabs, 1)
         right_l.addWidget(self.term_shell, 3)
         self._reload_cmd_history()
+        self._rebuild_more_menu()
+        self._refresh_header_session_status()
 
         self.term_hint = QLabel()
         self.term_hint.setObjectName('field-hint')
@@ -2344,9 +2442,9 @@ class OpsLogPanel(QWidget):
         zh = language == 'zh'
         self.title_label.setText('日志排查' if zh else 'Log Inspect')
         self.subtitle_label.setText(
-            '连接主机 → 选服务与日志 → 关键字截取；右侧终端交互；批量导出支持多机并行'
+            '主机、日志路径和终端会话持续可见；执行与填入严格分层。'
             if zh else
-            'Connect host → pick service/log → keyword extract; terminal on right; multi-host export'
+            'Host, log path and terminal session stay visible; fill vs execute are separated.'
         )
         if hasattr(self, 'mode_session_btn'):
             self.mode_session_btn.setText('会话' if zh else 'Session')
@@ -2356,6 +2454,19 @@ class OpsLogPanel(QWidget):
             self.settings_btn.setToolTip(
                 '上下文行数 / 并行 / 超时 / 忽略大小写等' if zh else 'Context, parallel, timeout, case…'
             )
+        if hasattr(self, 'toolbar_export_btn'):
+            self.toolbar_export_btn.setText('批量导出日志' if zh else 'Batch export logs')
+            self.toolbar_export_btn.setToolTip(
+                '切换到批量导出工作区' if zh else 'Switch to batch export workspace'
+            )
+        if hasattr(self, 'toolbar_hint'):
+            self.toolbar_hint.setText(
+                '仅在当前 SSH 会话执行；命令会记入本机历史。'
+                if zh else
+                'Runs only on the current SSH session; commands are saved to local history.'
+            )
+        if hasattr(self, 'more_btn'):
+            self._rebuild_more_menu()
         if hasattr(self, 'remote_toggle_btn'):
             checked = self.remote_toggle_btn.isChecked()
             self.remote_toggle_btn.setText(('收起' if checked else '展开') if zh else ('Hide' if checked else 'Show'))
@@ -2370,7 +2481,7 @@ class OpsLogPanel(QWidget):
                 self.tabs.setTabText(1, '批量导出' if zh else 'Batch export')
             except Exception:
                 pass
-        self.server_title.setText('主机' if zh else 'Host')
+        self.server_title.setText('服务器与日志' if zh else 'Servers & logs')
         self.remote_title.setText('远端目录' if zh else 'Remote files')
         self.quick_title.setText('日志截取' if zh else 'Log extract')
         self.console_title.setText('终端' if zh else 'Terminal')
@@ -2528,9 +2639,38 @@ class OpsLogPanel(QWidget):
 
         if hasattr(self, 'cmd_send_btn'):
             self.cmd_send_btn.setText('执行到当前终端' if zh else 'Run on current terminal')
-            self.cmd_send_btn.setToolTip('对当前终端执行并记入本机历史' if zh else 'Run on current terminal + local history')
+            self.cmd_send_btn.setToolTip(
+                '对当前终端执行并记入本机历史' if zh else 'Run on current terminal + local history'
+            )
+        if hasattr(self, 'cmd_send_bottom_btn'):
+            self.cmd_send_bottom_btn.setText('执行到当前终端' if zh else 'Run on current terminal')
+            self.cmd_send_bottom_btn.setToolTip(
+                '对当前终端执行并记入本机历史（次要入口）'
+                if zh else
+                'Run on current terminal + local history (secondary)'
+            )
+        if hasattr(self, 'cmd_fill_terminal_btn'):
+            self.cmd_fill_terminal_btn.setText('填入终端' if zh else 'Fill terminal')
+            self.cmd_fill_terminal_btn.setToolTip(
+                '把最近预览/截取/看尾部生成的命令填入输入框（不执行）'
+                if zh else
+                'Fill input with last preview/grep/tail command (does not run)'
+            )
+        if hasattr(self, 'cmd_fill_btn'):
             self.cmd_fill_btn.setText('历史' if zh else 'History')
-            self.cmd_fill_btn.setToolTip('打开带日期的命令历史，可右键带入/对当前终端执行' if zh else 'History with dates; run on current terminal')
+            self.cmd_fill_btn.setToolTip(
+                '打开带日期的命令历史，可带入或对当前终端执行'
+                if zh else
+                'History with dates; fill or run on current terminal'
+            )
+        # 刷新标签文案与关闭 tooltip
+        if hasattr(self, 'term_tabs'):
+            for i in range(self.term_tabs.count()):
+                connected = False
+                if 0 <= i < len(getattr(self, '_term_sessions', [])):
+                    s = self._term_sessions[i]
+                    connected = bool(s.get('client') and s.get('connected'))
+                self._apply_tab_chrome(i, connected=connected)
         if hasattr(self, 'nl_query_btn'):
             self.nl_query_btn.setText('生成查询' if zh else 'NL query')
             self.nl_query_btn.setToolTip(
@@ -2989,16 +3129,64 @@ class OpsLogPanel(QWidget):
 
     def _update_connect_button_text(self):
         zh = self.language == 'zh'
-        if self._session_client() is not None:
-            self.connect_btn.setText('断开本会话' if zh else 'Disconnect tab')
-        else:
-            self.connect_btn.setText('连接本会话' if zh else 'Connect tab')
+        if hasattr(self, 'connect_btn'):
+            self.connect_btn.setText('连接本会话' if zh else 'Connect session')
+            self.connect_btn.setToolTip(
+                '仅连接当前终端标签的 SSH 会话' if zh else 'Connect SSH for the current terminal tab'
+            )
+        if hasattr(self, 'disconnect_btn'):
+            self.disconnect_btn.setText('断开本会话' if zh else 'Disconnect session')
+            self.disconnect_btn.setToolTip(
+                '仅断开当前终端标签，不影响其它会话' if zh else 'Disconnect current tab only'
+            )
+        self._refresh_header_session_status()
 
     def _toggle_connect(self):
+        # 兼容旧入口：已连接则断开，否则连接
         if self._session_client() is not None:
             self._disconnect_session()
         else:
             self._connect_session()
+
+    def _rebuild_more_menu(self):
+        if not hasattr(self, '_more_menu'):
+            return
+        zh = self.language == 'zh'
+        self._more_menu.clear()
+        self._more_menu.addAction(
+            '设置' if zh else 'Settings',
+            self._open_log_settings,
+        )
+        if hasattr(self, 'server_toggle_btn'):
+            self._more_menu.addAction(
+                '管理服务器' if zh else 'Manage servers',
+                self._open_server_manage_dialog,
+            )
+        self._more_menu.addAction(
+            '新终端' if zh else 'New terminal',
+            self._add_term_tab,
+        )
+        self._more_menu.addAction(
+            '清空终端显示' if zh else 'Clear terminal',
+            lambda: self._current_terminal() and self._current_terminal().clear(),
+        )
+        if hasattr(self, 'more_btn'):
+            self.more_btn.setText('更多操作' if zh else 'More')
+            self.more_btn.setToolTip(
+                '设置、服务器管理与终端辅助操作' if zh else 'Settings, servers, terminal helpers'
+            )
+
+    def _fill_terminal_from_last_cmd(self):
+        """将最近一次预览/截取/看尾部生成的命令填入命令栏（不执行）。"""
+        cmd = (getattr(self, '_last_fill_cmd', '') or '').strip()
+        if not cmd:
+            # 无缓存时仅聚焦输入框，避免与「执行」混淆
+            if hasattr(self, 'cmd_input'):
+                self.cmd_input.setFocus()
+            return
+        self._set_cmd_bar_text(cmd)
+        if hasattr(self, 'cmd_input'):
+            self.cmd_input.setFocus()
 
     def _disconnect_session(self):
         """只断开当前标签，不影响其它会话标签。"""
@@ -3017,12 +3205,8 @@ class OpsLogPanel(QWidget):
         self._update_session_status_label(sess)
         idx = self.term_tabs.currentIndex()
         if idx >= 0:
-            base = sess.get('title') or (f'会话{idx + 1}' if zh else f'Session {idx + 1}')
-            if sess.get('server_id'):
-                s = next((x for x in self._servers if x.get('id') == sess.get('server_id')), None)
-                if s:
-                    base = str(s.get('name') or s.get('host') or base)
-            self.term_tabs.setTabText(idx, f'{base} · 未连接' if zh else f'{base} · off')
+            self._apply_tab_chrome(idx, connected=False)
+        self._refresh_header_session_status()
         self._console_append('[本会话已断开，其它标签不受影响]' if zh else '[this tab disconnected only]')
 
     def _connect_session(self):
@@ -3134,9 +3318,7 @@ class OpsLogPanel(QWidget):
             sess['remote_cwd'] = payload['cwd']
             sess['remote_entries'] = payload.get('entries') or []
             sess['connected'] = True
-            title = str(payload['server'].get('name') or payload['server'].get('host') or f'会话{tab_index + 1}')
-            sess['title'] = title
-            self.term_tabs.setTabText(tab_index, title)
+            self._apply_tab_chrome(tab_index, connected=True)
 
             if self.term_tabs.currentIndex() == tab_index:
                 self.path_edit.setText(sess['remote_cwd'])
@@ -3147,6 +3329,7 @@ class OpsLogPanel(QWidget):
                     sess['log_path'] = str(payload['server'].get('default_log_path'))
                 self._set_session_connected(True)
                 self._update_session_status_label(sess)
+                self._refresh_header_session_status()
                 self._set_work_mode('session')
                 self._refresh_log_file_combo()
                 self._refresh_output_context()
@@ -3444,6 +3627,7 @@ class OpsLogPanel(QWidget):
                 context_lines=int(cap.get('context_lines') or 20),
                 case_insensitive=bool(cap.get('case_insensitive', True)),
             )
+            self._last_fill_cmd = cmd
             self._console_append(f'[预览] {cmd}')
             term = self._current_terminal()
             if term is not None:
@@ -3474,6 +3658,7 @@ class OpsLogPanel(QWidget):
         except OpsSshError as exc:
             show_warning(self, 'PengTools', str(exc))
             return
+        self._last_fill_cmd = cmd
         term.setFocus()
         # 打进当前会话，不要误写到第一个标签页
         term.send_command_line(cmd)
@@ -3494,6 +3679,7 @@ class OpsLogPanel(QWidget):
         import shlex
         # 默认看尾部；若需要实时跟踪可在终端手输 tail -f
         cmd = f'tail -n {int(n)} -- {shlex.quote(path)}'
+        self._last_fill_cmd = cmd
         term.setFocus()
         term.send_command_line(cmd)
 

@@ -266,17 +266,26 @@ class AiWorkbenchPanel(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
+        self.run_btn = QPushButton()
+        apply_button(self.run_btn, 'primary', compact=True)
+        self.run_btn.clicked.connect(lambda: self._run_sql(reset=True))
         self.new_tab_btn = QPushButton()
         apply_button(self.new_tab_btn, 'secondary', compact=True)
         self.new_tab_btn.clicked.connect(self._new_sql_tab)
         self.conn_meta = QLabel()
-        self.conn_meta.setObjectName('page-context')
+        self.conn_meta.setObjectName('status-pill')
+        header_trail = QWidget()
+        trail_l = QHBoxLayout(header_trail)
+        trail_l.setContentsMargins(0, 0, 0, 0)
+        trail_l.setSpacing(8)
+        trail_l.addWidget(self.conn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
+        trail_l.addWidget(self.new_tab_btn, 0, Qt.AlignmentFlag.AlignTop)
         header, self.page_title, self.page_subtitle = make_page_header(
             'SQL 控制台',
             '多标签 SQL 编辑与内网模型草案',
             'database',
-            primary_button=self.new_tab_btn,
-            trailing=self.conn_meta,
+            primary_button=self.run_btn,
+            trailing=header_trail,
         )
         root.addWidget(header)
 
@@ -284,6 +293,8 @@ class AiWorkbenchPanel(QWidget):
         self.conn_combo = QComboBox()
         size_pick_combo(self.conn_combo)
         self.conn_combo.currentIndexChanged.connect(self._on_connection_changed)
+        self.conn_target_hint = QLabel()
+        self.conn_target_hint.setObjectName('field-hint')
         self.conn_new_btn = QPushButton()
         apply_button(self.conn_new_btn, 'secondary', compact=True)
         self.conn_new_btn.clicked.connect(lambda: self._edit_connection(new=True))
@@ -303,6 +314,9 @@ class AiWorkbenchPanel(QWidget):
         apply_button(self.scan_cancel_btn, 'ghost', compact=True)
         self.scan_cancel_btn.clicked.connect(self._cancel_scan)
         self.scan_cancel_btn.setEnabled(False)
+        self.save_draft_btn = QPushButton()
+        apply_button(self.save_draft_btn, 'secondary', compact=True)
+        self.save_draft_btn.clicked.connect(self._save_draft)
         self.view_snap_btn = QPushButton()
         apply_button(self.view_snap_btn, 'ghost', compact=True)
         self.view_snap_btn.clicked.connect(self._view_snapshot)
@@ -313,8 +327,8 @@ class AiWorkbenchPanel(QWidget):
         apply_button(self.model_btn, 'ghost', compact=True)
         self.model_btn.clicked.connect(self._open_settings)
         for widget in (
-            self.conn_combo, self.conn_new_btn, self.conn_edit_btn, self.conn_del_btn,
-            self.test_btn, self.scan_btn, self.scan_cancel_btn, self.view_snap_btn, self.del_snap_btn, self.model_btn,
+            self.conn_combo, self.conn_target_hint, self.conn_new_btn, self.conn_edit_btn, self.conn_del_btn,
+            self.test_btn, self.scan_btn, self.scan_cancel_btn, self.save_draft_btn, self.model_btn,
         ):
             tool_l.addWidget(widget)
         tool_l.addStretch(1)
@@ -364,6 +378,13 @@ class AiWorkbenchPanel(QWidget):
         self.tree_empty = make_empty_state('尚未扫描结构', '点击工具栏「扫描结构」加载当前账号可见对象')
         self.tree_empty.hide()
         left_l.addWidget(self.tree_empty)
+        left_bottom = QHBoxLayout()
+        left_bottom.setContentsMargins(0, 4, 0, 0)
+        left_bottom.setSpacing(8)
+        left_bottom.addWidget(self.view_snap_btn)
+        left_bottom.addWidget(self.del_snap_btn)
+        left_bottom.addStretch(1)
+        left_l.addLayout(left_bottom)
         columns.addWidget(left)
 
         middle = QWidget()
@@ -371,28 +392,23 @@ class AiWorkbenchPanel(QWidget):
         mid_l.setContentsMargins(0, 0, 0, 0)
         mid_l.setSpacing(8)
         editor_row = QHBoxLayout()
-        self.run_btn = QPushButton()
-        apply_button(self.run_btn, 'primary', compact=True)
-        self.run_btn.clicked.connect(lambda: self._run_sql(reset=True))
         self.format_btn = QPushButton()
         apply_button(self.format_btn, 'ghost', compact=True)
         self.format_btn.clicked.connect(self._format_sql)
         self.clear_btn = QPushButton()
         apply_button(self.clear_btn, 'ghost', compact=True)
         self.clear_btn.clicked.connect(self._clear_editor)
-        self.save_draft_btn = QPushButton()
-        apply_button(self.save_draft_btn, 'ghost', compact=True)
-        self.save_draft_btn.clicked.connect(self._save_draft)
-        editor_row.addWidget(self.run_btn)
+        self.risk_chip = QLabel()
+        self.risk_chip.setObjectName('status-pill')
         editor_row.addWidget(self.format_btn)
         editor_row.addWidget(self.clear_btn)
-        editor_row.addWidget(self.save_draft_btn)
         editor_row.addStretch(1)
+        editor_row.addWidget(self.risk_chip, 0, Qt.AlignmentFlag.AlignVCenter)
         mid_l.addLayout(editor_row)
         self.sql_tabs = QTabWidget()
         self.sql_tabs.setTabsClosable(True)
         self.sql_tabs.tabCloseRequested.connect(self._close_sql_tab)
-        self.sql_tabs.currentChanged.connect(self._refresh_tab_titles)
+        self.sql_tabs.currentChanged.connect(self._on_sql_tab_changed)
         mid_l.addWidget(self.sql_tabs, 1)
         columns.addWidget(middle)
 
@@ -408,11 +424,11 @@ class AiWorkbenchPanel(QWidget):
         self.agent_status.setWordWrap(True)
         right_l.addWidget(self.agent_status)
         self.model_status = QLabel()
-        self.model_status.setObjectName('field-hint')
+        self.model_status.setObjectName('ops-safety-note')
         self.model_status.setWordWrap(True)
         right_l.addWidget(self.model_status)
         self.ai_hint = QLabel()
-        self.ai_hint.setObjectName('field-hint')
+        self.ai_hint.setObjectName('ops-safety-note')
         self.ai_hint.setWordWrap(True)
         right_l.addWidget(self.ai_hint)
         self.nl_input = AiPromptEdit()
@@ -611,20 +627,19 @@ class AiWorkbenchPanel(QWidget):
         self.test_btn.setText('测试连接' if zh else 'Test')
         self.scan_btn.setText('扫描结构' if zh else 'Scan schema')
         self.scan_cancel_btn.setText('取消扫描' if zh else 'Cancel scan')
-        self.view_snap_btn.setText('查看快照' if zh else 'View snapshot')
-        self.del_snap_btn.setText('删除快照' if zh else 'Delete snapshot')
+        self.view_snap_btn.setText('查看结构快照' if zh else 'View schema snapshot')
+        self.del_snap_btn.setText('删除本地结构快照' if zh else 'Delete local schema snapshot')
         self.model_btn.setText('模型配置' if zh else 'Model settings')
-        self.tree_title.setText('对象目录' if zh else 'Objects')
         self.object_filter.setPlaceholderText('搜索对象名 / 注释' if zh else 'Filter objects')
         self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
-        self.ai_title.setText('AI 助手' if zh else 'AI assistant')
+        self.ai_title.setText('AI 助手 · 仅草案' if zh else 'AI assistant · draft only')
         self.ai_hint.setText(
-            '右键输入框添加表/字段。主按钮只生成草案，不会执行。'
+            '右键输入框添加表/字段。AI 助手仅生成草案，不会执行。'
             if zh else
-            'Right-click to add table/field tokens. Generate never executes.'
+            'Right-click to add table/field tokens. AI drafts only — never executes.'
         )
         self.nl_input.setPlaceholderText(
             '用自然语言描述要生成的 SQL，例如：查询 prpcmain 中创建日期倒序'
@@ -748,16 +763,66 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_ai_pick_state()
         self._refresh_agent_status()
 
+    def _snapshot_scanned(self, item=None) -> bool:
+        data = item if isinstance(item, dict) else self._browse_conn()
+        if not data or not self._snapshot:
+            return False
+        status = snapshot_status(data, self._snapshot)
+        return status.get('status') != 'missing'
+
+    def _refresh_tree_title(self):
+        zh = self.language == 'zh'
+        scanned = self._snapshot_scanned()
+        mark = ('已扫描' if scanned else '未扫描') if zh else ('scanned' if scanned else 'not scanned')
+        self.tree_title.setText(('对象目录 · ' if zh else 'Objects · ') + mark)
+
     def _refresh_header(self):
         zh = self.language == 'zh'
         item = self._browse_conn()
         if not item:
             self.conn_meta.setText('未选择连接' if zh else 'No connection')
+            if hasattr(self, 'conn_target_hint'):
+                self.conn_target_hint.setText('目标连接：—' if zh else 'Target: —')
+            self._refresh_tree_title()
+            self._refresh_risk_chip()
             return
         dialect = str(item.get('dialect') or '')
         label = dict(DIALECTS).get(dialect, dialect)
-        status = snapshot_status(item, self._snapshot)
-        self.conn_meta.setText(f"{item.get('name') or ''} · {label} · {status['label']}")
+        alias = str(item.get('name') or '')
+        scanned = self._snapshot_scanned(item)
+        snap_mark = ('快照已扫描' if scanned else '快照未扫描') if zh else (
+            'snapshot scanned' if scanned else 'snapshot not scanned'
+        )
+        self.conn_meta.setText(f'{alias} · {snap_mark}'.strip(' ·'))
+        if hasattr(self, 'conn_target_hint'):
+            self.conn_target_hint.setText(
+                (f'目标连接：{alias} · {label}' if zh else f'Target: {alias} · {label}').strip()
+            )
+        self._refresh_tree_title()
+        self._refresh_risk_chip()
+
+    def _on_sql_tab_changed(self, index=0):
+        self._refresh_tab_titles(index)
+        self._refresh_risk_chip()
+
+    def _refresh_risk_chip(self):
+        if not hasattr(self, 'risk_chip'):
+            return
+        zh = self.language == 'zh'
+        editor = self._current_editor()
+        sql = editor.toPlainText() if editor is not None else ''
+        item = self._current_conn() or {}
+        dialect = str(item.get('dialect') or 'oracle')
+        info = classify_statement(sql, dialect)
+        if info.get('empty'):
+            text = '空语句' if zh else 'Empty'
+        elif info.get('is_read'):
+            text = '只读查询' if zh else 'Read-only query'
+        elif info.get('needs_confirm'):
+            text = '需确认写操作' if zh else 'Write — confirm required'
+        else:
+            text = '需确认写操作' if zh else 'Confirm required'
+        self.risk_chip.setText(text)
 
     def _refresh_model_status(self):
         zh = self.language == 'zh'
@@ -778,8 +843,8 @@ class AiWorkbenchPanel(QWidget):
         elif stale:
             extra = ' Snapshot missing/stale; scan before generating.'
         self.model_status.setText(
-            ('AI 助手只生成 SQL 草案，不会执行。' if ready and zh else
-             'AI assistant only drafts SQL and never executes.' if ready else
+            ('AI 助手仅依据当前有效 Schema 快照生成草案；不会执行。' if ready and zh else
+             'AI drafts from the current schema snapshot only; never executes.' if ready else
              '未配置内网模型，可手写 SQL。' if zh else
              'Configure an intranet model in Settings.')
             + extra
@@ -1045,11 +1110,13 @@ class AiWorkbenchPanel(QWidget):
         name = title or (f'未命名查询 {self._tab_seq}' if zh else f'Untitled query {self._tab_seq}')
         self._tab_seq += 1
         tab = _SqlTab(name, self._browse_conn())
+        tab.editor.textChanged.connect(self._refresh_risk_chip)
         if text:
             tab.editor.setPlainText(text)
             tab.dirty = False
         index = self.sql_tabs.addTab(tab, name)
         self.sql_tabs.setCurrentIndex(index)
+        self._refresh_risk_chip()
         return tab
 
     def _close_sql_tab(self, index: int):
@@ -1105,6 +1172,7 @@ class AiWorkbenchPanel(QWidget):
         empty = not objects
         self.tree_empty.setVisible(empty)
         self.object_tree.setVisible(not empty)
+        self._refresh_tree_title()
         if empty:
             return
         groups = {}

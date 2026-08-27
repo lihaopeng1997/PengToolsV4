@@ -48,7 +48,7 @@ from ui.confirm_dialog import confirm_action, show_info, show_success, show_warn
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
-from ui.page_chrome import make_page_header
+from ui.page_chrome import make_page_header, make_page_toolbar
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
 MAX_SESSION_RECORDS = 3000
@@ -250,23 +250,56 @@ class InterfaceDebugPanel(QWidget):
 
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('offline-pill')
+        self.capture_toggle_btn = QPushButton()
+        apply_button(self.capture_toggle_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        self.capture_toggle_btn.clicked.connect(self._toggle_capture)
+        self.clear_list_btn = QPushButton()
+        apply_button(self.clear_list_btn, 'secondary', compact=True, icon='delete', icon_size=16)
+        self.clear_list_btn.clicked.connect(self._confirm_clear_session)
+        head_trailing = QWidget()
+        head_tr = QHBoxLayout(head_trailing)
+        head_tr.setContentsMargins(0, 0, 0, 0)
+        head_tr.setSpacing(8)
+        head_tr.addWidget(self.offline_pill)
+        head_tr.addWidget(self.clear_list_btn)
         header, self.page_title, self.page_subtitle = make_page_header(
             '接口排查',
-            '抓 HTTP / HTTPS 请求 · 列表看 URL · 仅内存',
+            '会话、请求与响应在当前应用会话中处理；停止监听不等于清空会话。',
             'api-debug',
-            trailing=self.offline_pill,
+            primary_button=self.capture_toggle_btn,
+            trailing=head_trailing,
         )
         root.addWidget(header)
 
-        # 连接控制区：只要开始/停止抓包，不暴露模式/证书/代理术语
+        # L2：测试监听 / 显示敏感 / 更多 + 脱敏提示
+        page_toolbar, page_tool_l = make_page_toolbar(divided=True)
+        self.page_toolbar = page_toolbar
+        self.test_listen_btn = QPushButton()
+        apply_button(self.test_listen_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
+        self.test_listen_btn.clicked.connect(self._test_listen_loopback)
+        page_tool_l.addWidget(self.test_listen_btn)
+        self.reveal_cb = QCheckBox()
+        self.reveal_cb.toggled.connect(self._on_reveal)
+        page_tool_l.addWidget(self.reveal_cb)
+        self.restore_proxy_btn = QPushButton()
+        apply_button(self.restore_proxy_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
+        self.restore_proxy_btn.setToolTip('若抓包异常退出导致网页/接口不通，点此恢复系统代理')
+        self.restore_proxy_btn.clicked.connect(self._manual_restore_proxy)
+        page_tool_l.addWidget(self.restore_proxy_btn)
+        self.capture_actions_more_btn, self._capture_actions_menu = self._make_overflow_button(page_tool_l)
+        self.toolbar_hint = QLabel()
+        self.toolbar_hint.setObjectName('field-hint')
+        self.toolbar_hint.setWordWrap(True)
+        page_tool_l.addWidget(self.toolbar_hint, 1)
+        root.addWidget(page_toolbar)
+
+        # 连接控制区兼容壳（隐藏）
         conn = QFrame()
         apply_surface(conn, 'card')
         conn.setObjectName('iface-conn-zone')
         cl = QVBoxLayout(conn)
         cl.setContentsMargins(12, 10, 12, 10)
         cl.setSpacing(8)
-
-        # 兼容旧属性（隐藏，逻辑代码仍可引用）
         self.mode_label = QLabel()
         self.mode_label.hide()
         self.mode_combo = QComboBox()
@@ -301,31 +334,11 @@ class InterfaceDebugPanel(QWidget):
         self.conn_more_btn = QToolButton()
         self.conn_more_btn.hide()
         self._conn_more_menu = QMenu(self.conn_more_btn)
-
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        self.capture_toggle_btn = QPushButton()
-        apply_button(self.capture_toggle_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
-        self.capture_toggle_btn.clicked.connect(self._toggle_capture)
-        row2.addWidget(self.capture_toggle_btn)
         # 保留旧属性供既有启动/停止代码兼容引用，不再作为可见操作入口。
         self.connect_btn = QPushButton(self)
         self.connect_btn.hide()
         self.stop_btn = QPushButton(self)
         self.stop_btn.hide()
-        self.test_listen_btn = QPushButton()
-        apply_button(self.test_listen_btn, 'ghost', compact=True, icon='terminal', icon_size=16)
-        self.test_listen_btn.clicked.connect(self._test_listen_loopback)
-        row2.addWidget(self.test_listen_btn)
-        self.restore_proxy_btn = QPushButton()
-        apply_button(self.restore_proxy_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
-        self.restore_proxy_btn.setToolTip('若抓包异常退出导致网页/接口不通，点此恢复系统代理')
-        self.restore_proxy_btn.clicked.connect(self._manual_restore_proxy)
-        row2.addWidget(self.restore_proxy_btn)
-        self.capture_actions_more_btn, self._capture_actions_menu = self._make_overflow_button(row2)
-        row2.addStretch(1)
-        cl.addLayout(row2)
-
         self.status_label = _HintLabel()
         self.status_label.setObjectName('field-hint')
         self.status_label.setWordWrap(True)
@@ -334,12 +347,11 @@ class InterfaceDebugPanel(QWidget):
         self.live_status.setObjectName('field-hint')
         self.live_status.setWordWrap(True)
         self.live_status.hide()
-        # 抓包按钮并入会话工具条；卡片仅挂到本面板，不进左栏布局。
         self.capture_zone = conn
         self.capture_zone.setParent(self)
         self.capture_zone.hide()
 
-        # 会话工具条
+        # 会话筛选条（搜索/chip，不含主监听按钮）
         tools = QFrame()
         self.session_toolbar = tools
         apply_surface(tools, 'zone')
@@ -349,10 +361,6 @@ class InterfaceDebugPanel(QWidget):
         tv.setSpacing(8)
         tl = QHBoxLayout()
         tl.setSpacing(6)
-        tl.addWidget(self.capture_toggle_btn)
-        tl.addWidget(self.test_listen_btn)
-        tl.addWidget(self.restore_proxy_btn)
-        tl.addWidget(self.capture_actions_more_btn)
         self.filter_edit = QLineEdit()
         self.filter_edit.setObjectName('iface-session-search')
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
@@ -387,9 +395,6 @@ class InterfaceDebugPanel(QWidget):
             chip.toggled.connect(lambda checked, k=key: self._on_filter_chip(k, checked))
 
         tl.addStretch(1)
-        self.session_count = QLabel('0 / 0')
-        self.session_count.setObjectName('field-hint')
-        tl.addWidget(self.session_count)
 
         self.cols_btn = QToolButton()
         self.cols_btn.setObjectName('responsive-more-btn')
@@ -403,10 +408,6 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.export_list_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.export_list_btn.clicked.connect(self._export_session_detail)
         tl.addWidget(self.export_list_btn)
-        self.clear_list_btn = QPushButton()
-        apply_button(self.clear_list_btn, 'ghost', compact=True, icon='delete', icon_size=16)
-        self.clear_list_btn.clicked.connect(self._confirm_clear_session)
-        tl.addWidget(self.clear_list_btn)
 
         # 左侧栏隐藏/显示切换按钮（与全局 section_toggle 一致）
         self._toggle_list_btn = QPushButton()
@@ -448,6 +449,14 @@ class InterfaceDebugPanel(QWidget):
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(6)
+        session_title_row = QHBoxLayout()
+        self.session_pane_title = QLabel()
+        self.session_pane_title.setObjectName('section-title')
+        session_title_row.addWidget(self.session_pane_title, 1)
+        self.session_count = QLabel('0 / 0')
+        self.session_count.setObjectName('field-hint')
+        session_title_row.addWidget(self.session_count)
+        ll.addLayout(session_title_row)
         # 工具条保持单行；窄屏时通过横向滚动保留完整操作，不挤压按钮文本。
         self.session_toolbar_scroll = QScrollArea()
         self.session_toolbar_scroll.setObjectName('iface-session-toolbar-scroll')
@@ -519,6 +528,17 @@ class InterfaceDebugPanel(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ll.addWidget(self.empty_hint)
+        lib_row = QHBoxLayout()
+        self.local_template_btn = QPushButton()
+        apply_button(self.local_template_btn, 'ghost', compact=True)
+        self.local_template_btn.clicked.connect(lambda: self._open_request_lib('saved'))
+        self.local_sent_btn = QPushButton()
+        apply_button(self.local_sent_btn, 'ghost', compact=True)
+        self.local_sent_btn.clicked.connect(lambda: self._open_request_lib('history'))
+        lib_row.addWidget(self.local_template_btn)
+        lib_row.addWidget(self.local_sent_btn)
+        lib_row.addStretch(1)
+        ll.addLayout(lib_row)
         self._session_list_widget = left
         self.mid_splitter.addWidget(left)
 
@@ -543,10 +563,11 @@ class InterfaceDebugPanel(QWidget):
         self.overview_page = QWidget()
         ov = QVBoxLayout(self.overview_page)
         ov.setContentsMargins(0, 8, 0, 0)
+        self.overview_redact_callout = QLabel()
+        self.overview_redact_callout.setObjectName('status-banner')
+        self.overview_redact_callout.setWordWrap(True)
+        ov.addWidget(self.overview_redact_callout)
         ov_tools = QHBoxLayout()
-        self.reveal_cb = QCheckBox()
-        self.reveal_cb.toggled.connect(self._on_reveal)
-        ov_tools.addWidget(self.reveal_cb)
         self.copy_safe_url_btn = QPushButton()
         apply_button(self.copy_safe_url_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_safe_url_btn.clicked.connect(self._copy_safe_url)
@@ -627,17 +648,31 @@ class InterfaceDebugPanel(QWidget):
         self.draft_badge = QLabel()
         self.draft_badge.setObjectName('offline-pill')
         dl.addWidget(self.draft_badge)
+        self.verify_danger_callout = QLabel()
+        self.verify_danger_callout.setObjectName('status-banner')
+        self.verify_danger_callout.setWordWrap(True)
+        self.verify_danger_callout.setProperty('tone', 'danger')
+        dl.addWidget(self.verify_danger_callout)
+        self.verify_auth_status = QLabel()
+        self.verify_auth_status.setObjectName('field-hint')
+        self.verify_auth_status.setWordWrap(True)
+        dl.addWidget(self.verify_auth_status)
 
         self.include_auth_cb = QCheckBox()
         self.include_auth_cb.hide()
         self.gen_draft_btn = QPushButton()
-        self.gen_draft_btn.hide()
+        apply_button(self.gen_draft_btn, 'ghost', compact=True)
+        self.gen_draft_btn.clicked.connect(self._copy_curl)
         self.copy_postman_btn = QPushButton()
-        self.copy_postman_btn.hide()
+        apply_button(self.copy_postman_btn, 'ghost', compact=True)
+        self.copy_postman_btn.clicked.connect(self._copy_postman)
         self.export_postman_btn = QPushButton()
+        apply_button(self.export_postman_btn, 'ghost', compact=True)
+        self.export_postman_btn.clicked.connect(self._export_postman)
         self.export_postman_btn.hide()
         self.copy_curl_btn = QPushButton()
-        self.copy_curl_btn.hide()
+        apply_button(self.copy_curl_btn, 'ghost', compact=True)
+        self.copy_curl_btn.clicked.connect(self._copy_curl)
         self.draft_hint = QLabel()
         self.draft_hint.setObjectName('field-hint')
         self.draft_hint.setWordWrap(True)
@@ -691,7 +726,8 @@ class InterfaceDebugPanel(QWidget):
         )
         row2.addWidget(self.rt_ssl_verify)
         self.rt_send_btn = QPushButton()
-        apply_button(self.rt_send_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        # 页级唯一 primary 是「开始/停止监听」；此处用 secondary 承担请求验证主操作视觉
+        apply_button(self.rt_send_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
         self.rt_send_btn.clicked.connect(self._rt_send)
         row2.addWidget(self.rt_send_btn)
         ctx_l.addLayout(row2)
@@ -708,6 +744,9 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
         self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
         tools_row.addWidget(self.rt_filter_config_btn)
+        tools_row.addWidget(self.copy_curl_btn)
+        tools_row.addWidget(self.copy_postman_btn)
+        tools_row.addWidget(self.gen_draft_btn)
         tools_row.addStretch(1)
         dl.addLayout(tools_row)
 
@@ -1580,13 +1619,13 @@ class InterfaceDebugPanel(QWidget):
         active = bool(self._listening)
         zh = self.language == 'zh'
         self.capture_toggle_btn.setText(
-            ('停止抓包' if zh else 'Stop capture') if active else
-            ('开始抓包' if zh else 'Start capture')
+            ('停止监听' if zh else 'Stop listen') if active else
+            ('开始监听' if zh else 'Start listen')
         )
         self.capture_toggle_btn.setEnabled(not busy)
         apply_button(
             self.capture_toggle_btn,
-            'danger' if active else 'secondary',
+            'primary',
             compact=True,
             icon='lock' if active else 'external-open',
             icon_size=16,
@@ -1596,6 +1635,29 @@ class InterfaceDebugPanel(QWidget):
         self.stop_btn.setEnabled(active and not busy)
         self.connect_btn.hide()
         self.stop_btn.hide()
+        self._refresh_listen_status_pill()
+
+    def _refresh_listen_status_pill(self):
+        zh = self.language == 'zh'
+        total = len(getattr(self, '_records', []) or [])
+        if self._listening:
+            self.offline_pill.setText(
+                (f'监听中 · {total} 条会话' if zh else f'Listening · {total} session(s)')
+            )
+        else:
+            self.offline_pill.setText(
+                (f'未监听 · {total} 条会话' if zh else f'Idle · {total} session(s)')
+            )
+
+    def _open_request_lib(self, mode: str):
+        """左栏入口：切到请求验证并切换本地模板/发送记录。"""
+        if hasattr(self, 'detail_tabs'):
+            self.detail_tabs.setCurrentWidget(self.draft_page)
+        if hasattr(self, 'rt_lib_mode'):
+            idx = self.rt_lib_mode.findData(mode)
+            if idx < 0:
+                idx = 0 if mode == 'saved' else 1
+            self.rt_lib_mode.setCurrentIndex(max(0, idx))
 
     def _toggle_capture(self):
         if self._listening:
@@ -2192,10 +2254,10 @@ class InterfaceDebugPanel(QWidget):
             )
         else:
             self.empty_hint.setText(
-                '点「开始抓包」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。\n'
+                '点「开始监听」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。\n'
                 '列表会显示 # / 结果 / 协议 / 方法 / 主机 / URL。'
                 if zh else
-                'Start capture → fully restart Chrome/Edge → open your app pages.'
+                'Start listen → fully restart Chrome/Edge → open your app pages.'
             )
 
     def _confirm_clear_session(self):
@@ -2353,6 +2415,7 @@ class InterfaceDebugPanel(QWidget):
         total = len(self._records)
         shown = len(self._filtered)
         self.session_count.setText(f'{shown} / {total}')
+        self._refresh_listen_status_pill()
         self.empty_hint.setVisible(shown == 0)
         self.table.setRowCount(shown)
         labels = self.COL_LABELS_ZH if self.language == 'zh' else self.COL_LABELS_EN
@@ -4175,12 +4238,45 @@ class InterfaceDebugPanel(QWidget):
             '抓 HTTP / HTTPS 请求 · 列表看 URL · 仅内存' if zh else
             'Capture HTTP/HTTPS · URL list · memory only'
         )
-        self.offline_pill.setText('● 本地' if zh else '● Local')
         self._refresh_capture_action()
-        self.test_listen_btn.setText('测试' if zh else 'Test')
+        self.clear_list_btn.setText('清空本次会话' if zh else 'Clear session')
+        self.test_listen_btn.setText('测试监听' if zh else 'Test listen')
         self.test_listen_btn.setToolTip(
             '本机探测，确认抓包链路可用' if zh else 'Loopback probe'
         )
+        if hasattr(self, 'toolbar_hint'):
+            self.toolbar_hint.setText(
+                '敏感字段默认脱敏；显示后完成排查请清空本次会话。'
+                if zh else
+                'Secrets stay redacted by default; clear the session after reveal.'
+            )
+        if hasattr(self, 'session_pane_title'):
+            self.session_pane_title.setText('会话与筛选' if zh else 'Sessions & filters')
+        if hasattr(self, 'local_template_btn'):
+            self.local_template_btn.setText('本地接口模板' if zh else 'Local templates')
+            self.local_sent_btn.setText('本地发送记录' if zh else 'Local sent history')
+        if hasattr(self, 'overview_redact_callout'):
+            self.overview_redact_callout.setText(
+                '已脱敏展示。Authorization、Cookie、Token 等字段默认隐藏。'
+                if zh else
+                'Redacted view. Authorization/Cookie/Token stay hidden by default.'
+            )
+        if hasattr(self, 'verify_danger_callout'):
+            self.verify_danger_callout.setText(
+                '真实请求会发送到外部目标。生成 cURL/Postman 草稿不会发送。'
+                if zh else
+                'Real requests leave this machine. Draft generation does not send.'
+            )
+        if hasattr(self, 'verify_auth_status'):
+            self.verify_auth_status.setText(
+                '认证状态：按请求头携带（敏感值默认脱敏）'
+                if zh else
+                'Auth: carried from headers (secrets redacted by default)'
+            )
+        if hasattr(self, 'copy_curl_btn'):
+            self.copy_curl_btn.setText('生成 cURL 草稿' if zh else 'cURL draft')
+            self.copy_postman_btn.setText('复制 Postman JSON' if zh else 'Copy Postman JSON')
+            self.gen_draft_btn.setText('生成草稿' if zh else 'Generate draft')
         if hasattr(self, 'restore_proxy_btn'):
             self.restore_proxy_btn.setText('恢复系统代理' if zh else 'Restore proxy')
             self.restore_proxy_btn.setToolTip(
@@ -4202,7 +4298,6 @@ class InterfaceDebugPanel(QWidget):
         }
         for k, chip in self._filter_chips.items():
             chip.setText(chip_labels[k][0 if zh else 1])
-        self.clear_list_btn.setText('清空' if zh else 'Clear')
         self.cols_btn.setText('列设置' if zh else 'Columns')
         for button in (
             self.session_actions_more_btn, self.capture_actions_more_btn,
@@ -4230,8 +4325,8 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求验证 · 环境 / Base / 方法 · URL / HTTPS / 发送' if zh else
-            'Request verify · env / base / method · URL / HTTPS / send'
+            '请求验证 · 可能真实发送' if zh else
+            'Request verify · may send for real'
         )
         self.target_label.setText('环境' if zh else 'Env')
         if hasattr(self, 'base_label'):

@@ -55,6 +55,20 @@ class RequestVerifyLayoutTests(unittest.TestCase):
         self.assertIn('发送 · 到', source)
         self.assertIn('选择环境后发送', source)
 
+    def test_interface_page_chrome_matches_design_labels(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        self.assertEqual(panel.capture_toggle_btn.objectName(), 'primary-btn')
+        self.assertIn('监听', panel.capture_toggle_btn.text())
+        self.assertEqual(panel.clear_list_btn.text(), '清空本次会话')
+        self.assertEqual(panel.test_listen_btn.text(), '测试监听')
+        self.assertEqual(panel.session_pane_title.text(), '会话与筛选')
+        self.assertEqual(panel.local_template_btn.text(), '本地接口模板')
+        self.assertEqual(panel.local_sent_btn.text(), '本地发送记录')
+        self.assertIn('已脱敏', panel.overview_redact_callout.text())
+        self.assertIn('真实请求', panel.verify_danger_callout.text())
+        panel.close()
+
     def test_sql_console_narrow_shows_side_toggles(self):
         from panels.ai_workbench_panel import AiWorkbenchPanel
         panel = AiWorkbenchPanel('zh')
