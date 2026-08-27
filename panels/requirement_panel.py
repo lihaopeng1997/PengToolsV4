@@ -1408,6 +1408,7 @@ class RequirementPanel(QWidget):
         self._search_expand_snapshot = None
         self._sources_stamp = None
         self._setup_ui(); self.set_language(language); self._refresh()
+        self._clamp_file_library_action_heights()
         self._sources_stamp = self._current_sources_stamp()
 
     def _setup_ui(self):
@@ -1816,6 +1817,7 @@ class RequirementPanel(QWidget):
             self.add_file_btn, self.new_text_btn, self.lock_file_btn,
             self.unlock_file_btn, self.revert_btn, self.commit_btn,
         )
+        # setWidget / 后续布局会按 QSS padding 抬高子控件；统一在 _clamp_file_library_action_heights 回夹 28。
         file_layout.addWidget(action_card, 0)
 
         # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描）
@@ -2018,6 +2020,7 @@ class RequirementPanel(QWidget):
                 lambda _position, _index: self._splitter_save_timer.start()
             )
         root.addWidget(self.detail_splitter, 1)
+        self._clamp_file_library_action_heights()
 
     def _content_stack_sizes(self):
         """配置兼容字段：上区实际高度 + 估算剩余。"""
@@ -2034,6 +2037,23 @@ class RequirementPanel(QWidget):
             'splitter_sizes': self.detail_splitter.sizes(),
             'content_splitter_sizes': self._content_stack_sizes(),
         })
+
+    def _clamp_file_library_action_heights(self):
+        """文件库九按钮固定 28px：ScrollArea.setWidget 与全局 QSS padding 会抬高 min/max。"""
+        buttons = getattr(self, 'file_library_action_buttons', None)
+        if not buttons:
+            return
+        from ui.field_metrics import BTN_COMPACT_H, size_compact_button
+        for button in buttons:
+            size_compact_button(button)
+        host = None
+        scroll = getattr(self, 'file_library_action_scroll', None)
+        if scroll is not None:
+            host = scroll.widget()
+            scroll.setFixedHeight(BTN_COMPACT_H)
+        if host is not None:
+            host.adjustSize()
+            host.setFixedHeight(BTN_COMPACT_H)
 
     def apply_default_splitter_sizes(self):
         """套用 requirement_ui 默认/已复位的左右分栏尺寸。"""

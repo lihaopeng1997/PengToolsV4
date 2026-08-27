@@ -303,8 +303,11 @@ QPushButton#ghost-btn:disabled {
     color: __DISABLED_TEXT__;
     border-color: transparent;
 }
-/* 紧凑行内按钮：与 field_metrics.BTN_COMPACT_H=28 对齐 */
-QPushButton[compactAction="true"] {
+/* 紧凑行内按钮：与 field_metrics.BTN_COMPACT_H=28 对齐（含 primary，避免被 #primary-btn padding 抬高） */
+QPushButton[compactAction="true"],
+QPushButton#primary-btn[compactAction="true"],
+QPushButton#btn-secondary[compactAction="true"],
+QPushButton#btn-danger[compactAction="true"] {
     padding: 3px 10px;
     min-height: 28px;
     max-height: 28px;

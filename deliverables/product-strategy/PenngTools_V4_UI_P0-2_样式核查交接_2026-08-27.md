@@ -96,21 +96,114 @@
 
 ---
 
-## 4. 定向验证（本机已跑）
+## 4. 回归修补（文件库九按钮高度，仍为 28）
 
-- `outputs/_p0_2_style_smoke.py` → `P0-2 smoke OK`
-- `tests.test_requirement_splitter`（4）
-- `tests.test_release_ui` 文件库两项（含行高 36）
-- `tests.test_daily_report_upgrade...test_completed_editor_takes_most_vertical_space`
-- `tests.test_page_skeleton`（6）
+**现象**：`ReleaseUiTests` 整套跑时，`test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space` 失败：`height() == 28` 不成立（单测单独跑可能过）。
+
+**根因（不是「故意改高」）**：
+- `QScrollArea.setWidget` + 全局 QSS（`QPushButton` / `#primary-btn` padding）会把子按钮 min/max 抬到约 36 / 34–42。
+- 后续 `_setup_ui` 后半段布局与 `_refresh` 再次 polish 后，仅在 `setWidget` 后立刻 `size_compact_button` 不够。
+- action-card margins `8/6`、spacing `6` **不是**抬高根因（旧 margins `6/4` 在同套污染下同样会抬高）。
+
+**修复**：
+- 新增 `_clamp_file_library_action_heights()`：九按钮回夹 `BTN_COMPACT_H=28`，host/scroll 固定 28。
+- 在 `_setup_ui` 末尾与 `__init__`（`_refresh` 之后）各调用一次。
+- QSS：`#primary-btn[compactAction="true"]` 等与紧凑按钮同样 `padding:3px 10px; min/max-height:28px`。
+
+**明确规格**：**文件库九按钮高度保持 28，未改为更高。**
 
 ---
 
-## 5. 交付产物
+## 5. 定向验证（完整 pass/fail 清单）
+
+命令：
+
+```text
+python -m unittest tests.test_release_ui.ReleaseUiTests tests.test_requirement_splitter tests.test_daily_report_upgrade tests.test_page_skeleton -v
+```
+
+结果：**Ran 50 tests · OK · EXIT 0**（原始输出 `outputs/_p0_2_retest.txt`）
+
+### tests.test_release_ui.ReleaseUiTests（28）
+
+| 结果 | 用例 |
+|------|------|
+| PASS | test_delete_confirmation_is_cancel_first_and_cancel_default |
+| PASS | test_failed_waiting_task_restores_controls |
+| PASS | test_global_combo_and_date_styles_have_visible_drop_down_affordance |
+| PASS | test_multiple_systems_generate_separate_sql_packages |
+| PASS | test_one_click_generates_workbook_and_sql |
+| PASS | test_online_month_label_formats_complete_chinese_title |
+| PASS | test_only_learning_module_is_hidden |
+| PASS | test_pasted_bug_prompts_for_development_svn |
+| PASS | test_private_setup_does_not_touch_local_data |
+| PASS | test_private_unlock_persists_across_reopen |
+| PASS | test_release_page_is_first_and_date_auto_loads_candidates |
+| PASS | test_requirement_allows_empty_development_svn |
+| PASS | test_requirement_dates_allow_manual_input_and_local_svn_binding |
+| PASS | test_requirement_detail_splitter_is_resizable_and_persistent |
+| PASS | test_requirement_dev_local_path_saved_and_opens_from_list |
+| PASS | test_requirement_dialog_supports_multiple_systems_and_bindings |
+| PASS | test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space |
+| PASS | test_requirement_file_tree_elides_long_names_and_keeps_compact_rows |
+| PASS | test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls |
+| PASS | test_requirement_file_tree_shows_all_files_and_lock_icon_without_svn_status_column |
+| PASS | test_requirement_file_tree_uses_svn_status_colors |
+| PASS | test_requirement_sql_lands_on_organize_tab_and_empty_focuses_row |
+| PASS | test_requirement_status_flow_is_available_in_editor_and_filter |
+| PASS | test_requirement_system_configuration_is_shared |
+| PASS | test_requirement_tree_supports_multi_delete_badges_and_drag_reclassification |
+| PASS | test_requirements_are_grouped_by_month_and_sorted_by_modified_time |
+| PASS | test_scan_result_stays_browsable_and_loading_restores_controls |
+| PASS | test_upgrade_reuses_data_directory_and_accepts_legacy_requirement |
+
+### tests.test_requirement_splitter（4）
+
+| 结果 | 用例 |
+|------|------|
+| PASS | test_content_sized_top |
+| PASS | test_detail_card_is_content_sized |
+| PASS | test_file_tabs_take_remaining_space |
+| PASS | test_flags_single_row |
+
+### tests.test_daily_report_upgrade（12）
+
+| 结果 | 用例 |
+|------|------|
+| PASS | test_group_dates_by_month |
+| PASS | test_image_size_change_is_dirty |
+| PASS | test_normalize_legacy_plain |
+| PASS | test_qt_html_wrapper_is_not_dirty |
+| PASS | test_save_image_and_cleanup |
+| PASS | test_action_buttons_share_date_row |
+| PASS | test_clicking_saved_date_is_not_marked_unsaved |
+| PASS | test_completed_editor_takes_most_vertical_space |
+| PASS | test_image_context_menu_uses_chinese_not_qt_english |
+| PASS | test_import_yesterday_plan_fills_today_completed |
+| PASS | test_inserted_image_can_be_resized_and_persists_in_html |
+| PASS | test_tree_groups_and_rich_export |
+
+### tests.test_page_skeleton（6）
+
+| 结果 | 用例 |
+|------|------|
+| PASS | test_frame_object_name_and_title |
+| PASS | test_optional_parts |
+| PASS | test_qss_has_skeleton_sections |
+| PASS | test_filter_bar_button_count_within_baseline |
+| PASS | test_complete_pages_have_header |
+| PASS | test_primary_count_at_most_one |
+
+**FAIL：无。ERROR：无。**
+
+---
+
+## 6. 交付产物
 
 | 项 | 路径 / 值 |
 |----|-----------|
-| 提交 | `d69240c`（`main`） |
+| 样式提交 | `d69240c` |
+| 高度回归修补 | 见本次后续 commit |
 | EXE | `dist\PengToolsHub.exe` |
 | 安装包 | `PengToolsHub_Offline_Setup.zip` |
-| 构建时间 | `2026-08-27 10:13:13`（见 `resources/build_info.json`） |
+| 构建时间 | 以 `resources/build_info.json` 为准 |
