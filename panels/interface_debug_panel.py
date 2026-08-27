@@ -193,6 +193,9 @@ class InterfaceDebugPanel(QWidget):
         self._ie_worker = None
         self._listening = False
         self._channel_ready = False
+        self._capture_epoch = 0
+        self._capture_boot_epoch = 0
+        self._capture_stop_thread = None
         self._listen_started_at = 0.0
         self._last_request_at = 0.0
         # 只做 HTTP/HTTPS 抓包，不再提供模式切换（CDP/代理等对用户隐藏）
@@ -1776,17 +1779,46 @@ class InterfaceDebugPanel(QWidget):
         if prev_selected and prev_selected in self._records_by_id:
             self._selected_id = prev_selected
 
+    def _await_previous_capture_stop(self, timeout: float = 2.5) -> None:
+        """等待上一次异步 stop 结束，避免端口未释放导致二次启动失败。"""
+        thread = getattr(self, '_capture_stop_thread', None)
+        if thread is None:
+            return
+        try:
+            if thread.is_alive():
+                thread.join(timeout=max(0.2, float(timeout)))
+        except Exception:
+            pass
+
+    def _detach_capture_worker(self, worker) -> None:
+        """切断旧 worker 回调，避免 stop 晚到信号清掉新一轮监听。"""
+        if worker is None:
+            return
+        for attr in ('on_record', 'on_error', 'on_stopped', 'on_ready'):
+            try:
+                setattr(worker, attr, None)
+            except Exception:
+                pass
+
     def _start_local_proxy(self, ie_mode: bool = False):
         """异步启动抓包：不在主线程 sleep 等待，避免点任何按钮都像超时。"""
         zh = self.language == 'zh'
-        title = '开始抓包' if zh else 'Start capture'
+        title = '开始监听' if zh else 'Start listen'
         if self._listening or self._ie_worker is not None:
-            show_info(self, title, '已在抓包中' if zh else 'Already capturing')
+            show_info(self, title, '已在监听中' if zh else 'Already listening')
             return
+        if getattr(self, '_capture_boot_worker', None) is not None:
+            show_info(self, title, '正在启动监听，请稍候' if zh else 'Starting listen, please wait')
+            return
+        # 先等上一轮 stop 收尾，否则 mitm 端口仍被占用会启动失败
+        self._await_previous_capture_stop(2.5)
         port = self._current_port()
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
-        self.loading.start_busy('正在开始抓包…' if zh else 'Starting capture…')
+        self._capture_epoch += 1
+        boot_epoch = self._capture_epoch
+        self._capture_boot_epoch = boot_epoch
+        self.loading.start_busy('正在开始监听…' if zh else 'Starting listen…')
         self._refresh_capture_action(busy=True)
         # HTTPS 解密准备：静默
         try:
@@ -1796,28 +1828,47 @@ class InterfaceDebugPanel(QWidget):
 
         def _boot():
             from tools.http_capture import HttpCaptureWorker
-            worker = HttpCaptureWorker(
-                port=port,
-                on_record=self._on_ie_record_thread,
-                on_error=self._on_ie_error_thread,
-                on_stopped=self._on_ie_stopped_thread,
-                show_static=True,
-                source_label='http_capture',
-                apply_system_proxy=True,
-            )
-            worker.start()
-            ready = False
-            try:
-                ready = bool(worker.wait_ready(timeout=12.0))
-            except Exception:
-                ready = bool(getattr(worker, 'ready', False))
-            if not ready:
+
+            def _try_once():
+                worker = HttpCaptureWorker(
+                    port=port,
+                    on_record=self._on_ie_record_thread,
+                    on_error=self._on_ie_error_thread,
+                    on_stopped=self._on_ie_stopped_thread,
+                    show_static=True,
+                    source_label='http_capture',
+                    apply_system_proxy=True,
+                )
+                worker._pengtools_epoch = boot_epoch
+                worker.start()
+                ready = False
                 try:
-                    worker.stop(join_timeout=0.8)
+                    ready = bool(worker.wait_ready(timeout=12.0))
+                except Exception:
+                    ready = bool(getattr(worker, 'ready', False))
+                if ready:
+                    return {'ok': True, 'worker': worker, 'port': port, 'epoch': boot_epoch}
+                self._detach_capture_worker(worker)
+                try:
+                    worker.stop(join_timeout=1.2)
                 except Exception:
                     pass
-                return {'ok': False, 'error': '抓包未就绪（端口可能被占用）。请关闭占用后重试。', 'port': port}
-            return {'ok': True, 'worker': worker, 'port': port}
+                return None
+
+            first = _try_once()
+            if first:
+                return first
+            # 端口可能仍被旧引擎占用：再等一次后重试
+            time.sleep(0.8)
+            second = _try_once()
+            if second:
+                return second
+            return {
+                'ok': False,
+                'error': '抓包未就绪（端口可能被占用）。请关闭占用后重试。',
+                'port': port,
+                'epoch': boot_epoch,
+            }
 
         class _Boot(QThread):
             done = pyqtSignal(object)
@@ -1826,14 +1877,25 @@ class InterfaceDebugPanel(QWidget):
                 try:
                     self_inner.done.emit(_boot())
                 except Exception as exc:
-                    self_inner.done.emit({'ok': False, 'error': str(exc), 'port': port})
+                    self_inner.done.emit({'ok': False, 'error': str(exc), 'port': port, 'epoch': boot_epoch})
 
         boot = _Boot(self)
         self._capture_boot_worker = boot
 
         def _on_boot(result: dict):
-            if not result or not result.get('ok'):
-                err = (result or {}).get('error') or '启动失败'
+            result = result or {}
+            # 启动过程中用户已点停止 / 又开了更新一轮：丢弃过期结果
+            if int(result.get('epoch') or 0) != self._capture_epoch:
+                worker = result.get('worker')
+                self._detach_capture_worker(worker)
+                if worker is not None:
+                    try:
+                        worker.stop(join_timeout=0.8)
+                    except Exception:
+                        pass
+                return
+            if not result.get('ok'):
+                err = result.get('error') or '启动失败'
                 self._ie_worker = None
                 self._refresh_capture_action()
                 self.loading.fail(err)
@@ -1847,10 +1909,10 @@ class InterfaceDebugPanel(QWidget):
             self._ie_worker = worker
             self._probe_capture_pipeline(int(result.get('port') or port))
             self._mark_listen_success(
-                f'抓包中 · 系统代理 127.0.0.1:{port} · 请重启浏览器后访问业务页 · '
+                f'监听中 · 系统代理 127.0.0.1:{port} · 请重启浏览器后访问业务页 · '
                 f'离开本页会自动暂停系统代理（引擎仍可运行），其它软件不再被拖死'
             )
-            self.loading.finish('抓包已开始' if zh else 'Capture started')
+            self.loading.finish('监听已开始' if zh else 'Listen started')
             try:
                 self.loading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             except Exception:
@@ -2027,6 +2089,9 @@ class InterfaceDebugPanel(QWidget):
             pass
 
     def _on_proxy_stopped(self):
+        # 旧 worker 异步 stop 晚到时，不得清掉新一轮监听
+        if self._ie_worker is not None or getattr(self, '_capture_boot_worker', None) is not None:
+            return
         self._listening = False
         self._channel_ready = False
         self._set_listening_ui(False)
@@ -2034,6 +2099,9 @@ class InterfaceDebugPanel(QWidget):
         self._status_tick.stop()
 
     def _on_ie_error(self, msg):
+        # 已切换到新 worker / 启动中时，忽略旧错误
+        if getattr(self, '_capture_boot_worker', None) is not None:
+            return
         self.status_label.setText(f'代理错误：{msg}')
         show_warning(self, '本机代理', msg)
         self._listening = False
@@ -2042,11 +2110,13 @@ class InterfaceDebugPanel(QWidget):
         self._wait_hint_timer.stop()
         self._status_tick.stop()
         if self._ie_worker:
+            worker = self._ie_worker
+            self._ie_worker = None
+            self._detach_capture_worker(worker)
             try:
-                self._ie_worker.stop()
+                worker.stop(join_timeout=0.8)
             except Exception:
                 pass
-            self._ie_worker = None
 
     @staticmethod
     def _clip_body(value):
@@ -2145,9 +2215,11 @@ class InterfaceDebugPanel(QWidget):
             self.recheck_btn.hide()
 
     def _stop_listen(self):
-        self.loading.start_busy('正在停止抓包…')
+        self.loading.start_busy('正在停止监听…')
         self._wait_hint_timer.stop()
         self._status_tick.stop()
+        # 使进行中的 boot 结果失效
+        self._capture_epoch += 1
         # 先立刻恢复系统代理（网络马上可用），引擎在后台收尾
         try:
             from tools.ie_proxy import restore_proxy_from_snapshot, ensure_system_proxy_safe, mark_capture_proxy_inactive
@@ -2163,6 +2235,8 @@ class InterfaceDebugPanel(QWidget):
         self._listening = False
         self._channel_ready = False
         self._set_listening_ui(False)
+        # 先切断回调，避免异步 stop 晚到把下一轮监听状态清掉
+        self._detach_capture_worker(worker)
 
         def _shutdown():
             if cdp is not None:
@@ -2172,7 +2246,7 @@ class InterfaceDebugPanel(QWidget):
                     pass
             if worker is not None:
                 try:
-                    worker.stop(join_timeout=1.0, clear_records=False)
+                    worker.stop(join_timeout=2.0, clear_records=False)
                 except TypeError:
                     try:
                         worker.stop()
@@ -2187,13 +2261,16 @@ class InterfaceDebugPanel(QWidget):
                 pass
 
         import threading
-        threading.Thread(target=_shutdown, name='capture-stop', daemon=True).start()
+        stop_thread = threading.Thread(target=_shutdown, name='capture-stop', daemon=True)
+        self._capture_stop_thread = stop_thread
+        stop_thread.start()
         n = len(self._records)
         self.loading.finish('已停止')
         self.status_label.setText(
-            f'已停止抓包 · 系统代理已恢复 · 会话保留 {n} 条（可继续导出/请求测试）'
+            f'已停止监听 · 系统代理已恢复 · 会话保留 {n} 条（可继续导出/请求测试）'
         )
         self.live_status.setText('')
+        self._refresh_listen_status_pill()
         if hasattr(self, 'recheck_btn'):
             self.recheck_btn.hide()
 
