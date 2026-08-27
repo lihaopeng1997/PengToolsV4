@@ -3,7 +3,7 @@
 
 覆盖三个硬约束：
 1. 每个 Stack 页面必须有 L1 页头（#page-header）；
-2. 每页 primary 主操作按钮数量不超基线（棘轮：只降不升，批次 2 收口到 ≤1）；
+2. 每页面板树内 primary 主操作按钮数量 ≤1（Dialog 内不计）；
 3. #page-filter-bar 内不允许出现改数据的按钮（已知违例走基线表，批次 2 迁移后清零）。
 """
 import os
@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QPushButton  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QPushButton  # noqa: E402
 
 # (nav_index, 页面名)
 STACK_PAGES = [
@@ -36,13 +36,6 @@ STACK_PAGES = [
     (14, 'SQL 控制台'),
     (15, '模型对话'),
 ]
-
-# primary 按钮当前基线（面板树内，弹窗不计；2026-08-26 实测校准）：
-# 只降不升；批次 2 主操作收口后逐页下调到 ≤1
-PRIMARY_BASELINE = {
-    0: 0, 1: 2, 2: 4, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1,
-    9: 3, 10: 4, 11: 4, 12: 2, 13: 6, 14: 1, 15: 1,
-}
 
 # #page-filter-bar 内 QPushButton 基线（批次 2：需求管理工具栏已迁至 #page-toolbar，筛选条应为 0）
 FILTER_BAR_BUTTON_BASELINE = {}
@@ -69,7 +62,21 @@ def _panel_for(nav_index: int):
 
 
 def _primary_buttons(panel) -> list:
-    return [b for b in panel.findChildren(QPushButton) if b.objectName() == 'primary-btn']
+    """面板树内 #primary-btn；嵌套 QDialog 内的按钮不计入。"""
+    result = []
+    for btn in panel.findChildren(QPushButton):
+        if btn.objectName() != 'primary-btn':
+            continue
+        parent = btn.parentWidget()
+        inside_dialog = False
+        while parent is not None and parent is not panel:
+            if isinstance(parent, QDialog):
+                inside_dialog = True
+                break
+            parent = parent.parentWidget()
+        if not inside_dialog:
+            result.append(btn)
+    return result
 
 
 class PageHeaderTests(unittest.TestCase):
@@ -86,25 +93,17 @@ class PageHeaderTests(unittest.TestCase):
 
 
 class PrimaryActionTests(unittest.TestCase):
-    """约束 2：主操作数量棘轮（基线只降不升；目标 ≤1，批次 2 达成）。"""
+    """约束 2：每页主操作 ≤1（硬断言，无基线豁免）。"""
 
-    def test_primary_count_within_baseline(self):
+    def test_primary_count_at_most_one(self):
         problems = []
         for nav, label in STACK_PAGES:
             panel = _panel_for(nav)
             actual = len(_primary_buttons(panel))
-            allowed = PRIMARY_BASELINE.get(nav, 0)
-            if actual > allowed:
-                problems.append(f'{label}: {actual} > 基线 {allowed}')
-        self.assertEqual(problems, [], f'primary 按钮超出基线（棘轮收紧，禁止新增）: {problems}')
-
-    def test_primary_count_target_documented(self):
-        """规范终态：主操作 ≤1。当前允许超基线的页面必须登记在 PRIMARY_BASELINE，
-        该表不允许新增条目（新页面必须直接满足 ≤1）。"""
-        for nav, label in STACK_PAGES:
-            if PRIMARY_BASELINE.get(nav, 0) > 1:
-                continue  # 已知历史欠账，批次 2 清偿
-        # 新页面约束由 test_primary_count_within_baseline 的基线默认 0 保证
+            if actual > 1:
+                names = [b.text() or b.objectName() for b in _primary_buttons(panel)]
+                problems.append(f'{label}(nav={nav}): {actual} > 1 → {names}')
+        self.assertEqual(problems, [], f'primary 按钮超过 1 个: {problems}')
 
 
 class FilterBarPurityTests(unittest.TestCase):

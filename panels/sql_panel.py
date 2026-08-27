@@ -171,7 +171,7 @@ class SqlToolPanel(QWidget):
         self.release_date.dateChanged.connect(self._release_date_changed)
         summary_layout.addWidget(self.release_date)
         self.refresh_release_btn = QPushButton('刷新候选')
-        apply_button(self.refresh_release_btn, 'primary', compact=True)
+        apply_button(self.refresh_release_btn, 'secondary', compact=True)
         self.refresh_release_btn.clicked.connect(self._load_release_candidates)
         summary_layout.addWidget(self.refresh_release_btn)
         select_all = QPushButton('全选')
@@ -740,7 +740,7 @@ class SqlToolPanel(QWidget):
         actions.addWidget(self.preview_btn)
         actions.addStretch()
         self.export_btn = QPushButton()
-        apply_button(self.export_btn, 'primary', compact=True)
+        apply_button(self.export_btn, 'secondary', compact=True)
         self.export_btn.clicked.connect(self._export_package)
         actions.addWidget(self.export_btn)
         layout.addWidget(action_zone)
@@ -838,7 +838,7 @@ class SqlToolPanel(QWidget):
         self.add_sys_btn.clicked.connect(self._add_system)
         buttons.addWidget(self.add_sys_btn)
         self.save_sys_btn = QPushButton()
-        self.save_sys_btn.setObjectName('primary-btn')
+        self.save_sys_btn.setObjectName('btn-secondary')
         self.save_sys_btn.clicked.connect(self._save_current)
         buttons.addWidget(self.save_sys_btn)
         self.delete_sys_btn = QPushButton()
@@ -875,10 +875,12 @@ class SqlToolPanel(QWidget):
         return line_edit
 
     def apply_layout_mode(self, mode, low_height=False):
-        """升级准备/SQL：窄屏保留系统、环境、日期、导入/粘贴、生成主操作。"""
+        """升级准备/SQL：窄屏保留系统、环境、日期、导入/粘贴、生成主操作，并收起步条。"""
         self._layout_mode = mode
         from ui.responsive import set_subtitle_visible, editor_min_height
-        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height or mode == 'narrow')
+        if hasattr(self, 'release_steps'):
+            self.release_steps.setVisible(mode not in ('narrow', 'compact'))
         # 次要：清空、检查、生成预览 进更多隐藏；主：导出、导入、粘贴
         secondary = []
         for name in ('clear_btn', 'analyze_btn', 'preview_btn'):
@@ -895,6 +897,8 @@ class SqlToolPanel(QWidget):
                 w.hide()
             for w in primary_keep:
                 w.show()
+            if hasattr(self, 'release_context_toggle'):
+                self.release_context_toggle.hide()
         elif mode == 'compact':
             for w in secondary:
                 # 清空进更多（隐藏），检查可藏
@@ -903,9 +907,13 @@ class SqlToolPanel(QWidget):
                 w.show()
             if hasattr(self, 'clear_btn'):
                 self.clear_btn.hide()
+            if hasattr(self, 'release_context_toggle'):
+                self.release_context_toggle.show()
         else:
             for w in secondary + primary_keep:
                 w.show()
+            if hasattr(self, 'release_context_toggle'):
+                self.release_context_toggle.show()
         for editor_name in ('input_edit', 'sql_editor', 'editor'):
             ed = getattr(self, editor_name, None)
             if ed is not None and hasattr(ed, 'setMinimumHeight'):

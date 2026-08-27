@@ -67,6 +67,46 @@ class SplitterPrefsTests(unittest.TestCase):
         install_splitter_prefs(splitter, defaults=[100, 100])
         self.assertFalse(splitter.childrenCollapsible())
 
+    def test_accessible_name_and_clamp(self):
+        from ui.splitter_prefs import clamp_splitter_sizes, splitter_storage_key
+        self.assertEqual(
+            splitter_storage_key('ops-log', 'main', 'narrow'),
+            'ops-log|main|narrow',
+        )
+        clamped = clamp_splitter_sizes([10, 990], [120, 200], total=500)
+        self.assertGreaterEqual(clamped[0], 120)
+        self.assertGreaterEqual(clamped[1], 200)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        install_splitter_prefs(
+            splitter,
+            defaults=[200, 300],
+            page_id='unit-test',
+            tab_id='t',
+            bucket='standard',
+            accessible_name='单元测试分隔',
+            persist=False,
+        )
+        self.assertEqual(splitter.accessibleName(), '单元测试分隔')
+        handle = splitter.handle(1)
+        self.assertTrue(bool(handle.accessibleName()))
+
+    def test_arrow_key_nudges_sizes(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        install_splitter_prefs(splitter, defaults=[250, 250], min_sizes=[80, 80], persist=False)
+        splitter.resize(500, 120)
+        splitter.show()
+        QApplication.processEvents()
+        before = list(splitter.sizes())
+        splitter.setFocus()
+        QTest.keyClick(splitter, Qt.Key.Key_Right)
+        QApplication.processEvents()
+        after = list(splitter.sizes())
+        self.assertNotEqual(before, after)
+
 
 if __name__ == '__main__':
     unittest.main()

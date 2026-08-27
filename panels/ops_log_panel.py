@@ -883,7 +883,7 @@ class ServerManageDialog(QDialog):
 
 
 class CommandHistoryDialog(QDialog):
-    """历史命令弹框：按日期展示，右键带入/发送到终端。"""
+    """历史命令弹框：按日期展示，右键带入/对当前终端执行。"""
 
     insert_requested = pyqtSignal(str)
     send_requested = pyqtSignal(str)
@@ -903,9 +903,9 @@ class CommandHistoryDialog(QDialog):
         title.setObjectName('dialog-title')
         root.addWidget(title)
         hint = QLabel(
-            '双击或点「填入命令框」写入下方输入框；右键可发送到当前终端。仅保存在本机。'
+            '双击或点「填入命令框」写入下方输入框；右键可对当前终端执行所选命令。仅保存在本机。'
             if zh else
-            'Double-click to fill command bar; right-click to send to terminal. Local only.'
+            'Double-click to fill command bar; right-click to run on current terminal. Local only.'
         )
         hint.setObjectName('field-hint')
         hint.setWordWrap(True)
@@ -934,9 +934,9 @@ class CommandHistoryDialog(QDialog):
         apply_button(fill_btn, 'secondary', compact=True)
         fill_btn.setToolTip('将选中命令填入终端输入框' if zh else 'Fill command into terminal bar')
         fill_btn.clicked.connect(self._emit_insert)
-        send_btn = QPushButton('发送到终端' if zh else 'Send to term')
+        send_btn = QPushButton('执行到当前终端' if zh else 'Run on current terminal')
         apply_button(send_btn, 'primary', compact=True)
-        send_btn.setToolTip('将选中命令发送到当前终端执行' if zh else 'Send command to current terminal')
+        send_btn.setToolTip('对当前终端执行所选命令' if zh else 'Run selected command on current terminal')
         send_btn.clicked.connect(self._emit_send)
         clear_btn = QPushButton('清空历史' if zh else 'Clear')
         apply_button(clear_btn, 'ghost', compact=True)
@@ -997,7 +997,7 @@ class CommandHistoryDialog(QDialog):
         zh = self.language == 'zh'
         menu = QMenu(self)
         a1 = menu.addAction('填入命令框' if zh else 'Fill command bar')
-        a2 = menu.addAction('发送到终端' if zh else 'Send to terminal')
+        a2 = menu.addAction('执行到当前终端' if zh else 'Run on current terminal')
         a3 = menu.addAction('复制命令' if zh else 'Copy')
         chosen = menu.exec(self.list.mapToGlobal(pos))
         cmd = self._current_cmd()
@@ -1481,7 +1481,7 @@ class OpsLogPanel(QWidget):
             return
         if not confirm_action(
             self, 'PengTools · 查询',
-            (f'将把下面命令发到当前 SSH 终端（只读查询）：\n{text}' if zh else f'Send read-only query:\n{text}'),
+            (f'将对当前终端执行下面只读查询：\n{text}' if zh else f'Run read-only query on current terminal:\n{text}'),
             confirm_text='执行查询' if zh else 'Run',
             danger=False,
         ):
@@ -1820,7 +1820,7 @@ class OpsLogPanel(QWidget):
         apply_button(self.preview_btn, 'ghost', compact=True)
         self.preview_btn.clicked.connect(self._preview_on_console)
         self.session_export_btn = QPushButton()
-        apply_button(self.session_export_btn, 'primary', compact=True, icon='export', icon_size=16)
+        apply_button(self.session_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.session_export_btn.clicked.connect(self._export_current_session)
         qbtn.addWidget(self.tail_btn)
         qbtn.addWidget(self.run_grep_btn)
@@ -1942,7 +1942,7 @@ class OpsLogPanel(QWidget):
         erow.addWidget(self.select_none_btn)
         erow.addStretch(1)
         self.export_btn = QPushButton()
-        apply_button(self.export_btn, 'primary', compact=True, icon='export', icon_size=16)
+        apply_button(self.export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.export_btn.clicked.connect(self._start_export)
         erow.addWidget(self.export_btn)
         el_l.addLayout(erow)
@@ -2077,7 +2077,7 @@ class OpsLogPanel(QWidget):
         cmd_row.setSpacing(8)
         self.cmd_input = QLineEdit()
         size_line(self.cmd_input, 'std')
-        self.cmd_input.setPlaceholderText('输入命令后点发送，或打开历史…')
+        self.cmd_input.setPlaceholderText('输入命令后点「执行到当前终端」，或打开历史…')
         self.cmd_input.returnPressed.connect(self._send_cmd_bar)
         # 兼容旧名
         self.cmd_history_combo = QComboBox()
@@ -2092,7 +2092,7 @@ class OpsLogPanel(QWidget):
         apply_button(self.nl_query_btn, 'secondary', compact=True)
         self.nl_query_btn.clicked.connect(self._generate_linux_query)
         self.exec_query_btn = QPushButton()
-        apply_button(self.exec_query_btn, 'primary', compact=True)
+        apply_button(self.exec_query_btn, 'secondary', compact=True)
         self.exec_query_btn.clicked.connect(self._execute_linux_query)
         self.exec_query_btn.setEnabled(False)
         self.cmd_input.textChanged.connect(self._refresh_exec_query_button)
@@ -2179,7 +2179,14 @@ class OpsLogPanel(QWidget):
         self.main_split.addWidget(right_host)
         self.main_split.setStretchFactor(0, 0)
         self.main_split.setStretchFactor(1, 1)
-        install_splitter_prefs(self.main_split, defaults=[420, 860], on_changed=None)
+        install_splitter_prefs(
+            self.main_split,
+            defaults=[420, 860],
+            page_id='ops-log',
+            tab_id='main',
+            min_sizes=[260, 360],
+            accessible_name='日志排查主分隔',
+        )
         # 允许把左侧拖宽看全路径/表单
         try:
             self.main_split.setCollapsible(0, False)
@@ -2410,7 +2417,7 @@ class OpsLogPanel(QWidget):
                 if zh else
                 'Export current log by keyword into keyword folder as IP-service.log'
             )
-        self.clear_console_btn.setText('清屏' if zh else 'Clear')
+        self.clear_console_btn.setText('清空终端显示' if zh else 'Clear terminal')
         self.focus_term_btn.setText('聚焦终端' if zh else 'Focus term')
         if hasattr(self, 'new_term_btn'):
             self.new_term_btn.setText('新终端' if zh else 'New term')
@@ -2520,10 +2527,10 @@ class OpsLogPanel(QWidget):
         self.status_label.setText('就绪' if zh else 'Ready')
 
         if hasattr(self, 'cmd_send_btn'):
-            self.cmd_send_btn.setText('发送' if zh else 'Send')
-            self.cmd_send_btn.setToolTip('发送到当前终端并记入本机历史' if zh else 'Send to terminal + local history')
+            self.cmd_send_btn.setText('执行到当前终端' if zh else 'Run on current terminal')
+            self.cmd_send_btn.setToolTip('对当前终端执行并记入本机历史' if zh else 'Run on current terminal + local history')
             self.cmd_fill_btn.setText('历史' if zh else 'History')
-            self.cmd_fill_btn.setToolTip('打开带日期的命令历史，可右键带入/发送' if zh else 'History with dates')
+            self.cmd_fill_btn.setToolTip('打开带日期的命令历史，可右键带入/对当前终端执行' if zh else 'History with dates; run on current terminal')
         if hasattr(self, 'nl_query_btn'):
             self.nl_query_btn.setText('生成查询' if zh else 'NL query')
             self.nl_query_btn.setToolTip(
@@ -2542,7 +2549,31 @@ class OpsLogPanel(QWidget):
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
-        set_subtitle_visible(self.subtitle_label, low_height)
+        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+        set_subtitle_visible(self.subtitle_label, low_height or mode == 'narrow')
+        if not hasattr(self, 'main_split'):
+            return
+        if mode == 'narrow':
+            self.main_split.setOrientation(Qt.Orientation.Vertical)
+            self.main_split.setSizes([240, 720])
+            if hasattr(self, 'remote_body') and hasattr(self, 'server_list_body'):
+                # 窄屏优先终端：目录区可收，避免三缝
+                pass
+        elif mode == 'compact':
+            self.main_split.setOrientation(Qt.Orientation.Horizontal)
+            self.main_split.setSizes([320, 760])
+        else:
+            self.main_split.setOrientation(Qt.Orientation.Horizontal)
+            self.main_split.setSizes([420, 860])
+        install_splitter_prefs(
+            self.main_split,
+            defaults=[420, 860] if mode != 'narrow' else [240, 720],
+            page_id='ops-log',
+            tab_id='main',
+            bucket=layout_bucket(mode),
+            min_sizes=[200, 280] if mode == 'narrow' else [260, 360],
+            accessible_name='日志排查主分隔',
+        )
 
     # ── 服务器列表 / 分类 ──────────────────────────────────────
     def _fill_category_filter(self, preserve: bool = True):

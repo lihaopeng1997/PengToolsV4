@@ -1420,7 +1420,7 @@ class RequirementPanel(QWidget):
         try:
             from ui.page_chrome import make_page_header
             self.add_btn = QPushButton('新增需求')
-            self.add_btn.setObjectName('primary-btn')
+            self.add_btn.setObjectName('btn-secondary')
             self.add_btn.clicked.connect(self._add_requirement)
             header_frame, self.page_title, self.page_subtitle = make_page_header(
                 '需求管理',
@@ -1434,7 +1434,7 @@ class RequirementPanel(QWidget):
             self.page_subtitle = QLabel('需求、BUG、文件、SQL 与升级联动'); self.page_subtitle.setObjectName('page-subtitle')
             titles = QVBoxLayout(); titles.addWidget(self.page_title); titles.addWidget(self.page_subtitle)
             page_head.addLayout(titles, 1)
-            self.add_btn = QPushButton('新增需求'); self.add_btn.setObjectName('primary-btn'); self.add_btn.clicked.connect(self._add_requirement)
+            self.add_btn = QPushButton('新增需求'); self.add_btn.setObjectName('btn-secondary'); self.add_btn.clicked.connect(self._add_requirement)
             page_head.addWidget(self.add_btn)
         root.addLayout(page_head)
 
@@ -1920,7 +1920,7 @@ class RequirementPanel(QWidget):
         sql_layout.setSpacing(8)
         sql_head = QHBoxLayout(); sql_head.setSpacing(8)
         sql_head.addStretch()
-        self.sql_btn = QPushButton('打开发版联动'); self.sql_btn.setObjectName('primary-btn'); self.sql_btn.clicked.connect(self._send_sql)
+        self.sql_btn = QPushButton('打开发版联动'); self.sql_btn.setObjectName('btn-secondary'); self.sql_btn.clicked.connect(self._send_sql)
         self.sql_btn.setProperty('compactAction', True)
         sql_head.addWidget(self.sql_btn)
         sql_layout.addLayout(sql_head)
@@ -1949,7 +1949,7 @@ class RequirementPanel(QWidget):
         self.daily_btn = QPushButton('写入日报'); self.daily_btn.clicked.connect(self._send_daily)
         self.docx_btn = QPushButton('更新接口文档'); self.docx_btn.clicked.connect(self._send_docx)
         self.release_link_btn = QPushButton('准备本次升级')
-        self.release_link_btn.setObjectName('primary-btn')
+        self.release_link_btn.setObjectName('btn-secondary')
         self.release_link_btn.clicked.connect(lambda: self.open_release_prep.emit(self._current or {}))
         self.delete_btn = QPushButton('删除需求'); self.delete_btn.setObjectName('ops-delete-custom'); self.delete_btn.clicked.connect(self._delete_requirement)
         for button in (self.daily_btn, self.docx_btn, self.release_link_btn, self.delete_btn):

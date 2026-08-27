@@ -313,7 +313,7 @@ class _TextDevHelpersTab(QWidget):
         tools.addWidget(self.mode_combo)
         tools.addStretch(1)
         self.encode_btn = QPushButton()
-        apply_button(self.encode_btn, 'primary', compact=True, icon='lock', icon_size=16)
+        apply_button(self.encode_btn, 'secondary', compact=True, icon='lock', icon_size=16)
         self.encode_btn.clicked.connect(self._encode)
         tools.addWidget(self.encode_btn)
         self.decode_btn = QPushButton()
@@ -321,7 +321,7 @@ class _TextDevHelpersTab(QWidget):
         self.decode_btn.clicked.connect(self._decode)
         tools.addWidget(self.decode_btn)
         self.convert_btn = QPushButton()
-        apply_button(self.convert_btn, 'primary', compact=True, icon='refresh', icon_size=16)
+        apply_button(self.convert_btn, 'secondary', compact=True, icon='refresh', icon_size=16)
         self.convert_btn.clicked.connect(self._convert)
         self.convert_btn.hide()
         tools.addWidget(self.convert_btn)
@@ -513,7 +513,12 @@ class FormatToolsPanel(QWidget):
         self.xml_workspace = XmlWorkspace(self.language)
         if hasattr(self.xml_workspace, 'splitter') and self.xml_workspace.splitter is not None:
             install_splitter_prefs(
-                self.xml_workspace.splitter, defaults=[480, 520], on_changed=None
+                self.xml_workspace.splitter,
+                defaults=[480, 520],
+                page_id='format-tools',
+                tab_id='xml',
+                min_sizes=[220, 220],
+                accessible_name='格式工具 XML 分隔',
             )
         # 精简 XML 页顶区说明（工具内已有 zone）
         self.tabs.addTab(self.xml_workspace, 'XML')

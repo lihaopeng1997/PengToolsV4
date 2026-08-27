@@ -305,7 +305,7 @@ class InterfaceDebugPanel(QWidget):
         row2 = QHBoxLayout()
         row2.setSpacing(8)
         self.capture_toggle_btn = QPushButton()
-        apply_button(self.capture_toggle_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        apply_button(self.capture_toggle_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
         self.capture_toggle_btn.clicked.connect(self._toggle_capture)
         row2.addWidget(self.capture_toggle_btn)
         # 保留旧属性供既有启动/停止代码兼容引用，不再作为可见操作入口。
@@ -643,21 +643,74 @@ class InterfaceDebugPanel(QWidget):
         self.draft_hint.setWordWrap(True)
         dl.addWidget(self.draft_hint)
 
-        # 环境：下拉选择已保存地址 + 当前 base 可编辑 + 保存/管理
-        env_row = QHBoxLayout()
-        env_row.setSpacing(8)
+        # 请求验证紧凑上下文（V1.2）：两行——环境+Base+方法 / URL+HTTPS+发送
+        self.request_verify_context = QFrame()
+        self.request_verify_context.setObjectName('request-verify-context')
+        ctx_l = QVBoxLayout(self.request_verify_context)
+        ctx_l.setContentsMargins(0, 0, 0, 0)
+        ctx_l.setSpacing(6)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
         self.target_label = QLabel('环境')
-        apply_caption(self.target_label, 48)
-        env_row.addWidget(self.target_label)
+        apply_caption(self.target_label, 36)
+        row1.addWidget(self.target_label)
         self.local_target_combo = QComboBox()
         size_pick_combo(self.local_target_combo)
         self.local_target_combo.currentIndexChanged.connect(self._on_env_selected)
-        env_row.addWidget(self.local_target_combo)
+        self.local_target_combo.currentIndexChanged.connect(lambda *_: self._rt_refresh_send_label())
+        row1.addWidget(self.local_target_combo)
+        self.base_label = QLabel('Base')
+        apply_caption(self.base_label, 36)
+        row1.addWidget(self.base_label)
+        self.rt_base_edit = QLineEdit()
+        self.rt_base_edit.setText('http://localhost:18031')
+        self.rt_base_edit.setPlaceholderText('http://host:port')
+        self.rt_base_edit.textChanged.connect(lambda *_: self._rt_refresh_send_label())
+        row1.addWidget(self.rt_base_edit, 1)
+        self.rt_method = QComboBox()
+        self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
+        size_enum_combo(self.rt_method)
+        row1.addWidget(self.rt_method)
         self.rt_environment_config_btn = QPushButton()
-        apply_button(self.rt_environment_config_btn, 'secondary', compact=True)
+        apply_button(self.rt_environment_config_btn, 'ghost', compact=True)
         self.rt_environment_config_btn.clicked.connect(self._show_environment_config_dialog)
-        env_row.addWidget(self.rt_environment_config_btn)
-        env_row.addStretch(1)
+        row1.addWidget(self.rt_environment_config_btn)
+        ctx_l.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+        self.rt_url = QLineEdit()
+        self.rt_url.setPlaceholderText('http://host:port/path')
+        self.rt_url.textChanged.connect(lambda *_: self._rt_refresh_send_label())
+        row2.addWidget(self.rt_url, 1)
+        self.rt_ssl_verify = QCheckBox()
+        self.rt_ssl_verify.setChecked(True)
+        self.rt_ssl_verify.setToolTip(
+            '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
+        )
+        row2.addWidget(self.rt_ssl_verify)
+        self.rt_send_btn = QPushButton()
+        apply_button(self.rt_send_btn, 'primary', compact=True, icon='external-open', icon_size=16)
+        self.rt_send_btn.clicked.connect(self._rt_send)
+        row2.addWidget(self.rt_send_btn)
+        ctx_l.addLayout(row2)
+        dl.addWidget(self.request_verify_context)
+
+        # 次要工具：填入/过滤（不挤进两行上下文）
+        tools_row = QHBoxLayout()
+        tools_row.setSpacing(8)
+        self.rt_fill_btn = QPushButton()
+        apply_button(self.rt_fill_btn, 'secondary', compact=True)
+        self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
+        tools_row.addWidget(self.rt_fill_btn)
+        self.rt_filter_config_btn = QPushButton()
+        apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
+        self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
+        tools_row.addWidget(self.rt_filter_config_btn)
+        tools_row.addStretch(1)
+        dl.addLayout(tools_row)
+
         # 旧控件保留隐藏兼容，避免破坏既有管理槽函数。
         self.add_target_btn = QPushButton(self)
         self.add_target_btn.hide()
@@ -665,57 +718,12 @@ class InterfaceDebugPanel(QWidget):
         self.edit_target_btn.hide()
         self.del_target_btn = QPushButton(self)
         self.del_target_btn.hide()
-        dl.addLayout(env_row)
-
-        base_row = QHBoxLayout()
-        base_row.setSpacing(8)
-        self.base_label = QLabel('Base')
-        apply_caption(self.base_label, 48)
-        base_row.addWidget(self.base_label)
-        self.rt_base_edit = QLineEdit()
-        self.rt_base_edit.setText('http://localhost:18031')
-        self.rt_base_edit.setPlaceholderText('http://host:port（可保存为环境）')
-        base_row.addWidget(self.rt_base_edit, 1)
         self.rt_save_env_btn = QPushButton(self)
         self.rt_save_env_btn.hide()
-        self.rt_fill_btn = QPushButton()
-        apply_button(self.rt_fill_btn, 'secondary', compact=True)
-        self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
-        base_row.addWidget(self.rt_fill_btn)
-        self.rt_filter_config_btn = QPushButton()
-        apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
-        self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
-        base_row.addWidget(self.rt_filter_config_btn)
         self.rt_url_filter_edit = QLineEdit(self)
         self.rt_url_filter_edit.hide()
         self.rt_url_filter_save_btn = QPushButton(self)
         self.rt_url_filter_save_btn.hide()
-        dl.addLayout(base_row)
-
-        method_row = QHBoxLayout()
-        method_row.setSpacing(8)
-        self.rt_method = QComboBox()
-        self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
-        size_enum_combo(self.rt_method)
-        method_row.addWidget(self.rt_method)
-        self.rt_url = QLineEdit()
-        self.rt_url.setPlaceholderText('http://host:port/path')
-        method_row.addWidget(self.rt_url, 1)
-        self.rt_send_btn = QPushButton()
-        apply_button(self.rt_send_btn, 'primary', compact=True, icon='external-open', icon_size=16)
-        self.rt_send_btn.clicked.connect(self._rt_send)
-        method_row.addWidget(self.rt_send_btn)
-        dl.addLayout(method_row)
-        # 安测：HTTPS 证书校验（默认开，与设置 security_ssl_verify 对齐）
-        ssl_row = QHBoxLayout()
-        self.rt_ssl_verify = QCheckBox()
-        self.rt_ssl_verify.setChecked(True)
-        self.rt_ssl_verify.setToolTip(
-            '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
-        )
-        ssl_row.addWidget(self.rt_ssl_verify)
-        ssl_row.addStretch(1)
-        dl.addLayout(ssl_row)
 
         # 分类 + 保存到接口库
         cat_row = QHBoxLayout()
@@ -1322,6 +1330,38 @@ class InterfaceDebugPanel(QWidget):
                 self.rt_url.setText(rewrite_url_with_base(cur, base))
             except Exception:
                 pass
+        self._rt_refresh_send_label()
+
+    def _rt_resolve_send_host(self) -> str:
+        raw = ''
+        if hasattr(self, 'rt_url'):
+            raw = (self.rt_url.text() or '').strip()
+        if '://' not in raw and hasattr(self, 'rt_base_edit'):
+            raw = (self.rt_base_edit.text() or '').strip()
+        if not raw:
+            return ''
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(raw if '://' in raw else f'http://{raw}')
+            return (parsed.hostname or '').strip()
+        except Exception:
+            return ''
+
+    def _rt_refresh_send_label(self):
+        if not hasattr(self, 'rt_send_btn'):
+            return
+        zh = self.language == 'zh'
+        host = self._rt_resolve_send_host()
+        tid = self.local_target_combo.currentData() if hasattr(self, 'local_target_combo') else None
+        if not host and not tid:
+            self.rt_send_btn.setText('选择环境后发送' if zh else 'Select environment')
+            self.rt_send_btn.setEnabled(False)
+            return
+        self.rt_send_btn.setEnabled(True)
+        if host:
+            self.rt_send_btn.setText(f'发送 · 到 {host}' if zh else f'Send · to {host}')
+        else:
+            self.rt_send_btn.setText('发送 · 到所选环境' if zh else 'Send · to environment')
 
     def _refresh_browsers(self):
         current = self.browser_combo.currentData()
@@ -1546,7 +1586,7 @@ class InterfaceDebugPanel(QWidget):
         self.capture_toggle_btn.setEnabled(not busy)
         apply_button(
             self.capture_toggle_btn,
-            'danger' if active else 'primary',
+            'danger' if active else 'secondary',
             compact=True,
             icon='lock' if active else 'external-open',
             icon_size=16,
@@ -3030,7 +3070,7 @@ class InterfaceDebugPanel(QWidget):
                 status=status, ok=ok, error=err, response_body=rbody,
             )
         finally:
-            self.rt_send_btn.setEnabled(True)
+            self._rt_refresh_send_label()
             self._rt_worker = None
 
     def _rt_send_failed(self, message: str):
@@ -3041,7 +3081,7 @@ class InterfaceDebugPanel(QWidget):
                 status=None, ok=False, error=message or '请求失败', response_body='',
             )
         finally:
-            self.rt_send_btn.setEnabled(True)
+            self._rt_refresh_send_label()
             self._rt_worker = None
 
     def _rt_import_file(self):
@@ -4180,7 +4220,7 @@ class InterfaceDebugPanel(QWidget):
         self.detail_tabs.setTabText(0, '概览' if zh else 'Overview')
         self.detail_tabs.setTabText(1, '请求' if zh else 'Request')
         self.detail_tabs.setTabText(2, '响应' if zh else 'Response')
-        self.detail_tabs.setTabText(3, '请求测试' if zh else 'Request Test')
+        self.detail_tabs.setTabText(3, '请求验证' if zh else 'Request verify')
         self.reveal_cb.setText('显示敏感内容' if zh else 'Reveal secrets')
         self.copy_safe_url_btn.setText('复制安全 URL' if zh else 'Copy safe URL')
         self.copy_req_btn.setText('复制请求' if zh else 'Copy request')
@@ -4190,27 +4230,24 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求测试 · 环境 / 已保存 / 发送记录' if zh else
-            'Request test · env / saved / sent'
+            '请求验证 · 环境 / Base / 方法 · URL / HTTPS / 发送' if zh else
+            'Request verify · env / base / method · URL / HTTPS / send'
         )
-        self.target_label.setText('环境' if zh else 'Environment')
+        self.target_label.setText('环境' if zh else 'Env')
         if hasattr(self, 'base_label'):
             self.base_label.setText('Base')
         if hasattr(self, 'rt_fill_btn'):
             self.rt_fill_btn.setText('从会话填充' if zh else 'Fill from session')
             if hasattr(self, 'rt_environment_config_btn'):
-                self.rt_environment_config_btn.setText('环境配置' if zh else 'Env')
+                self.rt_environment_config_btn.setText('环境' if zh else 'Env')
             if hasattr(self, 'rt_filter_config_btn'):
                 self.rt_filter_config_btn.setText('过滤' if zh else 'Filter')
-            self.rt_send_btn.setText('发送' if zh else 'Send')
+            self._rt_refresh_send_label()
             self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
             self.rt_import_btn.setText('导入明细' if zh else 'Import')
             self.rt_resp_label.setText('响应' if zh else 'Response')
         if hasattr(self, 'rt_ssl_verify'):
-            self.rt_ssl_verify.setText(
-                '校验 HTTPS 证书（安测默认开启）' if zh else
-                'Verify HTTPS certificates (default on)'
-            )
+            self.rt_ssl_verify.setText('HTTPS' if zh else 'HTTPS')
             self.rt_ssl_verify.setToolTip(
                 '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
                 if zh else

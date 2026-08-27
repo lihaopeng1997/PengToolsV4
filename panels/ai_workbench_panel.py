@@ -323,8 +323,28 @@ class AiWorkbenchPanel(QWidget):
         body = QSplitter(Qt.Orientation.Vertical)
         columns = QSplitter(Qt.Orientation.Horizontal)
 
+        self.narrow_chrome = QFrame()
+        self.narrow_chrome.setObjectName('page-toolbar')
+        narrow_l = QHBoxLayout(self.narrow_chrome)
+        narrow_l.setContentsMargins(0, 0, 0, 4)
+        narrow_l.setSpacing(8)
+        self.show_objects_btn = QPushButton()
+        apply_button(self.show_objects_btn, 'ghost', compact=True)
+        self.show_objects_btn.setCheckable(True)
+        self.show_objects_btn.toggled.connect(self._toggle_narrow_objects)
+        self.show_ai_side_btn = QPushButton()
+        apply_button(self.show_ai_side_btn, 'ghost', compact=True)
+        self.show_ai_side_btn.setCheckable(True)
+        self.show_ai_side_btn.toggled.connect(self._toggle_narrow_ai)
+        narrow_l.addWidget(self.show_objects_btn)
+        narrow_l.addWidget(self.show_ai_side_btn)
+        narrow_l.addStretch(1)
+        self.narrow_chrome.hide()
+        root.addWidget(self.narrow_chrome)
+
         left = QFrame()
         left.setObjectName('dashboard-task-card')
+        self.left_pane = left
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(10, 10, 10, 10)
         self.tree_title = QLabel()
@@ -549,9 +569,26 @@ class AiWorkbenchPanel(QWidget):
         body.setStretchFactor(1, 2)
         self.body_splitter = body
         self.columns_splitter = columns
-        install_splitter_prefs(columns, defaults=[240, 560, 320], on_changed=None)
-        install_splitter_prefs(body, defaults=[540, 360], on_changed=None)
+        install_splitter_prefs(
+            columns,
+            defaults=[240, 560, 320],
+            page_id='sql-console',
+            tab_id='columns',
+            min_sizes=[160, 320, 200],
+            accessible_name='SQL 控制台列分隔',
+        )
+        install_splitter_prefs(
+            body,
+            defaults=[540, 360],
+            page_id='sql-console',
+            tab_id='body',
+            min_sizes=[280, 160],
+            accessible_name='SQL 控制台上下分隔',
+        )
         root.addWidget(body, 1)
+        self._layout_mode = 'wide'
+        self._narrow_show_objects = False
+        self._narrow_show_ai = False
 
         QShortcut(QKeySequence('Ctrl+N'), self, activated=self._new_sql_tab)
         QShortcut(QKeySequence('Ctrl+W'), self, activated=self._close_current_tab)
@@ -600,6 +637,8 @@ class AiWorkbenchPanel(QWidget):
         self.agent_more.setText('更多操作' if zh else 'More')
         self.agent_cancel_btn.setText('取消' if zh else 'Cancel')
         self.agent_confirm_btn.setText('使用选中字段生成' if zh else 'Generate with selected fields')
+        self.show_objects_btn.setText('显示对象目录' if zh else 'Show objects')
+        self.show_ai_side_btn.setText('显示 AI 助手' if zh else 'Show AI assistant')
         self._refresh_agent_more_menu()
         self.side_tabs.setTabText(1, '对象详情' if zh else 'Object details')
         self.detail_title.setText('对象详情' if zh else 'Object details')
@@ -620,9 +659,48 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_model_status()
         self._refresh_header()
 
+    def _toggle_narrow_objects(self, checked: bool):
+        self._narrow_show_objects = bool(checked)
+        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'left_pane'):
+            self.left_pane.setVisible(self._narrow_show_objects)
+
+    def _toggle_narrow_ai(self, checked: bool):
+        self._narrow_show_ai = bool(checked)
+        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'side_tabs'):
+            self.side_tabs.setVisible(self._narrow_show_ai)
+
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
-        set_subtitle_visible(self.page_subtitle, low_height)
+        from ui.splitter_prefs import layout_bucket
+        self._layout_mode = mode
+        set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
+        if hasattr(self, 'narrow_chrome'):
+            self.narrow_chrome.setVisible(mode == 'narrow')
+        if not hasattr(self, 'columns_splitter'):
+            return
+        if mode == 'narrow':
+            self.left_pane.setVisible(self._narrow_show_objects)
+            self.side_tabs.setVisible(self._narrow_show_ai)
+            self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
+            self.columns_splitter.setSizes([200 if self._narrow_show_objects else 0, 900, 240 if self._narrow_show_ai else 0])
+        elif mode == 'compact':
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.columns_splitter.setSizes([180, 700, 220])
+        else:
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.columns_splitter.setSizes([240, 560, 320])
+        # 按档位重新挂持久化键
+        install_splitter_prefs(
+            self.columns_splitter,
+            defaults=[240, 560, 320],
+            page_id='sql-console',
+            tab_id='columns',
+            bucket=layout_bucket(mode),
+            min_sizes=[160, 320, 200],
+            accessible_name='SQL 控制台列分隔',
+        )
 
     def _title(self) -> str:
         return 'SQL 控制台' if self.language == 'zh' else 'SQL Console'

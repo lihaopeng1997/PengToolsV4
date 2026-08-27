@@ -188,7 +188,14 @@ class ModelChatPanel(QWidget):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 3)
         self.chat_splitter = split
-        install_splitter_prefs(split, defaults=[260, 780], on_changed=None)
+        install_splitter_prefs(
+            split,
+            defaults=[260, 780],
+            page_id='model-chat',
+            tab_id='main',
+            min_sizes=[180, 360],
+            accessible_name='模型对话左右分隔',
+        )
         root.addWidget(split, 1)
 
     def eventFilter(self, watched, event):

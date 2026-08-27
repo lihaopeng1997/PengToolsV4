@@ -61,6 +61,7 @@ DAILY_REPORT_DRAFTS_FILE = os.path.join(CONFIG_DIR, 'daily_report_drafts.json')
 DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
+LAYOUT_SPLITTERS_FILE = os.path.join(CONFIG_DIR, 'layout_splitters.json')
 TICKET_SUBMIT_FILE = os.path.join(CONFIG_DIR, 'ticket_submit.json')
 LAST_CHOICES_FILE = os.path.join(CONFIG_DIR, 'last_choices.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。
@@ -340,3 +341,34 @@ def save_requirement_ui(settings):
         result[key] = sizes if isinstance(sizes, list) and len(sizes) == 2 and all(isinstance(size, int) and size > 0 for size in sizes) else default
     with open(REQUIREMENT_UI_FILE, 'w', encoding='utf-8') as stream:
         json.dump(result, stream, ensure_ascii=False, indent=2)
+
+
+def load_layout_splitters() -> dict:
+    ensure_config_dir()
+    try:
+        with open(LAYOUT_SPLITTERS_FILE, 'r', encoding='utf-8') as stream:
+            data = json.load(stream)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def load_layout_splitter(key: str) -> list | None:
+    data = load_layout_splitters()
+    sizes = data.get(str(key or ''))
+    if isinstance(sizes, list) and len(sizes) >= 2 and all(isinstance(item, int) and item > 0 for item in sizes):
+        return sizes
+    return None
+
+
+def save_layout_splitter(key: str, sizes: list) -> None:
+    ensure_config_dir()
+    text = str(key or '').strip()
+    if not text:
+        return
+    if not (isinstance(sizes, list) and len(sizes) >= 2 and all(isinstance(item, int) and item > 0 for item in sizes)):
+        return
+    data = load_layout_splitters()
+    data[text] = [int(item) for item in sizes]
+    with open(LAYOUT_SPLITTERS_FILE, 'w', encoding='utf-8') as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=2)
