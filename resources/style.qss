@@ -385,12 +385,26 @@ QFrame#page-toolbar {
 QFrame#page-toolbar[divided="true"] {
     border-bottom: 1px solid __BORDER__;
 }
-/* 接口排查 · 请求验证两行紧凑上下文（非凸起大卡） */
+/* 接口排查 · 请求验证两行紧凑上下文（非凸起大卡；§8.3 单行 36–40） */
 QFrame#request-verify-context {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 8px;
-    padding: 8px;
+}
+QFrame#request-verify-context QLabel {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    background: transparent;
+}
+QFrame#request-verify-context QLineEdit,
+QFrame#request-verify-context QComboBox,
+QFrame#request-verify-context QPushButton {
+    min-height: __CONTROL_HEIGHT_COMPACT__;
+}
+QFrame#request-verify-context QCheckBox {
+    color: __TEXT__;
+    spacing: 6px;
+    min-height: 36px;
 }
 /* 页面骨架 L4 空状态（规范 v1 §6.3）：图标 + 标题 + 引导 + 可选按钮 */
 QFrame#empty-state {

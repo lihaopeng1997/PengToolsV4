@@ -531,17 +531,6 @@ class InterfaceDebugPanel(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ll.addWidget(self.empty_hint)
-        lib_row = QHBoxLayout()
-        self.local_template_btn = QPushButton()
-        apply_button(self.local_template_btn, 'ghost', compact=True)
-        self.local_template_btn.clicked.connect(lambda: self._open_request_lib('saved'))
-        self.local_sent_btn = QPushButton()
-        apply_button(self.local_sent_btn, 'ghost', compact=True)
-        self.local_sent_btn.clicked.connect(lambda: self._open_request_lib('history'))
-        lib_row.addWidget(self.local_template_btn)
-        lib_row.addWidget(self.local_sent_btn)
-        lib_row.addStretch(1)
-        ll.addLayout(lib_row)
         self._session_list_widget = left
         self.mid_splitter.addWidget(left)
 
@@ -566,10 +555,6 @@ class InterfaceDebugPanel(QWidget):
         self.overview_page = QWidget()
         ov = QVBoxLayout(self.overview_page)
         ov.setContentsMargins(0, 8, 0, 0)
-        self.overview_redact_callout = QLabel()
-        self.overview_redact_callout.setObjectName('status-banner')
-        self.overview_redact_callout.setWordWrap(True)
-        ov.addWidget(self.overview_redact_callout)
         ov_tools = QHBoxLayout()
         self.copy_safe_url_btn = QPushButton()
         apply_button(self.copy_safe_url_btn, 'secondary', compact=True, icon='copy', icon_size=16)
@@ -651,31 +636,18 @@ class InterfaceDebugPanel(QWidget):
         self.draft_badge = QLabel()
         self.draft_badge.setObjectName('offline-pill')
         dl.addWidget(self.draft_badge)
-        self.verify_danger_callout = QLabel()
-        self.verify_danger_callout.setObjectName('status-banner')
-        self.verify_danger_callout.setWordWrap(True)
-        self.verify_danger_callout.setProperty('tone', 'danger')
-        dl.addWidget(self.verify_danger_callout)
-        self.verify_auth_status = QLabel()
-        self.verify_auth_status.setObjectName('field-hint')
-        self.verify_auth_status.setWordWrap(True)
-        dl.addWidget(self.verify_auth_status)
 
         self.include_auth_cb = QCheckBox()
         self.include_auth_cb.hide()
+        # 草稿类入口冻结：不展示、不新增功能面
         self.gen_draft_btn = QPushButton()
-        apply_button(self.gen_draft_btn, 'ghost', compact=True)
-        self.gen_draft_btn.clicked.connect(self._copy_curl)
+        self.gen_draft_btn.hide()
         self.copy_postman_btn = QPushButton()
-        apply_button(self.copy_postman_btn, 'ghost', compact=True)
-        self.copy_postman_btn.clicked.connect(self._copy_postman)
+        self.copy_postman_btn.hide()
         self.export_postman_btn = QPushButton()
-        apply_button(self.export_postman_btn, 'ghost', compact=True)
-        self.export_postman_btn.clicked.connect(self._export_postman)
         self.export_postman_btn.hide()
         self.copy_curl_btn = QPushButton()
-        apply_button(self.copy_curl_btn, 'ghost', compact=True)
-        self.copy_curl_btn.clicked.connect(self._copy_curl)
+        self.copy_curl_btn.hide()
         self.draft_hint = QLabel()
         self.draft_hint.setObjectName('field-hint')
         self.draft_hint.setWordWrap(True)
@@ -685,8 +657,9 @@ class InterfaceDebugPanel(QWidget):
         self.request_verify_context = QFrame()
         self.request_verify_context.setObjectName('request-verify-context')
         ctx_l = QVBoxLayout(self.request_verify_context)
-        ctx_l.setContentsMargins(0, 0, 0, 0)
-        ctx_l.setSpacing(6)
+        # V1.2 §8.3：单行控件高 36–40；两行紧凑上下文内边距统一
+        ctx_l.setContentsMargins(12, 10, 12, 10)
+        ctx_l.setSpacing(8)
 
         row1 = QHBoxLayout()
         row1.setSpacing(8)
@@ -734,6 +707,11 @@ class InterfaceDebugPanel(QWidget):
         self.rt_send_btn.clicked.connect(self._rt_send)
         row2.addWidget(self.rt_send_btn)
         ctx_l.addLayout(row2)
+        for control in (
+            self.local_target_combo, self.rt_base_edit, self.rt_method,
+            self.rt_url, self.rt_send_btn,
+        ):
+            control.setMinimumHeight(36)
         dl.addWidget(self.request_verify_context)
 
         # 次要工具：填入/过滤（不挤进两行上下文）
@@ -747,9 +725,6 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
         self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
         tools_row.addWidget(self.rt_filter_config_btn)
-        tools_row.addWidget(self.copy_curl_btn)
-        tools_row.addWidget(self.copy_postman_btn)
-        tools_row.addWidget(self.gen_draft_btn)
         tools_row.addStretch(1)
         dl.addLayout(tools_row)
 
@@ -988,9 +963,19 @@ class InterfaceDebugPanel(QWidget):
         self.session_list_reveal_btn.clicked.connect(self._toggle_session_list)
         self.session_list_reveal_btn.hide()
         rl.addWidget(self.session_list_reveal_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
-        self.mid_splitter.setSizes(sizes)
-        self.mid_splitter.splitterMoved.connect(self._save_splitter_sizes)
+        install_splitter_prefs(
+            self.mid_splitter,
+            defaults=[420, 580],
+            saved=sizes,
+            page_id='interface-debug',
+            tab_id='session-detail',
+            bucket=layout_bucket('standard'),
+            min_sizes=[240, 420],
+            accessible_name='接口排查会话/详情分隔',
+            on_changed=lambda values: self._save_splitter_sizes(*values[:2]),
+        )
         # splitterMoved 发生时子控件几何信息尚未稳定，下一事件循环再按最终宽度重算按钮和列。
         self.mid_splitter.splitterMoved.connect(
             lambda *_: QTimer.singleShot(0, self._update_responsive_workspace)
@@ -1651,16 +1636,6 @@ class InterfaceDebugPanel(QWidget):
             self.offline_pill.setText(
                 (f'未监听 · {total} 条会话' if zh else f'Idle · {total} session(s)')
             )
-
-    def _open_request_lib(self, mode: str):
-        """左栏入口：切到请求验证并切换本地模板/发送记录。"""
-        if hasattr(self, 'detail_tabs'):
-            self.detail_tabs.setCurrentWidget(self.draft_page)
-        if hasattr(self, 'rt_lib_mode'):
-            idx = self.rt_lib_mode.findData(mode)
-            if idx < 0:
-                idx = 0 if mode == 'saved' else 1
-            self.rt_lib_mode.setCurrentIndex(max(0, idx))
 
     def _toggle_capture(self):
         if self._listening:
@@ -4270,32 +4245,41 @@ class InterfaceDebugPanel(QWidget):
         self._rebuild_session_actions_menu()
 
     def apply_layout_mode(self, mode, low_height=False):
+        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         previous_mode = self._layout_mode
         self._layout_mode = mode
-        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
+        set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height or mode == 'narrow')
         prev_orient = self.mid_splitter.orientation()
-        apply_splitter_orientation(self.mid_splitter, mode, min_editor=editor_min_height())
-        # 方向切换时用对应模式尺寸；不反转左右顺序
+        # Compact/Narrow：会话/详情改为上下堆叠，并抬高编辑区下限（§8.2/8.3）
+        apply_splitter_orientation(
+            self.mid_splitter,
+            mode,
+            min_editor=240 if mode in ('compact', 'narrow') else editor_min_height(),
+        )
         self.mid_splitter.setChildrenCollapsible(False)
         self.mid_splitter.setOpaqueResize(True)
-        restore_saved_sizes = previous_mode != mode or prev_orient != self.mid_splitter.orientation()
-        sizes = (self._prefs.get('splitter_sizes') or {}).get(mode)
-        if restore_saved_sizes and sizes and len(sizes) >= 2:
-            a, b = int(sizes[0]), int(sizes[1])
-            # 防止历史脏数据导致「反向」观感（一侧过小）
-            if a < 120:
-                a = 320 if self.mid_splitter.orientation() == Qt.Orientation.Horizontal else 200
-            if b < 120:
-                b = 480 if self.mid_splitter.orientation() == Qt.Orientation.Horizontal else 280
-            self.mid_splitter.setSizes([a, b])
-        # 横向：左列表 / 右详情。宽屏默认阅读区更大，已保存的分隔尺寸始终优先。
         if self.mid_splitter.orientation() == Qt.Orientation.Horizontal:
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)
+            mins = [240, 420]
+            defaults = [420, 580]
         else:
             self.mid_splitter.setStretchFactor(0, 1)
             self.mid_splitter.setStretchFactor(1, 2)
-        _ = prev_orient  # 保留变量便于后续差异处理
+            mins = [200, 240]
+            defaults = [220, 420]
+        prefs = (self._prefs.get('splitter_sizes') or {}).get(mode)
+        install_splitter_prefs(
+            self.mid_splitter,
+            defaults=defaults,
+            saved=prefs if previous_mode != mode or prev_orient != self.mid_splitter.orientation() else list(self.mid_splitter.sizes()),
+            page_id='interface-debug',
+            tab_id='session-detail',
+            bucket=layout_bucket(mode),
+            min_sizes=mins,
+            accessible_name='接口排查会话/详情分隔',
+            on_changed=lambda values: self._save_splitter_sizes(*values[:2]),
+        )
         # 任何断点都只保留唯一抓包主按钮，不恢复模式/证书入口。
         self._apply_mode_ui()
         self.capture_toggle_btn.show()
@@ -4303,7 +4287,10 @@ class InterfaceDebugPanel(QWidget):
         self.stop_btn.hide()
         self.test_listen_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
-            edit.setMinimumHeight(editor_min_height())
+            edit.setMinimumHeight(240 if mode in ('compact', 'narrow') else editor_min_height())
+        # 窄屏：请求验证两行上下文全宽，细节区最小高度守住
+        if hasattr(self, 'request_verify_context'):
+            self.request_verify_context.setMinimumHeight(0)
         self._update_responsive_workspace()
 
     # ── 语言 / 清理 ──────────────────────────────────
@@ -4329,31 +4316,6 @@ class InterfaceDebugPanel(QWidget):
             )
         if hasattr(self, 'session_pane_title'):
             self.session_pane_title.setText('会话与筛选' if zh else 'Sessions & filters')
-        if hasattr(self, 'local_template_btn'):
-            self.local_template_btn.setText('本地接口模板' if zh else 'Local templates')
-            self.local_sent_btn.setText('本地发送记录' if zh else 'Local sent history')
-        if hasattr(self, 'overview_redact_callout'):
-            self.overview_redact_callout.setText(
-                '已脱敏展示。Authorization、Cookie、Token 等字段默认隐藏。'
-                if zh else
-                'Redacted view. Authorization/Cookie/Token stay hidden by default.'
-            )
-        if hasattr(self, 'verify_danger_callout'):
-            self.verify_danger_callout.setText(
-                '真实请求会发送到外部目标。生成 cURL/Postman 草稿不会发送。'
-                if zh else
-                'Real requests leave this machine. Draft generation does not send.'
-            )
-        if hasattr(self, 'verify_auth_status'):
-            self.verify_auth_status.setText(
-                '认证状态：按请求头携带（敏感值默认脱敏）'
-                if zh else
-                'Auth: carried from headers (secrets redacted by default)'
-            )
-        if hasattr(self, 'copy_curl_btn'):
-            self.copy_curl_btn.setText('生成 cURL 草稿' if zh else 'cURL draft')
-            self.copy_postman_btn.setText('复制 Postman JSON' if zh else 'Copy Postman JSON')
-            self.gen_draft_btn.setText('生成草稿' if zh else 'Generate draft')
         if hasattr(self, 'restore_proxy_btn'):
             self.restore_proxy_btn.setText('恢复系统代理' if zh else 'Restore proxy')
             self.restore_proxy_btn.setToolTip(
@@ -4402,8 +4364,7 @@ class InterfaceDebugPanel(QWidget):
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
         self.draft_badge.setText(
-            '请求验证 · 可能真实发送' if zh else
-            'Request verify · may send for real'
+            '请求验证' if zh else 'Request verify'
         )
         self.target_label.setText('环境' if zh else 'Env')
         if hasattr(self, 'base_label'):

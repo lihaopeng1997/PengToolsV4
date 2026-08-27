@@ -63,10 +63,22 @@ class RequestVerifyLayoutTests(unittest.TestCase):
         self.assertEqual(panel.clear_list_btn.text(), '清空本次会话')
         self.assertEqual(panel.test_listen_btn.text(), '测试监听')
         self.assertEqual(panel.session_pane_title.text(), '会话与筛选')
-        self.assertEqual(panel.local_template_btn.text(), '本地接口模板')
-        self.assertEqual(panel.local_sent_btn.text(), '本地发送记录')
-        self.assertIn('已脱敏', panel.overview_redact_callout.text())
-        self.assertIn('真实请求', panel.verify_danger_callout.text())
+        # 功能扩散入口必须保持冻结（隐藏）
+        self.assertTrue(panel.copy_curl_btn.isHidden())
+        self.assertTrue(panel.copy_postman_btn.isHidden())
+        self.assertTrue(panel.gen_draft_btn.isHidden())
+        self.assertFalse(hasattr(panel, 'verify_danger_callout'))
+        self.assertFalse(hasattr(panel, 'overview_redact_callout'))
+        self.assertFalse(hasattr(panel, 'local_template_btn'))
+        panel.close()
+
+    def test_request_verify_row_controls_have_compact_height(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        for control in (panel.rt_base_edit, panel.rt_url, panel.rt_method, panel.local_target_combo, panel.rt_send_btn):
+            self.assertGreaterEqual(control.minimumHeight(), 36)
+        margins = panel.request_verify_context.layout().contentsMargins()
+        self.assertEqual((margins.left(), margins.top(), margins.right(), margins.bottom()), (12, 10, 12, 10))
         panel.close()
 
     def test_sql_console_narrow_shows_side_toggles(self):

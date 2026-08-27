@@ -2695,23 +2695,36 @@ class OpsLogPanel(QWidget):
             return
         if mode == 'narrow':
             self.main_split.setOrientation(Qt.Orientation.Vertical)
-            self.main_split.setSizes([240, 720])
-            if hasattr(self, 'remote_body') and hasattr(self, 'server_list_body'):
-                # 窄屏优先终端：目录区可收，避免三缝
-                pass
+            # §8.3：终端高 ≥220；上区（主机/日志）与下区（终端）堆叠
+            self.main_split.setSizes([240, 420])
+            for i in range(self.main_split.count()):
+                w = self.main_split.widget(i)
+                if w is not None:
+                    w.setMinimumHeight(220 if i == 1 else 200)
+                    w.setMinimumWidth(0)
         elif mode == 'compact':
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
-            self.main_split.setSizes([320, 760])
+            self.main_split.setSizes([280, 760])
+            for i in range(self.main_split.count()):
+                w = self.main_split.widget(i)
+                if w is not None:
+                    w.setMinimumWidth(240 if i == 0 else 360)
+                    w.setMinimumHeight(0)
         else:
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
             self.main_split.setSizes([420, 860])
+            for i in range(self.main_split.count()):
+                w = self.main_split.widget(i)
+                if w is not None:
+                    w.setMinimumWidth(260 if i == 0 else 420)
+                    w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
-            defaults=[420, 860] if mode != 'narrow' else [240, 720],
+            defaults=[420, 860] if mode != 'narrow' else [240, 420],
             page_id='ops-log',
             tab_id='main',
             bucket=layout_bucket(mode),
-            min_sizes=[200, 280] if mode == 'narrow' else [260, 360],
+            min_sizes=[200, 220] if mode == 'narrow' else [260, 360],
             accessible_name='日志排查主分隔',
         )
 
