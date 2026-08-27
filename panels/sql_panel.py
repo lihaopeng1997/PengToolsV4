@@ -109,9 +109,11 @@ class SqlToolPanel(QWidget):
         self._refresh_ai_draft_button()
 
     def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
 
         try:
             from ui.page_chrome import make_page_header
@@ -142,9 +144,10 @@ class SqlToolPanel(QWidget):
             self.progress.place_overlay()
 
     def _create_release_tab(self):
+        from ui.layout_metrics import SPACING_CARD
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
+        layout.setSpacing(SPACING_CARD)
         layout.setContentsMargins(2, 4, 2, 2)
 
         # 弱步骤条：选择日期 → 勾选事项 → 生成资料
@@ -578,9 +581,10 @@ class SqlToolPanel(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def _create_processing_tab(self):
+        from ui.layout_metrics import SPACING_CARD
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
+        layout.setSpacing(SPACING_CARD)
         layout.setContentsMargins(2, 4, 2, 2)
 
         # 三段：输入 / 预览 / 导出（去掉外层重复标题）
@@ -694,7 +698,8 @@ class SqlToolPanel(QWidget):
         self.input_sql = QPlainTextEdit()
         self.input_sql.setObjectName('sql-input-editor')
         self.input_sql.setFont(QFont('Consolas', 10))
-        self.input_sql.setMinimumHeight(120)
+        from ui.responsive import editor_min_height as _editor_min_h
+        self.input_sql.setMinimumHeight(_editor_min_h())
         self.input_sql.textChanged.connect(self._reset_sources_if_empty)
         self.input_sql.textChanged.connect(self._refresh_path_note_visibility)
         self.output_root.textChanged.connect(self._refresh_path_note_visibility)
@@ -770,9 +775,11 @@ class SqlToolPanel(QWidget):
 
     @staticmethod
     def _preview_editor():
+        from ui.responsive import editor_min_height
         editor = QPlainTextEdit()
         editor.setReadOnly(True)
         editor.setFont(QFont('Consolas', 9))
+        editor.setMinimumHeight(editor_min_height())
         return editor
 
     def _create_config_tab(self):
@@ -877,7 +884,9 @@ class SqlToolPanel(QWidget):
     def apply_layout_mode(self, mode, low_height=False):
         """升级准备/SQL：窄屏保留系统、环境、日期、导入/粘贴、生成主操作，并收起步条。"""
         self._layout_mode = mode
-        from ui.responsive import set_subtitle_visible, editor_min_height
+        from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height or mode == 'narrow')
         if hasattr(self, 'release_steps'):
             self.release_steps.setVisible(mode not in ('narrow', 'compact'))
@@ -914,10 +923,14 @@ class SqlToolPanel(QWidget):
                 w.show()
             if hasattr(self, 'release_context_toggle'):
                 self.release_context_toggle.show()
-        for editor_name in ('input_edit', 'sql_editor', 'editor'):
+        min_h = editor_min_height()
+        for editor_name in (
+            'input_edit', 'sql_editor', 'editor', 'input_sql',
+            'upgrade_preview', 'rollback_preview', 'validation_preview',
+        ):
             ed = getattr(self, editor_name, None)
             if ed is not None and hasattr(ed, 'setMinimumHeight'):
-                ed.setMinimumHeight(editor_min_height())
+                ed.setMinimumHeight(min_h)
 
     def set_language(self, language):
         self.language = language

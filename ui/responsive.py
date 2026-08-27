@@ -100,7 +100,8 @@ def editor_orientation_for_mode(mode: str) -> Qt.Orientation:
 
 
 def editor_min_height() -> int:
-    return 180
+    """多行主编辑区最小高度（V1.2：≥240）。"""
+    return 240
 
 
 class LayoutModeController(QObject):
@@ -338,7 +339,7 @@ def set_subtitle_visible(subtitle_widget, low_height: bool):
         subtitle_widget.setVisible(not low_height)
 
 
-def apply_splitter_orientation(splitter, mode: str, *, min_editor: int = 180):
+def apply_splitter_orientation(splitter, mode: str, *, min_editor: int = 240):
     """双栏编辑器在 compact/narrow 改为垂直，并保证最小高度。
 
     不重排子控件顺序（保持 0=左/上、1=右/下），避免拖拽方向与视觉「反了」。

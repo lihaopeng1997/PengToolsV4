@@ -73,9 +73,11 @@ class DocxUpdatePanel(QWidget):
         self.set_language(language)
 
     def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(SPACING_PAGE)
+        self._page_root_layout = layout
         self.update_btn = QPushButton()
         apply_button(self.update_btn, 'primary', compact=True)
         self.update_btn.clicked.connect(self._update_document)
@@ -205,10 +207,13 @@ class DocxUpdatePanel(QWidget):
         layout.addWidget(self.file_group)
 
         mid = QSplitter(Qt.Orientation.Horizontal)
-        mid.setHandleWidth(6)
+        mid.setObjectName('docx-main-splitter')
+        mid.setHandleWidth(8)
         mid.setChildrenCollapsible(False)
+        self.main_splitter = mid
 
         browser_box = QWidget()
+        browser_box.setMinimumWidth(240)
         browser_layout = QVBoxLayout(browser_box)
         browser_layout.setContentsMargins(0, 0, 0, 0)
         browser_top = QHBoxLayout()
@@ -254,11 +259,14 @@ class DocxUpdatePanel(QWidget):
         mid.addWidget(browser_box)
 
         work_box = QWidget()
+        work_box.setMinimumWidth(520)
         work_layout = QVBoxLayout(work_box)
         work_layout.setContentsMargins(0, 0, 0, 0)
         work_split = QSplitter(Qt.Orientation.Vertical)
-        work_split.setHandleWidth(6)
+        work_split.setObjectName('docx-editor-splitter')
+        work_split.setHandleWidth(8)
         work_split.setChildrenCollapsible(False)
+        self.editor_splitter = work_split
         input_box = QWidget()
         input_layout = QVBoxLayout(input_box)
         input_layout.setContentsMargins(0, 0, 0, 0)
@@ -275,8 +283,10 @@ class DocxUpdatePanel(QWidget):
         self.preview_btn.clicked.connect(self._preview)
         input_top.addWidget(self.preview_btn)
         input_layout.addLayout(input_top)
+        from ui.responsive import editor_min_height as _docx_editor_min
         self.sql_editor = QPlainTextEdit()
         self.sql_editor.setPlaceholderText('CREATE TABLE ...;\nALTER TABLE ... ADD (...);')
+        self.sql_editor.setMinimumHeight(_docx_editor_min())
         input_layout.addWidget(self.sql_editor, 1)
         work_split.addWidget(input_box)
 
@@ -311,6 +321,28 @@ class DocxUpdatePanel(QWidget):
         work_layout.addWidget(work_split)
         mid.addWidget(work_box)
         mid.setSizes([340, 720])
+        try:
+            from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+            install_splitter_prefs(
+                mid,
+                defaults=[340, 720],
+                page_id='docx-update',
+                tab_id='browser-work',
+                bucket=layout_bucket('standard'),
+                min_sizes=[240, 520],
+                accessible_name='接口文档浏览器/编辑分隔',
+            )
+            install_splitter_prefs(
+                work_split,
+                defaults=[360, 160],
+                page_id='docx-update',
+                tab_id='sql-log',
+                bucket=layout_bucket('standard'),
+                min_sizes=[240, 80],
+                accessible_name='接口文档 SQL/日志分隔',
+            )
+        except Exception:
+            pass
         layout.addWidget(mid, 1)
 
         bottom = QHBoxLayout()
@@ -350,16 +382,44 @@ class DocxUpdatePanel(QWidget):
             self.progress.place_overlay()
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        from ui.responsive import (
+            apply_splitter_orientation, editor_min_height, page_spacing_for_mode, set_subtitle_visible,
+        )
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
-        for name in ('splitter', 'main_splitter', 'editor_splitter'):
-            sp = getattr(self, name, None)
-            if sp is not None:
-                apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
+        min_h = editor_min_height()
+        main = getattr(self, 'main_splitter', None)
+        if main is not None:
+            # 左右浏览器/工作区：窄屏上下堆叠
+            apply_splitter_orientation(main, mode, min_editor=min_h)
+            left = main.widget(0)
+            right = main.widget(1)
+            if mode in ('compact', 'narrow'):
+                if left is not None:
+                    left.setMinimumWidth(0)
+                    left.setMinimumHeight(180)
+                if right is not None:
+                    right.setMinimumWidth(0)
+                    right.setMinimumHeight(min_h)
+            else:
+                if left is not None:
+                    left.setMinimumWidth(240)
+                    left.setMinimumHeight(0)
+                if right is not None:
+                    right.setMinimumWidth(520 if mode != 'narrow' else 360)
+                    right.setMinimumHeight(0)
+        editor_sp = getattr(self, 'editor_splitter', None)
+        if editor_sp is not None:
+            for i in range(editor_sp.count()):
+                w = editor_sp.widget(i)
+                if w is not None and i == 0:
+                    w.setMinimumHeight(min_h)
         for name in ('sql_editor', 'log_edit', 'preview_edit'):
             ed = getattr(self, name, None)
             if ed is not None and hasattr(ed, 'setMinimumHeight'):
-                ed.setMinimumHeight(editor_min_height())
+                if name == 'sql_editor':
+                    ed.setMinimumHeight(min_h)
 
     def set_language(self, language):
         self.language = language

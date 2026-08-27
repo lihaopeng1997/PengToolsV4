@@ -579,7 +579,7 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertIsNotNone(folder)
         file_item = folder.child(0) if folder.childCount() else folder
         self.assertLessEqual(file_item.sizeHint(0).height(), 0)
-        self.assertEqual(panel._file_row_delegate._row_height, 24)
+        self.assertEqual(panel._file_row_delegate._row_height, 36)
         self.assertIn('very_long_requirement', file_item.toolTip(0))
         panel.close()
 

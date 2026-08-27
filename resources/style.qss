@@ -763,6 +763,7 @@ QFrame#req-sql-card {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
+/* 需求筛选条已统一到 L3 page-filter-bar；保留 req-filter-card 兼容旧测试 */
 QFrame#req-toolbar-card {
     background: __SURFACE__;
     border-left: 3px solid __PRIMARY__;
@@ -887,8 +888,8 @@ QTreeWidget#ops-remote-tree {
     show-decoration-selected: 0;
 }
 QTreeWidget#requirement-file-tree::item {
-    min-height: 22px;
-    padding: 1px 6px;
+    min-height: 36px;
+    padding: 4px 8px;
     border: none;
     border-bottom: 1px solid __BORDER__;
     color: __TEXT_STRONG__;

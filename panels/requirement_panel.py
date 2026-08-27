@@ -1411,8 +1411,10 @@ class RequirementPanel(QWidget):
         self._sources_stamp = self._current_sources_stamp()
 
     def _setup_ui(self):
+        from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN, SPACING_PAGE, TABLE_ROW_H
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
 
         # V2.0 标题区：一个 Primary + 次级动作
         page_head = QHBoxLayout()
@@ -1464,7 +1466,7 @@ class RequirementPanel(QWidget):
         self.loading = AuroraProgress(self)
 
         filter_card = QFrame()
-        filter_card.setObjectName('req-filter-card')
+        filter_card.setObjectName('page-filter-bar')
         filters = QHBoxLayout(filter_card)
         filters.setContentsMargins(12, 8, 12, 8)
         filters.setSpacing(8)
@@ -1491,8 +1493,8 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setChildrenCollapsible(False)
         self.detail_splitter.setOpaqueResize(True)
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)
-        left.setMinimumWidth(200)
-        left_layout.setContentsMargins(10, 10, 10, 10)
+        left.setMinimumWidth(REQ_LEFT_MIN)
+        left_layout.setContentsMargins(12, 10, 12, 12)
         left_layout.setSpacing(8)
         tree_head = QHBoxLayout()
         tree_head.setSpacing(8)
@@ -1594,7 +1596,7 @@ class RequirementPanel(QWidget):
         self.detail_splitter.addWidget(left)
 
         right = QWidget(); detail = QVBoxLayout(right)
-        right.setMinimumWidth(360)
+        right.setMinimumWidth(REQ_RIGHT_MIN)
         detail.setContentsMargins(0, 0, 0, 0)
         detail.setSpacing(8)
 
@@ -1716,7 +1718,7 @@ class RequirementPanel(QWidget):
         self.detail_tabs.setObjectName('module-tabs')
         self.detail_tabs.setDocumentMode(True)
         self.detail_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.detail_tabs.setMinimumHeight(200)
+        self.detail_tabs.setMinimumHeight(240)
 
         # —— Tab1: 文件库 ——
         file_section = QFrame()
@@ -1744,11 +1746,11 @@ class RequirementPanel(QWidget):
         action_card = QFrame()
         action_card.setObjectName('detail-action-card')
         action_outer = QVBoxLayout(action_card)
-        action_outer.setContentsMargins(6, 4, 6, 4)
-        action_outer.setSpacing(4)
+        action_outer.setContentsMargins(8, 6, 8, 6)
+        action_outer.setSpacing(6)
 
         browse_row = QHBoxLayout()
-        browse_row.setSpacing(4)
+        browse_row.setSpacing(6)
         self.open_folder_btn = QPushButton('打开目录')
         self.open_folder_btn.clicked.connect(self._open_folder)
         self.refresh_svn_btn = QPushButton('刷新')
@@ -1767,7 +1769,7 @@ class RequirementPanel(QWidget):
             browse_row.addWidget(button)
 
         vcs_row = QHBoxLayout()
-        vcs_row.setSpacing(4)
+        vcs_row.setSpacing(6)
         self.lock_file_btn = QPushButton('锁定')
         self.lock_file_btn.clicked.connect(self._lock_selected_file)
         self.unlock_file_btn = QPushButton('解锁')
@@ -1791,7 +1793,7 @@ class RequirementPanel(QWidget):
         ):
             size_compact_button(button)
         action_row = QHBoxLayout()
-        action_row.setSpacing(4)
+        action_row.setSpacing(6)
         for button in (
             self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
             self.add_file_btn, self.new_text_btn, self.lock_file_btn,
@@ -1872,7 +1874,7 @@ class RequirementPanel(QWidget):
         self.file_tree.viewport().setAcceptDrops(True)
         self.file_tree.viewport().installEventFilter(self)
         self.file_tree.installEventFilter(self)
-        self._file_row_delegate = _ElideTextDelegate(self.file_tree, row_height=24)
+        self._file_row_delegate = _ElideTextDelegate(self.file_tree, row_height=TABLE_ROW_H)
         self.file_tree.setItemDelegate(self._file_row_delegate)
         self._file_sort_column = 0
         self._file_sort_order = Qt.SortOrder.AscendingOrder
@@ -1988,17 +1990,33 @@ class RequirementPanel(QWidget):
         self.file_sql_splitter = None
         self.detail_splitter.addWidget(right)
 
+        from ui.layout_metrics import REQ_LEFT_DEFAULT
         requirement_ui = load_requirement_ui()
-        sizes = requirement_ui.get('splitter_sizes') or [330, 820]
-        if len(sizes) >= 2 and sizes[0] < 200:
-            sizes = [330, max(520, sizes[1])]
-        self.detail_splitter.setSizes(sizes)
-        self._splitter_save_timer = QTimer(self)
-        self._splitter_save_timer.setSingleShot(True)
-        self._splitter_save_timer.setInterval(250)
-        self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
-        # 仅持久化左右分栏
-        self.detail_splitter.splitterMoved.connect(lambda _position, _index: self._splitter_save_timer.start())
+        sizes = requirement_ui.get('splitter_sizes') or [REQ_LEFT_DEFAULT, 820]
+        if len(sizes) >= 2 and sizes[0] < REQ_LEFT_MIN:
+            sizes = [REQ_LEFT_DEFAULT, max(REQ_RIGHT_MIN, sizes[1])]
+        try:
+            from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+            install_splitter_prefs(
+                self.detail_splitter,
+                defaults=[REQ_LEFT_DEFAULT, 820],
+                saved=sizes,
+                page_id='requirement',
+                tab_id='tree-detail',
+                bucket=layout_bucket('standard'),
+                min_sizes=[REQ_LEFT_MIN, REQ_RIGHT_MIN],
+                accessible_name='需求管理目录/详情分隔',
+                on_changed=lambda _sizes: self._save_splitter_sizes(),
+            )
+        except Exception:
+            self.detail_splitter.setSizes(sizes)
+            self._splitter_save_timer = QTimer(self)
+            self._splitter_save_timer.setSingleShot(True)
+            self._splitter_save_timer.setInterval(250)
+            self._splitter_save_timer.timeout.connect(self._save_splitter_sizes)
+            self.detail_splitter.splitterMoved.connect(
+                lambda _position, _index: self._splitter_save_timer.start()
+            )
         root.addWidget(self.detail_splitter, 1)
 
     def _content_stack_sizes(self):
@@ -2021,18 +2039,22 @@ class RequirementPanel(QWidget):
         """套用 requirement_ui 默认/已复位的左右分栏尺寸。"""
         if not hasattr(self, 'detail_splitter') or self.detail_splitter is None:
             return
+        from ui.layout_metrics import REQ_LEFT_DEFAULT, REQ_LEFT_MIN, REQ_RIGHT_MIN
         requirement_ui = load_requirement_ui()
-        sizes = requirement_ui.get('splitter_sizes') or [320, 780]
-        if len(sizes) >= 2 and sizes[0] < 200:
-            sizes = [320, max(520, sizes[1])]
+        sizes = requirement_ui.get('splitter_sizes') or [REQ_LEFT_DEFAULT, 780]
+        if len(sizes) >= 2 and sizes[0] < REQ_LEFT_MIN:
+            sizes = [REQ_LEFT_DEFAULT, max(REQ_RIGHT_MIN, sizes[1])]
         self.detail_splitter.setSizes(sizes)
 
     def apply_layout_mode(self, mode, low_height=False):
         """响应主窗口断点：收紧左栏、收纳次要工具栏。"""
         self._layout_mode = mode
+        from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN
+        from ui.responsive import page_spacing_for_mode, set_subtitle_visible
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         if hasattr(self, 'page_subtitle'):
             try:
-                from ui.responsive import set_subtitle_visible
                 set_subtitle_visible(self.page_subtitle, low_height)
             except Exception:
                 pass
@@ -2042,14 +2064,26 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setChildrenCollapsible(False)
         self.detail_splitter.setStretchFactor(0, 0)
         self.detail_splitter.setStretchFactor(1, 1)
+        left_pane = self.detail_splitter.widget(0)
+        right_pane = self.detail_splitter.widget(1)
+        if mode == 'narrow':
+            if left_pane is not None:
+                left_pane.setMinimumWidth(240)
+            if right_pane is not None:
+                right_pane.setMinimumWidth(360)
+        else:
+            if left_pane is not None:
+                left_pane.setMinimumWidth(REQ_LEFT_MIN)
+            if right_pane is not None:
+                right_pane.setMinimumWidth(REQ_RIGHT_MIN)
         sizes = self.detail_splitter.sizes()
         if mode == 'compact':
-            left = min(max(sizes[0] if sizes else 280, 260), 300)
-            right = max(520, (sizes[1] if len(sizes) > 1 else 520))
+            left = min(max(sizes[0] if sizes else 280, REQ_LEFT_MIN), 300)
+            right = max(REQ_RIGHT_MIN, (sizes[1] if len(sizes) > 1 else REQ_RIGHT_MIN))
             self.detail_splitter.setSizes([left, right])
         elif mode == 'narrow':
-            left = min(max(sizes[0] if sizes else 240, 220), 280)
-            right = max(400, (sizes[1] if len(sizes) > 1 else 400))
+            left = min(max(sizes[0] if sizes else 240, 240), 280)
+            right = max(360, (sizes[1] if len(sizes) > 1 else 360))
             self.detail_splitter.setSizes([left, right])
         # 次要操作收纳：若存在 SVN/文件工具栏按钮，Narrow 隐藏低频项
         secondary_names = (

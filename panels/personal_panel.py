@@ -1070,8 +1070,11 @@ class DailyReportTab(QWidget):
 
     def _setup_ui(self):
         from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QHeaderView
+        from ui.layout_metrics import SPACING_PAGE
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
         # 提醒设置迁入设置页；此处仅简短状态 + 入口
         reminder = QFrame()
         reminder.setObjectName('private-reminder-card')
@@ -1101,11 +1104,16 @@ class DailyReportTab(QWidget):
         self._refresh_reminder_status()
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(6)
+        splitter.setObjectName('daily-report-splitter')
+        splitter.setHandleWidth(8)
         splitter.setChildrenCollapsible(False)
+        self.splitter = splitter
         left = QFrame()
         left.setObjectName('ops-list-card')
+        left.setMinimumWidth(240)
         left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(12, 10, 12, 12)
+        left_layout.setSpacing(8)
         head = QHBoxLayout()
         history_title = QLabel('日报历史')
         history_title.setObjectName('daily-history-title')
@@ -1148,8 +1156,11 @@ class DailyReportTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setMinimumWidth(520)
         editor = QWidget()
         form_layout = QVBoxLayout(editor)
+        form_layout.setContentsMargins(12, 8, 12, 12)
+        form_layout.setSpacing(8)
         date_row = QHBoxLayout()
         date_row.setSpacing(8)
         date_caption = QLabel('日报日期')
@@ -1199,10 +1210,9 @@ class DailyReportTab(QWidget):
         self.save_btn.clicked.connect(self._save_report)
         date_row.addWidget(self.save_btn)
         form_layout.addLayout(date_row)
-        form_layout.setSpacing(6)
         self.completed = self._report_editor(
             form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片',
-            height=200, preferred=280, stretch=6,
+            height=240, preferred=280, stretch=6,
         )
         self.issues = self._report_editor(
             form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……',
@@ -1224,7 +1234,47 @@ class DailyReportTab(QWidget):
         scroll.setWidget(editor)
         splitter.addWidget(scroll)
         splitter.setSizes([250, 780])
+        try:
+            from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+            install_splitter_prefs(
+                splitter,
+                defaults=[250, 780],
+                page_id='daily-report',
+                tab_id='history-editor',
+                bucket=layout_bucket('standard'),
+                min_sizes=[240, 520],
+                accessible_name='日报历史/编辑分隔',
+            )
+        except Exception:
+            pass
         root.addWidget(splitter, 1)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import apply_splitter_orientation, editor_min_height, page_spacing_for_mode
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
+        sp = getattr(self, 'splitter', None)
+        if sp is not None:
+            apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
+            left = sp.widget(0)
+            right = sp.widget(1)
+            if mode in ('compact', 'narrow'):
+                if left is not None:
+                    left.setMinimumWidth(0)
+                    left.setMinimumHeight(160)
+                if right is not None:
+                    right.setMinimumWidth(0)
+                    right.setMinimumHeight(editor_min_height())
+            else:
+                if left is not None:
+                    left.setMinimumWidth(240)
+                    left.setMinimumHeight(0)
+                if right is not None:
+                    right.setMinimumWidth(520)
+                    right.setMinimumHeight(0)
+        completed = getattr(self, 'completed', None)
+        if completed is not None and hasattr(completed, 'setMinimumHeight'):
+            completed.setMinimumHeight(editor_min_height())
 
     def _report_editor(self, layout, title, placeholder, height=72, preferred=80, stretch=1):
         label = QLabel(title)
