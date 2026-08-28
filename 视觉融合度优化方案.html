@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengTools 视觉融合度优化方案</title>
+<style>
+  :root {
+    --bg: #f8f9fb;
+    --surface: #ffffff;
+    --surface-soft: #f1f3f8;
+    --border: #e2e6ef;
+    --text: #3a4256;
+    --text-strong: #1a1f36;
+    --text-muted: #7a869c;
+    --primary: #4f735f;
+    --primary-soft: #e8f0ec;
+    --primary-active: #3d5a4a;
+    --warning: #d9891f;
+    --danger: #d4564f;
+    --code-bg: #f5f6fa;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    padding: 32px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+  }
+  .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 36px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .num {
+    background: var(--primary);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 24px 0 12px;
+  }
+  p { margin-bottom: 12px; font-size: 14px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-highlight {
+    border-left: 4px solid var(--danger);
+    background: #fef7f7;
+  }
+  .card-warn {
+    border-left: 4px solid var(--warning);
+    background: #fef9f0;
+  }
+  .card-ok {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .stat-box {
+    background: var(--surface-soft);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-box .num {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--danger);
+    display: block;
+  }
+  .stat-box .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .stat-box.ok .num { color: var(--primary); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  th {
+    background: var(--surface-soft);
+    color: var(--text-strong);
+    font-weight: 700;
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:hover td { background: var(--surface-soft); }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--primary-active);
+  }
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    overflow-x: auto;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .code-block .old { color: var(--danger); text-decoration: line-through; }
+  .code-block .new { color: var(--primary); font-weight: 600; }
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 4px;
+  }
+  .tag-danger { background: #fee; color: var(--danger); }
+  .tag-warn { background: #fef3e2; color: var(--warning); }
+  .tag-ok { background: var(--primary-soft); color: var(--primary-active); }
+  .tag-info { background: #e8edf7; color: #4a6fa5; }
+
+  /* 对比示意 */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .compare-box {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    background: var(--surface);
+  }
+  .compare-box .label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .compare-box.before .label { color: var(--danger); }
+  .compare-box.after .label { color: var(--primary); }
+
+  /* 嵌套容器示意 - 改前 */
+  .demo-nested-old {
+    background: #edf0f5;
+    border: 1px solid #c5cad4;
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .demo-nested-old .inner1 {
+    background: #fff;
+    border: 1px solid #c5cad4;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .demo-nested-old .inner2 {
+    background: #fff;
+    border: 1px solid #c5cad4;
+    border-left: 3px solid var(--primary);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .demo-nested-old .label-row {
+    font-size: 11px;
+    color: var(--danger);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  /* 嵌套容器示意 - 改后 */
+  .demo-nested-new {
+    background: #edf0f5;
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .demo-nested-new .inner1 {
+    background: #fff;
+    border: 1px solid #e8ecf2;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .demo-nested-new .inner2 {
+    background: linear-gradient(135deg, #fff 0%, #f8f9fc 100%);
+    border: 1px solid #e8ecf2;
+    border-left: 3px solid var(--primary);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .demo-nested-new .label-row {
+    font-size: 11px;
+    color: var(--primary);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  /* 卡片样式对比 */
+  .card-style-demo {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .card-style-demo .mini-card {
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 120px;
+  }
+  .mini-card.style-a { background: #fff; border: 1px solid #e2e6ef; border-left: 3px solid var(--primary); }
+  .mini-card.style-b { background: #fff; border: 1px solid #e2e6ef; border-top: 2px solid var(--text-muted); }
+  .mini-card.style-c { background: linear-gradient(90deg, #fff, var(--primary-soft)); border: 1px solid #e2e6ef; }
+  .mini-card.style-d { background: #f1f3f8; border: 1px solid #e2e6ef; border-radius: 10px; }
+  .mini-card.style-unified { background: #fff; border: 1px solid #e8ecf2; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+
+  .phase-list { list-style: none; }
+  .phase-list li {
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .phase-list li .phase-num {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 12px;
+    color: #fff;
+  }
+  .phase-1 .phase-num { background: var(--primary); }
+  .phase-2 .phase-num { background: #4a6fa5; }
+  .phase-3 .phase-num { background: var(--warning); }
+  .phase-4 .phase-num { background: var(--danger); }
+  .phase-1 { background: var(--primary-soft); }
+  .phase-2 { background: #e8edf7; }
+  .phase-3 { background: #fef9f0; }
+  .phase-4 { background: #fef7f7; }
+
+  .summary-box {
+    background: linear-gradient(135deg, var(--primary-soft) 0%, #e8edf7 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .summary-box h3 { margin-top: 0; }
+
+  .footer-note {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<h1>PengTools 视觉融合度优化方案</h1>
+<p class="subtitle">诊断范围：全部 13 个面板 + style.qss（1800+ 行）+ ui/ 设计系统 | 生成时间：2026-07-27</p>
+
+<div class="summary-box">
+  <h3>一句话诊断</h3>
+  <p>项目已有完整的设计系统（<code>layout_metrics</code> / <code>design_system</code> / <code>page_chrome</code>），但<strong>执行率不均 + 零阴影零动画 + 硬编码颜色泛滥</strong>，导致三大视觉问题：嵌入式割裂、风格死板、整体不协调。</p>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-box">
+    <span class="num">0</span>
+    <span class="label">阴影效果（QGraphicsDropShadowEffect）</span>
+  </div>
+  <div class="stat-box">
+    <span class="num">0</span>
+    <span class="label">过渡动画（QPropertyAnimation）</span>
+  </div>
+  <div class="stat-box">
+    <span class="num">30</span>
+    <span class="label">硬编码十六进制颜色（不响应主题切换）</span>
+  </div>
+  <div class="stat-box">
+    <span class="num">4</span>
+    <span class="label">卡片装饰样式变体（left-3px / top-2px / 渐变 / 无）</span>
+  </div>
+  <div class="stat-box">
+    <span class="num">7/13</span>
+    <span class="label">面板未使用标准 page_chrome 骨架</span>
+  </div>
+  <div class="stat-box ok">
+    <span class="num">3</span>
+    <span class="label">设计系统文件已就绪（待执行）</span>
+  </div>
+</div>
+
+<!-- ============ 问题 1 ============ -->
+<h2><span class="num">1</span> 嵌入式割裂感</h2>
+
+<h3>根因诊断</h3>
+<div class="card card-highlight">
+  <p><strong>核心问题：零阴影 + 嵌套硬边框 = "盒子套盒子"</strong></p>
+  <p>整个代码库中 <code>QGraphicsDropShadowEffect</code> 使用次数为 <strong>0</strong>。PyQt6 QSS 不支持 <code>box-shadow</code>，必须用 Python 侧的 GraphicsEffect。没有阴影意味着<strong>边框是唯一的深度线索</strong>，而项目大量使用 <code>border: 1px solid __BORDER__</code>，导致内容区与主界面之间产生硬切——视觉上就像"外挂嵌入"而非自然融合。</p>
+</div>
+
+<h3>具体表现</h3>
+<table>
+  <tr>
+    <th>位置</th>
+    <th>嵌套层级</th>
+    <th>问题</th>
+  </tr>
+  <tr>
+    <td>网关解密面板</td>
+    <td>APP背景 → <code>QGroupBox#gateway-config-group</code>(border) → <code>QFrame#gateway-work-zone</code>(border) → <code>QFrame#gateway-action-zone</code>(border)</td>
+    <td>3 层嵌套硬边框，每层都是 1px solid，无阴影过渡</td>
+  </tr>
+  <tr>
+    <td>需求管理面板</td>
+    <td>APP背景 → <code>req-toolbar-card</code>(border) → <code>req-tree-card</code>(border) + <code>req-file-card</code>(border) + <code>req-sql-card</code>(border)</td>
+    <td>工具栏、树、文件、SQL 四个卡片各有边框，并排时形成"格子"观感</td>
+  </tr>
+  <tr>
+    <td>运维助手面板</td>
+    <td>APP背景 → <code>ops-list-card</code>(border, 硬编码#E2E7F0) → <code>ops-param-card</code>(border)</td>
+    <td>边框颜色硬编码 <code>#E2E7F0</code>，与 token <code>__BORDER__</code> 不一致</td>
+  </tr>
+  <tr>
+    <td>7个面板无标准骨架</td>
+    <td>credit / settings / sql / vin / ops / docx / personal</td>
+    <td>自行创建标题样式，与使用 <code>make_page_header()</code> 的6个面板视觉断层</td>
+  </tr>
+</table>
+
+<h3>优化方案</h3>
+<div class="card card-ok">
+  <p><strong>方案 A：引入轻量阴影体系（核心）</strong></p>
+  <p>在 <code>ui/design_system.py</code> 中新增 <code>apply_shadow(widget, level='sm')</code> 工具函数，封装 <code>QGraphicsDropShadowEffect</code>：</p>
+  <div class="code-block">
+<span style="color:#888"># ui/design_system.py 新增</span>
+<span class="new">def apply_shadow(widget, level='sm'):
+    """为控件添加柔和阴影，替代纯边框做深度区分。"""
+    from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+    effect = QGraphicsDropShadowEffect(widget)
+    presets = {
+        'sm': {'blur': 8,  'y': 1, 'alpha': 0.04},   # 卡片默认
+        'md': {'blur': 16, 'y': 4, 'alpha': 0.06},   # 悬浮/弹层
+        'lg': {'blur': 24, 'y': 8, 'alpha': 0.08},   # 对话框
+    }
+    p = presets.get(level, presets['sm'])
+    effect.setBlurRadius(p['blur'])
+    effect.setOffset(0, p['y'])
+    effect.setColor(QColor(0, 0, 0, int(p['alpha'] * 255)))
+    widget.setGraphicsEffect(effect)
+    return effect</span>
+  </div>
+  <p>在 <code>page_chrome.make_zone_card()</code> 中默认应用 <code>apply_shadow(frame, 'sm')</code>，让所有使用设计系统的卡片自动获得阴影。</p>
+</div>
+
+<div class="card card-ok">
+  <p><strong>方案 B：减少嵌套边框层级</strong></p>
+  <p>将 3 层嵌套硬边框收敛为"外层有边框+阴影，内层无边框仅用背景色区分"：</p>
+  <div class="compare-grid">
+    <div class="compare-box before">
+      <div class="label">改前：3 层硬边框</div>
+      <div class="demo-nested-old">
+        <div class="label-row">APP背景</div>
+        <div class="inner1">
+          <div class="label-row">QGroupBox border</div>
+          <div class="inner2">
+            <div class="label-row">QFrame border-left-3px</div>
+            内容区
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="compare-box after">
+      <div class="label">改后：1 层阴影 + 背景色分层</div>
+      <div class="demo-nested-new">
+        <div class="label-row">APP背景</div>
+        <div class="inner1">
+          <div class="label-row">外层卡片（阴影+细边框）</div>
+          <div class="inner2">
+            <div class="label-row">内层区（仅背景色，无边框）</div>
+            内容区
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 问题 2 ============ -->
+<h2><span class="num">2</span> 风格死板</h2>
+
+<h3>根因诊断</h3>
+<div class="card card-highlight">
+  <p><strong>核心问题：零动画 + 瞬变 hover = 交互无"呼吸感"</strong></p>
+  <p>整个代码库中 <code>QPropertyAnimation</code> 使用次数为 <strong>0</strong>。虽然 QSS 定义了大量 <code>:hover</code> 伪状态（约 35 处），但所有状态切换都是<strong>瞬间跳变</strong>——背景色、边框色直接跳到新值，没有任何过渡效果。这导致界面虽然"能交互"，但感觉"僵硬"——像在操作表格而非现代软件。</p>
+</div>
+
+<h3>具体表现</h3>
+<table>
+  <tr>
+    <th>交互场景</th>
+    <th>当前行为</th>
+    <th>期望行为</th>
+  </tr>
+  <tr>
+    <td>按钮 hover</td>
+    <td>背景/边框色瞬间跳变（QSS :hover）</td>
+    <td>150ms 渐变过渡（需 QPropertyAnimation 或 QGraphicsOpacityEffect）</td>
+  </tr>
+  <tr>
+    <td>卡片 hover</td>
+    <td>仅 <code>#tool-card:hover</code> 变边框色</td>
+    <td>轻微上浮（translateY -2px）+ 阴影加深</td>
+  </tr>
+  <tr>
+    <td>面板切换</td>
+    <td>StackedWidget 瞬间切</td>
+    <td>可选：100ms 淡入效果（QPropertyAnimation windowOpacity）</td>
+  </tr>
+  <tr>
+    <td>列表项选中</td>
+    <td>背景色瞬间变 <code>__PRIMARY__</code></td>
+    <td>保持瞬变（选中态需即时反馈，不适合动画）</td>
+  </tr>
+  <tr>
+    <td>Loading 浮层</td>
+    <td>直接 show/hide</td>
+    <td>150ms 淡入淡出</td>
+  </tr>
+</table>
+
+<h3>优化方案</h3>
+<div class="card card-ok">
+  <p><strong>方案 A：按钮 hover 渐变（低风险，高频感知）</strong></p>
+  <p>在 <code>ui/design_system.py</code> 的 <code>apply_button()</code> 中，为按钮安装 EventFilter 实现 hover 渐变：</p>
+  <div class="code-block">
+<span class="new">class HoverFadeFilter(QObject):
+    """按钮 hover 时用 QPropertyAnimation 渐变背景色。"""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Enter:
+            self._animate_color(obj, 'background', target=PRIMARY_SOFT, ms=150)
+        elif event.type() == QEvent.Type.Leave:
+            self._animate_color(obj, 'background', target=SURFACE, ms=150)
+        return False</span>
+  </div>
+  <p>注意：QSS <code>:hover</code> 伪状态和 QPropertyAnimation <strong>不能同时控制同一属性</strong>。方案是 QSS 去掉 <code>:hover</code> 的 background 声明，改由 Python 动画驱动。或退一步——仅对 <code>#tool-card</code> 等少量核心卡片做动画，按钮保持 QSS 瞬变（低风险策略）。</p>
+</div>
+
+<div class="card card-ok">
+  <p><strong>方案 B：卡片 hover 上浮（中风险，高感知）</strong></p>
+  <p>对工作台首页的 <code>#tool-card</code> 和需求管理的分区卡片，hover 时用动画微抬：</p>
+  <div class="code-block">
+<span class="new">def _animate_lift(widget, up=True):
+    anim = QPropertyAnimation(widget, b'pos')
+    cur = widget.pos()
+    target_y = cur.y() - 2 if up else cur.y() + 2
+    anim.setDuration(200)
+    anim.setStartValue(cur)
+    anim.setEndValue(QPoint(cur.x(), target_y))
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.start(widget)
+    widget._lift_anim = anim  # 防止 GC</span>
+  </div>
+</div>
+
+<div class="card card-warn">
+  <p><strong>方案 C：Loading 浮层淡入淡出（低风险）</strong></p>
+  <p>当前 Loading 浮层直接 show/hide，视觉突兀。用 <code>QGraphicsOpacityEffect + QPropertyAnimation</code> 做 150ms 淡入淡出。改动仅涉及 <code>ui/loading_overlay.py</code>，不影响业务逻辑。</p>
+</div>
+
+<!-- ============ 问题 3 ============ -->
+<h2><span class="num">3</span> 整体不协调</h2>
+
+<h3>根因诊断</h3>
+<div class="card card-highlight">
+  <p><strong>核心问题：4 套卡片样式 + 30 个硬编码颜色 + 重复定义</strong></p>
+  <p>设计系统已定义 <code>#ds-card</code> / <code>#ds-zone</code> / <code>#ds-muted</code> 三级标准，但各面板大量使用自有命名（<code>gateway-*</code> / <code>xml-*</code> / <code>req-*</code> / <code>release-*</code>），且装饰手法不一致。</p>
+</div>
+
+<h3>问题 3.1：卡片装饰样式 4 套混用</h3>
+<div class="card">
+  <div class="card-style-demo">
+    <div class="mini-card style-a">左3px色条<br><small>ds-zone / req-tree / gateway-action</small></div>
+    <div class="mini-card style-b">顶2px灰条<br><small>gateway-work / req-file</small></div>
+    <div class="mini-card style-c">渐变背景<br><small>req-toolbar / xml-header</small></div>
+    <div class="mini-card style-d">纯无边饰<br><small>ds-card / req-filter</small></div>
+  </div>
+  <p style="margin-top:12px"><strong>统一方案</strong>：收敛到 3 级标准（已有定义）：</p>
+  <div class="card-style-demo">
+    <div class="mini-card style-unified">ds-card<br><small>纯背景+阴影</small></div>
+    <div class="mini-card style-unified">ds-zone<br><small>左3px色条+渐变</small></div>
+    <div class="mini-card style-unified">ds-muted<br><small>柔背景+无边饰</small></div>
+  </div>
+</div>
+
+<h3>问题 3.2：30 个硬编码十六进制颜色</h3>
+<table>
+  <tr>
+    <th>行号</th>
+    <th>硬编码值</th>
+    <th>所在选择器</th>
+    <th>应替换为</th>
+  </tr>
+  <tr><td>607</td><td><code>#C9D4F5</code></td><td>req-toolbar-primary border</td><td><code>__BORDER_STRONG__</code></td></tr>
+  <tr><td>613</td><td><code>#E0E5F0</code></td><td>req-toolbar-secondary border</td><td><code>__BORDER__</code></td></tr>
+  <tr><td>670-674</td><td><code>#E8EEFB / #243A68 / #9EACC9</code></td><td>docx-output-browser header</td><td><code>__SURFACE_SOFT__ / __TEXT_STRONG__ / __BORDER_STRONG__</code></td></tr>
+  <tr><td>749</td><td><code>#DCE2EE</code></td><td>detail-action-card border</td><td><code>__BORDER__</code></td></tr>
+  <tr><td>766</td><td><code>#F1F5FF</code></td><td>detail-tags bg</td><td><code>__PRIMARY_SOFT__</code></td></tr>
+  <tr><td>774</td><td><code>#7A869C</code></td><td>field-caption color</td><td><code>__TEXT_MUTED__</code></td></tr>
+  <tr><td>1070</td><td><code>#D5DEEF</code></td><td>release gradient end</td><td><code>__SURFACE_SOFT__</code></td></tr>
+  <tr><td>1081</td><td><code>#CDD8EF</code></td><td>release header bg</td><td><code>__SURFACE_SOFT__</code></td></tr>
+  <tr><td>1152-1154</td><td><code>#6B82FF / #D9891F</code></td><td>notice-badge</td><td><code>__PRIMARY__ / __WARNING__</code></td></tr>
+  <tr><td>1310</td><td><code>#E0E6F8</code></td><td>module-tabs hover border</td><td><code>__PRIMARY_SOFT__</code></td></tr>
+  <tr><td>1373</td><td><code>#EAF8F1</code></td><td>offline-pill bg</td><td><code>__SUCCESS_BG__</code></td></tr>
+  <tr><td>1381</td><td><code>#F9FBFE</code></td><td>tool-card gradient</td><td><code>__SURFACE_SOFT__</code></td></tr>
+  <tr><td>1386</td><td><code>#B9C4EE</code></td><td>tool-card hover border</td><td><code>__PRIMARY__</code></td></tr>
+  <tr><td>1389-1392</td><td><code>#6879D5 / #1C2940 / #748097 / #68758B</code></td><td>card-eyebrow / card-title / card-description / shortcut-hint</td><td><code>__PRIMARY_ACTIVE__ / __TEXT_STRONG__ / __TEXT_MUTED__ / __TEXT_MUTED__</code></td></tr>
+  <tr><td>1522-1538</td><td><code>#F7F8FF / #E8ECFF / #CDD6FF / #F1F3FF</code></td><td>docx date styles</td><td><code>__PRIMARY_SOFT__ / __SURFACE_SOFT__ / __PRIMARY__ / __PRIMARY_SOFT__</code></td></tr>
+  <tr><td>1569</td><td><code>#4058E8</code></td><td>docx-date-today hover</td><td><code>__PRIMARY_ACTIVE__</code></td></tr>
+  <tr><td>1609</td><td><code>#AEBBF4</code></td><td>docx-tab focus border</td><td><code>__PRIMARY__</code></td></tr>
+  <tr><td>1690</td><td><code>#D9E0FF</code></td><td>ops-search border</td><td><code>__PRIMARY_SOFT__</code></td></tr>
+  <tr><td>1695</td><td><code>#6379F2</code></td><td>ops-search focus</td><td><code>__PRIMARY__</code></td></tr>
+  <tr><td>1705</td><td><code>#E2E7F0</code></td><td>ops-list-card border</td><td><code>__BORDER__</code></td></tr>
+  <tr><td>1714</td><td><code>#34435D</code></td><td>ops-command-list item</td><td><code>__TEXT_STRONG__</code></td></tr>
+</table>
+
+<h3>问题 3.3：重复定义</h3>
+<div class="card card-warn">
+  <table>
+    <tr>
+      <th>选择器</th>
+      <th>第一次定义</th>
+      <th>第二次定义</th>
+      <th>实际生效</th>
+    </tr>
+    <tr>
+      <td><code>#ops-title</code></td>
+      <td>行178: <code>font-size: 16px; font-weight: 750</code></td>
+      <td>行1725: <code>font-size: 20px; font-weight: 800</code></td>
+      <td>行1725（后者覆盖）→ 20px</td>
+    </tr>
+    <tr>
+      <td><code>#page-title</code></td>
+      <td>行315: <code>font-size: 24px; font-weight: 600</code></td>
+      <td>行1359: 同上 + <code>letter-spacing: 0.1px</code></td>
+      <td>行1359（冗余但无害）</td>
+    </tr>
+    <tr>
+      <td><code>#page-subtitle</code></td>
+      <td>行320: <code>font-size: 13px</code></td>
+      <td>行1365: 同上 + <code>line-height: 1.4</code></td>
+      <td>行1365（冗余）</td>
+    </tr>
+  </table>
+  <p style="margin-top:12px"><strong>修复</strong>：删除行 178 的 <code>#ops-title</code>（被行1725覆盖），统一到 <code>#page-title</code> 体系。删除行 315-323 的重复定义，保留行 1359-1370。</p>
+</div>
+
+<h3>问题 3.4：标题层级断裂</h3>
+<table>
+  <tr>
+    <th>选择器</th>
+    <th>字号</th>
+    <th>字重</th>
+    <th>用途</th>
+    <th>问题</th>
+  </tr>
+  <tr>
+    <td><code>#page-title</code></td>
+    <td>24px</td>
+    <td>600</td>
+    <td>6个面板的标准标题</td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td><code>#ops-title</code></td>
+    <td>20px（重复定义后）</td>
+    <td>800</td>
+    <td>运维助手面板标题</td>
+    <td style="color:var(--danger)">与 #page-title 不一致，应统一到 24px/600</td>
+  </tr>
+  <tr>
+    <td><code>#card-title</code></td>
+    <td>20px</td>
+    <td>700</td>
+    <td>工作台工具卡片标题</td>
+    <td style="color:var(--danger)">硬编码颜色 #1C2940，应改 __TEXT_STRONG__</td>
+  </tr>
+  <tr>
+    <td><code>#sidebar_title</code></td>
+    <td>18px</td>
+    <td>600</td>
+    <td>侧边栏品牌名</td>
+    <td>—（侧边栏独立体系）</td>
+  </tr>
+  <tr>
+    <td><code>#zone-title</code></td>
+    <td>12px</td>
+    <td>800</td>
+    <td>分区标题</td>
+    <td>—</td>
+  </tr>
+</table>
+
+<!-- ============ 实施路线 ============ -->
+<h2><span class="num">4</span> 实施路线（风险递增）</h2>
+
+<ul class="phase-list">
+  <li class="phase-1">
+    <span class="phase-num">1</span>
+    <div>
+      <strong>硬编码颜色 → Token 替换</strong><br>
+      <span class="tag tag-ok">低风险</span> 纯 QSS 值替换，30 处硬编码 hex → token，使所有颜色响应主题切换。<strong>改动：仅 style.qss，零 Python 代码。</strong>
+    </div>
+  </li>
+  <li class="phase-2">
+    <span class="phase-num">2</span>
+    <div>
+      <strong>卡片样式统一 + 重复定义清理</strong><br>
+      <span class="tag tag-ok">低风险</span> 将 <code>gateway-*</code> / <code>xml-*</code> / <code>req-*</code> / <code>release-*</code> 的卡片样式收敛到 <code>ds-card</code> / <code>ds-zone</code> / <code>ds-muted</code>。删除 <code>#ops-title</code> 重复定义，运维助手面板改用 <code>make_page_header()</code>。<strong>改动：style.qss + 少量 Python objectName 替换。</strong>
+    </div>
+  </li>
+  <li class="phase-3">
+    <span class="phase-num">3</span>
+    <div>
+      <strong>引入阴影体系</strong><br>
+      <span class="tag tag-warn">中风险</span> 新增 <code>apply_shadow()</code> 工具函数，在 <code>make_zone_card()</code> 中默认应用。关键卡片（tool-card / req-*-card / dashboard-task-card）手动添加阴影。同时将部分卡片边框从 <code>1px solid</code> 改为 <code>1px solid transparent</code>（阴影做深度，边框做仅色调微调）。<strong>改动：design_system.py + page_chrome.py + 各面板调用点。</strong>
+    </div>
+  </li>
+  <li class="phase-4">
+    <span class="phase-num">4</span>
+    <div>
+      <strong>交互动画 + 页面骨架迁移</strong><br>
+      <span class="tag tag-danger">较高风险</span> Loading 浮层淡入淡出（低风险子项）。卡片 hover 上浮动画（中风险子项）。7 个面板迁移到 <code>make_page_header()</code>（较高风险，涉及布局重构）。<strong>建议分步验收。</strong>
+    </div>
+  </li>
+</ul>
+
+<h3>推荐执行顺序</h3>
+<div class="card card-ok">
+  <p><strong>先做阶段 1-2</strong>（低风险，纯样式收敛）→ 验收视觉效果 → 再做阶段 3（阴影）→ 最后做阶段 4（动画+骨架迁移）。</p>
+  <p>阶段 1-2 预计 <strong>~60 处 QSS 值替换 + ~10 处 objectName 替换</strong>，零逻辑改动，可快速打包验证。阶段 3 引入阴影是"割裂感"的核心解决方案，但需要 Python 侧改动，建议单独验收。阶段 4 的动画效果是"死板感"的核心解决方案，但 hover 动画与 QSS :hover 有冲突风险，需逐个控件验证。</p>
+</div>
+
+<h3>改动影响范围</h3>
+<table>
+  <tr>
+    <th>阶段</th>
+    <th>涉及文件</th>
+    <th>改动量</th>
+    <th>风险</th>
+    <th>可逆性</th>
+  </tr>
+  <tr>
+    <td>1. 颜色 Token 化</td>
+    <td>style.qss</td>
+    <td>~30 处值替换</td>
+    <td><span class="tag tag-ok">低</span></td>
+    <td>完全可逆（git revert）</td>
+  </tr>
+  <tr>
+    <td>2. 卡片样式统一</td>
+    <td>style.qss + 5-6 个面板 objectName</td>
+    <td>~40 处 QSS + ~15 处 Python</td>
+    <td><span class="tag tag-ok">低</span></td>
+    <td>可逆</td>
+  </tr>
+  <tr>
+    <td>3. 阴影体系</td>
+    <td>design_system.py + page_chrome.py + 各面板</td>
+    <td>新增 ~30 行 + ~20 处调用</td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td>可逆（移除 apply_shadow 调用）</td>
+  </tr>
+  <tr>
+    <td>4. 动画+骨架</td>
+    <td>loading_overlay.py + design_system.py + 7 面板布局重构</td>
+    <td>~100 行新增 + 7 面板改造</td>
+    <td><span class="tag tag-danger">较高</span></td>
+    <td>部分可逆（动画可移除，骨架迁移难回退）</td>
+  </tr>
+</table>
+
+<div class="footer-note">
+  PengTools V4.27 Private · 视觉融合度优化方案 · 2026-07-27<br>
+  诊断基于 style.qss（1800+ 行）+ 13 个面板 + ui/ 设计系统全量扫描
+</div>
+
+</body>
+</html>

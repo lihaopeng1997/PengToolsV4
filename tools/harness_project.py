@@ -13,13 +13,27 @@ import os
 import re
 import shutil
 
-from config import HARNESS_PROJECTS_DIR, HARNESS_SKILLS_DIR, ensure_config_dir
+from config import (
+    HARNESS_PROJECTS_DIR,
+    HARNESS_SKILLS_DIR,
+    HARNESS_SKILLS_FILE,
+    ensure_config_dir,
+)
 
 _TABLE_RE = re.compile(
     r'\b(?:from|join|into|update)\s+([A-Za-z][A-Za-z0-9_]*)',
     re.IGNORECASE,
 )
 _SKIP_TABLES = frozenset({'dual', 'xml', 'select', 'where'})
+
+# 内置默认任务清单（代码常量）；用户 skills.json 同名 task 覆盖内置，其余追加。
+DEFAULT_TASKS = [
+    {'task': 'sql.draft', 'file': 'sql.md', 'title': '生成 SQL 草案', 'desc': '自然语言转 SQL', 'enabled': True, 'builtin': True},
+    {'task': 'sql.optimize', 'file': 'sql_optimize.md', 'title': '优化 SQL', 'desc': '优化已有 SQL', 'enabled': True, 'builtin': True},
+    {'task': 'linux.query', 'file': 'log_query.md', 'title': 'Linux 只读查询', 'desc': '自然语言转只读命令', 'enabled': True, 'builtin': True},
+    {'task': 'mongo.query', 'file': 'mongo_query.md', 'title': 'Mongo 查询', 'desc': '自然语言查 Mongo', 'enabled': True, 'builtin': True},
+    {'task': 'redis.query', 'file': 'redis_query.md', 'title': 'Redis 查询', 'desc': '自然语言查 Redis', 'enabled': True, 'builtin': True},
+]
 
 
 def _builtin_root() -> str:
@@ -145,6 +159,150 @@ def project_context(project: dict | None = None) -> str:
     for hint in project.get('log_hints') or []:
         lines.append(str(hint))
     return '\n'.join(lines)
+
+
+def _read_skills_manifest() -> list[dict]:
+    """读取用户级 skills.json；缺失/损坏返回空列表。"""
+    try:
+        with open(HARNESS_SKILLS_FILE, 'r', encoding='utf-8') as stream:
+            data = json.load(stream)
+    except (OSError, ValueError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    tasks = data.get('tasks')
+    if not isinstance(tasks, list):
+        return []
+    cleaned = []
+    for item in tasks:
+        if not isinstance(item, dict):
+            continue
+        task = str(item.get('task') or '').strip()
+        if not task:
+            continue
+        cleaned.append({
+            'task': task,
+            'file': str(item.get('file') or '').strip(),
+            'title': str(item.get('title') or task).strip(),
+            'desc': str(item.get('desc') or '').strip(),
+            'enabled': bool(item.get('enabled', True)),
+            'builtin': False,
+        })
+    return cleaned
+
+
+def list_tasks() -> list[dict]:
+    """合并内置默认清单与用户 skills.json：同名 task 用户覆盖内置，其余追加。"""
+    merged: dict[str, dict] = {}
+    for item in DEFAULT_TASKS:
+        merged[str(item['task'])] = dict(item)
+    for item in _read_skills_manifest():
+        task = str(item['task'])
+        if task in merged:
+            # 用户覆盖内置：保留 builtin=True 标记（不可删，仅可停用），其余字段覆盖
+            base = merged[task]
+            base.update({key: value for key, value in item.items() if key != 'builtin'})
+            base['builtin'] = True
+        else:
+            merged[task] = dict(item)
+    return [merged[key] for key in sorted(merged)]
+
+
+def resolve_task_file(task: str) -> str | None:
+    """返回 task 对应的 skill 文件名；未知返回 None。"""
+    wanted = str(task or '').strip()
+    for item in list_tasks():
+        if item.get('task') == wanted:
+            file = str(item.get('file') or '').strip()
+            return file or None
+    return None
+
+
+def _write_skills_manifest(tasks: list[dict]) -> None:
+    _ensure_user_dirs()
+    payload = {'tasks': []}
+    for item in tasks:
+        payload['tasks'].append({
+            'task': str(item.get('task') or '').strip(),
+            'file': str(item.get('file') or '').strip(),
+            'title': str(item.get('title') or '').strip(),
+            'desc': str(item.get('desc') or '').strip(),
+            'enabled': bool(item.get('enabled', True)),
+        })
+    with open(HARNESS_SKILLS_FILE, 'w', encoding='utf-8') as stream:
+        json.dump(payload, stream, indent=2, ensure_ascii=False)
+
+
+def add_task(task: str, file: str, title: str = '', desc: str = '') -> None:
+    """注册一个用户级 task（写入 skills.json，不覆盖内置文件本身）。
+
+    与内置同名视为重复（应改用 update_task 覆盖），避免误覆盖内置语义。
+    """
+    task = str(task or '').strip()
+    file = str(file or '').strip()
+    if not task or not file:
+        raise ValueError('task 名与文件名不能为空')
+    if any(item['task'] == task for item in DEFAULT_TASKS):
+        raise ValueError(f'task 已存在（内置）：{task}')
+    current = _read_skills_manifest()
+    for item in current:
+        if item.get('task') == task:
+            raise ValueError(f'task 已存在：{task}')
+    current.append({'task': task, 'file': file, 'title': title or task, 'desc': desc or '', 'enabled': True})
+    _write_skills_manifest(current)
+
+
+def update_task(task: str, *, title: str | None = None, desc: str | None = None,
+                enabled: bool | None = None, file: str | None = None) -> None:
+    """更新 task 的 title/desc/enabled/file。
+
+    用户 task 直接改清单；内置 task 通过在 skills.json 写入覆盖条目实现
+    （首次覆盖时新建一条，builtin 标记由 list_tasks 合并时补回）。
+    """
+    task = str(task or '').strip()
+    builtin_default = next((item for item in DEFAULT_TASKS if item['task'] == task), None)
+    current = _read_skills_manifest()
+    item = next((entry for entry in current if entry.get('task') == task), None)
+    if item is None:
+        if builtin_default is None:
+            raise ValueError(f'未知 task：{task}')
+        # 首次覆盖内置：以内置默认值为基底新建用户覆盖条目
+        item = {
+            'task': task,
+            'file': builtin_default['file'],
+            'title': builtin_default['title'],
+            'desc': builtin_default['desc'],
+            'enabled': bool(builtin_default.get('enabled', True)),
+        }
+        current.append(item)
+    if title is not None:
+        item['title'] = str(title).strip()
+    if desc is not None:
+        item['desc'] = str(desc).strip()
+    if enabled is not None:
+        item['enabled'] = bool(enabled)
+    if file is not None:
+        item['file'] = str(file).strip()
+    _write_skills_manifest(current)
+
+
+def remove_task(task: str, *, delete_file: bool = False) -> None:
+    """删除用户级 task；内置 task 仅清除用户覆盖（还原内置默认）。"""
+    task = str(task or '').strip()
+    current = _read_skills_manifest()
+    remaining = [item for item in current if item.get('task') != task]
+    if delete_file:
+        for item in current:
+            if item.get('task') == task:
+                file = str(item.get('file') or '').strip()
+                if file:
+                    path = os.path.join(HARNESS_SKILLS_DIR, os.path.basename(file))
+                    try:
+                        if os.path.isfile(path):
+                            os.remove(path)
+                    except OSError:
+                        pass
+    _write_skills_manifest(remaining)
 
 
 def install_skill(source_path: str) -> str:

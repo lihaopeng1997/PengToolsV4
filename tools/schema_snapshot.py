@@ -15,6 +15,15 @@ from tools.sql_guard import redact_error
 REDIS_KEY_CAP = 5000
 
 
+def _b(value) -> str:
+    """Redis 字节安全解码：二进制 key/field 用 errors='replace' 转文本，不抛 UnicodeDecodeError。"""
+    if value is None:
+        return ''
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    return str(value)
+
+
 def connection_fingerprint(item: dict) -> str:
     data = item if isinstance(item, dict) else {}
     parts = [
@@ -528,24 +537,50 @@ def _attach_mysql_indexes(cur, objects: dict, database: str) -> None:
             target['index_warning'] = warning
 
 
+def _flatten_doc(doc, prefix: str = '', out: dict = None) -> dict:
+    """递归展开 MongoDB 文档：嵌套字段用点号路径，数组标记 []。"""
+    if out is None:
+        out = {}
+    if not isinstance(doc, dict):
+        out[prefix or '_id'] = doc
+        return out
+    for key, value in doc.items():
+        path = f'{prefix}.{key}' if prefix else str(key)
+        if isinstance(value, dict):
+            _flatten_doc(value, path, out)
+        elif isinstance(value, list):
+            if value and all(isinstance(item, dict) for item in value):
+                _flatten_doc(value[0], f'{path}[]', out)
+            else:
+                out[path] = value
+        else:
+            out[path] = value
+    return out
+
+
 def _scan_mongo(conn) -> tuple[list, bool]:
     names = list(conn.list_collection_names())
     objects = []
     for name in names:
-        columns = []
+        merged = {}
         try:
-            doc = conn[name].find_one() or {}
+            cursor = conn[name].find().limit(20)
+            for doc in cursor:
+                if isinstance(doc, dict):
+                    _flatten_doc(doc, out=merged)
         except Exception:
-            doc = {}
-        if isinstance(doc, dict):
-            for index, key in enumerate(doc.keys(), start=1):
-                columns.append({
-                    'name': str(key),
-                    'data_type': _type_name(doc.get(key)),
-                    'nullable': True,
-                    'position': index,
-                    'comment': '',
-                })
+            merged = {}
+        if not merged:
+            merged = {'_id': None}
+        columns = []
+        for index, key in enumerate(merged.keys(), start=1):
+            columns.append({
+                'name': str(key),
+                'data_type': _type_name(merged.get(key)),
+                'nullable': True,
+                'position': index,
+                'comment': '',
+            })
         objects.append({
             'owner': '',
             'name': str(name),
@@ -557,22 +592,58 @@ def _scan_mongo(conn) -> tuple[list, bool]:
     return [_clean_object(item) for item in objects], False
 
 
+def _redis_key_columns(conn, name: str, kind: str) -> list[dict]:
+    """按 key 类型用只读命令生成真实字段结构（只存字段名+类型，绝不存值）。"""
+    kind = (kind or 'none').lower()
+    try:
+        if kind == 'string':
+            return [{'name': 'value', 'data_type': 'string', 'nullable': True, 'position': 1, 'comment': ''}]
+        if kind == 'hash':
+            fields = conn.hkeys(name) or []
+            columns = []
+            for index, field in enumerate(fields[:20], start=1):
+                raw = conn.hget(name, field)
+                columns.append({'name': _b(field), 'data_type': _type_name(raw), 'nullable': True, 'position': index, 'comment': ''})
+            return columns or [{'name': 'field', 'data_type': 'string', 'nullable': True, 'position': 1, 'comment': ''}]
+        if kind == 'list':
+            values = conn.lrange(name, 0, 0) or []
+            data_type = _type_name(values[0]) if values else 'string'
+            return [{'name': '[0]', 'data_type': data_type, 'nullable': True, 'position': 1, 'comment': ''}]
+        if kind == 'set':
+            members = list(conn.sscan(name)[1] or [])
+            data_type = _type_name(members[0]) if members else 'string'
+            return [{'name': 'member', 'data_type': data_type, 'nullable': True, 'position': 1, 'comment': ''}]
+        if kind == 'zset':
+            entries = conn.zrange(name, 0, 0, withscores=True) or []
+            data_type = _type_name(entries[0][0]) if entries else 'string'
+            return [
+                {'name': 'member', 'data_type': data_type, 'nullable': True, 'position': 1, 'comment': ''},
+                {'name': 'score', 'data_type': 'double', 'nullable': True, 'position': 2, 'comment': ''},
+            ]
+        if kind == 'stream':
+            return [{'name': 'entry', 'data_type': 'stream', 'nullable': True, 'position': 1, 'comment': ''}]
+    except Exception:
+        pass
+    return [{'name': 'value', 'data_type': kind, 'nullable': True, 'position': 1, 'comment': ''}]
+
+
 def _scan_redis(conn) -> tuple[list, bool]:
     objects = []
     truncated = False
     try:
         for key in conn.scan_iter(match='*', count=200):
-            name = str(key)
+            name = _b(key)
             try:
-                kind = str(conn.type(name) or 'none')
+                kind = _b(conn.type(name)) or 'none'
             except Exception:
                 kind = 'unknown'
+            columns = _redis_key_columns(conn, name, kind)
             objects.append({
                 'owner': '',
                 'name': name,
-                'object_type': kind,
-                'comment': '',
-                'columns': [{'name': kind, 'data_type': kind, 'nullable': True, 'position': 1, 'comment': ''}],
+                'object_type': kind.upper(),
+                'comment': f'Redis {kind}',
+                'columns': columns,
             })
             if len(objects) >= REDIS_KEY_CAP:
                 truncated = True

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>待升级事项列表与完成闪退修复方案</title>
+<style>
+:root{--ink:#182230;--muted:#64748b;--primary:#3867d6;--soft:#eef4ff;--line:#dbe5f2;--surface:#fff;--bg:#f6f8fc;--danger:#c83e4c}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.7 "Microsoft YaHei","PingFang SC",sans-serif}.wrap{max-width:1000px;margin:32px auto;padding:0 20px}.hero{padding:28px 32px;border-radius:18px;background:linear-gradient(135deg,#fff 0%,#edf3ff 100%);border:1px solid var(--line);box-shadow:0 12px 32px rgba(34,70,132,.08)}h1{margin:0 0 8px;font-size:26px;letter-spacing:-.4px}.lead{margin:0;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}.wide{grid-column:1/-1}h2{font-size:16px;margin:0 0 12px}p{margin:8px 0}.tag{display:inline-block;border-radius:999px;background:var(--soft);color:#2752b5;padding:2px 9px;font-size:12px;font-weight:700;margin:0 4px 6px 0}.bad{color:var(--danger);font-weight:700}.path{font-family:Consolas,monospace;font-size:12px;color:#475569;background:#f7f9fc;padding:2px 6px;border-radius:5px}ol,ul{padding-left:20px;margin:8px 0}li{margin:6px 0}.spec{display:grid;grid-template-columns:145px 1fr;gap:8px;margin-top:10px}.spec b{color:#42536d}.note{padding:12px 14px;background:#fff9eb;border:1px solid #f5dd9c;border-radius:10px;color:#7a5b17}@media(max-width:700px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.hero{padding:22px}.spec{grid-template-columns:1fr;gap:2px}}</style>
+</head>
+<body><main class="wrap">
+<section class="hero"><h1>待升级事项：固定任务行、编号展示与完成闪退修复</h1><p class="lead">分析范围：工作台 <span class="path">panels/dashboard_panel.py</span> 的待升级任务行与“已完成”操作；不改变现有月份筛选、任务入选规则或需求业务数据。</p></section>
+<section class="grid">
+<article class="card"><h2>根因确认</h2><p><span class="tag">闪退</span>“已完成”按钮的回调会立刻执行 <span class="path">refresh()</span>，它在当前鼠标点击事件尚未结束时清空并延迟销毁整列任务行。当前按钮、所属任务行和布局同时被重建，存在 Qt 原生事件派发与控件销毁重叠的高风险路径。</p><p><span class="tag">自适应</span>任务行没有固定高度；标题虽关闭换行，但未定义可用宽度、最大行宽或省略规则，因此会随内容和相邻按钮挤压而产生不稳定尺寸。</p></article>
+<article class="card"><h2>字段现状</h2><p>需求台账已有 <span class="path">code</span> 与 <span class="path">record_kind</span> 字段，现有数据可分别承载需求号和 BUG 号。待升级列表目前只渲染标题，未显示编号。</p><p class="note">编号将优先展示 <b>code</b>；缺失编号时回退为“需求”或“BUG”，不伪造编号。</p></article>
+<article class="card wide"><h2>拟议修复</h2><div class="spec"><b>固定任务行</b><div>待升级任务行统一固定为 <b>64px 高</b>；左右内边距 10px，上下内边距 7px，列表间距 4px。滚动区承担任务数量增长，不再由单项高度扩张。</div><b>标题处理</b><div>标题保持单行；给文本区设置可收缩宽度与 <b>ElideRight</b>，过长时显示“…”；完整标题放在 Tooltip 中，鼠标悬停可查看。</div><b>编号展示</b><div>标题左侧增加紧凑编号胶囊：例如 <b>REQ-20260801</b> 或 <b>BUG-101</b>。标题与编号同一行，第二行保留“系统 · 计划日期”。</div><b>完成操作</b><div>保存完成态后不在按钮点击栈中立刻销毁当前行；改为将刷新安排到 Qt 下一轮事件循环执行，并在刷新前保留当前月份。这样按钮事件完整返回后才重建列表。</div><b>点击分流</b><div>任务行点击仍打开需求详情；点击“已完成/撤销完成”仅执行完成状态更新，不再向上触发任务行点击，避免完成后误跳转或重叠事件。</div></div></article>
+<article class="card"><h2>回归验证</h2><ul><li>构造超长标题任务：行高固定为 64px，标题实际文本省略且 Tooltip 保留全文。</li><li>分别验证需求与 BUG：展示各自的 <span class="path">code</span>。</li><li>模拟真实按钮点击：完成态保存成功、列表安全刷新、任务仍存在且显示“已完成”。</li><li>模拟撤销：状态回退，不修改需求的 <span class="path">status</span>、上线日期或 SQL 数据。</li></ul></article>
+<article class="card"><h2>影响范围</h2><p><span class="path">panels/dashboard_panel.py</span>：任务行组件、待升级行渲染、完成后的安全刷新。</p><p><span class="path">resources/style.qss</span>：编号胶囊与固定行视觉规则。</p><p><span class="path">tests/test_dashboard_release_monthly.py</span>：补充点击、尺寸、省略与编号回归。</p><p><b>不修改</b>需求台账结构、月份筛选规则、发版 Excel、SQL 流程和历史完成态格式。</p></article>
+</section></main></body></html>

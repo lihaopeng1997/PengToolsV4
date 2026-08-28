@@ -24,7 +24,10 @@ class SchemaSnapshotTests(unittest.TestCase):
     def test_mongo_scan_keeps_types_not_values(self):
         from tools.schema_snapshot import _scan_mongo
         coll = MagicMock()
-        coll.find_one.return_value = {'_id': 'should-not-store', 'name': 'alice'}
+        coll.find.return_value.limit.return_value = [
+            {'_id': 'should-not-store', 'name': 'alice', 'profile': {'age': 30}},
+            {'_id': 'x', 'name': 'bob', 'tags': ['a', 'b']},
+        ]
         db = MagicMock()
         db.list_collection_names.return_value = ['user']
         db.__getitem__.return_value = coll
@@ -32,10 +35,24 @@ class SchemaSnapshotTests(unittest.TestCase):
         self.assertFalse(truncated)
         self.assertEqual(objects[0]['name'], 'user')
         names = {col['name'] for col in objects[0]['columns']}
-        self.assertEqual(names, {'_id', 'name'})
+        # 递归展平后应包含嵌套字段点号路径
+        self.assertEqual(names, {'_id', 'name', 'profile.age', 'tags'})
         dumped = str(objects)
         self.assertNotIn('alice', dumped)
+        self.assertNotIn('bob', dumped)
         self.assertNotIn('should-not-store', dumped)
+        self.assertNotIn("'a'", dumped)
+
+    def test_mongo_scan_empty_collection_has_id_placeholder(self):
+        from tools.schema_snapshot import _scan_mongo
+        coll = MagicMock()
+        coll.find.return_value.limit.return_value = []
+        db = MagicMock()
+        db.list_collection_names.return_value = ['empty']
+        db.__getitem__.return_value = coll
+        objects, truncated = _scan_mongo(db)
+        names = {col['name'] for col in objects[0]['columns']}
+        self.assertEqual(names, {'_id'})
 
     def test_redis_scan_no_values(self):
         from tools.schema_snapshot import _scan_redis
@@ -44,8 +61,48 @@ class SchemaSnapshotTests(unittest.TestCase):
         client.type.return_value = 'string'
         objects, truncated = _scan_redis(client)
         self.assertEqual(objects[0]['name'], 'user:1')
-        self.assertEqual(objects[0]['object_type'], 'string')
+        self.assertEqual(objects[0]['object_type'], 'STRING')
+        # string 类型不读值，绝不落盘数据
         client.get.assert_not_called()
+        dumped = str(objects)
+        self.assertNotIn('alice', dumped)
+
+    def test_redis_hash_columns_only_field_names(self):
+        from tools.schema_snapshot import _scan_redis
+        client = MagicMock()
+        client.scan_iter.return_value = ['user:1']
+        client.type.return_value = 'hash'
+        client.hkeys.return_value = ['name', 'age']
+        client.hget.side_effect = ['secret-value', '30']
+        objects, truncated = _scan_redis(client)
+        cols = objects[0]['columns']
+        self.assertEqual({c['name'] for c in cols}, {'name', 'age'})
+        dumped = str(objects)
+        self.assertNotIn('secret-value', dumped)
+
+    def test_redis_scan_binary_key_does_not_crash(self):
+        from tools.schema_snapshot import _scan_redis
+        client = MagicMock()
+        client.scan_iter.return_value = [b'\xac\xed\x00\x05key']
+        client.type.return_value = 'string'
+        objects, truncated = _scan_redis(client)
+        self.assertEqual(objects[0]['object_type'], 'STRING')
+        # 二进制 key 用 errors='replace' 解码，不抛 UnicodeDecodeError
+        self.assertIsInstance(objects[0]['name'], str)
+        self.assertNotIn('\xac', objects[0]['name'])
+
+    def test_redis_hash_binary_field_does_not_crash(self):
+        from tools.schema_snapshot import _scan_redis
+        client = MagicMock()
+        client.scan_iter.return_value = [b'user:1']
+        client.type.return_value = 'hash'
+        client.hkeys.return_value = [b'\xac\xedfield']
+        client.hget.side_effect = ['v']
+        objects, truncated = _scan_redis(client)
+        cols = objects[0]['columns']
+        self.assertEqual(len(cols), 1)
+        self.assertIsInstance(cols[0]['name'], str)
+        self.assertNotIn('\xac', cols[0]['name'])
 
     def test_save_load_roundtrip(self):
         from tools import schema_snapshot

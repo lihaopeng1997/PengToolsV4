@@ -82,6 +82,44 @@ class CaptureRestartTests(unittest.TestCase):
         self.assertTrue(called['joined'])
         panel.close()
 
+    def test_stop_waits_port_release_before_return(self):
+        """停止监听必须等端口真正释放，否则紧接着再点监听会抢不到端口。"""
+        import threading
+        from tools.http_capture import HttpCaptureWorker
+        # 不真正 start：仅验证 stop 内部端口释放等待路径
+        worker = HttpCaptureWorker.__new__(HttpCaptureWorker)
+        worker.port = 8899
+        worker._stop = threading.Event()
+        worker._stop.set()
+        worker._thread = None
+        worker._master = None
+        worker._loop = None
+        worker._proxy_applied = False
+        worker.on_stopped = None
+        worker._restore_proxy = MagicMock()
+        # _stop 置位后，_port_bound 前两次返回 True（占用），第三次返回 False（已释放）
+        seq = {'n': 0}
+
+        def _fake_bound():
+            seq['n'] += 1
+            return seq['n'] < 3
+
+        worker._port_bound = _fake_bound
+        worker._wait_port_released(timeout=2.0)
+        # 端口释放后立即返回，不再空转
+        self.assertEqual(seq['n'], 3)
+
+    def test_wait_port_released_skips_when_not_stopped(self):
+        """未请求 stop 时不应等待端口释放（避免误等无关连接）。"""
+        from tools.http_capture import HttpCaptureWorker
+        worker = HttpCaptureWorker.__new__(HttpCaptureWorker)
+        worker.port = 8899
+        worker._stop = MagicMock()
+        worker._stop.is_set.return_value = False
+        worker._port_bound = MagicMock(return_value=True)
+        worker._wait_port_released(timeout=2.0)
+        worker._port_bound.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

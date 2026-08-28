@@ -284,6 +284,9 @@ class HttpCaptureWorker:
         self._restore_proxy()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=max(0.2, float(join_timeout or 1.2)))
+        # 端口必须真正释放，否则紧接着再点"开始监听"会抢不到端口、wait_ready 超时。
+        # mitmproxy 事件循环退出有延迟，join 超时后线程可能仍在跑；这里主动等端口关闭。
+        self._wait_port_released(timeout=3.0)
         if clear_records:
             self.clear_session()
         if self.on_stopped:
@@ -356,6 +359,20 @@ class HttpCaptureWorker:
                 return True
         except OSError:
             return False
+
+    def _wait_port_released(self, timeout: float = 3.0) -> None:
+        """等待本地代理端口真正关闭（供 stop 后立刻重启使用）。
+
+        仅在本对象已请求 stop（self._stop 已置位）时轮询，避免误等无关连接。
+        端口未绑定视为已释放，立即返回。
+        """
+        if not self._stop.is_set():
+            return
+        deadline = time.time() + float(timeout)
+        while time.time() < deadline:
+            if not self._port_bound():
+                return
+            time.sleep(0.08)
 
     def _run(self):
         try:

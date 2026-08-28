@@ -9,7 +9,7 @@
  * text-strong __TEXT_STRONG__ | text __TEXT__ | text-muted __TEXT_MUTED__ | nav-text __TEXT_NAV__
  * border __BORDER__ | primary __PRIMARY__ | primary-soft __PRIMARY_SOFT__ | primary-active __PRIMARY_ACTIVE__
  * cyan __CYAN__ | success __SUCCESS__ | warning __WARNING__ | danger __DANGER__
- * radius-control 8 | radius-card 12 | radius-dialog 16 | control-h 28
+ * radius-control 10 | radius-card 14 | radius-dialog 18 | control-h 28
  */
 QWidget {
     color: __TEXT__;
@@ -231,16 +231,16 @@ QLabel#svn-workspace-meta {
 /* —— Button system —— */
 QPushButton {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 8px; padding: 6px 12px;
+    border-radius: 10px; padding: 6px 12px;
     font-weight: 500;
     min-height: 20px;
 }
 QPushButton:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QPushButton:pressed { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __TEXT__; }
+QPushButton:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT__; }
 QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#btn-secondary {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 8px; font-weight: 500;
+    border-radius: 10px; font-weight: 500;
 }
 QPushButton#btn-secondary:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:pressed { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; }
@@ -251,7 +251,7 @@ QPushButton#primary-btn:pressed, QPushButton#card-action:pressed {
 QPushButton#primary-btn, QPushButton#card-action {
     background: __PRIMARY__;
     color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 7px 14px;
-    border-radius: 8px;
+    border-radius: 10px;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover {
     background: __PRIMARY_HOVER__;
@@ -377,7 +377,7 @@ QLabel#page-header-icon {
 QFrame#page-filter-bar {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
+    border-radius: 14px;
 }
 /* 页面骨架 L2 工具栏（规范 v1 §4）：批量操作按钮组容器；
  * 默认透明；divided="true" 时加底部分隔线用于与内容区强分层 */
@@ -418,7 +418,7 @@ QFrame#request-verify-context QCheckBox {
 QFrame#empty-state {
     background: __SURFACE__;
     border: 1px dashed __BORDER_STRONG__;
-    border-radius: 12px;
+    border-radius: 14px;
 }
 QLabel#empty-state-icon {
     background: transparent;
@@ -483,14 +483,14 @@ QFrame#release-generate-zone QLabel#zone-title-inline { border-left-color: __SUC
 /* —— 输入 / 下拉 / 多行：统一高度、圆角、焦点环 —— */
 QComboBox, QLineEdit, QDateEdit, QTimeEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 10px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 12px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
     min-height: 18px;
     max-height: 28px;
 }
 QTextEdit, QPlainTextEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 10px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 12px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
 QComboBox { padding-right: 38px; }
@@ -508,7 +508,7 @@ QComboBox:disabled, QLineEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled, 
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 32px; border: none; border-left: 1px solid __BORDER__;
-    background: __PRIMARY_SOFT__; border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+    background: __PRIMARY_SOFT__; border-top-right-radius: 11px; border-bottom-right-radius: 11px;
 }
 QComboBox::drop-down:hover { background: __PRIMARY_SOFT__; }
 QComboBox::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
@@ -950,18 +950,18 @@ QHeaderView#requirement-file-header::section:last { border-right: none; }
 QFrame#detail-action-card {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
+    border-radius: 14px;
 }
 QFrame#ops-list-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
+    border-radius: 14px;
 }
 QFrame#detail-summary-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-left: 3px solid __PRIMARY__;
-    border-radius: 12px;
+    border-radius: 14px;
 }
 QLabel#detail-tags {
     color: __PRIMARY_ACTIVE__;
@@ -1400,7 +1400,7 @@ QDateEdit:focus { border: 2px solid __PRIMARY__; padding: 6px 37px 6px 10px; }
 QDateEdit::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 32px; border: none; border-left: 1px solid __BORDER__;
-    background: __PRIMARY_SOFT__; border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+    background: __PRIMARY_SOFT__; border-top-right-radius: 11px; border-bottom-right-radius: 11px;
 }
 QDateEdit::drop-down:hover { background: __PRIMARY_SOFT__; }
 QDateEdit::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
@@ -2474,10 +2474,11 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 QFrame#theme-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
+    border-radius: 14px;
 }
 QFrame#theme-card:hover {
-    border-color: __BORDER_STRONG__;
+    border-color: __PRIMARY__;
+    background: __PRIMARY_SOFT__;
 }
 QFrame#theme-card[selected="true"] {
     border: 2px solid __PRIMARY__;

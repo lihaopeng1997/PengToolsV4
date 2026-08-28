@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """PTools Harness：PengTools 专属内网任务层。
 
-任务白名单：sql.draft / sql.optimize / linux.query。
+任务白名单：sql.draft / sql.optimize / linux.query / mongo.query / redis.query。
 无通用 shell、无全盘文件工具。
 """
 
@@ -11,15 +11,19 @@ import json
 import re
 
 from tools.ai_harness import strip_markdown_fence
-from tools.harness_project import active_project_id, load_project, load_skill_text, project_context
+from tools.harness_project import (
+    active_project_id,
+    list_tasks,
+    load_project,
+    load_skill_text,
+    project_context,
+    resolve_task_file,
+)
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.linux_guard import inspect_commands
 
-TASKS = {
-    'sql.draft': 'sql.md',
-    'sql.optimize': 'sql_optimize.md',
-    'linux.query': 'log_query.md',
-}
+# 内置默认清单仍在 harness_project.DEFAULT_TASKS；此处仅保留兜底回退文案。
+TASKS = {item['task']: item['file'] for item in list_tasks()}
 
 _SQL_FALLBACK = (
     '你是 Oracle SQL 助手。只输出一个 JSON 对象，字段含 summary/intent/objects_used/'
@@ -38,7 +42,7 @@ _LINUX_FALLBACK = (
 
 
 def _skill_for(task: str, project: dict | None = None) -> str:
-    filename = TASKS.get(task) or 'sql.md'
+    filename = resolve_task_file(task) or 'sql.md'
     if task == 'sql.optimize':
         fallback = _OPTIMIZE_FALLBACK
     elif task == 'linux.query':
@@ -70,7 +74,7 @@ def _extract_json_object(text: str) -> dict:
 def run_task(task: str, user_text: str, *, context: str = '', cfg=None):
     """执行一个 PTools 任务。sql.* 返回 str，linux.query 返回 dict。"""
     name = str(task or '').strip()
-    if name not in TASKS:
+    if resolve_task_file(name) is None:
         raise IntranetLlmError(f'未知任务：{task}')
     prompt = str(user_text or '').strip()
     extra = str(context or '').strip()

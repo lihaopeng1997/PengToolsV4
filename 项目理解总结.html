@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengToolsHub V4.27 Private — 项目理解总结</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #2f6fed;
+    --brand-soft: #eef4ff;
+    --ok: #0e9f6e;
+    --ok-soft: #ecfdf5;
+    --warn: #c27803;
+    --warn-soft: #fffaeb;
+    --danger: #d0342c;
+    --danger-soft: #fdf0ef;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.7;
+    padding: 32px 20px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { font-size: 26px; margin-bottom: 6px; }
+  header p { color: var(--muted); font-size: 14px; }
+  .badges { margin-top: 10px; }
+  .badge {
+    display: inline-block; padding: 3px 12px; border-radius: 999px;
+    font-size: 12px; margin: 3px; font-weight: 600;
+  }
+  .b-blue { background: var(--brand-soft); color: var(--brand); }
+  .b-green { background: var(--ok-soft); color: var(--ok); }
+  .b-amber { background: var(--warn-soft); color: var(--warn); }
+  section {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px 28px; margin-bottom: 20px;
+  }
+  section > h2 {
+    font-size: 18px; margin-bottom: 14px; padding-left: 10px;
+    border-left: 4px solid var(--brand);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 10px 0; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; white-space: nowrap; }
+  code {
+    background: #f1f5f9; border-radius: 4px; padding: 1px 6px;
+    font-family: Consolas, "Courier New", monospace; font-size: 12.5px; color: #b03060;
+  }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .note {
+    background: var(--brand-soft); border-left: 4px solid var(--brand);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .danger-note {
+    background: var(--danger-soft); border-left: 4px solid var(--danger);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .flow {
+    font-family: Consolas, monospace; background: #f8fafc; border: 1px dashed var(--line);
+    border-radius: 8px; padding: 12px 16px; font-size: 13px; white-space: pre; overflow-x: auto;
+  }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .t-p0 { background: var(--danger-soft); color: var(--danger); }
+  .t-p1 { background: var(--warn-soft); color: var(--warn); }
+  .t-p2 { background: var(--ok-soft); color: var(--ok); }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>PengToolsHub V4.27 Private — 项目理解总结</h1>
+  <p>需求分析师 / 项目经理 视角 · 基于仓库实读代码与交接文档 · 2026-08-26</p>
+  <div class="badges">
+    <span class="badge b-blue">Python 3.12 + PyQt6</span>
+    <span class="badge b-blue">Windows 离线桌面</span>
+    <span class="badge b-green">构建 2026-08-25 11:41</span>
+    <span class="badge b-amber">Private 版（接口排查/内网模型例外）</span>
+  </div>
+</header>
+
+<section>
+  <h2>一、产品定位与一句话画像</h2>
+  <p><strong>PengToolsHub</strong> 是一款 <strong>Windows 离线桌面效率工具台</strong>（单 EXE，PyInstaller 打包），服务内网开发 / 运维 / 交付日常，覆盖「需求台账 → SQL 升级 → 发版 Excel → 日报」的完整交付链路，并内置接口抓包、SSH 日志排查、国密加解密、自然语言查库等 Private 能力。作者署名 <strong>Lihp</strong>。</p>
+  <table>
+    <tr><th>项</th><th>值</th></tr>
+    <tr><td>产品名 / 版本</td><td><code>PengToolsHub</code> · 内部版本 <code>4.27</code> · 界面文案 <code>V4 Private</code></td></tr>
+    <tr><td>仓库 / 分支</td><td><code>https://github.com/lihaopeng1997/PengToolsV4.git</code> · <code>main</code></td></tr>
+    <tr><td>工作区</td><td><code>D:\development\workspace\WorkBuddy\PengTools</code>（当前权威工作区，最新构建 2026-08-25）</td></tr>
+    <tr><td>数据根</td><td><code>config.local_data_dir()</code>：开发 <code>./data/</code>，打包 <code>&lt;exe旁&gt;/data/</code>（升级换 EXE 不丢数据）</td></tr>
+    <tr><td>交付物</td><td><code>dist\PengToolsHub.exe</code> + <code>Installer\</code> + <code>PengToolsHub_Offline_Setup.zip</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>二、技术栈（requirements.txt 实读）</h2>
+  <table>
+    <tr><th>领域</th><th>依赖</th><th>用途</th></tr>
+    <tr><td>UI 框架</td><td><code>PyQt6</code>（Fusion 样式 + QSS 主题）</td><td>全部界面；四主题 calm/clear/warm/black + 密度 compact/comfortable</td></tr>
+    <tr><td>国密</td><td><code>gmml</code>→<code>gmssl 3.2.2</code></td><td>网关 SM2+SM4 加解密</td></tr>
+    <tr><td>Office</td><td><code>python-docx / openpyxl / xlrd / xlwt / xlutils / msoffcrypto-tool</code></td><td>接口文档更新、发版 Excel（23 列）、加密表格读取</td></tr>
+    <tr><td>抓包</td><td><code>mitmproxy 11</code> + <code>websocket-client</code></td><td>loopback MITM 系统代理、Chromium CDP</td></tr>
+    <tr><td>SSH</td><td><code>paramiko</code></td><td>日志排查：per-tab 会话、多机并行导出</td></tr>
+    <tr><td>凭据</td><td><code>cryptography</code></td><td>DPAPI / PBKDF2 安全存储（密码不上库、禁 b64）</td></tr>
+    <tr><td>数据库</td><td><code>oracledb / pymysql / redis / pymongo</code></td><td>模型工作台只读查询（20 行分页）</td></tr>
+    <tr><td>搜索</td><td><code>pypinyin</code></td><td>需求树 / 文件库拼音首字母搜索</td></tr>
+  </table>
+  <p class="note">Python 环境：<code>C:\Users\Lenovo\.workbuddy\binaries\python\envs\pengtools</code>（venv，打包需另装 pyinstaller；build_release.ps1 调 <code>python</code>，需把 venv\Scripts 加入 PATH）。</p>
+</section>
+
+<section>
+  <h2>三、架构分层与依赖方向</h2>
+  <div class="flow">run.py（入口：AUMID/单实例/闪屏/主题/代理安全清理）
+  └─ MainWindow（导航 + QStackedWidget + 信号总线 + 面板懒加载 _ensure_*）
+       ├─ panels/*（15 个 UI 面板：交互、Loading、只调 tools 不写算法）
+       │     └─ tools/*（40+ 无界面业务逻辑，扁平命名，可单测）
+       └─ ui/*（30+ 公共 UI：theme_manager / design_system / page_chrome / responsive…）
+
+依赖铁律：run → main_window → panels → tools|ui|config
+          ui 不 import panels/tools；tools 不 import panels</div>
+  <ul>
+    <li><strong>懒加载启动</strong>：主窗口先建壳 + 工作台立即可见，其余面板按导航进入时构造（<code>_ensure_panel_for_nav</code>），后台预热分步走 <code>_startup_tick</code>；offscreen 测试走同步 boot。</li>
+    <li><strong>异步模式</strong>：耗时操作用 <code>QThread</code> Worker（<code>completed/failed</code> 双信号），Loading 用 <code>AuroraProgress</code> 浮层，成功/失败/异常三条路径都必须结束。</li>
+    <li><strong>跨模块联动全部经 main_window 信号</strong>（如 <code>_receive_requirement_sql</code>、<code>_open_gateway_from_iface</code>），面板间不深层引用对方控件。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>四、导航 ↔ Stack 映射（改导航必读的坑）</h2>
+  <table>
+    <tr><th>导航 index</th><th>模块</th><th>Stack index</th><th>面板类</th><th>常显</th></tr>
+    <tr><td>0</td><td>首页 / 工作台</td><td>0</td><td>DashboardPanel</td><td>是</td></tr>
+    <tr><td>1</td><td>证件类型</td><td>1</td><td>CreditCodePanel</td><td>是</td></tr>
+    <tr><td>2</td><td>升级准备（发版联动）</td><td>2</td><td>SqlToolPanel</td><td>是</td></tr>
+    <tr><td>3</td><td>接口文档更新</td><td>3</td><td>DocxUpdatePanel</td><td>是</td></tr>
+    <tr><td>4</td><td>车辆 VIN</td><td>4</td><td>VinPanel</td><td>是</td></tr>
+    <tr><td>5</td><td>加解密（网关解密）</td><td>5</td><td>GatewayDecodePanel</td><td>是</td></tr>
+    <tr><td>6</td><td>命令库（运维助手）</td><td>6</td><td>OpsPanel</td><td>是</td></tr>
+    <tr><td>7</td><td>设置</td><td>7</td><td>SettingsPanel</td><td>是（侧栏底部）</td></tr>
+    <tr><td>8 / 9</td><td>自我学习 / 日报</td><td><strong>共用 8</strong></td><td>PersonalPanel</td><td>8 彩蛋解锁；<strong>9 常显禁止隐藏</strong></td></tr>
+    <tr><td>10</td><td>需求管理</td><td><strong>9</strong></td><td>RequirementPanel</td><td><strong>常显禁止隐藏</strong></td></tr>
+    <tr><td>11</td><td>格式工具</td><td><strong>10</strong></td><td>FormatToolsPanel</td><td>是</td></tr>
+    <tr><td>12</td><td>接口排查</td><td><strong>11</strong></td><td>InterfaceDebugPanel</td><td>是（Private）</td></tr>
+    <tr><td>13</td><td>日志排查</td><td><strong>12</strong></td><td>OpsLogPanel</td><td>是</td></tr>
+    <tr><td>14</td><td>模型工作台</td><td><strong>13</strong></td><td>AiWorkbenchPanel</td><td>是</td></tr>
+  </table>
+  <p class="danger-note"><strong>改导航时必须同步四处</strong>：<code>ui/navigation_model.py</code>（NAV_MODEL 分组/文案/图标）、<code>main_window.py</code>（按钮数组 + <code>_stack_index_for_nav</code> + 状态栏文案表）、<code>set_language</code> 中英文案、悬浮快捷入口。绝不允许用数组下标猜 Stack index。</p>
+  <p class="note"><strong>_show_panel 的固有副作用（不可破坏）</strong>：离开 nav 12 → <code>on_panel_deactivated()</code> 暂停系统代理；进 7 → 刷新提醒配置；进 8 → <code>open_learning()</code>；进 9 → <code>open_daily_report()</code>；进 10 → <code>refresh_systems()</code>。</p>
+</section>
+
+<section>
+  <h2>五、功能模块全景（15 项）</h2>
+  <table>
+    <tr><th>模块</th><th>核心能力</th><th>关键文件</th></tr>
+    <tr><td>工作台</td><td>最近需求、待升级事项（仅 <code>planned_online_date ≥ 今天</code>，今日上线置顶高亮）、测试点清单、快捷入口</td><td><code>panels/dashboard_panel.py</code>、<code>tools/dashboard_release_items.py</code></td></tr>
+    <tr><td>证件类型</td><td>个人/单位证件模拟生成（身份证等 + 中国行政区划）</td><td><code>panels/credit_panel.py</code>、<code>tools/credit_code.py</code>、<code>tools/id_documents.py</code></td></tr>
+    <tr><td>升级准备</td><td>多系统 SQL 拆分/分类/回滚（先 drop 主键再 drop 表）、发版 Excel（23 列 RELEASE_HEADERS）、系统配置</td><td><code>panels/sql_panel.py</code>、<code>tools/sql_tool.py</code>、<code>tools/release_prep.py</code></td></tr>
+    <tr><td>接口文档更新</td><td>SQL 驱动 DOCX 接口文档批量更新</td><td><code>panels/docx_panel.py</code>、<code>tools/docx_updater.py</code></td></tr>
+    <tr><td>车辆 VIN</td><td>中国车辆 VIN 测试数据生成</td><td><code>panels/vin_panel.py</code>、<code>tools/vin_generator.py</code></td></tr>
+    <tr><td>加解密</td><td>网关 SM2+SM4 解密、密钥/明文不落盘、结果送 JSON 查看</td><td><code>panels/gateway_panel.py</code>、<code>tools/gateway_crypto.py</code></td></tr>
+    <tr><td>命令库</td><td>Linux 运维命令搜索，只生成/复制、不连服务器</td><td><code>panels/ops_panel.py</code>、<code>tools/ops_commands.py</code></td></tr>
+    <tr><td>设置</td><td>主题/密度/语言/悬浮栏/关闭行为/安测基线（SSL 校验、远程请求确认、生产主机提示）</td><td><code>panels/settings_panel.py</code></td></tr>
+    <tr><td>自我学习</td><td>学习库 + 全文搜索（彩蛋解锁，<code>private_unlocked</code> 持久化在 settings.json）</td><td><code>panels/personal_panel.py</code>、<code>tools/personal_knowledge.py</code></td></tr>
+    <tr><td>日报</td><td>日期切换保留草稿（内存）、复制为今日、需求写入日报不覆盖</td><td><code>panels/personal_panel.py</code>、<code>tools/daily_reports.py</code></td></tr>
+    <tr><td>需求管理</td><td>需求/BUG 树、摘要、文件库（拖入 + svn add）、SVN checkout/update/commit/lock、多系统关联、测试点、工单提交</td><td><code>panels/requirement_panel.py</code>（4023 行）、<code>tools/requirements.py</code>、<code>tools/svn_workspace.py</code>、<code>tools/ticket_submit.py</code></td></tr>
+    <tr><td>格式工具</td><td>JSON/XML/SQL/Base64/文本离线格式化</td><td><code>panels/format_panel.py</code>、<code>tools/xml_formatter.py</code></td></tr>
+    <tr><td>接口排查</td><td>loopback MITM 抓包、Fiddler 式列表、概览/请求/响应/请求测试四 Tab、环境 Base 重写发送、导出导入 <code>pengtools_iface_session_v1</code>、送入加解密</td><td><code>panels/interface_debug_panel.py</code>（4313 行）、<code>tools/http_capture.py</code>、<code>tools/iface_request_test.py</code></td></tr>
+    <tr><td>日志排查</td><td>SSH per-tab 会话、PTY 终端、批量退格规范化（保留 \x08）、多机日志关键字截取、导出到「关键字文件夹/IP-服务.log」</td><td><code>panels/ops_log_panel.py</code>（4083 行）、<code>tools/ops_ssh.py</code>、<code>tools/ops_ssh_shell.py</code>、<code>ui/ssh_terminal.py</code></td></tr>
+    <tr><td>模型工作台</td><td>自然语言查库（PTools Harness）、只读 SQL、Oracle/MySQL/Redis/MongoDB、20 行分页、表/字段选择组句</td><td><code>panels/ai_workbench_panel.py</code>、<code>tools/db_connect.py</code>、<code>tools/ptools_harness.py</code>、<code>tools/intranet_llm.py</code>、<code>tools/sql_guard.py</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>六、核心业务联动链路</h2>
+  <div class="flow">需求管理 ──写入日报──► 日报（daily_template，不覆盖已写段落）
+    │
+    ├──准备本次升级──► 升级准备 ──► 发版 Excel（23 列，验证 SQL 不进 SVN 提交目录）
+    ├──SQL 整理──► main_window._receive_requirement_sql 信号
+    ├──接口文档──► Docx 面板
+    └──工单提交──► 克隆 SVN 最新签核单（记住上次选择）
+
+接口排查 ──送入加解密──► 网关面板（cipher + 自动提取 SM4 Key）
+        ──送格式工具──► 格式工具（优先解密明文）
+        ──请求测试──► 环境 Base 重写 host（保留 path/query）──► 发送
+        ──导出明细──► JSON ──导入/拖入──► 回填请求测试
+
+工作台 ──点击待升级/最近需求──► 需求管理 focus_requirement（双向刷新）
+网关解密 ──open_interface_debug──► 接口排查</div>
+</section>
+
+<section>
+  <h2>七、硬边界与安全红线（违反即事故）</h2>
+  <table>
+    <tr><th>级别</th><th>规则</th></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>离线原则</strong>：无账号/云同步/插件市场/在线更新/遥测/在线 CDN；业务代码不引入远程 HTTP/WebSocket/浏览器内核</td></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>HTTP 例外仅两项</strong>：① 接口排查本机 loopback（127.0.0.1 MITM + 可选 CDP），禁止暴露局域网；② 内网模型（默认关闭，用户启用后仅 <code>data/ai_local.json</code> 的一个 Base URL，仅 loopback + RFC1918，拒绝公网模型域名）</td></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>敏感数据只存内存</strong>：抓包请求/响应/Cookie/Token/Key/明文禁止写日志、JSON、搜索历史；停止抓包<strong>保留会话</strong>，仅「清空」与退出调用 <code>clear_session()</code></td></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>凭据安全</strong>：密码不上库、不进 Git；仅 DPAPI/enc 存储，禁止新增 b64；Token 不进提示词；网关明文/SSH 密码不进提示词</td></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>数据根唯一</strong>：只能写 <code>config.local_data_dir()</code>；禁止 <code>_MEIPASS</code>/用户主目录；真实账密禁止进 <code>resources/</code>（会打进 EXE）</td></tr>
+    <tr><td><span class="tag t-p0">P0</span></td><td><strong>升级不删数据</strong>：只替换 EXE/程序文件；安装包不得包含用户 data</td></tr>
+    <tr><td><span class="tag t-p1">P1</span></td><td><strong>IE 代理</strong>：启动前备份 WinINet，停止/失败/退出必须恢复；证书仅删配置记录的指纹；应用启动时 <code>ensure_system_proxy_safe()</code> 清残留</td></tr>
+    <tr><td><span class="tag t-p1">P1</span></td><td><strong>只读底线</strong>：运维助手不自动执行破坏性命令；Harness 自然语言→SQL / Linux 仅只读（禁 rm/reboot/kill）；查询需用户点「执行查询」才发 SSH</td></tr>
+    <tr><td><span class="tag t-p1">P1</span></td><td><strong>日志导出</strong>：目录 resolve 到具体 .log（<code>resolve_remote_log_file</code>）；命名「关键字文件夹 / IP-服务.log」；远端走 stdout 流，禁止远端临时文件</td></tr>
+    <tr><td><span class="tag t-p1">P1</span></td><td><strong>SSH per-tab</strong>：会话按 Tab 独立，禁止全局 disconnect；终端规范化保留 <code>\x08</code></td></tr>
+    <tr><td><span class="tag t-p2">P2</span></td><td><strong>提交前扫描</strong>：<code>scripts/scan_release_secrets.py</code> 必须 PASS（build 已集成）；发布产物三件套核对 + build_info.json 时间戳</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>八、代码规范与 UI 约定</h2>
+  <ul>
+    <li><strong>文件头</strong>：<code># -*- coding: utf-8 -*-</code>；中文注释/docstring；tools 扁平命名保持 import 稳定（<code>from tools.xxx import …</code>）。</li>
+    <li><strong>样式</strong>：统一 <code>resources/style.qss</code> + <code>ui/theme_manager.py</code> Token 注入；新增颜色必须走 Token 且四主题全覆盖；<code>render()</code> 有未解析占位符即抛错（勿移除）；终端色用独立 <code>TERM_*</code>，禁止绑回 <code>CODE_BG</code>。</li>
+    <li><strong>公共组件</strong>：<code>apply_button</code>（primary 图标用 ON_PRIMARY）/ <code>apply_table</code> / <code>apply_tree</code> / <code>make_page_header</code>（PageChrome）；<code>confirm_action / show_info / show_error</code> 统一弹窗。</li>
+    <li><strong>删除类交互</strong>：取消在左、确认在右、<strong>默认焦点取消</strong>。</li>
+    <li><strong>JSON 兼容</strong>：读用 setdefault/默认值；写保留未知旧字段；settings 原子写入（临时文件 + replace）。</li>
+    <li><strong>布尔解析</strong>：禁止裸 <code>bool("false")</code>，必须规范化字符串解析。</li>
+    <li><strong>响应式</strong>：Wide≥1440 / Standard 1280–1439 / Compact 1080–1279 / Narrow 960–1079；Compact/Narrow 双栏可垂直但不重排 splitter 顺序。</li>
+    <li><strong>中英文</strong>：所有可见文案走 <code>set_language</code>，zh/en 双份。</li>
+    <li><strong>Git</strong>：commit 格式 <code>type(scope): 中文说明</code>；禁止 add data/、zip、截图、日志、build/dist；分支名避免斜杠（Windows 下用 <code>feat-xxx</code>）。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>九、开发与交付流程（每轮强制）</h2>
+  <div class="flow">接到需求 → 对照 AGENTS.md 判断边界 → （CodeGraph 定位调用链/影响面）
+  → 小步改：tools 先行可单测 → panels UI → 文案/QSS
+  → 定向测试（QT_QPA_PLATFORM=offscreen + python -m unittest tests.test_xxx）
+  → python scripts/scan_release_secrets.py（必须 PASS）
+  → powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
+  → 核对三产物 + resources/build_info.json 时间戳
+  → git add（精确路径）→ commit → push origin main</div>
+  <ul>
+    <li><strong>测试策略</strong>：只跑本次改动覆盖的定向测试（45+ 个测试文件按模块匹配）；业务规则必须函数级断言；show_* 弹窗需 mock。</li>
+    <li><strong>打包注意</strong>：EXE 被占用报 PermissionError → 先结束 PengToolsHub 进程；打包前确认新依赖已进 requirements.txt 和 spec hidden-import。</li>
+    <li><strong>内网能力</strong>（SVN、真实抓包、内网 DB）：本环境不可验证，交付说明写「待用户内网验证」。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十、当前工作区状态（2026-08-26 快照）</h2>
+  <ul>
+    <li><strong>未提交改动（3 个文件）</strong>：<code>panels/ai_workbench_panel.py</code>（+212 行：表过滤框、字段列表、列勾选、表/字段名插入与 NL 问句生成 <code>compose_nl_query</code>）、<code>resources/build_info.json</code>（2026-08-25 11:41:49）、<code>tests/test_sql_guard.py</code>（+8 行）——疑似上一轮「同步 schema 到 NL 上下文 + Linux 命令模式」的收尾。</li>
+    <li><strong>根目录 30+ 份未跟踪设计/分析 HTML</strong>（全局设计系统、各模块设计方案、多轮闪退与布局修复分析）——项目文档惯例，按需版本化，勿盲目 git add -A。</li>
+    <li><strong>近期演进方向</strong>（近 25 次提交）：PTools Harness（NL→SQL / 只读 Linux）→ 模型工作台 → MySQL/Redis/MongoDB 连接 → schema 同步进 NL 上下文 → cryptography pbkdf2 打包修复。工具链正向「AI 辅助排障」演进。</li>
+    <li><strong>UI 改造进行中</strong>：全局 UI 第一阶段（Token/密度/PageChrome）已实施验收；页面级改造（接口排查 → SSH/终端 → 日志 → 其余）按 <code>docs/plans/2026-07-29-interface-debug-workbench-redesign.md</code> 推进。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十一、需求分析师工作约定（本角色承接方式）</h2>
+  <ul>
+    <li><strong>需求受理流程</strong>：可行性/影响面/风险评估 →（模糊则先提问确认）→ 输出结构化需求文档。</li>
+    <li><strong>需求文档固定结构</strong>：① 需求背景与目标（含 Non-goals）② 功能需求（细化到交互逻辑与边界条件）③ 非功能需求（性能/安全/兼容）④ 涉及模块与改动范围（精确到文件）⑤ 任务拆解与优先级 ⑥ 验收标准（可直接执行）。</li>
+    <li><strong>方案基线</strong>：一切方案基于现有架构（分层依赖、懒加载、主题 Token、信号总线）与代码风格提出，不与现有实现冲突；触碰第七节红线的需求会先亮出风险再谈方案。</li>
+    <li><strong>交付标准</strong>：文档详细到可直接交给 Grok 执行开发，无需额外补充说明。</li>
+  </ul>
+</section>
+
+<footer>PengToolsHub V4.27 Private · 项目理解总结 · 生成于 2026-08-26 · 基于仓库实读（AGENTS.md / 交接文档 / run.py / main_window.py / config.py / navigation_model.py / requirements.txt / git log &amp; diff）</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>日志终端输入与删除失效分析</title>
+  <style>
+    body { margin:0; background:#f7f9fc; color:#172033; font:15px/1.7 "Microsoft YaHei","Segoe UI",sans-serif; }
+    main { max-width:940px; margin:32px auto; padding:0 22px 42px; }
+    header,section { background:#fff; border:1px solid #dfe6ef; border-radius:14px; padding:24px 28px; margin-bottom:18px; box-shadow:0 6px 22px rgba(31,50,81,.06); }
+    h1 { margin:0 0 8px; color:#163b66; font-size:26px; } h2 { margin:0 0 12px; color:#1e5799; font-size:18px; }
+    .muted { color:#64748b; } .cause { border-left:4px solid #e47a25; background:#fff7ed; padding:14px 16px; border-radius:8px; }
+    .ok { color:#16794d; font-weight:700; } .note { background:#eff6ff; border-left:4px solid #2563eb; padding:13px 16px; border-radius:8px; }
+    code { color:#9a3412; background:#fff1e6; padding:2px 5px; border-radius:4px; } ul,ol { padding-left:22px; margin:8px 0; }
+  </style>
+</head>
+<body><main>
+<header><h1>日志排查终端：输入、退格、删除失效分析</h1><div class="muted">排查时间：2026-07-28 · 涉及 <code>ops_log_panel.py</code>、<code>ssh_terminal.py</code>、<code>ops_ssh_shell.py</code></div></header>
+<section><h2>结论</h2><div class="cause"><strong>可以同时兼容。</strong>“连接到正确服务器”的修复只改变服务器选择优先级，没有修改键盘映射或 PTY 发送逻辑；当前更可能的问题是某个终端标签的 PTY 启动失败后，界面仍被标记为已连接并启用，造成“看起来可输入、实际没有存活终端通道”的假连接状态。</div></section>
+<section><h2>已核验的证据</h2><ul><li>上次多服务器修复仅修改 <code>_current_server()</code>：优先使用用户当前选择的 <code>server_combo</code>，不涉及键盘、退格或删除逻辑。</li><li>使用模拟 PTY 的最小验证已通过：普通字符、Backspace、Delete、Enter、方向键分别正确映射并发送为 <code>a</code>、<code>\x7f</code>、<code>\x1b[3~</code>、<code>\r</code>、<code>\x1b[D</code>。</li><li>连接回调中，终端 <code>attach_client()</code> 若抛异常，当前代码只输出“终端启动失败”，但会话仍可能保留“已连接”状态并启用终端区域。</li></ul></section>
+<section><h2>兼容修复方案</h2><ol><li><strong>以 PTY 实际就绪为准：</strong>仅在 <code>attach_client()</code> 成功且 <code>shell_alive</code> 为真后，才把当前标签切为“已连接”。失败时关闭本次 SSH 客户端、恢复“未连接”状态并显示明确错误。</li><li><strong>保持每标签独立连接：</strong>继续使用当前标签自身的服务器 ID、SSH 客户端和终端控件；不会回退成全局连接，也不会再次连到第一个服务器。</li><li><strong>补终端交互回归测试：</strong>覆盖当前标签的字符输入、退格、Delete、Enter、方向键发送，以及“PTY 启动失败不允许假连接”。</li><li><strong>可观测提示：</strong>终端失活时直接显示“终端通道未就绪，请重新连接本会话”，避免无反馈的按键失效。</li></ol><div class="note">这是一项连接状态与会话绑定的收口修复：既保持“选哪个服务器就连哪个”，也保证终端只有在真实可交互时才允许输入。</div></section>
+<section><h2>验证计划</h2><ul><li>定向单元测试：按键映射、PTY 启动成功/失败状态。</li><li>日志排查会话定向测试：两标签各自绑定不同服务器，切换标签后输入仍发送至当前标签。</li><li>语法与敏感信息扫描通过后，重新构建 <code>PengToolsHub_Offline_Setup.zip</code>。</li></ul></section>
+</main></body></html>

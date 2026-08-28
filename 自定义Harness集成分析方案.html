@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengToolsHub 自定义 Harness 集成分析方案</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#172033;--muted:#61708a;--line:#dfe6f1;--brand:#2563eb;--brand-soft:#edf4ff;--ok:#087443;--ok-soft:#eaf8f0;--warn:#a86000;--warn-soft:#fff7e8;--danger:#b42318;--danger-soft:#fff0ef;--code:#f4f6f9}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.75 "Microsoft YaHei UI","PingFang SC",Arial,sans-serif}.wrap{max-width:1200px;margin:0 auto;padding:28px 18px 64px}header,section{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 16px rgba(23,32,51,.04)}header{padding:32px;margin-bottom:18px}section{padding:24px 28px;margin:18px 0}h1{font-size:28px;line-height:1.35;margin:0 0 8px}h2{font-size:19px;margin:0 0 14px;padding-left:10px;border-left:4px solid var(--brand)}h3{font-size:15px;margin:20px 0 8px}p{margin:8px 0}.sub{color:var(--muted);margin:0}.badges{margin-top:14px}.tag{display:inline-block;margin:4px 5px 0 0;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:700}.blue{background:var(--brand-soft);color:var(--brand)}.green{background:var(--ok-soft);color:var(--ok)}.orange{background:var(--warn-soft);color:var(--warn)}.red{background:var(--danger-soft);color:var(--danger)}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}th,td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}th{background:#f8fafc;font-weight:700;white-space:nowrap}ul,ol{margin:7px 0;padding-left:22px}li{margin:5px 0}.note,.warn,.risk,.success{border-left:4px solid;padding:11px 13px;border-radius:7px;margin:12px 0}.note{background:var(--brand-soft);border-color:var(--brand)}.warn{background:var(--warn-soft);border-color:var(--warn)}.risk{background:var(--danger-soft);border-color:var(--danger)}.success{background:var(--ok-soft);border-color:var(--ok)}code{font:12px Consolas,"Courier New",monospace;background:var(--code);padding:1px 5px;border-radius:4px;color:#8b1e4f}.flow{overflow:auto;white-space:pre-wrap;border:1px dashed #b8c7dd;border-radius:10px;background:#f8fbff;padding:14px 16px;font:13px/1.7 Consolas,"Microsoft YaHei UI",sans-serif}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.mini{border:1px solid var(--line);border-radius:10px;padding:14px;background:#fbfcfe}.mini strong{display:block;margin-bottom:4px}.prio{font-weight:700}.p0{color:#b42318}.p1{color:#a86000}.p2{color:#087443}@media(max-width:760px){.wrap{padding:16px 10px 40px}header,section{padding:20px 16px}h1{font-size:23px}.grid{grid-template-columns:1fr}table{display:block;overflow-x:auto;white-space:normal}}
+</style>
+</head>
+<body><main class="wrap">
+<header>
+<h1>PengToolsHub 自定义 Harness 集成分析方案</h1>
+<p class="sub">只读调研结论 · 基于 PengToolsHub V4.27 Private 当前源码 · 2026-08-27</p>
+<div class="badges"><span class="tag green">结论：适合建设</span><span class="tag blue">复用现有 PTools Harness</span><span class="tag orange">默认草案 + 人工确认</span><span class="tag red">不新增公网与通用执行能力</span></div>
+</header>
+
+<section>
+<h2>1. 结论摘要</h2>
+<p><strong>可以，并且很适合。</strong>你的软件已经不是“普通桌面工具 + 聊天框”的起点：当前已有内网 OpenAI 兼容模型客户端、项目上下文包、SQL Schema 证据链、SQL/SSH 本地 Guard、模型工作台和日志排查的人工执行确认机制。最合适的路线不是另起一套 Agent 平台，而是把现有 <code>tools/ptools_harness.py</code> 演进为统一的 <strong>PengTools Harness Runtime</strong>。</p>
+<div class="success"><strong>推荐定位：</strong>大模型只负责理解、归纳、规划和生成受约束草案；Harness 负责取数边界、上下文脱敏、工具白名单、结果校验、风险分级和人工确认。任何实际连接数据库、发送 SSH 命令、写文档、变更需求状态、重放接口请求，始终由现有工具层在用户明确操作后执行。</div>
+<p>本次仅分析，未修改任何 Python、QSS、配置、测试、构建脚本或 Git 内容。</p>
+</section>
+
+<section>
+<h2>2. 已有基础：不是从零开始</h2>
+<table><thead><tr><th>已有能力</th><th>当前落点</th><th>价值</th></tr></thead><tbody>
+<tr><td>内网模型接入</td><td><code>tools/intranet_llm.py</code></td><td>默认关闭；仅允许本机/RFC1918/link-local；每次请求解析地址防 DNS 重绑定；绕过系统代理；Token 使用 DPAPI/enc。</td></tr>
+<tr><td>通用任务入口</td><td><code>tools/ptools_harness.py</code></td><td>已登记 <code>sql.draft</code>、<code>sql.optimize</code>、<code>linux.query</code> 三类任务，并加载项目 Profile 与可覆盖的技能文本。</td></tr>
+<tr><td>项目知识包</td><td><code>tools/harness_project.py</code></td><td>支持项目 Profile、表名摘要、日志提示与用户自定义技能；业务源码不会被打进 EXE。</td></tr>
+<tr><td>SQL 证据闭环</td><td><code>tools/tameng_agent.py</code>、<code>tools/ai_sql_draft.py</code>、<code>tools/schema_snapshot.py</code></td><td>通过有效 Schema 快照、表/字段证据、方言和本地校验生成草案，且 SQL 控制台不会由模型直接执行。</td></tr>
+<tr><td>SSH 只读门禁</td><td><code>tools/linux_guard.py</code>、<code>panels/ops_log_panel.py</code></td><td>模型生成命令后再次本地校验；用户点击确认才发送到当前 SSH 标签会话。</td></tr>
+<tr><td>高敏会话边界</td><td><code>panels/interface_debug_panel.py</code></td><td>抓包请求/响应仅留内存；停止抓包保留会话，清空或退出才清理，符合不落盘原则。</td></tr>
+</tbody></table>
+<div class="note"><strong>现状判断：</strong><code>AiWorkbenchPanel</code> 的 SQL 生成已经比通用 <code>ptools_harness.py</code> 更严格；前者走 Schema 证据与 <code>TamengAgent</code>，后者 SQL 分支仍偏“返回文本草案”。后续应收敛为一个统一的任务契约，而不是让两条 AI 路线继续平行演化。</div>
+</section>
+
+<section>
+<h2>3. 建议目标架构</h2>
+<div class="flow">页面按钮 / 模型对话「任务模式」
+        ↓（仅传最小、脱敏、可解释上下文）
+PengTools Harness Runtime
+  ├─ Task Registry：任务名、输入 Schema、输出 Schema、提示词、能力级别
+  ├─ Context Builder：项目 Profile / Schema 证据 / 用户显式选区 / 长度上限
+  ├─ Policy Engine：敏感数据规则、风险等级、人工确认、禁止任务
+  ├─ Local Validators：SQL Guard、Linux Guard、字段范围、JSON/文档结构校验
+  ├─ Tool Adapters：仅调用既有 tools/ 的受控函数
+  └─ Result Presenter：解释、草案、风险、下一步；不隐式执行
+        ↓
+内网模型（仅负责结构化输出） → 本地复核 → 用户点击「应用 / 执行 / 导出」</div>
+<h3>架构决策</h3>
+<table><thead><tr><th>决策</th><th>建议</th><th>原因</th></tr></thead><tbody>
+<tr><td>代码组织</td><td>新增 <code>tools/harness/</code> 专用包，保留既有 <code>tools/</code> 业务函数</td><td>不大规模重构；将注册、策略、上下文、校验与适配器聚合，避免 UI 直接拼 Prompt。</td></tr>
+<tr><td>模型协议</td><td>强制 JSON 输出 + 本地 Schema 校验；失败即降级为“原始草案，不可执行”</td><td>模型格式不稳定时仍 fail closed，避免解析失败后误进入执行链。</td></tr>
+<tr><td>工具调用</td><td>不让模型直接拥有 shell、文件系统、数据库连接或网络请求</td><td>模型只能选择已注册任务；具体操作必须经本地适配器和 Guard。</td></tr>
+<tr><td>审计</td><td>只记录任务名、时间、状态、风险、耗时和内容摘要/哈希；不记录 Prompt、Token、SQL 行数据、抓包正文</td><td>兼顾可排障性与现有敏感数据不落盘约束。</td></tr>
+<tr><td>交互</td><td>模型对话默认“只聊天”；用户主动切换到“受控任务模式”才展示工具能力</td><td>避免聊天上下文无意调用业务工具，也让每次操作意图清晰。</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>4. 统一风险模型：先定边界，再扩功能</h2>
+<table><thead><tr><th>等级</th><th>能力范围</th><th>模型是否可触发</th><th>执行规则</th></tr></thead><tbody>
+<tr><td><span class="tag green">L0 本地确定性</span></td><td>格式化、校验、生成校验码、解析 SQL/DOCX</td><td>无需模型</td><td>优先用已有纯函数；不能为了“AI 化”替换可靠规则。</td></tr>
+<tr><td><span class="tag blue">L1 AI 建议</span></td><td>摘要、说明、分类建议、排查思路、测试点建议</td><td>可以</td><td>只返回文本或结构化建议，绝不修改台账、文件或远端状态。</td></tr>
+<tr><td><span class="tag orange">L2 AI 草案</span></td><td>SQL、文档变更说明、命令参数、接口草稿</td><td>可以</td><td>必须展示差异/风险；用户点“应用”才写入编辑器，应用后仍不执行。</td></tr>
+<tr><td><span class="tag orange">L3 受控只读查询</span></td><td>数据库 SELECT、SSH 只读命令、日志检索</td><td>只能生成候选</td><td>本地 Guard 复核 + 连接/快照/会话有效 + 用户二次确认，才执行。</td></tr>
+<tr><td><span class="tag red">L4 变更与高敏</span></td><td>数据库写入、服务重启、文件写入、接口重放、凭据/报文</td><td>禁止直接触发</td><td>模型最多提出步骤清单；不得执行、不得代填、不得持久化敏感内容。</td></tr>
+</tbody></table>
+<div class="risk"><strong>绝对禁止：</strong>开放式 shell；全盘文件读取/删除；模型驱动的数据库 DML/DDL；自动 SSH 变更；模型直接读取网关明文、接口抓包正文、Cookie、Authorization、密码、Token、业务数据行；从普通聊天自动调用任何工具。</div>
+</section>
+
+<section>
+<h2>5. 可优先增强的功能清单</h2>
+<table><thead><tr><th>优先级</th><th>模块 / 任务名建议</th><th>模型输入与输出</th><th>本地约束 / 是否确认</th></tr></thead><tbody>
+<tr><td class="prio p0">P0</td><td><strong>SQL 控制台</strong><br><code>db.query_draft</code><br><code>db.sql_explain</code><br><code>db.sql_repair</code></td><td>输入：连接别名、方言、有效快照中的已确认表/字段、用户问题或报错。输出：结构化 SQL 草案、字段证据、风险、假设、警告。</td><td>复用 <code>TamengAgent</code>、<code>sql_guard</code>、<code>schema_snapshot</code>；无有效快照或对象不匹配即拒绝。生成不执行，执行 SELECT 仍需用户确认。</td></tr>
+<tr><td class="prio p0">P0</td><td><strong>日志排查</strong><br><code>ops.log_query_plan</code><br><code>ops.log_summary</code></td><td>输入：用户意图、选定服务/日志路径、用户明确选择且脱敏截断的日志片段。输出：命令库候选、检索关键字、可能原因、下一步只读检查。</td><td>优先返回现有命令库的 <code>command_id + 参数</code>，不要生成自由 shell。命令经统一 Linux Guard，用户确认后才发当前 SSH tab。日志片段不落盘。</td></tr>
+<tr><td class="prio p1">P1</td><td><strong>需求管理</strong><br><code>req.analysis_draft</code><br><code>req.test_points_suggest</code><br><code>req.release_checklist</code></td><td>输入：当前需求标题、说明、已选系统、附件文本的显式选段、SQL 仅摘要。输出：分类建议、影响系统候选、待澄清问题、测试点、上线检查表。</td><td>不自动修改 <code>requirements.json</code>、状态、上线月份或系统绑定；逐项由用户采纳。已有规则分类继续作为基线结果。</td></tr>
+<tr><td class="prio p1">P1</td><td><strong>接口文档更新</strong><br><code>docx.change_plan</code><br><code>docx.sql_doc_impact</code></td><td>输入：<code>parse_sql()</code> 解析出的 DDL 结构与 <code>analyze_document()</code> 结果，不发送完整文档。输出：表/字段变更说明、文档更新预览、未识别项。</td><td>AI 只产出变更计划；现有 <code>DocxUpdateWorker</code> 执行前保持预览/确认，永不覆盖源文档。</td></tr>
+<tr><td class="prio p1">P1</td><td><strong>工作台 / 日报</strong><br><code>dashboard.daily_brief</code><br><code>dashboard.risk_digest</code></td><td>输入：用户选定日期内的需求元数据、状态、测试点进度、发布看板统计。输出：日报草稿、风险摘要、待办建议。</td><td>严格只读；不标记上线、不变更需求。优先传统计值及标题，不传附件正文与路径。</td></tr>
+<tr><td class="prio p2">P2</td><td><strong>格式工具</strong><br><code>format.explain_error</code><br><code>format.transform_plan</code></td><td>输入：用户明确选中的 JSON/XML/SQL/时间文本，先经长度限制与密钥脱敏。输出：格式错误解释、转换方案、示例结果。</td><td>格式化、编解码与校验仍由 <code>json_viewer</code>、<code>xml_formatter</code> 等本地工具完成；模型不能自动写文件。</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>6. 当前不建议接入模型的区域</h2>
+<div class="grid">
+<div class="mini"><strong>接口排查（默认不接入）</strong>抓包正文、请求头、Cookie、令牌和响应通常高敏，当前实现明确“仅内存”。即使是内网模型，也不应把原始报文放进 Prompt。未来若确有需求，只能新增“用户手工确认后的字段级脱敏摘要”模式，且单独评审。</div>
+<div class="mini"><strong>网关解密</strong>密钥、明文和报文已有不落盘原则。禁止被模型读取、总结或用于任何训练/日志语料。</div>
+<div class="mini"><strong>证件 / VIN / 统一社会信用代码生成</strong>这些是确定性算法能力，不需要模型；增加模型只会降低准确性，并可能扩大不必要的滥用面。</div>
+<div class="mini"><strong>运维变更动作</strong>停止/重启服务、kill、chmod/chown、容器重启、Kubernetes rollout、远程文件改写均保持人工工具流。模型只能给“检查前提和回滚清单”。</div>
+<div class="mini"><strong>接口请求重放</strong>模型可以在未来协助生成脱敏的 Postman/cURL <em>草稿说明</em>，但不能代替用户点击发送，更不能自行选择环境或携带认证信息。</div>
+<div class="mini"><strong>普通模型对话自动工具化</strong><code>ModelChatPanel</code> 应保持纯聊天。只有用户显式选中“受控任务模式”、明确任务与数据范围后，才进入 Harness。</div>
+</div>
+</section>
+
+<section>
+<h2>7. 当前需要先收口的四项问题</h2>
+<ol>
+<li><strong>统一任务结果协议。</strong>将 <code>ptools_harness.run_task()</code> 的 SQL 文本结果与 <code>ai_sql_draft.generate_sql_draft()</code> 的结构化草案结果统一。每个任务都应返回 <code>task_id / status / summary / draft / evidence / risk / warnings / next_action</code>。</li>
+<li><strong>统一 Linux 规则来源。</strong><code>tools/linux_guard.py</code> 的只读白名单与 <code>tools/ops_commands.py</code> 的运维命令库并不完全一致。应让注册表按“任务类别—命令模板—风险级别—参数校验”提供唯一事实来源，避免模型允许而执行层拒绝，或反向出现漏网命令。</li>
+<li><strong>SQL 所有入口走同一 fail-closed 校验。</strong>SQL 控制台已具有证据链；升级准备页的 <code>sql.draft/sql.optimize</code> 也应获得结构化警告、单语句校验、语句类别标识和“仅草案”状态，不应只依赖文本展示。</li>
+<li><strong>上下文最小化与提示注入隔离。</strong>数据库注释、文件名、日志和需求附件都必须视为不可信数据，以明确分隔块传递；任何来自数据里的“忽略指令”“执行命令”等文字不可改变系统策略。</li>
+</ol>
+<div class="warn"><strong>历史复核事项：</strong>仓库内已有 <code>AI_SQL控制台开发检查报告.html</code> 记录过 Token 与快照绑定、同名字段限定、过期快照准入、Redis 字段模型等高优先级审查项。扩展 Harness 前应按当前源码重新跑定向安全回归，确认这些边界已闭合；不要仅以旧报告或界面展示作为通过证据。</div>
+</section>
+
+<section>
+<h2>8. 分阶段实施建议</h2>
+<table><thead><tr><th>阶段</th><th>交付范围</th><th>不做什么</th><th>验收重点</th></tr></thead><tbody>
+<tr><td><strong>P0：Runtime 收口</strong></td><td>任务注册表、统一 JSON 契约、Policy Engine、上下文脱敏器、统一审计元数据；将现有 3 个 PTools 任务迁入。</td><td>不新增页面、不增加模型权限、不改变已有执行方式。</td><td>无注册任务不能调用；模型格式异常不可执行；敏感字段在 Prompt/审计中不可见；所有现有定向测试通过。</td></tr>
+<tr><td><strong>P1：SQL + 日志</strong></td><td>SQL 统一草案契约；日志从“自由命令生成”升级为“命令库检索 + 参数填充 + 只读确认”；日志摘要仅选区输入。</td><td>不支持跨库、写 SQL、SSH 变更、远端落临时文件。</td><td>恶意 Prompt、错误表字段、SQL 多语句、危险 shell、过期快照、空 SSH 会话均必须被拦截。</td></tr>
+<tr><td><strong>P2：需求 + DOCX + 日报</strong></td><td>需求分析/测试点/上线清单建议；DDL 到文档更新计划；日报和风险摘要草稿。</td><td>不自动写 JSON、DOCX 或改状态；不让模型读取完整附件。</td><td>用户必须逐条采纳；生成结果可回退；DOCX 仍按现有预览/确认流程写副本。</td></tr>
+<tr><td><strong>P3：低风险解释能力</strong></td><td>格式错误解释、模型对话“任务模式”、项目技能包管理 UI。</td><td>不开放任意 Python/shell/文件工具；不把接口排查原始报文纳入能力。</td><td>任务范围可见、数据范围可见、模型不可越权、离线打包不引入公网依赖。</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>9. 每类任务的标准契约（建议）</h2>
+<div class="flow">请求：
+{
+  "task": "ops.log_query_plan",
+  "input": {"intent": "定位订单号超时", "selected_log_excerpt": "…"},
+  "context_ref": {"server_id": "仅本地引用", "service_id": "仅本地引用"},
+  "user_confirmed_scope": ["selected_log_excerpt"]
+}
+
+模型可见上下文：只包含任务说明、脱敏后的显式输入、允许的候选命令模板/Schema 证据。
+
+响应：
+{
+  "status": "draft",
+  "summary": "…",
+  "draft": {"command_id": "logs.grep_context", "params": {"keyword": "…"}},
+  "evidence": ["用户选定日志片段"],
+  "risk": "read_only",
+  "warnings": [],
+  "next_action": "请确认后填入终端命令栏"
+}
+
+本地后处理：任务 Schema 校验 → Policy 校验 → 本地 Guard → 用户确认 → 既有工具函数执行</div>
+</section>
+
+<section>
+<h2>10. 测试与发布门槛</h2>
+<ul>
+<li>每一个 Task 有纯函数级输入/输出验证、恶意模型输出、空值、超长文本、错误 JSON、提示注入文本和脱敏测试。</li>
+<li>SQL：快照过期、跨连接 Token、未确认字段、同名字段、JOIN 假设、多语句、CTE 包裹 DML、方言错误均 fail closed。</li>
+<li>Linux：模型返回 <code>rm</code>、重定向、解释器管道、未注册命令、参数换行、链式命令均拒绝；命令库模板仅可使用经允许的参数。</li>
+<li>文档/需求：模型建议不能自动落库；只有用户点采纳后调用既有保存/更新函数。</li>
+<li>隐私：对模型请求体与审计元数据写单测，确保不存在密码、Token、Authorization、Cookie、完整连接串、业务行数据和抓包正文。</li>
+<li>每轮可验收改动仍执行定向测试、<code>scripts/scan_release_secrets.py</code>、<code>scripts/build_release.ps1</code>，并核对 <code>dist/PengToolsHub.exe</code>、<code>Installer/PengToolsHub.exe</code>、<code>PengToolsHub_Offline_Setup.zip</code> 与 <code>resources/build_info.json</code>。</li>
+</ul>
+</section>
+
+<section>
+<h2>11. 建议的首个可交付版本</h2>
+<p><strong>建议先只做“P0 Runtime 收口 + P1 SQL/日志”</strong>，不急于把所有模块都接进来。这样能在不扩大敏感数据面、不改现有产品边界的前提下，最快让用户感受到价值：</p>
+<ol>
+<li>SQL：自然语言 → 有证据的查询草案 → 本地复核 → 人工执行。</li>
+<li>日志：自然语言 → 已有命令库中的只读检索计划 → 本地 Guard → 当前 SSH 标签人工确认执行。</li>
+<li>统一页面展示：任务名称、输入范围、模型可见数据摘要、风险、校验结论和“下一步由谁执行”。</li>
+</ol>
+<div class="success"><strong>预期效果：</strong>把模型从“可能会乱猜的聊天助手”变成“只在明确业务边界内协助产出草案的受控专家”，并保留 PengToolsHub 现有离线、私网、凭据保护、敏感内容不落盘与人工审批的核心价值。</div>
+</section>
+
+<section>
+<h2>12. 后续待确认事项</h2>
+<ol>
+<li>日志片段是否允许发送给已配置的内网模型？建议默认关闭，用户每次显式勾选“仅发送本次选中且已脱敏片段”。</li>
+<li>需求附件是否允许做“用户选择文本段落”级别分析？建议先仅支持标题、描述和已人工粘贴的片段。</li>
+<li>是否将“SQL 优化”限定为只读查询优化？建议是；DML/DDL 仅返回审阅建议，不产生可执行改写。</li>
+<li>是否需要在设置中增加“任务权限总开关 / 各任务开关”？建议保留全局默认关闭，并提供 SQL、日志、需求、文档四类独立开关。</li>
+</ol>
+</section>
+
+<section>
+<h2>附：本次只读核查范围</h2>
+<p>核心核查文件包括：<code>AGENTS.md</code>、<code>tools/ptools_harness.py</code>、<code>tools/intranet_llm.py</code>、<code>tools/harness_project.py</code>、<code>tools/linux_guard.py</code>、<code>tools/ai_sql_draft.py</code>、<code>tools/tameng_agent.py</code>、<code>tools/sql_guard.py</code>、<code>tools/ops_commands.py</code>、<code>tools/ops_ssh.py</code>，以及 SQL 控制台、日志排查、需求管理、接口文档更新、格式工具、接口排查等面板代码。</p>
+</section>
+</main></body></html>

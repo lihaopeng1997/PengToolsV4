@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI SQL 控制台开发检查报告</title>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--text:#1f2937;--muted:#667085;--line:#e5e7eb;--blue:#2f6fed;--blue-bg:#eef4ff;--red:#b42318;--red-bg:#fff1f0;--orange:#a86500;--orange-bg:#fff8e6;--green:#166534;--green-bg:#edf8f0}*{box-sizing:border-box}body{max-width:1180px;margin:0 auto;padding:24px;background:var(--bg);color:var(--text);font:14px/1.75 "Microsoft YaHei UI",Arial,sans-serif}header,section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;margin:16px 0}h1{text-align:center;margin:0;font-size:26px}header p{text-align:center;color:var(--muted)}h2{margin:0 0 14px;padding-left:10px;border-left:4px solid var(--blue);font-size:19px}h3{margin:16px 0 7px;font-size:16px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid var(--line);padding:9px;vertical-align:top;text-align:left}th{background:#f8fafc}code{font-family:Consolas,"Microsoft YaHei UI",monospace;background:#f3f4f6;padding:1px 5px;border-radius:4px}.tag{display:inline-block;border-radius:99px;padding:3px 9px;margin:8px 4px 0 0;font-size:12px;font-weight:700}.critical{color:var(--red);background:var(--red-bg)}.important{color:var(--orange);background:var(--orange-bg)}.pass{color:var(--green);background:var(--green-bg)}.note{background:var(--blue-bg);border-left:4px solid var(--blue);padding:11px 13px;border-radius:6px}.risk{background:var(--red-bg);border-left:4px solid var(--red);padding:11px 13px;border-radius:6px}.ok{background:var(--green-bg);border-left:4px solid var(--green);padding:11px 13px;border-radius:6px}.prompt{white-space:pre-wrap;background:#111827;color:#e5e7eb;border-radius:8px;padding:16px;font:12px/1.7 Consolas,"Microsoft YaHei UI",monospace}.small{font-size:12px;color:var(--muted)}li{margin:4px 0}</style>
+</head>
+<body>
+<header>
+<h1>PengToolsHub：AI SQL 控制台开发检查报告</h1>
+<p>检查日期：2026-08-26 · 检查范围：v2.2 需求基线对应实现</p>
+<span class="tag critical">结论：暂不验收</span><span class="tag critical">4 项 Critical</span><span class="tag important">5 项 Important</span><span class="tag pass">已确认推送 origin/main</span>
+</header>
+<section>
+<h2>1. 检查对象与总评</h2>
+<table><tr><th>项目</th><th>检查结果</th></tr>
+<tr><td>审查提交</td><td>基线 <code>a0cfca6</code> → 最新 <code>27b94e9</code>（按 v2.2 补齐 AI 右键 Token 与对象目录分离）。</td></tr>
+<tr><td>提交状态</td><td><code>main</code> 与 <code>origin/main</code> 均指向 <code>27b94e9</code>，说明本轮实现已推送。</td></tr>
+<tr><td>实现覆盖</td><td>已新增可见 Token 输入组件、对象目录字段分离、AI 草案新 Tab、对象上下文、Schema Snapshot/SQL Guard 调整与测试。</td></tr>
+<tr><td>验收结论</td><td><strong>不建议以当前版本作为 v2.2 可验收版本。</strong>核心失败原因不是页面缺失，而是 Token 与快照绑定、字段限定名和失效快照 fail-closed 三条 P0 安全边界未正确闭合。</td></tr>
+</table>
+<div class="risk"><strong>发布判断：</strong>AI 会接收数据库对象元数据。当前发现的跨连接重绑、同名字段扩散和过期快照外发，可能让模型收到非用户选择、甚至非当前连接的结构元数据；修复 Critical 项前不应将该功能视为安全完成。</div>
+</section>
+<section>
+<h2>2. 已实现且符合需求的部分</h2>
+<ul>
+<li>导航已扩展：<code>nav 14 = SQL 控制台 / Stack 13</code>，<code>nav 15 = 模型对话 / Stack 14</code>；<code>main_window.py</code> 已新增 <code>model_chat_panel</code> 槽位。</li>
+<li>对象目录已不再插入字段子节点；字段在右侧对象详情表展示，符合“字段不进树”。</li>
+<li><code>AiPromptEdit(QTextEdit)</code> 使用带格式属性的可见 Token，显示“表：…”和“字段：…”，没有发现把 JSON/HTML 注释伪装进普通自然语言的做法。</li>
+<li>右键菜单已包含添加表、添加字段、查看已添加对象、清除本次已添加对象，并保留复制/粘贴/撤销等标准编辑能力。</li>
+<li>正常字段选择路径要求先选对象再多选字段；右键字段路径对 Redis 已有禁用提示。</li>
+<li>AI 生成主路径只调用 <code>generate_sql_draft()</code>，完成后通过 <code>_new_sql_tab()</code> 新建“AI 草案，未执行”Tab；未发现自动调用数据库执行函数。</li>
+<li>Redis Snapshot 使用 <code>SCAN</code> 而非 <code>KEYS *</code>；Mongo 快照测试验证不保存 document value；连接指纹不含密码。</li>
+</ul>
+</section>
+<section>
+<h2>3. Critical：必须修复后才能验收</h2>
+<h3>C-01 旧 Token 可被新连接/新快照重绑，未 fail closed</h3>
+<table><tr><th>位置</th><th><code>panels/ai_token_edit.py:51-54</code>；<code>panels/ai_workbench_panel.py:1148、1233</code>；<code>tools/ai_object_context.py:38-55</code></th></tr>
+<tr><td>问题</td><td><code>bind_snapshot()</code> 直接覆盖现有 <code>model_context.snapshot_id</code> 与 <code>connection_fingerprint</code>，但不清空或重新验证已存在 Token。之后 <code>context_matches_snapshot()</code> 只对比已被覆盖的标识，会误判为一致。</td></tr>
+<tr><td>复现</td><td>在连接 A 添加表/字段 Token → 切换到连接 B 或重扫快照 → 调用 <code>bind_snapshot(B)</code> → 旧 Token 继续参与 B 的 Prompt。</td></tr>
+<tr><td>违反需求</td><td>违反 AI-OBJ-05、AI-OBJ-06 和第 9 节“connection fingerprint + snapshot_id 双重校验、失效 fail closed”。</td></tr>
+<tr><td>最小修复</td><td><strong>禁止</strong> <code>bind_snapshot()</code> 覆写已有 Token 的身份。连接指纹/快照 ID 变化时清除可见 Token 与 <code>selected_objects/selected_fields</code>，新建上下文并提示“连接/快照已变化，请重新添加对象”；生成前逐一验证 Token 的限定对象、字段和类型仍精确存在于当前快照。</td></tr></table>
+<h3>C-02 单独选字段会丢失父表限定关系，同名字段的其他对象被发给模型</h3>
+<table><tr><th>位置</th><th><code>tools/ai_object_context.py:80-123</code>；<code>tools/schema_snapshot.py:401-434</code>；<code>tools/ai_sql_draft.py:92-108</code></th></tr>
+<tr><td>问题</td><td>字段 Token 内虽记录 <code>object_qualified_name</code>，但 Prompt 构建仅使用裸字段名和裸表名。只选字段时，父对象 Token 不可见，会被 <code>keep_tokens()</code> 清掉；随后 <code>selected_fields=['ID']</code>、<code>selected_tables=[]</code>，裁剪逻辑会将所有包含 <code>ID</code> 的对象都加入 Prompt。</td></tr>
+<tr><td>独立复现结果</td><td>选择 <code>S1.ORDERS.ID</code> 后，使用含 <code>S2.ORDERS.ID</code>、<code>S3.AUDIT.ID</code> 的快照构造 Prompt，实际输出同时包含 <code>S2.ORDERS(ID)</code> 和 <code>S3.AUDIT(ID)</code>。</td></tr>
+<tr><td>违反需求</td><td>违反 AI-OBJ-03、AI-OBJ-05、4.5 节“Prompt 只能发送 Token 对应对象/字段”。</td></tr>
+<tr><td>最小修复</td><td>内部与 Prompt 全程使用完整限定名：对象 <code>OWNER.TABLE</code>、字段 <code>OWNER.TABLE.COLUMN</code>。<code>clip_snapshot_for_prompt()</code> 先精确匹配对象，再精确过滤该对象字段；不得使用裸字段名做全库筛选。父对象关系应留在结构化上下文中，不能依赖看得见的父表 Token 是否存在。</td></tr></table>
+<h3>C-03 无 Token 或快照无效时，失效 Snapshot 仍会发送给模型</h3>
+<table><tr><th>位置</th><th><code>panels/ai_workbench_panel.py:1069-1088</code>；<code>tools/ai_sql_draft.py:99-108</code></th></tr>
+<tr><td>问题</td><td><code>_run_ai()</code> 只在“已选 Token”时拦截失效快照。无 Token 时继续发起请求，<code>build_safe_context()</code> 虽附加“快照已过期”文字，仍调用 <code>clip_snapshot_for_prompt()</code> 并发送旧元数据。</td></tr>
+<tr><td>违反需求</td><td>违反 DB-04、AI-OBJ-06 与第 9 节：不能以“提示已过期”代替 fail closed。</td></tr>
+<tr><td>最小修复</td><td>生成前统一做快照准入：无连接、无快照、扫描失败、已过期、连接指纹不匹配时，禁止带数据库结构的生成请求。若要支持通用 SQL 草案，必须显式进入“无数据库上下文”模式，传入 <code>snapshot=None</code> 且 UI 明示未使用任何库结构。</td></tr></table>
+<h3>C-04 对象详情“发送给 AI”绕过右键流程，Redis 可生成伪字段 Token</h3>
+<table><tr><th>位置</th><th><code>panels/ai_workbench_panel.py:1227-1241</code>；<code>tools/schema_snapshot.py:376-392</code></th></tr>
+<tr><td>问题</td><td>右键路径会禁用 Redis 字段选择，但对象详情的“发送给 AI”直接调用 <code>add_field()</code>，不做快照有效性、方言或两步选择校验。Redis 快照还把键类型伪造为 <code>columns</code>，因此可经对象详情产生字段 Token。</td></tr>
+<tr><td>违反需求</td><td>违反 AI-OBJ-04/05/08：对象详情若保留发送 AI，必须复用 Token 主流程；Redis 不伪造关系型字段。</td></tr>
+<tr><td>最小修复</td><td>对象详情“发送给 AI”必须打开同一受控对象/字段选择服务，或将其收敛为“发送对象”而非直接字段注入；Redis Snapshot 改展示键模式、类型、TTL 等元数据，不创建 <code>columns</code> 伪字段。</td></tr></table>
+</section>
+<section>
+<h2>4. Important：应在复测前一并修复</h2>
+<table><tr><th>编号</th><th>问题与位置</th><th>建议</th></tr>
+<tr><td>I-01</td><td><code>tools/sql_guard.py:194-252</code>：<code>classify_statement()</code> 未在手工执行入口先拒绝/分类多语句；如选区为 <code>SELECT 1; DELETE ...</code>，可按首 SELECT 判定为无需确认。</td><td>入口先调用 <code>split_sql_statements()</code>；多语句最稳妥做法是拒绝并要求逐条执行，至少必须标记高风险确认。补充字符串/注释含分号测试。</td></tr>
+<tr><td>I-02</td><td><code>tools/ptools_harness.py:97-98</code>：SQL 分支仍直接返回文本，未按 v2.2 接入严格 JSON 解析、字段补齐、单语句校验与 fail-closed。</td><td>让 <code>sql.draft/sql.optimize</code> 复用统一结构化草案校验；解析失败返回“原始草案待复核/不可安全执行”，并调整调用方消费结构化对象。</td></tr>
+<tr><td>I-03</td><td><code>tools/ai_object_context.py:63-101</code> 与面板插入路径：重复对象/字段返回旧 token，但 UI 仍会插入第二个可见 Token；删除一个后上下文会被移除，另一个成为孤儿。</td><td><code>add_object/add_field</code> 返回 <code>(token, created)</code>，仅 created 时插入视觉 Token；补充重复插入和删除同步测试。</td></tr>
+<tr><td>I-04</td><td><code>panels/ai_token_edit.py:219-295</code>：字段选择弹窗没有字段名/注释搜索，也没有分页/虚拟化；快照无效时右键动作仍可点，只在之后弹警告。</td><td>改为明确两步 UI：对象搜索 → 字段搜索 + 多选 + 100 条分页/虚拟列表；菜单层直接禁用添加项并显示快照原因。</td></tr>
+<tr><td>I-05</td><td><code>tools/schema_snapshot.py</code>：扫描取消仅在启动前判断，长循环中缺少 cancel 检查和进度回报。</td><td>把 cancel/progress 回调传入各方言扫描循环，在对象/字段/Redis SCAN/Mongo collection 循环中周期检查；取消后不落盘、不更新 UI。</td></tr>
+</table>
+</section>
+<section>
+<h2>5. 测试、构建与交付证据</h2>
+<table><tr><th>项目</th><th>结果</th><th>判断</th></tr>
+<tr><td>空白检查</td><td><code>git diff --check a0cfca6 27b94e9</code> 通过。</td><td>通过</td></tr>
+<tr><td>定向测试</td><td>使用项目 <code>pengtools</code> venv 执行 20 项：19 项通过，<code>test_oracledb_thin_crypto_imports</code> 失败。</td><td>不通过</td></tr>
+<tr><td>失败根因</td><td>失败为 <code>ModuleNotFoundError: No module named 'cryptography.hazmat'</code>。独立检查发现 <code>cryptography</code> 是无 <code>__file__</code> 的 namespace package，无法导入 hazmat；同时该 venv 的 <code>pip</code> 也不可执行。</td><td>构建环境依赖不完整，不能视为测试环境合格。</td></tr>
+<tr><td>敏感扫描</td><td><code>scripts/scan_release_secrets.py</code>：<code>HIGH RISK: 0</code>、<code>WARN: 0</code>、<code>PASS</code>。</td><td>通过</td></tr>
+<tr><td>离线产物</td><td><code>dist/PengToolsHub.exe</code>、<code>Installer/PengToolsHub.exe</code>、<code>PengToolsHub_Offline_Setup.zip</code> 均存在，时间为 10:36；<code>build_info.json</code> 记录 10:34:56。</td><td>存在新产物，但不等于独立复建成功。</td></tr>
+<tr><td>独立复建</td><td>本次复核尝试调用 <code>scripts/build_release.ps1</code> 返回 exit 1；由于执行通道未提供构建 stdout，无法进一步归因。结合 cryptography/pip 异常，当前无法独立确认可复建。</td><td>未通过独立复建核验</td></tr>
+<tr><td>推送状态</td><td><code>main</code> 与 <code>origin/main</code> 均指向 <code>27b94e9</code>。</td><td>已推送</td></tr>
+<tr><td>工作区状态</td><td>当前存在 <code>overview.md</code> 修改、<code>.workbuddy/</code>、设计 HTML 与 <code>outputs/</code> 等未跟踪项。</td><td>后续修复提交必须精确暂存，避免把文档、截图或 data 类内容误提交。</td></tr>
+</table>
+</section>
+<section>
+<h2>6. 给 Grok 的修复指令</h2>
+<div class="prompt">请不要直接宣称已完成。先阅读：
+D:\development\workspace\WorkBuddy\PengTools\AI_SQL控制台开发检查报告.html
+以及 v2.2 主需求文档。
+
+本轮只修复报告中的 C-01 至 C-04 和 I-01 至 I-05，不做额外重构。
+
+硬约束：
+1. Token 创建后的 snapshot_id、connection_fingerprint、qualified_name 和字段父对象身份不可被 bind_snapshot 覆写；连接/快照变化必须清空 Token 和 model_context，重新添加。
+2. Prompt 裁剪必须用 OWNER.TABLE / OWNER.TABLE.COLUMN 完整限定名，单独字段 Token 绝不能让同名字段所在的其他对象进入 Prompt。
+3. 无有效快照时，要么禁止生成；要么显式无数据库上下文生成且 snapshot=None，绝不能发送失效快照元数据。
+4. 对象详情发送 AI 必须复用同一受控 Token 选择流；Redis 禁止字段 Token，Redis Snapshot 不伪造 columns。
+5. 手工执行先拒绝或高风险处理多语句；PTools SQL 返回统一结构化草案并严格 JSON/单语句/fail-closed 校验。
+6. 为每项 Critical/Important 增加先失败后通过的定向测试，特别覆盖切换连接、重扫、同 schema/跨 schema 同名字段、无 Token 失效快照、Redis 详情、重复 Token 与多语句选区。
+7. 修复后执行定向测试、敏感扫描、build_release.ps1，核对三项发布产物和 build_info；只精确提交源码/测试/必要资源，禁止提交 data、outputs、HTML 检查报告或其他无关未跟踪文件。
+
+修复完成后按：改动文件 → 每项问题的测试证据 → 构建/产物核验 → commit hash/push 结果 的顺序回报。</div>
+</section>
+</body>
+</html>

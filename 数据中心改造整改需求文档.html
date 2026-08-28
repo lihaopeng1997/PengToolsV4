@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据中心改造整改需求文档</title>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--muted:#6b7280;--line:#e5e7eb;
+  --brand:#2f6bff;--brand-soft:#eef3ff;--green:#16a34a;--green-soft:#ecfdf5;
+  --amber:#d97706;--amber-soft:#fffbeb;--red:#dc2626;--red-soft:#fef2f2;--purple:#7c3aed;--purple-soft:#f5f3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;font-size:15px}
+  .wrap{max-width:1060px;margin:0 auto;padding:32px 24px 80px}
+  header.hero{background:linear-gradient(135deg,#2f6bff,#7c3aed);color:#fff;border-radius:16px;padding:34px 38px;margin-bottom:26px}
+  header.hero h1{margin:0 0 10px;font-size:26px}
+  header.hero p{margin:3px 0;opacity:.95}
+  .badge-row{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .badge{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);padding:3px 12px;border-radius:999px;font-size:12.5px}
+  h2.sec{font-size:21px;margin:0 0 14px;padding-left:12px;border-left:4px solid var(--brand)}
+  h3{font-size:17px;margin:22px 0 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin-bottom:16px}
+  .note{border-radius:10px;padding:13px 17px;margin:13px 0;font-size:14px;border-left:4px solid}
+  .note.info{background:var(--brand-soft);border-color:var(--brand)}
+  .note.ok{background:var(--green-soft);border-color:var(--green)}
+  .note.warn{background:var(--amber-soft);border-color:var(--amber)}
+  .note.danger{background:var(--red-soft);border-color:var(--red)}
+  .note.purple{background:var(--purple-soft);border-color:var(--purple)}
+  .note b{font-weight:600}
+  table{width:100%;border-collapse:collapse;margin:13px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#f9fafb;font-weight:600}
+  code,pre{font-family:"SF Mono","Consolas","Menlo",monospace;font-size:13px}
+  code{background:#f1f5f9;padding:2px 6px;border-radius:5px;color:#334155}
+  pre{background:#0f172a;color:#e2e8f0;padding:15px 17px;border-radius:10px;overflow-x:auto;line-height:1.55}
+  pre code{background:transparent;color:inherit;padding:0}
+  .tag{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:5px;font-weight:600;vertical-align:middle}
+  .tag.p0{background:var(--red-soft);color:var(--red)}.tag.p1{background:var(--amber-soft);color:var(--amber)}
+  .tag.new{background:var(--purple-soft);color:var(--purple)}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:11px 0;font-size:13px}
+  .flow .step{background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand);border-radius:8px;padding:5px 11px;font-weight:600;white-space:nowrap}
+  .flow .arrow{color:var(--muted);font-weight:600}
+  ul,ol{padding-left:22px}li{margin:4px 0}
+  .footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>数据中心改造整改需求文档</h1>
+  <p>PengToolsHub V4.27 Private · 离线桌面工具台 · Python 3.12 + PyQt6</p>
+  <p>改造项：① SQL 控制台改名「数据中心」② Redis 扫描展示修复 ③ MongoDB 扫描展示修复 ④ Redis 键值管理（按方言差异化功能区）</p>
+  <div class="badge-row">
+    <span class="badge">面向 Grok 开发</span>
+    <span class="badge">边界卡死 · 禁止扩大改动</span>
+    <span class="badge">v1.1</span>
+    <span class="badge">2026-08-27</span>
+  </div>
+</header>
+
+<div class="note danger">
+  <b>⚠️ 开发边界总则（Grok 必读，违反即返工）：</b>本次只允许改以下四处，<b>其余一律不动</b>：<br>
+  ① 导航/页头/状态栏文案「SQL 控制台 → 数据中心」；<br>
+  ② Redis 对象树与字段详情的展示逻辑；<br>
+  ③ MongoDB 对象树与字段推断的展示逻辑；<br>
+  ④ Redis 键值管理交互（DB 切换、新增 Key、模糊搜索、值查看与格式切换、删除、刷新、TTL 设置，<b>复用现有面板骨架，不新起独立面板</b>）。<br>
+  <b>禁止</b>改动：连接建立逻辑（<code>db_connect.open_connection</code>）、查询执行核心逻辑（<code>_run_redis</code> 的只读分支 / <code>_run_mongo</code> / <code>run_read_query</code>）、SQL 草案生成（<code>ai_sql_draft</code>/<code>tameng_agent</code>）、凭据加密（<code>secure_store</code>）、写命令分类门禁（<code>sql_guard.classify_statement</code> 与 <code>REDIS_WRITE</code> 集合）、打包脚本依赖（<code>requirements.txt</code> 已含 redis/pymongo，勿动）、其他任何模块（模型对话、日志排查、接口排查等）。
+</div>
+
+<!-- ============ S1 ============ -->
+<section>
+  <h2 class="sec">一、改造项 ①：SQL 控制台改名「数据中心」</h2>
+  <div class="card">
+    <h3>1.1 目标</h3>
+    <p>界面所有对用户可见的「SQL 控制台」中文文案改为「数据中心」，英文 <code>SQL Console</code> 改为 <code>Data Center</code>。<b>只改显示文案，不改任何逻辑、不改类名/函数名/变量名/导航 index。</b></p>
+    <div class="note warn"><b>关键：</b>类名 <code>AiWorkbenchPanel</code>、属性名 <code>ai_workbench_panel</code>、导航 index <code>14</code>、图标 <code>database</code> <b>全部保持不变</b>。改的是字符串字面量，不是标识符。</div>
+  </div>
+  <div class="card">
+    <h3>1.2 精确改动清单（共 6 处字符串）</h3>
+    <table>
+      <tr><th>#</th><th>文件</th><th>行号</th><th>现值</th><th>改为</th></tr>
+      <tr><td>1</td><td><code>ui/navigation_model.py</code></td><td>21</td><td><code>'SQL 控制台', 'SQL Console'</code></td><td><code>'数据中心', 'Data Center'</code></td></tr>
+      <tr><td>2</td><td><code>ui/navigation_model.py</code></td><td>84</td><td><code>'SQL 控制台：连接、结构快照与多标签编辑'</code></td><td><code>'数据中心：连接、结构快照与多标签编辑'</code></td></tr>
+      <tr><td>3</td><td><code>main_window.py</code></td><td>1013</td><td><code>'SQL 控制台 · 多标签编辑与结构快照'</code></td><td><code>'数据中心 · 多标签编辑与结构快照'</code></td></tr>
+      <tr><td>4</td><td><code>main_window.py</code></td><td>1027</td><td><code>'SQL console · multi-tab editor and schema snapshot'</code></td><td><code>'Data center · multi-tab editor and schema snapshot'</code></td></tr>
+      <tr><td>5</td><td><code>panels/ai_workbench_panel.py</code></td><td>275</td><td><code>'SQL 控制台'</code>（页头 title）</td><td><code>'数据中心'</code></td></tr>
+      <tr><td>6</td><td><code>panels/ai_workbench_panel.py</code></td><td>565 / 655</td><td><code>'SQL 控制台'</code> / <code>'SQL Console'</code>（set_language 与 _title）</td><td><code>'数据中心'</code> / <code>'Data Center'</code></td></tr>
+    </table>
+    <div class="note info">
+      <b>补充说明（Grok 注意，不要误改）：</b>文件顶部 docstring <code>"""SQL 控制台：Navicat 风格…"""</code>（第 2 行）是代码注释，可改可不改，建议同步为「数据中心」保持一致，但<b>不影响功能</b>。<br>
+      <b>不要</b>去改 <code>sql_panel.py</code>（导航 index 2「发版联动」，其内部「SQL 脚本整理」等文案与本次无关）；<b>不要</b>改 <code>tools/sql_guard.py</code>、<code>tools/db_connect.py</code> 等文件名含 "sql" 的模块——它们不是「SQL 控制台」这个页面。
+    </div>
+  </div>
+</section>
+
+<!-- ============ S2 ============ -->
+<section>
+  <h2 class="sec">二、改造项 ②：Redis 扫描展示修复</h2>
+  <div class="card">
+    <h3>2.1 现状与根因（为什么扫不到 / 显示不对）</h3>
+    <p>扫描函数 <code>tools/schema_snapshot.py::_scan_redis</code> 本身<b>能扫到 key</b>，问题在<b>展示层</b>：</p>
+    <ul>
+      <li><b>根因 A — 树分组错位：</b><code>panels/ai_workbench_panel.py:1112</code> 的 <code>_rebuild_tree</code> 用 <code>owner = obj.get('owner') or obj.get('object_type')</code> 分组。Redis 对象 <code>owner=''</code>、<code>object_type</code> 是 key 的<b>数据类型</b>（<code>string/hash/list/set/zset</code>），导致所有 key 被按「string / hash / list…」错误地当成 schema 分组，层级完全错乱。</li>
+      <li><b>根因 B — 假字段：</b><code>_scan_redis</code>（571-576 行）给每个 key 塞了一个<b>无意义字段</b> <code>{'name': kind, 'data_type': kind}</code>，点开 key 详情只显示「string / string」这种一行废话，看起来就像「没有数据」。</li>
+      <li><b>根因 C — DB 序号隐患：</b><code>db_connect.open_connection</code> 里 Redis 用 <code>db=db_index</code>（默认 0）。如果数据在非 0 号库、或用户没填 DB 序号，就真的扫不到。属连接参数问题，需在扫描时给出提示。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>2.2 正确目标形态</h3>
+    <p>Redis 的「对象」是 <b>key</b>，不是表。展示应表达：<b>key 名 + key 类型 + 该 key 的摘要信息</b>。</p>
+    <table>
+      <tr><th>key 类型</th><th>树节点显示</th><th>详情（字段）应展示</th></tr>
+      <tr><td><code>string</code></td><td><code>key名 [string]</code></td><td>value 预览（截断）</td></tr>
+      <tr><td><code>hash</code></td><td><code>key名 [hash]</code></td><td>field 列表（<code>HKEYS</code>，只读）</td></tr>
+      <tr><td><code>list</code></td><td><code>key名 [list]</code></td><td>长度（<code>LLEN</code>）</td></tr>
+      <tr><td><code>set</code></td><td><code>key名 [set]</code></td><td>成员数（<code>SCARD</code>）</td></tr>
+      <tr><td><code>zset</code></td><td><code>key名 [zset]</code></td><td>成员数（<code>ZCARD</code>）</td></tr>
+      <tr><td><code>none</code>/其他</td><td><code>key名 [unknown]</code></td><td>（空，或提示「已过期/无类型」）</td></tr>
+    </table>
+    <div class="note warn">
+      <b>安全边界：</b>只允许使用<b>只读</b>命令（<code>TYPE / HKEYS / HLEN / LLEN / SCARD / ZCARD / STRLEN / TTL / GET</code>）。<b>禁止</b>执行任何写命令（<code>DEL / SET / HSET / EXPIRE / FLUSHDB</code> 等）。扫描取数据必须走 <code>scan_iter</code>（现有 <code>REDIS_KEY_CAP=5000</code> 上限保持不变）。
+    </div>
+  </div>
+  <div class="card">
+    <h3>2.3 具体改法（精确到函数）</h3>
+    <h4>改法 1：<code>_rebuild_tree</code> 对 NoSQL 方言不做 owner 分组</h4>
+    <p>文件 <code>panels/ai_workbench_panel.py</code>，函数 <code>_rebuild_tree</code>（约 1101-1129 行）。当前用 owner 分组生成「schema → 对象」两层；对 <code>redis</code>/<code>mongodb</code>，改为<b>单层平铺</b>：根节点下直接挂 key/collection 节点，不套 schema 层。</p>
+    <pre><code># 伪代码示意（Grok 落地时保持现有控件用法一致）
+dialect = str((self._browse_conn() or {}).get('dialect') or 'oracle')
+if dialect in ('redis', 'mongodb'):
+    # 单层：root 下直接挂每个 key / collection
+    for obj in objects:
+        node = QTreeWidgetItem([format_object_label(obj)])
+        node.setData(0, UserRole, {'kind': 'table', 'object': obj})
+        root.addChild(node)
+else:
+    # 原有 owner 分组逻辑保持不变（oracle/mysql/dameng/oceanbase）
+    ...</code></pre>
+    <h4>改法 2：<code>_scan_redis</code> 产出真实摘要字段，替换假字段</h4>
+    <p>文件 <code>tools/schema_snapshot.py</code>，函数 <code>_scan_redis</code>（560-582 行）。为每个 key 生成有意义的 <code>columns</code>（只读命令取摘要），而不是 <code>[{'name': kind, 'data_type': kind}]</code>。</p>
+    <pre><code># 每个 key 的 columns 按类型生成（只读、异常吞掉降级为空）
+# string → [{'name':'value', 'data_type':'string', 'comment': value[:200]}]
+# hash   → 遍历 HKEYS（截断前 N 个）作为字段
+# list   → [{'name':'length', 'data_type':'int', 'comment': llen}]
+# set/zset → [{'name':'cardinality', 'data_type':'int', 'comment': card}]</code></pre>
+    <div class="note info">
+      <b>实现约束：</b><code>_scan_redis</code> 的返回值仍必须是 <code>(objects, truncated)</code> 二元组，<code>objects</code> 仍是 <code>dict</code> 列表，字段结构须满足 <code>_clean_object</code> 的清洗规则（<code>name/data_type/nullable/position/comment/primary_key/indexed</code>）。<b>不要</b>改 <code>_clean_object</code> 本身。
+    </div>
+    <h4>改法 3：扫描提示 DB 序号</h4>
+    <p>在扫描完成回显（<code>_on_db_ok</code> 里 <code>kind=='scan'</code> 分支）或 <code>_refresh_header</code> 中，当方言为 <code>redis</code> 时，把当前 DB 序号体现在提示里，例如连接元信息追加 <code>DB=0</code>。避免用户误以为「扫不到」其实是连错了库。此条为<b>可选增强</b>，不阻塞主改动。</p>
+  </div>
+</section>
+
+<!-- ============ S3 ============ -->
+<section>
+  <h2 class="sec">三、改造项 ③：MongoDB 扫描展示修复</h2>
+  <div class="card">
+    <h3>3.1 现状与根因</h3>
+    <ul>
+      <li><b>根因 A — 树分组错位（同 Redis）：</b><code>_scan_mongo</code> 产出 <code>object_type='COLLECTION'</code>、<code>owner=''</code>，被 <code>_rebuild_tree</code> 的 <code>owner or object_type</code> 塞进一个叫 <code>COLLECTION</code> 的 schema 分组，层级错乱。</li>
+      <li><b>根因 B — 字段推断太弱：</b><code>_scan_mongo</code>（531-557 行）只用 <code>find_one()</code> 取<b>第一条文档的顶层 key</b>，嵌套字段、数组元素、其他文档独有的字段全部漏掉；空集合 <code>columns=[]</code>。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>3.2 正确目标形态</h3>
+    <p>MongoDB 的「对象」是 <b>collection</b>。字段应通过<b>采样多条文档 + 递归合并</b>推断，并明确标记为「推断字段」（<code>inferred=True</code>）。</p>
+    <ul>
+      <li>每个 collection 采样 <b>N 条文档</b>（建议 N=20，可配），递归合并所有 key（含嵌套字段，用点号路径如 <code>a.b.c</code>，数组元素用 <code>a[]</code> 或 <code>a.0</code> 表示）。</li>
+      <li>空集合至少保留 <code>_id</code> 作为占位字段，<b>不要</b>返回空 columns（否则看起来像「没数据」）。</li>
+      <li>每个字段 <code>data_type</code> 用 <code>type(value).__name__</code>（复用现有 <code>_type_name</code>），<code>comment</code> 留空或写「推断」。</li>
+    </ul>
+    <pre><code># _scan_mongo 采样合并伪代码
+def _collect_keys(doc, prefix='', out=None):
+    # 递归：dict 下钻、list 加 [] 标记、标量记录类型
+    ...
+
+for name in names:
+    docs = list(conn[name].find().limit(SAMPLE_N))
+    keys = {}
+    for d in docs:
+        _collect_keys(d, out=keys)
+    columns = [{'name': k, 'data_type': t, ...} for k, t in keys.items()] or [_ID_PLACEHOLDER]</code></pre>
+    <div class="note warn"><b>安全边界：</b>采样必须用 <code>find().limit(N)</code>，<b>禁止</b> <code>aggregate</code> 或 <code>mapReduce</code>；不读取 <code>system.*</code> 内部集合的敏感内容（采样仅取字段名，<b>不落盘、不回显完整文档内容</b>，字段值只用于推断类型）。</div>
+  </div>
+  <div class="card">
+    <h3>3.3 具体改法</h3>
+    <p>文件 <code>tools/schema_snapshot.py</code>，函数 <code>_scan_mongo</code>（531-557 行）：</p>
+    <ol>
+      <li>将「单条 <code>find_one</code>」改为「采样 <code>find().limit(20)</code> + 递归合并 key」。</li>
+      <li>空集合 columns 兜底为 <code>[{'name': '_id', 'data_type': 'object', ...}]</code>。</li>
+      <li>保持返回 <code>(objects, truncated)</code> 结构、<code>object_type='COLLECTION'</code>、<code>inferred=True</code> 不变。</li>
+    </ol>
+    <p>树分组修复复用「二、2.3 改法 1」（<code>_rebuild_tree</code> 对 <code>mongodb</code> 也做单层平铺），两处共享同一处改动，<b>不要重复实现</b>。</p>
+  </div>
+</section>
+
+<!-- ============ S3.5 ============ -->
+<section>
+  <h2 class="sec">三·五、改造项 ④：Redis 键值管理（按方言差异化功能区）</h2>
+  <div class="card">
+    <h3>4.1 设计原则（本次范围的总基调）</h3>
+    <p>用户明确要求：<b>「不一定要完整的面板，跟当前面板规则保持一致就行，只是每个数据库连接对应的功能不一样」</b>。即——<b>不新起独立面板、不另立导航</b>，而是在现有「数据中心」面板内，按当前连接的 <code>dialect</code> 差异化展示中栏功能区：</p>
+    <table>
+      <tr><th>dialect</th><th>中栏功能区</th><th>说明</th></tr>
+      <tr><td><code>oracle / mysql / oceanbase / dameng / 等关系型</code></td><td>现有 SQL 多标签编辑器（<code>sql_tabs</code>）</td><td><b>保持原样，一字不改</b></td></tr>
+      <tr><td><code>redis</code></td><td>Redis 键值管理（DB 切换 + 键列表 + 模糊搜索 + 值查看/格式切换/删除/刷新/TTL）</td><td>本次新增，复用现有控件与骨架</td></tr>
+      <tr><td><code>mongodb</code></td><td>集合查询（沿用现有 SQL 编辑 + <code>find</code> 语法）</td><td>本次不新增交互，仅靠改造项③修正展示</td></tr>
+    </table>
+    <div class="note info">
+      <b>挂载点（已核对源码）：</b>中栏当前结构为 <code>middle → editor_row(格式化/清空/风险chip) + sql_tabs(多标签编辑)</code>。<br>
+      Redis 键值管理区<b>替换</b> <code>sql_tabs</code> 所在位置（<code>ai_workbench_panel.py:408-413</code>），仅在 <code>dialect=='redis'</code> 时用 <code>QStackedWidget</code> 或按需 <code>setVisible</code> 切换；关系型方言时仍显示 <code>sql_tabs</code>。<br>
+      「选中 key 后下方展示 value」复用<b>下栏结果区</b> <code>result</code> 表格（<code>ai_workbench_panel.py:554</code>，现有 <code>_fill_result</code> 已能接收 <code>{columns, rows}</code>），<b>不新造结果控件</b>。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>4.2 功能清单与落点</h3>
+    <table>
+      <tr><th>#</th><th>功能</th><th>控件</th><th>落点 / 实现</th></tr>
+      <tr><td>1</td><td>DB 下拉选择（DB0/DB1/DB2…）</td><td><code>QComboBox</code>（默认列出 0-15，连接元信息 <code>database</code> 字段为默认选中）</td><td>中栏 Redis 功能区顶部；切换后<b>自动重扫</b>（复用 <code>scan_schema</code> + <code>_rebuild_tree</code>，DB 序号通过 <code>open_connection(database=db)</code> 或 <code>conn.select(db)</code> 生效）</td></tr>
+      <tr><td>2</td><td>新增 Key</td><td>「新增 Key」按钮 + 小表单（key 名 / 类型 / 初值）</td><td>中栏 Redis 功能区；走写命令（<code>SET/HSET/RPUSH/SADD/ZADD</code>），点击执行前过现有写命令确认门禁</td></tr>
+      <tr><td>3</td><td>模糊搜索框</td><td>复用左栏现有 <code>object_filter</code>（<code>_filter_tree</code> 前端过滤）</td><td><b>已存在，不重复实现</b>；服务端 <code>SCAN MATCH</code> 能力已在 <code>_run_redis</code></td></tr>
+      <tr><td>4</td><td>选中 key 展示 value</td><td>复用下栏 <code>result</code> 表格</td><td>选中 key → 按类型发只读命令（<code>GET/HGETALL/LRANGE/SMEMBERS/ZRANGE</code>）→ <code>_fill_result</code> 渲染</td></tr>
+      <tr><td>5</td><td>格式切换 TXT/JSON/XML</td><td><code>QComboBox</code> 或 <code>QToolButton</code> 菜单（TXT / JSON / XML）</td><td>对 value 做格式化视图：TXT 原样、JSON 结构化缩进、XML 转义包裹；<b>纯前端视图切换，不改底层 value</b></td></tr>
+      <tr><td>6</td><td>删除 key</td><td>「删除」按钮 + 确认对话框</td><td>执行 <code>DEL</code>（已在 <code>REDIS_WRITE</code>），过写命令确认门禁，删除后自动刷新键列表</td></tr>
+      <tr><td>7</td><td>刷新结果集 / 键列表</td><td>「刷新」按钮</td><td>重新读取当前 key 的 value 或重扫键列表（复用现有扫描）</td></tr>
+      <tr><td>8</td><td>设置失效时间（TTL）</td><td>「设置 TTL」按钮 + 输入框（秒）</td><td>执行 <code>EXPIRE</code>（已在 <code>REDIS_WRITE</code>），过写命令确认门禁；支持 -1 持久化</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>4.3 值读取与格式化的类型覆盖（已拍板：覆盖全部常见类型）</h3>
+    <table>
+      <tr><th>key 类型</th><th>只读命令</th><th>TXT</th><th>JSON</th><th>XML</th></tr>
+      <tr><td><code>string</code></td><td><code>GET</code></td><td>原样</td><td>若可解析为 JSON 则缩进，否则包成 <code>{"value": ...}</code></td><td><code>&lt;string&gt;…&lt;/string&gt;</code></td></tr>
+      <tr><td><code>hash</code></td><td><code>HGETALL</code></td><td><code>field=value</code> 逐行</td><td><code>{"field": value, ...}</code></td><td><code>&lt;field&gt;value&lt;/field&gt;</code> 逐项</td></tr>
+      <tr><td><code>list</code></td><td><code>LRANGE 0 -1</code>（截断）</td><td>逐行</td><td><code>["a","b",...]</code></td><td><code>&lt;item&gt;…&lt;/item&gt;</code></td></tr>
+      <tr><td><code>set</code></td><td><code>SMEMBERS</code></td><td>逐行</td><td><code>["a","b",...]</code></td><td><code>&lt;item&gt;…&lt;/item&gt;</code></td></tr>
+      <tr><td><code>zset</code></td><td><code>ZRANGE 0 -1 WITHSCORES</code></td><td><code>member score</code></td><td><code>{"member": score, ...}</code></td><td><code>&lt;member score="…"&gt;…&lt;/member&gt;</code></td></tr>
+    </table>
+    <div class="note info">
+      <b>实现要点：</b>底层只读命令能力 <code>_run_redis</code>（<code>tools/db_connect.py:380-450</code>）<b>已全部具备</b>（GET/HGETALL/LRANGE/SMEMBERS/ZRANGE/SCAN MATCH 均在）。<br>
+      本次只需在<b>面板层</b>新增一个「按类型发只读命令 + 格式化视图」的方法，<b>不要</b>改动 <code>_run_redis</code> 内部逻辑。格式化（JSON/XML）是<b>前端视图层</b>转换，不写回 Redis。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>4.4 写操作安全边界（已拍板：复用现有确认门禁）</h3>
+    <ul>
+      <li><b>新增 Key / 删除 / 设置 TTL</b> 三种写操作，全部复用现有 <code>tools/sql_guard.py</code> 的 <code>classify_statement</code> → <code>REDIS_WRITE</code> 分类 → <code>needs_confirm=True</code> 门禁（<code>ai_workbench_panel.py:1109-1120</code> 的 <code>confirm_action(danger=True)</code>）。</li>
+      <li>写操作点击后，弹「需确认写操作」对话框，内容含 <b>连接名 + 类型 + 命令类别 + 具体命令</b>，默认焦点在「取消」。</li>
+      <li><b>禁止</b>绕过门禁直接执行；<b>禁止</b>新增 <code>FLUSHDB / FLUSHALL / CONFIG / SHUTDOWN</code> 入口（这些即使底层支持也不提供按钮）。</li>
+      <li>删除 key 前必须二次确认，确认文案明确写出 key 名。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>4.5 骨架规范遵守（避免违反现有 UI 规范）</h3>
+    <ul>
+      <li>Redis 功能区<b>不是独立页面</b>，必须复用现有 <code>ds-card</code>/<code>ds-zone</code> 容器、<code>apply_button</code>/<code>apply_table</code>/<code>size_line</code> 等公共控件，风格与关系型方言一致。</li>
+      <li>主操作（如「新增 Key」或「运行」）保持 ≤1 个 primary，其余用 ghost/secondary，<b>不新增超过 8 个工具栏按钮</b>。</li>
+      <li>写按钮（删除 / 设置 TTL / 新增）统一放功能区，<b>不塞进 L3 筛选条</b>（筛选条只放搜索/DB 切换这类不写数据的控件）。</li>
+      <li>空状态（无 key / 未扫描）复用 <code>make_empty_state</code>。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ S4 ============ -->
+<section>
+  <h2 class="sec">四、验收标准（Grok 完成后必须自测）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>验收点</th><th>判定</th></tr>
+      <tr><td>1</td><td>侧栏 / 页头 / 状态栏中文均显示「数据中心」，英文「Data Center」，无残留「SQL 控制台」用户可见文案</td><td>全量搜索 <code>SQL 控制台</code> 仅剩代码注释/文档，UI 字符串已替换</td></tr>
+      <tr><td>2</td><td>Redis 连接后扫描，key 平铺展示，不出现「string/hash」这类假 schema 分组</td><td>对象树结构：根节点 → key 节点（单层）</td></tr>
+      <tr><td>3</td><td>点击 Redis key，详情展示真实摘要（hash 显示 field、list 显示长度等），不再是「string/string」废话</td><td>字段表有内容且与 key 类型对应</td></tr>
+      <tr><td>4</td><td>MongoDB 连接后扫描，collection 平铺展示，字段为采样推断（含嵌套），空集合有 <code>_id</code> 占位</td><td>无「COLLECTION」假分组；字段数 ≥ 采样文档实际字段</td></tr>
+      <tr><td>5</td><td>Oracle/MySQL 原有展示<b>不回归</b></td><td>owner 分组、字段详情、双击插入 SQL 均与改造前一致</td></tr>
+      <tr><td>6</td><td>只读安全：Redis 未调用任何写命令、Mongo 未调用 aggregate</td><td>代码审查确认</td></tr>
+      <tr><td>7</td><td>打包可过：<code>redis/pymongo</code> 依赖已含，无需改 <code>requirements.txt</code> 或 <code>build_release.ps1</code></td><td>离线包构建成功</td></tr>
+      <tr><td>8</td><td>Redis 连接时中栏显示键值管理区（DB 下拉 + 键列表 + 模糊搜索 + 值查看），关系型连接时中栏仍是 SQL 编辑，二者切换无残留</td><td>切换连接后中栏正确切换，关系型功能不回归</td></tr>
+      <tr><td>9</td><td>切 DB 下拉（DB0/DB1…）自动重扫键列表</td><td>切 DB 后对象树 key 刷新为对应库内容</td></tr>
+      <tr><td>10</td><td>选中 key 后下栏结果集展示 value，可切 TXT/JSON/XML 三种视图</td><td>string/hash/list/set/zset 五种类型均能正确展示</td></tr>
+      <tr><td>11</td><td>新增 Key / 删除 / 设置 TTL 三个写操作均弹「需确认写操作」门禁，删除前二次确认含 key 名</td><td>无法绕过门禁直接执行</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============ S5 ============ -->
+<section>
+  <h2 class="sec">五、非目标（明确禁止做）</h2>
+  <div class="card">
+    <ul>
+      <li>不重写 Redis/Mongo 的<b>查询执行</b>逻辑（<code>_run_redis</code> 的只读分支 / <code>_run_mongo</code> / <code>run_read_query</code> 保持原样）。</li>
+      <li>不新增 <code>FLUSHDB / FLUSHALL / CONFIG / SHUTDOWN</code> 等危险命令入口按钮。</li>
+      <li>不为 Redis 另起独立导航/面板/Stack 页（键值管理复用现有数据中心面板中栏）。</li>
+      <li>不改变连接建立、凭据加密、DB 序号解析逻辑。</li>
+      <li>不改 SQL 草案生成、字段证据链（<code>ai_sql_draft</code>/<code>tameng_agent</code>）。</li>
+      <li>不改其他页面（模型对话、日志排查、接口排查、发版联动等）。</li>
+      <li>不新增第三方依赖；<code>redis</code>/<code>pymongo</code> 已在 <code>requirements.txt</code> 与打包 hidden-import 中。</li>
+      <li>不改类名/函数名/变量名/导航 index/图标（仅改文案字符串）。</li>
+    </ul>
+  </div>
+</section>
+
+<div class="footer">
+  <p><b>交付说明：</b>本文档为需求 + 边界约束，供 Grok 按「一、二、三」精确执行，按「四」自测，严守「五」非目标。所有行号基于当前源码（V4.27 Private，build 2026-08-27 08:53），若 Grok 改动前源码已有偏移，以函数名/字符串匹配为准。</p>
+</div>
+
+</div>
+</body>
+</html>

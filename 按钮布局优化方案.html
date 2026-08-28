@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengTools 按钮布局优化方案</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --border: #e2e6eb;
+    --text: #1a2332;
+    --text-sub: #5a6577;
+    --text-muted: #8b94a3;
+    --primary: #2563eb;
+    --primary-bg: #eff4ff;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --warn: #d97706;
+    --warn-bg: #fffbeb;
+    --ok: #059669;
+    --ok-bg: #ecfdf5;
+    --code-bg: #f1f3f5;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 32px 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 920px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  .header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.3px;
+  }
+  .header .meta {
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .header .meta span { display: inline-flex; align-items: center; gap: 4px; }
+  .header .meta .tag {
+    background: var(--primary-bg);
+    color: var(--primary);
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  /* Section */
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  .section h2 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section h2 .icon { font-size: 20px; }
+  .section h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 18px 0 10px;
+    color: var(--text);
+  }
+  .section p { margin-bottom: 12px; color: var(--text-sub); font-size: 14px; }
+  .section ul { margin: 8px 0 16px 20px; }
+  .section li { margin-bottom: 6px; font-size: 14px; color: var(--text-sub); }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    color: var(--text);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tr:hover td { background: #fafbfc; }
+  .num-cell { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-high { background: var(--danger-bg); color: var(--danger); }
+  .badge-mid { background: var(--warn-bg); color: var(--warn); }
+  .badge-low { background: var(--ok-bg); color: var(--ok); }
+
+  /* Code */
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 10px 0 14px;
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--text);
+  }
+  .code-block .ln { color: var(--text-muted); margin-right: 14px; user-select: none; }
+  .code-block .kw { color: #2563eb; }
+  .code-block .str { color: #059669; }
+  .code-block .cmt { color: var(--text-muted); }
+
+  /* Problem card */
+  .problem-card {
+    border-left: 4px solid var(--danger);
+    background: var(--danger-bg);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .problem-card.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .problem-card .title {
+    font-weight: 700;
+    color: var(--danger);
+    margin-bottom: 4px;
+    font-size: 14px;
+  }
+  .problem-card.warn .title { color: var(--warn); }
+  .problem-card .desc { color: var(--text-sub); }
+
+  /* Solution card */
+  .solution-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    background: var(--card);
+  }
+  .solution-card .stitle {
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .solution-card .before-after {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .ba-box {
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+  }
+  .ba-box.before { background: var(--danger-bg); border: 1px dashed #fca5a5; }
+  .ba-box.after { background: var(--ok-bg); border: 1px solid #6ee7b7; }
+  .ba-box .label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .ba-box.before .label { color: var(--danger); }
+  .ba-box.after .label { color: var(--ok); }
+  .ba-box .btns { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ba-box .btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    color: var(--text-sub);
+  }
+  .ba-box .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .ba-box .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .ba-box .btn.ghost { background: transparent; }
+  .ba-box .sep { width: 1px; background: var(--border); margin: 2px 4px; }
+  .ba-box .more {
+    background: var(--code-bg);
+    border: 1px dashed var(--text-muted);
+    color: var(--text-muted);
+  }
+  @media (max-width: 600px) {
+    .solution-card .before-after { grid-template-columns: 1fr; }
+  }
+
+  /* Summary boxes */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin: 16px 0;
+  }
+  .stat-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-box .big {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-box .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* Confirm box */
+  .confirm-box {
+    background: var(--primary-bg);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-top: 8px;
+  }
+  .confirm-box p { color: var(--text); font-weight: 500; }
+  .confirm-box .note { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+  /* Principle */
+  .principle-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; margin: 14px 0; }
+  .principle-item {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px;
+    border: 1px solid var(--border);
+  }
+  .principle-item .p-icon { font-size: 20px; margin-bottom: 6px; }
+  .principle-item .p-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .principle-item .p-desc { font-size: 12px; color: var(--text-sub); }
+
+  .footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>PengTools 按钮布局优化方案</h1>
+    <div class="meta">
+      <span class="tag">UI 优化</span>
+      <span>项目: PengToolsHub V4</span>
+      <span>框架: PyQt6</span>
+      <span>日期: 2026-07-27</span>
+    </div>
+  </div>
+
+  <!-- 概述 -->
+  <div class="section">
+    <h2><span class="icon">📋</span> 分析概述</h2>
+    <p>对 PengTools 全部 13 个导航面板的按钮布局进行了系统性扫描,按 <code>QPushButton</code> 数量统计密度,并深入阅读布局代码确认间距、分组与排列方式。本报告定位拥挤热点,给出分组、间距、收纳与响应式的优化方案。</p>
+    <div class="summary-grid">
+      <div class="stat-box"><div class="big">13</div><div class="label">扫描面板总数</div></div>
+      <div class="stat-box"><div class="big">3</div><div class="label">重灾面板</div></div>
+      <div class="stat-box"><div class="big">8</div><div class="label">优化热点</div></div>
+      <div class="stat-box"><div class="big">48</div><div class="label">最高按钮数</div></div>
+    </div>
+  </div>
+
+  <!-- 全局密度排名 -->
+  <div class="section">
+    <h2><span class="icon">📊</span> 按钮密度排名</h2>
+    <table>
+      <thead>
+        <tr><th>排名</th><th>面板文件</th><th>模块名称</th><th class="num-cell">按钮数</th><th>拥挤度</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>ops_log_panel.py</td><td>日志排查</td><td class="num-cell">48</td><td><span class="badge badge-high">高</span></td></tr>
+        <tr><td>2</td><td>interface_debug_panel.py</td><td>接口排查</td><td class="num-cell">45</td><td><span class="badge badge-high">高</span></td></tr>
+        <tr><td>3</td><td>requirement_panel.py</td><td>需求管理</td><td class="num-cell">42</td><td><span class="badge badge-high">高</span></td></tr>
+        <tr><td>4</td><td>personal_panel.py</td><td>自我学习/日报</td><td class="num-cell">21</td><td><span class="badge badge-mid">中</span></td></tr>
+        <tr><td>5</td><td>sql_panel.py</td><td>升级准备(SQL)</td><td class="num-cell">19</td><td><span class="badge badge-mid">中</span></td></tr>
+        <tr><td>6</td><td>docx_panel.py</td><td>接口文档更新</td><td class="num-cell">15</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>7</td><td>format_panel.py</td><td>格式工具</td><td class="num-cell">15</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>8</td><td>dashboard_panel.py</td><td>工作台</td><td class="num-cell">8</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>9</td><td>gateway_panel.py</td><td>网关解密</td><td class="num-cell">8</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>10</td><td>credit_panel.py</td><td>证件类型</td><td class="num-cell">6</td><td><span class="badge badge-low">低</span></td></td></tr>
+        <tr><td>11</td><td>ops_panel.py</td><td>运维助手</td><td class="num-cell">6</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>12</td><td>settings_panel.py</td><td>设置</td><td class="num-cell">6</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>13</td><td>vin_panel.py</td><td>VIN</td><td class="num-cell">4</td><td><span class="badge badge-low">低</span></td></tr>
+      </tbody>
+    </table>
+    <p>前三名按钮数(48/45/42)远超第四名(21),是优化重点。其余面板按钮数均 ≤ 21,布局压力较小,本次不列入改造范围。</p>
+  </div>
+
+  <!-- 优化原则 -->
+  <div class="section">
+    <h2><span class="icon">🎯</span> 优化原则</h2>
+    <div class="principle-list">
+      <div class="principle-item">
+        <div class="p-icon">🗂️</div>
+        <div class="p-title">功能分组</div>
+        <div class="p-desc">按主要操作 / 次要操作 / 危险操作分组,组间加视觉分隔</div>
+      </div>
+      <div class="principle-item">
+        <div class="p-icon">↔️</div>
+        <div class="p-title">合理间距</div>
+        <div class="p-desc">按钮间距统一提升至 8–12px,组间加 16px 间隔或分隔线</div>
+      </div>
+      <div class="principle-item">
+        <div class="p-icon">🔢</div>
+        <div class="p-title">限制行数</div>
+        <div class="p-desc">每行按钮不超过 4–5 个,超出则换行</div>
+      </div>
+      <div class="principle-item">
+        <div class="p-icon">📦</div>
+        <div class="p-title">低频收纳</div>
+        <div class="p-desc">使用频率低的操作收入「更多」菜单(QToolButton + QMenu)</div>
+      </div>
+      <div class="principle-item">
+        <div class="p-icon">📱</div>
+        <div class="p-title">响应式</div>
+        <div class="p-desc">窄窗口时按钮自动换行或收纳,桌面端充分展开</div>
+      </div>
+      <div class="principle-item">
+        <div class="p-icon">🎨</div>
+        <div class="p-title">视觉层级</div>
+        <div class="p-desc">主操作 primary 高亮,危险操作红色警示,次要操作 ghost 弱化</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重灾区1: 需求管理 -->
+  <div class="section">
+    <h2><span class="icon">🔴</span> 重灾区一:需求管理 (42 按钮)</h2>
+
+    <h3>热点 A — 次级工具栏:6 个杂功能按钮挤一行,无分组</h3>
+    <div class="code-block"><span class="ln">990</span>toolbar_layout = QHBoxLayout(toolbar_card)
+<span class="ln">992</span>toolbar_layout.setSpacing(8)
+<span class="ln">993</span>self.scan_btn = QPushButton(<span class="str">'扫描需求目录'</span>)
+<span class="ln">994</span>self.checkout_btn = QPushButton(<span class="str">'检出代码'</span>)
+<span class="ln">995</span>self.update_all_btn = QPushButton(<span class="str">'更新全部'</span>)
+<span class="ln">996</span>self.bug_btn = QPushButton(<span class="str">'登记缺陷'</span>)
+<span class="ln">997</span>self.import_btn = QPushButton(<span class="str">'导入资料'</span>)
+<span class="ln">998</span>self.system_config_btn = QPushButton(<span class="str">'系统配置'</span>)
+<span class="cmt"># 6 个功能差异大的按钮全部 addWidget 到同一行,无分隔</span></div>
+    <div class="problem-card">
+      <div class="title">问题</div>
+      <div class="desc">扫描(数据)/检出更新(SVN)/登记缺陷(录入)/导入(录入)/系统配置(设置)——五类功能混杂一行,用户难以快速定位。「系统配置」使用频率低却占据常驻位。</div>
+    </div>
+
+    <h3>热点 B — VCS 操作区:一行 9 个控件,最严重拥挤</h3>
+    <div class="code-block"><span class="ln">1306</span>vcs_row = QHBoxLayout()
+<span class="ln">1307</span>vcs_row.setSpacing(6)
+<span class="cmt"># 一行塞入:范围标签 + 范围下拉 + 目标标签 + 全选 + 清除选择 + 锁定 + 解锁 + 回滚 + 提交</span>
+<span class="ln">1354</span>vcs_row.addWidget(self.vcs_scope_label)
+<span class="ln">1355</span>vcs_row.addWidget(self.vcs_scope_combo)
+<span class="ln">1356</span>vcs_row.addWidget(self.vcs_target_label, 1)
+<span class="ln">1357</span>vcs_row.addWidget(self.select_all_files_btn)
+<span class="ln">1358</span>vcs_row.addWidget(self.clear_file_sel_btn)
+<span class="ln">1359</span>vcs_row.addWidget(self.lock_file_btn)
+<span class="ln">1360</span>vcs_row.addWidget(self.unlock_file_btn)
+<span class="ln">1361</span>vcs_row.addWidget(self.revert_btn)
+<span class="ln">1362</span>vcs_row.addWidget(self.commit_btn)</div>
+    <div class="problem-card">
+      <div class="title">问题</div>
+      <div class="desc">一行 9 个控件(6 按钮 + 标签 + 下拉框),spacing 仅 6px。选择类操作(全选/清除)与 SVN 写操作(锁定/解锁/回滚/提交)混在一起。回滚是危险操作却与提交(primary)平铺,视觉层级混乱。窄窗口必然溢出。</div>
+    </div>
+
+    <h3>热点 C — 文件浏览行:5 个按钮间距偏紧</h3>
+    <div class="code-block"><span class="ln">1284</span>browse_row = QHBoxLayout()
+<span class="ln">1285</span>browse_row.setSpacing(6)
+<span class="cmt"># 打开目录 + 刷新 + 更新 + 添加文件 + 新建文本,5 个一行 spacing=6</span></div>
+    <div class="problem-card warn">
+      <div class="title">问题</div>
+      <div class="desc">5 个文件操作按钮挤一行,spacing=6 偏紧。查看类(打开目录/刷新/更新)与新增类(添加文件/新建文本)未分组。</div>
+    </div>
+  </div>
+
+  <!-- 重灾区2: 日志排查 -->
+  <div class="section">
+    <h2><span class="icon">🟠</span> 重灾区二:日志排查 (48 按钮)</h2>
+    <p>该面板按钮虽多达 48 个,但分散在多个子组件(分类管理、服务器管理、命令历史、会话区、路径导航、终端、结果表),单区域密度尚可。主要热点:</p>
+
+    <h3>热点 D — 会话区:4 个操作按钮一行无分组</h3>
+    <div class="code-block"><span class="ln">1694</span>qbtn = QHBoxLayout()
+<span class="ln">1695</span>self.tail_btn = QPushButton()       <span class="cmt"># tail 尾随</span>
+<span class="ln">1698</span>self.run_grep_btn = QPushButton()  <span class="cmt"># grep 检索</span>
+<span class="ln">1701</span>self.preview_btn = QPushButton()    <span class="cmt"># 预览</span>
+<span class="ln">1704</span>self.session_export_btn = QPushButton() <span class="cmt"># 导出 (primary)</span>
+<span class="cmt"># 4 个按钮平铺,查询类与导出类未分隔</span></div>
+    <div class="problem-card warn">
+      <div class="title">问题</div>
+      <div class="desc">tail/grep(查询类)与导出(输出类)、预览(查看类)平铺,导出按钮虽用 primary 但与查询按钮视觉上无间隔。</div>
+    </div>
+
+    <h3>热点 G — 路径导航:4 个图标按钮 spacing=4 偏紧</h3>
+    <div class="code-block"><span class="ln">1748</span>self.path_up_btn = QPushButton()      <span class="cmt"># 上一级</span>
+<span class="ln">1751</span>self.path_go_btn = QPushButton()     <span class="cmt"># 跳转</span>
+<span class="ln">1754</span>self.path_refresh_btn = QPushButton() <span class="cmt"># 刷新</span>
+<span class="ln">1757</span>self.use_path_btn = QPushButton()     <span class="cmt"># 使用此路径</span>
+<span class="cmt"># 所在布局 setSpacing(4),图标按钮间距过小易误触</span></div>
+    <div class="problem-card warn">
+      <div class="title">问题</div>
+      <div class="desc">图标按钮间距仅 4px,触摸目标过近易误触。导航类(上一级/刷新)与确认类(跳转/使用路径)未分组。</div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted)">注:该面板另有大量隐藏的兼容按钮(1618–1634 行),属技术债,不影响视觉,建议后续单独清理。</p>
+  </div>
+
+  <!-- 重灾区3: 接口排查 -->
+  <div class="section">
+    <h2><span class="icon">🟡</span> 重灾区三:接口排查 (45 按钮)</h2>
+
+    <h3>热点 I — 连接控制区:4 按钮,低频操作占常驻位</h3>
+    <div class="code-block"><span class="ln">288</span>row2 = QHBoxLayout(); row2.setSpacing(8)
+<span class="ln">290</span>self.connect_btn = QPushButton()      <span class="cmt"># 连接 (primary)</span>
+<span class="ln">294</span>self.stop_btn = QPushButton()         <span class="cmt"># 停止 (ghost)</span>
+<span class="ln">299</span>self.test_listen_btn = QPushButton()  <span class="cmt"># 测试监听 (ghost, 低频)</span>
+<span class="ln">303</span>self.restore_proxy_btn = QPushButton() <span class="cmt"># 恢复代理 (ghost, 低频)</span></div>
+    <div class="problem-card warn">
+      <div class="title">问题</div>
+      <div class="desc">「测试监听」和「恢复代理」是异常排查时才用的低频操作,却与高频的连接/停止平铺,挤占常驻空间。spacing=8 尚可但缺分组。</div>
+    </div>
+
+    <h3>请求/响应区:各 3 按钮,布局基本合理</h3>
+    <div class="code-block"><span class="cmt"># 请求 Tab (489-503行): 复制 + 格式化 + 网关解密</span>
+<span class="cmt"># 响应 Tab (516-530行): 复制 + 格式化 + 网关解密</span>
+<span class="cmt"># 各 3 个 compact 图标按钮,有 addStretch,布局尚可</span></div>
+    <p style="font-size:13px;color:var(--text-sub)">这两个区域按钮少、有 stretch,问题不大。轻微优化:复制(基础)与格式化/网关(转换类)可加分隔。</p>
+    <p style="font-size:12px;color:var(--text-muted)">注:该面板另有大量隐藏的兼容按钮(252–286 行、552–559 行),属技术债,不影响视觉,建议后续单独清理。</p>
+  </div>
+
+  <!-- 优化方案 -->
+  <div class="section">
+    <h2><span class="icon">✅</span> 优化方案(逐热点)</h2>
+
+    <h3>方案 A:需求管理 — 次级工具栏分组 + 系统配置收纳</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 toolbar_layout (990 行)</div>
+      <div class="before-after">
+        <div class="ba-box before">
+          <div class="label">改前 · 一行平铺 6 个</div>
+          <div class="btns">
+            <span class="btn">扫描需求目录</span><span class="btn">检出代码</span><span class="btn">更新全部</span><span class="btn">登记缺陷</span><span class="btn">导入资料</span><span class="btn">系统配置</span>
+          </div>
+        </div>
+        <div class="ba-box after">
+          <div class="label">改后 · 分两组 + 收纳</div>
+          <div class="btns">
+            <span class="btn">扫描需求目录</span><span class="btn">检出代码</span><span class="btn">更新全部</span>
+            <span class="sep"></span>
+            <span class="btn">登记缺陷</span><span class="btn">导入资料</span>
+            <span class="sep"></span>
+            <span class="btn more">更多 ⋯</span>
+          </div>
+        </div>
+      </div>
+      <ul style="margin-top:10px">
+        <li><b>第一组(数据获取)</b>:扫描需求目录、检出代码、更新全部</li>
+        <li><b>第二组(内容录入)</b>:登记缺陷、导入资料</li>
+        <li><b>收纳到「更多」菜单</b>:系统配置(低频,用 QToolButton + QMenu 弹出)</li>
+        <li>组间插入 <code>QFrame(VLine)</code> 竖分隔线,spacing 保持 8,组间间距设 16</li>
+      </ul>
+    </div>
+
+    <h3>方案 B:需求管理 — VCS 操作区拆两行 + 视觉分级</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 vcs_row (1306 行) — 最严重热点</div>
+      <div class="before-after">
+        <div class="ba-box before">
+          <div class="label">改前 · 一行 9 控件</div>
+          <div class="btns">
+            <span class="btn">范围:</span><span class="btn">[下拉]</span><span class="btn">目标</span><span class="btn">全选文件</span><span class="btn">清除</span><span class="btn">锁定</span><span class="btn">解锁</span><span class="btn">回滚</span><span class="btn primary">提交</span>
+          </div>
+        </div>
+        <div class="ba-box after">
+          <div class="label">改后 · 拆两行 + 分级</div>
+          <div style="margin-bottom:6px"><b>第一行(选择控制)</b></div>
+          <div class="btns" style="margin-bottom:8px">
+            <span class="btn">范围:</span><span class="btn">[下拉]</span><span class="btn">目标信息…</span><span class="sep"></span><span class="btn">全选文件</span><span class="btn">清除选择</span>
+          </div>
+          <div style="margin-bottom:6px"><b>第二行(SVN 写操作)</b></div>
+          <div class="btns">
+            <span class="btn">锁定</span><span class="btn">解锁</span><span class="btn danger">回滚</span><span class="sep"></span><span class="btn primary">提交</span>
+          </div>
+        </div>
+      </div>
+      <ul style="margin-top:10px">
+        <li><b>第一行(选择控制)</b>:范围下拉框 + 目标标签 + 全选文件 + 清除选择</li>
+        <li><b>第二行(SVN 写操作)</b>:锁定 + 解锁 + 回滚 + 提交</li>
+        <li>「回滚」改用红色危险样式(objectName: <code>danger-btn</code>),与提交 primary 形成视觉对比</li>
+        <li>两行 spacing 提升至 8,行间距(action_outer)提升至 10</li>
+      </ul>
+    </div>
+
+    <h3>方案 C:需求管理 — 文件浏览行分组</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 browse_row (1284 行)</div>
+      <div class="before-after">
+        <div class="ba-box before">
+          <div class="label">改前 · 5 个无分组</div>
+          <div class="btns"><span class="btn">打开目录</span><span class="btn">刷新</span><span class="btn">更新</span><span class="btn">添加文件</span><span class="btn">新建文本</span></div>
+        </div>
+        <div class="ba-box after">
+          <div class="label">改后 · 分两组</div>
+          <div class="btns"><span class="btn">打开目录</span><span class="btn">刷新</span><span class="btn">更新</span><span class="sep"></span><span class="btn">添加文件</span><span class="btn">新建文本</span></div>
+        </div>
+      </div>
+      <ul style="margin-top:10px">
+        <li><b>查看组</b>:打开目录、刷新、更新</li>
+        <li><b>新增组</b>:添加文件、新建文本</li>
+        <li>组间加竖分隔线,spacing 从 6 提升至 8</li>
+      </ul>
+    </div>
+
+    <h3>方案 D:日志排查 — 会话区按钮分组</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 qbtn (1694 行)</div>
+      <div class="before-after">
+        <div class="ba-box before">
+          <div class="label">改前 · 4 个平铺</div>
+          <div class="btns"><span class="btn">tail</span><span class="btn">grep</span><span class="btn primary">导出</span><span class="btn">预览</span></div>
+        </div>
+        <div class="ba-box after">
+          <div class="label">改后 · 查询组 + 输出组</div>
+          <div class="btns"><span class="btn">tail</span><span class="btn">grep</span><span class="sep"></span><span class="btn">预览</span><span class="sep"></span><span class="btn primary">导出</span></div>
+        </div>
+      </div>
+      <ul style="margin-top:10px">
+        <li><b>查询组</b>:tail、grep</li>
+        <li><b>查看组</b>:预览</li>
+        <li><b>输出组</b>:导出(primary,靠右突出)</li>
+        <li>组间加竖分隔线,导出按钮前加间距</li>
+      </ul>
+    </div>
+
+    <h3>方案 G:日志排查 — 路径导航间距提升</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 路径导航 (1748 行)</div>
+      <ul>
+        <li>所在布局 <code>setSpacing(4)</code> 提升至 <code>setSpacing(8)</code></li>
+        <li>导航组(上一级、刷新)与确认组(跳转、使用路径)间加竖分隔</li>
+        <li>图标按钮统一 <code>setMinimumWidth(36)</code> 保证点击热区</li>
+      </ul>
+    </div>
+
+    <h3>方案 I:接口排查 — 低频操作收纳</h3>
+    <div class="solution-card">
+      <div class="stitle">🔧 row2 (288 行)</div>
+      <div class="before-after">
+        <div class="ba-box before">
+          <div class="label">改前 · 4 个平铺</div>
+          <div class="btns"><span class="btn primary">连接</span><span class="btn ghost">停止</span><span class="btn ghost">测试监听</span><span class="btn ghost">恢复代理</span></div>
+        </div>
+        <div class="ba-box after">
+          <div class="label">改后 · 主操作 + 更多菜单</div>
+          <div class="btns"><span class="btn primary">连接</span><span class="btn ghost">停止</span><span class="sep"></span><span class="btn more">更多 ⋯</span></div>
+        </div>
+      </div>
+      <ul style="margin-top:10px">
+        <li><b>常驻主操作</b>:连接(primary)、停止(ghost)</li>
+        <li><b>收纳到「更多」菜单</b>:测试监听、恢复代理(异常排查时才用)</li>
+        <li>用 <code>QToolButton</code> + <code>QMenu</code> 实现,弹出式菜单不占常驻空间</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 响应式方案 -->
+  <div class="section">
+    <h2><span class="icon">📱</span> 响应式适配方案</h2>
+    <p>PyQt6 没有内置流式布局,实现窄窗口自动换行有两种方案:</p>
+    <table>
+      <thead><tr><th>方案</th><th>实现方式</th><th>优点</th><th>缺点</th><th>推荐</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>FlowLayout 自定义</b></td>
+          <td>继承 QLayout,重写 setGeometry/sizeHint,按宽度自动换行排列子控件</td>
+          <td>真正流式,窗口缩放即时响应</td>
+          <td>需新增约 120 行布局类代码,调试成本高</td>
+          <td><span class="badge badge-mid">进阶</span></td>
+        </tr>
+        <tr>
+          <td><b>resizeEvent 动态切换</b></td>
+          <td>在 resizeEvent 中按 width() 阈值切换单行/双行布局(addItem 移除重排)</td>
+          <td>实现简单,阈值可控</td>
+          <td>切换瞬间可能闪烁,只支持固定档位</td>
+          <td><span class="badge badge-low">备选</span></td>
+        </tr>
+        <tr>
+          <td><b>分组拆行(本次采用)</b></td>
+          <td>主动将密集行拆成两行,固定双行布局</td>
+          <td>改动最小,窄窗口也不溢出</td>
+          <td>宽窗口下略占纵向空间</td>
+          <td><span class="badge badge-ok" style="background:var(--ok-bg);color:var(--ok)">推荐</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>本次优化采用<strong>分组拆行</strong>方案:VCS 操作区拆两行、工具栏收纳低频按钮,窄窗口下不再溢出。FlowLayout 作为后续进阶选项,可按需追加。</p>
+  </div>
+
+  <!-- 影响范围 -->
+  <div class="section">
+    <h2><span class="icon">⚠️</span> 影响范围与风险</h2>
+    <table>
+      <thead><tr><th>改动文件</th><th>改动行范围</th><th>改动性质</th><th>风险</th></tr></thead>
+      <tbody>
+        <tr><td>requirement_panel.py</td><td>990–1003 / 1284–1363</td><td>布局重组(分组+拆行+收纳)</td><td><span class="badge badge-mid">中</span></td></tr>
+        <tr><td>ops_log_panel.py</td><td>1694–1711 / 1748–1757</td><td>间距调整+分组分隔</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>interface_debug_panel.py</td><td>288–309</td><td>低频按钮收纳到菜单</td><td><span class="badge badge-low">低</span></td></tr>
+        <tr><td>resources/style.qss</td><td>新增 danger-btn 样式</td><td>追加样式(不覆盖已有)</td><td><span class="badge badge-low">低</span></td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>所有改动仅涉及<strong>布局层</strong>(QHBoxLayout/QVBoxLayout 重组、spacing 调整、addStretch 位置),<strong>不改动任何业务逻辑/信号槽连接</strong></li>
+      <li>按钮的 <code>clicked.connect</code>、objectName、属性全部保持不变,仅调整 <code>addWidget</code> 顺序与父布局</li>
+      <li>收纳到菜单的按钮,其 clicked 信号改为 menu action 的 triggered 触发,功能等价</li>
+      <li>改造后需定向验证:需求管理(新增/编辑/删除/提交/回滚)、日志排查(tail/grep/导出)、接口排查(连接/停止/恢复代理)</li>
+    </ul>
+  </div>
+
+  <!-- 待确认 -->
+  <div class="section">
+    <h2><span class="icon">❓</span> 待确认事项</h2>
+    <div class="confirm-box">
+      <p>以上方案涉及 3 个面板、4 个文件的布局代码调整。按项目规则,需经你确认后方可动手改代码。</p>
+      <div class="note">
+        确认要点:<br>
+        1. 是否同意对需求管理/日志排查/接口排查三个面板实施上述分组+收纳方案?<br>
+        2. 「系统配置」「测试监听」「恢复代理」收纳到「更多」菜单是否可接受?<br>
+        3. VCS 区拆两行(选择行 + 写操作行)是否同意?<br>
+        4. 是否需要在本次一并实现 FlowLayout 流式换行(进阶,额外约 120 行)?<br>
+        5. 是否需要打包验证(build_release.ps1)?
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    PengTools 按钮布局优化分析报告 · 由 Senior Developer 生成 · 2026-07-27
+  </div>
+
+</div>
+</body>
+</html>

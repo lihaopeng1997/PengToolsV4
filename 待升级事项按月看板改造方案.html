@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>待升级事项按月看板改造方案</title>
+  <style>
+    :root{--ink:#1d2b46;--muted:#5e6e86;--line:#dce5f1;--canvas:#f5f8fc;--card:#fff;--primary:#3864c8;--soft:#ebf2ff;--green:#147a51;--green-soft:#eaf8f1;--amber:#9d6900;--amber-soft:#fff7e8}
+    *{box-sizing:border-box} body{margin:0;background:var(--canvas);color:var(--ink);font:15px/1.7 "Microsoft YaHei UI","PingFang SC",sans-serif}
+    main{width:min(1060px,calc(100% - 32px));margin:30px auto 56px}.hero{padding:28px 32px;border-radius:18px;background:linear-gradient(135deg,#315da9,#5d86df);color:#fff;box-shadow:0 14px 34px rgba(49,93,169,.18)}h1{margin:0 0 6px;font-size:28px;line-height:1.28}.hero p{margin:0;opacity:.92}section{margin-top:18px;padding:24px 28px;border:1px solid var(--line);border-radius:15px;background:var(--card);box-shadow:0 4px 16px rgba(37,65,112,.045)}h2{margin:0 0 13px;font-size:19px}h3{margin:16px 0 7px;font-size:16px}.note{background:var(--soft);border-left:4px solid var(--primary)}.ok{background:var(--green-soft);border-left:4px solid var(--green)}.warn{background:var(--amber-soft);border-left:4px solid var(--amber)}p{margin:7px 0}ul,ol{margin:8px 0;padding-left:23px}li{margin:5px 0}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}th{background:#f1f5fb}code{font:13px Consolas,"Cascadia Mono",monospace;background:#eef2f8;color:#284b93;padding:2px 5px;border-radius:4px}.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:stretch;margin-top:12px}.step{padding:14px;border:1px solid var(--line);border-radius:12px;background:#fbfcff}.step b{display:block;color:var(--primary);margin-bottom:3px}.arrow{align-self:center;color:#7290c8;font-size:22px}@media(max-width:760px){main{width:calc(100% - 24px);margin-top:12px}.flow{grid-template-columns:1fr}.arrow{display:none}section{padding:20px}th,td{font-size:13px;padding:9px}}
+  </style>
+</head>
+<body><main>
+  <header class="hero"><h1>待升级事项：按月选择、主动入选、独立完成态</h1><p>基于当前实现核对后的最小改造方案 · 2026-08-10</p></header>
+
+  <section class="note"><h2>确认后的目标行为</h2><ol><li>工作台“待升级事项”顶部增加<strong>上线月份下拉框</strong>；选中哪个月，只展示该月已勾选“是否本月上线”的需求。</li><li>删除工作台的<strong>“从需求添加”</strong>按钮和对应弹窗入口。</li><li>在“编辑需求”的<strong>上线月份</strong>字段下方增加<strong>“是否本月上线”</strong>复选框；它是需求进入待升级看板的唯一开关。</li><li>待升级看板每条任务后增加<strong>“已完成”</strong>按钮；点击后任务保留在当前选中月份，并显示“已完成”。</li></ol></section>
+
+  <section><h2>当前问题与根因</h2><table><thead><tr><th>当前实现</th><th>问题</th><th>调整方向</th></tr></thead><tbody><tr><td>仅按系统当前日期筛选，并强制要求 <code>planned_online_date</code> 属于当前月。</td><td>无法查看指定月份；只有“上线月份”但没有计划日期的需求无法展示。</td><td>改为按下拉框月份筛选 <code>online_month</code>，不再依赖计划上线日。</td></tr><tr><td>“从需求添加”通过看板隐藏 ID 的反向操作把需求放回。</td><td>入口绕过了需求编辑台账，规则不直观。</td><td>删除入口；只在编辑需求中以复选框控制是否入选。</td></tr><tr><td>没有完成态；需求状态与实际发版业务状态混在一起。</td><td>若把按钮改成“已上线”会错误影响需求管理和发版流程。</td><td>完成态只写入工作台看板配置，不修改需求的 <code>status</code>、实际日期或发版数据。</td></tr></tbody></table></section>
+
+  <section><h2>推荐实现方案</h2><div class="flow"><div class="step"><b>1. 编辑需求</b>选择“上线月份”，勾选“是否本月上线”。保存到需求台账。</div><div class="arrow">→</div><div class="step"><b>2. 工作台筛选</b>月份下拉框选择 2026-08，仅取 <code>online_month=2026-08</code> 且复选框为真的需求。</div><div class="arrow">→</div><div class="step"><b>3. 看板完成</b>点击“已完成”，仅给该看板任务增加完成标识，任务仍显示。</div></div>
+<h3>数据边界</h3><ul><li><strong>需求台账新增字段：</strong><code>is_monthly_release</code>（布尔值，旧数据默认 <code>false</code>）。</li><li><strong>看板独立配置新增字段：</strong><code>completed_requirement_keys</code>，以“需求 ID + 上线月份”为键保存完成态；同一需求若改到另一个月，不会继承旧月份的完成状态。</li><li><strong>手工添加：</strong>保留现有“手工添加”；其完成态同样保存于看板配置，按手工事项 ID + 计划月份区分。</li><li><strong>兼容处理：</strong>旧 <code>hidden_requirement_ids</code> 继续读取但不再提供“从需求添加”恢复入口；本轮不删除历史配置，避免升级后报错。</li></ul></section>
+
+  <section class="ok"><h2>看板展示规则</h2><ul><li>月份下拉选项：当前月 + 所有“已勾选且填写上线月份”的需求月份 + 手工事项计划月份，按月份倒序排列。</li><li>任务排序：未完成在前、已完成在后；同组内优先计划上线日，再按标题。</li><li>未完成行：右侧按钮显示“已完成”。点击后即时刷新为绿色“已完成”状态。</li><li>已完成行：显示完成标签；按钮改为“撤销完成”，便于误点恢复。</li><li>点击需求行仍跳转需求管理；点击完成按钮不触发行跳转。</li></ul></section>
+
+  <section class="warn"><h2>影响范围与验证</h2><ul><li><strong>涉及文件：</strong><code>panels/requirement_panel.py</code>、<code>panels/dashboard_panel.py</code>、<code>tools/dashboard_release_items.py</code>，以及待升级事项定向测试。</li><li><strong>不改变：</strong>需求 <code>status</code>、<code>actual_online_date</code>、升级准备 SQL、发版 Excel、已有手工事项内容。</li><li><strong>回归覆盖：</strong>月份下拉筛选；未勾选不展示；不同月份不串项；完成/撤销完成只影响当前看板；旧看板配置兼容；“从需求添加”入口不存在。</li></ul></section>
+
+  <section><h2>实施确认</h2><p>建议按以上方案实施。这样“是否进入哪个月的待升级事项”由需求编辑时明确决定，而“是否做完”只反映工作台执行进度，不会误改业务状态。</p></section>
+</main></body></html>

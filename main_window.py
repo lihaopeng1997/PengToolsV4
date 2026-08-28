@@ -645,6 +645,17 @@ class MainWindow(QMainWindow):
         self.nav_buttons[7] = self.settings_button
         footer.addWidget(self.settings_button, 1)
 
+        # 快速主题切换：一键在四套主题间循环，无需进入设置页
+        self.theme_cycle_button = QPushButton()
+        self.theme_cycle_button.setObjectName('nav-btn-settings')
+        self.theme_cycle_button.setCheckable(False)
+        self.theme_cycle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_cycle_button.setProperty('iconOnly', True)
+        self.theme_cycle_button.clicked.connect(self._cycle_theme)
+        apply_icon(self.theme_cycle_button, 'filter', size=20)
+        self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
+        footer.addWidget(self.theme_cycle_button, 0)
+
         self.user_chip = QToolButton()
         self.user_chip.setObjectName('user-chip')
         self.user_chip.setText('LH')
@@ -1212,6 +1223,39 @@ class MainWindow(QMainWindow):
         settings = dict(self._settings)
         settings['ui_theme'] = theme_id
         return self._apply_settings(settings)
+
+    def _theme_cycle_tooltip(self) -> str:
+        """当前主题名提示（随语言切换）。"""
+        from ui.theme_manager import THEME_META, THEME_IDS
+        current = self._settings.get('ui_theme', 'calm')
+        zh = self.language == 'zh'
+        meta = THEME_META.get(current)
+        name = meta[0] if (zh and meta) else (meta[1] if meta else current)
+        order = ' / '.join(
+            (THEME_META[t][0] if zh else THEME_META[t][1]) for t in THEME_IDS
+        )
+        label = '切换主题' if zh else 'Switch theme'
+        return f'{label}：{name}\n循环顺序：{order}'
+
+    def _cycle_theme(self):
+        """循环切换到下一套主题，即时应用并保存。"""
+        from ui.theme_manager import THEME_IDS, THEME_META
+        current = self._settings.get('ui_theme', 'calm')
+        try:
+            idx = THEME_IDS.index(current)
+        except ValueError:
+            idx = -1
+        nxt = THEME_IDS[(idx + 1) % len(THEME_IDS)]
+        self.apply_theme(nxt)
+        if hasattr(self, 'theme_cycle_button'):
+            self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
+        zh = self.language == 'zh'
+        meta = THEME_META.get(nxt)
+        shown = meta[0] if (zh and meta) else (meta[1] if meta else nxt)
+        self.status_bar.showMessage(
+            f'已切换主题：{shown}' if zh else f'Theme switched: {shown}',
+            2000,
+        )
 
     def _reset_floating_position(self):
         if self.quick_panel is None:

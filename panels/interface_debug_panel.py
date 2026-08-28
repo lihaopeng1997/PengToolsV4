@@ -1803,6 +1803,19 @@ class InterfaceDebugPanel(QWidget):
 
         def _boot():
             from tools.http_capture import HttpCaptureWorker
+            import socket as _socket
+
+            def _port_in_use() -> bool:
+                try:
+                    with _socket.create_connection(('127.0.0.1', int(port)), timeout=0.35):
+                        return True
+                except OSError:
+                    return False
+
+            # 上一轮 stop 可能仍在后台释放端口；这里主动等端口关闭，避免新引擎抢不到端口。
+            _port_deadline = time.time() + 4.0
+            while _port_in_use() and time.time() < _port_deadline:
+                time.sleep(0.08)
 
             def _try_once():
                 worker = HttpCaptureWorker(

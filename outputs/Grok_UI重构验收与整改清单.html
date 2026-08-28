@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grok UI重构验收与整改清单</title>
+<style>
+:root{--bg:#f4f7fb;--surface:#fff;--ink:#18263a;--muted:#627188;--line:#d9e2ee;--blue:#2468d8;--blue-soft:#eaf2ff;--amber:#9a6419;--amber-soft:#fff5e7;--red:#b6444e;--red-soft:#fff0f2;--green:#1c7b5b;--green-soft:#e9f7f1;--slate:#26364d}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.7 "Microsoft YaHei UI","Microsoft YaHei",Arial,sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:34px 22px 56px}.hero{padding:28px 30px;background:linear-gradient(135deg,#192d49,#284f83);color:#fff;border-radius:18px;box-shadow:0 16px 34px rgba(22,48,84,.16)}.hero h1{margin:0 0 8px;font-size:27px;letter-spacing:.2px}.hero p{margin:0;color:#d8e7fa}.meta{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}.meta span,.tag{display:inline-block;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700}.meta span{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);color:#eff6ff}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin:20px 0}.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px}.card h2{font-size:17px;margin:0 0 12px}.card h3{font-size:15px;margin:21px 0 8px}.verdict{border-left:4px solid var(--red)}.verdict strong{color:#94313a}.ok{border-left:4px solid var(--green)}.callout{margin:14px 0;padding:12px 14px;border-radius:10px}.callout.info{background:var(--blue-soft);color:#224f96}.callout.warn{background:var(--amber-soft);color:#7e5215}.callout.danger{background:var(--red-soft);color:#8c3039}.pill-red{background:var(--red-soft);color:#a93743}.pill-amber{background:var(--amber-soft);color:#8b5a14}.pill-green{background:var(--green-soft);color:#176848}.pill-blue{background:var(--blue-soft);color:#205bab}table{width:100%;border-collapse:collapse;margin:12px 0 4px;background:#fff}th,td{border:1px solid var(--line);padding:10px 11px;vertical-align:top;text-align:left}th{background:#eef3f9;font-size:13px;color:#33465e}td small{color:var(--muted)}.priority{margin-top:20px}.issue{background:var(--surface);border:1px solid var(--line);border-radius:14px;margin:12px 0;overflow:hidden}.issue-head{display:flex;align-items:flex-start;gap:10px;padding:15px 18px 10px}.issue-head h3{margin:0;font-size:16px;line-height:1.5}.issue-body{padding:0 18px 17px}.issue-body p{margin:8px 0}.issue-body ul,.issue-body ol{margin:8px 0 0;padding-left:22px}.evidence{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;background:#f5f8fc;color:#3e516a;border:1px solid #e1e8f1;border-radius:8px;padding:7px 9px;display:inline-block;margin-top:5px}pre{white-space:pre-wrap;word-break:break-word;margin:0;background:#17283f;color:#eaf2fc;border-radius:12px;padding:18px;font:13px/1.65 Consolas,"Cascadia Mono",monospace}.check{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.check div{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:11px 12px}.check b{display:block;color:#30445e;margin-bottom:3px}.footer{color:var(--muted);font-size:12px;margin-top:20px}.muted{color:var(--muted)}@media(max-width:760px){.wrap{padding:18px 12px 40px}.hero{padding:22px}.hero h1{font-size:22px}.grid,.check{grid-template-columns:1fr}.card{padding:17px}.issue-head,.issue-body{padding-left:14px;padding-right:14px}table{font-size:12px;display:block;overflow:auto;white-space:normal}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <section class="hero">
+    <h1>Grok 全量 UI 重构验收与整改清单</h1>
+    <p>审查对象：提交 <b>eec19f8</b>（相对 <b>d3ca7b8</b>）。依据冻结 V1.2 PRD、V1.2 HTML 设计稿与 Grok 实施交接文档。</p>
+    <div class="meta"><span>审查日期：2026-08-27</span><span>范围：静态代码 + 定向测试</span><span>结论：不应按“全量 UI 重构完成”验收</span></div>
+  </section>
+
+  <section class="grid">
+    <article class="card verdict">
+      <h2>结论</h2>
+      <p><strong>“整体样式没有明显改变”的判断基本成立。</strong>更准确地说：本次已经接入主题 Token、部分页头、QSS 统一、若干 Splitter 与 SQL AI 助手可见名修正；但核心技术页尚未完成设计稿要求的结构性重构、窄屏回退、统一 Splitter 能力和验收矩阵。因此它属于<strong>“全局基础视觉收口 + 局部页面接入”</strong>，不是 C 方向的全量 UI 重构完成态。</p>
+      <div class="callout danger">不能把“存在四主题、页头和 QSS”视为“设计稿已落地”。设计基线要求的是工作区层级、信息密度、页面结构、风险上下文和响应式行为一起改变。</div>
+    </article>
+    <article class="card ok">
+      <h2>已证实的有效改动</h2>
+      <ul>
+        <li>四主题并非仅定义：<code>ThemeManager.apply()</code> 会应用 Palette 与 QSS，设置页已提供主题卡。</li>
+        <li>SQL 控制台用户可见名称保持“AI 助手”，草案标签保持“SQL 草案 · 未执行”，未把 TamengAgent 暴露为 UI 名称。</li>
+        <li>接口请求体与响应区已有上下 Splitter，并设置了 240px / 120px 的最低高度。</li>
+        <li>定向测试执行完成：<b>73 项通过，39.5 秒</b>。但该结果仅证明当前测试覆盖的逻辑未失败，不等同于设计稿像素、DPI 和真实窗口走查通过。</li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="card">
+    <h2>审查边界与证据强度</h2>
+    <table>
+      <tr><th>已经核对</th><th>尚未能证明</th></tr>
+      <tr><td>最新提交差异、关键页面源码、QSS/主题、Splitter 助手、页面骨架与响应式定向测试。</td><td>125% / 150% DPI 真机截图、1100×720 / 960×640 真实运行效果、与 HTML 设计稿的像素级对齐、真实 Loading/取消过程。</td></tr>
+      <tr><td>因此，下文的“代码已证实”可直接作为整改依据；“需走查”必须由 Grok 提供运行截图或录屏证明。</td><td>未提供截图矩阵前，不能宣称“设计稿已完成对齐”或“全量响应式验收通过”。</td></tr>
+    </table>
+  </section>
+
+  <section class="priority">
+    <h2>必须先收口的阻断项</h2>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-red">阻断 1</span><h3>接口排查的“请求验证”仍不是设计稿规定的两行紧凑上下文，发送语义仍过于泛化</h3></div>
+      <div class="issue-body">
+        <p><b>代码已证实：</b>环境、Base、方法/URL、HTTPS 被拆成多行；发送按钮仍设置为“发送”。认证是否携带也没有作为用户可见的紧凑状态常驻。</p>
+        <span class="evidence">panels/interface_debug_panel.py:646–718；rt_send_btn.setText('发送')</span>
+        <p><b>必须修改：</b></p>
+        <ol>
+          <li>重排为最多两行，而不是继续叠字段：<br>第 1 行：<b>环境 | Base | 认证状态 | HTTPS 校验状态</b>；第 2 行：<b>方法 | 最终 URL | 动态主按钮</b>。</li>
+          <li>主按钮动态显示“向 {环境名} 发送请求”或“向 {Host} 发送请求”；未选环境时显示“选择环境后发送”并禁用。不得再出现裸“发送”。</li>
+          <li>cURL / Postman / 导出等草稿动作放到“更多操作”，并保持与真实发送完全不同的调用路径。</li>
+          <li>发送确认首屏必须同时展示：方法、最终 URL、环境、Host、认证携带状态、是否 HTTPS 校验、生产影响提示和取消入口。</li>
+        </ol>
+        <p><b>验收：</b>提交请求验证默认态、未选环境态、生产环境确认态三张截图；提供对应控件断言，证明按钮文字会随环境与 Host 动态变化。</p>
+      </div>
+    </article>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-red">阻断 2</span><h3>日志/SSH 与 SQL 控制台没有真正实现 Compact / Narrow 回退，核心工作区结构基本未变</h3></div>
+      <div class="issue-body">
+        <p><b>代码已证实：</b><code>apply_layout_mode()</code> 在日志/SSH 和 SQL 控制台中仅隐藏副标题，未根据档位切换 Splitter、Tab、Drawer 或纵向布局。这与“窄屏不硬挤多栏”的设计基线不符。</p>
+        <span class="evidence">panels/ops_log_panel.py:2543–2545；panels/ai_workbench_panel.py:623–625</span>
+        <p><b>必须修改：</b></p>
+        <ol>
+          <li><b>SQL 控制台：</b>Wide 保持对象树 / 编辑器 / AI 助手 + 底部结果；Standard 将右侧 AI/详情变为抽屉或可切换侧栏；Compact 将对象树变成明确“显示对象目录”入口；Narrow 只保留编辑器与当前结果，对象目录和 AI 助手必须转为可唤起 Tab/Drawer，不能保留不可读三栏。</li>
+          <li><b>日志/SSH：</b>Wide 保持主机/日志、终端/预览、查询/导出信息层级；Compact/Narrow 将服务器与远端目录转为可唤起面板，终端或日志预览占据主阅读区，底部操作按需展开。不得仅隐藏说明文字。</li>
+          <li><b>接口排查：</b>与上述策略一致：Narrow 下会话列表、请求验证与结果必须有明确的切换/抽屉入口，而非靠压缩列宽保持同屏。</li>
+          <li>实现前先给出每页 Wide / Standard / Compact / Narrow 的状态表，标明“常显 / Drawer / Tab / 隐藏并提供入口”。</li>
+        </ol>
+        <p><b>验收：</b>至少对接口排查、日志/SSH、SQL 控制台提交 1440×900、1280×800、1100×720、960×640 的默认态与一个运行/结果态截图；关键对象、环境、风险、主操作和取消路径均不能被裁切。</p>
+      </div>
+    </article>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-red">阻断 3</span><h3>Splitter 只做了“能拖 + 双击复位”的基础壳，未达到全局可恢复、可访问、安全夹紧的规范</h3></div>
+      <div class="issue-body">
+        <p><b>代码已证实：</b>公共助手能设置不可折叠、6px 把手、定时回调和双击默认尺寸；但多个核心页面传入 <code>on_changed=None</code> 且未传入 saved 值，因此并没有真正保存/恢复布局。助手也没有 handle accessibleName、键盘调整或 DPI/min-max 夹紧。</p>
+        <span class="evidence">ui/splitter_prefs.py:29–72；ai_workbench_panel.py:552–553；ops_log_panel.py:2182</span>
+        <p><b>必须修改：</b></p>
+        <ol>
+          <li>把 <code>install_splitter_prefs</code> 补为真正的公共能力：键必须是 <b>pageId + 当前 Tab/模式 + layout bucket</b>，仅保存非敏感尺寸比例；释放后 250ms 防抖写入。</li>
+          <li>恢复时按当前有效画布、DPI、最小/最大尺寸夹紧；无效旧值回退当前页默认安全比例。不能把 SQL、报文、日志、凭据或正文写入偏好。</li>
+          <li>每个 handle 设置明确 accessibleName、focus 策略、可见焦点和键盘等价调整；双击仅重置当前页面/Tab/模式。</li>
+          <li>给接口、日志/SSH、SQL、加解密、格式、模型对话、需求管理等实际有多展示区的页面接入保存/恢复；设置页“复位界面布局”必须覆盖这些已接入页面，不能只复位需求管理和接口排查。</li>
+        </ol>
+        <p><b>验收：</b>每个 P0 页至少证明：拖到两个方向安全下限、不能折叠为 0、双击复位、关闭/重新进入后恢复、切换 DPI/窗口档位后安全夹紧、键盘能聚焦与调整。</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="priority">
+    <h2>重要整改项</h2>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-amber">重要 1</span><h3>“单页一个主操作”测试被 PRIMARY_BASELINE 豁免掩盖，不能作为验收依据</h3></div>
+      <div class="issue-body">
+        <p><b>代码已证实：</b>接口排查允许 2 个 primary、日志/SSH 允许 6 个、需求/格式允许 4 个；所谓终态测试对大于 1 的页面直接 <code>continue</code>，没有执行任何失败断言。</p>
+        <span class="evidence">tests/test_page_skeleton.py:40–45，101–107</span>
+        <p><b>必须修改：</b>逐页把除唯一主流程外的按钮降级为 secondary / ghost / 更多操作；文件库九按钮保持文字、顺序、行为不变，但不应全部维持 primary 视觉。测试改为所有 Stack 页面面板树中的 <code>#primary-btn ≤ 1</code>，Dialog 内按钮不计入。删除“只记录欠账但测试通过”的空断言。</p>
+      </div>
+    </article>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-amber">重要 2</span><h3>日志/SSH 的关键动作还未按“对象先于动作”收口</h3></div>
+      <div class="issue-body">
+        <p><b>代码已证实：</b>仍有“发送”“清屏”等泛化文本，虽然 Tooltip 略有补充，但不满足设计稿的可见文字要求。</p>
+        <span class="evidence">panels/ops_log_panel.py:2413，2522–2524</span>
+        <p><b>必须修改：</b>“发送”改为“执行到当前终端”或“发送并执行”；“清屏”改为“清空终端显示”。连接、导出、目录、日志尾部等按钮也按 V1.2 文案表逐项校对。不得借文案重命名改变 SSH 执行、会话或导出业务语义。</p>
+      </div>
+    </article>
+
+    <article class="issue">
+      <div class="issue-head"><span class="tag pill-amber">重要 3</span><h3>全局壳层只完成一部分，页面结构仍各自手写，导致视觉变化浅</h3></div>
+      <div class="issue-body">
+        <p><b>判断：</b>多页已补 <code>make_page_header()</code>，QSS 也统一了按钮、表格、Tab、Dialog、Menu 和部分轻玻璃表面；这说明“完全没有改”不准确。但 L2 工具栏、L3 筛选条和 L4 内容区在技术页仍不一致，页面只是加了页头而非按设计稿重新分层。</p>
+        <p><b>必须修改：</b>先固定可复用的页面骨架与样式契约，再逐页迁移。每页必须明确 L1 页头、L2 工具栏、L3 筛选条、L4 主工作区；技术页至少 65% 面积给编辑器、列表、终端或结果，低频说明/历史/配置收纳到正确位置。不要新增“卡片墙”或用大段说明填空。</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>哪些不需要误改</h2>
+      <div class="callout info"><b>P2 没有高频动画不是问题，反而符合禁止项。</b>设计基线明确禁止页面转场、扫描线、呼吸灯、连续 spinner、表格/终端逐项动画。当前未见 QPropertyAnimation 或高频 QSS animation，这一点应保持。</div>
+      <ul>
+        <li>可保留 Tab、Menu、Drawer、Dialog、Toast、Loading 的 120–180ms 轻淡入/短过渡。</li>
+        <li>需要补的是“减弱动效”设置及它的运行态验证，而不是添加显眼动画。</li>
+        <li>四主题已具备可应用路径；下一步应做四主题下的真实页面可读性截图，不应重做主题体系。</li>
+      </ul>
+    </article>
+    <article class="card">
+      <h2>DPI 与测试整改</h2>
+      <p>当前测试验证了断点函数和少量 offscreen 逻辑，但没有真实的尺寸 × DPI × 页面状态矩阵。测试通过不能替代走查。</p>
+      <div class="check">
+        <div><b>必须覆盖的尺寸</b>1440×900、1280×800、1100×720、960×640。</div>
+        <div><b>必须覆盖的缩放</b>100%、125%、150% Windows DPI。</div>
+        <div><b>P0 必测状态</b>默认、空态、Loading、失败/取消、风险确认、Splitter 极限与复位。</div>
+        <div><b>提交证据</b>截图/录屏标记页面、尺寸、DPI、构建号、状态、日期和缺陷号。</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="card">
+    <h2>建议 Grok 按此顺序执行</h2>
+    <ol>
+      <li><b>先纠正验收口径：</b>将当前提交标记为“基础视觉收口，P0 未完成”，不要称“全量 UI 重构完成”。</li>
+      <li><b>完成阻断 1：</b>接口请求验证两行上下文、动态发送文案与确认内容；先补测试再改布局。</li>
+      <li><b>完成阻断 2：</b>给接口、日志/SSH、SQL 三个 P0 技术页实现四档布局状态机与 Drawer/Tab 回退。</li>
+      <li><b>完成阻断 3：</b>完善 Splitter 公共能力，再接入所有已声明可拖拽的页面；不能只增加 helper 文件。</li>
+      <li><b>收口重要项：</b>消除 primary 基线豁免、修正 SSH 动作文案、逐页接入完整四层骨架。</li>
+      <li><b>最后验收：</b>先定向测试、再 DPI/尺寸截图矩阵、敏感扫描、离线构建和构建产物核验。每批仅改 UI 表现，不改网络、SSH、SQL、SVN、会话、数据存储等业务安全语义。</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>可直接发给 Grok 的整改指令</h2>
+    <pre>请不要把 eec19f8 视为“全量 UI 重构完成”。当前状态只能定义为“全局基础视觉收口 + 部分页面接入”。请以 V1.2 PRD、V1.2 HTML 设计稿和 Grok 实施交接为唯一验收基线，按以下顺序继续：
+
+P0-A：先重做接口排查的请求验证区。环境/Base/认证/HTTPS 收敛为第 1 行，方法/最终 URL/动态发送按钮收敛为第 2 行；发送按钮必须显示“向 {环境或Host} 发送请求”，未选环境显示“选择环境后发送”并禁用；确认框必须展示方法、最终 URL、环境、Host、认证状态、HTTPS 与生产影响。草稿生成继续和真实发送分离。
+
+P0-B：接口排查、日志/SSH、SQL 控制台必须实现 Wide/Standard/Compact/Narrow 的真实工作区回退。禁止只在 apply_layout_mode 中隐藏副标题。Narrow 下不能硬压三栏：对象/会话/服务器与 AI/详情必须改为明确 Tab、Drawer 或“显示…”入口；终端、编辑器、结果保留主阅读面积与关键状态。
+
+P0-C：完善 ui/splitter_prefs.py 并全量接入需要拖拽的页面。必须按 pageId + 当前 Tab/模式 + layout bucket 保存非敏感尺寸比例，release 后 250ms 防抖，按 DPI/有效画布/min-max 夹紧恢复；handle 要有 accessibleName、焦点、键盘调整、双击仅复位当前页面/Tab/模式；设置页复位必须覆盖已接入页面。不要保存 SQL、报文、日志或凭据。
+
+P1：取消 PRIMARY_BASELINE 对多 primary 的豁免。业务面板树中每页最多 1 个 #primary-btn（Dialog 不计）；其余降为 secondary/ghost/更多操作。文件库九个按钮的文字、顺序、功能、图标、快捷和启用条件一律不动。日志/SSH 的“发送”“清屏”改为“执行到当前终端”“清空终端显示”等对象明确文字，不能改业务语义。
+
+P2：不要增加高频动画、扫描线、呼吸灯或页面转场。仅补 120–180ms 的允许微动效和“减弱动效”开关；主题体系保留，补四主题真实页面截图验证。
+
+交付前请提供：改动文件清单、定向测试、接口/日志/SQL 在 1440×900、1280×800、1100×720、960×640 且 100%/125%/150% DPI 下的截图矩阵，覆盖默认/空态/Loading/失败或取消/风险确认/Splitter 极限和双击复位。未提供这些证据前，不要宣称与 HTML 设计稿对齐或全量 UI 重构完成。UI 改造不得改变 HTTP、SSH、SQL、SVN、数据存储和敏感信息边界。</pre>
+  </section>
+
+  <p class="footer">本报告基于本地源码和定向测试。结论明确区分“代码已证实”与“仍需运行态验证”；没有截图矩阵的部分不作完成性判断。</p>
+</main>
+</body>
+</html>

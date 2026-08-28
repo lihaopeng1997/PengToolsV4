@@ -203,16 +203,27 @@ def open_connection(item: dict):
             db_index = int(database or 0)
         except ValueError:
             db_index = 0
+        mode = str(item.get('mode') or 'standalone').strip().lower()
         try:
-            client = redis.Redis(
-                host=host or '127.0.0.1',
-                port=port,
-                password=password or None,
-                username=username or None,
-                db=db_index,
-                decode_responses=True,
-                socket_connect_timeout=8,
-            )
+            if mode == 'cluster':
+                client = redis.RedisCluster(
+                    host=host or '127.0.0.1',
+                    port=port,
+                    password=password or None,
+                    username=username or None,
+                    decode_responses=False,
+                    socket_connect_timeout=8,
+                )
+            else:
+                client = redis.Redis(
+                    host=host or '127.0.0.1',
+                    port=port,
+                    password=password or None,
+                    username=username or None,
+                    db=db_index,
+                    decode_responses=False,
+                    socket_connect_timeout=8,
+                )
             client.ping()
             return client
         except Exception as exc:
@@ -222,17 +233,44 @@ def open_connection(item: dict):
             from pymongo import MongoClient
         except ImportError as exc:
             raise DbError('未安装 pymongo，请安装依赖后重试') from exc
-        if not database:
-            raise DbError('MongoDB 请填写库名')
+        raw_host = str(host or '').strip()
+        mongo_mode = str(item.get('mode') or 'standalone').strip().lower()
         try:
-            kwargs = {'host': host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
-            if username:
-                kwargs['username'] = username
-                kwargs['password'] = password
-            client = MongoClient(**kwargs)
+            # 支持 from URL：host 形如 mongodb://user:pass@host1,host2,host3/?replicaSet=...&authSource=...
+            # URL 已含用户名/密码/replicaSet/authSource，直接用完整连接串（覆盖拆分的 user/pass）
+            if raw_host.startswith('mongodb://') or raw_host.startswith('mongodb+srv://'):
+                client = MongoClient(raw_host, serverSelectionTimeoutMS=8000)
+                client.admin.command('ping')
+                return client[database or 'admin']
+            if not database:
+                raise DbError('MongoDB 请填写库名')
+            # 集群模式：host 支持多主机逗号分隔（副本集/分片 mongos），可附加 ?replicaSet=...&authSource=...
+            if mongo_mode == 'cluster':
+                if ',' in raw_host or 'replicaSet' in raw_host or '?' in raw_host:
+                    conn_uri = raw_host
+                    if not conn_uri.startswith('mongodb'):
+                        # 多主机/带参数但未写协议头，补协议 + 认证（若填了 user/pass）
+                        auth = ''
+                        if username:
+                            from urllib.parse import quote_plus
+                            auth = f'{quote_plus(username)}:{quote_plus(password or "")}@'
+                        conn_uri = f'mongodb://{auth}{conn_uri}'
+                    client = MongoClient(conn_uri, serverSelectionTimeoutMS=8000)
+                else:
+                    # 集群模式但只填了单主机：按多 host 列表 + 可选副本集连接
+                    kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
+                    if username:
+                        kwargs['username'] = username
+                        kwargs['password'] = password
+                    client = MongoClient(**kwargs)
+            else:
+                kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
+                if username:
+                    kwargs['username'] = username
+                    kwargs['password'] = password
+                client = MongoClient(**kwargs)
             client.admin.command('ping')
-            db = client[database]
-            return db
+            return client[database]
         except Exception as exc:
             raise DbError(f'MongoDB 连接失败：{exc}') from exc
     raise DbError(f'不支持的数据库类型：{dialect}')
@@ -353,11 +391,20 @@ def _wrap_paged(sql: str, dialect: str, offset: int, limit: int) -> str:
     )
 
 
+def _b(value: Any) -> str:
+    """Redis 字节安全解码：二进制 key/value 用 errors='replace' 转文本，不抛 UnicodeDecodeError。"""
+    if value is None:
+        return ''
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    return str(value)
+
+
 def _redis_list_keys(conn, limit: int = 80) -> list[str]:
     keys = []
     try:
         for key in conn.scan_iter(match='*', count=min(int(limit), 200)):
-            keys.append(str(key))
+            keys.append(_b(key))
             if len(keys) >= int(limit):
                 break
     except Exception as exc:
@@ -400,9 +447,14 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
                         count = int(args[i + 1])
                     except ValueError:
                         pass
-        cursor_out, keys = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
+        try:
+            cursor_out, keys = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
+        except Exception:
+            # RedisCluster 无 scan()（仅 scan_iter），cluster 下退化为单页枚举
+            keys = list(conn.scan_iter(match=match, count=max(count, int(limit))))
+            cursor_out = 0
         columns = ['key']
-        rows = [[str(key)] for key in keys]
+        rows = [[_b(key)] for key in keys]
         has_more = int(cursor_out or 0) != 0
         return {
             'columns': columns, 'rows': rows, 'offset': int(cursor_out or 0),
@@ -417,10 +469,10 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
         rows = [[key, _stringify(val)] for key, val in zip(args, values)]
     elif cmd == 'hgetall':
         mapping = conn.hgetall(args[0]) if args else {}
-        rows = [[str(k), _stringify(v)] for k, v in mapping.items()]
+        rows = [[_b(k), _stringify(v)] for k, v in mapping.items()]
     elif cmd in ('hkeys', 'hvals'):
         values = conn.execute_command(*parts) or []
-        rows = [[str(item)] for item in values]
+        rows = [[_b(item)] for item in values]
         columns = ['value']
     elif cmd == 'lrange':
         values = conn.execute_command(*parts) or []
@@ -436,7 +488,7 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
             rows = [[_stringify(item)] for item in value]
             columns = ['value']
         elif isinstance(value, dict):
-            rows = [[str(k), _stringify(v)] for k, v in value.items()]
+            rows = [[_b(k), _stringify(v)] for k, v in value.items()]
         else:
             rows = [[cmd, _stringify(value)]]
     sliced = rows[int(offset): int(offset) + int(limit)]
@@ -501,7 +553,10 @@ def _run_mongo(conn, sql: str, offset: int, limit: int) -> dict:
 def _stringify(value: Any) -> str:
     if value is None:
         return ''
-    text = str(value)
+    if isinstance(value, bytes):
+        text = value.decode('utf-8', errors='replace')
+    else:
+        text = str(value)
     if len(text) > CELL_MAX:
         return text[:CELL_MAX] + '…'
     return text

@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harness 改造与模型对话增强设计文档</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #1f2329;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #2f6bff;
+    --brand-soft: #eef3ff;
+    --green: #16a34a;
+    --green-soft: #ecfdf5;
+    --amber: #d97706;
+    --amber-soft: #fffbeb;
+    --red: #dc2626;
+    --red-soft: #fef2f2;
+    --purple: #7c3aed;
+    --purple-soft: #f5f3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero {
+    background: linear-gradient(135deg, #2f6bff 0%, #7c3aed 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 36px 40px;
+    margin-bottom: 28px;
+  }
+  header.hero h1 { margin: 0 0 12px; font-size: 28px; letter-spacing: .5px; }
+  header.hero p { margin: 4px 0; opacity: .95; font-size: 15px; }
+  .badge-row { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    display: inline-block; background: rgba(255,255,255,.18);
+    border: 1px solid rgba(255,255,255,.3);
+    padding: 3px 12px; border-radius: 999px; font-size: 12.5px;
+  }
+  .toc {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 28px;
+  }
+  .toc h2 { margin: 0 0 12px; font-size: 16px; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc a { color: var(--brand); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  section { margin-bottom: 32px; }
+  h2.sec {
+    font-size: 21px; margin: 0 0 16px; padding-left: 12px;
+    border-left: 4px solid var(--brand);
+  }
+  h3 { font-size: 17px; margin: 24px 0 10px; }
+  h4 { font-size: 15px; margin: 18px 0 8px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
+  }
+  .note {
+    border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 14px;
+    border-left: 4px solid;
+  }
+  .note.info  { background: var(--brand-soft); border-color: var(--brand); }
+  .note.ok    { background: var(--green-soft); border-color: var(--green); }
+  .note.warn  { background: var(--amber-soft); border-color: var(--amber); }
+  .note.danger{ background: var(--red-soft);   border-color: var(--red); }
+  .note.purple{ background: var(--purple-soft);border-color: var(--purple); }
+  .note b { font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td {
+    border: 1px solid var(--line); padding: 9px 12px; text-align: left;
+    vertical-align: top;
+  }
+  th { background: #f9fafb; font-weight: 600; }
+  code, pre {
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 13px;
+  }
+  code {
+    background: #f1f5f9; padding: 2px 6px; border-radius: 5px;
+    color: #334155;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 16px 18px;
+    border-radius: 10px; overflow-x: auto; line-height: 1.55;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  .tag {
+    display: inline-block; font-size: 11.5px; padding: 1px 8px;
+    border-radius: 5px; font-weight: 600; vertical-align: middle;
+  }
+  .tag.p0 { background: var(--red-soft); color: var(--red); }
+  .tag.p1 { background: var(--amber-soft); color: var(--amber); }
+  .tag.p2 { background: var(--green-soft); color: var(--green); }
+  .tag.new { background: var(--purple-soft); color: var(--purple); }
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin: 12px 0; font-size: 13px;
+  }
+  .flow .step {
+    background: var(--brand-soft); color: var(--brand);
+    border: 1px solid var(--brand); border-radius: 8px;
+    padding: 6px 12px; font-weight: 600; white-space: nowrap;
+  }
+  .flow .arrow { color: var(--muted); font-weight: 600; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+  .footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Harness 改造与模型对话增强设计文档</h1>
+  <p>PengToolsHub V4.27 Private · 离线桌面工具台 · Python 3.12 + PyQt6</p>
+  <p>主题：让大模型在「确定性数据」「数据库/SQL」「Linux 命令」「对话交互」四类场景下，从「自由发挥」收口为「受控调用本地逻辑」</p>
+  <div class="badge-row">
+    <span class="badge">仅设计 · 不改代码</span>
+    <span class="badge">改造由他人执行</span>
+    <span class="badge">版本 v1.0</span>
+    <span class="badge">2026-08-27</span>
+  </div>
+</header>
+
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">背景与目标</a></li>
+    <li><a href="#s2">现状盘点：已有基础与三处缺口</a></li>
+    <li><a href="#s3">诉求一：确定性数据走软件逻辑（证件 / VIN / 信用代码）</a></li>
+    <li><a href="#s4">诉求二：思考过程展示与等待提示</a></li>
+    <li><a href="#s5">诉求三：数据库 / Linux 的「取证式」精准回答</a></li>
+    <li><a href="#s6">诉求四：对话交互改进（Enter / 停止 / 重新生成）</a></li>
+    <li><a href="#s7">诉求五：悬浮框大模型对话</a></li>
+    <li><a href="#s8">诉求六：Harness 还能做什么</a></li>
+    <li><a href="#s9">开发与集成 Harness：架构与分期</a></li>
+    <li><a href="#s10">验收标准与非目标</a></li>
+    <li><a href="#s11">风险与注意事项</a></li>
+  </ol>
+</div>
+
+<!-- ===================== S1 ===================== -->
+<section id="s1">
+  <h2 class="sec">一、背景与目标</h2>
+  <div class="card">
+    <p>软件已内置一套受控任务层 <b>PTools Harness</b>（<code>tools/ptools_harness.py</code>）与「基于 Schema 快照的字段证据链」<b>TamengAgent</b>（<code>tools/tameng_agent.py</code>），但模型对话入口（导航 15「模型对话」）目前是<b>纯文本自由对话</b>：模型不知道本地有真实的证件/VIN/信用代码生成逻辑，不知道已连接了哪些数据库、哪些 Linux 主机，回答时只能「按自己的知识猜」。</p>
+    <p>本次改造的<b>核心思想</b>只有一条：</p>
+    <div class="note info">
+      <b>把「模型自由生成」收口为「模型声明意图 + 本地受控执行」。</b><br>
+      模型只负责理解用户意图、组织语言、声明要调用的工具；<b>真正产生数据 / 查库 / 跑命令的，永远是软件内部已有的、经过校验的确定性逻辑</b>。模型无权、也无法绕过这些逻辑自由编造。
+    </div>
+  </div>
+  <div class="two-col">
+    <div class="card">
+      <h4 style="margin-top:0">本轮目标</h4>
+      <ul>
+        <li>确定性数据（证件/VIN/信用代码）走软件生成逻辑</li>
+        <li>数据库 / Linux 查询「先发现 → 再验证 → 后生成」</li>
+        <li>对话思考过程 / 等待提示</li>
+        <li>Enter 发送、停止按钮、气泡内重新生成</li>
+        <li>悬浮框大模型对话</li>
+        <li>梳理 Harness 扩展方向与集成架构</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">非目标（明确不做）</h4>
+      <ul>
+        <li>本阶段不实现，仅交付设计文档</li>
+        <li>不引入公网模型 / 在线 CDN / 遥测</li>
+        <li>不开放任意 shell（Linux 仍只读、白名单）</li>
+        <li>不改变 SQL 控制台现有「绝不自动执行」红线</li>
+        <li>不改账号/密钥/加密存储方案</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== S2 ===================== -->
+<section id="s2">
+  <h2 class="sec">二、现状盘点：已有基础与三处缺口</h2>
+  <div class="card">
+    <h3 style="margin-top:0">2.1 已经具备的「弹药」（无需从零造）</h3>
+    <table>
+      <tr><th>能力</th><th>所在文件</th><th>关键函数 / 机制</th></tr>
+      <tr><td>证件生成</td><td><code>tools/id_documents.py</code></td><td><code>generate_resident_id</code>（MOD 11-2 校验）、<code>generate_passport</code>、<code>generate_military_officer_card</code>、<code>generate_armed_police_document</code>、<code>generate_personal_records</code></td></tr>
+      <tr><td>统一社会信用代码</td><td><code>tools/credit_code.py</code></td><td><code>generate_code</code>、<code>generate_unit_record(s)</code>（GB 32100 加权校验）</td></tr>
+      <tr><td>VIN 生成</td><td><code>tools/vin_generator.py</code></td><td><code>generate_vin</code>、<code>generate_vehicle_record</code>、<code>generate_vehicle_batch</code>（GB 16735 / ISO 3779）</td></tr>
+      <tr><td>SQL 字段证据链</td><td><code>tools/tameng_agent.py</code></td><td><code>resolve_candidates</code>（字段名精确 / 下划线归一 / 注释精确 / 同义词扩展）、<code>validate_generated_sql</code>（未知字段 / 多语句 / 方言拦截）</td></tr>
+      <tr><td>真实 Schema 取证</td><td><code>tools/schema_snapshot.py</code></td><td><code>scan_schema</code>（Oracle <code>all_tab_columns</code> + <code>all_col_comments</code> / MySQL <code>information_schema</code>）、<code>snapshot_status</code>（指纹防过期）</td></tr>
+      <tr><td>SQL 只读门禁</td><td><code>tools/sql_guard.py</code> / <code>ai_sql_draft.py</code></td><td>只读白名单、<code>fail_closed</code>（无证据不调模型）</td></tr>
+      <tr><td>Linux 只读门禁</td><td><code>tools/linux_guard.py</code></td><td><code>ALLOWED_BINARIES</code> / <code>_DENIED_BINARIES</code> / <code>_DENIED_PATTERN</code>、<code>inspect_command</code></td></tr>
+      <tr><td>内网模型接入</td><td><code>tools/intranet_llm.py</code></td><td><code>chat_completions</code>（loopback/RFC1918 白名单、DNS rebinding 防护、Token DPAPI）</td></tr>
+      <tr><td>对话存储</td><td><code>tools/model_chat_store.py</code></td><td><code>SYSTEM_PROMPT</code>、<code>trim_messages_for_request</code>、<code>update_message</code></td></tr>
+      <tr><td>悬浮栏</td><td><code>ui/quick_panel.py</code> / <code>ui/navigation_model.py</code></td><td><code>QuickPanel</code>（Frameless+置顶+可拖拽）、nav 15 已入 <code>floating_eligible</code></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>2.2 三处「分叉 / 缺口」（本轮必须收口）</h3>
+    <div class="note danger">
+      <b>缺口 A — SQL 证据校验未打通到通用 Harness：</b><br>
+      <code>ptools_harness.sql.*</code> 目前<b>直接返回 strip fence 后的 SQL 字符串</b>，没有走 <code>tameng_agent</code> 的字段证据校验。而 SQL 控制台走的是 <code>ai_sql_draft</code> + <code>tameng_agent</code>。两条链路校验深度不一致，模型对话入口是「裸奔」的。
+    </div>
+    <div class="note danger">
+      <b>缺口 B — Linux 规则两套口径分叉：</b><br>
+      <code>linux_guard</code> 把 <code>find / awk / sed / systemctl / journalctl</code> 列为 denied，但 <code>tools/ops_commands.py</code> 命令库又把它们列为可用。同一命令在两处结论相反，必须统一收口到一套白名单。
+    </div>
+    <div class="note warn">
+      <b>缺口 C — 对话交互不完整：</b><br>
+      默认快捷键是 <b>Ctrl+Enter 发送、Enter 换行</b>（与需求相反）；发送 / 停止是两个独立按钮；「重新生成」是全局底部按钮而非气泡内；无流式增量显示；<code>_stop()</code> 只置 <code>cancelled</code> 忽略结果，<b>无法真正中断同步阻塞的 <code>urllib</code> 请求</b>。
+    </div>
+  </div>
+</section>
+
+<!-- ===================== S3 ===================== -->
+<section id="s3">
+  <h2 class="sec">三、诉求一：确定性数据走软件逻辑</h2>
+  <div class="card">
+    <h3 style="margin-top:0">3.1 设计原则</h3>
+    <p>身份证 / 护照 / 军官证 / 武警证件 / VIN / 统一社会信用代码，都是<b>带校验位的强规则数据</b>。模型自己编出来的数，校验位大概率是错的（身份证 MOD 11-2、VIN 第 9 位、信用代码 GB 32100 加权校验）。因此：</p>
+    <div class="note purple">
+      <b>模型只能「声明调用工具 + 给出参数」，数据由本地函数生成后回填进回答。</b>模型绝不直接输出这些字符串。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>3.2 受控 Harness 工具契约（新增）</h3>
+    <p>把这 3 组纯函数包装成 Harness 的<b>本地工具（local tools）</b>，定义统一契约：</p>
+    <pre><code># 工具契约（JSON Schema 草案，实施时按此落地）
+{
+  "name": "generate_identity_documents",   # 证件
+  "description": "生成符合校验规则的身份证/护照/军官证/武警证件（本地逻辑，禁止模型自造）",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "doc_type":  {"enum": ["resident_id","passport","military_officer","armed_police"]},
+      "count":     {"type": "integer", "minimum": 1, "maximum": 100},
+      "area_code": {"type": "string",  "description": "6 位地区码，可空（随机合法）"},
+      "min_age":   {"type": "integer", "minimum": 18, "maximum": 90},
+      "max_age":   {"type": "integer"},
+      "gender":    {"enum": ["male","female","random"]}
+    },
+    "required": ["doc_type"]
+  },
+  "executor": "tools.id_documents.generate_personal_records",   # 本地函数绑定
+  "returns":  {"type": "array", "items": {"type": "object"}}
+}</code></pre>
+    <pre><code>{
+  "name": "generate_vin_vehicles",         # VIN
+  "parameters": {
+    "wmi":     {"type": "string", "description": "WMI 世界制造厂代码，可空"},
+    "year":    {"type": "integer"},
+    "count":   {"type": "integer", "maximum": 200}
+  },
+  "executor": "tools.vin_generator.generate_vehicle_batch",
+  "returns":  {"type": "array"}
+}
+
+{
+  "name": "generate_credit_codes",         # 统一社会信用代码
+  "parameters": {
+    "scope":    {"enum": ["personal","unit"]},
+    "province": {"type": "string"},
+    "org_type": {"type": "string"},
+    "count":    {"type": "integer", "maximum": 100}
+  },
+  "executor": "tools.credit_code.generate_personal_records | generate_unit_records",
+  "returns":  {"type": "array"}
+}</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>3.3 执行流程</h3>
+    <div class="flow">
+      <span class="step">用户：帮我生成 10 个湖南男性身份证</span>
+      <span class="arrow">→</span>
+      <span class="step">模型识别意图</span>
+      <span class="arrow">→</span>
+      <span class="step">声明工具 + 参数</span>
+      <span class="arrow">→</span>
+      <span class="step">本地函数生成</span>
+      <span class="arrow">→</span>
+      <span class="step">结果回填回答</span>
+    </div>
+    <ul>
+      <li>模型在 System Prompt 中被明确告知：这 3 类数据<b>只能通过工具生成</b>，如无法确定参数则<b>追问</b>，不得自造。</li>
+      <li>工具返回结构化结果（数组），模型拿到真实数据后再组织成自然语言表格呈现给用户。</li>
+      <li><b>校验兜底</b>：即使模型「嘴硬」直接输出了一串数字，对话层可用 <code>validate_resident_id / validate_vin / validate_code</code> 做一次后置校验，命中「校验不过」的疑似自造数据时，提示用户「已改用本地逻辑重新生成」。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>3.4 参数对齐（对齐现有 UI 面板）</h3>
+    <table>
+      <tr><th>工具</th><th>现有 UI 面板</th><th>需对齐的参数</th></tr>
+      <tr><td>证件</td><td>证件类型（nav 1）</td><td>证件类型、地区、年龄区间、性别、数量</td></tr>
+      <tr><td>VIN</td><td>VIN（nav 4）</td><td>WMI、年份、能源类型、车型类别、数量</td></tr>
+      <tr><td>信用代码</td><td>统一社会信用代码（个人/单位两个 Tab）</td><td>个人/单位、省市区、机构类型、数量</td></tr>
+    </table>
+    <p>工具参数尽量与面板字段一一对应，保证「面板里能生成的，对话里也能生成，且结果一致」。</p>
+  </div>
+</section>
+
+<!-- ===================== S4 ===================== -->
+<section id="s4">
+  <h2 class="sec">四、诉求二：思考过程展示与等待提示</h2>
+  <div class="card">
+    <h3>4.1 现状</h3>
+    <p>当前 <code>_ChatWorker.run()</code> 调 <code>chat_completions(stream=True)</code>，但 <code>_decode_body</code> 把 SSE 全文一次性拼接后返回，<b>UI 只能等整段结束后一次性渲染</b>，中间无任何过程反馈。</p>
+  </div>
+  <div class="card">
+    <h3>4.2 两个层次的「过程可见」</h3>
+    <table>
+      <tr><th>层次</th><th>含义</th><th>实现建议</th><th>优先级</th></tr>
+      <tr>
+        <td><b>等待提示</b></td>
+        <td>模型思考/生成期间的占位反馈</td>
+        <td>发送后立即在对话区插入一个「正在思考…」的气泡（带三点跳动动画 / 骨架屏），收到首 token 后替换为真实内容。复用现有 <code>pending</code> 占位机制即可。</td>
+        <td><span class="tag p0">P0</span></td>
+      </tr>
+      <tr>
+        <td><b>流式增量</b></td>
+        <td>逐 token 显示回答</td>
+        <td>把 <code>intranet_llm.chat_completions</code> 改为<b>真流式</b>：解析 SSE 逐条 yield，<code>_ChatWorker</code> 通过信号把增量 append 到当前气泡。这是「等待提示」的最优形态。</td>
+        <td><span class="tag p1">P1</span></td>
+      </tr>
+      <tr>
+        <td><b>思考过程</b></td>
+        <td>展示模型的推理链（CoT）</td>
+        <td><b>需模型支持</b>。若内网模型返回 <code>reasoning_content</code> / <code>thinking</code> 字段，则在回答前折叠展示「思考过程」；若模型不支持，则退化为「正在思考…」占位。<b>注意合规</b>：思考链属于模型内部推理，展示与否遵循模型供应商约定，默认可折叠隐藏。</td>
+        <td><span class="tag p2">P2</span></td>
+      </tr>
+    </table>
+    <div class="note warn">
+      <b>边界：</b>「思考过程」依赖模型能力，不是纯前端能造出来的。设计上做到<b>能展示就展示、不支持就降级为等待动画</b>，两套都不阻塞主流程。
+    </div>
+  </div>
+</section>
+
+<!-- ===================== S5 ===================== -->
+<section id="s5">
+  <h2 class="sec">五、诉求三：数据库 / Linux 的「取证式」精准回答</h2>
+  <div class="card">
+    <h3>5.1 核心原则</h3>
+    <div class="note info">
+      <b>先发现 → 再验证 → 后生成，无证据不回答。</b><br>
+      模型在自然语言转 SQL / Linux 命令时，<b>禁止按自己的知识猜</b>。因为软件已经连了数据库、连了 Linux，必须针对<b>真实连接里的真实对象</b>回答。<br>
+      一句话：<b>表名可以不精准（靠注释/同义词匹配），字段名必须精准（只能来自数据库查询结果）。</b>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>5.2 车险示例走查（对应你的原话）</h3>
+    <p>用户说：「<b>查询车险 main 表中的创建日期字段</b>」</p>
+    <div class="flow">
+      <span class="step">1 发现：查连接的库有无 main 表</span>
+      <span class="arrow">→</span>
+      <span class="step">2 匹配：命中 PRPCMAIN（车险主表）</span>
+      <span class="arrow">→</span>
+      <span class="step">3 取字段：查该表真实列</span>
+      <span class="arrow">→</span>
+      <span class="step">4 出 SQL：CREATED_DATE 精准落列</span>
+    </div>
+    <pre><code>-- 用户意图：车险 main 表的创建日期字段
+-- 实际数据库：表名是 PRPCMAIN（非 main），列是 CREATED_DATE
+
+-- 步骤① 发现（本地执行，模型不可跳过）：
+--   SELECT table_name FROM user_tables WHERE table_name LIKE '%MAIN%';
+--   命中 PRPCMAIN（结合注释「车险主表」确认）
+
+-- 步骤② 取字段（本地执行）：
+--   SELECT column_name, comments FROM all_col_comments
+--   WHERE table_name='PRPCMAIN' AND (column_name LIKE '%CREATE%' OR comments LIKE '%创建%');
+--   命中 CREATED_DATE（注释「创建日期」）
+
+-- 步骤③ 生成 SQL（字段名来自真实快照，精准）：
+SELECT CREATED_DATE FROM PRPCMAIN WHERE ROWNUM &lt;= 10;   -- Oracle 方言</code></pre>
+    <p>其中「main → PRPCMAIN」靠 <code>tameng_agent.FIELD_SYNONYMS</code> 与表注释匹配；「创建日期 → CREATED_DATE」靠 <code>_rank_field</code> 的「注释精确 / 同义词扩展」命中。<b>字段名绝不来自模型记忆，而来自 <code>schema_snapshot</code> 的真实列。</b></p>
+  </div>
+
+  <div class="card">
+    <h3>5.3 取证式编排（需下沉为通用 Harness 契约）</h3>
+    <p>目前这套证据链只在 SQL 控制台（<code>ai_sql_draft</code> + <code>tameng_agent</code>）里生效；<b>模型对话入口的 <code>ptools_harness.sql.*</code> 没走</b>（缺口 A）。设计要求：</p>
+    <table>
+      <tr><th>步骤</th><th>动作</th><th>责任方</th></tr>
+      <tr><td>① 意图解析</td><td>识别用户是「查库」还是「跑 Linux」，提取关键词（main / 创建日期）</td><td>模型</td></tr>
+      <tr><td>② 发现对象</td><td>用 <code>schema_snapshot.search_fields</code> / 表名模糊匹配，列出候选表</td><td><b>本地逻辑</b></td></tr>
+      <tr><td>③ 候选澄清</td><td>候选 &gt;1 时，把候选表/字段列给用户确认（复用 <code>NEEDS_SELECTION</code> 状态）</td><td>本地逻辑 + 模型组织语言</td></tr>
+      <tr><td>④ 证据构建</td><td>取真实列名 + 注释 + 索引，注入模型上下文（<code>build_evidence_context</code>）</td><td><b>本地逻辑</b></td></tr>
+      <tr><td>⑤ 生成</td><td>模型基于证据生成 SQL / 命令</td><td>模型（仅组织）</td></tr>
+      <tr><td>⑥ 校验</td><td><code>validate_generated_sql</code> / <code>linux_guard.inspect_command</code> 拦截未知字段 / 危险命令</td><td><b>本地逻辑</b></td></tr>
+      <tr><td>⑦ 输出</td><td>校验通过才展示；否则打回重来或 fail-closed 拒绝</td><td>本地逻辑</td></tr>
+    </table>
+    <div class="note danger">
+      <b>P0 收口（缺口 A）：</b>让 <code>ptools_harness.sql.draft / sql.optimize</code> 也接入 <code>tameng_agent</code> 的 <code>validate_generated_sql</code>，实现「两条链路同一把尺」。
+    </div>
+    <div class="note danger">
+      <b>P0 收口（缺口 B）：</b>统一 Linux 白名单。以 <code>linux_guard</code> 为准收口 <code>ops_commands</code>，明确 <code>find / awk / sed / systemctl</code> 是「只读可用」还是「禁止」，消除两套口径。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>5.4 Linux 的「针对性」</h3>
+    <p>与 SQL 同理：模型必须基于「已连接的 Linux 主机 + 白名单命令」回答，而不是泛泛给出命令。</p>
+    <ul>
+      <li>模型先确认当前连接的主机 / 项目上下文（复用 <code>harness_project.project_context</code> 的 log_hints、路径约定）。</li>
+      <li>命令必须过 <code>linux_guard.inspect_command</code>，命中 denied（rm / reboot / sudo / 重定向）直接拒绝。</li>
+      <li>查询需用户点「执行查询」才发 SSH（保持现有红线，<b>绝不自动执行</b>）。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== S6 ===================== -->
+<section id="s6">
+  <h2 class="sec">六、诉求四：对话交互改进</h2>
+  <div class="card">
+    <table>
+      <tr><th>交互点</th><th>现状</th><th>目标</th><th>改动位置</th><th>优先级</th></tr>
+      <tr>
+        <td>发送快捷键</td>
+        <td>默认 Ctrl+Enter 发送、Enter 换行（受 <code>model_chat_send_with_ctrl_enter</code> 控制，默认 True）</td>
+        <td><b>Enter 发送、Alt+Enter 换行</b></td>
+        <td><code>model_chat_panel.py::eventFilter</code></td>
+        <td><span class="tag p0">P0</span></td>
+      </tr>
+      <tr>
+        <td>发送按钮</td>
+        <td>发送 / 停止是两个独立按钮，发送时仅禁用 send、启用 stop</td>
+        <td><b>发送按钮在思考/回答期间变「停止」状态</b>（同一按钮切换图标与文案）</td>
+        <td><code>model_chat_panel.py::_start_worker / _stop</code></td>
+        <td><span class="tag p0">P0</span></td>
+      </tr>
+      <tr>
+        <td>停止</td>
+        <td><code>_stop()</code> 仅置 <code>cancelled=True</code>，无法中断同步阻塞的 urllib 请求</td>
+        <td><b>真正中断</b>：改用可取消的请求（线程 + abort，或改流式后丢弃剩余 token）</td>
+        <td><code>model_chat_panel.py / intranet_llm.py</code></td>
+        <td><span class="tag p1">P1</span></td>
+      </tr>
+      <tr>
+        <td>重新生成</td>
+        <td>全局底部按钮 <code>_regenerate()</code></td>
+        <td><b>移到 assistant 回答气泡内，与「复制」并排</b>，只重新生成当前这条</td>
+        <td><code>model_chat_panel.py::_render_messages</code></td>
+        <td><span class="tag p0">P0</span></td>
+      </tr>
+      <tr>
+        <td>流式显示</td>
+        <td>全文一次性渲染</td>
+        <td>逐 token 增量显示（配合诉求二）</td>
+        <td><code>_ChatWorker</code></td>
+        <td><span class="tag p1">P1</span></td>
+      </tr>
+    </table>
+    <div class="note ok">
+      <b>注意兼容：</b>快捷键反转可能影响老用户习惯，建议把 <code>model_chat_send_with_ctrl_enter</code> 设置保留，但<b>默认值从 True 改为 False</b>（即默认「Enter 发送」），老用户可在设置里切回。
+    </div>
+  </div>
+</section>
+
+<!-- ===================== S7 ===================== -->
+<section id="s7">
+  <h2 class="sec">七、诉求五：悬浮框大模型对话</h2>
+  <div class="card">
+    <h3>7.1 现状接入点</h3>
+    <p>已有 <code>QuickPanel</code>（<code>ui/quick_panel.py</code>）：Frameless + Tool + WindowStaysOnTopHint，可拖拽、置顶、编辑快捷入口，快捷键 Ctrl+Shift+P。导航元数据在 <code>ui/navigation_model.py</code>，模型对话 nav index=15，<b>且 <code>floating_eligible</code> 已包含 15</b>——接入点现成。</p>
+  </div>
+  <div class="card">
+    <h3>7.2 设计方案</h3>
+    <table>
+      <tr><th>要点</th><th>设计</th></tr>
+      <tr><td>形态</td><td>复用 <code>QuickPanel</code> 骨架，新增一个「对话」悬浮视图；或独立 <code>FloatingChatPanel</code>，同样 Frameless+置顶+可拖拽+记忆位置</td></tr>
+      <tr><td>内容</td><td>内嵌精简版对话区（消息列表 + 输入框 + 发送/停止按钮），<b>复用 <code>model_chat_panel</code> 的 <code>_ChatWorker</code> 与 <code>model_chat_store</code></b>，不要重写一套逻辑</td></tr>
+      <tr><td>会话</td><td>与主面板<b>共享同一会话存储</b>（per-tab 会话连接约束不变，避免全局 disconnect）；悬浮框关掉再开不丢上下文</td></tr>
+      <tr><td>唤起</td><td>沿用 Ctrl+Shift+P 切换，或在悬浮栏加「对话」入口按钮</td></tr>
+      <tr><td>约束</td><td>遵守「接口排查抓包只存内存」等现有红线；悬浮框不引入新数据落盘路径</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== S8 ===================== -->
+<section id="s8">
+  <h2 class="sec">八、诉求六：Harness 还能做什么</h2>
+  <div class="card">
+    <p>在「确定性数据 + 取证式查库 + 只读 Linux」之外，Harness 可进一步扩展为软件的<b>统一受控工具总线</b>。按「价值 × 落地成本」排序：</p>
+    <table>
+      <tr><th>方向</th><th>说明</th><th>复用现有</th><th>优先级</th></tr>
+      <tr><td>① 需求 → 升级准备 → 发版 Excel</td><td>自然语言描述需求 → Harness 驱动模型生成 SQL 草案 → 走发版 Excel 模板</td><td><code>release_prep.py</code>、<code>sql_panel</code></td><td><span class="tag p1">P1</span></td></tr>
+      <tr><td>② 日报 / 学习库问答</td><td>「我今天做了什么」→ 从需求/日报数据生成草稿（不覆盖已写内容）</td><td><code>daily_reports.py</code>、<code>personal_knowledge.py</code></td><td><span class="tag p1">P1</span></td></tr>
+      <tr><td>③ 日志排查助手</td><td>自然语言描述现象 → Harness 转成日志检索命令/关键字 → 引导导出</td><td><code>ops_ssh.py</code>、<code>ops_log_panel</code></td><td><span class="tag p1">P1</span></td></tr>
+      <tr><td>④ 接口排查解读</td><td>抓到的报文（内存态）→ 模型解读字段/加密链路（严守不落盘）</td><td><code>interface_debug</code></td><td><span class="tag p2">P2</span></td></tr>
+      <tr><td>⑤ 格式 / 加解密辅助</td><td>网关解密、格式工具的参数解释、VIN/证件校验说明</td><td>各工具函数</td><td><span class="tag p2">P2</span></td></tr>
+      <tr><td>⑥ 多系统 SQL 归一</td><td>同一需求在 Oracle/MySQL/Dameng 多系统生成对应方言 SQL</td><td><code>tameng_agent</code> 方言层</td><td><span class="tag p2">P2</span></td></tr>
+    </table>
+    <div class="note purple">
+      <b>统一范式：</b>所有扩展都遵循同一模式 —— <b>「模型提意图 → Harness 路由到本地受控逻辑 → 本地执行/校验 → 结果回填」</b>。Harness 的价值不是让模型「更会说话」，而是给模型接入<b>软件已有的、可信的本地能力</b>。
+    </div>
+  </div>
+</section>
+
+<!-- ===================== S9 ===================== -->
+<section id="s9">
+  <h2 class="sec">九、开发与集成 Harness：架构与分期</h2>
+  <div class="card">
+    <h3>9.1 目标架构</h3>
+    <div class="flow">
+      <span class="step">对话层（model_chat / 悬浮框）</span>
+      <span class="arrow">→</span>
+      <span class="step">Harness 编排层（ptools_harness）</span>
+      <span class="arrow">→</span>
+      <span class="step">受控工具（本地工具 + 证据链）</span>
+      <span class="arrow">→</span>
+      <span class="step">本地逻辑（确定性生成 / schema / linux_guard）</span>
+    </div>
+    <ul>
+      <li><b>对话层</b>：只负责渲染消息、捕获输入、展示工具调用结果；不直接碰数据库/命令/数据生成。</li>
+      <li><b>Harness 编排层</b>：解析模型声明的工具意图，路由到对应受控工具，串起「发现→验证→生成→回填」。</li>
+      <li><b>受控工具层</b>：本地工具（证件/VIN/信用代码）+ 证据链工具（schema_snapshot + tameng_agent）+ 只读门禁（sql_guard / linux_guard）。</li>
+      <li><b>本地逻辑层</b>：复用现有纯函数，<b>不新增业务规则</b>，只做工具化包装。</li>
+    </ul>
+    <p>依赖方向保持一致：<code>对话层 → Harness → 工具/逻辑</code>，工具层保持<b>不 import PyQt / 不 import intranet_llm</b>（现有 <code>test_module_has_no_qt_db_or_llm</code> 已锁定此约束，需继续守住）。</p>
+  </div>
+
+  <div class="card">
+    <h3>9.2 分期实施建议</h3>
+    <table>
+      <tr><th>阶段</th><th>内容</th><th>验收点</th></tr>
+      <tr>
+        <td><b>P0 收口期</b></td>
+        <td>
+          ① 打通 <code>ptools_harness.sql.*</code> 到 <code>tameng_agent</code> 字段校验（缺口 A）；<br>
+          ② 统一 Linux 白名单（缺口 B）；<br>
+          ③ 对话交互：Enter 发送 / Alt+Enter 换行、发送↔停止切换、气泡内重新生成。
+        </td>
+        <td>同一句话在两个入口产出的 SQL 字段一致且精准；危险命令一律拦截；快捷键与按钮状态符合预期</td>
+      </tr>
+      <tr>
+        <td><b>P1 增强期</b></td>
+        <td>
+          ① 确定性数据本地工具（证件/VIN/信用代码）接入对话；<br>
+          ② 等待提示 + 流式增量输出；<br>
+          ③ 悬浮框对话；<br>
+          ④ 需求→SQL、日志排查、日报等 Harness 扩展。
+        </td>
+        <td>对话生成的数据校验位全部正确；流式体验接近主流对话框；悬浮框可独立对话且会话共享</td>
+      </tr>
+      <tr>
+        <td><b>P2 深化期</b></td>
+        <td>思考过程展示（依赖模型）、接口排查解读、多系统方言 SQL 归一</td>
+        <td>按模型能力渐进启用，不影响主流程</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>9.3 新增 / 改动文件清单（实施指引）</h3>
+    <table>
+      <tr><th>文件</th><th>动作</th><th>说明</th></tr>
+      <tr><td><code>tools/harness_local_tools.py</code></td><td><span class="tag new">新增</span></td><td>本地工具注册表：证件/VIN/信用代码的工具契约 + 参数校验 + 函数绑定</td></tr>
+      <tr><td><code>tools/ptools_harness.py</code></td><td>改</td><td>sql.* 接入 <code>tameng_agent.validate_generated_sql</code>；新增 local tool 路由</td></tr>
+      <tr><td><code>tools/linux_guard.py</code> / <code>ops_commands.py</code></td><td>改</td><td>统一只读白名单口径</td></tr>
+      <tr><td><code>tools/intranet_llm.py</code></td><td>改</td><td>真流式 SSE 逐条 yield；可取消请求</td></tr>
+      <tr><td><code>panels/model_chat_panel.py</code></td><td>改</td><td>快捷键反转、发送↔停止切换、气泡内重新生成、流式渲染</td></tr>
+      <tr><td><code>ui/floating_chat.py</code></td><td><span class="tag new">新增</span></td><td>悬浮对话面板（复用 _ChatWorker + store）</td></tr>
+      <tr><td><code>main_window.py</code> / <code>ui/navigation_model.py</code></td><td>改</td><td>注册悬浮对话入口</td></tr>
+      <tr><td><code>tests/</code></td><td><span class="tag new">新增</span></td><td>本地工具参数校验、字段精准断言、快捷键/按钮状态、linux 白名单一致性</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== S10 ===================== -->
+<section id="s10">
+  <h2 class="sec">十、验收标准与非目标</h2>
+  <div class="card">
+    <h3>10.1 验收标准（可测）</h3>
+    <ul>
+      <li><b>确定性数据：</b>对话生成 100 条身份证/VIN/信用代码，<code>validate_resident_id / validate_vin / validate_code</code> 校验通过率 100%，无模型自造（后置兜底命中即回滚重生成）。</li>
+      <li><b>字段精准：</b>「查询车险 main 表创建日期」在两个入口（对话 / SQL 控制台）产出的 SQL 均使用真实列名 <code>CREATED_DATE</code> 与真实表 <code>PRPCMAIN</code>；字段名绝不来自模型记忆。</li>
+      <li><b>fail-closed：</b>无连接 / 快照缺失 / 快照过期时，模型<b>不产出 SQL</b>，而是提示「先连接数据库 / 刷新快照」。</li>
+      <li><b>Linux 安全：</b>rm / reboot / sudo / 重定向等一律拒绝，白名单两套口径一致。</li>
+      <li><b>交互：</b>Enter 发送、Alt+Enter 换行；思考期间发送按钮显示为「停止」并可真正中断；气泡内「重新生成」与「复制」并排，只重生成当前条。</li>
+      <li><b>悬浮框：</b>可独立对话、置顶、拖拽、记忆位置，与主面板会话共享。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>10.2 非目标（重申）</h3>
+    <ul>
+      <li>不改账号/密钥/加密存储方案；不引入公网模型、CDN、遥测。</li>
+      <li>不开放任意 shell；Linux 仍只读 + 白名单 + 需人工点「执行」。</li>
+      <li>不改变 SQL 控制台「草案绝不自动执行」红线。</li>
+      <li>不重写确定性数据生成算法（只做工具化包装）。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== S11 ===================== -->
+<section id="s11">
+  <h2 class="sec">十一、风险与注意事项</h2>
+  <div class="card">
+    <table>
+      <tr><th>风险</th><th>说明</th><th>对策</th></tr>
+      <tr><td>模型绕过工具自造数据</td><td>模型可能「嘴硬」直接输出证件号/VIN/SQL</td><td>System Prompt 强约束 + 后置校验兜底（validate_* / validate_generated_sql）</td></tr>
+      <tr><td>字段「精准」依赖快照新鲜度</td><td>Schema 变了快照过期会答错</td><td><code>snapshot_status</code> 指纹校验，过期即 fail-closed 提示刷新</td></tr>
+      <tr><td>停止无法真中断</td><td>urllib 同步阻塞请求</td><td>改流式 + 可取消，或独立线程 abort</td></tr>
+      <tr><td>思考过程合规</td><td>推理链可能含敏感/内部信息</td><td>默认折叠，展示遵循模型供应商约定</td></tr>
+      <tr><td>快捷键反转影响老用户</td><td>习惯 Ctrl+Enter 的用户</td><td>保留设置项，仅改默认值，可切回</td></tr>
+      <tr><td>悬浮框会话连接</td><td>多窗口可能触发全局 disconnect</td><td>坚持 per-tab 会话，禁止全局断开</td></tr>
+    </table>
+  </div>
+</section>
+
+<div class="footer">
+  <p><b>本轮交付说明：</b>本文档为<b>只读分析 + 设计</b>，全程未修改任何代码文件。所有结论均基于对以下模块的源码核查：<code>tools/ptools_harness.py</code>、<code>tools/tameng_agent.py</code>、<code>tools/schema_snapshot.py</code>、<code>tools/ai_sql_draft.py</code>、<code>tools/linux_guard.py</code>、<code>tools/ops_commands.py</code>、<code>tools/id_documents.py</code>、<code>tools/credit_code.py</code>、<code>tools/vin_generator.py</code>、<code>tools/intranet_llm.py</code>、<code>tools/model_chat_store.py</code>、<code>panels/model_chat_panel.py</code>、<code>ui/quick_panel.py</code>、<code>ui/navigation_model.py</code>、<code>main_window.py</code> 及相关测试。</p>
+  <p>改造由实施人员按「九、分期实施建议」执行；本文档作为交接依据，实施中如遇细节偏差，以源码为准并回填本文档。</p>
+</div>
+
+</div>
+</body>
+</html>

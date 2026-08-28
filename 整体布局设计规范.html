@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengTools 整体布局设计规范</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --border: #e2e6eb;
+    --text: #1a2332;
+    --text-sub: #5a6577;
+    --text-muted: #8b94a3;
+    --primary: #2563eb;
+    --primary-bg: #eff4ff;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --warn: #d97706;
+    --warn-bg: #fffbeb;
+    --ok: #059669;
+    --ok-bg: #ecfdf5;
+    --code-bg: #f1f3f5;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 32px 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  .header {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  .header h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .header .meta { font-size: 13px; color: var(--text-muted); display: flex; gap: 20px; flex-wrap: wrap; }
+  .header .meta .tag { background: var(--primary-bg); color: var(--primary); padding: 2px 10px; border-radius: 20px; font-weight: 600; font-size: 12px; }
+
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  .section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .section h2 .icon { font-size: 20px; }
+  .section h3 { font-size: 15px; font-weight: 600; margin: 18px 0 10px; }
+  .section p { margin-bottom: 12px; color: var(--text-sub); font-size: 14px; }
+  .section ul { margin: 8px 0 16px 20px; }
+  .section li { margin-bottom: 6px; font-size: 14px; color: var(--text-sub); }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; font-size: 12.5px; font-family: "Cascadia Code", "Consolas", monospace; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  th { background: var(--code-bg); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:hover td { background: #fafbfc; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .b-high { background: var(--danger-bg); color: var(--danger); }
+  .b-mid { background: var(--warn-bg); color: var(--warn); }
+  .b-low { background: var(--ok-bg); color: var(--ok); }
+
+  /* 间距刻度可视化 */
+  .scale-row { display: flex; align-items: center; gap: 12px; margin: 8px 0; font-size: 13px; }
+  .scale-row .label { width: 80px; font-weight: 600; color: var(--text); }
+  .scale-row .val { width: 60px; color: var(--text-muted); font-family: monospace; }
+  .scale-row .bar { height: 12px; background: var(--primary); border-radius: 3px; }
+
+  /* 字号层级 */
+  .type-sample { padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
+  .type-sample .meta { font-size: 12px; color: var(--text-muted); width: 120px; font-family: monospace; white-space: nowrap; }
+  .type-sample .sample { flex: 1; }
+
+  /* 卡片角色 */
+  .card-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 14px 0; }
+  .card-role { border-radius: 10px; padding: 16px; }
+  .card-role .cr-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+  .card-role .cr-desc { font-size: 12px; color: var(--text-muted); }
+  .cr-card { background: #fff; border: 1px solid var(--border); }
+  .cr-zone { background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--primary); }
+  .cr-muted { background: #f9f8f4; border: 1px solid var(--border); }
+  @media (max-width: 600px) { .card-roles { grid-template-columns: 1fr; } }
+
+  .problem-card { border-left: 4px solid var(--danger); background: var(--danger-bg); border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 12px 0; font-size: 13px; }
+  .problem-card.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .problem-card .pt { font-weight: 700; color: var(--danger); margin-bottom: 4px; font-size: 14px; }
+  .problem-card.warn .pt { color: var(--warn); }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; margin: 16px 0; }
+  .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-box .big { font-size: 28px; font-weight: 700; color: var(--primary); }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .tl-item { position: relative; padding-bottom: 20px; }
+  .tl-item::before { content: ''; position: absolute; left: -20px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid var(--card); }
+  .tl-item .tl-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .tl-item .tl-desc { font-size: 13px; color: var(--text-sub); }
+
+  .confirm-box { background: var(--primary-bg); border: 1px solid #bfdbfe; border-radius: 8px; padding: 18px 22px; }
+  .confirm-box p { color: var(--text); font-weight: 500; }
+  .confirm-box .note { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+  .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>PengTools 整体布局设计规范</h1>
+    <div class="meta">
+      <span class="tag">UI 规范</span>
+      <span>项目: PengToolsHub V4</span>
+      <span>框架: PyQt6 + QSS</span>
+      <span>日期: 2026-07-27</span>
+    </div>
+  </div>
+
+  <!-- 概述 -->
+  <div class="section">
+    <h2><span class="icon">📋</span> 概述:有规范,但执行不统一</h2>
+    <p>项目已具备设计系统基础(<code>layout_metrics.py</code> 间距常量、<code>design_system.py</code> 按钮角色、<code>page_chrome.py</code> 页面骨架),但各面板执行度严重不均,导致视觉碎片化。本报告诊断 7 大问题,建立统一刻度,给出分阶段实施路线。</p>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="big">7</div><div class="label">核心问题</div></div>
+      <div class="stat-box"><div class="big">6/13</div><div class="label">面板用统一骨架</div></div>
+      <div class="stat-box"><div class="big">7种</div><div class="label">圆角值混用</div></div>
+      <div class="stat-box"><div class="big">10种</div><div class="label">字号混用</div></div>
+    </div>
+  </div>
+
+  <!-- 问题诊断 -->
+  <div class="section">
+    <h2><span class="icon">🔍</span> 问题诊断</h2>
+
+    <h3>问题 1:间距碎片化——常量有,但没人用</h3>
+    <p><code>layout_metrics.py</code> 已定义 <code>SPACING_PAGE=16</code>、<code>SPACING_CARD=12</code>,但 13 个面板在代码里硬编码了 7 种 spacing 值,从不引用常量:</p>
+    <table>
+      <thead><tr><th>间距值</th><th>使用频次</th><th>问题</th></tr></thead>
+      <tbody>
+        <tr><td><code>setSpacing(4)</code></td><td class="num">15 处</td><td><span class="badge b-high">过紧</span> 图标按钮易误触</td></tr>
+        <tr><td><code>setSpacing(6)</code></td><td class="num">22 处</td><td><span class="badge b-mid">偏紧</span> 按钮组拥挤</td></tr>
+        <tr><td><code>setSpacing(7)</code></td><td class="num">5 处</td><td><span class="badge b-mid">非标准</span> 不在 4 倍数刻度上</td></tr>
+        <tr><td><code>setSpacing(8)</code></td><td class="num">14 处</td><td><span class="badge b-low">合理</span> 应为控件间距基准</td></tr>
+        <tr><td><code>setSpacing(10)</code></td><td class="num">8 处</td><td><span class="badge b-low">合理</span> 应为卡片间距基准</td></tr>
+        <tr><td><code>setSpacing(12)</code></td><td class="num">6 处</td><td><span class="badge b-low">合理</span> 应为页面区间距基准</td></tr>
+        <tr><td><code>setSpacing(14)</code></td><td class="num">4 处</td><td><span class="badge b-mid">非标准</span></td></tr>
+      </tbody>
+    </table>
+    <div class="problem-card">
+      <div class="pt">根因</div>
+      <p>间距是各面板各自 <code>setSpacing(N)</code> 硬编码的,没有统一调用 <code>SPACING_PAGE</code>/<code>SPACING_CARD</code> 常量。4 和 6 占了近一半,导致整体偏紧。</p>
+    </div>
+
+    <h3>问题 2:圆角碎片化——定义 3 档,实际用 7 种</h3>
+    <p><code>layout_metrics.py</code> 定义了 <code>RADIUS_CONTROL=8</code>、<code>RADIUS_CARD=12</code>、<code>RADIUS_DIALOG=16</code>,但 QSS 里实际混用了 8/9/10/12/13/14/16 七种圆角值,相邻控件圆角不一致。</p>
+    <div class="problem-card warn">
+      <div class="pt">示例</div>
+      <p>输入框 <code>border-radius: 9px</code>(354行),按钮 <code>border-radius: 8px</code>(198行),小卡片 <code>border-radius: 10px</code>(401行),标准卡片 <code>border-radius: 12px</code>(390行)——四种圆角同屏出现,视觉不协调。</p>
+    </div>
+
+    <h3>问题 3:字号层级混乱——10 种字号,有重复定义</h3>
+    <p>QSS 中使用了 10/11/12/13/14/15/18/19/21/24 共 10 种字号,缺少明确的层级体系。更严重的是有重复定义:</p>
+    <table>
+      <thead><tr><th>objectName</th><th>字号</th><th>定义位置</th><th>问题</th></tr></thead>
+      <tbody>
+        <tr><td><code>#ops-title</code></td><td>15px</td><td>178 行</td><td rowspan="2"><span class="badge b-high">重复定义</span> 同名不同值</td></tr>
+        <tr><td><code>#ops-title</code></td><td>21px</td><td>1725 行</td></tr>
+        <tr><td><code>#section-title</code></td><td>13px</td><td>173 行</td><td>与 <code>#page-subtitle</code> 同字号,层级不清</td></tr>
+        <tr><td><code>#zone-title</code></td><td>12px</td><td>329 行</td><td>与 <code>#small-label</code>(11px) 过近</td></tr>
+      </tbody>
+    </table>
+
+    <h3>问题 4:卡片装饰三套风格混用</h3>
+    <p>QSS 里同一类「分区卡片」用了三种不同的装饰语言,无统一规则:</p>
+    <table>
+      <thead><tr><th>装饰风格</th><th>示例 objectName</th><th>视觉效果</th></tr></thead>
+      <tbody>
+        <tr><td>左边色条 <code>border-left: 3px</code></td><td>req-tree-card, ds-zone, sql-delivery-zone</td><td>主色/成功色左竖线</td></tr>
+        <tr><td>顶部色条 <code>border-top: 2px</code></td><td>req-file-card, sql-editor-zone, release-table-zone</td><td>灰色顶横线</td></tr>
+        <tr><td>渐变背景 <code>qlineargradient</code></td><td>req-toolbar-card, release-filter-zone, detail-summary-card</td><td>主色渐变底</td></tr>
+      </tbody>
+    </table>
+    <div class="problem-card warn">
+      <div class="pt">问题</div>
+      <p>同一页面(如需求管理)里 req-toolbar-card 用渐变、req-tree-card 用左色条、req-file-card 用顶色条——三种装饰风格同屏出现,缺乏统一语言。</p>
+    </div>
+
+    <h3>问题 5:页面骨架执行不均——7 个面板未用统一骨架</h3>
+    <p><code>page_chrome.py</code> 提供了 <code>make_page_header()</code>、<code>make_filter_bar()</code>、<code>make_zone_card()</code>,但 13 个面板中只有 6 个使用:</p>
+    <table>
+      <thead><tr><th>状态</th><th>面板</th><th>数量</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge b-low">已用</span></td><td>dashboard, format, gateway, interface_debug, ops_log, requirement</td><td class="num">6</td></tr>
+        <tr><td><span class="badge b-high">未用</span></td><td>credit, vin, sql, docx, settings, ops, personal</td><td class="num">7</td></tr>
+      </tbody>
+    </table>
+
+    <h3>问题 6:按钮角色执行不均——42 按钮的面板只用了 2 次</h3>
+    <p><code>design_system.py</code> 提供了 <code>apply_button(role='primary'/'secondary'/'danger'/'ghost')</code>,但执行率差异极大:</p>
+    <table>
+      <thead><tr><th>面板</th><th>按钮总数</th><th>apply_button 次数</th><th>覆盖率</th></tr></thead>
+      <tbody>
+        <tr><td>ops_log_panel</td><td class="num">48</td><td class="num">41</td><td><span class="badge b-low">85%</span></td></tr>
+        <tr><td>interface_debug_panel</td><td class="num">45</td><td class="num">32</td><td><span class="badge b-low">71%</span></td></tr>
+        <tr><td>format_panel</td><td class="num">15</td><td class="num">15</td><td><span class="badge b-low">100%</span></td></tr>
+        <tr><td>gateway_panel</td><td class="num">8</td><td class="num">7</td><td><span class="badge b-low">88%</span></td></tr>
+        <tr><td><b>requirement_panel</b></td><td class="num">42</td><td class="num">2</td><td><span class="badge b-high">5%</span></td></tr>
+        <tr><td>其余 8 面板</td><td class="num">82</td><td class="num">0</td><td><span class="badge b-high">0%</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>问题 7:模块命名碎片化——每面板一套 objectName</h3>
+    <p>各面板自定义了大量专属 objectName,样式分散在 QSS 2000 行各处:</p>
+    <ul>
+      <li>需求管理:<code>req-toolbar-card</code>、<code>req-filter-card</code>、<code>req-tree-card</code>、<code>req-file-card</code>、<code>req-sql-card</code></li>
+      <li>升级准备:<code>release-filter-zone</code>、<code>release-table-zone</code>、<code>release-generate-zone</code></li>
+      <li>SQL 整理:<code>sql-tool-zone</code>、<code>sql-delivery-zone</code>、<code>sql-editor-zone</code>、<code>sql-action-zone</code></li>
+      <li>网关解密:<code>gateway-config-group</code>、<code>gateway-work-zone</code>、<code>gateway-action-zone</code></li>
+    </ul>
+    <div class="problem-card warn">
+      <div class="pt">问题</div>
+      <p>本应统一用 <code>ds-card</code>/<code>ds-zone</code>/<code>ds-muted</code> 三级表面,却各搞一套,导致 QSS 膨胀且难维护。</p>
+    </div>
+  </div>
+
+  <!-- 设计规范 -->
+  <div class="section">
+    <h2><span class="icon">📐</span> 统一设计规范</h2>
+
+    <h3>规范 1:间距刻度(8 点制)</h3>
+    <p>收敛为 6 档,全部引用 <code>layout_metrics</code> 常量,消除硬编码:</p>
+    <div class="scale-row"><span class="label">xs 极小</span><span class="val">4px</span><div class="bar" style="width:4px"></div><span style="font-size:12px;color:var(--text-muted)">图标组内、复选框间距</span></div>
+    <div class="scale-row"><span class="label">sm 小</span><span class="val">8px</span><div class="bar" style="width:8px"></div><span style="font-size:12px;color:var(--text-muted)">控件间距基准(按钮间、表单字段间)</span></div>
+    <div class="scale-row"><span class="label">md 中</span><span class="val">12px</span><div class="bar" style="width:12px"></div><span style="font-size:12px;color:var(--text-muted)">卡片内间距、分区标题与内容间距</span></div>
+    <div class="scale-row"><span class="label">lg 大</span><span class="val">16px</span><div class="bar" style="width:16px"></div><span style="font-size:12px;color:var(--text-muted)">页面区间距(SPACING_PAGE)</span></div>
+    <div class="scale-row"><span class="label">xl 加大</span><span class="val">20px</span><div class="bar" style="width:20px"></div><span style="font-size:12px;color:var(--text-muted)">页面外边距(MARGIN_STANDARD)</span></div>
+    <div class="scale-row"><span class="label">2xl 超大</span><span class="val">24px</span><div class="bar" style="width:24px"></div><span style="font-size:12px;color:var(--text-muted)">宽屏外边距(MARGIN_WIDE)</span></div>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:8px">现有 spacing=4 统一提升为 8,spacing=6 提升为 8,spacing=7 提升为 8,spacing=14 降为 12。消除 4/6/7/14 四个非标准值。</p>
+
+    <h3>规范 2:字号层级(6 档)</h3>
+    <div class="type-sample">
+      <span class="meta">display · 24px</span>
+      <span class="sample" style="font-size:24px;font-weight:600">页面标题 Page Title</span>
+    </div>
+    <div class="type-sample">
+      <span class="meta">h1 · 18px</span>
+      <span class="sample" style="font-size:18px;font-weight:700">大标题 / 弹窗标题</span>
+    </div>
+    <div class="type-sample">
+      <span class="meta">h2 · 15px</span>
+      <span class="sample" style="font-size:15px;font-weight:700">区标题 Section Title</span>
+    </div>
+    <div class="type-sample">
+      <span class="meta">body · 13px</span>
+      <span class="sample" style="font-size:13px;font-weight:400">正文内容,默认字号,适用于大多数文字</span>
+    </div>
+    <div class="type-sample">
+      <span class="meta">caption · 12px</span>
+      <span class="sample" style="font-size:12px;font-weight:600">说明文字 / 标签 / 徽章</span>
+    </div>
+    <div class="type-sample">
+      <span class="meta">micro · 11px</span>
+      <span class="sample" style="font-size:11px;font-weight:500">辅助信息 / 提示 / 版本号</span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:8px">废弃 10px(field-hint 提升为 11px)、19px(card-title 提升为 18px)、21px(ops-title 统一为 18px)。消除 #ops-title 重复定义。</p>
+
+    <h3>规范 3:圆角刻度(4 档)</h3>
+    <table>
+      <thead><tr><th>档位</th><th>值</th><th>用途</th><th>现有值收敛</th></tr></thead>
+      <tbody>
+        <tr><td>sm</td><td><code>8px</code></td><td>按钮、复选框、小输入</td><td>8 → 8(不变)</td></tr>
+        <tr><td>md</td><td><code>10px</code></td><td>多行输入框、列表项</td><td>9 → 10, 10 → 10</td></tr>
+        <tr><td>lg</td><td><code>12px</code></td><td>标准卡片、分区容器</td><td>12 → 12, 13 → 12</td></tr>
+        <tr><td>xl</td><td><code>16px</code></td><td>弹窗、大容器</td><td>14 → 12 或 16, 16 → 16</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px;color:var(--text-muted)">消除 9px 和 13px 两个非标准值,14px 按场景归入 12 或 16。</p>
+
+    <h3>规范 4:卡片三级角色</h3>
+    <div class="card-roles">
+      <div class="card-role cr-card">
+        <div class="cr-title">card · ds-card</div>
+        <div class="cr-desc">纯白底 + 1px 边框 + 12px 圆角。标准内容容器,最常用。</div>
+      </div>
+      <div class="card-role cr-zone">
+        <div class="cr-title">zone · ds-zone</div>
+        <div class="cr-desc">白底 + 1px 边框 + 左侧 3px 主色条 + 12px 圆角。强调分区,工具区/操作区。</div>
+      </div>
+      <div class="card-role cr-muted">
+        <div class="cr-title">muted · ds-muted</div>
+        <div class="cr-desc">软灰底 + 1px 边框 + 10px 圆角。弱化区,筛选条/辅助信息。</div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted)">废弃各面板自定义的 border-top 色条和渐变背景装饰,统一收敛到这三级。原有 req-*/release-*/sql-*/gateway-* 专属 objectName 逐步替换为 ds-card/ds-zone/ds-muted。</p>
+
+    <h3>规范 5:按钮四级角色(已有,需补齐执行)</h3>
+    <table>
+      <thead><tr><th>角色</th><th>objectName</th><th>视觉</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>primary</td><td><code>primary-btn</code></td><td>主色实底 + 白字</td><td>每区域最多 1 个主操作</td></tr>
+        <tr><td>secondary</td><td><code>btn-secondary</code></td><td>白底 + 边框</td><td>常规操作(默认)</td></tr>
+        <tr><td>danger</td><td><code>btn-danger</code></td><td>红字 + 浅底</td><td>删除/回滚等破坏性操作</td></tr>
+        <tr><td>ghost</td><td><code>btn-ghost</code></td><td>浅灰底 + 边框</td><td>辅助/低频操作</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px;color:var(--text-muted)">所有按钮统一通过 <code>apply_button(role=...)</code> 设置,消除直接 <code>setObjectName</code>。requirement_panel(42 按钮仅 2 次用 apply_button)是重点整改对象。</p>
+
+    <h3>规范 6:页面骨架统一结构</h3>
+    <p>所有面板遵循统一四层结构,使用 <code>page_chrome</code> 工具函数:</p>
+    <div style="background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:16px;margin:10px 0;font-size:13px;line-height:2">
+      <div style="font-weight:700;color:var(--primary)">┌─ page-header(标题 + 副标题 + 主操作)</div>
+      <div style="padding-left:20px">│  <code>make_page_header(title, subtitle, primary_button=...)</code></div>
+      <div style="font-weight:700;color:var(--primary)">├─ filter-bar(筛选/搜索条)</div>
+      <div style="padding-left:20px">│  <code>make_filter_bar()</code></div>
+      <div style="font-weight:700;color:var(--primary)">├─ zone-card × N(功能分区卡片)</div>
+      <div style="padding-left:20px">│  <code>make_zone_card('ds-zone')</code> — 工具/操作区</div>
+      <div style="padding-left:20px">│  <code>make_zone_card('ds-card')</code> — 内容展示区</div>
+      <div style="padding-left:20px">│  <code>make_zone_card('ds-muted')</code> — 辅助信息区</div>
+      <div style="font-weight:700;color:var(--primary)">└─ 内容控件(表格/树/编辑器)</div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted)">7 个未使用骨架的面板(credit/vin/sql/docx/settings/ops/personal)逐步迁移到 <code>page_chrome</code>。</p>
+
+    <h3>规范 7:对齐规则</h3>
+    <ul>
+      <li><b>水平对齐</b>:同一行控件垂直居中对齐(<code>Qt.AlignVCenter</code>),标签与输入框基线对齐</li>
+      <li><b>标签宽度</b>:表单标签统一 <code>min-width: 72px; max-width: 92px</code>(已有,保持)</li>
+      <li><b>左对齐</b>:所有文本内容默认左对齐,数字/状态可右对齐</li>
+      <li><b>卡片内边距</b>:统一 <code>contentsMargins(12, 10, 12, 12)</code>(make_zone_card 已定义)</li>
+      <li><b>stretch 规则</b>:弹性控件(输入框/表格/树)用 <code>addWidget(w, stretch)</code>,固定控件(按钮/标签)不设 stretch</li>
+    </ul>
+  </div>
+
+  <!-- 实施路线 -->
+  <div class="section">
+    <h2><span class="icon">🗺️</span> 分阶段实施路线</h2>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-title">阶段 1:间距收敛(低风险,高收益)</div>
+        <div class="tl-desc">将所有 <code>setSpacing(4/6/7)</code> 统一为 8,<code>setSpacing(14)</code> 降为 12。在 <code>layout_metrics</code> 新增 <code>SPACING_XS=4, SPACING_SM=8</code> 常量。涉及全部 13 面板,纯间距调整不动逻辑。</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-title">阶段 2:圆角+字号收敛(QSS 层)</div>
+        <div class="tl-desc">QSS 中 9px→10px、13px→12px、14px→12/16px。字号 10px→11px、19px→18px、21px→18px,消除 <code>#ops-title</code> 重复定义。仅改 QSS,不动 Python。</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-title">阶段 3:按钮角色补齐</div>
+        <div class="tl-desc">requirement_panel(42 按钮仅 2 次 apply_button)全量补齐,其余 8 个零覆盖面板逐个迁移。仅加 <code>apply_button()</code> 调用,不动信号槽。</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-title">阶段 4:卡片角色统一 + 命名收敛</div>
+        <div class="tl-desc">将 req-*/release-*/sql-*/gateway-* 专属 objectName 替换为 ds-card/ds-zone/ds-muted,QSS 中删除对应专属规则。改动较大,需逐面板验证。</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-title">阶段 5:页面骨架迁移</div>
+        <div class="tl-desc">7 个未用 page_chrome 的面板迁移到统一骨架。与阶段 4 可并行,但需逐面板验证布局不变形。</div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted)">阶段 1-2 风险最低(纯样式层),可立即实施。阶段 3 中等风险。阶段 4-5 改动大,建议逐面板推进,每改一个面板就打包验证。</p>
+  </div>
+
+  <!-- 影响范围 -->
+  <div class="section">
+    <h2><span class="icon">⚠️</span> 影响范围</h2>
+    <table>
+      <thead><tr><th>阶段</th><th>改动文件</th><th>改动性质</th><th>风险</th></tr></thead>
+      <tbody>
+        <tr><td>1 间距</td><td>13 个 panels/*.py</td><td>setSpacing 值替换</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>2 圆角+字号</td><td>resources/style.qss</td><td>QSS 值替换</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>3 按钮</td><td>9 个 panels/*.py</td><td>补 apply_button 调用</td><td><span class="badge b-mid">中</span></td></tr>
+        <tr><td>4 卡片命名</td><td>4 面板 + style.qss</td><td>objectName 替换 + QSS 删规则</td><td><span class="badge b-mid">中</span></td></tr>
+        <tr><td>5 页面骨架</td><td>7 个 panels/*.py</td><td>重写页头/骨架结构</td><td><span class="badge b-high">较高</span></td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>阶段 1-2 仅改样式值,不动布局结构和业务逻辑,风险最低</li>
+      <li>阶段 3 仅加 <code>apply_button()</code>,按钮的 clicked 信号和属性不变</li>
+      <li>阶段 4-5 涉及 objectName 和布局结构变更,需逐面板定向验证</li>
+      <li>每阶段完成后执行 <code>build_release.ps1</code> 打包验证</li>
+    </ul>
+  </div>
+
+  <!-- 待确认 -->
+  <div class="section">
+    <h2><span class="icon">❓</span> 待确认</h2>
+    <div class="confirm-box">
+      <p>本规范涉及 5 个阶段、全部 13 面板。建议从风险最低的阶段 1(间距收敛)和阶段 2(圆角+字号)开始。</p>
+      <div class="note">
+        确认要点:<br>
+        1. 是否同意按 5 阶段推进,还是先做阶段 1-2(低风险)?<br>
+        2. 间距刻度(xs=4, sm=8, md=12, lg=16, xl=20, 2xl=24)是否接受?<br>
+        3. 字号 6 档(display/h1/h2/body/caption/micro)是否接受?<br>
+        4. 卡片三级角色(ds-card/ds-zone/ds-muted)替代各面板自定义命名是否同意?<br>
+        5. 是否同时执行上一轮的按钮布局优化(分组/收纳)?
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">PengTools 整体布局设计规范 · 由 Senior Developer 生成 · 2026-07-27</div>
+
+</div>
+</body>
+</html>

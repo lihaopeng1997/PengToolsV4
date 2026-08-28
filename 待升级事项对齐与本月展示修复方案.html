@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>待升级事项对齐与本月展示修复方案</title>
+<style>
+body{margin:0;background:#f6f8fb;color:#1f2937;font:15px/1.7 "Microsoft YaHei UI",Arial,sans-serif}.wrap{max-width:940px;margin:28px auto;padding:0 22px}header,section{background:#fff;border:1px solid #dfe6ef;border-radius:14px;padding:22px 26px;margin-bottom:16px;box-shadow:0 2px 8px rgba(20,40,80,.04)}h1{margin:0 0 8px;font-size:24px;color:#17365d}h2{font-size:18px;color:#1d4f91;margin:0 0 12px}.muted{color:#66758a}.ok{color:#137333;font-weight:700}.warn{color:#b45309;font-weight:700}code{background:#eef3f8;border-radius:4px;padding:1px 5px;color:#24598a}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #dfe6ef;padding:10px;text-align:left;vertical-align:top}th{background:#eef5fd;color:#244a75}ul{margin:8px 0;padding-left:22px}.decision{border-left:4px solid #2f80ed;background:#f4f9ff;padding:12px 14px;border-radius:6px}</style>
+</head>
+<body><main class="wrap">
+<header><h1>待升级事项：双卡对齐与本月展示缺失修复方案</h1><div class="muted">分析时间：2026-08-11 · 范围：工作台待升级事项与需求保存后的刷新联动</div></header>
+<section><h2>问题描述</h2><ol><li>新增需求后，“最近需求”和“待升级事项”两张卡片高度不同，底边不对齐。</li><li>在需求编辑中填写上线月份、勾选“是否本月上线”并保存后，该项没有立刻在待升级事项中出现。</li></ol></section>
+<section><h2>复现与根因证据</h2><table><thead><tr><th>现象</th><th>实测/代码证据</th><th>根因</th></tr></thead><tbody><tr><td>双卡底边不齐</td><td>800px 高窗口、最近需求 3 条、待升级事项 1 条时，<code>recent_card</code> 高度为 180px，<code>release_card</code> 高度为 118px。</td><td>上一轮为消除页面大面积空白，将两张卡均改为按自身内容高度收缩；两卡内容条数不同，就会分别收缩。</td></tr><tr><td>本月项未显示</td><td>月份选项按字符串倒序；同时存在 2026-08 与 2026-09 时，默认选择 2026-09，仅显示九月任务。</td><td>默认选中逻辑未优先选择当前自然月；本月项已进入下拉选项，但被其他月份筛选掉。</td></tr><tr><td>保存后不立即同步</td><td><code>RequirementPanel._save_dialog()</code> 保存后只刷新需求管理自身；主窗口切换到工作台时也没有显式触发工作台刷新。</td><td>需求台账到工作台缺少保存完成后的刷新通知，工作台可能继续显示旧的内存列表。</td></tr></tbody></table></section>
+<section><h2>最小修复方案</h2><div class="decision"><strong>目标：</strong>双卡外框保持等高对齐，但待升级任务列表本体仍从标题下方按实际条目高度展示，不恢复“整个页面被列表空白填满”的旧行为。</div><ol><li><strong>双卡等高：</strong>在每次刷新后取两张任务卡的内容所需高度的较大值，赋给两张卡；较短卡仅保留卡片内部必要留白，任务列表本身仍固定为实际行数高度。</li><li><strong>默认月份：</strong>首次进入或当前选择失效时，若已勾选事项存在当前自然月，则优先默认选中当前月；否则才选择最新可用月份。用户手动选择的有效月份仍保留。</li><li><strong>保存联动：</strong>需求保存成功后发送“需求已变更”通知；工作台接收后重新读取台账。若本次保存勾选了“是否本月上线”，则自动切换至该需求的上线月份，确保新任务保存后立即可见。</li><li><strong>安全边界：</strong>不改需求状态、实际上线日期、SQL、发版 Excel、已完成记录或历史手工数据；仅调整工作台布局和刷新/月份选择策略。</li></ol></section>
+<section><h2>定向验收</h2><ul><li>最近需求 3 条、待升级 1 条时，两张卡外框高度一致；待升级任务行仍紧贴列表头，不扩展为整页空白。</li><li>同时存在当前月和未来月事项时，首次进入默认显示当前月事项。</li><li>在需求编辑中新增或修改一项：填写上线月份并勾选“是否本月上线”，保存后工作台无需重启即可出现该任务并自动定位到对应月份。</li><li>用户手动选择其他有效月份后，普通刷新不会强行改变其选择。</li></ul><p class="ok">结论：根因已完成复现与验证，可按上述最小范围实施。</p></section>
+</main></body></html>

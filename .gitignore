@@ -3,19 +3,38 @@ data/
 tiqian/
 dist/
 build/
+build_new*/
+dist_new*/
 Installer/
 PrivateInstaller/
 *.zip
+*.exe
+*.dll
+*.toc
+*.sym
+*.pyz
+*.pkg
+*.jar
+
+# 第三方运行时 / 本地环境
+outputs/oracle-instantclient/
+
+# 临时与调试文件
+_build_log.txt
+_build_temp.ps1
+_smoke_out.txt
+outputs/_*/
+*.log
+*.pid
 
 # 工具缓存与工作区
+.workbuddy/
 .codegraph/
 .codex_work/
 __pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
-*.log
-*.pid
 
 # 编辑器 / 本机
 .idea/

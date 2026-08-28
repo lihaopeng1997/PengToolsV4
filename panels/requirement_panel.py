@@ -1794,6 +1794,8 @@ class RequirementPanel(QWidget):
         ):
             size_compact_button(button)
         action_row = QHBoxLayout()
+        # 上下 margin 归零：避免默认 9px 边距把按钮下推、超出 28px host 高度被垂直裁切。
+        action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(6)
         for button in (
             self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
@@ -2039,18 +2041,33 @@ class RequirementPanel(QWidget):
         })
 
     def _clamp_file_library_action_heights(self):
-        """文件库九按钮固定 28px：ScrollArea.setWidget 与全局 QSS padding 会抬高 min/max。"""
+        """文件库九按钮固定 28px：ScrollArea.setWidget 与全局 QSS padding 会抬高 min/max。
+
+        容器高度须给横向滚动条留出余量（+12px），否则 9 按钮超宽出现横向滚动条时
+        按钮可见区被压缩到 28px 以下、垂直裁切。host 仍锁 28 保证按钮本身不拉伸。
+        """
         buttons = getattr(self, 'file_library_action_buttons', None)
         if not buttons:
             return
         from ui.field_metrics import BTN_COMPACT_H, size_compact_button
         for button in buttons:
             size_compact_button(button)
-        host = None
         scroll = getattr(self, 'file_library_action_scroll', None)
+        host = None
         if scroll is not None:
             host = scroll.widget()
-            scroll.setFixedHeight(BTN_COMPACT_H)
+            # 横向滚动条高度随 DPI/QSS 变化（实测 14px），不能写死余量。
+            # 高度 = 按钮高 + 滚动条实际高度，保证按钮完整可见、不被垂直裁切。
+            hbar = scroll.horizontalScrollBar()
+            scrollbar_h = hbar.sizeHint().height() if hbar is not None else 0
+            # 若按钮总宽不超视口则无需滚动条，滚动条高度按 0 计。
+            if host is not None:
+                needed = sum(
+                    b.sizeHint().width() + 6 for b in buttons
+                )
+                if needed <= scroll.viewport().width():
+                    scrollbar_h = 0
+            scroll.setFixedHeight(BTN_COMPACT_H + scrollbar_h)
         if host is not None:
             host.adjustSize()
             host.setFixedHeight(BTN_COMPACT_H)

@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>表头与按钮紧凑化设计方案</title>
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --surface: #FFFFFF;
+    --surface-soft: #F9F8F4;
+    --text: #424A45;
+    --text-strong: #272B29;
+    --text-muted: #7B847E;
+    --border: #E2E0D9;
+    --border-strong: #D0CEC6;
+    --primary: #668C78;
+    --primary-soft: #E9F1EB;
+    --primary-active: #4F735F;
+    --danger: #B85C5C;
+    --warning: #B8893D;
+    --success: #3E7A5C;
+    --radius: 10px;
+    --radius-sm: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 32px; }
+  h1 {
+    font-size: 28px;
+    color: var(--text-strong);
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.3px;
+  }
+  .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+  .meta-bar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .meta-item { font-size: 12px; color: var(--text-muted); }
+  .meta-item strong { color: var(--text-strong); font-weight: 600; }
+  .meta-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-impact { background: #FEE2E2; color: #991B1B; }
+  .tag-safe { background: var(--primary-soft); color: var(--primary-active); }
+
+  h2 {
+    font-size: 20px;
+    color: var(--text-strong);
+    font-weight: 700;
+    margin-top: 36px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  h3 {
+    font-size: 16px;
+    color: var(--text-strong);
+    font-weight: 600;
+    margin-top: 24px;
+    margin-bottom: 12px;
+  }
+  p { margin-bottom: 12px; }
+  ul, ol { margin-left: 20px; margin-bottom: 12px; }
+  li { margin-bottom: 6px; }
+
+  /* 问题诊断卡片 */
+  .problem-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .problem-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .problem-card h4 {
+    font-size: 15px;
+    color: var(--text-strong);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .problem-card .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+  }
+  .badge-red { background: var(--danger); }
+  .badge-orange { background: var(--warning); }
+  .problem-card .code-ref {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    color: var(--text-muted);
+    display: block;
+  }
+  .problem-card .code-ref strong { color: var(--text-strong); }
+
+  /* 对比表格 */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .compare-table th {
+    background: var(--surface-soft);
+    color: var(--text-strong);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 2px solid var(--border-strong);
+  }
+  .compare-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table .old { color: var(--danger); font-weight: 600; }
+  .compare-table .new { color: var(--success); font-weight: 600; }
+  .compare-table .mono { font-family: 'Consolas', monospace; font-size: 12px; }
+
+  /* 文件树列策略可视化 */
+  .column-strategy {
+    display: flex;
+    gap: 4px;
+    margin: 12px 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .col-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-strong);
+    text-align: center;
+    border-right: 1px solid var(--border);
+    min-height: 40px;
+  }
+  .col-bar:last-child { border-right: none; }
+  .col-stretch { background: var(--primary-soft); flex: 1; min-width: 0; }
+  .col-fixed { background: var(--surface-soft); flex: 0 0 auto; }
+  .col-fixed-96 { width: 96px; }
+  .col-fixed-80 { width: 80px; }
+  .col-fixed-120 { width: 120px; }
+  .col-fixed-140 { width: 140px; }
+  .col-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-weight: 400; }
+
+  /* 代码块 */
+  .code-block {
+    background: #2D333B;
+    color: #CDD9E5;
+    border-radius: var(--radius-sm);
+    padding: 16px 20px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+  .code-block .comment { color: #768390; }
+  .code-block .keyword { color: #F0B07B; }
+  .code-block .string { color: #A8C090; }
+  .code-block .number { color: #DDB388; }
+  .code-block .highlight { background: rgba(240,176,123,0.15); display: block; margin: 0 -20px; padding: 0 20px; }
+
+  /* 按钮尺寸对比 */
+  .btn-demo {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 12px 0;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .btn-old, .btn-new {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 13px;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .btn-old {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    min-height: 20px;
+    height: 36px;
+  }
+  .btn-old.primary { background: var(--primary); color: white; border: none; padding: 9px 16px; }
+  .btn-new {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 10px;
+    min-height: 16px;
+    height: 28px;
+    font-size: 12px;
+  }
+  .btn-new.primary { background: var(--primary); color: white; border: none; padding: 5px 12px; }
+  .btn-label { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
+
+  /* 影响文件清单 */
+  .file-list {
+    list-style: none;
+    margin-left: 0;
+  }
+  .file-list li {
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-family: 'Consolas', monospace;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .file-list .file-tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .file-tag-qss { background: #DBEAFE; color: #1E40AF; }
+  .file-tag-py { background: #FEF3C7; color: #92400E; }
+  .file-tag-token { background: var(--primary-soft); color: var(--primary-active); }
+
+  /* 验收清单 */
+  .checklist {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-top: 16px;
+  }
+  .checklist ul { list-style: none; margin-left: 0; }
+  .checklist li {
+    padding: 6px 0;
+    padding-left: 28px;
+    position: relative;
+    font-size: 13px;
+  }
+  .checklist li::before {
+    content: '☐';
+    position: absolute;
+    left: 0;
+    font-size: 16px;
+    color: var(--primary);
+  }
+  .checklist li.pass::before { content: '☑'; color: var(--success); }
+
+  /* 总结框 */
+  .summary-box {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--primary-soft) 100%);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-top: 32px;
+  }
+  .summary-box h3 { margin-top: 0; color: var(--text-strong); }
+  .summary-box p:last-child { margin-bottom: 0; }
+  .arrow { color: var(--primary); font-weight: 700; }
+  .num-change { color: var(--danger); font-weight: 700; }
+  .num-new { color: var(--success); font-weight: 700; }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>表头与按钮紧凑化设计方案</h1>
+<p class="subtitle">文件库列表列伸缩修复 · 全局按钮尺寸收紧 · 列表行高优化</p>
+
+<div class="meta-bar">
+  <span class="meta-item"><strong>日期：</strong>2026-08-04</span>
+  <span class="meta-item"><strong>设计：</strong>UI Designer</span>
+  <span class="meta-item"><strong>影响范围：</strong><span class="meta-tag tag-impact">全局 QSS + 3 个面板</span></span>
+  <span class="meta-item"><strong>风险：</strong><span class="meta-tag tag-safe">低 · 纯视觉调整</span></span>
+</div>
+
+<!-- ==================== 一、问题诊断 ==================== -->
+<h2>一、问题诊断</h2>
+
+<div class="problem-grid">
+  <div class="problem-card">
+    <h4><span class="badge badge-red">1</span>文件库表头列不填满</h4>
+    <p><strong>现象：</strong>窗口放大后，文件库列表右侧留大片空白，5 列内容没有撑满可用宽度。</p>
+    <p><strong>根因：</strong>所有 5 列均设为 <code>Interactive</code> 模式 + 固定列宽，没有任何一列 <code>Stretch</code>，多出的空间无人认领。</p>
+    <span class="code-ref">
+      <strong>文件：</strong>panels/requirement_panel.py:1418-1419<br>
+      for col in range(5):<br>
+      &nbsp;&nbsp;file_header.setSectionResizeMode(col, <strong>Interactive</strong>)<br>
+      <strong>列宽：</strong>280 + 96 + 140 + 80 + 320 = 916px（固定）
+    </span>
+  </div>
+
+  <div class="problem-card">
+    <h4><span class="badge badge-red">2</span>日志排查远端列表同样不填满</h4>
+    <p><strong>现象：</strong>远端文件树 4 列在窗口放大后右侧也有空白。</p>
+    <p><strong>根因：</strong>与文件库完全一致——4 列全部 <code>Interactive</code>，无 <code>Stretch</code> 列。</p>
+    <span class="code-ref">
+      <strong>文件：</strong>panels/ops_log_panel.py:1789-1790<br>
+      for col in range(4):<br>
+      &nbsp;&nbsp;hdr.setSectionResizeMode(col, <strong>Interactive</strong>)<br>
+      <strong>列宽：</strong>160 + 72 + 64 + 120 = 416px（固定）
+    </span>
+  </div>
+
+  <div class="problem-card">
+    <h4><span class="badge badge-orange">3</span>文件库按钮没填满工具条</h4>
+    <p><strong>现象：</strong>文件库 9 个操作按钮（打开目录 / 刷新 / 更新 / 添加文件 / 新建文本 / 锁定 / 解锁 / 回滚 / 提交）在容器宽度足够时仍只占左侧一小条，右侧空白。</p>
+    <p><strong>根因：</strong>按钮容器 <code>action_row</code> 末尾有 <code>addStretch(1)</code>，按钮设了 <code>setMinimumHeight(24)</code> 但未设 <code>expanding</code> 策略，且 <code>compactAction</code> QSS padding 偏大（7px 12px），按钮内距吃掉了可用空间。</p>
+    <span class="code-ref">
+      <strong>QSS：</strong>resources/style.qss:265<br>
+      QPushButton[compactAction="true"] { padding: <strong>7px 12px</strong>; min-height: <strong>18px</strong>; }
+    </span>
+  </div>
+
+  <div class="problem-card">
+    <h4><span class="badge badge-orange">4</span>日志排查按钮尺寸过大</h4>
+    <p><strong>现象：</strong>「上级 / 打开 / 刷新 / 选用」「看尾部 / 终端截取 / 导出日志 / 预览」这些行内操作按钮高度 36px，在窄栏里显得臃肿，挤占了列表空间。</p>
+    <p><strong>根因：</strong>虽然调用了 <code>apply_button(..., compact=True)</code>，但 <code>compactAction</code> 的 QSS padding 仍为 7px 12px，加上 <code>FIELD_H=36</code> 的 <code>setFixedHeight</code>，实际渲染高度仍约 36px，没有真正紧凑。</p>
+    <span class="code-ref">
+      <strong>按钮高度来源：</strong>ui/field_metrics.py:8<br>
+      FIELD_H = <strong>36</strong><br>
+      <strong>compact 仍走：</strong>size_field_height(button, <strong>36</strong>)
+    </span>
+  </div>
+</div>
+
+<!-- ==================== 二、设计方案 ==================== -->
+<h2>二、设计方案</h2>
+
+<h3>2.1 列伸缩策略：名称列 Stretch + 其余 Interactive</h3>
+<p>核心原则：<strong>名称列是变长内容列，设为 <code>Stretch</code> 自动填满剩余空间</strong>；类型 / 大小 / 修改时间 / 路径等短值列保持 <code>Interactive</code>（用户可拖拽调整），保证放大时填满、缩小时可横向滚动。</p>
+
+<h4>需求管理 · 文件库（5 列）</h4>
+<div class="column-strategy">
+  <div class="col-bar col-stretch">名称<span class="col-label">Stretch · 自动撑满</span></div>
+  <div class="col-bar col-fixed col-fixed-96">类型<span class="col-label">Interactive 96px</span></div>
+  <div class="col-bar col-fixed col-fixed-140">修改时间<span class="col-label">Interactive 140px</span></div>
+  <div class="col-bar col-fixed col-fixed-80">大小<span class="col-label">Interactive 80px</span></div>
+  <div class="col-bar col-fixed" style="width:200px">路径<span class="col-label">Interactive 200px</span></div>
+</div>
+<p style="font-size:12px;color:var(--text-muted)">路径列从 320px → 200px（路径列在文件库里只是辅助参考，不需要那么宽，让名称列拿到更多空间）。</p>
+
+<h4>日志排查 · 远端文件树（4 列）</h4>
+<div class="column-strategy">
+  <div class="col-bar col-stretch">名称<span class="col-label">Stretch · 自动撑满</span></div>
+  <div class="col-bar col-fixed col-fixed-96">类型<span class="col-label">Interactive 72→80px</span></div>
+  <div class="col-bar col-fixed col-fixed-80">大小<span class="col-label">Interactive 64→72px</span></div>
+  <div class="col-bar col-fixed col-fixed-120">修改时间<span class="col-label">Interactive 120px</span></div>
+</div>
+
+<h4>日志排查 · 批量导出树（3 列）</h4>
+<div class="column-strategy">
+  <div class="col-bar col-stretch">服务器/服务<span class="col-label">Stretch · 自动撑满</span></div>
+  <div class="col-bar col-fixed" style="width:200px">日志路径<span class="col-label">Interactive 220→200px</span></div>
+  <div class="col-bar col-fixed" style="width:120px">指定文件<span class="col-label">Interactive 140→120px</span></div>
+</div>
+
+<h4>接口文档更新 · 输出浏览器（3 列）</h4>
+<p>已正确：名称列已为 <code>Stretch</code>。仅微调类型列 110→100px、大小列 80→72px，让名称列更宽。</p>
+
+<h3>2.2 按钮紧凑化：全局 compactAction 尺寸收紧</h3>
+<p>将 <code>compactAction</code> 的 QSS padding 和 min-height 统一收紧，使所有标记了 <code>compactAction=true</code> 的按钮真正变成<strong>紧凑态</strong>（约 28px 高），而非现在的"假紧凑"（仍 36px）。</p>
+
+<table class="compare-table">
+  <tr>
+    <th>属性</th>
+    <th>当前值（旧）</th>
+    <th>目标值（新）</th>
+    <th>说明</th>
+  </tr>
+  <tr>
+    <td class="mono">padding</td>
+    <td class="old">7px 12px</td>
+    <td class="new">4px 10px</td>
+    <td>上下从 7→4、左右从 12→10，减少内距</td>
+  </tr>
+  <tr>
+    <td class="mono">min-height</td>
+    <td class="old">18px</td>
+    <td class="new">16px</td>
+    <td>降低最小高度门槛</td>
+  </tr>
+  <tr>
+    <td class="mono">font-size</td>
+    <td class="old">13px（继承）</td>
+    <td class="new">12px</td>
+    <td>紧凑按钮文字小一号</td>
+  </tr>
+  <tr>
+    <td class="mono">实际渲染高度</td>
+    <td class="old">~36px</td>
+    <td class="new">~28px</td>
+    <td>padding + min-height + 文字 = 约 28px</td>
+  </tr>
+</table>
+
+<div class="btn-demo">
+  <span class="btn-label">旧（36px）：</span>
+  <span class="btn-old">上级</span>
+  <span class="btn-old">打开</span>
+  <span class="btn-old">刷新</span>
+  <span class="btn-old">选用</span>
+  <span class="btn-old primary">看尾部</span>
+</div>
+<div class="btn-demo">
+  <span class="btn-label">新（28px）：</span>
+  <span class="btn-new">上级</span>
+  <span class="btn-new">打开</span>
+  <span class="btn-new">刷新</span>
+  <span class="btn-new">选用</span>
+  <span class="btn-new primary">看尾部</span>
+</div>
+
+<p><strong>同时调整 <code>size_compact_button()</code> 的 Python 侧高度</strong>，让 <code>setFixedHeight</code> 与 QSS 配合而非冲突：</p>
+<div class="code-block">
+<span class="comment"># ui/field_metrics.py — size_compact_button()</span>
+<span class="keyword">def</span> size_compact_button(button) -> <span class="keyword">None</span>:
+    button.setProperty(<span class="string">'compactAction'</span>, <span class="keyword">True</span>)
+    button.setMinimumWidth(BTN_COMPACT_MIN_W)  <span class="comment"># 保持 72px 最小宽</span>
+<span class="highlight">    button.setFixedHeight(<span class="number">28</span>)  <span class="comment"># 旧：FIELD_H=36 → 新：28</span></span>
+    button.setProperty(<span class="string">'compactAction'</span>, <span class="keyword">True</span>)
+</div>
+
+<h3>2.3 非紧凑按钮也适当收紧</h3>
+<p>全局 <code>QPushButton</code> 默认 padding 从 <code>8px 14px</code> → <code>6px 12px</code>，<code>primary-btn</code> 从 <code>9px 16px</code> → <code>7px 14px</code>，让所有按钮视觉上更紧凑但不影响可点击性。</p>
+
+<table class="compare-table">
+  <tr>
+    <th>选择器</th>
+    <th>旧 padding</th>
+    <th>新 padding</th>
+  </tr>
+  <tr>
+    <td class="mono">QPushButton（全局默认）</td>
+    <td class="old">8px 14px</td>
+    <td class="new">6px 12px</td>
+  </tr>
+  <tr>
+    <td class="mono">QPushButton#primary-btn</td>
+    <td class="old">9px 16px</td>
+    <td class="new">7px 14px</td>
+  </tr>
+  <tr>
+    <td class="mono">QPushButton[compactAction="true"]</td>
+    <td class="old">7px 12px</td>
+    <td class="new">4px 10px</td>
+  </tr>
+</table>
+
+<h3>2.4 列表行高微调</h3>
+<p>文件库和远端列表的行高从 <code>min-height: 27px</code> → <code>30px</code>，让列表内容"放大"——行间距更舒展，可读性更好。这不是缩小，而是<strong>让列表展示区域在按钮缩小后获得更多垂直空间</strong>，整体"列表放大、按钮缩小"。</p>
+
+<table class="compare-table">
+  <tr>
+    <th>QSS 选择器</th>
+    <th>旧 min-height</th>
+    <th>新 min-height</th>
+    <th>说明</th>
+  </tr>
+  <tr>
+    <td class="mono">#requirement-file-tree::item</td>
+    <td class="old">27px</td>
+    <td class="new">30px</td>
+    <td>文件库行高 +3px</td>
+  </tr>
+  <tr>
+    <td class="mono">#ops-remote-tree::item</td>
+    <td class="old">27px</td>
+    <td class="new">30px</td>
+    <td>远端列表行高 +3px</td>
+  </tr>
+  <tr>
+    <td class="mono">#requirement-file-tree::item padding</td>
+    <td class="old">4px 7px</td>
+    <td class="new">5px 8px</td>
+    <td>上下/左右各 +1px</td>
+  </tr>
+</table>
+
+<!-- ==================== 三、影响文件清单 ==================== -->
+<h2>三、影响文件清单</h2>
+<ul class="file-list">
+  <li><span class="file-tag file-tag-qss">QSS</span> resources/style.qss — 按钮系统 padding + compactAction + 行高</li>
+  <li><span class="file-tag file-tag-py">PY</span> ui/field_metrics.py — size_compact_button() 高度 36→28</li>
+  <li><span class="file-tag file-tag-py">PY</span> ui/design_system.py — apply_button() compact 分支高度同步</li>
+  <li><span class="file-tag file-tag-py">PY</span> panels/requirement_panel.py — 文件库列策略：名称列 Stretch + 列宽微调</li>
+  <li><span class="file-tag file-tag-py">PY</span> panels/ops_log_panel.py — 远端列表列策略 + 批量导出树列策略</li>
+  <li><span class="file-tag file-tag-token">TOKEN</span> ui/layout_metrics.py — BTN_H_COMPACT 32→28（设计 token 同步）</li>
+</ul>
+
+<!-- ==================== 四、具体改动点 ==================== -->
+<h2>四、具体改动点（逐文件）</h2>
+
+<h3>4.1 resources/style.qss</h3>
+<div class="code-block">
+<span class="comment">/* —— Button system —— 全局默认收紧 */</span>
+QPushButton {
+    background: __SURFACE__; color: __TEXT__; border: <span class="number">1</span>px solid __BORDER__;
+<span class="highlight">    border-radius: 8px; padding: <span class="number">6px 12px</span>;  <span class="comment">/* 旧 8px 14px */</span></span>
+    font-weight: 500;
+    min-height: 20px;
+}
+
+<span class="comment">/* primary-btn 收紧 */</span>
+QPushButton#primary-btn, QPushButton#card-action {
+    background: __PRIMARY__;
+<span class="highlight">    color: __ON_PRIMARY__; border: none; font-weight: 600; padding: <span class="number">7px 14px</span>;  <span class="comment">/* 旧 9px 16px */</span></span>
+    border-radius: 8px;
+}
+
+<span class="comment">/* compactAction 真正紧凑 */</span>
+<span class="highlight">QPushButton[compactAction="true"] { padding: <span class="number">4px 10px</span>; min-height: <span class="number">16px</span>; font-size: <span class="number">12px</span>; }</span>
+<span class="comment">/* 旧：padding: 7px 12px; min-height: 18px; */</span>
+
+<span class="comment">/* 列表行高放大 */</span>
+QTreeWidget#requirement-file-tree::item,
+QTreeWidget#ops-remote-tree::item {
+<span class="highlight">    min-height: <span class="number">30px</span>;  <span class="comment">/* 旧 27px */</span></span>
+<span class="highlight">    padding: <span class="number">5px 8px</span>;  <span class="comment">/* 旧 4px 7px */</span></span>
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    color: __TEXT_STRONG__;
+}
+</div>
+
+<h3>4.2 ui/field_metrics.py</h3>
+<div class="code-block">
+<span class="comment"># 紧凑按钮高度（V2.0 蓝图 36px → 真正紧凑 28px）</span>
+<span class="highlight">BTN_COMPACT_H = <span class="number">28</span>  <span class="comment"># 新增常量</span></span>
+
+<span class="keyword">def</span> size_compact_button(button) -> <span class="keyword">None</span>:
+    button.setProperty(<span class="string">'compactAction'</span>, <span class="keyword">True</span>)
+    button.setMinimumWidth(BTN_COMPACT_MIN_W)
+<span class="highlight">    button.setFixedHeight(BTN_COMPACT_H)  <span class="comment"># 旧：size_field_height(button) → 36px</span></span>
+</div>
+
+<h3>4.3 ui/design_system.py</h3>
+<div class="code-block">
+<span class="comment"># apply_button() compact 分支同步</span>
+<span class="keyword">def</span> apply_button(button, role=<span class="string">'secondary'</span>, *, compact=<span class="keyword">False</span>, ...):
+    ...
+    <span class="keyword">if</span> compact:
+        size_compact_button(button)
+        button.setProperty(<span class="string">'compactAction'</span>, <span class="keyword">True</span>)
+    <span class="keyword">else</span>:
+        size_field_height(button, CONTROL_HEIGHT)
+<span class="comment"># size_compact_button 内部已改为 28px，无需额外改动</span>
+</div>
+
+<h3>4.4 panels/requirement_panel.py（文件库列策略）</h3>
+<div class="code-block">
+<span class="comment"># 文件：panels/requirement_panel.py 约 1418 行</span>
+<span class="comment"># 旧：全部 Interactive</span>
+<span class="comment"># for col in range(5):</span>
+<span class="comment">#     file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)</span>
+
+<span class="comment"># 新：名称列 Stretch，其余 Interactive</span>
+<span class="highlight">file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)   <span class="comment"># 名称列自动填满</span></span>
+<span class="highlight"><span class="keyword">for</span> col <span class="keyword">in</span> range(1, 5):</span>
+<span class="highlight">    file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)</span>
+
+<span class="comment"># 列宽微调（路径列让出空间给名称列）</span>
+self.file_tree.setColumnWidth(0, 280)  <span class="comment"># Stretch 模式下仅作为初始/最小参考</span>
+self.file_tree.setColumnWidth(1, 96)
+self.file_tree.setColumnWidth(2, 140)
+self.file_tree.setColumnWidth(3, 80)
+<span class="highlight">self.file_tree.setColumnWidth(4, 200)  <span class="comment"># 旧 320 → 200</span></span>
+</div>
+
+<h3>4.5 panels/ops_log_panel.py（远端列表 + 批量导出树列策略）</h3>
+<div class="code-block">
+<span class="comment"># 远端文件树 — 约 1789 行</span>
+<span class="comment"># 旧：全部 Interactive</span>
+<span class="comment"># for col in range(4):</span>
+<span class="comment">#     hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)</span>
+
+<span class="comment"># 新：名称列 Stretch</span>
+<span class="highlight">hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)   <span class="comment"># 名称列自动填满</span></span>
+<span class="highlight"><span class="keyword">for</span> col <span class="keyword">in</span> range(1, 4):</span>
+<span class="highlight">    hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)</span>
+
+<span class="comment"># 列宽微调</span>
+self.remote_tree.setColumnWidth(0, 160)  <span class="comment"># Stretch 下仅作初始参考</span>
+<span class="highlight">self.remote_tree.setColumnWidth(1, 80)   <span class="comment"># 旧 72 → 80</span></span>
+<span class="highlight">self.remote_tree.setColumnWidth(2, 72)   <span class="comment"># 旧 64 → 72</span></span>
+self.remote_tree.setColumnWidth(3, 120)
+
+<span class="comment"># 批量导出树 — 约 1837 行</span>
+<span class="comment"># 旧：全部 Interactive</span>
+<span class="comment"># exp_hdr.setSectionResizeMode(0, Interactive)</span>
+<span class="comment"># exp_hdr.setSectionResizeMode(1, Interactive)</span>
+<span class="comment"># exp_hdr.setSectionResizeMode(2, Interactive)</span>
+
+<span class="comment"># 新：服务器/服务列 Stretch</span>
+<span class="highlight">exp_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)</span>
+<span class="highlight">exp_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)</span>
+<span class="highlight">exp_hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)</span>
+self.export_server_list.setColumnWidth(0, 160)  <span class="comment"># Stretch 下仅作初始参考</span>
+<span class="highlight">self.export_server_list.setColumnWidth(1, 200)  <span class="comment"># 旧 220 → 200</span></span>
+<span class="highlight">self.export_server_list.setColumnWidth(2, 120)  <span class="comment"># 旧 140 → 120</span></span>
+</div>
+
+<h3>4.6 ui/layout_metrics.py（设计 token 同步）</h3>
+<div class="code-block">
+<span class="comment"># 控件</span>
+BTN_H = 36
+<span class="highlight">BTN_H_COMPACT = <span class="number">28</span>  <span class="comment"># 旧 32 → 28</span></span>
+FIELD_H = 36
+</div>
+
+<!-- ==================== 五、验收清单 ==================== -->
+<h2>五、验收清单</h2>
+<div class="checklist">
+  <ul>
+    <li>需求管理 → 文件库页签：窗口最大化后，名称列自动撑满，右侧无空白</li>
+    <li>需求管理 → 文件库页签：9 个操作按钮高度约 28px，视觉紧凑不臃肿</li>
+    <li>需求管理 → 文件库页签：拖拽列分隔线仍可调整类型/大小/时间/路径列宽</li>
+    <li>日志排查 → 远端文件树：窗口放大后名称列自动填满，4 列无空白</li>
+    <li>日志排查 → 远端文件树：上级/打开/刷新/选用 按钮高度约 28px</li>
+    <li>日志排查 → 会话区：看尾部/终端截取/导出日志/预览 按钮高度约 28px</li>
+    <li>日志排查 → 批量导出树：服务器/服务列 Stretch 撑满，日志路径/指定文件列可拖拽</li>
+    <li>接口文档更新 → 输出浏览器：名称列仍 Stretch，类型列 100px、大小列 72px</li>
+    <li>全局限宽页面的按钮（如设置页）未出现溢出或裁切</li>
+    <li>主题切换（calm/clear/warm/night）后按钮和列表样式一致</li>
+    <li>运行 scripts/build_release.ps1 打包通过</li>
+    <li>敏感扫描 scan_release_secrets.py 通过</li>
+  </ul>
+</div>
+
+<!-- ==================== 六、风险评估 ==================== -->
+<h2>六、风险评估</h2>
+<table class="compare-table">
+  <tr>
+    <th>风险项</th>
+    <th>等级</th>
+    <th>缓解措施</th>
+  </tr>
+  <tr>
+    <td>compactAction 按钮高度从 36→28，部分页面按钮内文字可能换行</td>
+    <td class="old">低</td>
+    <td>所有 compactAction 按钮文字均为 2-4 字短词（上级/打开/刷新/选用/看尾部等），28px 高 + 12px 字号足够</td>
+  </tr>
+  <tr>
+    <td>名称列 Stretch 后用户拖拽列宽行为变化</td>
+    <td class="old">低</td>
+    <td>Stretch 仅作用于名称列，其余列仍 Interactive 可拖拽；名称列 Stretch 时拖拽其余列会自动调整名称列宽度</td>
+  </tr>
+  <tr>
+    <td>全局 QPushButton padding 收紧影响非 compactAction 按钮</td>
+    <td class="old">低</td>
+    <td>padding 6px 12px 仍满足 44px 最小触控靶（padding + min-height + 文字），且桌面工具台非触屏场景</td>
+  </tr>
+  <tr>
+    <td>行高 +3px 后可见行数减少</td>
+    <td class="old">极低</td>
+    <td>27→30px 仅减少约 10% 可见行数，但按钮缩小释放的垂直空间远大于此</td>
+  </tr>
+</table>
+
+<!-- ==================== 总结 ==================== -->
+<div class="summary-box">
+  <h3>总结</h3>
+  <p>本次改造通过<strong>三个维度的协同调整</strong>解决"列表不填满 + 按钮过大"问题：</p>
+  <ol>
+    <li><strong>列伸缩修复</strong>：名称列从 Interactive → Stretch，窗口放大时自动填满剩余宽度——覆盖文件库（5列）、远端列表（4列）、批量导出树（3列）共 3 棵树。</li>
+    <li><strong>按钮真正紧凑</strong>：compactAction 的 QSS padding 从 7px 12px → 4px 10px，Python 侧 setFixedHeight 从 36→28，让"标记为 compact 的按钮"真正变成 28px 紧凑态，而非假紧凑。</li>
+    <li><strong>列表行高放大</strong>：行高 27→30px、padding 4px 7px → 5px 8px，让列表内容更舒展——"按钮缩小让出的空间还给列表"。</li>
+  </ol>
+  <p style="margin-top:12px"><strong>改动范围：</strong>6 个文件，纯视觉层面，无业务逻辑变更，无数据结构变更。</p>
+</div>
+
+</div>
+</body>
+</html>

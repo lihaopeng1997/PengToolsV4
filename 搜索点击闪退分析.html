@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>搜索点击闪退分析</title>
+<style>
+  :root { --ink:#1f2933; --muted:#52606d; --line:#d9e2ec; --bg:#f7fafc; --card:#ffffff; --accent:#176b52; --warn:#9c4a12; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; line-height:1.7; }
+  main { max-width:920px; margin:40px auto; padding:0 24px; }
+  header { padding:32px; border-radius:18px; background:linear-gradient(135deg,#eff8f3,#ffffff); border:1px solid #c8e0d4; }
+  h1 { margin:0 0 8px; font-size:28px; color:#174a3a; }
+  h2 { margin:30px 0 12px; font-size:19px; color:#174a3a; }
+  p { margin:8px 0; }
+  .sub { color:var(--muted); }
+  section { margin-top:18px; padding:24px 28px; border:1px solid var(--line); border-radius:16px; background:var(--card); }
+  .root { border-left:5px solid var(--warn); }
+  code { padding:2px 6px; border-radius:5px; background:#eef2f5; color:#243b53; font-family:Consolas, monospace; font-size:.92em; }
+  ul,ol { margin:8px 0; padding-left:24px; }
+  .status { display:inline-block; padding:4px 10px; border-radius:999px; background:#e9f6ef; color:#176b52; font-weight:600; font-size:13px; }
+  .impact { color:#7c2d12; font-weight:600; }
+  footer { padding:20px 2px 0; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="status">已完成根因分析</span>
+    <h1>搜索点击闪退分析</h1>
+    <p class="sub">范围：JSON 查看器、XML 工作区的搜索结果导航（回车、上一个、下一个按钮）。</p>
+  </header>
+
+  <section>
+    <h2>问题描述</h2>
+    <p>输入搜索词后，用户点击搜索结果导航按钮或按回车进入下一处命中时，应用可能直接退出。实时输入阶段已不会抢走搜索框焦点，但结果导航路径仍会触发编辑器抢焦点。</p>
+  </section>
+
+  <section class="root">
+    <h2>根因</h2>
+    <p><code>ui/search_highlight.py</code> 的 <code>apply_text_match_index()</code> 默认会调用 <code>focus_text_span(..., take_focus=True)</code>，进而对折叠文本编辑器执行 <code>setFocus()</code>。</p>
+    <p>JSON/XML 的实时搜索已显式传入 <code>take_focus=False</code>；但用户主动导航命中（回车、↑、↓）时，<code>ui/json_viewer.py</code> 与 <code>ui/xml_workspace.py</code> 未传入该参数，重新回退到默认抢焦点行为。焦点切换与高亮、折叠区域展开、当前行刷新叠加时存在 Qt 控件状态竞争，造成闪退风险。</p>
+  </section>
+
+  <section>
+    <h2>复现路径</h2>
+    <ol>
+      <li>在 JSON 查看器或 XML 工作区输入可命中的关键词；</li>
+      <li>搜索结果出现后，按回车或点击“上一个/下一个”；</li>
+      <li>导航逻辑将焦点从搜索框切到带折叠能力的编辑器；</li>
+      <li>高亮与折叠刷新同时执行时，可能触发应用退出。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>拟修复方案</h2>
+    <ul>
+      <li>在 JSON/XML 的结果导航路径中统一传入 <code>take_focus=False</code>，使搜索框在输入与命中跳转全过程都保持焦点。</li>
+      <li>补充回归测试：搜索后连续点击“下一个”和按回车，不发生焦点转移或异常。</li>
+      <li>定向验证后重新打包离线安装包。</li>
+    </ul>
+    <p class="impact">影响范围：仅调整搜索导航的焦点策略，不改变搜索命中、高亮、滚动定位和快捷键行为。</p>
+  </section>
+
+  <section>
+    <h2>结论与建议</h2>
+    <p>建议按最小修复方案处理：搜索结果跳转只负责高亮与滚动，不再把编辑器设为焦点。这既规避闪退风险，也让用户可以持续搜索、连续按回车浏览结果。</p>
+  </section>
+
+  <footer>分析时间：2026-07-28</footer>
+</main>
+</body>
+</html>

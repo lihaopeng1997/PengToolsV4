@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengToolsHub V4.27 — 当前 UI 设计合理性评估与调整方案</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #2f6fed;
+    --brand-soft: #eef4ff;
+    --ok: #0e9f6e;
+    --ok-soft: #ecfdf5;
+    --warn: #c27803;
+    --warn-soft: #fffaeb;
+    --danger: #d0342c;
+    --danger-soft: #fdf0ef;
+    --pri: #3F6B56;       /* calm PRIMARY */
+    --pri-soft: #E4EFE8;
+    --pri-active: #2F5342;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.7; padding: 32px 20px 64px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { font-size: 26px; margin-bottom: 6px; }
+  header p { color: var(--muted); font-size: 14px; }
+  .badges { margin-top: 10px; }
+  .badge {
+    display: inline-block; padding: 3px 12px; border-radius: 999px;
+    font-size: 12px; margin: 3px; font-weight: 600;
+  }
+  .b-blue { background: var(--brand-soft); color: var(--brand); }
+  .b-green { background: var(--ok-soft); color: var(--ok); }
+  .b-amber { background: var(--warn-soft); color: var(--warn); }
+  .b-red { background: var(--danger-soft); color: var(--danger); }
+  section {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px 28px; margin-bottom: 20px;
+  }
+  section > h2 {
+    font-size: 18px; margin-bottom: 14px; padding-left: 10px;
+    border-left: 4px solid var(--brand);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 10px 0; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; white-space: nowrap; }
+  code {
+    background: #f1f5f9; border-radius: 4px; padding: 1px 6px;
+    font-family: Consolas, monospace; font-size: 12.5px; color: #b03060;
+  }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .note {
+    background: var(--brand-soft); border-left: 4px solid var(--brand);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .ok-note {
+    background: var(--ok-soft); border-left: 4px solid var(--ok);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .warn-note {
+    background: var(--warn-soft); border-left: 4px solid var(--warn);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .danger-note {
+    background: var(--danger-soft); border-left: 4px solid var(--danger);
+    padding: 10px 14px; border-radius: 6px; font-size: 13.5px; margin: 10px 0;
+  }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .t-p0 { background: var(--danger-soft); color: var(--danger); }
+  .t-p1 { background: var(--warn-soft); color: var(--warn); }
+  .t-p2 { background: var(--ok-soft); color: var(--ok); }
+
+  /* —— 草图 —— */
+  .mock {
+    border: 1px dashed #cbd5e1; border-radius: 12px;
+    padding: 16px; margin: 14px 0; background: #fcfcfd;
+  }
+  .mock-title {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    letter-spacing: 1px; margin-bottom: 12px;
+  }
+  .mock-grid {
+    display: grid; grid-template-columns: 220px 1fr; gap: 12px;
+    min-height: 360px;
+  }
+  .mock-side {
+    background: #f8f7f2; border-radius: 10px; padding: 12px 8px;
+    border: 1px solid #e4e2da;
+  }
+  .mock-side .brand {
+    background: var(--pri-soft); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .mock-side .brand-mark {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--pri); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
+  .mock-side .brand-text { font-size: 13px; font-weight: 600; color: #1a1f1c; }
+  .mock-side .nav-section {
+    font-size: 10px; font-weight: 700; color: #6b746e;
+    padding: 10px 6px 4px; letter-spacing: 1px;
+  }
+  .mock-side .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; margin: 1px 0;
+    color: #3f4742; font-size: 13px;
+  }
+  .mock-side .nav-item.active { background: var(--pri-soft); color: var(--pri-active); font-weight: 600; }
+  .mock-side .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pri); }
+  .mock-side .nav-dot.muted { background: #cbd5e1; }
+
+  .mock-main {
+    background: #fffefb; border-radius: 10px; padding: 18px 20px;
+    border: 1px solid #e4e2da; display: flex; flex-direction: column; gap: 12px;
+  }
+  .mock-page-header {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding-bottom: 12px; border-bottom: 1px solid #f0efe9;
+  }
+  .mock-page-header .icon-plate {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--pri-soft); display: flex; align-items: center; justify-content: center;
+    color: var(--pri-active); font-weight: 700; font-size: 16px;
+  }
+  .mock-page-header .titles { flex: 1; }
+  .mock-page-header h3 { font-size: 18px; color: #1a1f1c; margin-bottom: 2px; }
+  .mock-page-header p { font-size: 12.5px; color: #6b746e; }
+  .mock-page-header .primary {
+    background: var(--pri); color: #fff; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; align-self: center;
+  }
+  .mock-toolbar {
+    background: #f6f5f0; border: 1px solid #e4e2da; border-radius: 10px;
+    padding: 10px 14px; display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .mock-btn {
+    background: #fff; border: 1px solid #d7d4cb; color: #3a423d;
+    padding: 6px 12px; border-radius: 7px; font-size: 12.5px;
+  }
+  .mock-btn.primary { background: var(--pri); border-color: var(--pri); color: #fff; font-weight: 600; }
+  .mock-btn.danger { background: #fff; border-color: #d0342c; color: #d0342c; }
+  .mock-btn.ghost { background: transparent; border-color: transparent; color: #6b746e; }
+  .mock-input {
+    background: #fff; border: 1px solid #d7d4cb; padding: 6px 12px;
+    border-radius: 7px; font-size: 12.5px; flex: 1; min-width: 160px; color: #6b746e;
+  }
+  .mock-zone {
+    border-radius: 10px; padding: 12px;
+  }
+  .mock-zone.green { background: #ecfdf5; border-left: 4px solid var(--ok); }
+  .mock-zone.amber { background: var(--warn-soft); border-left: 4px solid var(--warn); }
+  .mock-zone.blue { background: var(--brand-soft); border-left: 4px solid var(--brand); }
+  .mock-zone.gray { background: #f6f5f0; border-left: 4px solid #cbd5e1; }
+  .mock-zone-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #1a1f1c; }
+  .mock-zone-text { font-size: 12.5px; color: #4a554f; line-height: 1.6; }
+
+  .compare {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0;
+  }
+  .compare > div { background: #fcfcfd; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 12px; }
+  .compare h4 {
+    font-size: 12px; font-weight: 600; letter-spacing: 1px;
+    margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  }
+  .compare h4.bad { color: var(--danger); }
+  .compare h4.good { color: var(--ok); }
+
+  /* —— 设计要点高亮 —— */
+  .hl-ok { background: rgba(14, 159, 110, 0.12); }
+  .hl-warn { background: rgba(194, 120, 3, 0.12); }
+  .hl-bad { background: rgba(208, 52, 44, 0.12); }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>PengToolsHub V4.27 — 当前 UI 设计合理性评估与调整方案</h1>
+  <p>需求分析师 / 项目经理 视角 · 基于实读代码 + 14 页离屏截图 · 2026-08-26</p>
+  <div class="badges">
+    <span class="badge b-green">整体水平：B+</span>
+    <span class="badge b-amber">一致性短板：P0</span>
+    <span class="badge b-blue">页面级改造期</span>
+    <span class="badge b-red">未提交改动存在</span>
+  </div>
+</header>
+
+<section>
+  <h2>一、一句话结论</h2>
+  <p><strong>当前 UI 整体水平 B+</strong>：视觉体系（四主题 Token + 密度 + PageChrome）已就位、风格统一、留白合理；但<strong>页面级一致性是当下最大短板</strong> —— 部分页面缺标题骨架、主操作位置不统一、控件条与工具栏语义混淆、空状态缺乏引导。已进入「页面级改造期」（<code>docs/plans/2026-07-29-interface-debug-workbench-redesign.md</code> 排队中），建议在批量推进页面级设计前先统一<strong>页面骨架与控件分层规范</strong>，避免重复返工。</p>
+</section>
+
+<section>
+  <h2>二、评估方法（可复现）</h2>
+  <ul>
+    <li><strong>代码实读</strong>：<code>ui/theme_manager.py</code>、<code>ui/design_system.py</code>、<code>ui/page_chrome.py</code>、<code>resources/style.qss</code>（前 160 行）、<code>docs/plans/2026-07-29-global-ui-foundation.md</code></li>
+    <li><strong>环境修复</strong>：venv 内 <code>openpyxl.compat.numbers</code> 缺失（损坏的 site-packages），从系统 Python 3.12 完整覆盖修复；offscreen 模式注入 <code>NotoSansSC-VF.ttf</code> 解决豆腐字</li>
+    <li><strong>离屏截图</strong>：<code>outputs/ui_review_shots.py</code> + 14 张 PNG（1600×1000，calm 主题）→ <code>outputs/shots/</code></li>
+    <li><strong>覆盖范围</strong>：nav 0–14 中可见的 14 个（自我学习 nav 8 彩蛋未解锁）</li>
+  </ul>
+</section>
+
+<section>
+  <h2>三、做得好的方面（值得保留）</h2>
+  <div class="ok-note">
+    <strong>✅ 视觉基础扎实：</strong>四主题（calm/clear/warm/black）Token 覆盖完整、密度 compact/comfortable 双档生效、终端色 <code>TERM_*</code> 与界面色独立（深色控制台在浅色界面中形成强对比）、状态/信息/成功/警告/危险四级背景齐全。
+  </div>
+  <ul>
+    <li><strong>页面骨架</strong>：12/14 页面使用 <code>PageChrome</code>，标题 + 副标题 + 主操作槽位一致</li>
+    <li><strong>状态反馈</strong>：日志排查顶部"未检测到 paramiko"黄色警告条到位；列表/表格空态有明显灰底区分</li>
+    <li><strong>侧栏布局</strong>：13 个图标 + 品牌区 + 折叠按钮 + 用户芯片 + 右下角状态点，节奏一致</li>
+    <li><strong>设置页</strong>：主题预览卡片 2×2 网格直观好用</li>
+    <li><strong>响应式基础</strong>：Wide/Standard/Compact/Narrow 断点齐备，分栏方向有控制</li>
+  </ul>
+</section>
+
+<section>
+  <h2>四、需要调整的问题清单</h2>
+
+  <h3 style="font-size:16px;color:var(--danger);margin:14px 0 8px;">P0 一致性（最关键）</h3>
+  <table>
+    <tr><th>#</th><th>问题</th><th>表现</th><th>影响面</th></tr>
+    <tr>
+      <td>1</td>
+      <td><strong>页面骨架不一致</strong></td>
+      <td>「升级准备」页直接 Tab 起，缺 PageChrome 标题区</td>
+      <td>用户切换页面时缺少"定位锚点"</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>主操作按钮位置分裂</strong></td>
+      <td>需求管理=右上"新建需求"、接口排查=右上"本地"状态点、日志排查=右上"连接本会话"、升级准备=内右"升级上下文"、证件/VIN=内右"生成"、模型工作台=内左"填入问句"、接口文档=内右"一键更新"</td>
+      <td>同类操作在不同页面要重新找</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>顶部工具栏概念混乱</strong></td>
+      <td>需求管理"扫描/检出/更新/登记/导入/配置"6 按钮 vs 模型工作台"新建/删除/测试/同步"4 按钮 vs 升级准备"刷新/全选/取消/已截"4 按钮 + 升级上下文，控件条/工具栏/筛选条三种形态并存</td>
+      <td>用户无法建立心智模型</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>筛选条控件种类不一</strong></td>
+      <td>需求管理=搜索+3 下拉；接口排查=搜索+列设置；命令库=搜索+分类下拉+新建按钮；模型工作台=连接下拉+4 操作按钮；升级准备=日期+操作组</td>
+      <td>同一类功能（筛选/搜索）视觉差异大</td>
+    </tr>
+  </table>
+
+  <h3 style="font-size:16px;color:var(--warn);margin:14px 0 8px;">P1 视觉细节</h3>
+  <table>
+    <tr><th>#</th><th>问题</th><th>表现</th></tr>
+    <tr>
+      <td>5</td>
+      <td><strong>图标按钮过多无文字</strong></td>
+      <td>需求管理文件库工具栏 8 个图标按钮（打开/刷新/更新/添加/新建/锁定/解锁/回滚）</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><strong>折叠操作分散</strong></td>
+      <td>需求管理："一键搞定/全部展开/全部折叠"在左侧树工具栏，但"全部展开/全部折叠"又在搜索条右侧重复</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><strong>空状态视觉友好度</strong></td>
+      <td>证件类型 12 列空表 / 需求管理文件库空表 / 接口排查列表空 / 命令库右侧空，缺少引导文案或插画</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><strong>模型工作台「只生成」按钮</strong></td>
+      <td>右上角孤立放置，与左侧主操作"填入问句"同色调但语义不同；建议改为次要色 ghost 按钮</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><strong>升级准备「升级上下文」按钮</strong></td>
+      <td>右上角与下方面板位置割裂，应改为右侧主操作位或顶部 PageChrome 槽位</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><strong>日志排查按钮分组</strong></td>
+      <td>终端顶部"生成查询/历史/发送" + 右上"智能终端/清屏/新终端"两组按钮视觉重叠，应分层</td>
+    </tr>
+  </table>
+
+  <h3 style="font-size:16px;color:var(--ok);margin:14px 0 8px;">P2 微优化（可选）</h3>
+  <ul>
+    <li>侧栏品牌区 36px 图标与用户芯片 32px 略不同</li>
+    <li>状态栏左侧文案过长时挤压（"接口排查 · 抓包中会占用系统代理…"）</li>
+    <li>设置页字号步进器（- 12 + px）三控件间距略大</li>
+    <li>命令库"105 条"角标居右但与列表分隔条对齐略偏</li>
+  </ul>
+</section>
+
+<section>
+  <h2>五、未提交改动带来的 UI 状态</h2>
+  <div class="warn-note">
+    工作区有 3 个未提交文件，其中 <code>panels/ai_workbench_panel.py</code> +212 行：
+    <ul>
+      <li>新增 <code>compose_nl_query(table, columns)</code> 自然语言问句生成函数</li>
+      <li>左侧表列表新增<strong>筛选框</strong>、<strong>字段列表</strong>、<strong>插入表名/插入字段/填入问句</strong>三个按钮</li>
+      <li>在 14_模型工作台.png 中已可见生效</li>
+    </ul>
+    <strong>建议</strong>：本次审查后若用户同意调整方向，先把这一改动<strong>定向测试 + 提交推送</strong>，再进入正式调整，否则调整期间差异会持续累积。
+  </div>
+</section>
+
+<section>
+  <h2>六、调整方向（建议方案 · 待用户确认）</h2>
+
+  <h3 style="font-size:15px;margin:12px 0 8px;">方向 A：统一页面骨架规范</h3>
+  <div class="mock">
+    <div class="mock-title">标准页面骨架（建议作为所有面板的强制约束）</div>
+    <div class="mock-grid">
+      <div class="mock-side">
+        <div class="brand">
+          <div class="brand-mark">Pt</div>
+          <div class="brand-text">PengToolsHub</div>
+        </div>
+        <div class="nav-section">交付管理</div>
+        <div class="nav-item active"><span class="nav-dot"></span>需求管理</div>
+        <div class="nav-item"><span class="nav-dot muted"></span>发版联动</div>
+        <div class="nav-section">开发工具</div>
+        <div class="nav-item"><span class="nav-dot muted"></span>接口排查</div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-page-header">
+          <div class="icon-plate">📋</div>
+          <div class="titles">
+            <h3>需求管理</h3>
+            <p>需求 / BUG / 文件 / SQL / 升级联动 · 当前选中：2026-08-26 车险承保中心</p>
+          </div>
+          <div class="primary">+ 新建需求</div>
+        </div>
+        <div class="mock-toolbar">
+          <div class="mock-btn primary">扫描需求目录</div>
+          <div class="mock-btn">检出代码</div>
+          <div class="mock-btn">更新全部</div>
+          <div class="mock-btn">登记缺陷</div>
+          <div class="mock-btn">导入资料</div>
+          <div class="mock-btn">系统配置</div>
+          <div style="flex:1"></div>
+          <div class="mock-btn ghost">全部折叠</div>
+        </div>
+        <div class="mock-zone blue">
+          <div class="mock-zone-title">筛选 / 搜索条</div>
+          <div class="mock-zone-text">统一形态：⌕ 搜索框 + 系统下拉 + 类型下拉 + 状态下拉 + 结果计数"已截 0 · 勾选 0"；不再混杂操作按钮。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;margin:18px 0 8px;">方向 B：主操作收口到 PageChrome 右上</h3>
+  <div class="compare">
+    <div>
+      <h4 class="bad">现状（操作散落 6 个位置）</h4>
+      <ul>
+        <li><span class="hl-bad">右上</span>：需求管理 = 新建需求</li>
+        <li><span class="hl-bad">内右</span>：证件 = 生成 / VIN = 生成 / 升级准备 = 升级上下文</li>
+        <li><span class="hl-bad">内左</span>：模型工作台 = 填入问句</li>
+        <li><span class="hl-bad">内右</span>：接口文档 = 一键更新文档</li>
+        <li><span class="hl-bad">右下</span>：日报 = 保存日报</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="good">建议（统一到 PageChrome 主操作位）</h4>
+      <ul>
+        <li><span class="hl-ok">PageChrome.primary_actions</span>：本页面唯一的主操作（如「生成」「新建」「保存」「连接本会话」「执行查询」）</li>
+        <li><span class="hl-ok">PageChrome.secondary_actions</span>：次要操作（如「导出 CSV」「复制安全 URL」「导入资料」）</li>
+        <li><span class="hl-ok">内嵌工具栏</span>：仅承载批量操作（多选 + 批量执行），不再放主操作</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;margin:18px 0 8px;">方向 C：三层控件分层（页面骨架 → 工具栏 → 筛选条）</h3>
+  <table>
+    <tr><th>层</th><th>职责</th><th>允许的控件</th></tr>
+    <tr>
+      <td><strong>L1 页面骨架</strong>（PageChrome）</td>
+      <td>标题 / 副标题 / 主操作 / 次要操作</td>
+      <td>1 个主按钮 + ≤2 个次要按钮 + 可选状态点</td>
+    </tr>
+    <tr>
+      <td><strong>L2 工具栏</strong>（page-toolbar）</td>
+      <td>本页面的批量操作 / Tab 切换 / 视图模式</td>
+      <td>操作按钮组（按语义分组，组间加间距）+ Tab 控件</td>
+    </tr>
+    <tr>
+      <td><strong>L3 筛选条</strong>（page-filter-bar）</td>
+      <td>搜索 / 筛选 / 排序 / 计数反馈</td>
+      <td>搜索框 + 下拉 + 计数；不再混入操作按钮</td>
+    </tr>
+  </table>
+
+  <h3 style="font-size:15px;margin:18px 0 8px;">方向 D：空状态模板统一</h3>
+  <div class="compare">
+    <div>
+      <h4 class="bad">现状（无引导）</h4>
+      <div class="mock-zone gray" style="min-height:140px;display:flex;align-items:center;justify-content:center;">
+        <div style="text-align:center;color:#9ca3af;font-size:13px;">
+          ☐<br><br>（无任何文字）
+        </div>
+      </div>
+    </div>
+    <div>
+      <h4 class="good">建议（统一空状态卡）</h4>
+      <div class="mock-zone blue" style="min-height:140px;display:flex;align-items:center;justify-content:center;">
+        <div style="text-align:center;font-size:13px;color:#3a423d;">
+          <div style="font-size:24px;margin-bottom:8px;">📂</div>
+          <div style="font-weight:600;margin-bottom:4px;">尚未关联需求</div>
+          <div style="color:#6b746e;font-size:12.5px;line-height:1.6;">点击右上「新建需求」开始台账<br>或从需求目录扫描现有条目</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;margin:18px 0 8px;">方向 E：图标按钮加 tooltip + 必要时文字标签</h3>
+  <div class="compare">
+    <div>
+      <h4 class="bad">现状（8 个无文字图标）</h4>
+      <div style="display:flex;gap:6px;padding:8px;background:#f6f5f0;border-radius:8px;">
+        <div class="mock-btn" style="padding:6px 10px;">📂</div>
+        <div class="mock-btn" style="padding:6px 10px;">🔄</div>
+        <div class="mock-btn" style="padding:6px 10px;">⬆</div>
+        <div class="mock-btn" style="padding:6px 10px;">➕</div>
+        <div class="mock-btn" style="padding:6px 10px;">📝</div>
+        <div class="mock-btn" style="padding:6px 10px;">🔒</div>
+        <div class="mock-btn" style="padding:6px 10px;">🔓</div>
+        <div class="mock-btn" style="padding:6px 10px;">↩</div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:6px;">（用户只能靠 tooltip 猜含义）</p>
+    </div>
+    <div>
+      <h4 class="good">建议（图标 + 文字 chip）</h4>
+      <div style="display:flex;gap:6px;padding:8px;background:#f6f5f0;border-radius:8px;flex-wrap:wrap;">
+        <div class="mock-btn">📂 打开目录</div>
+        <div class="mock-btn">🔄 刷新</div>
+        <div class="mock-btn">⬆ 更新</div>
+        <div class="mock-btn">➕ 添加文件</div>
+        <div class="mock-btn">📝 新建文本</div>
+        <div class="mock-btn">🔒 锁定</div>
+        <div class="mock-btn">🔓 解锁</div>
+        <div class="mock-btn danger">↩ 回滚</div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:6px;">破坏性操作（回滚）用 danger 色，锁定/解锁用 secondary</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>七、建议的落地节奏（不立即动代码，待用户拍板）</h2>
+  <table>
+    <tr><th>阶段</th><th>动作</th><th>产出</th></tr>
+    <tr>
+      <td><strong>0. 保护现状</strong></td>
+      <td>提交并推送 <code>ai_workbench_panel.py / build_info.json / test_sql_guard.py</code>（仅本次未提交改动，不混入其他变更）</td>
+      <td>git 上 3 个变更落地、可回滚</td>
+    </tr>
+    <tr>
+      <td><strong>1. 规范先行</strong></td>
+      <td>编写《页面骨架与控件分层规范》HTML（基于本审查结论）→ 用户确认</td>
+      <td>UI 规范 v1，作为后续页面级改造的"宪法"</td>
+    </tr>
+    <tr>
+      <td><strong>2. 全局补缺</strong></td>
+      <td>升级准备页补 PageChrome；空状态统一；图标按钮加 tooltip；状态栏文案规范化</td>
+      <td>全局一致性回归测试 + 重新打包</td>
+    </tr>
+    <tr>
+      <td><strong>3. 页面级改造</strong></td>
+      <td>按优先级：接口排查 → SSH/终端 → 日志 → 工作台首页 → 其余（既有计划继续）</td>
+      <td>按既定计划逐面板落地，每轮定向测试 + 打包</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>八、本次评估用到的原始素材</h2>
+  <ul>
+    <li>截图脚本：<code>outputs/ui_review_shots.py</code></li>
+    <li>14 张截图：<code>outputs/shots/01_工作台.png</code> ~ <code>14_模型工作台.png</code></li>
+    <li>截图日志：<code>outputs/shot_log.txt</code></li>
+    <li>本审查 HTML：根目录 <code>当前UI设计合理性评估与调整方案.html</code></li>
+  </ul>
+  <div class="note">
+    <strong>提醒：</strong>未对任何业务代码、QSS、样式做修改。所有判断基于实读 + 截图。3 个未提交文件保持原状，等用户决策。
+  </div>
+</section>
+
+<footer>PengToolsHub V4.27 Private · UI 设计合理性评估 · 生成于 2026-08-26 · 仅评估，不改代码</footer>
+</div>
+</body>
+</html>

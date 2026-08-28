@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>任务栏图标可见性优化</title>
+<style>
+  :root { --ink:#1f2a25; --muted:#607066; --line:#dbe5de; --panel:#f7faf8; --accent:#246b4b; --warn:#8a5a13; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 20px; background:#eef4f0; color:var(--ink); font:15px/1.7 "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+  main { max-width:920px; margin:auto; background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:0 18px 45px rgba(31,61,50,.10); overflow:hidden; }
+  header { padding:32px 38px 26px; background:linear-gradient(135deg,#f4faf6,#e8f3ec); border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 8px; font-size:28px; letter-spacing:.02em; }
+  .sub { color:var(--muted); }
+  section { padding:24px 38px; border-bottom:1px solid var(--line); }
+  section:last-child { border-bottom:0; }
+  h2 { margin:0 0 14px; font-size:18px; color:#1f513a; }
+  p { margin:8px 0; }
+  ul { margin:8px 0; padding-left:22px; }
+  li { margin:6px 0; }
+  code { padding:2px 6px; border-radius:5px; background:#eef4f0; color:#1b563b; font-family:Consolas, monospace; }
+  .finding { padding:14px 16px; background:#f5faf6; border-left:4px solid var(--accent); border-radius:8px; }
+  .warning { padding:14px 16px; background:#fff8eb; border-left:4px solid #c7841e; border-radius:8px; color:#624510; }
+  .plan { display:grid; gap:10px; counter-reset:step; }
+  .plan div { padding:12px 14px 12px 48px; background:var(--panel); border:1px solid var(--line); border-radius:10px; position:relative; }
+  .plan div::before { counter-increment:step; content:counter(step); position:absolute; left:14px; top:11px; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; background:var(--accent); color:#fff; font-size:13px; font-weight:700; }
+  .scope { display:grid; grid-template-columns:170px 1fr; gap:8px 16px; }
+  .scope b { color:#1f513a; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>任务栏图标可见性优化</h1>
+    <div class="sub">PengToolsHub · 黑色 Windows 任务栏图标不可见问题分析</div>
+  </header>
+  <section>
+    <h2>问题描述</h2>
+    <p>黑色 Windows 任务栏下，PengToolsHub 图标对比度不足，难以识别或看起来接近不可见。</p>
+  </section>
+  <section>
+    <h2>关键发现</h2>
+    <div class="finding">
+      运行时与发布内嵌图标不一致，是本次问题的直接根因。<code>run.py</code> 已优先使用高对比 <code>pengtools-taskbar-hc.ico</code>；但发布脚本和主 PyInstaller 规格仍将 EXE 内嵌图标设为 <code>pengtools-app-v2.ico</code>。Windows 在任务栏固定项、分组或图标缓存场景下可能优先读取 EXE 内嵌图标，因此没有稳定使用高对比版本。
+    </div>
+    <ul>
+      <li>高对比图标资源已存在：浅色圆角底 + 深墨绿标志，设计上适用于黑色与浅色任务栏。</li>
+      <li>运行时窗口图标已优先使用该资源，应用内部窗口与新启动实例通常正常。</li>
+      <li>打包入口 <code>scripts/build_release.ps1</code> 的 <code>--icon</code> 仍指向绿色品牌 ICO。</li>
+      <li>根目录 <code>PengToolsHub.spec</code> 的 EXE 图标也仍指向绿色品牌 ICO。</li>
+    </ul>
+  </section>
+  <section>
+    <h2>拟修改方案</h2>
+    <div class="plan">
+      <div>将 <code>scripts/build_release.ps1</code> 的 PyInstaller <code>--icon</code> 改为 <code>resources\brand\pengtools-taskbar-hc.ico</code>。</div>
+      <div>将 <code>PengToolsHub.spec</code> 的 <code>icon</code> 同步为高对比 ICO，避免手动用 spec 打包时回退到旧图标。</div>
+      <div>保留 <code>run.py</code> 当前的高对比优先逻辑，不改动主题、侧栏品牌或托盘的现有行为。</div>
+      <div>执行定向语法检查与离线打包，核验新 EXE、Installer 目录和 ZIP 安装包均已刷新。</div>
+    </div>
+  </section>
+  <section>
+    <h2>影响范围与预期效果</h2>
+    <div class="scope">
+      <b>改动文件</b><span><code>scripts/build_release.ps1</code>、<code>PengToolsHub.spec</code></span>
+      <b>不受影响</b><span>功能逻辑、主题切换、侧栏图标、系统托盘交互与用户数据。</span>
+      <b>预期效果</b><span>新打包的 EXE 在黑色和浅色任务栏上均采用高对比、带浅色底板的应用图标。</span>
+    </div>
+    <p class="warning"><b>注意：</b>Windows 可能缓存已固定到任务栏的旧图标。安装新版后，如任务栏仍显示旧图标，只需将旧固定项取消固定，再从新版 EXE 重新固定；不需要清理系统图标缓存。</p>
+  </section>
+  <section>
+    <h2>结论与建议</h2>
+    <p>建议执行上述两处图标源统一修改并重新打包。这是最小且可验证的修复，能让运行时、EXE 内嵌图标和任务栏固定项使用同一套高对比资源。</p>
+  </section>
+</main>
+</body>
+</html>

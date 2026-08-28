@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>模型对话接入 Harness 整改需求文档</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1a1d24; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#2563eb; --accent-soft:#eff6ff;
+    --ok:#059669; --ok-soft:#ecfdf5; --warn:#d97706; --warn-soft:#fffbeb;
+    --danger:#dc2626; --danger-soft:#fef2f2; --code-bg:#0f172a; --code-ink:#e2e8f0;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.7;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  header.top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:24px}
+  header.top h1{margin:0 0 8px;font-size:24px;font-weight:700}
+  header.top p{margin:0;opacity:.92;font-size:14px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chip{background:rgba(255,255,255,.16);padding:3px 12px;border-radius:999px;font-size:12px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 28px;margin-bottom:20px}
+  h2{font-size:19px;margin:0 0 16px;padding-bottom:10px;border-bottom:2px solid var(--accent-soft);display:flex;align-items:center;gap:8px}
+  h2 .num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;background:var(--accent);color:#fff;border-radius:7px;font-size:14px;flex-shrink:0}
+  h3{font-size:16px;margin:20px 0 10px}
+  h4{font-size:14px;margin:16px 0 6px;color:#111827}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:4px 0}
+  code{font-family:var(--mono);background:#f1f5f9;color:#0f172a;padding:1px 6px;border-radius:5px;font-size:13px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;border-radius:10px;overflow-x:auto;font-size:13px;line-height:1.6}
+  pre code{background:transparent;color:inherit;padding:0;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:#f8fafc;font-weight:600}
+  .callout{border-radius:10px;padding:14px 16px;margin:14px 0;font-size:14px}
+  .callout.ok{background:var(--ok-soft);border-left:4px solid var(--ok)}
+  .callout.warn{background:var(--warn-soft);border-left:4px solid var(--warn)}
+  .callout.danger{background:var(--danger-soft);border-left:4px solid var(--danger)}
+  .callout.info{background:var(--accent-soft);border-left:4px solid var(--accent)}
+  .callout b{display:block;margin-bottom:4px}
+  .filepath{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:600}
+  .hl{background:#fef08a;padding:0 4px;border-radius:3px;font-weight:600}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:5px;font-weight:600;vertical-align:middle}
+  .tag.p0{background:var(--danger-soft);color:var(--danger)}
+  .tag.p1{background:var(--warn-soft);color:var(--warn)}
+  .tag.p2{background:var(--accent-soft);color:var(--accent)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>模型对话接入 Harness 整改需求文档</h1>
+  <p>让「模型对话」入口在回答 SQL / Linux 类问题时，先走字段证据链与只读白名单，做到「表名可模糊、字段名必须精准」。</p>
+  <div class="meta">
+    <span class="chip">项目：PengToolsHub V4.27 Private</span>
+    <span class="chip">技术栈：Python 3.12 + PyQt6</span>
+    <span class="chip">交付对象：Grok（开发执行）</span>
+    <span class="chip">本文档定位：只出方案，不改代码</span>
+  </div>
+</header>
+
+<!-- ================= 1 现状与根因 ================= -->
+<section>
+  <h2><span class="num">1</span>现状与根因（一句话说清为什么「没接」）</h2>
+  <p>Harness 能力<b>已经在软件里</b>，但只接在「数据中心（原 SQL 控制台）」入口，<span class="hl">「模型对话」入口是裸奔的</span>。</p>
+
+  <h3>1.1 当前各入口接线情况</h3>
+  <table>
+    <thead><tr><th>入口</th><th>是否接 Harness</th><th>代码证据</th></tr></thead>
+    <tbody>
+      <tr><td>数据中心（SQL 控制台）</td><td>✅ 已完整接入</td><td><code>panels/ai_workbench_panel.py:30</code> 引 <code>prepare_request / validate_generated_sql / format_evidence_bar</code></td></tr>
+      <tr><td>升级准备 / 日志排查</td><td>✅ 部分接入</td><td><code>sql_panel.py:51</code>、<code>ops_log_panel.py:57</code> 引 <code>ptools_harness.run_task</code></td></tr>
+      <tr><td><b>模型对话</b></td><td><span class="tag p0">❌ 未接入</span></td><td><code>panels/model_chat_panel.py</code> 全文 <b>零引用</b> harness / tameng_agent</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.2 根因（代码级）</h3>
+  <p>模型对话面板的核心链路只有一条「通用聊天」：</p>
+  <pre><code>model_chat_panel.py
+  _send()                      # 用户点发送
+    → append_message(...)       # 追加 user 消息
+    → _start_worker(payload)    # payload = SYSTEM_PROMPT + 历史消息
+      → _ChatWorker.run()       # 后台线程
+        → chat_completions(messages, cfg)   # 直接问模型，无任何证据
+        → completed.emit(text)  # 回显</code></pre>
+  <p>这条链路里 <span class="hl">没有「当前连接」、没有「Schema 快照」、没有「字段证据」、没有「Linux 白名单」</span> 的任何概念。所以用户问「查车险 main 表的创建日期」，模型只能凭自己猜，猜错表名/字段名它也不知道。</p>
+
+  <div class="callout info">
+    <b>关键事实</b>
+    「数据中心」面板已经有一条<b>完整可复用的证据链</b>，本方案就是把这套链路「搬到」模型对话入口，而不是新写一套：
+    <code>_browse_conn()</code> 拿当前连接 → <code>load_snapshot(conn_id)</code> 拿快照 → <code>prepare_request()</code> 做 gate + 候选解析 → <code>generate_sql_draft()</code> 调模型 → <code>validate_generated_sql()</code> 校验 → 拦截或落盘。
+  </div>
+</section>
+
+<!-- ================= 2 开发边界 ================= -->
+<section>
+  <h2><span class="num">2</span>开发边界（5 条铁律，防止改错）</h2>
+  <p>本轮改造<b>只做一件事</b>：给「模型对话」入口加一层「取数意图识别 + 证据链前置校验 + Linux 只读门禁」。除此之外一律不碰。</p>
+
+  <table>
+    <thead><tr><th>#</th><th>允许改</th><th>禁止改</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>panels/model_chat_panel.py</code>（新增取数识别与证据链调用）</td><td>其它面板文件</td></tr>
+      <tr><td>2</td><td>新增一个独立辅助模块（建议 <code>tools/chat_intent.py</code>，可选）</td><td><code>tools/db_connect.py</code>（连接/查询执行）</td></tr>
+      <tr><td>3</td><td>复用 <code>tools/tameng_agent.py</code> / <code>tools/ai_sql_draft.py</code> / <code>tools/linux_guard.py</code> 的<b>既有函数</b></td><td>修改上述三个工具模块的函数签名或内部逻辑</td></tr>
+      <tr><td>4</td><td>——</td><td><code>tools/ptools_harness.py</code>、<code>tools/intranet_llm.py</code>、<code>tools/secure_store.py</code>（凭据加密）</td></tr>
+      <tr><td>5</td><td>——</td><td><code>requirements.txt</code>、<code>scripts/build_release.ps1</code>（依赖与打包）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b>红线（违反即改错）</b>
+    ① 不改 <code>chat_completions</code> 的返回结构（它已支持 <code>stream=True</code>，<code>_request</code> 内部已聚合）。<br>
+    ② 不改 <code>tameng_agent.prepare_request</code> / <code>validate_generated_sql</code> 的签名与语义——它们是数据中心的验收基线。<br>
+    ③ 模型对话的<b>通用聊天能力必须保留</b>：非取数意图的消息仍走原 <code>_send → chat_completions</code> 链路，不得拦截、不得降级。<br>
+    ④ 证据链里<b>绝不注入</b>：真实密码、Token、Cookie、完整连接串、任何业务行数据。只注入「表名、字段名、类型、注释、索引」等<b>结构元数据</b>。
+  </div>
+</section>
+
+<!-- ================= 3 实现逻辑 ================= -->
+<section>
+  <h2><span class="num">3</span>实现逻辑（按代码详细展开）</h2>
+
+  <h3>3.0 总体架构：一条分流，三条子链路</h3>
+  <pre><code>用户在模型对话输入框点「发送」
+        │
+        ▼
+  _send()  【改造点：在 append_message 前插入意图分流】
+        │
+        ├─ 非取数意图（闲聊/翻译/写作…）──► 原链路：chat_completions（通用聊天，保持不动）
+        │
+        └─ 取数意图（问数据库表/字段/查日志/查系统）──► 新链路 _take_data_route()
+                 │
+                 ├─ SQL 类 ──► 3.1 证据链前置校验 → 3.2 调模型 → 3.3 校验拦截
+                 └─ Linux 类 ─► 3.4 Linux 只读门禁</code></pre>
+
+  <h3>3.1 SQL 类：证据链前置校验（复用数据中心逻辑）</h3>
+  <p>核心原则：<span class="hl">先发现 → 再验证 → 后生成</span>。表名可模糊，字段名必须精准（因为字段来自真实扫描的快照）。</p>
+
+  <h4>步骤 A：模型对话面板自带「连接选择器」拿到当前连接和快照（方案 B，已拍板）</h4>
+  <p><b>为什么模型对话面板拿不到连接：</b>连接<b>列表</b>是全局落盘的（<code>data/harness/connections.json</code>，任何面板调 <code>load_connections()</code> 都能读），但「当前选中了哪一条」只存在<b>数据中心面板私有的</b> <code>conn_combo</code> 下拉框内存里（<code>ai_workbench_panel.py:753</code> 的 <code>_current_conn()</code>）。两个面板是平级兄弟，模型对话面板<b>看不见</b>数据中心的选中状态。</p>
+  <p><b>已拍板方案 B</b>：模型对话面板<b>自己放一个连接下拉框</b>，数据源就是 <code>load_connections()</code>，用户在这个页面明确「针对哪个连接问」。<b>不继承</b>数据中心的选中项（避免隐式耦合），<b>不碰</b> <code>db_connect.py</code>（只调用其 <code>load_connections()</code> 读取函数，不改写）。</p>
+  <pre><code>from tools.db_connect import load_connections
+from tools.schema_snapshot import load_snapshot
+
+# ① 初始化：模型对话工具栏新增一个连接下拉框 self.conn_combo（只读展示，可切换）
+#    填充方式复用数据中心的 _reload_connections 同款逻辑（ai_workbench_panel.py:772）：
+rows = load_connections()                      # list[dict]，每条含 id/name/dialect/host 等
+for item in rows:
+    self.conn_combo.addItem(str(item.get('name') or item.get('id')), item)
+
+# ② 发送时读当前选中项：
+conn = self.conn_combo.currentData()           # dict | None
+conn = dict(conn) if isinstance(conn, dict) else None
+
+# ③ 拿快照：
+snap = load_snapshot(str(conn['id'])) if conn else None   # dict | None</code></pre>
+  <p class="filepath">依赖函数（已存在，直接调用，禁止改动）：</p>
+  <ul>
+    <li><code>load_connections()</code> → 返回连接列表（<code>db_connect.py:77</code>）</li>
+    <li><code>load_snapshot(conn_id)</code> → 返回该连接的结构快照（<code>schema_snapshot.py:77</code>）</li>
+  </ul>
+  <div class="callout warn">
+    <b>连接下拉框的三条硬约束</b>
+    ① 只读展示 + 可切换，<b>不提供新增/编辑/删除</b>（编辑连接仍走数据中心）。<br>
+    ② 无任何连接时，下拉框显示「未配置数据库连接」，取数意图直接提示去数据中心配置。<br>
+    ③ 下拉框项里 <b>不得渲染密码字段</b>（连接对象里的 <code>password</code> 是加密串，仅用于连接，绝不进提示词、绝不进 UI）。
+  </div>
+
+  <h4>步骤 B：调用 <code>prepare_request</code> 做门禁 + 候选解析</h4>
+  <pre><code>from tools.tameng_agent import prepare_request
+
+prepared = prepare_request(question, snap, conn)
+# 返回 dict，关键字段：
+#   ok: bool          是否放行调模型
+#   state: str        READY / NEEDS_SELECTION / BLOCKED / NO_CONNECTION / SNAPSHOT_MISSING / SNAPSHOT_STALE
+#   reason: str       拦截/提示原因（可直接展示给用户）
+#   next_action: str  下一步建议
+#   evidence: dict    字段证据上下文（仅 ok=True 时有）
+#   call_model: bool  是否允许调模型</code></pre>
+  <p><code>prepare_request</code> 内部会依次做（<code>tameng_agent.py:633</code>）：</p>
+  <ol>
+    <li><code>snapshot_gate(conn, snap)</code>：无连接 / 无快照 / 快照过期 → 直接 BLOCK，不调模型。</li>
+    <li><code>extract_intent_terms(question)</code>：从问题里抽表名词、字段词、排序/索引/关联意图。</li>
+    <li><code>resolve_candidates(snap, intent)</code>：在快照里做表名模糊匹配（精确/归一化/注释）、字段名精准匹配；命中多个候选字段 → 返回 <code>NEEDS_SELECTION</code>。</li>
+    <li><code>build_evidence_context(resolution, snap)</code>：生成「已确认字段 + 表 + 索引」证据块。</li>
+  </ol>
+
+  <h4>步骤 C：按 <code>state</code> 分流处理</h4>
+  <table>
+    <thead><tr><th>state</th><th>含义</th><th>模型对话面板应做的动作</th></tr></thead>
+    <tbody>
+      <tr><td><code>READY</code> + <code>ok=True</code></td><td>证据齐全，可生成</td><td>进入 3.2 调模型</td></tr>
+      <tr><td><code>NEEDS_SELECTION</code></td><td>多个候选字段</td><td>把 <code>resolution.fields</code> 列出，让用户点选（气泡内渲染候选列表），选定后带 <code>confirmed=...</code> 重新调 <code>prepare_request</code></td></tr>
+      <tr><td><code>BLOCKED</code></td><td>无证据/需补关联</td><td>把 <code>reason</code> 作为助手消息直接回显，<b>不调模型</b></td></tr>
+      <tr><td><code>NO_CONNECTION</code> 等</td><td>缺连接/缺快照</td><td>提示「请先在数据中心选择连接并扫描结构」</td></tr>
+    </tbody>
+  </table>
+
+  <h4>步骤 A-2：快照缺失/过期的兜底（已拍板，现场扫描 + 明确提示）</h4>
+  <p><code>load_snapshot(conn_id)</code>（<code>schema_snapshot.py:77</code>）读不到文件时<b>直接返回 <code>None</code></b>——即用户从没在数据中心扫过该连接，模型对话里就没有它的字段证据。此时<b>不允许</b>调模型猜字段，也不允许静默失败。</p>
+  <p><b>已拍板的兜底策略（按顺序执行）：</b></p>
+  <ol>
+    <li>若 <code>snap is None</code>：先回显一条助手消息「该连接尚未扫描结构，正在扫描…」，然后<b>现场触发一次</b> <code>scan_schema(conn)</code>（<code>schema_snapshot.py</code> 的入口）拿到快照，成功后继续证据链。<b>扫描必须在后台线程</b>，避免阻塞 UI。</li>
+    <li>若现场扫描失败（连接不通/无权限）：回显「扫描失败：{原因}，请先到数据中心确认连接可用」，<b>不调模型</b>，结束。</li>
+    <li>若快照存在但过期（<code>snapshot_gate</code> 返回 <code>SNAPSHOT_STALE</code>）：提示「结构可能已变化，建议到数据中心重新扫描」，<b>仍可按旧快照继续</b>（不强制阻塞），把「可能过期」作为警告回显。</li>
+  </ol>
+  <p class="callout warn"><b>现场扫描的边界</b>：只调 <code>scan_schema</code> 这一个既有函数，<b>不改</b>其内部实现；扫描是只读的结构读取，不执行任何业务 SQL。</p>
+
+  <h3>3.2 调模型生成 SQL（复用 <code>generate_sql_draft</code>）</h3>
+  <pre><code>from tools.ai_sql_draft import generate_sql_draft
+
+draft = generate_sql_draft(
+    question,
+    action='generate',
+    dialect=str((conn or {}).get('dialect') or 'oracle'),
+    alias=str((conn or {}).get('name') or ''),
+    snapshot=None,               # generate 模式不需要快照，走 evidence
+    evidence=prepared.get('evidence'),
+    cfg=model_cfg,               # 当前选中的模型配置 dict
+)
+# draft 是 dict：summary/intent/objects_used/selected_fields/sql/risk_level/warnings/fail_closed</code></pre>
+  <p>关键点：<code>generate_sql_draft</code>（<code>ai_sql_draft.py:215</code>）内部：</p>
+  <ul>
+    <li><code>build_safe_context(...)</code> 会把 <code>evidence_prompt_text(evidence)</code> 拼进 user 消息——这一步把「已确认字段」写死进提示词，模型只能在这些字段里选。</li>
+    <li>若 <code>evidence</code> 为空（无 <code>tables</code>），直接返回 <code>fail_closed=True</code> 的 <code>empty_draft</code>，<b>不调模型</b>。</li>
+    <li>最终调用 <code>chat_completions(messages, cfg)</code>（同一套内网模型接口）。</li>
+  </ul>
+
+  <h3>3.3 校验 + 拦截（复用 <code>validate_generated_sql</code>）</h3>
+  <pre><code>from tools.tameng_agent import validate_generated_sql, format_evidence_bar
+
+checked = validate_generated_sql(draft.get('sql'), evidence, dialect)
+# checked: dict
+#   allowed: bool           是否放行
+#   unknown_objects: list   快照里不存在的表
+#   unknown_fields: list    快照里不存在的字段
+#   reason: str             拦截原因
+
+if not checked.get('allowed'):
+    # 作为助手消息回显：reason + 被拦字段，不写入任何 SQL 编辑器
+else:
+    # 回显 SQL + 字段证据条 format_evidence_bar(evidence)
+    # 标记「草案 · 未执行」，绝不自动执行</code></pre>
+  <p><code>validate_generated_sql</code>（<code>tameng_agent.py:543</code>）会拦截：多语句、无法分类、未确认的 Join、快照外对象、快照外字段、方言不兼容（Oracle 用 limit、MySQL 用 rownum 等）。</p>
+
+  <h3>3.4 Linux 类：只读门禁（复用 <code>run_task</code> 或直接 <code>inspect_commands</code>）</h3>
+  <p>两种实现，<b>推荐方案 B</b>（更轻，不用改 harness）：</p>
+
+  <table>
+    <thead><tr><th>方案</th><th>做法</th><th>评价</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>调 <code>ptools_harness.run_task('linux.query', question, cfg=cfg)</code></td><td>会走 skill 提示词 + <code>inspect_commands</code>，返回 <code>{summary, commands, allowed, rejected, risk}</code>；但依赖项目上下文加载，偏重</td></tr>
+      <tr><td><b>B（推荐）</b></td><td>先让模型把自然语言转命令（或直接识别），再调 <code>inspect_commands(commands)</code> 过滤</td><td>只复用 <code>linux_guard.inspect_commands</code>，白名单/黑名单逻辑复用，链路干净</td></tr>
+    </tbody>
+  </table>
+
+  <h4>方案 B 具体逻辑</h4>
+  <pre><code>from tools.linux_guard import inspect_commands
+
+# 1. 调模型，system 提示词约束「只输出只读命令」
+# 2. 拿到命令列表后过滤：
+allowed, rejected = inspect_commands(command_list)
+# allowed: list[str]   放行的只读命令
+# rejected: list[(cmd, reason)]  被拦命令 + 原因
+
+# 3. 回显给用户：
+#    - allowed 的命令可展示
+#    - rejected 的命令必须附「已拦截：原因」，绝不执行</code></pre>
+  <p><code>inspect_commands</code>（<code>linux_guard.py:101</code>）内部基于：<code>ALLOWED_BINARIES</code>（grep/tail/cat/ls/ps/df...）、<code>_DENIED_BINARIES</code>（rm/mv/kill/chmod/sudo/systemctl/find/awk/sed...）、<code>_DENIED_PATTERN</code>（重定向/管道到解释器/危险命令）。<b>天然禁止破坏性命令</b>。</p>
+  <p class="callout warn"><b>注意（Linux 白名单口径分叉，必须选一套）</b>：项目里存在<b>两套</b> Linux 白名单——<code>tools/linux_guard.py</code> 的 <code>ALLOWED_BINARIES</code>，与 <code>tools/ops_commands.py</code>（运维助手用的）那一套。二者在 <code>find / awk / sed / systemctl</code> 等命令的放行口径上<b>不一致</b>。本接入<b>已拍板统一采用 <code>linux_guard.inspect_commands</code></b> 这一套（因为它与数据中心/证据链同源、链路干净），<b>不允许</b> Grok 再引入 <code>ops_commands</code> 那套来「对齐」，否则模型对话和运维助手的拦截行为会分叉、更难排查。口径差异留待后续单独统一，不在本轮范围内。</p>
+  <p class="callout warn"><b>注意</b>：Linux 查询的实际执行仍在「数据中心 / 运维助手」里由用户点「执行查询」才发 SSH。模型对话入口<b>只生成并展示命令，绝不自动执行</b>。</p>
+
+  <h3>3.5 意图识别怎么判断「取数」还是「闲聊」</h3>
+  <p>关键：不能误伤通用聊天。建议一个轻量规则，<b>新建独立文件 <code>tools/chat_intent.py</code></b>（注意：这个文件<b>当前不存在</b>，是新增文件，不是修改已有文件）：</p>
+  <pre><code>SQL_INTENT_KEYS = ('查', '查询', 'select', '表', '字段', '列', '数据库',
+                   '创建日期', '创建时间', '统计', '合计', 'count', '索引', '关联', 'join')
+LINUX_INTENT_KEYS = ('日志', '查日志', 'tail', 'grep', '看下进程', '磁盘', '内存',
+                     'ps', 'df', 'free', '主机名', 'cpu')
+
+def detect_take_data_intent(text: str) -> str:
+    """返回 'sql' / 'linux' / 'none'"""
+    t = text.lower()
+    if any(k in t for k in LINUX_INTENT_KEYS): return 'linux'
+    if any(k in t for k in SQL_INTENT_KEYS):   return 'sql'
+    return 'none'</code></pre>
+  <p>只有 <code>detect_take_data_intent</code> 返回非 <code>none</code> 时才走证据链；否则完全走原通用聊天链路，零影响。</p>
+</section>
+
+<!-- ================= 4 已拍板决策 ================= -->
+<section>
+  <h2><span class="num">4</span>已拍板的 5 项决策（Grok 照做，不必再问）</h2>
+  <table>
+    <thead><tr><th>#</th><th>决策点</th><th>最终结论</th><th>落地位置</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>模型对话<b>如何知道「当前连接」</b>？</td><td><b>方案 B</b>：模型对话面板<b>自带连接下拉框</b>（数据源 <code>load_connections()</code>，只读 + 可切换，不继承数据中心选中项，不碰 <code>db_connect.py</code>）</td><td>3.1 步骤 A</td></tr>
+      <tr><td>2</td><td><b>快照缺失/过期</b>怎么兜底？</td><td>缺失→后台现场 <code>scan_schema</code> 一次；扫描失败→提示去数据中心、不调模型；过期→警告但按旧快照继续</td><td>3.1 步骤 A-2</td></tr>
+      <tr><td>3</td><td>取数模式是<b>默认开</b>还是手动开关？</td><td>默认<b>开</b>，但只对命中的 SQL/Linux 意图生效；通用聊天永远走原链路</td><td>3.5</td></tr>
+      <tr><td>4</td><td>Linux 白名单<b>两套口径分叉</b>用哪套？</td><td><b>统一用 <code>linux_guard.inspect_commands</code></b>，禁止引入 <code>ops_commands</code> 那套「对齐」，分叉问题本轮不处理</td><td>3.4</td></tr>
+      <tr><td>5</td><td><code>NEEDS_SELECTION</code>（多候选字段）怎么交互？</td><td>气泡内渲染可点选候选字段 chips（简单 QPushButton 列表），点击后带 <code>confirmed</code> 重发</td><td>3.1 步骤 C</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <b>结论</b>：以上 5 项已由用户拍板，Grok 拿到即可照做，<b>不得自行更改默认值、不得因拿不准而停滞</b>。若实现中遇到文档未覆盖的细节，按「只读、不执行、不碰红线、不注入敏感信息」四条底线取最保守做法，并在交付说明里注明。
+  </div>
+</section>
+
+<!-- ================= 5 验收标准 ================= -->
+<section>
+  <h2><span class="num">5</span>验收标准（Grok 自测 + 你验收）</h2>
+  <ol>
+    <li><b>通用聊天不受影响</b>：问「写一段周报」「翻译这段」等非取数问题，行为与改造前完全一致。</li>
+    <li><b>无连接时</b>：问「查车险主表创建日期」，回复「请先在数据中心选择连接并扫描结构」，<b>不调模型</b>。</li>
+    <li><b>有连接 + 有快照</b>：问「查 main 表的创建日期」，若快照里实际是 <code>prpmain</code> 表 + <code>CREATE_DATE</code> 字段，回复的 SQL 必须用 <code>prpmain.CREATE_DATE</code>，<b>字段名精准</b>。</li>
+    <li><b>模型瞎编字段</b>：模型返回了快照里不存在的字段，必须被 <code>validate_generated_sql</code> 拦截，回显「草案引用了不存在的字段 X」。</li>
+    <li><b>多候选字段</b>：命中多个「创建日期」时，气泡内出现候选列表让用户点选，选定后重新生成。</li>
+    <li><b>Linux 只读</b>：问「查下最近的错误日志」，命令若含 <code>rm / kill / sudo / &gt;</code>，必须被 <code>inspect_commands</code> 拦截并标注原因。</li>
+    <li><b>敏感信息零注入</b>：检查发往模型的 messages，不得出现密码/Token/完整连接串/行数据，只有结构元数据。</li>
+    <li><b>绝不自动执行</b>：生成的 SQL 和 Linux 命令都只展示，不写入执行器、不自动发送。</li>
+  </ol>
+</section>
+
+<!-- ================= 6 非目标 ================= -->
+<section>
+  <h2><span class="num">6</span>非目标（本轮明确不做）</h2>
+  <ul>
+    <li>不改「数据中心」面板任何逻辑（它是已验收基线）。</li>
+    <li>不做流式逐字渲染（现有 <code>chat_completions</code> 已是阻塞聚合返回，改造不改变这一点）。</li>
+    <li>不做自动执行 SQL / Linux 命令。</li>
+    <li>不做「证件 / VIN / 信用代码走软件逻辑」——那是第二轮设计文档的范围，本轮不混入。</li>
+    <li>不改连接管理、凭据加密、依赖打包。</li>
+  </ul>
+</section>
+
+<footer style="text-align:center;color:var(--muted);font-size:13px;margin-top:8px">
+  PengToolsHub · 模型对话接入 Harness 整改需求文档 · 由架构分析生成，代码由 Grok 另改
+</footer>
+
+</div>
+</body>
+</html>

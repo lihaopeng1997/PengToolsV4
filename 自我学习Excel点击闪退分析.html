@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>自我学习 Excel 点击闪退分析</title>
+  <style>
+    body { margin: 0; background: #f7f9fc; color: #182230; font: 15px/1.7 "Microsoft YaHei", "Segoe UI", sans-serif; }
+    main { max-width: 920px; margin: 32px auto; padding: 0 22px 42px; }
+    header, section { background: #fff; border: 1px solid #dfe6ef; border-radius: 14px; padding: 24px 28px; margin-bottom: 18px; box-shadow: 0 6px 22px rgba(31, 50, 81, .06); }
+    h1 { margin: 0 0 8px; font-size: 26px; color: #163b66; }
+    h2 { margin: 0 0 12px; font-size: 18px; color: #1e5799; }
+    .muted { color: #64748b; }
+    .cause { border-left: 4px solid #e47a25; background: #fff7ed; padding: 14px 16px; border-radius: 8px; }
+    code { color: #9a3412; background: #fff1e6; padding: 2px 5px; border-radius: 4px; }
+    ul { margin: 8px 0; padding-left: 22px; }
+    .ok { color: #16794d; font-weight: 700; }
+    .warn { color: #b45309; font-weight: 700; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>自我学习：搜索后点击 Excel 列表闪退</h1>
+    <div class="muted">排查时间：2026-07-28 · 影响模块：<code>panels/personal_panel.py</code></div>
+  </header>
+
+  <section>
+    <h2>问题描述</h2>
+    <p>在“自我学习”中搜索内容后，点击列表里的 Excel 工作表条目，程序会闪退。</p>
+  </section>
+
+  <section>
+    <h2>根因</h2>
+    <div class="cause">
+      <strong>Qt 对象生命周期冲突。</strong>Excel 详情重建时，<code>_show_workbook()</code> 调用 <code>table_view.clear()</code> 删除旧的 <code>QTableWidgetItem</code>；但搜索高亮缓存 <code>_highlighted_cells</code> 仍保存这些旧对象。随后 <code>_filter_workbook_rows()</code> 尝试恢复旧单元格背景色，访问已被 Qt 删除的底层 C++ 对象，导致进程崩溃。
+    </div>
+    <p>关键调用链：<code>列表 currentItemChanged → _show_entry → _show_workbook → table_view.clear → _filter_workbook_rows → 访问旧 _highlighted_cells</code>。</p>
+  </section>
+
+  <section>
+    <h2>复现步骤</h2>
+    <ol>
+      <li>打开“自我学习”，选择已导入的 Excel 工作表。</li>
+      <li>输入能命中表格行的关键字，使单元格进入高亮缓存。</li>
+      <li>点击列表中其他条目后，再点击该 Excel 条目，或在搜索结果中直接点击该 Excel 条目。</li>
+      <li>表格重建时旧单元格被清理，但缓存回写仍被执行，触发闪退。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>拟实施的最小修复</h2>
+    <ul>
+      <li>在清空/重建 Excel 表格前，先清空 <code>_highlighted_cells</code>，不再保留已失效的 Qt 单元格引用。</li>
+      <li>补充回归测试：搜索命中 Excel → 切换列表项 → 再次进入 Excel，确认无异常且新表格高亮正常。</li>
+      <li>运行自我学习相关定向测试并重新打包离线安装包。</li>
+    </ul>
+    <p class="ok">该修复仅处理失效对象缓存，不改变搜索结果、Excel 展示或筛选逻辑。</p>
+  </section>
+
+  <section>
+    <h2>自检与验证现状</h2>
+    <ul>
+      <li><span class="ok">根因已由独立代码复核确认。</span></li>
+      <li><span class="warn">现有全量 UI 测试存在 7 个历史/基线断言失败；其中 Excel 搜索测试也因当前搜索刷新时序与旧断言不一致失败，但未出现进程崩溃。</span></li>
+      <li>本轮修复将增加覆盖实际闪退序列的专用回归测试，以崩溃场景为验收标准。</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

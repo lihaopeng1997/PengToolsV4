@@ -143,11 +143,19 @@ class _ConnectionDialog(QDialog):
         self.dialect.currentIndexChanged.connect(self._on_dialect_changed)
         self.host = QLineEdit(str(self._item.get('host') or ''))
         size_line(self.host, 'path')
+        self.host_label = QLabel('主机' if zh else 'Host')
         self.port = QLineEdit(str(self._item.get('port') or DEFAULT_PORTS['oracle']))
         size_line(self.port, 'std')
         self.database = QLineEdit(str(self._item.get('database') or ''))
         self.database.setPlaceholderText('SID / Service / 库名')
         size_line(self.database, 'path')
+        self.mode = QComboBox()
+        self.mode.addItem('单机' if zh else 'Standalone', 'standalone')
+        self.mode.addItem('集群' if zh else 'Cluster', 'cluster')
+        mode_index = self.mode.findData(str(self._item.get('mode') or 'standalone'))
+        self.mode.setCurrentIndex(mode_index if mode_index >= 0 else 0)
+        size_enum_combo(self.mode)
+        self.mode_label = QLabel('模式' if zh else 'Mode')
         self.username = QLineEdit(str(self._item.get('username') or ''))
         size_line(self.username, 'path')
         self.password = QLineEdit()
@@ -163,10 +171,11 @@ class _ConnectionDialog(QDialog):
         self.oracle_hint.setWordWrap(True)
         form.addRow('名称' if zh else 'Name', self.name)
         form.addRow('类型' if zh else 'Type', self.dialect)
-        form.addRow('主机' if zh else 'Host', self.host)
+        form.addRow(self.host_label, self.host)
         form.addRow('端口' if zh else 'Port', self.port)
         self.database_label = QLabel('库名' if zh else 'Database')
         form.addRow(self.database_label, self.database)
+        form.addRow(self.mode_label, self.mode)
         form.addRow('用户' if zh else 'User', self.username)
         form.addRow('密码' if zh else 'Password', self.password_row)
         form.addRow(self.oracle_hint)
@@ -188,21 +197,34 @@ class _ConnectionDialog(QDialog):
         dialect = self.dialect.currentData() or 'oracle'
         zh = self.language == 'zh'
         self.oracle_hint.setVisible(dialect == 'oracle')
+        # 模式选择对 Redis / MongoDB 可见
+        self.mode.setVisible(dialect in ('redis', 'mongodb'))
+        self.mode_label.setVisible(dialect in ('redis', 'mongodb'))
         if dialect == 'oracle':
             self.database_label.setText('SID/服务名' if zh else 'SID')
             self.database.setPlaceholderText('ORCL / 服务名')
+            self.host_label.setText('主机' if zh else 'Host')
         elif dialect == 'dameng':
             self.database_label.setText('模式/库名' if zh else 'Schema')
             self.database.setPlaceholderText('')
+            self.host_label.setText('主机' if zh else 'Host')
         elif dialect == 'redis':
             self.database_label.setText('DB 序号' if zh else 'DB index')
-            self.database.setPlaceholderText('0')
+            self.database.setPlaceholderText('0（集群模式忽略）')
+            self.host_label.setText('主机' if zh else 'Host')
         elif dialect == 'mongodb':
             self.database_label.setText('库名' if zh else 'Database')
             self.database.setPlaceholderText('例如 admin / prpcar')
+            self.host_label.setText('连接串 / 主机' if zh else 'URL / Host')
+            self.host.setPlaceholderText(
+                'mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db（集群模式可填多主机）'
+                if zh else
+                'mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db'
+            )
         else:
             self.database_label.setText('库名' if zh else 'Database')
             self.database.setPlaceholderText('mysql 库名，例如 test')
+            self.host_label.setText('主机' if zh else 'Host')
         defaults = {'1521', '2881', '3306', '5236', '6379', '27017'}
         if not self.port.text().strip() or self.port.text().strip() in defaults:
             self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
@@ -218,6 +240,7 @@ class _ConnectionDialog(QDialog):
             item['port'] = DEFAULT_PORTS.get(item['dialect'], 1521)
         item['database'] = self.database.text().strip()
         item['username'] = self.username.text().strip()
+        item['mode'] = self.mode.currentData() or 'standalone'
         return item, self.password.text()
 
 
@@ -807,6 +830,10 @@ class AiWorkbenchPanel(QWidget):
 
     def _on_connection_changed(self):
         item = self._browse_conn()
+        # 下拉框切换连接后，同步当前 Tab 的绑定连接，保证删除/测试/扫描/保存草稿作用于所选连接
+        tab = self._current_tab()
+        if tab is not None:
+            tab.conn_item = dict(item) if isinstance(item, dict) else None
         self._snapshot = load_snapshot(str(item.get('id') or '')) if item else None
         self.nl_input.bind_snapshot(self._snapshot)
         self._rebuild_tree()
@@ -854,6 +881,21 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_risk_chip()
 
     def _on_sql_tab_changed(self, index=0):
+        # 切换 Tab 时，让连接下拉框跟随该 Tab 绑定的连接，避免下拉框与操作目标不一致
+        tab = self._current_tab()
+        if tab is not None and isinstance(tab.conn_item, dict):
+            cid = str(tab.conn_item.get('id') or '')
+            if cid:
+                idx = -1
+                for i in range(self.conn_combo.count()):
+                    d = self.conn_combo.itemData(i)
+                    if isinstance(d, dict) and str(d.get('id') or '') == cid:
+                        idx = i
+                        break
+                if idx >= 0:
+                    self.conn_combo.blockSignals(True)
+                    self.conn_combo.setCurrentIndex(idx)
+                    self.conn_combo.blockSignals(False)
         self._refresh_tab_titles(index)
         self._refresh_risk_chip()
 
@@ -1227,21 +1269,29 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_tree_title()
         if empty:
             return
-        groups = {}
-        for obj in objects:
-            owner = str(obj.get('owner') or obj.get('object_type') or 'default')
-            groups.setdefault(owner, []).append(obj)
         item = self._browse_conn() or {}
+        dialect = str(item.get('dialect') or 'oracle').lower()
         root = QTreeWidgetItem([str(item.get('name') or 'connection')])
         root.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'conn'})
-        for owner, rows in groups.items():
-            schema = QTreeWidgetItem([owner])
-            schema.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'schema', 'name': owner})
-            for obj in rows:
+        if dialect in ('redis', 'mongodb'):
+            # Redis/MongoDB 无 schema 层级，key/collection 直接平铺在连接根下
+            for obj in objects:
                 node = QTreeWidgetItem([format_object_label(obj)])
                 node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
-                schema.addChild(node)
-            root.addChild(schema)
+                root.addChild(node)
+        else:
+            groups = {}
+            for obj in objects:
+                owner = str(obj.get('owner') or obj.get('object_type') or 'default')
+                groups.setdefault(owner, []).append(obj)
+            for owner, rows in groups.items():
+                schema = QTreeWidgetItem([owner])
+                schema.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'schema', 'name': owner})
+                for obj in rows:
+                    node = QTreeWidgetItem([format_object_label(obj)])
+                    node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
+                    schema.addChild(node)
+                root.addChild(schema)
         self.object_tree.addTopLevelItem(root)
         root.setExpanded(True)
         if root.childCount() == 1:

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内网 Agent 工作台改造需求文档</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1f2329; --sub: #6b7280;
+    --line: #e5e7eb; --accent: #2f6bff; --accent-soft: #eaf1ff;
+    --warn: #b45309; --warn-soft: #fef3c7; --danger: #b91c1c; --danger-soft: #fee2e2;
+    --ok: #15803d; --ok-soft: #dcfce7; --code: #0f172a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.7; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero { background: linear-gradient(135deg, #1e3a8a, #2f6bff); color: #fff; border-radius: 16px; padding: 32px 36px; margin-bottom: 24px; }
+  header.hero h1 { margin: 0 0 8px; font-size: 26px; }
+  header.hero p { margin: 0; opacity: .92; font-size: 14px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .badge { background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3); padding: 3px 12px; border-radius: 999px; font-size: 12px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; }
+  h2.sec { margin: 0 0 16px; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  h2.sec .no { background: var(--accent); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  h3 { margin: 20px 0 10px; font-size: 15px; color: #111827; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code { background: #f1f3f5; color: #c7254e; padding: 2px 6px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code); color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; }
+  .callout { border-radius: 10px; padding: 14px 16px; margin: 14px 0; font-size: 14px; }
+  .callout.warn { background: var(--warn-soft); border: 1px solid #fcd34d; color: #78350f; }
+  .callout.danger { background: var(--danger-soft); border: 1px solid #fca5a5; color: #7f1d1d; }
+  .callout.ok { background: var(--ok-soft); border: 1px solid #86efac; color: #14532d; }
+  .callout.info { background: var(--accent-soft); border: 1px solid #bfdbfe; color: #1e3a8a; }
+  .callout b { display: block; margin-bottom: 4px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.p0 { background: var(--danger-soft); color: var(--danger); }
+  .pill.p1 { background: var(--warn-soft); color: var(--warn); }
+  .pill.p2 { background: var(--accent-soft); color: var(--accent); }
+  .pill.p3 { background: #f1f5f9; color: #475569; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>内网 Agent 工作台改造需求文档</h1>
+  <p>把「模型对话」从纯聊天升级为类 Codex / WorkBuddy 的内网编程 Agent，内置 Superpowers 工作流，覆盖前后端开发 / 文档整理 / 需求 / 设计，全程不连互联网。</p>
+  <div class="badge-row">
+    <span class="badge">面向 Grok 开发</span>
+    <span class="badge">边界卡死 · 禁止扩大改动</span>
+    <span class="badge">无互联网 · 全内网</span>
+    <span class="badge">v1.0</span>
+    <span class="badge">2026-08-27</span>
+  </div>
+</header>
+
+<!-- ============ S1 ============ -->
+<section>
+  <h2 class="sec"><span class="no">一</span>需求总览与目标</h2>
+  <p>当前「模型对话」面板（<code>panels/model_chat_panel.py</code> + <code>tools/model_chat_store.py</code>）已是一个能用的多轮聊天：支持新建/搜索/重命名/删除会话、复制、停止、重新生成、历史落盘 <code>data/</code>。但它有三个根本局限，本需求要逐一解决：</p>
+  <table>
+    <tr><th>局限</th><th>现状</th><th>目标</th></tr>
+    <tr><td>① 纯聊天，无动手能力</td><td>模型只能「说」，不能读写文件、改代码、跑命令</td><td>类 Codex：绑定工作文件夹 → 读文件 → 改代码 → 写回 → 展示 diff</td></tr>
+    <tr><td>② 无 skill 机制 UI</td><td>底层有 <code>ptools_harness.TASKS</code> 硬编码 3 任务，用户够不到</td><td>内置 Superpowers + 内网 skill，用户可安装/启用/禁用</td></tr>
+    <tr><td>③ 会话不分类型</td><td>只有一种「对话」，无「工作区/任务」概念</td><td>区分「工作台（Agent 任务）」与「对话（闲聊问答）」两种形式</td></tr>
+  </table>
+  <div class="callout info"><b>总基调</b>沿用本软件一贯原则：不连互联网、数据落 <code>config.local_data_dir()</code>（升级不丢）、安全门禁（写命令/危险操作默认确认）、复用现有页面骨架四层规范，不另起一套风格。</div>
+</section>
+
+<!-- ============ S2 ============ -->
+<section>
+  <h2 class="sec"><span class="no">二</span>内置 Superpowers 工作流（skill 化）</h2>
+  <p>Superpowers 是 MIT 协议的开源「编码 Agent 工作流 skill 集」，由 15 个可组合 skill 组成。它不依赖互联网、纯 Markdown 指令，可直接内网内置。我们把它翻译/适配为软件内的 skill 文件，挂在现有 skill 加载机制下。</p>
+
+  <h3>2.1 Superpowers 15 个 skill 及适配结果</h3>
+  <table>
+    <tr><th>分类</th><th>skill</th><th>用途</th><th>适配</th></tr>
+    <tr><td rowspan="2">测试</td><td>test-driven-development</td><td>RED-GREEN-REFACTOR 循环，先写失败测试</td><td>✅ 内置（Python 断言版）</td></tr>
+    <tr><td>verification-before-completion</td><td>完成前必须跑验证命令</td><td>✅ 内置</td></tr>
+    <tr><td rowspan="2">调试</td><td>systematic-debugging</td><td>四阶段根因定位，禁止无根因乱改</td><td>✅ 内置</td></tr>
+    <tr><td>receiving-code-review</td><td>接收评审反馈后如何响应</td><td>✅ 内置</td></tr>
+    <tr><td rowspan="7">协作 / 计划</td><td>brainstorming</td><td>写码前先澄清需求、探索方案</td><td>✅ 内置</td></tr>
+    <tr><td>writing-plans</td><td>把需求拆成 bite-sized 实施计划</td><td>✅ 内置（适配 Python 项目）</td></tr>
+    <tr><td>executing-plans</td><td>按计划分批执行 + 检查点</td><td>✅ 内置</td></tr>
+    <tr><td>dispatching-parallel-agents</td><td>并行子代理分工</td><td>⚠️ 简化（内网无并发子代理，改为「顺序子任务」提示）</td></tr>
+    <tr><td>requesting-code-review</td><td>提交前自查清单</td><td>✅ 内置</td></tr>
+    <tr><td>subagent-driven-development</td><td>每个任务派新子代理 + 两阶段评审</td><td>⚠️ 简化（合并进 executing-plans）</td></tr>
+    <tr><td>finishing-a-development-branch</td><td>完成后合并/PR 决策</td><td>⚠️ 简化（无 git 工作流，改为「提交/回滚」提示，适配 SVN）</td></tr>
+    <tr><td rowspan="2">工作流</td><td>using-git-worktrees</td><td>并行分支隔离开发</td><td>❌ 移除（内网 SVN / 无 git worktree）</td></tr>
+    <tr><td>using-superpowers</td><td>skill 系统使用说明</td><td>✅ 内置（作为系统提示一部分）</td></tr>
+    <tr><td rowspan="2">元技能</td><td>writing-skills</td><td>创建新 skill 的最佳实践</td><td>✅ 内置（支撑「用户自装 skill」）</td></tr>
+    <tr><td>writing-plans 附属</td><td>计划文档头 / 任务结构模板</td><td>✅ 内置</td></tr>
+  </table>
+  <div class="callout warn"><b>适配原则</b>Superpowers 原文是英文、面向 Claude Code/git 生态。内网版需：① 全部翻译成中文；② git 相关 skill（worktrees / branch）改写为 SVN 或纯文件目录语义；③ 去掉「联网取安装脚本」等外部依赖；④ TDD 示例改 Python/PyQt 风格。但 <b>核心方法论（先澄清→再计划→TDD→评审→验证）一个字不改</b>，这是它的价值所在。</div>
+</section>
+
+<!-- ============ S3 ============ -->
+<section>
+  <h2 class="sec"><span class="no">三</span>内网 skill 分类体系（内置 + 可扩展）</h2>
+  <p>除 Superpowers 外，按你的诉求覆盖四大类内网 skill。沿用现有三层 skill 加载优先级（<code>harness_project.load_skill_text</code>）：<b>用户级 <code>data/harness/skills/</code> &gt; 项目级 <code>resources/harness/projects/&lt;id&gt;/skills/</code> &gt; 内置 <code>resources/ai_skills/</code> &gt; 兜底字符串</b>。</p>
+
+  <h3>3.1 内置 skill 清单（随 EXE 发布，只读）</h3>
+  <table>
+    <tr><th>分类</th><th>skill 文件名</th><th>触发场景</th><th>来源</th></tr>
+    <tr><td rowspan="6">后端开发</td><td>sql.md（已有）</td><td>自然语言 → Oracle SQL</td><td>已内置</td></tr>
+    <tr><td>sql_optimize.md（已有）</td><td>SQL 优化</td><td>已内置</td></tr>
+    <tr><td>log_query.md（已有）</td><td>自然语言 → Linux 只读命令</td><td>已内置</td></tr>
+    <tr><td>mongo_query.md（新增）</td><td>自然语言 → Mongo 查询</td><td>配合第三轮 NoSQL</td></tr>
+    <tr><td>redis_query.md（新增）</td><td>自然语言 → Redis 只读命令</td><td>配合第三轮 NoSQL</td></tr>
+    <tr><td>code_review.md（新增）</td><td>代码评审（适配 Superpowers requesting-code-review）</td><td>Superpowers</td></tr>
+    <tr><td rowspan="2">前端开发</td><td>frontend_ui.md（新增）</td><td>PyQt6 页面 UI 开发规范（骨架四层、QSS、响应式）</td><td>本项目规范</td></tr>
+    <tr><td>frontend_review.md（新增）</td><td>前端页面评审</td><td>本项目规范</td></tr>
+    <tr><td rowspan="2">文档整理</td><td>doc_summary.md（新增）</td><td>长文档摘要/提炼要点</td><td>新写</td></tr>
+    <tr><td>doc_rewrite.md（新增）</td><td>文档改写/润色/结构化</td><td>新写</td></tr>
+    <tr><td rowspan="2">需求</td><td>req_analysis.md（新增）</td><td>需求拆解、验收标准、影响面</td><td>新写</td></tr>
+    <tr><td>req_to_plan.md（新增）</td><td>需求 → 实施计划（复用 Superpowers writing-plans）</td><td>Superpowers</td></tr>
+    <tr><td rowspan="2">设计</td><td>design_ui.md（新增）</td><td>UI 设计方案生成（页面骨架、交互）</td><td>本项目规范</td></tr>
+    <tr><td>design_arch.md（新增）</td><td>架构设计/模块划分</td><td>新写</td></tr>
+  </table>
+  <div class="callout ok"><b>合计</b>现有 3 个 + 新增 13 个 = 16 个内置 skill。其中 Superpowers 系列（约 9 个）与业务类（SQL/Linux/NoSQL/文档/需求/设计约 7 个）并存。</div>
+
+  <h3>3.2 注册机制：从硬编码到清单驱动</h3>
+  <p>现有 <code>ptools_harness.TASKS</code> 是硬编码 dict，新增 skill 必须改代码。改为清单驱动：</p>
+  <pre><code># 新清单文件：data/harness/skills.json（用户可编辑）+ resources/ai_skills/manifest.json（内置默认）
+{
+  "tasks": [
+    {"task": "sql.draft",      "skill": "sql.md",          "category": "后端开发", "builtin": true},
+    {"task": "code.review",    "skill": "code_review.md",  "category": "后端开发", "builtin": true},
+    {"task": "doc.summary",    "skill": "doc_summary.md",  "category": "文档整理", "builtin": true}
+  ]
+}</code></pre>
+  <div class="callout danger"><b>安全边界</b>清单只负责「任务名 ↔ skill 文件」的注册映射，<b>不放开任何执行权限</b>。skill 只是给模型的提示词文本，模型仍受 <code>sql_guard</code>/<code>linux_guard</code>/<code>ai_sql_draft</code> 三道门禁约束。新增 skill 不能绕过写命令确认。</div>
+</section>
+
+<!-- ============ S4 ============ -->
+<section>
+  <h2 class="sec"><span class="no">四</span>模型对话改造：类 Codex 的内网 Agent</h2>
+  <p>这是本需求的核心。把「模型对话」从纯聊天升级为能「绑定工作文件夹 → 读文件 → 改代码 → 写回」的 Agent。</p>
+
+  <h3>4.1 现状与缺口</h3>
+  <table>
+    <tr><th>能力</th><th>现状</th><th>缺口</th></tr>
+    <tr><td>模型调用</td><td><code>intranet_llm.chat_completions</code> 同步 + SSE 流式，OpenAI 兼容</td><td><b>无 function calling / tool use</b>——这是 Agent 的核心</td></tr>
+    <tr><td>文件读写</td><td>需求模块有 <code>svn_workspace.py</code>（SVN 文件树/增删改/commit/lock）</td><td>无「任意本地目录」的通用文件读写封装</td></tr>
+    <tr><td>会话存储</td><td><code>model_chat_store.py</code> 完整（多轮、落盘、裁剪、标题）</td><td>无「项目上下文 / 文件快照 / 工具调用记录」字段</td></tr>
+    <tr><td>skill</td><td><code>ptools_harness</code> 硬编码 3 任务</td><td>无清单驱动 + 无 UI</td></tr>
+  </table>
+
+  <h3>4.2 核心设计：受控工具调用（Tool Use）</h3>
+  <p>内网模型多为 OpenAI 兼容接口，但<b>不一定支持原生 function calling</b>。为避免依赖模型能力，采用 <b>「结构化输出 + 本地解析」的受控工具协议</b>：</p>
+  <ol>
+    <li>模型被告知可用工具清单（read_file / write_file / list_dir / search / run_test / run_svn 等），每个工具有 JSON schema 描述。</li>
+    <li>模型输出的回复里，若想调用工具，输出一个约定格式（如 <code>&lt;tool&gt;{...json...}&lt;/tool&gt;</code> 或纯 JSON 代码块）。</li>
+    <li>本地 <code>tools/agent_runtime.py</code>（新建）解析模型输出 → 提取工具调用 → <b>本地执行工具</b> → 把结果回填给模型 → 循环，直到模型输出最终答案。</li>
+    <li>工具执行受 <b>安全门禁</b>约束：写文件/删文件/SVN 提交/danger 命令 → 弹「确认」；只读操作直接执行。</li>
+  </ol>
+  <div class="callout info"><b>为什么用结构化输出而非原生 tool use</b>① 内网模型不一定支持 function calling；② 本地解析可控、可审计、可脱敏；③ 与现有 <code>ptools_harness</code> 的 JSON 输出解析模式一致，复用已有 <code>_extract_json_object</code>。</div>
+
+  <h3>4.2b 执行范式：ReAct + Plan &amp; Execute 组合</h3>
+  <p>工作台 Agent 采用 <b>「先规划、后执行、执行中可再思考」</b>的组合范式，兼顾可控性与灵活性：</p>
+  <ol>
+    <li><b>Plan（规划阶段）</b>：接到任务后，模型先输出一份结构化执行计划（步骤清单 + 每步要调用的工具 / 要改的文件 / 预期结果）。由 Superpowers 的 <code>writing-plans</code> skill 提示词驱动。</li>
+    <li><b>Execute（执行阶段）</b>：按计划逐步执行，每步走 <b>ReAct 循环</b>——思考 → 输出工具调用（本地解析 JSON）→ 本地执行 → 观察结果 → 决定下一步，直到任务完成或触及轮次上限。</li>
+    <li><b>偏离即回规划</b>：执行中若发现新情况、计划需调整（读到真实代码后需要改方案），允许回到 Plan 阶段重新出一版计划。</li>
+  </ol>
+  <table>
+    <tr><th>维度</th><th>说明</th></tr>
+    <tr><td>范式</td><td>ReAct（思考-行动循环）+ Plan &amp; Execute（前置规划）组合</td></tr>
+    <tr><td>计划确认</td><td><b>可跳过</b>：默认出计划后自动进入执行；提供开关「始终先确认」供用户开启（开启后计划需人工确认/修改才执行）</td></tr>
+    <tr><td>写操作兜底</td><td>无论是否开启「始终先确认」，写/删/覆盖操作仍强制 diff 预览 + 确认，计划确认开关不能绕过</td></tr>
+    <tr><td>循环上限</td><td>单次用户请求最多 <b>10 轮工具调用</b>（含 Plan 阶段的计划产出轮），超出停止并提示</td></tr>
+    <tr><td>计划呈现</td><td>计划以可折叠步骤卡展示在对话流中，每步执行完后打勾/标状态，用户可随时看到进度与偏差</td></tr>
+  </table>
+  <div class="callout warn"><b>Grok 必守</b>① 计划确认开关默认「关」（自动执行），但必须留 UI 开关；② 写操作的 diff 确认门禁与「计划是否确认」是<b>两套独立门禁</b>，不可互相替代或省略；③ 计划与执行共用同一个 10 轮上限，不能让「出计划」无限消耗轮次。</div>
+
+  <h3>4.3 受控工具清单（第一版，最小可用）</h3>
+  <table>
+    <tr><th>工具</th><th>类型</th><th>作用</th><th>门禁</th></tr>
+    <tr><td><code>list_dir</code></td><td>只读</td><td>列目录（限定在<b>会话工作文件夹</b>内）</td><td>无</td></tr>
+    <tr><td><code>read_file</code></td><td>只读</td><td>读文件内容（限会话工作文件夹内 + 大小上限）</td><td>无</td></tr>
+    <tr><td><code>search_code</code></td><td>只读</td><td>在会话工作文件夹内按关键字/正则搜代码</td><td>无</td></tr>
+    <tr><td><code>write_file</code></td><td>写</td><td>创建/覆盖文件</td><td>确认 + diff 预览</td></tr>
+    <tr><td><code>edit_file</code></td><td>写</td><td>精准替换（old/new）</td><td>确认 + diff 预览</td></tr>
+    <tr><td><code>delete_file</code></td><td>危险</td><td>删除文件</td><td>二次确认 + 危险标红</td></tr>
+    <tr><td><code>run_test</code></td><td>只读/半</td><td>跑项目测试（pytest 定向）</td><td>确认执行命令</td></tr>
+    <tr><td><code>run_svn</code></td><td>危险</td><td>SVN status/diff/commit（复用 svn_workspace）</td><td>commit 二次确认</td></tr>
+  </table>
+  <div class="callout danger"><b>硬边界（Grok 必守）</b>① 每个<b>会话绑定一个工作文件夹</b>（会话创建/导入时选定，可后续更换），文件操作默认落在<b>该会话工作文件夹内</b>；仍须用 <code>realpath + commonpath</code> 校验路径，拒绝越界读写 <code>data/</code>、<code>resources/</code>、系统目录、用户主目录、以及<b>其他会话的工作文件夹</b>；② 禁止执行任意 shell（不提供 <code>run_shell</code> 工具），命令只能通过白名单工具（run_test/run_svn）；③ 写操作必须展示 diff 预览 + 确认；④ 路径必须 resolve 到会话工作文件夹内的真实文件，禁止路径穿越。</div>
+
+  <h3>4.4 会话形式：工作台 vs 对话</h3>
+  <table>
+    <tr><th>维度</th><th>工作台（Agent 任务）</th><th>对话（闲聊问答）</th></tr>
+    <tr><td>定位</td><td>绑定一个工作文件夹，可动手改代码/文件</td><td>纯问答，无动手能力</td></tr>
+    <tr><td>上下文</td><td>工作文件夹路径 + 文件快照 + 工具调用记录 + 当前文件列表</td><td>仅消息历史</td></tr>
+    <tr><td>工具</td><td>启用受控工具清单</td><td>禁用全部工具</td></tr>
+    <tr><td>UI</td><td>左侧项目树 + 中间对话 + 右侧文件/diff 预览</td><td>现有左右两栏（会话列表 + 对话）</td></tr>
+    <tr><td>存储</td><td><code>data/agent/workspaces/&lt;id&gt;.json</code></td><td><code>data/model_chat/&lt;id&gt;.json</code>（现有）</td></tr>
+  </table>
+
+  <h3>4.5 工作文件夹（项目导入）</h3>
+  <ol>
+    <li>「工作台」新建会话时，绑定一个<b>工作文件夹</b>：选择本地目录（只读打开，不复制、不移动）。<b>每个会话绑定一个文件夹做基础</b>，后续的读取、生成、改写、删除等操作都发生在这个文件夹内。</li>
+    <li>导入后左侧显示该文件夹的文件树（复用现有文件树能力，或新建轻量 <code>QTreeWidget</code> 扫描）。</li>
+    <li>工作文件夹路径存 <code>data/agent/workspaces.json</code>，升级不丢。<b>会话运行中可更换工作文件夹</b>（更换后上下文里的旧路径快照随之刷新）。</li>
+    <li>导入时不扫描全量文件内容（避免卡顿），只记目录结构 + 常用文件类型白名单（.py/.js/.vue/.html/.css/.md/.json/.txt 等）。</li>
+  </ol>
+</section>
+
+<!-- ============ S5 ============ -->
+<section>
+  <h2 class="sec"><span class="no">五</span>文件落盘与升级安全</h2>
+  <table>
+    <tr><th>数据</th><th>路径</th><th>升级</th></tr>
+    <tr><td>对话历史</td><td><code>data/model_chat/</code>（现有）</td><td>保留</td></tr>
+    <tr><td>工作台会话</td><td><code>data/agent/workspaces/</code>（新增）</td><td>保留</td></tr>
+    <tr><td>用户 skill</td><td><code>data/harness/skills/</code>（已有）+ <code>skills.json</code></td><td>保留</td></tr>
+    <tr><td>内置 skill</td><td><code>resources/ai_skills/</code>（只读，随 EXE）</td><td>升级覆盖</td></tr>
+    <tr><td>项目导入记录</td><td><code>data/agent/workspaces.json</code>（新增）</td><td>保留</td></tr>
+  </table>
+  <div class="callout warn"><b>升级不丢的关键</b>所有用户数据必须写 <code>config.local_data_dir()</code>（开发 <code>PengToolsV4/data/</code>，打包 <code>&lt;exe旁&gt;/data/</code>），禁止写 <code>resources/</code> 或 <code>_MEIPASS</code>。升级只替换 EXE，<code>data/</code> 原地保留。</div>
+</section>
+
+<!-- ============ S6 ============ -->
+<section>
+  <h2 class="sec"><span class="no">六</span>验收标准（Grok 完成后必须自测）</h2>
+  <table>
+    <tr><th>#</th><th>验收点</th><th>通过判据</th></tr>
+    <tr><td>1</td><td>模型对话区分「工作台 / 对话」两种形式</td><td>新建时可选择，工作台有项目树 + 工具，对话无工具</td></tr>
+    <tr><td>2</td><td>绑定工作文件夹后可读文件/列目录/搜代码</td><td>Agent 能正确 read_file/list_dir/search_code 且返回真实内容</td></tr>
+    <tr><td>3</td><td>代码改写走 diff 预览 + 确认</td><td>write_file/edit_file 弹 diff，确认后才写盘</td></tr>
+    <tr><td>4</td><td>文件操作限定在会话工作文件夹内</td><td>尝试越界路径（../、绝对路径逃逸到其他目录）被拒绝</td></tr>
+    <tr><td>5</td><td>skill 清单驱动 + UI 管理</td><td>放一个 md + 注册 json 能被识别，UI 可启用/禁用</td></tr>
+    <tr><td>6</td><td>内置 Superpowers + 16 个 skill</td><td>内置 skill 列表可见，Superpowers 方法论在提示词生效</td></tr>
+    <tr><td>7</td><td>数据落盘升级不丢</td><td>工作台会话/项目记录/用户 skill 在 data/，打包后仍在</td></tr>
+    <tr><td>8</td><td>不连互联网</td><td>无任何 http/websocket 外网请求（内网模型除外）</td></tr>
+    <tr><td>9</td><td>危险操作有门禁</td><td>delete_file / svn commit 二次确认，默认焦点取消</td></tr>
+    <tr><td>10</td><td>语法/打包可过</td><td>py_compile 通过，build_release.ps1 成功</td></tr>
+    <tr><td>11</td><td>ReAct + Plan &amp; Execute 组合生效</td><td>任务先出计划（可折叠步骤卡），默认自动执行；开「始终先确认」后计划需确认；写操作 diff 门禁不因开关关闭而失效</td></tr>
+  </table>
+</section>
+
+<!-- ============ S7 ============ -->
+<section>
+  <h2 class="sec"><span class="no">七</span>非目标（明确不做）</h2>
+  <ul>
+    <li>不做联网模型、不做云端同步、不做插件市场在线下载。</li>
+    <li>不做原生 function calling 依赖——一律走本地结构化输出解析。</li>
+    <li>不做任意 shell 执行、不做多进程子代理并发（内网单机，改为顺序子任务）。</li>
+    <li>不做 git worktree / 分支管理——内网用 SVN 或纯目录。</li>
+    <li>不重写 <code>intranet_llm</code>/<code>secure_store</code>/<code>db_connect</code>/<code>ptools_harness</code> 的核心执行逻辑（只做 skill 清单化 + 工具运行时，不改三道安全门禁）。</li>
+    <li>不做完整 IDE（不替代编辑器），只做「对话驱动的受控文件编辑」。</li>
+  </ul>
+</section>
+
+<!-- ============ S8 ============ -->
+<section>
+  <h2 class="sec"><span class="no">八</span>分阶段实施建议</h2>
+  <table>
+    <tr><th>阶段</th><th>内容</th><th>优先级</th><th>依赖</th></tr>
+    <tr><td>P0</td><td>模型对话区分「工作台/对话」+ 项目导入 + 只读工具（list_dir/read_file/search_code）</td><td><span class="pill p0">P0</span></td><td>无</td></tr>
+    <tr><td>P1</td><td>写工具（write_file/edit_file）+ diff 预览 + 确认门禁</td><td><span class="pill p0">P0</span></td><td>P0</td></tr>
+    <tr><td>P1</td><td>skill 清单驱动 + UI 管理 + 内置 16 skill</td><td><span class="pill p1">P1</span></td><td>无</td></tr>
+    <tr><td>P2</td><td>run_test / run_svn 工具 + 危险操作二次确认</td><td><span class="pill p1">P1</span></td><td>P1</td></tr>
+    <tr><td>P2</td><td>工具调用回填循环（agent loop）+ 会话工具记录展示</td><td><span class="pill p1">P1</span></td><td>P0</td></tr>
+    <tr><td>P3</td><td>Superpowers 全流程 skill 精细化适配 + 文档/需求/设计 skill</td><td><span class="pill p2">P2</span></td><td>P1</td></tr>
+  </table>
+  <div class="callout warn"><b>与既有轮次的顺序关系</b>本需求（内网 Agent 工作台）依赖第四轮（模型对话接入 Harness）完成后的面板结构，也依赖第三轮（数据中心）修好的 schema 快照。建议顺序：<b>第三轮 → 第四轮 → 第五轮（skill 配置化）→ 第六轮（本需求：内网 Agent 工作台）</b>。但「内置 Superpowers + 内网 skill」这部分可独立于 Agent 工作台先行（属于第五轮的 skill 配置化范畴）。</div>
+</section>
+
+</div>
+</body>
+</html>

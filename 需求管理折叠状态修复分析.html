@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>需求管理折叠状态修复分析</title>
+  <style>
+    :root { --ink:#16233f; --muted:#52627d; --line:#dfe6f2; --bg:#f5f8fc; --card:#fff; --blue:#315fc6; --blue-soft:#eaf1ff; --warn:#9a6700; --warn-soft:#fff8e5; --ok:#137a4b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.72 "Microsoft YaHei UI","PingFang SC",sans-serif; }
+    main { width:min(1040px,calc(100% - 32px)); margin:32px auto 56px; }
+    header { padding:30px 34px; border-radius:18px; color:#fff; background:linear-gradient(135deg,#274b9c,#4d7be0); box-shadow:0 14px 34px rgba(39,75,156,.18); }
+    h1 { margin:0 0 8px; font-size:28px; line-height:1.25; } h2 { margin:0 0 14px; font-size:19px; } h3 { margin:18px 0 8px; font-size:16px; }
+    header p { margin:0; opacity:.9; } section { margin-top:18px; padding:25px 28px; border:1px solid var(--line); border-radius:15px; background:var(--card); box-shadow:0 5px 16px rgba(27,55,105,.05); }
+    .summary { border-left:4px solid var(--blue); background:var(--blue-soft); } .alert { border-left:4px solid #e1a500; background:var(--warn-soft); }
+    ul,ol { margin:8px 0; padding-left:22px; } li { margin:5px 0; } code { padding:2px 6px; border-radius:5px; background:#edf1f7; color:#294b88; font-family:Consolas,monospace; font-size:.92em; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; } th,td { padding:10px 12px; border:1px solid var(--line); text-align:left; vertical-align:top; } th { background:#f4f7fb; font-weight:700; }
+    .tag { display:inline-block; margin-right:8px; padding:3px 9px; border-radius:999px; background:#eaf7f0; color:var(--ok); font-size:13px; font-weight:700; }
+    .path { color:var(--muted); font-size:13px; }
+    footer { color:var(--muted); font-size:13px; text-align:center; margin-top:18px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>需求管理：保存后月份折叠状态丢失</h1>
+    <p>问题定位、影响范围与最小修复方案 · 2026-08-10</p>
+  </header>
+
+  <section class="summary">
+    <h2>结论</h2>
+    <p>已确认根因：编辑并保存需求后，左侧需求树会被完整清空并重建；重建结束时无条件执行“全部展开”，导致用户之前手动折叠的月份分组全部恢复为展开状态。</p>
+    <p><span class="tag">已有能力可复用</span>代码中已经具备按月份分组保存/恢复展开状态的方法，只在“搜索后清空搜索词”场景使用，普通保存刷新漏用了该机制。</p>
+  </section>
+
+  <section>
+    <h2>复现路径</h2>
+    <ol>
+      <li>进入“需求管理”，在左侧需求目录手动折叠一个或多个上线月份分组。</li>
+      <li>选择任一需求，点击“编辑”，修改任意字段后保存。</li>
+      <li>保存动作触发列表刷新，月份分组全部展开；原折叠状态未保留。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>根因证据</h2>
+    <table>
+      <thead><tr><th>位置</th><th>当前行为</th><th>与问题的关系</th></tr></thead>
+      <tbody>
+        <tr><td><code>panels/requirement_panel.py:3325-3326</code></td><td>编辑保存成功后调用 <code>self._refresh()</code>。</td><td>这是保存后触发列表刷新的入口。</td></tr>
+        <tr><td><code>panels/requirement_panel.py:1665-1669</code></td><td><code>requirement_list.clear()</code> 清空原树节点。</td><td>旧节点携带的 Qt 展开/折叠状态随之销毁。</td></tr>
+        <tr><td><code>panels/requirement_panel.py:1725-1749</code></td><td>每个新月份分组在创建时默认 <code>header.setExpanded(True)</code>。</td><td>重建后的每个月份先被设置为展开。</td></tr>
+        <tr><td><code>panels/requirement_panel.py:1852-1858</code></td><td>非搜索刷新且没有搜索快照时，执行 <code>requirement_list.expandAll()</code>。</td><td>最终无条件将所有月份展开，直接造成症状。</td></tr>
+        <tr><td><code>panels/requirement_panel.py:1875-1892</code></td><td>已有 <code>_capture_tree_expand_state()</code> / <code>_restore_tree_expand_state()</code>。</td><td>可直接复用，避免新增持久化字段或改变交互规则。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>拟议最小修复</h2>
+    <ol>
+      <li>在普通 <code>_refresh()</code> 执行树重建前，捕获当前顶层月份分组的展开状态。</li>
+      <li>树重建完成后：无搜索时优先恢复本次刷新前的状态；有搜索时仍保持现有“搜索结果全部展开、清空搜索后恢复搜索前状态”逻辑。</li>
+      <li>首次打开面板、没有可恢复快照时，继续维持当前“默认全部展开”的初始体验。</li>
+      <li>新增离屏 Qt 回归测试：至少两个不同月份，其中一个折叠；模拟编辑保存刷新后断言该月份仍折叠、另一月份保持原状态。</li>
+    </ol>
+    <p class="alert"><strong>边界处理：</strong>若本次保存将需求移到新月份，新出现的分组没有历史状态，按默认展开；已存在月份严格恢复原有状态。这符合用户对“不要打断当前浏览上下文”的预期。</p>
+  </section>
+
+  <section>
+    <h2>影响范围与验证</h2>
+    <ul>
+      <li><strong>生产代码：</strong><code>panels/requirement_panel.py</code>，仅调整需求树重建后的展开状态恢复顺序。</li>
+      <li><strong>测试：</strong>优先在 <code>tests/test_requirement_flags.py</code> 或新增需求树状态专项测试中覆盖保存刷新回归。</li>
+      <li><strong>不改变：</strong>需求数据格式、搜索展开策略、置顶分组、筛选规则、右侧详情刷新与文件库行为。</li>
+      <li><strong>验证计划：</strong>先执行新增定向测试，再执行需求管理相关定向测试；通过后按项目规范执行敏感扫描、离线构建、构建信息和产物核验。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>建议执行决定</h2>
+    <p>建议按上述最小方案修复：它只恢复用户刚刚主动设置的目录状态，复用现有代码，不引入额外配置或跨会话记忆。</p>
+  </section>
+
+  <footer>分析范围：需求管理保存后的列表刷新与月份分组展开状态。</footer>
+</main>
+</body>
+</html>

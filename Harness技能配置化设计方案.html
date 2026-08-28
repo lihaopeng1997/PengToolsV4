@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harness 技能配置化设计方案</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --line: #e5e7eb;
+    --text: #1f2937; --muted: #6b7280; --accent: #2563eb;
+    --accent-soft: #eff6ff; --warn: #b45309; --warn-soft: #fffbeb;
+    --danger: #b91c1c; --danger-soft: #fef2f2; --ok: #047857; --ok-soft: #ecfdf5;
+    --code-bg: #f1f5f9; --code-text: #0f172a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px; background: var(--bg);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: var(--text); line-height: 1.7;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  .head { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 32px; margin-bottom: 20px; }
+  .head h1 { margin: 0 0 10px; font-size: 24px; }
+  .head .meta { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 12px; background: var(--accent-soft); color: var(--accent); border: 1px solid #dbeafe; }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: #fde68a; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px 28px; margin-bottom: 18px; }
+  h2.sec { margin: 0 0 14px; font-size: 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  h2.sec .no { color: var(--accent); margin-right: 8px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  p { margin: 8px 0; }
+  code { background: var(--code-bg); color: var(--code-text); padding: 2px 6px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  pre code { background: none; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .callout { border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 13px; }
+  .callout.danger { background: var(--danger-soft); border-left: 4px solid var(--danger); }
+  .callout.warn { background: var(--warn-soft); border-left: 4px solid var(--warn); }
+  .callout.ok { background: var(--ok-soft); border-left: 4px solid var(--ok); }
+  .callout.info { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .pill.p0 { background: var(--danger-soft); color: var(--danger); }
+  .pill.p1 { background: var(--warn-soft); color: var(--warn); }
+  .pill.p2 { background: var(--ok-soft); color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <h1>Harness 技能（Skill）配置化设计方案</h1>
+    <div class="meta">面向 Grok 开发 · 边界卡死 · 禁止扩大改动 · v1.0 · 2026-08-27</div>
+    <div class="badge-row">
+      <span class="badge">内置 skill 3 → 5 个</span>
+      <span class="badge">配置清单驱动（去硬编码）</span>
+      <span class="badge">用户可自定义多个 skill</span>
+      <span class="badge warn">升级不丢：落 local_data_dir()</span>
+    </div>
+  </div>
+
+  <section>
+    <h2 class="sec"><span class="no">〇</span>现状与目标（一句话看清要改什么）</h2>
+    <p><b>现状</b>：Harness 底层<b>已经有一套 skill 机制</b>，但「任务清单」是硬编码的，用户够不到、加不了。</p>
+    <table>
+      <tr><th>层</th><th>现状</th><th>路径</th></tr>
+      <tr><td>任务白名单</td><td><code>TASKS</code> 字典硬编码 3 个任务</td><td><code>tools/ptools_harness.py:18-22</code></td></tr>
+      <tr><td>skill 文件</td><td>每个任务对应一个 <code>.md</code></td><td><code>resources/ai_skills/*.md</code></td></tr>
+      <tr><td>项目级覆盖</td><td>同名文件放项目包 <code>skills/</code> 覆盖</td><td><code>resources/harness/projects/prpcar/skills/</code></td></tr>
+      <tr><td>用户自定义</td><td><code>install_skill()</code> 已能落盘，但<b>无 UI 入口</b></td><td><code>data/harness/skills/</code></td></tr>
+      <tr><td>加载优先级</td><td>用户 → 项目 → 内置 → 兜底字符串</td><td><code>harness_project.py:96-115</code></td></tr>
+    </table>
+    <div class="callout info">
+      <b>目标</b>：把「写死 3 个」改成「<b>配置清单驱动 + 可扩展 + 有 UI</b>」。核心不是从零建 skill 机制，而是<b>解耦任务注册 + 补 UI 入口 + 扩内置 skill 覆盖 NoSQL</b>。
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">一</span>三层 skill 结构（定稿）</h2>
+    <table>
+      <tr><th>层级</th><th>作用</th><th>路径</th><th>优先级</th><th>升级行为</th></tr>
+      <tr><td><b>内置 skill</b></td><td>随 EXE 发布，通用能力</td><td><code>resources/ai_skills/</code></td><td>最低</td><td>随打包覆盖</td></tr>
+      <tr><td><b>项目级 skill</b></td><td>随项目包，业务方言定制</td><td><code>resources/harness/projects/&lt;id&gt;/skills/</code></td><td>中</td><td>随项目包走</td></tr>
+      <tr><td><b>用户级 skill</b></td><td>用户自建，跨项目通用/个人偏好</td><td><code>data/harness/skills/</code></td><td>最高</td><td><b>升级不丢</b></td></tr>
+    </table>
+    <p>三层加载优先级已由 <code>harness_project.load_skill_text()</code> 实现（用户 → 项目 → 内置 → 兜底），<b>本次不改这套优先级</b>，只补「任务注册清单」与「UI」。</p>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">二</span>改造项①：任务注册从硬编码改为「配置清单驱动」</h2>
+    <h3>根因</h3>
+    <p><code>ptools_harness.py</code> 里 <code>TASKS</code> 字典把「任务名 → skill 文件名」写死，<code>run_task()</code> 遇到未注册任务直接抛「未知任务」。用户新增一个 <code>.md</code> 也不会被识别，必须改代码。</p>
+    <h3>改法</h3>
+    <ol>
+      <li><b>新增清单文件</b> <code>data/harness/skills.json</code>（用户级，落 <code>local_data_dir()</code>，升级不丢）。结构：
+<pre><code>{
+  "tasks": [
+    {"task": "sql.draft",    "file": "sql.md",         "title": "生成 SQL 草案",   "desc": "自然语言转 SQL"},
+    {"task": "sql.optimize", "file": "sql_optimize.md","title": "优化 SQL",        "desc": "优化已有 SQL"},
+    {"task": "linux.query",  "file": "log_query.md",   "title": "Linux 只读查询",  "desc": "自然语言转只读命令"},
+    {"task": "mongo.query",  "file": "mongo_query.md", "title": "Mongo 查询",      "desc": "自然语言查 Mongo"},
+    {"task": "redis.query",  "file": "redis_query.md", "title": "Redis 查询",      "desc": "自然语言查 Redis"}
+  ]
+}</code></pre>
+      </li>
+      <li><b>新增读取函数</b>（建议放 <code>tools/harness_project.py</code>，与现有 skill 加载同域）：
+        <ul>
+          <li><code>list_tasks()</code>：合并「内置默认清单（代码常量）+ <code>skills.json</code> 用户覆盖」，同名 task 用户覆盖内置；返回 task 列表。</li>
+          <li><code>resolve_task_file(task)</code>：返回该 task 对应的 skill 文件名。</li>
+        </ul>
+      </li>
+      <li><b>改 <code>ptools_harness.py</code> 的 <code>run_task()</code></b>：用 <code>resolve_task_file()</code> 替代硬编码 <code>TASKS</code> 查表；未知任务仍抛「未知任务」，但来源变为清单而非代码常量。</li>
+    </ol>
+    <div class="callout warn">
+      <b>安全边界（关键）</b>：<code>skills.json</code> 只负责「任务名 ↔ skill 文件」的<b>注册映射</b>，<b>不负责放开执行权限</b>。真正的安全门禁仍在：
+      <ul>
+        <li>SQL 草案：<code>ai_sql_draft.generate_sql_draft</code>（evidence 空则 fail_closed 不调模型）</li>
+        <li>写命令：<code>sql_guard.classify_statement</code> 的 <code>REDIS_WRITE</code> / SQL 写分类</li>
+        <li>Linux：<code>linux_guard.inspect_commands</code> 白名单</li>
+      </ul>
+      新增 skill <b>不得绕过</b>这三层门禁。
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">三</span>改造项②：内置 skill 扩到 SQL + Linux + NoSQL（3 → 5）</h2>
+    <p>保留现有 3 个，新增 2 个 NoSQL skill，配合第三轮「数据中心」的 Redis/Mongo 改造。</p>
+    <table>
+      <tr><th>task</th><th>文件</th><th>类型</th><th>动作</th></tr>
+      <tr><td><code>sql.draft</code></td><td><code>sql.md</code></td><td>已有</td><td>保留</td></tr>
+      <tr><td><code>sql.optimize</code></td><td><code>sql_optimize.md</code></td><td>已有</td><td>保留</td></tr>
+      <tr><td><code>linux.query</code></td><td><code>log_query.md</code></td><td>已有</td><td>保留</td></tr>
+      <tr><td><code>mongo.query</code></td><td><code>mongo_query.md</code></td><td><b>新增</b></td><td>自然语言 → Mongo 查询（只读，find 采样）</td></tr>
+      <tr><td><code>redis.query</code></td><td><code>redis_query.md</code></td><td><b>新增</b></td><td>自然语言 → Redis 只读命令（GET/HGETALL/SCAN 等）</td></tr>
+    </table>
+    <div class="callout info">
+      <b>新 skill 内容约束</b>：<code>mongo_query.md</code> / <code>redis_query.md</code> 只需写「把自然语言转成对应只读查询/命令草案」的 system 提示词，<b>不直接执行</b>。执行仍走第三轮已定的 <code>_run_mongo</code> / <code>_run_redis</code> 只读分支 + 写命令门禁。
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">四</span>改造项③：用户自定义 skill 的 UI 入口（放模型对话面板）</h2>
+    <h3>挂载点</h3>
+    <p>模型对话面板 <code>panels/model_chat_panel.py</code>，现有结构：页头 → 工具栏（<code>model_combo</code> + <code>ping_btn</code>）→ 左栏会话列表 / 右栏对话区。</p>
+    <p><b>建议</b>：在工具栏加一个「skill 管理」ghost 按钮，点击弹出 skill 管理对话框（不新起面板/导航）。</p>
+    <h3>skill 管理对话框功能清单</h3>
+    <table>
+      <tr><th>功能</th><th>说明</th><th>底层</th></tr>
+      <tr><td>列表</td><td>展示所有已注册 task（内置 + 用户），含 title/desc/来源（内置/用户）</td><td><code>list_tasks()</code></td></tr>
+      <tr><td>新增</td><td>选本地 <code>.md</code>，填 task 名 + title + desc，注册进清单</td><td><code>install_skill()</code> + 写 <code>skills.json</code></td></tr>
+      <tr><td>删除</td><td>删除用户级 skill（内置不可删，仅可停用）</td><td>删 <code>skills.json</code> 条目 + 可选删 md</td></tr>
+      <tr><td>启用/停用</td><td>切换 task 是否参与调度</td><td>写 <code>skills.json</code> 的 <code>enabled</code> 字段</td></tr>
+      <tr><td>编辑</td><td>改 title/desc（skill 内容本身用文本编辑 md）</td><td>写 <code>skills.json</code></td></tr>
+    </table>
+    <div class="callout ok">
+      <b>升级不丢</b>：所有用户级 skill 与清单都落 <code>data/harness/</code>（即 <code>config.local_data_dir()</code>），升级只替换 EXE，<code>data/</code> 原地保留，<b>用户自定义 skill 升级后依然在</b>。
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">五</span>开发边界总则（Grok 必读，违反即返工）</h2>
+    <div class="callout danger">
+      <b>只允许改以下三处，其余一律不动：</b>
+      <ul>
+        <li>① 任务注册：<code>tools/ptools_harness.py</code>（去硬编码）+ <code>tools/harness_project.py</code>（新增 list_tasks / resolve_task_file）</li>
+        <li>② 内置 skill：<code>resources/ai_skills/</code> 新增 2 个 md</li>
+        <li>③ UI：<code>panels/model_chat_panel.py</code> 加「skill 管理」入口 + 对话框</li>
+      </ul>
+    </div>
+    <p><b>禁止改动</b>：</p>
+    <ul>
+      <li><code>harness_project.load_skill_text()</code> 的三层加载优先级（保持用户→项目→内置→兜底）</li>
+      <li>安全门禁：<code>ai_sql_draft</code> / <code>sql_guard</code> / <code>linux_guard</code> / <code>tameng_agent</code></li>
+      <li>连接建立与查询执行：<code>db_connect.open_connection</code> / <code>_run_redis</code> / <code>_run_mongo</code> / <code>run_read_query</code></li>
+      <li>凭据加密 <code>secure_store</code>、打包 <code>requirements.txt</code> / <code>build_release.ps1</code></li>
+      <li>不新起导航/面板/Stack 页（skill 管理用对话框，非独立页面）</li>
+      <li>不把 skill 内容打进 <code>resources/</code> 之外，用户 skill 只进 <code>data/harness/</code></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">六</span>验收标准（Grok 完成后自测）</h2>
+    <table>
+      <tr><th>#</th><th>验收项</th><th>预期</th></tr>
+      <tr><td>1</td><td>内置 5 个 skill 全在清单，<code>run_task</code> 能识别</td><td>sql.draft/sql.optimize/linux.query/mongo.query/redis.query 均可用</td></tr>
+      <tr><td>2</td><td>用户新增一个 md → 注册后 <code>run_task</code> 可执行</td><td>无需改代码</td></tr>
+      <tr><td>3</td><td>删除用户 skill 后内置仍正常</td><td>内置 task 不受影响</td></tr>
+      <tr><td>4</td><td>停用某 skill 后调度跳过它</td><td>enabled=false 不参与</td></tr>
+      <tr><td>5</td><td>三层加载优先级未变</td><td>用户 &gt; 项目 &gt; 内置 &gt; 兜底</td></tr>
+      <tr><td>6</td><td>安全门禁未被绕过</td><td>sql_guard / linux_guard / ai_sql_draft 仍生效</td></tr>
+      <tr><td>7</td><td>打包可过，用户 skill 不打包</td><td>resources/ 不含用户 skill</td></tr>
+      <tr><td>8</td><td>升级后用户 skill 保留</td><td>data/harness/ 不被安装包覆盖</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2 class="sec"><span class="no">七</span>非目标（本次不做）</h2>
+    <ul>
+      <li>不做 skill 市场 / 在线下载 / 云端同步（产品无账号、无插件市场）。</li>
+      <li>不做 skill 版本的依赖管理、自动更新。</li>
+      <li>不做「任意函数调用」式 skill（skill 仍是提示词文本，不是可执行代码，安全门禁不变）。</li>
+      <li>不做 frontmatter 解析（用 <code>skills.json</code> 清单注册，不解析 md 头部）。</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

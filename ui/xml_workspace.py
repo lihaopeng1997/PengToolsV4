@@ -76,7 +76,7 @@ class XmlWorkspace(QWidget):
         tools.addWidget(self.normalize_btn)
 
         self.format_btn = QPushButton()
-        apply_button(self.format_btn, 'primary', compact=True, icon='xml', icon_size=16)
+        apply_button(self.format_btn, 'secondary', compact=True, icon='xml', icon_size=16)
         self.format_btn.clicked.connect(self._format)
         tools.addWidget(self.format_btn)
 
