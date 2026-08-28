@@ -35,7 +35,6 @@ from tools.agent_store import (
 )
 from tools.chat_intent import detect_take_data_intent
 from tools.intranet_llm import list_enabled_items, ping_model
-from tools.intranet_llm import list_enabled_items, ping_model
 from tools.model_chat_store import (
     SYSTEM_PROMPT, append_message, create_session, delete_session, load_index,
     load_session, rename_session, save_session, search_sessions, trim_messages_for_request,
