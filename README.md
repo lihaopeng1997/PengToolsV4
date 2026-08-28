@@ -28,8 +28,8 @@ PengToolsV4/
 
 ```
 run → main_window → panels → tools / ui / config
-ui 不得 import panels / tools
-tools 不得 import panels
+tools 不得 import panels / ui
+ui 不得 import panels；公共 UI 组件仅可调用无 QWidget 的窄接口工具
 ```
 
 ## 快速开始

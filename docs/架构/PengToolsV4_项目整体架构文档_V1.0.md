@@ -148,7 +148,7 @@ PengTools V4 是一个 **Windows 离线桌面工具台**（Python 3.12 + PyQt6�
 
 ## 五、ui 包：基础 UI 能力层
 
-`ui/` 提供**与业务无关**的公共界面能力，供 `panels/` 和 `main_window` 复用。**ui 包不得 import panels 或 tools。**
+`ui/` 提供**与业务无关**的公共界面能力，供 `panels/` 和 `main_window` 复用。`ui` 不得 import `panels`；为避免把同一套纯逻辑复制进多个控件，公共 UI 组件可调用无 QWidget 的窄接口工具（当前为代码折叠、JSON/XML 格式化、拼音搜索和 SSH 终端会话）。这些调用不能包含需求、发版等领域编排，也不得形成循环依赖。
 
 | 文件 | 类/方法 | 职责 | 使用方 |
 |---|---|---|---|
@@ -352,8 +352,8 @@ config ◄── 所有层（拿数据目录）
 
 | 规则 | 说明 |
 |---|---|
-| ✅ 允许 | panels → tools、panels → ui、panels → config、main_window → panels/ui、tools → config |
-| ❌ 禁止 | tools → panels、tools → ui、ui → panels、ui → tools、panels → panels |
+| ✅ 允许 | panels → tools、panels → ui、panels → config、main_window → panels/ui、tools → config；公共 UI 组件 → 无 QWidget 的窄接口工具 |
+| ❌ 禁止 | tools → panels、tools → ui、ui → panels、公共 UI 组件 → 领域业务编排/持久化工具、panels → panels |
 | ❌ 禁止 | 任何层 → 直接拼 `data/` 路径（必须走 `config.local_data_dir()`） |
 
 **判断口诀**：import 之前想清楚——"被 import 的那一层，知不知道对方存在？" tools 不知道任何 panel 存在，ui 不知道任何业务存在。

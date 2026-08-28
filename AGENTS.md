@@ -58,7 +58,7 @@
 | `Installer/` | 安装模板（setup.cmd + README + 构建写入的 EXE） |
 | `PrivateInstaller/` | 兼容旧路径（构建会同步 EXE） |
 
-依赖方向：`run → main_window → panels → tools|ui|config`；`ui` 不 import `panels/tools`；`tools` 不 import `panels`。
+依赖方向：`run → main_window → panels → tools|ui|config`；`tools` 不 import `panels/ui`，`ui` 不 import `panels`。公共 UI 组件可依赖无 QWidget 的窄接口工具（如格式化、搜索、终端会话），但不得直接承载需求、发版等业务编排或造成循环依赖。
 
 ## 导航与 Stack（必须同步维护）
 
