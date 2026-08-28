@@ -361,7 +361,7 @@
 - 瑞思（用户研究员）：用户理解、无障碍、键盘发现性、危险操作消歧与小窗口体验验收框架。
 - 竞析（竞品分析师）：高密度技术工具中的术语、按钮/Tab/快捷操作命名规则；补充 HTTP/SSH/模型三种“发送”的副作用分层、专业模块术语表与模型本机明文历史常驻提示要求。
 - 数析（数据分析师）：静态覆盖、运行态覆盖、截图走查的可量化审查维度；当前无真实埋点，不宣称完成率。
-- 项目规范：`AGENTS.md`、`页面骨架与控件分层规范v1.html`、`全局设计系统与改造总览.html`、`tests/test_page_skeleton.py`、`tests/test_ui_consistency_buttons.py`。
+- 项目规范：`AGENTS.md`、`docs/方案/页面骨架与控件分层规范v1.html`、`docs/方案/全局设计系统与改造总览.html`、`tests/test_page_skeleton.py`、`tests/test_ui_consistency_buttons.py`。
 
 ---
 

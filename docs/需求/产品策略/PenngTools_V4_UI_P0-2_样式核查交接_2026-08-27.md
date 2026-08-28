@@ -122,7 +122,7 @@
 python -m unittest tests.test_release_ui.ReleaseUiTests tests.test_requirement_splitter tests.test_daily_report_upgrade tests.test_page_skeleton -v
 ```
 
-结果：**Ran 50 tests · OK · EXIT 0**（原始输出 `outputs/_p0_2_retest.txt`）
+结果：**Ran 50 tests · OK · EXIT 0**（原始输出 `docs/验收/记录/_p0_2_retest.txt`）
 
 ### tests.test_release_ui.ReleaseUiTests（28）
 

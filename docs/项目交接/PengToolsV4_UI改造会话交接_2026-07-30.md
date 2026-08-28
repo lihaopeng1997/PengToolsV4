@@ -27,10 +27,10 @@
 
 | 模块 | 设计结果 / 审阅文件 | 实施状态 |
 |---|---|---|
-| 全局设计系统 | `全局设计系统与改造总览.html` | 第一阶段基础设施已实施 |
+| 全局设计系统 | `docs/方案/全局设计系统与改造总览.html` | 第一阶段基础设施已实施 |
 | 工作台首页 | `工作台首页设计方案.html` | 未实施页面重构 |
 | 接口排查 | `接口排查改造计划.html`、`docs/plans/2026-07-29-interface-debug-workbench-redesign.md` | 未实施，**下一优先级** |
-| SSH / 终端 | `SSH终端设计方案.html` | 未实施页面重构 |
+| SSH / 终端 | `docs/方案/SSH终端设计方案.html` | 未实施页面重构 |
 | 日志排查 | `日志排查设计方案.html` | 未实施页面重构 |
 | 发布、配置与环境 | `发布与环境管理设计方案.html` | 未实施页面重构 |
 | 工具中心与辅助模块 | `工具中心与辅助模块设计方案.html` | 未实施页面重构 |
@@ -139,7 +139,7 @@ QT_QPA_PLATFORM=offscreen "C:/Users/Lenovo/.workbuddy/binaries/python/envs/pengt
 4. 确认无误后，按仓库规则提交源码和必要文档（排除 `data/`、产物、构建目录）：
 
 ```bash
-git add config.py main_window.py panels/settings_panel.py panels/sql_panel.py resources/build_info.json resources/style.qss tests/test_theme_responsive.py tests/test_ui.py ui/design_system.py ui/page_chrome.py ui/theme_manager.py docs/plans/2026-07-29-global-ui-foundation.md docs/项目交接/PengToolsV4_UI改造会话交接_2026-07-30.md overview.md
+git add config.py main_window.py panels/settings_panel.py panels/sql_panel.py resources/build_info.json resources/style.qss tests/test_theme_responsive.py tests/test_ui.py ui/design_system.py ui/page_chrome.py ui/theme_manager.py docs/plans/2026-07-29-global-ui-foundation.md docs/项目交接/PengToolsV4_UI改造会话交接_2026-07-30.md docs/方案/overview.md
 # 仅在确认对应 HTML 审阅文档需要版本化时再单独 git add；不要 git add -A。
 git commit -m "feat: establish global interface foundation"
 git push origin main

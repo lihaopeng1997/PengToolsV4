@@ -10,7 +10,7 @@
 ## 给 Grok 的启动指令（直接复制）
 
 ```text
-请严格按 `deliverables/product-strategy/TamengAgent_SQL_Schema_开发规格_V1.0.md` 实施后台 TamengAgent 的 P0-4A 至 P0-4D；同时遵循 `deliverables/product-strategy/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md` 第 9.14、14.1、15.1–15.2。TamengAgent 仅是内部编排器名称，SQL 控制台用户可见名称继续为“AI 助手”。先阅读文档与其中列出的现有代码，再按批次开发、定向测试、敏感扫描、离线构建与产物核验。不得改动本批范围外模块，不得猜字段、联网获取 Schema 或自动执行 SQL。完成后汇报修改文件、测试结果、未完成项和内网待验证项。
+请严格按 `docs/需求/产品策略/TamengAgent_SQL_Schema_开发规格_V1.0.md` 实施后台 TamengAgent 的 P0-4A 至 P0-4D；同时遵循 `docs/需求/产品策略/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md` 第 9.14、14.1、15.1–15.2。TamengAgent 仅是内部编排器名称，SQL 控制台用户可见名称继续为“AI 助手”。先阅读文档与其中列出的现有代码，再按批次开发、定向测试、敏感扫描、离线构建与产物核验。不得改动本批范围外模块，不得猜字段、联网获取 Schema 或自动执行 SQL。完成后汇报修改文件、测试结果、未完成项和内网待验证项。
 ```
 
 > 本段只作为 Grok 的启动入口；所有详细实现、禁止项、验收用例和文件级改动清单均以本文件第 6–15 章为准。
@@ -405,8 +405,8 @@ ORDER BY CREATED_DATE DESC
 请按以下顺序实现 PenngTools 的 TamengAgent，不做超出范围的功能扩展：
 
 1. 先阅读：
-   - deliverables/product-strategy/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md（第 9.14、14.1、15.1–15.2）
-   - deliverables/product-strategy/TamengAgent_SQL_Schema_开发规格_V1.0.md（全文，尤其第 11、12、14 节）
+   - docs/需求/产品策略/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md（第 9.14、14.1、15.1–15.2）
+   - docs/需求/产品策略/TamengAgent_SQL_Schema_开发规格_V1.0.md（全文，尤其第 11、12、14 节）
    - tools/schema_snapshot.py、tools/ai_object_context.py、tools/ai_sql_draft.py、tools/sql_guard.py、panels/ai_workbench_panel.py。
 
 2. 按 P0-4A 至 P0-4D 逐批完成：

@@ -10,10 +10,10 @@
 你是 PengToolsHub V4 Private（Windows 离线 PyQt6 桌面应用）UI 重构项目的接手人。上一任已完成 P0 阶段大部分样式壳层，现在由你继续。开工前请先完整阅读以下交接文档，再动手：
 
 **必读文档（按顺序）**
-1. `deliverables/product-strategy/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md` —— 权威 UI 需求基线（含品牌名、四主题 Token、各页面规范）
-2. `deliverables/product-strategy/PenngTools_V4_Private_全套页面设计稿_C方向_V1.2.html` —— 权威视觉基线（冻结设计稿）
-3. `deliverables/product-strategy/PenngTools_V4_UI重构_Grok实施交接_V1.0.md` —— 上一任的整体路线图与分批规划
-4. `deliverables/product-strategy/PenngTools_V4_UI重构_整体进度与后续交接_2026-08-27.md` —— 当前进度快照、未完成项、收尾清单（以这份为准）
+1. `docs/需求/产品策略/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md` —— 权威 UI 需求基线（含品牌名、四主题 Token、各页面规范）
+2. `docs/需求/产品策略/PenngTools_V4_Private_全套页面设计稿_C方向_V1.2.html` —— 权威视觉基线（冻结设计稿）
+3. `docs/需求/产品策略/PenngTools_V4_UI重构_Grok实施交接_V1.0.md` —— 上一任的整体路线图与分批规划
+4. `docs/需求/产品策略/PenngTools_V4_UI重构_整体进度与后续交接_2026-08-27.md` —— 当前进度快照、未完成项、收尾清单（以这份为准）
 
 **当前进度（截至 2026-08-27）**
 - ✅ P0-0 全局设计系统（四主题 Token、四层骨架、按钮角色、Loading、Splitter、响应式）

@@ -105,7 +105,7 @@
 ## UI / 交互约束
 
 - 样式统一用 `resources/style.qss`；QComboBox/QDateEdit 复用下拉箭头样式。
-- **页面骨架四层（规范 v1，全称见根目录《页面骨架与控件分层规范v1.html》）**：L1 页头（`make_page_header`，主操作唯一置于右上，≤2 个 ghost 次要操作）→ L2 工具栏（`QFrame#page-toolbar`，≤8 个按钮语义分组，操作与筛选分离）→ L3 筛选条（`make_filter_bar`，禁止混入改数据按钮）→ L4 内容区（`ds-card`/`ds-zone`/`ds-muted` + `make_empty_state` 空状态四要素）。骨架自检：`tests/test_page_skeleton.py`（棘轮基线表只降不升，新页面必须直接满足主操作 ≤1）。
+- **页面骨架四层（规范 v1，见 `docs/方案/页面骨架与控件分层规范v1.html`）**：L1 页头（`make_page_header`，主操作唯一置于右上，≤2 个 ghost 次要操作）→ L2 工具栏（`QFrame#page-toolbar`，≤8 个按钮语义分组，操作与筛选分离）→ L3 筛选条（`make_filter_bar`，禁止混入改数据按钮）→ L4 内容区（`ds-card`/`ds-zone`/`ds-muted` + `make_empty_state` 空状态四要素）。骨架自检：`tests/test_page_skeleton.py`（棘轮基线表只降不升，新页面必须直接满足主操作 ≤1）。
 - Loading 为不占布局浮层；文件树后台刷新等静默任务 `show_loading=False`。
 - 成功/失败/异常三条路径都要结束 Loading。
 - 网关解密的密钥/明文/报文默认不落盘、不写日志。

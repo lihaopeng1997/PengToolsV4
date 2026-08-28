@@ -10,17 +10,17 @@
 ## 给 Grok 的启动指令（直接复制）
 
 ```text
-请按 `deliverables/product-strategy/PenngTools_V4_UI重构_Grok实施交接_V1.0.md` 实施 PenngTools V4 全量 UI 重构，并以其中引用的 V1.2 UI 需求文档和 HTML 设计稿为视觉与交互基线。先阅读文档和现有代码，再按 P0→P1→P2 分批开发、定向测试、敏感扫描、离线构建和产物核验。必须保留既有业务功能、安全边界、需求目录按月展示及文件库原有按钮；不得把 TamengAgent 作为用户可见名称，不得自动执行 SQL。每批完成后汇报改动文件、截图、测试结果、遗留风险和内网待验证项。
+请按 `docs/需求/产品策略/PenngTools_V4_UI重构_Grok实施交接_V1.0.md` 实施 PenngTools V4 全量 UI 重构，并以其中引用的 V1.2 UI 需求文档和 HTML 设计稿为视觉与交互基线。先阅读文档和现有代码，再按 P0→P1→P2 分批开发、定向测试、敏感扫描、离线构建和产物核验。必须保留既有业务功能、安全边界、需求目录按月展示及文件库原有按钮；不得把 TamengAgent 作为用户可见名称，不得自动执行 SQL。每批完成后汇报改动文件、截图、测试结果、遗留风险和内网待验证项。
 ```
 
 ---
 
 ## 1. 必读基线
 
-1. `deliverables/product-strategy/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md`
-2. `deliverables/product-strategy/PenngTools_V4_Private_全套页面设计稿_C方向_V1.2.html`
-3. `deliverables/product-strategy/ui-control-copy-audit-2026-08-26.md`
-4. `deliverables/product-strategy/TamengAgent_SQL_Schema_开发规格_V1.0.md`
+1. `docs/需求/产品策略/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md`
+2. `docs/需求/产品策略/PenngTools_V4_Private_全套页面设计稿_C方向_V1.2.html`
+3. `docs/需求/产品策略/ui-control-copy-audit-2026-08-26.md`
+4. `docs/需求/产品策略/TamengAgent_SQL_Schema_开发规格_V1.0.md`
 5. `AGENTS.md`
 6. 现有全局壳、页面与样式实现：
    - `ui/navigation_model.py`

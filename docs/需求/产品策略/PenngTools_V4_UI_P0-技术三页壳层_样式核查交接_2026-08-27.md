@@ -137,7 +137,7 @@ python -m unittest tests.test_page_skeleton \
 | PASS | tests.test_splitter_prefs.SplitterPrefsTests.test_children_not_collapsible_after_install |
 | PASS | tests.test_splitter_prefs.SplitterPrefsTests.test_double_click_handle_restores_defaults |
 
-另：`outputs/_p0_2_style_smoke` 同类 tech-trio smoke（三页间距/min 高）本地通过。
+另：`scripts/diagnostics/_p0_2_style_smoke.py` 同类 tech-trio smoke（三页间距/min 高）本地通过。
 
 ---
 

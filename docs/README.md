@@ -6,9 +6,12 @@
 |---|---|---|
 | 开发约束 | [`../AGENTS.md`](../AGENTS.md) | 产品边界、发布、数据兼容与导航硬规则；代码和文档冲突时优先遵守。 |
 | 架构 | [架构/](架构/) | 当前分层、依赖方向、数据流与测试约束。 |
-| 需求与设计 | [ui/](ui/)、[design.md](design.md) | UI/功能需求、设计蓝图及历史改造计划；**实现以当前代码为准**。 |
+| 方案 | [方案/](方案/)、[plans/](plans/) | HTML 设计稿、改造方案、技术分析与实施计划；**实现以当前代码为准**。 |
+| 需求与设计 | [需求/](需求/)、[ui/](ui/)、[design.md](design.md) | 产品策略、UI/功能需求与历史改造计划。 |
+| 提示词 | [提示词/](提示词/) | 人工或 Agent 接手使用的开发提示词；不属于运行时用户数据。 |
 | 安全 | [SECURITY.md](SECURITY.md)、[SECURITY_TEST_BASELINE.md](SECURITY_TEST_BASELINE.md) | 离线边界、敏感数据限制与安全验证基线。 |
 | 交接与历史 | [项目交接/](项目交接/)、[HANDOFF_LOG_OPS_2026-07-23.md](HANDOFF_LOG_OPS_2026-07-23.md) | 接手说明和已完成迭代记录；以 `*_Grok接手完整交接*` 为完整交接入口。 |
+| 验收材料 | [验收/](验收/) | 验收报告、测试记录、截图；诊断脚本放在 `scripts/diagnostics/`，不混入文档。 |
 | 用户说明 | [user_guide/](user_guide/) | 面向最终用户的 Word 使用说明；软件内置副本为 `resources/help/user_guide.html`。 |
 
 提示词与技能分类：随程序分发的技能指令、任务模板和子 Agent 提示词位于 `resources/ai_skills/`；项目级 Harness 模板位于 `resources/harness/projects/`。两者都属于受版本控制的产品资源，改动时需记录用途、输入输出与安全边界。用户配置、连接信息和本机安装的技能只保留在 `data/ai_local.json`、`data/harness/` 等数据目录，严禁提交 Token、Cookie、SSH 密码或抓包明文。
@@ -20,5 +23,5 @@
 1. 仓库根 `AGENTS.md`
 2. `项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md`
 3. `架构/PengToolsV4_项目整体架构文档_V1.0.md`
-4. 再按任务读 `ui/` 下对应需求与设计记录（可能过时）
+4. 再按任务读 `需求/`、`方案/` 或 `ui/` 下对应材料（可能过时）
 5. 终端用户：`user_guide/PengToolsHub_使用说明_V4.27.docx` 或软件内「使用说明」
