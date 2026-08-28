@@ -1051,6 +1051,13 @@ class ModelChatPanel(QWidget):
         self.conn_combo.blockSignals(False)
 
     def _current_connection(self) -> dict | None:
+        # 优先从 SQL 控制台当前活跃的数据库面板获取连接上下文
+        window = self.window()
+        if window and hasattr(window, '_active_db_context'):
+            ctx = window._active_db_context()
+            if ctx:
+                return ctx
+        # fallback: 自身下拉框
         data = self.conn_combo.currentData()
         return dict(data) if isinstance(data, dict) else None
 

@@ -363,6 +363,46 @@ QPushButton#nav-btn[iconOnly="true"], QPushButton#nav-btn-settings[iconOnly="tru
     text-align: center;
     min-width: 48px;
 }
+/* SQL 控制台子菜单（数据库列表） */
+QFrame#sql-subnav {
+    background: transparent;
+    border: none;
+}
+QPushButton#nav-sub-item {
+    background: transparent;
+    color: __TEXT_NAV__;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 400;
+    min-height: 18px;
+    border-left: 3px solid transparent;
+}
+QPushButton#nav-sub-item:hover {
+    background: __NAV_HOVER__;
+    color: __TEXT_STRONG__;
+}
+QPushButton#nav-sub-item:checked {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 500;
+    border-left: 3px solid __PRIMARY__;
+}
+QPushButton#nav-sub-item[dbPlaceholder="true"] {
+    color: __TEXT_MUTED__;
+    font-style: italic;
+}
+QToolButton#nav-sub-expand {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px;
+}
+QToolButton#nav-sub-expand:hover {
+    background: __NAV_HOVER__;
+}
 /* 页面骨架 */
 QFrame#page-header {
     background: transparent;

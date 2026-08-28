@@ -612,10 +612,10 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str) -> dict:
         return result
     kind = str(dialect or data.get('dialect') or 'oracle').lower()
     lowered = body.lower()
-    if kind == 'oracle' and re.search(r'\blimit\b', lowered) and 'fetch' not in lowered:
+    if kind in ('oracle', 'oceanbase') and re.search(r'\blimit\b', lowered) and 'fetch' not in lowered:
         result['reason'] = '草案被拦截：输出方言与当前连接方言不兼容。'
         return result
-    if kind in ('mysql', 'oceanbase') and 'rownum' in lowered:
+    if kind == 'mysql' and 'rownum' in lowered:
         result['reason'] = '草案被拦截：输出方言与当前连接方言不兼容。'
         return result
     safety = ai_draft_safety(parts[0], kind)

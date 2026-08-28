@@ -196,11 +196,11 @@ class _ConnectionDialog(QDialog):
     def _on_dialect_changed(self):
         dialect = self.dialect.currentData() or 'oracle'
         zh = self.language == 'zh'
-        self.oracle_hint.setVisible(dialect == 'oracle')
+        self.oracle_hint.setVisible(dialect in ('oracle', 'oceanbase'))
         # 模式选择对 Redis / MongoDB 可见
         self.mode.setVisible(dialect in ('redis', 'mongodb'))
         self.mode_label.setVisible(dialect in ('redis', 'mongodb'))
-        if dialect == 'oracle':
+        if dialect in ('oracle', 'oceanbase'):
             self.database_label.setText('SID/服务名' if zh else 'SID')
             self.database.setPlaceholderText('ORCL / 服务名')
             self.host_label.setText('主机' if zh else 'Host')
@@ -225,7 +225,7 @@ class _ConnectionDialog(QDialog):
             self.database_label.setText('库名' if zh else 'Database')
             self.database.setPlaceholderText('mysql 库名，例如 test')
             self.host_label.setText('主机' if zh else 'Host')
-        defaults = {'1521', '2881', '3306', '5236', '6379', '27017'}
+        defaults = {'1521', '2883', '3306', '5236', '6379', '27017'}
         if not self.port.text().strip() or self.port.text().strip() in defaults:
             self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
 
@@ -263,9 +263,11 @@ class _SqlTab(QWidget):
 
 
 class AiWorkbenchPanel(QWidget):
-    def __init__(self, language='zh'):
+    def __init__(self, language='zh', connection_id=''):
         super().__init__()
         self.language = language
+        self._connection_id = str(connection_id or '')
+        self._bound_conn_item = None  # 如果是绑定连接，缓存完整连接 dict
         self._worker = None
         self._ai_worker = None
         self._snapshot = None
@@ -283,7 +285,10 @@ class AiWorkbenchPanel(QWidget):
         self._agent_timer.timeout.connect(self._tick_agent_stage)
         self._setup_ui()
         self.set_language(language)
-        self._reload_connections()
+        if self._connection_id:
+            self._reload_bound_connection()
+        else:
+            self._reload_connections()
         self._new_sql_tab()
         self._refresh_header()
 
@@ -360,6 +365,11 @@ class AiWorkbenchPanel(QWidget):
             tool_l.addWidget(widget)
         tool_l.addStretch(1)
         root.addWidget(toolbar)
+        # 绑定连接模式：隐藏连接下拉框和新建按钮
+        if self._connection_id:
+            self.conn_combo.hide()
+            self.conn_new_btn.hide()
+            self.conn_target_hint.hide()
 
         body = QSplitter(Qt.Orientation.Vertical)
         columns = QSplitter(Qt.Orientation.Horizontal)
@@ -799,10 +809,14 @@ class AiWorkbenchPanel(QWidget):
         tab = self._current_tab()
         if tab is not None and isinstance(tab.conn_item, dict):
             return dict(tab.conn_item)
+        if self._connection_id:
+            return dict(self._bound_conn_item) if self._bound_conn_item else None
         data = self.conn_combo.currentData()
         return dict(data) if isinstance(data, dict) else None
 
     def _browse_conn(self) -> dict | None:
+        if self._connection_id:
+            return dict(self._bound_conn_item) if self._bound_conn_item else None
         data = self.conn_combo.currentData()
         return dict(data) if isinstance(data, dict) else None
 
@@ -814,7 +828,37 @@ class AiWorkbenchPanel(QWidget):
         tab = self._current_tab()
         return tab.editor if tab is not None else None
 
+    def _reload_bound_connection(self):
+        """从 connections.json 中加载指定 ID 的连接（绑定模式）。"""
+        rows = load_connections()
+        for item in rows:
+            if str(item.get('id') or '') == self._connection_id:
+                self._bound_conn_item = dict(item)
+                break
+        if self._bound_conn_item is None and rows:
+            # fallback：若当前 ID 不存在，取第一个连接
+            for item in rows:
+                self._bound_conn_item = dict(item)
+                self._connection_id = str(item.get('id') or '')
+                break
+        if self._bound_conn_item:
+            self._snapshot = load_snapshot(str(self._bound_conn_item.get('id') or ''))
+            self.nl_input.bind_snapshot(self._snapshot)
+        # 通知主窗口刷新侧栏（绑定模式不依赖下拉框）
+        window = self.window()
+        if window and hasattr(window, '_rebuild_sql_console_subnav'):
+            window._rebuild_sql_console_subnav()
+
     def _reload_connections(self, select_id: str = ''):
+        if self._connection_id:
+            # 绑定模式下不操作下拉框，直接重新加载绑定连接
+            self._reload_bound_connection()
+            self._rebuild_tree()
+            self._refresh_header()
+            self._refresh_model_status()
+            self._refresh_ai_pick_state()
+            self._refresh_agent_status()
+            return
         self.conn_combo.blockSignals(True)
         self.conn_combo.clear()
         rows = load_connections()
@@ -862,6 +906,13 @@ class AiWorkbenchPanel(QWidget):
             self.conn_meta.setText('未选择连接' if zh else 'No connection')
             if hasattr(self, 'conn_target_hint'):
                 self.conn_target_hint.setText('目标连接：—' if zh else 'Target: —')
+            # 非绑定模式恢复默认页头文案
+            if not self._connection_id:
+                self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
+                self.page_subtitle.setText(
+                    '多标签编辑 · 结构快照 · AI 助手只生成不执行' if zh else
+                    'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+                )
             self._refresh_tree_title()
             self._refresh_risk_chip()
             return
@@ -877,6 +928,10 @@ class AiWorkbenchPanel(QWidget):
             self.conn_target_hint.setText(
                 (f'目标连接：{alias} · {label}' if zh else f'Target: {alias} · {label}').strip()
             )
+        # 绑定模式：页头主标题显示数据库名
+        if self._connection_id:
+            self.page_title.setText(f'{alias}（SQL 控制台）' if zh else f'{alias} (SQL Console)')
+            self.page_subtitle.setText(f'{dialect.upper()} · {snap_mark}' if zh else f'{dialect.upper()} · {snap_mark}')
         self._refresh_tree_title()
         self._refresh_risk_chip()
 
@@ -960,6 +1015,14 @@ class AiWorkbenchPanel(QWidget):
                 snap['fingerprint'] = before
                 save_snapshot(snap)
         self._reload_connections(saved.get('id'))
+        # 通知主窗口刷新侧栏数据库子菜单
+        self._notify_main_sidebar_refresh()
+
+    def _notify_main_sidebar_refresh(self):
+        """通知主窗口重建 SQL 控制台侧栏子菜单。"""
+        window = self.window()
+        if window and hasattr(window, '_rebuild_sql_console_subnav'):
+            window._rebuild_sql_console_subnav()
 
     def _delete_connection(self):
         item = self._current_conn()
@@ -976,6 +1039,7 @@ class AiWorkbenchPanel(QWidget):
         delete_snapshot(item.get('id'))
         delete_connection(item.get('id'))
         self._reload_connections()
+        self._notify_main_sidebar_refresh()
 
     def _delete_snapshot(self):
         item = self._current_conn()
@@ -1332,7 +1396,7 @@ class AiWorkbenchPanel(QWidget):
         dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
         name = str(obj.get('name') or '')
         owner = str(obj.get('owner') or '')
-        if dialect in ('mysql', 'oceanbase'):
+        if dialect == 'mysql':
             return f'`{name}`'
         if owner and dialect not in ('redis', 'mongodb'):
             return f'{owner}.{name}'

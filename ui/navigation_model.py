@@ -122,12 +122,77 @@ NAV_ITEMS: dict[int, NavItem] = _build_items()
 # 编辑列表展示顺序（不含首页、设置）
 FLOATING_EDIT_ORDER = [14, 15, 10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
 
+# ---------------------------------------------------------------------------
+# SQL 控制台 — 数据库子菜单（侧栏动态子项）
+# ---------------------------------------------------------------------------
+SQL_CONSOLE_NAV = 14          # 父级导航索引（SQL 控制台）
+DB_NAV_START = 16             # 第一个动态数据库子菜单索引
+DB_NAV_MAX = 48               # 上限（最多 32 个数据库连接）
+
+# 内置数据库类型（无实际连接时的默认占位条目）
+BUILTIN_DB_TYPES = [
+    ('Oracle', 'oracle'),
+    ('MySQL', 'mysql'),
+    ('OceanBase', 'oceanbase'),
+    ('Dameng', 'dameng'),
+    ('Redis', 'redis'),
+    ('MongoDB', 'mongodb'),
+]
+
+def nav_is_db_slot(index: int) -> bool:
+    """判断导航索引是否属于数据库子菜单槽位。"""
+    return DB_NAV_START <= index < DB_NAV_MAX
+
+def resolve_db_slot_index(index: int) -> int:
+    """将 DB 导航索引 (16+) 转成槽位偏移（0-based）。"""
+    return index - DB_NAV_START
+
+def db_nav_index_from_slot(slot: int) -> int:
+    """将槽位偏移（0-based）转成 DB 导航索引。"""
+    return DB_NAV_START + slot
+
+def make_db_nav_item(conn: dict, slot: int) -> NavItem:
+    """从连接配置 dict 构造数据库子菜单 NavItem。"""
+    nav_index = db_nav_index_from_slot(slot)
+    label = str(conn.get('name') or conn.get('id') or '未命名')
+    dialect = str(conn.get('dialect') or 'unknown').lower()
+    icon_map = {
+        'oracle': 'database',
+        'mysql': 'database',
+        'oceanbase': 'database',
+        'dameng': 'database',
+        'redis': 'database',
+        'mongodb': 'database',
+    }
+    return NavItem(
+        index=nav_index,
+        name_zh=label,
+        name_en=label,
+        icon_role=icon_map.get(dialect, 'database'),
+        group_key='sql_console_db',
+        floating_eligible=False,
+        requires_easter_egg=False,
+        tooltip_zh=f'{label}（{dialect.upper()}）',
+        tooltip_en=f'{label} ({dialect.upper()})',
+    )
+
+def get_db_nav_item(index: int, connections: list[dict] | None = None) -> NavItem | None:
+    """按导航索引返回数据库子菜单 NavItem（运行时按连接列表动态解析）。"""
+    if not nav_is_db_slot(index):
+        return None
+    slot = resolve_db_slot_index(index)
+    if connections is not None and 0 <= slot < len(connections):
+        return make_db_nav_item(connections[slot], slot)
+    return None
+
 
 def get_nav_item(index: int) -> NavItem | None:
     return NAV_ITEMS.get(int(index))
 
 
 def display_name(index: int, language: str = 'zh') -> str:
+    if nav_is_db_slot(index):
+        return f'数据库 {resolve_db_slot_index(index) + 1}'
     item = get_nav_item(index)
     if item is None:
         return str(index)
@@ -135,6 +200,8 @@ def display_name(index: int, language: str = 'zh') -> str:
 
 
 def display_tooltip(index: int, language: str = 'zh') -> str:
+    if nav_is_db_slot(index):
+        return f'数据库连接 {resolve_db_slot_index(index) + 1}'
     item = get_nav_item(index)
     if item is None:
         return ''
@@ -142,6 +209,8 @@ def display_tooltip(index: int, language: str = 'zh') -> str:
 
 
 def icon_role_for(index: int) -> str:
+    if nav_is_db_slot(index):
+        return 'database'
     item = get_nav_item(index)
     return item.icon_role if item else 'home'
 

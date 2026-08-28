@@ -46,7 +46,7 @@ DIALECTS = (
 
 DEFAULT_PORTS = {
     'oracle': 1521,
-    'oceanbase': 2881,
+    'oceanbase': 2883,
     'mysql': 3306,
     'dameng': 5236,
     'redis': 6379,
@@ -142,7 +142,7 @@ def open_connection(item: dict):
     port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
-    if dialect in ('oracle',):
+    if dialect in ('oracle', 'oceanbase'):
         try:
             import oracledb
         except ImportError as exc:
@@ -170,8 +170,9 @@ def open_connection(item: dict):
                     '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
                     f' 原始错误：{text}'
                 ) from exc
-            raise DbError(f'Oracle 连接失败：{text}') from exc
-    if dialect in ('oceanbase', 'mysql'):
+            label = 'OceanBase' if dialect == 'oceanbase' else 'Oracle'
+            raise DbError(f'{label} 连接失败：{text}') from exc
+    if dialect == 'mysql':
         try:
             import pymysql
         except ImportError as exc:
@@ -183,7 +184,7 @@ def open_connection(item: dict):
                 cursorclass=pymysql.cursors.Cursor,
             )
         except Exception as exc:
-            raise DbError(f'MySQL/OceanBase 连接失败：{exc}') from exc
+            raise DbError(f'MySQL 连接失败：{exc}') from exc
     if dialect == 'dameng':
         try:
             import dmPython
@@ -307,13 +308,12 @@ def list_tables(conn, dialect: str) -> list[str]:
             raise DbError(f'读取集合失败：{exc}') from exc
     cur = _cursor(conn)
     try:
-        if dialect in ('oceanbase', 'mysql'):
+        if dialect == 'mysql':
             cur.execute('SHOW TABLES')
-            rows = cur.fetchall() or []
-            return [str(row[0]) for row in rows if row]
-        if dialect == 'dameng':
+        elif dialect == 'dameng':
             cur.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
         else:
+            # oracle / oceanbase
             cur.execute("SELECT table_name FROM user_tables ORDER BY table_name")
         rows = cur.fetchall() or []
         return [str(row[0]) for row in rows if row]
@@ -342,14 +342,14 @@ def list_columns(conn, dialect: str, table: str) -> list[str]:
             return []
     cur = _cursor(conn)
     try:
-        if dialect in ('oceanbase', 'mysql'):
+        if dialect == 'mysql':
             cur.execute(f'SHOW COLUMNS FROM `{table.replace("`", "")}`')
-            rows = cur.fetchall() or []
-            return [str(row[0]) for row in rows if row]
-        cur.execute(
-            "SELECT column_name FROM user_tab_columns WHERE table_name = :1 ORDER BY column_id",
-            [table.upper()],
-        )
+        else:
+            # oracle / oceanbase / dameng
+            cur.execute(
+                "SELECT column_name FROM user_tab_columns WHERE table_name = :1 ORDER BY column_id",
+                [table.upper()],
+            )
         rows = cur.fetchall() or []
         return [str(row[0]) for row in rows if row]
     except Exception as exc:
@@ -381,8 +381,9 @@ def _wrap_paged(sql: str, dialect: str, offset: int, limit: int) -> str:
     if verb in ('show', 'desc', 'describe', 'explain', 'pragma'):
         return body
     dialect = (dialect or 'oracle').lower()
-    if dialect in ('oceanbase', 'mysql'):
+    if dialect == 'mysql':
         return f'SELECT * FROM ({body}) peng_q LIMIT {int(limit)} OFFSET {int(offset)}'
+    # oracle / oceanbase / dameng → ROWNUM
     end = int(offset) + int(limit)
     return (
         'SELECT * FROM ('

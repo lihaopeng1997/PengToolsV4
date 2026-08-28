@@ -244,7 +244,7 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
             objects, truncated = _scan_redis(conn)
         elif dialect == 'mongodb':
             objects, truncated = _scan_mongo(conn)
-        elif dialect in ('mysql', 'oceanbase'):
+        elif dialect == 'mysql':
             objects, truncated = _scan_information_schema(conn, item)
         else:
             objects, truncated = _scan_oracle_like(conn, dialect)
