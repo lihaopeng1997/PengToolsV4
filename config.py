@@ -122,6 +122,11 @@ DEFAULT_SETTINGS = {
     'model_chat_last_session_id': '',
     'model_chat_last_model_id': '',
     'model_chat_send_with_ctrl_enter': True,
+    # ── V2 Web 壳（混合 UI）──
+    # 首页问候语称呼；空值回退 'Lihp'
+    'home_username': 'Lihp',
+    # Web 铬层开关（侧栏/首页 Web 化）；False 或依赖缺失时回退原生侧栏
+    'ui_web_shell': True,
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -208,6 +213,12 @@ def normalize_settings(settings):
     result['floating_always_on_top'] = bool(result['floating_always_on_top'])
     result['floating_show_on_startup'] = bool(result['floating_show_on_startup'])
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
+    result['home_username'] = str(result.get('home_username') or '').strip() or 'Lihp'
+    web_shell = result.get('ui_web_shell', True)
+    if isinstance(web_shell, str):
+        result['ui_web_shell'] = web_shell.strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        result['ui_web_shell'] = bool(web_shell)
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
     if theme == 'night':
         theme = 'black'

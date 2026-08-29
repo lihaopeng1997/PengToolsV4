@@ -38,6 +38,14 @@ def _resolve_window_icon() -> QIcon:
 
 
 def main():
+    # V2 Web 壳：QWebEngine 必须在 QApplication 创建前初始化（不可用时自动跳过）
+    try:
+        from ui import web_shell as _web_shell
+        if _web_shell.WEB_SHELL_AVAILABLE:
+            from PyQt6.QtWebEngineQuick import QtWebEngineQuick
+            QtWebEngineQuick.initialize()
+    except Exception:
+        pass
     # Qt6 默认启用并统一处理高 DPI 缩放；不要再注入 Qt5 时代环境变量，
     # 以避免多屏切换和系统缩放策略发生冲突。
     if sys.platform == 'win32':

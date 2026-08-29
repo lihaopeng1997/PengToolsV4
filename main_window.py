@@ -19,6 +19,8 @@ from ui.navigation_model import (
     dialect_for_nav, display_name, icon_role_for, is_parent_nav,
     nav_is_db_slot, resolve_db_slot_index,
 )
+from ui import web_shell as _web_shell
+WEB_SHELL_AVAILABLE = _web_shell.WEB_SHELL_AVAILABLE
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from config import (
     APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text,
@@ -111,7 +113,24 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._create_sidebar())
+        # ── V2 Web 铬层：可用且未禁用时启用（侧栏双页栈：0=原生保底 1=Web）──
+        self._web_shell_enabled = WEB_SHELL_AVAILABLE and bool(self._settings.get('ui_web_shell', True))
+        self._chrome_bridge = None
+        self._dash_web = None
+        if self._web_shell_enabled:
+            self._chrome_bridge = _web_shell.HomeBridge(self)
+            self._chrome_bridge.set_nav_model(self._build_web_nav_model())
+            self._chrome_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
+            self._chrome_bridge.navigateRequested.connect(self._show_panel)
+            self._chrome_bridge.paletteRequested.connect(self._open_quick_panel)
+            self._chrome_bridge.set_summary_provider(self._dashboard_summary_payload)
+            side_stack = QStackedWidget()
+            side_stack.addWidget(self._create_sidebar())
+            side_stack.addWidget(_web_shell.create_chrome_widget(self._chrome_bridge))
+            side_stack.setCurrentIndex(1)
+            layout.addWidget(side_stack)
+        else:
+            layout.addWidget(self._create_sidebar())
 
         content = QFrame()
         content.setObjectName('content_area')
@@ -137,6 +156,14 @@ class MainWindow(QMainWindow):
         self._iface_host_layout = self._panel_host_layouts[11]
         self._ops_log_host = self._panel_hosts[12]
         self._ops_log_host_layout = self._panel_host_layouts[12]
+
+        # ── V2 Web 首页：Stack[0] 顶层放 Web 版，原生首页面板隐藏保底（信号对象仍可用）──
+        if self._web_shell_enabled:
+            self._dash_bridge = _web_shell.HomeBridge(self)
+            self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
+            self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
+            self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
+            self._panel_host_layouts[0].insertWidget(0, self._dash_web)
 
         self._content_layout.addWidget(self.stack, 1)
         layout.addWidget(content, 1)
@@ -225,6 +252,8 @@ class MainWindow(QMainWindow):
         if hasattr(panel, 'open_requirement'):
             panel.open_requirement.connect(self._open_requirement_from_dashboard)
         self._mount_panel(0, panel)
+        if getattr(self, '_web_shell_enabled', False) and getattr(self, '_dash_web', None) is not None:
+            panel.setVisible(False)
         self.dashboard_panel = panel
         self._apply_panel_chrome(panel)
         return panel
@@ -552,7 +581,7 @@ class MainWindow(QMainWindow):
         self._become_interactive()
         self._apply_language_to_created_panels()
 
-    def _create_sidebar(self):
+    def _create_legacy_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName('sidebar')
         self._sidebar = sidebar
@@ -1235,6 +1264,144 @@ class MainWindow(QMainWindow):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
+    def _open_quick_panel(self):
+        """Web 铬层发起的快速面板（与 Ctrl+Shift+P 同源）。"""
+        try:
+            if getattr(self, 'quick_panel', None) is not None:
+                self.quick_panel.show_panel()
+        except Exception:
+            pass
+
+    def _build_web_nav_model(self):
+        """侧栏 Web 渲染数据：唯一权威 ui/navigation_model.py，JS 端不硬编码。"""
+        from ui.navigation_model import (
+            NAV_MODEL, GROUP_LABELS, NAV_ITEMS, FIXED_DB_PAGES, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+        )
+        dia_short = {'oracle': 'ORA', 'mysql': 'MY', 'oceanbase': 'OB',
+                     'dameng': 'DM', 'redis': 'KV', 'mongodb': 'DOC'}
+        groups = []
+        for key, entries in NAV_MODEL:
+            items = []
+            for nav_index, name_zh, name_en, icon_role in entries:
+                if nav_index == 8 and not self._private_unlocked:
+                    continue
+                info = NAV_ITEMS[nav_index]
+                entry = {'i': nav_index, 'zh': name_zh, 'en': name_en,
+                         'icon': icon_role, 'tip': info.tooltip_zh}
+                if nav_index == 14:
+                    entry['children'] = [
+                        {'i': i, 'zh': zh, 'en': zh, 'icon': icon,
+                         'dia': dia_short.get(dialect, dialect[:2].upper())}
+                        for zh, dialect, i, icon in FIXED_DB_PAGES
+                    ]
+                elif nav_index == 15:
+                    entry['children'] = [
+                        {'i': AI_CHAT_NAV, 'zh': '聊天', 'en': 'CHAT', 'icon': 'chat'},
+                        {'i': AI_WORKBENCH_NAV, 'zh': '工作', 'en': 'AGENT', 'icon': 'spark'},
+                    ]
+                items.append(entry)
+            zh_label, en_label = GROUP_LABELS[key]
+            groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
+        return {'groups': groups,
+                'settings': {'i': 7, 'zh': '设置', 'en': 'SET', 'icon': 'gear'},
+                'current': int(getattr(self, '_current_nav_index', 0) or 0)}
+
+    def _dashboard_summary_payload(self):
+        """首页 Web 数据（main_window→tools 合法；宽松容错，失败返回可渲染默认）。"""
+        import datetime
+        payload = {
+            'username': str(self._settings.get('home_username') or 'Lihp'),
+            'greeting': '下午好', 'date_line': '本地数据已同步',
+            'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5,
+                      'daily_note': ''},
+            'release': {'version': 'V4.28', 'total': 0, 'done': 0, 'percent': 0,
+                        'days_left': None, 'date_text': '计划日期待定'},
+            'recent': [], 'checklist': [],
+            'tools': [
+                {'i': 14, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
+                {'i': 16, 'zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
+                {'i': 11, 'zh': '格式工具', 'ds': 'JSON / XML / SQL', 'icon': 'braces', 'grad': 'c4'},
+                {'i': 12, 'zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'plug', 'grad': 'c3'},
+            ],
+        }
+        try:
+            from tools import dashboard_release_items as _dri
+            from tools import requirements as _req
+        except Exception:
+            return payload
+        now = datetime.datetime.now()
+        today = now.date()
+        if self.language == 'zh':
+            hour_text = '上午好' if now.hour < 12 else ('下午好' if now.hour < 18 else '晚上好')
+            weekday = '一二三四五六日'[today.weekday()]
+            payload['greeting'] = hour_text
+            payload['date_line'] = f'今天是 {today.month} 月 {today.day} 日 星期{weekday} · 本地数据已同步'
+        else:
+            payload['greeting'] = 'Good afternoon' if now.hour < 18 else 'Good evening'
+            payload['date_line'] = f'{today.isoformat()} · Local data synced'
+        try:
+            requirements = _req.load_requirements()
+        except Exception:
+            requirements = []
+        open_reqs = [r for r in requirements
+                     if str(r.get('status') or '') not in ('已完成', 'done', 'closed', '已关闭')]
+        payload['stats']['req_open'] = len(open_reqs)
+        payload['stats']['req_trend'] = f'共 {len(requirements)} 条'
+        recent = []
+        for r in list(reversed(requirements[-5:])):
+            status = str(r.get('status') or '进行中')
+            cls = 'ok' if status == '已完成' else ('rev' if '评审' in status else 'run')
+            recent.append({
+                'code': str(r.get('code') or r.get('id') or ''),
+                'title': str(r.get('title') or r.get('name') or '未命名需求'),
+                'status': cls,
+                'color': {'run': '#F59E0B', 'rev': '#3B82F6', 'ok': '#10B981'}.get(cls, '#C9CCDD'),
+                'nav': 10,
+            })
+        payload['recent'] = recent
+        try:
+            items = _dri.load_release_items()
+            board = _dri.load_release_board()
+            completed = set(board.get('completed_requirement_keys') or [])
+            months = _dri.collect_release_months(requirements) if requirements else []
+            month = months[0] if months else ''
+            total = len(items)
+            done = sum(1 for it in items if _dri.is_board_item_completed(it, month, completed))
+            dates = sorted({it.get('planned_date') for it in items if it.get('planned_date')})
+            days_left = None
+            next_text = '计划日期待定'
+            if dates:
+                try:
+                    days_left = (datetime.date.fromisoformat(dates[0]) - today).days
+                    next_text = f'计划 {dates[0][5:]} 发布'
+                except ValueError:
+                    pass
+            rel = payload['release']
+            rel.update({'total': total, 'done': done,
+                        'percent': int(done * 100 / total) if total else 0,
+                        'days_left': days_left, 'date_text': next_text})
+            payload['checklist'] = [
+                {'t': '升级准备清单核对', 'color': '#10B981' if done else '#E4E1EC',
+                 'mini': f'{done}/{total} 项'},
+                {'t': '发布包密钥扫描', 'color': '#E4E1EC', 'mini': '发布前执行'},
+            ]
+        except Exception:
+            pass
+        try:
+            from tools import daily_reports as _daily
+            reports = _daily.load_reports()
+            week_dates = set()
+            for offset in range(today.weekday() + 1):
+                day = today - datetime.timedelta(days=offset)
+                week_dates.add(day.isoformat())
+            keys = set(reports.keys()) if isinstance(reports, dict) else set()
+            payload['stats']['daily_done'] = len(week_dates & keys)
+            payload['stats']['daily_note'] = ('今日已提交' if today.isoformat() in keys
+                                              else '今日未提交')
+        except Exception:
+            pass
+        return payload
+
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
             return
@@ -1293,6 +1460,11 @@ class MainWindow(QMainWindow):
         elif index == 10 and self.requirement_panel is not None:
             self.requirement_panel.refresh_systems()
         self.stack.setCurrentIndex(stack_index)
+        if self._web_shell_enabled:
+            if index == 0 and self.dashboard_panel is not None:
+                self.dashboard_panel.setVisible(False)
+            if self._chrome_bridge is not None:
+                self._chrome_bridge.push_active(index)
         # 按钮选中状态：DB 子菜单索引只点亮对应的子项，普通导航点亮对应按钮
         is_db = nav_is_db_slot(index)
         for position, button in enumerate(self.nav_buttons):
