@@ -125,12 +125,12 @@ class MainWindow(QMainWindow):
             self._chrome_bridge.paletteRequested.connect(self._open_quick_panel)
             self._chrome_bridge.set_summary_provider(self._dashboard_summary_payload)
             side_stack = QStackedWidget()
-            side_stack.addWidget(self._create_sidebar())
+            side_stack.addWidget(self._create_legacy_sidebar())
             side_stack.addWidget(_web_shell.create_chrome_widget(self._chrome_bridge))
             side_stack.setCurrentIndex(1)
             layout.addWidget(side_stack)
         else:
-            layout.addWidget(self._create_sidebar())
+            layout.addWidget(self._create_legacy_sidebar())
 
         content = QFrame()
         content.setObjectName('content_area')
