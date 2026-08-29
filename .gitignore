@@ -32,6 +32,7 @@ outputs/_*/
 .workbuddy/
 .codegraph/
 .codex_work/
+.mimosa/
 __pycache__/
 **/__pycache__/
 *.pyc
