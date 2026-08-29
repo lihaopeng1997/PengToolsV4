@@ -1843,14 +1843,18 @@ class InterfaceDebugPanel(QWidget):
                     pass
                 return None
 
-            first = _try_once()
-            if first:
-                return first
-            # 端口可能仍被旧引擎占用：再等一次后重试
-            time.sleep(0.8)
-            second = _try_once()
-            if second:
-                return second
+            # 绑定失败（端口被上一轮占用）时快速失败，多等几轮重试：
+            # 旧引擎释放通常在数秒内完成，避免直接把"端口被占用"抛给用户。
+            result = None
+            for attempt in range(3):
+                first = _try_once()
+                if first:
+                    result = first
+                    break
+                if attempt < 2:
+                    time.sleep(1.5)
+            if result:
+                return result
             return {
                 'ok': False,
                 'error': '抓包未就绪（端口可能被占用）。请关闭占用后重试。',

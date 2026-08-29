@@ -120,6 +120,37 @@ class CaptureRestartTests(unittest.TestCase):
         worker._wait_port_released(timeout=2.0)
         worker._port_bound.assert_not_called()
 
+    def test_bind_conflict_fails_fast_then_succeeds_after_release(self):
+        """端口被占用时快速失败且报错含端口提示；释放后同端口可再启动（用户回归场景）。"""
+        import socket as _socket
+        from tools.http_capture import HttpCaptureWorker
+
+        blocker = _socket.socket()
+        blocker.bind(('127.0.0.1', 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+
+        errors = []
+        w1 = HttpCaptureWorker(port=port, apply_system_proxy=False, on_error=errors.append)
+        w1.start()
+        try:
+            # 占用期间：快速失败（不再傻等 10 秒），且不得误报"就绪"
+            self.assertFalse(w1.wait_ready(timeout=8.0))
+            self.assertFalse(w1.ready)
+            self.assertTrue(any('端口' in str(e) for e in errors), f'errors={errors}')
+        finally:
+            blocker.close()
+            w1.stop(join_timeout=1.0)
+
+        # 释放后：同端口重新启动应成功（停止→再监听的主回归路径）
+        w2 = HttpCaptureWorker(port=port, apply_system_proxy=False)
+        w2.start()
+        try:
+            self.assertTrue(w2.wait_ready(timeout=15.0))
+            self.assertTrue(w2.ready)
+        finally:
+            w2.stop(join_timeout=1.0, clear_records=True)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -34,6 +34,16 @@ class LinuxGuardTests(unittest.TestCase):
         self.assertFalse(inspect_command('sudo grep foo /etc/passwd')[0])
         self.assertFalse(inspect_command('find / -delete')[0])
 
+    def test_rejects_command_substitution(self):
+        # 命令替换在远端 shell 才展开，静态白名单看不到内部命令，必须整体拒绝
+        self.assertFalse(inspect_command('echo $(reboot)')[0])
+        self.assertFalse(inspect_command('echo $(rm -rf /)')[0])
+        self.assertFalse(inspect_command('grep `reboot` /var/log/syslog')[0])
+        self.assertFalse(inspect_command('cat <(reboot)')[0])
+        self.assertFalse(inspect_command('grep foo >(tee /tmp/x)')[0])
+        # 误报防护：普通 $VAR 变量展开不拦
+        self.assertTrue(inspect_command('echo $HOME')[0])
+
     def test_inspect_commands_splits_allowed_and_rejected(self):
         allowed, rejected = inspect_commands([
             'tail -n 20 /var/log/app.log',

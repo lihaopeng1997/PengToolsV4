@@ -37,6 +37,8 @@ _DENIED_PATTERN = re.compile(
     r'|\|\s*(?:sh|bash|zsh|ksh|python|perl)\b',
     re.IGNORECASE,
 )
+# $()、反引号、<()、>() 只在远端 shell 解析时才展开，静态白名单检查不到内部命令，必须整体拒绝
+_SUBSTITUTION_PATTERN = re.compile(r'\$\(|`|[<>]\(')
 
 
 class LinuxGuardError(Exception):
@@ -82,6 +84,8 @@ def inspect_command(command: str) -> tuple[bool, str]:
         return False, '空命令'
     if text.startswith('#'):
         return False, '注释不是可执行查询'
+    if _SUBSTITUTION_PATTERN.search(text):
+        return False, '含命令替换/进程替换，无法静态审查'
     if _DENIED_PATTERN.search(text):
         return False, '含重定向、管道到解释器或危险命令'
     segments = split_pipeline(text)

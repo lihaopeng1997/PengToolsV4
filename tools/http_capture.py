@@ -426,39 +426,77 @@ class HttpCaptureWorker:
             self._master = master
 
             async def _boot_and_run():
-                # DumpMaster.run 会 listen + 事件循环
-                await master.run()
+                # DumpMaster.run 会 listen + 事件循环。
+                # 注意：mitmproxy errorcheck 对启动期错误（典型为端口被 10048 占用）
+                # 走 sys.exit(1)，asyncio Task 对 SystemExit 会直接击穿事件循环，
+                # 必须在此就地转成普通异常，否则任何 await 侧的检测都不会执行。
+                try:
+                    await master.run()
+                except SystemExit:
+                    detail = ''
+                    try:
+                        ec_addon = master.addons.get('errorcheck')
+                        records = list(getattr(ec_addon.logger, 'has_errored', []) or [])
+                        if records:
+                            detail = '：' + ' | '.join(
+                                str(r.getMessage()) for r in records[:3]
+                            )
+                    except Exception:
+                        pass
+                    raise RuntimeError(
+                        f'mitmproxy 启动失败（典型原因：127.0.0.1:{self.port} 端口被占用）{detail}'
+                    ) from None
 
             # 在独立任务里跑，便于超时检测绑定
             run_task = loop.create_task(_boot_and_run())
 
-            def _watch_bind():
-                deadline = time.time() + 10.0
-                while time.time() < deadline and not self._stop.is_set():
-                    if self._port_bound():
-                        return True
-                    time.sleep(0.12)
-                return False
-
-            watcher = threading.Thread(target=lambda: None, daemon=True)
-            # 边跑 loop 边等端口：用 call_soon 调度检查
             bind_ok = {'v': False}
 
+            async def _fail_bind(message: str):
+                bind_ok['v'] = False
+                self._emit_error(message)
+                try:
+                    master.shutdown()
+                except Exception:
+                    pass
+
             async def _wait_bind_then_proxy():
+                # 绑定成败以 run_task（setup_servers）为准：端口可连可能是上一轮
+                # 未释放的旧引擎，不能单独作为本引擎绑定成功的依据。
                 deadline = loop.time() + 10.0
                 while loop.time() < deadline and not self._stop.is_set():
+                    if run_task.done():
+                        # mitmproxy 12 绑定失败（10048）时 errorcheck 记录错误后
+                        # run() 无异常退出；非用户停止的提前退出一律按端口占用明确报错。
+                        exc = None if run_task.cancelled() else run_task.exception()
+                        if not self._stop.is_set():
+                            detail = f'：{exc}' if exc else ''
+                            await _fail_bind(
+                                f'HTTP 抓包代理绑定 127.0.0.1:{self.port} 失败'
+                                f'（端口被上一轮抓包或其它程序占用）{detail}'
+                            )
+                        return
                     if await loop.run_in_executor(None, self._port_bound):
+                        if run_task.done():
+                            continue
                         bind_ok['v'] = True
                         break
                     await asyncio.sleep(0.12)
                 if not bind_ok['v']:
-                    self._emit_error(
-                        f'HTTP 抓包代理未能绑定 127.0.0.1:{self.port}（端口占用或 mitmproxy 启动失败）'
-                    )
-                    try:
-                        master.shutdown()
-                    except Exception:
-                        pass
+                    if not self._stop.is_set() and not run_task.done():
+                        await _fail_bind(
+                            f'HTTP 抓包代理未能绑定 127.0.0.1:{self.port}'
+                            '（端口占用或 mitmproxy 启动失败）'
+                        )
+                    return
+                if run_task.done():
+                    # mitmproxy 12 绑定失败（10048）时 setup_servers 记录错误后优雅退出，
+                    # run_task 不带异常；此时绝不能标记就绪，必须明确报端口占用。
+                    if not self._stop.is_set():
+                        await _fail_bind(
+                            f'HTTP 抓包代理绑定 127.0.0.1:{self.port} 失败'
+                            '（端口被上一轮抓包或其它程序占用）'
+                        )
                     return
                 if self.apply_system_proxy:
                     try:
@@ -472,16 +510,28 @@ class HttpCaptureWorker:
                         except Exception:
                             pass
                         return
-                self._mark_ready()
+                if not run_task.done():
+                    self._mark_ready()
 
             async def _main():
                 waiter = asyncio.create_task(_wait_bind_then_proxy())
+                bind_error = None
                 try:
                     await run_task
                 except Exception as exc:
+                    bind_error = exc
                     if not self._stop.is_set():
                         self._emit_error(f'mitmproxy 运行失败：{exc}')
                 finally:
+                    # 引擎提前退出且从未就绪（典型：端口被占用，mitmproxy errorcheck
+                    # 记录 "Error logged during startup" 后优雅退出、无异常抛出）。
+                    # waiter 可能还没执行第一行就被取消，检测必须放在这里兜底，
+                    # 否则 wait_ready 只能傻等超时，用户只能看到笼统的"端口被占用"。
+                    if bind_error is None and not self._ready.is_set() and not self._stop.is_set():
+                        self._emit_error(
+                            f'HTTP 抓包代理绑定 127.0.0.1:{self.port} 失败'
+                            '（端口被上一轮抓包或其它程序占用，已自动重试仍未成功）'
+                        )
                     if not waiter.done():
                         waiter.cancel()
                         try:

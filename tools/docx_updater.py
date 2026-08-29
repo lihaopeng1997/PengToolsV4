@@ -269,7 +269,7 @@ def _get_para_style_name(paragraph):
     """获取 python-docx 段落样式名称"""
     try:
         return paragraph.style.name
-    except:
+    except Exception:
         return ""
 
 

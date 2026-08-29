@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PengToolsV4 代码架构审查与修复报告 · 2026-08-29</title>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #ffffff; --ink: #1c2333; --muted: #5b6478;
+    --line: #e3e7f0; --brand: #2456d6; --brand-weak: #e8eefc;
+    --red: #c73535; --red-weak: #fdecec; --orange: #b25e00; --orange-weak: #fdf3e2;
+    --green: #1e7d43; --green-weak: #e7f6ec; --blue: #2055c7; --blue-weak: #e9f0fd;
+    --mono: Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.75 "Microsoft YaHei", "PingFang SC", sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  header.page { background: linear-gradient(135deg, #1f3f9e, #2456d6); color: #fff;
+                border-radius: 14px; padding: 28px 32px; margin-bottom: 24px; }
+  header.page h1 { margin: 0 0 6px; font-size: 24px; }
+  header.page .sub { opacity: .85; font-size: 13px; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 28px; }
+  .stat { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 12px; padding: 14px 18px; }
+  .stat b { display: block; font-size: 26px; line-height: 1.3; }
+  .stat span { color: var(--muted); font-size: 12.5px; }
+  .stat.red b { color: var(--red); } .stat.orange b { color: var(--orange); }
+  .stat.green b { color: var(--green); } .stat.blue b { color: var(--blue); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+            padding: 24px 28px; margin-bottom: 22px; }
+  h2 { margin: 0 0 14px; font-size: 19px; border-left: 4px solid var(--brand);
+       padding-left: 10px; }
+  h3 { margin: 22px 0 8px; font-size: 16px; }
+  p { margin: 8px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left;
+           vertical-align: top; }
+  th { background: #f0f3f9; white-space: nowrap; }
+  code { font-family: var(--mono); background: #f0f3f9; border-radius: 4px;
+         padding: 1px 5px; font-size: 12.5px; }
+  pre { background: #14181f; color: #dce3f2; border-radius: 10px; padding: 14px 16px;
+        overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 10px;
+           font-size: 12px; font-weight: 600; margin-right: 6px; vertical-align: 1px; }
+  .b-red { background: var(--red-weak); color: var(--red); }
+  .b-orange { background: var(--orange-weak); color: var(--orange); }
+  .b-green { background: var(--green-weak); color: var(--green); }
+  .b-blue { background: var(--blue-weak); color: var(--blue); }
+  .fix { border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px;
+         margin: 12px 0; }
+  .fix h4 { margin: 0 0 6px; font-size: 15px; }
+  .kv { color: var(--muted); font-size: 13px; margin: 2px 0; }
+  .kv b { color: var(--ink); font-weight: 600; }
+  .pass { color: var(--green); font-weight: 600; }
+  .fail { color: var(--red); font-weight: 600; }
+  ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>PengToolsV4 代码架构审查与修复报告</h1>
+  <div class="sub">审查基线：<code style="background:rgba(255,255,255,.15)">415639c fix: 修复构建环境与安全边界并补充架构审计</code>
+    · 分支 main · 报告日期 2026-08-29 · 审查方式：分层扫描 + CodeGraph 索引 + 逐模块全量测试 + 定向修复验证</div>
+</header>
+
+<div class="stats">
+  <div class="stat blue"><b>169</b><span>索引文件（CodeGraph 5658 节点 / 19908 边）</span></div>
+  <div class="stat red"><b>2</b><span>修复的严重缺陷（1 安全 + 1 功能）</span></div>
+  <div class="stat orange"><b>2</b><span>修复的测试缺陷</span></div>
+  <div class="stat green"><b>57/60</b><span>测试模块通过（3 个遗留项见第 6 节）</span></div>
+  <div class="stat green"><b>0</b><span>架构分层违规</span></div>
+</div>
+
+<!-- ===================== 1 架构审查 ===================== -->
+<section>
+  <h2>1 · 架构审查结论：<span class="pass">整体健康，零分层违规</span></h2>
+  <p>按 AGENTS.md 声明的强制依赖方向对全部源码做了静态扫描，并抽查了安全关键链路的实现质量：</p>
+  <table>
+    <tr><th style="width:34%">审查项</th><th style="width:14%">结论</th><th>说明</th></tr>
+    <tr><td><code>tools</code> 不得 import <code>panels/ui</code></td><td class="pass">合规</td><td>52 个模块全量 grep 零命中</td></tr>
+    <tr><td><code>ui</code> 不得 import <code>panels</code></td><td class="pass">合规</td><td>32 个模块零命中</td></tr>
+    <tr><td>panels 横向依赖</td><td class="pass">合规</td><td>仅 2 处同层对话框复用（ai_token_edit / test_points_editor），属允许范围；远端 c23f0a4 已另行消除 Redis/Mongo 面板对 SQL 面板的横向依赖</td></tr>
+    <tr><td>SQL 门禁（sql_guard）</td><td class="pass">合规</td><td>fail-closed 设计：无法静态证明只读时一律拒绝自动执行；多语句、WITH-DML、PL/SQL、Redis/Mongo 写命令均有拦截，错误消息经 redact_error 脱敏</td></tr>
+    <tr><td>本地工具运行时（agent_runtime）</td><td class="pass">合规</td><td>subprocess 全部列表传参无 shell；pytest 参数双重白名单 + shell 元字符拦截；写/删/SVN commit 均需确认回调</td></tr>
+    <tr><td>SVN 封装（svn_workspace）</td><td class="pass">合规</td><td>列表参数构造、CREATE_NO_WINDOW、超时控制、URL 清洗健壮</td></tr>
+    <tr><td>凭据存储（secure_store）</td><td class="pass">合规</td><td>DPAPI 优先 → Fernet 回退 → base64 仅只读兼容（保存时升级），符合安测基线</td></tr>
+    <tr><td>抓包数据边界</td><td class="pass">合规</td><td>http_capture 会话仅内存（无任何文件写）；interface_debug_store 仅允许写配置项（路径/端口/指纹）</td></tr>
+    <tr><td>危险调用扫描</td><td class="pass">合规</td><td>无内建 eval/exec、无 pickle.loads、无 shell=True、无硬编码密钥（password/token/api_key 赋值扫描零命中）</td></tr>
+  </table>
+  <p class="muted">CodeGraph 索引：169 文件 / 5658 符号 / 19908 关系边，审查期间已 <code>codegraph sync</code> 至最新提交。</p>
+</section>
+
+<!-- ===================== 2 依赖审查 ===================== -->
+<section>
+  <h2>2 · 依赖审查结论：<span class="pass">无版本冲突，无已知漏洞版本</span></h2>
+  <ul>
+    <li><b>requirements.txt 已由远端提交锁定为精确版本</b>（c23f0a4 / 415639c），<code>test_dependency_manifest</code> 可复现性检查通过，本机环境已按清单对齐。</li>
+    <li><b>安全版本核对</b>：<code>paramiko≥3.4.0</code>（实测装 5.0.0）——Terrapin（CVE-2023-48795）已在 3.4.0 修复；<code>cryptography≥42</code> 无已知严重 CVE；<code>mitmproxy==12.2.3</code> 项目已主动关闭 h2 规避 HTTP/2 请求走私 advisory（http_capture.py 注释可查）。</li>
+    <li><b>paramiko 5.0 大版本兼容性</b>：逐项核对了项目用法（SSHClient / AutoAddPolicy / invoke_shell / 密码认证、<code>allow_agent=False, look_for_keys=False</code>），不使用 5.0 中移除的 DSSKey 等 API，<code>test_ops_ssh</code> 15 项全过，<span class="pass">兼容</span>。</li>
+    <li><b>mitmproxy 依赖树冲突</b>（typing-extensions 等）已由远端锁定解决。</li>
+    <li>建议（非必改）：主版本演进时（如 PyQt6 7、mitmproxy 13）锁定清单需人工升级，建议升级时全量跑 <code>tests/</code>。</li>
+  </ul>
+</section>
+
+<!-- ===================== 3 安全审查 ===================== -->
+<section>
+  <h2>3 · 安全审查：<span style="color:var(--red)">发现 1 个门禁绕过漏洞（已修复）</span></h2>
+  <p>重点审查了 AGENTS.md 声明的四条安全红线的落地情况。三项达标（数据边界、密钥存储、发布扫描 <code>scan_release_secrets</code> PASS），一项存在真实漏洞，见修复 F1。</p>
+  <div class="fix">
+    <h4><span class="badge b-orange">备注</span>gateway_crypto.py 内置 SM2 密钥</h4>
+    <p class="kv">源码 KEYS 字典含 SM2 公私钥对。核实为<b>被拦截网关前端 JS（gatewaySmDeco.js）中公开发布的解密密钥</b>——不构成机密泄漏，且为网关解密功能所必需。建议在 docs/SECURITY.md 中补充一句声明，避免后续审查误报。</p>
+  </div>
+</section>
+
+<!-- ===================== 4 修复明细 ===================== -->
+<section>
+  <h2>4 · 本轮修复明细（5 项，全部验证通过）</h2>
+
+  <div class="fix">
+    <h4><span class="badge b-red">严重 · 安全</span>F1 · Linux 只读门禁可被命令替换绕过</h4>
+    <div class="kv"><b>位置</b>：tools/linux_guard.py · <b>验证</b>：tests/test_ptools_harness.py 11 项全过（含新增回归）</div>
+    <p><b>问题</b>：门禁正则拦截了重定向、管道进解释器和危险二进制，但未拦截 <code>$(…)</code>、反引号、进程替换 <code>&lt;(…)/&gt;(…)</code>。<code>echo $(reboot)</code> 的首命令是 echo（在白名单内），能通过全部检查；发送到远端 SSH 后由远端 shell 展开，等于绕过"只读"承诺执行任意命令。执行链路核实：ops_log_panel._execute_linux_query 等入口都是"门禁通过 → 原文发送"。</p>
+    <p><b>修复</b>：新增 <code>_SUBSTITUTION_PATTERN = re.compile(r'\$\(|`|[<>]\(')</code>，命中即拒（"含命令替换/进程替换，无法静态审查"）；普通 <code>$VAR</code> 变量展开不受影响（误报防护）。</p>
+    <pre><code>echo $(reboot)            → 修复前：允许（漏洞）  修复后：拒绝 ✓
+grep `reboot` /var/log/syslog → 修复前：允许（漏洞）  修复后：拒绝 ✓
+cat &lt;(reboot)              → 修复前：允许（漏洞）  修复后：拒绝 ✓
+echo $HOME                → 修复前：允许          修复后：允许（不受影响）✓</code></pre>
+  </div>
+
+  <div class="fix">
+    <h4><span class="badge b-red">严重 · 功能</span>F2 · 接口排查：停止抓包后再点"开始监听"报端口被占用（用户报告 BUG）</h4>
+    <div class="kv"><b>位置</b>：tools/http_capture.py + panels/interface_debug_panel.py · <b>验证</b>：新增真实引擎集成回归 test_capture_restart 6 项全过；test_interface_debug 33 项全过</div>
+    <p><b>问题</b>：停止后再启动，多次尝试后报"抓包未就绪（端口可能被占用）"。三层根因叠加：</p>
+    <ul>
+      <li><b>根因一（最关键）</b>：mitmproxy 12 的 errorcheck 插件在启动错误（典型为 10048 端口占用）时调用 <code>sys.exit(1)</code>。asyncio Task 对 SystemExit 的处理是<b>直接击穿事件循环</b>——等待引擎结果的 <code>_main</code> 协程连恢复执行的机会都没有，其内部所有错误检测与兜底成为死代码；线程静默死亡，<code>wait_ready</code> 只能傻等 12 秒超时，用户侧反复重试后得到笼统的"端口被占用"。</li>
+      <li><b>根因二（僵尸就绪）</b>：绑定成功与否靠"端口可连"探测——快速重启时旧引擎尚未释放，端口照样可连，新引擎明明绑定失败却被标记为"就绪"，产生不抓任何包的僵尸会话。</li>
+      <li><b>根因三（重试不足）</b>：面板启动线程只重试 1 次（间隔 0.8 秒），旧引擎释放稍慢即最终失败。</li>
+    </ul>
+    <p><b>修复</b>：</p>
+    <ul>
+      <li><code>_boot_and_run</code> 内就地拦截 SystemExit，转译为携带 errorcheck 真实错误详情的 RuntimeError（错误不再吞掉、文案明确指向端口占用）；</li>
+      <li><code>_main</code> 增加兜底：引擎退出但从未就绪且非用户停止 → 明确报"绑定失败（端口被上一轮抓包或其它程序占用）"并立即置位 ready（不再傻等超时）；</li>
+      <li><code>_wait_bind_then_proxy</code> 以 <code>run_task</code> 存活为准判定绑定归属，探测窗口内引擎已退出绝不标记就绪（消除僵尸）；</li>
+      <li>面板启动线程改为最多 3 次尝试、间隔 1.5 秒——旧引擎释放通常在数秒内，自动等过而不是把错误抛给用户；</li>
+      <li>清理死代码（无效的 watcher 线程）。</li>
+    </ul>
+    <pre><code>回归场景（tests/test_capture_restart.py::test_bind_conflict_fails_fast_then_succeeds_after_release）：
+1. 用真实 socket 占住端口 → 启动抓包 → wait_ready 快速返回 False（不再傻等 12s）
+   且错误消息含"端口"提示、绝不误报"就绪"        ✓
+2. 释放端口 → 同端口再次启动 → 就绪成功           ✓</code></pre>
+  </div>
+
+  <div class="fix">
+    <h4><span class="badge b-blue">轻微 · 代码</span>F3 · docx_updater 裸 except</h4>
+    <div class="kv"><b>位置</b>：tools/docx_updater.py:272 · <b>验证</b>：test_daily_report_upgrade / docx 相关用例全过</div>
+    <p><b>问题与修复</b>：<code>except:</code> 会连 KeyboardInterrupt/SystemExit 一起吞掉，改为 <code>except Exception:</code>。</p>
+  </div>
+
+  <div class="fix">
+    <h4><span class="badge b-orange">测试</span>F4 · release_ui SVN 状态色用例假路径</h4>
+    <div class="kv"><b>位置</b>：tests/test_release_ui.py · <b>验证</b>：test_release_ui 28 项全过</div>
+    <p><b>问题</b>：用例使用不存在的 <code>C:/tmp</code> 作为 local_path，被生产代码 <code>_current_path()</code> 的"路径必须真实存在"防御校验（防过期回调）提前丢弃，断言空字典失败。<b>修复</b>：改用 <code>tempfile.TemporaryDirectory</code> 真实目录（addCleanup 清理）。生产代码防御逻辑正确，不改。</p>
+  </div>
+
+  <div class="fix">
+    <h4><span class="badge b-orange">测试</span>F5 · 门禁回归测试补充（伴随 F1）</h4>
+    <div class="kv"><b>位置</b>：tests/test_ptools_harness.py · <b>验证</b>：LinuxGuardTests 4 项全过</div>
+    <p>新增 <code>test_rejects_command_substitution</code>：覆盖 <code>$()</code>、反引号、<code>&lt;()</code>、<code>&gt;()</code> 四种替换形态及 <code>$HOME</code> 误报防护。</p>
+  </div>
+</section>
+
+<!-- ===================== 5 与远端并行修复的关系 ===================== -->
+<section>
+  <h2>5 · 与远端并行修复的边界（避免重复计算）</h2>
+  <p>审查期间远端另有会话推送了修复提交，经 git stash 基线对照确认，以下 6 项测试失败<b>已由远端修复</b>，不计入本轮改动：</p>
+  <ul>
+    <li><code>11b8267</code>：compact_list_layout（docx 按钮父容器）、interface_debug（空发版列表语义）、lazy_workflow_phase1（悬空模态挂起）、startup_and_crypto_params（2 项）、ops_ssh（pytest 误收集）；ui_consistency（size_combo 断言随实现更新）。</li>
+    <li><code>c23f0a4 / 415639c</code>：page_skeleton 主操作唯一性（模型对话双"发送"）、架构收口（Redis/Mongo 面板横向依赖）、NoSQL 写命令拦截、依赖锁定。</li>
+  </ul>
+  <p>本轮修改与远端提交零重叠（git diff 核对），合并无冲突。</p>
+</section>
+
+<!-- ===================== 6 遗留事项 ===================== -->
+<section>
+  <h2>6 · 遗留事项（3 项，均预先存在、非本轮引入）</h2>
+  <table>
+    <tr><th style="width:30%">事项</th><th style="width:12%">级别</th><th>详情与建议</th></tr>
+    <tr>
+      <td>test_core :: test_real_local_svn_checkout…</td>
+      <td><span class="badge b-orange">环境</span></td>
+      <td>用例依赖本机 svn CLI，缺失时 <code>shutil.which('svn')</code> 返回 None 后 TypeError 崩溃而非跳过。建议改为 <code>@unittest.skipUnless(shutil.which('svn'), ...)</code>。其余 71 项通过。</td>
+    </tr>
+    <tr>
+      <td>test_theme_format_tools / test_ui 组合运行原生崩溃</td>
+      <td><span class="badge b-red">遗留 bug</span></td>
+      <td>整模块顺序运行时解释器硬崩（exit 127，无 traceback，Qt 原生层）。已做最小复现与二分：<b>BadgeContrastTests → FormatToolsNavTests → ThemePreviewTests 按序执行必崩</b>；任意单独/两两组合均通过；干净基线复现（非本轮引入）；与 Qt 6.11.1/6.11.2 版本无关。疑似前序用例污染 Qt 原生状态（图形效果/主题管理器），致后续 <code>grab()</code> 像素校验崩溃。建议独立排查会话处理；单模块定向运行不受影响。</td>
+    </tr>
+    <tr>
+      <td>gateway_crypto 内置密钥声明</td>
+      <td><span class="badge b-blue">文档</span></td>
+      <td>见第 3 节备注，建议在 SECURITY.md 补充声明。</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ===================== 7 测试数据 ===================== -->
+<section>
+  <h2>7 · 测试验证数据</h2>
+  <table>
+    <tr><th>口径</th><th>修复前（基线 415639c）</th><th>修复后（本轮）</th></tr>
+    <tr><td>测试模块（60 个）</td><td>57 通过 / 3 问题</td><td class="pass">57 通过 / 3 遗留（遗留项与代码改动无关，见第 6 节）</td></tr>
+    <tr><td>Linux 门禁安全性</td><td class="fail">可被 $(…) 绕过</td><td class="pass">四类替换形态全部拦截 + 回归测试</td></tr>
+    <tr><td>抓包停止→重启</td><td class="fail">报端口被占用，需重启软件</td><td class="pass">自动等待释放并重试，真实引擎回归通过</td></tr>
+    <tr><td>定向验证</td><td colspan="2">test_capture_restart 6/6 · test_ptools_harness 11/11 · test_interface_debug 33/33 · test_release_ui 28/28 · test_sql_guard 9/9 · test_lazy_workflow_phase1 全过 · compileall 全量语法通过</td></tr>
+  </table>
+  <p class="muted">说明：第一轮全量基线（e9ef760）上另有 8 个模块失败，其中 6 个已由远端并行提交修复（第 5 节）；1 个为 svn 环境依赖；2 个为上述原生崩溃遗留项。</p>
+</section>
+
+<!-- ===================== 8 变更清单 ===================== -->
+<section>
+  <h2>8 · 本轮变更文件清单（7 文件，+134/−31）</h2>
+  <table>
+    <tr><th>文件</th><th>改动</th><th>关联</th></tr>
+    <tr><td><code>tools/linux_guard.py</code></td><td>+4：命令替换/进程替换拦截</td><td>F1</td></tr>
+    <tr><td><code>tools/http_capture.py</code></td><td>SystemExit 转译、就绪判定以引擎存活为准、退出兜底报错、清理死代码</td><td>F2</td></tr>
+    <tr><td><code>panels/interface_debug_panel.py</code></td><td>启动线程 3 次重试 + 1.5s 间隔</td><td>F2</td></tr>
+    <tr><td><code>tools/docx_updater.py</code></td><td>裸 except → except Exception</td><td>F3</td></tr>
+    <tr><td><code>tests/test_ptools_harness.py</code></td><td>+命令替换回归用例</td><td>F5</td></tr>
+    <tr><td><code>tests/test_capture_restart.py</code></td><td>+真实引擎端口占用回归用例</td><td>F2</td></tr>
+    <tr><td><code>tests/test_release_ui.py</code></td><td>假路径改真实临时目录</td><td>F4</td></tr>
+  </table>
+  <p class="muted">验证命令：<code>QT_QPA_PLATFORM=offscreen python -m unittest tests.test_capture_restart tests.test_ptools_harness tests.test_interface_debug tests.test_release_ui</code></p>
+</section>
+
+<footer>PengToolsV4 · 架构审查与修复报告 · 生成于 2026-08-29 · 基线 415639c + 本轮修复</footer>
+</div>
+</body>
+</html>

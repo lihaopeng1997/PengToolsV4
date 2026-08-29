@@ -470,11 +470,15 @@ class ReleaseUiTests(unittest.TestCase):
             panel.close()
 
     def test_requirement_file_tree_uses_svn_status_colors(self):
+        import tempfile
         from panels.requirement_panel import _svn_status_color
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
             panel = RequirementPanel()
-        panel._current = {'id': 's', 'local_path': 'C:/tmp', 'workspace_kind': 'svn'}
-        panel._file_tree_path = 'C:/tmp'
+        # _current_path() 要求 local_path 真实存在，否则 _file_tree_loaded 会按过期回调丢弃
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        panel._current = {'id': 's', 'local_path': tmp.name, 'workspace_kind': 'svn'}
+        panel._file_tree_path = tmp.name
         panel._file_tree_loaded({
             'files': [
                 {
