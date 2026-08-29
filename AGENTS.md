@@ -25,7 +25,7 @@
   - 用户主动配置并确认的 SSH、数据库和接口请求；只读查询仍需用户点击执行。
 - 抓包请求、响应、Cookie、Token、密钥和解密明文只存内存，不写日志或 JSON。停止抓包保留内存会话；只有清空和退出可调用 `clear_session()`。
 - IE 代理启动前备份 WinINet；停止、失败和退出均恢复；证书只删除配置中记录的指纹。
-- Postman/cURL、SQL 和命令草稿只生成，不自动执行；运维助手禁止自动执行破坏性命令。
+- Postman/cURL、SQL 和命令草稿只生成，不自动执行；命令库/日志排查禁止自动执行破坏性命令。
 - 禁止把真实账密、VPN、Token、私钥或用户数据写入 `resources/`。发布前 `scripts/scan_release_secrets.py` 必须通过。
 
 这些边界可以在有明确需求和安全设计时演进，但不能为了省事静默绕过；调整时必须同时更新测试、文档和验收证据。
@@ -59,32 +59,47 @@ run → main_window → panels → tools | ui | config
 - `ui → tools` 不再一刀切禁止，但只能调用无 QWidget、无业务页面编排的窄接口，并加入测试白名单；数据库枚举等共享契约优先拆到独立小模块。
 - 不为消除一个 import 做大范围搬家。超大面板按可验证的业务切面渐进拆分，禁止无测试的“架构重写”。
 
-## 5. 导航与 Stack
+## 5. 导航与 Stack（v3.0，权威定义在 `ui/navigation_model.py`）
 
-| 导航 | 模块 | Stack | 可见性 |
-|---:|---|---:|---|
-| 0 | 工作台 | 0 | 常显 |
-| 1 | 证件类型 | 1 | 常显 |
-| 2 | 升级准备（SQL） | 2 | 常显 |
-| 3 | 接口文档更新 | 3 | 常显 |
-| 4 | VIN | 4 | 常显 |
-| 5 | 网关解密 | 5 | 常显 |
-| 6 | 运维助手 | 6 | 常显 |
-| 7 | 设置 | 7 | 左下角常显 |
-| 8 | 自我学习 | 8 | 彩蛋解锁后显示 |
-| 9 | 日报 | 8 | 常显 |
-| 10 | 需求管理 | 9 | 常显 |
-| 11 | 格式工具 | 10 | 常显 |
-| 12 | 接口排查 | 11 | 常显 |
-| 13 | 日志排查 | 12 | 常显 |
-| 14 | SQL 控制台 | 13 | 常显 |
-| 15 | 模型对话 | 14 | 常显 |
+侧栏、悬浮快捷（QuickPanel）与设置页编辑器三处共享 `ui/navigation_model.py`，改名、改索引、改分组以该文件为唯一权威，不得在别处硬编码。
 
-修改导航必须同步菜单、Stack、状态栏、中英文文案和测试。只有“自我学习”允许隐藏；密钥与解锁入口不写入普通 UI 文案。
+| 导航 | 名称 | 面板（stack 属性） | Stack | 可见性 |
+|---:|---|---|---:|---|
+| 0 | 首页 | dashboard_panel | 0 | 常显 |
+| 1 | 证件类型 | credit_panel | 1 | 常显 |
+| 2 | 发版联动 | sql_panel | 2 | 常显 |
+| 3 | 接口文档更新 | docx_panel | 3 | 常显 |
+| 4 | 车辆 VIN | vin_panel | 4 | 常显 |
+| 5 | 加解密 | gateway_panel | 5 | 常显 |
+| 6 | 命令库 | ops_panel | 6 | 常显 |
+| 7 | 设置 | settings_panel | 7 | 侧栏底部常显 |
+| 8 | 自我学习 | personal_panel | 8 | 彩蛋解锁后显示 |
+| 9 | 日报 | personal_panel（复用） | 8 | 常显 |
+| 10 | 需求管理 | requirement_panel | 9 | 常显 |
+| 11 | 格式工具 | format_panel | 10 | 常显 |
+| 12 | 接口排查 | interface_debug_panel | 11 | 常显 |
+| 13 | 日志排查 | ops_log_panel | 12 | 常显 |
+| 14 | SQL 控制台 | 父级，仅折叠/展开，不映射 Stack | — | 常显（子项 18–23） |
+| 15 | 模型 | 父级，仅折叠/展开，不映射 Stack | — | 常显（子项 16–17） |
+| 16 | 聊天 | model_chat_panel | 13 | 常显 |
+| 17 | 工作 | agent_workbench_panel | 14 | 常显 |
+| 18 | Oracle | AiWorkbenchPanel(dialect=oracle) | 15 | 常显 |
+| 19 | MySQL | AiWorkbenchPanel(dialect=mysql) | 16 | 常显 |
+| 20 | OceanBase | AiWorkbenchPanel(dialect=oceanbase) | 17 | 常显 |
+| 21 | 达梦 | AiWorkbenchPanel(dialect=dameng) | 18 | 常显 |
+| 22 | Redis | db_redis_panel.RedisWorkbenchPanel | 19 | 常显 |
+| 23 | MongoDB | db_mongodb_panel.MongoDBWorkbenchPanel | 20 | 常显 |
+
+侧栏分组：工作台（0、14）、智能助手（15）、交付管理（10、2、3、9）、运维工作台（13、6）、开发工具（5、12、11、1、4）、个人效率（8）；悬浮快捷位最多 6 个，14/15 父级与 7 设置不参与。
+
+- 只有“自我学习”（8）依赖彩蛋解锁；密钥与解锁入口不写入普通 UI 文案。
+- 14/15 为父级导航：点击只展开/折叠子菜单，不切换 Stack。
+- 离开“接口排查”（12）时主窗口会暂停系统代理（`on_panel_deactivated`），新增离开联动时保持该行为。
+- 修改导航必须同步 `ui/navigation_model.py`、Stack 装配（`main_window._stack_index_for_nav`）、状态栏与中英文文案及测试。
 
 ## 6. 关键业务联动
 
-1. 需求 → 升级准备 → 发版 Excel：确认升级日期，按系统生成 SQL，写入 `resources/release_workbook_template.xlsx`；23 列 `RELEASE_HEADERS` 必须一致。开发分支 SVN 可空，验证 SQL 不进入 SVN 提交目录。
+1. 需求 → 发版联动 → 发版 Excel：确认升级日期，按系统生成 SQL，写入 `resources/release_workbook_template.xlsx`；23 列 `RELEASE_HEADERS` 必须一致。开发分支 SVN 可空，验证 SQL 不进入 SVN 提交目录。
 2. 需求 → 日报：`daily_template()` 只生成草稿，不覆盖用户已写内容。
 3. 需求 → SQL 整理 / DOCX：保持主窗口信号 `_receive_requirement_sql`、`_receive_requirement_docx` 的契约。
 
@@ -140,7 +155,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 - 需求树/文件树/SVN UI：`panels/requirement_panel.py`
 - 需求模型/搜索/日报模板：`tools/requirements.py`
 - SVN 命令：`tools/svn_workspace.py`
-- 升级准备：`panels/sql_panel.py`
+- 发版联动（SQL 生成/升级准备）：`panels/sql_panel.py`
 - 发版 Excel：`tools/release_prep.py`
 - 学习库/日报：`panels/personal_panel.py`、`tools/personal_knowledge.py`、`tools/daily_reports.py`
 - 接口排查：`panels/interface_debug_panel.py`、`tools/http_capture.py`
