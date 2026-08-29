@@ -284,5 +284,36 @@ class FallbackBehaviourSourceTest(unittest.TestCase):
         self.assertIn('self._web_timeout_timer.stop()', fb_src)
 
 
+
+
+class SandboxPolicyTest(unittest.TestCase):
+    """Step 2B：应用不再主动关闭 Chromium sandbox（onedir 迁移后 workaround 移除）。"""
+
+    def setUp(self):
+        self.run_src = io.open(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'run.py'), encoding='utf-8').read()
+
+    def test_run_py_no_forced_sandbox_disable(self):
+        # 允许只读记录（诊断字段）；禁止任何写入/设置行为
+        self.assertNotIn("os.environ.setdefault('QTWEBENGINE_DISABLE_SANDBOX'", self.run_src)
+        self.assertNotIn("os.environ['QTWEBENGINE_DISABLE_SANDBOX']", self.run_src)
+
+    def test_run_py_no_sandbox_flag_injection(self):
+        # 允许只读检查；禁止注入 --no-sandbox 或设置 CHROMIUM_FLAGS
+        self.assertNotIn("os.environ['QTWEBENGINE_CHROMIUM_FLAGS']", self.run_src)
+        self.assertNotIn("os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS'", self.run_src)
+
+    def test_diag_still_records_sandbox_state(self):
+        """启动诊断保留 sandbox 状态字段（A/B 证据能力不丢）。"""
+        diag = io.open(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'ui', 'web_diagnostics.py'), encoding='utf-8').read()
+        self.assertIn('log_web_event', diag)  # 诊断模块仍在（字段在 run.py 传入）
+        run_src = self.run_src
+        self.assertIn('sandbox_env_present', run_src)
+        self.assertIn('app_forces_sandbox_disabled=False', run_src)
+
+
 if __name__ == '__main__':
     unittest.main()

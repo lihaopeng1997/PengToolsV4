@@ -42,13 +42,19 @@ def main():
     try:
         from ui import web_shell as _web_shell
         from ui.web_diagnostics import log_web_event
+        _sandbox_before = os.environ.get('QTWEBENGINE_DISABLE_SANDBOX')
         log_web_event('startup_env', app_frozen=getattr(sys, 'frozen', False),
                       executable=sys.executable,
                       meipass_present=getattr(sys, '_MEIPASS', '') != '',
-                      webengine_available=_web_shell.WEB_SHELL_AVAILABLE)
+                      webengine_available=_web_shell.WEB_SHELL_AVAILABLE,
+                      sandbox_env_present=_sandbox_before is not None,
+                      sandbox_env_value=(_sandbox_before or 'empty')[:12],
+                      chromium_flags_has_no_sandbox=(
+                          '--no-sandbox' in (os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS') or '')),
+                      app_forces_sandbox_disabled=False)
         if _web_shell.WEB_SHELL_AVAILABLE:
-            # 离线桌面工具：禁用 Chromium 沙箱，规避 onefile 解包目录下进程重启受限导致的白屏
-            os.environ.setdefault('QTWEBENGINE_DISABLE_SANDBOX', '1')
+            # onedir 发布模式下不由应用主动关闭 Chromium sandbox；
+            # 如宿主环境自行设置 QTWEBENGINE_DISABLE_SANDBOX，仅在 startup_env 中记录诊断，不在应用内覆盖。
             from PyQt6.QtWebEngineQuick import QtWebEngineQuick
             log_web_event('webengine_initialize_start')
             QtWebEngineQuick.initialize()
