@@ -194,6 +194,9 @@ class InterfaceDebugPanel(QWidget):
         self._listening = False
         self._channel_ready = False
         self._capture_epoch = 0
+        from tools.capture_lifecycle import CaptureLifecycle
+        self._lifecycle = CaptureLifecycle()
+        self._capture_stop_watch = None
         self._capture_boot_epoch = 0
         self._capture_stop_thread = None
         self._listen_started_at = 0.0
@@ -1754,17 +1757,6 @@ class InterfaceDebugPanel(QWidget):
         if prev_selected and prev_selected in self._records_by_id:
             self._selected_id = prev_selected
 
-    def _await_previous_capture_stop(self, timeout: float = 2.5) -> None:
-        """等待上一次异步 stop 结束，避免端口未释放导致二次启动失败。"""
-        thread = getattr(self, '_capture_stop_thread', None)
-        if thread is None:
-            return
-        try:
-            if thread.is_alive():
-                thread.join(timeout=max(0.2, float(timeout)))
-        except Exception:
-            pass
-
     def _detach_capture_worker(self, worker) -> None:
         """切断旧 worker 回调，避免 stop 晚到信号清掉新一轮监听。"""
         if worker is None:
@@ -1779,20 +1771,21 @@ class InterfaceDebugPanel(QWidget):
         """异步启动抓包：不在主线程 sleep 等待，避免点任何按钮都像超时。"""
         zh = self.language == 'zh'
         title = '开始监听' if zh else 'Start listen'
-        if self._listening or self._ie_worker is not None:
-            show_info(self, title, '已在监听中' if zh else 'Already listening')
+        action = self._lifecycle.begin_start()
+        if action is None:
+            # STOPPING：记录 pending start，stop 线程收尾后自动重启；绝不阻塞 UI 主线程
+            if self._lifecycle.state == 'stopping':
+                self.loading.start_busy(
+                    '正在等待上一轮监听结束…' if zh else 'Waiting for previous stop…')
+            else:
+                show_info(self, title, '已在监听中' if zh else 'Already listening')
             return
-        if getattr(self, '_capture_boot_worker', None) is not None:
-            show_info(self, title, '正在启动监听，请稍候' if zh else 'Starting listen, please wait')
-            return
-        # 先等上一轮 stop 收尾，否则 mitm 端口仍被占用会启动失败
-        self._await_previous_capture_stop(2.5)
+        boot_epoch = action
+        self._capture_epoch = boot_epoch
+        self._capture_boot_epoch = boot_epoch
         port = self._current_port()
         self._config['ie_proxy_port'] = port
         save_interface_debug_config(self._config)
-        self._capture_epoch += 1
-        boot_epoch = self._capture_epoch
-        self._capture_boot_epoch = boot_epoch
         self.loading.start_busy('正在开始监听…' if zh else 'Starting listen…')
         self._refresh_capture_action(busy=True)
         # HTTPS 解密准备：静默
@@ -1878,6 +1871,8 @@ class InterfaceDebugPanel(QWidget):
             result = result or {}
             # 启动过程中用户已点停止 / 又开了更新一轮：丢弃过期结果
             if int(result.get('epoch') or 0) != self._capture_epoch:
+            # 过期 boot 结果：丢弃，不改当前状态
+
                 worker = result.get('worker')
                 self._detach_capture_worker(worker)
                 if worker is not None:
@@ -2203,6 +2198,8 @@ class InterfaceDebugPanel(QWidget):
             self.recheck_btn.hide()
 
     def _stop_listen(self):
+        if not self._lifecycle.begin_stop(self._capture_epoch):
+            return  # IDLE/STOPPING 重复点击：不重复清理
         self.loading.start_busy('正在停止监听…')
         self._wait_hint_timer.stop()
         self._status_tick.stop()
@@ -2249,7 +2246,17 @@ class InterfaceDebugPanel(QWidget):
                 pass
 
         import threading
-        stop_thread = threading.Thread(target=_shutdown, name='capture-stop', daemon=True)
+        def _finalize_stop():
+            # 后台 stop 线程已真正收尾（端口释放、代理安全检查完成）
+            self._lifecycle.mark_stopped()
+            pending_epoch = self._lifecycle.confirm_pending_start()
+            if pending_epoch is not None:
+                self._capture_epoch = pending_epoch
+                self._capture_boot_epoch = pending_epoch
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self._start_local_proxy())
+        stop_thread = threading.Thread(
+            target=lambda: (_shutdown(), _finalize_stop()), name='capture-stop', daemon=True)
         self._capture_stop_thread = stop_thread
         stop_thread.start()
         n = len(self._records)
@@ -2286,16 +2293,39 @@ class InterfaceDebugPanel(QWidget):
             return
         try:
             from tools.ie_proxy import resume_capture_system_proxy, is_capture_proxy_suspended
+            from tools.capture_lifecycle import resolve_resume_action
             if not is_capture_proxy_suspended() and self._ie_worker is None:
                 return
             port = self._current_port()
-            result = resume_capture_system_proxy(port)
-            if result in ('resumed', 'noop'):
+            import socket
+            port_open = False
+            try:
+                probe = socket.create_connection(('127.0.0.1', port), timeout=0.3)
+                probe.close()
+                port_open = True
+            except OSError:
+                port_open = False
+            worker = self._ie_worker
+            action = resolve_resume_action(worker is not None, port_open)
+            if action == 'resume':
+                result = resume_capture_system_proxy(port)
+                if result in ('resumed', 'noop'):
+                    self.status_label.setText(
+                        f'抓包中 · 系统代理 127.0.0.1:{port} · 请用浏览器访问业务页 · '
+                        f'离开本页会自动暂停系统代理'
+                    )
+                    self._refresh_live_status()
+            else:
+                # worker 已死亡或端口未监听：绝不 resume 到死端口
+                from tools.ie_proxy import restore_proxy_from_snapshot, mark_capture_proxy_inactive
+                restore_proxy_from_snapshot()
+                mark_capture_proxy_inactive()
+                self._listening = False
+                self._channel_ready = False
+                self._ie_worker = None
+                self._set_listening_ui(False)
                 self.status_label.setText(
-                    f'抓包中 · 系统代理 127.0.0.1:{port} · 请用浏览器访问业务页 · '
-                    f'离开本页会自动暂停系统代理'
-                )
-                self._refresh_live_status()
+                    '抓包引擎已退出，系统代理已恢复原设置。请重新点击开始监听。')
         except Exception:
             pass
 
