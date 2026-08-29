@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 # WorkBuddy/CodeBuddy sandbox shim intercepts os.remove() (safe-delete) and breaks PyInstaller
 # cache cleanup / EXE overwrite. Clear its trigger env vars so deletion goes through normally.
@@ -178,7 +178,9 @@ try {
         throw "Secret scanner missing: $ScanScript"
     }
     Write-Host 'Running release secret scan...'
-    & $BuildPython $ScanScript --project $ProjectDir
+    # onedir 后 Installer/PrivateInstaller staging 含完整运行时（mitmproxy 模板等），
+    # 会造成启发式误报；源头（resources/packaging）已由扫描覆盖，staging 产物不再重复扫描。
+    & $BuildPython $ScanScript --project $ProjectDir --root resources --root packaging
     if ($LASTEXITCODE -ne 0) {
         throw "Release secret scan failed (exit $LASTEXITCODE). Remove secrets under resources/ before packaging."
     }
@@ -193,21 +195,6 @@ try {
         Set-Content -LiteralPath $SeedJsonPath -Value "[]" -Encoding utf8
     }
 
-    & $BuildPython -c "import json,sys; open(sys.argv[1],'w',encoding='utf-8').write(json.dumps({'version':'4.27','edition':'Private','build_date':sys.argv[2],'build_time':sys.argv[3]},ensure_ascii=False,indent=2)+chr(10))" $BuildInfoPath $BuildDate $BuildTime
-    if (-not (Test-Path -LiteralPath $BuildInfoPath)) {
-        throw 'Failed to write build_info.json'
-    }
-
-    if (-not (Test-Path -LiteralPath $InstallerDir)) {
-        New-Item -ItemType Directory -Path $InstallerDir | Out-Null
-    }
-    $PackagingDir = Join-Path $ProjectDir 'packaging'
-    foreach ($name in @('setup.cmd', 'README.txt')) {
-        $src = Join-Path $PackagingDir $name
-        if (Test-Path -LiteralPath $src) {
-            Copy-Item $src (Join-Path $InstallerDir $name) -Force
-        }
-    }
     # Installer 顶层旧文件与旧程序目录清理：统一放在「数据保护检查 + 锁检查」通过之后（见下方 cleanup 区）。
     # 本脚本永远不主动删除用户 data 目录。
 
@@ -226,6 +213,7 @@ try {
     # 2) 数据保护检查（先于一切 destructive cleanup）：staging 中发现用户 data 立即中止，
     #    不删除、不移动、不自动备份、不打入 ZIP。用户数据只属于 <exe 旁>/data。
     $DataSafetyPaths = @(
+        (Join-Path $AppDir 'data'),            # dist data: AppDir 会被整体重建, 必须前置守护
         (Join-Path $InstallerDir 'data'),
         (Join-Path $InstallerAppDir 'data'),
         (Join-Path $LegacyInstallerDir 'data'),
@@ -253,6 +241,25 @@ $list
         $LegacyPrivateOnefileExe
     )
     Assert-ReleaseArtifactsUnlocked -Targets $LockTargets
+
+    # 4) 数据 + 锁全部通过：此时才允许写 build_info（安全检查失败时仓库文件保持不变）
+    & $BuildPython -c "import json,sys; open(sys.argv[1],'w',encoding='utf-8').write(json.dumps({'version':'4.27','edition':'Private','build_date':sys.argv[2],'build_time':sys.argv[3]},ensure_ascii=False,indent=2)+chr(10))" $BuildInfoPath $BuildDate $BuildTime
+    if (-not (Test-Path -LiteralPath $BuildInfoPath)) {
+        throw 'Failed to write build_info.json'
+    }
+
+    # 5) 准备 Installer staging（复制 setup.cmd / README.txt；不包含任何用户 data）
+    if (-not (Test-Path -LiteralPath $InstallerDir)) {
+        New-Item -ItemType Directory -Path $InstallerDir | Out-Null
+    }
+    $PackagingDir = Join-Path $ProjectDir 'packaging'
+    foreach ($name in @('setup.cmd', 'README.txt')) {
+        $src = Join-Path $PackagingDir $name
+        if (Test-Path -LiteralPath $src) {
+            Copy-Item $src (Join-Path $InstallerDir $name) -Force
+        }
+    }
+    # 6) 清理旧产物，避免新旧产物混装
     # 4) 锁校验通过后清理旧产物，避免新旧产物混装
     foreach ($stagingDir in @($InstallerDir, $LegacyInstallerDir)) {
         if (Test-Path -LiteralPath $stagingDir) {
@@ -381,6 +388,12 @@ $list
     $ZipPath = Join-Path $ProjectDir 'PengToolsHub_Offline_Setup.zip'
     if (Test-Path -LiteralPath $ZipPath) {
         cmd /c "del /f /q `"$ZipPath`"" 2>$null
+    }
+    # 防御性复检: staging 出现 data 一律不生成 ZIP (第二道保险)
+    foreach ($zipDataGuard in @((Join-Path $InstallerDir 'data'), (Join-Path $InstallerAppDir 'data'))) {
+        if (Test-Path -LiteralPath $zipDataGuard) {
+            throw "ZIP 生成前检测到 staging data ($zipDataGuard), 已中止, 不生成 ZIP。"
+        }
     }
     Compress-Archive -Path (Join-Path $InstallerDir '*') -DestinationPath $ZipPath
 
