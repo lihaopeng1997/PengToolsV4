@@ -247,6 +247,54 @@ class JsHandshakeOrderTest(unittest.TestCase):
         self.assertGreater(ready, render, "pageReady 必须在 render 成功之后")
 
 
+class ReadyAnnounceGuardTest(unittest.TestCase):
+    """Step 2A.1：web_shell_ready 只 announce 一次（重复事件不重复记录）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'main_window.py')
+        with open(path, encoding='utf-8') as fh:
+            cls.main_src = fh.read()
+
+    def _function_source(self, name):
+        marker = '    def ' + name + '(self'
+        start = self.main_src.find(marker)
+        self.assertGreater(start, 0, f'{name} 未找到')
+        end = self.main_src.find('\n    def ', start + 1)
+        end = len(self.main_src) if end < 0 else end
+        return self.main_src[start:end]
+
+    def test_check_guard_exists(self):
+        src = read_main_window()
+        body = self._function_source('_check_web_shell_ready')
+        self.assertIn('_web_shell_ready_announced', body)
+        self.assertIn('self._web_shell_ready_announced = True', body)
+        self.assertIn('return', body)   # 已 fallback / 未满足 / 已 announce 三重早退
+
+    def test_both_entries_route_to_check(self):
+        src = read_main_window()
+        for handler in ('_on_web_page_ready', '_on_web_load_finished'):
+            body = self._function_source(handler)
+            self.assertIsNotNone(body, handler)
+            self.assertIn('self._check_web_shell_ready()', body,
+                          f'{handler} 必须经统一 _check_web_shell_ready')
+
+
+def read_main_window():
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'main_window.py')
+    with open(path, encoding='utf-8') as fh:
+        return fh.read()
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+
 class FallbackBehaviourSourceTest(unittest.TestCase):
     """源码级守护：回退幂等、不动持久配置、显式 sidebar stack、holder 保留。"""
 
