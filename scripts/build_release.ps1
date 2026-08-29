@@ -73,11 +73,9 @@ function Test-FileWritable([string]$Path) {
 
 function Assert-ReleaseArtifactsUnlocked {
     param(
-        [string]$DistExe,
-        [string]$InstallerExe,
-        [string]$LegacyExe
+        [string[]]$Targets
     )
-    $targets = @($DistExe, $InstallerExe, $LegacyExe) | Where-Object { $_ }
+    $targets = @($Targets) | Where-Object { $_ }
     $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -match '^(?i)PengToolsHub$'
     })
@@ -210,26 +208,64 @@ try {
             Copy-Item $src (Join-Path $InstallerDir $name) -Force
         }
     }
-    Get-ChildItem $InstallerDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
-    $InstallerDataDir = Join-Path $InstallerDir 'data'
-    if (Test-Path -LiteralPath $InstallerDataDir) {
-        cmd /c "rmdir /s /q `"$InstallerDataDir`"" 2>$null
-    }
+    # Installer 顶层旧文件与旧程序目录清理：统一放在「数据保护检查 + 锁检查」通过之后（见下方 cleanup 区）。
+    # 本脚本永远不主动删除用户 data 目录。
 
-    # 1) 定义全部覆盖目标（新 onedir 产物 + 安装包副本 + 旧 onefile 残留）
+    # 1) 定义全部路径：当前产物 + 各 staging + legacy 残留
     $AppDir = Join-Path $DistDir 'PengToolsHub'
     $ExePath = Join-Path $AppDir 'PengToolsHub.exe'
     $InstallerAppDir = Join-Path $InstallerDir 'PengToolsHub'
     $InstallerExePath = Join-Path $InstallerAppDir 'PengToolsHub.exe'
     $LegacyOnefileExe = Join-Path $DistDir 'PengToolsHub.exe'
-    # 2) 锁检查在前：任何 destructive cleanup 都必须等校验通过（运行中不强杀）
+    $LegacyInstallerExe = Join-Path $InstallerDir 'PengToolsHub.exe'
+    $LegacyInstallerDir = Join-Path $ProjectDir 'PrivateInstaller'
+    $LegacyPrivateAppDir = Join-Path $LegacyInstallerDir 'PengToolsHub'
+    $LegacyPrivateExe = Join-Path $LegacyPrivateAppDir 'PengToolsHub.exe'
+    $LegacyPrivateOnefileExe = Join-Path $LegacyInstallerDir 'PengToolsHub.exe'
+
+    # 2) 数据保护检查（先于一切 destructive cleanup）：staging 中发现用户 data 立即中止，
+    #    不删除、不移动、不自动备份、不打入 ZIP。用户数据只属于 <exe 旁>/data。
+    $DataSafetyPaths = @(
+        (Join-Path $InstallerDir 'data'),
+        (Join-Path $InstallerAppDir 'data'),
+        (Join-Path $LegacyInstallerDir 'data'),
+        (Join-Path $LegacyPrivateAppDir 'data')
+    )
+    $foundData = @($DataSafetyPaths | Where-Object { Test-Path -LiteralPath $_ })
+    if ($foundData.Count -gt 0) {
+        $list = ($foundData | ForEach-Object { "  - $_" }) -join "`n"
+        throw @"
+检测到发布暂存目录中存在用户 data，为防止误删或打入安装包，本次构建已停止。
+请先将 data 目录备份/移动到安全位置，再重新构建。
+发现位置：
+$list
+"@
+    }
+
+    # 3) 锁检查（当前 + 全部 legacy EXE）：任何 destructive cleanup 都必须等校验通过（运行中不强杀）
     Write-Host 'Checking EXE lock / running PengToolsHub before PyInstaller...'
-    Assert-ReleaseArtifactsUnlocked -DistExe $ExePath -InstallerExe $InstallerExePath -LegacyExe $LegacyOnefileExe
-    # 3) 锁校验通过后再清理旧产物，避免新旧产物混装
+    $LockTargets = @(
+        $ExePath,
+        $InstallerExePath,
+        $LegacyOnefileExe,
+        $LegacyInstallerExe,
+        $LegacyPrivateExe,
+        $LegacyPrivateOnefileExe
+    )
+    Assert-ReleaseArtifactsUnlocked -Targets $LockTargets
+    # 4) 锁校验通过后清理旧产物，避免新旧产物混装
+    foreach ($stagingDir in @($InstallerDir, $LegacyInstallerDir)) {
+        if (Test-Path -LiteralPath $stagingDir) {
+            Get-ChildItem $stagingDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
+        }
+    }
     if (Test-Path -LiteralPath $LegacyOnefileExe) { cmd /c "del /f /q `"$LegacyOnefileExe`"" 2>$null }
+    if (Test-Path -LiteralPath $LegacyInstallerExe) { cmd /c "del /f /q `"$LegacyInstallerExe`"" 2>$null }
+    if (Test-Path -LiteralPath $LegacyPrivateOnefileExe) { cmd /c "del /f /q `"$LegacyPrivateOnefileExe`"" 2>$null }
     if (Test-Path -LiteralPath $ExePath) { cmd /c "del /f /q `"$ExePath`"" 2>$null }
     if (Test-Path -LiteralPath $AppDir) { cmd /c "rmdir /s /q `"$AppDir`"" 2>$null }
     if (Test-Path -LiteralPath $InstallerAppDir) { cmd /c "rmdir /s /q `"$InstallerAppDir`"" 2>$null }
+    if (Test-Path -LiteralPath $LegacyPrivateAppDir) { cmd /c "rmdir /s /q `"$LegacyPrivateAppDir`"" 2>$null }
 
     # Safe seed templates only (secret scan already passed).
     # --specpath changes the base directory used by the generated spec, so every source
@@ -333,13 +369,8 @@ try {
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 
     # Do not use name PrivateDir - PowerShell treats $Private: as a scope
-    $LegacyInstallerDir = Join-Path $ProjectDir 'PrivateInstaller'
+    # PrivateInstaller 旧文件/data 清理已在锁前阶段完成（data 安全检查 + 锁检查之后）。
     if (Test-Path -LiteralPath $LegacyInstallerDir) {
-        Get-ChildItem $LegacyInstallerDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('setup.cmd', 'README.txt') } | ForEach-Object { cmd /c "del /f /q `"$($_.FullName)`"" 2>$null }
-        $LegacyDataDir = Join-Path $LegacyInstallerDir 'data'
-        if (Test-Path -LiteralPath $LegacyDataDir) {
-            cmd /c "rmdir /s /q `"$LegacyDataDir`"" 2>$null
-        }
         Copy-Item $AppDir (Join-Path $LegacyInstallerDir 'PengToolsHub') -Recurse -Force
         $SetupSrc = Join-Path $InstallerDir 'setup.cmd'
         if (Test-Path -LiteralPath $SetupSrc) {
