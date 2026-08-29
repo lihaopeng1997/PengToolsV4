@@ -102,5 +102,105 @@ class SettingsDefaultsTest(unittest.TestCase):
         self.assertIn('ui_web_shell', settings)
 
 
+# ==================== Step 2A：诊断/握手/回退 ====================
+
+import io
+import re
+
+from ui.web_shell import WebHealthTracker
+
+_MAIN_WINDOW_SRC = io.open(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 'main_window.py'), encoding='utf-8').read()
+
+
+def _function_source(name):
+    m = re.search(r'    def ' + name + r'\(.*?(?=\n    def |\Z)', _MAIN_WINDOW_SRC, re.S)
+    return m.group(0) if m else ''
+
+
+class PageReadyHandshakeTest(unittest.TestCase):
+    def setUp(self):
+        self.bridge = web_shell.HomeBridge()
+        self.received = []
+        self.bridge.pageReadyReceived.connect(self.received.append)
+
+    def test_page_ready_accepts_known_pages(self):
+        self.bridge.pageReady('chrome')
+        self.bridge.pageReady('dashboard')
+        self.assertEqual(self.received, ['chrome', 'dashboard'])
+
+    def test_page_ready_rejects_unknown_pages(self):
+        for bad in ('evil', '', 'admin', 'chrome;drop'):
+            self.bridge.pageReady(bad)
+        self.assertEqual(self.received, [], '非法 page_name 必须被忽略')
+
+
+class WebHealthTrackerTest(unittest.TestCase):
+    def test_all_ready_only_when_both_pages_ready(self):
+        t = WebHealthTracker(expected=('chrome', 'dashboard'))
+        self.assertFalse(t.is_ready())
+        t.mark_ready('chrome')
+        self.assertFalse(t.is_ready())
+        t.mark_ready('dashboard')
+        self.assertTrue(t.is_ready())
+
+    def test_missing_pages_reports_pending(self):
+        t = WebHealthTracker(expected=('chrome', 'dashboard'))
+        t.mark_ready('dashboard')
+        self.assertEqual(t.missing_pages(), {'chrome'})
+
+    def test_mark_failed_removes_ready_and_records_reason(self):
+        t = WebHealthTracker(expected=('chrome', 'dashboard'))
+        t.mark_ready('chrome')
+        t.mark_failed('chrome', 'load_failed')
+        self.assertNotIn('chrome', t.ready_pages)
+        self.assertEqual(t.failed_pages.get('chrome'), 'load_failed')
+
+    def test_unknown_page_ignored(self):
+        t = WebHealthTracker(expected=('chrome', 'dashboard'))
+        t.mark_ready('evil')
+        t.mark_failed('evil', 'x')
+        self.assertEqual(t.ready_pages, set())
+        self.assertEqual(t.failed_pages, {})
+
+
+class FallbackBehaviourSourceTest(unittest.TestCase):
+    """源码级守护：回退幂等、不动持久配置、显式 sidebar stack、holder 保留。"""
+
+    def test_runtime_failure_handlers_exist(self):
+        self.assertIn('def _disable_web_shell_live(self, reason=', _MAIN_WINDOW_SRC)
+        self.assertIn('def _on_web_render_terminated(self, page_name, status, exit_code)',
+                      _MAIN_WINDOW_SRC)
+        self.assertIn('def _on_web_load_finished(self, page_name, ok)', _MAIN_WINDOW_SRC)
+
+    def test_disable_is_idempotent(self):
+        src = _function_source('_disable_web_shell_live')
+        self.assertIn("if not getattr(self, '_web_shell_enabled', False):", src)
+        self.assertIn('return', src)
+
+    def test_fallback_does_not_persist_settings(self):
+        src = _function_source('_disable_web_shell_live')
+        self.assertNotIn('save_settings', src)
+        self.assertNotIn('ui_web_shell', src)
+
+    def test_sidebar_stack_explicit(self):
+        self.assertIn('self._sidebar_stack = side_stack', _MAIN_WINDOW_SRC)
+        fb = _function_source('_disable_web_shell_live')
+        self.assertIn('self._sidebar_stack.setCurrentIndex(0)', fb)
+        self.assertNotIn('self._sidebar.parent()', _MAIN_WINDOW_SRC)
+
+    def test_dashboard_holder_fallback_kept(self):
+        fb = _function_source('_disable_web_shell_live')
+        self.assertIn("getattr(self, '_dash_holder', None)", fb)
+        self.assertIn('setCurrentIndex(1)', fb)
+
+    def test_timeout_wiring(self):
+        self.assertIn('self._web_timeout_timer.start(10000)', _MAIN_WINDOW_SRC)
+        self.assertIn('def _on_web_shell_timeout(self):', _MAIN_WINDOW_SRC)
+        fb_src = _function_source('_disable_web_shell_live')
+        self.assertIn('self._web_timeout_timer.stop()', fb_src)
+
+
 if __name__ == '__main__':
     unittest.main()

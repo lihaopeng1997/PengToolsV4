@@ -41,13 +41,25 @@ def main():
     # V2 Web 壳：QWebEngine 必须在 QApplication 创建前初始化（不可用时自动跳过）
     try:
         from ui import web_shell as _web_shell
+        from ui.web_diagnostics import log_web_event
+        log_web_event('startup_env', app_frozen=getattr(sys, 'frozen', False),
+                      executable=sys.executable,
+                      meipass_present=getattr(sys, '_MEIPASS', '') != '',
+                      webengine_available=_web_shell.WEB_SHELL_AVAILABLE)
         if _web_shell.WEB_SHELL_AVAILABLE:
             # 离线桌面工具：禁用 Chromium 沙箱，规避 onefile 解包目录下进程重启受限导致的白屏
             os.environ.setdefault('QTWEBENGINE_DISABLE_SANDBOX', '1')
             from PyQt6.QtWebEngineQuick import QtWebEngineQuick
+            log_web_event('webengine_initialize_start')
             QtWebEngineQuick.initialize()
-    except Exception:
-        pass
+            log_web_event('webengine_initialize_success')
+    except Exception as exc:
+        try:
+            from ui.web_diagnostics import log_web_event as _log
+            _log('webengine_initialize_failure', error_type=type(exc).__name__, error=str(exc))
+        except Exception:
+            pass
+        # WebEngine 初始化失败不阻断启动：main_window 自动回退经典 QWidget UI
     # Qt6 默认启用并统一处理高 DPI 缩放；不要再注入 Qt5 时代环境变量，
     # 以避免多屏切换和系统缩放策略发生冲突。
     if sys.platform == 'win32':

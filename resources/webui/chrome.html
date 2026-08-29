@@ -149,6 +149,7 @@ function setActive(i) {
 document.getElementById('palette-kbd').addEventListener('click', () => bridge.openPalette());
 new QWebChannel(qt.webChannelTransport, ch => {
   window.bridge = ch.objects.bridge;
+  bridge.pageReady('chrome');
   render(JSON.parse(bridge.navModel()));
   bridge.activeChanged.connect(setActive);
   setActive(parseInt(bridge.navModel().match(/"current":(\d+)/) ? bridge.navModel().match(/"current":(\d+)/)[1] : 0));

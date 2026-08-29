@@ -21,6 +21,7 @@ from ui.navigation_model import (
 )
 from ui import web_shell as _web_shell
 WEB_SHELL_AVAILABLE = _web_shell.WEB_SHELL_AVAILABLE
+from ui.web_diagnostics import log_web_event
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from config import (
     APP_BUILD_DATE, APP_NAME, APP_VERSION_LABEL, app_version_text,
@@ -117,18 +118,32 @@ class MainWindow(QMainWindow):
         self._web_shell_enabled = WEB_SHELL_AVAILABLE and bool(self._settings.get('ui_web_shell', True))
         self._chrome_bridge = None
         self._dash_web = None
+        self._sidebar_stack = None
+        self._web_health = _web_shell.WebHealthTracker(expected=('chrome', 'dashboard'), parent=self)
+        self._web_timeout_timer = QTimer(self)
+        self._web_timeout_timer.setSingleShot(True)
+        self._web_timeout_timer.timeout.connect(self._on_web_shell_timeout)
         if self._web_shell_enabled:
+            log_web_event('web_shell_starting', pages='chrome,dashboard')
             self._chrome_bridge = _web_shell.HomeBridge(self)
             self._chrome_bridge.set_nav_model(self._build_web_nav_model())
             self._chrome_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._chrome_bridge.navigateRequested.connect(self._show_panel)
             self._chrome_bridge.paletteRequested.connect(self._open_quick_panel)
             self._chrome_bridge.set_summary_provider(self._dashboard_summary_payload)
+            self._chrome_bridge.pageReadyReceived.connect(self._on_web_page_ready)
+            self._chrome_web = _web_shell.create_chrome_widget(self._chrome_bridge)
+            self._chrome_web.web_view.loadFinished.connect(
+                lambda ok: self._on_web_load_finished('chrome', ok))
+            self._chrome_web.web_page.renderProcessTerminated.connect(
+                lambda status, code: self._on_web_render_terminated('chrome', status, code))
             side_stack = QStackedWidget()
             side_stack.addWidget(self._create_legacy_sidebar())
-            side_stack.addWidget(_web_shell.create_chrome_widget(self._chrome_bridge))
+            side_stack.addWidget(self._chrome_web)
             side_stack.setCurrentIndex(1)
+            self._sidebar_stack = side_stack
             layout.addWidget(side_stack)
+            self._web_timeout_timer.start(10000)
         else:
             layout.addWidget(self._create_legacy_sidebar())
 
@@ -162,7 +177,12 @@ class MainWindow(QMainWindow):
             self._dash_bridge = _web_shell.HomeBridge(self)
             self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
+            self._dash_bridge.pageReadyReceived.connect(self._on_web_page_ready)
             self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
+            self._dash_web.web_view.loadFinished.connect(
+                lambda ok: self._on_web_load_finished('dashboard', ok))
+            self._dash_web.web_page.renderProcessTerminated.connect(
+                lambda status, code: self._on_web_render_terminated('dashboard', status, code))
             self._dash_holder = None
 
         self._content_layout.addWidget(self.stack, 1)
@@ -1273,21 +1293,58 @@ class MainWindow(QMainWindow):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
-    def _disable_web_shell_live(self):
-        """Web 层加载失败时整壳回退原生侧栏与原生首页（不重启、不空白）。"""
+    def _disable_web_shell_live(self, reason='unknown'):
+        """整壳回退经典 UI（幂等）：Web 侧栏→原生侧栏，Web 首页→原生首页。
+        仅当前会话回退，不修改用户 settings.json。"""
         if not getattr(self, '_web_shell_enabled', False):
             return
         self._web_shell_enabled = False
+        log_web_event('web_shell_fallback', reason=reason)
+        try:
+            self._web_timeout_timer.stop()
+        except Exception:
+            pass
         try:
             self.status_bar.showMessage('V2 界面加载失败，已回退经典界面', 8000)
         except Exception:
             pass
-        side_stack = self._sidebar.parent() if getattr(self, '_sidebar', None) else None
-        if side_stack is not None and isinstance(side_stack, __import__('PyQt6.QtWidgets', fromlist=['QStackedWidget']).QStackedWidget):
-            side_stack.setCurrentIndex(0)
+        if getattr(self, '_sidebar_stack', None) is not None:
+            self._sidebar_stack.setCurrentIndex(0)
         holder = getattr(self, '_dash_holder', None)
         if holder is not None:
             holder.setCurrentIndex(1)
+
+    def _on_web_page_ready(self, page_name):
+        """QWebChannel 握手完成：标记页面就绪；双页就绪即整壳就绪。"""
+        self._web_health.mark_ready(str(page_name))
+        log_web_event('page_bridge_ready', page=str(page_name),
+                      ready=sorted(self._web_health.ready_pages),
+                      missing=sorted(self._web_health.missing_pages()))
+        if self._web_health.is_ready():
+            self._web_timeout_timer.stop()
+            log_web_event('web_shell_ready')
+            try:
+                self.status_bar.showMessage('V2 界面已就绪', 3000)
+            except Exception:
+                pass
+
+    def _on_web_shell_timeout(self):
+        missing = sorted(self._web_health.missing_pages())
+        if not missing:
+            return
+        log_web_event('web_shell_timeout', missing_pages=missing)
+        self._disable_web_shell_live(reason=f'timeout missing {missing}')
+
+    def _on_web_load_finished(self, page_name, ok):
+        if not ok:
+            self._web_health.mark_failed(str(page_name), 'load_failed')
+            self._disable_web_shell_live(reason=f'load_failed:{page_name}')
+
+    def _on_web_render_terminated(self, page_name, status, exit_code):
+        self._web_health.mark_failed(str(page_name), 'renderer_crashed')
+        log_web_event('web_render_crashed', page=str(page_name),
+                      status=int(status), exit_code=int(exit_code))
+        self._disable_web_shell_live(reason=f'renderer_crashed:{page_name}')
 
     def _open_quick_panel(self):
         """Web 铬层发起的快速面板（与 Ctrl+Shift+P 同源）。"""

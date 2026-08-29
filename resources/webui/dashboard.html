@@ -190,6 +190,7 @@ document.addEventListener('click', e => {
 });
 new QWebChannel(qt.webChannelTransport, ch => {
   window.bridge = ch.objects.bridge;
+  bridge.pageReady('dashboard');
   render(JSON.parse(bridge.dashboardSummary()));
 });
 </script>

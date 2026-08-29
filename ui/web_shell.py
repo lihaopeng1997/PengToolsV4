@@ -13,12 +13,15 @@ import os
 import sys
 
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
+
+from ui.web_diagnostics import log_web_event as _log_web_event
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 try:
     from PyQt6.QtWebChannel import QWebChannel
     from PyQt6.QtWebEngineCore import QWebEnginePage
     from PyQt6.QtWebEngineWidgets import QWebEngineView
+    # 语义：仅代表 WebEngine Python 模块可导入；运行时健康由 pageReady/renderProcess 信号判定。
     WEB_SHELL_AVAILABLE = True
 except Exception:  # pragma: no cover - 依赖缺失环境
     WEB_SHELL_AVAILABLE = False
@@ -44,6 +47,24 @@ def is_allowed_navigation(url) -> bool:
 if WEB_SHELL_AVAILABLE:
 
     class WebLocalPage(QWebEnginePage):
+
+        _SENSITIVE = ('authorization', 'bearer', 'token', 'password', 'passwd', 'cookie')
+
+        def javaScriptConsoleMessage(self, level, message, line_number, source_id):
+            # 只持久化 Warning/Error；level 枚举：0=Info 1=Warning 2=Error
+            if level not in (1, 2):
+                return
+            text = str(message or '')[:300]
+            low = text.lower()
+            for secret in self._SENSITIVE:
+                if secret in low:
+                    text = '[redacted]'
+                    break
+            src = str(source_id or '').split('/')[-1][:60]
+            _log_web_event('js_console', page=getattr(self, 'web_name', '?'),
+                           level=int(level), source=src, line=int(line_number or 0),
+                           message=text)
+
         """仅允许本地资源导航；外链一律拒绝（含 window.open 目标）。"""
 
         def acceptNavigationRequest(self, url, nav_type, is_main_frame):
@@ -94,6 +115,16 @@ if WEB_SHELL_AVAILABLE:
         def homeUsername(self):
             return self._username
 
+        pageReadyReceived = pyqtSignal(str)
+
+        @pyqtSlot(str)
+        def pageReady(self, page_name):
+            name = str(page_name or '')
+            if name in ('chrome', 'dashboard'):
+                self.pageReadyReceived.emit(name)
+            else:
+                _log_web_event('page_ready_ignored', page=name)
+
         @pyqtSlot(result=str)
         def dashboardSummary(self):
             try:
@@ -101,13 +132,13 @@ if WEB_SHELL_AVAILABLE:
             except Exception:
                 data = {}
             return json.dumps(data, ensure_ascii=False)
-
 else:  # pragma: no cover - 依赖缺失环境
 
     class HomeBridge(QObject):  # 类型占位，保持 import 不炸
         navigateRequested = pyqtSignal(int)
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
+        pageReadyReceived = pyqtSignal(str)
 
         def set_nav_model(self, data):
             pass
@@ -121,6 +152,31 @@ else:  # pragma: no cover - 依赖缺失环境
         def push_active(self, nav_index):
             pass
 
+class WebHealthTracker(QObject):
+    """极小 Web 健康状态机：只跟踪页面 ready/failed，不碰 QWidget 与业务数据。"""
+
+    def __init__(self, expected=('chrome', 'dashboard'), parent=None):
+        super().__init__(parent)
+        self.expected = set(expected)
+        self.ready_pages = set()
+        self.failed_pages = {}
+
+    def mark_ready(self, page_name: str) -> None:
+        if page_name in self.expected:
+            self.ready_pages.add(page_name)
+            self.failed_pages.pop(page_name, None)
+
+    def mark_failed(self, page_name: str, reason: str) -> None:
+        if page_name in self.expected:
+            self.failed_pages[page_name] = reason
+            self.ready_pages.discard(page_name)
+
+    def missing_pages(self) -> set:
+        return set(self.expected) - set(self.ready_pages)
+
+    def is_ready(self) -> bool:
+        return not self.missing_pages()
+
 
 def _register_channel(page, bridge) -> None:
     channel = QWebChannel(page)
@@ -128,8 +184,12 @@ def _register_channel(page, bridge) -> None:
     page.setWebChannel(channel)
 
 
-def create_chrome_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:
-    """V2 侧栏铬层（左侧 248px 全高）。"""
+def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
+                       parent: QWidget | None = None) -> QWidget:
+    """统一 Web 视图工厂：page/view/channel/本地 URL/生命周期日志。
+
+    wrapper 挂属性：web_view / web_page / web_name（main_window 经此访问，无需 findChildren）。
+    """
     wrap = QWidget(parent)
     layout = QVBoxLayout(wrap)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -138,21 +198,44 @@ def create_chrome_widget(bridge: HomeBridge, parent: QWidget | None = None) -> Q
     view = QWebEngineView(wrap)
     view.setPage(page)
     _register_channel(page, bridge)
-    view.load(webui_url('chrome.html'))
+
+    _PROGRESS_STEPS = {0, 25, 50, 75, 100}
+    last = {'v': -1}
+
+    def _on_started():
+        _log_web_event('load_started', page=page_name)
+
+    def _on_progress(value):
+        if value in _PROGRESS_STEPS and value != last['v']:
+            last['v'] = value
+            _log_web_event('load_progress', page=page_name, value=value)
+
+    def _on_finished(ok):
+        _log_web_event('load_finished', page=page_name, ok=bool(ok))
+
+    def _on_render_terminated(status, exit_code):
+        _log_web_event('render_process_terminated', page=page_name,
+                       status=int(status), exit_code=int(exit_code))
+
+    view.loadStarted.connect(_on_started)
+    view.loadProgress.connect(_on_progress)
+    view.loadFinished.connect(_on_finished)
+    page.renderProcessTerminated.connect(_on_render_terminated)
+    view.load(webui_url(html_name))
+
     layout.addWidget(view)
+    page.web_name = page_name
+    wrap.web_view = view
+    wrap.web_page = page
+    wrap.web_name = page_name
     return wrap
+
+
+def create_chrome_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:
+    """V2 侧栏铬层（左侧 248px 全高）。"""
+    return _create_web_widget('chrome', 'chrome.html', bridge, parent)
 
 
 def create_dashboard_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:
     """V2 首页（Stack[0] 的 web 版）。"""
-    wrap = QWidget(parent)
-    layout = QVBoxLayout(wrap)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(0)
-    page = WebLocalPage(wrap)
-    view = QWebEngineView(wrap)
-    view.setPage(page)
-    _register_channel(page, bridge)
-    view.load(webui_url('dashboard.html'))
-    layout.addWidget(view)
-    return wrap
+    return _create_web_widget('dashboard', 'dashboard.html', bridge, parent)
