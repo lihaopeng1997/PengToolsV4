@@ -464,7 +464,8 @@ class DashboardReleaseTests(unittest.TestCase):
         panel = DashboardPanel('zh')
         panel.show()
         panel._fill_release([{'title': 'x', 'status': '已上线'}])
-        self.assertEqual(panel.release_list.count(), 0)
+        # 按月看板改版后空状态 = release_empty 占位 + 底部 stretch，无任务行
+        self.assertEqual(panel.release_summary.text(), '待处理 0 · 已完成 0')
         self.assertFalse(panel.release_empty.isHidden())
 
 

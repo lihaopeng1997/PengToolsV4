@@ -197,7 +197,8 @@ class GatewayParamsVisibleTests(unittest.TestCase):
         self.app.processEvents()
         sizes = p.splitter.sizes()
         self.assertEqual(len(sizes), 2)
-        self.assertAlmostEqual(sizes[0], sizes[1], delta=80)
+        # 参数区保持紧凑，为密文与结果区留出更多空间
+        self.assertLess(sizes[0], sizes[1])
 
     def test_set_cipher_does_not_overwrite_key(self):
         p = self.panel

@@ -144,7 +144,9 @@ class DensityPassPanelTests(unittest.TestCase):
         from panels.docx_panel import DocxUpdatePanel
 
         panel = DocxUpdatePanel('zh')
-        self.assertIs(panel.update_btn.parentWidget(), panel.date_card)
+        # P0-2 页面骨架规范：主操作唯一置于页头右上，不再挂在 date_card 里
+        self.assertIsNot(panel.update_btn.parentWidget(), panel.date_card)
+        self.assertIs(panel.update_btn.parentWidget().window(), panel)
         self.assertEqual(panel.update_btn.text(), '一键更新文档')
         self.assertEqual(panel.update_date.height(), 28)
         self.assertEqual(panel.author.height(), 28)

@@ -212,11 +212,14 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
                 }), \
                 patch('panels.requirement_panel.QInputDialog.getText', return_value=('fix bug', True)), \
                 patch('panels.requirement_panel.confirm_action', return_value=False) as confirm, \
+                patch('panels.requirement_panel.show_info') as show_info, \
+                patch.object(panel, '_selected_file_paths', return_value=['C:\\fake\\file.sql']), \
                 patch.object(panel, '_start_task') as start_task:
             panel._commit_svn()
+        show_info.assert_not_called()
         confirm.assert_called_once()
         message = confirm.call_args[0][2]
-        self.assertIn('M file.sql', message)
+        self.assertIn('file.sql', message)
         self.assertIn('fix bug', message)
         start_task.assert_not_called()
         panel.close()

@@ -9,8 +9,11 @@ from tools.ops_ssh import (
     decrypt_secret, delete_category, encrypt_secret, ensure_category,
     format_connection_ok, load_categories, load_server_store, load_servers,
     normalize_server_store, save_server_store, save_servers, split_extra_keywords,
-    test_connection, OpsSshError,
+    OpsSshError,
 )
+# 别名导入：tools.ops_ssh.test_connection 是 SSH 辅助函数，
+# 直接以 test_ 开头导入会被 pytest 误收集为用例（缺 server fixture）。
+from tools.ops_ssh import test_connection as _ssh_test_connection
 from ui.navigation_model import GROUP_LABELS, get_nav_item
 
 
@@ -199,9 +202,9 @@ class OpsSshTests(unittest.TestCase):
 
     def test_connection_requires_host_and_formats_ok(self):
         with self.assertRaises(OpsSshError):
-            test_connection({'host': '', 'username': 'app'})
+            _ssh_test_connection({'host': '', 'username': 'app'})
         with self.assertRaises(OpsSshError):
-            test_connection({'host': '10.0.0.1', 'username': 'app'})  # no password
+            _ssh_test_connection({'host': '10.0.0.1', 'username': 'app'})  # no password
         text = format_connection_ok({
             'name': '集成1', 'host': '10.1.1.1', 'port': 22,
             'username': 'app', 'elapsed_ms': 120, 'hostname': 'int-host',
