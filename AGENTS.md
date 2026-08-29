@@ -6,7 +6,7 @@
 
 1. 先读本文件；若存在 `.workbuddy/memory/project_memory.json`，再完整读取它。
 2. 网络可达时读取服务器 `/data/codex_memory/PengTools/SHARED.md`；只有接手、大改或事实不清时才读长交接文档。
-3. 开工先看 `git status --short --branch`。怀疑 Git 元数据异常时，补做 `git fsck --full`、远端分歧和逐文件内容比对；不得只凭目录名认定某个恢复副本更“新”。
+3. 开工先 `git pull origin main` 拉取最新代码，再看 `git status --short --branch`。怀疑 Git 元数据异常时，补做 `git fsck --full`、远端分歧和逐文件内容比对；不得只凭目录名认定某个恢复副本更“新”。
 4. 跨模块调用链、影响面或重构时使用 CodeGraph；路径明确的小改直接读源码。用过图谱后执行 `codegraph sync .`。
 5. 把静态检查、自动化测试、打包结果、实际运行和人工验收分别陈述，不能用前一项替代后一项。
 
@@ -91,16 +91,20 @@ run → main_window → panels → tools | ui | config
 ## 7. UI 约束
 
 - 统一样式使用 `resources/style.qss`；QComboBox/QDateEdit 复用下拉箭头样式。
-- 页面遵循 `docs/方案/页面骨架与控件分层规范v1.html` 的 L1 页头、L2 工具栏、L3 筛选条、L4 内容区；`tests/test_page_skeleton.py` 的棘轮基线只降不升。
+- 页面建议遵循 `docs/方案/页面骨架与控件分层规范v1.html` 的 L1 页头、L2 工具栏、L3 筛选条、L4 内容区；`tests/test_page_skeleton.py` 棘轮基线默认只降不升。确有产品理由需要突破基线（如一页需要多个主操作）时，经用户确认后可上调基线并在提交说明记录理由——规范服务开发，不是卡死开发。
 - Loading 使用不占布局的浮层；静默后台任务 `show_loading=False`；成功、失败、异常都必须结束 Loading。
-- 主操作唯一且位于页头右上；筛选条不混入改数据按钮；空状态包含说明与下一步动作。
+- 新页面尽量做到主操作唯一且位于页头右上；筛选条不混入改数据按钮；空状态包含说明与下一步动作。存量页面不强制回头改造。
 
 ## 8. Python 环境、依赖与测试
 
-共享 Python 只作为创建虚拟环境的基座，不作为发布判据，也不得为本项目强行升降级其全局包。
+共享 Python 只作为创建虚拟环境的基座，不作为发布判据，也不得为本项目强行升降级其全局包。日常开发允许直接用系统 Python（3.12、依赖满足）跑定向测试，加快迭代；发布构建与权威全量入口仍走虚拟环境。
 
 ```powershell
-# 运行、测试与依赖审计
+# 快速迭代：定向测试（系统 Python 即可）
+set QT_QPA_PLATFORM=offscreen
+python -m unittest tests.test_xxx -v
+
+# 权威全量与依赖审计
 .\scripts\setup_build_env.ps1 -Development
 .\.venv-dev\Scripts\python.exe scripts\run_test_suite.py
 .\.venv-dev\Scripts\python.exe -X utf8 -m pip_audit -r requirements.txt
@@ -113,21 +117,21 @@ run → main_window → panels → tools | ui | config
 - `requirements.txt` 是运行时锁定；`requirements-build.txt` 增加 PyInstaller；`requirements-dev.txt` 增加 pytest 和 pip-audit。
 - 构建脚本只能使用 `PENGTOOLS_BUILD_PYTHON` 或 `.venv-build\Scripts\python.exe`，并校验 Python 3.12、PyInstaller 版本和 `pip check`。
 - mitmproxy 的传递依赖存在上游版本上限时，不得通过无约束强制升级制造“表面无漏洞、实际不兼容”的环境；先确认可达性、加运行时缓解并在审计报告保留残余风险。
-- PyQt6 全局状态会让同进程全量测试不稳定；权威全量入口是 `scripts/run_test_suite.py`。修改模块仍先跑定向测试，再跑该入口。
+- PyQt6 全局状态会让同进程全量测试不稳定；权威全量入口是 `scripts/run_test_suite.py`。日常修改先跑定向测试即可，发布级交付（见第 9 节）再跑该入口。
 - 内网 SVN、真实数据库、真实抓包和模型网关在本环境无法验证时，明确标为“待目标环境/人工验证”。
 
 ## 9. 修改、发布与 Git 交付
 
 - 只修改当前目标必需内容；不清理用户已有的无关改动，不用 `reset --hard` 或 `clean` 处理工作区。
 - 修复缺陷先建立复现检查或测试；每项修改都应能追溯到需求或审计发现。
-- 每轮可交付修改必须重新构建：
+- 构建离线安装包按需执行，不再要求每轮改动都构建：发布节点、用户要求验收安装包、或改动了打包配置/依赖/资源时构建；常规功能迭代以测试验证为准。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 ```
 
 - 统一产品名 `PengToolsHub`；发布物为 `dist\PengToolsHub.exe`、`Installer\` 和 `PengToolsHub_Offline_Setup.zip`。兼容入口只转发到 `scripts/build_release.ps1`。
-- 正常交付顺序：`git status` → 定向测试 → 全量隔离测试 → 安全扫描 → 构建 → 检查产物 → 定向暂存 → commit → `git push origin main`。
+- 常规交付：`git status` → 定向测试 → commit → `git push origin main`。发布级交付（新版本、依赖/构建/安全相关改动）再叠加：全量隔离测试 → 安全扫描 → 构建 → 检查产物。
 - 远端固定为 `https://github.com/lihaopeng1997/PengToolsV4.git`，默认分支 `main`。不得提交 `data/`、虚拟环境、EXE/ZIP、日志、临时截图或 CodeGraph 缓存。
 - 若本轮只是探索、半成品或用户明确要求不提交，则不推送；否则完成的可交付修改默认提交并推送。
 
