@@ -123,7 +123,7 @@ function Assert-ReleaseArtifactsUnlocked {
 
 请关闭：
   - 正在运行的 PengToolsHub
-  - dist/PengToolsHub.exe 与 Installer/PengToolsHub.exe 的预览窗口
+  - dist/PengToolsHub/ 与 Installer/PengToolsHub/ 的预览窗口
   - 可能正在扫描这些文件的安全软件
 然后重新执行打包。本脚本不会强制结束用户进程。
 "@
@@ -215,8 +215,16 @@ try {
         cmd /c "rmdir /s /q `"$InstallerDataDir`"" 2>$null
     }
 
-    $ExePath = Join-Path $DistDir 'PengToolsHub.exe'
-    $InstallerExePath = Join-Path $InstallerDir 'PengToolsHub.exe'
+    $AppDir = Join-Path $DistDir 'PengToolsHub'
+    $ExePath = Join-Path $AppDir 'PengToolsHub.exe'
+    $InstallerAppDir = Join-Path $InstallerDir 'PengToolsHub'
+    $InstallerExePath = Join-Path $InstallerAppDir 'PengToolsHub.exe'
+    # onedir 迁移：清掉旧 onefile 单文件与旧输出目录，避免新旧产物混装
+    if (Test-Path -LiteralPath $ExePath) { cmd /c "del /f /q `"$ExePath`"" 2>$null }
+    $LegacyOnefileExe = Join-Path $DistDir 'PengToolsHub.exe'
+    if (Test-Path -LiteralPath $LegacyOnefileExe) { cmd /c "del /f /q `"$LegacyOnefileExe`"" 2>$null }
+    if (Test-Path -LiteralPath $AppDir) { cmd /c "rmdir /s /q `"$AppDir`"" 2>$null }
+    if (Test-Path -LiteralPath $InstallerAppDir) { cmd /c "rmdir /s /q `"$InstallerAppDir`"" 2>$null }
     Write-Host 'Checking EXE lock / running PengToolsHub before PyInstaller...'
     Assert-ReleaseArtifactsUnlocked -DistExe $ExePath -InstallerExe $InstallerExePath
 
@@ -227,7 +235,7 @@ try {
         '-m', 'PyInstaller',
         '--noconfirm',
         '--clean',
-        '--onefile',
+        '--onedir',
         '--windowed',
         '--name', 'PengToolsHub',
         # spec 属于 PyInstaller 可再生中间文件，放入已忽略的 build 目录，避免污染仓库根目录。
@@ -312,11 +320,14 @@ try {
         throw "PyInstaller failed with exit code $LASTEXITCODE"
     }
 
-    $ExePath = Join-Path $DistDir 'PengToolsHub.exe'
     if (-not (Test-Path -LiteralPath $ExePath)) {
         throw "EXE not found: $ExePath"
     }
-    Copy-Item $ExePath $InstallerDir -Force
+    if (-not (Test-Path -LiteralPath (Join-Path $AppDir '_internal'))) {
+        throw "onedir runtime directory not found: " + (Join-Path $AppDir '_internal')
+    }
+    # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
+    Copy-Item $AppDir $InstallerDir -Recurse -Force
 
     # Do not use name PrivateDir - PowerShell treats $Private: as a scope
     $LegacyInstallerDir = Join-Path $ProjectDir 'PrivateInstaller'
@@ -326,7 +337,7 @@ try {
         if (Test-Path -LiteralPath $LegacyDataDir) {
             cmd /c "rmdir /s /q `"$LegacyDataDir`"" 2>$null
         }
-        Copy-Item $ExePath $LegacyInstallerDir -Force
+        Copy-Item $AppDir (Join-Path $LegacyInstallerDir 'PengToolsHub') -Recurse -Force
         $SetupSrc = Join-Path $InstallerDir 'setup.cmd'
         if (Test-Path -LiteralPath $SetupSrc) {
             Copy-Item $SetupSrc (Join-Path $LegacyInstallerDir 'setup.cmd') -Force
