@@ -103,14 +103,7 @@ run → main_window → panels → tools | ui | config
 2. 需求 → 日报：`daily_template()` 只生成草稿，不覆盖用户已写内容。
 3. 需求 → SQL 整理 / DOCX：保持主窗口信号 `_receive_requirement_sql`、`_receive_requirement_docx` 的契约。
 
-## 7. UI 约束
-
-- 统一样式使用 `resources/style.qss`；QComboBox/QDateEdit 复用下拉箭头样式。
-- 页面建议遵循 `docs/方案/页面骨架与控件分层规范v1.html` 的 L1 页头、L2 工具栏、L3 筛选条、L4 内容区；`tests/test_page_skeleton.py` 棘轮基线默认只降不升。确有产品理由需要突破基线（如一页需要多个主操作）时，经用户确认后可上调基线并在提交说明记录理由——规范服务开发，不是卡死开发。
-- Loading 使用不占布局的浮层；静默后台任务 `show_loading=False`；成功、失败、异常都必须结束 Loading。
-- 新页面尽量做到主操作唯一且位于页头右上；筛选条不混入改数据按钮；空状态包含说明与下一步动作。存量页面不强制回头改造。
-
-## 8. Python 环境、依赖与测试
+## 7. Python 环境、依赖与测试
 
 共享 Python 只作为创建虚拟环境的基座，不作为发布判据，也不得为本项目强行升降级其全局包。日常开发允许直接用系统 Python（3.12、依赖满足）跑定向测试，加快迭代；发布构建与权威全量入口仍走虚拟环境。
 
@@ -132,10 +125,10 @@ python -m unittest tests.test_xxx -v
 - `requirements.txt` 是运行时锁定；`requirements-build.txt` 增加 PyInstaller；`requirements-dev.txt` 增加 pytest 和 pip-audit。
 - 构建脚本只能使用 `PENGTOOLS_BUILD_PYTHON` 或 `.venv-build\Scripts\python.exe`，并校验 Python 3.12、PyInstaller 版本和 `pip check`。
 - mitmproxy 的传递依赖存在上游版本上限时，不得通过无约束强制升级制造“表面无漏洞、实际不兼容”的环境；先确认可达性、加运行时缓解并在审计报告保留残余风险。
-- PyQt6 全局状态会让同进程全量测试不稳定；权威全量入口是 `scripts/run_test_suite.py`。日常修改先跑定向测试即可，发布级交付（见第 9 节）再跑该入口。
+- PyQt6 全局状态会让同进程全量测试不稳定；权威全量入口是 `scripts/run_test_suite.py`。日常修改先跑定向测试即可，发布级交付（见第 8 节）再跑该入口。
 - 内网 SVN、真实数据库、真实抓包和模型网关在本环境无法验证时，明确标为“待目标环境/人工验证”。
 
-## 9. 修改、发布与 Git 交付
+## 8. 修改、发布与 Git 交付
 
 - 只修改当前目标必需内容；不清理用户已有的无关改动，不用 `reset --hard` 或 `clean` 处理工作区。
 - 修复缺陷先建立复现检查或测试；每项修改都应能追溯到需求或审计发现。
@@ -150,7 +143,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 - 远端固定为 `https://github.com/lihaopeng1997/PengToolsV4.git`，默认分支 `main`。不得提交 `data/`、虚拟环境、EXE/ZIP、日志、临时截图或 CodeGraph 缓存。
 - 若本轮只是探索、半成品或用户明确要求不提交，则不推送；否则完成的可交付修改默认提交并推送。
 
-## 10. 快速定位
+## 9. 快速定位
 
 - 需求树/文件树/SVN UI：`panels/requirement_panel.py`
 - 需求模型/搜索/日报模板：`tools/requirements.py`
