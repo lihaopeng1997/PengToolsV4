@@ -119,6 +119,7 @@ if WEB_SHELL_AVAILABLE:
 
         @pyqtSlot(str)
         def pageReady(self, page_name):
+            _log_web_event('page_ready_slot_called', page=str(page_name))
             name = str(page_name or '')
             if name in ('chrome', 'dashboard'):
                 self.pageReadyReceived.emit(name)
@@ -152,30 +153,71 @@ else:  # pragma: no cover - 依赖缺失环境
         def push_active(self, nav_index):
             pass
 
+def enum_value(value):
+    """Qt 枚举 → 原生值（日志序列化绝不抛异常）。"""
+    return getattr(value, 'value', value)
+
+
+# WebEngine 运行态：QtWebEngineQuick.initialize() 抛异常时置 True；
+# 模块可 import（WEB_SHELL_AVAILABLE）不代表运行时可用。
+WEBENGINE_RUNTIME_FAILED = False
+
+
+def mark_webengine_runtime_failed() -> None:
+    global WEBENGINE_RUNTIME_FAILED
+    WEBENGINE_RUNTIME_FAILED = True
+
+
+def runtime_web_shell_available() -> bool:
+    return WEB_SHELL_AVAILABLE and not WEBENGINE_RUNTIME_FAILED
+
+
 class WebHealthTracker(QObject):
-    """极小 Web 健康状态机：只跟踪页面 ready/failed，不碰 QWidget 与业务数据。"""
+    """极小 Web 健康状态机：loaded 与 bridge_ready 双条件，不碰 QWidget 与业务数据。
+
+    健康定义：expected ⊆ loaded_pages 且 expected ⊆ bridge_ready_pages 且无 failed。
+    """
 
     def __init__(self, expected=('chrome', 'dashboard'), parent=None):
         super().__init__(parent)
         self.expected = set(expected)
-        self.ready_pages = set()
+        self.loaded_pages = set()
+        self.bridge_ready_pages = set()
         self.failed_pages = {}
 
-    def mark_ready(self, page_name: str) -> None:
+    def mark_loaded(self, page_name: str, ok: bool = True) -> None:
+        if page_name not in self.expected:
+            return
+        if ok:
+            self.loaded_pages.add(page_name)
+            self.failed_pages.pop(page_name, None)  # 重载成功即恢复
+        else:
+            self.failed_pages[page_name] = 'load_failed'
+            self.loaded_pages.discard(page_name)
+
+    def mark_bridge_ready(self, page_name: str) -> None:
         if page_name in self.expected:
-            self.ready_pages.add(page_name)
-            self.failed_pages.pop(page_name, None)
+            self.bridge_ready_pages.add(page_name)
 
     def mark_failed(self, page_name: str, reason: str) -> None:
         if page_name in self.expected:
             self.failed_pages[page_name] = reason
-            self.ready_pages.discard(page_name)
+            self.loaded_pages.discard(page_name)
+            self.bridge_ready_pages.discard(page_name)
+
+    def missing_loaded_pages(self) -> set:
+        return set(self.expected) - set(self.loaded_pages)
+
+    def missing_bridge_pages(self) -> set:
+        return set(self.expected) - set(self.bridge_ready_pages)
 
     def missing_pages(self) -> set:
-        return set(self.expected) - set(self.ready_pages)
+        return self.missing_loaded_pages() | self.missing_bridge_pages()
 
     def is_ready(self) -> bool:
-        return not self.missing_pages()
+        return (not self.failed_pages
+                and not self.missing_loaded_pages()
+                and not self.missing_bridge_pages())
 
 
 def _register_channel(page, bridge) -> None:
@@ -215,7 +257,7 @@ def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
 
     def _on_render_terminated(status, exit_code):
         _log_web_event('render_process_terminated', page=page_name,
-                       status=int(status), exit_code=int(exit_code))
+                       status=enum_value(status), exit_code=enum_value(exit_code))
 
     view.loadStarted.connect(_on_started)
     view.loadProgress.connect(_on_progress)

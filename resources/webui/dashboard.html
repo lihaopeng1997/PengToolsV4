@@ -190,8 +190,15 @@ document.addEventListener('click', e => {
 });
 new QWebChannel(qt.webChannelTransport, ch => {
   window.bridge = ch.objects.bridge;
-  bridge.pageReady('dashboard');
-  render(JSON.parse(bridge.dashboardSummary()));
+  // 带返回值的槽在 JS 端返回 Promise，必须 await 后才能拿到数据
+  bridge.dashboardSummary().then(summaryJson => {
+    try {
+      render(JSON.parse(summaryJson));
+      bridge.pageReady('dashboard');
+    } catch (e) {
+      console.error('dashboard init failed:', e);
+    }
+  }).catch(e => console.error('dashboard summary failed:', String(e).slice(0, 200)));
 });
 </script>
 </body>

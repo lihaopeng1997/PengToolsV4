@@ -59,7 +59,12 @@ def main():
             _log('webengine_initialize_failure', error_type=type(exc).__name__, error=str(exc))
         except Exception:
             pass
-        # WebEngine 初始化失败不阻断启动：main_window 自动回退经典 QWidget UI
+        try:
+            _web_shell.mark_webengine_runtime_failed()
+            _log('webengine_runtime_unavailable')
+        except Exception:
+            pass
+        # WebEngine 初始化失败不阻断启动：main_window 经 runtime_web_shell_available() 走经典 QWidget UI
     # Qt6 默认启用并统一处理高 DPI 缩放；不要再注入 Qt5 时代环境变量，
     # 以避免多屏切换和系统缩放策略发生冲突。
     if sys.platform == 'win32':

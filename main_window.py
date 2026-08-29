@@ -115,7 +115,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         # ── V2 Web 铬层：可用且未禁用时启用（侧栏双页栈：0=原生保底 1=Web）──
-        self._web_shell_enabled = WEB_SHELL_AVAILABLE and bool(self._settings.get('ui_web_shell', True))
+        self._web_shell_enabled = (
+            _web_shell.runtime_web_shell_available()
+            and bool(self._settings.get('ui_web_shell', True))
+        )
         self._chrome_bridge = None
         self._dash_web = None
         self._sidebar_stack = None
@@ -123,6 +126,7 @@ class MainWindow(QMainWindow):
         self._web_timeout_timer = QTimer(self)
         self._web_timeout_timer.setSingleShot(True)
         self._web_timeout_timer.timeout.connect(self._on_web_shell_timeout)
+        self._web_shell_ready_announced = False
         if self._web_shell_enabled:
             log_web_event('web_shell_starting', pages='chrome,dashboard')
             self._chrome_bridge = _web_shell.HomeBridge(self)
@@ -1314,37 +1318,60 @@ class MainWindow(QMainWindow):
         if holder is not None:
             holder.setCurrentIndex(1)
 
+    def _check_web_shell_ready(self):
+        """统一健康判定：loadFinished(True) 与 bridge ready 双四条件全部满足才 announce 一次。"""
+        if not getattr(self, '_web_shell_enabled', False):
+            return
+        if getattr(self, '_web_shell_ready_announced', False):
+            return
+        if not self._web_health.is_ready():
+            return
+        self._web_shell_ready_announced = True
+        self._web_timeout_timer.stop()
+        log_web_event('web_shell_ready',
+                      loaded=sorted(self._web_health.loaded_pages),
+                      bridge_ready=sorted(self._web_health.bridge_ready_pages))
+        try:
+            self.status_bar.showMessage('V2 界面已就绪', 3000)
+        except Exception:
+            pass
+
     def _on_web_page_ready(self, page_name):
-        """QWebChannel 握手完成：标记页面就绪；双页就绪即整壳就绪。"""
-        self._web_health.mark_ready(str(page_name))
+        """pageReady 仅代表 QWebChannel + 页面 JS 初始化完成。"""
+        self._web_health.mark_bridge_ready(str(page_name))
         log_web_event('page_bridge_ready', page=str(page_name),
-                      ready=sorted(self._web_health.ready_pages),
-                      missing=sorted(self._web_health.missing_pages()))
-        if self._web_health.is_ready():
-            self._web_timeout_timer.stop()
-            log_web_event('web_shell_ready')
-            try:
-                self.status_bar.showMessage('V2 界面已就绪', 3000)
-            except Exception:
-                pass
+                      loaded=sorted(self._web_health.loaded_pages),
+                      bridge_ready=sorted(self._web_health.bridge_ready_pages))
+        self._check_web_shell_ready()
 
     def _on_web_shell_timeout(self):
-        missing = sorted(self._web_health.missing_pages())
-        if not missing:
+        missing_load = sorted(self._web_health.missing_loaded_pages())
+        missing_bridge = sorted(self._web_health.missing_bridge_pages())
+        if not missing_load and not missing_bridge:
             return
-        log_web_event('web_shell_timeout', missing_pages=missing)
-        self._disable_web_shell_live(reason=f'timeout missing {missing}')
+        log_web_event('web_shell_timeout', missing_load=missing_load,
+                      missing_bridge=missing_bridge)
+        self._disable_web_shell_live(
+            reason=f'timeout missing_load={missing_load} missing_bridge={missing_bridge}')
 
     def _on_web_load_finished(self, page_name, ok):
-        if not ok:
+        if ok:
+            self._web_health.mark_loaded(str(page_name), True)
+            self._check_web_shell_ready()
+        else:
             self._web_health.mark_failed(str(page_name), 'load_failed')
             self._disable_web_shell_live(reason=f'load_failed:{page_name}')
 
     def _on_web_render_terminated(self, page_name, status, exit_code):
         self._web_health.mark_failed(str(page_name), 'renderer_crashed')
-        log_web_event('web_render_crashed', page=str(page_name),
-                      status=int(status), exit_code=int(exit_code))
-        self._disable_web_shell_live(reason=f'renderer_crashed:{page_name}')
+        # 枚举转换绝不抛异常，保证 fallback 一定执行
+        status_value = _web_shell.enum_value(status)
+        code_value = _web_shell.enum_value(exit_code)
+        try:
+            log_web_event('web_render_crashed', page=str(page_name),
+                          status=status_value, exit_code=code_value)
+        finally:
+            self._disable_web_shell_live(reason=f'renderer_crashed:{page_name}')
 
     def _open_quick_panel(self):
         """Web 铬层发起的快速面板（与 Ctrl+Shift+P 同源）。"""

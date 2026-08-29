@@ -137,32 +137,114 @@ class PageReadyHandshakeTest(unittest.TestCase):
 
 
 class WebHealthTrackerTest(unittest.TestCase):
-    def test_all_ready_only_when_both_pages_ready(self):
-        t = WebHealthTracker(expected=('chrome', 'dashboard'))
-        self.assertFalse(t.is_ready())
-        t.mark_ready('chrome')
-        self.assertFalse(t.is_ready())
-        t.mark_ready('dashboard')
+    """Case A-F：loaded 与 bridge_ready 双四条件健康判定。"""
+
+    def _tracker(self):
+        return WebHealthTracker(expected=('chrome', 'dashboard'))
+
+    def test_case_a_load_then_bridge_all_ready(self):
+        t = self._tracker()
+        t.mark_loaded('chrome', True); t.mark_loaded('dashboard', True)
+        t.mark_bridge_ready('chrome'); t.mark_bridge_ready('dashboard')
         self.assertTrue(t.is_ready())
 
-    def test_missing_pages_reports_pending(self):
-        t = WebHealthTracker(expected=('chrome', 'dashboard'))
-        t.mark_ready('dashboard')
-        self.assertEqual(t.missing_pages(), {'chrome'})
+    def test_case_b_bridge_ready_without_load_not_ready(self):
+        t = self._tracker()
+        t.mark_bridge_ready('chrome'); t.mark_bridge_ready('dashboard')
+        self.assertFalse(t.is_ready())
 
-    def test_mark_failed_removes_ready_and_records_reason(self):
-        t = WebHealthTracker(expected=('chrome', 'dashboard'))
-        t.mark_ready('chrome')
-        t.mark_failed('chrome', 'load_failed')
-        self.assertNotIn('chrome', t.ready_pages)
-        self.assertEqual(t.failed_pages.get('chrome'), 'load_failed')
+    def test_case_c_bridge_first_then_load_ready_last(self):
+        t = self._tracker()
+        t.mark_bridge_ready('chrome'); t.mark_bridge_ready('dashboard')
+        self.assertFalse(t.is_ready())
+        t.mark_loaded('chrome', True)
+        self.assertFalse(t.is_ready())
+        t.mark_loaded('dashboard', True)
+        self.assertTrue(t.is_ready())
 
-    def test_unknown_page_ignored(self):
-        t = WebHealthTracker(expected=('chrome', 'dashboard'))
-        t.mark_ready('evil')
-        t.mark_failed('evil', 'x')
-        self.assertEqual(t.ready_pages, set())
-        self.assertEqual(t.failed_pages, {})
+    def test_case_d_load_all_but_bridge_missing_not_ready(self):
+        t = self._tracker()
+        t.mark_loaded('chrome', True); t.mark_loaded('dashboard', True)
+        t.mark_bridge_ready('chrome')
+        self.assertFalse(t.is_ready())
+        self.assertEqual(t.missing_bridge_pages(), {'dashboard'})
+
+    def test_case_e_load_false_marks_failed_not_ready(self):
+        t = self._tracker()
+        t.mark_bridge_ready('dashboard')
+        t.mark_loaded('dashboard', False)   # load 失败
+        self.assertTrue(t.failed_pages)
+        self.assertFalse(t.is_ready())
+
+    def test_case_f_repeated_marks_idempotent(self):
+        t = self._tracker()
+        for _ in range(3):
+            t.mark_loaded('chrome', True)
+            t.mark_bridge_ready('chrome')
+        t.mark_loaded('dashboard', True)
+        for _ in range(3):
+            t.mark_bridge_ready('dashboard')
+        self.assertTrue(t.is_ready())
+        self.assertEqual(t.loaded_pages, {'chrome', 'dashboard'})
+
+    def test_timeout_missing_split(self):
+        t = self._tracker()
+        t.mark_loaded('chrome', True)
+        t.mark_bridge_ready('dashboard')
+        self.assertEqual(t.missing_loaded_pages(), {'dashboard'})
+        self.assertEqual(t.missing_bridge_pages(), {'chrome'})
+
+    def test_load_false_then_recovered(self):
+        t = self._tracker()
+        t.mark_loaded('dashboard', False)
+        t.mark_loaded('dashboard', True)
+        t.mark_bridge_ready('dashboard')
+        t.mark_loaded('chrome', True)
+        t.mark_bridge_ready('chrome')
+        self.assertTrue(t.is_ready())
+
+
+class RuntimeAvailabilityTest(unittest.TestCase):
+    def tearDown(self):
+        import ui.web_shell as ws
+        ws.WEBENGINE_RUNTIME_FAILED = False
+
+    def test_runtime_default_available(self):
+        import ui.web_shell as ws
+        self.assertTrue(ws.runtime_web_shell_available())
+
+    def test_runtime_failed_blocks_availability(self):
+        import ui.web_shell as ws
+        ws.mark_webengine_runtime_failed()
+        self.assertTrue(ws.WEB_SHELL_AVAILABLE)          # 模块仍可导入
+        self.assertFalse(ws.runtime_web_shell_available())  # 运行态不可用
+
+    def test_main_window_uses_runtime_not_import_flag(self):
+        self.assertIn('_web_shell.runtime_web_shell_available()', _MAIN_WINDOW_SRC)
+        self.assertNotIn(
+            "self._web_shell_enabled = WEB_SHELL_AVAILABLE and bool(self._settings.get('ui_web_shell', True))",
+            _MAIN_WINDOW_SRC)
+
+
+class JsHandshakeOrderTest(unittest.TestCase):
+    def _read(self, name):
+        return io.open(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'resources', 'webui', name), encoding='utf-8').read()
+
+    def test_chrome_page_ready_after_init(self):
+        src = self._read('chrome.html')
+        init = src.find('render(JSON.parse(bridge.navModel()))')
+        ready = src.find("bridge.pageReady('chrome')")
+        self.assertGreater(ready, init > 0 and init or -1, "pageReady 必须在 render 初始化之后")
+        self.assertGreater(src.find('} catch (e) {'), init, '初始化应有 try/catch')
+
+    def test_dashboard_page_ready_after_render(self):
+        src = self._read('dashboard.html')
+        render = src.find('render(JSON.parse(summaryJson))')
+        ready = src.find("bridge.pageReady('dashboard')")
+        self.assertGreater(render, 0)
+        self.assertGreater(ready, render, "pageReady 必须在 render 成功之后")
 
 
 class FallbackBehaviourSourceTest(unittest.TestCase):

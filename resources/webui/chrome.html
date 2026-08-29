@@ -149,10 +149,19 @@ function setActive(i) {
 document.getElementById('palette-kbd').addEventListener('click', () => bridge.openPalette());
 new QWebChannel(qt.webChannelTransport, ch => {
   window.bridge = ch.objects.bridge;
-  bridge.pageReady('chrome');
-  render(JSON.parse(bridge.navModel()));
-  bridge.activeChanged.connect(setActive);
-  setActive(parseInt(bridge.navModel().match(/"current":(\d+)/) ? bridge.navModel().match(/"current":(\d+)/)[1] : 0));
+  // 带返回值的槽在 JS 端返回 Promise，必须 await 后才能拿到数据
+  bridge.navModel().then(modelJson => {
+    try {
+      render(JSON.parse(modelJson));
+      bridge.activeChanged.connect(setActive);
+      setActive(modelJson.match(/"current":(\d+)/) ? modelJson.match(/"current":(\d+)/)[1] : 0);
+      bridge.pageReady('chrome');
+      window.__prCalled = true;
+    } catch (e) {
+      window.__prErr = String(e);
+      console.error('chrome init failed:', e);
+    }
+  }).catch(e => console.error('chrome navModel failed:', String(e).slice(0, 200)));
 });
 </script>
 </body>
