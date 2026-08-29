@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PengToolsHub 架构、环境与安全审计修复报告</title>
+  <style>
+    :root{--ink:#172033;--muted:#667085;--line:#dfe5ee;--paper:#fff;--wash:#f4f7fb;--blue:#2357d9;--green:#087a55;--amber:#a15c00;--red:#b42318}
+    *{box-sizing:border-box} body{margin:0;background:var(--wash);color:var(--ink);font:15px/1.72 "Segoe UI","Microsoft YaHei",sans-serif}
+    main{max-width:1160px;margin:32px auto;padding:0 24px 64px} header,.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 24px rgba(23,32,51,.05)}
+    header{padding:34px 38px;background:linear-gradient(135deg,#fff 0,#eef4ff 100%)} h1{margin:0 0 8px;font-size:30px;line-height:1.25} h2{margin:0 0 18px;font-size:21px} h3{margin:22px 0 8px;font-size:16px}
+    .subtitle,.note{color:var(--muted)} .meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;font-size:13px}.meta span{padding:5px 10px;background:#fff;border:1px solid var(--line);border-radius:999px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metric{padding:16px;border:1px solid var(--line);border-radius:12px;background:#fff}.metric b{display:block;font-size:24px}.metric small{color:var(--muted)}
+    .card{padding:28px 32px;margin-top:20px} table{width:100%;border-collapse:collapse;margin:12px 0 4px;font-size:14px} th,td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top} th{background:#f7f9fc;font-weight:650} code{font-family:Cascadia Mono,Consolas,monospace;font-size:.92em;background:#eef2f7;padding:2px 5px;border-radius:5px;word-break:break-word}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}.ok{color:var(--green);background:#eaf8f2}.warn{color:var(--amber);background:#fff4df}.risk{color:var(--red);background:#fff0ee}.info{color:var(--blue);background:#edf2ff}
+    .callout{border-left:4px solid var(--blue);padding:12px 16px;background:#f2f6ff;border-radius:6px;margin:14px 0}.callout.warnbox{border-color:var(--amber);background:#fff8eb}.callout.riskbox{border-color:var(--red);background:#fff4f2}
+    ul,ol{padding-left:21px} a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0}.flow span{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}.flow i{color:var(--muted);font-style:normal}
+    footer{color:var(--muted);font-size:12px;text-align:center;margin-top:26px}@media(max-width:800px){.grid{grid-template-columns:1fr 1fr}.card,header{padding:22px}table{display:block;overflow:auto}}@media print{body{background:#fff}main{margin:0;max-width:none}.card,header{box-shadow:none;break-inside:avoid}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="badge info">V4.27 Private · 2026-08-29</div>
+    <h1>PengToolsHub 架构、环境与安全审计修复报告</h1>
+    <div class="subtitle">范围：Git 完整性、代码分层、Python/依赖兼容、安全边界、测试体系与 Windows 离线打包。</div>
+    <div class="meta"><span>审计基线：origin/main 5c09c726</span><span>Python 3.12.3</span><span>PyInstaller 6.11.1</span><span>构建时间：2026-08-29 11:36:43</span></div>
+  </header>
+
+  <section class="grid">
+    <div class="metric"><b>586</b><small>自动化用例已收集</small></div>
+    <div class="metric"><b>60/60</b><small>隔离测试模块通过</small></div>
+    <div class="metric"><b>0 / 0</b><small>敏感扫描高风险 / 警告</small></div>
+    <div class="metric"><b>9</b><small>上游阻塞的依赖公告</small></div>
+  </section>
+
+  <section class="card">
+    <h2>1. 结论</h2>
+    <div class="callout"><strong>结论：项目架构总体合理，当前源码与 Windows/Python 3.12 环境匹配，已能够从独立环境完成可重复打包并启动 EXE。</strong>本轮修复了 Git 元数据损坏、构建依赖不可解、构建脚本绑定共享 Python、自动公网探测、HTTP/2 风险路径和全量测试不稳定等问题。</div>
+    <p>没有发现能够证明“会直接破坏用户数据”或“默认对外暴露服务”的现存严重代码缺陷。仍有两类不可伪装为已解决的风险：mitmproxy 12.2.3 的传递依赖公告受其官方版本上限阻塞；三个超大业务面板带来持续维护风险。前者已做运行时缓解并保留升级观察项，后者应渐进拆分，当前不适合无业务测试的大重构。</p>
+  </section>
+
+  <section class="card">
+    <h2>2. Git 基线恢复</h2>
+    <table><thead><tr><th>检查项</th><th>发现</th><th>处理与证据</th></tr></thead><tbody>
+      <tr><td>原 `.git`</td><td><span class="badge risk">损坏</span> pack、reflog 与对象校验大量异常</td><td>从 GitHub 重新克隆健康元数据；逐个比对 408 个受控文件，除 86 个换行差异外，语义内容差异为 0。</td></tr>
+      <tr><td>远端基线</td><td><span class="badge ok">一致</span> main 与 origin/main 分歧 0/0</td><td>恢复前远端提交为 <code>5c09c726bb091598f450bf9caf3484aecba883a5</code>；恢复后 <code>git fsck --full</code> 通过。</td></tr>
+      <tr><td>本地历史</td><td>恢复副本曾停在较早提交</td><td>本地导航历史保存为分支 <code>backup/local-nav-v3-20260829</code>，并导出到 <code>PengTools-local-backup-branch-20260829.bundle</code>。</td></tr>
+      <tr><td>损坏元数据</td><td>需要可回退</td><td>旧 `.git` 已移到同级目录 <code>PengTools-corrupt-git-20260829-1120</code>，未删除源码或用户数据。</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>3. 架构审计</h2>
+    <div class="flow"><span>run</span><i>→</i><span>main_window</span><i>→</i><span>panels</span><i>→</i><span>tools / ui / config</span></div>
+    <table><thead><tr><th>边界</th><th>判断</th><th>本轮治理</th></tr></thead><tbody>
+      <tr><td><code>tools → ui/panels</code></td><td><span class="badge ok">无反向依赖</span></td><td>新增 AST 架构测试，后续新增反向 import 会直接失败。</td></tr>
+      <tr><td><code>ui → panels</code></td><td><span class="badge ok">无依赖</span></td><td>纳入同一架构测试。</td></tr>
+      <tr><td><code>ui → tools</code></td><td><span class="badge warn">历史窄接口</span></td><td>不再使用不符合实际的一刀切禁令；只允许测试白名单中的无 QWidget 服务。数据库方言/端口从宽模块 <code>db_connect</code> 拆到 <code>db_contracts</code>。</td></tr>
+      <tr><td>超大模块</td><td><span class="badge warn">维护风险</span></td><td><code>interface_debug_panel.py</code> 约 210 KB、<code>requirement_panel.py</code> 约 205 KB、<code>ops_log_panel.py</code> 约 201 KB。本轮不做高风险搬家，建议按 worker、store、view-section 渐进拆分。</td></tr>
+    </tbody></table>
+    <p class="note">判断依据：依赖方向、AST 守护测试与 CodeGraph（183 个 Python 文件、5,887 节点、17,326 边，索引已同步）。文件大小是可维护性信号，不等同于运行缺陷。</p>
+  </section>
+
+  <section class="card">
+    <h2>4. 环境与版本冲突</h2>
+    <table><thead><tr><th>项目</th><th>原状态</th><th>修复后</th></tr></thead><tbody>
+      <tr><td>共享 Python</td><td><code>pip check</code> 3 条：typing-extensions/mitmproxy，以及非本项目 textract/xlrd、torch/setuptools</td><td>未修改共享环境；它只用于创建虚拟环境，不再作为发布判据。</td></tr>
+      <tr><td>运行锁定</td><td><code>typing-extensions==4.14.1</code> 超出 mitmproxy 的 <code>&lt;=4.14</code>，干净安装不可解</td><td>改为 <code>4.14.0</code>；独立环境 <code>pip check</code> 为 0 冲突。</td></tr>
+      <tr><td>构建环境</td><td>脚本硬编码 <code>D:\development\tools\Python312</code>，会受到共享包污染</td><td><code>.venv-build</code> 固定 Python 3.12 + PyInstaller 6.11.1；脚本启动前校验版本和依赖。</td></tr>
+      <tr><td>开发环境</td><td>运行、测试、审计命令边界不清</td><td><code>setup_build_env.ps1 -Development</code> 创建 <code>.venv-dev</code>，含 pytest 与 pip-audit。</td></tr>
+      <tr><td>中文 Windows</td><td>pip-audit 用 CP936 读取 UTF-8 requirements 会失败</td><td>审计命令固定使用 <code>python -X utf8 -m pip_audit</code>。</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>5. 安全问题与修复</h2>
+    <table><thead><tr><th>级别</th><th>发现</th><th>处理</th><th>状态</th></tr></thead><tbody>
+      <tr><td><span class="badge risk">高</span></td><td>启动接口抓包时用 <code>http://example.com/</code> 验证管线，违反离线/不自动访问公网边界</td><td>改为只连接本机代理并请求 <code>127.0.0.1:9</code>；新增静态回归测试禁止公网探测回归。</td><td><span class="badge ok">已修复</span></td></tr>
+      <tr><td><span class="badge risk">高</span></td><td>mitmproxy 的 h2 4.3.0 存在重复 Host/请求走私公告</td><td>代理启动参数固定 <code>http2=False</code>，关闭项目可达的 HTTP/2 路径，并加入测试。</td><td><span class="badge ok">路径已缓解</span></td></tr>
+      <tr><td><span class="badge warn">中</span></td><td>构建使用共享 Python，可能在不同机器产生不可重复结果</td><td>独立构建/开发环境、完整锁定文件、版本和 <code>pip check</code> 门禁。</td><td><span class="badge ok">已修复</span></td></tr>
+      <tr><td><span class="badge warn">中</span></td><td>pytest 会误收集 <code>panels/test_points_editor.py</code>，Qt 全局状态导致整批 native crash</td><td><code>pytest.ini</code> 限定 tests；全量入口按模块/用例隔离进程。</td><td><span class="badge ok">已修复</span></td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>6. 依赖漏洞：已知但受上游阻塞</h2>
+    <div class="callout riskbox"><strong>不能宣称漏洞为 0。</strong>pip-audit 报告 4 个包共 9 条公告；可修复版本全部超出 mitmproxy 12.2.3 声明的上限。无约束覆盖会破坏官方兼容合同，因此本轮选择“关闭可达路径 + 限制暴露 + 持续跟踪上游”。</div>
+    <table><thead><tr><th>包 / 当前</th><th>公告</th><th>修复版本</th><th>mitmproxy 12.2.3 上限</th><th>判断</th></tr></thead><tbody>
+      <tr><td>cryptography 48.0.1</td><td>PYSEC-2026-3552/3553/3554</td><td>49.0.0 / 50.0.0</td><td><code>&lt;=48.1</code></td><td>项目和代理间接使用；具体公告路径未证明可由默认离线流程触发，保留残余风险。</td></tr>
+      <tr><td>h2 4.3.0</td><td>PYSEC-2026-3628</td><td>4.4.1</td><td><code>&lt;=4.3.0</code></td><td>HTTP/2 已强制关闭；当前项目路径已缓解。</td></tr>
+      <tr><td>msgpack 1.1.2</td><td>PYSEC-2026-3625</td><td>1.2.1</td><td><code>&lt;=1.1.2</code></td><td>仅作为代理传递依赖发现，项目没有直接 import；保留上游风险。</td></tr>
+      <tr><td>tornado 6.5.5</td><td>PYSEC-2026-3387/3388/3389、GHSA-pw6j-qg29-8w7f</td><td>6.5.6 / 6.5.7</td><td><code>&lt;=6.5.5</code></td><td>仅 loopback、用户主动启动降低暴露面，但不等于漏洞消失。</td></tr>
+    </tbody></table>
+    <p><strong>升级触发条件：</strong>mitmproxy 发布允许 cryptography ≥49、h2 ≥4.4.1、msgpack ≥1.2.1、tornado ≥6.5.7 的兼容版本后，在独立环境升级并重新执行抓包回归与打包。</p>
+  </section>
+
+  <section class="card">
+    <h2>7. 验证与发布证据</h2>
+    <table><thead><tr><th>验证</th><th>结果</th><th>边界</th></tr></thead><tbody>
+      <tr><td>全量测试</td><td><span class="badge ok">通过</span> 586 tests / 60 modules；<code>test_ui.py</code> 40 项隔离通过</td><td>自动化，不替代真实内网与人工 UI 验收。</td></tr>
+      <tr><td>Python 编译</td><td><span class="badge ok">通过</span> run/main_window/config/panels/tools/ui/tests/scripts</td><td>语法与导入编译检查。</td></tr>
+      <tr><td>敏感信息扫描</td><td><span class="badge ok">通过</span> HIGH 0 / WARN 0</td><td>扫描发布资源目录；不等同于完整 SAST。</td></tr>
+      <tr><td>依赖一致性</td><td><span class="badge ok">通过</span> build/dev 两环境 <code>pip check</code> 均无冲突</td><td>共享 Python 的非项目冲突仍存在但不进入构建。</td></tr>
+      <tr><td>正式构建</td><td><span class="badge ok">通过</span> PyInstaller 6.11.1 / Python 3.12.3</td><td>构建警告来自未使用插件和系统驱动导入分析。</td></tr>
+      <tr><td>EXE 启动烟雾</td><td><span class="badge ok">通过</span> 启动 10 秒后进程仍存活</td><td>隐藏启动无主窗口句柄，验证后仅终止本次精确 PID；未替代完整点击验收。</td></tr>
+      <tr><td>ZIP 内容</td><td><span class="badge ok">通过</span> 仅 EXE、README.txt、setup.cmd；data 条目 0</td><td>安装与升级保留真实用户 data 仍需目标机验收。</td></tr>
+    </tbody></table>
+    <h3>发布物</h3>
+    <ul>
+      <li><code>dist\PengToolsHub.exe</code> — 136,444,379 bytes — SHA-256 <code>049F3B8BE200D3A357BCC79A0EC7B1CFE1E0563028B4CDE85019712072EEAB86</code></li>
+      <li><code>PengToolsHub_Offline_Setup.zip</code> — 135,652,547 bytes — SHA-256 <code>4FA617D1C2884C55746B2D8C077CE807810A1F64AD3C7C90C0855424F9328B91</code></li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>8. 本轮主要文件变化</h2>
+    <ul>
+      <li>环境：<code>requirements-build.txt</code>、<code>requirements-dev.txt</code>、<code>scripts/setup_build_env.ps1</code>、<code>scripts/build_release.ps1</code>。</li>
+      <li>安全：<code>panels/interface_debug_panel.py</code>、<code>tools/http_capture.py</code>、<code>tests/test_runtime_boundaries.py</code>。</li>
+      <li>架构：<code>tools/db_contracts.py</code>、<code>tools/db_connect.py</code>、<code>ui/connection_dialog.py</code>、<code>tests/test_architecture_boundaries.py</code>。</li>
+      <li>测试：<code>pytest.ini</code>、<code>tests/conftest.py</code>、<code>scripts/run_test_suite.py</code> 及一处过期 UI 断言修正。</li>
+      <li>规则：重写项目专属 <code>AGENTS.md</code>，把安全红线、可演进边界、独立环境和交付证据统一为可执行规则。</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>9. 后续建议</h2>
+    <ol>
+      <li><strong>P1：</strong>每次 mitmproxy 发布后先检查其 Requires-Dist；解除上限时立即升级四个受影响传递包。</li>
+      <li><strong>P1：</strong>在真实 Chromium/IE 环境做人机抓包验收，覆盖证书、代理恢复、HTTP/1.1 请求/响应和退出清理。</li>
+      <li><strong>P2：</strong>先从 <code>interface_debug_panel.py</code> 拆 worker 与状态机，再处理 requirement/ops_log；每次只拆一个有测试的切面。</li>
+      <li><strong>P2：</strong>持续缩小 PyInstaller Qt 插件收集范围，减少体积与无关 DLL 警告；先做 EXE 功能矩阵再改排除表。</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>10. 外部依据</h2>
+    <ul>
+      <li><a href="https://docs.python.org/3.12/library/venv.html">Python 3.12：venv 官方文档</a></li>
+      <li><a href="https://pypi.org/project/pyinstaller/6.11.1/">PyInstaller 6.11.1 官方发布页</a></li>
+      <li><a href="https://pypi.org/project/mitmproxy/">mitmproxy 官方 PyPI 元数据</a></li>
+      <li><a href="https://github.com/python-hyper/h2/security/advisories/GHSA-6hr6-w5qg-qmwg">h2 官方安全公告 GHSA-6hr6-w5qg-qmwg</a></li>
+      <li><a href="https://github.com/pyca/cryptography/security/advisories">cryptography 官方安全公告列表</a></li>
+      <li><a href="https://github.com/advisories/GHSA-pw6j-qg29-8w7f">Tornado 公告 GHSA-pw6j-qg29-8w7f</a></li>
+      <li><a href="https://osv.dev/vulnerability/PYSEC-2026-3625">OSV：msgpack PYSEC-2026-3625</a></li>
+    </ul>
+  </section>
+
+  <footer>PengToolsHub · 架构/环境/安全审计修复 · 证据生成于 2026-08-29</footer>
+</main>
+</body>
+</html>

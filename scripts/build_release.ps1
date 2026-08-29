@@ -1,8 +1,5 @@
 $ErrorActionPreference = 'Stop'
 
-# Ensure system Python 3.12 (with PyInstaller) is used, not managed Python 3.13
-$env:Path = "D:\development\tools\Python312;D:\development\tools\Python312\Scripts;" + $env:Path
-
 # WorkBuddy/CodeBuddy sandbox shim intercepts os.remove() (safe-delete) and breaks PyInstaller
 # cache cleanup / EXE overwrite. Clear its trigger env vars so deletion goes through normally.
 Remove-Item Env:CODEBUDDY_SESSION_ID -ErrorAction SilentlyContinue
@@ -20,6 +17,31 @@ if (-not $ScriptDir) {
 $ProjectDir = (Resolve-Path (Join-Path $ScriptDir '..')).Path
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir 'run.py'))) {
     throw "Project root not found from script dir: $ScriptDir"
+}
+
+$BuildPython = $env:PENGTOOLS_BUILD_PYTHON
+if (-not $BuildPython) {
+    $BuildPython = Join-Path $ProjectDir '.venv-build\Scripts\python.exe'
+}
+if (-not (Test-Path -LiteralPath $BuildPython)) {
+    throw @"
+未找到 PengToolsHub 独立构建环境：$BuildPython
+请先执行：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1
+也可通过 PENGTOOLS_BUILD_PYTHON 指定已按 requirements-build.txt 安装的 Python 3.12。
+"@
+}
+
+& $BuildPython -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    throw "Build Python must be Python 3.12: $BuildPython"
+}
+& $BuildPython -c "import importlib.metadata as m; raise SystemExit(0 if m.version('PyInstaller') == '6.11.1' else 1)"
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller 6.11.1 is required. Rebuild the environment from requirements-build.txt: $BuildPython"
+}
+& $BuildPython -m pip check
+if ($LASTEXITCODE -ne 0) {
+    throw "Build environment dependency check failed: $BuildPython"
 }
 
 $DistDir = Join-Path $ProjectDir 'dist'
@@ -157,7 +179,7 @@ try {
         throw "Secret scanner missing: $ScanScript"
     }
     Write-Host 'Running release secret scan...'
-    python $ScanScript --project $ProjectDir
+    & $BuildPython $ScanScript --project $ProjectDir
     if ($LASTEXITCODE -ne 0) {
         throw "Release secret scan failed (exit $LASTEXITCODE). Remove secrets under resources/ before packaging."
     }
@@ -172,7 +194,7 @@ try {
         Set-Content -LiteralPath $SeedJsonPath -Value "[]" -Encoding utf8
     }
 
-    python -c "import json,sys; open(sys.argv[1],'w',encoding='utf-8').write(json.dumps({'version':'4.27','edition':'Private','build_date':sys.argv[2],'build_time':sys.argv[3]},ensure_ascii=False,indent=2)+chr(10))" $BuildInfoPath $BuildDate $BuildTime
+    & $BuildPython -c "import json,sys; open(sys.argv[1],'w',encoding='utf-8').write(json.dumps({'version':'4.27','edition':'Private','build_date':sys.argv[2],'build_time':sys.argv[3]},ensure_ascii=False,indent=2)+chr(10))" $BuildInfoPath $BuildDate $BuildTime
     if (-not (Test-Path -LiteralPath $BuildInfoPath)) {
         throw 'Failed to write build_info.json'
     }
@@ -280,7 +302,7 @@ try {
         '--exclude-module', 'tkinter',
         'run.py'
     )
-    python @pyArgs
+    & $BuildPython @pyArgs
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed with exit code $LASTEXITCODE"
     }

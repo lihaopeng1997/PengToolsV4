@@ -88,17 +88,20 @@ class CompactButtonMetricsTests(unittest.TestCase):
 
     def test_size_combo_hugs_content(self):
         from PyQt6.QtWidgets import QComboBox, QSizePolicy
-        from ui.field_metrics import COMBO_SM, FIELD_H, size_combo
+        from ui.field_metrics import COMBO_PICK_W, FIELD_H, size_combo
 
         combo = QComboBox()
         combo.addItems(['GET', 'POST', 'OPTIONS'])
         size_combo(combo, 'sm')
         self.assertEqual(FIELD_H, 28)
         self.assertEqual(combo.height(), 28)
-        self.assertEqual(combo.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Maximum)
-        self.assertEqual(combo.sizeAdjustPolicy(), QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.assertEqual(combo.minimumWidth(), COMBO_SM[0])
-        self.assertEqual(combo.maximumWidth(), COMBO_SM[1])
+        self.assertEqual(combo.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Fixed)
+        self.assertEqual(
+            combo.sizeAdjustPolicy(),
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon,
+        )
+        self.assertEqual(combo.minimumWidth(), COMBO_PICK_W)
+        self.assertEqual(combo.maximumWidth(), COMBO_PICK_W)
         combo.deleteLater()
 
 

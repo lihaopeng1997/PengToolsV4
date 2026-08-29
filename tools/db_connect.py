@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from config import HARNESS_CONNECTIONS_FILE, ensure_config_dir
+from tools.db_contracts import DEFAULT_PORTS, DIALECTS
 
 # PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
 try:
@@ -34,24 +35,6 @@ from tools.sql_guard import (
 PAGE_SIZE = 20
 MAX_ROWS = 2000
 CELL_MAX = 200
-
-DIALECTS = (
-    ('oracle', 'Oracle'),
-    ('mysql', 'MySQL'),
-    ('oceanbase', 'OceanBase'),
-    ('dameng', '达梦'),
-    ('redis', 'Redis'),
-    ('mongodb', 'MongoDB'),
-)
-
-DEFAULT_PORTS = {
-    'oracle': 1521,
-    'oceanbase': 2883,
-    'mysql': 3306,
-    'dameng': 5236,
-    'redis': 6379,
-    'mongodb': 27017,
-}
 
 NOSQL = frozenset({'redis', 'mongodb'})
 

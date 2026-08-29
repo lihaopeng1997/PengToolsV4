@@ -12,8 +12,8 @@ xlutils==2.0.0
 msoffcrypto-tool==6.0.0
 websocket-client==1.8.0
 mitmproxy==12.2.3
-# mitmproxy 12.2.3 在 Python 3.12 上要求 <=4.14；显式固定以消除 pip check 冲突。
-typing-extensions==4.14.1
+# mitmproxy 12.2.3 在 Python 3.12 上要求 <=4.14；4.14.1 已超出该上限。
+typing-extensions==4.14.0
 pypinyin==0.55.0
 paramiko==5.0.0
 cryptography==48.0.1

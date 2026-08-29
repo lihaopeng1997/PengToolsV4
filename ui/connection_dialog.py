@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from tools.db_connect import DEFAULT_PORTS, DIALECTS
+from tools.db_contracts import DEFAULT_PORTS, DIALECTS
 from ui.design_system import apply_button
 from ui.field_metrics import size_enum_combo, size_line, wrap_secret_field
 

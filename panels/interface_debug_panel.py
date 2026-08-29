@@ -1911,21 +1911,17 @@ class InterfaceDebugPanel(QWidget):
         boot.start()
 
     def _probe_capture_pipeline(self, port: int):
-        """经本地代理发一条 HTTP 探测；成功则列表至少出现探测会话。"""
+        """经本地代理发一条纯 loopback HTTP 探测。"""
         def _run():
             try:
-                import urllib.request
-                proxy = urllib.request.ProxyHandler({
-                    'http': f'http://127.0.0.1:{int(port)}',
-                    'https': f'http://127.0.0.1:{int(port)}',
-                })
-                opener = urllib.request.build_opener(proxy)
-                # 访问公网探测：若内网不通，仍会留下 CONNECT/失败记录；优先本机无效端口无意义
-                try:
-                    opener.open('http://example.com/', timeout=4)
-                except Exception:
-                    # 即使失败，mitm 也应留下请求记录
-                    pass
+                import socket
+                request = (
+                    b'GET http://127.0.0.1:9/pengtools-capture-probe HTTP/1.1\r\n'
+                    b'Host: 127.0.0.1:9\r\n'
+                    b'Connection: close\r\n\r\n'
+                )
+                with socket.create_connection(('127.0.0.1', int(port)), timeout=1.0) as sock:
+                    sock.sendall(request)
             except Exception:
                 pass
         import threading

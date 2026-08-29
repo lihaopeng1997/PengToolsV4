@@ -35,15 +35,34 @@ ui 不得 import panels；公共 UI 组件仅可调用无 QWidget 的窄接口�
 ## 快速开始
 
 ```powershell
-python -m pip install -r requirements.txt
-python run.py
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1 -Development
+.\.venv-dev\Scripts\python.exe run.py
+```
+
+发布构建使用独立的 Python 3.12 环境，避免与本机其它项目的依赖冲突：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 ```
 
 定向测试：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
-python -m unittest tests.test_core -v
+.\.venv-dev\Scripts\python.exe -m pytest -q tests\test_core.py
+```
+
+全量测试按文件隔离 PyQt6 全局状态：
+
+```powershell
+.\.venv-dev\Scripts\python.exe scripts\run_test_suite.py
+```
+
+依赖漏洞审计：
+
+```powershell
+.\.venv-dev\Scripts\python.exe -X utf8 -m pip_audit -r requirements.txt
 ```
 
 发布打包：

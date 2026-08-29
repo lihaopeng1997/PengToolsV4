@@ -408,7 +408,11 @@ class HttpCaptureWorker:
             # HTTPS 解密 + 兼容上游自签；失败则忽略未知 option
             for key, val in (
                 ('ssl_insecure', True),
-                ('http2', True),
+                # mitmproxy 12.2.3 pins h2 4.3.0, which is affected by a
+                # duplicate-Host request-smuggling advisory.  The desktop
+                # capture use case does not require HTTP/2, so keep it off
+                # until mitmproxy permits h2 >= 4.4.1.
+                ('http2', False),
                 ('websocket', False),  # 接口排查以 HTTP(S) 请求为主
                 ('connection_strategy', 'lazy'),
             ):

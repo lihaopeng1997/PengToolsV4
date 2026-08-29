@@ -26,7 +26,7 @@ class DependencyManifestTests(unittest.TestCase):
             "PyQt6-Qt6==6.11.1",
             "PyQt6-sip==13.11.1",
             "mitmproxy==12.2.3",
-            "typing-extensions==4.14.1",
+            "typing-extensions==4.14.0",
             "oracledb==4.0.2",
             "pymysql==1.2.0",
             "redis==8.1.0",

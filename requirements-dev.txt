@@ -1,0 +1,4 @@
+# Test and dependency-audit tools (Python 3.12)
+-r requirements-build.txt
+pytest==9.1.1
+pip-audit==2.10.1

@@ -18,6 +18,7 @@ PrivateInstaller/
 
 # 第三方运行时 / 本地环境
 outputs/oracle-instantclient/
+.venv*/
 
 # 临时与调试文件
 _build_log.txt
