@@ -19,7 +19,12 @@
 ## 2. 产品与安全边界
 
 - 产品是 Windows 离线桌面工具台，技术基线为 Python 3.12 + PyQt6；无账号、云同步、插件市场、在线更新和遥测。
-- 运行代码不得新增公网服务依赖、在线 CDN 或内嵌浏览器内核。允许的网络能力仅包括：
+- 运行代码允许使用 PyQt6-WebEngine 作为本地 UI 渲染层（V2 UI 重构已批准），但必须满足：
+  - 只能加载随安装包分发的本地前端资源（`resources/webui/` 及后续离线前端工程）；禁止在线 CDN 与远程 UI 页面；
+  - 默认拒绝外部 http/https 导航（`ui/web_shell.py` 导航白名单）且不得因 WebEngine 引入公网服务依赖；
+  - Web UI 与 Python 仅通过受控 QWebChannel Bridge 通信；不得开启不必要的远程调试端口；
+  - 后续前端工程（如 Vue）必须能够完全离线运行。
+- 原有网络安全原则不放宽。允许的网络能力仅包括：
   - 接口排查：只监听 `127.0.0.1` 的 Chromium CDP 和 mitmproxy；不得暴露到局域网，探测请求也只能命中 loopback。
   - 内网模型：默认关闭，仅在用户启用后访问 `data/ai_local.json` 中配置的 loopback/RFC1918 地址；继续执行域名拒绝、DNS rebinding 防护、绕过系统代理和 DPAPI Token 存储。
   - 用户主动配置并确认的 SSH、数据库和接口请求；只读查询仍需用户点击执行。
@@ -138,7 +143,8 @@ python -m unittest tests.test_xxx -v
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 ```
 
-- 统一产品名 `PengToolsHub`；发布物为 `dist\PengToolsHub.exe`、`Installer\` 和 `PengToolsHub_Offline_Setup.zip`。兼容入口只转发到 `scripts/build_release.ps1`。
+- 统一产品名 `PengToolsHub`；PyInstaller 使用 onedir，发布物为 `dist\PengToolsHub\PengToolsHub.exe`（程序目录含 `_internal\`）、`Installer\` 和 `PengToolsHub_Offline_Setup.zip`。兼容入口只转发到 `scripts/build_release.ps1`。
+- 发布目录语义：`PengToolsHub\` 下含 `PengToolsHub.exe`、`_internal\` 与 `data\`（data 为用户首次运行后产生，不进入发布包）。升级只替换程序文件，不得删除或覆盖 `data`。
 - 常规交付：`git status` → 定向测试 → commit → `git push origin main`。发布级交付（新版本、依赖/构建/安全相关改动）再叠加：全量隔离测试 → 安全扫描 → 构建 → 检查产物。
 - 远端固定为 `https://github.com/lihaopeng1997/PengToolsV4.git`，默认分支 `main`。不得提交 `data/`、虚拟环境、EXE/ZIP、日志、临时截图或 CodeGraph 缓存。
 - 若本轮只是探索、半成品或用户明确要求不提交，则不推送；否则完成的可交付修改默认提交并推送。

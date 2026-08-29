@@ -74,9 +74,10 @@ function Test-FileWritable([string]$Path) {
 function Assert-ReleaseArtifactsUnlocked {
     param(
         [string]$DistExe,
-        [string]$InstallerExe
+        [string]$InstallerExe,
+        [string]$LegacyExe
     )
-    $targets = @($DistExe, $InstallerExe) | Where-Object { $_ }
+    $targets = @($DistExe, $InstallerExe, $LegacyExe) | Where-Object { $_ }
     $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -match '^(?i)PengToolsHub$'
     })
@@ -215,18 +216,20 @@ try {
         cmd /c "rmdir /s /q `"$InstallerDataDir`"" 2>$null
     }
 
+    # 1) 定义全部覆盖目标（新 onedir 产物 + 安装包副本 + 旧 onefile 残留）
     $AppDir = Join-Path $DistDir 'PengToolsHub'
     $ExePath = Join-Path $AppDir 'PengToolsHub.exe'
     $InstallerAppDir = Join-Path $InstallerDir 'PengToolsHub'
     $InstallerExePath = Join-Path $InstallerAppDir 'PengToolsHub.exe'
-    # onedir 迁移：清掉旧 onefile 单文件与旧输出目录，避免新旧产物混装
-    if (Test-Path -LiteralPath $ExePath) { cmd /c "del /f /q `"$ExePath`"" 2>$null }
     $LegacyOnefileExe = Join-Path $DistDir 'PengToolsHub.exe'
+    # 2) 锁检查在前：任何 destructive cleanup 都必须等校验通过（运行中不强杀）
+    Write-Host 'Checking EXE lock / running PengToolsHub before PyInstaller...'
+    Assert-ReleaseArtifactsUnlocked -DistExe $ExePath -InstallerExe $InstallerExePath -LegacyExe $LegacyOnefileExe
+    # 3) 锁校验通过后再清理旧产物，避免新旧产物混装
     if (Test-Path -LiteralPath $LegacyOnefileExe) { cmd /c "del /f /q `"$LegacyOnefileExe`"" 2>$null }
+    if (Test-Path -LiteralPath $ExePath) { cmd /c "del /f /q `"$ExePath`"" 2>$null }
     if (Test-Path -LiteralPath $AppDir) { cmd /c "rmdir /s /q `"$AppDir`"" 2>$null }
     if (Test-Path -LiteralPath $InstallerAppDir) { cmd /c "rmdir /s /q `"$InstallerAppDir`"" 2>$null }
-    Write-Host 'Checking EXE lock / running PengToolsHub before PyInstaller...'
-    Assert-ReleaseArtifactsUnlocked -DistExe $ExePath -InstallerExe $InstallerExePath
 
     # Safe seed templates only (secret scan already passed).
     # --specpath changes the base directory used by the generated spec, so every source

@@ -69,8 +69,29 @@ $env:QT_QPA_PLATFORM='offscreen'
 
 ```powershell
 .\build_release.ps1
-# 产物：dist\PengToolsHub.exe 、 PengToolsHub_Offline_Setup.zip
+# 产物：dist\PengToolsHub\PengToolsHub.exe 、 PengToolsHub_Offline_Setup.zip
 ```
+
+发布产物为 onedir 目录（PyInstaller onedir）：
+
+```
+dist
+└── PengToolsHub
+    ├── PengToolsHub.exe
+    └── _internal\
+```
+
+离线包 `PengToolsHub_Offline_Setup.zip` 解压后：
+
+```
+setup.cmd
+README.txt
+PengToolsHub
+├── PengToolsHub.exe
+└── _internal\
+```
+
+日常使用双击 `PengToolsHub\PengToolsHub.exe`；升级时替换 PengToolsHub 目录内的程序文件，必须保留 `PengToolsHub\data`（用户数据目录，首次运行后产生）。
 
 ## 文档入口
 
@@ -85,7 +106,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 
 - 离线优先；用户数据只在 `config.local_data_dir()`（开发 `./data/`，打包 `<exe旁>/data/`）。
 - Private 抓包仅 loopback；报文只存内存。
-- 唯一发布包：`PengToolsHub_Offline_Setup.zip` / `PengToolsHub.exe`（原 Private 能力 + 品牌图标）。
+- 唯一发布包：`PengToolsHub_Offline_Setup.zip`（内含 `setup.cmd`、`README.txt` 与 `PengToolsHub\` 程序目录，程序入口 `PengToolsHub\PengToolsHub.exe`）。
 
 ## 安全与分发
 
