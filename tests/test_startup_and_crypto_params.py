@@ -29,7 +29,8 @@ class SingleInstanceNameTests(unittest.TestCase):
         from ui.single_instance import SingleInstanceGuard, ACTIVATE_MESSAGE
 
         app = QApplication.instance() or QApplication([])
-        name = 'PengToolsHub.Test.SingleInstance.Unit'
+        # 固定服务名会与异常中止或并行运行的测试进程冲突；进程级隔离不改变正式应用命名。
+        name = f'PengToolsHub.Test.SingleInstance.{os.getpid()}'
         g1 = SingleInstanceGuard(server_name=name, parent=app)
         self.assertTrue(g1.try_become_primary())
         self.assertTrue(g1.is_primary)
@@ -74,14 +75,21 @@ class HighContrastIconTests(unittest.TestCase):
 
 
 class ReleaseTaskbarIconTests(unittest.TestCase):
-    def test_release_definitions_embed_high_contrast_taskbar_icon(self):
+    def test_release_script_embeds_high_contrast_taskbar_icon(self):
         expected = 'resources\\brand\\pengtools-taskbar-hc.ico'
-        for rel_path in ('scripts/build_release.ps1', 'PengToolsHub.spec'):
-            path = os.path.join(PROJECT_DIR, rel_path)
-            with open(path, 'r', encoding='utf-8') as fp:
-                content = fp.read()
-            normalized = content.replace('\\\\', '\\')
-            self.assertIn(expected, normalized, f'{rel_path} must embed the high-contrast taskbar icon')
+        path = os.path.join(PROJECT_DIR, 'scripts', 'build_release.ps1')
+        with open(path, 'r', encoding='utf-8') as fp:
+            content = fp.read()
+        normalized = content.replace('\\\\', '\\')
+        self.assertIn(expected, normalized)
+        self.assertIn('--specpath', content)
+        self.assertIn('build\\pyinstaller-spec', normalized)
+        self.assertIn("(Join-Path $ProjectDir 'resources\\style.qss')", content)
+
+    def test_generated_pyinstaller_specs_are_not_versioned(self):
+        """发布脚本是唯一权威入口，PyInstaller 自动生成的 spec 不应造成第二套配置。"""
+        for rel_path in ('PengToolsHub.spec', os.path.join('scripts', 'PengToolsHub.spec')):
+            self.assertFalse(os.path.exists(os.path.join(PROJECT_DIR, rel_path)), rel_path)
 
 
 class ShouldKeepRecordTests(unittest.TestCase):
@@ -149,11 +157,27 @@ class GatewayParamsVisibleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from PyQt6.QtWidgets import QApplication
+        from panels.gateway_panel import GatewayDecodePanel
         cls.app = QApplication.instance() or QApplication([])
+        # 离屏 PyQt6 在连续销毁复杂页面时可能触发原生层异常；本组复用单一页面，
+        # 每个用例在 setUp 清空输入状态，仍保持行为断言独立。
+        cls.panel = GatewayDecodePanel('zh')
+
+    @classmethod
+    def tearDownClass(cls):
+        from PyQt6.QtCore import QEvent
+        cls.panel.close()
+        cls.panel.deleteLater()
+        cls.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        cls.app.processEvents()
+
+    def setUp(self):
+        self.panel.key_cipher.clear()
+        self.panel.payload_cipher.clear()
+        self.panel.plain_text.clear()
 
     def test_params_always_visible_and_key_label(self):
-        from panels.gateway_panel import GatewayDecodePanel
-        p = GatewayDecodePanel('zh')
+        p = self.panel
         self.assertFalse(p.config_group.isHidden())
         self.assertIn('Key', p.key_label.text())
         self.assertIn('密钥', p.key_label.text())
@@ -164,8 +188,7 @@ class GatewayParamsVisibleTests(unittest.TestCase):
         self.assertTrue(p.iv_value.text())
 
     def test_compact_params_leave_more_space_for_cipher_and_result(self):
-        from panels.gateway_panel import GatewayDecodePanel
-        p = GatewayDecodePanel('zh')
+        p = self.panel
         self.assertFalse(p.config_group.isHidden())
         self.assertLessEqual(p.key_cipher.minimumHeight(), 56)
         self.assertLessEqual(p.key_cipher.maximumHeight(), 80)
@@ -175,19 +198,16 @@ class GatewayParamsVisibleTests(unittest.TestCase):
         sizes = p.splitter.sizes()
         self.assertEqual(len(sizes), 2)
         self.assertAlmostEqual(sizes[0], sizes[1], delta=80)
-        p.close()
 
     def test_set_cipher_does_not_overwrite_key(self):
-        from panels.gateway_panel import GatewayDecodePanel
-        p = GatewayDecodePanel('zh')
+        p = self.panel
         p.key_cipher.setPlainText('aabbccdd')
         p.set_cipher_text('YmFzZTY0')
         self.assertEqual(p.key_cipher.toPlainText(), 'aabbccdd')
         self.assertEqual(p.payload_cipher.toPlainText(), 'YmFzZTY0')
 
     def test_decrypt_failure_keeps_key(self):
-        from panels.gateway_panel import GatewayDecodePanel
-        p = GatewayDecodePanel('zh')
+        p = self.panel
         p.key_cipher.setPlainText('00')
         p.payload_cipher.setPlainText('AA==')
         with mock.patch('panels.gateway_panel.show_warning'):
@@ -210,7 +230,10 @@ class InterfaceDefaultModeTests(unittest.TestCase):
         self.assertTrue(p.mode_combo.isHidden())
         self.assertTrue(p.browser_combo.isHidden())
         self.assertTrue(p.ie_install_cert_btn.isHidden())
-        self.assertIn('抓包', p.connect_btn.text())
+        # 唯一用户可见入口已经迁移到 capture_toggle_btn；旧按钮仅保留给内部兼容路径。
+        self.assertFalse(p.capture_toggle_btn.isHidden())
+        self.assertIn('开始监听', p.capture_toggle_btn.text())
+        self.assertTrue(p.connect_btn.isHidden())
 
     def test_ingest_merges_and_main_thread_safe(self):
         from panels.interface_debug_panel import InterfaceDebugPanel

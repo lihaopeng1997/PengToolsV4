@@ -179,8 +179,17 @@ def install_splitter_prefs(
     if target is None and defaults and len(defaults) == count:
         target = [max(1, int(item)) for item in defaults]
     if target:
-        total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
-        splitter.setSizes(clamp_splitter_sizes(target, mins, total if total > 40 else None))
+        def _apply_initial_sizes():
+            """在首轮真实布局后重申初始比例，避免子控件 sizeHint 覆盖默认值。"""
+            if splitter.count() != len(target):
+                return
+            total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
+            splitter.setSizes(clamp_splitter_sizes(target, mins, total if total > 40 else None))
+
+        _apply_initial_sizes()
+        # QSplitter 会在父控件首次 show 后按子控件 sizeHint 重新分配；
+        # 延后到事件循环可确保 defaults / 已保存比例才是最终初始状态。
+        QTimer.singleShot(0, _apply_initial_sizes)
 
     def _persist(sizes: list[int]):
         if callable(on_changed):

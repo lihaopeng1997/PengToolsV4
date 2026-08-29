@@ -40,9 +40,10 @@ class StartupBootTests(unittest.TestCase):
             self.assertIsNotNone(window.interface_debug_panel)
             self.assertIs(window.stack.currentWidget(), window.interface_debug_panel)
             self.assertTrue(window._startup_loading.isHidden())
-            window._show_panel(14)
-            self.assertIsNotNone(window.ai_workbench_panel)
-            self.assertIs(window.stack.currentWidget(), window.ai_workbench_panel)
+            # v3.0：nav 18 = Oracle 面板（六数据库面板之一）
+            window._show_panel(18)
+            self.assertIsNotNone(window.db_panel_0)
+            self.assertIs(window.stack.currentWidget(), window.db_panel_0)
         finally:
             if window.hotkey_service:
                 window.hotkey_service.unregister()

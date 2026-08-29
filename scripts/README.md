@@ -4,8 +4,9 @@
 |---|---|
 | `build_release.ps1` | **唯一发布构建**（原 Private 能力 + 品牌图标） |
 | `build_private_release.ps1` | 兼容旧入口，内部转发到 `build_release.ps1` |
-| `PengToolsHub.spec` | PyInstaller 生成物（可覆盖） |
 | `build_workbook_seed.py` | 开发态：从加密 Excel 生成学习种子 JSON |
+
+`build_release.ps1` 是唯一权威发布配置。PyInstaller 运行时可能生成 `.spec` 文件，但它们属于可再生中间产物，不纳入版本控制，避免形成第二套发布参数。
 
 ## 发布构建
 
@@ -19,7 +20,7 @@
 
 产物：
 
-- `dist/PengToolsHub.exe`（图标为原 Private 品牌 `pengtools-app-v2.ico`）
+- `dist/PengToolsHub.exe`（嵌入高对比任务栏图标 `resources\brand\pengtools-taskbar-hc.ico`）
 - `PengToolsHub_Offline_Setup.zip`
 - `Installer/PengToolsHub.exe` + `setup.cmd`
 

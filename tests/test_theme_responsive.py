@@ -363,8 +363,11 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         self.assertEqual(MainWindow._stack_index_for_nav(11), 10)
         self.assertEqual(MainWindow._stack_index_for_nav(12), 11)
         self.assertEqual(MainWindow._stack_index_for_nav(13), 12)
-        self.assertEqual(MainWindow._stack_index_for_nav(14), 13)
-        self.assertEqual(MainWindow._stack_index_for_nav(15), 14)
+        # v3.0：16=聊天→13；17=工作→14；18–23 六数据库面板→15–20
+        self.assertEqual(MainWindow._stack_index_for_nav(16), 13)
+        self.assertEqual(MainWindow._stack_index_for_nav(17), 14)
+        self.assertEqual(MainWindow._stack_index_for_nav(18), 15)
+        self.assertEqual(MainWindow._stack_index_for_nav(23), 20)
 
     def test_apply_density_sets_window_property(self):
         from main_window import MainWindow

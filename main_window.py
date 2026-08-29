@@ -14,8 +14,10 @@ from ui.confirm_dialog import ask_close_action
 from ui.field_metrics import size_combo
 from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
 from ui.navigation_model import (
-    GROUP_LABELS, NAV_MODEL, DB_NAV_START, BUILTIN_DB_TYPES,
-    db_nav_index_from_slot, display_name, icon_role_for, nav_is_db_slot, resolve_db_slot_index,
+    GROUP_LABELS, NAV_MODEL, SQL_CONSOLE_NAV, AI_PARENT_NAV, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+    SQL_DB_NAV_START, SQL_DB_NAV_MAX, FIXED_DB_PAGES,
+    dialect_for_nav, display_name, icon_role_for, is_parent_nav,
+    nav_is_db_slot, resolve_db_slot_index,
 )
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from config import (
@@ -23,17 +25,18 @@ from config import (
     load_settings, normalize_settings, save_settings,
 )
 
-# stack index → 属性名（与 _stack_index_for_nav 一致，0–14 + 15–46 为 DB 面板）
+# stack index → 属性名（与 _stack_index_for_nav 一致）
+# 0–12 历史内置面板；13=模型聊天；14=Agent 工作台；15–20=六数据库面板
 _BUILTIN_ATTRS = (
     'dashboard_panel', 'credit_panel', 'sql_panel', 'docx_panel',
     'vin_panel', 'gateway_panel', 'ops_panel', 'settings_panel',
     'personal_panel', 'requirement_panel', 'format_panel',
-    'interface_debug_panel', 'ops_log_panel', 'ai_workbench_panel',
-    'model_chat_panel',
+    'interface_debug_panel', 'ops_log_panel', 'model_chat_panel',
+    'agent_workbench_panel',
 )
 DB_ATTRS = tuple(f'db_panel_{i}' for i in range(32))
 _STACK_PANEL_ATTRS = _BUILTIN_ATTRS + DB_ATTRS
-STACK_DB_START = 15  # stack index 15 → nav 16 (DB_NAV_START)
+STACK_DB_START = 15  # stack index 15 → nav 18 (SQL_DB_NAV_START) Oracle 面板
 
 
 class MainWindow(QMainWindow):
@@ -216,7 +219,7 @@ class MainWindow(QMainWindow):
         panel.open_gateway.connect(lambda: self._show_panel(5))
         panel.open_ops.connect(lambda: self._show_panel(13))
         if hasattr(panel, 'open_ai_workbench'):
-            panel.open_ai_workbench.connect(lambda: self._show_panel(14))
+            panel.open_ai_workbench.connect(lambda: self._show_panel(SQL_DB_NAV_START))
         if hasattr(panel, 'open_requirements'):
             panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(panel, 'open_requirement'):
@@ -398,6 +401,9 @@ class MainWindow(QMainWindow):
             self._setup_hotkeys()
 
     def _panel_needs_create(self, nav_index: int) -> bool:
+        # 父级导航（SQL 控制台 / 模型）不创建面板
+        if is_parent_nav(nav_index):
+            return False
         # 对于 DB 子菜单索引，检查对应 DB 面板是否已创建
         if nav_is_db_slot(nav_index):
             slot = resolve_db_slot_index(nav_index)
@@ -411,7 +417,9 @@ class MainWindow(QMainWindow):
         return getattr(self, _STACK_PANEL_ATTRS[stack], None) is None
 
     def _ensure_panel_for_nav(self, nav_index: int):
-        """按导航进入时确保对应面板已创建。"""
+        """按导航进入时确保对应面板已创建。父级不创建面板。"""
+        if is_parent_nav(nav_index):
+            return None
         if nav_is_db_slot(nav_index):
             return self._ensure_db_panel(nav_index)
         stack = self._stack_index_for_nav(nav_index)
@@ -429,8 +437,8 @@ class MainWindow(QMainWindow):
             10: self._ensure_format_panel,
             11: self._ensure_interface_debug_panel,
             12: self._ensure_ops_log_panel,
-            13: self._ensure_ai_workbench_panel,
-            14: self._ensure_model_chat_panel,
+            13: self._ensure_model_chat_panel,
+            14: self._ensure_agent_workbench_panel,
         }
         fn = ensure_map.get(stack)
         if fn is not None:
@@ -596,14 +604,17 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–13 历史 + 14 SQL 控制台（可展开组）+ 15 模型对话
+        # 0–13 历史 + 14 SQL 控制台（可展开组）+ 15 模型（可展开组）
         self.nav_buttons = [None] * 48
         self._group_labels = {}
         self._nav_order = []
         self._sql_subnav_container = None
         self._sql_subnav_buttons = {}
-        self._sql_console_expanded = True
+        self._sql_console_expanded = bool(self._settings.get('sidebar_expanded_sql', True))
         self._db_subnav_indices = []
+        self._ai_subnav_container = None
+        self._ai_subnav_buttons = {}
+        self._ai_expanded = bool(self._settings.get('sidebar_expanded_ai', True))
 
         for group_key, items in NAV_MODEL:
             section = QLabel()
@@ -612,8 +623,12 @@ class MainWindow(QMainWindow):
             self._nav_layout.addWidget(section)
             for nav_index, _zh, _en, icon_role in items:
                 if nav_index == 14:
-                    # SQL 控制台 → 可折叠组（header + 子项容器）
+                    # SQL 控制台 → 可折叠组（header + 6 数据库子项）
                     self._render_sql_console_group()
+                    continue
+                if nav_index == 15:
+                    # 模型 → 可折叠组（header + 聊天/工作子项）
+                    self._render_ai_group()
                     continue
                 button = QPushButton()
                 button.setObjectName('nav-btn')
@@ -708,9 +723,8 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def _render_sql_console_group(self):
-        """渲染 SQL 控制台为可折叠导航组（header + 子项容器）。"""
+        """渲染 SQL 控制台为可折叠导航组（header + 6 固定数据库子项）。"""
         zh = self.language == 'zh'
-        # header — 可点击展开/折叠
         header = QPushButton()
         header.setObjectName('nav-btn')
         header.setCheckable(False)
@@ -718,20 +732,20 @@ class MainWindow(QMainWindow):
         header.setProperty('navIndex', 14)
         header.setProperty('sqlConsoleHeader', True)
         apply_icon(header, 'database', size=20)
-        header.clicked.connect(lambda: self._show_panel(14))
+        header.clicked.connect(lambda: self._toggle_sql_console())
         self.nav_buttons[14] = header
         self._nav_order.append(14)
 
-        # 展开/折叠小箭头
         self._sql_expand_btn = QToolButton()
         self._sql_expand_btn.setObjectName('nav-sub-expand')
         self._sql_expand_btn.setCheckable(True)
         self._sql_expand_btn.setChecked(self._sql_console_expanded)
         self._sql_expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._sql_expand_btn.setFixedSize(18, 18)
-        apply_icon(self._sql_expand_btn, 'collapse', size=10)
-        zh = self.language == 'zh'
-        self._sql_expand_btn.setToolTip('收起数据库列表' if zh else 'Collapse DB list')
+        apply_icon(self._sql_expand_btn, 'collapse' if self._sql_console_expanded else 'expand', size=10)
+        self._sql_expand_btn.setToolTip(
+            '收起数据库列表' if zh else 'Collapse DB list'
+        )
         self._sql_expand_btn.clicked.connect(self._toggle_sql_console)
 
         row = QHBoxLayout()
@@ -744,7 +758,6 @@ class MainWindow(QMainWindow):
         wrapper.setLayout(row)
         self._nav_layout.addWidget(wrapper)
 
-        # subnav container — 动态子项
         self._sql_subnav_container = QFrame()
         self._sql_subnav_container.setObjectName('sql-subnav')
         self._sql_subnav_container.setVisible(self._sql_console_expanded)
@@ -753,8 +766,62 @@ class MainWindow(QMainWindow):
         sub_l.setSpacing(1)
         self._sql_subnav_layout = sub_l
         self._nav_layout.addWidget(self._sql_subnav_container)
-        # 首次渲染
         self._rebuild_sql_console_subnav()
+
+    def _render_ai_group(self):
+        """渲染"模型"为可折叠导航组（header + 聊天/工作子项）。"""
+        zh = self.language == 'zh'
+        header = QPushButton()
+        header.setObjectName('nav-btn')
+        header.setCheckable(False)
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.setProperty('navIndex', 15)
+        header.setProperty('aiHeader', True)
+        apply_icon(header, 'chat', size=20)
+        header.clicked.connect(lambda: self._toggle_ai_group())
+        self.nav_buttons[15] = header
+        self._nav_order.append(15)
+
+        self._ai_expand_btn = QToolButton()
+        self._ai_expand_btn.setObjectName('nav-sub-expand')
+        self._ai_expand_btn.setCheckable(True)
+        self._ai_expand_btn.setChecked(self._ai_expanded)
+        self._ai_expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_expand_btn.setFixedSize(18, 18)
+        apply_icon(self._ai_expand_btn, 'collapse' if self._ai_expanded else 'expand', size=10)
+        self._ai_expand_btn.setToolTip('收起模型子菜单' if zh else 'Collapse AI menu')
+        self._ai_expand_btn.clicked.connect(self._toggle_ai_group)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 8, 0)
+        row.setSpacing(4)
+        row.addWidget(header, 1)
+        row.addWidget(self._ai_expand_btn, 0)
+        wrapper = QWidget()
+        wrapper.setObjectName('ai-header-row')
+        wrapper.setLayout(row)
+        self._nav_layout.addWidget(wrapper)
+
+        self._ai_subnav_container = QFrame()
+        self._ai_subnav_container.setObjectName('sql-subnav')
+        self._ai_subnav_container.setVisible(self._ai_expanded)
+        sub_l = QVBoxLayout(self._ai_subnav_container)
+        sub_l.setContentsMargins(20, 2, 8, 4)
+        sub_l.setSpacing(1)
+        self._ai_subnav_layout = sub_l
+        self._nav_layout.addWidget(self._ai_subnav_container)
+        # 子项：聊天(16)、工作(17)
+        for nav_index, icon_role in ((AI_CHAT_NAV, 'chat'), (AI_WORKBENCH_NAV, 'workbench')):
+            btn = QPushButton()
+            btn.setObjectName('nav-sub-item')
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty('navIndex', nav_index)
+            apply_icon(btn, icon_role, size=16)
+            btn.clicked.connect(lambda checked=False, ni=nav_index: self._show_panel(ni))
+            self._ai_subnav_layout.addWidget(btn)
+            self.nav_buttons[nav_index] = btn
+            self._ai_subnav_buttons[nav_index] = btn
 
     def _toggle_sql_console(self):
         """展开/折叠 SQL 控制台数据库子菜单。"""
@@ -763,18 +830,41 @@ class MainWindow(QMainWindow):
             self._sql_subnav_container.setVisible(self._sql_console_expanded)
         self._sql_expand_btn.setChecked(self._sql_console_expanded)
         zh = self.language == 'zh'
-        if self._sql_console_expanded:
-            apply_icon(self._sql_expand_btn, 'collapse', size=10)
-            self._sql_expand_btn.setToolTip('收起数据库列表' if zh else 'Collapse DB list')
-        else:
-            apply_icon(self._sql_expand_btn, 'expand', size=10)
-            self._sql_expand_btn.setToolTip('展开数据库列表' if zh else 'Expand DB list')
+        apply_icon(self._sql_expand_btn, 'collapse' if self._sql_console_expanded else 'expand', size=10)
+        self._sql_expand_btn.setToolTip(
+            '收起数据库列表' if zh and self._sql_console_expanded else
+            '展开数据库列表' if zh else
+            'Collapse DB list' if self._sql_console_expanded else 'Expand DB list'
+        )
+        self._persist_sidebar_expand()
+
+    def _toggle_ai_group(self):
+        """展开/折叠模型子菜单（聊天/工作）。"""
+        self._ai_expanded = not self._ai_expanded
+        if self._ai_subnav_container:
+            self._ai_subnav_container.setVisible(self._ai_expanded)
+        self._ai_expand_btn.setChecked(self._ai_expanded)
+        zh = self.language == 'zh'
+        apply_icon(self._ai_expand_btn, 'collapse' if self._ai_expanded else 'expand', size=10)
+        self._ai_expand_btn.setToolTip(
+            '收起模型子菜单' if zh and self._ai_expanded else
+            '展开模型子菜单' if zh else
+            'Collapse AI menu' if self._ai_expanded else 'Expand AI menu'
+        )
+        self._persist_sidebar_expand()
+
+    def _persist_sidebar_expand(self):
+        """持久化 SQL 控制台 / 模型两组折叠状态。"""
+        try:
+            self._settings['sidebar_expanded_sql'] = bool(self._sql_console_expanded)
+            self._settings['sidebar_expanded_ai'] = bool(self._ai_expanded)
+            from config import save_settings
+            self._settings = save_settings(self._settings)
+        except Exception:
+            pass
 
     def _rebuild_sql_console_subnav(self):
-        """根据 connections.json 重建数据库子菜单。"""
-        from tools.db_connect import load_connections
-
-        # 清空旧子项
+        """重建 SQL 控制台数据库子菜单（固定 6 面板，v3.0）。"""
         if self._sql_subnav_layout is None:
             return
         while self._sql_subnav_layout.count():
@@ -784,119 +874,74 @@ class MainWindow(QMainWindow):
                 child.widget().deleteLater()
         self._sql_subnav_buttons.clear()
         self._db_subnav_indices.clear()
-
-        rows = load_connections()
-        self._db_connections_cache = rows
-        if not rows:
-            # 无连接 → 显示内置类型占位
-            for label, dialect in BUILTIN_DB_TYPES:
-                btn = QPushButton()
-                btn.setObjectName('nav-sub-item')
-                btn.setCheckable(True)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setProperty('dbDialect', dialect)
-                btn.setProperty('dbPlaceholder', True)
-                apply_icon(btn, 'database', size=16)
-                self._sql_subnav_layout.addWidget(btn)
-                btn.clicked.connect(lambda checked=False, d=dialect: self._on_db_placeholder_clicked(d))
-        else:
-            for i, conn in enumerate(rows):
-                nav_index = db_nav_index_from_slot(i)
-                label = str(conn.get('name') or conn.get('id') or '未命名')
-                btn = QPushButton()
-                btn.setObjectName('nav-sub-item')
-                btn.setCheckable(True)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setProperty('navIndex', nav_index)
-                btn.setProperty('dbIndex', i)
-                apply_icon(btn, 'database', size=16)
-                btn.clicked.connect(lambda checked=False, ni=nav_index: self._show_panel(ni))
-                self._sql_subnav_layout.addWidget(btn)
-                self.nav_buttons[nav_index] = btn
-                self._sql_subnav_buttons[i] = btn
-                self._db_subnav_indices.append(nav_index)
-        # 底部"新建连接"按钮
-        self._sql_subnav_layout.addSpacing(4)
-        add_btn = QPushButton()
-        add_btn.setObjectName('nav-sub-item')
-        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        apply_icon(add_btn, 'add', size=16)
-        add_btn.clicked.connect(self._on_new_connection_from_subnav)
-        self._sql_subnav_layout.addWidget(add_btn)
-
-    def _on_db_placeholder_clicked(self, dialect: str):
-        """点击内置占位条目 → 打开新建连接对话框并预填 dialect。"""
-        from panels.ai_workbench_panel import _ConnectionDialog
-        dlg = _ConnectionDialog(self.language, item={'dialect': dialect})
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            from tools.db_connect import upsert_connection
-            item, password = dlg.payload()
-            upsert_connection(item, password)
-            self._rebuild_sql_console_subnav()
-            self._refresh_nav_texts_db()
-            # 导航到新连接的第一个面板
-            if self._db_subnav_indices:
-                self._show_panel(self._db_subnav_indices[0])
-
-    def _on_new_connection_from_subnav(self):
-        """侧栏新建连接按钮 → 弹出空连接对话框。"""
-        from panels.ai_workbench_panel import _ConnectionDialog
-        dlg = _ConnectionDialog(self.language)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            from tools.db_connect import upsert_connection
-            item, password = dlg.payload()
-            upsert_connection(item, password)
-            self._rebuild_sql_console_subnav()
-            self._refresh_nav_texts_db()
+        for name_zh, dialect, nav_index, icon_role in FIXED_DB_PAGES:
+            btn = QPushButton()
+            btn.setObjectName('nav-sub-item')
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty('navIndex', nav_index)
+            btn.setProperty('dbDialect', dialect)
+            apply_icon(btn, icon_role, size=16)
+            btn.clicked.connect(lambda checked=False, ni=nav_index: self._show_panel(ni))
+            self._sql_subnav_layout.addWidget(btn)
+            self.nav_buttons[nav_index] = btn
+            self._sql_subnav_buttons[nav_index] = btn
+            self._db_subnav_indices.append(nav_index)
+        self._refresh_nav_texts_db()
 
     def _refresh_nav_texts_db(self):
         """刷新侧栏 DB 子菜单的文案和图标（语言切换时）。"""
         if self._nav_icon_only:
             return
-        rows = self._db_connections_cache or []
-        for i, conn in enumerate(rows):
-            nav_index = db_nav_index_from_slot(i)
-            btn = self._sql_subnav_buttons.get(i) or self.nav_buttons[nav_index]
-            if btn is None:
-                continue
-            label = str(conn.get('name') or conn.get('id') or '未命名')
-            btn.setText(label)
-        # 更新底部新建连接按钮
         zh = self.language == 'zh'
-        if self._sql_subnav_layout and self._sql_subnav_layout.count() > 0:
-            last = self._sql_subnav_layout.itemAt(self._sql_subnav_layout.count() - 1)
-            if last and last.widget():
-                last.widget().setText('新建连接' if zh else 'New connection')
-        # 更新展开/折叠按钮
-        if self._sql_expand_btn:
-            self._sql_expand_btn.setToolTip(
-                '收起数据库列表' if zh and self._sql_console_expanded else
-                '展开数据库列表' if zh else
-                'Collapse DB list' if self._sql_console_expanded else 'Expand DB list'
-            )
+        for name_zh, dialect, nav_index, icon_role in FIXED_DB_PAGES:
+            btn = self._sql_subnav_buttons.get(nav_index)
+            if btn is not None:
+                btn.setText(name_zh)
+        # 模型子菜单文案
+        if hasattr(self, '_ai_subnav_buttons'):
+            chat_btn = self._ai_subnav_buttons.get(AI_CHAT_NAV)
+            if chat_btn is not None:
+                chat_btn.setText('聊天' if zh else 'Chat')
+            work_btn = self._ai_subnav_buttons.get(AI_WORKBENCH_NAV)
+            if work_btn is not None:
+                work_btn.setText('工作' if zh else 'Work')
 
     def _active_db_context(self) -> dict | None:
         """返回当前活跃的数据库连接上下文（供模型对话面板感知）。"""
         current = getattr(self, '_current_nav_index', None)
         if current is not None and nav_is_db_slot(current):
-            slot = resolve_db_slot_index(current)
-            rows = self._db_connections_cache or []
-            if 0 <= slot < len(rows):
-                return dict(rows[slot])
+            panel = self._ensure_db_panel(current)
+            if panel is not None and hasattr(panel, '_current_conn'):
+                try:
+                    ctx = panel._current_conn()
+                    return dict(ctx) if isinstance(ctx, dict) else None
+                except Exception:
+                    return None
         return None
 
     def _ensure_db_panel(self, nav_index: int):
-        """确保 DB 子菜单对应的 AiWorkbenchPanel 已创建。"""
+        """确保六数据库面板按 dialect 创建（Oracle/MySQL/OceanBase/达梦复用 AiWorkbenchPanel）。"""
         slot = resolve_db_slot_index(nav_index)
         stack_index = STACK_DB_START + slot
+        if stack_index >= len(_STACK_PANEL_ATTRS):
+            return None
         attr = _STACK_PANEL_ATTRS[stack_index]
         panel = getattr(self, attr, None)
         if panel is not None:
             return panel
-        rows = self._db_connections_cache or []
-        conn_id = rows[slot]['id'] if slot < len(rows) else ''
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel(self.language, connection_id=conn_id)
+        dialect = dialect_for_nav(nav_index)
+        if dialect in ('oracle', 'mysql', 'oceanbase', 'dameng'):
+            from panels.ai_workbench_panel import AiWorkbenchPanel
+            panel = AiWorkbenchPanel(self.language, dialect=dialect)
+        elif dialect == 'redis':
+            from panels.db_redis_panel import RedisWorkbenchPanel
+            panel = RedisWorkbenchPanel(self.language)
+        elif dialect == 'mongodb':
+            from panels.db_mongodb_panel import MongoDBWorkbenchPanel
+            panel = MongoDBWorkbenchPanel(self.language)
+        else:
+            return None
         self._mount_panel(stack_index, panel)
         setattr(self, attr, panel)
         self._apply_panel_chrome(panel)
@@ -1102,7 +1147,7 @@ class MainWindow(QMainWindow):
             self.vin_panel, self.gateway_panel, self.ops_panel,
             self.settings_panel, self.personal_panel, self.requirement_panel,
             self.format_panel, self.interface_debug_panel, self.ops_log_panel,
-            self.ai_workbench_panel, self.model_chat_panel,
+            self.model_chat_panel, self.agent_workbench_panel,
         ):
             if panel is not None:
                 yield panel
@@ -1137,23 +1182,23 @@ class MainWindow(QMainWindow):
         self._apply_panel_chrome(panel)
         return panel
 
-    def _ensure_ai_workbench_panel(self):
-        if self.ai_workbench_panel is not None:
-            return self.ai_workbench_panel
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel(self.language)
-        self._mount_panel(13, panel)
-        self.ai_workbench_panel = panel
-        self._apply_panel_chrome(panel)
-        return panel
-
     def _ensure_model_chat_panel(self):
         if self.model_chat_panel is not None:
             return self.model_chat_panel
         from panels.model_chat_panel import ModelChatPanel
         panel = ModelChatPanel(self.language)
-        self._mount_panel(14, panel)
+        self._mount_panel(13, panel)
         self.model_chat_panel = panel
+        self._apply_panel_chrome(panel)
+        return panel
+
+    def _ensure_agent_workbench_panel(self):
+        if self.agent_workbench_panel is not None:
+            return self.agent_workbench_panel
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        panel = AgentWorkbenchPanel(self.language)
+        self._mount_panel(14, panel)
+        self.agent_workbench_panel = panel
         self._apply_panel_chrome(panel)
         return panel
 
@@ -1167,7 +1212,11 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _stack_index_for_nav(index: int) -> int:
-        """nav index → stack index。0–10 历史含义不变；11→10；12→11；13→12。"""
+        """nav index → stack index。
+
+        v3.0：0–13 历史含义不变；16=聊天→13；17=工作→14；18–23 六数据库面板→15–20。
+        14(SQL控制台)/15(模型) 为父级，不映射 stack。
+        """
         if index in (8, 9):
             return 8  # personal
         if index == 10:
@@ -1178,16 +1227,23 @@ class MainWindow(QMainWindow):
             return 11  # interface debug
         if index == 13:
             return 12  # ops log inspect
-        if index == 14:
-            return 13  # SQL console
-        if index == 15:
-            return 14  # model chat
+        if index == 16:
+            return 13  # model chat (聊天)
+        if index == 17:
+            return 14  # agent workbench (工作)
         if nav_is_db_slot(index):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
+            return
+        # 父级导航（SQL 控制台 / 模型）：不切换页面，仅展开/折叠子菜单
+        if is_parent_nav(index):
+            if index == SQL_CONSOLE_NAV:
+                self._toggle_sql_console()
+            elif index == AI_PARENT_NAV:
+                self._toggle_ai_group()
             return
         prev = getattr(self, '_current_nav_index', None)
         # 离开接口排查：暂停系统代理，避免其它模块/外网操作全超时
@@ -1242,12 +1298,10 @@ class MainWindow(QMainWindow):
         for position, button in enumerate(self.nav_buttons):
             if button is None:
                 continue
-            if is_db:
-                # DB 子菜单：只点亮对应的 DB 子项按钮，取消所有其他按钮（包括 SQL 控制台 header）
-                button.setChecked(position == index)
-            else:
-                # 普通导航：点亮对应按钮，同时取消所有 DB 子项按钮
-                button.setChecked(position == index)
+            # 父级 header 不参与选中态（SQL 控制台 header 保持未选中）
+            if position in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+                continue
+            button.setChecked(position == index)
         statuses_zh = {
             0: '离线工作台已就绪', 1: '个人与单位证件模拟生成', 2: 'SQL 脚本整理、回滚与验证',
             3: 'SQL 驱动接口文档更新', 4: '中国车辆 VIN 测试数据', 5: '网关国密解密 · JSON 结果',
@@ -1256,8 +1310,14 @@ class MainWindow(QMainWindow):
             11: 'JSON / XML / SQL / 文本辅助离线格式化',
             12: '接口排查 · 抓包中会占用系统代理，离开本页自动暂停代理',
             13: '日志排查 · SSH 会话 / 多机日志导出',
-            14: 'SQL 控制台 · 多标签编辑与结构快照',
-            15: '模型对话 · 内网多模型连续聊天',
+            16: '模型聊天 · 内网多模型连续对话',
+            17: 'Agent 工作台 · 绑定项目目录执行受控任务',
+            18: 'Oracle 工作台 · SQL 编辑、对象树与结构快照',
+            19: 'MySQL 工作台 · 库表浏览与 SQL 编辑',
+            20: 'OceanBase 工作台 · SQL 编辑与分区表浏览',
+            21: '达梦工作台 · 模式浏览与 SQL 编辑',
+            22: 'Redis 工作台 · Key 树、TTL 管理与命令行',
+            23: 'MongoDB 工作台 · 集合树、文档浏览器与 Shell',
         }
         statuses_en = {
             0: 'Offline workspace ready', 1: 'Personal and unit document test data',
@@ -1270,24 +1330,17 @@ class MainWindow(QMainWindow):
             11: 'Offline JSON / XML / SQL / text helpers',
             12: 'API debug · system proxy paused when you leave this page',
             13: 'Log inspect · SSH session / multi-host export',
-            14: 'SQL console · multi-tab editor and schema snapshot',
-            15: 'Model chat · intranet multi-model conversation',
+            16: 'Model chat · intranet multi-model conversation',
+            17: 'Agent workbench · bind project dir and run controlled tasks',
+            18: 'Oracle workbench · SQL editor, object tree, snapshot',
+            19: 'MySQL workbench · schema tree and SQL editor',
+            20: 'OceanBase workbench · SQL editor and partition view',
+            21: 'Dameng workbench · schema tree and SQL editor',
+            22: 'Redis workbench · key tree, TTL and CLI',
+            23: 'MongoDB workbench · collections, documents and shell',
         }
-        if is_db:
-            rows = self._db_connections_cache or []
-            slot = resolve_db_slot_index(index)
-            if 0 <= slot < len(rows):
-                conn = rows[slot]
-                name = str(conn.get('name') or conn.get('id') or '未命名')
-                dialect = str(conn.get('dialect') or '').upper()
-                zh = self.language == 'zh'
-                self.status_bar.showMessage(f'SQL 控制台 · {name}（{dialect}）' if zh else f'SQL Console · {name} ({dialect})')
-            else:
-                table = statuses_zh if self.language == 'zh' else statuses_en
-                self.status_bar.showMessage(table.get(14, ''))
-        else:
-            table = statuses_zh if self.language == 'zh' else statuses_en
-            self.status_bar.showMessage(table.get(index, ''))
+        table = statuses_zh if self.language == 'zh' else statuses_en
+        self.status_bar.showMessage(table.get(index, ''))
 
     def _open_format_xml(self, text: str):
         self._show_panel(11)

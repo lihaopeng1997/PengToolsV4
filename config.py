@@ -89,6 +89,9 @@ DEFAULT_SETTINGS = {
     'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）
     'ui_density': 'compact',  # compact | comfortable
     'sidebar_collapsed': False,
+    # 侧栏两组可折叠子菜单（SQL 控制台 / 模型）的展开状态持久化
+    'sidebar_expanded_sql': True,
+    'sidebar_expanded_ai': True,
     'floating_opacity': 96,
     'floating_always_on_top': True,
     'floating_show_on_startup': True,
@@ -216,6 +219,8 @@ def normalize_settings(settings):
         result['sidebar_collapsed'] = sidebar_value.strip().lower() in ('1', 'true', 'yes', 'on')
     else:
         result['sidebar_collapsed'] = bool(sidebar_value)
+    result['sidebar_expanded_sql'] = bool(result.get('sidebar_expanded_sql', True))
+    result['sidebar_expanded_ai'] = bool(result.get('sidebar_expanded_ai', True))
     result['close_ask_each_time'] = bool(result['close_ask_each_time'])
     result['close_default_action'] = (
         'exit' if result['close_default_action'] == 'exit' else 'minimize'

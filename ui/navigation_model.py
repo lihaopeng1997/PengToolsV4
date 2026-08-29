@@ -3,6 +3,34 @@
 
 MainWindow 侧栏、QuickPanel 悬浮快捷与设置页编辑器必须从本模块读取，
 避免三套模块名与图标映射分叉。
+
+v3.0 导航索引分配：
+    0   首页        (DashboardPanel)
+    1   证件类型     (CreditCodePanel)
+    2   发版联动     (SqlToolPanel)
+    3   接口文档更新  (DocxUpdatePanel)
+    4   车辆 VIN    (VinPanel)
+    5   加解密       (GatewayDecodePanel)
+    6   命令库       (OpsPanel)
+    7   设置         (SettingsPanel) — 左侧底部
+    8   自我学习     (PersonalPanel)
+    9   日报         (PersonalPanel, stack reuse)
+    10  需求管理     (RequirementPanel)
+    11  格式工具     (FormatToolsPanel)
+    12  接口排查     (InterfaceDebugPanel)
+    13  日志排查     (OpsLogPanel)
+
+    ── 以下为 v3.0 重构区域 ──
+    14  SQL 控制台   (父级，仅折叠/展开，不打开页面)
+    15  模型         (父级，仅折叠/展开，不打开页面)
+    16  聊天         (ModelChatPanel)
+    17  工作         (AgentWorkbenchPanel)
+    18  Oracle       (OracleWorkbenchPanel)
+    19  MySQL        (MySQLWorkbenchPanel)
+    20  OceanBase    (OceanBaseWorkbenchPanel)
+    21  达梦         (DamengWorkbenchPanel)
+    22  Redis        (RedisWorkbenchPanel)
+    23  MongoDB      (MongoDBWorkbenchPanel)
 """
 
 from __future__ import annotations
@@ -15,11 +43,14 @@ MAX_FLOATING_SHORTCUTS = 6
 
 # 视觉导航顺序（stack_index 仍按历史映射，不依赖数组下标当导航顺序）
 # (group_key, [(nav_index, name_zh, name_en, icon_role), ...])
+# 14 = SQL 控制台父级，15 = 模型父级（子项由 MainWindow 侧栏折叠组渲染）
 NAV_MODEL = [
     ('workspace', [
         (0, '首页', 'Home', 'home'),
         (14, 'SQL 控制台', 'SQL Console', 'database'),
-        (15, '模型对话', 'Model Chat', 'chat'),
+    ]),
+    ('ai', [
+        (15, '模型', 'AI', 'chat'),
     ]),
     ('delivery', [
         (10, '需求管理', 'Requirements', 'requirements'),
@@ -45,11 +76,40 @@ NAV_MODEL = [
 
 GROUP_LABELS = {
     'workspace': ('工作台', 'WORKSPACE'),
+    'ai': ('智能助手', 'AI ASSISTANT'),
     'delivery': ('交付管理', 'DELIVERY'),
     'ops': ('运维工作台', 'OPERATIONS'),
     'devtools': ('开发工具', 'DEV TOOLS'),
     'personal': ('个人效率', 'PERSONAL'),
 }
+
+# ---------------------------------------------------------------------------
+# v3.0 导航索引常量（SQL 控制台 / 模型 两组可折叠子菜单）
+# ---------------------------------------------------------------------------
+SQL_CONSOLE_NAV = 14          # SQL 控制台父级（仅折叠/展开）
+AI_PARENT_NAV = 15            # 模型父级（仅折叠/展开）
+AI_CHAT_NAV = 16              # 聊天
+AI_WORKBENCH_NAV = 17         # 工作
+
+SQL_DB_NAV_START = 18         # 第一个数据库面板索引（Oracle）
+SQL_DB_NAV_MAX = 24           # MongoDB + 1
+
+# 六数据库面板固定定义：(name_zh, dialect, nav_index, icon_role)
+FIXED_DB_PAGES = [
+    ('Oracle', 'oracle', 18, 'database'),
+    ('MySQL', 'mysql', 19, 'database'),
+    ('OceanBase', 'oceanbase', 20, 'database'),
+    ('达梦', 'dameng', 21, 'database'),
+    ('Redis', 'redis', 22, 'database'),
+    ('MongoDB', 'mongodb', 23, 'database'),
+]
+
+# dialect → nav index（供运行时按方言定位面板）
+DIALECT_NAV_INDEX = {page[1]: page[2] for page in FIXED_DB_PAGES}
+
+# 兼容旧命名：动态槽位机制已废弃（v3.0 改为固定六面板）
+DB_NAV_START = SQL_DB_NAV_START
+DB_NAV_MAX = SQL_DB_NAV_MAX
 
 
 @dataclass(frozen=True)
@@ -81,12 +141,20 @@ def _build_items() -> dict[int, NavItem]:
         11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
         12: ('多浏览器接口实时排查与本机请求测试', 'Multi-browser API capture and local request test'),
         13: ('SSH 多机并行日志关键字截取与本地导出', 'SSH multi-host log keyword extract and local export'),
-        14: ('SQL 控制台：连接、结构快照与多标签编辑', 'SQL console with schema snapshot and multi-tab editor'),
-        15: ('内网模型连续对话与配置验证', 'Intranet model chat and config verification'),
+        14: ('SQL 控制台：Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB', 'SQL console for six database engines'),
+        15: ('模型：内网模型聊天与 Agent 工作台', 'AI: intranet model chat and agent workbench'),
+        16: ('内网模型连续对话与配置验证', 'Intranet model chat and config verification'),
+        17: ('Agent 工作台：绑定项目目录执行受控任务', 'Agent workbench: bind project dir and run tasks'),
+        18: ('Oracle 工作台：SQL 编辑、对象树与结构快照', 'Oracle workbench: SQL editor, object tree, snapshot'),
+        19: ('MySQL 工作台：库表浏览与 SQL 编辑', 'MySQL workbench: schema tree and SQL editor'),
+        20: ('OceanBase 工作台：SQL 编辑与分区表浏览', 'OceanBase workbench: SQL editor and partition view'),
+        21: ('达梦工作台：模式浏览与 SQL 编辑', 'Dameng workbench: schema tree and SQL editor'),
+        22: ('Redis 工作台：Key 树浏览、TTL 管理与命令行', 'Redis workbench: key tree, TTL and CLI'),
+        23: ('MongoDB 工作台：集合树、文档浏览器与 Shell', 'MongoDB workbench: collections, documents and shell'),
     }
     # 首页固定为底部入口；设置不进悬浮快捷位
-    # 11 = 格式工具；12 = 接口排查；13 = 日志排查（不改 0–10 历史含义）
-    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15}
+    # 16=聊天、17=工作 可进悬浮；父级 14/15 不进
+    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 17}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
         for nav_index, name_zh, name_en, icon_role in entries:
@@ -102,6 +170,25 @@ def _build_items() -> dict[int, NavItem]:
                 tooltip_zh=tip[0],
                 tooltip_en=tip[1],
             )
+    # 聊天 / 工作 两个子项（挂在"模型"父级下）
+    items[16] = NavItem(
+        index=16, name_zh='聊天', name_en='Chat', icon_role='chat',
+        group_key='ai', floating_eligible=True, requires_easter_egg=False,
+        tooltip_zh=tooltips[16][0], tooltip_en=tooltips[16][1],
+    )
+    items[17] = NavItem(
+        index=17, name_zh='工作', name_en='Work', icon_role='workbench',
+        group_key='ai', floating_eligible=True, requires_easter_egg=False,
+        tooltip_zh=tooltips[17][0], tooltip_en=tooltips[17][1],
+    )
+    # 六数据库面板
+    for name_zh, dialect, nav_index, icon_role in FIXED_DB_PAGES:
+        items[nav_index] = NavItem(
+            index=nav_index, name_zh=name_zh, name_en=name_zh,
+            icon_role=icon_role, group_key='sql_console_db',
+            floating_eligible=False, requires_easter_egg=False,
+            tooltip_zh=tooltips[nav_index][0], tooltip_en=tooltips[nav_index][1],
+        )
     # 设置在侧栏底部，不进 NAV_MODEL 分组列表，但导航索引仍有效
     items[7] = NavItem(
         index=7,
@@ -119,71 +206,46 @@ def _build_items() -> dict[int, NavItem]:
 
 NAV_ITEMS: dict[int, NavItem] = _build_items()
 
-# 编辑列表展示顺序（不含首页、设置）
-FLOATING_EDIT_ORDER = [14, 15, 10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
+# 编辑列表展示顺序（不含首页、设置、父级 14/15）
+FLOATING_EDIT_ORDER = [16, 17, 10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
 
 # ---------------------------------------------------------------------------
-# SQL 控制台 — 数据库子菜单（侧栏动态子项）
+# 导航索引工具函数
 # ---------------------------------------------------------------------------
-SQL_CONSOLE_NAV = 14          # 父级导航索引（SQL 控制台）
-DB_NAV_START = 16             # 第一个动态数据库子菜单索引
-DB_NAV_MAX = 48               # 上限（最多 32 个数据库连接）
-
-# 内置数据库类型（无实际连接时的默认占位条目）
-BUILTIN_DB_TYPES = [
-    ('Oracle', 'oracle'),
-    ('MySQL', 'mysql'),
-    ('OceanBase', 'oceanbase'),
-    ('Dameng', 'dameng'),
-    ('Redis', 'redis'),
-    ('MongoDB', 'mongodb'),
-]
 
 def nav_is_db_slot(index: int) -> bool:
-    """判断导航索引是否属于数据库子菜单槽位。"""
-    return DB_NAV_START <= index < DB_NAV_MAX
+    """判断导航索引是否属于六数据库面板（v3.0：18–23 固定）。"""
+    return SQL_DB_NAV_START <= index < SQL_DB_NAV_MAX
+
 
 def resolve_db_slot_index(index: int) -> int:
-    """将 DB 导航索引 (16+) 转成槽位偏移（0-based）。"""
-    return index - DB_NAV_START
+    """将 DB 导航索引 (18+) 转成槽位偏移（0-based，0=Oracle … 5=MongoDB）。"""
+    return index - SQL_DB_NAV_START
+
 
 def db_nav_index_from_slot(slot: int) -> int:
     """将槽位偏移（0-based）转成 DB 导航索引。"""
-    return DB_NAV_START + slot
+    return SQL_DB_NAV_START + slot
 
-def make_db_nav_item(conn: dict, slot: int) -> NavItem:
-    """从连接配置 dict 构造数据库子菜单 NavItem。"""
-    nav_index = db_nav_index_from_slot(slot)
-    label = str(conn.get('name') or conn.get('id') or '未命名')
-    dialect = str(conn.get('dialect') or 'unknown').lower()
-    icon_map = {
-        'oracle': 'database',
-        'mysql': 'database',
-        'oceanbase': 'database',
-        'dameng': 'database',
-        'redis': 'database',
-        'mongodb': 'database',
-    }
-    return NavItem(
-        index=nav_index,
-        name_zh=label,
-        name_en=label,
-        icon_role=icon_map.get(dialect, 'database'),
-        group_key='sql_console_db',
-        floating_eligible=False,
-        requires_easter_egg=False,
-        tooltip_zh=f'{label}（{dialect.upper()}）',
-        tooltip_en=f'{label} ({dialect.upper()})',
-    )
 
-def get_db_nav_item(index: int, connections: list[dict] | None = None) -> NavItem | None:
-    """按导航索引返回数据库子菜单 NavItem（运行时按连接列表动态解析）。"""
+def dialect_for_nav(index: int) -> str:
+    """返回导航索引对应的数据库方言（非 DB 索引返回空串）。"""
     if not nav_is_db_slot(index):
-        return None
+        return ''
     slot = resolve_db_slot_index(index)
-    if connections is not None and 0 <= slot < len(connections):
-        return make_db_nav_item(connections[slot], slot)
-    return None
+    if 0 <= slot < len(FIXED_DB_PAGES):
+        return FIXED_DB_PAGES[slot][1]
+    return ''
+
+
+def nav_for_dialect(dialect: str) -> int:
+    """返回方言对应的导航索引（未知方言返回 SQL_DB_NAV_START）。"""
+    return DIALECT_NAV_INDEX.get(str(dialect or '').lower(), SQL_DB_NAV_START)
+
+
+def is_parent_nav(index: int) -> bool:
+    """判断是否为父级折叠组索引（SQL 控制台 / 模型）。"""
+    return index in (SQL_CONSOLE_NAV, AI_PARENT_NAV)
 
 
 def get_nav_item(index: int) -> NavItem | None:
@@ -192,7 +254,9 @@ def get_nav_item(index: int) -> NavItem | None:
 
 def display_name(index: int, language: str = 'zh') -> str:
     if nav_is_db_slot(index):
-        return f'数据库 {resolve_db_slot_index(index) + 1}'
+        slot = resolve_db_slot_index(index)
+        if 0 <= slot < len(FIXED_DB_PAGES):
+            return FIXED_DB_PAGES[slot][0]
     item = get_nav_item(index)
     if item is None:
         return str(index)
@@ -200,8 +264,6 @@ def display_name(index: int, language: str = 'zh') -> str:
 
 
 def display_tooltip(index: int, language: str = 'zh') -> str:
-    if nav_is_db_slot(index):
-        return f'数据库连接 {resolve_db_slot_index(index) + 1}'
     item = get_nav_item(index)
     if item is None:
         return ''
@@ -209,8 +271,6 @@ def display_tooltip(index: int, language: str = 'zh') -> str:
 
 
 def icon_role_for(index: int) -> str:
-    if nav_is_db_slot(index):
-        return 'database'
     item = get_nav_item(index)
     return item.icon_role if item else 'home'
 

@@ -9,6 +9,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from panels.ai_workbench_panel import compose_nl_query
+from tools.db_redis_ops import build_key_tree, filter_keys_by_pattern
 from tools.sql_guard import classify_statement, is_read_query, redact_error, reject_reason, split_sql_statements, statement_at_cursor
 from ui.navigation_model import NAV_ITEMS, display_name
 
@@ -47,8 +48,14 @@ class SqlGuardTests(unittest.TestCase):
     def test_nav_14_is_sql_console(self):
         self.assertEqual(display_name(14, 'zh'), 'SQL 控制台')
         self.assertIn(14, NAV_ITEMS)
-        self.assertEqual(display_name(15, 'zh'), '模型对话')
+        # v3.0：15 为"模型"父级，16=聊天，17=工作，18–23 六数据库面板
+        self.assertEqual(display_name(15, 'zh'), '模型')
         self.assertIn(15, NAV_ITEMS)
+        self.assertEqual(display_name(16, 'zh'), '聊天')
+        self.assertEqual(display_name(17, 'zh'), '工作')
+        self.assertEqual(display_name(18, 'zh'), 'Oracle')
+        self.assertEqual(display_name(22, 'zh'), 'Redis')
+        self.assertEqual(display_name(23, 'zh'), 'MongoDB')
 
     def test_split_ignores_semicolon_in_strings_and_comments(self):
         parts = split_sql_statements("SELECT 'a;b' FROM dual; -- x;y\nSELECT 2 FROM dual")
@@ -79,6 +86,49 @@ class SqlGuardTests(unittest.TestCase):
         self.assertNotIn('secret', text)
         self.assertNotIn('abc', text)
         self.assertIn('***', text)
+
+    def test_build_key_tree_key_folder_name_collision(self):
+        """key 与文件夹同名（a:b 与 a:b:c 共存）时，key 节点不得被复用为文件夹。"""
+        tree = build_key_tree(['a:b', 'a:b:c'])
+        keys = []
+
+        def walk(nodes):
+            for n in nodes:
+                if not n.get('is_folder'):
+                    keys.append((n['name'], n['full']))
+                walk(n.get('children', []))
+
+        walk(tree)
+        self.assertIn(('b', 'a:b'), keys)      # 独立 key 节点 b（完整名 a:b）
+        self.assertIn(('c', 'a:b:c'), keys)    # 文件夹 a:b 下的子 key
+        self.assertEqual(len(keys), 2)          # 不产生多余/缺失节点
+
+    def test_build_key_tree_same_name_folder_and_key_distinct(self):
+        """device:001 与 device:001:status 共存：001 既是 key 也是文件夹，二者独立显示。"""
+        tree = build_key_tree(['device:001', 'device:001:status', 'device:002:status'])
+        self.assertEqual(tree[0]['name'], 'device')
+        self.assertTrue(tree[0]['is_folder'])
+        children = tree[0]['children']
+        names = [c['name'] for c in children]
+        self.assertIn('001', names)             # key 001
+        self.assertIn('002', names)             # 文件夹 002:
+        # 001 作为 key 节点必须无子节点（不被复用为文件夹）
+        for c in children:
+            if c['name'] == '001' and not c['is_folder']:
+                self.assertEqual(c['children'], [])
+                self.assertEqual(c['full'], 'device:001')
+        # 001 作为文件夹必须含 status
+        for c in children:
+            if c['name'] == '001' and c['is_folder']:
+                child_names = [cc['name'] for cc in c['children']]
+                self.assertIn('status', child_names)
+
+    def test_build_key_tree_flat_and_filter(self):
+        tree = build_key_tree(['foo', 'bar'])
+        self.assertEqual(len(tree), 2)
+        self.assertTrue(all(not c['is_folder'] for c in tree))
+        self.assertEqual(filter_keys_by_pattern(['user:1', 'user:2', 'order:1'], 'user:*'), ['user:1', 'user:2'])
+        self.assertEqual(filter_keys_by_pattern(['user:1'], 'order:*'), [])
 
 
 if __name__ == '__main__':
