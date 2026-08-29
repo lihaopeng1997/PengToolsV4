@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self._layout_mode = 'standard'
         self._nav_icon_only = False
         self._nav_collapsed = bool(self._settings.get('sidebar_collapsed', False))
-        self.setWindowTitle(f'{APP_NAME} {app_version_text()}')
+        self.setWindowTitle(APP_NAME)  # V2：标题不再带版本/版本文案
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
         self._center_on_screen()
@@ -157,13 +157,13 @@ class MainWindow(QMainWindow):
         self._ops_log_host = self._panel_hosts[12]
         self._ops_log_host_layout = self._panel_host_layouts[12]
 
-        # ── V2 Web 首页：Stack[0] 顶层放 Web 版，原生首页面板隐藏保底（信号对象仍可用）──
+        # ── V2 Web 首页视图（不挂 Stack，等原生首页 mount 时合成 holder 页）──
         if self._web_shell_enabled:
             self._dash_bridge = _web_shell.HomeBridge(self)
             self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
             self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
-            self._panel_host_layouts[0].insertWidget(0, self._dash_web)
+            self._dash_holder = None
 
         self._content_layout.addWidget(self.stack, 1)
         layout.addWidget(content, 1)
@@ -251,9 +251,18 @@ class MainWindow(QMainWindow):
             panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(panel, 'open_requirement'):
             panel.open_requirement.connect(self._open_requirement_from_dashboard)
-        self._mount_panel(0, panel)
         if getattr(self, '_web_shell_enabled', False) and getattr(self, '_dash_web', None) is not None:
-            panel.setVisible(False)
+            # Stack[0] = holder：0=V2 Web 首页  1=原生首页（加载失败/关闭 web 壳时回退显示）
+            from PyQt6.QtWidgets import QStackedWidget as _QSW
+            self._dash_holder = _QSW()
+            self._dash_holder.addWidget(self._dash_web)
+            self._dash_holder.addWidget(panel)
+            self._dash_holder.setCurrentIndex(0)
+            self._mount_panel(0, self._dash_holder)
+            for _v in self._dash_web.findChildren(__import__('PyQt6.QtWebEngineWidgets', fromlist=['QWebEngineView']).QWebEngineView):
+                _v.loadFinished.connect(lambda ok: ok is False and self._disable_web_shell_live())
+        else:
+            self._mount_panel(0, panel)
         self.dashboard_panel = panel
         self._apply_panel_chrome(panel)
         return panel
@@ -1264,6 +1273,22 @@ class MainWindow(QMainWindow):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
+    def _disable_web_shell_live(self):
+        """Web 层加载失败时整壳回退原生侧栏与原生首页（不重启、不空白）。"""
+        if not getattr(self, '_web_shell_enabled', False):
+            return
+        self._web_shell_enabled = False
+        try:
+            self.status_bar.showMessage('V2 界面加载失败，已回退经典界面', 8000)
+        except Exception:
+            pass
+        side_stack = self._sidebar.parent() if getattr(self, '_sidebar', None) else None
+        if side_stack is not None and isinstance(side_stack, __import__('PyQt6.QtWidgets', fromlist=['QStackedWidget']).QStackedWidget):
+            side_stack.setCurrentIndex(0)
+        holder = getattr(self, '_dash_holder', None)
+        if holder is not None:
+            holder.setCurrentIndex(1)
+
     def _open_quick_panel(self):
         """Web 铬层发起的快速面板（与 Ctrl+Shift+P 同源）。"""
         try:
@@ -1461,8 +1486,6 @@ class MainWindow(QMainWindow):
             self.requirement_panel.refresh_systems()
         self.stack.setCurrentIndex(stack_index)
         if self._web_shell_enabled:
-            if index == 0 and self.dashboard_panel is not None:
-                self.dashboard_panel.setVisible(False)
             if self._chrome_bridge is not None:
                 self._chrome_bridge.push_active(index)
         # 按钮选中状态：DB 子菜单索引只点亮对应的子项，普通导航点亮对应按钮

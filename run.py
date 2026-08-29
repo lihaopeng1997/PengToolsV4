@@ -42,6 +42,8 @@ def main():
     try:
         from ui import web_shell as _web_shell
         if _web_shell.WEB_SHELL_AVAILABLE:
+            # 离线桌面工具：禁用 Chromium 沙箱，规避 onefile 解包目录下进程重启受限导致的白屏
+            os.environ.setdefault('QTWEBENGINE_DISABLE_SANDBOX', '1')
             from PyQt6.QtWebEngineQuick import QtWebEngineQuick
             QtWebEngineQuick.initialize()
     except Exception:
