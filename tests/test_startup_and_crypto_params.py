@@ -22,7 +22,9 @@ class SingleInstanceNameTests(unittest.TestCase):
         self.assertNotEqual(private, standard)
         self.assertIn('Private', private)
         self.assertIn('Standard', standard)
-        self.assertIn('4.27', private)
+        # Step 4C：APP_VERSION 不参与单实例 identity（跨版本互斥）
+        self.assertNotIn('4.27', private)
+        self.assertNotIn('4.27', standard)
 
     def test_guard_primary_and_secondary(self):
         from PyQt6.QtWidgets import QApplication

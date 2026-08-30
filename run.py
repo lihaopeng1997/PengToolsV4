@@ -106,7 +106,10 @@ def main():
     )
     guard = SingleInstanceGuard(server_name=local_server_name(), parent=app)
     if not guard.try_become_primary():
-        # 次进程已发送 activate，立即退出
+        # SECONDARY：activate 已送达既有实例；或守卫无法证明唯一性（fail closed）。
+        # 两种情况都不得继续创建 Splash / MainWindow / 托盘服务。
+        if guard.last_error:
+            print(f'[single-instance] {guard.last_error}', file=sys.stderr, flush=True)
         return 0
 
     from config import load_settings
