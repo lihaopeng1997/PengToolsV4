@@ -274,8 +274,12 @@ def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
 
 
 def create_chrome_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:
-    """V2 侧栏铬层（左侧 248px 全高）。"""
-    return _create_web_widget('chrome', 'chrome.html', bridge, parent)
+    """V2 侧栏铬层（左侧 248px 全高）。
+
+    STEP-4 起 Sidebar 由 Vue 构建（frontend → resources/webui/vue/）；
+    legacy chrome.html 仅作应急对照保留。
+    """
+    return _create_web_widget('chrome', 'vue/chrome.html', bridge, parent)
 
 
 def create_dashboard_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:

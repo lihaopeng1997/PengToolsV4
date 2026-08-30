@@ -1,17 +1,38 @@
-import { createApp } from 'vue'
+import { createApp, nextTick, reactive } from 'vue'
 import ChromeApp from './ChromeApp.vue'
-import '../styles/base.css'
 import { connectBridge } from '../shared/bridge'
+import { parseNavModel } from './nav'
 
-createApp(ChromeApp).mount('#app')
+function mountFallback(error: unknown): void {
+  const app = createApp(ChromeApp, {
+    model: null,
+    active: { current: 0 },
+    bridge: null,
+    bridgeError: error instanceof Error ? error.message : String(error),
+  })
+  app.mount('#app')
+}
 
-// pageReady 契约时序：Vue mounted（mount 同步完成）→ bridge connected → pageReady('chrome')。
-// Python readiness state machine 本轮不动，仅供 STEP-4 接入。
-connectBridge()
-  .then((bridge) => {
-    bridge.pageReady('chrome')
+async function bootstrapChrome(): Promise<void> {
+  // 产品时序（STEP-4）：connect → navModel → 最小结构校验 → Vue mount →
+  // activeChanged connect → 首屏 nextTick → 才允许 pageReady('chrome')。
+  // 任何一步失败都不得伪造健康状态（Python readiness timeout / fallback 接管）。
+  const bridge = await connectBridge()
+  const model = parseNavModel(await bridge.navModel())
+  const active = reactive({ current: model.current ?? 0 })
+  const app = createApp(ChromeApp, { model, active, bridge })
+  app.mount('#app')
+  bridge.onActiveChanged((index: number) => {
+    active.current = index
   })
-  .catch((err: unknown) => {
-    // 普通浏览器无 window.qt：明确记录但不抛未处理异常、不白屏
-    console.warn('[chrome]', err instanceof Error ? err.message : String(err))
-  })
+  await nextTick()   // 首屏 DOM 已渲染完成
+  bridge.pageReady('chrome')
+}
+
+bootstrapChrome().catch((err: unknown) => {
+  console.error(
+    'chrome init failed:',
+    err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+  )
+  mountFallback(err)
+})

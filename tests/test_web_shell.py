@@ -362,5 +362,47 @@ class SandboxPolicyTest(unittest.TestCase):
         self.assertIn('app_forces_sandbox_disabled=False', run_src)
 
 
+class VueChromeMigrationGuardTest(unittest.TestCase):
+    """STEP-4 守护：Sidebar 迁 Vue 后的接线与产物存在性（共 5 项，不扩散）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(ROOT, 'ui', 'web_shell.py')
+        with open(path, encoding='utf-8') as fh:
+            cls.web_shell_src = fh.read()
+
+    def _function_source(self, name):
+        marker = 'def ' + name + '('
+        start = self.web_shell_src.find(marker)
+        self.assertGreater(start, 0, f'{name} 未找到')
+        end = self.web_shell_src.find('\ndef ', start + 1)
+        end = len(self.web_shell_src) if end < 0 else end
+        return self.web_shell_src[start:end]
+
+    def test_chrome_widget_uses_vue_chrome(self):
+        self.assertIn("'vue/chrome.html'", self._function_source('create_chrome_widget'))
+
+    def test_dashboard_widget_still_legacy(self):
+        src = self._function_source('create_dashboard_widget')
+        self.assertIn("'dashboard.html'", src)
+        self.assertNotIn('vue/dashboard.html', src)
+
+    def test_legacy_chrome_html_retained(self):
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'chrome.html')),
+                        'legacy chrome.html 必须保留（应急对照）')
+
+    def test_embedded_vue_chrome_exists(self):
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'vue', 'chrome.html')),
+                        'embedded Vue chrome.html 缺失（frontend: npm run build:embedded）')
+
+    def test_home_bridge_contract_unchanged(self):
+        for slot in ('navigate', 'openPalette', 'navModel', 'homeUsername',
+                     'dashboardSummary', 'pageReady'):
+            self.assertTrue(hasattr(web_shell.HomeBridge, slot), f'HomeBridge 缺少槽 {slot}')
+        for signal in ('navigateRequested', 'paletteRequested', 'activeChanged',
+                       'pageReadyReceived'):
+            self.assertTrue(hasattr(web_shell.HomeBridge, signal), f'HomeBridge 缺少信号 {signal}')
+
+
 if __name__ == '__main__':
     unittest.main()

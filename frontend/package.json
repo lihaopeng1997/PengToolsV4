@@ -7,6 +7,8 @@
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build",
     "verify:dist": "node scripts/verify-dist.mjs",
+    "build:embedded": "vite build --outDir ../resources/webui/vue --emptyOutDir",
+    "verify:embedded": "node scripts/verify-dist.mjs ../resources/webui/vue",
     "check": "npm run typecheck && npm run build && npm run verify:dist"
   },
   "dependencies": {

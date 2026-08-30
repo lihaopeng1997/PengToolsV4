@@ -1,11 +1,186 @@
 <script setup lang="ts">
-// STEP-3 scaffold：最小 root component，不做正式 sidebar/视觉设计（STEP-4 才迁移）。
+import { reactive, watch } from 'vue'
+import type { BridgeApi } from '../shared/bridge'
+import type { NavChild, NavItem, NavModel } from './nav'
+import IconSprite from './IconSprite.vue'
+import NavIcon from './NavIcon.vue'
+
+// 视觉/行为基准 = legacy resources/webui/chrome.html（V2 白昼玻璃），本组件只做
+// imperative DOM → Vue reactive 的迁移，不重新设计。
+const props = defineProps<{
+  model: NavModel | null
+  active: { current: number }
+  bridge: BridgeApi | null
+  bridgeError?: string | null
+}>()
+
+// 父菜单展开状态：legacy 渲染时所有 parent/sub 初始即 open，点击切换；reactive Set 承载。
+const openParents = reactive(new Set<number>())
+
+function ensureActiveVisible(current: number): void {
+  if (!props.model) return
+  for (const group of props.model.groups) {
+    for (const item of group.items) {
+      if (item.children?.some((c: NavChild) => c.i === current)) {
+        openParents.add(item.i)
+      }
+    }
+  }
+}
+
+ensureActiveVisible(props.active.current)
+watch(
+  () => props.active.current,
+  (idx) => ensureActiveVisible(idx),
+)
+
+function onNavClick(item: NavItem): void {
+  props.bridge?.navigate(item.i)
+}
+
+function onParentClick(item: NavItem): void {
+  // parent 点击只展开/折叠 children，绝不导航（与 legacy 一致）
+  if (openParents.has(item.i)) {
+    openParents.delete(item.i)
+  } else {
+    openParents.add(item.i)
+  }
+}
+
+function onPaletteClick(): void {
+  props.bridge?.openPalette()
+}
 </script>
 
 <template>
-  <main class="scaffold">
-    <h1>PengToolsHub</h1>
-    <p data-testid="scaffold-status">Frontend scaffold ready</p>
-    <p class="hint">chrome 入口占位 · Vue 3 + TypeScript + Vite</p>
-  </main>
+  <IconSprite />
+
+  <div v-if="model" class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg class="ic" style="width:21px;height:21px"><use href="#i-logo" /></svg></div>
+      <div class="brand-name">PengToolsHub</div>
+    </div>
+
+    <nav class="nav">
+      <div v-for="(g, gi) in model.groups" :key="g.key ?? gi" class="group">
+        <div class="g-label">{{ g.zh }} · {{ g.en }}</div>
+        <template v-for="it in g.items" :key="it.i">
+          <template v-if="it.children">
+            <div
+              class="nav-item parent"
+              :class="{ open: openParents.has(it.i) }"
+              @click="onParentClick(it)"
+            >
+              <NavIcon :name="it.icon" />{{ it.zh }}
+              <svg class="ic chev"><use href="#i-chev" /></svg>
+            </div>
+            <div class="sub" :class="{ open: openParents.has(it.i) }">
+              <div
+                v-for="c in it.children"
+                :key="c.i"
+                class="nav-item"
+                :class="{ active: active.current === c.i }"
+                :title="c.tip || ''"
+                @click="onNavClick(c)"
+              >
+                <NavIcon :name="c.icon" />{{ c.zh }}<span class="en">{{ c.en || '' }}</span><span class="dia">{{ c.dia || '' }}</span>
+              </div>
+            </div>
+          </template>
+          <div
+            v-else
+            class="nav-item"
+            :class="{ active: active.current === it.i }"
+            :title="it.tip || ''"
+            @click="onNavClick(it)"
+          >
+            <NavIcon :name="it.icon" />{{ it.zh }}<span class="en">{{ it.en || '' }}</span>
+          </div>
+        </template>
+      </div>
+    </nav>
+
+    <div class="foot">
+      <div id="foot-settings">
+        <div
+          v-if="model.settings"
+          class="nav-item"
+          :class="{ active: active.current === model.settings.i }"
+          :title="model.settings.tip || ''"
+          @click="onNavClick(model.settings)"
+        >
+          <NavIcon :name="model.settings.icon" />{{ model.settings.zh }}<span class="en">{{ model.settings.en || '' }}</span>
+        </div>
+      </div>
+      <div class="meta">
+        <span>Author · Lihp</span>
+        <span class="kbd" title="快速面板" @click="onPaletteClick">Ctrl+Shift+P</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 开发 fallback（无 Qt bridge）：占位，不是正式健康状态；Qt 环境必须加载真实 navModel -->
+  <div v-else class="dev-fallback">
+    <p>Frontend scaffold ready</p>
+    <p class="hint">{{ bridgeError ? `Bridge unavailable outside Qt · ${bridgeError}` : '连接 Qt bridge 中…' }}</p>
+  </div>
 </template>
+
+<!-- 非 scoped：样式从 legacy chrome.html 原样迁移（含 html/body 背景与高度），保持 V2 白昼玻璃视觉 -->
+<style>
+:root {
+  --ink:#232A4D; --ink-2:#5A6284; --ink-3:#9AA1BE;
+  --glass:rgba(255,255,255,.62); --glass-strong:rgba(255,255,255,.85);
+  --edge:rgba(35,42,77,.08);
+  --c1:#6366F1; --grad:linear-gradient(115deg,#6366F1,#A855F7 50%,#EC4899);
+  --r-sm:12px;
+  --font:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { height:100%; }
+#app { height:100%; }
+body {
+  font-family:var(--font); color:var(--ink); overflow:hidden; -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(420px 300px at -60px -40px, rgba(14,165,233,.28), transparent 70%),
+    radial-gradient(380px 320px at 110% 108%, rgba(99,102,241,.26), transparent 70%),
+    linear-gradient(180deg, #EEF1FB, #E9EDFA);
+  border-right:1px solid rgba(35,42,77,.07);
+}
+svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
+.sidebar { height:100%; display:flex; flex-direction:column; padding:16px 12px 12px; background:var(--glass); backdrop-filter:blur(22px) saturate(170%); }
+.brand { display:flex; align-items:center; gap:10px; padding:2px 8px 14px; }
+.logo { width:36px; height:36px; border-radius:11px; background:var(--grad); display:grid; place-items:center; color:#fff; box-shadow:0 6px 16px rgba(168,85,247,.4), inset 0 1px 0 rgba(255,255,255,.4); transition:transform .35s cubic-bezier(.34,1.56,.64,1); }
+.logo svg { width:21px; height:21px; }
+.brand:hover .logo { transform:rotate(-8deg) scale(1.06); }
+.brand-name { font-size:15px; font-weight:800; letter-spacing:.2px; }
+.nav { flex:1; overflow-y:auto; margin:0 -4px; padding:0 4px; }
+.nav::-webkit-scrollbar { width:6px; } .nav::-webkit-scrollbar-thumb { background:rgba(90,98,132,.22); border-radius:6px; }
+.group { margin-bottom:12px; }
+.g-label { font-size:9.5px; font-weight:800; letter-spacing:1.6px; color:var(--ink-3); padding:0 9px 6px; text-transform:uppercase; display:flex; align-items:center; gap:7px; }
+.g-label::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,rgba(90,98,132,.18),transparent); }
+.nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:2px; border-radius:var(--r-sm); color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; transition:background .2s,color .2s,transform .2s,box-shadow .2s; }
+.nav-item:hover { background:rgba(255,255,255,.92); color:var(--ink); transform:translateX(3px); box-shadow:0 4px 12px rgba(80,90,180,.12); }
+.nav-item.active { background:var(--grad); color:#fff; font-weight:700; box-shadow:0 8px 18px rgba(168,85,247,.38), inset 0 1px 0 rgba(255,255,255,.25); }
+.nav-item.active svg { opacity:1; color:#fff; }
+.nav-item .en { margin-left:auto; font-size:8.5px; letter-spacing:.5px; color:var(--ink-3); opacity:.8; }
+.nav-item.active .en { color:rgba(255,255,255,.75); opacity:1; }
+.parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform .25s; }
+.parent.open .chev { transform:rotate(90deg); }
+.sub { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+.sub.open { max-height:320px; }
+.sub .nav-item { padding-left:30px; font-size:12px; }
+.sub .nav-item svg { width:14px; height:14px; }
+.sub .nav-item .dia { margin-left:auto; font-family:Consolas,monospace; font-size:8px; letter-spacing:.5px; color:var(--ink-3); }
+.sub .nav-item.active .dia { color:rgba(255,255,255,.8); }
+.foot { border-top:1px solid var(--edge); padding-top:10px; }
+.foot .meta { display:flex; justify-content:space-between; align-items:center; padding:6px 9px 0; font-size:10px; color:var(--ink-3); font-weight:600; }
+.kbd { font-size:9px; font-weight:700; color:var(--c1); background:rgba(255,255,255,.85); border:1px solid var(--edge); border-bottom-width:2px; padding:2px 6px; border-radius:6px; cursor:pointer; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+.sidebar { animation:fadeUp .5s cubic-bezier(.22,.9,.32,1); }
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+
+/* 开发 fallback（无 Qt bridge）最小占位样式 */
+.dev-fallback { height:100%; display:grid; place-items:center; text-align:center; padding:2rem; }
+.dev-fallback .hint { opacity:.6; font-size:.85rem; }
+</style>

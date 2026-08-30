@@ -74,7 +74,7 @@ npm ci         # 按 package-lock.json 精确还原依赖
 npm run check  # vue-tsc 类型检查 + Vite 双入口构建（file:// 相对产物）+ verify:dist 守护
 ```
 
-`frontend/dist/` 为构建产物（gitignore）。当前生产 UI 仍使用 `resources/webui/`，Vue 构建产物尚未接入桌面程序。
+`frontend/dist/` 为开发构建产物（gitignore）；`npm run build:embedded` 产出正式运行时资源 `resources/webui/vue/`（已提交，随 PyInstaller 整体打包）。STEP-4 起左侧 Sidebar 由 Vue 渲染（`vue/chrome.html`），Dashboard 仍为 legacy `dashboard.html`。
 
 发布打包：
 
