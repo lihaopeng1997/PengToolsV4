@@ -15,7 +15,20 @@ const props = defineProps<{
 }>()
 
 // 父菜单展开状态：legacy 渲染时所有 parent/sub 初始即 open，点击切换；reactive Set 承载。
-const openParents = reactive(new Set<number>())
+// legacy 行为基准：【所有存在 children 的父菜单初始全部展开】；ensureActiveVisible 仅负责
+// 后续 activeChanged 指向已折叠父级的 child 时自动重新展开。
+function initialOpenParents(model: NavModel | null): number[] {
+  if (!model) return []
+  return model.groups.flatMap(group =>
+    group.items
+      .filter(item => Boolean(item.children))
+      .map(item => item.i),
+  )
+}
+
+const openParents = reactive(
+  new Set<number>(initialOpenParents(props.model)),
+)
 
 function ensureActiveVisible(current: number): void {
   if (!props.model) return
