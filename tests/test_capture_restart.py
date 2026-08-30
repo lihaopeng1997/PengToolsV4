@@ -481,5 +481,24 @@ class StopFinalizedEpochGuardTest(unittest.TestCase):
         panel.close()
 
 
+class H2MitigationGuardTest(unittest.TestCase):
+    """安全守护：vulnerable-transitive dependency 的执行路径缓解。
+
+    pip-audit（2026-08-30）确认 h2 4.3.0 受 CVE-2026-71554 / GHSA-6hr6-w5qg-qmwg
+    影响（multiple Host header request smuggling，fixed 4.4.1）；而 mitmproxy
+    12.2.3 的 Requires-Dist 精确 pin h2>=4.3.0,<=4.3.0，无法在不制造依赖冲突的
+    前提下升级。产品侧缓解 = 抓包引擎显式禁用 HTTP/2 执行路径（http2=False）。
+    本测试只守护该缓解措施不被移除，不声称 CVE 本身已修复。
+    """
+
+    def test_http2_disabled_in_capture_engine(self):
+        src = io.open(os.path.join(ROOT, 'tools', 'http_capture.py'),
+                      encoding='utf-8').read()
+        self.assertIn(
+            "('http2', False),", src,
+            '抓包引擎必须保持 http2=False（h2 4.3.0 存在 CVE-2026-71554，'
+            'mitmproxy 12.2.3 无法升级 h2，禁用 HTTP/2 是执行路径缓解）')
+
+
 if __name__ == '__main__':
     unittest.main()

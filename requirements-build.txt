@@ -1,3 +1,4 @@
 # PengToolsHub reproducible Windows build environment (Python 3.12)
 -r requirements.txt
-PyInstaller==6.11.1
+# Step 2C-2 A/B：6.22.2 与 6.11.1 单变量对比（build/3 次启动/capture smoke 全绿）后采用。
+PyInstaller==6.22.2

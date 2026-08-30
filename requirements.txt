@@ -1,9 +1,13 @@
 # PengToolsHub V4.27 Private - Python 3.12 release baseline
 # 顶层运行依赖均锁定版本，避免离线构建因上游发布产生漂移。
 PyQt6==6.11.0
-PyQt6-Qt6==6.11.1
+# Qt runtime 与 WebEngine runtime 必须同 patch：未显式 pin 时 WebEngine-Qt6 会被 pip
+# 自动漂移到 6.11.2，与 Qt6==6.11.1 形成混搭（Step 2C-2 REPRODUCIBILITY_GAP）。
+# A/B 证据：6.11.2/6.11.2 组 build/3 次启动/capture smoke/70 项单测全绿，故统一 6.11.2。
+PyQt6-Qt6==6.11.2
 PyQt6-sip==13.11.1
 PyQt6-WebEngine==6.11.0
+PyQt6-WebEngine-Qt6==6.11.2
 python-docx==1.2.0
 gmssl==3.2.2
 openpyxl==3.1.5
