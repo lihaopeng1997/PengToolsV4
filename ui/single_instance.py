@@ -76,6 +76,8 @@ class SingleInstanceGuard(QObject):
         self._server: Optional[QLocalServer] = None
         self._is_primary = False
         self.last_error = ''
+        # per-connection 状态：缓存分片数据 + exactly-once 处理标记
+        self._sock_states: dict[int, dict] = {}
 
     @property
     def is_primary(self) -> bool:
@@ -178,28 +180,65 @@ class SingleInstanceGuard(QObject):
             sock = self._server.nextPendingConnection()
             if sock is None:
                 continue
-            # 客户端通常 write 后立即 disconnect：readyRead 可能不触发，
-            # 必须同时挂 disconnected，把缓冲里的 activate 读出来。
+            state = self._sock_states.setdefault(
+                id(sock), {'buf': bytearray(), 'handled': False})
+            # 同步先读一次：Windows 命名管道上，客户端 write+disconnect 极快时
+            # 数据往往已进入缓冲（即便 bytesAvailable()/state 显示已断开也可读），
+            # 而事件循环对 readyRead/disconnected 的派发时机并不可靠。
+            # 同步路径直接处理绝大多数一次成包的场景。
+            self._consume_socket(sock, state)
+            if state['handled']:
+                self._forget_socket(sock)
+                continue
+            # 残余/分片：挂信号兜底（exactly-once 由 handled 标记保证）
             sock.readyRead.connect(lambda s=sock: self._on_socket_ready(s))
             sock.disconnected.connect(lambda s=sock: self._on_socket_ready(s))
-            # 即便无数据也尝试读（部分平台连上即写）
-            if sock.bytesAvailable() > 0:
-                self._on_socket_ready(sock)
 
-    def _on_socket_ready(self, sock: QLocalSocket):
-        # disconnected 与 readyRead 都会进入本处理；读空后幂等
+    def _forget_socket(self, sock: QLocalSocket):
+        self._sock_states.pop(id(sock), None)
         try:
-            data = bytes(sock.readAll())
-        except Exception:
-            data = b''
-        activate = (not data) or ACTIVATE_MESSAGE.strip() in data or b'activate' in data.lower()
-        try:
-            if sock.state() != QLocalSocket.LocalSocketState.UnconnectedState:
-                sock.disconnectFromServer()
+            sock.deleteLater()
         except Exception:
             pass
-        if activate:
+
+    def _consume_socket(self, sock: QLocalSocket, state: dict) -> None:
+        """读缓冲并按 exactly-once 语义处理一次 activate。"""
+        try:
+            state['buf'] += bytes(sock.readAll())
+        except Exception:
+            pass
+        if state['handled']:
+            return
+        buf = bytes(state['buf'])
+        # 时序事实（Step 4C-A 实测）：newConnection 在客户端 connect 完成瞬间
+        # 触发，此时 write 尚未发生（buf 为空、ConnectedState）；而数据到达前
+        # 挂上的 readyRead 派发不可靠，且客户端 write+disconnect 极快——断开
+        # 通知到达时 Qt 已丢弃未读缓冲。因此首包为空且仍连接时，用有界
+        # waitForReadyRead 等待首包（与客户端侧 waitFor* 对称，非 sleep 掩盖）。
+        if not buf and sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
+            try:
+                sock.waitForReadyRead(self.NOTIFY_WAIT_MS)
+            except Exception:
+                pass
+            try:
+                state['buf'] += bytes(sock.readAll())
+            except Exception:
+                pass
+        if ACTIVATE_MESSAGE.strip() in bytes(state['buf']) or b'activate' in bytes(state['buf']).lower():
+            state['handled'] = True
             self.activate_requested.emit()
+
+    def _on_socket_ready(self, sock: QLocalSocket):
+        """readyRead / disconnected 共用兜底入口（分片与最终缓冲）。"""
+        state = self._sock_states.get(id(sock))
+        if state is None:
+            return
+        self._consume_socket(sock, state)
+        disconnected = sock.state() == QLocalSocket.LocalSocketState.UnconnectedState
+        if state['handled'] or disconnected:
+            # 到断开为止仍无 activate 内容（空/未知数据）不激活；
+            # 已处理过则就此收尾。两者都清理 socket 状态。
+            self._forget_socket(sock)
 
     def release(self):
         """应用退出时释放所有权与本地服务。最小化到托盘不调用。"""

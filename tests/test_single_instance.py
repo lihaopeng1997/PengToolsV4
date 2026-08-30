@@ -60,7 +60,16 @@ class OwnershipIpcTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_primary_secondary_real_ipc_notify(self):
-        """恰一个 PRIMARY；secondary 经真实 QLocalSocket 通知触发 activate。"""
+        """恰一个 PRIMARY；secondary 经真实 QLocalSocket 通知触发 activate。
+
+        exactly-once（Step 4C-A）：首次 hit 后继续 pump 一段有限时间，
+        readyRead + disconnected 完整生命周期内 activate_requested 不得重复。
+
+        注意：notify 必须在工作线程执行——真实场景中 secondary 是独立进程，
+        primary 的事件循环自由运行；同线程直调会让 newConnection 在客户端
+        connect 阶段重入（客户端尚未 write），属于测试构建失真。
+        """
+        import threading
         from ui.single_instance import SingleInstanceGuard
         name = _random_name()
         g1 = SingleInstanceGuard(server_name=name, parent=self.app)
@@ -71,16 +80,27 @@ class OwnershipIpcTests(unittest.TestCase):
             hits = {'n': 0}
             g1.activate_requested.connect(lambda: hits.__setitem__('n', hits['n'] + 1))
 
-            g2 = SingleInstanceGuard(server_name=name, parent=self.app)
-            self.assertFalse(g2.try_become_primary())
-            self.assertFalse(g2.is_primary)
+            # primary 先泵一轮事件循环，再让 secondary 在工作线程发起真实 IPC
+            self.app.processEvents()
+            g2 = SingleInstanceGuard(server_name=name, parent=None)
+            worker = threading.Thread(target=g2.try_become_primary, daemon=True)
+            worker.start()
 
-            # primary 的 newConnection/readyRead 信号需要事件循环泵送
-            deadline = time.time() + 3
-            while hits['n'] == 0 and time.time() < deadline:
+            # primary 的 newConnection/readyRead/disconnected 信号需要事件循环泵送
+            deadline = time.time() + 5
+            while hits['n'] == 0 and time.time() < deadline and worker.is_alive():
                 self.app.processEvents()
                 time.sleep(0.02)
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive(), 'secondary notify 工作线程未退出')
+            self.assertFalse(g2.is_primary)
             self.assertEqual(hits['n'], 1, 'secondary 的 activate 通知未到达 primary')
+            # 第一次收到后不能停：继续 pump 400ms 覆盖 disconnected 二次触发
+            tail_end = time.time() + 0.4
+            while time.time() < tail_end:
+                self.app.processEvents()
+                time.sleep(0.02)
+            self.assertEqual(hits['n'], 1, 'activate_requested 被重复触发（exactly-once 失败）')
         finally:
             g1.release()
 
