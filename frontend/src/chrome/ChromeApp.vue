@@ -96,7 +96,7 @@ function onPaletteClick(): void {
                 :title="c.tip || ''"
                 @click="onNavClick(c)"
               >
-                <NavIcon :name="c.icon" />{{ c.zh }}<span class="en">{{ c.en || '' }}</span><span class="dia">{{ c.dia || '' }}</span>
+                <NavIcon :name="c.icon" />{{ c.zh }}
               </div>
             </div>
           </template>
@@ -107,7 +107,7 @@ function onPaletteClick(): void {
             :title="it.tip || ''"
             @click="onNavClick(it)"
           >
-            <NavIcon :name="it.icon" />{{ it.zh }}<span class="en">{{ it.en || '' }}</span>
+            <NavIcon :name="it.icon" />{{ it.zh }}
           </div>
         </template>
       </div>
@@ -122,7 +122,7 @@ function onPaletteClick(): void {
           :title="model.settings.tip || ''"
           @click="onNavClick(model.settings)"
         >
-          <NavIcon :name="model.settings.icon" />{{ model.settings.zh }}<span class="en">{{ model.settings.en || '' }}</span>
+          <NavIcon :name="model.settings.icon" />{{ model.settings.zh }}
         </div>
       </div>
       <div class="meta">
@@ -176,16 +176,12 @@ svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
 .nav-item:hover { background:rgba(255,255,255,.92); color:var(--ink); transform:translateX(3px); box-shadow:0 4px 12px rgba(80,90,180,.12); }
 .nav-item.active { background:var(--grad); color:#fff; font-weight:700; box-shadow:0 8px 18px rgba(168,85,247,.38), inset 0 1px 0 rgba(255,255,255,.25); }
 .nav-item.active svg { opacity:1; color:#fff; }
-.nav-item .en { margin-left:auto; font-size:8.5px; letter-spacing:.5px; color:var(--ink-3); opacity:.8; }
-.nav-item.active .en { color:rgba(255,255,255,.75); opacity:1; }
 .parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform .25s; }
 .parent.open .chev { transform:rotate(90deg); }
 .sub { max-height:0; overflow:hidden; transition:max-height .3s ease; }
 .sub.open { max-height:320px; }
 .sub .nav-item { padding-left:30px; font-size:12px; }
 .sub .nav-item svg { width:14px; height:14px; }
-.sub .nav-item .dia { margin-left:auto; font-family:Consolas,monospace; font-size:8px; letter-spacing:.5px; color:var(--ink-3); }
-.sub .nav-item.active .dia { color:rgba(255,255,255,.8); }
 .foot { border-top:1px solid var(--edge); padding-top:10px; }
 .foot .meta { display:flex; justify-content:space-between; align-items:center; padding:6px 9px 0; font-size:10px; color:var(--ink-3); font-weight:600; }
 .kbd { font-size:9px; font-weight:700; color:var(--c1); background:rgba(255,255,255,.85); border:1px solid var(--edge); border-bottom-width:2px; padding:2px 6px; border-radius:6px; cursor:pointer; }

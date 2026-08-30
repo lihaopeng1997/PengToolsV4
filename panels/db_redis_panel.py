@@ -30,7 +30,7 @@ from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_line, size_pick_combo
-from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.page_chrome import make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 
 
@@ -112,13 +112,8 @@ class RedisWorkbenchPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(6)
 
-        header, self.page_title, self.page_subtitle = make_page_header(
-            'Redis 工作台',
-            'Key 树浏览 · TTL 管理 · 命令行',
-            'database',
-        )
-        root.addWidget(header)
-
+        # 模块身份由 Sidebar 标明，内容区不再重复大标题/副标题（Step 4B 收口）；
+        # 页面首个主要区域 = 连接 toolbar。
         toolbar, top = make_page_toolbar(divided=True)
         self.conn_combo = QComboBox()
         size_pick_combo(self.conn_combo)
@@ -142,6 +137,7 @@ class RedisWorkbenchPanel(QWidget):
                   self.test_btn, self.refresh_btn):
             top.addWidget(w)
         top.addStretch(1)
+        self.toolbar = toolbar
         root.addWidget(toolbar)
 
         # 主区：左 Key 树 | 右（详情/AI 助手）
@@ -267,7 +263,6 @@ class RedisWorkbenchPanel(QWidget):
             body, defaults=[340, 620], page_id='redis-workbench', tab_id='main',
             min_sizes=[240, 400], accessible_name='Redis 左右分隔',
         )
-        root.addWidget(body, 1)
 
         # 底部命令行
         bottom = QFrame()
@@ -291,14 +286,16 @@ class RedisWorkbenchPanel(QWidget):
         self.cmd_output.setReadOnly(True)
         self.cmd_output.setMinimumHeight(160)
         bottom_l.addWidget(self.cmd_output, 1)
-        root.addWidget(bottom, 0)
         self.bottom_frame = bottom
+        # 一次性构造成最终树：_bottom_split 直接成为 root 的主 stretch 内容。
+        # 禁止先 root.addWidget 再 reparent 进 splitter（replaceWidget 对已
+        # reparent 的子项不可靠，曾导致主业务区整体塌陷成空白）。
         self._bottom_split = QSplitter(Qt.Orientation.Vertical)
         self._bottom_split.addWidget(body)
         self._bottom_split.addWidget(bottom)
         self._bottom_split.setStretchFactor(0, 3)
         self._bottom_split.setStretchFactor(1, 1)
-        root.replaceWidget(body, self._bottom_split)
+        root.addWidget(self._bottom_split, 1)
         install_splitter_prefs(
             self._bottom_split, defaults=[560, 220], page_id='redis-workbench', tab_id='body',
             min_sizes=[240, 140], accessible_name='Redis 上下分隔',
@@ -307,10 +304,6 @@ class RedisWorkbenchPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.page_title.setText('Redis 工作台' if zh else 'Redis Workbench')
-        self.page_subtitle.setText(
-            'Key 树浏览 · TTL 管理 · 命令行' if zh else 'Key tree · TTL · CLI'
-        )
         self.conn_new_btn.setText('新建连接' if zh else 'New')
         self.conn_edit_btn.setText('编辑' if zh else 'Edit')
         self.conn_del_btn.setText('删除' if zh else 'Delete')
@@ -338,10 +331,12 @@ class RedisWorkbenchPanel(QWidget):
         )
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible
-        set_subtitle_visible(self.page_subtitle, low_height)
+        # 视觉 header 已整体移除（模块身份由 Sidebar 标明），无 subtitle 可调；
+        # main_window 经 hasattr 鸭子调用，保留方法签名即可。
+        return
 
     def _title(self) -> str:
+        # 仍用于业务提示 / 对话框标题，勿删。
         return 'Redis 工作台' if self.language == 'zh' else 'Redis Workbench'
 
     # ── 连接管理 ──────────────────────────────────────────────────────────
@@ -374,7 +369,7 @@ class RedisWorkbenchPanel(QWidget):
         else:
             self.db_badge.setText('未连接' if self.language == 'zh' else 'Not connected')
             self.key_tree.clear()
-            self.key_stats.setText('')
+            self.key_stats.setText('未连接 Redis' if self.language == 'zh' else 'Not connected')
         self._update_ai_banner()
 
     def _edit_connection(self, new=False):

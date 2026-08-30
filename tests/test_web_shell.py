@@ -404,5 +404,29 @@ class VueChromeMigrationGuardTest(unittest.TestCase):
             self.assertTrue(hasattr(web_shell.HomeBridge, signal), f'HomeBridge 缺少信号 {signal}')
 
 
+class VueSidebarInfoGuardTest(unittest.TestCase):
+    """Step 4B 守护：Sidebar 菜单行信息减法与图标显式映射（源码级，共 1 项）。"""
+
+    def test_menu_rows_single_label_and_icon_mapping(self):
+        with open(os.path.join(ROOT, 'frontend', 'src', 'chrome', 'ChromeApp.vue'),
+                  encoding='utf-8') as fh:
+            app_src = fh.read()
+        # 菜单行不再渲染英文副标签与 SQL 缩写（数据字段保留在 navModel，仅视觉减法）
+        self.assertNotIn('class="en"', app_src, '菜单行不得再渲染英文副标签')
+        self.assertNotIn('class="dia"', app_src, '菜单行不得再渲染 SQL 缩写')
+        # 分组双语标题保留（分区标签不属于菜单行）
+        self.assertIn('{{ g.zh }} · {{ g.en }}', app_src, '分组双语标题必须保留')
+        with open(os.path.join(ROOT, 'frontend', 'src', 'chrome', 'icons.ts'),
+                  encoding='utf-8') as fh:
+            icons_src = fh.read()
+        for role in ('home', 'database', 'requirements', 'release', 'doc-update',
+                     'daily-report', 'operations', 'shield-key', 'api-debug',
+                     'json', 'document-id', 'vin', 'learning'):
+            # icons.ts 对简单标识符用裸 key，带连字符的用引号 key
+            needle = f"'{role}':" if '-' in role else f"{role}:"
+            self.assertIn(needle, icons_src, f'icons.ts 缺少 role 显式映射：{role}')
+        self.assertIn('FALLBACK_SYMBOL', icons_src, '未知 role 必须有中性回退图标')
+
+
 if __name__ == '__main__':
     unittest.main()
