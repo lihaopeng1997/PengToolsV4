@@ -2,7 +2,8 @@
 """抓包生命周期纯状态机（UI-free：不 import PyQt6/panels/ui）。
 
 状态：IDLE → STARTING → RUNNING → STOPPING → IDLE
-RUNNING→STOPPING 期间的 START 请求记为 pending_start，STOP 真正收尾后自动转正。
+RUNNING→STOPPING 期间的 START 请求记为 pending_start，STOP 真正收尾后
+由调用方再次 begin_start()（finish_stop 不代替 begin_start）。
 线程安全（threading.Lock）；UI 文案/QTimer/信号由 panel 负责。
 """
 from __future__ import annotations
@@ -58,6 +59,7 @@ class CaptureLifecycle:
             return self._epoch
 
     def mark_running(self, epoch: int) -> bool:
+        """仅 STARTING 且 epoch 匹配时进入 RUNNING（过期 boot 结果返回 False）。"""
         with self._lock:
             if self._state == STARTING and epoch == self._epoch:
                 self._state = RUNNING
@@ -65,24 +67,41 @@ class CaptureLifecycle:
             return False
 
     def begin_stop(self, epoch: int) -> bool:
-        """请求停止。仅 RUNNING/STARTING 且 epoch 匹配时进入 STOPPING。"""
+        """仅 STARTING/RUNNING 且 epoch 匹配时进入 STOPPING（重复 stop 返回 False）。"""
         with self._lock:
-            if self._state in (RUNNING, STARTING) and epoch == self._epoch:
+            if self._state in (STARTING, RUNNING) and epoch == self._epoch:
                 self._state = STOPPING
                 return True
             return False
 
-    def mark_stopped(self) -> None:
-        """stop 线程收尾完成（可在后台线程调用；状态回 IDLE）。"""
-        with self._lock:
-            self._state = IDLE
+    def finish_stop(self, epoch: int) -> bool:
+        """stop 线程收尾：原子回 IDLE 并取出 pending_start。
 
-    def confirm_pending_start(self):
-        """stop 收尾后若有 pending start：转 STARTING 并返回新 epoch。"""
+        仅 state==STOPPING 且 epoch 匹配时生效；不递增 epoch、不进入 STARTING——
+        重启必须由调用方再次 begin_start()。返回 should_restart。
+        """
         with self._lock:
-            if self._state == IDLE and self._pending_start:
+            if self._state != STOPPING or epoch != self._epoch:
+                return False
+            should_restart = self._pending_start
+            self._pending_start = False
+            self._state = IDLE
+            return should_restart
+
+    def fail_start(self, epoch: int) -> bool:
+        """当前 epoch 的 boot 失败：回 IDLE（清 pending）。旧 epoch 返回 False。"""
+        with self._lock:
+            if self._state == STARTING and epoch == self._epoch:
+                self._state = IDLE
                 self._pending_start = False
-                self._state = STARTING
-                self._epoch += 1
-                return self._epoch
-            return None
+                return True
+            return False
+
+    def fail_runtime(self, epoch: int) -> bool:
+        """当前 worker 异常退出/死亡：回 IDLE（清 pending）。旧 epoch 返回 False。"""
+        with self._lock:
+            if epoch == self._epoch and self._state in (STARTING, RUNNING):
+                self._state = IDLE
+                self._pending_start = False
+                return True
+            return False

@@ -165,9 +165,10 @@ class InterfaceDebugPanel(QWidget):
     open_format_json = pyqtSignal(str)
     open_format_xml = pyqtSignal(str)
     # 抓包后台线程 → 主线程（必须用信号，不能用 QTimer.singleShot）
-    _sig_capture_record = pyqtSignal(dict)
-    _sig_capture_error = pyqtSignal(str)
-    _sig_capture_stopped = pyqtSignal()
+    _sig_capture_record = pyqtSignal(int, dict)
+    _sig_capture_error = pyqtSignal(int, str)
+    _sig_capture_stopped = pyqtSignal(int)
+    _sig_capture_stop_finalized = pyqtSignal(int, bool)
 
     # 对齐 Fiddler Session 列表列名
     COL_LABELS_ZH = {
@@ -194,9 +195,9 @@ class InterfaceDebugPanel(QWidget):
         self._listening = False
         self._channel_ready = False
         self._capture_epoch = 0
+        self._capture_boot_worker = None
         from tools.capture_lifecycle import CaptureLifecycle
         self._lifecycle = CaptureLifecycle()
-        self._capture_stop_watch = None
         self._capture_boot_epoch = 0
         self._capture_stop_thread = None
         self._listen_started_at = 0.0
@@ -235,9 +236,10 @@ class InterfaceDebugPanel(QWidget):
         self._status_tick.timeout.connect(self._refresh_live_status)
         self._sensitive_copy_warned = False
         # 跨线程投递：QueuedConnection
-        self._sig_capture_record.connect(self._ingest_record)
-        self._sig_capture_error.connect(self._on_ie_error)
-        self._sig_capture_stopped.connect(self._on_proxy_stopped)
+        self._sig_capture_record.connect(self._on_capture_record)
+        self._sig_capture_error.connect(self._on_capture_error)
+        self._sig_capture_stopped.connect(self._on_capture_stopped)
+        self._sig_capture_stop_finalized.connect(self._on_capture_stop_finalized)
         self._setup_ui()
         self._reload_config_ui()
         self.set_language(language)
@@ -1813,9 +1815,9 @@ class InterfaceDebugPanel(QWidget):
             def _try_once():
                 worker = HttpCaptureWorker(
                     port=port,
-                    on_record=self._on_ie_record_thread,
-                    on_error=self._on_ie_error_thread,
-                    on_stopped=self._on_ie_stopped_thread,
+                    on_record=lambda rec, e=boot_epoch: self._sig_capture_record.emit(int(e), dict(rec or {})),
+                    on_error=lambda msg, e=boot_epoch: self._sig_capture_error.emit(int(e), str(msg or '')),
+                    on_stopped=lambda e=boot_epoch: self._sig_capture_stopped.emit(int(e)),
                     show_static=True,
                     source_label='http_capture',
                     apply_system_proxy=True,
@@ -1867,21 +1869,29 @@ class InterfaceDebugPanel(QWidget):
         boot = _Boot(self)
         self._capture_boot_worker = boot
 
-        def _on_boot(result: dict):
-            result = result or {}
-            # 启动过程中用户已点停止 / 又开了更新一轮：丢弃过期结果
-            if int(result.get('epoch') or 0) != self._capture_epoch:
-            # 过期 boot 结果：丢弃，不改当前状态
+        boot.done.connect(
+            lambda result: self._on_capture_boot_result(
+                result, boot_epoch=boot_epoch, port=port, title=title, zh=zh))
+        boot.finished.connect(lambda: setattr(self, '_capture_boot_worker', None))
+        boot.start()
 
-                worker = result.get('worker')
-                self._detach_capture_worker(worker)
-                if worker is not None:
-                    try:
-                        worker.stop(join_timeout=0.8)
-                    except Exception:
-                        pass
-                return
-            if not result.get('ok'):
+    def _on_capture_boot_result(self, result, boot_epoch: int, port: int, title: str, zh: bool):
+        """boot 结果处理（QThread 回调经 Qt 信号在主线程执行）。"""
+        result = result or {}
+        if int(result.get('epoch') or 0) != boot_epoch:
+            # 过期 boot 结果：丢弃，不改当前状态
+            worker = result.get('worker')
+            self._detach_capture_worker(worker)
+            if worker is not None:
+                try:
+                    worker.stop(join_timeout=0.8)
+                except Exception:
+                    pass
+            return
+        worker = result.get('worker')
+        if not result.get('ok'):
+            # 当前有效启动失败：lifecycle 回 IDLE，UI 回非监听并恢复代理
+            if self._lifecycle.fail_start(boot_epoch):
                 err = result.get('error') or '启动失败'
                 self._ie_worker = None
                 self._refresh_capture_action()
@@ -1891,23 +1901,28 @@ class InterfaceDebugPanel(QWidget):
                     restore_proxy_from_snapshot()
                 except Exception:
                     pass
-                return
-            worker = result.get('worker')
-            self._ie_worker = worker
-            self._probe_capture_pipeline(int(result.get('port') or port))
-            self._mark_listen_success(
-                f'监听中 · 系统代理 127.0.0.1:{port} · 请重启浏览器后访问业务页 · '
-                f'离开本页会自动暂停系统代理（引擎仍可运行），其它软件不再被拖死'
-            )
-            self.loading.finish('监听已开始' if zh else 'Listen started')
-            try:
-                self.loading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            except Exception:
-                pass
-
-        boot.done.connect(_on_boot)
-        boot.finished.connect(lambda: setattr(self, '_capture_boot_worker', None))
-        boot.start()
+            # 过期 failure：不影响当前生命周期/UI
+            return
+        if not self._lifecycle.mark_running(boot_epoch):
+            # 已 STOPPING / 已被新一轮取代：worker 不得进入 RUNNING
+            self._detach_capture_worker(worker)
+            if worker is not None:
+                try:
+                    worker.stop(join_timeout=0.8)
+                except Exception:
+                    pass
+            return
+        self._ie_worker = worker
+        self._probe_capture_pipeline(int(result.get('port') or port))
+        self._mark_listen_success(
+            f'监听中 · 系统代理 127.0.0.1:{port} · 请重启浏览器后访问业务页 · '
+            f'离开本页会自动暂停系统代理（引擎仍可运行），其它软件不再被拖死'
+        )
+        self.loading.finish('监听已开始' if zh else 'Listen started')
+        try:
+            self.loading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        except Exception:
+            pass
 
     def _probe_capture_pipeline(self, port: int):
         """经本地代理发一条纯 loopback HTTP 探测。"""
@@ -2052,35 +2067,58 @@ class InterfaceDebugPanel(QWidget):
                 (self.live_status.text() or '') + ' · 探测完成'
             )
 
-    def _on_ie_record_thread(self, rec):
-        # 后台线程必须用信号投递主线程（QTimer.singleShot 跨线程不可靠）
-        try:
-            self._sig_capture_record.emit(dict(rec or {}))
-        except Exception:
-            pass
-
-    def _on_ie_error_thread(self, msg):
-        try:
-            self._sig_capture_error.emit(str(msg or ''))
-        except Exception:
-            pass
-
-    def _on_ie_stopped_thread(self):
-        try:
-            self._sig_capture_stopped.emit()
-        except Exception:
-            pass
-
-    def _on_proxy_stopped(self):
-        # 旧 worker 异步 stop 晚到时，不得清掉新一轮监听
-        if self._ie_worker is not None or getattr(self, '_capture_boot_worker', None) is not None:
+    def _on_capture_record(self, epoch, rec):
+        # 旧 worker 回调晚到：忽略，不得污染新一轮
+        if int(epoch) != self._lifecycle.epoch:
             return
+        self._ingest_record(dict(rec or {}))
+
+    def _on_capture_error(self, epoch, msg):
+        # 旧 epoch 错误：忽略
+        if int(epoch) != self._lifecycle.epoch:
+            return
+        # 当前 worker 错误：lifecycle 同步 IDLE + 清理 + 恢复安全代理
+        if self._lifecycle.fail_runtime(int(epoch)):
+            self._ie_worker = None
+            self._listening = False
+            self._channel_ready = False
+            self._set_listening_ui(False)
+            self._wait_hint_timer.stop()
+            self._status_tick.stop()
+            try:
+                from tools.ie_proxy import restore_proxy_from_snapshot, mark_capture_proxy_inactive, ensure_system_proxy_safe
+                restore_proxy_from_snapshot()
+                mark_capture_proxy_inactive()
+                ensure_system_proxy_safe(reason='capture_error')
+            except Exception:
+                pass
+            self.status_label.setText(f'代理错误：{msg} · 已恢复系统代理安全状态')
+            show_warning(self, '本机代理', msg)
+
+    def _on_capture_stopped(self, epoch):
+        # 旧 epoch stopped：直接忽略
+        if int(epoch) != self._lifecycle.epoch:
+            return
+        # 当前 epoch worker 意外退出：lifecycle 同步 IDLE
+        if self._lifecycle.fail_runtime(int(epoch)):
+            self._ie_worker = None
         self._listening = False
         self._channel_ready = False
         self._set_listening_ui(False)
         self._wait_hint_timer.stop()
         self._status_tick.stop()
+        try:
+            from tools.ie_proxy import ensure_system_proxy_safe
+            ensure_system_proxy_safe(reason='capture_stopped')
+        except Exception:
+            pass
 
+    def _on_capture_stop_finalized(self, stop_epoch, should_restart):
+        """stop 线程收尾完成（Qt 主线程）：同步镜像 epoch；pending 时自动重启。"""
+        self._capture_stop_thread = None
+        self._capture_epoch = int(stop_epoch)
+        if should_restart:
+            self._start_local_proxy()
     def _on_ie_error(self, msg):
         # 已切换到新 worker / 启动中时，忽略旧错误
         if getattr(self, '_capture_boot_worker', None) is not None:
@@ -2203,8 +2241,7 @@ class InterfaceDebugPanel(QWidget):
         self.loading.start_busy('正在停止监听…')
         self._wait_hint_timer.stop()
         self._status_tick.stop()
-        # 使进行中的 boot 结果失效
-        self._capture_epoch += 1
+        # boot 结果失效由 lifecycle epoch 权威判定（begin_stop 已进入 STOPPING）
         # 先立刻恢复系统代理（网络马上可用），引擎在后台收尾
         try:
             from tools.ie_proxy import restore_proxy_from_snapshot, ensure_system_proxy_safe, mark_capture_proxy_inactive
@@ -2246,17 +2283,21 @@ class InterfaceDebugPanel(QWidget):
                 pass
 
         import threading
-        def _finalize_stop():
-            # 后台 stop 线程已真正收尾（端口释放、代理安全检查完成）
-            self._lifecycle.mark_stopped()
-            pending_epoch = self._lifecycle.confirm_pending_start()
-            if pending_epoch is not None:
-                self._capture_epoch = pending_epoch
-                self._capture_boot_epoch = pending_epoch
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(0, lambda: self._start_local_proxy())
-        stop_thread = threading.Thread(
-            target=lambda: (_shutdown(), _finalize_stop()), name='capture-stop', daemon=True)
+        stop_epoch = self._capture_epoch
+
+        def _stop_worker_thread():
+            try:
+                _shutdown()
+            finally:
+                # 生命周期必须完成（_shutdown 异常也不能卡 STOPPING）；
+                # 跨线程只能用 Qt signal 投递主线程，禁止 QTimer.singleShot。
+                should_restart = self._lifecycle.finish_stop(stop_epoch)
+                try:
+                    self._sig_capture_stop_finalized.emit(int(stop_epoch), bool(should_restart))
+                except Exception:
+                    pass
+
+        stop_thread = threading.Thread(target=_stop_worker_thread, name='capture-stop', daemon=True)
         self._capture_stop_thread = stop_thread
         stop_thread.start()
         n = len(self._records)
@@ -2317,6 +2358,8 @@ class InterfaceDebugPanel(QWidget):
                     self._refresh_live_status()
             else:
                 # worker 已死亡或端口未监听：绝不 resume 到死端口
+                # lifecycle 同步 IDLE（否则用户再点开始会被 RUNNING 拒绝）
+                self._lifecycle.fail_runtime(self._capture_epoch)
                 from tools.ie_proxy import restore_proxy_from_snapshot, mark_capture_proxy_inactive
                 restore_proxy_from_snapshot()
                 mark_capture_proxy_inactive()
