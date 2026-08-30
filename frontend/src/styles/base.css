@@ -1,0 +1,44 @@
+/* STEP-3 scaffold 基础样式：仅系统字体 + 最小排版，无远程字体/CDN，离线可用。 */
+:root {
+  color-scheme: light dark;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f5f6f8;
+  color: #1f2328;
+}
+
+.scaffold {
+  text-align: center;
+  padding: 2rem;
+}
+
+.scaffold h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.75rem;
+}
+
+.scaffold p {
+  margin: 0.25rem 0;
+}
+
+.scaffold .hint {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #16181d;
+    color: #e6e8eb;
+  }
+}

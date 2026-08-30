@@ -19,6 +19,7 @@ PengToolsV4/
 ├── docs/                  # 架构 / 交接 / UI 需求文档
 ├── packaging/             # 安装布局说明
 ├── Installer/             # 安装模板（gitignore 含 EXE）
+├── frontend/              # Vue 3 + TypeScript + Vite 前端迁移骨架（node_modules/ dist/ 不提交）
 ├── requirements.txt
 ├── AGENTS.md              # AI/开发硬规则
 └── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
@@ -64,6 +65,16 @@ $env:QT_QPA_PLATFORM='offscreen'
 ```powershell
 .\.venv-dev\Scripts\python.exe -X utf8 -m pip_audit -r requirements.txt
 ```
+
+Frontend（Vue 3 + TypeScript + Vite，迁移骨架，Node ≥ 20.19 或 ≥ 22.12）：
+
+```powershell
+cd frontend
+npm ci         # 按 package-lock.json 精确还原依赖
+npm run check  # vue-tsc 类型检查 + Vite 双入口构建（file:// 相对产物）+ verify:dist 守护
+```
+
+`frontend/dist/` 为构建产物（gitignore）。当前生产 UI 仍使用 `resources/webui/`，Vue 构建产物尚未接入桌面程序。
 
 发布打包：
 

@@ -20,6 +20,10 @@ PrivateInstaller/
 outputs/oracle-instantclient/
 .venv*/
 
+# frontend（Vue/Vite）：依赖与构建产物不提交，package-lock.json 必须提交
+frontend/node_modules/
+frontend/dist/
+
 # 临时与调试文件
 _build_log.txt
 _build_temp.ps1
