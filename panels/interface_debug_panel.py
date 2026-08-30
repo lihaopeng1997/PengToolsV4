@@ -2114,7 +2114,13 @@ class InterfaceDebugPanel(QWidget):
             pass
 
     def _on_capture_stop_finalized(self, stop_epoch, should_restart):
-        """stop 线程收尾完成（Qt 主线程）：同步镜像 epoch；pending 时自动重启。"""
+        """stop 线程收尾完成（Qt 主线程）：过期 finalized 直接丢弃；pending 时自动重启。
+
+        旧 stop 的 finalized 晚到时，lifecycle.epoch 已前进——不得回写
+        _capture_epoch / _capture_stop_thread，不得触发重启、不得动 worker/UI。
+        """
+        if int(stop_epoch) != self._lifecycle.epoch:
+            return
         self._capture_stop_thread = None
         self._capture_epoch = int(stop_epoch)
         if should_restart:

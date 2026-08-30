@@ -2,9 +2,13 @@
 """V2 Web 壳定向测试：桥接/配置默认/导航白名单/首页数据（offscreen 安全，不实例化视图）。"""
 import json
 import os
+import sys
 import unittest
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)   # 直接 `python tests/test_web_shell.py` 时保证能导入根目录模块
 
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import QApplication
@@ -267,14 +271,12 @@ class ReadyAnnounceGuardTest(unittest.TestCase):
         return self.main_src[start:end]
 
     def test_check_guard_exists(self):
-        src = read_main_window()
         body = self._function_source('_check_web_shell_ready')
         self.assertIn('_web_shell_ready_announced', body)
         self.assertIn('self._web_shell_ready_announced = True', body)
         self.assertIn('return', body)   # 已 fallback / 未满足 / 已 announce 三重早退
 
     def test_both_entries_route_to_check(self):
-        src = read_main_window()
         for handler in ('_on_web_page_ready', '_on_web_load_finished'):
             body = self._function_source(handler)
             self.assertIsNotNone(body, handler)
@@ -289,9 +291,6 @@ def read_main_window():
     with open(path, encoding='utf-8') as fh:
         return fh.read()
 
-
-if __name__ == '__main__':
-    unittest.main()
 
 
 

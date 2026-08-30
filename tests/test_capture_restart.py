@@ -344,23 +344,23 @@ class StaleBootResultTest(unittest.TestCase):
 
 
 class RealWorkerSamePortFiveRoundsTest(unittest.TestCase):
-    """二十五/二十六节：同一个端口连续 start→ready→stop 5 轮（不碰系统代理）。
+    """Step 2C-1B：同一个端口连续 start→ready→stop 5 轮（不碰系统代理）。
 
-    实测发现（Step 2C-1A）：Round 1 通过；Round 2 起 mitmproxy 二次启动不再 ready
-    且 on_error 不回调（端口已无监听者，排除 TIME_WAIT 占用；错误停留在 mitmproxy
-    errorcheck addon 内未转发到 on_error）。根因在 HttpCaptureWorker/mitmproxy 二次
-    bind-ready 链路——按本轮定位结论跳过，待 Step 2C-2 依赖升级后单独处理。
+    根因（mitmproxy 12.2.3 实源码核实）：Master.shutdown() 只置位 should_exit 结束
+    run()，从不关闭 asyncio.Server 监听 socket，且引擎被 mitmproxy.ctx.master 模块级
+    全局引用钉住——旧端口长期不释放，Round 2 起绑定失败。修复后 stop() 在 mitmproxy
+    自己的 loop 上执行 server=False / servers.update([]) 主动关停 listener，再 shutdown。
     """
 
-    @unittest.skip('mitmproxy 同端口二次启动不 ready 且错误未转发（Round 2 起）；'
-                   'Round 1 实测通过（端口释放 ~8.2s）。待 2C-2 依赖升级后处理')
     def test_same_port_five_rounds(self):
         from tools.http_capture import HttpCaptureWorker
         port = _free_port()
         workers = []
+        errors = []
         try:
             for round_no in range(1, 6):
-                worker = HttpCaptureWorker(port=port, apply_system_proxy=False)
+                worker = HttpCaptureWorker(
+                    port=port, apply_system_proxy=False, on_error=errors.append)
                 worker.start()
                 workers.append(worker)
                 self.assertTrue(worker.wait_ready(timeout=15),
@@ -368,6 +368,7 @@ class RealWorkerSamePortFiveRoundsTest(unittest.TestCase):
                 probe = socket.create_connection(('127.0.0.1', port), timeout=1)
                 probe.close()
                 worker.stop(join_timeout=2.0)
+                self.assertEqual(errors, [], f'Round {round_no}: 意外错误 {errors}')
                 self.assertFalse(worker._thread.is_alive(), f'Round {round_no}: 线程未退出')
                 self.assertFalse(worker._poll_thread.is_alive(), f'Round {round_no}: poll 未退出')
                 self.assertIsNone(worker._loop, f'Round {round_no}: loop 未清')
@@ -381,6 +382,103 @@ class RealWorkerSamePortFiveRoundsTest(unittest.TestCase):
         finally:
             for w in workers:
                 w.stop(join_timeout=0.5)
+
+
+class StopFinalizedEpochGuardTest(unittest.TestCase):
+    """Step 2C-1B：_on_capture_stop_finalized 的 epoch 守卫。
+
+    过期 finalized（epoch 不匹配）不得回写 _capture_epoch / _capture_stop_thread /
+    _ie_worker / UI，也不得触发重启；当前有效 finalized + pending restart 必须重启出
+    新 epoch 并进入 STARTING/RUNNING。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _make_panel_running(self, epoch_target):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        e = None
+        for _ in range(epoch_target):
+            if e is not None:
+                panel._lifecycle.fail_runtime(e)   # → IDLE，允许下一轮 begin_start
+            e = panel._lifecycle.begin_start()
+            panel._lifecycle.mark_running(e)
+        panel._capture_epoch = e
+        panel._listening = True
+        panel._channel_ready = True
+        panel._ie_worker = MagicMock()
+        return panel, e
+
+    def test_stale_finalized_ignored(self):
+        panel, current = self._make_panel_running(2)   # lifecycle.epoch = 2
+        old_worker = panel._ie_worker
+        panel._start_local_proxy = MagicMock()
+        # 过期 finalized（epoch=1）——即使携带重启请求也不得产生任何影响
+        panel._on_capture_stop_finalized(current - 1, True)
+        self.assertEqual(panel._lifecycle.epoch, current)
+        self.assertEqual(panel._lifecycle.state, RUNNING)
+        self.assertEqual(panel._capture_epoch, current, 'epoch 镜像不得回退')
+        self.assertIs(panel._ie_worker, old_worker)
+        self.assertTrue(panel._listening)
+        self.assertTrue(panel._channel_ready)
+        panel._start_local_proxy.assert_not_called()
+        panel.close()
+
+    def test_current_finalized_pending_restart_reboots(self):
+        panel, e1 = self._make_panel_running(1)
+        self.assertTrue(panel._lifecycle.begin_stop(e1))
+        self.assertIsNone(panel._lifecycle.begin_start())   # STOPPING：记 pending
+        self.assertTrue(panel._lifecycle.pending_start)
+        self.assertTrue(panel._lifecycle.finish_stop(e1))   # stop 线程收尾 → IDLE
+        self.assertEqual(panel._lifecycle.state, IDLE)
+
+        class _FakeBootWorker:
+            def __init__(self, port, **kwargs):
+                self.port = port
+                self.ready = True
+                self._thread = None
+                self._poll_thread = None
+                self._loop = None
+                self._master = None
+
+            def start(self):
+                pass
+
+            def wait_ready(self, timeout=None):
+                return True
+
+            def stop(self, *a, **k):
+                pass
+
+        fake_cls = MagicMock(side_effect=lambda port, **kw: _FakeBootWorker(port))
+        panel._ensure_capture_ready_silently = MagicMock()
+        with patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
+             patch('tools.ie_proxy.ensure_system_proxy_safe'), \
+             patch('tools.http_capture.HttpCaptureWorker', fake_cls):
+            # 当前有效 finalized：guard 放行 → 自动重启 → 新 epoch STARTING/RUNNING
+            panel._on_capture_stop_finalized(e1, True)
+            deadline = time.perf_counter() + 10
+            while time.perf_counter() < deadline:
+                self.app.processEvents()
+                if (panel._lifecycle.state in (STARTING, RUNNING)
+                        and panel._lifecycle.epoch > e1):
+                    break
+                time.sleep(0.05)
+            self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
+            self.assertGreater(panel._lifecycle.epoch, e1, 'pending restart 必须产生新 epoch')
+            self.assertFalse(panel._lifecycle.pending_start)
+            # 清理：fake boot 无真实引擎，走正常 stop 收尾（lifecycle 回 IDLE）
+            panel._stop_listen()
+            th = panel._capture_stop_thread
+            if th is not None and th.is_alive():
+                th.join(timeout=5)
+        self.assertEqual(panel._lifecycle.state, IDLE)
+        panel._ie_worker = None
+        panel.close()
 
 
 if __name__ == '__main__':
