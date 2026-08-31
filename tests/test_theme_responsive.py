@@ -433,12 +433,80 @@ class PanelLayoutModeTests(unittest.TestCase):
     def test_settings_theme_grid_columns(self):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
         panel.apply_layout_mode('narrow')
-        # 单列：night card at row 3
-        item = panel.theme_grid.itemAtPosition(3, 0)
+        # 单列：2 张卡片位于 row 0 和 row 1
+        item = panel.theme_grid.itemAtPosition(1, 0)
         self.assertIsNotNone(item)
         panel.apply_layout_mode('wide')
         item = panel.theme_grid.itemAtPosition(0, 1)
         self.assertIsNotNone(item)
+
+    def test_settings_creates_only_light_and_dark_cards(self):
+        panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
+        self.assertEqual(list(panel._theme_cards.keys()), ['light', 'dark'])
+        self.assertEqual(panel._theme_cards['light'].name_label.text(), '浅色')
+        self.assertEqual(panel._theme_cards['dark'].name_label.text(), '深色')
+        self.assertIn('日间', panel._theme_cards['light'].subtitle_label.text())
+        self.assertIn('深色', panel._theme_cards['dark'].subtitle_label.text())
+
+    def test_settings_canonical_theme_selection(self):
+        panel_calm = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
+        self.assertTrue(panel_calm._theme_cards['light'].property('selected'))
+        self.assertFalse(panel_calm._theme_cards['dark'].property('selected'))
+
+        panel_black = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'black'}, 'zh')
+        self.assertFalse(panel_black._theme_cards['light'].property('selected'))
+        self.assertTrue(panel_black._theme_cards['dark'].property('selected'))
+
+        panel_night = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'night'}, 'zh')
+        self.assertFalse(panel_night._theme_cards['light'].property('selected'))
+        self.assertTrue(panel_night._theme_cards['dark'].property('selected'))
+
+    def test_settings_legacy_theme_preservation(self):
+        # 兼容旧配置 clear 与 warm：浅色卡选中，但未主动切主题时 values() 保留原值
+        panel_clear = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'clear'}, 'zh')
+        self.assertTrue(panel_clear._theme_cards['light'].property('selected'))
+        self.assertEqual(panel_clear.values()['ui_theme'], 'clear')
+        panel_clear.font_size.setValue(15)
+        self.assertEqual(panel_clear.values()['ui_theme'], 'clear')
+
+        panel_warm = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
+        self.assertTrue(panel_warm._theme_cards['light'].property('selected'))
+        self.assertEqual(panel_warm.values()['ui_theme'], 'warm')
+        panel_warm.font_size.setValue(16)
+        self.assertEqual(panel_warm.values()['ui_theme'], 'warm')
+
+    def test_settings_explicit_mode_switching(self):
+        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
+        emitted = []
+        panel.settings_changed.connect(lambda s: emitted.append(s['ui_theme']))
+
+        # 从 warm 主动切换到深色 -> 应转为 black
+        panel._on_theme_clicked('dark')
+        self.assertEqual(emitted[-1], 'black')
+        self.assertEqual(panel.values()['ui_theme'], 'black')
+        self.assertTrue(panel._theme_cards['dark'].property('selected'))
+        self.assertFalse(panel._theme_cards['light'].property('selected'))
+
+        # 从深色切换回浅色 -> 应转为标准 calm
+        panel._on_theme_clicked('light')
+        self.assertEqual(emitted[-1], 'calm')
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
+        self.assertTrue(panel._theme_cards['light'].property('selected'))
+        self.assertFalse(panel._theme_cards['dark'].property('selected'))
+
+    def test_theme_mode_and_internal_themes_compatibility(self):
+        from ui.theme_manager import theme_mode, resolve_theme_id, THEMES
+        self.assertEqual(theme_mode('calm'), 'light')
+        self.assertEqual(theme_mode('clear'), 'light')
+        self.assertEqual(theme_mode('warm'), 'light')
+        self.assertEqual(theme_mode('black'), 'dark')
+        self.assertEqual(theme_mode('night'), 'dark')
+
+        self.assertEqual(resolve_theme_id('clear'), 'clear')
+        self.assertEqual(resolve_theme_id('warm'), 'warm')
+        self.assertEqual(resolve_theme_id('night'), 'black')
+        self.assertIn('clear', THEMES)
+        self.assertIn('warm', THEMES)
 
     def test_gateway_and_format_layout_mode(self):
         g = GatewayDecodePanel('zh')

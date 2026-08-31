@@ -12,7 +12,29 @@ from ui.field_metrics import (
     CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo,
     size_field_height, size_line, size_pick_combo, wrap_path_field, wrap_secret_field,
 )
-from ui.theme_manager import THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_display_name, theme_subtitle
+from ui.theme_manager import (
+    THEME_IDS, THEME_META, preview_swatches, resolve_theme_id,
+    theme_display_name, theme_mode, theme_subtitle,
+)
+
+THEME_MODES = ('light', 'dark')
+
+THEME_MODE_META = {
+    'light': {
+        'canonical': 'calm',
+        'title_zh': '浅色',
+        'title_en': 'Light',
+        'sub_zh': '明亮、清晰的日间工作界面',
+        'sub_en': 'Bright interface for daytime work',
+    },
+    'dark': {
+        'canonical': 'black',
+        'title_zh': '深色',
+        'title_en': 'Dark',
+        'sub_zh': '低眩光的深色工作界面',
+        'sub_en': 'Low-glare dark interface',
+    },
+}
 
 
 class _AiProbeWorker(QThread):
@@ -104,13 +126,18 @@ class ThemePreviewWidget(QWidget):
 
 
 class ThemeCard(QFrame):
-    """自适应主题预览卡：完整微型界面 + 当前使用标识。"""
+    """自适应外观预览卡：完整微型界面 + 浅色/深色标识。"""
 
     clicked = pyqtSignal(str)
 
-    def __init__(self, theme_id: str, parent=None):
+    def __init__(self, mode_or_theme: str, parent=None):
         super().__init__(parent)
-        self.theme_id = theme_id
+        if mode_or_theme in THEME_MODES:
+            self.mode = mode_or_theme
+            self.theme_id = THEME_MODE_META[mode_or_theme]['canonical']
+        else:
+            self.theme_id = resolve_theme_id(mode_or_theme)
+            self.mode = theme_mode(self.theme_id)
         self.setObjectName('theme-card')
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumSize(148, 96)
@@ -119,7 +146,7 @@ class ThemeCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
-        self.preview = ThemePreviewWidget(theme_id)
+        self.preview = ThemePreviewWidget(self.theme_id)
         layout.addWidget(self.preview, 1)
         name_row = QHBoxLayout()
         name_row.setContentsMargins(0, 0, 0, 0)
@@ -137,7 +164,7 @@ class ThemeCard(QFrame):
         self.subtitle_label.setObjectName('field-hint')
         self.subtitle_label.setWordWrap(True)
         layout.addWidget(self.subtitle_label)
-        self._swatches = preview_swatches(theme_id)
+        self._swatches = preview_swatches(self.theme_id)
 
     def set_selected(self, selected: bool):
         self.setProperty('selected', selected)
@@ -160,7 +187,7 @@ class ThemeCard(QFrame):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.theme_id)
+            self.clicked.emit(self.mode)
         super().mouseReleaseEvent(event)
 
 
@@ -223,11 +250,11 @@ class SettingsPanel(QWidget):
         self.theme_grid = QGridLayout()
         self.theme_grid.setSpacing(10)
         self._theme_cards = {}
-        for index, theme_id in enumerate(THEME_IDS):
-            card = ThemeCard(theme_id)
+        for index, mode in enumerate(THEME_MODES):
+            card = ThemeCard(mode)
             card.clicked.connect(self._on_theme_clicked)
-            self._theme_cards[theme_id] = card
-            self.theme_grid.addWidget(card, index // 2, index % 2)
+            self._theme_cards[mode] = card
+            self.theme_grid.addWidget(card, 0, index)
         appearance_outer.addLayout(self.theme_grid)
 
         appearance = QFormLayout()
@@ -572,25 +599,30 @@ class SettingsPanel(QWidget):
         self.opacity_value.setText(f'{value}%')
         self.floating_opacity_preview.emit(value)
 
-    def _on_theme_clicked(self, theme_id: str):
-        """将主题请求交给主窗口原子应用；失败时保持当前卡片与配置不变。"""
-        theme_id = resolve_theme_id(theme_id)
-        if theme_id == self._ui_theme:
+    def _on_theme_clicked(self, mode_or_theme: str):
+        """将外观模式切换请求（浅色/深色）交给主窗口原子应用；失败时保持当前卡片与配置不变。"""
+        target_mode = mode_or_theme if mode_or_theme in THEME_MODES else theme_mode(mode_or_theme)
+        current_mode = theme_mode(self._ui_theme)
+        if target_mode == current_mode:
             return
+        new_theme_id = THEME_MODE_META[target_mode]['canonical']
+        self._ui_theme = new_theme_id
+        self._refresh_theme_cards()
         settings = self.values()
-        settings['ui_theme'] = theme_id
+        settings['ui_theme'] = new_theme_id
         self.settings_changed.emit(settings)
 
     def _refresh_theme_cards(self):
-        current = resolve_theme_id(self._ui_theme)
+        current_mode = theme_mode(self._ui_theme)
         zh = self.language == 'zh'
         current_label = '当前使用' if zh else 'Current'
-        for theme_id, card in self._theme_cards.items():
-            card.set_selected(theme_id == current)
-            name = theme_display_name(theme_id, self.language)
-            sub = theme_subtitle(theme_id, self.language)
+        for mode, card in self._theme_cards.items():
+            meta = THEME_MODE_META.get(mode, THEME_MODE_META['light'])
+            card.set_selected(mode == current_mode)
+            name = meta['title_zh'] if zh else meta['title_en']
+            sub = meta['sub_zh'] if zh else meta['sub_en']
             card.set_title(name, current_label=current_label, subtitle=sub)
-            card.preview.set_theme_id(theme_id)
+            card.preview.set_theme_id(meta['canonical'])
 
     def apply_layout_mode(self, mode, low_height=False):
         """主题卡 Wide/Standard 两列，Compact/Narrow 一列。"""
@@ -598,8 +630,8 @@ class SettingsPanel(QWidget):
         set_subtitle_visible(self.subtitle, low_height)
         cols = 1 if mode in ('compact', 'narrow') else 2
         # 重新排布 theme_grid
-        for i, theme_id in enumerate(THEME_IDS):
-            card = self._theme_cards.get(theme_id)
+        for i, theme_mode_key in enumerate(THEME_MODES):
+            card = self._theme_cards.get(theme_mode_key)
             if card is None:
                 continue
             self.theme_grid.addWidget(card, i // cols, i % cols)

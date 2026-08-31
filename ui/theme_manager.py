@@ -340,6 +340,18 @@ def resolve_theme_id(theme_id) -> str:
     return DEFAULT_THEME_ID
 
 
+def theme_mode(theme_id: str | None) -> str:
+    """返回主题的外观模式：'dark' 或 'light'。
+
+    black / night -> 'dark'
+    calm / clear / warm / 其它 -> 'light'
+    """
+    canonical = resolve_theme_id(theme_id)
+    if canonical in ('black', 'night'):
+        return 'dark'
+    return 'light'
+
+
 def theme_display_name(theme_id: str, language: str = 'zh') -> str:
     meta = THEME_META.get(resolve_theme_id(theme_id), THEME_META[DEFAULT_THEME_ID])
     return meta[0] if language == 'zh' else meta[1]
