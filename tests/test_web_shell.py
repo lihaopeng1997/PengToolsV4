@@ -244,11 +244,27 @@ class JsHandshakeOrderTest(unittest.TestCase):
         self.assertGreater(src.find('} catch (e) {'), init, '初始化应有 try/catch')
 
     def test_dashboard_page_ready_after_render(self):
-        src = self._read('dashboard.html')
-        render = src.find('render(JSON.parse(summaryJson))')
-        ready = src.find("bridge.pageReady('dashboard')")
-        self.assertGreater(render, 0)
-        self.assertGreater(ready, render, "pageReady 必须在 render 成功之后")
+        # 验证 Vue 生产 Dashboard main.ts 启动时序
+        dash_main = io.open(os.path.join(
+            ROOT, 'frontend', 'src', 'dashboard', 'main.ts'), encoding='utf-8').read()
+        mount_idx = dash_main.find("app.mount('#app')")
+        connect_idx = dash_main.find('connectBridge()')
+        summary_idx = dash_main.find('bridge.dashboardSummary()')
+        parse_idx = dash_main.find('JSON.parse(')
+        next_tick_idx = dash_main.find('nextTick()')
+        ready_idx = dash_main.find("bridge.pageReady('dashboard')")
+        catch_idx = dash_main.find('.catch(')
+
+        self.assertGreater(mount_idx, 0, 'Vue app 必须先 mount')
+        self.assertGreater(connect_idx, mount_idx, 'connectBridge 必须在 mount 后调用')
+        self.assertGreater(summary_idx, connect_idx, 'dashboardSummary 必须在 bridge 连接后调用')
+        self.assertGreater(parse_idx, summary_idx, 'JSON.parse 必须在 summary 返回后执行')
+        self.assertGreater(next_tick_idx, parse_idx, 'nextTick 必须在 parse/state 应用之后')
+        self.assertGreater(ready_idx, next_tick_idx, 'pageReady 必须在 nextTick 渲染就绪之后')
+        self.assertGreater(catch_idx, ready_idx, '异常捕获 catch 必须存在')
+        # 异常分支不得调用 pageReady
+        catch_body = dash_main[catch_idx:]
+        self.assertNotIn("pageReady('dashboard')", catch_body, 'catch 分支不得发送 pageReady')
 
 
 class ReadyAnnounceGuardTest(unittest.TestCase):
@@ -362,8 +378,8 @@ class SandboxPolicyTest(unittest.TestCase):
         self.assertIn('app_forces_sandbox_disabled=False', run_src)
 
 
-class VueChromeMigrationGuardTest(unittest.TestCase):
-    """STEP-4 守护：Sidebar 迁 Vue 后的接线与产物存在性（共 5 项，不扩散）。"""
+class VueShellMigrationGuardTest(unittest.TestCase):
+    """STEP-4/5 守护：Sidebar 与 Dashboard 迁 Vue 后的接线与产物存在性。"""
 
     @classmethod
     def setUpClass(cls):
@@ -382,18 +398,25 @@ class VueChromeMigrationGuardTest(unittest.TestCase):
     def test_chrome_widget_uses_vue_chrome(self):
         self.assertIn("'vue/chrome.html'", self._function_source('create_chrome_widget'))
 
-    def test_dashboard_widget_still_legacy(self):
+    def test_dashboard_widget_uses_vue_dashboard(self):
         src = self._function_source('create_dashboard_widget')
-        self.assertIn("'dashboard.html'", src)
-        self.assertNotIn('vue/dashboard.html', src)
+        self.assertIn("'vue/dashboard.html'", src)
 
     def test_legacy_chrome_html_retained(self):
         self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'chrome.html')),
                         'legacy chrome.html 必须保留（应急对照）')
 
+    def test_legacy_dashboard_html_retained(self):
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'dashboard.html')),
+                        'legacy dashboard.html 必须保留（应急对照）')
+
     def test_embedded_vue_chrome_exists(self):
         self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'vue', 'chrome.html')),
                         'embedded Vue chrome.html 缺失（frontend: npm run build:embedded）')
+
+    def test_embedded_vue_dashboard_exists(self):
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'resources', 'webui', 'vue', 'dashboard.html')),
+                        'embedded Vue dashboard.html 缺失（frontend: npm run build:embedded）')
 
     def test_home_bridge_contract_unchanged(self):
         for slot in ('navigate', 'openPalette', 'navModel', 'homeUsername',

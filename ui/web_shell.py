@@ -283,5 +283,9 @@ def create_chrome_widget(bridge: HomeBridge, parent: QWidget | None = None) -> Q
 
 
 def create_dashboard_widget(bridge: HomeBridge, parent: QWidget | None = None) -> QWidget:
-    """V2 首页（Stack[0] 的 web 版）。"""
-    return _create_web_widget('dashboard', 'dashboard.html', bridge, parent)
+    """V2 首页（Stack[0] 的 web 版）。
+
+    STEP-5 起 Dashboard 由 Vue 构建（frontend → resources/webui/vue/）；
+    legacy dashboard.html 仅作应急对照保留。
+    """
+    return _create_web_widget('dashboard', 'vue/dashboard.html', bridge, parent)
