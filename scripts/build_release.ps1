@@ -486,6 +486,63 @@ $list
             throw "Post-condition failed: required binary '$req' is missing in $qtBinDir"
         }
     }
+    # 裁剪未使用的 Qt 3D / Quick3D / ShaderTools 与 3D 插件
+    $quick3dBinFiles = @(
+        'Qt6Quick3DRuntimeRender.dll',
+        'Qt6ShaderTools.dll',
+        'Qt6Quick3DPhysics.dll',
+        'Qt6Quick3DParticles.dll',
+        'Qt6Quick3D.dll',
+        'Qt6Quick3DXr.dll',
+        'Qt6Quick3DHelpers.dll',
+        'Qt6Quick3DHelpersImpl.dll',
+        'Qt6Quick3DUtils.dll',
+        'Qt6Quick3DEffects.dll',
+        'Qt6Quick3DAssetUtils.dll',
+        'Qt6Quick3DGlslParser.dll',
+        'Qt6Quick3DSpatialAudio.dll',
+        'Qt6Quick3DIblBaker.dll',
+        'Qt6Quick3DAssetImport.dll',
+        'Qt6Quick3DPhysicsHelpers.dll'
+    )
+    foreach ($q3d in $quick3dBinFiles) {
+        $target = Join-Path $qtBinDir $q3d
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $quick3dPluginDirs = @('assetimporters', 'sceneparsers', 'renderers', 'geometryloaders')
+    foreach ($pdir in $quick3dPluginDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Post-condition 校验：3D 候选 0 残留，且核心 WebEngine/QtQuick/OpenGL/QmlMeta 等必须完好
+    foreach ($q3d in $quick3dBinFiles) {
+        $target = Join-Path $qtBinDir $q3d
+        if (Test-Path -LiteralPath $target) {
+            throw "Post-condition failed: Quick3D binary '$q3d' remained in $qtBinDir"
+        }
+    }
+    foreach ($pdir in $quick3dPluginDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            throw "Post-condition failed: Quick3D plugin directory '$pdir' remained in $targetDir"
+        }
+    }
+    $required3DContractBinaries = @(
+        'Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll',
+        'Qt6Qml.dll', 'Qt6QmlModels.dll', 'Qt6QmlMeta.dll', 'Qt6OpenGL.dll',
+        'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll'
+    )
+    foreach ($req in $required3DContractBinaries) {
+        $reqPath = Join-Path $qtBinDir $req
+        if (-not (Test-Path -LiteralPath $reqPath)) {
+            throw "Post-condition failed: required binary '$req' is missing in $qtBinDir"
+        }
+    }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 

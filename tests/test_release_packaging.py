@@ -263,6 +263,54 @@ class ReleasePackagingGuardTest(unittest.TestCase):
                     f.write(b'data')
             verify_qt_multimedia_pruned(bin_dir, plugin_dir)
 
+    # ---------- Qt 3D / Quick3D 守护 ----------
+
+    def test_build_script_prunes_quick3d_runtime(self):
+        """构建脚本必须包含 quick3dBinFiles 与 quick3dPluginDirs 裁剪逻辑。"""
+        self.assertIn("Qt6Quick3DRuntimeRender.dll", self.text)
+        self.assertIn("Qt6ShaderTools.dll", self.text)
+        self.assertIn("quick3dPluginDirs", self.text)
+
+    def test_build_script_enforces_3d_contract_binaries_postcondition(self):
+        """构建脚本必须确保 WebEngine、QtQuick、QmlModels、QmlMeta、OpenGL 核心完好。"""
+        self.assertIn("Qt6QmlModels.dll", self.text)
+        self.assertIn("Qt6QmlMeta.dll", self.text)
+        self.assertIn("Qt6OpenGL.dll", self.text)
+
+    def test_quick3d_residual_fails(self):
+        """Quick3D 二进制残留必须触发 fail。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, 'bin')
+            plugins_dir = os.path.join(tmp, 'plugins')
+            os.makedirs(bin_dir)
+            os.makedirs(plugins_dir)
+            for req in ('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll',
+                        'Qt6QmlModels.dll', 'Qt6QmlMeta.dll', 'Qt6OpenGL.dll', 'Qt6Widgets.dll',
+                        'Qt6Gui.dll', 'Qt6Core.dll'):
+                with open(os.path.join(bin_dir, req), 'wb') as f:
+                    f.write(b'data')
+            with open(os.path.join(bin_dir, 'Qt6Quick3D.dll'), 'wb') as f:
+                f.write(b'data')
+            with self.assertRaises(RuntimeError) as ctx:
+                verify_qt_3d_pruned(bin_dir, plugins_dir)
+            self.assertIn('Qt6Quick3D.dll', str(ctx.exception))
+
+    def test_quick3d_clean_and_required_present_passes(self):
+        """Quick3D 0 残留且核心二进制完好时正常通过。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, 'bin')
+            plugins_dir = os.path.join(tmp, 'plugins')
+            os.makedirs(bin_dir)
+            os.makedirs(plugins_dir)
+            for req in ('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll',
+                        'Qt6QmlModels.dll', 'Qt6QmlMeta.dll', 'Qt6OpenGL.dll', 'Qt6Widgets.dll',
+                        'Qt6Gui.dll', 'Qt6Core.dll'):
+                with open(os.path.join(bin_dir, req), 'wb') as f:
+                    f.write(b'data')
+            verify_qt_3d_pruned(bin_dir, plugins_dir)
+
 
 def verify_webengine_locales(locales_dir: str, keep_locales=('zh-CN.pak', 'en-US.pak')) -> list[str]:
     """验证 WebEngine 语言包后置条件：目录存在、KEEP 全部存在、非 KEEP 0 残留。"""
@@ -305,6 +353,32 @@ def verify_qt_multimedia_pruned(bin_dir: str, plugin_dir: str,
             raise RuntimeError(f"Post-condition failed: multimedia binary '{m}' remained in {bin_dir}")
     if os.path.exists(plugin_dir):
         raise RuntimeError(f"Post-condition failed: multimedia plugin directory remained in {plugin_dir}")
+    for req in required_binaries:
+        if not os.path.exists(os.path.join(bin_dir, req)):
+            raise RuntimeError(f"Post-condition failed: required binary '{req}' is missing in {bin_dir}")
+
+
+def verify_qt_3d_pruned(bin_dir: str, plugins_dir: str,
+                         quick3d_files=('Qt6Quick3DRuntimeRender.dll', 'Qt6ShaderTools.dll',
+                                        'Qt6Quick3DPhysics.dll', 'Qt6Quick3DParticles.dll',
+                                        'Qt6Quick3D.dll', 'Qt6Quick3DXr.dll', 'Qt6Quick3DHelpers.dll',
+                                        'Qt6Quick3DHelpersImpl.dll', 'Qt6Quick3DUtils.dll',
+                                        'Qt6Quick3DEffects.dll', 'Qt6Quick3DAssetUtils.dll',
+                                        'Qt6Quick3DGlslParser.dll', 'Qt6Quick3DSpatialAudio.dll',
+                                        'Qt6Quick3DIblBaker.dll', 'Qt6Quick3DAssetImport.dll',
+                                        'Qt6Quick3DPhysicsHelpers.dll'),
+                         plugin_dirs=('assetimporters', 'sceneparsers', 'renderers', 'geometryloaders'),
+                         required_binaries=('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll',
+                                            'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6QmlModels.dll',
+                                            'Qt6QmlMeta.dll', 'Qt6OpenGL.dll', 'Qt6Widgets.dll',
+                                            'Qt6Gui.dll', 'Qt6Core.dll')) -> None:
+    """验证 Qt 3D / Quick3D 运行时裁剪后置条件：0 残留且核心二进制与 Qml/OpenGL 存在。"""
+    for q3d in quick3d_files:
+        if os.path.exists(os.path.join(bin_dir, q3d)):
+            raise RuntimeError(f"Post-condition failed: Quick3D binary '{q3d}' remained in {bin_dir}")
+    for pdir in plugin_dirs:
+        if os.path.exists(os.path.join(plugins_dir, pdir)):
+            raise RuntimeError(f"Post-condition failed: Quick3D plugin directory '{pdir}' remained in {plugins_dir}")
     for req in required_binaries:
         if not os.path.exists(os.path.join(bin_dir, req)):
             raise RuntimeError(f"Post-condition failed: required binary '{req}' is missing in {bin_dir}")
