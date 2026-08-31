@@ -149,6 +149,8 @@ class PanelImmediateRestartTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        self.cert_patch = patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True)
+        self.cert_patch.start()
         from panels.interface_debug_panel import InterfaceDebugPanel
         panel = InterfaceDebugPanel('zh')
         self.panel = panel
@@ -160,6 +162,7 @@ class PanelImmediateRestartTest(unittest.TestCase):
 
     def tearDown(self):
         self.panel.close()
+        self.cert_patch.stop()
 
     def test_immediate_restart_creates_new_boot(self):
         from tools.capture_lifecycle import STOPPING, STARTING, RUNNING
@@ -397,6 +400,13 @@ class StopFinalizedEpochGuardTest(unittest.TestCase):
         from PyQt6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        self.cert_patch = patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True)
+        self.cert_patch.start()
+
+    def tearDown(self):
+        self.cert_patch.stop()
+
     def _make_panel_running(self, epoch_target):
         from panels.interface_debug_panel import InterfaceDebugPanel
         panel = InterfaceDebugPanel('zh')
@@ -498,6 +508,180 @@ class H2MitigationGuardTest(unittest.TestCase):
             "('http2', False),", src,
             '抓包引擎必须保持 http2=False（h2 4.3.0 存在 CVE-2026-71554，'
             'mitmproxy 12.2.3 无法升级 h2，禁用 HTTP/2 是执行路径缓解）')
+
+
+class HttpsCertConsentAndSafetyTests(unittest.TestCase):
+    """HTTPS CA 证书明确授权、真实状态检测与安全移除回归测试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_ensure_capture_ready_silently_never_installs_cert(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        with patch('tools.ie_proxy.install_user_root_cert') as mock_install, \
+             patch('tools.ie_proxy.ensure_mitm_ca_exists') as mock_ensure:
+            panel._ensure_capture_ready_silently()
+            mock_ensure.assert_called_once()
+            mock_install.assert_not_called()
+        panel.close()
+
+    def test_first_capture_prompts_consent_and_cancels(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=False), \
+             patch('ui.confirm_dialog.confirm_https_cert_consent', return_value=False) as mock_consent, \
+             patch('tools.ie_proxy.install_user_root_cert') as mock_install, \
+             patch('tools.http_capture.HttpCaptureWorker') as mock_worker:
+            panel._start_local_proxy()
+            mock_consent.assert_called_once()
+            mock_install.assert_not_called()
+            mock_worker.assert_not_called()
+            self.assertEqual(panel._lifecycle.state, IDLE)
+            self.assertFalse(panel._listening)
+        panel.close()
+
+    def test_first_capture_consent_install_success_proceeds(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+
+        class _FakeBootWorker:
+            def __init__(self, port, **kwargs):
+                self.port = port
+                self.ready = True
+            def start(self): pass
+            def wait_ready(self, timeout=None): return True
+            def stop(self, *a, **k): pass
+
+        installed_state = [False]
+        def fake_is_installed(*args, **kwargs):
+            return installed_state[0]
+        def fake_install(*args, **kwargs):
+            installed_state[0] = True
+            return 'FAKE_THUMB_123'
+
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', side_effect=fake_is_installed), \
+             patch('ui.confirm_dialog.confirm_https_cert_consent', return_value=True) as mock_consent, \
+             patch('tools.ie_proxy.install_user_root_cert', side_effect=fake_install) as mock_install, \
+             patch('tools.http_capture.HttpCaptureWorker', side_effect=lambda port, **kw: _FakeBootWorker(port)), \
+             patch('tools.ie_proxy.apply_local_proxy', return_value={}):
+            panel._start_local_proxy()
+            mock_consent.assert_called_once()
+            mock_install.assert_called_once()
+            self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
+        panel.close()
+
+    def test_first_capture_install_failure_aborts_start(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        from tools.ie_proxy import IeProxyError
+        panel = InterfaceDebugPanel('zh')
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=False), \
+             patch('ui.confirm_dialog.confirm_https_cert_consent', return_value=True), \
+             patch('tools.ie_proxy.install_user_root_cert', side_effect=IeProxyError('certutil error')), \
+             patch('panels.interface_debug_panel.show_warning') as mock_warn, \
+             patch('tools.http_capture.HttpCaptureWorker') as mock_worker:
+            panel._start_local_proxy()
+            mock_warn.assert_called_once()
+            mock_worker.assert_not_called()
+            self.assertEqual(panel._lifecycle.state, IDLE)
+            self.assertFalse(panel._listening)
+        panel.close()
+
+    def test_existing_installed_ca_skips_consent_dialog(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+
+        class _FakeBootWorker:
+            def __init__(self, port, **kwargs):
+                self.port = port
+                self.ready = True
+            def start(self): pass
+            def wait_ready(self, timeout=None): return True
+            def stop(self, *a, **k): pass
+
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True), \
+             patch('ui.confirm_dialog.confirm_https_cert_consent') as mock_consent, \
+             patch('tools.http_capture.HttpCaptureWorker', side_effect=lambda port, **kw: _FakeBootWorker(port)), \
+             patch('tools.ie_proxy.apply_local_proxy', return_value={}):
+            panel._start_local_proxy()
+            mock_consent.assert_not_called()
+            self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
+        panel.close()
+
+    def test_stale_thumbprint_detected_as_not_installed(self):
+        from tools.ie_proxy import is_recorded_root_cert_installed
+        with patch('tools.ie_proxy.load_interface_debug_config', return_value={'ie_certificate_thumbprint': 'STALE_THUMB_999'}), \
+             patch('tools.ie_proxy.is_current_user_root_cert_installed', return_value=False):
+            self.assertFalse(is_recorded_root_cert_installed('STALE_THUMB_999'))
+            self.assertFalse(is_recorded_root_cert_installed())
+
+    def test_remove_cert_while_listening_is_blocked(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        panel._listening = True
+        with patch('tools.ie_proxy.remove_recorded_cert') as mock_remove, \
+             patch('panels.interface_debug_panel.show_warning') as mock_warn:
+            panel._remove_ie_cert()
+            mock_remove.assert_not_called()
+            mock_warn.assert_called_once()
+            self.assertIn('停止监听', mock_warn.call_args[0][2])
+        panel.close()
+
+    def test_remove_cert_failure_retains_thumbprint(self):
+        from tools.ie_proxy import remove_recorded_cert, IeProxyError
+        cfg_mock = {'ie_certificate_thumbprint': 'THUMB_XYZ'}
+        proc_fail = MagicMock()
+        proc_fail.returncode = 1
+        proc_fail.stderr = 'access denied'
+        proc_fail.stdout = ''
+
+        with patch('tools.ie_proxy.load_interface_debug_config', return_value=cfg_mock), \
+             patch('tools.ie_proxy.save_interface_debug_config') as mock_save, \
+             patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True), \
+             patch('subprocess.run', return_value=proc_fail):
+            with self.assertRaises(IeProxyError):
+                remove_recorded_cert('THUMB_XYZ')
+            # 失败时绝不把 thumbprint 清空
+            mock_save.assert_not_called()
+            self.assertEqual(cfg_mock['ie_certificate_thumbprint'], 'THUMB_XYZ')
+
+    def test_remove_cert_success_clears_thumbprint(self):
+        from tools.ie_proxy import remove_recorded_cert
+        cfg_mock = {'ie_certificate_thumbprint': 'THUMB_XYZ'}
+        proc_ok = MagicMock()
+        proc_ok.returncode = 0
+
+        with patch('tools.ie_proxy.load_interface_debug_config', return_value=cfg_mock), \
+             patch('tools.ie_proxy.save_interface_debug_config') as mock_save, \
+             patch('tools.ie_proxy.is_recorded_root_cert_installed', side_effect=[True, False]), \
+             patch('subprocess.run', return_value=proc_ok):
+            res = remove_recorded_cert('THUMB_XYZ')
+            self.assertTrue(res)
+            self.assertEqual(cfg_mock['ie_certificate_thumbprint'], '')
+            mock_save.assert_called_once()
+
+    def test_toolbar_status_and_menu_rendering(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=False), \
+             patch('tools.ie_proxy.is_capture_proxy_suspended', return_value=False):
+            panel._refresh_capture_status_text()
+            panel._rebuild_capture_actions_menu()
+            text = panel.toolbar_hint.text()
+            self.assertIn('系统代理：正常', text)
+            self.assertIn('HTTPS 解密：未启用', text)
+
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True), \
+             patch('tools.ie_proxy.is_capture_proxy_suspended', return_value=False):
+            panel._listening = True
+            panel._refresh_capture_status_text()
+            panel._rebuild_capture_actions_menu()
+            text = panel.toolbar_hint.text()
+            self.assertIn('监听中', text)
+            self.assertIn('HTTPS 解密：已启用', text)
+        panel.close()
 
 
 if __name__ == '__main__':

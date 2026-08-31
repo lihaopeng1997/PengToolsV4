@@ -28,7 +28,8 @@ from tools.browser_debug import (
     pick_default_page_target, port_open, wait_debug_port,
 )
 from tools.ie_proxy import (
-    IeProxyWorker, install_user_root_cert, remove_recorded_cert, restore_proxy_from_snapshot,
+    IeProxyWorker, install_user_root_cert, is_recorded_root_cert_installed,
+    remove_recorded_cert, restore_proxy_from_snapshot,
 )
 from tools.interface_debug_store import (
     load_interface_debug_config, save_interface_debug_config, update_ui_prefs,
@@ -44,7 +45,9 @@ from tools.interface_session_view import (
     query_pairs, response_size_bytes, split_cookies, url_path_display,
 )
 from ui.aurora_progress import AuroraProgress
-from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
+from ui.confirm_dialog import (
+    confirm_action, confirm_https_cert_consent, show_info, show_success, show_warning,
+)
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
@@ -1023,6 +1026,53 @@ class InterfaceDebugPanel(QWidget):
             action = menu.addAction(label)
             action.triggered.connect(callback)
 
+    def _rebuild_capture_actions_menu(self):
+        if not hasattr(self, '_capture_actions_menu') or self._capture_actions_menu is None:
+            return
+        menu = self._capture_actions_menu
+        menu.clear()
+        zh = self.language == 'zh'
+        from tools.ie_proxy import is_recorded_root_cert_installed
+        cert_installed = is_recorded_root_cert_installed()
+
+        if cert_installed:
+            remove_act = menu.addAction('移除 HTTPS 抓包证书' if zh else 'Remove HTTPS CA certificate')
+            remove_act.triggered.connect(self._remove_ie_cert)
+        else:
+            install_act = menu.addAction('安装 HTTPS 抓包证书' if zh else 'Install HTTPS CA certificate')
+            install_act.triggered.connect(self._install_ie_cert)
+
+        menu.addSeparator()
+        restore_act = menu.addAction('恢复系统代理' if zh else 'Restore system proxy')
+        restore_act.triggered.connect(self._manual_restore_proxy)
+
+        widths = getattr(self, '_last_responsive_widths', None) or (1000, 1000, 1000)
+        if widths[0] < 500:
+            test_act = menu.addAction('测试监听' if zh else 'Test listen')
+            test_act.triggered.connect(self._test_listen_loopback)
+
+    def _refresh_capture_status_text(self):
+        zh = self.language == 'zh'
+        from tools.ie_proxy import is_recorded_root_cert_installed, is_capture_proxy_suspended
+        cert_installed = is_recorded_root_cert_installed()
+        https_text = ('已启用' if cert_installed else '未启用') if zh else ('Enabled' if cert_installed else 'Disabled')
+
+        if self._listening:
+            port = self._current_port()
+            if is_capture_proxy_suspended():
+                proxy_text = '已暂停' if zh else 'Suspended'
+            else:
+                proxy_text = f'监听中 127.0.0.1:{port}' if zh else f'127.0.0.1:{port}'
+        else:
+            proxy_text = '正常' if zh else 'Normal'
+
+        if hasattr(self, 'toolbar_hint') and self.toolbar_hint is not None:
+            self.toolbar_hint.setText(
+                f'系统代理：{proxy_text} · HTTPS 解密：{https_text}'
+                if zh else
+                f'System proxy: {proxy_text} · HTTPS decryption: {https_text}'
+            )
+
     def _update_responsive_workspace(self, left_width=None, right_width=None, table_width=None):
         """按实际分隔条宽度收纳次要按钮，并同步压缩会话诊断列。"""
         explicit_widths = any(value is not None for value in (left_width, right_width, table_width))
@@ -1039,12 +1089,9 @@ class InterfaceDebugPanel(QWidget):
 
         capture_compact = left_width < 500
         self._set_widgets_visible((self.test_listen_btn, self.restore_proxy_btn), not capture_compact)
-        self.capture_actions_more_btn.setVisible(capture_compact)
-        if capture_compact:
-            self._rebuild_overflow_menu(self._capture_actions_menu, [
-                ('测试连接' if self.language == 'zh' else 'Test connection', self._test_listen_loopback),
-                ('恢复系统代理' if self.language == 'zh' else 'Restore proxy', self._manual_restore_proxy),
-            ])
+        self.capture_actions_more_btn.setVisible(True)
+        self._rebuild_capture_actions_menu()
+        self._refresh_capture_status_text()
 
         detail_compact = right_width < 500
         self._set_widgets_visible((self.format_req_btn, self.gateway_req_btn), not detail_compact)
@@ -1654,21 +1701,13 @@ class InterfaceDebugPanel(QWidget):
         self._start_local_proxy(ie_mode=False)
 
     def _ensure_capture_ready_silently(self):
-        """HTTPS 解密所需 CA：启动时静默准备，不打扰用户。"""
+        """仅确保本地 mitmproxy CA 证书文件已就绪，绝不静默修改 Windows 受信任根证书库。"""
         try:
             ensure_mitm_ca_exists = __import__(
                 'tools.ie_proxy', fromlist=['ensure_mitm_ca_exists']
             ).ensure_mitm_ca_exists
             ensure_mitm_ca_exists()
         except Exception:
-            pass
-        try:
-            cfg = load_interface_debug_config()
-            if not (cfg.get('ie_certificate_thumbprint') or '').strip():
-                install_user_root_cert()
-                self._config = load_interface_debug_config()
-        except Exception:
-            # 证书失败时 HTTP 仍可抓；HTTPS 可能只有 host
             pass
 
     def _connect_cdp(self):
@@ -1773,6 +1812,33 @@ class InterfaceDebugPanel(QWidget):
         """异步启动抓包：不在主线程 sleep 等待，避免点任何按钮都像超时。"""
         zh = self.language == 'zh'
         title = '开始监听' if zh else 'Start listen'
+        if self._lifecycle.state in ('starting', 'running'):
+            show_info(self, title, '已在监听中' if zh else 'Already listening')
+            return
+
+        # 首次/未安装 HTTPS 抓包根证书检查：必须先获得用户明确授权
+        from tools.ie_proxy import is_recorded_root_cert_installed, install_user_root_cert
+        if not is_recorded_root_cert_installed():
+            from ui.confirm_dialog import confirm_https_cert_consent
+            if not confirm_https_cert_consent(self, language=self.language, for_listen=True):
+                # 用户取消：不调用 install，不启动 worker，不改系统代理，状态保持 idle
+                return
+
+            # 用户明确同意：执行安装
+            self.loading.start_busy('正在安装抓包根证书…' if zh else 'Installing CA certificate…')
+            try:
+                install_user_root_cert()
+                self._config = load_interface_debug_config()
+                self._refresh_capture_status_text()
+                self._rebuild_capture_actions_menu()
+                self.loading.finish('证书已就绪' if zh else 'Certificate ready')
+            except Exception as exc:
+                self.loading.fail(str(exc))
+                self._refresh_capture_status_text()
+                self._rebuild_capture_actions_menu()
+                show_warning(self, '安装证书失败' if zh else 'Install Failed', str(exc))
+                return
+
         action = self._lifecycle.begin_start()
         if action is None:
             # STOPPING：记录 pending start，stop 线程收尾后自动重启；绝不阻塞 UI 主线程
@@ -1790,7 +1856,7 @@ class InterfaceDebugPanel(QWidget):
         save_interface_debug_config(self._config)
         self.loading.start_busy('正在开始监听…' if zh else 'Starting listen…')
         self._refresh_capture_action(busy=True)
-        # HTTPS 解密准备：静默
+        self._refresh_capture_status_text()
         try:
             self._ensure_capture_ready_silently()
         except Exception:
@@ -2380,6 +2446,8 @@ class InterfaceDebugPanel(QWidget):
 
     def _set_listening_ui(self, active: bool):
         self._refresh_capture_action()
+        self._refresh_capture_status_text()
+        self._rebuild_capture_actions_menu()
         if hasattr(self, 'launch_btn') and self.launch_btn is not None:
             self.launch_btn.setEnabled(False)
             self.launch_btn.hide()
@@ -2448,43 +2516,86 @@ class InterfaceDebugPanel(QWidget):
         self.session_count.setText('0 / 0')
         self.empty_hint.setVisible(True)
 
-    # ── IE 证书 ──────────────────────────────────────
+    # ── HTTPS 抓包证书 ──────────────────────────────────
     def _install_ie_cert(self):
         zh = self.language == 'zh'
-        if not confirm_action(
-            self, '安装本机抓包证书' if zh else 'Install CA',
-            '将把 mitmproxy 根证书安装到当前用户受信任根证书库。' if zh else 'Install mitmproxy CA for current user.',
-            confirm_text='安装证书' if zh else 'Install', danger=True,
-        ):
+        from tools.ie_proxy import is_recorded_root_cert_installed, install_user_root_cert
+        if is_recorded_root_cert_installed():
+            show_info(
+                self,
+                'HTTPS 抓包证书' if zh else 'HTTPS Certificate',
+                'HTTPS 抓包证书已安装，无需重复安装。' if zh else 'HTTPS capture certificate is already installed.',
+            )
             return
-        self.loading.start_busy('正在安装证书…')
+        from ui.confirm_dialog import confirm_https_cert_consent
+        if not confirm_https_cert_consent(self, language=self.language, for_listen=False):
+            return
+        self.loading.start_busy('正在安装证书…' if zh else 'Installing certificate…')
         try:
             thumb = install_user_root_cert()
             self._config = load_interface_debug_config()
-            self.loading.finish('证书已安装')
-            show_success(self, '证书', f'已安装，指纹 {thumb[:16]}…')
+            self._refresh_capture_status_text()
+            self._rebuild_capture_actions_menu()
+            self.loading.finish('证书已安装' if zh else 'Certificate installed')
+            show_success(
+                self,
+                'HTTPS 抓包证书' if zh else 'HTTPS Certificate',
+                f'已成功安装抓包根证书（指纹：{thumb[:16]}…）' if zh else f'CA certificate installed successfully ({thumb[:16]}…)',
+            )
         except Exception as exc:
             self.loading.fail(str(exc))
-            show_warning(self, '证书', str(exc))
+            self._refresh_capture_status_text()
+            self._rebuild_capture_actions_menu()
+            show_warning(self, '安装证书失败' if zh else 'Install Failed', str(exc))
 
     def _remove_ie_cert(self):
         zh = self.language == 'zh'
-        cfg = load_interface_debug_config()
-        thumb = (cfg.get('ie_certificate_thumbprint') or '').strip()
-        if not thumb:
-            show_info(self, '证书', '没有已记录的抓包证书指纹')
+        if self._listening or self._lifecycle.state in ('starting', 'running'):
+            show_warning(
+                self,
+                '移除证书' if zh else 'Remove Certificate',
+                '请先停止监听，再移除 HTTPS 抓包证书。' if zh else 'Please stop listening before removing HTTPS certificate.',
+            )
+            return
+        from tools.ie_proxy import is_recorded_root_cert_installed, remove_recorded_cert
+        if not is_recorded_root_cert_installed():
+            remove_recorded_cert()
+            self._config = load_interface_debug_config()
+            self._refresh_capture_status_text()
+            self._rebuild_capture_actions_menu()
+            show_info(
+                self,
+                'HTTPS 抓包证书' if zh else 'HTTPS Certificate',
+                '当前受信任根证书库中未检测到抓包证书。' if zh else 'No capture certificate found in Trusted Root store.',
+            )
             return
         if not confirm_action(
-            self, '移除本机抓包证书', f'将仅删除指纹 {thumb} 对应的证书。',
-            confirm_text='移除证书', danger=True,
+            self,
+            '移除本机抓包证书' if zh else 'Remove CA Certificate',
+            '将从 Windows 当前用户受信任根证书库中移除 PengTools 抓包 CA 证书。\n移除后将无法解密查看 HTTPS 报文。'
+            if zh else
+            'Remove PengTools CA certificate from Windows Trusted Root store.',
+            confirm_text='移除证书' if zh else 'Remove',
+            danger=True,
         ):
             return
+        self.loading.start_busy('正在移除证书…' if zh else 'Removing certificate…')
         try:
-            remove_recorded_cert(thumb)
+            remove_recorded_cert()
             self._config = load_interface_debug_config()
-            show_success(self, '证书', '已移除')
+            self._refresh_capture_status_text()
+            self._rebuild_capture_actions_menu()
+            self.loading.finish('证书已移除' if zh else 'Certificate removed')
+            show_success(
+                self,
+                'HTTPS 抓包证书' if zh else 'HTTPS Certificate',
+                '已成功移除抓包根证书。' if zh else 'CA certificate removed successfully.',
+            )
         except Exception as exc:
-            show_warning(self, '证书', str(exc))
+            self.loading.fail(str(exc))
+            self._refresh_capture_status_text()
+            self._rebuild_capture_actions_menu()
+            show_warning(self, '移除证书失败' if zh else 'Remove Failed', str(exc))
 
     def _check_orphan_proxy_snapshot(self):
         """启动时自动清理残留系统代理（无需用户确认，避免接口全挂）。"""
@@ -4410,12 +4521,10 @@ class InterfaceDebugPanel(QWidget):
         self.test_listen_btn.setToolTip(
             '本机探测，确认抓包链路可用' if zh else 'Loopback probe'
         )
-        if hasattr(self, 'toolbar_hint'):
-            self.toolbar_hint.setText(
-                '敏感字段默认脱敏；显示后完成排查请清空本次会话。'
-                if zh else
-                'Secrets stay redacted by default; clear the session after reveal.'
-            )
+        if hasattr(self, '_refresh_capture_status_text'):
+            self._refresh_capture_status_text()
+        if hasattr(self, '_rebuild_capture_actions_menu'):
+            self._rebuild_capture_actions_menu()
         if hasattr(self, 'session_pane_title'):
             self.session_pane_title.setText('会话与筛选' if zh else 'Sessions & filters')
         if hasattr(self, 'restore_proxy_btn'):

@@ -408,3 +408,95 @@ def offer_next_steps(parent, title, message, actions, recommended=None):
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return None
     return dialog.selected_action()
+
+
+class HttpsCertConsentDialog(QDialog):
+    """首次启用 HTTPS 抓包或手动安装根证书前的明确授权弹窗。"""
+
+    def __init__(self, parent=None, language: str = 'zh', for_listen: bool = True):
+        super().__init__(parent)
+        self.setObjectName('confirm-dialog')
+        zh = language == 'zh'
+        title = '启用 HTTPS 抓包' if zh else 'Enable HTTPS Capture'
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumWidth(500)
+        self.setMaximumWidth(580)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 20, 22, 16)
+        root.setSpacing(14)
+
+        header = QHBoxLayout()
+        header.setSpacing(12)
+        badge = make_badge_label('info', size=40, icon_size=22)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(4)
+        title_label = QLabel(title)
+        title_label.setObjectName('confirm-title')
+        title_label.setWordWrap(True)
+        title_wrap.addWidget(title_label)
+        role_hint = QLabel('安装前请阅读用途与安全说明 · 默认焦点在「取消」' if zh else 'Please review the purpose and security notice')
+        role_hint.setObjectName('field-hint')
+        title_wrap.addWidget(role_hint)
+        header.addLayout(title_wrap, 1)
+        root.addLayout(header)
+
+        card = QFrame()
+        card.setObjectName('confirm-card')
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
+
+        desc_text = (
+            'HTTPS 内容经过加密。为了查看请求头、请求体和响应内容，PengTools 需要让浏览器通过本机 127.0.0.1 代理，'
+            '并信任一个仅用于本机抓包的 mitmproxy CA 证书。\n\n'
+            '• 本机安全：证书生成并保存在本机，安装证书动作本身不会联网下载任何软件；\n'
+            '• 信任范围：将写入“当前 Windows 用户”的受信任根证书库，仅用于解密通过本机代理的抓包流量；\n'
+            '• 自动恢复：停止监听时会自动恢复原系统代理；\n'
+            '• 随时移除：可在接口排查页面的「更多」菜单中随时一键移除该证书。\n\n'
+            '注：不安装证书时不会启动会影响 HTTPS 浏览的抓包代理。'
+            if zh else
+            'HTTPS content is encrypted. To inspect request headers, body, and responses, '
+            'PengTools routes traffic through a local 127.0.0.1 proxy and requires trusting a local mitmproxy CA certificate.\n\n'
+            '• Local security: The certificate is generated and stored locally; no software is downloaded from the internet;\n'
+            '• Scope: Added to Current User Trusted Root store, only decrypting traffic through local proxy;\n'
+            '• Auto restore: System proxy is restored automatically when listening stops;\n'
+            '• Removable anytime: You can remove the certificate anytime from the More menu.\n\n'
+            'Note: Without installing the certificate, capture proxy affecting HTTPS traffic will not be started.'
+        )
+        msg_label = QLabel(desc_text)
+        msg_label.setObjectName('confirm-message')
+        msg_label.setWordWrap(True)
+        msg_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        card_layout.addWidget(msg_label)
+        root.addWidget(card)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(10)
+        buttons.addStretch()
+
+        self.cancel_button = QPushButton('取消' if zh else 'Cancel')
+        size_dialog_button(self.cancel_button, 'secondary')
+        self.cancel_button.setObjectName('confirm-cancel')
+        self.cancel_button.setDefault(True)
+        self.cancel_button.setAutoDefault(True)
+        self.cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.cancel_button)
+
+        confirm_text = ('安装证书并开始' if for_listen else '安装证书') if zh else ('Install Certificate & Start' if for_listen else 'Install Certificate')
+        self.confirm_button = QPushButton(confirm_text)
+        size_dialog_button(self.confirm_button, 'primary')
+        self.confirm_button.setObjectName('primary-btn')
+        self.confirm_button.setAutoDefault(False)
+        self.confirm_button.setDefault(False)
+        self.confirm_button.clicked.connect(self.accept)
+        buttons.addWidget(self.confirm_button)
+
+        root.addLayout(buttons)
+        self.cancel_button.setFocus()
+
+
+def confirm_https_cert_consent(parent=None, language: str = 'zh', for_listen: bool = True) -> bool:
+    dialog = HttpsCertConsentDialog(parent, language=language, for_listen=for_listen)
+    return dialog.exec() == QDialog.DialogCode.Accepted

@@ -506,6 +506,41 @@ def cert_sha1_thumbprint(cer_path: str) -> str:
     return hashlib.sha1(data).hexdigest().upper()
 
 
+def is_current_user_root_cert_installed(target_thumb: str) -> bool:
+    """检查指定 SHA-1 指纹是否真实存在于 Windows 当前受信任根证书库。"""
+    target = str(target_thumb or '').replace(':', '').replace(' ', '').upper()
+    if not target or os.name != 'nt':
+        return False
+    try:
+        import ssl
+        import hashlib
+        if hasattr(ssl, 'enum_certificates'):
+            for cert_bytes, _enc, _trust in ssl.enum_certificates('ROOT'):
+                if hashlib.sha1(cert_bytes).hexdigest().upper() == target:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def is_recorded_root_cert_installed(thumbprint: Optional[str] = None) -> bool:
+    """检查指定指纹或当前配置/本地 CA 文件对应的证书是否真实安装于 Windows 受信任根证书库。"""
+    thumb = str(thumbprint or '').strip().upper()
+    if not thumb:
+        cfg = load_interface_debug_config()
+        thumb = str(cfg.get('ie_certificate_thumbprint') or '').strip().upper()
+    if not thumb:
+        try:
+            cer = mitm_ca_cert_path()
+            if os.path.isfile(cer):
+                thumb = cert_sha1_thumbprint(cer)
+        except Exception:
+            pass
+    if not thumb:
+        return False
+    return is_current_user_root_cert_installed(thumb)
+
+
 def install_user_root_cert(cer_path: Optional[str] = None) -> str:
     """安装到当前用户 Root 存储，返回 thumbprint。"""
     path = cer_path or ensure_mitm_ca_exists()
@@ -528,11 +563,19 @@ def install_user_root_cert(cer_path: Optional[str] = None) -> str:
 
 
 def remove_recorded_cert(thumbprint: Optional[str] = None) -> bool:
-    """仅删除配置中记录的指纹对应证书。"""
+    """仅删除配置中记录的指纹对应证书。删除成功或证书已确认不存在时清空配置指纹。"""
     cfg = load_interface_debug_config()
     thumb = (thumbprint or cfg.get('ie_certificate_thumbprint') or '').strip().upper()
     if not thumb:
+        try:
+            cer = mitm_ca_cert_path()
+            if os.path.isfile(cer):
+                thumb = cert_sha1_thumbprint(cer)
+        except Exception:
+            pass
+    if not thumb:
         return False
+
     proc = subprocess.run(
         ['certutil', '-user', '-delstore', 'Root', thumb],
         capture_output=True,
@@ -541,6 +584,13 @@ def remove_recorded_cert(thumbprint: Optional[str] = None) -> bool:
         errors='replace',
         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
     )
-    cfg['ie_certificate_thumbprint'] = ''
-    save_interface_debug_config(cfg)
-    return proc.returncode == 0
+    # 删除后复核真实安装状态：返回码 0 或证书已确认不在 store 中则视为成功清空
+    still_installed = is_recorded_root_cert_installed(thumb)
+    if proc.returncode == 0 or not still_installed:
+        cfg['ie_certificate_thumbprint'] = ''
+        save_interface_debug_config(cfg)
+        return True
+
+    # 删除失败且依然存在：保留 thumbprint
+    err = (proc.stderr or proc.stdout or '').strip()
+    raise IeProxyError(f'移除证书失败：{err or proc.returncode}')
