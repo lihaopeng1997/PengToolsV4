@@ -223,6 +223,46 @@ class ReleasePackagingGuardTest(unittest.TestCase):
             remaining = verify_qt_translations(tmp)
             self.assertEqual(sorted(remaining), ['qt_zh_CN.qm', 'qtbase_zh_CN.qm'])
 
+    # ---------- Qt Multimedia 守护 ----------
+
+    def test_build_script_prunes_multimedia_runtime(self):
+        """构建脚本必须包含 multimediaBinFiles 与 multimediaPluginDir 裁剪逻辑。"""
+        self.assertIn("avcodec-61.dll", self.text)
+        self.assertIn("Qt6Multimedia.dll", self.text)
+        self.assertIn("multimediaPluginDir", self.text)
+
+    def test_build_script_enforces_required_binaries_postcondition(self):
+        """构建脚本必须确保 WebEngine 与 QtQuick 核心二进制完好。"""
+        self.assertIn("$requiredBinaries = @('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll')", self.text)
+
+    def test_multimedia_residual_fails(self):
+        """多媒体二进制残留必须触发 fail。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, 'bin')
+            plugin_dir = os.path.join(tmp, 'plugins', 'multimedia')
+            os.makedirs(bin_dir)
+            for req in ('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll'):
+                with open(os.path.join(bin_dir, req), 'wb') as f:
+                    f.write(b'data')
+            with open(os.path.join(bin_dir, 'avcodec-61.dll'), 'wb') as f:
+                f.write(b'data')
+            with self.assertRaises(RuntimeError) as ctx:
+                verify_qt_multimedia_pruned(bin_dir, plugin_dir)
+            self.assertIn('avcodec-61.dll', str(ctx.exception))
+
+    def test_multimedia_clean_and_required_present_passes(self):
+        """多媒体 0 残留且核心二进制存在时正常通过。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, 'bin')
+            plugin_dir = os.path.join(tmp, 'plugins', 'multimedia')
+            os.makedirs(bin_dir)
+            for req in ('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll'):
+                with open(os.path.join(bin_dir, req), 'wb') as f:
+                    f.write(b'data')
+            verify_qt_multimedia_pruned(bin_dir, plugin_dir)
+
 
 def verify_webengine_locales(locales_dir: str, keep_locales=('zh-CN.pak', 'en-US.pak')) -> list[str]:
     """验证 WebEngine 语言包后置条件：目录存在、KEEP 全部存在、非 KEEP 0 残留。"""
@@ -250,6 +290,24 @@ def verify_qt_translations(trans_dir: str, keep_qm=('qt_zh_CN.qm', 'qtbase_zh_CN
         if r not in keep_qm:
             raise RuntimeError(f"Post-condition failed: unexpected Qt translation '{r}' remained in {trans_dir}")
     return existing
+
+
+def verify_qt_multimedia_pruned(bin_dir: str, plugin_dir: str,
+                                multimedia_files=('avcodec-61.dll', 'avformat-61.dll', 'Qt6Multimedia.dll',
+                                                  'avutil-59.dll', 'swscale-8.dll', 'Qt6MultimediaQuick.dll',
+                                                  'swresample-5.dll', 'Qt6MultimediaWidgets.dll'),
+                                required_binaries=('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll',
+                                                   'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6Widgets.dll',
+                                                   'Qt6Gui.dll', 'Qt6Core.dll')) -> None:
+    """验证 Qt Multimedia 运行时裁剪后置条件：0 残留且核心二进制存在。"""
+    for m in multimedia_files:
+        if os.path.exists(os.path.join(bin_dir, m)):
+            raise RuntimeError(f"Post-condition failed: multimedia binary '{m}' remained in {bin_dir}")
+    if os.path.exists(plugin_dir):
+        raise RuntimeError(f"Post-condition failed: multimedia plugin directory remained in {plugin_dir}")
+    for req in required_binaries:
+        if not os.path.exists(os.path.join(bin_dir, req)):
+            raise RuntimeError(f"Post-condition failed: required binary '{req}' is missing in {bin_dir}")
 
 
 if __name__ == '__main__':

@@ -446,6 +446,46 @@ $list
             throw "Post-condition failed: unexpected Qt translation '$r' remained in $transDir"
         }
     }
+    # 裁剪未使用的 Qt Multimedia 与 FFmpeg 运行时
+    $multimediaBinFiles = @(
+        'avcodec-61.dll',
+        'avformat-61.dll',
+        'Qt6Multimedia.dll',
+        'avutil-59.dll',
+        'swscale-8.dll',
+        'Qt6MultimediaQuick.dll',
+        'swresample-5.dll',
+        'Qt6MultimediaWidgets.dll'
+    )
+    $qtBinDir = Join-Path $AppDir '_internal\PyQt6\Qt6\bin'
+    foreach ($mFile in $multimediaBinFiles) {
+        $target = Join-Path $qtBinDir $mFile
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $multimediaPluginDir = Join-Path $AppDir '_internal\PyQt6\Qt6\plugins\multimedia'
+    if (Test-Path -LiteralPath $multimediaPluginDir) {
+        Remove-Item -LiteralPath $multimediaPluginDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Post-condition 校验：多媒体文件 0 残留，且核心 WebEngine/QtQuick 关键二进制必须仍存在
+    foreach ($mFile in $multimediaBinFiles) {
+        $target = Join-Path $qtBinDir $mFile
+        if (Test-Path -LiteralPath $target) {
+            throw "Post-condition failed: multimedia binary '$mFile' remained in $qtBinDir"
+        }
+    }
+    if (Test-Path -LiteralPath $multimediaPluginDir) {
+        throw "Post-condition failed: multimedia plugin directory remained in $multimediaPluginDir"
+    }
+    $requiredBinaries = @('Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll', 'Qt6Qml.dll', 'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll')
+    foreach ($req in $requiredBinaries) {
+        $reqPath = Join-Path $qtBinDir $req
+        if (-not (Test-Path -LiteralPath $reqPath)) {
+            throw "Post-condition failed: required binary '$req' is missing in $qtBinDir"
+        }
+    }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 
