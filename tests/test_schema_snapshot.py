@@ -345,6 +345,94 @@ class AiSqlDraftTests(unittest.TestCase):
         cols_order = list_columns(conn, 'mysql', 'order_db.users')
         self.assertEqual(cols_order, ['id', 'created_at'])
 
+    def test_oceanbase_mysql_mode_uses_information_schema(self):
+        from tools.schema_snapshot import scan_schema
+        conn = MagicMock()
+        conn.cursorclass = MagicMock()
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('ob_db', 't_account', 'BASE TABLE', '账户表')],
+            [('ob_db', 't_account', 'id', 'bigint', 'NO', 1, '主键', 'PRI')],
+            [('ob_db', 't_account', 'PRIMARY', 0, 'BTREE', 'id', 1)],
+        ]
+        item = {'id': 'c_ob', 'dialect': 'oceanbase', 'database': 'ob_db'}
+        payload = scan_schema(conn, item)
+        self.assertEqual(payload['status'], 'ok')
+        self.assertEqual(len(payload['objects']), 1)
+        self.assertEqual(payload['objects'][0]['name'], 't_account')
+        self.assertEqual(payload['objects'][0]['owner'], 'ob_db')
+
+    def test_oracle_scan_with_specified_schema_filters_owner(self):
+        from tools.schema_snapshot import scan_schema
+        conn = MagicMock()
+        del conn.cursorclass  # Ensure treated as Oracle
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('PRPCAR', 'PRPCMAIN', 'TABLE', '车险主表')],
+            [('PRPCAR', 'PRPCMAIN', 'POLICY_NO', 'VARCHAR2(32)', 'N', 1, '保单号')],
+            [('PRPCAR', 'PRPCMAIN', 'POLICY_NO')],  # PK
+            [('PRPCAR', 'PRPCMAIN', 'POLICY_NO')],  # ind col
+            [('PRPCAR', 'PRPCMAIN', 'PK_PRPCMAIN', 'UNIQUE', 'NORMAL')],  # all_indexes
+            [('PRPCAR', 'PRPCMAIN', 'PK_PRPCMAIN', 'POLICY_NO', 1)],      # all_ind_columns
+        ]
+        item = {'id': 'c_ora', 'dialect': 'oracle', 'database': 'PRPCAR', 'username': 'scott'}
+        payload = scan_schema(conn, item)
+        self.assertEqual(payload['status'], 'ok')
+        self.assertEqual(len(payload['objects']), 1)
+        self.assertEqual(payload['objects'][0]['owner'], 'PRPCAR')
+        self.assertEqual(payload['objects'][0]['name'], 'PRPCMAIN')
+        first_sql, first_params = cur.execute.call_args_list[0][0]
+        self.assertIn("owner = :1", first_sql)
+        self.assertEqual(first_params, ('PRPCAR',))
+
+    def test_oracle_scan_blank_database_excludes_system_schemas(self):
+        from tools.schema_snapshot import scan_schema
+        conn = MagicMock()
+        del conn.cursorclass
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('SCOTT', 'EMP', 'TABLE', '员工表'), ('PRP', 'PRPCMAIN', 'TABLE', '车险表')],
+            [('SCOTT', 'EMP', 'EMPNO', 'NUMBER(4)', 'N', 1, '员工号'), ('PRP', 'PRPCMAIN', 'ID', 'NUMBER', 'N', 1, 'ID')],
+            [],  # PK
+            [],  # ind col
+            [],  # all_indexes
+            [],  # all_ind_columns
+        ]
+        item = {'id': 'c_ora2', 'dialect': 'oracle', 'database': '', 'username': 'scott'}
+        payload = scan_schema(conn, item)
+        self.assertEqual(payload['status'], 'ok')
+        self.assertEqual(len(payload['objects']), 2)
+        first_sql = cur.execute.call_args_list[0][0][0]
+        self.assertIn("owner NOT IN", first_sql)
+        self.assertIn("'MDSYS'", first_sql)
+
+    def test_dameng_scan_with_specified_schema(self):
+        from tools.schema_snapshot import scan_schema
+        conn = MagicMock()
+        del conn.cursorclass
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('SYSDBA', 'DM_TABLE', 'TABLE', '达梦业务表')],
+            [('SYSDBA', 'DM_TABLE', 'C1', 'INT', 'N', 1, '主键')],
+        ]
+        item = {'id': 'c_dm', 'dialect': 'dameng', 'database': 'SYSDBA', 'username': 'sysdba'}
+        payload = scan_schema(conn, item)
+        self.assertEqual(payload['status'], 'ok')
+        self.assertEqual(len(payload['objects']), 1)
+        self.assertEqual(payload['objects'][0]['owner'], 'SYSDBA')
+        self.assertEqual(payload['objects'][0]['name'], 'DM_TABLE')
+
+    def test_scan_schema_query_failure_propagates_failed_status(self):
+        from tools.schema_snapshot import scan_schema
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+        cur.execute.side_effect = Exception('ORA-00942: table or view does not exist (password=secret123)')
+        item = {'id': 'c_err', 'dialect': 'oracle', 'database': 'TEST', 'username': 'user'}
+        payload = scan_schema(conn, item)
+        self.assertEqual(payload['status'], 'failed')
+        self.assertIn('ORA-00942', payload['warning'])
+        self.assertNotIn('secret123', payload['warning'])
+
 
 if __name__ == '__main__':
     unittest.main()

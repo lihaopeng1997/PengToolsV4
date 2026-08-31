@@ -240,14 +240,24 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
         payload['warning'] = '扫描已取消'
         return payload
     try:
+        is_mysql_conn = (
+            dialect == 'mysql'
+            or (
+                dialect == 'oceanbase'
+                and (
+                    'cursorclass' in getattr(conn, '__dict__', {})
+                    or 'pymysql' in getattr(conn, '__module__', '')
+                )
+            )
+        )
         if dialect == 'redis':
             objects, truncated = _scan_redis(conn)
         elif dialect == 'mongodb':
             objects, truncated = _scan_mongo(conn)
-        elif dialect == 'mysql':
+        elif is_mysql_conn:
             objects, truncated = _scan_information_schema(conn, item)
         else:
-            objects, truncated = _scan_oracle_like(conn, dialect)
+            objects, truncated = _scan_oracle_like(conn, dialect, item)
         payload['objects'] = objects
         payload['truncated'] = truncated
         payload['status'] = 'ok'
@@ -289,20 +299,54 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
     return payload
 
 
-def _scan_oracle_like(conn, dialect: str) -> tuple[list, bool]:
+_ORACLE_SYSTEM_SCHEMAS = frozenset({
+    'SYS', 'SYSTEM', 'AUDSYS', 'MDSYS', 'WMSYS', 'CTXSYS', 'XDB',
+    'ORDDATA', 'ORDSYS', 'LBACSYS', 'DVSYS', 'GSMADMIN_INTERNAL',
+    'OJVMSYS', 'DBSNMP', 'APPQOSSYS', 'OUTLN', 'DIP', 'ANONYMOUS',
+    'XS$NULL', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'ORACLE_OCM',
+})
+
+
+def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[list, bool]:
     cur = conn.cursor()
     objects = {}
+    item_data = item if isinstance(item, dict) else {}
+    target_schema = str(item_data.get('database') or '').strip().upper()
+    user_name = str(item_data.get('username') or '').strip().upper()
+
     try:
         if dialect == 'dameng':
-            cur.execute(
-                "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
-                "FROM USER_TABLES"
-            )
+            if target_schema:
+                try:
+                    cur.execute(
+                        "SELECT OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
+                        "FROM ALL_TABLES WHERE OWNER = :1",
+                        (target_schema,),
+                    )
+                except Exception:
+                    cur.execute(
+                        "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
+                        "FROM USER_TABLES"
+                    )
+            else:
+                cur.execute(
+                    "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
+                    "FROM USER_TABLES"
+                )
         else:
-            cur.execute(
-                "SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
-                "WHERE table_type IN ('TABLE', 'VIEW')"
-            )
+            if target_schema and target_schema not in _ORACLE_SYSTEM_SCHEMAS:
+                cur.execute(
+                    "SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    "WHERE table_type IN ('TABLE', 'VIEW') AND owner = :1",
+                    (target_schema,),
+                )
+            else:
+                excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+                placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+                cur.execute(
+                    f"SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    f"WHERE table_type IN ('TABLE', 'VIEW') AND owner NOT IN ({placeholders})"
+                )
         for row in cur.fetchall() or []:
             owner = str(row[0] or '')
             name = str(row[1] or '')
@@ -315,18 +359,45 @@ def _scan_oracle_like(conn, dialect: str) -> tuple[list, bool]:
                 'columns': [],
             }
         if dialect == 'dameng':
-            cur.execute(
-                "SELECT USER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
-                "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
-            )
+            if target_schema:
+                try:
+                    cur.execute(
+                        "SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
+                        "FROM ALL_TAB_COLUMNS WHERE OWNER = :1 ORDER BY TABLE_NAME, COLUMN_ID",
+                        (target_schema,),
+                    )
+                except Exception:
+                    cur.execute(
+                        "SELECT USER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
+                        "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
+                    )
+            else:
+                cur.execute(
+                    "SELECT USER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
+                    "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
+                )
         else:
-            cur.execute(
-                "SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "
-                "col.column_id, cc.comments "
-                "FROM all_tab_columns col "
-                "LEFT JOIN all_col_comments cc ON cc.owner = col.owner "
-                "AND cc.table_name = col.table_name AND cc.column_name = col.column_name"
-            )
+            if target_schema and target_schema not in _ORACLE_SYSTEM_SCHEMAS:
+                cur.execute(
+                    "SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "
+                    "col.column_id, cc.comments "
+                    "FROM all_tab_columns col "
+                    "LEFT JOIN all_col_comments cc ON cc.owner = col.owner "
+                    "AND cc.table_name = col.table_name AND cc.column_name = col.column_name "
+                    "WHERE col.owner = :1",
+                    (target_schema,),
+                )
+            else:
+                excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+                placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+                cur.execute(
+                    f"SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "
+                    f"col.column_id, cc.comments "
+                    f"FROM all_tab_columns col "
+                    f"LEFT JOIN all_col_comments cc ON cc.owner = col.owner "
+                    f"AND cc.table_name = col.table_name AND cc.column_name = col.column_name "
+                    f"WHERE col.owner NOT IN ({placeholders})"
+                )
         for row in cur.fetchall() or []:
             key = (str(row[0] or ''), str(row[1] or ''))
             target = objects.setdefault(key, {

@@ -515,7 +515,7 @@ class AiWorkbenchPanel(QWidget):
             columns,
             defaults=[240, 560, 320],
             page_id='sql-console',
-            tab_id='columns',
+            tab_id=f'columns-{self._dialect}' if self._dialect else 'columns',
             min_sizes=[240, 360, 240],
             accessible_name='SQL 控制台列分隔',
         )
@@ -523,7 +523,7 @@ class AiWorkbenchPanel(QWidget):
             body,
             defaults=[480, 320],
             page_id='sql-console',
-            tab_id='body',
+            tab_id=f'body-{self._dialect}' if self._dialect else 'body',
             min_sizes=[140, 120],
             accessible_name='SQL 控制台上下分隔',
         )
@@ -1033,8 +1033,10 @@ class AiWorkbenchPanel(QWidget):
             warning = str((payload or {}).get('warning') or '')
             if str((payload or {}).get('status') or '') == 'failed':
                 self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'))
-            else:
-                self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
+                show_error(self, self._title(), warning or ('扫描失败' if zh else 'Scan failed'))
+                self._log_msg(f'扫描失败: {warning}')
+                return
+            self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             self._log_msg(f'扫描完成，对象 {count}')
             return
@@ -1299,7 +1301,7 @@ class AiWorkbenchPanel(QWidget):
         name = str(obj.get('name') or '')
         owner = str(obj.get('owner') or '')
         if dialect == 'mysql':
-            return f'`{name}`'
+            return f'`{owner}`.`{name}`' if owner else f'`{name}`'
         if owner and dialect not in ('redis', 'mongodb'):
             return f'{owner}.{name}'
         return name
