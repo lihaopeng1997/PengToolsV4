@@ -198,6 +198,16 @@ class ModelChatPanel(QWidget):
         right = QWidget()
         right_l = QVBoxLayout(right)
         right_l.setContentsMargins(0, 0, 0, 0)
+        right_l.setSpacing(0)
+
+        self.chat_vsplit = QSplitter(Qt.Orientation.Vertical)
+        self.chat_vsplit.setChildrenCollapsible(False)
+
+        top_chat_widget = QWidget()
+        top_chat_l = QVBoxLayout(top_chat_widget)
+        top_chat_l.setContentsMargins(0, 0, 0, 0)
+        top_chat_l.setSpacing(4)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -206,19 +216,28 @@ class ModelChatPanel(QWidget):
         self.thread_layout.setContentsMargins(8, 8, 8, 8)
         self.thread_layout.addStretch(1)
         self.scroll.setWidget(self.thread_host)
-        right_l.addWidget(self.scroll, 1)
+        top_chat_l.addWidget(self.scroll, 1)
+
         self.empty = make_empty_state('还没有对话', '新建会话后即可向已启用的内网模型发消息')
-        right_l.addWidget(self.empty)
+        top_chat_l.addWidget(self.empty)
         self.trim_hint = QLabel()
         self.trim_hint.setObjectName('field-hint')
         self.trim_hint.hide()
-        right_l.addWidget(self.trim_hint)
+        top_chat_l.addWidget(self.trim_hint)
+
+        self.chat_vsplit.addWidget(top_chat_widget)
+
+        composer_container = QWidget()
+        composer_l = QVBoxLayout(composer_container)
+        composer_l.setContentsMargins(0, 4, 0, 0)
+        composer_l.setSpacing(6)
+
         self.input = QPlainTextEdit()
-        self.input.setMinimumHeight(180)
-        self.input.setMaximumHeight(300)
+        self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
-        right_l.addWidget(self.input)
+        composer_l.addWidget(self.input, 1)
+
         send_row = QHBoxLayout()
         self.send_hint = QLabel()
         self.send_hint.setObjectName('field-hint')
@@ -236,7 +255,20 @@ class ModelChatPanel(QWidget):
         send_row.addWidget(self.retry_btn)
         send_row.addWidget(self.stop_btn)
         send_row.addWidget(self.send_btn)
-        right_l.addLayout(send_row)
+        composer_l.addLayout(send_row)
+
+        self.chat_vsplit.addWidget(composer_container)
+
+        install_splitter_prefs(
+            self.chat_vsplit,
+            defaults=[520, 180],
+            page_id='model-chat',
+            tab_id='composer_v2',
+            min_sizes=[200, 120],
+            accessible_name='模型对话与输入区分隔',
+        )
+
+        right_l.addWidget(self.chat_vsplit, 1)
         split.addWidget(right)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 3)
@@ -481,9 +513,9 @@ class ModelChatPanel(QWidget):
             wrap = QHBoxLayout()
             if role == 'user':
                 wrap.addStretch(1)
-                wrap.addWidget(frame, 6)
+                wrap.addWidget(frame, 4)
             else:
-                wrap.addWidget(frame, 6)
+                wrap.addWidget(frame, 19)
                 wrap.addStretch(1)
             holder = QWidget()
             holder.setLayout(wrap)

@@ -159,60 +159,68 @@ class AgentWorkbenchPanel(QWidget):
         self.dir_btn.clicked.connect(self._bind_directory)
         self.dir_label = QLabel()
         self.dir_label.setObjectName('field-hint')
-        self.dir_label.setWordWrap(False)
-        self.plan_check = QCheckBox()
-        self.plan_check.setObjectName('field-hint')
-        self.plan_check.stateChanged.connect(self._on_plan_confirm_changed)
+        self.dir_label.setMaximumWidth(280)
+        self.dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.exec_mode_combo = QComboBox()
+        from ui.field_metrics import size_enum_combo
+        size_enum_combo(self.exec_mode_combo, min_w=100, max_w=160)
+        self.exec_mode_combo.currentIndexChanged.connect(self._on_exec_mode_changed)
+
+        self.context_toggle_btn = QPushButton()
+        apply_button(self.context_toggle_btn, 'ghost', compact=True)
+        self.context_toggle_btn.setCheckable(True)
+        self.context_toggle_btn.setChecked(True)
+        self.context_toggle_btn.clicked.connect(self._toggle_context_panel)
+
         self.new_btn = QPushButton()
         apply_button(self.new_btn, 'secondary', compact=True)
         self.new_btn.clicked.connect(self._new_workspace)
+
         top.addWidget(self.model_combo)
         top.addWidget(self.dir_btn)
-        top.addWidget(self.dir_label, 1)
-        top.addWidget(self.plan_check)
+        top.addWidget(self.dir_label)
+        top.addWidget(self.exec_mode_combo)
+        top.addStretch(1)
+        top.addWidget(self.context_toggle_btn)
         top.addWidget(self.new_btn)
         root.addWidget(toolbar)
 
-        # 三栏
+        # 左右主 Splitter
         split = QSplitter(Qt.Orientation.Horizontal)
 
-        # 左栏：空间（工作台任务）列表 + 项目文件树
+        # 左栏：空间（工作台任务）列表
         left = QFrame()
         left.setObjectName('dashboard-task-card')
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(8, 8, 8, 8)
+        left_l.setSpacing(6)
 
-        # 空间列表：顶层=工作台（可折叠），子级=该空间下的对话记录
         space_head = QHBoxLayout()
-        space_title = QLabel('空间')
-        space_title.setObjectName('field-hint')
+        self.space_title = QLabel('空间')
+        self.space_title.setObjectName('field-hint')
         self.space_new_btn = QPushButton('+')
         self.space_new_btn.setToolTip('新建对话')
         self.space_new_btn.setFixedSize(22, 22)
         apply_button(self.space_new_btn, 'ghost', compact=True)
         self.space_new_btn.clicked.connect(self._new_conversation)
-        space_head.addWidget(space_title)
+        space_head.addWidget(self.space_title)
         space_head.addStretch(1)
         space_head.addWidget(self.space_new_btn)
         left_l.addLayout(space_head)
+
         self.space_tree = QTreeWidget()
         self.space_tree.setHeaderHidden(True)
         self.space_tree.setIndentation(14)
         self.space_tree.itemClicked.connect(self._on_space_clicked)
-        left_l.addWidget(self.space_tree, 3)
-
-        # 项目文件树
-        left_l.addWidget(QLabel('项目文件'))
-        self.project_tree = QTreeWidget()
-        self.project_tree.setHeaderHidden(True)
-        self.project_tree.setIndentation(14)
-        self.project_tree.itemDoubleClicked.connect(self._on_tree_double_click)
-        left_l.addWidget(self.project_tree, 1)
+        left_l.addWidget(self.space_tree, 1)
         split.addWidget(left)
 
-        # 中栏：对话流 + 输入
-        mid = QVBoxLayout()
-        mid.setContentsMargins(0, 0, 0, 0)
+        # 中栏：垂直 Splitter（对话流 + 可调整 Composer）
+        self.center_split = QSplitter(Qt.Orientation.Vertical)
+        self.center_split.setChildrenCollapsible(False)
+
+        # 对话流
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -221,13 +229,19 @@ class AgentWorkbenchPanel(QWidget):
         self.thread_layout.setContentsMargins(8, 8, 8, 8)
         self.thread_layout.addStretch(1)
         self.scroll.setWidget(self.thread_host)
-        mid.addWidget(self.scroll, 1)
+        self.center_split.addWidget(self.scroll)
+
+        # Composer 区域
+        composer_container = QWidget()
+        composer_l = QVBoxLayout(composer_container)
+        composer_l.setContentsMargins(0, 4, 0, 0)
+        composer_l.setSpacing(6)
         self.input = QPlainTextEdit()
-        self.input.setMinimumHeight(180)
-        self.input.setMaximumHeight(300)
+        self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
-        mid.addWidget(self.input)
+        composer_l.addWidget(self.input, 1)
+
         send_row = QHBoxLayout()
         self.send_btn = QPushButton()
         apply_button(self.send_btn, 'primary', compact=True)
@@ -238,32 +252,79 @@ class AgentWorkbenchPanel(QWidget):
         self.stop_btn.setEnabled(False)
         send_row.addWidget(self.send_btn, 1)
         send_row.addWidget(self.stop_btn)
-        mid.addLayout(send_row)
-        mid_widget = QWidget()
-        mid_widget.setLayout(mid)
-        split.addWidget(mid_widget)
+        composer_l.addLayout(send_row)
+        self.center_split.addWidget(composer_container)
 
-        # 右栏：预览（文件内容 / diff）
-        right = QFrame()
-        right.setObjectName('dashboard-task-card')
-        right_l = QVBoxLayout(right)
-        right_l.setContentsMargins(8, 8, 8, 8)
+        install_splitter_prefs(
+            self.center_split,
+            defaults=[520, 180],
+            page_id='agent-workbench',
+            tab_id='composer_v2',
+            min_sizes=[200, 120],
+            accessible_name='Agent 对话与输入区分隔',
+        )
+        split.addWidget(self.center_split)
+
+        # 右栏：Context 面板（项目文件树 + 预览，可折叠/拖拽）
+        self.context_panel = QFrame()
+        self.context_panel.setObjectName('dashboard-task-card')
+        context_l = QVBoxLayout(self.context_panel)
+        context_l.setContentsMargins(8, 8, 8, 8)
+        context_l.setSpacing(4)
+
+        self.context_split = QSplitter(Qt.Orientation.Vertical)
+        self.context_split.setChildrenCollapsible(False)
+
+        # 项目文件树
+        tree_box = QWidget()
+        tree_l = QVBoxLayout(tree_box)
+        tree_l.setContentsMargins(0, 0, 0, 0)
+        tree_l.setSpacing(4)
+        self.project_title = QLabel('项目文件')
+        self.project_title.setObjectName('field-hint')
+        tree_l.addWidget(self.project_title)
+        self.project_tree = QTreeWidget()
+        self.project_tree.setHeaderHidden(True)
+        self.project_tree.setIndentation(14)
+        self.project_tree.itemExpanded.connect(self._on_tree_item_expanded)
+        self.project_tree.itemDoubleClicked.connect(self._on_tree_double_click)
+        tree_l.addWidget(self.project_tree, 1)
+        self.context_split.addWidget(tree_box)
+
+        # 预览区
+        prev_box = QWidget()
+        prev_l = QVBoxLayout(prev_box)
+        prev_l.setContentsMargins(0, 0, 0, 0)
+        prev_l.setSpacing(4)
+        self.preview_title = QLabel('预览')
+        self.preview_title.setObjectName('field-hint')
+        prev_l.addWidget(self.preview_title)
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setObjectName('detail-text')
-        right_l.addWidget(QLabel('预览'))
-        right_l.addWidget(self.preview, 1)
-        split.addWidget(right)
+        prev_l.addWidget(self.preview, 1)
+        self.context_split.addWidget(prev_box)
 
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 3)
-        split.setStretchFactor(2, 2)
+        install_splitter_prefs(
+            self.context_split,
+            defaults=[260, 260],
+            page_id='agent-workbench',
+            tab_id='context_v2',
+            min_sizes=[100, 100],
+            accessible_name='Agent 项目文件与预览分隔',
+        )
+        context_l.addWidget(self.context_split, 1)
+        split.addWidget(self.context_panel)
+
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setStretchFactor(2, 0)
         install_splitter_prefs(
             split,
-            defaults=[200, 560, 240],
+            defaults=[220, 680, 280],
             page_id='agent-workbench',
-            tab_id='main',
-            min_sizes=[120, 280, 160],
+            tab_id='main_v2',
+            min_sizes=[140, 360, 180],
             accessible_name='工作台三栏分隔',
         )
         root.addWidget(split, 1)
@@ -295,15 +356,61 @@ class AgentWorkbenchPanel(QWidget):
             'Bind a project folder and run controlled tasks (workspace files only)'
         )
         self.dir_btn.setText('绑定目录' if zh else 'Bind folder')
-        self.dir_label.setText(
-            self._workspace_session.get('workspace_dir') if self._workspace_session else '（未绑定目录）'
-        )
-        self.plan_check.setText('确认计划' if zh else 'Confirm plan')
-        self.new_btn.setText('新建工作台' if zh else 'New workspace')
+        ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
+        self.dir_label.setText(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
+        self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
+        self.new_btn.setText('新建任务' if zh else 'New task')
+        self.context_toggle_btn.setText('项目文件' if zh else 'Files')
+        self.context_toggle_btn.setToolTip('显示/隐藏项目文件与预览面板' if zh else 'Toggle project files and preview panel')
+        self.space_title.setText('空间 / 任务' if zh else 'Workspaces')
+        self.project_title.setText('项目文件' if zh else 'Files')
+        self.preview_title.setText('预览' if zh else 'Preview')
         self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
         self.send_btn.setText('发送' if zh else 'Send')
         self.stop_btn.setText('停止' if zh else 'Stop')
         self.input.setPlaceholderText('描述任务…' if zh else 'Describe task…')
+        self._update_exec_mode_options()
+
+    def _update_exec_mode_options(self):
+        zh = self.language == 'zh'
+        cur_val = bool(self._plan_confirm)
+        self.exec_mode_combo.blockSignals(True)
+        self.exec_mode_combo.clear()
+        self.exec_mode_combo.addItem('直接执行' if zh else 'Execute directly', False)
+        self.exec_mode_combo.addItem('执行前确认计划' if zh else 'Confirm plan first', True)
+        self.exec_mode_combo.setCurrentIndex(1 if cur_val else 0)
+        self.exec_mode_combo.blockSignals(False)
+        self._update_exec_mode_tooltips()
+
+    def _update_exec_mode_tooltips(self):
+        zh = self.language == 'zh'
+        tip_direct = (
+            '按当前工具权限与安全规则直接执行任务，遇到需要确认的高风险操作仍遵循原有安全确认。'
+            if zh else
+            'Execute directly under safety rules; high-risk operations still require confirmation.'
+        )
+        tip_plan = (
+            'Agent 生成执行计划后先请求确认，确认后才继续执行后续步骤。'
+            if zh else
+            'Agent generates an execution plan and requests confirmation before proceeding.'
+        )
+        self.exec_mode_combo.setItemData(0, tip_direct, Qt.ItemDataRole.ToolTipRole)
+        self.exec_mode_combo.setItemData(1, tip_plan, Qt.ItemDataRole.ToolTipRole)
+        current_tip = tip_plan if self._plan_confirm else tip_direct
+        self.exec_mode_combo.setToolTip(current_tip)
+
+    def _on_exec_mode_changed(self, index: int):
+        self._plan_confirm = bool(self.exec_mode_combo.currentData())
+        self._update_exec_mode_tooltips()
+        if self._workspace_session:
+            self._workspace_session['plan_confirm'] = self._plan_confirm
+            save_workspace(self._workspace_session)
+
+    def _toggle_context_panel(self, checked: bool | None = None):
+        if checked is None:
+            checked = not self.context_panel.isVisible()
+        self.context_panel.setVisible(checked)
+        self.context_toggle_btn.setChecked(checked)
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
@@ -340,10 +447,15 @@ class AgentWorkbenchPanel(QWidget):
         self._workspace_session = ws
         self._tool_calls = []
         self._plan_confirm = bool(ws.get('plan_confirm', False))
-        self.plan_check.setChecked(self._plan_confirm)
-        self.dir_label.setText(ws.get('workspace_dir') or '（未绑定目录）')
-        if ws.get('workspace_dir'):
-            self._refresh_tree(ws['workspace_dir'])
+        self.exec_mode_combo.blockSignals(True)
+        self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
+        self.exec_mode_combo.blockSignals(False)
+        self._update_exec_mode_tooltips()
+        ws_dir = ws.get('workspace_dir') or ''
+        self.dir_label.setText(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+        self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+        if ws_dir:
+            self._refresh_tree(ws_dir)
         else:
             self.project_tree.clear()
         conv = self._active_conversation_of(ws)
@@ -354,85 +466,95 @@ class AgentWorkbenchPanel(QWidget):
     def _bind_directory(self):
         """绑定/更换工作文件夹。未建空间时自动先建一个并绑定。"""
         path = QFileDialog.getExistingDirectory(
-            self, '选择工作文件夹', os.path.expanduser('~'),
+            self, '选择工作文件夹' if self.language == 'zh' else 'Select folder', os.path.expanduser('~'),
         )
         if not path:
             return
         if not self._workspace_session:
-            ws = empty_workspace(title='新工作台')
+            ws = empty_workspace(title='新工作台' if self.language == 'zh' else 'New workspace')
             save_workspace(ws)
             self._workspace_session = ws
             self._tool_calls = []
             self._plan_confirm = ws.get('plan_confirm', False)
-            self.plan_check.setChecked(self._plan_confirm)
+            self.exec_mode_combo.blockSignals(True)
+            self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
+            self.exec_mode_combo.blockSignals(False)
+            self._update_exec_mode_tooltips()
         self._workspace_session['workspace_dir'] = path
         save_workspace(self._workspace_session)
         self.dir_label.setText(path)
+        self.dir_label.setToolTip(path)
         self._refresh_tree(path)
         self._refresh_space_tree(select_ws_id=self._workspace_session.get('id'))
 
     def _refresh_tree(self, workspace_dir: str):
-        """刷新项目文件树（白名单扩展名，懒加载顶层）。"""
+        """刷新项目文件树根节点并懒加载首层。"""
+        self.project_tree.blockSignals(True)
         self.project_tree.clear()
         if not workspace_dir or not os.path.isdir(workspace_dir):
+            self.project_tree.blockSignals(False)
             return
-
-        def add_items(parent, dir_path: str, depth=0):
-            if depth > 3:
-                return
-            try:
-                entries = sorted(os.listdir(dir_path))
-            except OSError:
-                return
-            for name in entries:
-                if name.startswith('.'):
-                    continue
-                full = os.path.join(dir_path, name)
-                is_dir = os.path.isdir(full)
-                ext = os.path.splitext(name)[1].lower()
-                whitelist = ('.py', '.js', '.ts', '.vue', '.html', '.css', '.scss',
-                             '.md', '.json', '.txt', '.yml', '.yaml', '.xml',
-                             '.sql', '.sh', '.bat', '.ps1', '.rs', '.go',
-                             '.java', '.c', '.cpp', '.h', '.hpp', '.less')
-                if not is_dir and ext not in whitelist:
-                    continue
-                item = QTreeWidgetItem(parent)
-                item.setText(0, name)
-                item.setData(0, Qt.ItemDataRole.UserRole, full)
-                if is_dir:
-                    item.setText(0, name + '/')
-                    QTreeWidgetItem(item)
-                    item.setExpanded(False)
-                else:
-                    item.setToolTip(0, full)
 
         root = QTreeWidgetItem(self.project_tree)
-        root.setText(0, os.path.basename(workspace_dir) + '/')
+        root_name = os.path.basename(workspace_dir) or workspace_dir
+        root.setText(0, root_name + '/')
         root.setData(0, Qt.ItemDataRole.UserRole, workspace_dir)
-        add_items(root, workspace_dir, depth=0)
+        self._populate_dir_item(root, workspace_dir)
         self.project_tree.insertTopLevelItem(0, root)
         root.setExpanded(True)
+        self.project_tree.blockSignals(False)
+
+    def _populate_dir_item(self, parent_item: QTreeWidgetItem, dir_path: str):
+        """填充一个目录节点的直接子节点。"""
+        while parent_item.childCount() > 0:
+            parent_item.removeChild(parent_item.child(0))
+
+        if not dir_path or not os.path.isdir(dir_path):
+            return
+
+        try:
+            entries = sorted(os.listdir(dir_path))
+        except OSError:
+            return
+
+        whitelist = ('.py', '.js', '.ts', '.vue', '.html', '.css', '.scss',
+                     '.md', '.json', '.txt', '.yml', '.yaml', '.xml',
+                     '.sql', '.sh', '.bat', '.ps1', '.rs', '.go',
+                     '.java', '.c', '.cpp', '.h', '.hpp', '.less')
+
+        for name in entries:
+            if name.startswith('.'):
+                continue
+            full = os.path.join(dir_path, name)
+            is_dir = os.path.isdir(full)
+            ext = os.path.splitext(name)[1].lower()
+            if not is_dir and ext not in whitelist:
+                continue
+
+            item = QTreeWidgetItem(parent_item)
+            item.setText(0, name + ('/' if is_dir else ''))
+            item.setData(0, Qt.ItemDataRole.UserRole, full)
+            if is_dir:
+                placeholder = QTreeWidgetItem(item)
+                placeholder.setData(0, Qt.ItemDataRole.UserRole, '')
+                item.setExpanded(False)
+            else:
+                item.setToolTip(0, full)
+
+    def _on_tree_item_expanded(self, item: QTreeWidgetItem):
+        """目录节点展开时懒加载子节点。"""
+        full = item.data(0, Qt.ItemDataRole.UserRole)
+        if full and os.path.isdir(full):
+            if item.childCount() == 1 and not item.child(0).data(0, Qt.ItemDataRole.UserRole):
+                self._populate_dir_item(item, full)
 
     def _on_tree_double_click(self, item: QTreeWidgetItem, column: int):
-        """双击文件 → 在预览区显示内容（限白名单且 ≤200KB）。"""
+        """双击文件 → 在预览区显示内容（限白名单且 ≤200KB）；双击目录 → 切换展开/折叠。"""
         full = item.data(0, Qt.ItemDataRole.UserRole)
-        if not full or os.path.isdir(full):
+        if not full:
             return
-        if item.childCount() == 1 and not item.child(0).data(0, Qt.ItemDataRole.UserRole):
-            item.removeChild(item.child(0))
-            try:
-                for name in sorted(os.listdir(full)):
-                    if name.startswith('.'):
-                        continue
-                    child_full = os.path.join(full, name)
-                    is_dir = os.path.isdir(child_full)
-                    child = QTreeWidgetItem(item)
-                    child.setText(0, name + ('/' if is_dir else ''))
-                    child.setData(0, Qt.ItemDataRole.UserRole, child_full)
-                    if is_dir:
-                        QTreeWidgetItem(child)
-            except OSError:
-                pass
+        if os.path.isdir(full):
+            item.setExpanded(not item.isExpanded())
             return
         try:
             size = os.path.getsize(full)
@@ -447,12 +569,6 @@ class AgentWorkbenchPanel(QWidget):
         except Exception as e:
             content = f'读取失败: {e}'
         self.preview.setPlainText(content)
-
-    def _on_plan_confirm_changed(self, state):
-        self._plan_confirm = bool(state)
-        if self._workspace_session:
-            self._workspace_session['plan_confirm'] = self._plan_confirm
-            save_workspace(self._workspace_session)
 
     # ── 空间（工作台任务）列表树 ─────────────────────────────────────────
 
@@ -502,10 +618,15 @@ class AgentWorkbenchPanel(QWidget):
                 return
             self._workspace_session = ws
             self._plan_confirm = bool(ws.get('plan_confirm', False))
-            self.plan_check.setChecked(self._plan_confirm)
-            self.dir_label.setText(ws.get('workspace_dir') or '（未绑定目录）')
-            if ws.get('workspace_dir'):
-                self._refresh_tree(ws['workspace_dir'])
+            self.exec_mode_combo.blockSignals(True)
+            self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
+            self.exec_mode_combo.blockSignals(False)
+            self._update_exec_mode_tooltips()
+            ws_dir = ws.get('workspace_dir') or ''
+            self.dir_label.setText(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+            self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+            if ws_dir:
+                self._refresh_tree(ws_dir)
             else:
                 self.project_tree.clear()
             conv = self._active_conversation_of(ws)
@@ -520,10 +641,15 @@ class AgentWorkbenchPanel(QWidget):
                 ws = set_active_conversation(ws_id, conv_id) or ws
             self._workspace_session = ws
             self._plan_confirm = bool(ws.get('plan_confirm', False))
-            self.plan_check.setChecked(self._plan_confirm)
-            self.dir_label.setText(ws.get('workspace_dir') or '（未绑定目录）')
-            if ws.get('workspace_dir'):
-                self._refresh_tree(ws['workspace_dir'])
+            self.exec_mode_combo.blockSignals(True)
+            self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
+            self.exec_mode_combo.blockSignals(False)
+            self._update_exec_mode_tooltips()
+            ws_dir = ws.get('workspace_dir') or ''
+            self.dir_label.setText(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+            self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+            if ws_dir:
+                self._refresh_tree(ws_dir)
             else:
                 self.project_tree.clear()
             conv = self._active_conversation_of(ws)
@@ -582,12 +708,13 @@ class AgentWorkbenchPanel(QWidget):
         self._workspace_session = ws
         self._tool_calls = []
         self._plan_confirm = ws.get('plan_confirm', False)
-        self.plan_check.setChecked(self._plan_confirm)
-        self.dir_label.setText(ws.get('workspace_dir') or '（未绑定目录）')
-        if ws.get('workspace_dir'):
-            self._refresh_tree(ws['workspace_dir'])
-        else:
-            self.project_tree.clear()
+        self.exec_mode_combo.blockSignals(True)
+        self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
+        self.exec_mode_combo.blockSignals(False)
+        self._update_exec_mode_tooltips()
+        self.dir_label.setText('（未绑定目录）' if self.language == 'zh' else '(No folder bound)')
+        self.dir_label.setToolTip('（未绑定目录）' if self.language == 'zh' else '(No folder bound)')
+        self.project_tree.clear()
         self._render_conversation(ws, self._active_conversation_of(ws))
         self._append_message('assistant',
             f'工作台「{title}」已就绪。请先绑定工作文件夹，然后描述你的任务。')
@@ -694,16 +821,28 @@ class AgentWorkbenchPanel(QWidget):
         bubble = QFrame()
         bubble.setObjectName('detail-summary-card' if role == 'assistant' else 'page-filter-bar')
         bl = QVBoxLayout(bubble)
-        bl.setContentsMargins(8, 6, 8, 6)
+        bl.setContentsMargins(10, 8, 10, 8)
         lbl = QLabel()
         lbl.setWordWrap(True)
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         prefix = '🤖 ' if role == 'assistant' else '👤 '
         lbl.setText(prefix + content)
         bl.addWidget(lbl)
+
+        wrap = QHBoxLayout()
+        if role == 'user':
+            wrap.addStretch(1)
+            wrap.addWidget(bubble, 4)
+        else:
+            wrap.addWidget(bubble, 19)
+            wrap.addStretch(1)
+
+        holder = QWidget()
+        holder.setLayout(wrap)
+
         stretch = self.thread_layout.takeAt(self.thread_layout.count() - 1)
         del stretch
-        self.thread_layout.addWidget(bubble)
+        self.thread_layout.addWidget(holder)
         self.thread_layout.addStretch(1)
         QApplication.processEvents()
         self.scroll.verticalScrollBar().setValue(
