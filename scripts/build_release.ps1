@@ -543,6 +543,34 @@ $list
             throw "Post-condition failed: required binary '$req' is missing in $qtBinDir"
         }
     }
+    # 裁剪未使用的 Qt Designer 与 Qt SQL 驱动插件
+    $designerDll = Join-Path $qtBinDir 'Qt6Designer.dll'
+    if (Test-Path -LiteralPath $designerDll) {
+        Remove-Item -LiteralPath $designerDll -Force -ErrorAction SilentlyContinue
+    }
+    $sqldriversPluginDir = Join-Path $AppDir '_internal\PyQt6\Qt6\plugins\sqldrivers'
+    if (Test-Path -LiteralPath $sqldriversPluginDir) {
+        Remove-Item -LiteralPath $sqldriversPluginDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Post-condition 校验：Designer 与 sqldrivers 0 残留，且核心合同保持
+    if (Test-Path -LiteralPath $designerDll) {
+        throw "Post-condition failed: Qt6Designer.dll remained in $qtBinDir"
+    }
+    if (Test-Path -LiteralPath $sqldriversPluginDir) {
+        throw "Post-condition failed: sqldrivers plugin directory remained in $sqldriversPluginDir"
+    }
+    $requiredFinalContractBinaries = @(
+        'Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll',
+        'Qt6Qml.dll', 'Qt6QmlModels.dll', 'Qt6QmlMeta.dll', 'Qt6OpenGL.dll',
+        'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll'
+    )
+    foreach ($req in $requiredFinalContractBinaries) {
+        $reqPath = Join-Path $qtBinDir $req
+        if (-not (Test-Path -LiteralPath $reqPath)) {
+            throw "Post-condition failed: required binary '$req' is missing in $qtBinDir"
+        }
+    }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 
