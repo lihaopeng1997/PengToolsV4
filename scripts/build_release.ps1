@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 # WorkBuddy/CodeBuddy sandbox shim intercepts os.remove() (safe-delete) and breaks PyInstaller
 # cache cleanup / EXE overwrite. Clear its trigger env vars so deletion goes through normally.
@@ -361,9 +361,25 @@ $list
         '--exclude-module', 'tkinter',
         'run.py'
     )
-    & $BuildPython @pyArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "PyInstaller failed with exit code $LASTEXITCODE"
+    # 隔离构建 PATH，避免 PyInstaller 从宿主环境 PATH 误收集第三方 DLL（如外部 poppler/icu 污染）
+    $origPath = $env:PATH
+    try {
+        $buildScriptsDir = Split-Path -Parent $BuildPython
+        $buildVenvDir = Split-Path -Parent $buildScriptsDir
+        $sys32 = Join-Path $env:SystemRoot 'System32'
+        $sysRoot = $env:SystemRoot
+        $wbem = Join-Path $sys32 'Wbem'
+        $psHomeDir = Join-Path $sys32 'WindowsPowerShell\v1.0'
+        $cleanBuildPath = @($buildScriptsDir, $buildVenvDir, $sys32, $sysRoot, $wbem, $psHomeDir) |
+            Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+        $env:PATH = ($cleanBuildPath -join ';')
+
+        & $BuildPython @pyArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "PyInstaller failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        $env:PATH = $origPath
     }
 
     if (-not (Test-Path -LiteralPath $ExePath)) {
