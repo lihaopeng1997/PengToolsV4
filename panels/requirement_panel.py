@@ -1453,9 +1453,23 @@ class RequirementPanel(QWidget):
         self.bug_btn = QPushButton('登记缺陷'); self.bug_btn.clicked.connect(self._paste_bug)
         self.import_btn = QPushButton('导入资料'); self.import_btn.clicked.connect(self._import_requirement)
         self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
-        for button in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
+
+        self.toolbar_more_btn = QPushButton('更多 ▾')
+        self.toolbar_more_menu = QMenu(self.toolbar_more_btn)
+        self._action_checkout = self.toolbar_more_menu.addAction('检出代码', self._checkout_svn)
+        self._action_import = self.toolbar_more_menu.addAction('导入资料', self._import_requirement)
+        self._action_syscfg = self.toolbar_more_menu.addAction('系统配置', self.open_system_config.emit)
+        self.toolbar_more_menu.aboutToShow.connect(self._sync_toolbar_more_menu)
+        self.toolbar_more_btn.setMenu(self.toolbar_more_menu)
+
+        for button in (
+            self.scan_btn, self.checkout_btn, self.update_all_btn,
+            self.bug_btn, self.import_btn, self.system_config_btn,
+            self.toolbar_more_btn,
+        ):
             size_compact_button(button)
             toolbar_layout.addWidget(button)
+        self.toolbar_more_btn.hide()
         toolbar_layout.addStretch(1)
         # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明
         self.svn_activity = QLabel('')
@@ -1743,15 +1757,13 @@ class RequirementPanel(QWidget):
         file_head.addWidget(self.svn_meta)
         file_layout.addLayout(file_head)
 
-        # 文件库工具：浏览/资料 | 版本控制（支持选中/多选/全部）
+        # 文件库工具：浏览/资料 | 版本控制（支持选中/多选/全部，响应式 Action Bar）
         action_card = QFrame()
         action_card.setObjectName('detail-action-card')
-        action_outer = QVBoxLayout(action_card)
-        action_outer.setContentsMargins(8, 6, 8, 6)
-        action_outer.setSpacing(6)
+        action_layout = QHBoxLayout(action_card)
+        action_layout.setContentsMargins(8, 6, 8, 6)
+        action_layout.setSpacing(6)
 
-        browse_row = QHBoxLayout()
-        browse_row.setSpacing(6)
         self.open_folder_btn = QPushButton('打开目录')
         self.open_folder_btn.clicked.connect(self._open_folder)
         self.refresh_svn_btn = QPushButton('刷新')
@@ -1762,15 +1774,6 @@ class RequirementPanel(QWidget):
         self.add_file_btn.clicked.connect(self._add_existing_files)
         self.new_text_btn = QPushButton('新建文本')
         self.new_text_btn.clicked.connect(self._add_text_file)
-        for button in (
-            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
-            self.add_file_btn, self.new_text_btn,
-        ):
-            size_compact_button(button)
-            browse_row.addWidget(button)
-
-        vcs_row = QHBoxLayout()
-        vcs_row.setSpacing(6)
         self.lock_file_btn = QPushButton('锁定')
         self.lock_file_btn.clicked.connect(self._lock_selected_file)
         self.unlock_file_btn = QPushButton('解锁')
@@ -1780,6 +1783,7 @@ class RequirementPanel(QWidget):
         self.commit_btn = QPushButton('提交')
         self.commit_btn.setObjectName('primary-btn')
         self.commit_btn.clicked.connect(self._commit_svn)
+
         try:
             from ui.icons import apply_icon
             apply_icon(self.open_folder_btn, 'folder-open', 16)
@@ -1789,40 +1793,33 @@ class RequirementPanel(QWidget):
             apply_icon(self.commit_btn, 'export', 16)
         except Exception:
             pass
-        for button in (
-            self.lock_file_btn, self.unlock_file_btn, self.revert_btn, self.commit_btn,
-        ):
-            size_compact_button(button)
-        action_row = QHBoxLayout()
-        # 上下 margin 归零：避免默认 9px 边距把按钮下推、超出 28px host 高度被垂直裁切。
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(6)
-        for button in (
-            self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
-            self.add_file_btn, self.new_text_btn, self.lock_file_btn,
-            self.unlock_file_btn, self.revert_btn, self.commit_btn,
-        ):
-            action_row.addWidget(button)
-        action_row.addStretch(1)
-        action_host = QWidget()
-        action_host.setLayout(action_row)
-        self.file_library_action_scroll = QScrollArea()
-        self.file_library_action_scroll.setObjectName('file-library-action-scroll')
-        self.file_library_action_scroll.setWidget(action_host)
-        self.file_library_action_scroll.setWidgetResizable(False)
-        self.file_library_action_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.file_library_action_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.file_library_action_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        action_outer.addWidget(self.file_library_action_scroll)
+
         self.file_library_action_buttons = (
             self.open_folder_btn, self.refresh_svn_btn, self.update_current_btn,
             self.add_file_btn, self.new_text_btn, self.lock_file_btn,
             self.unlock_file_btn, self.revert_btn, self.commit_btn,
         )
-        # setWidget / 后续布局会按 QSS padding 抬高子控件；统一在 _clamp_file_library_action_heights 回夹 28。
+        for button in self.file_library_action_buttons:
+            size_compact_button(button)
+            action_layout.addWidget(button)
+
+        # 低频操作“更多”下拉菜单
+        self.file_more_btn = QPushButton('更多 ▾')
+        size_compact_button(self.file_more_btn)
+        self.file_more_menu = QMenu(self.file_more_btn)
+        self._action_new_text = self.file_more_menu.addAction('新建文本', self._add_text_file)
+        self._action_lock = self.file_more_menu.addAction('锁定', self._lock_selected_file)
+        self._action_unlock = self.file_more_menu.addAction('解锁', self._unlock_selected_file)
+        self._action_revert = self.file_more_menu.addAction('回滚', self._revert_svn_paths)
+        self.file_more_menu.aboutToShow.connect(self._sync_file_more_menu)
+        self.file_more_btn.setMenu(self.file_more_menu)
+        action_layout.addWidget(self.file_more_btn)
+        self.file_more_btn.hide()
+        action_layout.addStretch(1)
+
         file_layout.addWidget(action_card, 0)
 
-        # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描）
+        # 文件库工具条：实时搜索 + 展开/折叠（不重新扫描，响应式收纳）
         file_tools = QHBoxLayout()
         file_tools.setSpacing(8)
         self.file_search_edit = QLineEdit()
@@ -1835,6 +1832,11 @@ class RequirementPanel(QWidget):
         self._file_search_timer.timeout.connect(self._filter_file_tree_local)
         self.file_search_edit.textChanged.connect(lambda *_: self._file_search_timer.start())
         file_tools.addWidget(self.file_search_edit, 1)
+
+        self.file_count_label = QLabel('')
+        self.file_count_label.setObjectName('small-label')
+        file_tools.addWidget(self.file_count_label)
+
         self.file_expand_btn = QPushButton('全部展开')
         self.file_expand_btn.setToolTip('展开文件库全部文件夹')
         self.file_expand_btn.clicked.connect(lambda: self.file_tree.expandAll())
@@ -1848,11 +1850,18 @@ class RequirementPanel(QWidget):
         except Exception:
             self.file_expand_btn.setProperty('compactAction', True)
             self.file_collapse_btn.setProperty('compactAction', True)
-        self.file_count_label = QLabel('')
-        self.file_count_label.setObjectName('small-label')
-        file_tools.addWidget(self.file_count_label)
+
+        self.file_tree_more_btn = QPushButton('展开 ▾')
+        size_compact_button(self.file_tree_more_btn)
+        self.file_tree_more_menu = QMenu(self.file_tree_more_btn)
+        self.file_tree_more_menu.addAction('全部展开', lambda: self.file_tree.expandAll())
+        self.file_tree_more_menu.addAction('全部折叠', lambda: self.file_tree.collapseAll())
+        self.file_tree_more_btn.setMenu(self.file_tree_more_menu)
+
         file_tools.addWidget(self.file_expand_btn)
         file_tools.addWidget(self.file_collapse_btn)
+        file_tools.addWidget(self.file_tree_more_btn)
+        self.file_tree_more_btn.hide()
         file_layout.addLayout(file_tools)
 
         self.file_tree = QTreeWidget(); self.file_tree.setObjectName('requirement-file-tree')
@@ -2040,37 +2049,36 @@ class RequirementPanel(QWidget):
             'content_splitter_sizes': self._content_stack_sizes(),
         })
 
-    def _clamp_file_library_action_heights(self):
-        """文件库九按钮固定 28px：ScrollArea.setWidget 与全局 QSS padding 会抬高 min/max。
+    def _sync_toolbar_more_menu(self):
+        """同步顶部工具栏 More 菜单中的 Action 启用与可见状态。"""
+        if hasattr(self, '_action_checkout') and hasattr(self, 'checkout_btn'):
+            self._action_checkout.setEnabled(self.checkout_btn.isEnabled())
+            self._action_checkout.setVisible(not self.checkout_btn.isVisible())
+        if hasattr(self, '_action_import') and hasattr(self, 'import_btn'):
+            self._action_import.setEnabled(self.import_btn.isEnabled())
+            self._action_import.setVisible(not self.import_btn.isVisible())
+        if hasattr(self, '_action_syscfg') and hasattr(self, 'system_config_btn'):
+            self._action_syscfg.setEnabled(self.system_config_btn.isEnabled())
+            self._action_syscfg.setVisible(not self.system_config_btn.isVisible())
 
-        容器高度须给横向滚动条留出余量（+12px），否则 9 按钮超宽出现横向滚动条时
-        按钮可见区被压缩到 28px 以下、垂直裁切。host 仍锁 28 保证按钮本身不拉伸。
-        """
-        buttons = getattr(self, 'file_library_action_buttons', None)
-        if not buttons:
-            return
-        from ui.field_metrics import BTN_COMPACT_H, size_compact_button
-        for button in buttons:
-            size_compact_button(button)
-        scroll = getattr(self, 'file_library_action_scroll', None)
-        host = None
-        if scroll is not None:
-            host = scroll.widget()
-            # 横向滚动条高度随 DPI/QSS 变化（实测 14px），不能写死余量。
-            # 高度 = 按钮高 + 滚动条实际高度，保证按钮完整可见、不被垂直裁切。
-            hbar = scroll.horizontalScrollBar()
-            scrollbar_h = hbar.sizeHint().height() if hbar is not None else 0
-            # 若按钮总宽不超视口则无需滚动条，滚动条高度按 0 计。
-            if host is not None:
-                needed = sum(
-                    b.sizeHint().width() + 6 for b in buttons
-                )
-                if needed <= scroll.viewport().width():
-                    scrollbar_h = 0
-            scroll.setFixedHeight(BTN_COMPACT_H + scrollbar_h)
-        if host is not None:
-            host.adjustSize()
-            host.setFixedHeight(BTN_COMPACT_H)
+    def _sync_file_more_menu(self):
+        """同步文件库 More 菜单中 Actions 的启用与可见状态。"""
+        if hasattr(self, '_action_new_text') and hasattr(self, 'new_text_btn'):
+            self._action_new_text.setEnabled(self.new_text_btn.isEnabled())
+            self._action_new_text.setVisible(not self.new_text_btn.isVisible())
+        if hasattr(self, '_action_lock') and hasattr(self, 'lock_file_btn'):
+            self._action_lock.setEnabled(self.lock_file_btn.isEnabled())
+            self._action_lock.setVisible(not self.lock_file_btn.isVisible())
+        if hasattr(self, '_action_unlock') and hasattr(self, 'unlock_file_btn'):
+            self._action_unlock.setEnabled(self.unlock_file_btn.isEnabled())
+            self._action_unlock.setVisible(not self.unlock_file_btn.isVisible())
+        if hasattr(self, '_action_revert') and hasattr(self, 'revert_btn'):
+            self._action_revert.setEnabled(self.revert_btn.isEnabled())
+            self._action_revert.setVisible(not self.revert_btn.isVisible())
+
+    def _clamp_file_library_action_heights(self):
+        """文件库操作栏已升级为响应式 Action Bar（高频直显+低频 More 菜单），无需滚动条高度夹紧。"""
+        pass
 
     def apply_default_splitter_sizes(self):
         """套用 requirement_ui 默认/已复位的左右分栏尺寸。"""
@@ -2084,7 +2092,7 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setSizes(sizes)
 
     def apply_layout_mode(self, mode, low_height=False):
-        """响应主窗口断点：收紧左栏、收纳次要工具栏。"""
+        """响应主窗口断点：收紧左栏、收纳次要工具栏与文件库操作。"""
         self._layout_mode = mode
         from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN
         from ui.responsive import page_spacing_for_mode, set_subtitle_visible
@@ -2122,12 +2130,57 @@ class RequirementPanel(QWidget):
             left = min(max(sizes[0] if sizes else 240, 240), 280)
             right = max(360, (sizes[1] if len(sizes) > 1 else 360))
             self.detail_splitter.setSizes([left, right])
+
+        # 1. 顶部工具栏响应式收纳
+        if hasattr(self, 'toolbar_more_btn'):
+            if mode in ('wide', 'standard'):
+                for b in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
+                    b.show()
+                self.toolbar_more_btn.hide()
+            elif mode == 'compact':
+                self.scan_btn.show()
+                self.checkout_btn.show()
+                self.update_all_btn.show()
+                self.bug_btn.show()
+                self.import_btn.hide()
+                self.system_config_btn.hide()
+                self.toolbar_more_btn.show()
+            else:  # narrow
+                self.scan_btn.show()
+                self.checkout_btn.hide()
+                self.update_all_btn.show()
+                self.bug_btn.show()
+                self.import_btn.hide()
+                self.system_config_btn.hide()
+                self.toolbar_more_btn.show()
+
+        # 2. 文件库操作栏响应式收纳（常用操作直显，低频操作收进 More）
+        if hasattr(self, 'file_more_btn'):
+            if mode == 'wide':
+                for b in (self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.revert_btn):
+                    b.show()
+                self.file_more_btn.hide()
+            else:  # standard, compact, narrow
+                for b in (self.new_text_btn, self.lock_file_btn, self.unlock_file_btn, self.revert_btn):
+                    b.hide()
+                self.file_more_btn.show()
+
+        # 3. 文件库搜索栏展开/折叠响应式收纳
+        if hasattr(self, 'file_tree_more_btn'):
+            if mode in ('wide', 'standard'):
+                self.file_expand_btn.show()
+                self.file_collapse_btn.show()
+                self.file_tree_more_btn.hide()
+            else:  # compact, narrow
+                self.file_expand_btn.hide()
+                self.file_collapse_btn.hide()
+                self.file_tree_more_btn.show()
+
         # 次要操作收纳：若存在 SVN/文件工具栏按钮，Narrow 隐藏低频项
         secondary_names = (
             'svn_log_btn', 'svn_diff_btn', 'export_sql_btn', 'send_docx_btn',
-            'batch_flag_btn', 'import_btn', 'help_btn',
+            'batch_flag_btn', 'help_btn',
         )
-        more_btn = getattr(self, 'toolbar_more_btn', None)
         if mode in ('compact', 'narrow'):
             for name in secondary_names:
                 w = getattr(self, name, None)
@@ -3611,6 +3664,7 @@ class RequirementPanel(QWidget):
                 btn = getattr(self, name, None)
                 if btn is not None:
                     btn.setEnabled(False)
+        self._sync_file_more_menu()
 
     def _lock_selected_file(self):
         try:

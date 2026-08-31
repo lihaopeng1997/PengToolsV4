@@ -720,32 +720,36 @@ QLabel[xmlStatus="ok"] {
     font-weight: 650;
 }
 
-/* 全局分割线：细线风格，仅 hover 时高亮 */
+/* 全局分割线：极细视觉线（~1-2px），保持 6px 便于拖拽的交互区域，hover/pressed 时高亮提示 */
 QSplitter::handle:horizontal {
     width: 6px;
-    margin: 0;
+    margin: 0 2px;
     background: __BORDER__;
     border: none;
-    border-radius: 0;
+    border-radius: 1px;
 }
-QSplitter::handle:horizontal:hover {
-    background: __PRIMARY_SOFT__;
+QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
+    background: __PRIMARY__;
 }
 QSplitter#requirement-splitter::handle:horizontal {
-    width: 8px;
-    margin: 0;
+    width: 6px;
+    margin: 0 2px;
     background: __BORDER__;
     border: none;
+    border-radius: 1px;
+}
+QSplitter#requirement-splitter::handle:horizontal:hover, QSplitter#requirement-splitter::handle:horizontal:pressed {
+    background: __PRIMARY__;
 }
 QSplitter::handle:vertical {
     height: 6px;
-    margin: 0;
+    margin: 2px 0;
     background: __BORDER__;
     border: none;
-    border-radius: 0;
+    border-radius: 1px;
 }
-QSplitter::handle:vertical:hover {
-    background: __PRIMARY_SOFT__;
+QSplitter::handle:vertical:hover, QSplitter::handle:vertical:pressed {
+    background: __PRIMARY__;
 }
 /* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {

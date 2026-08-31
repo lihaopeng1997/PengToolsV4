@@ -542,8 +542,7 @@ class ReleaseUiTests(unittest.TestCase):
             ['打开目录', '刷新', '更新', '添加文件', '新建文本', '锁定', '解锁', '回滚', '提交'],
         )
         self.assertTrue(all(button.height() == 28 for button in panel.file_library_action_buttons))
-        self.assertTrue(hasattr(panel, 'file_library_action_scroll'))
-        self.assertFalse(panel.file_library_action_scroll.widgetResizable())
+        self.assertTrue(hasattr(panel, 'file_more_btn'))
         self.assertGreaterEqual(panel.file_tree.minimumHeight(), 240)
         with patch.object(panel, '_resolve_vcs_targets', return_value=([], '选中项 0 个')):
             panel._update_vcs_action_state()
