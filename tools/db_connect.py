@@ -125,7 +125,11 @@ def open_connection(item: dict):
     port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
-    if dialect in ('oracle', 'oceanbase'):
+    mode = str(item.get('mode') or '').strip().lower()
+    is_oracle_mode = (dialect == 'oracle') or (dialect == 'oceanbase' and mode == 'oracle')
+    is_mysql_mode = (dialect == 'mysql') or (dialect == 'oceanbase' and mode != 'oracle')
+
+    if is_oracle_mode:
         try:
             import oracledb
         except ImportError as exc:
@@ -153,9 +157,9 @@ def open_connection(item: dict):
                     '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
                     f' 原始错误：{text}'
                 ) from exc
-            label = 'OceanBase' if dialect == 'oceanbase' else 'Oracle'
+            label = 'OceanBase (Oracle 模式)' if dialect == 'oceanbase' else 'Oracle'
             raise DbError(f'{label} 连接失败：{text}') from exc
-    if dialect == 'mysql':
+    if is_mysql_mode:
         try:
             import pymysql
         except ImportError as exc:
@@ -167,7 +171,8 @@ def open_connection(item: dict):
                 cursorclass=pymysql.cursors.Cursor,
             )
         except Exception as exc:
-            raise DbError(f'MySQL 连接失败：{exc}') from exc
+            label = 'OceanBase (MySQL 模式)' if dialect == 'oceanbase' else 'MySQL'
+            raise DbError(f'{label} 连接失败：{exc}') from exc
     if dialect == 'dameng':
         try:
             import dmPython

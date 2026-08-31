@@ -123,34 +123,68 @@ class ConnectionDialog(QDialog):
     def _on_dialect_changed(self) -> None:
         dialect = self.dialect.currentData() or "oracle"
         zh = self.language == "zh"
-        self.oracle_hint.setVisible(dialect in ("oracle", "oceanbase"))
-        self.mode.setVisible(dialect in ("redis", "mongodb"))
-        self.mode_label.setVisible(dialect in ("redis", "mongodb"))
-        if dialect in ("oracle", "oceanbase"):
+        self.mode.blockSignals(True)
+        self.mode.clear()
+        if dialect == "oceanbase":
+            self.mode.addItem("MySQL 模式" if zh else "MySQL mode", "mysql")
+            self.mode.addItem("Oracle 模式" if zh else "Oracle mode", "oracle")
+            cur_mode = str(self._item.get("mode") or "mysql").strip().lower()
+            idx = self.mode.findData(cur_mode)
+            self.mode.setCurrentIndex(idx if idx >= 0 else 0)
+            self.mode.setVisible(True)
+            self.mode_label.setVisible(True)
+            self.mode_label.setText("兼容模式" if zh else "Mode")
+            is_oracle = (self.mode.currentData() == "oracle")
+            self.oracle_hint.setVisible(is_oracle)
+            self.database_label.setText("SID/服务名" if (is_oracle and zh) else ("库名" if zh else "Database"))
+            self.database.setPlaceholderText("服务名 / 库名")
+            self.host_label.setText("主机" if zh else "Host")
+        elif dialect in ("redis", "mongodb"):
+            self.mode.addItem("单机" if zh else "Standalone", "standalone")
+            self.mode.addItem("集群" if zh else "Cluster", "cluster")
+            cur_mode = str(self._item.get("mode") or "standalone").strip().lower()
+            idx = self.mode.findData(cur_mode)
+            self.mode.setCurrentIndex(idx if idx >= 0 else 0)
+            self.mode.setVisible(True)
+            self.mode_label.setVisible(True)
+            self.mode_label.setText("模式" if zh else "Mode")
+            self.oracle_hint.setVisible(False)
+            if dialect == "redis":
+                self.database_label.setText("DB 序号" if zh else "DB index")
+                self.database.setPlaceholderText("0（集群模式忽略）")
+                self.host_label.setText("主机" if zh else "Host")
+            else:
+                self.database_label.setText("库名" if zh else "Database")
+                self.database.setPlaceholderText("例如 admin / prpcar")
+                self.host_label.setText("连接串 / 主机" if zh else "URL / Host")
+                self.host.setPlaceholderText(
+                    "mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db（集群模式可填多主机）"
+                    if zh
+                    else "mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db"
+                )
+        elif dialect == "oracle":
+            self.mode.setVisible(False)
+            self.mode_label.setVisible(False)
+            self.oracle_hint.setVisible(True)
             self.database_label.setText("SID/服务名" if zh else "SID")
             self.database.setPlaceholderText("ORCL / 服务名")
             self.host_label.setText("主机" if zh else "Host")
         elif dialect == "dameng":
+            self.mode.setVisible(False)
+            self.mode_label.setVisible(False)
+            self.oracle_hint.setVisible(False)
             self.database_label.setText("模式/库名" if zh else "Schema")
             self.database.setPlaceholderText("")
             self.host_label.setText("主机" if zh else "Host")
-        elif dialect == "redis":
-            self.database_label.setText("DB 序号" if zh else "DB index")
-            self.database.setPlaceholderText("0（集群模式忽略）")
-            self.host_label.setText("主机" if zh else "Host")
-        elif dialect == "mongodb":
-            self.database_label.setText("库名" if zh else "Database")
-            self.database.setPlaceholderText("例如 admin / prpcar")
-            self.host_label.setText("连接串 / 主机" if zh else "URL / Host")
-            self.host.setPlaceholderText(
-                "mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db（集群模式可填多主机）"
-                if zh
-                else "mongodb://user:pass@host1,host2,host3/?replicaSet=rs&authSource=db"
-            )
         else:
+            self.mode.setVisible(False)
+            self.mode_label.setVisible(False)
+            self.oracle_hint.setVisible(False)
             self.database_label.setText("库名" if zh else "Database")
             self.database.setPlaceholderText("mysql 库名（可选，留空可浏览所有库）" if zh else "Database (optional)")
             self.host_label.setText("主机" if zh else "Host")
+        self.mode.blockSignals(False)
+
         defaults = {"1521", "2883", "3306", "5236", "6379", "27017"}
         if not self.port.text().strip() or self.port.text().strip() in defaults:
             self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
@@ -167,5 +201,6 @@ class ConnectionDialog(QDialog):
             item["port"] = DEFAULT_PORTS.get(item["dialect"], 1521)
         item["database"] = self.database.text().strip()
         item["username"] = self.username.text().strip()
-        item["mode"] = self.mode.currentData() or "standalone"
+        default_mode = "mysql" if item["dialect"] == "oceanbase" else "standalone"
+        item["mode"] = self.mode.currentData() or default_mode
         return item, self.password.text()

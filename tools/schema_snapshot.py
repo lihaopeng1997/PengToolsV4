@@ -240,21 +240,13 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
         payload['warning'] = '扫描已取消'
         return payload
     try:
-        is_mysql_conn = (
-            dialect == 'mysql'
-            or (
-                dialect == 'oceanbase'
-                and (
-                    'cursorclass' in getattr(conn, '__dict__', {})
-                    or 'pymysql' in getattr(conn, '__module__', '')
-                )
-            )
-        )
+        mode = str((item or {}).get('mode') or '').strip().lower()
+        is_mysql_schema = (dialect == 'mysql') or (dialect == 'oceanbase' and mode != 'oracle')
         if dialect == 'redis':
             objects, truncated = _scan_redis(conn)
         elif dialect == 'mongodb':
             objects, truncated = _scan_mongo(conn)
-        elif is_mysql_conn:
+        elif is_mysql_schema:
             objects, truncated = _scan_information_schema(conn, item)
         else:
             objects, truncated = _scan_oracle_like(conn, dialect, item)
@@ -311,30 +303,26 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
     cur = conn.cursor()
     objects = {}
     item_data = item if isinstance(item, dict) else {}
-    target_schema = str(item_data.get('database') or '').strip().upper()
     user_name = str(item_data.get('username') or '').strip().upper()
 
     try:
         if dialect == 'dameng':
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
             if target_schema:
-                try:
-                    cur.execute(
-                        "SELECT OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
-                        "FROM ALL_TABLES WHERE OWNER = :1",
-                        (target_schema,),
-                    )
-                except Exception:
-                    cur.execute(
-                        "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
-                        "FROM USER_TABLES"
-                    )
+                cur.execute(
+                    "SELECT OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
+                    "FROM ALL_TABLES WHERE OWNER = :1",
+                    (target_schema,),
+                )
             else:
                 cur.execute(
                     "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
                     "FROM USER_TABLES"
                 )
         else:
-            if target_schema and target_schema not in _ORACLE_SYSTEM_SCHEMAS:
+            # Oracle / OceanBase Oracle mode: database 字段为 SID/DSN 目标，不得当成 schema
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
+            if target_schema:
                 cur.execute(
                     "SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
                     "WHERE table_type IN ('TABLE', 'VIEW') AND owner = :1",
@@ -359,25 +347,21 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                 'columns': [],
             }
         if dialect == 'dameng':
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
             if target_schema:
-                try:
-                    cur.execute(
-                        "SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
-                        "FROM ALL_TAB_COLUMNS WHERE OWNER = :1 ORDER BY TABLE_NAME, COLUMN_ID",
-                        (target_schema,),
-                    )
-                except Exception:
-                    cur.execute(
-                        "SELECT USER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
-                        "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
-                    )
+                cur.execute(
+                    "SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
+                    "FROM ALL_TAB_COLUMNS WHERE OWNER = :1 ORDER BY TABLE_NAME, COLUMN_ID",
+                    (target_schema,),
+                )
             else:
                 cur.execute(
                     "SELECT USER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE, COLUMN_ID, '' "
                     "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
                 )
         else:
-            if target_schema and target_schema not in _ORACLE_SYSTEM_SCHEMAS:
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
+            if target_schema:
                 cur.execute(
                     "SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "
                     "col.column_id, cc.comments "
