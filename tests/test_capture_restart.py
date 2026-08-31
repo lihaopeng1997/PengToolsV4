@@ -662,6 +662,82 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             self.assertEqual(cfg_mock['ie_certificate_thumbprint'], '')
             mock_save.assert_called_once()
 
+    def test_install_user_root_cert_verified_success(self):
+        from tools.ie_proxy import install_user_root_cert
+        cfg_mock = {'ie_certificate_thumbprint': ''}
+        proc_ok = MagicMock()
+        proc_ok.returncode = 0
+        proc_ok.stderr = ''
+        proc_ok.stdout = ''
+
+        with patch('tools.ie_proxy.ensure_mitm_ca_exists', return_value=r'C:\fake\mitm.cer'), \
+             patch('tools.ie_proxy.cert_sha1_thumbprint', return_value='NEW_THUMB_123'), \
+             patch('subprocess.run', return_value=proc_ok), \
+             patch('tools.ie_proxy.is_current_user_root_cert_installed', return_value=True), \
+             patch('tools.ie_proxy.load_interface_debug_config', return_value=cfg_mock), \
+             patch('tools.ie_proxy.save_interface_debug_config') as mock_save:
+            thumb = install_user_root_cert()
+            self.assertEqual(thumb, 'NEW_THUMB_123')
+            self.assertEqual(cfg_mock['ie_certificate_thumbprint'], 'NEW_THUMB_123')
+            mock_save.assert_called_once_with(cfg_mock)
+
+    def test_install_user_root_cert_false_success_raises_and_preserves_config(self):
+        from tools.ie_proxy import install_user_root_cert, IeProxyError
+        cfg_mock = {'ie_certificate_thumbprint': 'OLD_THUMB_999'}
+        proc_ok = MagicMock()
+        proc_ok.returncode = 0
+        proc_ok.stderr = ''
+        proc_ok.stdout = ''
+
+        with patch('tools.ie_proxy.ensure_mitm_ca_exists', return_value=r'C:\fake\mitm.cer'), \
+             patch('tools.ie_proxy.cert_sha1_thumbprint', return_value='NEW_THUMB_123'), \
+             patch('subprocess.run', return_value=proc_ok), \
+             patch('tools.ie_proxy.is_current_user_root_cert_installed', return_value=False), \
+             patch('tools.ie_proxy.load_interface_debug_config', return_value=cfg_mock), \
+             patch('tools.ie_proxy.save_interface_debug_config') as mock_save:
+            with self.assertRaises(IeProxyError) as cm:
+                install_user_root_cert()
+            self.assertIn('未在当前用户受信任根证书库中检测到该证书', str(cm.exception))
+            # 真实状态未通过，严禁覆盖旧配置
+            mock_save.assert_not_called()
+            self.assertEqual(cfg_mock['ie_certificate_thumbprint'], 'OLD_THUMB_999')
+
+    def test_install_user_root_cert_nonzero_code_raises_and_preserves_config(self):
+        from tools.ie_proxy import install_user_root_cert, IeProxyError
+        cfg_mock = {'ie_certificate_thumbprint': 'OLD_THUMB_999'}
+        proc_fail = MagicMock()
+        proc_fail.returncode = 1
+        proc_fail.stderr = 'access denied'
+        proc_fail.stdout = ''
+
+        with patch('tools.ie_proxy.ensure_mitm_ca_exists', return_value=r'C:\fake\mitm.cer'), \
+             patch('tools.ie_proxy.cert_sha1_thumbprint', return_value='NEW_THUMB_123'), \
+             patch('subprocess.run', return_value=proc_fail), \
+             patch('tools.ie_proxy.load_interface_debug_config', return_value=cfg_mock), \
+             patch('tools.ie_proxy.save_interface_debug_config') as mock_save:
+            with self.assertRaises(IeProxyError) as cm:
+                install_user_root_cert()
+            self.assertIn('安装证书失败', str(cm.exception))
+            mock_save.assert_not_called()
+            self.assertEqual(cfg_mock['ie_certificate_thumbprint'], 'OLD_THUMB_999')
+
+    def test_first_capture_install_false_success_aborts_start(self):
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        from tools.ie_proxy import IeProxyError
+        panel = InterfaceDebugPanel('zh')
+        with patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=False), \
+             patch('ui.confirm_dialog.confirm_https_cert_consent', return_value=True), \
+             patch('tools.ie_proxy.install_user_root_cert', side_effect=IeProxyError('证书安装命令已执行，但未在当前用户受信任根证书库中检测到该证书')), \
+             patch('panels.interface_debug_panel.show_warning') as mock_warn, \
+             patch('tools.http_capture.HttpCaptureWorker') as mock_worker:
+            panel._start_local_proxy()
+            mock_warn.assert_called_once()
+            self.assertIn('未在当前用户受信任根证书库中检测到该证书', mock_warn.call_args[0][2])
+            mock_worker.assert_not_called()
+            self.assertEqual(panel._lifecycle.state, IDLE)
+            self.assertFalse(panel._listening)
+        panel.close()
+
     def test_toolbar_status_and_menu_rendering(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
         panel = InterfaceDebugPanel('zh')

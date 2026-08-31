@@ -451,7 +451,7 @@ class HttpsCertConsentDialog(QDialog):
         desc_text = (
             'HTTPS 内容经过加密。为了查看请求头、请求体和响应内容，PengTools 需要让浏览器通过本机 127.0.0.1 代理，'
             '并信任一个仅用于本机抓包的 mitmproxy CA 证书。\n\n'
-            '• 本机安全：证书生成并保存在本机，安装证书动作本身不会联网下载任何软件；\n'
+            '• 本地生成：证书生成并保存在本机，安装证书动作本身不会联网下载任何软件；\n'
             '• 信任范围：将写入“当前 Windows 用户”的受信任根证书库，仅用于解密通过本机代理的抓包流量；\n'
             '• 自动恢复：停止监听时会自动恢复原系统代理；\n'
             '• 随时移除：可在接口排查页面的「更多」菜单中随时一键移除该证书。\n\n'
@@ -459,7 +459,7 @@ class HttpsCertConsentDialog(QDialog):
             if zh else
             'HTTPS content is encrypted. To inspect request headers, body, and responses, '
             'PengTools routes traffic through a local 127.0.0.1 proxy and requires trusting a local mitmproxy CA certificate.\n\n'
-            '• Local security: The certificate is generated and stored locally; no software is downloaded from the internet;\n'
+            '• Local certificate: The certificate is generated and stored locally; no software is downloaded from the internet;\n'
             '• Scope: Added to Current User Trusted Root store, only decrypting traffic through local proxy;\n'
             '• Auto restore: System proxy is restored automatically when listening stops;\n'
             '• Removable anytime: You can remove the certificate anytime from the More menu.\n\n'

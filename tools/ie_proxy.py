@@ -542,7 +542,7 @@ def is_recorded_root_cert_installed(thumbprint: Optional[str] = None) -> bool:
 
 
 def install_user_root_cert(cer_path: Optional[str] = None) -> str:
-    """安装到当前用户 Root 存储，返回 thumbprint。"""
+    """安装到当前用户 Root 存储，验证真实安装状态后保存配置并返回 thumbprint。"""
     path = cer_path or ensure_mitm_ca_exists()
     thumb = cert_sha1_thumbprint(path)
     proc = subprocess.run(
@@ -556,6 +556,12 @@ def install_user_root_cert(cer_path: Optional[str] = None) -> str:
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or '').strip()
         raise IeProxyError(f'安装证书失败：{err or proc.returncode}')
+
+    if not is_current_user_root_cert_installed(thumb):
+        raise IeProxyError(
+            '证书安装命令已执行，但未在当前用户受信任根证书库中检测到该证书，请重试或检查系统证书策略。'
+        )
+
     cfg = load_interface_debug_config()
     cfg['ie_certificate_thumbprint'] = thumb
     save_interface_debug_config(cfg)
