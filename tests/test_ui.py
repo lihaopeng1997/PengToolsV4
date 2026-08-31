@@ -886,7 +886,7 @@ class UiRegressionTests(unittest.TestCase):
         host.resize(900, 600)
         host.show()
         progress = AuroraProgress(host)
-        progress.start_busy('正在导出交付文件…')
+        progress.start_busy('正在导出交付文件…', immediate=True)
         self.app.processEvents()
         self.assertFalse(progress.isHidden())
         self.assertGreaterEqual(progress.x(), 24)

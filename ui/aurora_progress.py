@@ -1,20 +1,26 @@
 # -*- coding: utf-8 -*-
 """企业级浮层 Loading：与布局隔离，API 保持 start_busy / set_progress / finish / fail。
 
-使用约定：
-- 作为 parent 子控件创建（不进 layout），由 place_overlay() 居中浮于宿主上方
-- 仅长任务触发；成功 / 失败 / 异常均需 finish 或 fail
-- 切页 / 首次打开面板用 hide_now()，不要走 finish 停留
-- 标签优先写任务语义（「正在提交 SVN…」），不要只写「请稍候」
-- 颜色一律来自 ThemeManager，禁止硬编码浅色白卡
+UX 契约：
+- 短任务（<300ms 完成）：不展示 loading / busy 浮层，彻底杜绝短操作闪烁；
+- 中长任务（>=300ms）：延迟 300ms 触发统一 busy 浮层；
+- 浮层一旦实际展示，保障至少 500ms 最小可视驻留时长，避免闪现；
+- 失败（fail）：立即展示，取消 pending 延迟，合理驻留供用户阅读；
+- 状态与定时器安全：基于 generation 世代标记，废弃过期 timer，防止状态污染；
+- 视觉权威：完全自适应 Light / Dark 主题语义 Tokens。
 """
 
-SUCCESS_LINGER_MS = 180
-FAIL_LINGER_MS = 3600
-
+import time
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
+
+DEFAULT_DELAY_SHOW_MS = 300
+DEFAULT_MIN_VISIBLE_MS = 500
+SUCCESS_LINGER_MS = 180
+DEFAULT_SUCCESS_LINGER_MS = 350
+FAIL_LINGER_MS = 3200
+DEFAULT_ANIM_TICK_MS = 28
 
 
 def _palette():
@@ -42,18 +48,50 @@ def _qc(pal: dict, key: str, fallback: str = '#29332E') -> QColor:
 class AuroraProgress(QWidget):
     """Floating enterprise progress chip — visual only; trigger logic stays in callers."""
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        delay_show_ms: int = DEFAULT_DELAY_SHOW_MS,
+        min_visible_ms: int = DEFAULT_MIN_VISIBLE_MS,
+        success_linger_ms: int = DEFAULT_SUCCESS_LINGER_MS,
+        fail_linger_ms: int = FAIL_LINGER_MS,
+    ):
         super().__init__(parent)
+        self._delay_show_ms = max(0, int(delay_show_ms))
+        self._min_visible_ms = max(0, int(min_visible_ms))
+        self._success_linger_ms = max(0, int(success_linger_ms))
+        self._fail_linger_ms = max(0, int(fail_linger_ms))
+
+        self._generation = 0
+        self._is_shown = False
+        self._shown_timestamp = 0.0
         self._phase = 0
         self._value = -1
         self._label = ''
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
+        self._state = 'idle'
+
+        self._delay_timer = QTimer(self)
+        self._delay_timer.setSingleShot(True)
+        self._delay_timer.timeout.connect(self._on_delay_show_timeout)
+
+        self._linger_timer = QTimer(self)
+        self._linger_timer.setSingleShot(True)
+        self._linger_timer.timeout.connect(self._on_linger_hide)
+
+        self._anim_timer = QTimer(self)
+        self._anim_timer.timeout.connect(self._tick)
+
         self.setFixedHeight(62)
         # 仅作视觉反馈：不拦截鼠标，避免「Loading 盖住界面 → 点什么都没反应」
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # 浮层默认不占布局；hide 时也不会把按钮顶上/顶下
         self.hide()
+
+    @property
+    def is_visible_to_user(self) -> bool:
+        """是否实际已在界面对用户可见。"""
+        return self._is_shown and not self.isHidden()
 
     def place_overlay(self, host=None):
         """相对宿主水平居中浮于顶部附近。不修改宿主 layout。"""
@@ -68,70 +106,112 @@ class AuroraProgress(QWidget):
         self.move(x, y)
         self.raise_()
 
-    def start_busy(self, label):
+    def start_busy(self, label: str, *, immediate: bool = False):
+        """开始忙碌状态。默认延迟 300ms 展示，防止短操作闪烁。"""
+        self._generation += 1
         self._label = label or ''
         self._value = -1
         self._phase = 0
+        self._delay_timer.stop()
+        self._linger_timer.stop()
+
+        if self._is_shown or immediate or self._delay_show_ms <= 0:
+            self._state = 'busy'
+            self._show_overlay_now()
+        else:
+            self._state = 'pending_busy'
+            self._delay_timer.start(self._delay_show_ms)
+
+    def _show_overlay_now(self):
+        """立即展示浮层，并记录展示时间戳。"""
+        self._is_shown = True
+        self._shown_timestamp = time.monotonic()
         self.place_overlay()
         self.show()
         self.raise_()
-        self._timer.start(28)
+        if not self._anim_timer.isActive():
+            self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
         self.update()
-        try:
-            from PyQt6.QtWidgets import QApplication
-            QApplication.processEvents()
-        except Exception:
-            pass
+
+    def _on_delay_show_timeout(self):
+        if self._state not in ('pending_busy', 'progress'):
+            return
+        self._state = 'busy' if self._value < 0 else 'progress'
+        self._show_overlay_now()
 
     def set_progress(self, value, label=None):
+        """设置显式百分比进度（0-100）。"""
+        self._generation += 1
         self._value = max(0, min(100, int(value)))
         if label is not None:
             self._label = label
-        self.place_overlay()
-        self.show()
-        self.raise_()
-        if not self._timer.isActive():
-            self._timer.start(28)
+        self._delay_timer.stop()
+        self._linger_timer.stop()
+
+        self._state = 'progress'
+        if not self._is_shown:
+            self._show_overlay_now()
+        else:
+            self.update()
+
+    def finish(self, label=''):
+        """任务成功完成。若尚未实际展示（短任务）则静默收起；若已展示则保障最小可视时长后渐隐。"""
+        self._generation += 1
+        self._delay_timer.stop()
+
+        if not self._is_shown:
+            # 短任务在 300ms 内完成，直接收起，绝不闪现
+            self._state = 'idle'
+            self._value = -1
+            self._label = ''
+            self.hide()
+            return
+
+        # 已实际展示过，满足最小可视驻留时长
+        self._state = 'finish'
+        self._value = 100
+        if label:
+            self._label = label
         self.update()
 
-    def finish(self, label):
-        self._label = label or ''
-        self._value = 100
-        self.place_overlay()
-        self.show()
-        self.raise_()
-        self._timer.start(28)
-        self.update()
-        QTimer.singleShot(SUCCESS_LINGER_MS, self._fade_out)
+        elapsed_ms = (time.monotonic() - self._shown_timestamp) * 1000.0
+        remaining_min_ms = max(0.0, self._min_visible_ms - elapsed_ms)
+        total_linger_ms = int(remaining_min_ms + self._success_linger_ms)
+
+        self._linger_timer.start(total_linger_ms)
+
+    def fail(self, label=''):
+        """任务失败。立即展示失败浮层并驻留，取消任何 pending 延迟。"""
+        self._generation += 1
+        self._delay_timer.stop()
+        self._linger_timer.stop()
+        self._anim_timer.stop()
+
+        self._state = 'fail'
+        self._value = 0
+        self._label = label or self._label or '失败'
+        self._show_overlay_now()
+        self._linger_timer.start(self._fail_linger_ms)
+
+    def _on_linger_hide(self):
+        self._is_shown = False
+        self._state = 'idle'
+        self._value = -1
+        self._label = ''
+        self._anim_timer.stop()
+        self.hide()
 
     def hide_now(self):
-        """立刻收起，用于切页 / 首次打开，不走成功停留。"""
-        try:
-            self._timer.stop()
-        except Exception:
-            pass
+        """立刻收起并重置所有定时器，用于切页或显式中断。"""
+        self._generation += 1
+        self._delay_timer.stop()
+        self._linger_timer.stop()
+        self._anim_timer.stop()
+        self._is_shown = False
+        self._state = 'idle'
         self._value = -1
         self._label = ''
         self.hide()
-
-    def fail(self, label):
-        self._label = label or ''
-        self._value = 0
-        self._timer.stop()
-        self.place_overlay()
-        self.show()
-        self.raise_()
-        self.update()
-        QTimer.singleShot(FAIL_LINGER_MS, self._fade_out_failed)
-
-    def _fade_out(self):
-        if self._value == 100:
-            self._timer.stop()
-            self.hide()
-
-    def _fade_out_failed(self):
-        if self._value == 0 and not self._timer.isActive():
-            self.hide()
 
     def _tick(self):
         self._phase = (self._phase + 4) % 360
@@ -178,7 +258,7 @@ class AuroraProgress(QWidget):
         painter.setBrush(body)
         painter.drawRoundedRect(bounds, 13, 13)
 
-        # left brand bar (primary, not neon blue)
+        # left brand bar
         accent = QRectF(bounds.left() + 2, bounds.top() + 12, 3.5, bounds.height() - 24)
         painter.setPen(Qt.PenStyle.NoPen)
         accent_grad = QLinearGradient(accent.topLeft(), accent.bottomLeft())
@@ -188,7 +268,8 @@ class AuroraProgress(QWidget):
         painter.drawRoundedRect(accent, 2, 2)
 
         # status chip
-        is_fail = self._value == 0 and not self._timer.isActive()
+        is_fail = self._state == 'fail' or (self._value == 0 and not self._anim_timer.isActive())
+        is_finish = self._state == 'finish' or self._value >= 100
         chip_w = 54 if self._value >= 0 else 62
         chip = QRectF(bounds.right() - chip_w - 12, bounds.top() + 10, chip_w, 22)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -196,7 +277,7 @@ class AuroraProgress(QWidget):
             painter.setBrush(danger_bg)
             painter.setPen(QPen(danger_border, 1))
             chip_fg = danger
-        elif self._value >= 100:
+        elif is_finish:
             painter.setBrush(success_bg)
             painter.setPen(QPen(success_border, 1))
             chip_fg = success
@@ -211,6 +292,8 @@ class AuroraProgress(QWidget):
             chip_text = '处理中'
         elif is_fail:
             chip_text = '失败'
+        elif is_finish:
+            chip_text = '完成'
         else:
             chip_text = f'{self._value}%'
         painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, chip_text)
@@ -235,7 +318,7 @@ class AuroraProgress(QWidget):
         if is_fail:
             gradient.setColorAt(0.0, danger)
             gradient.setColorAt(1.0, _qc(pal, 'DANGER', danger))
-        elif self._value >= 100:
+        elif is_finish:
             gradient.setColorAt(0.0, success)
             gradient.setColorAt(1.0, _qc(pal, 'SUCCESS', success))
         else:
