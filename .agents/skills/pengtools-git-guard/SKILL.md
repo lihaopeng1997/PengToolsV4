@@ -8,8 +8,10 @@ description: PengToolsHub Git 协同守护规则。在任何会修改仓库代�
 ## 1. 必填输入 (Required Inputs)
 
 每个任务必须由 Task Prompt 明确提供：
-- `REPOSITORY`（如 `lihaopeng1997/PengToolsV4`）
-- `BASELINE_COMMIT`（如 `1c28b7c...`）
+- `REPOSITORY`
+- `BASELINE_COMMIT`
+
+两个值都必须由当前 Task Prompt 明确提供，不得从 Skill、历史聊天、memory 或旧报告推断。
 
 ## 2. 开工基线检查 (Start Guard)
 
