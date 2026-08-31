@@ -136,6 +136,7 @@ def _tokenize_sql_for_format(raw: str):
     while i < n:
         ch = raw[i]
         nxt = raw[i + 1] if i + 1 < n else ''
+        nxt2 = raw[i + 2] if i + 2 < n else ''
 
         # 单行注释 --
         if ch == '-' and nxt == '-':
@@ -214,6 +215,15 @@ def _tokenize_sql_for_format(raw: str):
             tokens.append(('BRACKET_IDENT', raw[start:i]))
             continue
 
+        # 绑定变量（例如 :policyNo, :1, :dept_id）
+        if ch == ':' and (nxt.isalnum() or nxt == '_'):
+            start = i
+            i += 1
+            while i < n and (raw[i].isalnum() or raw[i] == '_'):
+                i += 1
+            tokens.append(('BIND_VAR', raw[start:i]))
+            continue
+
         # 空白符
         if ch.isspace():
             start = i
@@ -222,8 +232,29 @@ def _tokenize_sql_for_format(raw: str):
             tokens.append(('WS', raw[start:i]))
             continue
 
-        # 标点符号与运算符
-        if ch in ',;()=<>!+-*/%^&|~:':
+        # 3 字符操作符（->> 等）
+        three_char = ch + nxt + nxt2
+        if three_char in ('->>',):
+            tokens.append(('OP_COMPACT', three_char))
+            i += 3
+            continue
+
+        # 2 字符操作符（<=, >=, !=, <>, :=, ||, ==, ->, :: 等）
+        two_char = ch + nxt
+        if two_char in ('<=', '>=', '!=', '<>', ':=', '||', '==', '->', '::'):
+            kind = 'OP_COMPACT' if two_char in ('->', '::') else 'OP'
+            tokens.append((kind, two_char))
+            i += 2
+            continue
+
+        # 1 字符操作符
+        if ch in ('=', '<', '>', '!', '+', '-', '*', '/', '%', '^', '&', '|', '~'):
+            tokens.append(('OP', ch))
+            i += 1
+            continue
+
+        # 标点符号
+        if ch in (',', ';', '(', ')', ':', '.'):
             tokens.append(('PUNCT', ch))
             i += 1
             continue
@@ -232,7 +263,7 @@ def _tokenize_sql_for_format(raw: str):
         start = i
         while i < n:
             c = raw[i]
-            if c.isspace() or c in ',;()=<>!+-*/%^&|~:\'"`[]':
+            if c.isspace() or c in ',;()=<>!+-*/%^&|~:\'"`[].':
                 break
             if c == '-' and i + 1 < n and raw[i + 1] == '-':
                 break
@@ -280,6 +311,8 @@ def format_sql(sql: str) -> str:
 
     - 完整保留普通行注释（--）与块注释（/* */），严禁删除用户注释；
     - 完整保护数据库 Hint（/*+ ... */），严禁丢失优化器提示；
+    - 完整保护多字符操作符（<=, >=, !=, <>, :=, ||, ->, ->> 等）；
+    - 完整保护绑定变量（:name, :1）；
     - 完整保护字符串字面量、双引号标识符与反引号标识符内容及大小写；
     - 遇到异常安全回退原输入，杜绝丢失 SQL 文本。
     """
@@ -385,6 +418,25 @@ def format_sql(sql: str) -> str:
                 k += 1
                 continue
 
+            if kind == 'OP':
+                if current_line and not current_line[-1].endswith((' ', '(')):
+                    current_line.append(' ')
+                current_line.append(f"{text} ")
+                k += 1
+                continue
+
+            if kind == 'OP_COMPACT':
+                current_line.append(text)
+                k += 1
+                continue
+
+            if kind == 'BIND_VAR':
+                if current_line and not current_line[-1].endswith((' ', '(', ',')):
+                    current_line.append(' ')
+                current_line.append(text)
+                k += 1
+                continue
+
             if kind == 'PUNCT':
                 if text == ';':
                     current_line.append(';')
@@ -393,6 +445,10 @@ def format_sql(sql: str) -> str:
                     indent = ''
                 elif text == ',':
                     current_line.append(', ')
+                elif text == '.':
+                    if current_line and current_line[-1].endswith(' '):
+                        current_line[-1] = current_line[-1].rstrip()
+                    current_line.append('.')
                 elif text in ('(', '['):
                     if current_line and not current_line[-1].endswith((' ', '(', '.')):
                         prev = current_line[-1].rstrip()
@@ -404,10 +460,6 @@ def format_sql(sql: str) -> str:
                         current_line.append('(')
                 elif text in (')', ']'):
                     current_line.append(text)
-                elif text in ('=', '<', '>', '<=', '>=', '!=', '<>', '+', '-', '*', '/'):
-                    if current_line and not current_line[-1].endswith(' '):
-                        current_line.append(' ')
-                    current_line.append(f"{text} ")
                 else:
                     current_line.append(text)
                 k += 1

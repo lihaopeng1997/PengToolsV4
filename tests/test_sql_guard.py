@@ -173,6 +173,38 @@ class SqlGuardTests(unittest.TestCase):
         self.assertIn("SELECT", formatted)
         self.assertIn("FROM t;", formatted)
 
+    def test_format_sql_preserves_comparison_operators(self):
+        from tools.sql_tool import format_sql
+        raw1 = "select * from t where age <= 18 and age >= 10;"
+        formatted1 = format_sql(raw1)
+        self.assertIn("age <= 18", formatted1)
+        self.assertIn("age >= 10;", formatted1)
+        self.assertNotIn("< =", formatted1)
+        self.assertNotIn("> =", formatted1)
+
+        raw2 = "select * from t where status != 0 and amount <> 100;"
+        formatted2 = format_sql(raw2)
+        self.assertIn("status != 0", formatted2)
+        self.assertIn("amount <> 100;", formatted2)
+        self.assertNotIn("! =", formatted2)
+        self.assertNotIn("< >", formatted2)
+
+    def test_format_sql_preserves_bind_variables_and_plsql(self):
+        from tools.sql_tool import format_sql
+        raw_bind = "select *\nfrom prpcmain\nwhere policyno = :policyNo;"
+        formatted_bind = format_sql(raw_bind)
+        self.assertIn(":policyNo", formatted_bind)
+        self.assertNotIn(": policyNo", formatted_bind)
+
+        raw_plsql = "v_count := 1;"
+        formatted_plsql = format_sql(raw_plsql)
+        self.assertIn(":= 1;", formatted_plsql)
+        self.assertNotIn(": =", formatted_plsql)
+
+        raw_json = "select data->>'$.name' from t where id = 1;"
+        formatted_json = format_sql(raw_json)
+        self.assertIn("->>", formatted_json)
+
 
 if __name__ == '__main__':
     unittest.main()
