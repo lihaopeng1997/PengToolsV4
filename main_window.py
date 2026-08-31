@@ -1199,6 +1199,8 @@ class MainWindow(QMainWindow):
         if self.nav_buttons[7] is not None and not self._nav_icon_only:
             self.nav_buttons[7].setText('设置' if zh else 'Settings')
             apply_icon(self.nav_buttons[7], 'settings', size=20)
+        if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
+            self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         # 刷新 DB 子菜单文案（语言切换时）
         self._refresh_nav_texts_db()
 
@@ -1805,35 +1807,35 @@ class MainWindow(QMainWindow):
         return self._apply_settings(settings)
 
     def _theme_cycle_tooltip(self) -> str:
-        """当前主题名提示（随语言切换）。"""
-        from ui.theme_manager import THEME_META, THEME_IDS
+        """当前外观模式提示（随语言切换）。"""
+        from ui.theme_manager import theme_mode
         current = self._settings.get('ui_theme', 'calm')
+        mode = theme_mode(current)
         zh = self.language == 'zh'
-        meta = THEME_META.get(current)
-        name = meta[0] if (zh and meta) else (meta[1] if meta else current)
-        order = ' / '.join(
-            (THEME_META[t][0] if zh else THEME_META[t][1]) for t in THEME_IDS
-        )
-        label = '切换主题' if zh else 'Switch theme'
-        return f'{label}：{name}\n循环顺序：{order}'
+        if mode == 'dark':
+            curr_label = '深色' if zh else 'Dark'
+            next_label = '浅色' if zh else 'Light'
+        else:
+            curr_label = '浅色' if zh else 'Light'
+            next_label = '深色' if zh else 'Dark'
+        if zh:
+            return f'当前：{curr_label}\n点击切换到{next_label}'
+        return f'Current: {curr_label}\nSwitch to {next_label}'
 
     def _cycle_theme(self):
-        """循环切换到下一套主题，即时应用并保存。"""
-        from ui.theme_manager import THEME_IDS, THEME_META
+        """在浅色与深色外观模式之间快速切换，即时应用并保存。"""
+        from ui.theme_manager import theme_mode
         current = self._settings.get('ui_theme', 'calm')
-        try:
-            idx = THEME_IDS.index(current)
-        except ValueError:
-            idx = -1
-        nxt = THEME_IDS[(idx + 1) % len(THEME_IDS)]
+        mode = theme_mode(current)
+        nxt = 'calm' if mode == 'dark' else 'black'
         self.apply_theme(nxt)
-        if hasattr(self, 'theme_cycle_button'):
+        if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
             self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         zh = self.language == 'zh'
-        meta = THEME_META.get(nxt)
-        shown = meta[0] if (zh and meta) else (meta[1] if meta else nxt)
+        target_mode = theme_mode(nxt)
+        shown = ('深色' if target_mode == 'dark' else '浅色') if zh else ('Dark' if target_mode == 'dark' else 'Light')
         self.status_bar.showMessage(
-            f'已切换主题：{shown}' if zh else f'Theme switched: {shown}',
+            f'已切换到{shown}' if zh else f'Switched to {shown} theme',
             2000,
         )
 

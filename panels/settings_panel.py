@@ -606,8 +606,6 @@ class SettingsPanel(QWidget):
         if target_mode == current_mode:
             return
         new_theme_id = THEME_MODE_META[target_mode]['canonical']
-        self._ui_theme = new_theme_id
-        self._refresh_theme_cards()
         settings = self.values()
         settings['ui_theme'] = new_theme_id
         self.settings_changed.emit(settings)
