@@ -116,9 +116,8 @@ def main():
     from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID
     from ui.startup_splash import StartupSplash
 
-    # 尽早闪屏：先让用户看到界面，再加载重模块
+    # 启动闪屏：慢启动延迟展示统一品牌反馈，快启动静默跳过
     splash = StartupSplash(app)
-    splash.show()
     splash.show_status('正在加载主题…')
 
     settings = load_settings()

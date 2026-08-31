@@ -71,13 +71,8 @@ class AuroraProgress(QWidget):
         self._label = ''
         self._state = 'idle'
 
-        self._delay_timer = QTimer(self)
-        self._delay_timer.setSingleShot(True)
-        self._delay_timer.timeout.connect(self._on_delay_show_timeout)
-
-        self._linger_timer = QTimer(self)
-        self._linger_timer.setSingleShot(True)
-        self._linger_timer.timeout.connect(self._on_linger_hide)
+        self._delay_timer: QTimer | None = None
+        self._linger_timer: QTimer | None = None
 
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._tick)
@@ -92,6 +87,28 @@ class AuroraProgress(QWidget):
     def is_visible_to_user(self) -> bool:
         """是否实际已在界面对用户可见。"""
         return self._is_shown and not self.isHidden()
+
+    def _cancel_delay_timer(self):
+        if self._delay_timer is not None:
+            try:
+                self._delay_timer.stop()
+                self._delay_timer.deleteLater()
+            except Exception:
+                pass
+            self._delay_timer = None
+
+    def _cancel_linger_timer(self):
+        if self._linger_timer is not None:
+            try:
+                self._linger_timer.stop()
+                self._linger_timer.deleteLater()
+            except Exception:
+                pass
+            self._linger_timer = None
+
+    def _cancel_timers(self):
+        self._cancel_delay_timer()
+        self._cancel_linger_timer()
 
     def place_overlay(self, host=None):
         """相对宿主水平居中浮于顶部附近。不修改宿主 layout。"""
@@ -109,18 +126,22 @@ class AuroraProgress(QWidget):
     def start_busy(self, label: str, *, immediate: bool = False):
         """开始忙碌状态。默认延迟 300ms 展示，防止短操作闪烁。"""
         self._generation += 1
+        gen = self._generation
         self._label = label or ''
         self._value = -1
         self._phase = 0
-        self._delay_timer.stop()
-        self._linger_timer.stop()
+        self._cancel_timers()
 
         if self._is_shown or immediate or self._delay_show_ms <= 0:
             self._state = 'busy'
             self._show_overlay_now()
         else:
             self._state = 'pending_busy'
-            self._delay_timer.start(self._delay_show_ms)
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda g=gen: self._on_delay_show_timeout(g))
+            self._delay_timer = timer
+            timer.start(self._delay_show_ms)
 
     def _show_overlay_now(self):
         """立即展示浮层，并记录展示时间戳。"""
@@ -133,7 +154,9 @@ class AuroraProgress(QWidget):
             self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
         self.update()
 
-    def _on_delay_show_timeout(self):
+    def _on_delay_show_timeout(self, gen: int | None = None):
+        if gen is not None and gen != self._generation:
+            return
         if self._state not in ('pending_busy', 'progress'):
             return
         self._state = 'busy' if self._value < 0 else 'progress'
@@ -145,8 +168,7 @@ class AuroraProgress(QWidget):
         self._value = max(0, min(100, int(value)))
         if label is not None:
             self._label = label
-        self._delay_timer.stop()
-        self._linger_timer.stop()
+        self._cancel_timers()
 
         self._state = 'progress'
         if not self._is_shown:
@@ -157,7 +179,8 @@ class AuroraProgress(QWidget):
     def finish(self, label=''):
         """任务成功完成。若尚未实际展示（短任务）则静默收起；若已展示则保障最小可视时长后渐隐。"""
         self._generation += 1
-        self._delay_timer.stop()
+        gen = self._generation
+        self._cancel_delay_timer()
 
         if not self._is_shown:
             # 短任务在 300ms 内完成，直接收起，绝不闪现
@@ -178,22 +201,34 @@ class AuroraProgress(QWidget):
         remaining_min_ms = max(0.0, self._min_visible_ms - elapsed_ms)
         total_linger_ms = int(remaining_min_ms + self._success_linger_ms)
 
-        self._linger_timer.start(total_linger_ms)
+        self._cancel_linger_timer()
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda g=gen: self._on_linger_hide(g))
+        self._linger_timer = timer
+        timer.start(total_linger_ms)
 
     def fail(self, label=''):
         """任务失败。立即展示失败浮层并驻留，取消任何 pending 延迟。"""
         self._generation += 1
-        self._delay_timer.stop()
-        self._linger_timer.stop()
+        gen = self._generation
+        self._cancel_timers()
         self._anim_timer.stop()
 
         self._state = 'fail'
         self._value = 0
         self._label = label or self._label or '失败'
         self._show_overlay_now()
-        self._linger_timer.start(self._fail_linger_ms)
 
-    def _on_linger_hide(self):
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda g=gen: self._on_linger_hide(g))
+        self._linger_timer = timer
+        timer.start(self._fail_linger_ms)
+
+    def _on_linger_hide(self, gen: int | None = None):
+        if gen is not None and gen != self._generation:
+            return
         self._is_shown = False
         self._state = 'idle'
         self._value = -1
@@ -204,8 +239,7 @@ class AuroraProgress(QWidget):
     def hide_now(self):
         """立刻收起并重置所有定时器，用于切页或显式中断。"""
         self._generation += 1
-        self._delay_timer.stop()
-        self._linger_timer.stop()
+        self._cancel_timers()
         self._anim_timer.stop()
         self._is_shown = False
         self._state = 'idle'
