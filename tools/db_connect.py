@@ -298,9 +298,9 @@ def list_tables(conn, dialect: str) -> list[str]:
                 return [str(row[0]) for row in rows if row]
             except Exception:
                 cur.execute(
-                    "SELECT TABLE_NAME FROM information_schema.tables "
+                    "SELECT CONCAT(TABLE_SCHEMA, '.', TABLE_NAME) FROM information_schema.tables "
                     "WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') "
-                    "ORDER BY TABLE_NAME"
+                    "ORDER BY TABLE_SCHEMA, TABLE_NAME"
                 )
                 rows = cur.fetchall() or []
                 return [str(row[0]) for row in rows if row]
@@ -337,7 +337,24 @@ def list_columns(conn, dialect: str, table: str) -> list[str]:
     cur = _cursor(conn)
     try:
         if dialect == 'mysql':
-            cur.execute(f'SHOW COLUMNS FROM `{table.replace("`", "")}`')
+            if '.' in table:
+                schema_name, tbl_name = table.split('.', 1)
+                schema_clean = schema_name.replace('`', '').strip()
+                tbl_clean = tbl_name.replace('`', '').strip()
+                cur.execute(
+                    "SELECT COLUMN_NAME FROM information_schema.columns "
+                    "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
+                    "ORDER BY ORDINAL_POSITION",
+                    (schema_clean, tbl_clean),
+                )
+            else:
+                cur.execute(f'SHOW COLUMNS FROM `{table.replace("`", "")}`')
+        elif '.' in table and dialect not in ('redis', 'mongodb'):
+            owner_name, tbl_name = table.split('.', 1)
+            cur.execute(
+                "SELECT column_name FROM all_tab_columns WHERE owner = :1 AND table_name = :2 ORDER BY column_id",
+                [owner_name.upper(), tbl_name.upper()],
+            )
         else:
             # oracle / oceanbase / dameng
             cur.execute(

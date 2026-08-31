@@ -129,81 +129,306 @@ def _canonical_sql_statement(statement):
     return ''.join(result).strip()
 
 
+def _tokenize_sql_for_format(raw: str):
+    tokens = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        nxt = raw[i + 1] if i + 1 < n else ''
+
+        # 单行注释 --
+        if ch == '-' and nxt == '-':
+            start = i
+            i += 2
+            while i < n and raw[i] != '\n':
+                i += 1
+            if i < n and raw[i] == '\n':
+                i += 1
+            tokens.append(('LINE_COMMENT', raw[start:i]))
+            continue
+
+        # 块注释 /* ... */（含 Hint /*+ ... */）
+        if ch == '/' and nxt == '*':
+            start = i
+            i += 2
+            while i < n:
+                if raw[i] == '*' and i + 1 < n and raw[i + 1] == '/':
+                    i += 2
+                    break
+                i += 1
+            tokens.append(('BLOCK_COMMENT', raw[start:i]))
+            continue
+
+        # 单引号字符串 '...'
+        if ch == "'":
+            start = i
+            i += 1
+            while i < n:
+                if raw[i] == "'":
+                    if i + 1 < n and raw[i + 1] == "'":
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            tokens.append(('SQUOTE_STR', raw[start:i]))
+            continue
+
+        # 双引号标识符 "..."
+        if ch == '"':
+            start = i
+            i += 1
+            while i < n:
+                if raw[i] == '"':
+                    if i + 1 < n and raw[i + 1] == '"':
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            tokens.append(('DQUOTE_IDENT', raw[start:i]))
+            continue
+
+        # MySQL 反引号标识符 `...`
+        if ch == '`':
+            start = i
+            i += 1
+            while i < n:
+                if raw[i] == '`':
+                    i += 1
+                    break
+                i += 1
+            tokens.append(('BACKTICK_IDENT', raw[start:i]))
+            continue
+
+        # 方括号标识符 [...]
+        if ch == '[':
+            start = i
+            i += 1
+            while i < n:
+                if raw[i] == ']':
+                    i += 1
+                    break
+                i += 1
+            tokens.append(('BRACKET_IDENT', raw[start:i]))
+            continue
+
+        # 空白符
+        if ch.isspace():
+            start = i
+            while i < n and raw[i].isspace():
+                i += 1
+            tokens.append(('WS', raw[start:i]))
+            continue
+
+        # 标点符号与运算符
+        if ch in ',;()=<>!+-*/%^&|~:':
+            tokens.append(('PUNCT', ch))
+            i += 1
+            continue
+
+        # 普通单词 / 标识符 / 裸关键字
+        start = i
+        while i < n:
+            c = raw[i]
+            if c.isspace() or c in ',;()=<>!+-*/%^&|~:\'"`[]':
+                break
+            if c == '-' and i + 1 < n and raw[i + 1] == '-':
+                break
+            if c == '/' and i + 1 < n and raw[i + 1] == '*':
+                break
+            i += 1
+        tokens.append(('WORD', raw[start:i]))
+    return tokens
+
+
+_MAJOR_CLAUSES = {
+    'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
+    'UNION ALL', 'UNION', 'INSERT INTO', 'INSERT', 'VALUES',
+    'UPDATE', 'SET', 'DELETE FROM', 'DELETE', 'CREATE OR REPLACE',
+    'CREATE TABLE', 'CREATE', 'ALTER TABLE', 'ALTER', 'DROP TABLE',
+    'DROP', 'TRUNCATE TABLE', 'TRUNCATE', 'MERGE INTO', 'MERGE',
+    'BEGIN', 'END', 'COMMIT', 'ROLLBACK',
+}
+
+_SUB_CLAUSES = {
+    'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'JOIN',
+    'AND', 'OR', 'ON', 'WHEN', 'THEN', 'ELSE',
+}
+
+_ALL_KEYWORDS = {
+    'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
+    'UNION ALL', 'UNION', 'INSERT INTO', 'INSERT', 'VALUES',
+    'UPDATE', 'SET', 'DELETE FROM', 'DELETE', 'CREATE OR REPLACE',
+    'CREATE TABLE', 'CREATE', 'ALTER TABLE', 'ALTER', 'DROP TABLE',
+    'DROP', 'TRUNCATE TABLE', 'TRUNCATE', 'MERGE INTO', 'MERGE',
+    'BEGIN', 'END', 'COMMIT', 'ROLLBACK',
+    'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'JOIN',
+    'AND', 'OR', 'ON', 'WHEN', 'THEN', 'ELSE', 'AS', 'IN', 'IS', 'NULL',
+    'NOT', 'LIKE', 'BETWEEN', 'EXISTS', 'ALL', 'ANY', 'DISTINCT',
+    'CASE', 'WITH', 'ASC', 'DESC', 'INTO', 'BY', 'TABLE', 'INDEX',
+    'VIEW', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'CHECK',
+    'DEFAULT', 'UNIQUE', 'CONSTRAINT', 'FOREIGN KEY', 'PRIMARY KEY',
+}
+
+
 def format_sql(sql: str) -> str:
     """SQL 格式化：轻量美化与缩进，关键字大写，分句规整。
 
-    - 空白/空 SQL 原样返回；
-    - 字符串字面量内容及大小写严格保持不变；
-    - 遇到异常时安全回退返回原输入，杜绝丢失 SQL 文本。
+    - 完整保留普通行注释（--）与块注释（/* */），严禁删除用户注释；
+    - 完整保护数据库 Hint（/*+ ... */），严禁丢失优化器提示；
+    - 完整保护字符串字面量、双引号标识符与反引号标识符内容及大小写；
+    - 遇到异常安全回退原输入，杜绝丢失 SQL 文本。
     """
     if not sql or not str(sql).strip():
         return sql or ''
     try:
-        clean = strip_comments(sql)
-        stmts = split_statements(clean)
-        if not stmts:
+        raw_tokens = _tokenize_sql_for_format(str(sql))
+        if not raw_tokens:
             return sql
 
-        major_keywords = (
-            'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
-            'UNION ALL', 'UNION', 'INSERT INTO', 'INSERT', 'VALUES',
-            'UPDATE', 'SET', 'DELETE FROM', 'DELETE', 'CREATE OR REPLACE',
-            'CREATE TABLE', 'CREATE', 'ALTER TABLE', 'ALTER', 'DROP TABLE',
-            'DROP', 'TRUNCATE TABLE', 'TRUNCATE', 'MERGE INTO', 'MERGE',
-            'BEGIN', 'END', 'COMMIT', 'ROLLBACK',
-        )
-        sub_keywords = (
-            'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
-            'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'JOIN',
-            'AND', 'OR', 'ON', 'WHEN', 'THEN', 'ELSE',
-        )
-        all_kw = sorted(set(major_keywords + sub_keywords), key=len, reverse=True)
-        kw_pattern = re.compile(r'\b(' + '|'.join(re.escape(k) for k in all_kw) + r')\b', re.IGNORECASE)
+        processed = []
+        i = 0
+        while i < len(raw_tokens):
+            kind, text = raw_tokens[i]
+            if kind == 'WORD':
+                lookahead = []
+                j = i + 1
+                while j < len(raw_tokens) and len(lookahead) < 4:
+                    if raw_tokens[j][0] == 'WS':
+                        j += 1
+                        continue
+                    if raw_tokens[j][0] == 'WORD':
+                        lookahead.append((j, raw_tokens[j][1]))
+                        j += 1
+                    else:
+                        break
 
-        formatted_blocks = []
-        for stmt in stmts:
-            str_literals = []
+                matched = False
+                if len(lookahead) >= 2:
+                    w3 = f"{text} {lookahead[0][1]} {lookahead[1][1]}".upper()
+                    if w3 in _ALL_KEYWORDS:
+                        processed.append(('KEYWORD', w3))
+                        i = lookahead[1][0] + 1
+                        matched = True
+                if not matched and len(lookahead) >= 1:
+                    w2 = f"{text} {lookahead[0][1]}".upper()
+                    if w2 in _ALL_KEYWORDS:
+                        processed.append(('KEYWORD', w2))
+                        i = lookahead[0][0] + 1
+                        matched = True
+                if not matched:
+                    w1 = text.upper()
+                    if w1 in _ALL_KEYWORDS:
+                        processed.append(('KEYWORD', w1))
+                    else:
+                        processed.append(('WORD', text))
+                    i += 1
+            else:
+                processed.append((kind, text))
+                i += 1
 
-            def _hide_string(m):
-                str_literals.append(m.group(0))
-                return f"__SQL_STR_{len(str_literals) - 1}__"
+        lines = []
+        current_line = []
+        indent = ''
 
-            masked_stmt = re.sub(r"'(''|[^'])*'", _hide_string, stmt)
-            normalized = re.sub(r'\s+', ' ', masked_stmt).strip()
-            if not normalized:
+        def flush_line():
+            nonlocal current_line
+            if current_line:
+                content = ''.join(current_line).strip()
+                if content:
+                    lines.append(content)
+                current_line = []
+
+        k = 0
+        while k < len(processed):
+            kind, text = processed[k]
+
+            if kind == 'WS':
+                k += 1
                 continue
 
-            def _kw_repl(m):
-                return '\n' + m.group(0).upper()
-
-            broken = kw_pattern.sub(_kw_repl, normalized)
-            lines = [ln.strip() for ln in broken.splitlines() if ln.strip()]
-            out_lines = []
-            indent_level = 0
-
-            for line in lines:
-                upper = line.upper()
-                if any(upper.startswith(k) for k in ('AND ', 'OR ', 'ON ', 'WHEN ', 'THEN ', 'ELSE ')):
-                    out_lines.append('  ' * max(1, indent_level) + line)
-                elif any(upper.startswith(k) for k in ('LEFT ', 'RIGHT ', 'INNER ', 'CROSS ', 'JOIN ', 'FULL ')):
-                    out_lines.append('  ' * max(1, indent_level) + line)
-                elif any(upper.startswith(k) for k in ('FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'UNION', 'SET', 'VALUES')):
-                    out_lines.append('  ' * max(0, indent_level) + line)
+            if kind == 'LINE_COMMENT':
+                comment = text.rstrip('\r\n')
+                if current_line:
+                    current_line.append(' ' + comment)
+                    flush_line()
                 else:
-                    out_lines.append('  ' * indent_level + line)
+                    lines.append(indent + comment)
+                k += 1
+                continue
 
-                if any(upper.startswith(k) for k in ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'MERGE')):
-                    indent_level = 1
+            if kind == 'BLOCK_COMMENT':
+                if current_line and not current_line[-1].endswith((' ', '(')):
+                    current_line.append(' ')
+                current_line.append(text)
+                k += 1
+                continue
 
-            body = '\n'.join(out_lines).strip()
-            for i, lit in enumerate(str_literals):
-                body = body.replace(f"__SQL_STR_{i}__", lit)
+            if kind == 'KEYWORD':
+                kw = text.upper()
+                if kw in _MAJOR_CLAUSES:
+                    flush_line()
+                    indent = ''
+                    current_line.append(kw)
+                elif kw in _SUB_CLAUSES:
+                    flush_line()
+                    indent = '  '
+                    current_line.append(indent + kw)
+                else:
+                    if current_line and not current_line[-1].endswith((' ', '(', '.')):
+                        current_line.append(' ')
+                    current_line.append(kw)
+                k += 1
+                continue
 
-            if body and not body.endswith(';'):
-                body += ';'
-            formatted_blocks.append(body)
+            if kind == 'PUNCT':
+                if text == ';':
+                    current_line.append(';')
+                    flush_line()
+                    lines.append('')
+                    indent = ''
+                elif text == ',':
+                    current_line.append(', ')
+                elif text in ('(', '['):
+                    if current_line and not current_line[-1].endswith((' ', '(', '.')):
+                        prev = current_line[-1].rstrip()
+                        if prev and prev[-1].isalnum() and not prev.endswith(('IN', 'VALUES', 'AS', 'SET', 'LIKE')):
+                            current_line.append('(')
+                        else:
+                            current_line.append(' (')
+                    else:
+                        current_line.append('(')
+                elif text in (')', ']'):
+                    current_line.append(text)
+                elif text in ('=', '<', '>', '<=', '>=', '!=', '<>', '+', '-', '*', '/'):
+                    if current_line and not current_line[-1].endswith(' '):
+                        current_line.append(' ')
+                    current_line.append(f"{text} ")
+                else:
+                    current_line.append(text)
+                k += 1
+                continue
 
-        return '\n\n'.join(formatted_blocks) if formatted_blocks else sql
+            # 普通 WORD, SQUOTE_STR, DQUOTE_IDENT, BACKTICK_IDENT, BRACKET_IDENT
+            if current_line and not current_line[-1].endswith((' ', '(', '.')):
+                current_line.append(' ')
+            current_line.append(text)
+            k += 1
+
+        flush_line()
+        clean_lines = []
+        for line in lines:
+            if not line and clean_lines and not clean_lines[-1]:
+                continue
+            clean_lines.append(line)
+        res = '\n'.join(clean_lines).strip()
+        if res and not res.endswith((';', '\n')):
+            res += ';'
+        return res
     except Exception:
         return sql
 

@@ -319,6 +319,32 @@ class AiSqlDraftTests(unittest.TestCase):
         self.assertIn("WHERE TABLE_SCHEMA = %s", first_call_sql)
         self.assertEqual(first_call_params, ('app_db',))
 
+    def test_mysql_server_level_table_and_column_lookup_preserves_schema(self):
+        from tools.db_connect import list_tables, list_columns, schema_summary
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+
+        # 模拟 SHOW TABLES 失败（无默认库），fallback 查询返回两个 schema 下同名表
+        def execute_side_effect(sql, params=None):
+            if 'SHOW TABLES' in sql:
+                raise Exception('1046: No database selected')
+
+        cur.execute.side_effect = execute_side_effect
+        cur.fetchall.side_effect = [
+            [('app_db.users',), ('order_db.users',)],  # list_tables
+            [('id',), ('name',)],                      # list_columns for app_db.users
+            [('id',), ('created_at',)],                # list_columns for order_db.users
+        ]
+
+        tables = list_tables(conn, 'mysql')
+        self.assertEqual(tables, ['app_db.users', 'order_db.users'])
+
+        cols_app = list_columns(conn, 'mysql', 'app_db.users')
+        self.assertEqual(cols_app, ['id', 'name'])
+
+        cols_order = list_columns(conn, 'mysql', 'order_db.users')
+        self.assertEqual(cols_order, ['id', 'created_at'])
+
 
 if __name__ == '__main__':
     unittest.main()

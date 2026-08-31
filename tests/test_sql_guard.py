@@ -134,9 +134,9 @@ class SqlGuardTests(unittest.TestCase):
         from tools.sql_tool import format_sql
         raw = "select a,b from user where id=1"
         formatted = format_sql(raw)
-        self.assertIn("SELECT a,b", formatted)
+        self.assertIn("SELECT a, b", formatted)
         self.assertIn("FROM user", formatted)
-        self.assertIn("WHERE id=1;", formatted)
+        self.assertIn("WHERE id = 1;", formatted)
 
     def test_format_sql_preserves_string_literals(self):
         from tools.sql_tool import format_sql
@@ -154,6 +154,24 @@ class SqlGuardTests(unittest.TestCase):
         self.assertIn("SELECT 1", formatted)
         self.assertIn("SELECT 2", formatted)
         self.assertEqual(formatted.count(';'), 2)
+
+    def test_format_sql_preserves_comments_and_hints(self):
+        from tools.sql_tool import format_sql
+        raw = "SELECT /*+ INDEX(t IDX_T) */ a\nFROM t -- business table\nWHERE id = 1;"
+        formatted = format_sql(raw)
+        self.assertIn("/*+ INDEX(t IDX_T) */", formatted)
+        self.assertIn("-- business table", formatted)
+        self.assertIn("SELECT", formatted)
+        self.assertIn("WHERE id = 1;", formatted)
+
+    def test_format_sql_preserves_quoted_identifiers(self):
+        from tools.sql_tool import format_sql
+        raw = 'select "select", `from`\nfrom t;'
+        formatted = format_sql(raw)
+        self.assertIn('"select"', formatted)
+        self.assertIn('`from`', formatted)
+        self.assertIn("SELECT", formatted)
+        self.assertIn("FROM t;", formatted)
 
 
 if __name__ == '__main__':
