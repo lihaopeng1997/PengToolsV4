@@ -422,6 +422,30 @@ $list
             throw "Post-condition failed: unexpected WebEngine locale '$r' remained in $localesDir"
         }
     }
+    # 裁剪 Qt translations *.qm 文件（仅保留基础中文翻译 qt_zh_CN.qm / qtbase_zh_CN.qm，其余未使用的语言包全部裁剪）
+    $transDir = Join-Path $AppDir '_internal\PyQt6\Qt6\translations'
+    $keepQm = @('qt_zh_CN.qm', 'qtbase_zh_CN.qm')
+    if (-not (Test-Path -LiteralPath $transDir)) {
+        throw "Post-condition failed: Qt translations directory not found: $transDir"
+    }
+    $existingQm = Get-ChildItem -LiteralPath $transDir -Filter '*.qm' -File
+    foreach ($qm in $existingQm) {
+        if ($keepQm -notcontains $qm.Name) {
+            Remove-Item -LiteralPath $qm.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+    # Post-condition 校验：KEEP qm 必须全部存在，且非 KEEP qm 不得残留
+    $remainingQm = Get-ChildItem -LiteralPath $transDir -Filter '*.qm' -File | ForEach-Object { $_.Name }
+    foreach ($k in $keepQm) {
+        if ($remainingQm -notcontains $k) {
+            throw "Post-condition failed: required Qt translation '$k' is missing in $transDir"
+        }
+    }
+    foreach ($r in $remainingQm) {
+        if ($keepQm -notcontains $r) {
+            throw "Post-condition failed: unexpected Qt translation '$r' remained in $transDir"
+        }
+    }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 
