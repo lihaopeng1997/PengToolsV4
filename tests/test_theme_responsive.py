@@ -430,6 +430,30 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         self.assertIn('当前：深色', tip_black)
         self.assertIn('切换到浅色', tip_black)
 
+    def test_quick_theme_cycle_failure_guard(self):
+        from main_window import MainWindow
+        from unittest.mock import patch
+
+        window = MainWindow()
+        window._settings['ui_theme'] = 'calm'
+        window.status_bar.clearMessage()
+
+        with patch.object(window, 'apply_theme', return_value=False):
+            window._cycle_theme()
+
+        # 失败时不展示“已切换到深色”成功提示
+        self.assertNotIn('已切换', window.status_bar.currentMessage())
+        self.assertEqual(window._settings['ui_theme'], 'calm')
+        tip = window._theme_cycle_tooltip()
+        self.assertIn('当前：浅色', tip)
+        self.assertIn('切换到深色', tip)
+
+        # 成功时正常更新
+        with patch.object(window, 'apply_theme', side_effect=lambda t: window._settings.update({'ui_theme': t}) or True):
+            window._cycle_theme()
+        self.assertIn('已切换到深色', window.status_bar.currentMessage())
+        self.assertEqual(window._settings['ui_theme'], 'black')
+
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class PageChromeTests(unittest.TestCase):

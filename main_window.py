@@ -1828,7 +1828,10 @@ class MainWindow(QMainWindow):
         current = self._settings.get('ui_theme', 'calm')
         mode = theme_mode(current)
         nxt = 'calm' if mode == 'dark' else 'black'
-        self.apply_theme(nxt)
+        if not self.apply_theme(nxt):
+            if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
+                self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
+            return
         if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
             self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         zh = self.language == 'zh'
