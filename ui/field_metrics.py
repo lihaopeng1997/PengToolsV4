@@ -248,35 +248,49 @@ def apply_button_role(button, role: str = 'secondary', *, compact: bool = False)
 
 
 class CompactStepper(QWidget):
-    """主题一致的数量步进：− 数字 +，数字单独一格不被箭头挡住。"""
+    """主题一致的数量步进：− 数字 +，统一分段外框与独立数值输入。"""
 
     valueChanged = pyqtSignal(int)
 
     def __init__(self, minimum=0, maximum=200, value=0, parent=None, *, edit_width=None, suffix=''):
         super().__init__(parent)
+        self.setObjectName('compact-stepper')
         self._min = int(minimum)
         self._max = int(maximum)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(0)
+
         self.minus_btn = QPushButton('−')
-        self.plus_btn = QPushButton('+')
-        from ui.design_system import apply_button
-        for btn in (self.minus_btn, self.plus_btn):
-            apply_button(btn, 'ghost', compact=True)
-            btn.setFixedSize(28, 28)
-            btn.setMinimumWidth(28)
+        self.minus_btn.setObjectName('compact-step-minus')
+        self.minus_btn.setAccessibleName('减少')
+        self.minus_btn.setFixedSize(28, FIELD_H)
+        self.minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.edit = QLineEdit()
         self.edit.setObjectName('compact-step-value')
+        self.edit.setAccessibleName('数值')
         self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.edit.setFixedSize(int(edit_width or LINE_NUM_W), FIELD_H)
+
+        self.plus_btn = QPushButton('+')
+        self.plus_btn.setObjectName('compact-step-plus')
+        self.plus_btn.setAccessibleName('增加')
+        self.plus_btn.setFixedSize(28, FIELD_H)
+        self.plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.suffix_label = QLabel(suffix or '')
         self.suffix_label.setObjectName('field-hint')
         self.suffix_label.setVisible(bool(suffix))
+
         layout.addWidget(self.minus_btn)
         layout.addWidget(self.edit)
         layout.addWidget(self.plus_btn)
         layout.addWidget(self.suffix_label)
+
+        QWidget.setTabOrder(self.minus_btn, self.edit)
+        QWidget.setTabOrder(self.edit, self.plus_btn)
+
         self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.minus_btn.clicked.connect(lambda: self.setValue(self.value() - 1))
         self.plus_btn.clicked.connect(lambda: self.setValue(self.value() + 1))

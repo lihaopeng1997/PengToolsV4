@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 import random
 
 from ui.design_system import apply_button
+from ui.dialog_buttons import size_dialog_button
 from ui.icons import make_badge_label, apply_icon
 
 
@@ -67,27 +68,28 @@ class ConfirmActionDialog(QDialog):
         buttons.setSpacing(10)
         buttons.addStretch()
         self.cancel_button = QPushButton('取消')
-        apply_button(self.cancel_button, 'secondary', compact=True)
+        size_dialog_button(self.cancel_button, 'secondary')
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setDefault(True)
         self.cancel_button.setAutoDefault(True)
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
         self.confirm_button = QPushButton(confirm_text)
-        apply_button(
+        size_dialog_button(
             self.confirm_button,
             'danger' if danger else 'primary',
-            compact=False,
-            icon='delete' if danger else None,
-            icon_size=16,
         )
         if danger:
             self.confirm_button.setObjectName('btn-danger')
+            try:
+                from ui.icons import apply_icon
+                apply_icon(self.confirm_button, 'delete', 16)
+            except Exception:
+                pass
         else:
             self.confirm_button.setObjectName('primary-btn')
         self.confirm_button.setAutoDefault(False)
         self.confirm_button.setDefault(False)
-        self.confirm_button.setMinimumWidth(108)
         self.confirm_button.clicked.connect(self.accept)
         buttons.addWidget(self.confirm_button)
         root.addLayout(buttons)
@@ -202,16 +204,14 @@ class CloseActionDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         self.minimize_button = QPushButton('隐藏' if zh else 'Hide')
-        apply_button(self.minimize_button, 'secondary', compact=True)
+        size_dialog_button(self.minimize_button, 'secondary')
         self.minimize_button.setObjectName('confirm-cancel')
-        self.minimize_button.setMinimumWidth(100)
         self.minimize_button.clicked.connect(lambda: self._choose('minimize'))
         btn_row.addWidget(self.minimize_button, 1)
 
         self.exit_button = QPushButton('退出软件' if zh else 'Exit')
-        apply_button(self.exit_button, 'danger', compact=True)
+        size_dialog_button(self.exit_button, 'danger')
         self.exit_button.setObjectName('btn-danger')
-        self.exit_button.setMinimumWidth(100)
         self.exit_button.clicked.connect(lambda: self._choose('exit'))
         btn_row.addWidget(self.exit_button, 1)
         root.addLayout(btn_row)
@@ -226,7 +226,7 @@ class CloseActionDialog(QDialog):
         footer.addWidget(self.dont_ask_check, 1)
 
         self.cancel_button = QPushButton('取消' if zh else 'Cancel')
-        apply_button(self.cancel_button, 'ghost', compact=True)
+        size_dialog_button(self.cancel_button, 'ghost')
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setAutoDefault(False)
         self.cancel_button.clicked.connect(self.reject)
@@ -288,9 +288,8 @@ class AppNoticeDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
         self.ok_button = QPushButton(button_text)
-        apply_button(self.ok_button, 'primary', compact=False)
+        size_dialog_button(self.ok_button, 'primary')
         self.ok_button.setObjectName('primary-btn')
-        self.ok_button.setMinimumWidth(108)
         self.ok_button.setDefault(True)
         self.ok_button.clicked.connect(self.accept)
         buttons.addWidget(self.ok_button)
@@ -365,7 +364,7 @@ class NextStepDialog(QDialog):
         button_row.setSpacing(8)
         button_row.addStretch()
         later = QPushButton('稍后')
-        apply_button(later, 'ghost', compact=True)
+        size_dialog_button(later, 'ghost')
         later.setObjectName('confirm-cancel')
         later.setAutoDefault(False)
         later.clicked.connect(self.reject)
@@ -374,14 +373,13 @@ class NextStepDialog(QDialog):
         self._action_buttons = []
         for action_id, label, is_primary in actions:
             button = QPushButton(label)
-            if is_primary or action_id == recommended:
-                apply_button(button, 'primary', compact=True)
+            role = 'primary' if (is_primary or action_id == recommended) else 'secondary'
+            size_dialog_button(button, role)
+            if role == 'primary':
                 button.setObjectName('primary-btn')
             else:
-                apply_button(button, 'secondary', compact=True)
                 button.setObjectName('btn-secondary')
             button.setAutoDefault(False)
-            button.setMinimumWidth(96)
             button.clicked.connect(lambda _checked=False, value=action_id: self._choose(value))
             button_row.addWidget(button)
             self._action_buttons.append(button)

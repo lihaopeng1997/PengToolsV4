@@ -631,17 +631,90 @@ QGroupBox#docx-file-group::title {
     padding: 0 4px;
     color: __TEXT_MUTED__;
 }
-QFrame#gateway-action-zone {
+/* 统一数量/步进器 Segmented Stepper: [ - ][ 数字 ][ + ] */
+QWidget#compact-stepper {
+    background: transparent;
+}
+QPushButton#compact-step-minus {
     background: __SURFACE__;
+    color: __TEXT__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
+    border-right: none;
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 0;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}
+QPushButton#compact-step-minus:hover {
+    background: __SURFACE_SOFT__;
+    color: __PRIMARY__;
+}
+QPushButton#compact-step-minus:pressed {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+}
+QPushButton#compact-step-minus:disabled {
+    background: __SURFACE__;
+    color: __TEXT_MUTED__;
+    border-color: __BORDER__;
 }
 QLineEdit#compact-step-value {
-    min-width: 48px;
-    max-width: 64px;
-    min-height: 18px;
-    max-height: 28px;
+    background: __INPUT_BG__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 0px;
+    font-size: 13px;
     padding: 2px 4px;
+    min-width: 44px;
+    max-width: 64px;
+    min-height: 28px;
+    max-height: 28px;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
+}
+QLineEdit#compact-step-value:focus {
+    border-color: __PRIMARY__;
+}
+QLineEdit#compact-step-value:disabled {
+    background: __SURFACE__;
+    color: __TEXT_MUTED__;
+}
+QPushButton#compact-step-plus {
+    background: __SURFACE__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-left: none;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 0;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}
+QPushButton#compact-step-plus:hover {
+    background: __SURFACE_SOFT__;
+    color: __PRIMARY__;
+}
+QPushButton#compact-step-plus:pressed {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+}
+QPushButton#compact-step-plus:disabled {
+    background: __SURFACE__;
+    color: __TEXT_MUTED__;
+    border-color: __BORDER__;
 }
 QFrame#gateway-work-zone QLabel#zone-title {
     border-left-color: __TEXT_MUTED__;
@@ -1389,19 +1462,26 @@ QLabel#confirm-message {
     background: transparent;
 }
 QPushButton#confirm-cancel {
-    min-width: 88px;
-    min-height: 32px;
+    min-width: 60px;
+    min-height: 28px;
+    max-height: 30px;
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
-    padding: 7px 14px;
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+QPushButton#confirm-cancel:hover {
+    background: __SURFACE_SOFT__;
+    border-color: __BORDER_STRONG__;
 }
 QDialog#confirm-dialog QPushButton#primary-btn,
 QDialog#confirm-dialog QPushButton#ops-delete-custom,
 QDialog#confirm-dialog QPushButton#btn-danger {
-    min-height: 32px;
-    border-radius: 10px;
-    padding: 7px 14px;
+    min-width: 60px;
+    min-height: 28px;
+    max-height: 30px;
+    border-radius: 6px;
+    padding: 4px 12px;
 }
 /* 退出决策卡片样式已弃用（弹窗已精简为按钮行） */
 QLabel#notice-badge-info,
@@ -1426,11 +1506,13 @@ QMessageBox QLabel {
     font-size: 13px;
     background: transparent;
 }
+QDialogButtonBox QPushButton,
 QMessageBox QPushButton {
-    min-width: 96px;
-    min-height: 32px;
-    border-radius: 10px;
-    padding: 7px 14px;
+    min-width: 60px;
+    min-height: 28px;
+    max-height: 30px;
+    border-radius: 6px;
+    padding: 4px 12px;
 }
 
 QDateEdit {
