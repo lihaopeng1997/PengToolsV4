@@ -363,6 +363,7 @@ class AiSqlDraftTests(unittest.TestCase):
 
     def test_oceanbase_driver_routing_open_connection(self):
         from tools.db_connect import open_connection
+        # 1. explicit mysql -> pymysql
         with patch('pymysql.connect') as mock_pymysql:
             item_mysql = {
                 'dialect': 'oceanbase',
@@ -376,6 +377,7 @@ class AiSqlDraftTests(unittest.TestCase):
             open_connection(item_mysql)
             mock_pymysql.assert_called_once()
 
+        # 2. explicit oracle -> oracledb
         with patch('oracledb.connect') as mock_oracle, \
              patch('tools.db_connect.ensure_oracle_client'):
             item_oracle = {
@@ -389,6 +391,51 @@ class AiSqlDraftTests(unittest.TestCase):
             }
             open_connection(item_oracle)
             mock_oracle.assert_called_once()
+
+        # 3. legacy standalone -> oracledb
+        with patch('oracledb.connect') as mock_oracle, \
+             patch('tools.db_connect.ensure_oracle_client'):
+            item_standalone = {
+                'dialect': 'oceanbase',
+                'mode': 'standalone',
+                'host': '127.0.0.1',
+                'port': 2883,
+                'database': 'SYS',
+                'username': 'sys',
+                'password': '',
+            }
+            open_connection(item_standalone)
+            mock_oracle.assert_called_once()
+
+        # 4. legacy missing mode -> oracledb
+        with patch('oracledb.connect') as mock_oracle, \
+             patch('tools.db_connect.ensure_oracle_client'):
+            item_missing_mode = {
+                'dialect': 'oceanbase',
+                'host': '127.0.0.1',
+                'port': 2883,
+                'database': 'SYS',
+                'username': 'sys',
+                'password': '',
+            }
+            open_connection(item_missing_mode)
+            mock_oracle.assert_called_once()
+
+    def test_oceanbase_scan_schema_legacy_normalization(self):
+        from tools.schema_snapshot import scan_schema
+        # Legacy missing mode should use oracle-like scan
+        conn_legacy = MagicMock()
+        cur_legacy = conn_legacy.cursor.return_value
+        cur_legacy.fetchall.side_effect = [
+            [('SCOTT', 'EMP', 'TABLE', '')],
+            [('SCOTT', 'EMP', 'EMPNO', 'NUMBER', 'N', 1, '')],
+            [], [], [], [],
+        ]
+        item_legacy = {'id': 'c_legacy', 'dialect': 'oceanbase', 'database': 'ORCL', 'username': 'scott'}
+        payload = scan_schema(conn_legacy, item_legacy)
+        self.assertEqual(payload['status'], 'ok')
+        first_sql = cur_legacy.execute.call_args_list[0][0][0]
+        self.assertIn("all_tab_comments", first_sql)
 
     def test_oracle_scan_service_is_not_treated_as_owner(self):
         from tools.schema_snapshot import scan_schema

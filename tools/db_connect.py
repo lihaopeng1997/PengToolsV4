@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 from config import HARNESS_CONNECTIONS_FILE, ensure_config_dir
-from tools.db_contracts import DEFAULT_PORTS, DIALECTS
+from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 
 # PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
 try:
@@ -125,9 +125,13 @@ def open_connection(item: dict):
     port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
-    mode = str(item.get('mode') or '').strip().lower()
-    is_oracle_mode = (dialect == 'oracle') or (dialect == 'oceanbase' and mode == 'oracle')
-    is_mysql_mode = (dialect == 'mysql') or (dialect == 'oceanbase' and mode != 'oracle')
+    if dialect == 'oceanbase':
+        ob_mode = normalize_oceanbase_mode(item.get('mode'))
+        is_oracle_mode = (ob_mode == 'oracle')
+        is_mysql_mode = (ob_mode == 'mysql')
+    else:
+        is_oracle_mode = (dialect == 'oracle')
+        is_mysql_mode = (dialect == 'mysql')
 
     if is_oracle_mode:
         try:

@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from config import SCHEMA_SNAPSHOT_DIR, ensure_config_dir
+from tools.db_contracts import normalize_oceanbase_mode
 from tools.sql_guard import redact_error
 
 REDIS_KEY_CAP = 5000
@@ -240,8 +241,11 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
         payload['warning'] = '扫描已取消'
         return payload
     try:
-        mode = str((item or {}).get('mode') or '').strip().lower()
-        is_mysql_schema = (dialect == 'mysql') or (dialect == 'oceanbase' and mode != 'oracle')
+        if dialect == 'oceanbase':
+            ob_mode = normalize_oceanbase_mode((item or {}).get('mode'))
+            is_mysql_schema = (ob_mode == 'mysql')
+        else:
+            is_mysql_schema = (dialect == 'mysql')
         if dialect == 'redis':
             objects, truncated = _scan_redis(conn)
         elif dialect == 'mongodb':

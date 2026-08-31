@@ -95,6 +95,69 @@ class ConnectionDialogTests(unittest.TestCase):
         finally:
             panel.deleteLater()
 
+    def test_oceanbase_legacy_item_displays_oracle_mode_and_normalizes_payload(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        # 旧版没有 mode 或 mode='standalone'
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"name": "OB 测试", "dialect": "oceanbase", "host": "10.0.0.1", "mode": "standalone"},
+        )
+        try:
+            self.assertEqual(dialog.mode.currentData(), "oracle")
+            self.assertFalse(dialog.oracle_hint.isHidden())
+            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+
+            item, _ = dialog.payload()
+            self.assertEqual(item["mode"], "oracle")
+        finally:
+            dialog.close()
+
+    def test_oceanbase_mode_switch_updates_hints_and_labels(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"name": "OB 模式切换测试", "dialect": "oceanbase", "host": "10.0.0.1", "mode": "oracle"},
+        )
+        try:
+            # 初始为 Oracle 模式
+            self.assertEqual(dialog.mode.currentData(), "oracle")
+            self.assertFalse(dialog.oracle_hint.isHidden())
+            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+
+            # 切换到 MySQL 模式
+            mysql_idx = dialog.mode.findData("mysql")
+            dialog.mode.setCurrentIndex(mysql_idx)
+            self.assertEqual(dialog.mode.currentData(), "mysql")
+            self.assertTrue(dialog.oracle_hint.isHidden())
+            self.assertEqual(dialog.database_label.text(), "库名")
+
+            # 切换回 Oracle 模式
+            oracle_idx = dialog.mode.findData("oracle")
+            dialog.mode.setCurrentIndex(oracle_idx)
+            self.assertEqual(dialog.mode.currentData(), "oracle")
+            self.assertFalse(dialog.oracle_hint.isHidden())
+            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+        finally:
+            dialog.close()
+
+    def test_oceanbase_switching_mode_preserves_custom_port(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"name": "OB 自定义端口测试", "dialect": "oceanbase", "host": "10.0.0.1", "port": 33306, "mode": "oracle"},
+        )
+        try:
+            self.assertEqual(dialog.port.text(), "33306")
+            mysql_idx = dialog.mode.findData("mysql")
+            dialog.mode.setCurrentIndex(mysql_idx)
+            # 自定义端口不会被模式切换覆盖
+            self.assertEqual(dialog.port.text(), "33306")
+        finally:
+            dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()

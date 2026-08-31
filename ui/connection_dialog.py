@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from tools.db_contracts import DEFAULT_PORTS, DIALECTS
+from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 from ui.design_system import apply_button
 from ui.field_metrics import size_enum_combo, size_line, wrap_secret_field
 
@@ -78,6 +78,7 @@ class ConnectionDialog(QDialog):
         mode_index = self.mode.findData(str(self._item.get("mode") or "standalone"))
         self.mode.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         size_enum_combo(self.mode)
+        self.mode.currentIndexChanged.connect(self._on_mode_changed)
         self.mode_label = QLabel("模式" if zh else "Mode")
         self.username = QLineEdit(str(self._item.get("username") or ""))
         size_line(self.username, "path")
@@ -120,25 +121,38 @@ class ConnectionDialog(QDialog):
         root.addLayout(buttons)
         self._on_dialect_changed()
 
+    def _on_mode_changed(self) -> None:
+        dialect = self.dialect.currentData() or "oracle"
+        if dialect == "oceanbase":
+            self._update_oceanbase_mode_ui()
+
+    def _update_oceanbase_mode_ui(self) -> None:
+        zh = self.language == "zh"
+        mode = normalize_oceanbase_mode(self.mode.currentData())
+        if mode == "oracle":
+            self.oracle_hint.setVisible(True)
+            self.database_label.setText("SID/服务名" if zh else "SID")
+            self.database.setPlaceholderText("ORCL / 服务名")
+        else:
+            self.oracle_hint.setVisible(False)
+            self.database_label.setText("库名" if zh else "Database")
+            self.database.setPlaceholderText("mysql 库名（可选，留空可浏览所有库）" if zh else "Database (optional)")
+
     def _on_dialect_changed(self) -> None:
         dialect = self.dialect.currentData() or "oracle"
         zh = self.language == "zh"
         self.mode.blockSignals(True)
         self.mode.clear()
         if dialect == "oceanbase":
-            self.mode.addItem("MySQL 模式" if zh else "MySQL mode", "mysql")
             self.mode.addItem("Oracle 模式" if zh else "Oracle mode", "oracle")
-            cur_mode = str(self._item.get("mode") or "mysql").strip().lower()
+            self.mode.addItem("MySQL 模式" if zh else "MySQL mode", "mysql")
+            cur_mode = normalize_oceanbase_mode(self._item.get("mode"))
             idx = self.mode.findData(cur_mode)
             self.mode.setCurrentIndex(idx if idx >= 0 else 0)
             self.mode.setVisible(True)
             self.mode_label.setVisible(True)
             self.mode_label.setText("兼容模式" if zh else "Mode")
-            is_oracle = (self.mode.currentData() == "oracle")
-            self.oracle_hint.setVisible(is_oracle)
-            self.database_label.setText("SID/服务名" if (is_oracle and zh) else ("库名" if zh else "Database"))
-            self.database.setPlaceholderText("服务名 / 库名")
-            self.host_label.setText("主机" if zh else "Host")
+            self._update_oceanbase_mode_ui()
         elif dialect in ("redis", "mongodb"):
             self.mode.addItem("单机" if zh else "Standalone", "standalone")
             self.mode.addItem("集群" if zh else "Cluster", "cluster")
@@ -201,6 +215,8 @@ class ConnectionDialog(QDialog):
             item["port"] = DEFAULT_PORTS.get(item["dialect"], 1521)
         item["database"] = self.database.text().strip()
         item["username"] = self.username.text().strip()
-        default_mode = "mysql" if item["dialect"] == "oceanbase" else "standalone"
-        item["mode"] = self.mode.currentData() or default_mode
+        if item["dialect"] == "oceanbase":
+            item["mode"] = normalize_oceanbase_mode(self.mode.currentData())
+        else:
+            item["mode"] = self.mode.currentData() or "standalone"
         return item, self.password.text()
