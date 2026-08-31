@@ -451,5 +451,22 @@ class VueSidebarInfoGuardTest(unittest.TestCase):
         self.assertIn('FALLBACK_SYMBOL', icons_src, '未知 role 必须有中性回退图标')
 
 
+class VueDashboardReducedMotionGuardTest(unittest.TestCase):
+    """STEP-5 Review Fix A 守护：reduced-motion 下 Dashboard 不得因动画禁用而永久透明。"""
+
+    def test_reduced_motion_restores_enter_opacity_and_transform(self):
+        with open(os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue'),
+                  encoding='utf-8') as fh:
+            app_src = fh.read()
+        self.assertIn('@media (prefers-reduced-motion: reduce)', app_src)
+        # 必须显式在 reduced-motion 块中将 .enter 恢复为 opacity:1 与 transform:none
+        reduced_block_start = app_src.find('@media (prefers-reduced-motion: reduce)')
+        self.assertGreater(reduced_block_start, 0)
+        reduced_block = app_src[reduced_block_start:]
+        self.assertIn('.enter', reduced_block)
+        self.assertIn('opacity:1', reduced_block)
+        self.assertIn('transform:none', reduced_block)
+
+
 if __name__ == '__main__':
     unittest.main()

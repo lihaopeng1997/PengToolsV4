@@ -21,7 +21,7 @@ v3.0 导航索引分配：
     13  日志排查     (OpsLogPanel)
 
     ── 以下为 v3.0 重构区域 ──
-    14  SQL 控制台   (父级，仅折叠/展开，不打开页面)
+    14  数据中心     (父级，仅折叠/展开，不打开页面)
     15  模型         (父级，仅折叠/展开，不打开页面)
     16  聊天         (ModelChatPanel)
     17  工作         (AgentWorkbenchPanel)
@@ -43,11 +43,11 @@ MAX_FLOATING_SHORTCUTS = 6
 
 # 视觉导航顺序（stack_index 仍按历史映射，不依赖数组下标当导航顺序）
 # (group_key, [(nav_index, name_zh, name_en, icon_role), ...])
-# 14 = SQL 控制台父级，15 = 模型父级（子项由 MainWindow 侧栏折叠组渲染）
+# 14 = 数据中心父级，15 = 模型父级（子项由 MainWindow 侧栏折叠组渲染）
 NAV_MODEL = [
     ('workspace', [
         (0, '首页', 'Home', 'home'),
-        (14, 'SQL 控制台', 'SQL Console', 'database'),
+        (14, '数据中心', 'Data Center', 'database'),
     ]),
     ('ai', [
         (15, '模型', 'AI', 'chat'),
@@ -84,9 +84,9 @@ GROUP_LABELS = {
 }
 
 # ---------------------------------------------------------------------------
-# v3.0 导航索引常量（SQL 控制台 / 模型 两组可折叠子菜单）
+# v3.0 导航索引常量（数据中心 / 模型 两组可折叠子菜单）
 # ---------------------------------------------------------------------------
-SQL_CONSOLE_NAV = 14          # SQL 控制台父级（仅折叠/展开）
+SQL_CONSOLE_NAV = 14          # 数据中心父级（仅折叠/展开）
 AI_PARENT_NAV = 15            # 模型父级（仅折叠/展开）
 AI_CHAT_NAV = 16              # 聊天
 AI_WORKBENCH_NAV = 17         # 工作
@@ -141,7 +141,7 @@ def _build_items() -> dict[int, NavItem]:
         11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
         12: ('多浏览器接口实时排查与本机请求测试', 'Multi-browser API capture and local request test'),
         13: ('SSH 多机并行日志关键字截取与本地导出', 'SSH multi-host log keyword extract and local export'),
-        14: ('SQL 控制台：Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB', 'SQL console for six database engines'),
+        14: ('数据中心：Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB', 'Data center for six database engines'),
         15: ('模型：内网模型聊天与 Agent 工作台', 'AI: intranet model chat and agent workbench'),
         16: ('内网模型连续对话与配置验证', 'Intranet model chat and config verification'),
         17: ('Agent 工作台：绑定项目目录执行受控任务', 'Agent workbench: bind project dir and run tasks'),

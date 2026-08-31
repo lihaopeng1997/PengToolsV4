@@ -308,7 +308,10 @@ body {
 @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
 .enter { opacity:0; animation:fadeUp .5s cubic-bezier(.22,.9,.32,1) .05s forwards; }
 @media (max-width:1180px) { .stats { grid-template-columns:repeat(2,1fr); } .grid { grid-template-columns:1fr; } .tools { grid-template-columns:repeat(2,1fr); } }
-@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  * { animation:none !important; transition:none !important; }
+  .enter { opacity:1 !important; transform:none !important; }
+}
 
 /* 开发 fallback 样式 */
 .dev-fallback { min-height:100vh; display:grid; place-items:center; text-align:center; padding:2rem; }

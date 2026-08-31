@@ -45,8 +45,8 @@ class SqlGuardTests(unittest.TestCase):
             '帮我查询表 prpCmain 的字段 POLICYNO、INSUREDNAME',
         )
 
-    def test_nav_14_is_sql_console(self):
-        self.assertEqual(display_name(14, 'zh'), 'SQL 控制台')
+    def test_nav_14_is_data_center(self):
+        self.assertEqual(display_name(14, 'zh'), '数据中心')
         self.assertIn(14, NAV_ITEMS)
         # v3.0：15 为"模型"父级，16=聊天，17=工作，18–23 六数据库面板
         self.assertEqual(display_name(15, 'zh'), '模型')
