@@ -388,6 +388,16 @@ $list
     if (-not (Test-Path -LiteralPath (Join-Path $AppDir '_internal'))) {
         throw "onedir runtime directory not found: " + (Join-Path $AppDir '_internal')
     }
+    # 移除生产包中冗余的 WebEngine debug 资源（保留正式 release .pak）
+    $debugPaks = @(
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_devtools_resources.debug.pak'),
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_resources.debug.pak')
+    )
+    foreach ($dp in $debugPaks) {
+        if (Test-Path -LiteralPath $dp) {
+            Remove-Item -LiteralPath $dp -Force -ErrorAction SilentlyContinue
+        }
+    }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
     Copy-Item $AppDir $InstallerDir -Recurse -Force
 
