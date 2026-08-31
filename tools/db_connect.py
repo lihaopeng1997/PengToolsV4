@@ -292,7 +292,18 @@ def list_tables(conn, dialect: str) -> list[str]:
     cur = _cursor(conn)
     try:
         if dialect == 'mysql':
-            cur.execute('SHOW TABLES')
+            try:
+                cur.execute('SHOW TABLES')
+                rows = cur.fetchall() or []
+                return [str(row[0]) for row in rows if row]
+            except Exception:
+                cur.execute(
+                    "SELECT TABLE_NAME FROM information_schema.tables "
+                    "WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') "
+                    "ORDER BY TABLE_NAME"
+                )
+                rows = cur.fetchall() or []
+                return [str(row[0]) for row in rows if row]
         elif dialect == 'dameng':
             cur.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
         else:

@@ -130,6 +130,31 @@ class SqlGuardTests(unittest.TestCase):
         self.assertEqual(filter_keys_by_pattern(['user:1', 'user:2', 'order:1'], 'user:*'), ['user:1', 'user:2'])
         self.assertEqual(filter_keys_by_pattern(['user:1'], 'order:*'), [])
 
+    def test_format_sql_basic_and_clauses(self):
+        from tools.sql_tool import format_sql
+        raw = "select a,b from user where id=1"
+        formatted = format_sql(raw)
+        self.assertIn("SELECT a,b", formatted)
+        self.assertIn("FROM user", formatted)
+        self.assertIn("WHERE id=1;", formatted)
+
+    def test_format_sql_preserves_string_literals(self):
+        from tools.sql_tool import format_sql
+        raw = "select * from t where name = 'select and from' and id = 2"
+        formatted = format_sql(raw)
+        self.assertIn("'select and from'", formatted)
+        self.assertIn("AND id = 2;", formatted)
+
+    def test_format_sql_empty_and_multi_statements(self):
+        from tools.sql_tool import format_sql
+        self.assertEqual(format_sql(""), "")
+        self.assertEqual(format_sql("   "), "   ")
+        multi = "select 1 from dual; select 2 from dual"
+        formatted = format_sql(multi)
+        self.assertIn("SELECT 1", formatted)
+        self.assertIn("SELECT 2", formatted)
+        self.assertEqual(formatted.count(';'), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

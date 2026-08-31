@@ -276,6 +276,49 @@ class AiSqlDraftTests(unittest.TestCase):
         self.assertEqual(draft['risk_level'], 'unknown')
         self.assertTrue(any('SECRET' in item or '未勾选' in item for item in draft['warnings']))
 
+    def test_mysql_scan_with_empty_database_queries_accessible_schemas(self):
+        from tools.schema_snapshot import _scan_information_schema
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('app_db', 'users', 'BASE TABLE', '用户表'), ('order_db', 'orders', 'BASE TABLE', '订单表')],
+            [
+                ('app_db', 'users', 'id', 'int', 'NO', 1, '主键', 'PRI'),
+                ('app_db', 'users', 'username', 'varchar(64)', 'NO', 2, '用户名', ''),
+                ('order_db', 'orders', 'order_id', 'int', 'NO', 1, '订单ID', 'PRI'),
+            ],
+            [
+                ('app_db', 'users', 'PRIMARY', 0, 'BTREE', 'id', 1),
+                ('order_db', 'orders', 'PRIMARY', 0, 'BTREE', 'order_id', 1),
+            ],
+        ]
+        item = {'dialect': 'mysql', 'database': ''}
+        objects, truncated = _scan_information_schema(conn, item)
+        self.assertFalse(truncated)
+        self.assertEqual(len(objects), 2)
+        schemas = {obj['owner'] for obj in objects}
+        self.assertEqual(schemas, {'app_db', 'order_db'})
+        first_call_sql = cur.execute.call_args_list[0][0][0]
+        self.assertIn("NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", first_call_sql)
+        self.assertNotIn("= DATABASE()", first_call_sql)
+
+    def test_mysql_scan_with_specified_database(self):
+        from tools.schema_snapshot import _scan_information_schema
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+        cur.fetchall.side_effect = [
+            [('app_db', 'users', 'BASE TABLE', '用户表')],
+            [('app_db', 'users', 'id', 'int', 'NO', 1, '主键', 'PRI')],
+            [('app_db', 'users', 'PRIMARY', 0, 'BTREE', 'id', 1)],
+        ]
+        item = {'dialect': 'mysql', 'database': 'app_db'}
+        objects, truncated = _scan_information_schema(conn, item)
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects[0]['owner'], 'app_db')
+        first_call_sql, first_call_params = cur.execute.call_args_list[0][0]
+        self.assertIn("WHERE TABLE_SCHEMA = %s", first_call_sql)
+        self.assertEqual(first_call_params, ('app_db',))
+
 
 if __name__ == '__main__':
     unittest.main()

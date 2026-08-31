@@ -443,13 +443,16 @@ def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
         if database:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_COMMENT "
-                "FROM information_schema.tables WHERE TABLE_SCHEMA = %s",
+                "FROM information_schema.tables WHERE TABLE_SCHEMA = %s "
+                "ORDER BY TABLE_SCHEMA, TABLE_NAME",
                 (database,),
             )
         else:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_COMMENT "
-                "FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE()"
+                "FROM information_schema.tables "
+                "WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') "
+                "ORDER BY TABLE_SCHEMA, TABLE_NAME"
             )
         for row in cur.fetchall() or []:
             owner = str(row[0] or '')
@@ -465,14 +468,15 @@ def _scan_information_schema(conn, item: dict) -> tuple[list, bool]:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
                 "ORDINAL_POSITION, COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns "
-                "WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME, ORDINAL_POSITION",
+                "WHERE TABLE_SCHEMA = %s ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION",
                 (database,),
             )
         else:
             cur.execute(
                 "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
                 "ORDINAL_POSITION, COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns "
-                "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
+                "WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') "
+                "ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION"
             )
         for row in cur.fetchall() or []:
             key = (str(row[0] or ''), str(row[1] or ''))
@@ -510,7 +514,7 @@ def _attach_mysql_indexes(cur, objects: dict, database: str) -> None:
         if database:
             cur.execute(sql + " WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX", (database,))
         else:
-            cur.execute(sql + " WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX")
+            cur.execute(sql + " WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX")
         grouped = {}
         for row in cur.fetchall() or []:
             key = (str(row[0] or ''), str(row[1] or ''))

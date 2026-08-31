@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import re
 import os
 
@@ -127,6 +127,85 @@ def _canonical_sql_statement(statement):
             result.append(char.upper())
         index += 1
     return ''.join(result).strip()
+
+
+def format_sql(sql: str) -> str:
+    """SQL 格式化：轻量美化与缩进，关键字大写，分句规整。
+
+    - 空白/空 SQL 原样返回；
+    - 字符串字面量内容及大小写严格保持不变；
+    - 遇到异常时安全回退返回原输入，杜绝丢失 SQL 文本。
+    """
+    if not sql or not str(sql).strip():
+        return sql or ''
+    try:
+        clean = strip_comments(sql)
+        stmts = split_statements(clean)
+        if not stmts:
+            return sql
+
+        major_keywords = (
+            'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
+            'UNION ALL', 'UNION', 'INSERT INTO', 'INSERT', 'VALUES',
+            'UPDATE', 'SET', 'DELETE FROM', 'DELETE', 'CREATE OR REPLACE',
+            'CREATE TABLE', 'CREATE', 'ALTER TABLE', 'ALTER', 'DROP TABLE',
+            'DROP', 'TRUNCATE TABLE', 'TRUNCATE', 'MERGE INTO', 'MERGE',
+            'BEGIN', 'END', 'COMMIT', 'ROLLBACK',
+        )
+        sub_keywords = (
+            'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+            'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'JOIN',
+            'AND', 'OR', 'ON', 'WHEN', 'THEN', 'ELSE',
+        )
+        all_kw = sorted(set(major_keywords + sub_keywords), key=len, reverse=True)
+        kw_pattern = re.compile(r'\b(' + '|'.join(re.escape(k) for k in all_kw) + r')\b', re.IGNORECASE)
+
+        formatted_blocks = []
+        for stmt in stmts:
+            str_literals = []
+
+            def _hide_string(m):
+                str_literals.append(m.group(0))
+                return f"__SQL_STR_{len(str_literals) - 1}__"
+
+            masked_stmt = re.sub(r"'(''|[^'])*'", _hide_string, stmt)
+            normalized = re.sub(r'\s+', ' ', masked_stmt).strip()
+            if not normalized:
+                continue
+
+            def _kw_repl(m):
+                return '\n' + m.group(0).upper()
+
+            broken = kw_pattern.sub(_kw_repl, normalized)
+            lines = [ln.strip() for ln in broken.splitlines() if ln.strip()]
+            out_lines = []
+            indent_level = 0
+
+            for line in lines:
+                upper = line.upper()
+                if any(upper.startswith(k) for k in ('AND ', 'OR ', 'ON ', 'WHEN ', 'THEN ', 'ELSE ')):
+                    out_lines.append('  ' * max(1, indent_level) + line)
+                elif any(upper.startswith(k) for k in ('LEFT ', 'RIGHT ', 'INNER ', 'CROSS ', 'JOIN ', 'FULL ')):
+                    out_lines.append('  ' * max(1, indent_level) + line)
+                elif any(upper.startswith(k) for k in ('FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'UNION', 'SET', 'VALUES')):
+                    out_lines.append('  ' * max(0, indent_level) + line)
+                else:
+                    out_lines.append('  ' * indent_level + line)
+
+                if any(upper.startswith(k) for k in ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'MERGE')):
+                    indent_level = 1
+
+            body = '\n'.join(out_lines).strip()
+            for i, lit in enumerate(str_literals):
+                body = body.replace(f"__SQL_STR_{i}__", lit)
+
+            if body and not body.endswith(';'):
+                body += ';'
+            formatted_blocks.append(body)
+
+        return '\n\n'.join(formatted_blocks) if formatted_blocks else sql
+    except Exception:
+        return sql
 
 
 def deduplicate_sql_statements(sql):

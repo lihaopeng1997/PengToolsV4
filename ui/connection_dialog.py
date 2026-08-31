@@ -149,7 +149,7 @@ class ConnectionDialog(QDialog):
             )
         else:
             self.database_label.setText("库名" if zh else "Database")
-            self.database.setPlaceholderText("mysql 库名，例如 test")
+            self.database.setPlaceholderText("mysql 库名（可选，留空可浏览所有库）" if zh else "Database (optional)")
             self.host_label.setText("主机" if zh else "Host")
         defaults = {"1521", "2883", "3306", "5236", "6379", "27017"}
         if not self.port.text().strip() or self.port.text().strip() in defaults:

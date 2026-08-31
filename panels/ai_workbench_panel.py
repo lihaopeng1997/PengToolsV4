@@ -131,9 +131,8 @@ class _SqlTab(QWidget):
         self.conn_item = dict(conn_item) if isinstance(conn_item, dict) else None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        from ui.responsive import editor_min_height
         self.editor = SqlEditor()
-        self.editor.setMinimumHeight(editor_min_height())
+        self.editor.setMinimumHeight(120)
         self.editor.textChanged.connect(self._mark_dirty)
         layout.addWidget(self.editor)
 
@@ -508,6 +507,8 @@ class AiWorkbenchPanel(QWidget):
         body.addWidget(bottom)
         body.setStretchFactor(0, 3)
         body.setStretchFactor(1, 2)
+        body.setChildrenCollapsible(False)
+        columns.setChildrenCollapsible(False)
         self.body_splitter = body
         self.columns_splitter = columns
         install_splitter_prefs(
@@ -515,15 +516,15 @@ class AiWorkbenchPanel(QWidget):
             defaults=[240, 560, 320],
             page_id='sql-console',
             tab_id='columns',
-            min_sizes=[240, 520, 240],
+            min_sizes=[240, 360, 240],
             accessible_name='SQL 控制台列分隔',
         )
         install_splitter_prefs(
             body,
-            defaults=[540, 360],
+            defaults=[480, 320],
             page_id='sql-console',
             tab_id='body',
-            min_sizes=[240, 220],
+            min_sizes=[140, 120],
             accessible_name='SQL 控制台上下分隔',
         )
         root.addWidget(body, 1)
@@ -1190,8 +1191,18 @@ class AiWorkbenchPanel(QWidget):
         editor = self._current_editor()
         if editor is None:
             return
-        text = editor.toPlainText()
-        editor.setPlainText('\n'.join(line.rstrip() for line in text.splitlines()))
+        from tools.sql_tool import format_sql
+        cursor = editor.textCursor()
+        if cursor.hasSelection():
+            selected_text = cursor.selectedText().replace('\u2029', '\n')
+            if selected_text.strip():
+                formatted = format_sql(selected_text)
+                cursor.insertText(formatted)
+        else:
+            text = editor.toPlainText()
+            if text.strip():
+                formatted = format_sql(text)
+                editor.setPlainText(formatted)
 
     def _clear_editor(self):
         editor = self._current_editor()

@@ -44,43 +44,9 @@ def _compact_sql(sql: str) -> str:
 
 
 def _pretty_sql(sql: str) -> str:
-    """轻量缩进：按关键字换行，不追求完整方言。"""
-    clean = strip_comments(sql or '')
-    stmts = split_statements(clean)
-    keywords = (
-        'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'JOIN', 'LEFT', 'RIGHT', 'INNER',
-        'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'HAVING', 'UNION', 'INSERT', 'INTO',
-        'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TABLE',
-        'INDEX', 'COMMENT', 'BEGIN', 'END', 'COMMIT', 'ROLLBACK',
-    )
-    pattern = re.compile(
-        r'\b(' + '|'.join(re.escape(k) for k in sorted(keywords, key=len, reverse=True)) + r')\b',
-        re.IGNORECASE,
-    )
-    blocks = []
-    for stmt in stmts:
-        text = re.sub(r'\s+', ' ', stmt).strip()
-        if not text:
-            continue
-        text = pattern.sub(lambda m: '\n' + m.group(0).upper(), text)
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        indent = 0
-        out = []
-        for line in lines:
-            upper = line.upper()
-            if upper.startswith(('AND ', 'OR ', 'SET ', 'VALUES', 'ON ')):
-                out.append('  ' * max(1, indent) + line)
-            elif upper.startswith(('FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'GROUP', 'ORDER', 'HAVING', 'UNION')):
-                out.append('  ' * max(0, indent) + line)
-            else:
-                out.append('  ' * indent + line)
-            if upper.startswith(('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER')):
-                indent = 1
-        body = '\n'.join(out).strip()
-        if body and not body.endswith(';'):
-            body += ';'
-        blocks.append(body)
-    return '\n\n'.join(blocks)
+    """轻量缩进与关键字大写规整。"""
+    from tools.sql_tool import format_sql
+    return format_sql(sql)
 
 
 class _SqlFormatTab(QWidget):
