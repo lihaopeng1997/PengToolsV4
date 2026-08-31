@@ -92,6 +92,7 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
 
         panel = AgentWorkbenchPanel()
         try:
+            panel._workspace_session = {'id': 'test_ws', 'workspace_dir': ws_path}
             panel._refresh_tree(ws_path)
             self.assertEqual(panel.project_tree.topLevelItemCount(), 1)
             root_item = panel.project_tree.topLevelItem(0)
@@ -171,6 +172,109 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
             self.assertFalse(panel.chat_vsplit.childrenCollapsible())
             self.assertGreaterEqual(panel.input.minimumHeight(), 100)
             self.assertGreater(panel.input.maximumHeight(), 500)
+        finally:
+            panel.deleteLater()
+
+    def test_workspace_boundary_containment_helper(self):
+        """测试工作区路径包含判定：严格限制真实物理路径在工作区内，防前缀碰撞与跨盘符逃逸。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        panel = AgentWorkbenchPanel()
+        try:
+            ws = os.path.join(self.tmp_dir, 'workspace')
+            os.makedirs(ws, exist_ok=True)
+            safe_file = os.path.join(ws, 'src', 'safe.py')
+
+            # 正常内部路径
+            self.assertTrue(panel._is_path_within_workspace(safe_file, ws))
+            self.assertTrue(panel._is_path_within_workspace(ws, ws))
+
+            # 字符串前缀碰撞（如 workspace2/a.py 不得误判为在 workspace 内）
+            ws2_file = os.path.join(self.tmp_dir, 'workspace2', 'a.py')
+            self.assertFalse(panel._is_path_within_workspace(ws2_file, ws))
+
+            # 相对路径越界逃逸
+            escape_file = os.path.join(ws, '..', 'outside.py')
+            self.assertFalse(panel._is_path_within_workspace(escape_file, ws))
+
+            # 跨盘符路径
+            cross_drive = 'C:\\forbidden\\secret.txt' if ws[0].upper() != 'C' else 'Z:\\forbidden\\secret.txt'
+            self.assertFalse(panel._is_path_within_workspace(cross_drive, ws))
+
+            # 空路径或未绑定
+            self.assertFalse(panel._is_path_within_workspace('', ws))
+            self.assertFalse(panel._is_path_within_workspace(safe_file, ''))
+        finally:
+            panel.deleteLater()
+
+    def test_workspace_boundary_refuses_outside_file_preview_and_symlink(self):
+        """测试双击外部路径或 symlink/junction 目标在外部时，文件读取被拦截且不泄露机密。"""
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        ws = os.path.join(self.tmp_dir, 'ws_bound')
+        outside = os.path.join(self.tmp_dir, 'outside_bound')
+        os.makedirs(os.path.join(ws, 'src'), exist_ok=True)
+        os.makedirs(outside, exist_ok=True)
+
+        safe_path = os.path.join(ws, 'src', 'safe.py')
+        with open(safe_path, 'w', encoding='utf-8') as f:
+            f.write("SAFE_TOKEN = 'ALLOW'")
+
+        secret_path = os.path.join(outside, 'secret.txt')
+        with open(secret_path, 'w', encoding='utf-8') as f:
+            f.write("TOP_SECRET_PASSWORD_12345")
+
+        panel = AgentWorkbenchPanel()
+        try:
+            panel._workspace_session = {'id': 'test_ws', 'workspace_dir': ws}
+
+            # 1. 安全内部文件：正常预览
+            safe_item = QTreeWidgetItem()
+            safe_item.setData(0, Qt.ItemDataRole.UserRole, safe_path)
+            panel._on_tree_double_click(safe_item, 0)
+            self.assertIn("SAFE_TOKEN = 'ALLOW'", panel.preview.toPlainText())
+
+            # 2. 外部机密文件：拒绝读取，不泄露内容
+            secret_item = QTreeWidgetItem()
+            secret_item.setData(0, Qt.ItemDataRole.UserRole, secret_path)
+            panel._on_tree_double_click(secret_item, 0)
+            self.assertNotIn("TOP_SECRET_PASSWORD_12345", panel.preview.toPlainText())
+            self.assertIn("该路径超出当前工作区，已拒绝读取。", panel.preview.toPlainText())
+
+            # 3. 尝试在工作区内建立指向外部的 symlink/junction（若系统权限支持）
+            symlink_dir = os.path.join(ws, 'linked_outside')
+            try:
+                os.symlink(outside, symlink_dir, target_is_directory=True)
+                has_symlink = True
+            except (OSError, NotImplementedError):
+                has_symlink = False
+
+            if has_symlink:
+                # 验证目录树加载时自动忽略指向工作区外的 symlink
+                root_item = QTreeWidgetItem()
+                root_item.setData(0, Qt.ItemDataRole.UserRole, ws)
+                panel._populate_dir_item(root_item, ws)
+                child_texts = [root_item.child(i).text(0) for i in range(root_item.childCount())]
+                self.assertNotIn('linked_outside/', child_texts)
+                self.assertNotIn('linked_outside', child_texts)
+        finally:
+            panel.deleteLater()
+
+    def test_workspace_action_labels(self):
+        """测试工作区顶部操作按钮和侧边栏标题文本规范统一。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        panel = AgentWorkbenchPanel(language='zh')
+        try:
+            self.assertEqual(panel.new_btn.text(), '新建工作区')
+            self.assertEqual(panel.space_title.text(), '工作区')
+            self.assertEqual(panel.space_new_btn.toolTip(), '新建对话')
+
+            panel.set_language('en')
+            self.assertEqual(panel.new_btn.text(), 'New workspace')
+            self.assertEqual(panel.space_title.text(), 'Workspaces')
+            self.assertEqual(panel.space_new_btn.toolTip(), 'New conversation')
         finally:
             panel.deleteLater()
 

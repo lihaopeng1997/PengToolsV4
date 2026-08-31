@@ -359,10 +359,10 @@ class AgentWorkbenchPanel(QWidget):
         ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
         self.dir_label.setText(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
         self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
-        self.new_btn.setText('新建任务' if zh else 'New task')
+        self.new_btn.setText('新建工作区' if zh else 'New workspace')
         self.context_toggle_btn.setText('项目文件' if zh else 'Files')
         self.context_toggle_btn.setToolTip('显示/隐藏项目文件与预览面板' if zh else 'Toggle project files and preview panel')
-        self.space_title.setText('空间 / 任务' if zh else 'Workspaces')
+        self.space_title.setText('工作区' if zh else 'Workspaces')
         self.project_title.setText('项目文件' if zh else 'Files')
         self.preview_title.setText('预览' if zh else 'Preview')
         self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
@@ -411,6 +411,40 @@ class AgentWorkbenchPanel(QWidget):
             checked = not self.context_panel.isVisible()
         self.context_panel.setVisible(checked)
         self.context_toggle_btn.setChecked(checked)
+
+    def _is_path_within_workspace(self, path: str, workspace_dir: str = '') -> bool:
+        """检查路径（规范化真实物理路径）是否严格位于当前绑定的工作空间目录内。
+
+        防止 Windows junction / symlink / 相对路径逃逸出工作区。
+        """
+        if not path:
+            return False
+        ws_dir = workspace_dir or (self._workspace_session.get('workspace_dir') if self._workspace_session else '')
+        if not ws_dir and hasattr(self, 'project_tree') and self.project_tree.topLevelItemCount() > 0:
+            root_item = self.project_tree.topLevelItem(0)
+            root_path = root_item.data(0, Qt.ItemDataRole.UserRole)
+            if root_path and isinstance(root_path, str):
+                ws_dir = root_path
+        if not ws_dir:
+            return False
+        try:
+            real_ws = os.path.realpath(os.path.abspath(ws_dir))
+            real_path = os.path.realpath(os.path.abspath(path))
+            norm_ws = os.path.normcase(real_ws)
+            norm_path = os.path.normcase(real_path)
+
+            if norm_path == norm_ws:
+                return True
+
+            common = os.path.normcase(os.path.commonpath([norm_ws, norm_path]))
+            if common != norm_ws:
+                return False
+
+            rel = os.path.relpath(norm_path, norm_ws)
+            return not rel.startswith('..') and rel != '..'
+        except (ValueError, OSError, TypeError):
+            # 跨盘符（如 C:\ 和 D:\）或非法路径抛出异常时一律拒绝
+            return False
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
@@ -491,7 +525,7 @@ class AgentWorkbenchPanel(QWidget):
         """刷新项目文件树根节点并懒加载首层。"""
         self.project_tree.blockSignals(True)
         self.project_tree.clear()
-        if not workspace_dir or not os.path.isdir(workspace_dir):
+        if not workspace_dir or not os.path.isdir(workspace_dir) or not self._is_path_within_workspace(workspace_dir, workspace_dir):
             self.project_tree.blockSignals(False)
             return
 
@@ -499,8 +533,8 @@ class AgentWorkbenchPanel(QWidget):
         root_name = os.path.basename(workspace_dir) or workspace_dir
         root.setText(0, root_name + '/')
         root.setData(0, Qt.ItemDataRole.UserRole, workspace_dir)
-        self._populate_dir_item(root, workspace_dir)
         self.project_tree.insertTopLevelItem(0, root)
+        self._populate_dir_item(root, workspace_dir)
         root.setExpanded(True)
         self.project_tree.blockSignals(False)
 
@@ -509,7 +543,7 @@ class AgentWorkbenchPanel(QWidget):
         while parent_item.childCount() > 0:
             parent_item.removeChild(parent_item.child(0))
 
-        if not dir_path or not os.path.isdir(dir_path):
+        if not dir_path or not os.path.isdir(dir_path) or not self._is_path_within_workspace(dir_path):
             return
 
         try:
@@ -526,6 +560,9 @@ class AgentWorkbenchPanel(QWidget):
             if name.startswith('.'):
                 continue
             full = os.path.join(dir_path, name)
+            # 安全检查：canonical target 必须在当前工作区内，否则不向树中添加
+            if not self._is_path_within_workspace(full):
+                continue
             is_dir = os.path.isdir(full)
             ext = os.path.splitext(name)[1].lower()
             if not is_dir and ext not in whitelist:
@@ -544,7 +581,7 @@ class AgentWorkbenchPanel(QWidget):
     def _on_tree_item_expanded(self, item: QTreeWidgetItem):
         """目录节点展开时懒加载子节点。"""
         full = item.data(0, Qt.ItemDataRole.UserRole)
-        if full and os.path.isdir(full):
+        if full and os.path.isdir(full) and self._is_path_within_workspace(full):
             if item.childCount() == 1 and not item.child(0).data(0, Qt.ItemDataRole.UserRole):
                 self._populate_dir_item(item, full)
 
@@ -552,6 +589,9 @@ class AgentWorkbenchPanel(QWidget):
         """双击文件 → 在预览区显示内容（限白名单且 ≤200KB）；双击目录 → 切换展开/折叠。"""
         full = item.data(0, Qt.ItemDataRole.UserRole)
         if not full:
+            return
+        if not self._is_path_within_workspace(full):
+            self.preview.setPlainText('该路径超出当前工作区，已拒绝读取。' if self.language == 'zh' else 'Path is outside current workspace; read denied.')
             return
         if os.path.isdir(full):
             item.setExpanded(not item.isExpanded())
