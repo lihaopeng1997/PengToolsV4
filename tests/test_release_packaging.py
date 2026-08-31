@@ -111,6 +111,81 @@ class ReleasePackagingGuardTest(unittest.TestCase):
         self.assertGreater(guard, 0, '缺少 ZIP 前 data 防御性复检')
         self.assertLess(guard, compress, 'data 复检必须在 Compress-Archive 之前')
 
+    # ---------- WebEngine Locales 守护 ----------
+
+    def test_build_script_enforces_locales_directory_existence(self):
+        """构建脚本必须在 localesDir 不存在时直接 throw，而不是跳过。"""
+        self.assertIn("-not (Test-Path -LiteralPath $localesDir)", self.text)
+        self.assertIn("WebEngine locales directory not found", self.text)
+
+    def test_build_script_defines_keep_locales_contract(self):
+        """构建脚本严格限定保留 zh-CN.pak 与 en-US.pak。"""
+        self.assertIn("$keepLocales = @('zh-CN.pak', 'en-US.pak')", self.text)
+
+    def test_locales_dir_missing_fails(self):
+        """locales 目录缺失必须触发 fail。"""
+        import tempfile
+        missing_dir = os.path.join(tempfile.gettempdir(), 'non_existent_locales_test_dir')
+        with self.assertRaises(RuntimeError) as ctx:
+            verify_webengine_locales(missing_dir)
+        self.assertIn('directory not found', str(ctx.exception))
+
+    def test_locales_zh_cn_missing_fails(self):
+        """缺失 zh-CN.pak 必须触发 fail。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'en-US.pak'), 'wb') as f:
+                f.write(b'data')
+            with self.assertRaises(RuntimeError) as ctx:
+                verify_webengine_locales(tmp)
+            self.assertIn('zh-CN.pak', str(ctx.exception))
+
+    def test_locales_en_us_missing_fails(self):
+        """缺失 en-US.pak 必须触发 fail。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'zh-CN.pak'), 'wb') as f:
+                f.write(b'data')
+            with self.assertRaises(RuntimeError) as ctx:
+                verify_webengine_locales(tmp)
+            self.assertIn('en-US.pak', str(ctx.exception))
+
+    def test_locales_unexpected_locale_remains_fails(self):
+        """非 KEEP 语言包残留必须触发 fail。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('zh-CN.pak', 'en-US.pak', 'ja.pak'):
+                with open(os.path.join(tmp, name), 'wb') as f:
+                    f.write(b'data')
+            with self.assertRaises(RuntimeError) as ctx:
+                verify_webengine_locales(tmp)
+            self.assertIn('unexpected WebEngine locale', str(ctx.exception))
+            self.assertIn('ja.pak', str(ctx.exception))
+
+    def test_locales_correct_zh_cn_en_us_passes(self):
+        """仅包含 zh-CN.pak 与 en-US.pak 时正常通过。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('zh-CN.pak', 'en-US.pak'):
+                with open(os.path.join(tmp, name), 'wb') as f:
+                    f.write(b'data')
+            remaining = verify_webengine_locales(tmp)
+            self.assertEqual(sorted(remaining), ['en-US.pak', 'zh-CN.pak'])
+
+
+def verify_webengine_locales(locales_dir: str, keep_locales=('zh-CN.pak', 'en-US.pak')) -> list[str]:
+    """验证 WebEngine 语言包后置条件：目录存在、KEEP 全部存在、非 KEEP 0 残留。"""
+    if not os.path.isdir(locales_dir):
+        raise RuntimeError(f"Post-condition failed: WebEngine locales directory not found: {locales_dir}")
+    existing = [f for f in os.listdir(locales_dir) if f.endswith('.pak')]
+    for k in keep_locales:
+        if k not in existing:
+            raise RuntimeError(f"Post-condition failed: required WebEngine locale '{k}' is missing in {locales_dir}")
+    for r in existing:
+        if r not in keep_locales:
+            raise RuntimeError(f"Post-condition failed: unexpected WebEngine locale '{r}' remained in {locales_dir}")
+    return existing
+
 
 if __name__ == '__main__':
     unittest.main()

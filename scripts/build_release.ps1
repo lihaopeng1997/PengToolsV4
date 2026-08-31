@@ -401,24 +401,25 @@ $list
     # 裁剪 WebEngine locales（仅保留产品支持的 zh-CN 及 Chromium fallback en-US）
     $localesDir = Join-Path $AppDir '_internal\PyQt6\Qt6\translations\qtwebengine_locales'
     $keepLocales = @('zh-CN.pak', 'en-US.pak')
-    if (Test-Path -LiteralPath $localesDir) {
-        $existingPaks = Get-ChildItem -LiteralPath $localesDir -Filter '*.pak' -File
-        foreach ($pak in $existingPaks) {
-            if ($keepLocales -notcontains $pak.Name) {
-                Remove-Item -LiteralPath $pak.FullName -Force -ErrorAction SilentlyContinue
-            }
+    if (-not (Test-Path -LiteralPath $localesDir)) {
+        throw "Post-condition failed: WebEngine locales directory not found: $localesDir"
+    }
+    $existingPaks = Get-ChildItem -LiteralPath $localesDir -Filter '*.pak' -File
+    foreach ($pak in $existingPaks) {
+        if ($keepLocales -notcontains $pak.Name) {
+            Remove-Item -LiteralPath $pak.FullName -Force -ErrorAction SilentlyContinue
         }
-        # Post-condition 校验：KEEP locale 必须全部存在，且非 KEEP locale 不得残留
-        $remainingPaks = Get-ChildItem -LiteralPath $localesDir -Filter '*.pak' -File | ForEach-Object { $_.Name }
-        foreach ($k in $keepLocales) {
-            if ($remainingPaks -notcontains $k) {
-                throw "Post-condition failed: required WebEngine locale '$k' is missing in $localesDir"
-            }
+    }
+    # Post-condition 校验：KEEP locale 必须全部存在，且非 KEEP locale 不得残留
+    $remainingPaks = Get-ChildItem -LiteralPath $localesDir -Filter '*.pak' -File | ForEach-Object { $_.Name }
+    foreach ($k in $keepLocales) {
+        if ($remainingPaks -notcontains $k) {
+            throw "Post-condition failed: required WebEngine locale '$k' is missing in $localesDir"
         }
-        foreach ($r in $remainingPaks) {
-            if ($keepLocales -notcontains $r) {
-                throw "Post-condition failed: unexpected WebEngine locale '$r' remained in $localesDir"
-            }
+    }
+    foreach ($r in $remainingPaks) {
+        if ($keepLocales -notcontains $r) {
+            throw "Post-condition failed: unexpected WebEngine locale '$r' remained in $localesDir"
         }
     }
     # 复制整个程序目录（PengToolsHub.exe + _internal\...），不含任何用户 data
