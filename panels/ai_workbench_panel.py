@@ -195,7 +195,6 @@ class AiWorkbenchPanel(QWidget):
             'SQL 控制台',
             '多标签 SQL 编辑与内网模型草案',
             'database',
-            primary_button=self.run_btn,
             trailing=header_trail,
         )
         root.addWidget(header)
@@ -316,6 +315,7 @@ class AiWorkbenchPanel(QWidget):
         self.clear_btn.clicked.connect(self._clear_editor)
         self.risk_chip = QLabel()
         self.risk_chip.setObjectName('status-pill')
+        editor_row.addWidget(self.run_btn)
         editor_row.addWidget(self.format_btn)
         editor_row.addWidget(self.clear_btn)
         editor_row.addStretch(1)

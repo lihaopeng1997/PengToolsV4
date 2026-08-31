@@ -182,24 +182,35 @@ def size_system_chip(label, max_width: int = SYSTEM_CHIP_MAX) -> None:
 
 
 def wrap_secret_field(edit: QLineEdit, *, reveal_text='查看', hide_text='隐藏') -> tuple[QWidget, QPushButton]:
-    """密码默认黑点隐藏，旁边按钮切换明文。"""
+    """密码默认黑点隐藏，旁边标准眼睛图标按钮切换明文。"""
     from PyQt6.QtWidgets import QLineEdit as _QLineEdit
+    from ui.design_system import apply_button
+    from ui.icons import apply_icon
     size_line(edit, 'path')
     edit.setEchoMode(_QLineEdit.EchoMode.Password)
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(8)
-    button = QPushButton(reveal_text)
-    size_compact_button(button)
+    layout.setSpacing(4)
+    button = QPushButton()
+    apply_button(button, 'ghost', compact=True)
+    button.setFixedSize(FIELD_H, FIELD_H)
+    button.setMinimumWidth(FIELD_H)
     button.setCheckable(True)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setAccessibleName('切换密码显示')
+    button.setAccessibleDescription('点击切换密码明文或隐藏状态')
 
-    def _toggle(checked: bool):
+    def _sync_state(checked: bool):
         edit.setEchoMode(_QLineEdit.EchoMode.Normal if checked else _QLineEdit.EchoMode.Password)
-        button.setText(hide_text if checked else reveal_text)
+        icon_role = 'eye-off' if checked else 'eye'
+        apply_icon(button, icon_role, size=16)
+        zh = reveal_text == '查看' or '查看' in str(reveal_text) or hide_text == '隐藏' or '隐藏' in str(hide_text)
+        tip = ('隐藏密码' if checked else '显示密码') if zh else ('Hide password' if checked else 'Show password')
+        button.setToolTip(tip)
 
-    button.toggled.connect(_toggle)
+    _sync_state(False)
+    button.toggled.connect(_sync_state)
     layout.addWidget(edit, 1)
     layout.addWidget(button)
     row._reveal_texts = (reveal_text, hide_text)
