@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 import time
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
@@ -28,6 +28,9 @@ from tools.db_connect import (
 )
 from tools.intranet_llm import is_enabled, load_ai_local
 from tools.tameng_agent import format_evidence_bar, prepare_request, validate_generated_sql
+from tools.schema_search import (
+    build_schema_search_index, get_matched_table_identities, search_schema_index,
+)
 from tools.schema_snapshot import (
     clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, format_object_label,
     load_snapshot, save_snapshot, scan_schema, search_fields, snapshot_status,
@@ -41,6 +44,84 @@ from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_s
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 from ui.sql_editor import SqlEditor
+
+
+class _SchemaSearchPopup(QFrame):
+    """IDE 风格统一数据库对象搜索下拉建议框。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName('schema-search-popup')
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+
+        self.list_widget = QListWidget(self)
+        self.list_widget.setObjectName('schema-search-list')
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setStyleSheet("""
+            QListWidget#schema-search-list {
+                border: 1px solid rgba(128, 128, 128, 0.28);
+                border-radius: 6px;
+                background-color: palette(base);
+                padding: 2px;
+            }
+            QListWidget#schema-search-list::item {
+                padding: 4px 6px;
+                border-radius: 4px;
+                margin: 1px 0px;
+            }
+            QListWidget#schema-search-list::item:selected {
+                background-color: rgba(64, 128, 255, 0.22);
+                color: palette(text);
+            }
+            QListWidget#schema-search-list::item:hover {
+                background-color: rgba(128, 128, 128, 0.12);
+            }
+        """)
+        layout.addWidget(self.list_widget)
+
+    def set_results(self, results: list[dict]):
+        self.list_widget.clear()
+        for res in results:
+            kind = str(res.get('kind') or '').upper()
+            title = str(res.get('title') or '')
+            subtitle = str(res.get('subtitle') or '')
+            tag = f'[{kind}]'
+            text = f'{tag}  {title}'
+            if subtitle:
+                text += f'\n     {subtitle}'
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, res)
+            self.list_widget.addItem(item)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def select_next(self):
+        count = self.list_widget.count()
+        if count == 0:
+            return
+        row = (self.list_widget.currentRow() + 1) % count
+        self.list_widget.setCurrentRow(row)
+
+    def select_prev(self):
+        count = self.list_widget.count()
+        if count == 0:
+            return
+        row = (self.list_widget.currentRow() - 1 + count) % count
+        self.list_widget.setCurrentRow(row)
+
+    def current_item(self) -> dict | None:
+        item = self.list_widget.currentItem()
+        if item is not None:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                return data
+        return None
 
 
 def compose_nl_query(table: str, columns=None, language='zh') -> str:
@@ -150,6 +231,12 @@ class AiWorkbenchPanel(QWidget):
         self._worker = None
         self._ai_worker = None
         self._snapshot = None
+        self._search_index = None
+        self._search_popup = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(120)
+        self._search_timer.timeout.connect(self._on_search_timer)
         self._offset = 0
         self._has_more = False
         self._last_sql = ''
@@ -281,7 +368,8 @@ class AiWorkbenchPanel(QWidget):
         left_l.addWidget(self.tree_title)
         self.object_filter = QLineEdit()
         size_line(self.object_filter, 'std')
-        self.object_filter.textChanged.connect(self._filter_tree)
+        self.object_filter.installEventFilter(self)
+        self.object_filter.textChanged.connect(self._on_object_filter_text_changed)
         left_l.addWidget(self.object_filter)
         self.object_tree = QTreeWidget()
         self.object_tree.setHeaderHidden(True)
@@ -560,7 +648,7 @@ class AiWorkbenchPanel(QWidget):
         self.view_snap_btn.setText('查看结构快照' if zh else 'View schema snapshot')
         self.del_snap_btn.setText('删除本地结构快照' if zh else 'Delete local schema snapshot')
         self.model_btn.setText('模型配置' if zh else 'Model settings')
-        self.object_filter.setPlaceholderText('搜索对象名 / 注释' if zh else 'Filter objects')
+        self.object_filter.setPlaceholderText('搜索表 / 字段 / 注释' if zh else 'Search table / field / comment')
         self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
@@ -1244,6 +1332,7 @@ class AiWorkbenchPanel(QWidget):
         show_info(self, self._title(), '草稿已保存（请勿写入密码或生产数据）' if zh else 'Draft saved')
 
     def _rebuild_tree(self):
+        self._search_index = build_schema_search_index(self._snapshot)
         self.object_tree.clear()
         snap = self._snapshot or {}
         objects = list(snap.get('objects') or [])
@@ -1284,19 +1373,217 @@ class AiWorkbenchPanel(QWidget):
 
     def _filter_tree(self, text=''):
         needle = str(text or '').strip().lower()
+        if not needle:
+            def show_all(item: QTreeWidgetItem):
+                item.setHidden(False)
+                for i in range(item.childCount()):
+                    show_all(item.child(i))
+
+            for i in range(self.object_tree.topLevelItemCount()):
+                show_all(self.object_tree.topLevelItem(i))
+            return
+
+        matched_tables = get_matched_table_identities(self._search_index, needle)
 
         def apply_item(item: QTreeWidgetItem) -> bool:
             visible = False
             for i in range(item.childCount()):
                 if apply_item(item.child(i)):
                     visible = True
-            own = needle in item.text(0).lower() if needle else True
-            show = own or visible or not needle
+
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            kind = data.get('kind')
+            own = False
+            if kind == 'table':
+                obj = data.get('object') or {}
+                owner = str(obj.get('owner') or '').lower()
+                name = str(obj.get('name') or '').lower()
+                own = (owner, name) in matched_tables or needle in item.text(0).lower()
+            elif kind == 'schema':
+                schema_name = str(data.get('name') or '').lower()
+                own = needle in schema_name or needle in item.text(0).lower()
+            else:
+                own = needle in item.text(0).lower()
+
+            show = own or visible
             item.setHidden(not show)
+            if show and (visible or kind == 'schema'):
+                item.setExpanded(True)
             return show
 
         for i in range(self.object_tree.topLevelItemCount()):
             apply_item(self.object_tree.topLevelItem(i))
+
+    def _on_object_filter_text_changed(self, text: str):
+        if not text.strip():
+            self._search_timer.stop()
+            self._filter_tree('')
+            if self._search_popup:
+                self._search_popup.hide()
+        else:
+            self._search_timer.start()
+
+    def _on_search_timer(self):
+        query = self.object_filter.text()
+        self._filter_tree(query)
+        if query.strip() and self._search_index:
+            results = search_schema_index(self._search_index, query, limit=30)
+            self._show_search_popup(results)
+        else:
+            if self._search_popup:
+                self._search_popup.hide()
+
+    def _show_search_popup(self, results: list[dict]):
+        if not results or not self.object_filter.hasFocus():
+            if self._search_popup:
+                self._search_popup.hide()
+            return
+        if self._search_popup is None:
+            self._search_popup = _SchemaSearchPopup(self)
+            self._search_popup.list_widget.itemClicked.connect(self._on_search_popup_item_clicked)
+        self._search_popup.set_results(results)
+        pos = self.object_filter.mapToGlobal(QPoint(0, self.object_filter.height() + 2))
+        w = max(280, self.object_filter.width())
+        row_count = min(len(results), 7)
+        h = min(320, row_count * 46 + 10)
+        self._search_popup.setGeometry(pos.x(), pos.y(), w, h)
+        self._search_popup.show()
+
+    def _on_search_popup_item_clicked(self, list_item: QListWidgetItem):
+        if list_item is None:
+            return
+        data = list_item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, dict):
+            self._activate_search_result(data)
+
+    def _activate_search_result(self, data: dict):
+        if self._search_popup:
+            self._search_popup.hide()
+        kind = data.get('kind')
+        owner = str(data.get('owner') or '')
+        table_name = str(data.get('table_name') or '')
+        field_name = str(data.get('field_name') or '')
+
+        if kind == 'field' and table_name and field_name:
+            self._locate_field(owner, table_name, field_name)
+        elif kind == 'table' and table_name:
+            self._locate_table(owner, table_name)
+        elif kind == 'schema' and owner:
+            self._locate_schema(owner)
+
+    def _locate_table(self, owner: str, table_name: str):
+        target_owner = str(owner or '').strip().lower()
+        target_name = str(table_name or '').strip().lower()
+        if not target_name:
+            return
+
+        def find_in_item(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            kind = data.get('kind')
+            if kind == 'table':
+                obj = data.get('object') or {}
+                o = str(obj.get('owner') or '').strip().lower()
+                n = str(obj.get('name') or '').strip().lower()
+                if n == target_name and (not target_owner or o == target_owner):
+                    return item
+            for i in range(item.childCount()):
+                res = find_in_item(item.child(i))
+                if res is not None:
+                    return res
+            return None
+
+        found_item = None
+        for i in range(self.object_tree.topLevelItemCount()):
+            found_item = find_in_item(self.object_tree.topLevelItem(i))
+            if found_item is not None:
+                break
+
+        if found_item is not None:
+            p = found_item
+            while p is not None:
+                p.setHidden(False)
+                p.setExpanded(True)
+                p = p.parent()
+            self.object_tree.setCurrentItem(found_item)
+            self.object_tree.scrollToItem(found_item)
+            self._on_tree_selected()
+
+    def _locate_field(self, owner: str, table_name: str, field_name: str):
+        self._locate_table(owner, table_name)
+        target_field = str(field_name or '').strip().lower()
+        if not target_field or not self._detail_object:
+            return
+
+        cols = self._detail_object.get('columns') or []
+        col_idx = -1
+        for idx, col in enumerate(cols):
+            if str(col.get('name') or '').strip().lower() == target_field:
+                col_idx = idx
+                break
+
+        if col_idx >= 0:
+            page_size = 100
+            self._field_page = col_idx // page_size
+            if hasattr(self, 'field_filter'):
+                self.field_filter.blockSignals(True)
+                self.field_filter.clear()
+                self.field_filter.blockSignals(False)
+            self._fill_detail_fields()
+
+            for row in range(self.field_table.rowCount()):
+                item = self.field_table.item(row, 0)
+                if item and item.text().strip().lower() == target_field:
+                    self.field_table.selectRow(row)
+                    self.field_table.scrollToItem(item)
+                    break
+
+    def _locate_schema(self, owner: str):
+        target_owner = str(owner or '').strip().lower()
+        if not target_owner:
+            return
+        for i in range(self.object_tree.topLevelItemCount()):
+            root = self.object_tree.topLevelItem(i)
+            root.setHidden(False)
+            root.setExpanded(True)
+            for j in range(root.childCount()):
+                child = root.child(j)
+                data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+                if data.get('kind') == 'schema' and str(data.get('name') or '').strip().lower() == target_owner:
+                    child.setHidden(False)
+                    child.setExpanded(True)
+                    self.object_tree.setCurrentItem(child)
+                    self.object_tree.scrollToItem(child)
+                    return
+
+    def eventFilter(self, watched, event):
+        if watched is getattr(self, 'object_filter', None):
+            event_type = event.type()
+            if event_type == QEvent.Type.KeyPress:
+                key = event.key()
+                if self._search_popup and self._search_popup.isVisible():
+                    if key == Qt.Key.Key_Down:
+                        self._search_popup.select_next()
+                        return True
+                    elif key == Qt.Key.Key_Up:
+                        self._search_popup.select_prev()
+                        return True
+                    elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                        item_data = self._search_popup.current_item()
+                        if item_data:
+                            self._activate_search_result(item_data)
+                            return True
+                    elif key == Qt.Key.Key_Escape:
+                        self._search_popup.hide()
+                        return True
+            elif event_type == QEvent.Type.FocusOut:
+                if self._search_popup and self._search_popup.isVisible():
+                    QTimer.singleShot(150, lambda: self._search_popup.hide() if self._search_popup and not self.object_filter.hasFocus() else None)
+        return super().eventFilter(watched, event)
+
+    def hideEvent(self, event):
+        if getattr(self, '_search_popup', None):
+            self._search_popup.hide()
+        super().hideEvent(event)
 
     def _selected_object(self) -> dict | None:
         items = self.object_tree.selectedItems()
