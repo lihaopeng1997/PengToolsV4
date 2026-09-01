@@ -23,8 +23,10 @@ class DependencyManifestTests(unittest.TestCase):
 
         expected = {
             "PyQt6==6.11.0",
-            "PyQt6-Qt6==6.11.1",
+            "PyQt6-Qt6==6.11.2",
             "PyQt6-sip==13.11.1",
+            "PyQt6-WebEngine==6.11.0",
+            "PyQt6-WebEngine-Qt6==6.11.2",
             "mitmproxy==12.2.3",
             "typing-extensions==4.14.0",
             "oracledb==4.0.2",

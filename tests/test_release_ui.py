@@ -233,6 +233,7 @@ class ReleaseUiTests(unittest.TestCase):
         panel.resize(1220, 780)
         panel.show()
         self.app.processEvents()
+        os.makedirs(os.path.join(ROOT, '.codex_work'), exist_ok=True)
         screenshot = os.path.join(ROOT, '.codex_work', 'requirement_svn_lock_ui.png')
         self.assertTrue(panel.grab().save(screenshot))
         panel.close()
@@ -743,7 +744,10 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(window._current_nav_index, 2)
             self.assertEqual(window.sql_panel.tabs.currentIndex(), 2)
             window._force_exit = True
+            if hasattr(window, '_startup_timer') and window._startup_timer.isActive():
+                window._startup_timer.stop()
             window.close()
+            window.deleteLater()
 
     def test_private_unlock_persists_across_reopen(self):
         """彩蛋解锁写入 data 后，重新打开应一直展示自我学习。"""
@@ -755,7 +759,10 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertTrue(window._private_unlocked)
             self.assertFalse(window.nav_buttons[8].isHidden())
             window._force_exit = True
+            if hasattr(window, '_startup_timer') and window._startup_timer.isActive():
+                window._startup_timer.stop()
             window.close()
+            window.deleteLater()
 
     def test_one_click_generates_workbook_and_sql(self):
         requirement = {
@@ -843,6 +850,7 @@ class ReleaseUiTests(unittest.TestCase):
             # 截图前后禁止 debounce 定时器用真实台账冲掉测试数据
             panel._release_reload_timer.stop()
             screenshot = os.path.join(ROOT, '.codex_work', 'release_prep_multi_system_ui.png')
+            os.makedirs(os.path.dirname(screenshot), exist_ok=True)
             self.assertTrue(panel.grab().save(screenshot))
             with patch('panels.sql_panel.load_requirements', return_value=requirements), \
                     patch('panels.sql_panel.save_requirements'), \
