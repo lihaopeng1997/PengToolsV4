@@ -1373,20 +1373,29 @@ class SqlToolPanel(QWidget):
         self.draft_btn.setEnabled(False)
         if hasattr(self, 'optimize_btn'):
             self.optimize_btn.setEnabled(False)
-        self.progress.start_busy(
+        token = self.progress.start_busy(
             '正在优化 SQL…' if task == 'sql.optimize' and zh else
             '正在编写 SQL…' if zh else 'Working…'
         )
+        self._draft_token = token
         self._draft_worker = SqlDraftWorker(prompt, load_ai_local(), task=task)
-        self._draft_worker.completed.connect(self._on_draft_completed)
-        self._draft_worker.failed.connect(self._on_draft_failed)
+        self._draft_worker.token = token
+        self._draft_worker.completed.connect(lambda text, t=token: self._on_draft_completed(text, token=t))
+        self._draft_worker.failed.connect(lambda msg, t=token: self._on_draft_failed(msg, token=t))
         self._draft_worker.finished.connect(self._on_draft_finished)
         self._draft_worker.start()
+
+    def on_panel_deactivated(self):
+        """离开 SQL 面板时清理进度浮层。"""
+        if hasattr(self, 'progress') and self.progress is not None:
+            self.progress.hide_now()
 
     def _draft_sql_with_intranet(self):
         self._run_sql_harness('sql.draft')
 
-    def _on_draft_completed(self, text):
+    def _on_draft_completed(self, text, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_draft_token', None):
+            return
         self._draft_buffer = str(text or '').strip()
         self.progress.hide_now()
         if not self._draft_buffer:
@@ -1401,8 +1410,10 @@ class SqlToolPanel(QWidget):
                 max_chars=12,
             )
 
-    def _on_draft_failed(self, message):
-        self.progress.fail(str(message or '草稿失败')[:40])
+    def _on_draft_failed(self, message, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_draft_token', None):
+            return
+        self.progress.fail(str(message or '草稿失败')[:40], token=token)
         show_error(self, 'PengTools · SQL', str(message or '草稿失败'))
 
     def _on_draft_finished(self):
@@ -1549,21 +1560,26 @@ class SqlToolPanel(QWidget):
                 return
         self._sync_form()
         self.export_btn.setEnabled(False)
-        self.progress.start_busy('正在构建 SVN 交付矩阵…' if self.language == 'zh' else 'Building the SVN delivery matrix…')
+        token = self.progress.start_busy('正在构建 SVN 交付矩阵…' if self.language == 'zh' else 'Building the SVN delivery matrix…')
+        self._export_token = token
         self._export_worker = SqlExportWorker(root, sql, dict(system), self._env_name(), self._date_str())
-        self._export_worker.completed.connect(self._on_export_completed)
-        self._export_worker.failed.connect(self._on_export_failed)
+        self._export_worker.token = token
+        self._export_worker.completed.connect(lambda paths, t=token: self._on_export_completed(paths, token=t))
+        self._export_worker.failed.connect(lambda msg, t=token: self._on_export_failed(msg, token=t))
         self._export_worker.finished.connect(self._on_export_finished)
         self._export_worker.start()
 
-    def _on_export_completed(self, paths):
+    def _on_export_completed(self, paths, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_export_token', None):
+            return
         try:
             self._preview_package()
         except Exception:
             # 预览失败不吞掉导出成功态；仍结束 Loading
             pass
         self.progress.finish(
-            f'已写出 {len(paths)} 个交付文件' if self.language == 'zh' else f'Wrote {len(paths)} delivery file(s)'
+            f'已写出 {len(paths)} 个交付文件' if self.language == 'zh' else f'Wrote {len(paths)} delivery file(s)',
+            token=token,
         )
         self._set_status_label(
             self.status,
@@ -1578,8 +1594,10 @@ class SqlToolPanel(QWidget):
             + os.path.join(self.output_root.text().strip(), self._date_str())
         )
 
-    def _on_export_failed(self, message):
-        self.progress.fail('导出失败，请检查路径' if self.language == 'zh' else 'Export failed; check the path')
+    def _on_export_failed(self, message, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_export_token', None):
+            return
+        self.progress.fail('导出失败，请检查路径' if self.language == 'zh' else 'Export failed; check the path', token=token)
         show_error(self, 'PengTools', message)
 
     def _on_export_finished(self):

@@ -960,25 +960,34 @@ class DocxUpdatePanel(QWidget):
             return
 
         self.update_btn.setEnabled(False)
-        self.progress.start_busy('正在解析 SQL 与重组接口文档…' if self.language == 'zh' else 'Parsing SQL and reorganizing document…')
+        token = self.progress.start_busy('正在解析 SQL 与重组接口文档…' if self.language == 'zh' else 'Parsing SQL and reorganizing document…')
+        self._docx_token = token
         self._worker = DocxUpdateWorker(
             input_docx, temp_path, self.author.text().strip() or 'System', output_path,
             self.update_date.date().toString('yyyy-MM-dd'),
         )
-        self._worker.completed.connect(self._on_update_completed)
-        self._worker.failed.connect(self._on_update_failed)
+        self._worker.token = token
+        self._worker.completed.connect(lambda rep, log, t=token: self._on_update_completed(rep, log, token=t))
+        self._worker.failed.connect(lambda msg, t=token: self._on_update_failed(msg, token=t))
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
 
-    def _on_update_completed(self, report, log_text):
+    def on_panel_deactivated(self):
+        """切离页面时清理 loading 浮层。"""
+        if hasattr(self, 'progress') and self.progress is not None:
+            self.progress.hide_now()
+
+    def _on_update_completed(self, report, log_text, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_docx_token', None):
+            return
         output_path = report['save_path']
         self.log.setPlainText(log_text)
         if not output_path or not os.path.isfile(output_path):
-            self._on_update_failed('没有产生输出文件' if self.language == 'zh' else 'No output file was created')
+            self._on_update_failed('没有产生输出文件' if self.language == 'zh' else 'No output file was created', token=token)
             return
         self.sql_editor.clear()
         self._sql_paths.clear()
-        self.progress.finish('接口文档已生成' if self.language == 'zh' else 'Interface document generated')
+        self.progress.finish('接口文档已生成' if self.language == 'zh' else 'Interface document generated', token=token)
         self.task_completed.emit()
         self._refresh_folder_docs()
         self._refresh_output_browser()
@@ -989,10 +998,12 @@ class DocxUpdatePanel(QWidget):
              f'Changed {len(report["changes"])} item(s), skipped {len(report["skipped"])}.\n\nPlease manually check table structures, field descriptions, and version history before submission.\n{output_path}')
         )
 
-    def _on_update_failed(self, message):
+    def _on_update_failed(self, message, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_docx_token', None):
+            return
         self._expand_log()
         self.log.setPlainText(message)
-        self.progress.fail('处理失败，请检查输入' if self.language == 'zh' else 'Processing failed; check the input')
+        self.progress.fail('处理失败，请检查输入' if self.language == 'zh' else 'Processing failed; check the input', token=token)
         show_error(self, 'PengTools', message)
 
     def _on_worker_finished(self):

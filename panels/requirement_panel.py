@@ -3061,12 +3061,20 @@ class RequirementPanel(QWidget):
         if not busy:
             self._update_batch_delete_button()
         if busy:
-            self.loading.start_busy(message)
+            token = self.loading.start_busy(message)
+            self._task_token = token
+            return token
         else:
             current = self.requirement_list.currentItem()
             if not self._tree_item_alive(current):
                 current = None
             self._show_requirement(current, refresh_files=False)
+            return getattr(self, '_task_token', None)
+
+    def on_panel_deactivated(self):
+        """离开需求管理面板时清理 loading 浮层。"""
+        if hasattr(self, 'loading') and self.loading is not None:
+            self.loading.hide_now()
 
     def eventFilter(self, watched, event):
         if watched is getattr(self, 'requirement_list', None) and event.type() == QEvent.Type.KeyPress:
@@ -3133,16 +3141,18 @@ class RequirementPanel(QWidget):
         self._task_failed = False
         self._task_shows_loading = show_loading
         self._task_finish_label = finish_label or self._finish_label_from_busy(message)
+        token = None
         if show_loading:
-            self._set_busy(message)
+            token = self._set_busy(message)
         else:
             # 静默任务只短暂显示状态，不锁整页、不弹 Loading
             self.svn_activity.setText(message)
             self.svn_activity.setVisible(bool(message))
         worker = SvnWorker(function, *arguments, parent=self)
+        worker.token = token
         self._active_worker = worker
-        worker.result_ready.connect(lambda result: self._task_succeeded(result, success))
-        worker.failed.connect(self._task_failed_with_error)
+        worker.result_ready.connect(lambda result, t=token: self._task_succeeded(result, success, token=t))
+        worker.failed.connect(lambda err, t=token: self._task_failed_with_error(err, token=t))
         worker.finished.connect(lambda: self._task_finished(worker))
         worker.start()
 
@@ -3170,17 +3180,21 @@ class RequirementPanel(QWidget):
                 return label
         return '处理完成'
 
-    def _task_succeeded(self, result, success):
+    def _task_succeeded(self, result, success, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_task_token', None):
+            return
         if self._task_shows_loading:
-            self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成')
+            self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成', token=token)
         success(result)
 
-    def _task_failed_with_error(self, error):
+    def _task_failed_with_error(self, error, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_task_token', None):
+            return
         self._task_failed = True
         self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
         self.svn_activity.show()
         if self._task_shows_loading:
-            self.loading.fail('处理失败：' + error[:120])
+            self.loading.fail('处理失败：' + error[:120], token=token)
         show_warning(self, 'SVN 操作失败', error)
 
     def _task_finished(self, worker):

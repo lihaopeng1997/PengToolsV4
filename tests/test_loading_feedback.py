@@ -335,16 +335,82 @@ class LoadingFeedbackTest(unittest.TestCase):
         self.assertEqual(p._state, 'idle')
         self.assertIsNone(p._delay_timer)
 
-    def test_reset_method_cleans_all_state(self):
-        """reset() 彻底收起并重置状态机。"""
+    def test_same_token_supports_multiple_progress_updates_and_finish(self):
+        """同一任务 token 在多次进度刷新和最终 finish 期间保持有效。"""
         p = AuroraProgress(self.host, delay_show_ms=0)
-        p.start_busy('处理中…', immediate=True)
+        token = p.start_busy('任务 1', immediate=True)
+        self.assertEqual(p.current_token, token)
+        self.assertEqual(p._state, 'busy')
+
+        # 连续更新进度
+        p.set_progress(10, '解析 10%', token=token)
+        self.assertEqual(p._value, 10)
+        self.assertEqual(p._state, 'progress')
+        self.assertEqual(p.current_token, token)
+
+        p.set_progress(50, '处理 50%', token=token)
+        self.assertEqual(p._value, 50)
+        self.assertEqual(p.current_token, token)
+
+        p.set_progress(90, '生成 90%', token=token)
+        self.assertEqual(p._value, 90)
+        self.assertEqual(p.current_token, token)
+
+        # 最终完成
+        p.finish('任务 1 完成', token=token)
+        self.assertEqual(p._state, 'finish')
+        self.assertEqual(p._value, 100)
+        self.assertEqual(p._label, '任务 1 完成')
+
+    def test_async_task_overlap_token_isolation(self):
+        """Task A starts -> Task B starts -> Task A finishes late -> Task B remains active."""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        token_a = p.start_busy('DB 扫描 A', immediate=True)
+        token_b = p.start_busy('DB 扫描 B', immediate=True)
+        self.assertGreater(token_b, token_a)
+        self.assertEqual(p._label, 'DB 扫描 B')
+        self.assertEqual(p._state, 'busy')
+
+        # Task A 的晚到成功回调
+        p.finish('DB 扫描 A 完成', token=token_a)
+        self.app.processEvents()
+        self.assertEqual(p._state, 'busy')
+        self.assertEqual(p._label, 'DB 扫描 B')
         self.assertTrue(p.is_visible_to_user)
+
+        # Task A 的晚到失败回调
+        p.fail('DB 扫描 A 失败', token=token_a)
+        self.app.processEvents()
+        self.assertEqual(p._state, 'busy')
+        self.assertEqual(p._label, 'DB 扫描 B')
+        self.assertTrue(p.is_visible_to_user)
+
+        # Task B 正常完成
+        p.finish('DB 扫描 B 完成', token=token_b)
+        self.app.processEvents()
+        self.assertEqual(p._state, 'finish')
+        self.assertEqual(p._label, 'DB 扫描 B 完成')
+
+    def test_visible_busy_deactivation_reset(self):
+        """已展示的 Busy 浮层在页面切换 reset/hide_now 后彻底清除，旧定时器和回调无法复活。"""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        token = p.start_busy('正在执行长任务…', immediate=True)
+        self.assertTrue(p.is_visible_to_user)
+        self.assertEqual(p._state, 'busy')
+
+        # 页面离开：执行 reset / hide_now
         p.reset()
         self.assertFalse(p.is_visible_to_user)
         self.assertEqual(p._state, 'idle')
-        self.assertIsNone(p._delay_timer)
-        self.assertIsNone(p._linger_timer)
+
+        # 旧回调尝试完成
+        p.finish('长任务完成', token=token)
+        self.assertFalse(p.is_visible_to_user)
+        self.assertEqual(p._state, 'idle')
+
+        p.fail('长任务失败', token=token)
+        self.assertFalse(p.is_visible_to_user)
+        self.assertEqual(p._state, 'idle')
 
 
 if __name__ == '__main__':

@@ -981,7 +981,7 @@ class AiWorkbenchPanel(QWidget):
         if hasattr(self, 'loading'):
             self.loading.place_overlay(self)
 
-    def _busy(self, on: bool, message: str = ''):
+    def _busy(self, on: bool, message: str = '') -> int:
         zh = self.language == 'zh'
         for btn in (
             self.test_btn, self.scan_btn, self.run_btn,
@@ -990,11 +990,12 @@ class AiWorkbenchPanel(QWidget):
         ):
             btn.setEnabled(not on)
         if on:
-            self.loading.start_busy(message or ('处理中…' if zh else 'Working…'))
+            return self.loading.start_busy(message or ('处理中…' if zh else 'Working…'))
         else:
             self._refresh_model_status()
             self.next_btn.setEnabled(self._has_more)
             self.all_btn.setEnabled(self._has_more)
+            return self.loading.current_token
 
     def _start_db(self, kind: str, **kwargs):
         item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
@@ -1007,25 +1008,29 @@ class AiWorkbenchPanel(QWidget):
             'scan': '正在扫描结构…' if zh else 'Scanning schema…',
             'query': '正在执行查询…' if zh else 'Running query…',
         }
-        self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'))
+        token = self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'))
+        self._db_token = token
         if kind == 'scan':
             self.scan_cancel_btn.setEnabled(True)
         self.result_status.setText(labels.get(kind, '正在连接…' if zh else 'Working…'))
         self._worker = _DbWorker(kind, item, **kwargs)
-        self._worker.completed.connect(lambda payload: self._on_db_ok(kind, payload, kwargs))
-        self._worker.failed.connect(self._on_db_fail)
+        self._worker.token = token
+        self._worker.completed.connect(lambda payload, t=token: self._on_db_ok(kind, payload, kwargs, token=t))
+        self._worker.failed.connect(lambda msg, t=token: self._on_db_fail(msg, token=t))
         self._worker.finished.connect(lambda: (self.scan_cancel_btn.setEnabled(False), self._busy(False)))
         self._worker.start()
 
     def _cancel_scan(self):
         if self._worker is not None:
             self._worker.cancelled = True
-        self.loading.fail('扫描已取消' if self.language == 'zh' else 'Scan cancelled')
+        self.loading.fail('扫描已取消' if self.language == 'zh' else 'Scan cancelled', token=getattr(self, '_db_token', None))
 
-    def _on_db_ok(self, kind: str, payload: dict, kwargs: dict):
+    def _on_db_ok(self, kind: str, payload: dict, kwargs: dict, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_db_token', None):
+            return
         zh = self.language == 'zh'
         if kind == 'test':
-            self.loading.finish('连接成功' if zh else 'Connected')
+            self.loading.finish('连接成功' if zh else 'Connected', token=token)
             show_info(self, self._title(), '连接成功' if zh else 'Connected')
             self._log_msg('连接测试成功' if zh else 'Connection ok')
             return
@@ -1038,11 +1043,11 @@ class AiWorkbenchPanel(QWidget):
             count = len((payload or {}).get('objects') or [])
             warning = str((payload or {}).get('warning') or '')
             if str((payload or {}).get('status') or '') == 'failed':
-                self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'))
+                self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'), token=token)
                 show_error(self, self._title(), warning or ('扫描失败' if zh else 'Scan failed'))
                 self._log_msg(f'扫描失败: {warning}')
                 return
-            self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
+            self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)', token=token)
             show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             self._log_msg(f'扫描完成，对象 {count}')
             return
@@ -1075,11 +1080,13 @@ class AiWorkbenchPanel(QWidget):
             self._hist_refresh()
             self.next_btn.setEnabled(self._has_more)
             self.all_btn.setEnabled(self._has_more)
-            self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'))
+            self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'), token=token)
 
-    def _on_db_fail(self, message: str):
+    def _on_db_fail(self, message: str, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_db_token', None):
+            return
         text = redact_error(str(message or ''))
-        self.loading.fail(text or ('失败' if self.language == 'zh' else 'Failed'))
+        self.loading.fail(text or ('失败' if self.language == 'zh' else 'Failed'), token=token)
         show_error(self, self._title(), text)
         self.result_status.setText('失败' if self.language == 'zh' else 'Failed')
         self._log_msg(text)

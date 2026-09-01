@@ -127,6 +127,38 @@ class AiWorkbenchDbScanTests(unittest.TestCase):
             panel.hide()
             panel.deleteLater()
 
+    def test_ai_workbench_db_worker_token_isolation(self):
+        with patch('panels.ai_workbench_panel.load_connections', return_value=self.mock_connections), \
+             patch('panels.ai_workbench_panel.show_info'):
+            panel = AiWorkbenchPanel(language='zh')
+            panel._browse_conn = MagicMock(return_value=self.mock_connections[0])
+
+            # 启动任务 A
+            token_a = panel._busy(True, '正在扫描 A…')
+            panel._db_token = token_a
+
+            # 启动任务 B
+            token_b = panel._busy(True, '正在扫描 B…')
+            panel._db_token = token_b
+            self.assertGreater(token_b, token_a)
+            self.assertEqual(panel.loading._label, '正在扫描 B…')
+            self.assertEqual(panel.loading._state, 'pending_busy')
+
+            # 任务 A 晚到完成回调
+            ok_payload = {'status': 'ok', 'warning': '', 'objects': []}
+            panel._on_db_ok('scan', ok_payload, {}, token=token_a)
+
+            # 状态依然保持为任务 B 的 pending_busy，未被 A 提前取消或关闭
+            self.assertEqual(panel.loading._label, '正在扫描 B…')
+            self.assertEqual(panel.loading._state, 'pending_busy')
+
+            # 任务 B 超过延迟实际展示后完成
+            panel.loading._show_overlay_now()
+            panel._on_db_ok('scan', ok_payload, {}, token=token_b)
+            self.assertEqual(panel.loading._state, 'finish')
+
+            panel.deleteLater()
+
 
 if __name__ == '__main__':
     unittest.main()

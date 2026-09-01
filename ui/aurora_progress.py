@@ -188,7 +188,6 @@ class AuroraProgress(QWidget):
         """设置显式百分比进度（0-100）。若传入 token 且已过期则静默忽略。"""
         if token is not None and token != self._generation:
             return
-        self._generation += 1
         self._value = max(0, min(100, int(value)))
         if label is not None:
             self._label = label

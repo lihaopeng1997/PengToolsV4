@@ -3323,23 +3323,27 @@ class InterfaceDebugPanel(QWidget):
         self._rt_last_request_body = body
         self._rt_send_started_at = time.time()
         self.rt_send_btn.setEnabled(False)
-        self.loading.start_busy('正在发送请求…')
+        token = self.loading.start_busy('正在发送请求…')
+        self._rt_token = token
 
         worker = _RequestTestWorker(
             method, url, headers, body, parent=self, verify_ssl=verify_ssl,
         )
         self._rt_worker = worker
-        worker.finished_ok.connect(self._rt_send_finished)
-        worker.failed.connect(self._rt_send_failed)
+        worker.token = token
+        worker.finished_ok.connect(lambda result, t=token: self._rt_send_finished(result, token=t))
+        worker.failed.connect(lambda msg, t=token: self._rt_send_failed(msg, token=t))
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
-    def _rt_send_finished(self, result: dict):
+    def _rt_send_finished(self, result: dict, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_rt_token', None):
+            return
         meta = getattr(self, '_rt_send_meta', {}) or {}
         method = meta.get('method') or 'GET'
         url = meta.get('url') or ''
         try:
-            self.loading.finish('请求完成')
+            self.loading.finish('请求完成', token=token)
             rbody = result.get('body') or ''
             headers = result.get('headers') or {}
             status = result.get('status')
@@ -3391,9 +3395,11 @@ class InterfaceDebugPanel(QWidget):
             self._rt_refresh_send_label()
             self._rt_worker = None
 
-    def _rt_send_failed(self, message: str):
+    def _rt_send_failed(self, message: str, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_rt_token', None):
+            return
         try:
-            self.loading.fail(message or '请求失败')
+            self.loading.fail(message or '请求失败', token=token)
             show_warning(self, '请求测试', message or '请求失败')
             self._rt_append_history_from_send(
                 status=None, ok=False, error=message or '请求失败', response_body='',
