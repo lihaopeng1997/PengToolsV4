@@ -133,6 +133,38 @@ class DialogPathsTests(unittest.TestCase):
             save_path = get_dialog_save_path('export_key', 'my_report.xlsx')
             self.assertEqual(save_path, os.path.join(os.path.abspath(target_dir), 'my_report.xlsx'))
 
+    def test_multi_file_selection_remembers_first_valid_parent(self):
+        with patch('config.load_last_choices', side_effect=self._mock_load_last_choices), \
+             patch('config.update_last_choices', side_effect=self._mock_update_last_choices):
+            file1 = os.path.join(self.temp_dir, 'batch_a', 'file1.txt')
+            file2 = os.path.join(self.temp_dir, 'batch_b', 'file2.txt')
+            os.makedirs(os.path.dirname(file1), exist_ok=True)
+            os.makedirs(os.path.dirname(file2), exist_ok=True)
+            with open(file1, 'w') as f:
+                f.write('1')
+            with open(file2, 'w') as f:
+                f.write('2')
+
+            saved = remember_dialog_path('batch_import', [file1, file2])
+            self.assertEqual(saved, os.path.abspath(os.path.dirname(file1)))
+            self.assertEqual(get_dialog_start_dir('batch_import'), os.path.abspath(os.path.dirname(file1)))
+
+    def test_real_disk_persistence_roundtrip(self):
+        """真实磁盘 JSON 往返读写测试（非全部 mock 内存）。"""
+        import config
+        disk_json_path = os.path.join(self.temp_dir, 'test_last_choices.json')
+        with patch.object(config, 'LAST_CHOICES_FILE', disk_json_path):
+            work_dir = os.path.join(self.temp_dir, 'real_work_dir')
+            os.makedirs(work_dir, exist_ok=True)
+
+            saved = remember_dialog_path('disk_test_purpose', work_dir, is_directory=True)
+            self.assertEqual(saved, os.path.abspath(work_dir))
+            self.assertTrue(os.path.exists(disk_json_path))
+
+            # 从磁盘重新读取
+            loaded_dir = get_dialog_start_dir('disk_test_purpose')
+            self.assertEqual(loaded_dir, os.path.abspath(work_dir))
+
 
 if __name__ == '__main__':
     unittest.main()
