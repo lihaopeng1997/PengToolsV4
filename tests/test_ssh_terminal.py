@@ -67,15 +67,47 @@ class SshTerminalWidgetTests(unittest.TestCase):
         # But UI status message is updated
         self.assertIn('会话已断开', self.view._system_status)
 
-    def test_clear_and_ready_does_not_forge_dollar_prompt(self):
-        """本地 clear_and_ready 只清屏，不伪造远端 $ prompt。"""
+    def test_connected_clear_delegates_to_remote_ctrl_l_without_screen_mutation(self):
+        """已连接时清屏：发送 Ctrl+L 到远端 PTY，本地绝不私自清屏或伪造 prompt。"""
+        mock_shell = MagicMock()
+        mock_shell.alive = True
+        self.view._shell = mock_shell
+        self.view._connected = True
+
         emu = self.view._emulator
-        emu.feed_text('some output\r\n')
+        emu.feed_text('user@linux:~$ top output\r\nPID USER CPU\r\n')
+
+        # Snapshot before clear
+        grid_before = [list(row) for row in emu.screen.grid]
+        cursor_x_before = emu.screen.cursor_x
+        cursor_y_before = emu.screen.cursor_y
+        text_before = emu.get_plain_text()
+
+        # Trigger clear action
+        self.view.clear_and_ready()
+
+        # 1. Sent Ctrl+L to remote shell
+        mock_shell.send.assert_called_once_with(b'\x0c')
+
+        # 2. Before receiving remote echo, local emulator state is 100% untouched
+        self.assertEqual(emu.get_plain_text(), text_before)
+        self.assertEqual(emu.screen.cursor_x, cursor_x_before)
+        self.assertEqual(emu.screen.cursor_y, cursor_y_before)
+        self.assertNotIn('$', self.view._system_status)
+
+        # 3. Simulate remote PTY echoing clear ANSI and redraw
+        self.view._on_data(self.view._session_generation, b'\x1b[H\x1b[2Juser@linux:~$ ')
+        self.assertEqual(self.view.toPlainText(), 'user@linux:~$')
+
+    def test_disconnected_clear_clears_local_display(self):
+        """未连接时 clear_and_ready 只清本地残余，绝不伪造远端 $ prompt。"""
+        self.view._connected = False
+        emu = self.view._emulator
+        emu.feed_text('some leftover text\r\n')
 
         self.view.clear_and_ready()
         text = self.view.toPlainText()
         self.assertNotIn('$', text)
-        self.assertNotIn('[已清屏]', text)
         self.assertEqual(text, '')
 
     def test_key_mapping_enter_backspace_delete(self):

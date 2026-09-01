@@ -279,48 +279,31 @@ class TerminalEmulator:
                 self._state = self.STATE_NORMAL
             elif ch == '\x1b':
                 self._state = self.STATE_OSC_ESC
-            elif ch == '[':
-                self._state = self.STATE_CSI
-                self._params = []
-                self._current_param = ''
-                self._private_mode = ''
-                self._intermediates = ''
-            elif ch == ']':
-                self._state = self.STATE_OSC
-                self._osc_buffer = ''
-            else:
+            elif ch in ('\x18', '\x1a'):
                 self._state = self.STATE_NORMAL
-                if ord(ch) >= 32:
-                    self._put_char(ch)
+            else:
+                # ESC inside OSC not followed by '\' remains in OSC consumption
+                self._state = self.STATE_OSC
+                self._osc_buffer += ch
 
         elif self._state == self.STATE_STRING:  # DCS, APC, PM, SOS
-            if ch == '\x07':  # BEL termination
+            if ch == '\x1b':  # Candidate for ST (\x1b\)
+                self._state = self.STATE_STRING_ESC
+            elif ch in ('\x18', '\x1a'):  # CAN / SUB aborts
                 self._state = self.STATE_NORMAL
-            elif ch == '\x1b':  # Candidate for ST (\x1b\)
+            else:
+                pass  # Safely consume string payload (BEL does not exit DCS/APC/PM/SOS)
+
+        elif self._state == self.STATE_STRING_ESC:
+            if ch == '\\':  # ST (\x1b\) termination complete
+                self._state = self.STATE_NORMAL
+            elif ch == '\x1b':
                 self._state = self.STATE_STRING_ESC
             elif ch in ('\x18', '\x1a'):
                 self._state = self.STATE_NORMAL
             else:
-                pass  # Safely consume string payload
-
-        elif self._state == self.STATE_STRING_ESC:
-            if ch == '\\':  # ST complete
-                self._state = self.STATE_NORMAL
-            elif ch == '\x1b':
-                self._state = self.STATE_STRING_ESC
-            elif ch == '[':
-                self._state = self.STATE_CSI
-                self._params = []
-                self._current_param = ''
-                self._private_mode = ''
-                self._intermediates = ''
-            elif ch == ']':
-                self._state = self.STATE_OSC
-                self._osc_buffer = ''
-            else:
-                self._state = self.STATE_NORMAL
-                if ord(ch) >= 32:
-                    self._put_char(ch)
+                # ESC inside string not followed by '\' remains in string consumption
+                self._state = self.STATE_STRING
 
         elif self._state == self.STATE_CHARSET:
             self._state = self.STATE_NORMAL

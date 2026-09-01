@@ -300,11 +300,20 @@ class _SshTerminalView(QAbstractScrollArea):
         self.viewport().update()
 
     def clear_and_ready(self) -> None:
-        """本地清屏：清除本地展示内容与状态提示，不伪造远端 prompt。"""
+        """清屏：
+        - 已连接时向远端 PTY 发送 Ctrl+L (\x0c)，由远端 PTY 回显自然重绘/清屏，不本地篡改 screen authority。
+        - 未连接时清理本地残余展示。
+        """
         self._system_status = ''
-        self._emulator.clear_screen()
-        self._update_scroll_bar()
-        self.viewport().update()
+        if self.shell_alive and self._shell is not None:
+            try:
+                self._shell.send(b'\x0c')
+            except Exception as exc:
+                self.append_system(f'[发送失败] {exc}')
+        else:
+            self._emulator.clear_screen()
+            self._update_scroll_bar()
+            self.viewport().update()
 
     def send_command_line(self, text: str) -> None:
         if not self.shell_alive:

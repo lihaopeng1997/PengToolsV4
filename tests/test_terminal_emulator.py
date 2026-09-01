@@ -105,6 +105,16 @@ class TerminalEmulatorTests(unittest.TestCase):
         self.assertNotIn('\\', text)
         self.assertNotIn('title_split', text)
 
+    def test_osc_with_embedded_csi_remains_isolated(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        # ESC [ inside OSC should not switch parser to CSI
+        emu.feed_text('\x1b]0;title_with_\x1b[31m_embedded\x1b\\Visible Text')
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible Text')
+        self.assertNotIn('title_with', text)
+        self.assertNotIn('[31m', text)
+        self.assertIsNone(emu.current_style.fg)
+
     def test_unsupported_csi_with_private_and_intermediates_safe_ignore(self):
         emu = TerminalEmulator(cols=40, rows=10)
         # CSI with > private prefix
@@ -119,14 +129,35 @@ class TerminalEmulatorTests(unittest.TestCase):
         self.assertEqual(lines[1], 'Visible After Soft Reset')
         self.assertNotIn('!p', lines[1])
 
-    def test_dcs_apc_pm_sos_safe_consume(self):
+    def test_dcs_with_embedded_escape_and_bel_remains_isolated(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        # DCS with embedded ESC[31m and BEL: BEL should NOT prematurely terminate DCS
+        emu.feed_text('\x1bP1;2;embedded_\x1b[31;1m_payload\x07_continued\x1b\\Visible Text')
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible Text')
+        self.assertNotIn('embedded', text)
+        self.assertNotIn('payload', text)
+        self.assertNotIn('continued', text)
+        # Current style should not have been contaminated by embedded ESC[31;1m
+        self.assertFalse(emu.current_style.bold)
+        self.assertIsNone(emu.current_style.fg)
+
+    def test_dcs_with_embedded_osc_remains_isolated(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        emu.feed_text('\x1bP1;2;embedded_\x1b]0;title_payload\x1b\\Visible Text')
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible Text')
+        self.assertNotIn('embedded', text)
+        self.assertNotIn('title_payload', text)
+
+    def test_apc_pm_sos_safe_consume(self):
         emu = TerminalEmulator(cols=40, rows=10)
         # DCS terminated by ST
         emu.feed_text('\x1bP1;2;payload\x1b\\Visible After DCS\r\n')
         # APC terminated by ST
-        emu.feed_text('\x1b_some_apc_data\x1b\\Visible After APC\r\n')
+        emu.feed_text('\x1b_some_apc_\x1b[31m_data\x1b\\Visible After APC\r\n')
         # PM terminated by ST
-        emu.feed_text('\x1b^some_pm_data\x1b\\Visible After PM\r\n')
+        emu.feed_text('\x1b^some_pm_\x07_data\x1b\\Visible After PM\r\n')
         # SOS terminated by ST
         emu.feed_text('\x1bXsome_sos_data\x1b\\Visible After SOS')
 
