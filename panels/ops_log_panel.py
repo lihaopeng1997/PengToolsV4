@@ -1983,7 +1983,7 @@ class OpsLogPanel(QWidget):
         self.remote_tree.setIndentation(8)
         self.remote_tree.setUniformRowHeights(True)
         self.remote_tree.setIconSize(QSize(18, 18))
-        self.remote_tree.setMinimumHeight(160)
+        self.remote_tree.setMinimumHeight(240)
         # 内容过宽可横向滚动；每列可拖拽改宽
         self.remote_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.remote_tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)

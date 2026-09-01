@@ -281,6 +281,7 @@ class CompactStepper(QWidget):
 
         self.suffix_label = QLabel(suffix or '')
         self.suffix_label.setObjectName('field-hint')
+        self.suffix_label.setContentsMargins(6, 0, 0, 0)
         self.suffix_label.setVisible(bool(suffix))
 
         layout.addWidget(self.minus_btn)

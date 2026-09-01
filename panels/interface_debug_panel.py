@@ -1117,38 +1117,35 @@ class InterfaceDebugPanel(QWidget):
                 ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('response', 'gateway')),
             ])
 
-        request_test_compact = right_width < 560
+        # 核心主操作直显：发送 / 从会话填充 / 保存接口
+        self._set_widgets_visible((self.rt_send_btn, self.rt_fill_btn, self.rt_save_api_btn), True)
+
+        # 低频操作统一进入更多菜单
         request_test_actions = (
             self.export_detail_btn, self.rt_import_btn, self.rt_req_copy_btn,
             self.rt_req_format_btn, self.rt_resp_copy_btn, self.rt_resp_format_btn,
         )
-        self._set_widgets_visible(request_test_actions, not request_test_compact)
-        self.rt_io_more_btn.setVisible(request_test_compact)
-        if request_test_compact:
-            self._rebuild_overflow_menu(self._rt_io_actions_menu, [
-                ('导出明细' if self.language == 'zh' else 'Export detail', self._export_session_detail),
-                ('导入明细' if self.language == 'zh' else 'Import', self._rt_import_file),
-                ('复制请求' if self.language == 'zh' else 'Copy request', self._rt_copy_request_body),
-                ('请求→格式工具' if self.language == 'zh' else 'Request → Format', self._rt_send_request_to_format),
-                ('复制响应' if self.language == 'zh' else 'Copy response', self._rt_copy_response_body),
-                ('响应→格式工具' if self.language == 'zh' else 'Response → Format', self._rt_send_response_to_format),
-            ])
+        self._set_widgets_visible(request_test_actions, False)
+        self.rt_io_more_btn.setVisible(True)
+        self._rebuild_overflow_menu(self._rt_io_actions_menu, [
+            ('复制请求' if self.language == 'zh' else 'Copy request', self._rt_copy_request_body),
+            ('请求→格式工具' if self.language == 'zh' else 'Request → Format', self._rt_send_request_to_format),
+            ('复制响应' if self.language == 'zh' else 'Copy response', self._rt_copy_response_body),
+            ('响应→格式工具' if self.language == 'zh' else 'Response → Format', self._rt_send_response_to_format),
+            ('导入接口' if self.language == 'zh' else 'Import API', self._rt_import_file),
+            ('导出明细' if self.language == 'zh' else 'Export detail', self._export_session_detail),
+        ])
 
-        form_compact = right_width < 560
-        form_actions = (
-            self.rt_environment_config_btn, self.rt_fill_btn, self.rt_filter_config_btn,
-            self.rt_save_api_btn, self.rt_manage_cat_btn,
+        form_secondary = (
+            self.rt_environment_config_btn, self.rt_filter_config_btn, self.rt_manage_cat_btn,
         )
-        self._set_widgets_visible(form_actions, not form_compact)
-        self.rt_form_more_btn.setVisible(form_compact)
-        if form_compact:
-            self._rebuild_overflow_menu(self._rt_form_actions_menu, [
-                ('环境配置' if self.language == 'zh' else 'Environment settings', self._show_environment_config_dialog),
-                ('从会话填充' if self.language == 'zh' else 'Fill from session', self._rt_fill_from_selection),
-                ('过滤配置' if self.language == 'zh' else 'Filter settings', self._show_url_filter_config_dialog),
-                ('保存接口' if self.language == 'zh' else 'Save API', self._rt_save_api),
-                ('分类管理' if self.language == 'zh' else 'Manage categories', self._rt_manage_categories),
-            ])
+        self._set_widgets_visible(form_secondary, False)
+        self.rt_form_more_btn.setVisible(True)
+        self._rebuild_overflow_menu(self._rt_form_actions_menu, [
+            ('管理分类' if self.language == 'zh' else 'Manage categories', self._rt_manage_categories),
+            ('环境配置' if self.language == 'zh' else 'Environment settings', self._show_environment_config_dialog),
+            ('过滤配置' if self.language == 'zh' else 'Filter settings', self._show_url_filter_config_dialog),
+        ])
 
         self._adaptive_table_width = table_width
         self._apply_column_visibility()

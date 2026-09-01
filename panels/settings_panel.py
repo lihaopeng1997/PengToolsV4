@@ -517,6 +517,9 @@ class SettingsPanel(QWidget):
         self.ai_ssl_verify = QCheckBox()
         self.ai_ssl_label = QLabel()
         ai_form.addRow(self.ai_ssl_label, self.ai_ssl_verify)
+        self.ai_supports_vision = QCheckBox()
+        self.ai_supports_vision_label = QLabel()
+        ai_form.addRow(self.ai_supports_vision_label, self.ai_supports_vision)
         probe_row = QWidget()
         probe_layout = QHBoxLayout(probe_row)
         probe_layout.setContentsMargins(0, 0, 0, 0)
@@ -819,6 +822,7 @@ class SettingsPanel(QWidget):
         self.ai_app_tag.setText(str(cfg.get('app_tag') or ''))
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
+        self.ai_supports_vision.setChecked(bool(cfg.get('supports_vision', False)))
         self._reload_harness_projects(cfg.get('project_id') or 'prpcar')
         zh = self.language == 'zh'
         if cfg.get('enabled') and cfg.get('base_url'):
@@ -843,6 +847,7 @@ class SettingsPanel(QWidget):
             'model': self.ai_model.currentText().strip(),
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
+            'supports_vision': self.ai_supports_vision.isChecked(),
             'token': encrypt_token(token_plain) if token_plain else '',
             'app_tag': self.ai_app_tag.text().strip(),
             'project_id': self.ai_project.currentData() or 'prpcar',
@@ -1320,6 +1325,9 @@ class SettingsPanel(QWidget):
         self.ai_timeout_label.setText('超时' if zh else 'Timeout')
         self.ai_ssl_label.setText('HTTPS 证书' if zh else 'TLS verify')
         self.ai_ssl_verify.setText('校验（内网自签可关）' if zh else 'Verify (off for self-signed)')
+        self.ai_supports_vision_label.setText('视觉能力' if zh else 'Vision')
+        self.ai_supports_vision.setText('支持图片输入（多模态）' if zh else 'Supports image input (multimodal)')
+        self.ai_supports_vision.setToolTip('勾选后允许在模型对话中添加图片附件' if zh else 'Allow image attachments in Model Chat')
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(

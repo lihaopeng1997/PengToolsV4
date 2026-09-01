@@ -32,6 +32,7 @@ DEFAULT_AI_LOCAL = {
     'app_tag': '',
     'max_tokens': 8192,
     'project_id': 'prpcar',
+    'supports_vision': False,
 }
 
 CATALOG_VERSION = 2
@@ -78,6 +79,7 @@ def normalize_ai_local(raw) -> dict:
         result['token'] = str(raw.get('token') or '')
         result['app_tag'] = str(raw.get('app_tag') or '').strip()
         result['project_id'] = str(raw.get('project_id') or 'prpcar').strip() or 'prpcar'
+        result['supports_vision'] = bool(raw.get('supports_vision', False))
         try:
             result['max_tokens'] = max(16, min(8192, int(raw.get('max_tokens') or 8192)))
         except (TypeError, ValueError):

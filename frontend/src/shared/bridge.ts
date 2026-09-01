@@ -58,6 +58,15 @@ export function applyThemePayload(payloadStr?: string | null): void {
     const isDark = Boolean(data.is_dark)
     document.documentElement.setAttribute('data-theme', themeId)
     document.documentElement.classList.toggle('dark', isDark)
+    if (data.tokens && typeof data.tokens === 'object') {
+      const rootStyle = document.documentElement.style
+      for (const [key, value] of Object.entries(data.tokens)) {
+        if (typeof value === 'string') {
+          const varName = '--' + key.toLowerCase().replace(/_/g, '-')
+          rootStyle.setProperty(varName, value)
+        }
+      }
+    }
   } catch {
     // ignore malformed payload
   }

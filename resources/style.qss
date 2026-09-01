@@ -1781,6 +1781,32 @@ QPushButton#floating-toggle:hover {
     font-weight: 700;
     padding: 0;
 }
+QPushButton#floating-mode-btn {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#floating-mode-btn:checked {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY_SOFT__;
+}
+QPushButton#floating-mode-btn:hover:!checked {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+}
+QPlainTextEdit#floating-chat-history {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 12px;
+    color: __TEXT_STRONG__;
+}
 QPushButton#floating-icon-btn {
     background: transparent;
     border: none;

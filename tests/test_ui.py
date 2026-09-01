@@ -83,6 +83,10 @@ class UiRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def setUp(self):
+        self.app.setQuitOnLastWindowClosed(False)
 
     def test_floating_toolbar_restores_position_and_can_hide(self):
         panel = QuickPanel(_MainWindowStub())

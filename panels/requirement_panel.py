@@ -1489,13 +1489,14 @@ class RequirementPanel(QWidget):
         self.toolbar_more_btn.setMenu(self.toolbar_more_menu)
 
         for button in (
-            self.scan_btn, self.checkout_btn, self.update_all_btn,
-            self.bug_btn, self.import_btn, self.system_config_btn,
-            self.toolbar_more_btn,
+            self.scan_btn, self.update_all_btn,
+            self.bug_btn, self.toolbar_more_btn,
         ):
             size_compact_button(button)
             toolbar_layout.addWidget(button)
-        self.toolbar_more_btn.hide()
+        for hidden_btn in (self.checkout_btn, self.import_btn, self.system_config_btn):
+            hidden_btn.hide()
+        self.toolbar_more_btn.show()
         toolbar_layout.addStretch(1)
         # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明
         self.svn_activity = QLabel('')

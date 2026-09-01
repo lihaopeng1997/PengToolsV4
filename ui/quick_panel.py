@@ -7,10 +7,10 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -27,6 +27,29 @@ from ui.navigation_model import (
 )
 
 
+class _QuickChatWorker(QThread):
+    completed = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, messages: list[dict], cfg: dict):
+        super().__init__()
+        self.messages = list(messages)
+        self.cfg = dict(cfg)
+        self.cancelled = False
+
+    def run(self):
+        try:
+            from tools.intranet_llm import chat_completions
+            text = chat_completions(self.messages, cfg=self.cfg)
+            if self.cancelled:
+                return
+            self.completed.emit(text)
+        except Exception as exc:
+            if self.cancelled:
+                return
+            self.failed.emit(str(exc))
+
+
 class QuickPanel(QWidget):
     """桌面悬浮工具栏；圆形品牌按钮是展开与收起状态唯一且不变的屏幕锚点。"""
 
@@ -41,12 +64,17 @@ class QuickPanel(QWidget):
     GRID_GAP = 8
     PANEL_PAD = 12
     LEARN_SEARCH_HEIGHT = 520
+    CHAT_PANEL_WIDTH = 340
+    CHAT_PANEL_HEIGHT = 440
 
     def __init__(self, main_window, language='zh'):
         super().__init__(None)
         self._main_window = main_window
         self.language = language
         self.expanded = False
+        self._mode = 'tools'  # 'tools' | 'chat'
+        self._chat_worker: _QuickChatWorker | None = None
+        self._chat_messages: list[dict] = []
         self._drag_offset = None
         self._dragging = False
         self._compact_position = QPoint()
@@ -85,16 +113,33 @@ class QuickPanel(QWidget):
         tools_layout.setContentsMargins(12, 10, 12, 10)
         tools_layout.setSpacing(8)
 
-        # 顶部：Logo + 标题 + 编辑 + 收起
+        # 顶部：Logo + 模式切换（快捷工具 / AI 对话） + 编辑 + 收起
         header = QHBoxLayout()
-        header.setSpacing(8)
+        header.setSpacing(6)
         self.header_logo = QLabel()
         self.header_logo.setFixedSize(22, 22)
         self.header_logo.setObjectName('floating-header-logo')
         header.addWidget(self.header_logo)
-        self.title = QLabel()
-        self.title.setObjectName('floating-title')
-        header.addWidget(self.title, 1)
+
+        self.mode_tools_btn = QPushButton('快捷工具')
+        self.mode_tools_btn.setObjectName('floating-mode-btn')
+        self.mode_tools_btn.setCheckable(True)
+        self.mode_tools_btn.setChecked(True)
+        self.mode_tools_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_tools_btn.clicked.connect(lambda: self._set_mode('tools'))
+        header.addWidget(self.mode_tools_btn)
+
+        self.mode_chat_btn = QPushButton('AI 对话')
+        self.mode_chat_btn.setObjectName('floating-mode-btn')
+        self.mode_chat_btn.setCheckable(True)
+        self.mode_chat_btn.setChecked(False)
+        self.mode_chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_chat_btn.clicked.connect(lambda: self._set_mode('chat'))
+        header.addWidget(self.mode_chat_btn)
+
+        self.title = self.mode_tools_btn  # 兼容引用
+
+        header.addStretch(1)
         self.edit_btn = QPushButton()
         self.edit_btn.setObjectName('floating-icon-btn')
         self.edit_btn.setFixedSize(28, 28)
@@ -225,6 +270,58 @@ class QuickPanel(QWidget):
         self._learn_entries = []
         self._learn_current = None
 
+        # AI 对话容器（纯文本多轮聊天，不 import panels）
+        self.chat_container = QWidget()
+        self.chat_container.setObjectName('floating-chat')
+        chat_l = QVBoxLayout(self.chat_container)
+        chat_l.setContentsMargins(0, 4, 0, 4)
+        chat_l.setSpacing(6)
+
+        chat_top = QHBoxLayout()
+        chat_top.setSpacing(6)
+        self.chat_model_combo = QComboBox()
+        self.chat_model_combo.setToolTip('选择已启用的模型')
+        chat_top.addWidget(self.chat_model_combo, 1)
+
+        self.chat_clear_btn = QPushButton()
+        self.chat_clear_btn.setObjectName('floating-icon-btn')
+        self.chat_clear_btn.setFixedSize(28, 28)
+        self.chat_clear_btn.setToolTip('清空会话')
+        apply_icon(self.chat_clear_btn, 'delete', size=16)
+        self.chat_clear_btn.clicked.connect(self._clear_chat)
+        chat_top.addWidget(self.chat_clear_btn)
+        chat_l.addLayout(chat_top)
+
+        self.chat_history = QPlainTextEdit()
+        self.chat_history.setObjectName('floating-chat-history')
+        self.chat_history.setReadOnly(True)
+        self.chat_history.setPlaceholderText('发送消息开始轻量多轮对话…')
+        chat_l.addWidget(self.chat_history, 1)
+
+        chat_input_row = QHBoxLayout()
+        chat_input_row.setSpacing(6)
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText('输入消息，按 Enter 发送…')
+        self.chat_input.returnPressed.connect(self._on_chat_send_or_stop)
+        chat_input_row.addWidget(self.chat_input, 1)
+
+        self.chat_send_btn = QPushButton('发送')
+        apply_button(self.chat_send_btn, 'primary', compact=True)
+        self.chat_send_btn.clicked.connect(self._on_chat_send_or_stop)
+        chat_input_row.addWidget(self.chat_send_btn)
+        chat_l.addLayout(chat_input_row)
+
+        chat_bottom = QHBoxLayout()
+        self.open_full_chat_btn = QPushButton('打开完整模型聊天')
+        self.open_full_chat_btn.setObjectName('floating-home')
+        self.open_full_chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_full_chat_btn.clicked.connect(lambda: self._activate(16))
+        chat_bottom.addWidget(self.open_full_chat_btn)
+        chat_l.addLayout(chat_bottom)
+
+        self.chat_container.hide()
+        tools_layout.addWidget(self.chat_container, 1)
+
         # 底部：打开完整工作台 + 设置快捷入口
         footer = QHBoxLayout()
         footer.setSpacing(8)
@@ -259,10 +356,16 @@ class QuickPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.title.setText('快捷工具' if zh else 'Quick Tools')
+        self.mode_tools_btn.setText('快捷工具' if zh else 'Tools')
+        self.mode_chat_btn.setText('AI 对话' if zh else 'AI Chat')
         self.home_btn.setText('打开完整工作台' if zh else 'Open workspace')
         self.ticket_btn.setText('一键提签' if zh else 'Submit ticket')
         self.footer_edit_btn.setText('设置快捷入口' if zh else 'Edit shortcuts')
+        self.open_full_chat_btn.setText('打开完整模型聊天' if zh else 'Open Full Model Chat')
+        self.chat_input.setPlaceholderText('输入消息，按 Enter 发送…' if zh else 'Type message, press Enter…')
+        self.chat_history.setPlaceholderText('发送消息开始轻量多轮对话…' if zh else 'Start chat with enabled model…')
+        self.chat_clear_btn.setToolTip('清空会话' if zh else 'Clear chat')
+        self._sync_chat_running_state(self._chat_worker is not None and self._chat_worker.isRunning())
         self._refresh_ticket_button()
         self.edit_btn.setToolTip('编辑快捷入口' if zh else 'Edit shortcuts')
         self.collapse_btn.setToolTip('收起' if zh else 'Collapse')
@@ -285,6 +388,109 @@ class QuickPanel(QWidget):
         self._rebuild_cards()
         if self.preview.isVisible() and getattr(self, '_preview_index', None) is not None:
             self._fill_result_preview(self._preview_index)
+
+    def _set_mode(self, mode: str):
+        self._mode = mode
+        is_tools = (mode == 'tools')
+        self.mode_tools_btn.setChecked(is_tools)
+        self.mode_chat_btn.setChecked(not is_tools)
+        self.edit_btn.setVisible(is_tools)
+        if is_tools:
+            self.chat_container.hide()
+            self.grid_host.show()
+            self.home_btn.show()
+            self.ticket_btn.show()
+            self.footer_edit_btn.show()
+        else:
+            self.grid_host.hide()
+            self.preview.hide()
+            self.learn_search.hide()
+            self.home_btn.hide()
+            self.ticket_btn.hide()
+            self.footer_edit_btn.hide()
+            self._reload_chat_models()
+            self.chat_container.show()
+            self.chat_input.setFocus()
+        if self.expanded:
+            self._layout_expanded()
+
+    def _reload_chat_models(self):
+        try:
+            from tools.intranet_llm import list_enabled_items
+            items = list_enabled_items()
+        except Exception:
+            items = []
+        self.chat_model_combo.blockSignals(True)
+        self.chat_model_combo.clear()
+        for it in items:
+            self.chat_model_combo.addItem(f"{it.get('name') or ''} ({it.get('model') or ''})", it)
+        if not items:
+            self.chat_model_combo.addItem('未配置可用模型', None)
+        self.chat_model_combo.blockSignals(False)
+
+    def _clear_chat(self):
+        if self._chat_worker is not None and self._chat_worker.isRunning():
+            self._chat_worker.cancelled = True
+            self._chat_worker = None
+        self._chat_messages.clear()
+        self.chat_history.clear()
+        self._sync_chat_running_state(False)
+
+    def _on_chat_send_or_stop(self):
+        if self._chat_worker is not None and self._chat_worker.isRunning():
+            self._chat_worker.cancelled = True
+            self._chat_worker = None
+            self._sync_chat_running_state(False)
+            self._append_chat_message('system', '已停止')
+            return
+        text = self.chat_input.text().strip()
+        if not text:
+            return
+        model_cfg = self.chat_model_combo.currentData()
+        if not model_cfg or not isinstance(model_cfg, dict):
+            self._append_chat_message('system', '未选择或未配置启用的内网模型，请前往设置中配置。')
+            return
+        self.chat_input.clear()
+        self._chat_messages.append({'role': 'user', 'content': text})
+        self._append_chat_message('user', text)
+        self._sync_chat_running_state(True)
+        self._chat_worker = _QuickChatWorker(self._chat_messages, model_cfg)
+        self._chat_worker.completed.connect(self._on_chat_completed)
+        self._chat_worker.failed.connect(self._on_chat_failed)
+        self._chat_worker.start()
+
+    def _on_chat_completed(self, answer: str):
+        self._chat_worker = None
+        self._sync_chat_running_state(False)
+        self._chat_messages.append({'role': 'assistant', 'content': answer})
+        self._append_chat_message('assistant', answer)
+
+    def _on_chat_failed(self, error: str):
+        self._chat_worker = None
+        self._sync_chat_running_state(False)
+        self._append_chat_message('system', f'模型返回异常：{error}')
+
+    def _sync_chat_running_state(self, running: bool):
+        zh = self.language == 'zh'
+        if running:
+            self.chat_send_btn.setText('停止' if zh else 'Stop')
+            apply_button(self.chat_send_btn, 'secondary', compact=True)
+        else:
+            self.chat_send_btn.setText('发送' if zh else 'Send')
+            apply_button(self.chat_send_btn, 'primary', compact=True)
+
+    def _append_chat_message(self, role: str, content: str):
+        zh = self.language == 'zh'
+        if role == 'user':
+            prefix = '👤 ' + ('我' if zh else 'Me')
+        elif role == 'assistant':
+            prefix = '🤖 ' + ('模型' if zh else 'Assistant')
+        else:
+            prefix = 'ℹ️ ' + ('系统' if zh else 'System')
+        self.chat_history.appendPlainText(f'[{prefix}]\n{content}\n')
+        self.chat_history.verticalScrollBar().setValue(
+            self.chat_history.verticalScrollBar().maximum()
+        )
 
     def apply_shortcuts(self, shortcuts, *, private_unlocked: bool | None = None):
         """刷新快捷配置；保留面板位置与展开/收起状态。"""
@@ -344,6 +550,8 @@ class QuickPanel(QWidget):
             return self.LEARN_SEARCH_HEIGHT
         if self.preview.isVisible():
             return 420
+        if hasattr(self, 'chat_container') and self.chat_container.isVisible():
+            return self.CHAT_PANEL_HEIGHT
         count = max(1, len(self._shortcuts))
         rows = (count + 1) // 2
         body = rows * self.CARD_HEIGHT + max(0, rows - 1) * self.GRID_GAP
@@ -358,6 +566,8 @@ class QuickPanel(QWidget):
     def _expanded_size(self) -> tuple[int, int]:
         if self.learn_search.isVisible():
             return self.LEARN_PANEL_WIDTH + 16, self.LEARN_SEARCH_HEIGHT + 16
+        if hasattr(self, 'chat_container') and self.chat_container.isVisible():
+            return self.CHAT_PANEL_WIDTH + 16, self.CHAT_PANEL_HEIGHT + 16
         height = max(200, min(380, self._content_height()))
         return self.PANEL_WIDTH + 16, height + 16
 
@@ -406,7 +616,8 @@ class QuickPanel(QWidget):
     # ── 几何 ────────────────────────────────────────────────────
 
     def _place_initially(self):
-        screen = QApplication.primaryScreen().availableGeometry()
+        primary = QApplication.primaryScreen()
+        screen = primary.availableGeometry() if primary else QRect(0, 0, 1920, 1080)
         width, height = self.COMPACT_SIZE
         x = screen.right() - width - 18
         y = screen.center().y() - height // 2

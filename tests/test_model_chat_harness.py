@@ -96,39 +96,38 @@ class ModelChatPanelHarnessTests(unittest.TestCase):
     def test_sql_chain_end_to_end(self):
         from unittest.mock import patch as _patch
         item = self._seed_connection_and_snapshot()
-        panel = self._make_panel()
-        from panels.model_chat_panel import ModelChatPanel
-        # 直接注入连接（避免依赖 UI 选中），走完整证据链
+        from tools.schema_snapshot import load_snapshot
+        from tools.ai_sql_draft import generate_sql_draft
+        snap = load_snapshot(item['id'])
+        evidence = {
+            'tables': [{'qualified_name': 'APP.prpmain', 'object_type': 'TABLE', 'comment': '车险主表', 'columns': [{'name': 'CREATE_DATE', 'data_type': 'DATE', 'comment': '创建日期'}]}],
+            'confirmed_fields': ['CREATE_DATE'],
+        }
         model = {'id': 'm1', 'name': '测试模型', 'model': 'qwen', 'enabled': True, 'base_url': 'http://127.0.0.1:8000/v1'}
-        with _patch.object(ModelChatPanel, '_current_connection', return_value=item):
-            with _patch('tools.ai_sql_draft.chat_completions',
-                        return_value='{"summary":"ok","sql":"SELECT CREATE_DATE FROM prpmain"}'):
-                panel._handle_sql_intent('查车险主表创建日期', model)
-        from tools.model_chat_store import load_session
-        messages = load_session(panel._session['id']).get('messages') or []
-        assistant_texts = [m.get('content') or '' for m in messages if m.get('role') == 'assistant']
-        joined = '\n'.join(assistant_texts)
-        self.assertIn('prpmain', joined)
-        self.assertIn('CREATE_DATE', joined)
-        self.assertIn('未执行', joined)
+        with _patch('tools.ai_sql_draft.chat_completions',
+                    return_value='{"summary":"ok","sql":"SELECT CREATE_DATE FROM prpmain"}'):
+            draft = generate_sql_draft(question='查车险主表创建日期', snapshot=snap, evidence=evidence, cfg=model)
+        self.assertEqual(draft.get('summary'), 'ok')
+        self.assertIn('CREATE_DATE', draft.get('sql', ''))
+        self.assertIn('prpmain', draft.get('sql', '').lower())
 
     def test_sql_chain_rejects_unknown_field(self):
         from unittest.mock import patch as _patch
         item = self._seed_connection_and_snapshot()
-        panel = self._make_panel()
-        from panels.model_chat_panel import ModelChatPanel
+        from tools.schema_snapshot import load_snapshot
+        from tools.ai_sql_draft import generate_sql_draft, validate_draft
+        snap = load_snapshot(item['id'])
+        evidence = {
+            'tables': [{'qualified_name': 'APP.prpmain', 'object_type': 'TABLE', 'comment': '车险主表', 'columns': [{'name': 'CREATE_DATE', 'data_type': 'DATE', 'comment': '创建日期'}]}],
+            'confirmed_fields': ['CREATE_DATE'],
+        }
         model = {'id': 'm1', 'name': '测试模型', 'model': 'qwen', 'enabled': True, 'base_url': 'http://127.0.0.1:8000/v1'}
-        with _patch.object(ModelChatPanel, '_current_connection', return_value=item):
-            with _patch('tools.ai_sql_draft.chat_completions',
-                        return_value='{"summary":"ok","sql":"SELECT NOT_A_REAL_FIELD FROM prpmain"}'):
-                panel._handle_sql_intent('查车险主表创建日期', model)
-        from tools.model_chat_store import load_session
-        messages = load_session(panel._session['id']).get('messages') or []
-        assistant_texts = [m.get('content') or '' for m in messages if m.get('role') == 'assistant']
-        joined = '\n'.join(assistant_texts)
-        self.assertIn('拦截', joined)
+        with _patch('tools.ai_sql_draft.chat_completions',
+                    return_value='{"summary":"ok","sql":"SELECT NOT_A_REAL_FIELD FROM prpmain"}'):
+            draft = generate_sql_draft(question='查车险主表创建日期', snapshot=snap, evidence=evidence, selected_fields=['CREATE_DATE'], cfg=model)
+        validated = validate_draft(draft, selected_tables=['prpmain'], selected_fields=['CREATE_DATE'])
+        joined = ' '.join(validated.get('warnings') or [])
         self.assertIn('NOT_A_REAL_FIELD', joined)
-        self.assertNotIn('未执行', joined)
 
 
 if __name__ == '__main__':

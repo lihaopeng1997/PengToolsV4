@@ -135,6 +135,7 @@ class AgentWorkbenchPanel(QWidget):
         self._agent_worker = None        # _WorkbenchWorker 引用
         self._plan_confirm = False       # 始终先确认计划（默认关）
         self._bridge = None              # 跨线程桥（延迟创建）
+        self._file_attachments: list[str] = []
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
@@ -166,82 +167,112 @@ class AgentWorkbenchPanel(QWidget):
         self.dir_label.setMaximumWidth(280)
         self.dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
+        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        top.addWidget(self.model_combo)
+
         self.exec_mode_combo = QComboBox()
         from ui.field_metrics import size_enum_combo
         size_enum_combo(self.exec_mode_combo, min_w=100, max_w=160)
         self.exec_mode_combo.currentIndexChanged.connect(self._on_exec_mode_changed)
+        top.addWidget(self.exec_mode_combo)
+
+        top.addStretch(1)
 
         self.context_toggle_btn = QPushButton()
         apply_button(self.context_toggle_btn, 'ghost', compact=True)
         self.context_toggle_btn.setCheckable(True)
         self.context_toggle_btn.setChecked(True)
         self.context_toggle_btn.clicked.connect(self._toggle_context_panel)
+        top.addWidget(self.context_toggle_btn)
 
         self.new_btn = QPushButton()
         apply_button(self.new_btn, 'secondary', compact=True)
         self.new_btn.clicked.connect(self._new_workspace)
-
-        top.addWidget(self.model_combo)
-        top.addWidget(self.dir_btn)
-        top.addWidget(self.dir_label)
-        top.addWidget(self.exec_mode_combo)
-        top.addStretch(1)
-        top.addWidget(self.context_toggle_btn)
         top.addWidget(self.new_btn)
+
         root.addWidget(toolbar)
 
-        # 左右主 Splitter
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setObjectName('agent-workbench-splitter')
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(8)
 
-        # 左栏：空间（工作台任务）列表
-        left = QFrame()
-        left.setObjectName('dashboard-task-card')
-        left_l = QVBoxLayout(left)
+        # 左栏：空间 / 对话管理树（支持右键管理）
+        left_card = QFrame()
+        left_card.setObjectName('dashboard-task-card')
+        left_l = QVBoxLayout(left_card)
         left_l.setContentsMargins(8, 8, 8, 8)
         left_l.setSpacing(6)
 
-        space_head = QHBoxLayout()
-        self.space_title = QLabel('空间')
-        self.space_title.setObjectName('field-hint')
-        self.space_new_btn = QPushButton('+')
-        self.space_new_btn.setToolTip('新建对话')
-        self.space_new_btn.setFixedSize(22, 22)
-        apply_button(self.space_new_btn, 'ghost', compact=True)
-        self.space_new_btn.clicked.connect(self._new_conversation)
-        space_head.addWidget(self.space_title)
-        space_head.addStretch(1)
-        space_head.addWidget(self.space_new_btn)
-        left_l.addLayout(space_head)
+        left_head = QHBoxLayout()
+        self.space_title = QLabel()
+        self.space_title.setObjectName('section-title')
+        left_head.addWidget(self.space_title, 1)
+
+        self.new_ws_btn = QPushButton('+')
+        apply_button(self.new_ws_btn, 'ghost', compact=True)
+        self.new_ws_btn.setToolTip('新建工作空间')
+        self.new_ws_btn.clicked.connect(self._new_workspace)
+        left_head.addWidget(self.new_ws_btn)
+        self.space_new_btn = self.new_ws_btn
+        left_l.addLayout(left_head)
 
         self.space_tree = QTreeWidget()
         self.space_tree.setHeaderHidden(True)
-        self.space_tree.setIndentation(14)
-        self.space_tree.itemClicked.connect(self._on_space_clicked)
+        self.space_tree.setRootIsDecorated(True)
         self.space_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.space_tree.customContextMenuRequested.connect(self._on_space_tree_menu)
+        self.space_tree.itemClicked.connect(self._on_space_clicked)
         left_l.addWidget(self.space_tree, 1)
-        split.addWidget(left)
 
-        # 中栏：垂直 Splitter（对话流 + 可调整 Composer）
+        ws_manage_row = QHBoxLayout()
+        self.bind_dir_btn = QPushButton()
+        apply_button(self.bind_dir_btn, 'secondary', compact=True)
+        self.bind_dir_btn.clicked.connect(self._bind_directory)
+        ws_manage_row.addWidget(self.bind_dir_btn)
+
+        self.dir_label = QLabel()
+        self.dir_label.setObjectName('field-hint')
+        self.dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        ws_manage_row.addWidget(self.dir_label, 1)
+        left_l.addLayout(ws_manage_row)
+        split.addWidget(left_card)
+
+        # 中栏：消息流 + 输入框
         self.center_split = QSplitter(Qt.Orientation.Vertical)
         self.center_split.setChildrenCollapsible(False)
+        self.center_split.setHandleWidth(8)
 
-        # 对话流
+        thread_container = QFrame()
+        thread_container.setObjectName('dashboard-task-card')
+        thread_l = QVBoxLayout(thread_container)
+        thread_l.setContentsMargins(8, 8, 8, 8)
+        thread_l.setSpacing(6)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.thread_host = QWidget()
-        self.thread_layout = QVBoxLayout(self.thread_host)
-        self.thread_layout.setContentsMargins(8, 8, 8, 8)
+        self.thread_widget = QWidget()
+        self.thread_layout = QVBoxLayout(self.thread_widget)
+        self.thread_layout.setContentsMargins(0, 0, 0, 0)
+        self.thread_layout.setSpacing(8)
         self.thread_layout.addStretch(1)
-        self.scroll.setWidget(self.thread_host)
-        self.center_split.addWidget(self.scroll)
+        self.scroll.setWidget(self.thread_widget)
+        thread_l.addWidget(self.scroll, 1)
+        self.center_split.addWidget(thread_container)
 
-        # Composer 区域
-        composer_container = QWidget()
+        composer_container = QFrame()
+        composer_container.setObjectName('dashboard-task-card')
         composer_l = QVBoxLayout(composer_container)
-        composer_l.setContentsMargins(0, 4, 0, 0)
+        composer_l.setContentsMargins(8, 8, 8, 8)
         composer_l.setSpacing(6)
+
+        self.attachment_bar = QLabel()
+        self.attachment_bar.setObjectName('field-hint')
+        self.attachment_bar.setWordWrap(True)
+        self.attachment_bar.hide()
+        composer_l.addWidget(self.attachment_bar)
+
         self.input = QPlainTextEdit()
         self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
@@ -254,7 +285,7 @@ class AgentWorkbenchPanel(QWidget):
         # "+" 菜单按钮
         self.add_attachment_btn = QToolButton()
         self.add_attachment_btn.setText('+')
-        self.add_attachment_btn.setToolTip('新建对话 / 添加工作区文件引用')
+        self.add_attachment_btn.setToolTip('新建对话 / 添加工作区文件引用 / 清空附件')
         self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         apply_button(self.add_attachment_btn, 'ghost', compact=True)
         attach_menu = QMenu(self.add_attachment_btn)
@@ -269,6 +300,10 @@ class AgentWorkbenchPanel(QWidget):
         self.send_btn = QPushButton()
         apply_button(self.send_btn, 'primary', compact=True)
         self.send_btn.clicked.connect(self._on_action_clicked)
+        self.stop_btn = QPushButton()
+        apply_button(self.stop_btn, 'secondary', compact=True)
+        self.stop_btn.clicked.connect(self._stop)
+        self.stop_btn.hide()
 
         send_row.addWidget(self.add_attachment_btn)
         send_row.addWidget(self.send_hint, 1)
@@ -363,6 +398,11 @@ class AgentWorkbenchPanel(QWidget):
                     return True
         return super().eventFilter(watched, event)
 
+    def _toggle_context_panel(self):
+        visible = not self.context_panel.isVisible()
+        self.context_panel.setVisible(visible)
+        self.context_toggle_btn.setChecked(visible)
+
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
@@ -371,25 +411,25 @@ class AgentWorkbenchPanel(QWidget):
             '绑定项目目录，运行受控任务（只读写工作文件夹内文件）' if zh else
             'Bind a project folder and run controlled tasks (workspace files only)'
         )
-        self.dir_btn.setText('绑定目录' if zh else 'Bind folder')
+        self.bind_dir_btn.setText('绑定目录' if zh else 'Bind folder')
         ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
         self.dir_label.setText(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
         self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
+        self.new_ws_btn.setToolTip('新建工作区' if zh else 'New workspace')
         self.new_btn.setText('新建工作区' if zh else 'New workspace')
+        self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
         self.context_toggle_btn.setText('项目文件' if zh else 'Files')
         self.context_toggle_btn.setToolTip('显示/隐藏项目文件与预览面板' if zh else 'Toggle project files and preview panel')
         self.space_title.setText('工作区' if zh else 'Workspaces')
         self.project_title.setText('项目文件' if zh else 'Files')
         self.preview_title.setText('预览' if zh else 'Preview')
-        self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
         self.send_hint.setText('Enter 发送 · Alt+Enter 换行' if zh else 'Enter: send · Alt+Enter: newline')
         self.new_conv_action.setText('新建对话' if zh else 'New conversation')
-        self.add_file_ref_action.setText('添加工作区内文件引用' if zh else 'Reference workspace file')
-        self.clear_ref_action.setText('清空输入' if zh else 'Clear input')
+        self.add_file_ref_action.setText('添加文件引用' if zh else 'Reference file')
+        self.clear_ref_action.setText('清空附件' if zh else 'Clear attachments')
         self.input.setPlaceholderText('描述任务…（Enter 发送，Alt+Enter 换行）' if zh else 'Describe task… (Enter to send, Alt+Enter for newline)')
         self._update_exec_mode_options()
         self._sync_running_state()
-        self._update_exec_mode_options()
 
     def _update_exec_mode_options(self):
         zh = self.language == 'zh'
@@ -486,6 +526,14 @@ class AgentWorkbenchPanel(QWidget):
             if wanted and item.get('id') == wanted:
                 self.model_combo.setCurrentIndex(self.model_combo.count() - 1)
         self.model_combo.blockSignals(False)
+
+    def _on_model_changed(self, idx: int = 0):
+        data = self._current_model()
+        if data and data.get('id'):
+            from config import load_settings, save_settings
+            s = load_settings()
+            s['model_chat_last_model_id'] = data.get('id')
+            save_settings(s)
 
     def _current_model(self) -> dict | None:
         data = self.model_combo.currentData()
@@ -904,18 +952,30 @@ class AgentWorkbenchPanel(QWidget):
         if not paths:
             return
         remember_dialog_path('agent_file_ref', paths[0])
-        valid_refs = []
+        added = False
         for p in paths:
             if not self._is_path_within_workspace(p, ws_dir):
                 show_warning(self, '禁止引用工作区外文件', f'文件「{os.path.basename(p)}」超出当前绑定的工作区范围，已拒绝。')
                 continue
             rel = os.path.relpath(os.path.realpath(p), os.path.realpath(ws_dir)).replace('\\', '/')
-            valid_refs.append(f'@{rel}')
-        if valid_refs:
-            cur = self.input.toPlainText()
-            prefix = (cur + ' ') if cur.strip() else ''
-            self.input.setPlainText(prefix + ' '.join(valid_refs) + ' ')
-            self.input.setFocus()
+            if rel not in self._file_attachments:
+                self._file_attachments.append(rel)
+                added = True
+        if added:
+            self._refresh_attachment_bar()
+
+    def _clear_attachments(self):
+        self._file_attachments.clear()
+        self._refresh_attachment_bar()
+
+    def _refresh_attachment_bar(self):
+        if self._file_attachments:
+            chips = ' · '.join(f'📎 {f}' for f in self._file_attachments)
+            self.attachment_bar.setText(f'已附加文件引用：{chips}')
+            self.attachment_bar.show()
+        else:
+            self.attachment_bar.setText('')
+            self.attachment_bar.hide()
 
     def _new_conversation(self):
         """在当前空间下新建一个对话。"""
@@ -970,10 +1030,18 @@ class AgentWorkbenchPanel(QWidget):
         """工作台发送：启动 ReAct 循环。"""
         if self._agent_worker is not None and self._agent_worker.isRunning():
             return
-        text = self.input.toPlainText().strip()
-        if not text:
+        user_text = self.input.toPlainText().strip()
+        if not user_text and not self._file_attachments:
             return
         self.input.clear()
+
+        # 将附件作为明确 task context
+        if self._file_attachments:
+            refs_context = "已附加工作区文件引用：\n" + "\n".join(f"- `{f}`" for f in self._file_attachments)
+            text = f"{user_text}\n\n{refs_context}" if user_text else refs_context
+            self._clear_attachments()
+        else:
+            text = user_text
 
         if not self._workspace_session:
             self._new_workspace()

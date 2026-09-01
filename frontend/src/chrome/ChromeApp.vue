@@ -142,26 +142,30 @@ function onPaletteClick(): void {
 <!-- 非 scoped：样式从 legacy chrome.html 原样迁移（含 html/body 背景与高度），保持 V2 白昼玻璃视觉 -->
 <style>
 :root {
-  --ink:#232A4D; --ink-2:#5A6284; --ink-3:#9AA1BE;
-  --glass:rgba(255,255,255,.62); --glass-strong:rgba(255,255,255,.85);
-  --edge:rgba(35,42,77,.08);
-  --c1:#5B5FC7; --grad:linear-gradient(115deg,#5B5FC7,#7A7ED9 50%,#9BA0EC);
-  --r-sm:12px;
-  --font:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --ink: var(--text-strong, #232A4D);
+  --ink-2: var(--text, #5A6284);
+  --ink-3: var(--text-muted, #9AA1BE);
+  --glass: var(--surface, rgba(255,255,255,.62));
+  --glass-strong: var(--surface-strong, rgba(255,255,255,.85));
+  --edge: var(--border, rgba(35,42,77,.08));
+  --c1: var(--primary, #5B5FC7);
+  --grad: linear-gradient(115deg, var(--primary, #5B5FC7), var(--primary-active, #7A7ED9) 50%, var(--primary-soft, #9BA0EC));
+  --r-sm: 12px;
+  --font: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;
 }
 html[data-theme="clear"] {
-  --ink:#161D26; --ink-2:#38424E; --ink-3:#667486;
-  --c1:#3A5770; --grad:linear-gradient(115deg,#3A5770,#4F708B 50%,#688BA8);
+  --ink: var(--text-strong, #161D26); --ink-2: var(--text, #38424E); --ink-3: var(--text-muted, #667486);
+  --c1: var(--primary, #3A5770); --grad: linear-gradient(115deg, var(--primary, #3A5770), var(--primary-active, #4F708B) 50%, var(--primary-soft, #688BA8));
 }
 html[data-theme="warm"] {
-  --ink:#241C16; --ink-2:#4A3B30; --ink-3:#7A6858;
-  --c1:#8B5E3C; --grad:linear-gradient(115deg,#8B5E3C,#A67C52 50%,#C49A6C);
+  --ink: var(--text-strong, #241C16); --ink-2: var(--text, #4A3B30); --ink-3: var(--text-muted, #7A6858);
+  --c1: var(--primary, #8B5E3C); --grad: linear-gradient(115deg, var(--primary, #8B5E3C), var(--primary-active, #A67C52) 50%, var(--primary-soft, #C49A6C));
 }
 html[data-theme="black"], html.dark {
-  --ink:#F4F4F5; --ink-2:#C8C8CC; --ink-3:#8A8A90;
-  --glass:rgba(17,17,20,.78); --glass-strong:rgba(22,22,24,.92);
-  --edge:rgba(255,255,255,.08);
-  --c1:#8FBB9E; --grad:linear-gradient(115deg,#7AAB8B,#8FBB9E 50%,#A8CDB4);
+  --ink: var(--text-strong, #F4F4F5); --ink-2: var(--text, #C8C8CC); --ink-3: var(--text-muted, #8A8A90);
+  --glass: var(--surface, rgba(17,17,20,.78)); --glass-strong: var(--surface-strong, rgba(22,22,24,.92));
+  --edge: var(--border, rgba(255,255,255,.08));
+  --c1: var(--primary, #8FBB9E); --grad: linear-gradient(115deg, var(--primary-active, #7AAB8B), var(--primary, #8FBB9E) 50%, var(--primary-soft, #A8CDB4));
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { height:100%; }

@@ -167,11 +167,14 @@ class _SshTerminalView(QAbstractScrollArea):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
 
-        mono = QFont('Cascadia Mono')
+        mono = QFont('Cascadia Code')
         if not mono.exactMatch():
-            mono = QFont('Consolas')
+            mono = QFont('Cascadia Mono')
+            if not mono.exactMatch():
+                mono = QFont('Consolas')
         mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSize(10)
+        mono.setFixedPitch(True)
         self.setFont(mono)
 
         self._emulator = TerminalEmulator(cols=120, rows=32)
@@ -376,7 +379,7 @@ class _SshTerminalView(QAbstractScrollArea):
     def _cell_dimensions(self) -> Tuple[int, int]:
         fm = self.fontMetrics()
         cw = max(1, fm.horizontalAdvance('M'))
-        lh = max(1, fm.lineSpacing())
+        lh = max(1, fm.lineSpacing() + 2)
         return cw, lh
 
     def paintEvent(self, event):
@@ -398,7 +401,7 @@ class _SshTerminalView(QAbstractScrollArea):
 
         cw, lh = self._cell_dimensions()
         fm = self.fontMetrics()
-        ascent = fm.ascent()
+        ascent = fm.ascent() + 1
 
         sb_max = self.verticalScrollBar().maximum()
         sb_val = self.verticalScrollBar().value()
