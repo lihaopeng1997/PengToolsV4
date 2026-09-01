@@ -278,7 +278,6 @@ class AiWorkbenchPanel(QWidget):
         trail_l.setContentsMargins(0, 0, 0, 0)
         trail_l.setSpacing(8)
         trail_l.addWidget(self.conn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
-        trail_l.addWidget(self.new_tab_btn, 0, Qt.AlignmentFlag.AlignTop)
         header, self.page_title, self.page_subtitle = make_page_header(
             'SQL 控制台',
             '多标签 SQL 编辑与内网模型草案',
@@ -338,6 +337,7 @@ class AiWorkbenchPanel(QWidget):
             self.conn_target_hint.hide()
 
         body = QSplitter(Qt.Orientation.Vertical)
+        body.setHandleWidth(8)
         columns = QSplitter(Qt.Orientation.Horizontal)
 
         self.narrow_chrome = QFrame()
@@ -405,6 +405,7 @@ class AiWorkbenchPanel(QWidget):
         self.risk_chip = QLabel()
         self.risk_chip.setObjectName('status-pill')
         editor_row.addWidget(self.run_btn)
+        editor_row.addWidget(self.new_tab_btn)
         editor_row.addWidget(self.format_btn)
         editor_row.addWidget(self.clear_btn)
         editor_row.addStretch(1)
@@ -419,52 +420,62 @@ class AiWorkbenchPanel(QWidget):
 
         self.side_tabs = QTabWidget()
         ai_page = QWidget()
-        right_l = QVBoxLayout(ai_page)
-        right_l.setContentsMargins(10, 10, 10, 10)
+        ai_page_l = QVBoxLayout(ai_page)
+        ai_page_l.setContentsMargins(0, 0, 0, 0)
+        ai_page_l.setSpacing(0)
+
+        ai_vsplit = QSplitter(Qt.Orientation.Vertical)
+        ai_vsplit.setChildrenCollapsible(False)
+        ai_vsplit.setHandleWidth(6)
+
+        ai_top = QWidget()
+        ai_top_l = QVBoxLayout(ai_top)
+        ai_top_l.setContentsMargins(10, 10, 10, 4)
+        ai_top_l.setSpacing(4)
         self.ai_title = QLabel()
         self.ai_title.setObjectName('section-title')
-        right_l.addWidget(self.ai_title)
+        ai_top_l.addWidget(self.ai_title)
         self.agent_status = QLabel()
         self.agent_status.setObjectName('page-context')
         self.agent_status.setWordWrap(True)
-        right_l.addWidget(self.agent_status)
+        ai_top_l.addWidget(self.agent_status)
         self.model_status = QLabel()
         self.model_status.setObjectName('ops-safety-note')
         self.model_status.setWordWrap(True)
-        right_l.addWidget(self.model_status)
+        ai_top_l.addWidget(self.model_status)
         self.ai_hint = QLabel()
         self.ai_hint.setObjectName('ops-safety-note')
         self.ai_hint.setWordWrap(True)
-        right_l.addWidget(self.ai_hint)
+        ai_top_l.addWidget(self.ai_hint)
         self.nl_input = AiPromptEdit()
-        self.nl_input.setMinimumHeight(88)
+        self.nl_input.setMinimumHeight(90)
         self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
         self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
         self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
-        right_l.addWidget(self.nl_input, 1)
+        ai_top_l.addWidget(self.nl_input, 1)
         self.ai_chips = QLabel()
         self.ai_chips.setObjectName('field-hint')
         self.ai_chips.setWordWrap(True)
-        right_l.addWidget(self.ai_chips)
+        ai_top_l.addWidget(self.ai_chips)
         self.agent_evidence = QLabel()
         self.agent_evidence.setObjectName('field-hint')
         self.agent_evidence.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.agent_evidence.setWordWrap(True)
-        right_l.addWidget(self.agent_evidence)
+        ai_top_l.addWidget(self.agent_evidence)
         self.agent_candidates = QListWidget()
         self.agent_candidates.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.agent_candidates.hide()
-        right_l.addWidget(self.agent_candidates)
+        ai_top_l.addWidget(self.agent_candidates)
         self.agent_confirm_btn = QPushButton()
         apply_button(self.agent_confirm_btn, 'secondary', compact=True)
         self.agent_confirm_btn.clicked.connect(self._confirm_agent_fields)
         self.agent_confirm_btn.hide()
-        right_l.addWidget(self.agent_confirm_btn)
+        ai_top_l.addWidget(self.agent_confirm_btn)
         self.agent_stage = QLabel()
         self.agent_stage.setObjectName('field-hint')
         self.agent_stage.setWordWrap(True)
         self.agent_stage.hide()
-        right_l.addWidget(self.agent_stage)
+        ai_top_l.addWidget(self.agent_stage)
         ai_btns = QHBoxLayout()
         self.ai_gen_btn = QPushButton()
         apply_button(self.ai_gen_btn, 'secondary', compact=True)
@@ -501,14 +512,31 @@ class AiWorkbenchPanel(QWidget):
         for btn in (self.ai_gen_btn, self.ai_pick_btn, self.ai_snap_btn, self.agent_more, self.agent_cancel_btn):
             ai_btns.addWidget(btn)
         ai_btns.addStretch(1)
-        right_l.addLayout(ai_btns)
+        ai_top_l.addLayout(ai_btns)
         self.ai_explain_btn.hide()
         self.ai_opt_btn.hide()
         self.ai_fix_btn.hide()
+        ai_vsplit.addWidget(ai_top)
+
+        ai_bottom = QWidget()
+        ai_bottom_l = QVBoxLayout(ai_bottom)
+        ai_bottom_l.setContentsMargins(10, 4, 10, 10)
+        ai_bottom_l.setSpacing(4)
         self.ai_explain = QTextEdit()
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
-        right_l.addWidget(self.ai_explain, 1)
+        ai_bottom_l.addWidget(self.ai_explain, 1)
+        ai_vsplit.addWidget(ai_bottom)
+
+        install_splitter_prefs(
+            ai_vsplit,
+            defaults=[220, 260],
+            page_id='sql-console',
+            tab_id=f'ai-vsplit-{self._dialect}' if self._dialect else 'ai-vsplit',
+            min_sizes=[130, 160],
+            accessible_name='SQL 控制台 AI 助手输入与输出分隔',
+        )
+        ai_page_l.addWidget(ai_vsplit, 1)
         self.side_tabs.addTab(ai_page, 'AI 助手')
 
         detail = QWidget()
@@ -610,10 +638,10 @@ class AiWorkbenchPanel(QWidget):
         )
         install_splitter_prefs(
             body,
-            defaults=[480, 320],
+            defaults=[580, 310],
             page_id='sql-console',
             tab_id=f'body-{self._dialect}' if self._dialect else 'body',
-            min_sizes=[140, 120],
+            min_sizes=[300, 180],
             accessible_name='SQL 控制台上下分隔',
         )
         root.addWidget(body, 1)

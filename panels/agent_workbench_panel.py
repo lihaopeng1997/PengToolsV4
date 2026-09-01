@@ -9,26 +9,30 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QTextOption
+from PyQt6.QtCore import QEvent, QObject, Qt, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QKeyEvent, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
-    QHBoxLayout, QInputDialog, QLabel, QPlainTextEdit, QPushButton,
-    QScrollArea, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout, QInputDialog, QLabel, QMenu, QPlainTextEdit, QPushButton,
+    QScrollArea, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from config import load_settings
 from tools.agent_store import (
     create_conversation,
+    delete_conversation,
+    delete_workspace,
     empty_workspace,
     list_workspaces,
     load_workspace,
+    rename_conversation,
     save_workspace,
     set_active_conversation,
+    update_workspace,
 )
 from tools.intranet_llm import list_enabled_items
 from tools.sql_guard import redact_error
-from ui.confirm_dialog import show_error, show_warning
+from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import size_pick_combo
 from ui.page_chrome import make_page_header, make_page_toolbar
@@ -213,6 +217,8 @@ class AgentWorkbenchPanel(QWidget):
         self.space_tree.setHeaderHidden(True)
         self.space_tree.setIndentation(14)
         self.space_tree.itemClicked.connect(self._on_space_clicked)
+        self.space_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.space_tree.customContextMenuRequested.connect(self._on_space_tree_menu)
         left_l.addWidget(self.space_tree, 1)
         split.addWidget(left)
 
@@ -244,16 +250,29 @@ class AgentWorkbenchPanel(QWidget):
 
         send_row = QHBoxLayout()
         send_row.setSpacing(8)
+
+        # "+" 菜单按钮
+        self.add_attachment_btn = QToolButton()
+        self.add_attachment_btn.setText('+')
+        self.add_attachment_btn.setToolTip('新建对话 / 添加工作区文件引用')
+        self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        apply_button(self.add_attachment_btn, 'ghost', compact=True)
+        attach_menu = QMenu(self.add_attachment_btn)
+        self.new_conv_action = attach_menu.addAction('新建对话', self._new_conversation)
+        self.add_file_ref_action = attach_menu.addAction('添加工作区内文件引用', self._pick_workspace_file_ref)
+        attach_menu.addSeparator()
+        self.clear_ref_action = attach_menu.addAction('清空输入', lambda: self.input.clear())
+        self.add_attachment_btn.setMenu(attach_menu)
+
+        self.send_hint = QLabel()
+        self.send_hint.setObjectName('field-hint')
         self.send_btn = QPushButton()
         apply_button(self.send_btn, 'primary', compact=True)
-        self.send_btn.clicked.connect(self._send)
-        self.stop_btn = QPushButton()
-        apply_button(self.stop_btn, 'secondary', compact=True)
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
-        send_row.addStretch(1)
+        self.send_btn.clicked.connect(self._on_action_clicked)
+
+        send_row.addWidget(self.add_attachment_btn)
+        send_row.addWidget(self.send_hint, 1)
         send_row.addWidget(self.send_btn)
-        send_row.addWidget(self.stop_btn)
         composer_l.addLayout(send_row)
         self.center_split.addWidget(composer_container)
 
@@ -333,19 +352,14 @@ class AgentWorkbenchPanel(QWidget):
         self._split = split
 
     def eventFilter(self, watched, event):
-        from PyQt6.QtCore import QEvent
-        from PyQt6.QtGui import QKeyEvent
         if watched is self.input and event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
-            settings = load_settings()
-            ctrl_enter = bool(settings.get('model_chat_send_with_ctrl_enter', True))
-            enter = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-            if enter and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                has_ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-                if ctrl_enter and has_ctrl:
-                    self._send()
-                    return True
-                if (not ctrl_enter) and (not has_ctrl):
-                    self._send()
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                modifiers = event.modifiers()
+                if modifiers & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier):
+                    return False
+                if not event.isAutoRepeat():
+                    self._on_action_clicked()
                     return True
         return super().eventFilter(watched, event)
 
@@ -368,9 +382,13 @@ class AgentWorkbenchPanel(QWidget):
         self.project_title.setText('项目文件' if zh else 'Files')
         self.preview_title.setText('预览' if zh else 'Preview')
         self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
-        self.send_btn.setText('发送' if zh else 'Send')
-        self.stop_btn.setText('停止' if zh else 'Stop')
-        self.input.setPlaceholderText('描述任务…' if zh else 'Describe task…')
+        self.send_hint.setText('Enter 发送 · Alt+Enter 换行' if zh else 'Enter: send · Alt+Enter: newline')
+        self.new_conv_action.setText('新建对话' if zh else 'New conversation')
+        self.add_file_ref_action.setText('添加工作区内文件引用' if zh else 'Reference workspace file')
+        self.clear_ref_action.setText('清空输入' if zh else 'Clear input')
+        self.input.setPlaceholderText('描述任务…（Enter 发送，Alt+Enter 换行）' if zh else 'Describe task… (Enter to send, Alt+Enter for newline)')
+        self._update_exec_mode_options()
+        self._sync_running_state()
         self._update_exec_mode_options()
 
     def _update_exec_mode_options(self):
@@ -724,24 +742,187 @@ class AgentWorkbenchPanel(QWidget):
             if role in ('user', 'assistant') and content:
                 self._append_message(role, content)
 
+    def _on_space_tree_menu(self, pos):
+        item = self.space_tree.itemAt(pos)
+        if item is None:
+            return
+        meta = item.data(0, Qt.ItemDataRole.UserRole) or {}
+        kind = meta.get('kind')
+        ws_id = str(meta.get('ws_id') or '')
+        zh = self.language == 'zh'
+        menu = QMenu(self.space_tree)
+        if kind == 'space':
+            menu.addAction('新建对话' if zh else 'New conversation', lambda: self._new_conversation_for_ws(ws_id))
+            menu.addAction('重命名工作区' if zh else 'Rename workspace', lambda: self._rename_workspace(ws_id))
+            menu.addAction('更换目录' if zh else 'Change directory', lambda: self._change_workspace_dir(ws_id))
+            menu.addSeparator()
+            menu.addAction('删除工作区' if zh else 'Delete workspace', lambda: self._delete_workspace(ws_id))
+        elif kind == 'conversation':
+            conv_id = str(meta.get('conv_id') or '')
+            menu.addAction('新建对话' if zh else 'New conversation', lambda: self._new_conversation_for_ws(ws_id))
+            menu.addAction('重命名对话' if zh else 'Rename conversation', lambda: self._rename_conversation(ws_id, conv_id))
+            menu.addSeparator()
+            menu.addAction('删除对话' if zh else 'Delete conversation', lambda: self._delete_conversation(ws_id, conv_id))
+        menu.exec(self.space_tree.viewport().mapToGlobal(pos))
+
+    def _new_conversation_for_ws(self, ws_id: str):
+        if self._agent_worker is not None:
+            show_warning(self, self._title(), '当前任务运行中，请先停止。')
+            return
+        zh = self.language == 'zh'
+        title, ok = QInputDialog.getText(self, '新建对话' if zh else 'New conversation', '对话名称：' if zh else 'Title:')
+        if not ok or not title.strip():
+            return
+        ws, conv_id = create_conversation(ws_id, title.strip())
+        if not ws:
+            return
+        if self._workspace_session and self._workspace_session.get('id') == ws_id:
+            self._workspace_session = ws
+            self._tool_calls = []
+            self._render_conversation(ws, self._active_conversation_of(ws))
+        self._refresh_space_tree(select_ws_id=ws_id, select_conv_id=conv_id)
+
+    def _rename_workspace(self, ws_id: str):
+        ws = load_workspace(ws_id)
+        if not ws:
+            return
+        zh = self.language == 'zh'
+        title, ok = QInputDialog.getText(
+            self, '重命名工作区' if zh else 'Rename workspace',
+            '工作区名称：' if zh else 'Workspace title:',
+            text=str(ws.get('title') or ''),
+        )
+        if not ok or not title.strip():
+            return
+        updated = update_workspace(ws_id, {'title': title.strip()})
+        if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
+            self._workspace_session = updated
+        self._refresh_space_tree(select_ws_id=ws_id)
+
+    def _change_workspace_dir(self, ws_id: str):
+        zh = self.language == 'zh'
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('agent_workspace', os.path.expanduser('~'))
+        path = QFileDialog.getExistingDirectory(
+            self, '更换工作目录' if zh else 'Change directory', start,
+        )
+        if not path:
+            return
+        remember_dialog_path('agent_workspace', path, is_directory=True)
+        updated = update_workspace(ws_id, {'workspace_dir': path})
+        if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
+            self._workspace_session = updated
+            self.dir_label.setText(path)
+            self.dir_label.setToolTip(path)
+            self._refresh_tree(path)
+        self._refresh_space_tree(select_ws_id=ws_id)
+
+    def _delete_workspace(self, ws_id: str):
+        ws = load_workspace(ws_id)
+        if not ws:
+            return
+        zh = self.language == 'zh'
+        if not confirm_action(
+            self,
+            '删除工作区' if zh else 'Delete workspace',
+            f'确定要删除工作区「{ws.get("title") or "未命名"}」及其所有对话吗？' if zh else 'Delete this workspace and all conversations?',
+            danger=True,
+        ):
+            return
+        delete_workspace(ws_id)
+        if self._workspace_session and self._workspace_session.get('id') == ws_id:
+            metas = list_workspaces()
+            if metas:
+                self._select_workspace(str(metas[0].get('id') or ''), select_last_conv=True)
+            else:
+                self._workspace_session = None
+                self.project_tree.clear()
+                self._render_conversation({}, None)
+                self.dir_label.setText('（未绑定目录）' if zh else '(No folder bound)')
+        self._refresh_space_tree()
+
+    def _rename_conversation(self, ws_id: str, conv_id: str):
+        ws = load_workspace(ws_id)
+        if not ws:
+            return
+        conv = None
+        for c in ws.get('conversations') or []:
+            if c.get('id') == conv_id:
+                conv = c
+                break
+        cur_title = str((conv or {}).get('title') or '')
+        zh = self.language == 'zh'
+        title, ok = QInputDialog.getText(
+            self, '重命名对话' if zh else 'Rename conversation',
+            '对话名称：' if zh else 'Conversation title:',
+            text=cur_title,
+        )
+        if not ok or not title.strip():
+            return
+        updated = rename_conversation(ws_id, conv_id, title.strip())
+        if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
+            self._workspace_session = updated
+        self._refresh_space_tree(select_ws_id=ws_id, select_conv_id=conv_id)
+
+    def _delete_conversation(self, ws_id: str, conv_id: str):
+        ws = load_workspace(ws_id)
+        if not ws:
+            return
+        conv = None
+        for c in ws.get('conversations') or []:
+            if c.get('id') == conv_id:
+                conv = c
+                break
+        cur_title = str((conv or {}).get('title') or '当前对话')
+        zh = self.language == 'zh'
+        if not confirm_action(
+            self,
+            '删除对话' if zh else 'Delete conversation',
+            f'确定要删除对话「{cur_title}」吗？' if zh else 'Delete this conversation?',
+            danger=True,
+        ):
+            return
+        delete_conversation(ws_id, conv_id)
+        updated = load_workspace(ws_id)
+        if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
+            self._workspace_session = updated
+            active_c = self._active_conversation_of(updated)
+            self._render_conversation(updated, active_c)
+        self._refresh_space_tree(select_ws_id=ws_id)
+
+    def _pick_workspace_file_ref(self):
+        ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
+        zh = self.language == 'zh'
+        if not ws_dir or not os.path.isdir(ws_dir):
+            show_warning(self, '请先绑定工作目录' if zh else 'Bind workspace first', '当前工作区尚未绑定有效工作文件夹。')
+            return
+        from tools.dialog_paths import remember_dialog_path
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, '选择工作区内文件' if zh else 'Pick workspace file',
+            ws_dir, 'All Files (*)',
+        )
+        if not paths:
+            return
+        remember_dialog_path('agent_file_ref', paths[0])
+        valid_refs = []
+        for p in paths:
+            if not self._is_path_within_workspace(p, ws_dir):
+                show_warning(self, '禁止引用工作区外文件', f'文件「{os.path.basename(p)}」超出当前绑定的工作区范围，已拒绝。')
+                continue
+            rel = os.path.relpath(os.path.realpath(p), os.path.realpath(ws_dir)).replace('\\', '/')
+            valid_refs.append(f'@{rel}')
+        if valid_refs:
+            cur = self.input.toPlainText()
+            prefix = (cur + ' ') if cur.strip() else ''
+            self.input.setPlainText(prefix + ' '.join(valid_refs) + ' ')
+            self.input.setFocus()
+
     def _new_conversation(self):
         """在当前空间下新建一个对话。"""
         if not self._workspace_session:
             self._new_workspace()
             return
-        if self._agent_worker is not None:
-            show_warning(self, self._title(), '当前任务运行中，请先停止。')
-            return
-        title, ok = QInputDialog.getText(self, '新建对话', '对话名称：')
-        if not ok or not title.strip():
-            return
-        ws, conv_id = create_conversation(self._workspace_session.get('id'), title.strip())
-        if not ws:
-            return
-        self._workspace_session = ws
-        self._tool_calls = []
-        self._render_conversation(ws, self._active_conversation_of(ws))
-        self._refresh_space_tree(select_ws_id=ws.get('id'), select_conv_id=conv_id)
+        self._new_conversation_for_ws(self._workspace_session.get('id'))
 
     def _new_workspace(self):
         """新建工作台（空间）。"""
@@ -767,9 +948,27 @@ class AgentWorkbenchPanel(QWidget):
 
     # ── 发送 / Agent 执行 ─────────────────────────────────────────────────
 
+    def _sync_running_state(self):
+        zh = self.language == 'zh'
+        is_running = self._agent_worker is not None and self._agent_worker.isRunning()
+        if is_running:
+            self.send_btn.setText('停止' if zh else 'Stop')
+            apply_button(self.send_btn, 'secondary', compact=True)
+            self.send_btn.setEnabled(True)
+        else:
+            self.send_btn.setText('发送' if zh else 'Send')
+            apply_button(self.send_btn, 'primary', compact=True)
+            self.send_btn.setEnabled(True)
+
+    def _on_action_clicked(self):
+        if self._agent_worker is not None and self._agent_worker.isRunning():
+            self._stop()
+        else:
+            self._send()
+
     def _send(self):
         """工作台发送：启动 ReAct 循环。"""
-        if self._agent_worker is not None:
+        if self._agent_worker is not None and self._agent_worker.isRunning():
             return
         text = self.input.toPlainText().strip()
         if not text:
@@ -802,9 +1001,6 @@ class AgentWorkbenchPanel(QWidget):
             self._append_message('assistant', '当前模型未启用或未配置 Base URL，请在设置中检查。')
             return
 
-        self.send_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-
         if self._bridge is None:
             self._bridge = _WorkbenchBridge(self)
         confirm_cb = self._bridge.confirm
@@ -823,16 +1019,16 @@ class AgentWorkbenchPanel(QWidget):
         self._agent_worker.finished.connect(self._on_agent_done)
         self._agent_worker.failed.connect(self._on_agent_failed)
         self._agent_worker.start()
+        self._sync_running_state()
 
     def _stop(self):
         if self._agent_worker:
             self._agent_worker.stop()
-            self.stop_btn.setEnabled(False)
+        self._sync_running_state()
 
     def _on_agent_done(self, final_answer: str, messages: list, tool_calls: list):
         self._agent_worker = None
-        self.send_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self._sync_running_state()
 
         if self._workspace_session:
             conv = self._active_conversation_of(self._workspace_session)
@@ -851,8 +1047,7 @@ class AgentWorkbenchPanel(QWidget):
     def _on_agent_failed(self, error_text: str):
         """工作台 Agent 子线程异常兜底：在主线程复位按钮并提示，绝不闪退。"""
         self._agent_worker = None
-        self.send_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self._sync_running_state()
         zh = self.language == 'zh'
         self._append_message('assistant',
             (f'⚠️ 工作台任务异常：{error_text}' if zh

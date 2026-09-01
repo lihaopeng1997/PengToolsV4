@@ -1,30 +1,30 @@
 # -*- coding: utf-8 -*-
-"""模型对话：网页式多轮聊天，用于验证内网模型配置。不带入 SQL 控制台上下文。
+"""模型对话：网页式多轮聊天，用于验证内网模型配置。纯聊天交互。
 
-v3.0 导航重构：工作台模式已提取到 panels/agent_workbench_panel.py，
-本面板为纯聊天模式（会话列表 + 多轮对话 + 模型选择 + 数据库上下文）。
+只保留：模型 / 会话 / 消息 / 附件 / composer。
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QTextOption
+import base64
+import mimetypes
+import os
+
+from PyQt6.QtCore import QEvent, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QKeyEvent, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-    QVBoxLayout, QWidget,
+    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+    QToolButton, QVBoxLayout, QWidget,
 )
-
-import os
 
 from config import load_settings, save_settings
 from tools import harness_project
-from tools.chat_intent import detect_take_data_intent
 from tools.intranet_llm import list_enabled_items, ping_model
 from tools.model_chat_store import (
-    SYSTEM_PROMPT, append_message, create_session, delete_session, load_index,
-    load_session, rename_session, save_session, search_sessions, trim_messages_for_request,
+    append_message, create_session, delete_session, load_index,
+    load_session, rename_session, search_sessions, trim_messages_for_request,
     update_message,
 )
 from tools.sql_guard import redact_error
@@ -33,6 +33,10 @@ from ui.design_system import apply_button
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
+
+MAX_TEXT_FILE_SIZE = 256 * 1024  # 256 KB
+MAX_IMAGE_FILE_SIZE = 4 * 1024 * 1024  # 4 MB
+MAX_ATTACHMENTS = 5
 
 
 class _ChatWorker(QThread):
@@ -69,51 +73,20 @@ class _PingWorker(QThread):
         self.completed.emit(ping_model(self.cfg))
 
 
-class _ScanWorker(QThread):
-    """后台现场扫描连接结构：只读结构读取，不执行任何业务 SQL。"""
-
-    completed = pyqtSignal(object)
-    failed = pyqtSignal(str)
-
-    def __init__(self, item: dict):
-        super().__init__()
-        self.item = dict(item or {})
-
-    def run(self):
-        from tools.db_connect import open_connection
-        from tools.schema_snapshot import save_snapshot, scan_schema
-        conn = None
-        try:
-            conn = open_connection(self.item)
-            payload = scan_schema(conn, self.item)
-            if str(payload.get('status') or '') == 'failed':
-                self.failed.emit(str(payload.get('warning') or '扫描失败'))
-                return
-            save_snapshot(payload)
-            self.completed.emit(payload)
-        except Exception as exc:
-            self.failed.emit(redact_error(str(exc)))
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-
-
 class ModelChatPanel(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
         self._worker = None
         self._ping_worker = None
-        self._scan_worker = None
         self._session = None
         self._pending_id = ''
+        self._is_running = False
+        self._text_attachments: list[dict] = []
+        self._image_attachments: list[dict] = []
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
-        self._reload_connections()
         self._reload_sessions()
         self._maybe_show_banner()
 
@@ -151,16 +124,12 @@ class ModelChatPanel(QWidget):
         self.skill_btn = QPushButton()
         apply_button(self.skill_btn, 'ghost', compact=True)
         self.skill_btn.clicked.connect(self._open_skill_manager)
-        self.conn_combo = QComboBox()
-        size_pick_combo(self.conn_combo)
-        self.conn_combo.setToolTip('取数意图使用：选择数据库连接，只读结构，不自动执行')
         self.ping_status = QLabel()
         self.ping_status.setObjectName('field-hint')
         self.ping_status.setWordWrap(True)
         top.addWidget(self.model_combo)
         top.addWidget(self.ping_btn)
         top.addWidget(self.skill_btn)
-        top.addWidget(self.conn_combo)
         top.addWidget(self.ping_status, 1)
         root.addWidget(toolbar)
 
@@ -232,6 +201,13 @@ class ModelChatPanel(QWidget):
         composer_l.setContentsMargins(0, 4, 0, 0)
         composer_l.setSpacing(6)
 
+        # 附件状态栏
+        self.attachment_bar = QLabel()
+        self.attachment_bar.setObjectName('field-hint')
+        self.attachment_bar.setWordWrap(True)
+        self.attachment_bar.hide()
+        composer_l.addWidget(self.attachment_bar)
+
         self.input = QPlainTextEdit()
         self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
@@ -241,19 +217,31 @@ class ModelChatPanel(QWidget):
         send_row = QHBoxLayout()
         self.send_hint = QLabel()
         self.send_hint.setObjectName('field-hint')
-        self.send_btn = QPushButton()
-        apply_button(self.send_btn, 'primary', compact=True)
-        self.send_btn.clicked.connect(self._send)
-        self.stop_btn = QPushButton()
-        apply_button(self.stop_btn, 'secondary', compact=True)
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
+
+        # "+" 附件菜单按钮
+        self.add_attachment_btn = QToolButton()
+        self.add_attachment_btn.setText('+')
+        self.add_attachment_btn.setToolTip('添加附件（文件/图片）')
+        self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        apply_button(self.add_attachment_btn, 'ghost', compact=True)
+        attach_menu = QMenu(self.add_attachment_btn)
+        self.add_file_action = attach_menu.addAction('添加文本文件', self._pick_text_file)
+        self.add_img_action = attach_menu.addAction('添加图片', self._pick_image_file)
+        attach_menu.addSeparator()
+        self.clear_attach_action = attach_menu.addAction('清空附件', self._clear_attachments)
+        self.add_attachment_btn.setMenu(attach_menu)
+
         self.retry_btn = QPushButton()
         apply_button(self.retry_btn, 'ghost', compact=True)
         self.retry_btn.clicked.connect(self._regenerate)
+
+        self.send_btn = QPushButton()
+        apply_button(self.send_btn, 'primary', compact=True)
+        self.send_btn.clicked.connect(self._on_action_clicked)
+
+        send_row.addWidget(self.add_attachment_btn)
         send_row.addWidget(self.send_hint, 1)
         send_row.addWidget(self.retry_btn)
-        send_row.addWidget(self.stop_btn)
         send_row.addWidget(self.send_btn)
         composer_l.addLayout(send_row)
 
@@ -263,7 +251,7 @@ class ModelChatPanel(QWidget):
             self.chat_vsplit,
             defaults=[520, 180],
             page_id='model-chat',
-            tab_id='composer_v2',
+            tab_id='composer_v3',
             min_sizes=[200, 120],
             accessible_name='模型对话与输入区分隔',
         )
@@ -284,19 +272,16 @@ class ModelChatPanel(QWidget):
         root.addWidget(split, 1)
 
     def eventFilter(self, watched, event):
-        from PyQt6.QtCore import QEvent
-        from PyQt6.QtGui import QKeyEvent
         if watched is self.input and event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
-            settings = load_settings()
-            ctrl_enter = bool(settings.get('model_chat_send_with_ctrl_enter', True))
-            enter = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-            if enter and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                has_ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-                if ctrl_enter and has_ctrl:
-                    self._send()
-                    return True
-                if (not ctrl_enter) and (not has_ctrl):
-                    self._send()
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                modifiers = event.modifiers()
+                # Alt+Enter 或 Shift+Enter: 换行
+                if modifiers & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier):
+                    return False
+                # Enter 或 Ctrl+Enter: 发送
+                if not event.isAutoRepeat():
+                    self._on_action_clicked()
                     return True
         return super().eventFilter(watched, event)
 
@@ -304,201 +289,275 @@ class ModelChatPanel(QWidget):
         self.language = language
         zh = language == 'zh'
         self.page_title.setText('模型对话' if zh else 'Model Chat')
-        self.page_subtitle.setText(
-            '连续对话，用于验证内网模型；不自动带入 SQL 控制台内容'
-            if zh else
-            'Chat to verify intranet models. SQL console context is never auto-sent.'
-        )
-        self.banner_text.setText(
-            '聊天记录以明文保存在本机 data 目录。请勿输入密码、Token、客户隐私、生产敏感数据或抓包报文。'
-            if zh else
-            'Chats are stored as plain UTF-8 JSON in the local data folder. Do not paste passwords, tokens or production data.'
-        )
-        self.banner_close.setText('知道了' if zh else 'Dismiss')
-        self.ping_btn.setText('测试当前模型' if zh else 'Test model')
+        self.page_subtitle.setText('连续对话并验证内网模型配置' if zh else 'Multi-turn chat & intranet model verification')
+        self.ping_btn.setText('连通性测试' if zh else 'Ping')
         self.skill_btn.setText('skill 管理' if zh else 'Skills')
-        self.conn_combo.setPlaceholderText(
-            '数据库连接（取数时）' if zh else 'DB connection (for data queries)'
-        )
-        self.search.setPlaceholderText('搜索会话' if zh else 'Search sessions')
-        self.new_btn.setText('新建' if zh else 'New')
+        self.new_btn.setText('新建会话' if zh else 'New session')
         self.rename_btn.setText('重命名' if zh else 'Rename')
         self.delete_btn.setText('删除' if zh else 'Delete')
-        self.send_btn.setText('发送' if zh else 'Send')
-        self.stop_btn.setText('停止' if zh else 'Stop')
+        self.search.setPlaceholderText('搜索会话标题/内容' if zh else 'Search sessions')
+        self.input.setPlaceholderText('输入消息…（Enter 发送，Alt+Enter 换行）' if zh else 'Type message… (Enter to send, Alt+Enter for newline)')
         self.retry_btn.setText('重新生成' if zh else 'Regenerate')
-        ctrl = bool(load_settings().get('model_chat_send_with_ctrl_enter', True))
-        self.send_hint.setText(
-            'Enter 换行，Ctrl+Enter 发送' if ctrl and zh else
-            'Ctrl+Enter to send, Enter for newline' if ctrl else
-            'Enter 发送，Shift+Enter 换行' if zh else
-            'Enter to send, Shift+Enter for newline'
+        self.send_hint.setText('Enter 发送 · Alt+Enter 换行' if zh else 'Enter: send · Alt+Enter: newline')
+        self.banner_text.setText('内网模型响应仅供参考，请勿用于非授权环境' if zh else 'Intranet model output is for reference only.')
+        self.banner_close.setText('我知道了' if zh else 'Dismiss')
+        self.empty.findChild(QLabel).setText('还没有对话' if zh else 'No conversation yet')
+        self.add_file_action.setText('添加文本文件' if zh else 'Add text file')
+        self.add_img_action.setText('添加图片' if zh else 'Add image')
+        self.clear_attach_action.setText('清空附件' if zh else 'Clear attachments')
+        self._sync_running_state()
+
+    def _sync_running_state(self):
+        zh = self.language == 'zh'
+        if self._is_running:
+            self.send_btn.setText('停止' if zh else 'Stop')
+            apply_button(self.send_btn, 'secondary', compact=True)
+            self.retry_btn.setEnabled(False)
+        else:
+            self.send_btn.setText('发送' if zh else 'Send')
+            apply_button(self.send_btn, 'primary', compact=True)
+            self.retry_btn.setEnabled(self._session is not None)
+            self._sync_send_enabled()
+
+    def _on_action_clicked(self):
+        if self._is_running:
+            self._stop()
+        else:
+            self._send()
+
+    def _pick_text_file(self):
+        zh = self.language == 'zh'
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('model_chat_attachment')
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, '选择文本文件' if zh else 'Pick text files',
+            start, 'Text Files (*.txt *.sql *.py *.json *.md *.csv *.log *.yaml *.yml *.xml *.sh *.conf *.env);;All Files (*)',
         )
-        self.input.setPlaceholderText('输入消息…' if zh else 'Message…')
+        if not paths:
+            return
+        remember_dialog_path('model_chat_attachment', paths[0])
+        for p in paths:
+            if len(self._text_attachments) + len(self._image_attachments) >= MAX_ATTACHMENTS:
+                show_warning(self, '附件数量超限', f'最多添加 {MAX_ATTACHMENTS} 个附件。')
+                break
+            try:
+                sz = os.path.getsize(p)
+                if sz > MAX_TEXT_FILE_SIZE:
+                    show_warning(self, '文件过大', f'文件「{os.path.basename(p)}」超过 {MAX_TEXT_FILE_SIZE // 1024} KB 限制。')
+                    continue
+                with open(p, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                self._text_attachments.append({'name': os.path.basename(p), 'content': content})
+            except Exception as exc:
+                show_warning(self, '读取失败', str(exc))
+        self._refresh_attachment_bar()
 
-    def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible
-        set_subtitle_visible(self.page_subtitle, low_height)
+    def _pick_image_file(self):
+        zh = self.language == 'zh'
+        model = self._current_model()
+        if not model or not bool(model.get('supports_vision', False)):
+            show_warning(
+                self,
+                '当前模型未开启视觉能力' if zh else 'Vision not supported',
+                '当前选中的内网模型未配置或不支持图片识别能力。' if zh else 'The selected model does not support image input.',
+            )
+            return
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('model_chat_image')
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, '选择图片' if zh else 'Pick images',
+            start, 'Image Files (*.png *.jpg *.jpeg *.webp *.gif)',
+        )
+        if not paths:
+            return
+        remember_dialog_path('model_chat_image', paths[0])
+        for p in paths:
+            if len(self._text_attachments) + len(self._image_attachments) >= MAX_ATTACHMENTS:
+                show_warning(self, '附件数量超限', f'最多添加 {MAX_ATTACHMENTS} 个附件。')
+                break
+            try:
+                sz = os.path.getsize(p)
+                if sz > MAX_IMAGE_FILE_SIZE:
+                    show_warning(self, '图片过大', f'图片「{os.path.basename(p)}」超过 {MAX_IMAGE_FILE_SIZE // (1024*1024)} MB 限制。')
+                    continue
+                mime, _ = mimetypes.guess_type(p)
+                mime = mime or 'image/png'
+                with open(p, 'rb') as f:
+                    b64 = base64.b64encode(f.read()).decode('ascii')
+                data_uri = f'data:{mime};base64,{b64}'
+                self._image_attachments.append({'name': os.path.basename(p), 'data_uri': data_uri, 'mime': mime})
+            except Exception as exc:
+                show_warning(self, '读取失败', str(exc))
+        self._refresh_attachment_bar()
 
-    def _title(self) -> str:
-        return '模型对话' if self.language == 'zh' else 'Model Chat'
+    def _clear_attachments(self):
+        self._text_attachments.clear()
+        self._image_attachments.clear()
+        self._refresh_attachment_bar()
 
-    def _maybe_show_banner(self):
-        dismissed = bool(load_settings().get('model_chat_banner_dismissed'))
-        self.banner.setVisible(not dismissed)
+    def _refresh_attachment_bar(self):
+        items = []
+        for f in self._text_attachments:
+            items.append(f'📄 {f["name"]}')
+        for img in self._image_attachments:
+            items.append(f'🖼️ {img["name"]}')
+        if items:
+            self.attachment_bar.setText('已附加：' + ' · '.join(items))
+            self.attachment_bar.show()
+        else:
+            self.attachment_bar.setText('')
+            self.attachment_bar.hide()
+        self._sync_send_enabled()
 
-    def _dismiss_banner(self):
-        settings = load_settings()
-        settings['model_chat_banner_dismissed'] = True
-        save_settings(settings)
-        self.banner.hide()
-
-    def _reload_models(self, select_id: str = ''):
-        settings = load_settings()
-        wanted = select_id or str(settings.get('model_chat_last_model_id') or '')
+    def _reload_models(self):
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
-        for item in list_enabled_items():
-            label = f"{item.get('name') or ''} · {item.get('model') or ''}"
-            self.model_combo.addItem(label.strip(' ·'), item)
-            if wanted and item.get('id') == wanted:
-                self.model_combo.setCurrentIndex(self.model_combo.count() - 1)
+        items = list_enabled_items()
+        for it in items:
+            self.model_combo.addItem(f"{it.get('name') or ''} ({it.get('model') or ''})", it)
+        settings = load_settings()
+        last_id = settings.get('model_chat_last_model_id')
+        if last_id:
+            for idx in range(self.model_combo.count()):
+                data = self.model_combo.itemData(idx)
+                if isinstance(data, dict) and data.get('id') == last_id:
+                    self.model_combo.setCurrentIndex(idx)
+                    break
         self.model_combo.blockSignals(False)
         self._sync_send_enabled()
 
-    def _on_model_changed(self, _index=0):
-        if self._worker is not None and self._worker.isRunning():
-            self._stop()
-        self._sync_send_enabled()
-
-    def _reload_connections(self):
-        from tools.db_connect import load_connections
-        zh = self.language == 'zh'
-        self.conn_combo.blockSignals(True)
-        self.conn_combo.clear()
-        for item in load_connections():
-            label = str(item.get('name') or item.get('id') or '')
-            if item.get('dialect'):
-                label = f"{label} ({item.get('dialect')})"
-            self.conn_combo.addItem(label, item)
-        if self.conn_combo.count() == 0:
-            self.conn_combo.addItem(
-                '未配置数据库连接' if zh else 'No DB connection configured', None
-            )
-        self.conn_combo.blockSignals(False)
-
-    def _current_connection(self) -> dict | None:
-        # 优先从 SQL 控制台当前活跃的数据库面板获取连接上下文
-        window = self.window()
-        if window and hasattr(window, '_active_db_context'):
-            ctx = window._active_db_context()
-            if ctx:
-                return ctx
-        # fallback: 自身下拉框
-        data = self.conn_combo.currentData()
-        return dict(data) if isinstance(data, dict) else None
-
     def _current_model(self) -> dict | None:
         data = self.model_combo.currentData()
-        return dict(data) if isinstance(data, dict) else None
+        return data if isinstance(data, dict) else None
+
+    def _on_model_changed(self):
+        model = self._current_model()
+        if model:
+            settings = load_settings()
+            settings['model_chat_last_model_id'] = str(model.get('id') or '')
+            save_settings(settings)
+        self._sync_send_enabled()
 
     def _sync_send_enabled(self):
-        ready = self._current_model() is not None and self._session is not None
-        self.send_btn.setEnabled(ready and (self._worker is None or not self._worker.isRunning()))
-        if self._current_model() is None:
-            zh = self.language == 'zh'
-            self.ping_status.setText(
-                '没有启用的模型配置，请到设置中新增并启用' if zh else
-                'No enabled model. Add one in Settings.'
-            )
+        has_model = self._current_model() is not None
+        has_content = bool(self.input.toPlainText().strip()) or bool(self._text_attachments) or bool(self._image_attachments)
+        if not self._is_running:
+            self.send_btn.setEnabled(has_model and has_content)
 
-    def _reload_sessions(self, _text=''):
-        current_id = str((self._session or {}).get('id') or '')
+    def _dismiss_banner(self):
+        self.banner.hide()
+        settings = load_settings()
+        settings['model_chat_banner_dismissed'] = True
+        save_settings(settings)
+
+    def _maybe_show_banner(self):
+        settings = load_settings()
+        self.banner.setVisible(not bool(settings.get('model_chat_banner_dismissed', False)))
+
+    def _reload_sessions(self):
+        q = self.search.text().strip()
+        sessions = search_sessions(q) if q else load_index()
         self.session_list.blockSignals(True)
         self.session_list.clear()
-        for row in search_sessions(self.search.text()):
-            item = QListWidgetItem(str(row.get('title') or '新对话'))
-            item.setData(Qt.ItemDataRole.UserRole, row)
-            self.session_list.addItem(item)
-            if row.get('id') == current_id:
-                self.session_list.setCurrentItem(item)
+        for item in sessions:
+            title = item.get('title') or '未命名会话'
+            model = item.get('model') or ''
+            count = item.get('message_count', 0)
+            lw = QListWidgetItem(f"{title} ({count})\n{model}")
+            lw.setData(Qt.ItemDataRole.UserRole, item.get('id'))
+            self.session_list.addItem(lw)
         self.session_list.blockSignals(False)
-        if self.session_list.count() == 0:
-            self._session = None
+        self._highlight_active_session()
+
+    def _highlight_active_session(self):
+        if not self._session:
+            return
+        sid = self._session.get('id')
+        for i in range(self.session_list.count()):
+            it = self.session_list.item(i)
+            if it.data(Qt.ItemDataRole.UserRole) == sid:
+                self.session_list.blockSignals(True)
+                self.session_list.setCurrentItem(it)
+                self.session_list.blockSignals(False)
+                break
+
+    def _on_session_changed(self, current, _previous):
+        if not current:
+            return
+        sid = current.data(Qt.ItemDataRole.UserRole)
+        if sid:
+            self._session = load_session(sid)
             self._render_messages()
-        elif self.session_list.currentItem() is None:
-            self.session_list.setCurrentRow(0)
+            self._sync_send_enabled()
 
     def _new_session(self):
-        model = self._current_model() or {}
-        self._session = create_session(model_config_id=str(model.get('id') or ''), model=str(model.get('model') or ''))
+        model = self._current_model()
+        mid = str(model.get('id') or '') if model else ''
+        mname = str(model.get('model') or '') if model else ''
+        self._session = create_session(model_config_id=mid, model=mname)
         self._reload_sessions()
-        self._maybe_show_banner()
+        self._render_messages()
+        self._clear_attachments()
+        self.input.clear()
+        self.input.setFocus()
+        self._sync_send_enabled()
 
     def _rename_session(self):
         if not self._session:
             return
         zh = self.language == 'zh'
-        text, ok = QInputDialog.getText(self, self._title(), '新标题' if zh else 'Title', text=str(self._session.get('title') or ''))
-        if not ok:
-            return
-        self._session = rename_session(self._session.get('id'), text)
-        self._reload_sessions()
+        title, ok = QInputDialog.getText(
+            self, '重命名会话' if zh else 'Rename session',
+            '会话标题：' if zh else 'Title:',
+            text=str(self._session.get('title') or ''),
+        )
+        if ok and title.strip():
+            self._session = rename_session(self._session.get('id'), title.strip())
+            self._reload_sessions()
 
     def _delete_session(self):
         if not self._session:
             return
         zh = self.language == 'zh'
-        if not confirm_action(self, self._title(), '删除该会话？明文记录将从本机移除。' if zh else 'Delete this chat?', confirm_text='删除' if zh else 'Delete', danger=True):
+        if not confirm_action(
+            self,
+            '删除会话' if zh else 'Delete session',
+            f'确定删除会话「{self._session.get("title") or "当前会话"}」？' if zh else 'Delete current session?',
+            danger=True,
+        ):
             return
-        delete_session(self._session.get('id'))
+        sid = self._session.get('id')
+        delete_session(sid)
         self._session = None
         self._reload_sessions()
-
-    def _on_session_changed(self, current, _previous=None):
-        if current is None:
-            return
-        meta = current.data(Qt.ItemDataRole.UserRole) or {}
-        self._session = load_session(str(meta.get('id') or ''))
         self._render_messages()
         self._sync_send_enabled()
-        if self._session:
-            settings = load_settings()
-            settings['model_chat_last_session_id'] = self._session.get('id')
-            save_settings(settings)
-
-    def _clear_thread(self):
-        while self.thread_layout.count() > 1:
-            item = self.thread_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
 
     def _render_messages(self):
-        self._clear_thread()
-        messages = list((self._session or {}).get('messages') or [])
-        self.empty.setVisible(not messages)
-        self.scroll.setVisible(bool(messages))
+        while self.thread_layout.count() > 1:
+            item = self.thread_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        if not self._session or not (self._session.get('messages') or []):
+            self.empty.show()
+            return
+        self.empty.hide()
         zh = self.language == 'zh'
-        for msg in messages:
-            frame = QFrame()
+        for msg in self._session.get('messages') or []:
             role = msg.get('role')
-            frame.setObjectName('chat-bubble-user' if role == 'user' else 'chat-bubble-assistant')
+            frame = QFrame()
+            frame.setObjectName('chat-user-bubble' if role == 'user' else 'chat-assistant-bubble')
             box = QVBoxLayout(frame)
-            box.setContentsMargins(10, 8, 10, 8)
+            box.setContentsMargins(12, 8, 12, 8)
+            box.setSpacing(4)
             meta = QLabel()
             meta.setObjectName('field-hint')
-            if role == 'assistant':
-                name = str(msg.get('config_name') or '')
-                if not name and msg.get('model_config_id'):
-                    from tools.intranet_llm import get_item_by_id
-                    cfg = get_item_by_id(msg.get('model_config_id'))
-                    name = str((cfg or {}).get('name') or '') or ('已删除配置' if zh else 'Deleted config')
-                elif not name:
-                    name = '已删除配置' if zh else 'Deleted config'
-                meta.setText(f"{name} · {msg.get('model') or ''} · {msg.get('created_at') or ''}")
+            if role == 'user':
+                meta.setText(f'我 · {msg.get("created_at") or ""}')
             else:
-                meta.setText(str(msg.get('created_at') or ''))
+                mname = msg.get('model') or 'AI'
+                meta.setText(f'{mname} · {msg.get("created_at") or ""}')
             body = QLabel(str(msg.get('content') or ''))
             body.setWordWrap(True)
             body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -522,38 +581,49 @@ class ModelChatPanel(QWidget):
             self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
 
     def _copy(self, text: str):
-        from PyQt6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
 
     def _send(self):
         text = self.input.toPlainText().strip()
         model = self._current_model()
         zh = self.language == 'zh'
-        if not text:
+        if not text and not self._text_attachments and not self._image_attachments:
             return
         if self._worker is not None and self._worker.isRunning():
-            show_warning(self, self._title(), '请先停止当前生成' if zh else 'Stop the current reply first')
             return
         if model is None:
-            show_warning(self, self._title(), '请选择已启用的模型配置' if zh else 'Pick an enabled model')
+            show_warning(self, '请先选择模型' if zh else 'Pick a model', '请选择已启用的模型配置。')
             return
-        intent = detect_take_data_intent(text)
-        if intent == 'sql':
-            self._handle_sql_intent(text, model)
-            return
-        if intent == 'linux':
-            self._handle_linux_intent(text, model)
-            return
-        # 非取数意图：走原通用聊天链路
-        self._send_chat(text, model)
 
-    def _send_chat(self, text: str, model: dict):
-        zh = self.language == 'zh'
+        # 组合文本与附件
+        parts = []
+        for att in self._text_attachments:
+            parts.append(f"[附件: {att['name']}]\n```\n{att['content']}\n```")
+        if text:
+            parts.append(text)
+        full_text = '\n\n'.join(parts)
+
+        # 视觉图片处理
+        has_images = bool(self._image_attachments)
+        supports_vision = bool(model.get('supports_vision', False))
+        if has_images and not supports_vision:
+            show_warning(self, '当前模型未开启视觉能力', '当前选中的内网模型未配置或不支持图片识别能力。')
+            return
+
+        stored_text = full_text
+        if has_images:
+            img_tags = ', '.join(f'[{img["name"]}]' for img in self._image_attachments)
+            stored_text = f"{stored_text}\n(已附加图片: {img_tags})" if stored_text else f"(已附加图片: {img_tags})"
+
         if self._session is None:
             self._session = create_session(model_config_id=str(model.get('id') or ''), model=str(model.get('model') or ''))
+
         self.input.clear()
+        img_refs = list(self._image_attachments)
+        self._clear_attachments()
+
         self._session = append_message(
-            self._session.get('id'), 'user', text,
+            self._session.get('id'), 'user', stored_text,
             model_config_id=model.get('id'), model=model.get('model'), config_name=model.get('name'),
         )
         pending = append_message(
@@ -569,234 +639,28 @@ class ModelChatPanel(QWidget):
             '早期消息已为上下文长度裁剪，本地完整记录未删除' if zh else
             'Older messages trimmed for context; local history is kept.'
         )
+
+        # 若带图片，只在当前向 LLM 发送的请求 payload 内存中组装 multi-modal blocks
+        if has_images and supports_vision and payload:
+            for p_msg in reversed(payload):
+                if p_msg.get('role') == 'user':
+                    blocks = []
+                    if full_text:
+                        blocks.append({'type': 'text', 'text': full_text})
+                    for img in img_refs:
+                        blocks.append({'type': 'image_url', 'image_url': {'url': img['data_uri']}})
+                    p_msg['content'] = blocks
+                    break
+
         self._render_messages()
         self._reload_sessions()
         self._start_worker(payload, model)
 
-    def _post_plain_reply(self, text: str, model: dict):
-        """把一段直接回显的助手消息（不调模型）写入当前会话。"""
-        if self._session is None:
-            self._session = create_session(
-                model_config_id=str(model.get('id') or ''), model=str(model.get('model') or '')
-            )
-        self._session = append_message(
-            self._session.get('id'), 'user', self._last_question,
-            model_config_id=model.get('id'), model=model.get('model'), config_name=model.get('name'),
-        )
-        self._session = append_message(
-            self._session.get('id'), 'assistant', text,
-            model_config_id=model.get('id'), model=model.get('model'),
-            config_name=model.get('name'), status='complete',
-        )
-        self._render_messages()
-        self._reload_sessions()
-        self._sync_send_enabled()
-
-    def _handle_sql_intent(self, text: str, model: dict):
-        from tools.db_connect import load_connections
-        from tools.schema_snapshot import load_snapshot
-        from tools.tameng_agent import prepare_request
-
-        self._last_question = text
-        conn = self._current_connection()
-        if conn is None:
-            self._post_plain_reply('请先选择连接并扫描结构。' if self.language == 'zh' else 'Please select a connection and scan its schema first.', model)
-            return
-        snap = load_snapshot(str(conn.get('id') or ''))
-        if snap is None:
-            self._post_plain_reply('该连接尚未扫描结构，正在扫描…', model)
-            self._start_scan(conn)
-            return
-        from tools.tameng_agent import snapshot_gate
-        gate = snapshot_gate(conn, snap)
-        if gate.get('state') == 'SNAPSHOT_STALE':
-            stale_note = '结构可能已变化，建议到数据中心重新扫描。' if self.language == 'zh' else 'Schema may have changed; consider re-scanning.'
-        else:
-            stale_note = ''
-        prepared = prepare_request(text, snap, conn)
-        state = str(prepared.get('state') or '')
-        if state == 'READY' and prepared.get('ok'):
-            if stale_note:
-                self._post_plain_reply(stale_note, model)
-            self._run_sql_chain(text, model, conn, snap, prepared, stale_note)
-            return
-        if state == 'NEEDS_SELECTION':
-            self._render_candidates(text, model, prepared)
-            return
-        reason = str(prepared.get('reason') or '')
-        next_action = str(prepared.get('next_action') or '')
-        msg = reason
-        if next_action:
-            msg = f'{reason} {next_action}'
-        if stale_note:
-            msg = f'{stale_note}\n{msg}'
-        self._post_plain_reply(msg, model)
-
-    def _run_sql_chain(self, text: str, model: dict, conn: dict, snap: dict, prepared: dict, stale_note: str = ''):
-        from tools.ai_sql_draft import generate_sql_draft
-        from tools.tameng_agent import format_evidence_bar, validate_generated_sql
-
-        evidence = prepared.get('evidence')
-        dialect = str((conn or {}).get('dialect') or 'oracle')
-        alias = str((conn or {}).get('name') or '')
-        cfg = dict(model)
-        cfg['enabled'] = True
-        try:
-            draft = generate_sql_draft(
-                text,
-                action='generate',
-                dialect=dialect,
-                alias=alias,
-                snapshot=None,
-                evidence=evidence,
-                cfg=cfg,
-            )
-        except Exception as exc:
-            self._post_plain_reply(redact_error(str(exc)), model)
-            return
-        sql = str(draft.get('sql') or '').strip()
-        if not sql:
-            reason = str(draft.get('summary') or '') or '模型未返回 SQL。'
-            warnings = '；'.join(str(item) for item in (draft.get('warnings') or []) if str(item))
-            msg = reason + (f'（{warnings}）' if warnings else '')
-            self._post_plain_reply(msg, model)
-            return
-        checked = validate_generated_sql(sql, evidence, dialect)
-        if not checked.get('allowed'):
-            parts = ['草案被拦截：' + str(checked.get('reason') or '未通过校验')]
-            unknown_fields = [str(item) for item in (checked.get('unknown_fields') or [])]
-            if unknown_fields:
-                parts.append('未知字段：' + ', '.join(unknown_fields))
-            self._post_plain_reply('\n'.join(parts), model)
-            return
-        evidence_bar = format_evidence_bar(evidence)
-        lines = [sql]
-        if evidence_bar:
-            lines.append('字段证据：' + evidence_bar)
-        lines.append('草案 · 未执行')
-        if stale_note:
-            lines.insert(0, stale_note)
-        self._post_plain_reply('\n'.join(lines), model)
-
-    def _render_candidates(self, text: str, model: dict, prepared: dict):
-        from tools.ai_object_context import field_qualified
-
-        self._candidate_context = (text, model, prepared)
-        fields = list((prepared.get('resolution') or {}).get('fields') or [])
-        lines = ['找到多个候选字段，请选择：']
-        for item in fields:
-            obj = item.get('object') or {}
-            col = item.get('column') or {}
-            qn = field_qualified(obj, col) if isinstance(obj, dict) and isinstance(col, dict) else str(col.get('name') or '')
-            dtype = str(col.get('data_type') or '') if isinstance(col, dict) else ''
-            comment = str(col.get('comment') or '') if isinstance(col, dict) else ''
-            parts = [qn]
-            if dtype:
-                parts.append(dtype)
-            if comment:
-                parts.append(comment)
-            lines.append(' · '.join(part for part in parts if part))
-        self._post_plain_reply('\n'.join(lines), model)
-        self._render_candidate_buttons(fields)
-
-    def _render_candidate_buttons(self, fields):
-        from tools.ai_object_context import field_qualified
-        # 在消息线程末尾插入候选按钮行
-        holder = QWidget()
-        box = QHBoxLayout(holder)
-        box.setContentsMargins(8, 4, 8, 4)
-        for item in fields:
-            obj = item.get('object') or {}
-            col = item.get('column') or {}
-            qn = field_qualified(obj, col) if isinstance(obj, dict) and isinstance(col, dict) else str(col.get('name') or '')
-            btn = QPushButton(qn)
-            apply_button(btn, 'secondary', compact=True)
-            btn.clicked.connect(lambda _=False, q=qn: self._confirm_candidate(q))
-            box.addWidget(btn)
-        box.addStretch(1)
-        self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
-
-    def _confirm_candidate(self, qn: str):
-        if not getattr(self, '_candidate_context', None):
-            return
-        text, model, prepared = self._candidate_context
-        self._candidate_context = None
-        conn = self._current_connection()
-        if conn is None:
-            self._post_plain_reply('请先选择连接并扫描结构。' if self.language == 'zh' else 'Please select a connection and scan its schema first.', model)
-            return
-        from tools.schema_snapshot import load_snapshot
-        from tools.tameng_agent import prepare_request
-        snap = load_snapshot(str(conn.get('id') or ''))
-        if snap is None:
-            self._post_plain_reply('该连接尚未扫描结构，正在扫描…', model)
-            self._start_scan(conn)
-            return
-        prepared2 = prepare_request(text, snap, conn, confirmed=[qn])
-        if prepared2.get('ok') and prepared2.get('state') == 'READY':
-            self._run_sql_chain(text, model, conn, snap, prepared2)
-        else:
-            self._post_plain_reply(str(prepared2.get('reason') or '仍无法确认字段。'), model)
-
-    def _start_scan(self, conn: dict):
-        self._scan_worker = _ScanWorker(conn)
-        self._scan_worker.completed.connect(self._on_scan_ok)
-        self._scan_worker.failed.connect(self._on_scan_fail)
-        self._scan_worker.start()
-
-    def _on_scan_ok(self, _payload):
-        self._reload_connections()
-        if getattr(self, '_last_question', ''):
-            text = self._last_question
-            model = self._current_model()
-            if model is not None:
-                self._handle_sql_intent(text, model)
-
-    def _on_scan_fail(self, message: str):
-        model = self._current_model()
-        if model is not None:
-            self._post_plain_reply(
-                '扫描失败：' + redact_error(message) + ('；请先到数据中心确认连接可用' if self.language == 'zh' else '; verify the connection in Data Center first'),
-                model,
-            )
-
-    def _handle_linux_intent(self, text: str, model: dict):
-        from tools.intranet_llm import chat_completions
-        from tools.linux_guard import inspect_commands
-
-        self._last_question = text
-        cfg = dict(model)
-        cfg['enabled'] = True
-        system = (
-            '你是内网 Linux 运维助手。只把用户的自然语言需求转换成若干条只读查看命令'
-            '（如 tail、grep、ls、cat、df、free、ps、uptime、hostname 等），'
-            '每行一条，不要写解释，不要写 rm/kill/sudo/重定向/管道到解释器等危险命令。'
-        )
-        try:
-            reply = chat_completions(
-                [{'role': 'system', 'content': system}, {'role': 'user', 'content': text}],
-                cfg=cfg,
-            )
-        except Exception as exc:
-            self._post_plain_reply(redact_error(str(exc)), model)
-            return
-        command_list = [line.strip() for line in str(reply or '').splitlines() if line.strip()]
-        allowed, rejected = inspect_commands(command_list)
-        lines = []
-        if allowed:
-            lines.append('只读命令草案（未执行）：')
-            lines.extend('  ' + cmd for cmd in allowed)
-        for cmd, reason in rejected:
-            lines.append(f'已拦截：{cmd} —— {reason}')
-        if not allowed and not rejected:
-            lines.append('未生成可识别的只读命令。')
-        self._post_plain_reply('\n'.join(lines), model)
-
     def _start_worker(self, messages, model):
         cfg = dict(model)
         cfg['enabled'] = True
-        self.send_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self._is_running = True
+        self._sync_running_state()
         self._worker = _ChatWorker(messages, cfg)
         self._worker.completed.connect(self._on_chat_ok)
         self._worker.failed.connect(self._on_chat_fail)
@@ -818,11 +682,11 @@ class ModelChatPanel(QWidget):
                 content=redact_error(message), status='stopped',
             )
             self._render_messages()
-        show_error(self, self._title(), redact_error(message))
+        show_error(self, '请求失败' if self.language == 'zh' else 'Request failed', redact_error(message))
 
     def _on_chat_done(self):
-        self.stop_btn.setEnabled(False)
-        self._sync_send_enabled()
+        self._is_running = False
+        self._sync_running_state()
 
     def _stop(self):
         zh = self.language == 'zh'
@@ -839,14 +703,13 @@ class ModelChatPanel(QWidget):
             )
             self._render_messages()
         self.ping_status.setText(
-            '请求已在后台结束或等待超时' if zh else
-            'The request was detached; it may finish in the background or time out.'
+            '请求已停止' if zh else 'The request was stopped.'
         )
-        self.stop_btn.setEnabled(False)
-        self._sync_send_enabled()
+        self._is_running = False
+        self._sync_running_state()
 
     def _regenerate(self):
-        if not self._session:
+        if not self._session or self._is_running:
             return
         messages = list(self._session.get('messages') or [])
         last_user = ''
@@ -875,7 +738,7 @@ class ModelChatPanel(QWidget):
         model = self._current_model()
         zh = self.language == 'zh'
         if model is None:
-            show_warning(self, self._title(), '请先选择模型' if zh else 'Pick a model')
+            show_warning(self, '请先选择模型' if zh else 'Pick a model', '请选择已启用的模型配置。')
             return
         cfg = dict(model)
         cfg['enabled'] = True
@@ -1103,5 +966,4 @@ class _SkillManagerDialog(QDialog):
 
 
 def _basename(path: str) -> str:
-    import os
     return os.path.basename(str(path or ''))

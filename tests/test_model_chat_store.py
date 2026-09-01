@@ -77,9 +77,20 @@ class ModelChatPanelSmokeTests(unittest.TestCase):
         with patch('panels.model_chat_panel.load_settings', return_value=settings):
             panel = ModelChatPanel('zh')
         self.assertIsNotNone(panel.findChild(QFrame, 'page-header'))
+        self.assertTrue(hasattr(panel, 'add_attachment_btn'))
+        self.assertTrue(hasattr(panel, 'send_btn'))
+        self.assertFalse(hasattr(panel, 'conn_combo'))
         panel.show()
         self.app.processEvents()
         self.assertFalse(panel.banner.isHidden())
+        panel.close()
+
+    def test_agent_workbench_panel_controls(self):
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        panel = AgentWorkbenchPanel('zh')
+        self.assertTrue(hasattr(panel, 'space_tree'))
+        self.assertTrue(hasattr(panel, 'add_attachment_btn'))
+        self.assertTrue(hasattr(panel, 'send_btn'))
         panel.close()
 
 
