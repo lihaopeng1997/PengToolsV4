@@ -254,7 +254,7 @@ class LoadingFeedbackTest(unittest.TestCase):
 
     def test_slow_startup_splash_shown_after_threshold(self):
         """慢启动路径（耗时 >= 300ms）：达到阈值后展示统一品牌闪屏。"""
-        splash = StartupSplash(self.app, delay_ms=50)
+        splash = StartupSplash(self.app, delay_ms=50, min_visible_ms=0)
         # 模拟启动耗时 100ms
         splash._start_time = time.monotonic() - 0.1
         splash.show_status('加载重型模块…')
