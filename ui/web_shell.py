@@ -161,12 +161,8 @@ else:  # pragma: no cover - 依赖缺失环境
         def set_summary_provider(self, provider):
             pass
 
-        def set_theme_payload(self, data: dict):
-            pass
-
-        def push_active(self, nav_index):
-            pass
-            pass
+        def navigate(self, nav_index):
+            self.navigateRequested.emit(int(nav_index))
 
         def push_active(self, nav_index):
             pass

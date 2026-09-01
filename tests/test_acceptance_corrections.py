@@ -149,21 +149,17 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
                 win = MainWindow()
         try:
             self.assertIsNotNone(win._dash_bridge)
-            # Verify dash bridge navigateRequested is connected to MainWindow._show_panel
-            # Test nav=9 (Daily Report)
-            win._dash_bridge.navigateRequested.emit(9)
+            # Direct slot call test: bridge.navigate(index)
+            win._dash_bridge.navigate(9)
             self.assertEqual(win._current_nav_index, 9)
 
-            # Test nav=10 (Requirements)
-            win._dash_bridge.navigateRequested.emit(10)
+            win._dash_bridge.navigate(10)
             self.assertEqual(win._current_nav_index, 10)
 
-            # Test nav=1 (Documents)
-            win._dash_bridge.navigateRequested.emit(1)
+            win._dash_bridge.navigate(1)
             self.assertEqual(win._current_nav_index, 1)
 
-            # Test nav=0 (Dashboard / Home)
-            win._dash_bridge.navigateRequested.emit(0)
+            win._dash_bridge.navigate(0)
             self.assertEqual(win._current_nav_index, 0)
         finally:
             if win.hotkey_service: win.hotkey_service.unregister()
@@ -175,6 +171,7 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
 
     def test_all_main_modules_have_return_home_action(self):
         from ui.page_chrome import make_page_header
+        from main_window import MainWindow
         # 1. make_page_header default creates home_btn
         header, title_lbl, sub_lbl = make_page_header('测试页面', '测试副标题')
         self.assertTrue(hasattr(header, 'home_btn'))
@@ -185,30 +182,41 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
         header_dash, _, _ = make_page_header('工作台', '副标题', show_home=False)
         self.assertFalse(hasattr(header_dash, 'home_btn'))
 
-        # 3. Test Home button click triggers navigate_to(0)
-        from main_window import MainWindow
+        # 3. Test Home button exists and works across all primary panels
         win = MainWindow()
         try:
-            # Navigate to nav=10 (Requirement)
-            win.navigate_to(10)
-            self.assertEqual(win._current_nav_index, 10)
+            # Modules to test: Requirement(10), ModelChat(16), Workbench(17), InterfaceDebug(12),
+            # OpsLog(13), Gateway(5), Format(11), Credit(1), Oracle(18), Redis(22)
+            for nav_idx in (10, 16, 17, 12, 13, 5, 11, 1, 18, 22):
+                win.navigate_to(nav_idx)
+                self.assertEqual(win._current_nav_index, nav_idx)
+                panel = win.stack.currentWidget()
+                home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
+                self.assertGreater(len(home_buttons), 0, f"Module nav={nav_idx} missing header-home-btn")
+                # Click home button
+                home_buttons[0].click()
+                self.assertEqual(win._current_nav_index, 0, f"Module nav={nav_idx} home button did not return to 0")
 
-            # Find header-home-btn in current panel and click
+            # 4. Verify language toggle updates header-home-btn
+            win._set_language(1)  # Switch to English
+            self.assertEqual(win.language, 'en')
+            win.navigate_to(10)
             panel = win.stack.currentWidget()
             home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
-            self.assertGreater(len(home_buttons), 0)
-            home_buttons[0].click()
-            self.assertEqual(win._current_nav_index, 0)
+            self.assertEqual(home_buttons[0].text(), 'Home')
 
-            # Test Redis panel has home action and navigates to 0
-            from panels.db_redis_panel import RedisWorkbenchPanel
-            redis_panel = win._ensure_db_panel(22)
-            self.assertIsNotNone(redis_panel)
-            self.assertTrue(hasattr(redis_panel, 'home_btn'))
-            win.navigate_to(22)
-            self.assertEqual(win._current_nav_index, 22)
-            redis_panel.home_btn.click()
-            self.assertEqual(win._current_nav_index, 0)
+            win._set_language(0)  # Switch to Chinese
+            self.assertEqual(win.language, 'zh')
+            win.navigate_to(10)
+            panel = win.stack.currentWidget()
+            home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
+            self.assertEqual(home_buttons[0].text(), '返回首页')
+
+            # 5. Dashboard itself has no home button
+            win.navigate_to(0)
+            dash_panel = win.dashboard_panel
+            dash_home_btns = dash_panel.findChildren(QPushButton, 'header-home-btn')
+            self.assertEqual(len(dash_home_btns), 0, "Dashboard panel must not have a return home button")
         finally:
             if win.hotkey_service: win.hotkey_service.unregister()
             if win.quick_panel: win.quick_panel.close_toolbar()
@@ -333,6 +341,33 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
             self.assertGreater(lh, 0)
         finally:
             term.close()
+
+    def test_model_chat_and_theme_contracts(self):
+        from panels.model_chat_panel import ModelChatPanel
+        from ui.theme_manager import ThemeManager
+
+        panel = ModelChatPanel()
+        try:
+            # Model Chat has no DB selector dropdown
+            self.assertFalse(hasattr(panel, 'db_combo'))
+            self.assertFalse(hasattr(panel, 'dialect_combo'))
+            # Model Chat idle/running button text contract
+            self.assertEqual(panel.send_btn.text(), '发送')
+            panel._is_running = True
+            panel._sync_running_state()
+            self.assertEqual(panel.send_btn.text(), '停止')
+            panel._is_running = False
+            panel._sync_running_state()
+            self.assertEqual(panel.send_btn.text(), '发送')
+        finally:
+            panel.deleteLater()
+
+        # Theme Manager black theme tokens contract
+        tm = ThemeManager.instance()
+        black_bg = tm.token('APP_BG', theme_id='black')
+        self.assertEqual(black_bg, '#09090B')
+        black_surface = tm.token('SURFACE', theme_id='black')
+        self.assertEqual(black_surface, '#161618')
 
 
 if __name__ == '__main__':
