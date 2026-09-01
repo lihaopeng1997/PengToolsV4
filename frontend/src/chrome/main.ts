@@ -1,6 +1,6 @@
 import { createApp, nextTick, reactive } from 'vue'
 import ChromeApp from './ChromeApp.vue'
-import { connectBridge } from '../shared/bridge'
+import { applyThemePayload, connectBridge } from '../shared/bridge'
 import { parseNavModel } from './nav'
 
 function mountFallback(error: unknown): void {
@@ -18,7 +18,13 @@ async function bootstrapChrome(): Promise<void> {
   // activeChanged connect → 首屏 nextTick → 才允许 pageReady('chrome')。
   // 任何一步失败都不得伪造健康状态（Python readiness timeout / fallback 接管）。
   const bridge = await connectBridge()
-  const model = parseNavModel(await bridge.navModel())
+  const [navRaw, themeRaw] = await Promise.all([
+    bridge.navModel(),
+    bridge.themePayload().catch(() => '{}'),
+  ])
+  applyThemePayload(themeRaw)
+  bridge.onThemeChanged(applyThemePayload)
+  const model = parseNavModel(navRaw)
   const active = reactive({ current: model.current ?? 0 })
   const app = createApp(ChromeApp, { model, active, bridge })
   app.mount('#app')

@@ -1,6 +1,6 @@
 import { createApp, nextTick, reactive } from 'vue'
 import DashboardApp from './DashboardApp.vue'
-import { connectBridge, type BridgeApi } from '../shared/bridge'
+import { applyThemePayload, connectBridge, type BridgeApi } from '../shared/bridge'
 import type { DashboardSummary } from './types'
 
 const state = reactive<{
@@ -22,6 +22,9 @@ async function bootstrapDashboard(): Promise<void> {
   const bridge = await connectBridge()
   state.bridge = bridge
   const rawSummary = await bridge.dashboardSummary()
+  const themeRaw = await bridge.themePayload()
+  applyThemePayload(themeRaw)
+  bridge.onThemeChanged(applyThemePayload)
   const parsed = JSON.parse(rawSummary) as DashboardSummary
   state.summary = parsed
   await nextTick()

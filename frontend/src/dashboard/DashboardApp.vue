@@ -109,7 +109,7 @@ const releasePercent = computed(() => {
         <div class="ic c3"><svg><use href="#i-rocket" /></svg></div>
         <b>{{ releaseDaysText }}</b>
         <div class="lbl">发版倒计时</div>
-        <span v-if="summary.release?.version" class="trend hot">{{ summary.release.version }}</span>
+        <span v-if="summary.release?.date_text" class="trend hot">{{ summary.release.date_text }}</span>
       </div>
 
       <div class="glass stat">
@@ -154,13 +154,13 @@ const releasePercent = computed(() => {
       <div class="card pad">
         <div class="ph">
           <span class="tt">发版进度</span>
-          <span class="sub">RELEASE {{ summary.release?.version || '' }}</span>
+          <span class="sub">RELEASE</span>
           <span class="sp"></span>
         </div>
         <div class="rel">
           <div class="ric"><svg><use href="#i-rocket" /></svg></div>
           <div>
-            <b>{{ (summary.release?.version || '–') }} 发版联动</b>
+            <b>发版联动</b>
             <div class="rs">{{ summary.release?.date_text || '计划日期待定' }}</div>
           </div>
           <span class="dchip">{{ releaseDaysText }}</span>
@@ -223,10 +223,24 @@ const releasePercent = computed(() => {
 :root {
   --ink:#232A4D; --ink-2:#5A6284; --ink-3:#9AA1BE;
   --glass:rgba(255,255,255,.62); --edge:rgba(35,42,77,.08);
-  --c1:#6366F1; --ok:#10B981; --warn:#F59E0B;
-  --grad:linear-gradient(115deg,#6366F1,#A855F7 50%,#EC4899);
+  --c1:#5B5FC7; --ok:#10B981; --warn:#F59E0B;
+  --grad:linear-gradient(115deg,#5B5FC7,#7A7ED9 50%,#9BA0EC);
   --r-lg:20px; --r-sm:12px;
   --font:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;
+}
+html[data-theme="clear"] {
+  --ink:#161D26; --ink-2:#38424E; --ink-3:#667486;
+  --c1:#3A5770; --grad:linear-gradient(115deg,#3A5770,#4F708B 50%,#688BA8);
+}
+html[data-theme="warm"] {
+  --ink:#241C16; --ink-2:#4A3B30; --ink-3:#7A6858;
+  --c1:#8B5E3C; --grad:linear-gradient(115deg,#8B5E3C,#A67C52 50%,#C49A6C);
+}
+html[data-theme="black"], html.dark {
+  --ink:#F4F4F5; --ink-2:#C8C8CC; --ink-3:#8A8A90;
+  --glass:rgba(22,22,24,.75); --edge:rgba(255,255,255,.08);
+  --c1:#8FBB9E; --ok:#7EBF96; --warn:#D0A15C;
+  --grad:linear-gradient(115deg,#7AAB8B,#8FBB9E 50%,#A8CDB4);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { min-height:100vh; }
@@ -239,9 +253,18 @@ body {
     radial-gradient(420px 320px at 92% -60px, rgba(236,72,153,.20), transparent 70%),
     linear-gradient(180deg,#EEF1FB,#EAEEFB);
 }
+html[data-theme="black"] body, html.dark body {
+  background:
+    radial-gradient(520px 360px at -80px -80px, rgba(143,187,158,.16), transparent 70%),
+    radial-gradient(560px 420px at 108% 112%, rgba(122,171,139,.16), transparent 70%),
+    radial-gradient(420px 320px at 92% -60px, rgba(168,205,180,.12), transparent 70%),
+    linear-gradient(180deg,#09090B,#111114);
+}
 .content { padding:24px 28px 34px; min-width:0; }
 .glass { background:var(--glass); border:1px solid rgba(255,255,255,.85); box-shadow:0 8px 28px rgba(80,90,180,.10); backdrop-filter:blur(20px) saturate(170%); border-radius:var(--r-lg); }
+html[data-theme="black"] .glass, html.dark .glass { background:rgba(22,22,24,.75); border-color:rgba(255,255,255,.1); box-shadow:0 8px 28px rgba(0,0,0,.4); }
 .card { background:rgba(255,255,255,.9); border:1px solid var(--edge); border-radius:var(--r-lg); box-shadow:0 8px 28px rgba(80,90,180,.08); }
+html[data-theme="black"] .card, html.dark .card { background:rgba(22,22,24,.85); border-color:rgba(255,255,255,.08); box-shadow:0 8px 28px rgba(0,0,0,.35); }
 .hero { display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:20px 24px; margin-bottom:16px; }
 .hero h1 { font-size:22px; font-weight:800; }
 .hero h1 em { font-style:normal; background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
@@ -249,8 +272,8 @@ body {
 .hero .acts { margin-left:auto; display:flex; gap:10px; flex-wrap:wrap; }
 .btn { display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 15px; border-radius:12px; font-size:12.5px; font-weight:700; font-family:var(--font); cursor:pointer; border:1px solid transparent; transition:.22s; }
 .btn svg { width:15px; height:15px; }
-.btn-primary { background:var(--grad); color:#fff; box-shadow:0 8px 22px rgba(168,85,247,.4); }
-.btn-primary:hover { transform:translateY(-1.5px); box-shadow:0 12px 28px rgba(168,85,247,.5); }
+.btn-primary { background:var(--grad); color:#fff; box-shadow:0 8px 22px rgba(91,95,199,.4); }
+.btn-primary:hover { transform:translateY(-1.5px); box-shadow:0 12px 28px rgba(91,95,199,.5); }
 .btn-ghost { background:transparent; color:var(--ink-2); } .btn-ghost:hover { color:var(--c1); background:rgba(99,102,241,.08); }
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
 .stat { padding:17px 19px; position:relative; overflow:hidden; transition:.25s; }
@@ -275,6 +298,7 @@ body {
 .req-list, .checklist { display:flex; flex-direction:column; gap:2px; flex:1; }
 .ck { display:flex; align-items:center; gap:10px; padding:9px 9px; border-radius:11px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:.18s; }
 .ck:hover { background:#FAF8FF; color:var(--ink); transform:translateX(3px); }
+html[data-theme="black"] .ck:hover, html.dark .ck:hover { background:rgba(30,30,34,.9); color:#F4F4F5; }
 .ck .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .ck .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ck .t b { color:var(--c1); font-family:Consolas,monospace; font-size:10px; letter-spacing:.4px; }
@@ -292,6 +316,7 @@ body {
 .plabel { display:flex; justify-content:space-between; font-size:10.5px; color:var(--ink-3); margin:7px 2px 12px; font-weight:700; }
 .plabel b { color:var(--ink); }
 .rel { display:flex; align-items:center; gap:11px; padding:12px 14px; margin-bottom:13px; border-radius:14px; background:linear-gradient(115deg,rgba(99,102,241,.09),rgba(168,85,247,.09) 50%,rgba(236,72,153,.09)); border:1px solid rgba(168,85,247,.25); }
+html[data-theme="black"] .rel, html.dark .rel { background:linear-gradient(115deg,rgba(143,187,158,.12),rgba(122,171,139,.12) 50%,rgba(168,205,180,.12)); border-color:rgba(143,187,158,.3); }
 .rel .ric { width:33px; height:33px; border-radius:10px; background:var(--grad); display:grid; place-items:center; color:#fff; }
 .rel .ric svg { width:17px; height:17px; }
 .rel b { font-size:13px; } .rel .rs { font-size:10.5px; color:var(--ink-2); margin-top:2px; }

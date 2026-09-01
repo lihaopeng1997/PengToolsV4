@@ -18,8 +18,10 @@ export interface BridgeApi {
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
+  themePayload(): Promise<string>
   pageReady(page: PageName): void
   onActiveChanged(handler: (index: number) => void): void
+  onThemeChanged(handler: (payloadJson: string) => void): void
 }
 
 export class BridgeUnavailableError extends Error {
@@ -29,10 +31,10 @@ export class BridgeUnavailableError extends Error {
   }
 }
 
-/** QWebChannel 信号对象（activeChanged 等）的最小调用面。 */
-interface QWebChannelSignal {
-  connect(callback: (index: number) => void): void
-  disconnect(callback: (index: number) => void): void
+/** QWebChannel 信号对象（activeChanged / themeChanged 等）的最小调用面。 */
+interface QWebChannelSignal<T = any> {
+  connect(callback: (val: T) => void): void
+  disconnect(callback: (val: T) => void): void
 }
 
 /** Python HomeBridge 暴露的原始槽/信号形态（qwebchannel.js 生成的运行时对象）。 */
@@ -42,8 +44,23 @@ interface RawHomeBridge {
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
+  themePayload?(): Promise<string>
   pageReady(page: string): void
-  activeChanged?: QWebChannelSignal
+  activeChanged?: QWebChannelSignal<number>
+  themeChanged?: QWebChannelSignal<string>
+}
+
+export function applyThemePayload(payloadStr?: string | null): void {
+  if (!payloadStr) return
+  try {
+    const data = typeof payloadStr === 'string' ? JSON.parse(payloadStr) : payloadStr
+    const themeId = data.id || 'calm'
+    const isDark = Boolean(data.is_dark)
+    document.documentElement.setAttribute('data-theme', themeId)
+    document.documentElement.classList.toggle('dark', isDark)
+  } catch {
+    // ignore malformed payload
+  }
 }
 
 function toPromiseString(value: unknown, slot: string): Promise<string> {
@@ -88,12 +105,18 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
         navModel: () => toPromiseString(raw.navModel(), 'navModel'),
         homeUsername: () => toPromiseString(raw.homeUsername(), 'homeUsername'),
         dashboardSummary: () => toPromiseString(raw.dashboardSummary(), 'dashboardSummary'),
+        themePayload: () => (typeof raw.themePayload === 'function' ? toPromiseString(raw.themePayload(), 'themePayload') : Promise.resolve('{}')),
         pageReady: (page: PageName) => raw.pageReady(page),
         onActiveChanged: (handler: (index: number) => void) => {
           if (!raw.activeChanged) {
             throw new BridgeUnavailableError('bridge.activeChanged 信号不存在')
           }
           raw.activeChanged.connect(handler)
+        },
+        onThemeChanged: (handler: (payloadJson: string) => void) => {
+          if (raw.themeChanged) {
+            raw.themeChanged.connect(handler)
+          }
         },
       })
     })

@@ -188,6 +188,7 @@ class MainWindow(QMainWindow):
             self._dash_web.web_page.renderProcessTerminated.connect(
                 lambda status, code: self._on_web_render_terminated('dashboard', status, code))
             self._dash_holder = None
+            self._sync_web_theme()
 
         self._content_layout.addWidget(self.stack, 1)
         layout.addWidget(content, 1)
@@ -1425,7 +1426,7 @@ class MainWindow(QMainWindow):
             'greeting': '下午好', 'date_line': '本地数据已同步',
             'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5,
                       'daily_note': ''},
-            'release': {'version': 'V4.28', 'total': 0, 'done': 0, 'percent': 0,
+            'release': {'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
                         'days_left': None, 'date_text': '计划日期待定'},
             'recent': [], 'checklist': [],
             'tools': [
@@ -1776,6 +1777,7 @@ class MainWindow(QMainWindow):
                 private_unlocked=self._private_unlocked,
             )
             self.quick_panel.refresh_brand_icons()
+        self._sync_web_theme()
         if self.tray_service is not None:
             try:
                 self.tray_service.refresh_icon()
@@ -1796,6 +1798,25 @@ class MainWindow(QMainWindow):
             self._set_language(wanted_index)
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
         return True
+
+    def _sync_web_theme(self):
+        """向 Chrome / Dashboard Web 视图同步当前主题 Token 与深浅色模式。"""
+        try:
+            from ui.theme_manager import ThemeManager, theme_mode
+            tm = ThemeManager.instance()
+            theme_id = tm.theme_id()
+            is_dark = (theme_mode(theme_id) == 'dark')
+            payload = {
+                'id': theme_id,
+                'is_dark': is_dark,
+                'tokens': tm.palette(),
+            }
+            if getattr(self, '_chrome_bridge', None) is not None:
+                self._chrome_bridge.set_theme_payload(payload)
+            if getattr(self, '_dash_bridge', None) is not None:
+                self._dash_bridge.set_theme_payload(payload)
+        except Exception:
+            pass
 
     def _open_floating_shortcuts_editor(self):
         from ui.floating_shortcuts_editor import open_floating_shortcuts_editor

@@ -78,12 +78,14 @@ if WEB_SHELL_AVAILABLE:
         navigateRequested = pyqtSignal(int)
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
+        themeChanged = pyqtSignal(str)
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self._nav_json = '{"groups":[]}'
             self._username = 'Lihp'
             self._summary_provider = None
+            self._theme_json = '{}'
 
         # ---- 注入点（main_window 调用）----
         def set_nav_model(self, data):
@@ -94,6 +96,10 @@ if WEB_SHELL_AVAILABLE:
 
         def set_summary_provider(self, provider):
             self._summary_provider = provider
+
+        def set_theme_payload(self, data: dict):
+            self._theme_json = json.dumps(data, ensure_ascii=False)
+            self.themeChanged.emit(self._theme_json)
 
         def push_active(self, nav_index: int):
             self.activeChanged.emit(int(nav_index))
@@ -114,6 +120,10 @@ if WEB_SHELL_AVAILABLE:
         @pyqtSlot(result=str)
         def homeUsername(self):
             return self._username
+
+        @pyqtSlot(result=str)
+        def themePayload(self):
+            return self._theme_json
 
         pageReadyReceived = pyqtSignal(str)
 
@@ -139,7 +149,7 @@ else:  # pragma: no cover - 依赖缺失环境
         navigateRequested = pyqtSignal(int)
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
-        pageReadyReceived = pyqtSignal(str)
+        themeChanged = pyqtSignal(str)
 
         def set_nav_model(self, data):
             pass
@@ -148,6 +158,13 @@ else:  # pragma: no cover - 依赖缺失环境
             pass
 
         def set_summary_provider(self, provider):
+            pass
+
+        def set_theme_payload(self, data: dict):
+            pass
+
+        def push_active(self, nav_index):
+            pass
             pass
 
         def push_active(self, nav_index):
