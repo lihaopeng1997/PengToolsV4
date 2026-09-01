@@ -234,14 +234,36 @@ def get_matched_table_identities(
     index: Optional[Dict[str, Any]],
     query: str = '',
 ) -> Set[Tuple[str, str]]:
-    if not isinstance(index, dict) or not query.strip():
+    if not isinstance(index, dict):
         return set()
-    results = search_schema_index(index, query, limit=5000)
+    q = str(query or '').strip().lower()
+    if not q:
+        return set()
+
     matched: Set[Tuple[str, str]] = set()
-    for item in results:
-        kind = item.get('kind')
-        owner = str(item.get('owner') or '')
-        table_name = str(item.get('table_name') or '')
-        if kind in ('table', 'field') and table_name:
-            matched.add((owner.lower(), table_name.lower()))
+
+    # Match tables directly without truncation
+    for entry in index.get('tables') or []:
+        tier = _match_tier(
+            q,
+            entry['name_lower'],
+            entry['qualified_lower'],
+            entry['comment_lower'],
+            entry['owner_lower'],
+        )
+        if tier < 999:
+            matched.add((entry['owner_lower'], entry['name_lower']))
+
+    # Match fields and record parent table identities without truncation
+    for entry in index.get('fields') or []:
+        tier = _match_tier(
+            q,
+            entry['name_lower'],
+            entry['qualified_lower'],
+            entry['comment_lower'],
+            entry['owner_lower'],
+        )
+        if tier < 999:
+            matched.add((entry['owner_lower'], entry['table_name_lower']))
+
     return matched

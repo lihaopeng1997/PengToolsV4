@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 
 from tools.ai_object_context import field_qualified, qualified_name
+from tools.schema_search import build_schema_search_index, search_schema_index
 from tools.schema_snapshot import connection_fingerprint, snapshot_status
 from tools.sql_guard import ai_draft_safety, classify_statement, split_sql_statements, strip_sql_comments
 
@@ -136,14 +137,14 @@ def extract_intent_terms(question: str) -> dict:
     for match in re.findall(r'[A-Za-z][A-Za-z0-9_$#]*', text):
         if match.lower() in _SQL_KEYWORDS:
             continue
-        if normalize_identifier(match) and match.lower() not in ('desc', 'asc', 'order', 'by'):
+        if normalize_identifier(match) and match.lower() not in ('desc', 'asc', 'order', 'by', 'select', 'from'):
             tables.append(match)
     field_terms = []
     for key, variants in FIELD_SYNONYMS.items():
         if any(variant in lowered or variant in text for variant in variants):
             field_terms.append(key)
     remainder = text
-    for stop in ('查询', '倒序', '正序', '降序', '升序', '联合查询', '关联', '索引', '中', '的', '按', '一下'):
+    for stop in ('查询', '倒序', '正序', '降序', '升序', '联合查询', '关联', '索引', '中', '的', '按', '一下', '帮我', '查一下', '查下', '数据', '请', '给我'):
         remainder = remainder.replace(stop, ' ')
     for match in re.findall(r'[\u4e00-\u9fff]{2,8}', remainder):
         if match not in field_terms:
@@ -163,26 +164,6 @@ def _objects(snapshot: dict | None) -> list[dict]:
     return [item for item in ((snapshot or {}).get('objects') or []) if isinstance(item, dict)]
 
 
-def _rank_object(term: str, obj: dict) -> tuple[int, str] | None:
-    ident = normalize_identifier(term)
-    name = str(obj.get('name') or '')
-    qn = qualified_name(obj)
-    comment = normalize_text(obj.get('comment'))
-    if not ident:
-        if comment and normalize_text(term) == comment:
-            return 3, '对象注释精确匹配'
-        return None
-    if name.upper() == str(term).upper() or qn.upper() == str(term).upper():
-        return 1, '表名精确匹配'
-    if ident == normalize_identifier(name) or ident == normalize_identifier(qn):
-        return 2, '表名归一化匹配'
-    if comment and normalize_text(term) == comment:
-        return 3, '对象注释精确匹配'
-    if comment and normalize_text(term) and normalize_text(term) in comment:
-        return 4, '对象注释包含'
-    return None
-
-
 def _synonym_hit(term: str, col: dict) -> bool:
     comment = normalize_text(col.get('comment'))
     name_n = normalize_identifier(col.get('name'))
@@ -192,25 +173,6 @@ def _synonym_hit(term: str, col: dict) -> bool:
             if comment in bag or name_n in {normalize_identifier(item) for item in variants}:
                 return True
     return False
-
-
-def _rank_field(term: str, col: dict, obj: dict) -> tuple[int, str] | None:
-    ident = normalize_identifier(term)
-    name = str(col.get('name') or '')
-    comment = normalize_text(col.get('comment'))
-    obj_comment = normalize_text(obj.get('comment'))
-    term_text = normalize_text(term)
-    if ident and name.upper() == str(term).upper():
-        return 1, '字段名精确匹配'
-    if ident and ident == normalize_identifier(name):
-        return 2, '下划线归一化精确匹配'
-    if term_text and comment and term_text == comment:
-        return 3, '字段注释精确匹配'
-    if term_text and obj_comment and comment and term_text in (obj_comment + ' ' + comment):
-        return 4, '对象注释 + 字段注释联合匹配'
-    if _synonym_hit(term, col):
-        return 5, '同义词扩展匹配'
-    return None
 
 
 def _token_objects(snapshot: dict | None, tokens: dict | None) -> list[dict]:
@@ -233,28 +195,79 @@ def _token_objects(snapshot: dict | None, tokens: dict | None) -> list[dict]:
     return hits
 
 
-def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, confirmed=None) -> dict:
+def resolve_candidates(
+    snapshot: dict | None,
+    intent: dict,
+    *,
+    tokens=None,
+    current_table=None,
+    current_fields=None,
+    confirmed=None,
+) -> dict:
     intent = intent if isinstance(intent, dict) else extract_intent_terms('')
     objects = _objects(snapshot)
     truncated = bool((snapshot or {}).get('truncated'))
     token_objs = _token_objects(snapshot, tokens)
     table_terms = [str(item) for item in (intent.get('tables') or []) if str(item).strip()]
     field_terms = [str(item) for item in (intent.get('field_terms') or []) if str(item).strip()]
+    raw_query = str(intent.get('raw') or '').strip()
     confirmed_keys = {normalize_identifier(item) for item in (confirmed or []) if str(item).strip()}
 
+    search_index = build_schema_search_index(snapshot) if objects else None
+
+    # 1. Object resolution (Priority: Explicit Tokens > Current UI Selection > Schema Search)
     object_hits = []
     if token_objs:
-        object_hits = [{'object': obj, 'rank': 1, 'reason': '用户已选 Token', 'term': qualified_name(obj)} for obj in token_objs]
-    elif table_terms:
-        for term in table_terms:
-            ranked = []
-            for obj in objects:
-                hit = _rank_object(term, obj)
-                if hit:
-                    ranked.append({'object': obj, 'rank': hit[0], 'reason': hit[1], 'term': term})
-            ranked.sort(key=lambda item: (item['rank'], str(item['object'].get('name') or '')))
-            object_hits.extend(ranked)
-        if not object_hits and truncated:
+        object_hits = [
+            {'object': obj, 'rank': 1, 'reason': '用户已选 Token', 'term': qualified_name(obj), 'source': 'explicit_token'}
+            for obj in token_objs
+        ]
+    elif current_table and isinstance(current_table, dict) and any(qualified_name(current_table) == qualified_name(obj) for obj in objects):
+        # Check if user query explicitly refers to another table by name
+        explicit_other = False
+        if table_terms and search_index:
+            for t_term in table_terms:
+                res = search_schema_index(search_index, t_term, limit=5)
+                for r in res:
+                    if r.get('kind') == 'table' and qualified_name(r.get('object') or {}) != qualified_name(current_table):
+                        explicit_other = True
+                        break
+                if explicit_other:
+                    break
+
+        if not explicit_other:
+            object_hits = [
+                {'object': current_table, 'rank': 1, 'reason': '当前选中表', 'term': qualified_name(current_table), 'source': 'current_selection'}
+            ]
+
+    # If still no object hits, use schema_search to find tables from query / terms
+    if not object_hits and search_index:
+        search_terms = []
+        if raw_query:
+            search_terms.append(raw_query)
+        search_terms.extend(table_terms)
+        search_terms.extend(field_terms)
+
+        seen_terms = set()
+        for term in search_terms:
+            t_clean = term.strip()
+            if not t_clean or t_clean.lower() in seen_terms:
+                continue
+            seen_terms.add(t_clean.lower())
+            results = search_schema_index(search_index, t_clean, limit=10)
+            for r in results:
+                if r.get('kind') == 'table' and isinstance(r.get('object'), dict):
+                    rank = 2 if r.get('object_type') == 'TABLE' else 3
+                    object_hits.append({
+                        'object': r['object'],
+                        'rank': rank,
+                        'reason': f"搜索命中表：{r.get('title', '')}",
+                        'term': t_clean,
+                        'source': 'schema_search',
+                    })
+
+    if not object_hits and table_terms:
+        if truncated:
             return {
                 'state': 'BLOCKED',
                 'reason': '快照已截断，请扩大扫描范围后重试。',
@@ -263,18 +276,16 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
                 'needs_selection': False,
                 'auto_confirmed': False,
             }
-        if not object_hits:
-            return {
-                'state': 'BLOCKED',
-                'reason': f'当前快照未找到“{table_terms[0]}”。可查看候选字段或修改描述。',
-                'objects': [],
-                'fields': [],
-                'needs_selection': False,
-                'auto_confirmed': False,
-            }
-    elif objects and field_terms:
-        object_hits = [{'object': obj, 'rank': 4, 'reason': '按字段检索对象', 'term': ''} for obj in objects]
+        return {
+            'state': 'BLOCKED',
+            'reason': f'当前快照未找到“{table_terms[0]}”。可查看候选字段或修改描述。',
+            'objects': [],
+            'fields': [],
+            'needs_selection': False,
+            'auto_confirmed': False,
+        }
 
+    # Deduplicate candidate objects
     unique_objects = []
     seen_obj = set()
     for item in sorted(object_hits, key=lambda row: row['rank']):
@@ -284,55 +295,92 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
         seen_obj.add(qn)
         unique_objects.append(item)
 
-    if len(unique_objects) > 1 and not token_objs and table_terms:
-        names = {normalize_identifier(item['object'].get('name')) for item in unique_objects}
-        if len(names) > 1 and not intent.get('wants_join'):
-            return {
-                'state': 'BLOCKED',
-                'reason': '请补充关联条件',
-                'objects': unique_objects,
-                'fields': [],
-                'needs_selection': False,
-                'auto_confirmed': False,
-                'join_blocked': True,
-            }
-
+    # 2. Field resolution (Priority: Explicit Tokens > Current UI Fields > Schema Search / Synonyms)
     field_hits = []
-    search_objects = [item['object'] for item in unique_objects] or objects
+    search_target_objects = [item['object'] for item in unique_objects] or objects
+
     ctx_fields = []
     for item in ((tokens or {}).get('selected_fields') or []):
         ctx_fields.append(str(item.get('qualified_name') or item.get('name') or ''))
 
     if ctx_fields:
-        for obj in search_objects:
+        for obj in search_target_objects:
             for col in obj.get('columns') or []:
                 qn = field_qualified(obj, col)
                 if qn in ctx_fields or str(col.get('name') or '') in ctx_fields:
                     field_hits.append({
-                        'object': obj, 'column': col, 'rank': 1, 'reason': '用户已选字段 Token',
+                        'object': obj,
+                        'column': col,
+                        'rank': 1,
+                        'reason': '用户已选字段 Token',
                         'term': str(col.get('name') or ''),
+                        'source': 'explicit_token',
                     })
-    elif field_terms:
-        for term in field_terms:
-            for obj in search_objects:
-                for col in obj.get('columns') or []:
-                    hit = _rank_field(term, col, obj)
-                    if not hit:
-                        continue
-                    field_hits.append({
-                        'object': obj, 'column': col, 'rank': hit[0], 'reason': hit[1], 'term': term,
-                    })
-        if not field_hits:
-            label = field_terms[0]
-            return {
-                'state': 'BLOCKED',
-                'reason': f'当前快照未找到“{label}”。可查看候选字段或修改描述。',
-                'objects': unique_objects,
-                'fields': [],
-                'needs_selection': False,
-                'auto_confirmed': False,
-            }
+    elif current_fields and isinstance(current_fields, list) and len(unique_objects) == 1 and unique_objects[0].get('source') == 'current_selection':
+        for col in current_fields:
+            if isinstance(col, dict):
+                field_hits.append({
+                    'object': unique_objects[0]['object'],
+                    'column': col,
+                    'rank': 1,
+                    'reason': '当前选中字段',
+                    'term': str(col.get('name') or ''),
+                    'source': 'current_selection',
+                })
+    else:
+        # Search fields using field_terms, raw query, schema_search, and synonyms
+        matched_cols = set()
+        if search_index:
+            field_queries = []
+            if raw_query:
+                field_queries.append(raw_query)
+            field_queries.extend(field_terms)
+            field_queries.extend(table_terms)
 
+            seen_f_queries = set()
+            for f_q in field_queries:
+                fq_clean = f_q.strip()
+                if not fq_clean or fq_clean.lower() in seen_f_queries:
+                    continue
+                seen_f_queries.add(fq_clean.lower())
+
+                # Check domain synonyms on target objects
+                for obj in search_target_objects:
+                    for col in obj.get('columns') or []:
+                        if _synonym_hit(fq_clean, col):
+                            col_key = field_qualified(obj, col)
+                            if col_key not in matched_cols:
+                                matched_cols.add(col_key)
+                                field_hits.append({
+                                    'object': obj,
+                                    'column': col,
+                                    'rank': 2,
+                                    'reason': '同义词匹配字段',
+                                    'term': fq_clean,
+                                    'source': 'synonym',
+                                })
+
+                # Search schema_search index
+                res = search_schema_index(search_index, fq_clean, limit=30)
+                for r in res:
+                    if r.get('kind') == 'field' and isinstance(r.get('object'), dict) and isinstance(r.get('column'), dict):
+                        target_qns = {qualified_name(o) for o in search_target_objects} if unique_objects else None
+                        obj_qn = qualified_name(r['object'])
+                        if target_qns and obj_qn not in target_qns:
+                            continue
+                        col_key = field_qualified(r['object'], r['column'])
+                        if col_key not in matched_cols:
+                            matched_cols.add(col_key)
+                            field_hits.append({
+                                'object': r['object'],
+                                'column': r['column'],
+                                'rank': 3,
+                                'reason': f"搜索命中字段：{r.get('title', '')}",
+                                'term': fq_clean,
+                                'source': 'schema_search',
+                            })
+
+    # Apply user confirmation filter if confirmed keys were supplied
     if confirmed_keys:
         field_hits = [
             item for item in field_hits
@@ -340,6 +388,7 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
             or normalize_identifier(item['column'].get('name')) in confirmed_keys
         ]
 
+    # Deduplicate fields
     field_hits.sort(key=lambda item: (item['rank'], str(item['column'].get('name') or '')))
     unique_fields = []
     seen_f = set()
@@ -350,12 +399,8 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
         seen_f.add(key)
         unique_fields.append(item)
 
-    if unique_objects and not table_terms and unique_fields:
-        keep = {qualified_name(item['object']) for item in unique_fields}
-        unique_objects = [item for item in unique_objects if qualified_name(item['object']) in keep]
-
-    table_names = {qualified_name(item['object']) for item in unique_objects}
-    if len(table_names) > 1 and not intent.get('wants_join') and not token_objs:
+    # Check multi-table without join
+    if len(unique_objects) > 1 and not token_objs and len(table_terms) > 1 and not intent.get('wants_join'):
         return {
             'state': 'BLOCKED',
             'reason': '请补充关联条件',
@@ -366,9 +411,25 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
             'join_blocked': True,
         }
 
-    weak_only = bool(unique_fields) and all(item['rank'] >= 5 for item in unique_fields)
-    ambiguous = len(unique_fields) > 1 and not confirmed_keys and not ctx_fields
-    if (ambiguous or weak_only) and unique_fields and not confirmed_keys:
+    table_names = {qualified_name(item['object']) for item in unique_objects}
+    if len(table_names) > 1 and not intent.get('wants_join') and not token_objs and not confirmed_keys:
+        return {
+            'state': 'NEEDS_SELECTION',
+            'reason': '找到多个匹配表或字段，请选择要使用的表和字段。',
+            'objects': unique_objects,
+            'fields': unique_fields,
+            'needs_selection': True,
+            'auto_confirmed': False,
+        }
+
+    # Ambiguity check: multiple candidate fields for the same search term or weak synonyms
+    term_to_fields: dict = {}
+    for item in unique_fields:
+        t = str(item.get('term') or '').strip().lower()
+        term_to_fields.setdefault(t, []).append(item)
+    has_multi_match_per_term = any(len(cols) > 1 for cols in term_to_fields.values())
+
+    if (has_multi_match_per_term or len(table_names) > 1) and not confirmed_keys and not ctx_fields:
         return {
             'state': 'NEEDS_SELECTION',
             'reason': '找到多个候选字段，请选择要使用的字段。',
@@ -378,21 +439,16 @@ def resolve_candidates(snapshot: dict | None, intent: dict, *, tokens=None, conf
             'auto_confirmed': False,
         }
 
-    auto = False
-    if unique_fields and not ambiguous and not weak_only:
-        auto = unique_fields[0]['rank'] <= 3
-    elif unique_objects and not field_terms and not unique_fields:
-        auto = unique_objects[0]['rank'] <= 2
-
     if unique_objects or unique_fields:
         return {
             'state': 'READY',
             'reason': '',
-            'objects': unique_objects[:1] if auto and unique_objects else unique_objects,
+            'objects': unique_objects,
             'fields': unique_fields,
             'needs_selection': False,
-            'auto_confirmed': auto,
+            'auto_confirmed': True,
         }
+
     return {
         'state': 'BLOCKED',
         'reason': '当前快照没有可确认的表或字段证据。',
@@ -636,6 +692,8 @@ def prepare_request(
     connection: dict | None,
     *,
     tokens=None,
+    current_table=None,
+    current_fields=None,
     confirmed=None,
 ) -> dict:
     intent = extract_intent_terms(question)
@@ -649,7 +707,14 @@ def prepare_request(
             'intent': intent,
             'call_model': False,
         }
-    resolution = resolve_candidates(snapshot, intent, tokens=tokens, confirmed=confirmed)
+    resolution = resolve_candidates(
+        snapshot,
+        intent,
+        tokens=tokens,
+        current_table=current_table,
+        current_fields=current_fields,
+        confirmed=confirmed,
+    )
     if resolution.get('state') == 'NEEDS_SELECTION':
         return {
             'ok': False,

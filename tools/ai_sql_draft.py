@@ -92,6 +92,9 @@ def build_safe_context(
     error_text: str = '',
     stale: bool = False,
     evidence=None,
+    database: str = '',
+    schema_name: str = '',
+    oceanbase_mode: str = '',
 ) -> str:
     tables = [str(item).strip() for item in (selected_tables or []) if str(item).strip()]
     fields = [str(item).strip() for item in (selected_fields or []) if str(item).strip()]
@@ -100,6 +103,12 @@ def build_safe_context(
         f'连接别名：{alias or "未命名"}',
         f'动作：{ACTIONS.get(action, action)}',
     ]
+    if database:
+        parts.append(f'数据库：{database}')
+    if schema_name:
+        parts.append(f'Schema/Owner：{schema_name}')
+    if oceanbase_mode:
+        parts.append(f'OceanBase 模式：{oceanbase_mode}')
     if stale and action == 'generate':
         parts.append('结构快照无效，禁止生成 SQL。')
         return '\n'.join(parts)

@@ -165,6 +165,30 @@ class SchemaSearchTests(unittest.TestCase):
         matched = get_matched_table_identities(self.index, 'apply_date')
         self.assertIn(('prpcar', 't_policy'), matched)
 
+    def test_get_matched_table_identities_over_5000_fields_without_truncation(self):
+        # 600 tables * 10 matching fields = 6000 field hits
+        objects = []
+        for t_idx in range(600):
+            cols = [
+                {'name': f'POLICY_ID_{c_idx}', 'data_type': 'VARCHAR2(20)', 'comment': '保单标识'}
+                for c_idx in range(10)
+            ]
+            objects.append({
+                'owner': 'PRP',
+                'name': f'T_MASS_{t_idx}',
+                'object_type': 'TABLE',
+                'comment': f'海量表_{t_idx}',
+                'columns': cols,
+            })
+        snap = {'snapshot_id': 'mass_snap', 'objects': objects}
+        idx = build_schema_search_index(snap)
+
+        matched = get_matched_table_identities(idx, 'POLICY_ID')
+        # All 600 tables must be present despite total field hits > 5000
+        self.assertEqual(len(matched), 600)
+        for t_idx in range(600):
+            self.assertIn(('prp', f't_mass_{t_idx}'.lower()), matched)
+
     def test_synthetic_scale_performance_smoke(self):
         big_objects = []
         for t_idx in range(2000):

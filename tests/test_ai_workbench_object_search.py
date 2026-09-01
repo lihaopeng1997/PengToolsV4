@@ -136,6 +136,70 @@ class AiWorkbenchObjectSearchTests(unittest.TestCase):
             self.assertFalse(self.panel._search_popup.isVisible())
             self.assertEqual(self.panel._detail_object.get('name'), 'T_CLAIM')
 
+    def test_run_ai_passes_current_table_and_fields_context(self):
+        self.panel._locate_field('PRPCAR', 'T_POLICY', 'APPLY_DATE')
+        self.panel.nl_input.setPlainText('按日期查询')
+
+        with patch('panels.ai_workbench_panel.is_enabled', return_value=True):
+            with patch('panels.ai_workbench_panel.prepare_request') as mock_prepare:
+                mock_prepare.return_value = {
+                    'ok': True,
+                    'state': 'READY',
+                    'evidence': {
+                        'dialect': 'oracle',
+                        'tables': [{'qualified_name': 'PRPCAR.T_POLICY', 'columns': []}],
+                        'confirmed_fields': ['PRPCAR.T_POLICY.APPLY_DATE'],
+                    },
+                }
+                with patch.object(self.panel, '_start_agent_task') as mock_start:
+                    self.panel._run_ai('generate')
+                    self.assertTrue(mock_prepare.called)
+                    kwargs = mock_prepare.call_args[1]
+                    self.assertEqual(kwargs['current_table']['name'], 'T_POLICY')
+                    self.assertEqual(kwargs['current_fields'][0]['name'], 'APPLY_DATE')
+                    self.assertTrue(mock_start.called)
+
+    def test_on_ai_ok_creates_unexecuted_draft_tab(self):
+        tab_count_before = self.panel.sql_tabs.count()
+        self.panel._pending_evidence = {
+            'dialect': 'oracle',
+            'tables': [{'qualified_name': 'PRPCAR.T_POLICY', 'columns': [{'name': 'POLICY_NO', 'data_type': 'VARCHAR2'}]}],
+            'confirmed_fields': ['PRPCAR.T_POLICY.POLICY_NO'],
+            'snapshot_id': 'snap_1',
+            'scanned_at': '2026-09-01',
+        }
+        draft = {
+            'summary': '查询保单号',
+            'sql': 'SELECT POLICY_NO FROM PRPCAR.T_POLICY',
+            'risk_level': 'read',
+        }
+        self.panel._on_ai_ok(draft)
+        tab_count_after = self.panel.sql_tabs.count()
+        self.assertEqual(tab_count_after, tab_count_before + 1)
+        current_tab_title = self.panel.sql_tabs.tabText(self.panel.sql_tabs.currentIndex())
+        self.assertIn('SQL 草案 · 未执行', current_tab_title)
+
+    def test_on_ai_ok_blocks_invalid_field_and_creates_no_tab(self):
+        tab_count_before = self.panel.sql_tabs.count()
+        self.panel._pending_evidence = {
+            'dialect': 'oracle',
+            'tables': [{'qualified_name': 'PRPCAR.T_POLICY', 'columns': [{'name': 'POLICY_NO', 'data_type': 'VARCHAR2'}]}],
+            'confirmed_fields': ['PRPCAR.T_POLICY.POLICY_NO'],
+            'snapshot_id': 'snap_1',
+            'scanned_at': '2026-09-01',
+        }
+        # Model generated hallucinated field NON_EXISTENT_FIELD
+        draft = {
+            'summary': '查询非法字段',
+            'sql': 'SELECT NON_EXISTENT_FIELD FROM PRPCAR.T_POLICY',
+            'risk_level': 'read',
+        }
+        with patch('panels.ai_workbench_panel.show_warning') as mock_warn:
+            self.panel._on_ai_ok(draft)
+            self.assertTrue(mock_warn.called)
+        tab_count_after = self.panel.sql_tabs.count()
+        self.assertEqual(tab_count_after, tab_count_before)
+
 
 if __name__ == '__main__':
     unittest.main()

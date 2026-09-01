@@ -1670,6 +1670,8 @@ class AiWorkbenchPanel(QWidget):
             prepared = prepare_request(
                 question, self._snapshot, item,
                 tokens=self.nl_input.context,
+                current_table=self._detail_object,
+                current_fields=self._selected_detail_fields(),
                 confirmed=confirmed,
             )
             if prepared.get('state') == 'NEEDS_SELECTION':
@@ -1694,6 +1696,9 @@ class AiWorkbenchPanel(QWidget):
             'error_text': question if action == 'fix' else '',
             'stale': False,
             'evidence': evidence,
+            'database': str((item or {}).get('database') or (item or {}).get('service_name') or ''),
+            'schema_name': str((item or {}).get('schema') or (item or {}).get('user') or ''),
+            'oceanbase_mode': str((item or {}).get('oceanbase_mode') or ''),
             'cfg': load_ai_local(),
         }, action)
 
