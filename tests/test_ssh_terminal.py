@@ -31,6 +31,53 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.assertFalse(self.widget.shell_alive)
         self.assertIn('未连接', self.view._placeholder)
 
+    def test_system_message_isolation_contract(self):
+        """append_system 绝不修改远端 screen grid、光标或状态机。"""
+        emu = self.view._emulator
+        emu.feed_text('Remote Shell 1\r\nRemote Shell 2')
+
+        # Snapshot emulator state
+        grid_before = [list(row) for row in emu.screen.grid]
+        cursor_x_before = emu.screen.cursor_x
+        cursor_y_before = emu.screen.cursor_y
+        style_before = emu.current_style
+        scroll_top_before = emu.screen.scroll_top
+        scroll_bottom_before = emu.screen.scroll_bottom
+        alt_before = emu.is_alternate_screen()
+        state_before = emu._state
+
+        # Call append_system
+        self.view.append_system('[终端错误] Connection timed out')
+        self.view.append_system('[会话已断开]')
+
+        # Verify emulator state is 100% UNTOUCHED
+        self.assertEqual(emu.screen.cursor_x, cursor_x_before)
+        self.assertEqual(emu.screen.cursor_y, cursor_y_before)
+        self.assertEqual(emu.current_style, style_before)
+        self.assertEqual(emu.screen.scroll_top, scroll_top_before)
+        self.assertEqual(emu.screen.scroll_bottom, scroll_bottom_before)
+        self.assertEqual(emu.is_alternate_screen(), alt_before)
+        self.assertEqual(emu._state, state_before)
+        for r in range(len(grid_before)):
+            for c in range(len(grid_before[r])):
+                self.assertEqual(emu.screen.grid[r][c], grid_before[r][c])
+
+        # Verify emulator plain text is unmodified
+        self.assertEqual(emu.get_plain_text(), 'Remote Shell 1\nRemote Shell 2')
+        # But UI status message is updated
+        self.assertIn('会话已断开', self.view._system_status)
+
+    def test_clear_and_ready_does_not_forge_dollar_prompt(self):
+        """本地 clear_and_ready 只清屏，不伪造远端 $ prompt。"""
+        emu = self.view._emulator
+        emu.feed_text('some output\r\n')
+
+        self.view.clear_and_ready()
+        text = self.view.toPlainText()
+        self.assertNotIn('$', text)
+        self.assertNotIn('[已清屏]', text)
+        self.assertEqual(text, '')
+
     def test_key_mapping_enter_backspace_delete(self):
         # Enter -> \r
         event_enter = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
@@ -148,9 +195,10 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.view._on_shell_closed(1)
         self.assertTrue(self.view._connected)
 
-        # Late error from session 1 arrives -> must not append error
+        # Late error from session 1 arrives -> must not set error in session 2
+        self.view._system_status = ''
         self.view._on_shell_error(1, 'Old session error')
-        self.assertNotIn('Old session error', self.view.toPlainText())
+        self.assertNotIn('Old session error', self.view._system_status)
 
 
 if __name__ == '__main__':

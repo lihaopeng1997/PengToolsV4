@@ -180,6 +180,7 @@ class _SshTerminalView(QAbstractScrollArea):
         self._session_generation = 0
         self._ui_active = True
         self._placeholder = '未连接 — 选择服务器并点击「连接」后，可在此输入命令'
+        self._system_status = ''
         self._preedit = ''
         self._colors = _theme_term_colors()
 
@@ -276,9 +277,7 @@ class _SshTerminalView(QAbstractScrollArea):
         shell.attach_client(client, owns_client=False)
         self._shell = shell
         self._connected = True
-        self.append_system(
-            '[终端已就绪] 可直接输入命令。Ctrl+C 中断 · 右键复制/粘贴 · Ctrl+F 查找\n'
-        )
+        self._system_status = '[终端已就绪] 可直接输入命令。Ctrl+C 中断 · 右键复制/粘贴 · Ctrl+F 查找'
         self._update_scroll_bar()
         self.setFocus()
         self.viewport().update()
@@ -296,16 +295,14 @@ class _SshTerminalView(QAbstractScrollArea):
         self.viewport().update()
 
     def append_system(self, text: str) -> None:
-        self._emulator.append_system_line(text)
-        self._update_scroll_bar()
+        """更新系统提示，绝不修改远端 screen grid、光标或状态机。"""
+        self._system_status = str(text or '').strip()
         self.viewport().update()
 
     def clear_and_ready(self) -> None:
+        """本地清屏：清除本地展示内容与状态提示，不伪造远端 prompt。"""
+        self._system_status = ''
         self._emulator.clear_screen()
-        if self.shell_alive:
-            self.append_system('[已清屏]\n$ ')
-        else:
-            self.setPlaceholderText('未连接 — 选择服务器并点击「连接」后，可在此输入命令')
         self._update_scroll_bar()
         self.viewport().update()
 
@@ -320,7 +317,7 @@ class _SshTerminalView(QAbstractScrollArea):
         try:
             self._shell.send(payload.encode('utf-8'))
         except Exception as exc:
-            self.append_system(f'\n[发送失败] {exc}\n')
+            self.append_system(f'[发送失败] {exc}')
 
     def resize_pty(self, cols: int, rows: int) -> None:
         self._emulator.resize(cols, rows)
@@ -351,12 +348,12 @@ class _SshTerminalView(QAbstractScrollArea):
         if gen != self._session_generation:
             return
         self._connected = False
-        self.append_system('\n[会话已断开]\n')
+        self.append_system('[会话已断开]')
 
     def _on_shell_error(self, gen: int, msg: str):
         if gen != self._session_generation:
             return
-        self.append_system(f'\n[终端错误] {msg}\n')
+        self.append_system(f'[终端错误] {msg}')
 
     def _on_scroll(self, val: int):
         self.viewport().update()
@@ -382,10 +379,11 @@ class _SshTerminalView(QAbstractScrollArea):
             cell.is_empty() for row in self._emulator.screen.grid for cell in row
         ):
             painter.setPen(QColor(c['muted']))
+            display_text = self._system_status or self._placeholder
             painter.drawText(
                 self.viewport().rect().adjusted(12, 12, -12, -12),
                 Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
-                self._placeholder,
+                display_text,
             )
             return
 
@@ -476,6 +474,21 @@ class _SshTerminalView(QAbstractScrollArea):
             painter.setPen(QColor(c['primary']))
             painter.drawText(pre_x, pre_y + ascent, self._preedit)
             painter.drawLine(pre_x, pre_y + lh - 1, pre_x + pre_w, pre_y + lh - 1)
+
+        # Draw system status badge overlay
+        if self._system_status and self._connected:
+            badge_text = self._system_status.replace('\n', ' · ')
+            bw = fm.horizontalAdvance(badge_text) + 16
+            bh = lh + 6
+            bx = self.viewport().width() - bw - 14
+            by = 8
+            if bx > 0:
+                badge_rect = QRect(bx, by, bw, bh)
+                painter.setBrush(QBrush(QColor(c['chrome'])))
+                painter.setPen(QPen(QColor(c['border']), 1))
+                painter.drawRoundedRect(badge_rect, 4, 4)
+                painter.setPen(QColor(c['sys']))
+                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -629,7 +642,7 @@ class _SshTerminalView(QAbstractScrollArea):
             try:
                 self._shell.send(commit.encode('utf-8'))
             except Exception as exc:
-                self.append_system(f'\n[发送失败] {exc}\n')
+                self.append_system(f'[发送失败] {exc}')
         self._preedit = event.preeditString()
         self.viewport().update()
 
@@ -684,7 +697,7 @@ class _SshTerminalView(QAbstractScrollArea):
         try:
             self._shell.send(data)
         except Exception as exc:
-            self.append_system(f'\n[发送失败] {exc}\n')
+            self.append_system(f'[发送失败] {exc}')
         event.accept()
 
     def _map_key(self, event: QKeyEvent) -> bytes | str | None:
@@ -768,7 +781,7 @@ class _SshTerminalView(QAbstractScrollArea):
         try:
             self._shell.send(payload)
         except Exception as exc:
-            self.append_system(f'\n[粘贴失败] {exc}\n')
+            self.append_system(f'[发送失败] {exc}')
 
     def _show_menu(self, pos):
         menu = QMenu(self)

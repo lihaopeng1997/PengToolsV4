@@ -96,7 +96,10 @@ class TerminalEmulator:
     STATE_ESC = 1
     STATE_CSI = 2
     STATE_OSC = 3
-    STATE_CHARSET = 4
+    STATE_OSC_ESC = 4
+    STATE_STRING = 5      # For DCS, APC, PM, SOS
+    STATE_STRING_ESC = 6  # ESC inside string sequence
+    STATE_CHARSET = 7
 
     def __init__(self, cols: int = 120, rows: int = 32, max_scrollback: int = 10000):
         self.cols = max(20, int(cols))
@@ -117,7 +120,8 @@ class TerminalEmulator:
         self._state = self.STATE_NORMAL
         self._params: List[int] = []
         self._current_param = ''
-        self._private_mode: bool = False
+        self._private_mode: str = ''
+        self._intermediates: str = ''
         self._osc_buffer: str = ''
         self._decoder = codecs.getincrementaldecoder('utf-8')('replace')
 
@@ -193,11 +197,14 @@ class TerminalEmulator:
                 self._state = self.STATE_CSI
                 self._params = []
                 self._current_param = ''
-                self._private_mode = False
+                self._private_mode = ''
+                self._intermediates = ''
             elif ch == ']':
                 self._state = self.STATE_OSC
                 self._osc_buffer = ''
-            elif ch in ('(', ')'):
+            elif ch in ('P', '_', '^', 'X'):  # DCS (P), APC (_), PM (^), SOS (X)
+                self._state = self.STATE_STRING
+            elif ch in ('(', ')', '*', '+'):
                 self._state = self.STATE_CHARSET
             elif ch == '7':  # Save cursor
                 self._save_cursor()
@@ -218,33 +225,102 @@ class TerminalEmulator:
             elif ch == 'c':  # Reset
                 self.reset()
                 self._state = self.STATE_NORMAL
-            elif ch in ('=', '>'):  # Keypad mode
+            elif ch in ('=', '>', 'N', 'O', '\\'):  # Keypad mode / Lone ST
                 self._state = self.STATE_NORMAL
+            elif ch == '\x1b':
+                self._state = self.STATE_ESC
             else:
                 self._state = self.STATE_NORMAL
 
         elif self._state == self.STATE_CSI:
-            if ch == '?':
-                self._private_mode = True
-            elif '0' <= ch <= '9':
-                self._current_param += ch
-            elif ch in (';', ':'):
-                self._params.append(int(self._current_param) if self._current_param else 0)
-                self._current_param = ''
-            else:
+            code = ord(ch)
+            # Parameter bytes: 0x30–0x3F (0-9:;<=>?)
+            if 0x30 <= code <= 0x3F:
+                if ch in ('?', '>', '<', '='):
+                    self._private_mode += ch
+                elif '0' <= ch <= '9':
+                    self._current_param += ch
+                elif ch in (';', ':'):
+                    self._params.append(int(self._current_param) if self._current_param else 0)
+                    self._current_param = ''
+            # Intermediate bytes: 0x20–0x2F ( !"#$%&'()*+,-./)
+            elif 0x20 <= code <= 0x2F:
+                self._intermediates += ch
+            # Final byte: 0x40–0x7E (@ through ~)
+            elif 0x40 <= code <= 0x7E:
                 if self._current_param:
                     self._params.append(int(self._current_param))
                     self._current_param = ''
                 self._execute_csi(ch)
                 self._state = self.STATE_NORMAL
+            elif ch == '\x1b':
+                self._state = self.STATE_ESC
+            elif ch in ('\x18', '\x1a'):  # CAN / SUB cancels sequence
+                self._state = self.STATE_NORMAL
+            elif code < 0x20:
+                pass  # Ignore control chars during CSI
+            else:
+                self._state = self.STATE_NORMAL
 
         elif self._state == self.STATE_OSC:
-            if ch in ('\x07', '\x1b'):
+            if ch == '\x07':  # BEL termination
+                self._state = self.STATE_NORMAL
+            elif ch == '\x1b':  # Candidate for ST (\x1b\)
+                self._state = self.STATE_OSC_ESC
+            elif ch in ('\x18', '\x1a'):  # Cancel
                 self._state = self.STATE_NORMAL
             else:
                 self._osc_buffer += ch
-                if len(self._osc_buffer) > 2048:
+                if len(self._osc_buffer) > 4096:
                     self._state = self.STATE_NORMAL
+
+        elif self._state == self.STATE_OSC_ESC:
+            if ch == '\\':  # ST (\x1b\) termination complete
+                self._state = self.STATE_NORMAL
+            elif ch == '\x1b':
+                self._state = self.STATE_OSC_ESC
+            elif ch == '[':
+                self._state = self.STATE_CSI
+                self._params = []
+                self._current_param = ''
+                self._private_mode = ''
+                self._intermediates = ''
+            elif ch == ']':
+                self._state = self.STATE_OSC
+                self._osc_buffer = ''
+            else:
+                self._state = self.STATE_NORMAL
+                if ord(ch) >= 32:
+                    self._put_char(ch)
+
+        elif self._state == self.STATE_STRING:  # DCS, APC, PM, SOS
+            if ch == '\x07':  # BEL termination
+                self._state = self.STATE_NORMAL
+            elif ch == '\x1b':  # Candidate for ST (\x1b\)
+                self._state = self.STATE_STRING_ESC
+            elif ch in ('\x18', '\x1a'):
+                self._state = self.STATE_NORMAL
+            else:
+                pass  # Safely consume string payload
+
+        elif self._state == self.STATE_STRING_ESC:
+            if ch == '\\':  # ST complete
+                self._state = self.STATE_NORMAL
+            elif ch == '\x1b':
+                self._state = self.STATE_STRING_ESC
+            elif ch == '[':
+                self._state = self.STATE_CSI
+                self._params = []
+                self._current_param = ''
+                self._private_mode = ''
+                self._intermediates = ''
+            elif ch == ']':
+                self._state = self.STATE_OSC
+                self._osc_buffer = ''
+            else:
+                self._state = self.STATE_NORMAL
+                if ord(ch) >= 32:
+                    self._put_char(ch)
 
         elif self._state == self.STATE_CHARSET:
             self._state = self.STATE_NORMAL
@@ -316,6 +392,18 @@ class TerminalEmulator:
         params = self._params
         p0 = params[0] if params else 0
         p1 = params[1] if len(params) > 1 else 0
+
+        # DEC Private Mode (e.g. CSI ? 1049 h)
+        if '?' in self._private_mode:
+            if cmd == 'h':
+                self._set_mode(params, True)
+            elif cmd == 'l':
+                self._set_mode(params, False)
+            return
+
+        # If other vendor/private prefix or intermediate byte is present and not standard, safely ignore
+        if self._private_mode or self._intermediates:
+            return
 
         if cmd == 'A':  # Cursor Up
             n = max(1, p0)
@@ -453,8 +541,6 @@ class TerminalEmulator:
         self.screen.wrap_next = False
 
     def _set_mode(self, params: List[int], enable: bool):
-        if not self._private_mode:
-            return
         for p in params or [0]:
             if p == 1:  # Application Cursor Keys (DECCKM)
                 self.application_cursor_keys = enable
@@ -562,16 +648,6 @@ class TerminalEmulator:
 
     def clear_screen(self):
         self.screen.clear()
-
-    def append_system_line(self, text: str):
-        if not text:
-            return
-        # Write system message cleanly followed by newline
-        for line in text.split('\n'):
-            for ch in line:
-                self._put_char(ch)
-            self._linefeed()
-            self.screen.cursor_x = 0
 
     def get_screen_rows(self) -> List[List[Cell]]:
         return [list(row) for row in self.screen.grid]

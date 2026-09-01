@@ -71,7 +71,7 @@ class InteractiveShell:
     def __init__(
         self,
         *,
-        on_data: Optional[Callable[[str], None]] = None,
+        on_data: Optional[Callable[[bytes | str], None]] = None,
         on_closed: Optional[Callable[[], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         term: str = 'xterm-256color',

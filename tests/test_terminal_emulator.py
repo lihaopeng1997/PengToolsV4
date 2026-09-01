@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Comprehensive tests for TerminalEmulator (ScreenModel) & InteractiveShell Transport."""
+"""Comprehensive tests for TerminalEmulator (ScreenModel) & ANSI / VT control sequences."""
 
 import unittest
 from tools.terminal_emulator import TerminalEmulator, char_width, CellStyle
@@ -61,8 +61,8 @@ class TerminalEmulatorTests(unittest.TestCase):
 
     def test_cursor_movement_sequences(self):
         emu = TerminalEmulator(cols=40, rows=10)
-        emu.feed_text('Line 1\nLine 2\nLine 3')
-        # Move up 2 lines, move to column 10 (1-based: 11)
+        emu.feed_text('Line 1\r\nLine 2\r\nLine 3')
+        # Move up 2 lines, move to column 10 (1-based: 10)
         emu.feed_text('\x1b[2A\x1b[10GX')
         row0 = ''.join(c.char for c in emu.screen.grid[0] if c.width != 0).rstrip()
         self.assertEqual(row0, 'Line 1   X')
@@ -78,15 +78,87 @@ class TerminalEmulatorTests(unittest.TestCase):
         text = emu.get_plain_text()
         self.assertEqual(text, 'Clean')
 
+    def test_osc_bel_terminator(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        emu.feed_text('\x1b]0;my_window_title\x07Visible Text')
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible Text')
+        self.assertNotIn('my_window_title', text)
+
+    def test_osc_st_terminator(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        # OSC terminated by ESC \ (ST)
+        emu.feed_text('\x1b]0;my_window_title\x1b\\Visible Text')
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible Text')
+        self.assertNotIn('\\', text)
+        self.assertNotIn('my_window_title', text)
+
+    def test_osc_st_terminator_split_across_chunks(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        chunk1 = b'\x1b]0;title_split\x1b'
+        chunk2 = b'\\Visible After Split'
+        emu.feed_bytes(chunk1)
+        emu.feed_bytes(chunk2)
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible After Split')
+        self.assertNotIn('\\', text)
+        self.assertNotIn('title_split', text)
+
+    def test_unsupported_csi_with_private_and_intermediates_safe_ignore(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        # CSI with > private prefix
+        emu.feed_text('\x1b[>0cVisible After DA')
+        text1 = emu.get_plain_text()
+        self.assertEqual(text1, 'Visible After DA')
+        self.assertNotIn('>0c', text1)
+
+        # CSI with ! intermediate byte (DECSTR)
+        emu.feed_text('\r\n\x1b[!pVisible After Soft Reset')
+        lines = emu.get_plain_text().split('\n')
+        self.assertEqual(lines[1], 'Visible After Soft Reset')
+        self.assertNotIn('!p', lines[1])
+
+    def test_dcs_apc_pm_sos_safe_consume(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        # DCS terminated by ST
+        emu.feed_text('\x1bP1;2;payload\x1b\\Visible After DCS\r\n')
+        # APC terminated by ST
+        emu.feed_text('\x1b_some_apc_data\x1b\\Visible After APC\r\n')
+        # PM terminated by ST
+        emu.feed_text('\x1b^some_pm_data\x1b\\Visible After PM\r\n')
+        # SOS terminated by ST
+        emu.feed_text('\x1bXsome_sos_data\x1b\\Visible After SOS')
+
+        lines = emu.get_plain_text().split('\n')
+        self.assertEqual(lines[0], 'Visible After DCS')
+        self.assertEqual(lines[1], 'Visible After APC')
+        self.assertEqual(lines[2], 'Visible After PM')
+        self.assertEqual(lines[3], 'Visible After SOS')
+        for leak in ('payload', 'some_apc', 'some_pm', 'some_sos', '\\'):
+            for line in lines:
+                self.assertNotIn(leak, line)
+
+    def test_dcs_split_across_chunks(self):
+        emu = TerminalEmulator(cols=40, rows=10)
+        chunk1 = b'\x1bP1;2;long_dcs_pay'
+        chunk2 = b'load\x1b\\Visible After DCS Split'
+        emu.feed_bytes(chunk1)
+        emu.feed_bytes(chunk2)
+        text = emu.get_plain_text()
+        self.assertEqual(text, 'Visible After DCS Split')
+        self.assertNotIn('payload', text)
+        self.assertNotIn('\\', text)
+
     def test_alternate_screen_enter_and_restore(self):
         emu = TerminalEmulator(cols=40, rows=10)
-        emu.feed_text('Normal Screen Line 1\nNormal Screen Line 2\n')
+        emu.feed_text('Normal Screen Line 1\r\nNormal Screen Line 2\r\n')
         self.assertFalse(emu.is_alternate_screen())
 
         # Enter alternate screen (vim / top / less)
         emu.feed_text('\x1b[?1049h')
         self.assertTrue(emu.is_alternate_screen())
-        emu.feed_text('Vim Editor Buffer\n~')
+        emu.feed_text('Vim Editor Buffer\r\n~')
         alt_text = emu.get_plain_text()
         self.assertIn('Vim Editor Buffer', alt_text)
         self.assertNotIn('Normal Screen Line 1', alt_text)
@@ -114,29 +186,40 @@ class TerminalEmulatorTests(unittest.TestCase):
         self.assertEqual(lines2[2], '100 root 12.0')
         self.assertEqual(len(emu.scrollback), 0)
 
-    def test_vim_fixture(self):
+    def test_continuous_flow_fixture(self):
+        """Continuous fixture:
+        shell prompt -> OSC(ST) -> vim alternate screen -> DCS/unknown CSI -> cursor redraw -> exit alternate -> shell prompt
+        """
         emu = TerminalEmulator(cols=80, rows=24)
-        # 1. Shell prompt before vim
-        emu.feed_text('user@linux:~$ vim myfile.txt\n')
+        # 1. Shell prompt and command
+        emu.feed_text('user@pengtools:~$ \x1b]0;terminal_title\x1b\\vim app.py\r\n')
+        self.assertIn('user@pengtools:~$ vim app.py', emu.get_plain_text())
 
-        # 2. Vim enters alternate screen, clears, writes status bar and text
+        # 2. Enter Vim (alternate screen, clear, redraw)
         emu.feed_text('\x1b[?1049h\x1b[H\x1b[2J')
-        emu.feed_text('Hello PengToolsHub\n~\n~\n\x1b[24;1H"myfile.txt" [New] 1L, 18B\x1b[1;19H')
-
         self.assertTrue(emu.is_alternate_screen())
-        self.assertEqual(emu.screen.cursor_y, 0)
-        self.assertEqual(emu.screen.cursor_x, 18)
-        self.assertIn('Hello PengToolsHub', emu.get_plain_text())
 
-        # 3. User types in vim -> vim sends insert / cursor move / edits
-        emu.feed_text(' V4')
-        self.assertIn('Hello PengToolsHub V4', emu.get_plain_text())
+        # 3. Terminal query / DCS emitted by vim or plugins
+        emu.feed_text('\x1bP1;1;query_plugin_payload\x1b\\\x1b[>0c')
+        emu.feed_text('import sys\r\nprint("Hello V4")\r\n~\r\n\x1b[24;1H"app.py" 2L, 29B\x1b[1;1H')
 
-        # 4. User exits vim -> exit alternate screen
+        alt_text = emu.get_plain_text()
+        self.assertIn('import sys', alt_text)
+        self.assertIn('print("Hello V4")', alt_text)
+        self.assertIn('"app.py" 2L, 29B', alt_text)
+        self.assertNotIn('query_plugin_payload', alt_text)
+        self.assertNotIn('>0c', alt_text)
+
+        # 4. Exit vim
         emu.feed_text('\x1b[?1049l')
         self.assertFalse(emu.is_alternate_screen())
-        self.assertIn('user@linux:~$ vim myfile.txt', emu.get_plain_text())
-        self.assertNotIn('Hello PengToolsHub', emu.get_plain_text())
+
+        # 5. Returned to normal shell prompt
+        emu.feed_text('user@pengtools:~$ ')
+        normal_text = emu.get_plain_text()
+        self.assertIn('user@pengtools:~$ vim app.py', normal_text)
+        self.assertIn('user@pengtools:~$ ', normal_text)
+        self.assertNotIn('import sys', normal_text)
 
     def test_bracketed_paste_and_application_cursor_modes(self):
         emu = TerminalEmulator(cols=40, rows=10)
@@ -156,20 +239,12 @@ class TerminalEmulatorTests(unittest.TestCase):
     def test_scrollback_cap_preservation(self):
         emu = TerminalEmulator(cols=40, rows=5, max_scrollback=20)
         for i in range(50):
-            emu.feed_text(f'Line {i}\n')
+            emu.feed_text(f'Line {i}\r\n')
 
         self.assertLessEqual(len(emu.scrollback), 20)
         text = emu.get_plain_text()
         self.assertIn('Line 49', text)
         self.assertNotIn('Line 0', text)  # Oldest pruned
-
-    def test_osc_sequences_safely_ignored(self):
-        emu = TerminalEmulator(cols=40, rows=10)
-        # OSC 0 title sequence
-        emu.feed_text('\x1b]0;my_window_title\x07Visible Text')
-        text = emu.get_plain_text()
-        self.assertEqual(text, 'Visible Text')
-        self.assertNotIn('my_window_title', text)
 
 
 if __name__ == '__main__':
