@@ -79,6 +79,15 @@ def empty_draft(**overrides) -> dict:
     return data
 
 
+def get_effective_sql_dialect(dialect: str, oceanbase_mode: str = '') -> str:
+    d = str(dialect or '').strip().lower()
+    if d == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        mode = normalize_oceanbase_mode(oceanbase_mode)
+        return 'mysql' if mode == 'mysql' else 'oracle'
+    return d or 'oracle'
+
+
 def build_safe_context(
     *,
     dialect: str,
@@ -98,17 +107,23 @@ def build_safe_context(
 ) -> str:
     tables = [str(item).strip() for item in (selected_tables or []) if str(item).strip()]
     fields = [str(item).strip() for item in (selected_fields or []) if str(item).strip()]
-    parts = [
-        f'方言：{dialect}',
-        f'连接别名：{alias or "未命名"}',
-        f'动作：{ACTIONS.get(action, action)}',
-    ]
+    d_lower = str(dialect or '').strip().lower()
+    parts = []
+    if d_lower == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        eff_mode = normalize_oceanbase_mode(oceanbase_mode)
+        mode_label = 'MySQL 兼容模式' if eff_mode == 'mysql' else 'Oracle 兼容模式'
+        parts.append('数据库类型：OceanBase')
+        parts.append(f'兼容模式：{mode_label}')
+        parts.append(f'SQL 语法必须遵循 {mode_label} 规范。')
+    else:
+        parts.append(f'方言：{dialect}')
+    parts.append(f'连接别名：{alias or "未命名"}')
+    parts.append(f'动作：{ACTIONS.get(action, action)}')
     if database:
         parts.append(f'数据库：{database}')
     if schema_name:
         parts.append(f'Schema/Owner：{schema_name}')
-    if oceanbase_mode:
-        parts.append(f'OceanBase 模式：{oceanbase_mode}')
     if stale and action == 'generate':
         parts.append('结构快照无效，禁止生成 SQL。')
         return '\n'.join(parts)
@@ -234,6 +249,9 @@ def generate_sql_draft(
     error_text: str = '',
     stale: bool = False,
     evidence=None,
+    database: str = '',
+    schema_name: str = '',
+    oceanbase_mode: str = '',
     cfg=None,
 ) -> dict:
     settings = cfg if isinstance(cfg, dict) else load_ai_local()
@@ -259,6 +277,9 @@ def generate_sql_draft(
         error_text=error_text,
         stale=False if wanted == 'generate' else stale,
         evidence=evidence if wanted == 'generate' else None,
+        database=database,
+        schema_name=schema_name,
+        oceanbase_mode=oceanbase_mode,
     )
     content = chat_completions(
         [
@@ -270,4 +291,5 @@ def generate_sql_draft(
     parsed = _extract_json(content)
     if not parsed.get('sql'):
         parsed['sql'] = strip_markdown_fence(content)
-    return validate_draft(parsed, selected_tables, selected_fields, dialect)
+    effective_dialect = get_effective_sql_dialect(dialect, oceanbase_mode)
+    return validate_draft(parsed, selected_tables, selected_fields, effective_dialect)

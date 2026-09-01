@@ -395,20 +395,114 @@ class TamengAgentTests(unittest.TestCase):
         self.assertFalse(mysql_bad['allowed'])
         self.assertIn('方言', mysql_bad['reason'])
 
-    def test_dml_ddl_remain_drafts_without_auto_exec(self):
+    def test_oceanbase_oracle_and_mysql_mode_validation(self):
         from tools.tameng_agent import validate_generated_sql
         evidence = {
-            'dialect': 'oracle',
+            'dialect': 'oceanbase',
             'tables': [{
-                'qualified_name': 'PRP.PRPCMAIN',
-                'columns': [{'name': 'CREATED_DATE', 'data_type': 'DATE'}],
+                'qualified_name': 'PRPCAR.T_POLICY',
+                'columns': [{'name': 'POLICY_NO', 'data_type': 'VARCHAR2'}],
             }],
-            'confirmed_fields': ['PRP.PRPCMAIN.CREATED_DATE'],
+            'confirmed_fields': ['PRPCAR.T_POLICY.POLICY_NO'],
         }
-        dml = validate_generated_sql('UPDATE PRP.PRPCMAIN SET CREATED_DATE = SYSDATE', evidence, 'oracle')
-        self.assertTrue(dml['allowed'])
-        self.assertEqual(dml['risk_level'], 'write')
-        self.assertIn('草案', dml['reason'])
+
+        # 1. OceanBase in Oracle mode (default / explicit / legacy)
+        for ob_mode in ('oracle', '', None, 'cluster', 'standalone'):
+            ev = dict(evidence, oceanbase_mode=ob_mode)
+            # LIMIT should be rejected in Oracle mode
+            bad = validate_generated_sql('SELECT POLICY_NO FROM PRPCAR.T_POLICY LIMIT 10', ev, 'oceanbase', oceanbase_mode=ob_mode)
+            self.assertFalse(bad['allowed'], f"LIMIT must be rejected for mode {ob_mode}")
+            self.assertIn('方言', bad['reason'])
+            # ROWNUM should be allowed in Oracle mode
+            good = validate_generated_sql('SELECT POLICY_NO FROM PRPCAR.T_POLICY WHERE ROWNUM <= 10', ev, 'oceanbase', oceanbase_mode=ob_mode)
+            self.assertTrue(good['allowed'], f"ROWNUM must be allowed for mode {ob_mode}")
+
+        # 2. OceanBase in explicit MySQL mode
+        ev_mysql = dict(evidence, oceanbase_mode='mysql')
+        # LIMIT should be allowed in MySQL mode
+        good_mysql = validate_generated_sql('SELECT POLICY_NO FROM PRPCAR.T_POLICY LIMIT 10', ev_mysql, 'oceanbase', oceanbase_mode='mysql')
+        self.assertTrue(good_mysql['allowed'])
+        # ROWNUM should be rejected in MySQL mode
+        bad_mysql = validate_generated_sql('SELECT POLICY_NO FROM PRPCAR.T_POLICY WHERE ROWNUM <= 10', ev_mysql, 'oceanbase', oceanbase_mode='mysql')
+        self.assertFalse(bad_mysql['allowed'])
+        self.assertIn('方言', bad_mysql['reason'])
+
+    def test_generate_sql_draft_full_worker_kwargs_penetration(self):
+        import json
+        from tools.ai_sql_draft import generate_sql_draft
+        from panels.ai_workbench_panel import _AiWorker
+
+        captured_messages = []
+
+        def fake_chat(messages, cfg=None):
+            captured_messages.extend(messages)
+            return json.dumps({
+                'summary': '测试草案',
+                'sql': 'SELECT POLICY_NO FROM PRPCAR.T_POLICY',
+                'risk_level': 'read',
+            })
+
+        evidence = {
+            'dialect': 'oceanbase',
+            'oceanbase_mode': 'mysql',
+            'tables': [{
+                'qualified_name': 'PRPCAR.T_POLICY',
+                'object_type': 'TABLE',
+                'comment': '保单主表',
+                'columns': [{'name': 'POLICY_NO', 'data_type': 'VARCHAR(30)', 'comment': '保单号'}],
+            }],
+            'confirmed_fields': ['PRPCAR.T_POLICY.POLICY_NO'],
+            'snapshot_id': 'snap_001',
+            'scanned_at': '2026-09-01',
+        }
+
+        # Construct exact kwargs passed by panels/ai_workbench_panel.py
+        kwargs = {
+            'question': '查保单号',
+            'action': 'generate',
+            'dialect': 'oceanbase',
+            'alias': 'ob-prod-connection',
+            'snapshot': None,
+            'selected_tables': ['PRPCAR.T_POLICY'],
+            'selected_fields': ['POLICY_NO'],
+            'current_sql': '',
+            'error_text': '',
+            'stale': False,
+            'evidence': evidence,
+            'database': 'INSURANCE_DB',
+            'schema_name': 'PRPCAR',
+            'oceanbase_mode': 'mysql',
+            'cfg': {'enabled': True, 'api_base': 'http://127.0.0.1', 'api_key': 'test', 'model': 'test'},
+        }
+
+        # 1. Direct call to generate_sql_draft with real kwargs
+        with patch('tools.ai_sql_draft.chat_completions', side_effect=fake_chat):
+            with patch('tools.ai_sql_draft.is_enabled', return_value=True):
+                draft = generate_sql_draft(**kwargs)
+
+        self.assertEqual(draft['sql'], 'SELECT POLICY_NO FROM PRPCAR.T_POLICY')
+        self.assertEqual(draft['risk_level'], 'read')
+        self.assertGreater(len(captured_messages), 0)
+        user_prompt = captured_messages[1]['content']
+        self.assertIn('数据库：INSURANCE_DB', user_prompt)
+        self.assertIn('Schema/Owner：PRPCAR', user_prompt)
+        self.assertIn('MySQL 兼容模式', user_prompt)
+        self.assertNotIn('password', user_prompt.lower())
+        self.assertNotIn('secret', user_prompt.lower())
+        self.assertNotIn('token', user_prompt.lower())
+        self.assertNotIn('http://', user_prompt)
+
+        # 2. End-to-end _AiWorker.run() invocation
+        captured_messages.clear()
+        worker = _AiWorker(kwargs)
+        result_holder = []
+        worker.completed.connect(result_holder.append)
+        with patch('tools.ai_sql_draft.chat_completions', side_effect=fake_chat):
+            with patch('tools.ai_sql_draft.is_enabled', return_value=True):
+                worker.run()
+
+        self.assertEqual(len(result_holder), 1)
+        self.assertEqual(result_holder[0]['sql'], 'SELECT POLICY_NO FROM PRPCAR.T_POLICY')
 
 
 if __name__ == '__main__':

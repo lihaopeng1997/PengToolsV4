@@ -26,6 +26,7 @@ from tools.db_connect import (
     load_connections, open_connection, close_connection, run_console_statement,
     upsert_connection,
 )
+from tools.db_contracts import normalize_oceanbase_mode
 from tools.intranet_llm import is_enabled, load_ai_local
 from tools.tameng_agent import format_evidence_bar, prepare_request, validate_generated_sql
 from tools.schema_search import (
@@ -1684,10 +1685,15 @@ class AiWorkbenchPanel(QWidget):
             self._pending_evidence = evidence
             self.agent_evidence.setText(format_evidence_bar(evidence) or '')
             self._hide_agent_candidates()
+        conn_dialect = str((item or {}).get('dialect') or 'oracle')
+        ob_mode = normalize_oceanbase_mode((item or {}).get('mode')) if conn_dialect.lower() == 'oceanbase' else ''
+        database = str((item or {}).get('database') or (item or {}).get('service_name') or '')
+        schema_name = str((item or {}).get('schema') or '')
+
         self._start_agent_task({
             'question': question or current_sql,
             'action': action,
-            'dialect': str((item or {}).get('dialect') or 'oracle'),
+            'dialect': conn_dialect,
             'alias': str((item or {}).get('name') or ''),
             'snapshot': self._snapshot if action != 'generate' else None,
             'selected_tables': selected_table_names(self.nl_input.context),
@@ -1696,9 +1702,9 @@ class AiWorkbenchPanel(QWidget):
             'error_text': question if action == 'fix' else '',
             'stale': False,
             'evidence': evidence,
-            'database': str((item or {}).get('database') or (item or {}).get('service_name') or ''),
-            'schema_name': str((item or {}).get('schema') or (item or {}).get('user') or ''),
-            'oceanbase_mode': str((item or {}).get('oceanbase_mode') or ''),
+            'database': database,
+            'schema_name': schema_name,
+            'oceanbase_mode': ob_mode,
             'cfg': load_ai_local(),
         }, action)
 
@@ -1709,10 +1715,12 @@ class AiWorkbenchPanel(QWidget):
             self._finish_agent_task(cancelled=True)
             return
         sql = str((draft or {}).get('sql') or '')
-        dialect = str((self._browse_conn() or {}).get('dialect') or 'oracle')
+        conn = self._browse_conn() or {}
+        dialect = str(conn.get('dialect') or 'oracle')
+        ob_mode = normalize_oceanbase_mode(conn.get('mode')) if dialect.lower() == 'oceanbase' else ''
         evidence = self._pending_evidence
         if evidence is not None:
-            checked = validate_generated_sql(sql, evidence, dialect)
+            checked = validate_generated_sql(sql, evidence, dialect, oceanbase_mode=ob_mode)
             if not checked.get('allowed'):
                 self._block_agent(checked.get('reason') or '草案被拦截', '选择字段后重试')
                 self.ai_explain.setPlainText(format_explanation(draft or {}) + '\n' + str(checked.get('reason') or ''))

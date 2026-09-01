@@ -200,6 +200,44 @@ class AiWorkbenchObjectSearchTests(unittest.TestCase):
         tab_count_after = self.panel.sql_tabs.count()
         self.assertEqual(tab_count_after, tab_count_before)
 
+    def test_run_ai_safe_oceanbase_and_schema_context(self):
+        # OceanBase connection with mode='mysql', schema='PRP_SCHEMA', and secret username/password
+        conn_item = {
+            'id': 'ob_conn_1',
+            'name': 'ob-cluster',
+            'dialect': 'oceanbase',
+            'mode': 'mysql',
+            'database': 'INS_DB',
+            'schema': 'PRP_SCHEMA',
+            'username': 'secret_admin_user',
+            'password': 'secret_password_123',
+        }
+        self.panel._current_conn_item = conn_item
+        self.panel.nl_input.setPlainText('查询保单')
+
+        with patch.object(self.panel, '_browse_conn', return_value=conn_item):
+            with patch('panels.ai_workbench_panel.is_enabled', return_value=True):
+                with patch('panels.ai_workbench_panel.prepare_request') as mock_prepare:
+                    mock_prepare.return_value = {
+                        'ok': True,
+                        'state': 'READY',
+                        'evidence': {
+                            'dialect': 'oceanbase',
+                            'oceanbase_mode': 'mysql',
+                            'tables': [{'qualified_name': 'PRP_SCHEMA.T_POLICY', 'columns': []}],
+                            'confirmed_fields': ['PRP_SCHEMA.T_POLICY.POLICY_NO'],
+                        },
+                    }
+                    with patch.object(self.panel, '_start_agent_task') as mock_start:
+                        self.panel._run_ai('generate')
+                        self.assertTrue(mock_start.called)
+                        task_kwargs = mock_start.call_args[0][0]
+                        self.assertEqual(task_kwargs['database'], 'INS_DB')
+                        self.assertEqual(task_kwargs['schema_name'], 'PRP_SCHEMA')
+                        self.assertEqual(task_kwargs['oceanbase_mode'], 'mysql')
+                        self.assertNotIn('secret_admin_user', str(task_kwargs.values()))
+                        self.assertNotIn('secret_password_123', str(task_kwargs.values()))
+
 
 if __name__ == '__main__':
     unittest.main()

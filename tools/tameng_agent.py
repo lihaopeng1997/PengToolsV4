@@ -459,7 +459,22 @@ def resolve_candidates(
     }
 
 
-def build_evidence_context(resolution: dict, snapshot: dict | None) -> dict:
+def get_effective_sql_dialect(dialect: str, oceanbase_mode: str = '') -> str:
+    d = str(dialect or '').strip().lower()
+    if d == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        mode = normalize_oceanbase_mode(oceanbase_mode)
+        return 'mysql' if mode == 'mysql' else 'oracle'
+    return d or 'oracle'
+
+
+def build_evidence_context(
+    resolution: dict,
+    snapshot: dict | None,
+    *,
+    dialect: str = '',
+    oceanbase_mode: str = '',
+) -> dict:
     snap = snapshot if isinstance(snapshot, dict) else {}
     resolution = resolution if isinstance(resolution, dict) else {}
     tables = []
@@ -508,8 +523,12 @@ def build_evidence_context(resolution: dict, snapshot: dict | None) -> dict:
         })
     if field_items:
         confirmed = [field_qualified(item['object'], item['column']) for item in field_items]
+    base_d = dialect or str(snap.get('dialect') or 'oracle')
+    ob_m = str(oceanbase_mode or snap.get('oceanbase_mode') or '')
     return {
-        'dialect': str(snap.get('dialect') or 'oracle'),
+        'dialect': base_d,
+        'oceanbase_mode': ob_m,
+        'effective_dialect': get_effective_sql_dialect(base_d, ob_m),
         'snapshot_id': str(snap.get('snapshot_id') or ''),
         'scanned_at': str(snap.get('scanned_at') or ''),
         'truncated': bool(snap.get('truncated')),
@@ -555,8 +574,17 @@ def format_evidence_bar(evidence: dict | None) -> str:
 
 def evidence_prompt_text(evidence: dict | None) -> str:
     data = evidence if isinstance(evidence, dict) else {}
+    base_dialect = str(data.get('dialect') or 'oracle')
+    ob_m = str(data.get('oceanbase_mode') or '')
+    if base_dialect.lower() == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        eff_mode = normalize_oceanbase_mode(ob_m)
+        mode_label = 'MySQL 兼容模式' if eff_mode == 'mysql' else 'Oracle 兼容模式'
+        dialect_str = f"OceanBase ({mode_label})"
+    else:
+        dialect_str = base_dialect
     lines = [
-        f"方言：{data.get('dialect') or 'oracle'}",
+        f"方言：{dialect_str}",
         f"snapshot_id：{data.get('snapshot_id') or ''}",
         f"扫描时间：{data.get('scanned_at') or ''}",
         '已确认字段：' + (', '.join(data.get('confirmed_fields') or []) or '（无）'),
@@ -596,7 +624,7 @@ def _sql_aliases(sql: str) -> set[str]:
     return aliases
 
 
-def validate_generated_sql(sql: str, evidence: dict, dialect: str) -> dict:
+def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbase_mode: str = '') -> dict:
     data = evidence if isinstance(evidence, dict) else {}
     text = str(sql or '').strip()
     result = {
@@ -614,7 +642,11 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str) -> dict:
     if len(parts) != 1:
         result['reason'] = '草案被拦截：模型返回了多条 SQL。'
         return result
-    info = classify_statement(parts[0], dialect)
+    base_dialect = str(dialect or data.get('dialect') or 'oracle').lower()
+    ob_m = str(oceanbase_mode or data.get('oceanbase_mode') or '')
+    kind = get_effective_sql_dialect(base_dialect, ob_m)
+
+    info = classify_statement(parts[0], kind)
     if info.get('category') == 'unknown':
         result['reason'] = '草案被拦截：语句分类无法识别。'
         return result
@@ -666,9 +698,8 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str) -> dict:
         result['unknown_fields'] = unknown_fields
         result['reason'] = f'草案引用了当前快照不存在的字段 {unknown_fields[0]}，已拦截且未写入 SQL 编辑器。'
         return result
-    kind = str(dialect or data.get('dialect') or 'oracle').lower()
     lowered = body.lower()
-    if kind in ('oracle', 'oceanbase') and re.search(r'\blimit\b', lowered) and 'fetch' not in lowered:
+    if kind in ('oracle', 'dameng', 'dm') and re.search(r'\blimit\b', lowered) and 'fetch' not in lowered:
         result['reason'] = '草案被拦截：输出方言与当前连接方言不兼容。'
         return result
     if kind == 'mysql' and 'rownum' in lowered:
@@ -735,7 +766,16 @@ def prepare_request(
             'resolution': resolution,
             'call_model': False,
         }
-    evidence = build_evidence_context(resolution, snapshot)
+    ob_mode = ''
+    if connection and str(connection.get('dialect') or '').lower() == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        ob_mode = normalize_oceanbase_mode(connection.get('mode'))
+    evidence = build_evidence_context(
+        resolution,
+        snapshot,
+        dialect=str((connection or {}).get('dialect') or ''),
+        oceanbase_mode=ob_mode,
+    )
     if not evidence.get('tables'):
         return {
             'ok': False,
