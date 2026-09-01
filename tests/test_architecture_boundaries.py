@@ -19,6 +19,7 @@ UI_TOOL_PORTS = {
     'tools.ops_ssh_shell',
     'tools.personal_knowledge',
     'tools.pinyin_search',
+    'tools.terminal_emulator',
     'tools.ticket_submit',
     'tools.vin_generator',
     'tools.xml_formatter',

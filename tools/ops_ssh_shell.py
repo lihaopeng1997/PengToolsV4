@@ -209,16 +209,13 @@ class InteractiveShell:
         if th and th.is_alive() and th is not threading.current_thread():
             th.join(timeout=0.8)
 
-    def _emit_data(self, text: str) -> None:
-        if not text:
-            return
-        clean = normalize_terminal_text(text)
-        if not clean:
+    def _emit_data(self, data: bytes | str) -> None:
+        if not data:
             return
         cb = self.on_data
         if cb:
             try:
-                cb(clean)
+                cb(data)
             except Exception:
                 pass
 
@@ -254,7 +251,10 @@ class InteractiveShell:
                     elif ch.exit_status_ready():
                         # drain
                         while ch.recv_ready():
-                            data += ch.recv(4096)
+                            chunk = ch.recv(4096)
+                            if not chunk:
+                                break
+                            self._emit_data(chunk)
                         break
                     else:
                         time.sleep(0.005)
@@ -269,11 +269,7 @@ class InteractiveShell:
                     if ch.closed or ch.exit_status_ready():
                         break
                     continue
-                try:
-                    text = data.decode('utf-8', errors='replace')
-                except Exception:
-                    text = data.decode('latin-1', errors='replace')
-                self._emit_data(text)
+                self._emit_data(data)
         finally:
             if not self._stop.is_set():
                 self._emit_closed()

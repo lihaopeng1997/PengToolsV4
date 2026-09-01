@@ -111,6 +111,62 @@ class OpsSshTests(unittest.TestCase):
             shell.attach_client(Client())
         self.assertFalse(shell.alive)
 
+    def test_interactive_shell_raw_transport_preserves_ansi_sequences(self):
+        from tools.ops_ssh_shell import InteractiveShell
+        received = []
+        shell = InteractiveShell(on_data=received.append)
+
+        # Emit raw ansi bytes
+        raw_payload = b'\x1b[31;1mHello\x1b[0m\r\n'
+        shell._emit_data(raw_payload)
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], raw_payload)
+        self.assertIn(b'\x1b[31;1m', received[0])
+
+    def test_interactive_shell_send_and_resize(self):
+        from tools.ops_ssh_shell import InteractiveShell
+
+        class FakeChannel:
+            closed = False
+            sent = []
+            resized = []
+
+            def send(self, data):
+                self.sent.append(data)
+
+            def resize_pty(self, width, height):
+                self.resized.append((width, height))
+
+            def settimeout(self, _t):
+                pass
+
+            def set_combine_stderr(self, _e):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        fake_chan = FakeChannel()
+        shell = InteractiveShell()
+        shell._channel = fake_chan
+        self.assertTrue(shell.alive)
+
+        # Test send string and bytes
+        shell.send('ls -la\r')
+        self.assertEqual(fake_chan.sent[-1], b'ls -la\r')
+
+        # Test resize
+        shell.resize(100, 30)
+        self.assertEqual(fake_chan.resized[-1], (100, 30))
+
+        # Test close idempotency
+        shell.close()
+        self.assertTrue(fake_chan.closed)
+        self.assertFalse(shell.alive)
+        # Second close should not raise
+        shell.close()
+
     def test_password_roundtrip_not_plain(self):
         token = encrypt_secret('p@ss-测试')
         self.assertFalse(token.startswith('p@ss'))
