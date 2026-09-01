@@ -232,7 +232,7 @@ class QuickPanel(QWidget):
         self.home_btn.setObjectName('floating-home')
         self.home_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.home_btn.clicked.connect(lambda: self._activate(0))
-        footer.addWidget(self.home_btn, 1)
+        footer.addWidget(self.home_btn)
         self.ticket_btn = QPushButton()
         self.ticket_btn.setObjectName('floating-home')
         self.ticket_btn.setCursor(Qt.CursorShape.PointingHandCursor)

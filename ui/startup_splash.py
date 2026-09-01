@@ -58,8 +58,8 @@ class StartupSplash(QSplashScreen):
         self._message = '正在启动…'
         self._title = 'PengToolsHub'
         try:
-            from config import APP_NAME, app_version_text
-            self._title = f'{APP_NAME}  {app_version_text()}'
+            from config import APP_NAME
+            self._title = APP_NAME
         except Exception:
             pass
         self._logo = _brand_pixmap(72)

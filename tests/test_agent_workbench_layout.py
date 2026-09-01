@@ -278,6 +278,19 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
         finally:
             panel.deleteLater()
 
+    def test_composer_button_layout(self):
+        """测试输入区发送按钮采用紧凑右对齐，不全行拉伸。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        panel = AgentWorkbenchPanel()
+        try:
+            self.assertIsNotNone(panel.send_btn)
+            self.assertIsNotNone(panel.stop_btn)
+            self.assertEqual(panel.send_btn.objectName(), 'primary-btn')
+            self.assertEqual(panel.stop_btn.objectName(), 'btn-secondary')
+        finally:
+            panel.deleteLater()
+
 
 if __name__ == '__main__':
     unittest.main()

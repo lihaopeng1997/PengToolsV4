@@ -132,10 +132,10 @@ function onPaletteClick(): void {
     </div>
   </div>
 
-  <!-- 开发 fallback（无 Qt bridge）：占位，不是正式健康状态；Qt 环境必须加载真实 navModel -->
+  <!-- 离线/等待 fallback（无 Qt bridge）：Qt 环境加载真实 navModel -->
   <div v-else class="dev-fallback">
-    <p>Frontend scaffold ready</p>
-    <p class="hint">{{ bridgeError ? `Bridge unavailable outside Qt · ${bridgeError}` : '连接 Qt bridge 中…' }}</p>
+    <p>PengToolsHub</p>
+    <p class="hint">{{ bridgeError ? `连接异常 · ${bridgeError}` : '正在载入工作台…' }}</p>
   </div>
 </template>
 

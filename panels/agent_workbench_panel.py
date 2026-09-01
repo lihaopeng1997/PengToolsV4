@@ -243,6 +243,7 @@ class AgentWorkbenchPanel(QWidget):
         composer_l.addWidget(self.input, 1)
 
         send_row = QHBoxLayout()
+        send_row.setSpacing(8)
         self.send_btn = QPushButton()
         apply_button(self.send_btn, 'primary', compact=True)
         self.send_btn.clicked.connect(self._send)
@@ -250,7 +251,8 @@ class AgentWorkbenchPanel(QWidget):
         apply_button(self.stop_btn, 'secondary', compact=True)
         self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.setEnabled(False)
-        send_row.addWidget(self.send_btn, 1)
+        send_row.addStretch(1)
+        send_row.addWidget(self.send_btn)
         send_row.addWidget(self.stop_btn)
         composer_l.addLayout(send_row)
         self.center_split.addWidget(composer_container)

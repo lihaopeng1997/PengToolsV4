@@ -296,7 +296,7 @@ class CreditCodePanel(QWidget):
         self.unit_qty = self._quantity_box()
         first.addWidget(self.unit_qty)
         self.unit_generate = QPushButton()
-        apply_button(self.unit_generate, 'secondary', compact=True)
+        apply_button(self.unit_generate, 'primary', compact=True)
         self.unit_generate.clicked.connect(self._generate_unit)
         first.addWidget(self.unit_generate)
         first.addStretch(1)

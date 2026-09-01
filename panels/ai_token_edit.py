@@ -163,10 +163,13 @@ class AiPromptEdit(QTextEdit):
         if box.count() == 0:
             box.addItem('（无）')
         root.addWidget(box)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
         close = QPushButton('关闭')
         apply_button(close, 'secondary', compact=True)
         close.clicked.connect(dialog.accept)
-        root.addWidget(close)
+        btn_row.addWidget(close)
+        root.addLayout(btn_row)
         dialog.exec()
 
     def _token_span_at(self, pos: int):
