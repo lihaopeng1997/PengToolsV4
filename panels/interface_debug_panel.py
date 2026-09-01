@@ -2384,6 +2384,8 @@ class InterfaceDebugPanel(QWidget):
 
     def on_panel_deactivated(self):
         """离开接口排查页：暂停系统代理，其它模块/软件不再被拖超时。引擎可仍运行。"""
+        if hasattr(self, 'loading') and self.loading is not None:
+            self.loading.hide_now()
         if not self._listening:
             return
         try:
@@ -3322,8 +3324,6 @@ class InterfaceDebugPanel(QWidget):
         self._rt_send_started_at = time.time()
         self.rt_send_btn.setEnabled(False)
         self.loading.start_busy('正在发送请求…')
-        # 先刷新界面再进后台线程，确保 Loading 可见
-        QApplication.processEvents()
 
         worker = _RequestTestWorker(
             method, url, headers, body, parent=self, verify_ssl=verify_ssl,

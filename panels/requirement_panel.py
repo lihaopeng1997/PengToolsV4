@@ -4122,15 +4122,18 @@ class RequirementPanel(QWidget):
         path, _ = QFileDialog.getOpenFileName(
             self, '导入需求文档', '', '需求文档 (*.docx *.xlsx *.txt *.md *.json *.xml *.yaml *.yml *.csv)'
         )
-        if not path: return
-        self.loading.start_busy('正在导入并整理需求文档……'); self.loading.raise_(); QApplication.processEvents()
+        if not path:
+            return
+        self.loading.start_busy('正在导入并整理需求文档……')
         try:
             entries = _document_entries_with_password(path, self)
-            for entry in entries: entry['name'] = entry.get('source') or os.path.basename(path)
+            for entry in entries:
+                entry['name'] = entry.get('source') or os.path.basename(path)
             content = '\n'.join(_entry_text(entry) for entry in entries)
         except (OSError, ValueError) as exc:
-            self.loading.fail('导入失败'); QTimer.singleShot(2500, self.loading.hide)
-            show_warning(self, '导入需求', f'{os.path.basename(path)} 读取失败：{exc}'); return
+            self.loading.fail('导入失败')
+            show_warning(self, '导入需求', f'{os.path.basename(path)} 读取失败：{exc}')
+            return
         self.loading.finish('导入完成')
         candidate = requirement_from_text(content, os.path.basename(path), systems=self._systems)
         candidate['source_files'] = entries

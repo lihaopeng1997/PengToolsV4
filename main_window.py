@@ -1524,14 +1524,21 @@ class MainWindow(QMainWindow):
                 self._toggle_ai_group()
             return
         prev = getattr(self, '_current_nav_index', None)
-        # 离开接口排查：暂停系统代理，避免其它模块/外网操作全超时
-        if prev == 12 and index != 12:
-            try:
-                panel = self.interface_debug_panel
-                if panel is not None and hasattr(panel, 'on_panel_deactivated'):
-                    panel.on_panel_deactivated()
-            except Exception:
-                pass
+        if prev is not None and prev != index:
+            # 离开旧页面：调用 on_panel_deactivated 清理 loading / 定时器 / 代理
+            current_panel = self.stack.currentWidget()
+            if current_panel is not None and hasattr(current_panel, 'on_panel_deactivated'):
+                try:
+                    current_panel.on_panel_deactivated()
+                except Exception:
+                    pass
+            # 离开接口排查专项：暂停系统代理
+            if prev == 12 and index != 12 and self.interface_debug_panel is not None:
+                try:
+                    if hasattr(self.interface_debug_panel, 'on_panel_deactivated') and self.interface_debug_panel != current_panel:
+                        self.interface_debug_panel.on_panel_deactivated()
+                except Exception:
+                    pass
         self._current_nav_index = index
         stack_index = self._stack_index_for_nav(index)
         # 用户已点导航：立刻收起启动浮层，不要等后台预热结束

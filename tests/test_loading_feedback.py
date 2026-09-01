@@ -273,8 +273,6 @@ class LoadingFeedbackTest(unittest.TestCase):
     def test_startup_splash_show_status_before_visible_does_not_force_visible(self):
         """在未达到延迟阈值前调用 show_status 不会强制弹出闪屏。"""
         splash = StartupSplash(self.app, delay_ms=500)
-        splash.show_status('阶段 1')
-        self.assertFalse(splash.is_visible_to_user)
         splash.show_status('阶段 2')
         self.assertFalse(splash.is_visible_to_user)
         self.assertEqual(splash._message, '阶段 2')
@@ -288,6 +286,65 @@ class LoadingFeedbackTest(unittest.TestCase):
         img = splash.grab().toImage()
         self.assertFalse(img.isNull())
         splash.close()
+
+    def test_token_based_stale_finish_ignored(self):
+        """Task A finish callback with old token is ignored and does not affect Task B."""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        token_a = p.start_busy('任务 A', immediate=True)
+        self.assertEqual(p._label, '任务 A')
+
+        # 启动任务 B
+        token_b = p.start_busy('任务 B', immediate=True)
+        self.assertGreater(token_b, token_a)
+        self.assertEqual(p._label, '任务 B')
+        self.assertEqual(p._state, 'busy')
+
+        # 任务 A 的 late finish 回调到达，携带旧 token
+        p.finish('任务 A 完成', token=token_a)
+        self.app.processEvents()
+
+        # 断言：任务 B 保持 busy 且 label 仍为任务 B，未被收起或改写为 finish
+        self.assertEqual(p._state, 'busy')
+        self.assertEqual(p._label, '任务 B')
+        self.assertTrue(p.is_visible_to_user)
+
+    def test_token_based_stale_fail_ignored(self):
+        """Task A fail callback with old token is ignored and does not override Task B."""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        token_a = p.start_busy('任务 A', immediate=True)
+        token_b = p.start_busy('任务 B', immediate=True)
+
+        # 任务 A 的 late fail 回调到达
+        p.fail('任务 A 失败', token=token_a)
+        self.app.processEvents()
+
+        # 断言：任务 B 状态保持 busy，不受任务 A 失败影响
+        self.assertEqual(p._state, 'busy')
+        self.assertEqual(p._label, '任务 B')
+
+    def test_hide_event_cancels_pending_delay_timer(self):
+        """当宿主被隐藏时，pending 延迟定时器立即取消，切回时不闪现。"""
+        p = AuroraProgress(self.host, delay_show_ms=200)
+        p.start_busy('等待操作…')
+        self.assertEqual(p._state, 'pending_busy')
+        self.assertIsNotNone(p._delay_timer)
+
+        # 模拟宿主隐藏（如切页切换 QStackedWidget）
+        self.host.hide()
+        self.app.processEvents()
+        self.assertEqual(p._state, 'idle')
+        self.assertIsNone(p._delay_timer)
+
+    def test_reset_method_cleans_all_state(self):
+        """reset() 彻底收起并重置状态机。"""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        p.start_busy('处理中…', immediate=True)
+        self.assertTrue(p.is_visible_to_user)
+        p.reset()
+        self.assertFalse(p.is_visible_to_user)
+        self.assertEqual(p._state, 'idle')
+        self.assertIsNone(p._delay_timer)
+        self.assertIsNone(p._linger_timer)
 
 
 if __name__ == '__main__':

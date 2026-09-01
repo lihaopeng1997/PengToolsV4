@@ -966,6 +966,11 @@ class AiWorkbenchPanel(QWidget):
         layout.addWidget(view)
         dialog.exec()
 
+    def on_panel_deactivated(self):
+        """离开 SQL 工作台时重置 loading，防止悬挂状态。"""
+        if hasattr(self, 'loading') and self.loading is not None:
+            self.loading.hide_now()
+
     def _open_settings(self):
         window = self.window()
         if hasattr(window, '_show_panel'):
@@ -1015,6 +1020,7 @@ class AiWorkbenchPanel(QWidget):
     def _cancel_scan(self):
         if self._worker is not None:
             self._worker.cancelled = True
+        self.loading.fail('扫描已取消' if self.language == 'zh' else 'Scan cancelled')
 
     def _on_db_ok(self, kind: str, payload: dict, kwargs: dict):
         zh = self.language == 'zh'

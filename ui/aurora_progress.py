@@ -11,7 +11,7 @@ UX 契约：
 """
 
 import time
-from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
@@ -19,7 +19,7 @@ DEFAULT_DELAY_SHOW_MS = 300
 DEFAULT_MIN_VISIBLE_MS = 500
 SUCCESS_LINGER_MS = 180
 DEFAULT_SUCCESS_LINGER_MS = 350
-FAIL_LINGER_MS = 3200
+FAIL_LINGER_MS = 2200
 DEFAULT_ANIM_TICK_MS = 28
 
 
@@ -82,11 +82,32 @@ class AuroraProgress(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # 浮层默认不占布局；hide 时也不会把按钮顶上/顶下
         self.hide()
+        if parent is not None:
+            parent.installEventFilter(self)
 
     @property
     def is_visible_to_user(self) -> bool:
         """是否实际已在界面对用户可见。"""
         return self._is_shown and not self.isHidden()
+
+    @property
+    def current_token(self) -> int:
+        """当前世代 token。"""
+        return self._generation
+
+    def eventFilter(self, watched, event):
+        if watched == self.parentWidget() and event.type() == QEvent.Type.Hide:
+            if not self._is_shown:
+                self._cancel_delay_timer()
+                self._state = 'idle'
+        return super().eventFilter(watched, event)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # 宿主或自身被隐藏（如切页、最小化），取消未触发的延迟定时器，防止切回时突兀弹出
+        if not self._is_shown:
+            self._cancel_delay_timer()
+            self._state = 'idle'
 
     def _cancel_delay_timer(self):
         if self._delay_timer is not None:
@@ -123,8 +144,8 @@ class AuroraProgress(QWidget):
         self.move(x, y)
         self.raise_()
 
-    def start_busy(self, label: str, *, immediate: bool = False):
-        """开始忙碌状态。默认延迟 300ms 展示，防止短操作闪烁。"""
+    def start_busy(self, label: str, *, immediate: bool = False) -> int:
+        """开始忙碌状态。默认延迟 300ms 展示，防止短操作闪烁。返回当前 generation token。"""
         self._generation += 1
         gen = self._generation
         self._label = label or ''
@@ -142,6 +163,7 @@ class AuroraProgress(QWidget):
             timer.timeout.connect(lambda g=gen: self._on_delay_show_timeout(g))
             self._delay_timer = timer
             timer.start(self._delay_show_ms)
+        return gen
 
     def _show_overlay_now(self):
         """立即展示浮层，并记录展示时间戳。"""
@@ -162,8 +184,10 @@ class AuroraProgress(QWidget):
         self._state = 'busy' if self._value < 0 else 'progress'
         self._show_overlay_now()
 
-    def set_progress(self, value, label=None):
-        """设置显式百分比进度（0-100）。"""
+    def set_progress(self, value, label=None, *, token: int | None = None):
+        """设置显式百分比进度（0-100）。若传入 token 且已过期则静默忽略。"""
+        if token is not None and token != self._generation:
+            return
         self._generation += 1
         self._value = max(0, min(100, int(value)))
         if label is not None:
@@ -176,8 +200,10 @@ class AuroraProgress(QWidget):
         else:
             self.update()
 
-    def finish(self, label=''):
+    def finish(self, label='', *, token: int | None = None):
         """任务成功完成。若尚未实际展示（短任务）则静默收起；若已展示则保障最小可视时长后渐隐。"""
+        if token is not None and token != self._generation:
+            return
         self._generation += 1
         gen = self._generation
         self._cancel_delay_timer()
@@ -208,8 +234,10 @@ class AuroraProgress(QWidget):
         self._linger_timer = timer
         timer.start(total_linger_ms)
 
-    def fail(self, label=''):
+    def fail(self, label='', *, token: int | None = None):
         """任务失败。立即展示失败浮层并驻留，取消任何 pending 延迟。"""
+        if token is not None and token != self._generation:
+            return
         self._generation += 1
         gen = self._generation
         self._cancel_timers()
@@ -246,6 +274,10 @@ class AuroraProgress(QWidget):
         self._value = -1
         self._label = ''
         self.hide()
+
+    def reset(self):
+        """完全重置状态机与定时器。"""
+        self.hide_now()
 
     def _tick(self):
         self._phase = (self._phase + 4) % 360
