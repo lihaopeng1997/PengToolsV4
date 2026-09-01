@@ -1231,11 +1231,14 @@ class AiWorkbenchPanel(QWidget):
             return
         import os
         os.makedirs(SQL_DRAFTS_DIR, exist_ok=True)
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('sql_draft', SQL_DRAFTS_DIR)
         path, _filter = QFileDialog.getSaveFileName(
-            self, '保存 SQL 草稿' if zh else 'Save SQL draft', SQL_DRAFTS_DIR, 'SQL (*.sql)'
+            self, '保存 SQL 草稿' if zh else 'Save SQL draft', start, 'SQL (*.sql)'
         )
         if not path:
             return
+        remember_dialog_path('sql_draft', path)
         with open(path, 'w', encoding='utf-8') as stream:
             stream.write(editor.toPlainText())
         show_info(self, self._title(), '草稿已保存（请勿写入密码或生产数据）' if zh else 'Draft saved')

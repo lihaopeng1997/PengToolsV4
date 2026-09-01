@@ -3971,12 +3971,15 @@ class OpsLogPanel(QWidget):
         return [s for s in self._servers if s.get('id') in sids]
 
     def _browse_export_dir(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('ops_log_export_dir', self.export_dir_edit.text().strip() or os.path.expanduser('~'))
         path = QFileDialog.getExistingDirectory(
             self,
             '选择导出目录' if self.language == 'zh' else 'Export folder',
-            self.export_dir_edit.text().strip() or os.path.expanduser('~'),
+            start,
         )
         if path:
+            remember_dialog_path('ops_log_export_dir', path, is_directory=True)
             self.export_dir_edit.setText(path)
 
     def _open_export_dir(self):
@@ -4036,8 +4039,8 @@ class OpsLogPanel(QWidget):
             start_dir = self.export_dir_edit.text().strip()
         if not start_dir:
             start_dir = str(load_log_settings().get('export_dir') or '').strip()
-        if not start_dir or not os.path.isdir(start_dir):
-            start_dir = os.path.expanduser('~')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start_dir = get_dialog_start_dir('ops_log_export_dir', start_dir)
         path_pick = QFileDialog.getExistingDirectory(
             self,
             '选择导出文件夹' if zh else 'Choose export folder',
@@ -4045,6 +4048,7 @@ class OpsLogPanel(QWidget):
         )
         if not path_pick:
             return
+        remember_dialog_path('ops_log_export_dir', path_pick, is_directory=True)
         export_dir = path_pick
         if hasattr(self, 'export_dir_edit'):
             self.export_dir_edit.setText(export_dir)

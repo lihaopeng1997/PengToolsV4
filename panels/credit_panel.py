@@ -603,9 +603,12 @@ class CreditCodePanel(QWidget):
     def _export_csv(self):
         if not self._results:
             return
-        path, _ = QFileDialog.getSaveFileName(self, 'Export CSV', '', 'CSV Files (*.csv)')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('credit_csv_export')
+        path, _ = QFileDialog.getSaveFileName(self, 'Export CSV', start, 'CSV Files (*.csv)')
         if not path:
             return
+        remember_dialog_path('credit_csv_export', path)
         try:
             with open(path, 'w', newline='', encoding='utf-8-sig') as stream:
                 writer = csv.writer(stream)

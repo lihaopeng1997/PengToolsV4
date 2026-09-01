@@ -301,9 +301,12 @@ class VinPanel(QWidget):
         )
 
     def _export(self):
-        path, _ = QFileDialog.getSaveFileName(self, 'CSV', 'vin_test_data.csv', 'CSV (*.csv)')
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
+        start = get_dialog_save_path('vin_export_csv', 'vin_test_data.csv')
+        path, _ = QFileDialog.getSaveFileName(self, 'CSV', start, 'CSV (*.csv)')
         if not path:
             return
+        remember_dialog_path('vin_export_csv', path)
         try:
             with open(path, 'w', newline='', encoding='utf-8-sig') as stream:
                 writer = csv.writer(stream)

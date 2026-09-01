@@ -501,11 +501,14 @@ class AgentWorkbenchPanel(QWidget):
 
     def _bind_directory(self):
         """绑定/更换工作文件夹。未建空间时自动先建一个并绑定。"""
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('agent_workspace', os.path.expanduser('~'))
         path = QFileDialog.getExistingDirectory(
-            self, '选择工作文件夹' if self.language == 'zh' else 'Select folder', os.path.expanduser('~'),
+            self, '选择工作文件夹' if self.language == 'zh' else 'Select folder', start,
         )
         if not path:
             return
+        remember_dialog_path('agent_workspace', path, is_directory=True)
         if not self._workspace_session:
             ws = empty_workspace(title='新工作台' if self.language == 'zh' else 'New workspace')
             save_workspace(ws)

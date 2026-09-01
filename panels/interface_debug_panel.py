@@ -1489,14 +1489,17 @@ class InterfaceDebugPanel(QWidget):
         self.browser_combo.blockSignals(False)
 
     def _pick_browser(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('browser_exe', os.environ.get('PROGRAMFILES', 'C:\\'))
         path, _ = QFileDialog.getOpenFileName(
             self,
             '选择浏览器 EXE' if self.language == 'zh' else 'Pick browser EXE',
-            os.environ.get('PROGRAMFILES', 'C:\\'),
+            start,
             'Executable (*.exe);;All (*.*)',
         )
         if not path:
             return
+        remember_dialog_path('browser_exe', path)
         self._config['browser_path'] = path
         recent = list(self._config.get('recent_browser_paths') or [])
         if path in recent:
@@ -3054,11 +3057,14 @@ class InterfaceDebugPanel(QWidget):
         if not recs:
             show_warning(self, '导出', '没有可导出的会话')
             return
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
+        start = get_dialog_save_path('interface_session_export', 'pengtools_iface_session.json')
         path, _ = QFileDialog.getSaveFileName(
-            self, '导出会话明细', 'pengtools_iface_session.json', 'JSON (*.json)',
+            self, '导出会话明细', start, 'JSON (*.json)',
         )
         if not path:
             return
+        remember_dialog_path('interface_session_export', path)
         try:
             doc = build_export_document(recs)
             with open(path, 'w', encoding='utf-8') as stream:
@@ -3409,11 +3415,14 @@ class InterfaceDebugPanel(QWidget):
             self._rt_worker = None
 
     def _rt_import_file(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('interface_session_import')
         path, _ = QFileDialog.getOpenFileName(
-            self, '导入会话明细', '', 'JSON (*.json);;All (*.*)',
+            self, '导入会话明细', start, 'JSON (*.json);;All (*.*)',
         )
         if not path:
             return
+        remember_dialog_path('interface_session_import', path)
         try:
             with open(path, 'r', encoding='utf-8') as stream:
                 text = stream.read()

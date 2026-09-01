@@ -267,8 +267,11 @@ class TicketSubmitConfigDialog(QDialog):
         self._refresh_list(min(index, len(self._profiles) - 1))
 
     def _pick_seed(self):
-        path, _ = QFileDialog.getOpenFileName(self, '选择种子签文档', '', 'Excel (*.xls *.xlsx)')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('ticket_seed_doc', self.seed_edit.text().strip())
+        path, _ = QFileDialog.getOpenFileName(self, '选择种子签文档', start, 'Excel (*.xls *.xlsx)')
         if path:
+            remember_dialog_path('ticket_seed_doc', path)
             self.seed_edit.setText(path)
 
     def _save(self):

@@ -561,8 +561,11 @@ class DocxUpdatePanel(QWidget):
         self.template_status.style().polish(self.template_status)
 
     def _choose_folder(self):
-        path = QFileDialog.getExistingDirectory(self, '选择接口文档文件夹' if self.language == 'zh' else 'Choose document folder', self.folder_path.text().strip())
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('docx_doc_folder', self.folder_path.text().strip())
+        path = QFileDialog.getExistingDirectory(self, '选择接口文档文件夹' if self.language == 'zh' else 'Choose document folder', start)
         if path:
+            remember_dialog_path('docx_doc_folder', path, is_directory=True)
             self.folder_path.setText(os.path.abspath(path))
             if not self.output_dir.text().strip():
                 self.output_dir.setText(os.path.abspath(path))
@@ -570,15 +573,20 @@ class DocxUpdatePanel(QWidget):
             self._refresh_output_browser()
 
     def _choose_output_dir(self):
-        path = QFileDialog.getExistingDirectory(self, '选择输出目录' if self.language == 'zh' else 'Choose output directory', self.output_dir.text().strip())
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('docx_output_dir', self.output_dir.text().strip())
+        path = QFileDialog.getExistingDirectory(self, '选择输出目录' if self.language == 'zh' else 'Choose output directory', start)
         if path:
+            remember_dialog_path('docx_output_dir', path, is_directory=True)
             self.output_dir.setText(os.path.abspath(path))
             self._refresh_output_browser()
 
     def _choose_docx(self):
-        start = self.folder_path.text().strip() or self.output_dir.text().strip()
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('docx_file', self.folder_path.text().strip() or self.output_dir.text().strip())
         path, _ = QFileDialog.getOpenFileName(self, '选择接口文档' if self.language == 'zh' else 'Choose document', start, 'Word (*.docx)')
         if path:
+            remember_dialog_path('docx_file', path)
             path = os.path.abspath(path)
             self.docx_path.setText(path)
             folder = os.path.dirname(path)
@@ -758,9 +766,12 @@ class DocxUpdatePanel(QWidget):
             show_warning(self, '接口文档更新' if zh else 'Interface docs', str(exc))
             return
         if not target:
-            target = QFileDialog.getExistingDirectory(self, '选择 SVN 检出输出目录' if zh else 'Choose checkout directory')
+            from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+            start = get_dialog_start_dir('docx_checkout_dir')
+            target = QFileDialog.getExistingDirectory(self, '选择 SVN 检出输出目录' if zh else 'Choose checkout directory', start)
             if not target:
                 return
+            remember_dialog_path('docx_checkout_dir', target, is_directory=True)
             self.output_dir.setText(os.path.abspath(target))
             target = self.output_dir.text().strip()
         target = os.path.abspath(target)
@@ -805,9 +816,12 @@ class DocxUpdatePanel(QWidget):
         show_info(self, '接口文档更新' if zh else 'Interface docs', message if len(message) < 800 else message[:800] + '…')
 
     def _load_sql(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', '', 'SQL (*.sql *.txt);;All files (*.*)')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('docx_sql_import')
+        paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', start, 'SQL (*.sql *.txt);;All files (*.*)')
         if not paths:
             return
+        remember_dialog_path('docx_sql_import', paths)
         blocks = []
         for path in paths:
             try:

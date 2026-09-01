@@ -154,14 +154,17 @@ class _SqlFormatTab(QWidget):
             self._refresh_status()
 
     def _open_file(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('format_sql_open')
         path, _ = QFileDialog.getOpenFileName(
             self,
             '打开 SQL' if self.language == 'zh' else 'Open SQL',
-            '',
+            start,
             'SQL (*.sql *.txt);;All (*.*)',
         )
         if not path:
             return
+        remember_dialog_path('format_sql_open', path)
         try:
             from tools.sql_tool import read_file_auto_encoding
             self.editor.setPlainText(read_file_auto_encoding(path))
@@ -216,14 +219,17 @@ class _SqlFormatTab(QWidget):
             QApplication.clipboard().setText(text)
 
     def _export(self):
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
+        start = get_dialog_save_path('format_sql_export', 'formatted.sql')
         path, _ = QFileDialog.getSaveFileName(
             self,
             '导出 SQL' if self.language == 'zh' else 'Export SQL',
-            'formatted.sql',
+            start,
             'SQL (*.sql);;Text (*.txt)',
         )
         if not path:
             return
+        remember_dialog_path('format_sql_export', path)
         try:
             with open(path, 'w', encoding='utf-8') as stream:
                 stream.write(self._text())

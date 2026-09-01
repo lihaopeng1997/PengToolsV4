@@ -790,11 +790,14 @@ class KnowledgeTab(QWidget):
     def _export_table(self, visible_only):
         if not self._current:
             return
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         suffix = '当前展示' if visible_only else '整表'
         suggested = f"{os.path.splitext(self._current.get('source', '学习资料'))[0]}_{self._current.get('sheet_name', 'Sheet')}_{suffix}.xlsx"
-        path, _ = QFileDialog.getSaveFileName(self, f'导出{suffix}', suggested, 'Excel 工作簿 (*.xlsx)')
+        start = get_dialog_save_path('personal_table_export', suggested)
+        path, _ = QFileDialog.getSaveFileName(self, f'导出{suffix}', start, 'Excel 工作簿 (*.xlsx)')
         if not path:
             return
+        remember_dialog_path('personal_table_export', path)
         if not path.lower().endswith('.xlsx'):
             path += '.xlsx'
         rows = [row for row in range(self.table_view.rowCount()) if not self.table_view.isRowHidden(row)] if visible_only else None
@@ -817,10 +820,13 @@ class KnowledgeTab(QWidget):
     def _export_word_document(self):
         if not self._current or self._current.get('content_type') != 'word_document':
             return
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         suggested = f"{os.path.splitext(self._current.get('source', '学习资料'))[0]}_编辑后.docx"
-        path, _ = QFileDialog.getSaveFileName(self, '导出 Word 文档', suggested, 'Word 文档 (*.docx)')
+        start = get_dialog_save_path('personal_word_export', suggested)
+        path, _ = QFileDialog.getSaveFileName(self, '导出 Word 文档', start, 'Word 文档 (*.docx)')
         if not path:
             return
+        remember_dialog_path('personal_word_export', path)
         if not path.lower().endswith('.docx'):
             path += '.docx'
         entry = copy.deepcopy(self._current); entry['content'] = self.word_view.toPlainText(); entry['document_html'] = self.word_view.toHtml()
@@ -860,12 +866,15 @@ class KnowledgeTab(QWidget):
         )
 
     def _import_documents(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('personal_doc_import')
         paths, _ = QFileDialog.getOpenFileNames(
-            self, '选择要整理的文档', '',
+            self, '选择要整理的文档', start,
             '支持的文档 (*.txt *.md *.log *.sql *.json *.xml *.yaml *.yml *.csv *.docx *.xlsx)'
         )
         if not paths:
             return
+        remember_dialog_path('personal_doc_import', paths)
         entries, errors = [], []
         for path in paths:
             try:
@@ -979,9 +988,12 @@ class KnowledgeTab(QWidget):
             return
         is_table = self._current.get('content_type') == 'workbook_sheet'
         file_filter = 'Excel 工作簿 (*.xlsx)' if is_table else '文档 (*.txt *.md *.log *.sql *.json *.xml *.yaml *.yml *.csv *.docx)'
-        path, _ = QFileDialog.getOpenFileName(self, '选择更新后的文件', '', file_filter)
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('personal_doc_update')
+        path, _ = QFileDialog.getOpenFileName(self, '选择更新后的文件', start, file_filter)
         if not path:
             return
+        remember_dialog_path('personal_doc_update', path)
         try:
             if is_table:
                 candidates = self._workbook_entries_with_password(path)
@@ -1396,10 +1408,15 @@ class DailyReportTab(QWidget):
 
     def _insert_image_to_focus(self):
         editor = self._focused_editor()
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('personal_image_insert')
         paths, _ = QFileDialog.getOpenFileNames(
-            self, '选择图片', '',
+            self, '选择图片', start,
             'Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp);;All (*.*)',
         )
+        if not paths:
+            return
+        remember_dialog_path('personal_image_insert', paths)
         for path in paths:
             editor.insert_image_from_path(path)
 

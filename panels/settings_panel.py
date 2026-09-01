@@ -687,18 +687,22 @@ class SettingsPanel(QWidget):
         self._refresh_oracle_status()
 
     def _browse_oracle_home(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         zh = self.language == 'zh'
+        start = get_dialog_start_dir('oracle_home', self.oracle_home.text().strip())
         path = QFileDialog.getExistingDirectory(
             self, '选择 Oracle 主目录' if zh else 'Oracle home folder',
-            self.oracle_home.text().strip(),
+            start,
         )
         if path:
+            remember_dialog_path('oracle_home', path, is_directory=True)
             self.oracle_home.setText(path)
             self._refresh_oracle_status()
 
     def _browse_oracle_oci(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         zh = self.language == 'zh'
-        start = self.oracle_oci.text().strip() or self.oracle_home.text().strip()
+        start = get_dialog_start_dir('oracle_oci', self.oracle_oci.text().strip() or self.oracle_home.text().strip())
         path, _filter = QFileDialog.getOpenFileName(
             self,
             '选择 oci.dll' if zh else 'Choose oci.dll',
@@ -706,6 +710,7 @@ class SettingsPanel(QWidget):
             'OCI 库 (oci.dll);;DLL (*.dll);;所有文件 (*.*)' if zh else 'OCI library (oci.dll);;DLL (*.dll);;All (*.*)',
         )
         if path:
+            remember_dialog_path('oracle_oci', path)
             self.oracle_oci.setText(path)
             self._refresh_oracle_status()
 
@@ -858,12 +863,15 @@ class SettingsPanel(QWidget):
 
     def _install_harness_skill(self):
         from ui.confirm_dialog import show_error, show_success
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         zh = self.language == 'zh'
+        start = get_dialog_start_dir('harness_skill_md')
         path, _filter = QFileDialog.getOpenFileName(
-            self, '安装技能' if zh else 'Install skill', '', 'Markdown (*.md)'
+            self, '安装技能' if zh else 'Install skill', start, 'Markdown (*.md)'
         )
         if not path:
             return
+        remember_dialog_path('harness_skill_md', path)
         try:
             from tools.harness_project import install_skill
             dest = install_skill(path)
@@ -873,12 +881,16 @@ class SettingsPanel(QWidget):
 
     def _scan_project_tables(self):
         from ui.confirm_dialog import show_error, show_success
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         zh = self.language == 'zh'
+        start = get_dialog_start_dir('harness_xml_folder')
         folder = QFileDialog.getExistingDirectory(
-            self, '选择含表名的 XML 目录（可选）' if zh else 'Pick XML folder (optional)'
+            self, '选择含表名的 XML 目录（可选）' if zh else 'Pick XML folder (optional)',
+            start,
         )
         if not folder:
             return
+        remember_dialog_path('harness_xml_folder', folder, is_directory=True)
         try:
             from tools.harness_project import save_project_tables, scan_mybatis_tables
             tables = scan_mybatis_tables(folder)

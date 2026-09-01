@@ -325,8 +325,11 @@ class SqlToolPanel(QWidget):
         self.release_context_toggle.setText('升级上下文 ▾' if checked else '升级上下文 ▸')
 
     def _choose_release_root(self):
-        path = QFileDialog.getExistingDirectory(self, '选择生产发版任务清单目录', self.release_root.text())
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('sql_release_root', self.release_root.text())
+        path = QFileDialog.getExistingDirectory(self, '选择生产发版任务清单目录', start)
         if path:
+            remember_dialog_path('sql_release_root', path, is_directory=True)
             self.release_root.setText(path)
 
     def showEvent(self, event):
@@ -1191,9 +1194,12 @@ class SqlToolPanel(QWidget):
         self._load_systems()
 
     def _load_file(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', '', 'SQL (*.sql *.txt);;All files (*.*)')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('sql_import_files')
+        paths, _ = QFileDialog.getOpenFileNames(self, 'SQL', start, 'SQL (*.sql *.txt);;All files (*.*)')
         if not paths:
             return
+        remember_dialog_path('sql_import_files', paths)
         if not self._confirm_mixed_sources('file'):
             return
         try:
@@ -1318,8 +1324,11 @@ class SqlToolPanel(QWidget):
         return deduplicate_sql_statements(self.input_sql.toPlainText())
 
     def _choose_root(self):
-        path = QFileDialog.getExistingDirectory(self, 'Output', self.output_root.text())
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('sql_output_root', self.output_root.text())
+        path = QFileDialog.getExistingDirectory(self, 'Output', start)
         if path:
+            remember_dialog_path('sql_output_root', path, is_directory=True)
             self.output_root.setText(path)
 
     def _env_name(self):

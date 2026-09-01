@@ -1001,12 +1001,15 @@ class _SkillManagerDialog(QDialog):
 
     def _add(self):
         zh = self.zh
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('model_chat_skill_md')
         path, _filter = QFileDialog.getOpenFileName(
             self, '选择 .md skill 文件' if zh else 'Pick .md skill file',
-            '', 'Markdown (*.md)',
+            start, 'Markdown (*.md)',
         )
         if not path:
             return
+        remember_dialog_path('model_chat_skill_md', path)
         task_name, ok = QInputDialog.getText(
             self, 'task 名' if zh else 'Task name',
             'task 名（如 mongo.query）：' if zh else 'Task name (e.g. mongo.query):',

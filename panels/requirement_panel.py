@@ -569,17 +569,24 @@ class RequirementAttachmentDialog(QDialog):
         self._entry['row_count'] = self.table.rowCount(); self._entry['column_count'] = self.table.columnCount()
 
     def _export_excel(self, visible):
-        self._sync_excel(); path, _ = QFileDialog.getSaveFileName(self, '导出 Excel', '', 'Excel 工作簿 (*.xlsx)')
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
+        start = get_dialog_save_path('requirement_export', 'requirement.xlsx')
+        self._sync_excel()
+        path, _ = QFileDialog.getSaveFileName(self, '导出 Excel', start, 'Excel 工作簿 (*.xlsx)')
         if not path: return
+        remember_dialog_path('requirement_export', path)
         if not path.lower().endswith('.xlsx'): path += '.xlsx'
         rows = [r for r in range(self.table.rowCount()) if not self.table.isRowHidden(r)] if visible else None
         columns = [c for c in range(self.table.columnCount()) if not self.table.isColumnHidden(c)] if visible else None
         export_workbook_entry(self._entry, path, rows, columns)
 
     def _export_word(self):
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         entry = copy.deepcopy(self._entry); entry['content'] = self.editor.toPlainText(); entry['document_html'] = self.editor.toHtml()
-        path, _ = QFileDialog.getSaveFileName(self, '导出 Word', '', 'Word 文档 (*.docx)')
+        start = get_dialog_save_path('requirement_export', 'requirement.docx')
+        path, _ = QFileDialog.getSaveFileName(self, '导出 Word', start, 'Word 文档 (*.docx)')
         if path:
+            remember_dialog_path('requirement_export', path)
             if not path.lower().endswith('.docx'): path += '.docx'
             export_word_entry(entry, path)
 
@@ -646,8 +653,12 @@ class SvnCheckoutDialog(QDialog):
         self.kind_combo.currentTextChanged.connect(lambda value: self.month_enabled.setChecked(value != 'BUG'))
 
     def _browse(self):
-        folder = QFileDialog.getExistingDirectory(self, '选择本机存放目录', self.root_edit.text())
-        if folder: self.root_edit.setText(folder)
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_local_root', self.root_edit.text())
+        folder = QFileDialog.getExistingDirectory(self, '选择本机存放目录', start)
+        if folder:
+            remember_dialog_path('requirement_local_root', folder, is_directory=True)
+            self.root_edit.setText(folder)
 
     def _accept_checked(self):
         try:
@@ -1014,9 +1025,11 @@ class RequirementDialog(QDialog):
             self._refresh_sql_system_combo()
 
     def _pick_path_into(self, editor):
-        start = editor.text().strip() or self.local_path_edit.text().strip()
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_project_dir', editor.text().strip() or self.local_path_edit.text().strip())
         path = QFileDialog.getExistingDirectory(self, '选择本地开发项目目录', start)
         if path:
+            remember_dialog_path('requirement_project_dir', path, is_directory=True)
             editor.setText(path)
 
     def _pick_dev_local_path(self):
@@ -1071,9 +1084,12 @@ class RequirementDialog(QDialog):
         self.local_path_edit.clear()
 
     def _bind_local_folder(self):
-        path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', self.local_path_edit.text())
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_svn_wc', self.local_path_edit.text())
+        path = QFileDialog.getExistingDirectory(self, '绑定需求的 SVN 工作副本或资料目录', start)
         if not path:
             return
+        remember_dialog_path('requirement_svn_wc', path, is_directory=True)
         self.local_path_edit.setText(path)
         if os.path.isdir(os.path.join(path, '.svn')):
             try:
@@ -1085,10 +1101,15 @@ class RequirementDialog(QDialog):
                 show_warning(self, '绑定 SVN 目录', f'目录已绑定，但 SVN 信息读取失败：\n{exc}')
 
     def _load_documents(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_doc_attach')
         paths, _ = QFileDialog.getOpenFileNames(
-            self, '选择需求相关文档', '',
+            self, '选择需求相关文档', start,
             '需求文档 (*.docx *.xlsx *.txt *.md *.json *.xml *.yaml *.yml *.csv)'
         )
+        if not paths:
+            return
+        remember_dialog_path('requirement_doc_attach', paths)
         for path in paths:
             try:
                 entries = _document_entries_with_password(path, self)
@@ -1104,7 +1125,12 @@ class RequirementDialog(QDialog):
         self._classify()
 
     def _load_sql(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, '选择需求 SQL', '', 'SQL 文件 (*.sql *.txt)')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_sql_attach')
+        paths, _ = QFileDialog.getOpenFileNames(self, '选择需求 SQL', start, 'SQL 文件 (*.sql *.txt)')
+        if not paths:
+            return
+        remember_dialog_path('requirement_sql_attach', paths)
         for path in paths:
             try:
                 self._sql_parts.append({'name': os.path.basename(path), 'content': read_text_file(path)})
@@ -3218,8 +3244,11 @@ class RequirementPanel(QWidget):
             QTimer.singleShot(0, self._refresh_file_tree)
 
     def _scan_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, '选择按月份整理的需求根目录')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_month_root')
+        folder = QFileDialog.getExistingDirectory(self, '选择按月份整理的需求根目录', start)
         if folder:
+            remember_dialog_path('requirement_month_root', folder, is_directory=True)
             self._start_task('正在扫描本地需求文件夹和 SVN 工作副本……', scan_working_copies, (folder,), self._scan_finished)
 
     def _scan_finished(self, copies):
@@ -3791,9 +3820,12 @@ class RequirementPanel(QWidget):
         if not paths:
             show_info(self, '导出', '请先选择要导出的文件。')
             return
-        dest = QFileDialog.getExistingDirectory(self, '选择导出目录')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_export_dir')
+        dest = QFileDialog.getExistingDirectory(self, '选择导出目录', start)
         if not dest:
             return
+        remember_dialog_path('requirement_export_dir', dest, is_directory=True)
         import shutil
         ok = 0
         for path in paths:
@@ -3925,8 +3957,11 @@ class RequirementPanel(QWidget):
     def _add_existing_files(self):
         path = self._current_path()
         if not path: return
-        paths, _ = QFileDialog.getOpenFileNames(self, '选择要复制并加入 SVN 的文件')
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_svn_add_files')
+        paths, _ = QFileDialog.getOpenFileNames(self, '选择要复制并加入 SVN 的文件', start)
         if not paths: return
+        remember_dialog_path('requirement_svn_add_files', paths)
         folder, accepted = QInputDialog.getText(self, '目标子目录', '工作副本内的目标子目录，可留空：')
         if not accepted: return
         self._start_task('正在复制文件并执行 SVN add……', add_existing_files, (path, paths, folder), self._files_added)
@@ -4133,11 +4168,14 @@ class RequirementPanel(QWidget):
             self._open_requirement_folder(requirement)
 
     def _import_requirement(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('requirement_import')
         path, _ = QFileDialog.getOpenFileName(
-            self, '导入需求文档', '', '需求文档 (*.docx *.xlsx *.txt *.md *.json *.xml *.yaml *.yml *.csv)'
+            self, '导入需求文档', start, '需求文档 (*.docx *.xlsx *.txt *.md *.json *.xml *.yaml *.yml *.csv)'
         )
         if not path:
             return
+        remember_dialog_path('requirement_import', path)
         self.loading.start_busy('正在导入并整理需求文档……')
         try:
             entries = _document_entries_with_password(path, self)
