@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 from config import DEFAULT_SETTINGS
 from panels.agent_workbench_panel import AgentWorkbenchPanel
@@ -108,6 +108,145 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
             self.assertFalse(cfg2.get('supports_vision'))
         finally:
             page.close()
+
+        # Real disk save / load roundtrip with temp path
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
+            temp_path = f.name
+        try:
+            with patch('tools.intranet_llm.AI_LOCAL_FILE', temp_path):
+                from tools.intranet_llm import save_model_catalog, load_model_catalog, upsert_model_item
+                initial_catalog = {
+                    'version': 2,
+                    'active_model_id': 'm_vision',
+                    'items': [{
+                        'id': 'm_vision',
+                        'name': 'VisionModel',
+                        'model': 'qwen-vl',
+                        'base_url': 'http://127.0.0.1:8000/v1',
+                        'enabled': True,
+                        'supports_vision': True,
+                    }],
+                }
+                save_model_catalog(initial_catalog)
+                loaded = load_model_catalog()
+                self.assertEqual(len(loaded.get('items', [])), 1)
+                self.assertTrue(loaded['items'][0]['supports_vision'])
+
+                # Update with supports_vision = False
+                updated_item = dict(loaded['items'][0], supports_vision=False)
+                upsert_model_item(updated_item)
+                reloaded = load_model_catalog()
+                self.assertFalse(reloaded['items'][0]['supports_vision'])
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_homepage_bridge_navigate_requested_changes_panel(self):
+        from main_window import MainWindow
+        settings = dict(DEFAULT_SETTINGS, ui_web_shell=True)
+        with patch('ui.web_shell.runtime_web_shell_available', return_value=True):
+            with patch('main_window.load_settings', return_value=settings):
+                win = MainWindow()
+        try:
+            self.assertIsNotNone(win._dash_bridge)
+            # Verify dash bridge navigateRequested is connected to MainWindow._show_panel
+            # Test nav=9 (Daily Report)
+            win._dash_bridge.navigateRequested.emit(9)
+            self.assertEqual(win._current_nav_index, 9)
+
+            # Test nav=10 (Requirements)
+            win._dash_bridge.navigateRequested.emit(10)
+            self.assertEqual(win._current_nav_index, 10)
+
+            # Test nav=1 (Documents)
+            win._dash_bridge.navigateRequested.emit(1)
+            self.assertEqual(win._current_nav_index, 1)
+
+            # Test nav=0 (Dashboard / Home)
+            win._dash_bridge.navigateRequested.emit(0)
+            self.assertEqual(win._current_nav_index, 0)
+        finally:
+            if win.hotkey_service: win.hotkey_service.unregister()
+            if win.quick_panel: win.quick_panel.close_toolbar()
+            if win.tray_service: win.tray_service.hide()
+            if win.keep_awake_service: win.keep_awake_service.stop()
+            win.hide()
+            win.deleteLater()
+
+    def test_all_main_modules_have_return_home_action(self):
+        from ui.page_chrome import make_page_header
+        # 1. make_page_header default creates home_btn
+        header, title_lbl, sub_lbl = make_page_header('测试页面', '测试副标题')
+        self.assertTrue(hasattr(header, 'home_btn'))
+        self.assertEqual(header.home_btn.text(), '返回首页')
+        self.assertEqual(header.home_btn.toolTip(), '返回首页')
+
+        # 2. show_home=False omits home_btn
+        header_dash, _, _ = make_page_header('工作台', '副标题', show_home=False)
+        self.assertFalse(hasattr(header_dash, 'home_btn'))
+
+        # 3. Test Home button click triggers navigate_to(0)
+        from main_window import MainWindow
+        win = MainWindow()
+        try:
+            # Navigate to nav=10 (Requirement)
+            win.navigate_to(10)
+            self.assertEqual(win._current_nav_index, 10)
+
+            # Find header-home-btn in current panel and click
+            panel = win.stack.currentWidget()
+            home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
+            self.assertGreater(len(home_buttons), 0)
+            home_buttons[0].click()
+            self.assertEqual(win._current_nav_index, 0)
+
+            # Test Redis panel has home action and navigates to 0
+            from panels.db_redis_panel import RedisWorkbenchPanel
+            redis_panel = win._ensure_db_panel(22)
+            self.assertIsNotNone(redis_panel)
+            self.assertTrue(hasattr(redis_panel, 'home_btn'))
+            win.navigate_to(22)
+            self.assertEqual(win._current_nav_index, 22)
+            redis_panel.home_btn.click()
+            self.assertEqual(win._current_nav_index, 0)
+        finally:
+            if win.hotkey_service: win.hotkey_service.unregister()
+            if win.quick_panel: win.quick_panel.close_toolbar()
+            if win.tray_service: win.tray_service.hide()
+            if win.keep_awake_service: win.keep_awake_service.stop()
+            win.hide()
+            win.deleteLater()
+
+    def test_requirement_editable_and_readonly_field_properties(self):
+        from panels.requirement_panel import RequirementPanel, DateInput
+        panel = RequirementPanel()
+        try:
+            self.assertTrue(panel.search_edit.property('editableField'))
+            self.assertTrue(panel.file_search_edit.property('editableField'))
+            self.assertTrue(panel.sql_preview.property('readOnlyField'))
+
+            date_input = DateInput()
+            self.assertTrue(date_input.edit.property('editableField'))
+        finally:
+            panel.deleteLater()
+
+    def test_quick_panel_icon_audit_and_workbench_role(self):
+        from ui.navigation_model import floating_candidates, icon_role_for
+        from ui.icons import icon_file, qicon
+
+        candidates = floating_candidates()
+        self.assertGreater(len(candidates), 0)
+        for item in candidates:
+            role = icon_role_for(item.index)
+            path = icon_file(role)
+            self.assertTrue(os.path.exists(path), f"Missing icon SVG file for role '{role}' (nav index {item.index})")
+            icon = qicon(role)
+            self.assertFalse(icon.isNull(), f"qicon for role '{role}' returned null")
+
+        # Specific check for Agent Workbench (index 17) -> workbench
+        self.assertEqual(icon_role_for(17), 'workbench')
+        self.assertTrue(os.path.exists(icon_file('workbench')))
+        self.assertFalse(qicon('workbench').isNull())
 
     def test_agent_workbench_file_attachment_refs(self):
         panel = AgentWorkbenchPanel()

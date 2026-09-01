@@ -67,6 +67,7 @@ ICON_FILES = {
     'terminal': ('resources', 'icons', 'terminal.svg'),
     'database': ('resources', 'icons', 'database.svg'),
     'chat': ('resources', 'icons', 'chat.svg'),
+    'workbench': ('resources', 'icons', 'workbench.svg'),
     'external-open': ('resources', 'icons', 'external-open.svg'),
     'api-debug': ('resources', 'icons', 'api-debug.svg'),
     'eye': ('resources', 'icons', 'eye.svg'),
@@ -105,8 +106,16 @@ NAV_ICON_BY_INDEX = {
     11: 'json',  # 格式工具
     12: 'api-debug',  # 接口排查
     13: 'search',  # 日志排查
-    14: 'database',  # SQL 控制台（stack 13，nav 14）
-    15: 'chat',  # 模型对话（stack 14，nav 15）
+    14: 'database',  # SQL 控制台（父级，nav 14）
+    15: 'chat',  # 模型（父级，nav 15）
+    16: 'chat',  # 模型聊天（nav 16）
+    17: 'workbench',  # Agent 工作台（nav 17）
+    18: 'database',  # Oracle
+    19: 'database',  # MySQL
+    20: 'database',  # OceanBase
+    21: 'database',  # 达梦
+    22: 'database',  # Redis
+    23: 'database',  # MongoDB
 }
 
 

@@ -60,6 +60,8 @@ def make_page_header(
     primary_button=None,
     trailing: QWidget | None = None,
     accent: str | None = None,
+    show_home: bool = True,
+    language: str = 'zh',
 ) -> tuple[QFrame, QLabel, QLabel]:
     """创建标准页面标题区，返回 (frame, title_label, subtitle_label)。"""
     frame = QFrame()
@@ -103,7 +105,32 @@ def make_page_header(
     if primary_button is not None:
         layout.addWidget(primary_button, 0, Qt.AlignmentFlag.AlignTop)
 
+    if show_home:
+        home_btn = QPushButton('返回首页' if language == 'zh' else 'Home')
+        apply_button(home_btn, 'ghost', compact=True)
+        home_btn.setObjectName('header-home-btn')
+        home_btn.setProperty('homeAction', True)
+        apply_icon(home_btn, 'home', size=16)
+        home_btn.setToolTip('返回首页' if language == 'zh' else 'Return to Home')
+        def _on_home_clicked():
+            top_win = frame.window()
+            if hasattr(top_win, 'navigate_to') and callable(getattr(top_win, 'navigate_to')):
+                top_win.navigate_to(0)
+        home_btn.clicked.connect(_on_home_clicked)
+        frame.home_btn = home_btn
+        layout.addWidget(home_btn, 0, Qt.AlignmentFlag.AlignTop)
+
     return frame, title_label, subtitle_label
+
+
+def set_header_home_language(header_frame: QWidget | None, language: str = 'zh') -> None:
+    """更新页面 Header 返回首页按钮语言。"""
+    btn = getattr(header_frame, 'home_btn', None)
+    if btn is not None:
+        zh = language == 'zh'
+        btn.setText('返回首页' if zh else 'Home')
+        btn.setToolTip('返回首页' if zh else 'Return to Home')
+        apply_icon(btn, 'home', size=16)
 
 
 def make_page_toolbar(*, divided: bool = False) -> tuple[QFrame, QHBoxLayout]:

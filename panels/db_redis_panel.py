@@ -31,6 +31,7 @@ from ui.confirm_dialog import confirm_action, show_error, show_info, show_warnin
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_page_toolbar
+from ui.icons import apply_icon
 from ui.splitter_prefs import install_splitter_prefs
 
 
@@ -137,6 +138,19 @@ class RedisWorkbenchPanel(QWidget):
                   self.test_btn, self.refresh_btn):
             top.addWidget(w)
         top.addStretch(1)
+
+        self.home_btn = QPushButton()
+        apply_button(self.home_btn, 'ghost', compact=True)
+        self.home_btn.setObjectName('header-home-btn')
+        self.home_btn.setProperty('homeAction', True)
+        apply_icon(self.home_btn, 'home', size=16)
+        def _on_home_clicked():
+            top_win = self.window()
+            if hasattr(top_win, 'navigate_to') and callable(getattr(top_win, 'navigate_to')):
+                top_win.navigate_to(0)
+        self.home_btn.clicked.connect(_on_home_clicked)
+        top.addWidget(self.home_btn)
+
         self.toolbar = toolbar
         root.addWidget(toolbar)
 
@@ -309,6 +323,8 @@ class RedisWorkbenchPanel(QWidget):
         self.conn_del_btn.setText('删除' if zh else 'Delete')
         self.test_btn.setText('测试连接' if zh else 'Test')
         self.refresh_btn.setText('刷新' if zh else 'Refresh')
+        self.home_btn.setText('返回首页' if zh else 'Home')
+        self.home_btn.setToolTip('返回首页' if zh else 'Return to Home')
         self.key_filter.setPlaceholderText('搜索 Key（* 通配符）' if zh else 'Search keys (* wildcard)')
         self.refresh_val_btn.setText('刷新值' if zh else 'Refresh value')
         self.copy_val_btn.setText('复制值' if zh else 'Copy value')

@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
             self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
             self._dash_bridge.pageReadyReceived.connect(self._on_web_page_ready)
+            self._dash_bridge.navigateRequested.connect(self._show_panel)
             self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
             self._dash_web.web_view.loadFinished.connect(
                 lambda ok: self._on_web_load_finished('dashboard', ok))
@@ -284,8 +285,8 @@ class MainWindow(QMainWindow):
             self._dash_holder.addWidget(panel)
             self._dash_holder.setCurrentIndex(0)
             self._mount_panel(0, self._dash_holder)
-            for _v in self._dash_web.findChildren(__import__('PyQt6.QtWebEngineWidgets', fromlist=['QWebEngineView']).QWebEngineView):
-                _v.loadFinished.connect(lambda ok: ok is False and self._disable_web_shell_live())
+            if hasattr(self._dash_web, 'web_view') and hasattr(self._dash_web.web_view, 'loadFinished'):
+                self._dash_web.web_view.loadFinished.connect(lambda ok: ok is False and self._disable_web_shell_live())
         else:
             self._mount_panel(0, panel)
         self.dashboard_panel = panel
@@ -1702,6 +1703,9 @@ class MainWindow(QMainWindow):
         for panel in self._iter_created_panels():
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
+            for btn in panel.findChildren(QPushButton, 'header-home-btn'):
+                btn.setText('返回首页' if self.language == 'zh' else 'Home')
+                btn.setToolTip('返回首页' if self.language == 'zh' else 'Return to Home')
         if self.quick_panel is not None:
             self.quick_panel.set_language(self.language)
         if self.tray_service is not None:

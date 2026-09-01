@@ -14,6 +14,7 @@ UI_TOOL_PORTS = {
     'tools.daily_reports',
     'tools.db_contracts',
     'tools.id_documents',
+    'tools.intranet_llm',
     'tools.json_viewer',
     'tools.list_pin',
     'tools.ops_ssh_shell',

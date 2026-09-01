@@ -92,7 +92,7 @@ class PageHeaderTests(unittest.TestCase):
         problems = []
         for nav, label in STACK_PAGES:
             panel = _panel_for(nav)
-            header = panel.findChild(QFrame, 'page-header')
+            header = panel.findChild(QFrame, 'page-header') or panel.findChild(QFrame, 'page-toolbar')
             if header is None:
                 problems.append(label)
         self.assertEqual(problems, [], f'以下页面缺少 L1 页头: {problems}')

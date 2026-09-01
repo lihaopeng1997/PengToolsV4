@@ -414,6 +414,11 @@ QLabel#page-header-icon {
     border: 1px solid __PRIMARY_SOFT__;
     border-radius: 10px;
 }
+QPushButton#header-home-btn {
+    min-height: 28px;
+    padding: 2px 10px;
+    font-size: 12px;
+}
 QFrame#page-filter-bar {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
@@ -544,6 +549,47 @@ QComboBox:disabled, QLineEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled, 
     color: __TEXT_MUTED__;
     background: __SURFACE_SOFT__;
     border-color: __BORDER__;
+}
+/* 需求管理 / 表单字段视觉状态明确区分（Editable / ReadOnly / Disabled） */
+QLineEdit[editableField="true"],
+QPlainTextEdit[editableField="true"],
+QTextEdit[editableField="true"] {
+    background-color: __INPUT_BG__;
+    border: 1px solid __BORDER_STRONG__;
+    color: __TEXT_STRONG__;
+}
+QLineEdit[editableField="true"]:hover,
+QPlainTextEdit[editableField="true"]:hover,
+QTextEdit[editableField="true"]:hover {
+    border-color: __PRIMARY__;
+    background-color: __INPUT_BG__;
+}
+QLineEdit[editableField="true"]:focus,
+QPlainTextEdit[editableField="true"]:focus,
+QTextEdit[editableField="true"]:focus {
+    border-color: __PRIMARY__;
+    background-color: __INPUT_BG__;
+}
+QLineEdit[readOnlyField="true"],
+QPlainTextEdit[readOnlyField="true"],
+QTextEdit[readOnlyField="true"] {
+    background-color: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    color: __TEXT_MUTED__;
+}
+QLineEdit[readOnlyField="true"]:focus,
+QPlainTextEdit[readOnlyField="true"]:focus,
+QTextEdit[readOnlyField="true"]:focus {
+    border-color: __BORDER__;
+    background-color: __SURFACE_SOFT__;
+}
+QLineEdit[editableField="true"]:disabled,
+QLineEdit[readOnlyField="true"]:disabled,
+QPlainTextEdit[editableField="true"]:disabled,
+QPlainTextEdit[readOnlyField="true"]:disabled {
+    background-color: __DISABLED_BG__;
+    border-color: __BORDER__;
+    color: __DISABLED_TEXT__;
 }
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;

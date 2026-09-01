@@ -235,6 +235,7 @@ class DashboardPanel(QWidget):
             '今天先处理最近的交付事项',
             'home',
             trailing=self.local_status,
+            show_home=False,
         )
         layout.addWidget(header)
 

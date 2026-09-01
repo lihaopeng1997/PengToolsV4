@@ -150,6 +150,7 @@ else:  # pragma: no cover - 依赖缺失环境
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
+        pageReadyReceived = pyqtSignal(str)
 
         def set_nav_model(self, data):
             pass
@@ -253,6 +254,23 @@ def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
     layout = QVBoxLayout(wrap)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
+
+    if not WEB_SHELL_AVAILABLE:
+        class _StubPage(QObject):
+            renderProcessTerminated = pyqtSignal(int, int)
+        class _StubView(QWidget):
+            loadFinished = pyqtSignal(bool)
+            loadStarted = pyqtSignal()
+            loadProgress = pyqtSignal(int)
+            def load(self, _url): pass
+        page = _StubPage(wrap)
+        view = _StubView(wrap)
+        layout.addWidget(view)
+        wrap.web_view = view
+        wrap.web_page = page
+        wrap.web_name = page_name
+        return wrap
+
     page = WebLocalPage(wrap)
     view = QWebEngineView(wrap)
     view.setPage(page)
