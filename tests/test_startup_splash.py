@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Comprehensive tests for StartupSplash (visual hierarchy, timing contract & themes)."""
+"""Comprehensive tests for StartupSplash (visual hierarchy, timing contract, auto delay timer & themes)."""
 
 import os
 import time
@@ -40,16 +40,25 @@ class StartupSplashTests(unittest.TestCase):
         self.assertTrue(splash.isHidden())
         dummy_win.close()
 
-    def test_slow_startup_over_300ms_shows(self):
-        """2. >=300ms 且启动未完成时才显示。"""
-        splash = StartupSplash(self.app, delay_ms=300)
-        splash._start_time = time.monotonic() - 0.35
-        splash.show_status('正在打开主窗口…')
+    def test_auto_delay_show_without_subsequent_show_status(self):
+        """2. >=300ms 即使不再调用 show_status，delay timer 也会自动触发展示。"""
+        splash = StartupSplash(self.app, delay_ms=50, min_visible_ms=0)
+        self.assertIsNotNone(splash._show_timer)
+        self.assertTrue(splash._show_timer.isActive())
+
+        # 只在 <50ms 调用一次 show_status
+        splash.show_status('单次初始状态')
+        self.assertFalse(splash.is_visible_to_user)
+
+        # 模拟 50ms 延时到达（不调用任何新的 show_status）
+        splash._start_time = time.monotonic() - 0.06
+        splash._show_timer.timeout.emit()
         self.app.processEvents()
 
+        # 验证自动显示，且 show_timer 已停止
         self.assertTrue(splash.is_visible_to_user)
-        self.assertFalse(splash.isHidden())
-        self.assertEqual(splash._message, '正在打开主窗口…')
+        self.assertFalse(splash._show_timer.isActive())
+        self.assertEqual(splash._message, '单次初始状态')
         splash._do_finish()
 
     def test_show_status_before_delay_only_updates_text(self):
@@ -62,7 +71,20 @@ class StartupSplashTests(unittest.TestCase):
         splash.show_status('阶段 2')
         self.assertFalse(splash.is_visible_to_user)
         self.assertEqual(splash._message, '阶段 2')
-        splash.close()
+        splash._do_finish()
+
+    def test_finish_before_delay_stops_timer_and_never_shows(self):
+        """4. 延迟期内调用 finish 会停掉 show timer，之后绝不再次弹出。"""
+        splash = StartupSplash(self.app, delay_ms=500)
+        self.assertTrue(splash._show_timer.isActive())
+
+        splash.finish()
+        self.assertFalse(splash._show_timer.isActive())
+        self.assertTrue(splash._is_finished)
+
+        # 模拟迟到的 timeout
+        splash._on_show_timer_timeout()
+        self.assertFalse(splash.is_visible_to_user)
 
     def test_finish_when_visible_under_min_visible_uses_delayed_close(self):
         """5. 已显示不足 550ms 时 finish 使用非阻塞 QTimer 延迟关闭。"""
@@ -131,6 +153,14 @@ class StartupSplashTests(unittest.TestCase):
         self.assertTrue(splash._anim_timer.isActive())
         splash._do_finish()
 
+    def test_do_finish_stops_all_timers(self):
+        """_do_finish 会停止 show_timer, anim_timer, finish_timer。"""
+        splash = StartupSplash(self.app, delay_ms=500, min_visible_ms=500)
+        self.assertTrue(splash._show_timer.isActive())
+        splash._do_finish()
+        self.assertFalse(splash._show_timer.isActive())
+        self.assertFalse(splash._anim_timer.isActive())
+
     def test_title_and_branding_hierarchy(self):
         """9. APP_NAME 可见，不含 V4 / Private / Build / internal version 标识。"""
         splash = StartupSplash(self.app, delay_ms=0)
@@ -174,7 +204,6 @@ class StartupSplashTests(unittest.TestCase):
         # Mock becoming secondary
         with patch.object(guard, 'try_become_primary', return_value=False):
             self.assertFalse(guard.try_become_primary())
-            # In run.py, when guard returns False, it returns immediately without creating StartupSplash
 
 
 if __name__ == '__main__':

@@ -105,6 +105,16 @@ class StartupSplash(QWidget):
         self._anim_timer.setInterval(35)  # ~28 FPS
         self._anim_timer.timeout.connect(self._on_anim_tick)
 
+        # 延迟展示 timer：300ms 到点自动尝试展示，不依赖新的 show_status 调用
+        self._show_timer: Optional[QTimer] = None
+        if self._delay_ms > 0:
+            self._show_timer = QTimer(self)
+            self._show_timer.setSingleShot(True)
+            self._show_timer.timeout.connect(self._on_show_timer_timeout)
+            self._show_timer.start(self._delay_ms)
+        else:
+            self.check_delayed_show()
+
         self._finish_timer: Optional[QTimer] = None
 
         if app is not None:
@@ -122,16 +132,26 @@ class StartupSplash(QWidget):
         if self._is_visible and self.isVisible():
             self.update()
 
+    def _on_show_timer_timeout(self):
+        if not self._finish_requested and not self._is_finished and not self._is_visible:
+            self.check_delayed_show()
+
     def check_delayed_show(self) -> bool:
         """根据已耗时检查是否达到展示阈值（>=delay_ms）。达到阈值才展示闪屏。"""
         if self._is_finished or self._finish_requested:
+            if self._show_timer is not None and self._show_timer.isActive():
+                self._show_timer.stop()
             return False
         if self._is_visible:
+            if self._show_timer is not None and self._show_timer.isActive():
+                self._show_timer.stop()
             return True
         elapsed_ms = (time.monotonic() - self._start_time) * 1000.0
         if elapsed_ms >= self._delay_ms:
             self._is_visible = True
             self._visible_at = time.monotonic()
+            if self._show_timer is not None and self._show_timer.isActive():
+                self._show_timer.stop()
             self.show()
             self.raise_()
             self._anim_timer.start()
@@ -163,6 +183,8 @@ class StartupSplash(QWidget):
         if self._is_finished:
             return
         self._finish_requested = True
+        if self._show_timer is not None and self._show_timer.isActive():
+            self._show_timer.stop()
         if not self._is_visible:
             self._do_finish()
             return
@@ -182,6 +204,8 @@ class StartupSplash(QWidget):
         if self._is_finished:
             return
         self._is_finished = True
+        if self._show_timer is not None and self._show_timer.isActive():
+            self._show_timer.stop()
         if self._anim_timer.isActive():
             self._anim_timer.stop()
         if self._finish_timer is not None and self._finish_timer.isActive():
