@@ -20,6 +20,12 @@ class RequirementSearchDisplayTests(unittest.TestCase):
         from PyQt6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        super().setUp()
+        self._last_choices_patcher = patch('panels.requirement_panel.load_last_choices', return_value={})
+        self._last_choices_patcher.start()
+        self.addCleanup(self._last_choices_patcher.stop)
+
     def _seed(self):
         return [
             {

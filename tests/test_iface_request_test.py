@@ -270,6 +270,9 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         # 停止不清空：模拟有记录后 stop 逻辑只停引擎
         p._records = [{'id': '1', 'url': 'http://x/a', 'method': 'GET'}]
         p._records_by_id = {'1': p._records[0]}
+        ep = p._lifecycle.begin_start()
+        p._capture_epoch = ep
+        p._lifecycle.mark_running(ep)
         p._listening = True
         p._stop_listen()
         self.assertEqual(len(p._records), 1)

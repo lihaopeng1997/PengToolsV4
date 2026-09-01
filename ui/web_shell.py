@@ -161,11 +161,32 @@ else:  # pragma: no cover - 依赖缺失环境
         def set_summary_provider(self, provider):
             pass
 
+        def set_theme_payload(self, data: dict):
+            pass
+
         def navigate(self, nav_index):
             self.navigateRequested.emit(int(nav_index))
 
         def push_active(self, nav_index):
-            pass
+            self.activeChanged.emit(int(nav_index))
+
+        def openPalette(self):
+            self.paletteRequested.emit()
+
+        def navModel(self):
+            return '{"groups":[]}'
+
+        def homeUsername(self):
+            return 'Lihp'
+
+        def themePayload(self):
+            return '{}'
+
+        def pageReady(self, page_name):
+            self.pageReadyReceived.emit(str(page_name or ''))
+
+        def dashboardSummary(self):
+            return '{}'
 
 def enum_value(value):
     """Qt 枚举 → 原生值（日志序列化绝不抛异常）。"""

@@ -24,6 +24,12 @@ class RequirementTreeExpandStateTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        super().setUp()
+        self._last_choices_patcher = patch('panels.requirement_panel.load_last_choices', return_value={})
+        self._last_choices_patcher.start()
+        self.addCleanup(self._last_choices_patcher.stop)
+
     def test_full_refresh_preserves_month_group_expand_state(self):
         from panels.requirement_panel import RequirementPanel
 

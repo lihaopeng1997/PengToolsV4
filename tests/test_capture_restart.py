@@ -151,25 +151,6 @@ class PanelImmediateRestartTest(unittest.TestCase):
     def setUp(self):
         self.cert_patch = patch('tools.ie_proxy.is_recorded_root_cert_installed', return_value=True)
         self.cert_patch.start()
-        from panels.interface_debug_panel import InterfaceDebugPanel
-        panel = InterfaceDebugPanel('zh')
-        self.panel = panel
-        self.epoch1 = panel._lifecycle.begin_start()
-        panel._lifecycle.mark_running(self.epoch1)
-        panel._capture_epoch = self.epoch1
-        panel._listening = True
-        panel._ie_worker = MagicMock()
-
-    def tearDown(self):
-        self.panel.close()
-        self.cert_patch.stop()
-
-    def test_immediate_restart_creates_new_boot(self):
-        from tools.capture_lifecycle import STOPPING, STARTING, RUNNING
-        panel = self.panel
-        def slow_stop(*args, **kwargs):
-            time.sleep(1.0)
-        panel._ie_worker.stop = MagicMock(side_effect=slow_stop)
         class _FakeBootWorker:
             def __init__(self, port, **kwargs):
                 self.port = port
@@ -184,12 +165,33 @@ class PanelImmediateRestartTest(unittest.TestCase):
                 return True
             def stop(self, *a, **k):
                 pass
-        fake_cls = MagicMock(side_effect=lambda port, **kw: _FakeBootWorker(port))
+        self._fake_worker_cls = MagicMock(side_effect=lambda port, **kw: _FakeBootWorker(port))
+        self.worker_patch = patch('tools.http_capture.HttpCaptureWorker', self._fake_worker_cls)
+        self.worker_patch.start()
+        from panels.interface_debug_panel import InterfaceDebugPanel
+        panel = InterfaceDebugPanel('zh')
+        self.panel = panel
+        self.epoch1 = panel._lifecycle.begin_start()
+        panel._lifecycle.mark_running(self.epoch1)
+        panel._capture_epoch = self.epoch1
+        panel._listening = True
+        panel._ie_worker = MagicMock()
+
+    def tearDown(self):
+        self.panel.close()
+        self.worker_patch.stop()
+        self.cert_patch.stop()
+
+    def test_immediate_restart_creates_new_boot(self):
+        from tools.capture_lifecycle import STOPPING, STARTING, RUNNING
+        panel = self.panel
+        def slow_stop(*args, **kwargs):
+            time.sleep(1.0)
+        panel._ie_worker.stop = MagicMock(side_effect=slow_stop)
         panel._ensure_capture_ready_silently = MagicMock()
         with patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
              patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
-             patch('tools.ie_proxy.ensure_system_proxy_safe'), \
-             patch('tools.http_capture.HttpCaptureWorker', fake_cls):
+             patch('tools.ie_proxy.ensure_system_proxy_safe'):
             panel._stop_listen()
             self.assertEqual(panel._lifecycle.state, STOPPING)
             t0 = time.perf_counter()
@@ -199,25 +201,25 @@ class PanelImmediateRestartTest(unittest.TestCase):
             self.assertTrue(panel._lifecycle.pending_start)
             self.assertEqual(panel._lifecycle.state, STOPPING)
             self.assertIsNone(panel._capture_boot_worker)
-        deadline = time.perf_counter() + 10
-        while time.perf_counter() < deadline:
-            self.app.processEvents()
-            if (panel._lifecycle.state in (STARTING, RUNNING)
-                    and panel._lifecycle.epoch > self.epoch1
-                    and panel._capture_boot_worker is not None):
-                break
-            time.sleep(0.05)
-        self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
-        self.assertGreater(panel._lifecycle.epoch, self.epoch1)
-        self.assertIsNotNone(panel._capture_boot_worker)
-        self.assertFalse(panel._lifecycle.pending_start)
-        panel._stop_listen()
-        th = panel._capture_stop_thread
-        if th is not None and th.is_alive():
-            th.join(timeout=5)
-        bw = panel._capture_boot_worker
-        if bw is not None and hasattr(bw, 'wait'):
-            bw.wait(5000)
+            deadline = time.perf_counter() + 10
+            while time.perf_counter() < deadline:
+                self.app.processEvents()
+                if (panel._lifecycle.state in (STARTING, RUNNING)
+                        and panel._lifecycle.epoch > self.epoch1
+                        and panel._capture_boot_worker is not None):
+                    break
+                time.sleep(0.05)
+            self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
+            self.assertGreater(panel._lifecycle.epoch, self.epoch1)
+            self.assertIsNotNone(panel._capture_boot_worker)
+            self.assertFalse(panel._lifecycle.pending_start)
+            panel._stop_listen()
+            th = panel._capture_stop_thread
+            if th is not None and th.is_alive():
+                th.join(timeout=5)
+            bw = panel._capture_boot_worker
+            if bw is not None and hasattr(bw, 'wait'):
+                bw.wait(5000)
         panel._ie_worker = None
 
 

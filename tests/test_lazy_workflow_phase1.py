@@ -182,10 +182,12 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
                 'description': '修复报错', 'sql_parts': [], 'source_files': [],
             },
         ]
-        with patch('panels.requirement_panel.load_requirements', return_value=seed), \
+        with patch('panels.requirement_panel.load_last_choices', return_value={}), \
+                patch('panels.requirement_panel.load_requirements', return_value=seed), \
                 patch('panels.requirement_panel.save_requirements'):
             panel = RequirementPanel()
         panel.search_edit.setText('贝塔')
+        panel._refresh()
         self.app.processEvents()
         current = panel.requirement_list.currentItem()
         self.assertIsNotNone(current)

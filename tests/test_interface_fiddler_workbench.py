@@ -453,9 +453,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertTrue(p.resp_actions_more_btn.isHidden())
         self.assertFalse(p.format_resp_btn.isHidden())
         self.assertFalse(p.gateway_resp_btn.isHidden())
-        self.assertTrue(p.rt_io_more_btn.isHidden())
-        self.assertFalse(p.export_detail_btn.isHidden())
-        self.assertFalse(p.rt_import_btn.isHidden())
+        self.assertFalse(p.rt_io_more_btn.isHidden())
         self.assertFalse(p.table.isColumnHidden(p._column_index('duration')))
         self.assertFalse(p.table.isColumnHidden(p._column_index('time')))
 
@@ -464,25 +462,21 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         p._update_responsive_workspace(left_width=760, right_width=420, table_width=720)
         self.assertFalse(p.rt_form_more_btn.isHidden())
         self.assertFalse(p.rt_send_btn.isHidden())
+        self.assertFalse(p.rt_fill_btn.isHidden())
+        self.assertFalse(p.rt_save_api_btn.isHidden())
         for widget in (
-            p.rt_environment_config_btn, p.rt_fill_btn, p.rt_filter_config_btn,
-            p.rt_save_api_btn, p.rt_manage_cat_btn,
+            p.rt_environment_config_btn, p.rt_filter_config_btn, p.rt_manage_cat_btn,
         ):
             self.assertTrue(widget.isHidden())
         labels = [action.text() for action in p._rt_form_actions_menu.actions()]
         self.assertIn('环境配置', labels)
-        self.assertIn('从会话填充', labels)
         self.assertIn('过滤配置', labels)
-        self.assertIn('保存接口', labels)
-        self.assertIn('分类管理', labels)
+        self.assertIn('管理分类', labels)
 
         p._update_responsive_workspace(left_width=760, right_width=860, table_width=720)
-        self.assertTrue(p.rt_form_more_btn.isHidden())
-        for widget in (
-            p.rt_environment_config_btn, p.rt_fill_btn, p.rt_filter_config_btn,
-            p.rt_save_api_btn, p.rt_manage_cat_btn,
-        ):
-            self.assertFalse(widget.isHidden())
+        self.assertFalse(p.rt_send_btn.isHidden())
+        self.assertFalse(p.rt_fill_btn.isHidden())
+        self.assertFalse(p.rt_save_api_btn.isHidden())
 
     def test_compact_overflow_labels_refresh_after_language_switch(self):
         p = InterfaceDebugPanel('zh')

@@ -56,13 +56,12 @@ class ThemePreviewTests(unittest.TestCase):
             self.assertGreaterEqual(len(colors), 2, theme_id)
             widget.close()
 
-    def test_settings_panel_creates_four_theme_cards(self):
+    def test_settings_panel_creates_theme_mode_cards(self):
         page = SettingsPanel(DEFAULT_SETTINGS)
-        self.assertEqual(len(page._theme_cards), 4)
-        for theme_id, card in page._theme_cards.items():
+        self.assertEqual(len(page._theme_cards), 2)
+        for mode, card in page._theme_cards.items():
             self.assertIsInstance(card, ThemeCard)
-            self.assertIsInstance(card.preview, ThemePreviewWidget)
-            self.assertEqual(card.preview.theme_id, theme_id)
+            self.assertEqual(card.mode, mode)
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')

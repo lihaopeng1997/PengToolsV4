@@ -25,6 +25,12 @@ class RequirementFlagTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setFont(QFont('Microsoft YaHei UI', 10))
 
+    def setUp(self):
+        super().setUp()
+        self._last_choices_patcher = patch('panels.requirement_panel.load_last_choices', return_value={})
+        self._last_choices_patcher.start()
+        self.addCleanup(self._last_choices_patcher.stop)
+
     def test_dialog_values_keep_checkbox_flags(self):
         dialog = RequirementDialog({
             'title': '测试', 'code': 'REQ-FLAG',

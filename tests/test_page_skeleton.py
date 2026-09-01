@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QPushButton  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QPushButton, QTabWidget  # noqa: E402
 
 # (nav_index, 页面名)
 STACK_PAGES = [
@@ -99,16 +99,25 @@ class PageHeaderTests(unittest.TestCase):
 
 
 class PrimaryActionTests(unittest.TestCase):
-    """约束 2：每页主操作 ≤1（硬断言，无基线豁免）。"""
+    """约束 2：每页主操作 ≤1（硬断言，无基线豁免；多 Tab 容器页按 Tab 页分别约束）。"""
 
     def test_primary_count_at_most_one(self):
         problems = []
         for nav, label in STACK_PAGES:
             panel = _panel_for(nav)
-            actual = len(_primary_buttons(panel))
-            if actual > 1:
-                names = [b.text() or b.objectName() for b in _primary_buttons(panel)]
-                problems.append(f'{label}(nav={nav}): {actual} > 1 → {names}')
+            tab_widget = panel.findChild(QTabWidget)
+            if tab_widget is not None and tab_widget.count() > 1:
+                for idx in range(tab_widget.count()):
+                    tab_page = tab_widget.widget(idx)
+                    actual = len(_primary_buttons(tab_page))
+                    if actual > 1:
+                        names = [b.text() or b.objectName() for b in _primary_buttons(tab_page)]
+                        problems.append(f'{label}[Tab{idx}](nav={nav}): {actual} > 1 → {names}')
+            else:
+                actual = len(_primary_buttons(panel))
+                if actual > 1:
+                    names = [b.text() or b.objectName() for b in _primary_buttons(panel)]
+                    problems.append(f'{label}(nav={nav}): {actual} > 1 → {names}')
         self.assertEqual(problems, [], f'primary 按钮超过 1 个: {problems}')
 
 
