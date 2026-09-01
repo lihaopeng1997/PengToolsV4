@@ -161,8 +161,8 @@ class GatewayDecodePanel(QWidget):
         key_layout.addLayout(key_head)
         self.key_cipher = QPlainTextEdit()
         self.key_cipher.setObjectName('gateway-key-edit')
-        self.key_cipher.setMinimumHeight(56)
-        self.key_cipher.setMaximumHeight(80)
+        self.key_cipher.setMinimumHeight(84)
+        self.key_cipher.setMaximumHeight(110)
         self.key_cipher.setPlaceholderText('粘贴 SM2 加密后的 SM4 Key（十六进制 Hex）')
         key_layout.addWidget(self.key_cipher)
         self.key_hint = QLabel()
@@ -207,7 +207,7 @@ class GatewayDecodePanel(QWidget):
         splitter = self.splitter
         splitter.setObjectName('gateway-splitter')
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(6)
+        splitter.setHandleWidth(8)
         splitter.setOpaqueResize(True)
 
         left = QWidget()
@@ -242,12 +242,11 @@ class GatewayDecodePanel(QWidget):
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
-        # 输入报文与解密结果默认均衡分配，用户仍可按需拖动。
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(0, 45)
+        splitter.setStretchFactor(1, 55)
         install_splitter_prefs(
             splitter,
-            defaults=[520, 520],
+            defaults=[450, 550],
             page_id='gateway',
             tab_id='main',
             min_sizes=[240, 240],

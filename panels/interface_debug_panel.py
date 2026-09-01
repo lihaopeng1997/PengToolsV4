@@ -52,6 +52,7 @@ from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
 from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.splitter_prefs import install_splitter_prefs, layout_bucket
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
 MAX_SESSION_RECORDS = 3000
@@ -932,9 +933,17 @@ class InterfaceDebugPanel(QWidget):
         self.rt_editor_response_splitter.addWidget(response_panel)
         self.rt_editor_response_splitter.setStretchFactor(0, 3)
         self.rt_editor_response_splitter.setStretchFactor(1, 2)
-        request_test_sizes = self._prefs.get('request_test_splitter_sizes') or [560, 320]
-        self.rt_editor_response_splitter.setSizes(request_test_sizes)
-        self.rt_editor_response_splitter.splitterMoved.connect(self._save_request_test_splitter_sizes)
+        request_test_sizes = self._prefs.get('request_test_splitter_sizes') or [420, 320]
+        install_splitter_prefs(
+            self.rt_editor_response_splitter,
+            defaults=[420, 320],
+            saved=request_test_sizes,
+            page_id='interface-debug',
+            tab_id='request-response',
+            min_sizes=[240, 200],
+            accessible_name='接口排查请求编辑/响应分隔',
+            on_changed=lambda *_: self._save_request_test_splitter_sizes(),
+        )
         rf.addWidget(self.rt_editor_response_splitter, 1)
         self.rt_split.addWidget(right_form)
         self.rt_split.setStretchFactor(0, 0)
@@ -971,7 +980,6 @@ class InterfaceDebugPanel(QWidget):
         self.session_list_reveal_btn.clicked.connect(self._toggle_session_list)
         self.session_list_reveal_btn.hide()
         rl.addWidget(self.session_list_reveal_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
         install_splitter_prefs(
             self.mid_splitter,
@@ -1048,7 +1056,7 @@ class InterfaceDebugPanel(QWidget):
 
         widths = getattr(self, '_last_responsive_widths', None) or (1000, 1000, 1000)
         if widths[0] < 500:
-            test_act = menu.addAction('测试监听' if zh else 'Test listen')
+            test_act = menu.addAction('测试连接' if zh else 'Test connection')
             test_act.triggered.connect(self._test_listen_loopback)
 
     def _refresh_capture_status_text(self):
@@ -1089,7 +1097,7 @@ class InterfaceDebugPanel(QWidget):
 
         capture_compact = left_width < 500
         self._set_widgets_visible((self.test_listen_btn, self.restore_proxy_btn), not capture_compact)
-        self.capture_actions_more_btn.setVisible(True)
+        self.capture_actions_more_btn.setVisible(capture_compact)
         self._rebuild_capture_actions_menu()
         self._refresh_capture_status_text()
 
@@ -4464,7 +4472,6 @@ class InterfaceDebugPanel(QWidget):
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import page_spacing_for_mode
-        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         previous_mode = self._layout_mode
         self._layout_mode = mode
         if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:

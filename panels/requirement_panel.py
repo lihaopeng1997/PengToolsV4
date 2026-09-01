@@ -2046,6 +2046,7 @@ class RequirementPanel(QWidget):
                 min_sizes=[REQ_LEFT_MIN, REQ_RIGHT_MIN],
                 accessible_name='需求管理目录/详情分隔',
                 on_changed=lambda _sizes: self._save_splitter_sizes(),
+                double_click_reset=False,
             )
         except Exception:
             self.detail_splitter.setSizes(sizes)

@@ -672,8 +672,7 @@ QLineEdit#compact-step-value {
     border-radius: 0px;
     font-size: 13px;
     padding: 2px 4px;
-    min-width: 44px;
-    max-width: 64px;
+    min-width: 36px;
     min-height: 28px;
     max-height: 28px;
     selection-background-color: __PRIMARY_SOFT__;

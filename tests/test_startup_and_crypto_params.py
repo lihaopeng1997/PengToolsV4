@@ -192,8 +192,8 @@ class GatewayParamsVisibleTests(unittest.TestCase):
     def test_compact_params_leave_more_space_for_cipher_and_result(self):
         p = self.panel
         self.assertFalse(p.config_group.isHidden())
-        self.assertLessEqual(p.key_cipher.minimumHeight(), 56)
-        self.assertLessEqual(p.key_cipher.maximumHeight(), 80)
+        self.assertGreaterEqual(p.key_cipher.minimumHeight(), 80)
+        self.assertLessEqual(p.key_cipher.maximumHeight(), 120)
         p.resize(1200, 820)
         p.show()
         self.app.processEvents()

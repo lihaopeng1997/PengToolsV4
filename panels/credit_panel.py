@@ -471,40 +471,23 @@ class CreditCodePanel(QWidget):
         return headers, self.PERSONAL_KEYS
 
     def _apply_column_widths(self, count):
+        if count <= 0:
+            return
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 48)
-        for column in range(1, count):
+        for column in range(1, count - 1):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(count - 1, QHeaderView.ResizeMode.Stretch)
 
     def _fit_table_to_row(self):
-        """内容不够宽则按比例铺满；超出则可横向拖动查看。"""
+        """序号固定、中间列交互拖拽、最后一列地址拉伸铺满。"""
         table = self.table
         count = table.columnCount()
         if count <= 0:
             return
-        header = table.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        for column in range(1, count):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        table.resizeColumnsToContents()
-        table.setColumnWidth(0, 48)
-        used = sum(table.columnWidth(column) for column in range(count))
-        viewport = table.viewport().width() if table.viewport() else table.width()
-        leftover = viewport - used
-        if leftover > 8 and count > 1:
-            weights = [max(table.columnWidth(column), 1) for column in range(1, count)]
-            total = sum(weights) or 1
-            for offset, weight in enumerate(weights):
-                column = offset + 1
-                extra = int(leftover * weight / total)
-                table.setColumnWidth(column, table.columnWidth(column) + extra)
-        for column in range(1, count):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(0, 48)
+        self._apply_column_widths(count)
 
     def _record_value(self, record, key, index):
         if key == 'index':

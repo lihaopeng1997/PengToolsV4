@@ -72,21 +72,32 @@ def clamp_splitter_sizes(sizes: list[int], min_sizes: list[int], total: int | No
 
 
 class _SplitterInteractionFilter(QObject):
-    def __init__(self, splitter: QSplitter, defaults: list[int], min_sizes: list[int], on_changed=None, step: int = 24):
+    def __init__(
+        self,
+        splitter: QSplitter,
+        defaults: list[int],
+        min_sizes: list[int],
+        on_changed=None,
+        step: int = 24,
+        double_click_reset: bool = True,
+    ):
         super().__init__(splitter)
         self.splitter = splitter
         self.defaults = [int(item) for item in defaults]
         self.min_sizes = list(min_sizes)
         self.on_changed = on_changed
         self.step = max(8, int(step))
+        self.double_click_reset = bool(double_click_reset)
 
     def eventFilter(self, watched, event):
         if event is None:
             return False
         et = event.type()
         if et == QEvent.Type.MouseButtonDblClick and getattr(event, 'button', lambda: None)() == Qt.MouseButton.LeftButton:
-            self._restore_defaults()
-            return True
+            if self.double_click_reset:
+                self._restore_defaults()
+                return True
+            return False
         if et == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
             key = event.key()
             orient = self.splitter.orientation()
@@ -141,6 +152,7 @@ def install_splitter_prefs(
     min_sizes: list[int] | None = None,
     accessible_name: str = '',
     persist: bool = True,
+    double_click_reset: bool = True,
 ) -> None:
     """安装默认比例、键盘调整、双击复位、夹紧与可选持久化。"""
     if splitter is None:
@@ -220,6 +232,7 @@ def install_splitter_prefs(
         defaults or list(splitter.sizes()),
         mins,
         on_changed=_persist,
+        double_click_reset=double_click_reset,
     )
     splitter.installEventFilter(filtr)
     for index in range(1, count):
@@ -230,7 +243,7 @@ def install_splitter_prefs(
         handle.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         handle.installEventFilter(filtr)
         if isinstance(handle, QSplitterHandle):
-            tip = '拖动调整；双击恢复默认；方向键微调' if True else ''
+            tip = '拖动调整；双击恢复默认；方向键微调' if double_click_reset else '拖动调整；方向键微调'
             handle.setToolTip(tip)
 
     splitter.setProperty('_pengtools_splitter_filter', filtr)

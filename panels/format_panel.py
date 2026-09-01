@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
-    QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from tools.sql_tool import (
@@ -309,15 +309,29 @@ class _TextDevHelpersTab(QWidget):
 
         mono = QFont('Consolas', 10)
         mono.setStyleHint(QFont.StyleHint.Monospace)
+        self.vsplit = QSplitter(Qt.Orientation.Vertical)
+        self.vsplit.setChildrenCollapsible(False)
+        self.vsplit.setHandleWidth(6)
         self.input = QPlainTextEdit()
         self.input.setObjectName('text-helper-input')
         self.input.setFont(mono)
-        root.addWidget(self.input, 1)
+        self.input.setMinimumHeight(140)
+        self.vsplit.addWidget(self.input)
         self.output = QPlainTextEdit()
         self.output.setObjectName('text-helper-output')
         self.output.setFont(mono)
         self.output.setReadOnly(True)
-        root.addWidget(self.output, 1)
+        self.output.setMinimumHeight(140)
+        self.vsplit.addWidget(self.output)
+        install_splitter_prefs(
+            self.vsplit,
+            defaults=[240, 240],
+            page_id='format-tools',
+            tab_id='text-dev',
+            min_sizes=[140, 140],
+            accessible_name='文本辅助输入与输出分隔',
+        )
+        root.addWidget(self.vsplit, 1)
         self.status = QLabel()
         self.status.setObjectName('field-hint')
         self.status.setWordWrap(True)
