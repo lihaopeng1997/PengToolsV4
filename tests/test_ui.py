@@ -255,6 +255,7 @@ class UiRegressionTests(unittest.TestCase):
                 raise AssertionError('悬浮搜索不应打开主窗口')
 
         panel = QuickPanel(Win())
+        panel.show_panel()
         panel._activate(8)
         self.assertTrue(panel.learn_search.isVisible())
         self.assertEqual(panel.learn_list.count(), 1)

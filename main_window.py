@@ -2012,7 +2012,18 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         if self.quick_panel is not None:
-            self.quick_panel.close()
+            qp = self.quick_panel
+            shutdown = getattr(qp, 'shutdown', None)
+            try:
+                if callable(shutdown):
+                    shutdown()
+                else:
+                    qp.close()
+            except Exception:
+                try:
+                    qp.close()
+                except Exception:
+                    pass
         if self.tray_service is not None:
             self.tray_service.hide()
         event.accept()

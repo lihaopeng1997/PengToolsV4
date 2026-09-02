@@ -54,7 +54,7 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
         win = _MainWindowStub()
         panel = QuickPanel(win)
         try:
-            panel.toggle_expanded()
+            panel.show_panel()
             self.assertEqual(panel._mode, 'tools')
             self.assertTrue(panel.grid_host.isVisible())
             self.assertTrue(panel.chat_container.isHidden())

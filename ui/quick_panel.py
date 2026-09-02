@@ -67,8 +67,16 @@ class QuickPanel(QWidget):
     CHAT_PANEL_WIDTH = 340
     CHAT_PANEL_HEIGHT = 440
 
+    @staticmethod
+    def _tool_flags(*, always_on_top: bool = True) -> Qt.WindowType:
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if always_on_top:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        return flags
+
     def __init__(self, main_window, language='zh'):
-        super().__init__(None)
+        owner = main_window if isinstance(main_window, QWidget) else None
+        super().__init__(owner)
         self._main_window = main_window
         self.language = language
         self.expanded = False
@@ -82,12 +90,9 @@ class QuickPanel(QWidget):
         self._private_unlocked = False
         self._expand_right = False
         self.tool_buttons: list[QPushButton] = []
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
+        self.setWindowFlags(self._tool_flags(always_on_top=True))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self._setup_ui()
         self.set_language(language)
         self._place_initially()
@@ -615,30 +620,41 @@ class QuickPanel(QWidget):
 
     # ── 几何 ────────────────────────────────────────────────────
 
+    def _clamp_to_available(self, pos: QPoint, width: int, height: int) -> QPoint:
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else QRect(0, 0, 1920, 1080)
+        x = max(area.left(), min(int(pos.x()), area.right() - width + 1))
+        y = max(area.top(), min(int(pos.y()), area.bottom() - height + 1))
+        return QPoint(x, y)
+
     def _place_initially(self):
         primary = QApplication.primaryScreen()
         screen = primary.availableGeometry() if primary else QRect(0, 0, 1920, 1080)
         width, height = self.COMPACT_SIZE
         x = screen.right() - width - 18
         y = screen.center().y() - height // 2
-        self._compact_position = QPoint(x, y)
-        self.setGeometry(x, y, width, height)
+        self._compact_position = self._clamp_to_available(QPoint(x, y), width, height)
+        self.setGeometry(self._compact_position.x(), self._compact_position.y(), width, height)
         self._apply_compact_geometry()
 
     def reset_position(self):
+        was_visible = self.isVisible()
         if self.expanded:
             self.toggle_expanded()
         self._place_initially()
-        self.show()
-        self.raise_()
+        if was_visible:
+            self.show()
+            self.raise_()
 
     def apply_preferences(self, opacity=96, always_on_top=True):
         was_visible = self.isVisible()
         position = QPoint(self.pos())
-        desired_on_top = bool(always_on_top)
-        current_on_top = bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
-        if current_on_top != desired_on_top:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, desired_on_top)
+        desired = self._tool_flags(always_on_top=bool(always_on_top))
+        current = self.windowFlags()
+        on_top = bool(current & Qt.WindowType.WindowStaysOnTopHint)
+        is_tool = bool(current & Qt.WindowType.Tool)
+        if on_top != bool(always_on_top) or not is_tool:
+            self.setWindowFlags(desired)
             self.move(position)
             if was_visible:
                 self.show()
@@ -746,16 +762,13 @@ class QuickPanel(QWidget):
             )
             self.toggle_btn.show()
             self._apply_compact_geometry()
-        self.show()
-        self.raise_()
 
     def show_panel(self):
         if not self.expanded:
             self.toggle_expanded()
-        else:
-            self.show()
-            self.raise_()
-            self.activateWindow()
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     def _refresh_ticket_button(self):
         try:
@@ -1143,6 +1156,9 @@ class QuickPanel(QWidget):
         menu.exec(global_position)
 
     def close_toolbar(self):
+        if self._chat_worker is not None and self._chat_worker.isRunning():
+            self._chat_worker.cancelled = True
+            self._chat_worker = None
         if self.expanded:
             self.expanded = False
             width, height = self.COMPACT_SIZE
@@ -1152,6 +1168,11 @@ class QuickPanel(QWidget):
             self.toggle_btn.show()
             self._apply_compact_geometry()
         self.hide()
+
+    def shutdown(self):
+        self.close_toolbar()
+        self.close()
+        self.deleteLater()
 
     def eventFilter(self, watched, event):
         if watched in (self.toggle_btn, self.title, self.shell, self.header_logo):
