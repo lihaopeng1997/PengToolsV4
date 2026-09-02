@@ -10,13 +10,13 @@ import base64
 import mimetypes
 import os
 
-from PyQt6.QtCore import QEvent, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QTextOption
+from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QCursor, QKeyEvent, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-    QToolButton, QVBoxLayout, QWidget,
+    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
+    QToolButton, QToolTip, QVBoxLayout, QWidget,
 )
 
 from config import load_settings, save_settings
@@ -37,6 +37,25 @@ from ui.splitter_prefs import install_splitter_prefs
 MAX_TEXT_FILE_SIZE = 256 * 1024  # 256 KB
 MAX_IMAGE_FILE_SIZE = 4 * 1024 * 1024  # 4 MB
 MAX_ATTACHMENTS = 5
+CHAT_BUBBLE_RATIO = 0.72
+CHAT_BUBBLE_RATIO_CAP = 0.78
+
+
+def chat_bubble_max_width(viewport_width: int, *, ratio: float = CHAT_BUBBLE_RATIO) -> int:
+    """内容驱动气泡上限：约 72% 视口，且不超过 78%，并保留左右边距。"""
+    vw = max(1, int(viewport_width or 0))
+    capped = min(CHAT_BUBBLE_RATIO_CAP, max(0.45, float(ratio)))
+    return max(120, min(int(vw * capped), vw - 24))
+
+
+def format_chat_clock(value) -> str:
+    text = str(value or '').strip()
+    if 'T' in text:
+        clock = text.split('T', 1)[1]
+        return clock[:5]
+    if len(text) >= 5 and ':' in text:
+        return text[-5:]
+    return text
 
 
 class _ChatWorker(QThread):
@@ -84,6 +103,7 @@ class ModelChatPanel(QWidget):
         self._is_running = False
         self._text_attachments: list[dict] = []
         self._image_attachments: list[dict] = []
+        self._bubble_width_lock = False
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
@@ -284,6 +304,10 @@ class ModelChatPanel(QWidget):
                     self._on_action_clicked()
                     return True
         return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_bubble_widths()
 
     def set_language(self, language):
         self.language = language
@@ -533,7 +557,93 @@ class ModelChatPanel(QWidget):
         self._render_messages()
         self._sync_send_enabled()
 
+    def _thread_at_bottom(self) -> bool:
+        bar = self.scroll.verticalScrollBar()
+        return bar.value() >= bar.maximum() - 32
+
+    def _scroll_thread_to_bottom(self):
+        bar = self.scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
+    def _bubble_max_width(self) -> int:
+        return chat_bubble_max_width(self.scroll.viewport().width() or self.scroll.width())
+
+    def _apply_bubble_widths(self):
+        if self._bubble_width_lock:
+            return
+        self._bubble_width_lock = True
+        try:
+            self._apply_bubble_widths_unlocked()
+        finally:
+            self._bubble_width_lock = False
+
+    def _apply_bubble_widths_unlocked(self):
+        max_w = self._bubble_max_width()
+        inner = max(80, max_w - 28)
+        for i in range(max(0, self.thread_layout.count() - 1)):
+            item = self.thread_layout.itemAt(i)
+            holder = item.widget() if item is not None else None
+            if holder is None:
+                continue
+            for frame in holder.findChildren(QFrame):
+                name = frame.objectName()
+                if name in ('chat-user-bubble', 'chat-assistant-bubble'):
+                    frame.setMaximumWidth(max_w)
+                    body = frame.findChild(QLabel, 'chat-bubble-body')
+                    if body is not None:
+                        body.setMaximumWidth(inner)
+
+    def _make_message_row(self, msg: dict) -> QWidget:
+        zh = self.language == 'zh'
+        role = msg.get('role')
+        frame = QFrame()
+        frame.setObjectName('chat-user-bubble' if role == 'user' else 'chat-assistant-bubble')
+        frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(14, 8, 14, 8)
+        box.setSpacing(4)
+        body = QLabel(str(msg.get('content') or ''))
+        body.setObjectName('chat-bubble-body')
+        body.setWordWrap(True)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if msg.get('status') == 'stopped':
+            body.setText(body.text() + ('\n（已停止/未完成）' if zh else '\n(stopped)'))
+        box.addWidget(body)
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 0, 0, 0)
+        meta_row.setSpacing(6)
+        meta = QLabel()
+        meta.setObjectName('field-hint')
+        clock = format_chat_clock(msg.get('created_at'))
+        if role == 'user':
+            meta.setText(clock)
+        else:
+            mname = msg.get('model') or msg.get('config_name') or 'AI'
+            meta.setText(f'{mname} · {clock}'.strip(' ·'))
+        meta_row.addWidget(meta, 1)
+        if role != 'user':
+            copy = QPushButton('复制' if zh else 'Copy')
+            copy.setObjectName('chat-copy-btn')
+            apply_button(copy, 'ghost', compact=True)
+            copy.clicked.connect(lambda _=False, text=str(msg.get('content') or ''): self._copy(text))
+            meta_row.addWidget(copy, 0)
+        box.addLayout(meta_row)
+        wrap = QHBoxLayout()
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(8)
+        if role == 'user':
+            wrap.addStretch(1)
+            wrap.addWidget(frame, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        else:
+            wrap.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            wrap.addStretch(1)
+        holder = QWidget()
+        holder.setProperty('chatRole', role)
+        holder.setLayout(wrap)
+        return holder
+
     def _render_messages(self):
+        follow = self._thread_at_bottom()
         while self.thread_layout.count() > 1:
             item = self.thread_layout.takeAt(0)
             w = item.widget()
@@ -543,45 +653,17 @@ class ModelChatPanel(QWidget):
             self.empty.show()
             return
         self.empty.hide()
-        zh = self.language == 'zh'
         for msg in self._session.get('messages') or []:
-            role = msg.get('role')
-            frame = QFrame()
-            frame.setObjectName('chat-user-bubble' if role == 'user' else 'chat-assistant-bubble')
-            box = QVBoxLayout(frame)
-            box.setContentsMargins(12, 8, 12, 8)
-            box.setSpacing(4)
-            meta = QLabel()
-            meta.setObjectName('field-hint')
-            if role == 'user':
-                meta.setText(f'我 · {msg.get("created_at") or ""}')
-            else:
-                mname = msg.get('model') or 'AI'
-                meta.setText(f'{mname} · {msg.get("created_at") or ""}')
-            body = QLabel(str(msg.get('content') or ''))
-            body.setWordWrap(True)
-            body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            if msg.get('status') == 'stopped':
-                body.setText(body.text() + ('\n（已停止/未完成）' if zh else '\n(stopped)'))
-            box.addWidget(meta)
-            box.addWidget(body)
-            copy = QPushButton('复制' if zh else 'Copy')
-            apply_button(copy, 'ghost', compact=True)
-            copy.clicked.connect(lambda _=False, text=str(msg.get('content') or ''): self._copy(text))
-            box.addWidget(copy, 0, Qt.AlignmentFlag.AlignLeft if role != 'user' else Qt.AlignmentFlag.AlignRight)
-            wrap = QHBoxLayout()
-            if role == 'user':
-                wrap.addStretch(1)
-                wrap.addWidget(frame, 4)
-            else:
-                wrap.addWidget(frame, 19)
-                wrap.addStretch(1)
-            holder = QWidget()
-            holder.setLayout(wrap)
+            holder = self._make_message_row(msg)
             self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
+        self._apply_bubble_widths()
+        if follow:
+            QTimer.singleShot(0, self._scroll_thread_to_bottom)
 
     def _copy(self, text: str):
         QApplication.clipboard().setText(text)
+        zh = self.language == 'zh'
+        QToolTip.showText(QCursor.pos(), '已复制' if zh else 'Copied')
 
     def _send(self):
         text = self.input.toPlainText().strip()
@@ -682,7 +764,7 @@ class ModelChatPanel(QWidget):
                 content=redact_error(message), status='stopped',
             )
             self._render_messages()
-        show_error(self, '请求失败' if self.language == 'zh' else 'Request failed', redact_error(message))
+        self.ping_status.setText(redact_error(message))
 
     def _on_chat_done(self):
         self._is_running = False

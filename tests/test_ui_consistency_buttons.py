@@ -236,6 +236,9 @@ class CompactStepperTests(unittest.TestCase):
 
         self.assertFalse(stepper.suffix_label.isHidden())
         self.assertEqual(stepper.suffix_label.text(), '条')
+        core_w = stepper.minus_btn.width() + stepper.edit.width() + stepper.plus_btn.width()
+        self.assertGreaterEqual(core_w, 96)
+        self.assertLessEqual(core_w, 116)
         stepper.deleteLater()
 
     def test_stepper_value_clamping_and_bounds(self):
@@ -276,8 +279,9 @@ class SegmentedStepperQssTests(unittest.TestCase):
         self.assertIn('QPushButton#compact-step-minus', qss)
         self.assertIn('QLineEdit#compact-step-value', qss)
         self.assertIn('QPushButton#compact-step-plus', qss)
-        self.assertIn('border-top-left-radius: 6px', qss)
-        self.assertIn('border-top-right-radius: 6px', qss)
+        self.assertIn('border-radius: 8px', qss)
+        self.assertIn('qlineargradient', qss)
+        self.assertIn('chat-user-bubble', qss)
 
 
 if __name__ == '__main__':

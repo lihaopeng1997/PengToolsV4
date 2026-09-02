@@ -265,18 +265,22 @@ class CompactStepper(QWidget):
         self.minus_btn.setObjectName('compact-step-minus')
         self.minus_btn.setAccessibleName('减少')
         self.minus_btn.setFixedSize(28, FIELD_H)
+        self.minus_btn.setFlat(True)
         self.minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.edit = QLineEdit()
         self.edit.setObjectName('compact-step-value')
         self.edit.setAccessibleName('数值')
         self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.edit.setFixedSize(int(edit_width or LINE_NUM_W), FIELD_H)
+        value_w = int(edit_width or LINE_NUM_W)
+        self.edit.setFixedSize(max(36, min(56, value_w) if edit_width is None else value_w), FIELD_H)
+        self.edit.setFrame(False)
 
         self.plus_btn = QPushButton('+')
         self.plus_btn.setObjectName('compact-step-plus')
         self.plus_btn.setAccessibleName('增加')
         self.plus_btn.setFixedSize(28, FIELD_H)
+        self.plus_btn.setFlat(True)
         self.plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.suffix_label = QLabel(suffix or '')

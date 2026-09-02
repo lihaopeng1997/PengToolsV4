@@ -442,7 +442,9 @@ class ThemeManager:
         if self._template is None:
             self.load_template()
         qss = self._template or ''
-        palette = THEMES[theme_id]
+        palette = dict(THEMES[theme_id])
+        palette.setdefault('PRIMARY_GRAD_START', palette.get('PRIMARY', '#5B5FC7'))
+        palette.setdefault('PRIMARY_GRAD_END', palette.get('PRIMARY_HOVER', palette.get('PRIMARY', '#4C50B0')))
         for key, value in palette.items():
             qss = qss.replace(f'__{key}__', value)
         try:
