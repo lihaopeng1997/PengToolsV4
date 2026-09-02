@@ -9,9 +9,9 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRect, QPoint
+from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import (
-    QColor, QFont, QFontMetrics, QKeyEvent, QMouseEvent,
+    QColor, QFont, QFontInfo, QFontMetrics, QKeyEvent, QMouseEvent,
     QPainter, QPalette, QPen, QBrush, QInputMethodEvent,
 )
 from PyQt6.QtWidgets import (
@@ -21,6 +21,61 @@ from PyQt6.QtWidgets import (
 
 from tools.ops_ssh_shell import InteractiveShell
 from tools.terminal_emulator import TerminalEmulator, Cell, CellStyle, DEFAULT_STYLE
+
+TERM_PAD_X = 8
+TERM_PAD_Y = 5
+TERM_FONT_PT_DEFAULT = 10
+TERM_FONT_PT_MIN = 8
+TERM_FONT_PT_MAX = 24
+
+
+def pick_terminal_font(point_size: int = TERM_FONT_PT_DEFAULT) -> QFont:
+    """选择系统可用的等宽字体；不二次乘 DPI。"""
+    from PyQt6.QtGui import QFontDatabase
+    size = max(TERM_FONT_PT_MIN, min(TERM_FONT_PT_MAX, int(point_size or TERM_FONT_PT_DEFAULT)))
+    preferred = ('Cascadia Mono', 'Cascadia Code', 'Consolas', 'Lucida Console')
+    families = set(QFontDatabase.families())
+    name = next((item for item in preferred if item in families), '')
+    font = QFont(name) if name else QFont()
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
+    font.setKerning(False)
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 100.0)
+    font.setPointSize(size)
+    if not QFontInfo(font).fixedPitch():
+        font.setStyleHint(QFont.StyleHint.TypeWriter)
+        font.setFixedPitch(True)
+    return font
+
+
+def terminal_cell_metrics(font: QFont) -> dict:
+    """逻辑像素 cell 尺寸；不用 CJK 宽字符决定单格宽度。"""
+    fm = QFontMetrics(font)
+    cell_width = max(1, max(fm.horizontalAdvance(ch) for ch in '0MW'))
+    cell_height = max(1, int(fm.height()) + 1)
+    ascent = max(1, int(fm.ascent()))
+    return {
+        'cell_width': cell_width,
+        'cell_height': cell_height,
+        'ascent': ascent,
+        'baseline_offset': ascent,
+    }
+
+
+def terminal_grid_size(
+    view_width: int,
+    view_height: int,
+    cell_width: int,
+    cell_height: int,
+    *,
+    pad_x: int = TERM_PAD_X,
+    pad_y: int = TERM_PAD_Y,
+) -> tuple[int, int]:
+    usable_w = max(0, int(view_width) - 2 * int(pad_x))
+    usable_h = max(0, int(view_height) - 2 * int(pad_y))
+    cols = max(1, usable_w // max(1, int(cell_width)))
+    rows = max(1, usable_h // max(1, int(cell_height)))
+    return cols, rows
 
 
 def _theme_term_colors() -> dict:
@@ -167,15 +222,12 @@ class _SshTerminalView(QAbstractScrollArea):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
 
-        mono = QFont('Cascadia Code')
-        if not mono.exactMatch():
-            mono = QFont('Cascadia Mono')
-            if not mono.exactMatch():
-                mono = QFont('Consolas')
-        mono.setStyleHint(QFont.StyleHint.Monospace)
-        mono.setPointSize(10)
-        mono.setFixedPitch(True)
-        self.setFont(mono)
+        self.setFont(pick_terminal_font(TERM_FONT_PT_DEFAULT))
+        self._metrics = terminal_cell_metrics(self.font())
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(80)
+        self._resize_timer.timeout.connect(self._apply_pty_resize)
 
         self._emulator = TerminalEmulator(cols=120, rows=32)
         self._shell: Optional[InteractiveShell] = None
@@ -377,10 +429,8 @@ class _SshTerminalView(QAbstractScrollArea):
         sb.setPageStep(self._emulator.rows)
 
     def _cell_dimensions(self) -> Tuple[int, int]:
-        fm = self.fontMetrics()
-        cw = max(1, fm.horizontalAdvance('M'))
-        lh = max(1, fm.lineSpacing() + 2)
-        return cw, lh
+        self._metrics = terminal_cell_metrics(self.font())
+        return int(self._metrics['cell_width']), int(self._metrics['cell_height'])
 
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
@@ -401,7 +451,8 @@ class _SshTerminalView(QAbstractScrollArea):
 
         cw, lh = self._cell_dimensions()
         fm = self.fontMetrics()
-        ascent = fm.ascent() + 1
+        pad_x, pad_y = TERM_PAD_X, TERM_PAD_Y
+        ascent = int(self._metrics.get('ascent') or fm.ascent())
 
         sb_max = self.verticalScrollBar().maximum()
         sb_val = self.verticalScrollBar().value()
@@ -416,8 +467,8 @@ class _SshTerminalView(QAbstractScrollArea):
         sel_range = self._get_normalized_selection()
         for r, row in enumerate(visible_rows):
             abs_row = abs_row_start + r
-            y = r * lh
-            col_x = 0
+            y = pad_y + r * lh
+            col_x = pad_x
             for col_idx, cell in enumerate(row):
                 if cell.width == 0:
                     continue  # Trailing cell of wide char
@@ -459,7 +510,7 @@ class _SshTerminalView(QAbstractScrollArea):
             cx = self._emulator.screen.cursor_x
             cy = self._emulator.screen.cursor_y
             if 0 <= cy < len(visible_rows) and 0 <= cx < self._emulator.cols:
-                cursor_rect = QRect(cx * cw, cy * lh, cw, lh)
+                cursor_rect = QRect(pad_x + cx * cw, pad_y + cy * lh, cw, lh)
                 if self.hasFocus():
                     painter.setBrush(QBrush(QColor(c['primary'])))
                     painter.setPen(Qt.PenStyle.NoPen)
@@ -469,7 +520,7 @@ class _SshTerminalView(QAbstractScrollArea):
                         cur_cell = self._emulator.screen.grid[cy][cx]
                         if cur_cell.char and cur_cell.char != ' ':
                             painter.setPen(QColor(c['bg']))
-                            painter.drawText(cx * cw, cy * lh + ascent, cur_cell.char)
+                            painter.drawText(pad_x + cx * cw, pad_y + cy * lh + ascent, cur_cell.char)
                 else:
                     painter.setPen(QPen(QColor(c['muted']), 1))
                     painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -479,8 +530,8 @@ class _SshTerminalView(QAbstractScrollArea):
         if self._preedit and scroll_offset == 0:
             cx = self._emulator.screen.cursor_x
             cy = self._emulator.screen.cursor_y
-            pre_x = cx * cw
-            pre_y = cy * lh
+            pre_x = pad_x + cx * cw
+            pre_y = pad_y + cy * lh
             pre_w = fm.horizontalAdvance(self._preedit)
             painter.fillRect(QRect(pre_x, pre_y, pre_w, lh), QColor(c['chrome']))
             painter.setPen(QColor(c['primary']))
@@ -504,22 +555,29 @@ class _SshTerminalView(QAbstractScrollArea):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        cw, lh = self._cell_dimensions()
-        cols = max(40, self.viewport().width() // cw)
-        rows = max(10, self.viewport().height() // lh)
-        self.resize_pty(cols, rows)
+        self._resize_timer.start()
 
-    # --- Mouse Selection ---
+    def _apply_pty_resize(self):
+        cw, lh = self._cell_dimensions()
+        cols, rows = terminal_grid_size(
+            self.viewport().width(), self.viewport().height(), cw, lh,
+        )
+        if cols != self._emulator.cols or rows != self._emulator.rows:
+            self.resize_pty(cols, rows)
 
     def _pos_to_abs_cell(self, pos: QPoint) -> Tuple[int, int]:
         cw, lh = self._cell_dimensions()
-        col = max(0, min(self._emulator.cols - 1, pos.x() // cw))
-        row_in_view = max(0, min(self._emulator.rows - 1, pos.y() // lh))
+        x = max(0, pos.x() - TERM_PAD_X)
+        y = max(0, pos.y() - TERM_PAD_Y)
+        col = max(0, min(self._emulator.cols - 1, x // cw))
+        row_in_view = max(0, min(self._emulator.rows - 1, y // lh))
         sb_max = self.verticalScrollBar().maximum()
         sb_val = self.verticalScrollBar().value()
         scroll_offset = sb_max - sb_val
         abs_row_start = len(self._emulator.scrollback) - scroll_offset
         return (max(0, abs_row_start + row_in_view), col)
+
+    # --- Mouse Selection ---
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:

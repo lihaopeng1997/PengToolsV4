@@ -1726,8 +1726,10 @@ class OpsLogPanel(QWidget):
             primary_button=self.cmd_send_btn,
             trailing=self.header_status,
         )
-        # 设计稿顺序：状态 → 主操作(执行) → 次要(断开)
-        self.header.layout().addWidget(self.disconnect_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self.title_label.hide()
+        self.subtitle_label.hide()
+        self.header_status.setObjectName('status-pill')
+        self.header.layout().addWidget(self.disconnect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(self.header)
 
         toolbar, tool_l = make_page_toolbar(divided=True)
@@ -1823,8 +1825,8 @@ class OpsLogPanel(QWidget):
         pick_row.addWidget(self.server_toggle_btn)
         left_l.addLayout(pick_row)
         self.session_status = QLabel()
-        self.session_status.setObjectName('small-label')
-        self.session_status.setWordWrap(True)
+        self.session_status.setObjectName('status-pill')
+        self.session_status.setWordWrap(False)
         left_l.addWidget(self.session_status)
 
         # 兼容旧代码引用的隐藏控件（不再展开占用左侧）
@@ -2443,12 +2445,10 @@ class OpsLogPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.title_label.setText('日志排查' if zh else 'Log Inspect')
-        self.subtitle_label.setText(
-            '主机、日志路径和终端会话持续可见；执行与填入严格分层。'
-            if zh else
-            'Host, log path and terminal session stay visible; fill vs execute are separated.'
-        )
+        self.title_label.setText('')
+        self.subtitle_label.setText('')
+        self.title_label.hide()
+        self.subtitle_label.hide()
         if hasattr(self, 'mode_session_btn'):
             self.mode_session_btn.setText('会话' if zh else 'Session')
             self.mode_export_btn.setText('批量导出' if zh else 'Batch export')

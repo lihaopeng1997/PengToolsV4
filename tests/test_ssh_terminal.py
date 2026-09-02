@@ -11,7 +11,11 @@ from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QKeyEvent, QInputMethodEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
-from ui.ssh_terminal import SshTerminalWidget, _SshTerminalView
+from PyQt6.QtGui import QFont, QFontInfo
+from ui.ssh_terminal import (
+    SshTerminalWidget, _SshTerminalView, pick_terminal_font, terminal_cell_metrics,
+    terminal_grid_size,
+)
 
 
 class SshTerminalWidgetTests(unittest.TestCase):
@@ -232,6 +236,42 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.view._on_shell_error(1, 'Old session error')
         self.assertNotIn('Old session error', self.view._system_status)
 
+    def test_fixed_pitch_font_contract(self):
+        font = pick_terminal_font(10)
+        self.assertGreaterEqual(font.pointSize(), 8)
+        self.assertLessEqual(font.pointSize(), 24)
+        metrics = terminal_cell_metrics(font)
+        self.assertGreater(metrics['cell_width'], 0)
+        self.assertGreater(metrics['cell_height'], 0)
+        self.assertLessEqual(metrics['cell_height'], font.pointSize() * 4)
+        info = QFontInfo(self.view.font())
+        self.assertTrue(info.fixedPitch() or self.view.font().fixedPitch())
+
+    def test_grid_size_grows_and_never_zero(self):
+        wide = terminal_grid_size(1000, 600, 10, 20)
+        narrow = terminal_grid_size(400, 600, 10, 20)
+        tiny = terminal_grid_size(1, 1, 10, 20)
+        self.assertGreater(wide[0], narrow[0])
+        self.assertGreaterEqual(wide[1], 1)
+        self.assertGreaterEqual(tiny[0], 1)
+        self.assertGreaterEqual(tiny[1], 1)
+        self.assertNotIn('devicePixelRatio', terminal_grid_size.__code__.co_names)
+        self.assertNotIn('devicePixelRatio', terminal_cell_metrics.__code__.co_names)
+
+    def test_resize_updates_emulator_cols(self):
+        cw, lh = self.view._cell_dimensions()
+        cols_a, rows_a = terminal_grid_size(1000, 600, cw, lh)
+        cols_b, rows_b = terminal_grid_size(400, 600, cw, lh)
+        self.view.resize_pty(cols_a, rows_a)
+        self.assertEqual(self.view._emulator.cols, cols_a)
+        self.assertEqual(self.view._emulator.rows, rows_a)
+        self.view.resize_pty(cols_b, rows_b)
+        self.assertEqual(self.view._emulator.cols, cols_b)
+        self.assertLess(cols_b, cols_a)
+        self.assertGreaterEqual(cols_a, 1)
+        self.assertGreaterEqual(rows_a, 1)
+
 
 if __name__ == '__main__':
     unittest.main()
+

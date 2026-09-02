@@ -177,8 +177,8 @@ class InteractiveShell:
         self.send(t)
 
     def resize(self, width: int, height: int) -> None:
-        self.width = max(40, int(width or 80))
-        self.height = max(10, int(height or 24))
+        self.width = max(1, int(width or 1))
+        self.height = max(1, int(height or 1))
         with self._lock:
             ch = self._channel
         if ch is None or ch.closed:
