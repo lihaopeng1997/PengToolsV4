@@ -158,6 +158,89 @@ class ConnectionDialogTests(unittest.TestCase):
         finally:
             dialog.close()
 
+    def test_redis_cluster_payload_keeps_seed_nodes_and_auth_mode(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={
+                "name": "cluster",
+                "dialect": "redis",
+                "mode": "cluster",
+                "host": "10.128.24.52",
+                "port": 47005,
+                "username": "app",
+                "password": "enc",
+            },
+            locked_dialect="redis",
+        )
+        try:
+            self.assertEqual(dialog.mode.currentData(), "cluster")
+            self.assertFalse(dialog.seed_host.isHidden())
+            self.assertTrue(dialog.host.isHidden())
+            self.assertEqual(dialog.auth_mode.currentData(), "acl")
+            item, _ = dialog.payload()
+            self.assertEqual(item["mode"], "cluster")
+            self.assertEqual(item["auth_mode"], "acl")
+            self.assertGreaterEqual(len(item["seed_nodes"]), 1)
+            self.assertEqual(item["seed_nodes"][0]["host"], "10.128.24.52")
+            self.assertEqual(item["seed_nodes"][0]["port"], 47005)
+        finally:
+            dialog.close()
+
+    def test_redis_cluster_rejects_invalid_port(self):
+        from tools.db_connect import DbError
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"dialect": "redis", "mode": "cluster", "host": "10.0.0.1", "port": 6379},
+            locked_dialect="redis",
+        )
+        try:
+            dialog._seed_rows[0][1].setText("70000")
+            with self.assertRaises(DbError):
+                dialog.payload()
+        finally:
+            dialog.close()
+
+    def test_mongodb_uri_hides_port_and_keeps_uri(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        uri = "mongodb://u:p@10.0.0.1:27017/db?authSource=admin"
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"dialect": "mongodb", "host": uri, "database": "biz"},
+            locked_dialect="mongodb",
+        )
+        try:
+            self.assertTrue(dialog.port.isHidden())
+            self.assertFalse(dialog.mongo_uri_hint.isHidden())
+            item, _ = dialog.payload()
+            self.assertEqual(item["host"], uri)
+            self.assertIn("auth_source", item)
+        finally:
+            dialog.close()
+
+    def test_mongodb_explicit_auth_fields_in_payload(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"dialect": "mongodb", "host": "10.0.0.8", "port": 27017, "database": "biz"},
+            locked_dialect="mongodb",
+        )
+        try:
+            dialog.mongo_auth_source.setText("admin")
+            idx = dialog.mongo_auth_mech.findData("SCRAM-SHA-256")
+            dialog.mongo_auth_mech.setCurrentIndex(idx)
+            item, _ = dialog.payload()
+            self.assertEqual(item["auth_source"], "admin")
+            self.assertEqual(item["auth_mechanism"], "SCRAM-SHA-256")
+        finally:
+            dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -37,10 +37,146 @@ MAX_ROWS = 2000
 CELL_MAX = 200
 
 NOSQL = frozenset({'redis', 'mongodb'})
+REDIS_AUTH_NONE = 'none'
+REDIS_AUTH_PASSWORD = 'password'
+REDIS_AUTH_ACL = 'acl'
+MONGO_MECH_AUTO = 'auto'
 
 
 class DbError(Exception):
     pass
+
+
+def is_mongo_uri(host: str) -> bool:
+    text = str(host or '').strip().lower()
+    return text.startswith('mongodb://') or text.startswith('mongodb+srv://')
+
+
+def normalize_redis_auth_mode(item: dict | None) -> str:
+    """历史配置：有 username → acl；只有密码 → password；都没有 → none。"""
+    data = item or {}
+    raw = str(data.get('auth_mode') or '').strip().lower()
+    if raw in (REDIS_AUTH_NONE, REDIS_AUTH_PASSWORD, REDIS_AUTH_ACL):
+        return raw
+    if str(data.get('username') or '').strip():
+        return REDIS_AUTH_ACL
+    if str(data.get('password') or '').strip():
+        return REDIS_AUTH_PASSWORD
+    return REDIS_AUTH_NONE
+
+
+def redis_auth_kwargs(item: dict | None, password: str) -> dict[str, Any]:
+    mode = normalize_redis_auth_mode(item)
+    if mode == REDIS_AUTH_NONE:
+        return {'username': None, 'password': None}
+    if mode == REDIS_AUTH_PASSWORD:
+        return {'username': None, 'password': password or None}
+    username = str((item or {}).get('username') or '').strip() or None
+    return {'username': username, 'password': password or None}
+
+
+def normalize_redis_seed_nodes(item: dict | None) -> list[dict]:
+    """Cluster seed 列表；旧配置仅 host/port 时视为单个 seed。"""
+    data = item or {}
+    result: list[dict] = []
+    raw_seeds = data.get('seed_nodes')
+    if isinstance(raw_seeds, list):
+        for entry in raw_seeds:
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get('host') or '').strip()
+            if not host:
+                continue
+            try:
+                port = int(entry.get('port'))
+            except (TypeError, ValueError) as exc:
+                raise DbError(f'Redis 端口无效：{entry.get("port")!r}（须为 1–65535）') from exc
+            if not 1 <= port <= 65535:
+                raise DbError(f'Redis 端口无效：{port}（须为 1–65535）')
+            result.append({'host': host, 'port': port})
+    if result:
+        return result
+    host = str(data.get('host') or '').strip() or '127.0.0.1'
+    try:
+        port = int(data.get('port') or DEFAULT_PORTS.get('redis', 6379))
+    except (TypeError, ValueError) as exc:
+        raise DbError(f'Redis 端口无效：{data.get("port")!r}（须为 1–65535）') from exc
+    if not 1 <= port <= 65535:
+        raise DbError(f'Redis 端口无效：{port}（须为 1–65535）')
+    return [{'host': host, 'port': port}]
+
+
+def mongo_auth_source(item: dict | None) -> str:
+    data = item or {}
+    explicit = str(data.get('auth_source') or '').strip()
+    if explicit:
+        return explicit
+    database = str(data.get('database') or '').strip()
+    if database:
+        return database
+    return 'admin'
+
+
+def mongo_auth_mechanism(item: dict | None) -> str:
+    raw = str((item or {}).get('auth_mechanism') or '').strip()
+    if not raw or raw.lower() in (MONGO_MECH_AUTO, 'automatic', 'default'):
+        return ''
+    return raw
+
+
+def _redis_error_message(exc: BaseException, auth_mode: str) -> str:
+    text = redact_error(str(exc))
+    low = text.lower()
+    authish = (
+        'invalid username-password' in low
+        or 'user is disabled' in low
+        or 'wrongpass' in low
+        or 'noauth' in low
+        or 'authentication required' in low
+        or 'auth' in low and 'fail' in low
+    )
+    if authish:
+        if auth_mode == REDIS_AUTH_ACL:
+            return (
+                'Redis 认证失败。\n'
+                '当前认证模式：ACL 用户名 + 密码\n'
+                '请确认用户名是否存在、是否启用，以及密码是否正确。\n'
+                f'原始错误：{text}'
+            )
+        if auth_mode == REDIS_AUTH_PASSWORD:
+            return (
+                'Redis 认证失败。\n'
+                '当前认证模式：仅密码\n'
+                '该集群可能启用了 ACL 用户认证，请尝试选择“ACL 用户名 + 密码”。\n'
+                f'原始错误：{text}'
+            )
+        return (
+            'Redis 认证失败。\n'
+            '当前认证模式：无认证\n'
+            '服务器要求认证，请选择“仅密码”或“ACL 用户名 + 密码”。\n'
+            f'原始错误：{text}'
+        )
+    return f'Redis 连接失败：{text}'
+
+
+def _mongo_error_message(exc: BaseException) -> str:
+    text = redact_error(str(exc))
+    code = getattr(exc, 'code', None)
+    name = type(exc).__name__
+    low = text.lower()
+    if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
+        return (
+            'MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
+            '请核对用户名、密码、认证库（authSource）和认证机制。\n'
+            f'原始错误：{text}'
+        )
+    if 'ServerSelectionTimeout' in name or 'timed out' in low and 'server' in low:
+        return f'MongoDB 服务器选择超时，请检查主机、端口和网络。\n原始错误：{text}'
+    if 'InvalidURI' in name or 'invalid uri' in low:
+        return f'MongoDB 连接串无效。\n原始错误：{text}'
+    if 'network' in low or 'connection refused' in low or '10061' in text:
+        return f'MongoDB 网络连接失败。\n原始错误：{text}'
+    return f'MongoDB 连接失败：{text}'
 
 
 def _encrypt(plain: str) -> str:
@@ -118,11 +254,14 @@ def delete_connection(conn_id: str) -> None:
     save_connections([row for row in load_connections() if row.get('id') != conn_id])
 
 
-def open_connection(item: dict):
+def open_connection(item: dict, plain_password: str | None = None):
     dialect = str(item.get('dialect') or 'oracle').lower()
-    password = _decrypt(item.get('password') or '')
+    password = str(plain_password) if plain_password is not None else _decrypt(item.get('password') or '')
     host = str(item.get('host') or '').strip()
-    port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
+    except (TypeError, ValueError):
+        port = DEFAULT_PORTS.get(dialect, 1521)
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
     if dialect == 'oceanbase':
@@ -197,30 +336,45 @@ def open_connection(item: dict):
         except ValueError:
             db_index = 0
         mode = str(item.get('mode') or 'standalone').strip().lower()
+        auth_mode = normalize_redis_auth_mode(item)
+        auth = redis_auth_kwargs(item, password)
         try:
+            seeds = normalize_redis_seed_nodes(item)
             if mode == 'cluster':
-                client = redis.RedisCluster(
-                    host=host or '127.0.0.1',
-                    port=port,
-                    password=password or None,
-                    username=username or None,
-                    decode_responses=False,
-                    socket_connect_timeout=8,
-                )
+                try:
+                    from redis.cluster import ClusterNode, RedisCluster as ClusterClient
+                    nodes = [ClusterNode(seed['host'], seed['port']) for seed in seeds]
+                    client = ClusterClient(
+                        startup_nodes=nodes,
+                        decode_responses=False,
+                        socket_connect_timeout=8,
+                        **auth,
+                    )
+                except ImportError:
+                    first = seeds[0]
+                    client = redis.RedisCluster(
+                        host=first['host'],
+                        port=first['port'],
+                        decode_responses=False,
+                        socket_connect_timeout=8,
+                        **auth,
+                    )
             else:
+                first = seeds[0]
                 client = redis.Redis(
-                    host=host or '127.0.0.1',
-                    port=port,
-                    password=password or None,
-                    username=username or None,
+                    host=first['host'],
+                    port=first['port'],
                     db=db_index,
                     decode_responses=False,
                     socket_connect_timeout=8,
+                    **auth,
                 )
             client.ping()
             return client
+        except DbError:
+            raise
         except Exception as exc:
-            raise DbError(f'Redis 连接失败：{exc}') from exc
+            raise DbError(_redis_error_message(exc, auth_mode)) from exc
     if dialect == 'mongodb':
         try:
             from pymongo import MongoClient
@@ -229,44 +383,73 @@ def open_connection(item: dict):
         raw_host = str(host or '').strip()
         mongo_mode = str(item.get('mode') or 'standalone').strip().lower()
         try:
-            # 支持 from URL：host 形如 mongodb://user:pass@host1,host2,host3/?replicaSet=...&authSource=...
-            # URL 已含用户名/密码/replicaSet/authSource，直接用完整连接串（覆盖拆分的 user/pass）
-            if raw_host.startswith('mongodb://') or raw_host.startswith('mongodb+srv://'):
+            if is_mongo_uri(raw_host):
                 client = MongoClient(raw_host, serverSelectionTimeoutMS=8000)
                 client.admin.command('ping')
                 return client[database or 'admin']
             if not database:
                 raise DbError('MongoDB 请填写库名')
-            # 集群模式：host 支持多主机逗号分隔（副本集/分片 mongos），可附加 ?replicaSet=...&authSource=...
-            if mongo_mode == 'cluster':
-                if ',' in raw_host or 'replicaSet' in raw_host or '?' in raw_host:
-                    conn_uri = raw_host
-                    if not conn_uri.startswith('mongodb'):
-                        # 多主机/带参数但未写协议头，补协议 + 认证（若填了 user/pass）
-                        auth = ''
-                        if username:
-                            from urllib.parse import quote_plus
-                            auth = f'{quote_plus(username)}:{quote_plus(password or "")}@'
-                        conn_uri = f'mongodb://{auth}{conn_uri}'
-                    client = MongoClient(conn_uri, serverSelectionTimeoutMS=8000)
-                else:
-                    # 集群模式但只填了单主机：按多 host 列表 + 可选副本集连接
-                    kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
+            if mongo_mode == 'cluster' and (',' in raw_host or 'replicaSet' in raw_host or '?' in raw_host):
+                conn_uri = raw_host
+                if not conn_uri.startswith('mongodb'):
+                    auth = ''
                     if username:
-                        kwargs['username'] = username
-                        kwargs['password'] = password
-                    client = MongoClient(**kwargs)
+                        from urllib.parse import quote_plus
+                        auth = f'{quote_plus(username)}:{quote_plus(password or "")}@'
+                    conn_uri = f'mongodb://{auth}{conn_uri}'
+                client = MongoClient(conn_uri, serverSelectionTimeoutMS=8000)
             else:
-                kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
+                kwargs: dict[str, Any] = {
+                    'host': raw_host or '127.0.0.1',
+                    'port': port,
+                    'serverSelectionTimeoutMS': 8000,
+                }
                 if username:
                     kwargs['username'] = username
                     kwargs['password'] = password
+                    kwargs['authSource'] = mongo_auth_source(item)
+                    mechanism = mongo_auth_mechanism(item)
+                    if mechanism:
+                        kwargs['authMechanism'] = mechanism
                 client = MongoClient(**kwargs)
             client.admin.command('ping')
             return client[database]
+        except DbError:
+            raise
         except Exception as exc:
-            raise DbError(f'MongoDB 连接失败：{exc}') from exc
+            raise DbError(_mongo_error_message(exc)) from exc
     raise DbError(f'不支持的数据库类型：{dialect}')
+
+
+def probe_connection(item: dict, plain_password: str | None = None) -> dict:
+    """测试当前输入能否连通；不写入配置。"""
+    dialect = str(item.get('dialect') or '').lower()
+    conn = open_connection(item, plain_password=plain_password)
+    try:
+        if dialect == 'redis':
+            from tools.db_redis_ops import redis_server_info
+            info = redis_server_info(conn)
+            mode = str(item.get('mode') or 'standalone')
+            node = ''
+            nodes = info.get('nodes') or []
+            if nodes:
+                first = nodes[0]
+                node = f"{first.get('host', '')}:{first.get('port', '')}"
+            else:
+                seeds = normalize_redis_seed_nodes(item)
+                node = f"{seeds[0]['host']}:{seeds[0]['port']}"
+            summary = (
+                f"模式：{'Cluster' if mode == 'cluster' else 'Standalone'}\n"
+                f"Redis 版本：{info.get('redis_version') or info.get('version') or '未知'}\n"
+                f"成功节点：{node or '本机连接'}"
+            )
+            return {'ok': True, 'summary': summary, 'info': info}
+        if dialect == 'mongodb':
+            name = str(getattr(conn, 'name', '') or item.get('database') or '')
+            return {'ok': True, 'summary': f'MongoDB 已连通，目标库：{name or "admin"}'}
+        return {'ok': True, 'summary': '连接成功'}
+    finally:
+        close_connection(conn)
 
 
 def close_connection(conn) -> None:

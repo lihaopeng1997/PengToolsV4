@@ -124,14 +124,60 @@ def redis_db_count(conn) -> int:
 
 
 def redis_server_info(conn) -> dict:
-    """返回版本 / 模式等摘要（失败时返回占位）。"""
+    """返回版本 / 模式 / 内存 / 节点等摘要（失败时返回占位）。"""
+    version = ''
+    used_memory_human = ''
+    cluster_enabled = False
     try:
-        info = conn.info('server') or {}
-        version = _stringify(info.get('redis_version') or '')
+        server = conn.info('server') or {}
+        version = _stringify(server.get('redis_version') or '')
     except Exception:
-        version = ''
+        server = {}
+    try:
+        memory = conn.info('memory') or {}
+        used_memory_human = _stringify(memory.get('used_memory_human') or '')
+    except Exception:
+        memory = {}
+    try:
+        cluster = conn.info('cluster') or {}
+        cluster_enabled = str(cluster.get('cluster_enabled') or '0') in ('1', 'True', 'true')
+    except Exception:
+        cluster = {}
+    total_keys = 0
+    try:
+        total_keys = int(conn.dbsize() or 0)
+    except Exception:
+        total_keys = 0
+    nodes: list[dict] = []
+    get_nodes = getattr(conn, 'get_nodes', None)
+    if callable(get_nodes):
+        try:
+            for node in get_nodes() or []:
+                host = _stringify(getattr(node, 'host', '') or '')
+                port = int(getattr(node, 'port', 0) or 0)
+                role = _stringify(
+                    getattr(node, 'server_type', None)
+                    or getattr(node, 'role', None)
+                    or ''
+                )
+                keys = 0
+                try:
+                    nconn = node.redis_connection if hasattr(node, 'redis_connection') else None
+                    if nconn is not None:
+                        keys = int(nconn.dbsize() or 0)
+                except Exception:
+                    keys = 0
+                nodes.append({'host': host, 'port': port, 'role': role, 'keys': keys})
+        except Exception:
+            nodes = []
+    mode = 'cluster' if cluster_enabled or nodes else 'standalone'
     return {
         'version': version,
+        'redis_version': version,
+        'mode': mode,
+        'used_memory_human': used_memory_human,
+        'total_keys': total_keys,
+        'nodes': nodes,
         'db': 0,
     }
 
