@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from config import DEFAULT_SETTINGS
 from panels.agent_workbench_panel import AgentWorkbenchPanel
@@ -41,6 +41,12 @@ class _MainWindowStub:
 class AcceptanceCorrectionsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # QtWebEngineWidgets 必须在 QApplication 之前 import，否则 ui.web_shell
+        # 会永久落到 WEB_SHELL_AVAILABLE=False 的 stub HomeBridge。
+        try:
+            import ui.web_shell  # noqa: F401
+        except Exception:
+            pass
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setQuitOnLastWindowClosed(False)
 
@@ -144,9 +150,16 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
     def test_homepage_bridge_navigate_requested_changes_panel(self):
         from main_window import MainWindow
         settings = dict(DEFAULT_SETTINGS, ui_web_shell=True)
-        with patch('ui.web_shell.runtime_web_shell_available', return_value=True):
-            with patch('main_window.load_settings', return_value=settings):
-                win = MainWindow()
+        dummy_widget = QWidget()
+        dummy_widget.web_view = MagicMock()
+        dummy_widget.web_page = MagicMock()
+        dummy_widget.web_name = 'dashboard'
+        # 该用例只验证 HomeBridge.navigate；真实 QWebEngineView 在 offscreen 下会 native crash。
+        with patch('ui.web_shell.create_dashboard_widget', return_value=dummy_widget), \
+             patch('ui.web_shell.create_chrome_widget', return_value=dummy_widget), \
+             patch('ui.web_shell.runtime_web_shell_available', return_value=True), \
+             patch('main_window.load_settings', return_value=settings):
+            win = MainWindow()
         try:
             self.assertIsNotNone(win._dash_bridge)
             # Direct slot call test: bridge.navigate(index)
