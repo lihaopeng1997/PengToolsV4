@@ -354,6 +354,51 @@ class MainWindowDesignSystemTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        from unittest.mock import patch
+        self._load_patch = patch('main_window.load_settings', return_value=dict(DEFAULT_SETTINGS, ui_web_shell=False))
+        self._load_patch.start()
+        self._windows = []
+
+    def _track_window(self, win):
+        self._windows.append(win)
+        return win
+
+    def tearDown(self):
+        from PyQt6.QtCore import QCoreApplication, QEvent
+
+        for win in self._windows:
+            try:
+                if win.hotkey_service:
+                    win.hotkey_service.unregister()
+                if win.quick_panel is not None:
+                    # QuickPanel parent=None（独立 Tool 窗口），必须单独销毁
+                    win.quick_panel.close_toolbar()
+                    win.quick_panel.close()
+                    win.quick_panel.deleteLater()
+                if win.tray_service is not None:
+                    win.tray_service.hide()
+                if win.keep_awake_service is not None:
+                    win.keep_awake_service.stop()
+                win.hide()
+                win.deleteLater()
+            except Exception:
+                pass
+        self._windows.clear()
+        # hide()+deleteLater()+processEvents() 不足以销毁 MainWindow；
+        # 残留 widget 会让后续 ThemeManager.apply/setStyleSheet 线性变慢，表现为 hang。
+        # 不能 win.close()：MainWindow._shutdown 会 QApplication.quit()。
+        for _ in range(5):
+            self.app.processEvents()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            remaining = [
+                w for w in self.app.allWidgets()
+                if type(w).__name__ == 'MainWindow'
+            ]
+            if not remaining:
+                break
+        self._load_patch.stop()
+
     def test_navigation_stack_mapping_is_unchanged(self):
         from main_window import MainWindow
 
@@ -372,14 +417,14 @@ class MainWindowDesignSystemTests(unittest.TestCase):
     def test_apply_density_sets_window_property(self):
         from main_window import MainWindow
 
-        window = MainWindow()
+        window = self._track_window(MainWindow())
         window._apply_settings({**DEFAULT_SETTINGS, 'ui_density': 'comfortable'})
         self.assertEqual(window.property('uiDensity'), 'comfortable')
 
     def test_runtime_settings_do_not_reset_manual_sidebar_state(self):
         from main_window import MainWindow
 
-        window = MainWindow()
+        window = self._track_window(MainWindow())
         window._set_nav_collapsed(True)
         window._set_nav_collapsed(False)
         window._apply_settings({**DEFAULT_SETTINGS, 'sidebar_collapsed': True})
@@ -388,7 +433,7 @@ class MainWindowDesignSystemTests(unittest.TestCase):
     def test_quick_theme_cycle_light_dark(self):
         from main_window import MainWindow
 
-        window = MainWindow()
+        window = self._track_window(MainWindow())
         # calm -> black
         window._settings['ui_theme'] = 'calm'
         window._cycle_theme()
@@ -417,7 +462,7 @@ class MainWindowDesignSystemTests(unittest.TestCase):
     def test_theme_cycle_tooltip_shows_light_dark_only(self):
         from main_window import MainWindow
 
-        window = MainWindow()
+        window = self._track_window(MainWindow())
         window._settings['ui_theme'] = 'calm'
         tip = window._theme_cycle_tooltip()
         self.assertIn('浅色', tip)
@@ -434,7 +479,7 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         from main_window import MainWindow
         from unittest.mock import patch
 
-        window = MainWindow()
+        window = self._track_window(MainWindow())
         window._settings['ui_theme'] = 'calm'
         window.status_bar.clearMessage()
 

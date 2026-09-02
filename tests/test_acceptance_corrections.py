@@ -183,7 +183,9 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
         self.assertFalse(hasattr(header_dash, 'home_btn'))
 
         # 3. Test Home button exists and works across all primary panels
-        win = MainWindow()
+        settings = dict(DEFAULT_SETTINGS, ui_web_shell=False)
+        with patch('main_window.load_settings', return_value=settings):
+            win = MainWindow()
         try:
             # Modules to test: Requirement(10), ModelChat(16), Workbench(17), InterfaceDebug(12),
             # OpsLog(13), Gateway(5), Format(11), Credit(1), Oracle(18), Redis(22)

@@ -271,7 +271,7 @@ class UiRegressionTests(unittest.TestCase):
         self.assertFalse(brand_window_icon().isNull())
 
     def test_private_tools_are_hidden_until_version_easter_egg_unlocks(self):
-        settings = dict(DEFAULT_SETTINGS, private_unlocked=False)
+        settings = dict(DEFAULT_SETTINGS, private_unlocked=False, ui_web_shell=False)
         with patch('main_window.load_settings', return_value=settings):
             window = MainWindow()
         try:

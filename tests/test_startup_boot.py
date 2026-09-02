@@ -24,7 +24,7 @@ class StartupBootTests(unittest.TestCase):
         from config import DEFAULT_SETTINGS
         from main_window import MainWindow
 
-        settings = dict(DEFAULT_SETTINGS)
+        settings = dict(DEFAULT_SETTINGS, ui_web_shell=False)
         with patch('main_window.load_settings', return_value=settings):
             window = MainWindow()
         try:
