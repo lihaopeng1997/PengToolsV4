@@ -33,7 +33,9 @@ from tools.sql_guard import (
 )
 
 PAGE_SIZE = 20
-MAX_ROWS = 2000
+MAX_ROWS = 2000  # Redis/Mongo 等非 SQL 路径保护；SQL 分页不再用它做总行上限
+FETCH_CHUNK = 500
+RESULT_BYTE_LIMIT = 50 * 1024 * 1024
 CELL_MAX = 200
 
 NOSQL = frozenset({'redis', 'mongodb'})
@@ -766,6 +768,34 @@ def _stringify(value: Any) -> str:
     return text
 
 
+def estimate_cell_bytes(value) -> int:
+    """结果单元格近似体积；与 _stringify 实际保留文本一致。"""
+    from datetime import date, datetime
+    if value is None:
+        return 0
+    if isinstance(value, (bytes, bytearray)):
+        text = bytes(value).decode('utf-8', errors='replace')
+    elif isinstance(value, bool):
+        text = str(value)
+    elif isinstance(value, (int, float)):
+        text = str(value)
+    elif isinstance(value, datetime):
+        text = value.isoformat(sep=' ', timespec='seconds')
+    elif isinstance(value, date):
+        text = value.isoformat()
+    else:
+        text = str(value)
+    if len(text) > CELL_MAX:
+        text = text[:CELL_MAX] + '…'
+    return len(text.encode('utf-8', errors='replace'))
+
+
+def estimate_row_bytes(row) -> int:
+    if not row:
+        return 0
+    return sum(estimate_cell_bytes(cell) for cell in row)
+
+
 def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:
     kind = str(dialect or 'oracle').lower()
     reason = reject_reason(sql, kind)
@@ -777,7 +807,8 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
         return _run_mongo(conn, sql, int(offset), min(int(limit), MAX_ROWS))
     if not is_read_query(sql):
         raise DbError('仅允许查询语句')
-    wrapped = _wrap_paged(sql, dialect, offset, min(int(limit), MAX_ROWS))
+    page_limit = max(1, int(limit))
+    wrapped = _wrap_paged(sql, dialect, offset, page_limit)
     cur = _cursor(conn)
     try:
         cur.execute(wrapped)
@@ -791,12 +822,12 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
                 trimmed.append(tuple(cell for i, cell in enumerate(row) if i not in drop))
             rows = trimmed
         data = [[_stringify(cell) for cell in row] for row in rows]
-        has_more = len(data) >= int(limit)
+        has_more = len(data) >= page_limit
         return {
             'columns': columns,
             'rows': data,
             'offset': int(offset) + len(data),
-            'limit': int(limit),
+            'limit': page_limit,
             'has_more': has_more,
             'sql': sql,
         }
@@ -807,6 +838,93 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
             cur.close()
         except Exception:
             pass
+
+
+def fetch_query_chunks(
+    conn,
+    dialect: str,
+    sql: str,
+    *,
+    offset: int = 0,
+    chunk_size: int = FETCH_CHUNK,
+    byte_limit: int = RESULT_BYTE_LIMIT,
+    cancel=None,
+    progress=None,
+) -> dict:
+    """分块读取查询结果，直到 EOF、取消或字节上限。"""
+    import time
+    started = time.perf_counter()
+    columns: list[str] = []
+    rows: list[list] = []
+    total_bytes = 0
+    cur_offset = int(offset)
+    status = 'DONE'
+    chunk = max(1, int(chunk_size or FETCH_CHUNK))
+    limit = int(byte_limit if byte_limit is not None else RESULT_BYTE_LIMIT)
+    try:
+        while True:
+            if cancel and cancel():
+                status = 'CANCELLED'
+                break
+            page = run_read_query(conn, dialect, sql, offset=cur_offset, limit=chunk)
+            if not columns:
+                columns = list(page.get('columns') or [])
+            batch = list(page.get('rows') or [])
+            if not batch:
+                status = 'DONE'
+                break
+            stopped = False
+            for row in batch:
+                rows.append(row)
+                total_bytes += estimate_row_bytes(row)
+                if total_bytes >= limit:
+                    status = 'LIMIT_REACHED'
+                    stopped = True
+                    break
+            cur_offset = int(page.get('offset') or (cur_offset + len(batch)))
+            if progress:
+                progress({
+                    'rows': int(offset) + len(rows),
+                    'bytes': total_bytes,
+                    'status': status,
+                })
+            if stopped:
+                break
+            if not page.get('has_more'):
+                status = 'DONE'
+                break
+    except Exception as exc:
+        status = 'ERROR'
+        err = redact_error(str(exc))
+        if progress:
+            progress({
+                'rows': int(offset) + len(rows),
+                'bytes': total_bytes,
+                'status': status,
+            })
+        return {
+            'columns': columns,
+            'rows': rows,
+            'offset': cur_offset,
+            'has_more': True,
+            'sql': sql,
+            'status': status,
+            'bytes': total_bytes,
+            'error': err,
+            'elapsed_ms': int((time.perf_counter() - started) * 1000),
+            'rowcount': len(rows),
+        }
+    return {
+        'columns': columns,
+        'rows': rows,
+        'offset': cur_offset,
+        'has_more': bool(status == 'LIMIT_REACHED'),
+        'sql': sql,
+        'status': status,
+        'bytes': total_bytes,
+        'elapsed_ms': int((time.perf_counter() - started) * 1000),
+        'rowcount': len(rows),
+    }
 
 
 def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:

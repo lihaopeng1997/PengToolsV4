@@ -7,7 +7,7 @@ from datetime import datetime
 import time
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
@@ -22,9 +22,9 @@ from tools.ai_object_context import (
     selected_field_names, selected_table_names,
 )
 from tools.db_connect import (
-    DIALECTS, DEFAULT_PORTS, PAGE_SIZE, MAX_ROWS, DbError, delete_connection,
-    load_connections, open_connection, close_connection, run_console_statement,
-    upsert_connection,
+    DIALECTS, DEFAULT_PORTS, PAGE_SIZE, FETCH_CHUNK, RESULT_BYTE_LIMIT, DbError,
+    delete_connection, fetch_query_chunks, load_connections, open_connection,
+    close_connection, run_console_statement, upsert_connection,
 )
 from tools.db_contracts import normalize_oceanbase_mode
 from tools.intranet_llm import is_enabled, load_ai_local
@@ -144,6 +144,7 @@ def compose_nl_query(table: str, columns=None, language='zh') -> str:
 class _DbWorker(QThread):
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
+    progress = pyqtSignal(object)
 
     def __init__(self, kind: str, item: dict, **kwargs):
         super().__init__()
@@ -173,6 +174,16 @@ class _DbWorker(QThread):
                     conn, dialect, self.kwargs.get('sql') or '',
                     offset=int(self.kwargs.get('offset') or 0),
                     limit=int(self.kwargs.get('limit') or PAGE_SIZE),
+                )
+                self.completed.emit(result)
+            elif self.kind == 'fetch_all':
+                result = fetch_query_chunks(
+                    conn, dialect, self.kwargs.get('sql') or '',
+                    offset=int(self.kwargs.get('offset') or 0),
+                    chunk_size=int(self.kwargs.get('chunk_size') or FETCH_CHUNK),
+                    byte_limit=int(self.kwargs.get('byte_limit') or RESULT_BYTE_LIMIT),
+                    cancel=lambda: self.cancelled,
+                    progress=lambda payload: self.progress.emit(payload),
                 )
                 self.completed.emit(result)
             else:
@@ -241,6 +252,8 @@ class AiWorkbenchPanel(QWidget):
         self._offset = 0
         self._has_more = False
         self._last_sql = ''
+        self._query_status = 'IDLE'
+        self._result_bytes = 0
         self._history = []
         self._tab_seq = 1
         self._agent_busy = False
@@ -426,12 +439,13 @@ class AiWorkbenchPanel(QWidget):
 
         ai_vsplit = QSplitter(Qt.Orientation.Vertical)
         ai_vsplit.setChildrenCollapsible(False)
-        ai_vsplit.setHandleWidth(6)
+        ai_vsplit.setHandleWidth(8)
+        self.ai_vsplit = ai_vsplit
 
         ai_top = QWidget()
         ai_top_l = QVBoxLayout(ai_top)
         ai_top_l.setContentsMargins(10, 10, 10, 4)
-        ai_top_l.setSpacing(4)
+        ai_top_l.setSpacing(6)
         self.ai_title = QLabel()
         self.ai_title.setObjectName('section-title')
         ai_top_l.addWidget(self.ai_title)
@@ -442,43 +456,23 @@ class AiWorkbenchPanel(QWidget):
         self.model_status = QLabel()
         self.model_status.setObjectName('ops-safety-note')
         self.model_status.setWordWrap(True)
+        self.model_status.hide()
         ai_top_l.addWidget(self.model_status)
         self.ai_hint = QLabel()
         self.ai_hint.setObjectName('ops-safety-note')
         self.ai_hint.setWordWrap(True)
+        self.ai_hint.hide()
         ai_top_l.addWidget(self.ai_hint)
         self.nl_input = AiPromptEdit()
-        self.nl_input.setMinimumHeight(90)
+        self.nl_input.setMinimumHeight(140)
         self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
         self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
         self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
         ai_top_l.addWidget(self.nl_input, 1)
-        self.ai_chips = QLabel()
-        self.ai_chips.setObjectName('field-hint')
-        self.ai_chips.setWordWrap(True)
-        ai_top_l.addWidget(self.ai_chips)
-        self.agent_evidence = QLabel()
-        self.agent_evidence.setObjectName('field-hint')
-        self.agent_evidence.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.agent_evidence.setWordWrap(True)
-        ai_top_l.addWidget(self.agent_evidence)
-        self.agent_candidates = QListWidget()
-        self.agent_candidates.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.agent_candidates.hide()
-        ai_top_l.addWidget(self.agent_candidates)
-        self.agent_confirm_btn = QPushButton()
-        apply_button(self.agent_confirm_btn, 'secondary', compact=True)
-        self.agent_confirm_btn.clicked.connect(self._confirm_agent_fields)
-        self.agent_confirm_btn.hide()
-        ai_top_l.addWidget(self.agent_confirm_btn)
-        self.agent_stage = QLabel()
-        self.agent_stage.setObjectName('field-hint')
-        self.agent_stage.setWordWrap(True)
-        self.agent_stage.hide()
-        ai_top_l.addWidget(self.agent_stage)
         ai_btns = QHBoxLayout()
+        ai_btns.setSpacing(6)
         self.ai_gen_btn = QPushButton()
-        apply_button(self.ai_gen_btn, 'secondary', compact=True)
+        apply_button(self.ai_gen_btn, 'primary', compact=True)
         self.ai_gen_btn.clicked.connect(lambda: self._run_ai('generate'))
         self.ai_pick_btn = QPushButton()
         apply_button(self.ai_pick_btn, 'secondary', compact=True)
@@ -513,6 +507,30 @@ class AiWorkbenchPanel(QWidget):
             ai_btns.addWidget(btn)
         ai_btns.addStretch(1)
         ai_top_l.addLayout(ai_btns)
+        self.ai_chips = QLabel()
+        self.ai_chips.setObjectName('field-hint')
+        self.ai_chips.setWordWrap(True)
+        ai_top_l.addWidget(self.ai_chips)
+        self.agent_evidence = QLabel()
+        self.agent_evidence.setObjectName('field-hint')
+        self.agent_evidence.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.agent_evidence.setWordWrap(True)
+        self.agent_evidence.hide()
+        ai_top_l.addWidget(self.agent_evidence)
+        self.agent_candidates = QListWidget()
+        self.agent_candidates.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.agent_candidates.hide()
+        ai_top_l.addWidget(self.agent_candidates)
+        self.agent_confirm_btn = QPushButton()
+        apply_button(self.agent_confirm_btn, 'secondary', compact=True)
+        self.agent_confirm_btn.clicked.connect(self._confirm_agent_fields)
+        self.agent_confirm_btn.hide()
+        ai_top_l.addWidget(self.agent_confirm_btn)
+        self.agent_stage = QLabel()
+        self.agent_stage.setObjectName('field-hint')
+        self.agent_stage.setWordWrap(True)
+        self.agent_stage.hide()
+        ai_top_l.addWidget(self.agent_stage)
         self.ai_explain_btn.hide()
         self.ai_opt_btn.hide()
         self.ai_fix_btn.hide()
@@ -525,15 +543,18 @@ class AiWorkbenchPanel(QWidget):
         self.ai_explain = QTextEdit()
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
+        self.ai_explain.setMinimumHeight(160)
+        self.ai_explain.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.ai_explain.customContextMenuRequested.connect(self._ai_output_menu)
         ai_bottom_l.addWidget(self.ai_explain, 1)
         ai_vsplit.addWidget(ai_bottom)
 
         install_splitter_prefs(
             ai_vsplit,
-            defaults=[220, 260],
+            defaults=[220, 280],
             page_id='sql-console',
             tab_id=f'ai-vsplit-{self._dialect}' if self._dialect else 'ai-vsplit',
-            min_sizes=[130, 160],
+            min_sizes=[120, 160],
             accessible_name='SQL 控制台 AI 助手输入与输出分隔',
         )
         ai_page_l.addWidget(ai_vsplit, 1)
@@ -604,7 +625,7 @@ class AiWorkbenchPanel(QWidget):
         self.next_btn.setEnabled(False)
         self.all_btn = QPushButton()
         apply_button(self.all_btn, 'ghost', compact=True)
-        self.all_btn.clicked.connect(self._fetch_all)
+        self.all_btn.clicked.connect(self._on_all_or_cancel)
         self.all_btn.setEnabled(False)
         self.result_status = QLabel()
         self.result_status.setObjectName('field-hint')
@@ -682,7 +703,7 @@ class AiWorkbenchPanel(QWidget):
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
-        self.ai_title.setText('AI 助手 · 仅草案' if zh else 'AI assistant · draft only')
+        self.ai_title.setText('AI 助手' if zh else 'AI assistant')
         self.ai_hint.setText(
             '右键输入框添加表/字段。AI 助手仅生成草案，不会执行。'
             if zh else
@@ -709,7 +730,7 @@ class AiWorkbenchPanel(QWidget):
         self.send_ai_btn.setText('发送给 AI' if zh else 'Send to AI')
         self.field_prev_btn.setText('上一页' if zh else 'Prev')
         self.field_next_btn.setText('下一页' if zh else 'Next')
-        self.ai_gen_btn.setText('生成 SQL 草案' if zh else 'Generate SQL draft')
+        self.ai_gen_btn.setText('生成 SQL' if zh else 'Generate SQL')
         self.ai_explain_btn.setText('解释当前 SQL' if zh else 'Explain current SQL')
         self.ai_opt_btn.setText('优化当前 SQL' if zh else 'Optimize current SQL')
         self.ai_fix_btn.setText('修复报错' if zh else 'Fix error')
@@ -846,6 +867,7 @@ class AiWorkbenchPanel(QWidget):
         if self._bound_conn_item:
             self._snapshot = load_snapshot(str(self._bound_conn_item.get('id') or ''))
             self.nl_input.bind_snapshot(self._snapshot)
+            self._bind_editors_schema()
         # 通知主窗口刷新侧栏（绑定模式不依赖下拉框）
         window = self.window()
         if window and hasattr(window, '_rebuild_sql_console_subnav'):
@@ -1085,8 +1107,44 @@ class AiWorkbenchPanel(QWidget):
 
     def on_panel_deactivated(self):
         """离开 SQL 工作台时重置 loading，防止悬挂状态。"""
+        self._shutdown_db_worker()
         if hasattr(self, 'loading') and self.loading is not None:
             self.loading.hide_now()
+
+    def closeEvent(self, event):
+        self._shutdown_db_worker()
+        super().closeEvent(event)
+
+    def _bind_editors_schema(self):
+        if not hasattr(self, 'sql_tabs'):
+            return
+        for i in range(self.sql_tabs.count()):
+            tab = self.sql_tabs.widget(i)
+            if isinstance(tab, _SqlTab):
+                tab.editor.bind_schema(self._snapshot)
+
+    def _shutdown_db_worker(self, timeout_ms: int = 1500):
+        worker = self._worker
+        if worker is None:
+            return
+        worker.cancelled = True
+        try:
+            worker.progress.disconnect()
+        except Exception:
+            pass
+        try:
+            worker.completed.disconnect()
+        except Exception:
+            pass
+        try:
+            worker.failed.disconnect()
+        except Exception:
+            pass
+        if worker.isRunning():
+            worker.wait(max(1, int(timeout_ms)))
+        self._worker = None
+        if self._query_status in ('RUNNING', 'FETCH_ALL'):
+            self._query_status = 'CANCELLED'
 
     def _open_settings(self):
         window = self.window()
@@ -1098,21 +1156,39 @@ class AiWorkbenchPanel(QWidget):
         if hasattr(self, 'loading'):
             self.loading.place_overlay(self)
 
-    def _busy(self, on: bool, message: str = '') -> int:
+    def _busy(self, on: bool, message: str = '', *, fetch_all: bool = False) -> int:
         zh = self.language == 'zh'
         for btn in (
             self.test_btn, self.scan_btn, self.run_btn,
             self.ai_gen_btn, self.ai_explain_btn, self.ai_opt_btn, self.ai_fix_btn,
-            self.next_btn, self.all_btn,
+            self.next_btn,
         ):
             btn.setEnabled(not on)
-        if on:
+        if fetch_all:
+            self.all_btn.setEnabled(True)
+            self.all_btn.setText('取消' if zh else 'Cancel')
+        elif on:
+            self.all_btn.setEnabled(False)
+        if on and not fetch_all:
             return self.loading.start_busy(message or ('处理中…' if zh else 'Working…'))
-        else:
-            self._refresh_model_status()
-            self.next_btn.setEnabled(self._has_more)
-            self.all_btn.setEnabled(self._has_more)
-            return self.loading.current_token
+        if on and fetch_all:
+            self.result_status.setText(message or ('正在获取全部数据…' if zh else 'Fetching all…'))
+            return int(getattr(self, '_db_token', 0) or 0) + 1
+        self._refresh_model_status()
+        self._sync_fetch_buttons()
+        return self.loading.current_token
+
+    def _sync_fetch_buttons(self):
+        zh = self.language == 'zh'
+        fetching = self._query_status == 'FETCH_ALL'
+        if fetching:
+            self.all_btn.setEnabled(True)
+            self.all_btn.setText('取消' if zh else 'Cancel')
+            self.next_btn.setEnabled(False)
+            return
+        self.all_btn.setText('获取全部' if zh else 'Fetch all')
+        self.next_btn.setEnabled(self._has_more)
+        self.all_btn.setEnabled(self._has_more)
 
     def _start_db(self, kind: str, **kwargs):
         item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
@@ -1120,12 +1196,17 @@ class AiWorkbenchPanel(QWidget):
         if not item:
             show_warning(self, self._title(), '请先新建并选择连接' if zh else 'Create a connection first')
             return
+        if self._worker is not None and self._worker.isRunning():
+            return
         labels = {
             'test': '正在测试连接…' if zh else 'Testing connection…',
             'scan': '正在扫描结构…' if zh else 'Scanning schema…',
             'query': '正在执行查询…' if zh else 'Running query…',
+            'fetch_all': '正在获取全部数据…' if zh else 'Fetching all…',
         }
-        token = self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'))
+        fetch_all = kind == 'fetch_all'
+        self._query_status = 'FETCH_ALL' if fetch_all else ('RUNNING' if kind == 'query' else self._query_status)
+        token = self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'), fetch_all=fetch_all)
         self._db_token = token
         if kind == 'scan':
             self.scan_cancel_btn.setEnabled(True)
@@ -1134,6 +1215,7 @@ class AiWorkbenchPanel(QWidget):
         self._worker.token = token
         self._worker.completed.connect(lambda payload, t=token: self._on_db_ok(kind, payload, kwargs, token=t))
         self._worker.failed.connect(lambda msg, t=token: self._on_db_fail(msg, token=t))
+        self._worker.progress.connect(self._on_fetch_progress)
         self._worker.finished.connect(lambda: (self.scan_cancel_btn.setEnabled(False), self._busy(False)))
         self._worker.start()
 
@@ -1154,6 +1236,7 @@ class AiWorkbenchPanel(QWidget):
         if kind == 'scan':
             self._snapshot = payload
             self.nl_input.bind_snapshot(self._snapshot)
+            self._bind_editors_schema()
             self._rebuild_tree()
             self._refresh_header()
             self._refresh_ai_pick_state()
@@ -1168,7 +1251,7 @@ class AiWorkbenchPanel(QWidget):
             show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
             self._log_msg(f'扫描完成，对象 {count}')
             return
-        if kind == 'query':
+        if kind in ('query', 'fetch_all'):
             append = bool(kwargs.get('append'))
             self._last_sql = str(payload.get('sql') or self._last_sql)
             self._offset = int(payload.get('offset') or 0)
@@ -1183,11 +1266,37 @@ class AiWorkbenchPanel(QWidget):
                 extra = '，已提交' if zh else ', committed'
             elif tx == 'implicit':
                 extra = '，DDL 按库自身提交语义' if zh else ', DDL implicit commit'
-            self.result_status.setText(
-                f'行 {shown} · 影响 {rowcount} · {elapsed} ms{extra}'
-                if zh else
-                f'{shown} row(s) · affected {rowcount} · {elapsed} ms{extra}'
-            )
+            status = str(payload.get('status') or 'DONE')
+            nbytes = int(payload.get('bytes') or 0)
+            if status == 'LIMIT_REACHED':
+                self._query_status = 'LIMIT_REACHED'
+                self._has_more = False
+                self.result_status.setText(
+                    f'已读取 {shown} 行，结果数据达到 50 MB 安全上限，已停止继续读取。'
+                    if zh else
+                    f'Read {shown} row(s); stopped at the 50 MB safety limit.'
+                )
+            elif status == 'CANCELLED':
+                self._query_status = 'CANCELLED'
+                self.result_status.setText(
+                    f'已取消，保留已读取 {shown} 行' if zh else f'Cancelled; kept {shown} row(s)'
+                )
+            elif status == 'ERROR':
+                self._query_status = 'ERROR'
+                err = str(payload.get('error') or '')
+                self.result_status.setText(
+                    f'读取在第 {shown} 行后失败：{err}'
+                    if zh else
+                    f'Read failed after {shown} row(s): {err}'
+                )
+            else:
+                self._query_status = 'DONE'
+                mb = f' · {nbytes / (1024 * 1024):.1f} MB' if nbytes else ''
+                self.result_status.setText(
+                    f'行 {shown} · 影响 {rowcount} · {elapsed} ms{extra}{mb}'
+                    if zh else
+                    f'{shown} row(s) · affected {rowcount} · {elapsed} ms{extra}{mb}'
+                )
             self._log_msg(self.result_status.text())
             self._history.append({
                 'time': datetime.now().strftime('%H:%M:%S'),
@@ -1195,18 +1304,28 @@ class AiWorkbenchPanel(QWidget):
                 'status': self.result_status.text(),
             })
             self._hist_refresh()
-            self.next_btn.setEnabled(self._has_more)
-            self.all_btn.setEnabled(self._has_more)
-            self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'), token=token)
+            self._sync_fetch_buttons()
+            if kind == 'query':
+                self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'), token=token)
 
     def _on_db_fail(self, message: str, *, token: int | None = None):
         if token is not None and token != getattr(self, '_db_token', None):
             return
         text = redact_error(str(message or ''))
+        shown = self.result.rowCount() if hasattr(self, 'result') else 0
+        self._query_status = 'ERROR'
         self.loading.fail(text or ('失败' if self.language == 'zh' else 'Failed'), token=token)
-        show_error(self, self._title(), text)
-        self.result_status.setText('失败' if self.language == 'zh' else 'Failed')
+        if shown:
+            self.result_status.setText(
+                f'读取在第 {shown} 行后失败：{text}'
+                if self.language == 'zh' else
+                f'Read failed after {shown} row(s): {text}'
+            )
+        else:
+            show_error(self, self._title(), text)
+            self.result_status.setText('失败' if self.language == 'zh' else 'Failed')
         self._log_msg(text)
+        self._sync_fetch_buttons()
 
     def _log_msg(self, text: str):
         stamp = datetime.now().strftime('%H:%M:%S')
@@ -1216,27 +1335,44 @@ class AiWorkbenchPanel(QWidget):
         lines = [f"{row['time']}  {row['status']}\n{row['sql']}" for row in self._history[-50:]]
         self.hist_view.setPlainText('\n\n'.join(reversed(lines)))
 
+    def _on_fetch_progress(self, payload: dict):
+        if not isinstance(payload, dict):
+            return
+        rows = int(payload.get('rows') or 0)
+        nbytes = int(payload.get('bytes') or 0)
+        mb = nbytes / (1024 * 1024)
+        zh = self.language == 'zh'
+        self.result_status.setText(
+            f'正在获取全部数据… 已读取 {rows:,} 行 · {mb:.1f} MB'
+            if zh else
+            f'Fetching all… {rows:,} row(s) · {mb:.1f} MB'
+        )
+
     def _fill_result(self, payload: dict, *, append: bool = False):
         columns = list(payload.get('columns') or [])
         rows = list(payload.get('rows') or [])
-        if not append:
-            self.result.clear()
-            self.result.setColumnCount(len(columns))
-            self.result.setHorizontalHeaderLabels(columns)
-            self.result.setRowCount(0)
-        start = self.result.rowCount()
-        if start + len(rows) > MAX_ROWS:
-            rows = rows[: max(0, MAX_ROWS - start)]
-            self._has_more = False
-        self.result.setRowCount(start + len(rows))
-        for r, row in enumerate(rows):
-            for c, value in enumerate(row):
-                if c >= self.result.columnCount():
-                    self.result.setColumnCount(c + 1)
-                self.result.setItem(start + r, c, QTableWidgetItem(str(value)))
-        header = self.result.horizontalHeader()
-        if header is not None:
+        table = self.result
+        was = table.updatesEnabled()
+        table.setUpdatesEnabled(False)
+        try:
+            if not append:
+                table.clear()
+                table.setColumnCount(len(columns))
+                table.setHorizontalHeaderLabels(columns)
+                table.setRowCount(0)
+            start = table.rowCount()
+            table.setRowCount(start + len(rows))
+            for r, row in enumerate(rows):
+                for c, value in enumerate(row):
+                    if c >= table.columnCount():
+                        table.setColumnCount(c + 1)
+                    table.setItem(start + r, c, QTableWidgetItem(str(value)))
+        finally:
+            table.setUpdatesEnabled(was)
+        header = table.horizontalHeader()
+        if header is not None and not append:
             header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
     def _editor_sql(self) -> str:
         editor = self._current_editor()
@@ -1281,17 +1417,51 @@ class AiWorkbenchPanel(QWidget):
             return
         self._start_db('query', sql=self._last_sql, offset=self._offset, limit=PAGE_SIZE, append=True)
 
-    def _fetch_all(self):
-        if not self._last_sql:
+    def _on_all_or_cancel(self):
+        if self._query_status == 'FETCH_ALL':
+            self._cancel_fetch_all()
             return
-        remaining = max(PAGE_SIZE, MAX_ROWS - self.result.rowCount())
-        self._start_db('query', sql=self._last_sql, offset=self._offset, limit=remaining, append=True)
+        self._fetch_all()
+
+    def _cancel_fetch_all(self):
+        if self._worker is not None:
+            self._worker.cancelled = True
+        zh = self.language == 'zh'
+        self.result_status.setText('正在取消…' if zh else 'Cancelling…')
+
+    def _fetch_all(self):
+        if not self._last_sql or not self._has_more:
+            return
+        self._start_db(
+            'fetch_all',
+            sql=self._last_sql,
+            offset=self._offset,
+            chunk_size=FETCH_CHUNK,
+            byte_limit=RESULT_BYTE_LIMIT,
+            append=True,
+        )
+
+    def _ai_output_menu(self, pos):
+        zh = self.language == 'zh'
+        menu = QMenu(self.ai_explain)
+        cursor = self.ai_explain.textCursor()
+        if cursor.hasSelection():
+            copy = QAction('复制' if zh else 'Copy', self.ai_explain)
+            copy.triggered.connect(self.ai_explain.copy)
+            menu.addAction(copy)
+        if self.ai_explain.toPlainText():
+            select = QAction('全选' if zh else 'Select all', self.ai_explain)
+            select.triggered.connect(self.ai_explain.selectAll)
+            menu.addAction(select)
+        if menu.actions():
+            menu.exec(self.ai_explain.mapToGlobal(pos))
 
     def _new_sql_tab(self, text: str = '', title: str = ''):
         zh = self.language == 'zh'
         name = title or (f'未命名查询 {self._tab_seq}' if zh else f'Untitled query {self._tab_seq}')
         self._tab_seq += 1
         tab = _SqlTab(name, self._browse_conn())
+        tab.editor.bind_schema(self._snapshot)
         tab.editor.textChanged.connect(self._refresh_risk_chip)
         if text:
             tab.editor.setPlainText(text)
@@ -1797,8 +1967,18 @@ class AiWorkbenchPanel(QWidget):
         label = dict(DIALECTS).get(dialect, dialect)
         status = snapshot_status(item, self._snapshot)
         scanned = str((self._snapshot or {}).get('scanned_at') or '')
+        ready = False
+        try:
+            ready = is_enabled()
+        except Exception:
+            ready = False
+        model = ('模型已配置' if ready else '未配置模型') if zh else ('model ready' if ready else 'no model')
         self.agent_status.setText(
-            f"{item.get('name') or ''} · {label} · {status.get('label') or ''} · {scanned}".strip(' ·')
+            f"{item.get('name') or ''} · {label} · {status.get('label') or ''} · {model} · 仅草案".strip(' ·')
+        )
+        self.agent_status.setToolTip(
+            (self.model_status.text() if hasattr(self, 'model_status') else '') +
+            (f'\n{scanned}' if scanned else '')
         )
 
     def _refresh_agent_more_menu(self):

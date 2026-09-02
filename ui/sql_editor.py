@@ -3,9 +3,17 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextFormat
-from PyQt6.QtWidgets import QPlainTextEdit, QWidget
+from PyQt6.QtCore import QRect, QSize, QStringListModel, Qt
+from PyQt6.QtGui import QAction, QColor, QFont, QKeyEvent, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
+from PyQt6.QtWidgets import QCompleter, QMenu, QPlainTextEdit, QWidget
+
+SQL_KEYWORDS = (
+    'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
+    'GROUP BY', 'ORDER BY', 'HAVING', 'INSERT', 'UPDATE', 'DELETE', 'MERGE',
+    'WITH', 'CREATE', 'ALTER', 'DROP', 'UNION', 'CASE', 'WHEN', 'THEN', 'ELSE',
+    'END', 'AND', 'OR', 'IN', 'EXISTS', 'LIKE', 'IS NULL', 'IS NOT NULL',
+    'SELECT * FROM',
+)
 
 
 class _SqlHighlighter(QSyntaxHighlighter):
@@ -75,16 +83,43 @@ class _LineNumberArea(QWidget):
 class SqlEditor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName('sql-editor')
         self.setFont(QFont('Consolas', 10))
         self.setTabStopDistance(32)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._gutter = _LineNumberArea(self)
+        self._snapshot = {}
         self.blockCountChanged.connect(self._update_gutter_width)
         self.updateRequest.connect(self._on_update_request)
         self.cursorPositionChanged.connect(self._highlight_current)
+        self.selectionChanged.connect(self._highlight_current)
         self._highlighter = _SqlHighlighter(self.document(), {})
+        self._completer = QCompleter(self)
+        self._completer.setWidget(self)
+        self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        self._completer.activated.connect(self._insert_completion)
+        self._model = QStringListModel(self)
+        self._completer.setModel(self._model)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_menu)
+        self._apply_selection_style()
         self._update_gutter_width(0)
         self._highlight_current()
+
+    def bind_schema(self, snapshot: dict | None):
+        self._snapshot = snapshot if isinstance(snapshot, dict) else {}
+
+    def _apply_selection_style(self):
+        primary = self._token('PRIMARY', '#2F6FED')
+        on_primary = self._token('ON_PRIMARY', '#FFFFFF')
+        self.setStyleSheet(
+            f'QPlainTextEdit#sql-editor {{'
+            f'selection-background-color: {primary};'
+            f'selection-color: {on_primary};'
+            f'}}'
+        )
 
     def gutter_width(self) -> int:
         digits = max(2, len(str(max(1, self.blockCount()))))
@@ -134,6 +169,9 @@ class SqlEditor(QPlainTextEdit):
 
     def _highlight_current(self):
         from PyQt6.QtWidgets import QTextEdit
+        if self.textCursor().hasSelection():
+            self.setExtraSelections([])
+            return
         selection = QTextEdit.ExtraSelection()
         selection.format.setBackground(QColor(self._token('PRIMARY_SOFT', '#EEF4FF')))
         selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
@@ -145,3 +183,124 @@ class SqlEditor(QPlainTextEdit):
         cursor = self.textCursor()
         selected = cursor.selectedText().replace('\u2029', '\n').strip()
         return selected, cursor.position()
+
+    def _current_token(self) -> tuple[str, int, int]:
+        cursor = self.textCursor()
+        pos = cursor.position()
+        text = self.toPlainText()
+        start = pos
+        while start > 0 and (text[start - 1].isalnum() or text[start - 1] in '._'):
+            start -= 1
+        end = pos
+        while end < len(text) and (text[end].isalnum() or text[end] == '_'):
+            end += 1
+        return text[start:pos], start, pos
+
+    def _schema_names(self) -> tuple[list[str], dict[str, list[str]]]:
+        tables = []
+        columns: dict[str, list[str]] = {}
+        for obj in (self._snapshot.get('objects') or []):
+            name = str(obj.get('name') or '')
+            owner = str(obj.get('owner') or '')
+            if not name:
+                continue
+            tables.append(name)
+            if owner:
+                tables.append(f'{owner}.{name}')
+            cols = [str(c.get('name') or '') for c in (obj.get('columns') or []) if c.get('name')]
+            columns[name.upper()] = cols
+            if owner:
+                columns[f'{owner}.{name}'.upper()] = cols
+        return tables, columns
+
+    def _completion_candidates(self, prefix: str) -> list[str]:
+        prefix_raw = prefix
+        tables, columns = self._schema_names()
+        if '.' in prefix_raw:
+            table, _, col_prefix = prefix_raw.rpartition('.')
+            hits = []
+            for col in columns.get(table.upper(), []):
+                if col.upper().startswith(col_prefix.upper()) or not col_prefix:
+                    hits.append(f'{table}.{col}' if table else col)
+            return hits
+        low = prefix_raw.lower()
+        hits = [kw for kw in SQL_KEYWORDS if kw.lower().startswith(low)]
+
+        def _name_hit(name: str) -> bool:
+            folded = name.lower()
+            if folded.startswith(low):
+                return True
+            compact = folded.replace('_', '')
+            needle = low.replace('_', '')
+            if compact.startswith(needle):
+                return True
+            if len(needle) >= 3:
+                it = iter(folded)
+                return all(ch in it for ch in needle)
+            return False
+
+        hits.extend(name for name in tables if _name_hit(name))
+        # 去重保序
+        seen = set()
+        out = []
+        for item in hits:
+            key = item.upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+        return out
+
+    def _insert_completion(self, text: str):
+        token, start, pos = self._current_token()
+        cursor = self.textCursor()
+        cursor.setPosition(start)
+        cursor.setPosition(pos, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(text)
+        self.setTextCursor(cursor)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        popup = self._completer.popup()
+        if popup is not None and popup.isVisible():
+            if event.key() in (
+                Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Escape,
+                Qt.Key.Key_Tab, Qt.Key.Key_Backtab,
+            ):
+                event.ignore()
+                return
+        super().keyPressEvent(event)
+        token, _start, _pos = self._current_token()
+        if event.text() and (event.text().isalnum() or event.text() in '._'):
+            if token or token.endswith('.'):
+                cands = self._completion_candidates(token)
+                self._model.setStringList(cands)
+                if cands:
+                    self._completer.setCompletionPrefix(token)
+                    cr = self.cursorRect()
+                    cr.setWidth(self._completer.popup().sizeHintForColumn(0) + 24)
+                    self._completer.complete(cr)
+                    return
+        if popup is not None:
+            popup.hide()
+
+    def _show_menu(self, pos):
+        menu = QMenu(self)
+        for name, slot, enabled in (
+            ('撤销', self.undo, self.document().isUndoAvailable()),
+            ('重做', self.redo, self.document().isRedoAvailable()),
+            (None, None, False),
+            ('剪切', self.cut, self.textCursor().hasSelection()),
+            ('复制', self.copy, self.textCursor().hasSelection()),
+            ('粘贴', self.paste, True),
+            ('全选', self.selectAll, bool(self.toPlainText())),
+        ):
+            if name is None:
+                if menu.actions():
+                    menu.addSeparator()
+                continue
+            if not enabled:
+                continue
+            action = QAction(name, self)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+        menu.exec(self.mapToGlobal(pos))
