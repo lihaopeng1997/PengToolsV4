@@ -15,7 +15,8 @@ import uuid
 from config import DASHBOARD_RELEASE_ITEMS_FILE, ensure_config_dir
 
 
-_MONTH_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])')
+_MONTH_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])$')
+_DATE_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$')
 
 
 def normalize_month_key(value) -> str:
@@ -34,34 +35,91 @@ def normalize_month_key(value) -> str:
     return ''
 
 
-def release_month_for(item, *, fallback_current: bool = True, today=None) -> str:
-    """待升级事项的统一月份归属。
-
-    - 未勾选 is_monthly_release → 空（不进看板）
-    - 已填 online_month → 用该月
-    - 已勾选但未填月份 → fallback_current 时归入当前自然月，否则空
-    """
-    if not isinstance(item, dict) or not item.get('is_monthly_release'):
+def valid_iso_date(value) -> str:
+    """只接受 YYYY-MM-DD；非法返回空串。"""
+    text = str(value or '').strip()[:10]
+    if not _DATE_RE.match(text):
         return ''
-    month = normalize_month_key(item.get('online_month'))
-    if month:
-        return month
-    if fallback_current:
-        day = today or datetime.date.today()
-        if hasattr(day, 'strftime'):
-            return day.strftime('%Y-%m')
-        return str(day)[:7]
-    return ''
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return ''
+    return text
+
+
+def effective_release_date(item) -> str:
+    """实际上线日期优先，否则计划上线日期。"""
+    if not isinstance(item, dict):
+        return ''
+    return valid_iso_date(item.get('actual_online_date')) or valid_iso_date(item.get('planned_online_date'))
+
+
+def effective_release_month(item) -> str:
+    date = effective_release_date(item)
+    return date[:7] if date else ''
+
+
+def release_month_for(item, *, fallback_current: bool = True, today=None) -> str:
+    """Dashboard / 发版看板月份归属：只看有效实际/计划日期，不再用 is_monthly_release。
+
+    fallback_current 保留签名兼容，但不再把无日期需求塞进当前月。
+    """
+    del fallback_current, today
+    return effective_release_month(item)
 
 
 def collect_release_months(requirements, *, today=None) -> list[str]:
-    """仅收集已勾选入选任务的归属月份（含空月份→当前月），新到旧排序。"""
+    """从 effective_release_month 收集有日期的月份，新到旧。"""
+    del today
     months = {
-        release_month_for(item, fallback_current=True, today=today)
+        effective_release_month(item)
         for item in (requirements or [])
-        if isinstance(item, dict) and item.get('is_monthly_release')
+        if isinstance(item, dict)
     }
     return sorted((m for m in months if m), reverse=True)
+
+
+def release_display_state(item, today=None) -> dict:
+    """首页升级任务展示状态。"""
+    day = today or datetime.date.today()
+    if not isinstance(day, datetime.date):
+        try:
+            day = datetime.date.fromisoformat(str(day)[:10])
+        except ValueError:
+            day = datetime.date.today()
+    actual = valid_iso_date((item or {}).get('actual_online_date'))
+    planned = valid_iso_date((item or {}).get('planned_online_date'))
+    status = str((item or {}).get('status') or '').strip()
+    if actual:
+        return {
+            'state': '已上线',
+            'label': f'实际上线 {actual[5:]}',
+            'done': True,
+            'actual_online_date': actual,
+            'planned_online_date': planned,
+        }
+    if planned:
+        planned_day = datetime.date.fromisoformat(planned)
+        if planned_day == day:
+            state = '今日升级'
+        elif planned_day < day:
+            state = '已逾期'
+        else:
+            state = status
+        return {
+            'state': state,
+            'label': f'计划上线 {planned[5:]}',
+            'done': False,
+            'actual_online_date': '',
+            'planned_online_date': planned,
+        }
+    return {
+        'state': status,
+        'label': status,
+        'done': False,
+        'actual_online_date': '',
+        'planned_online_date': '',
+    }
 
 
 def is_board_item_completed(item, month: str, completed_keys) -> bool:
@@ -109,6 +167,7 @@ def load_release_board(path=None):
         'completed_manual_keys': [
             str(item) for item in value.get('completed_manual_keys', []) if str(item)
         ],
+        'release_target_date': valid_iso_date(value.get('release_target_date')),
         'ui_prefs': {
             # 已完成分区默认折叠，列表更干净
             'completed_section_collapsed': bool(prefs.get('completed_section_collapsed', True)),
@@ -133,6 +192,7 @@ def save_release_board(board, path=None):
         'completed_manual_keys': sorted({
             str(item) for item in payload.get('completed_manual_keys', []) if str(item)
         }),
+        'release_target_date': valid_iso_date(payload.get('release_target_date')),
         'ui_prefs': {
             'completed_section_collapsed': bool(prefs.get('completed_section_collapsed', True)),
         },

@@ -898,7 +898,6 @@ class RequirementDialog(QDialog):
         self.description_edit = QPlainTextEdit(base.get('description', ''))
         self.description_edit.setMinimumHeight(150)
         layout.addWidget(self.description_edit)
-        layout.addWidget(QLabel('测试任务点'))
         self.test_points_editor = TestPointsEditor(
             base.get('test_points'),
             description=base.get('description', ''),

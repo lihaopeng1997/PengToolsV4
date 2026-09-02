@@ -181,13 +181,12 @@ class TestPointUiTests(unittest.TestCase):
     def test_dashboard_button_text(self):
         from panels.dashboard_panel import DashboardPanel
 
-        current = __import__('datetime').date.today().strftime('%Y-%m')
+        current = __import__('datetime').date.today().strftime('%Y-%m') + '-15'
         requirements = [
             {
                 'id': 'r1',
                 'title': '有测试点',
-                'online_month': current,
-                'is_monthly_release': True,
+                'planned_online_date': current,
                 'status': '待测试',
                 'test_points': [
                     {'id': 'p1', 'text': 'A', 'done': True},
@@ -197,8 +196,7 @@ class TestPointUiTests(unittest.TestCase):
             {
                 'id': 'r2',
                 'title': '无测试点',
-                'online_month': current,
-                'is_monthly_release': True,
+                'planned_online_date': current,
                 'status': '开发中',
                 'test_points': [],
             },

@@ -1420,100 +1420,25 @@ class MainWindow(QMainWindow):
                 'current': int(getattr(self, '_current_nav_index', 0) or 0)}
 
     def _dashboard_summary_payload(self):
-        """首页 Web 数据（main_window→tools 合法；宽松容错，失败返回可渲染默认）。"""
-        import datetime
-        payload = {
-            'username': str(self._settings.get('home_username') or 'Lihp'),
-            'greeting': '下午好', 'date_line': '本地数据已同步',
-            'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5,
-                      'daily_note': ''},
-            'release': {'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
-                        'days_left': None, 'date_text': '计划日期待定'},
-            'recent': [], 'checklist': [],
-            'tools': [
-                {'i': 14, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
-                {'i': 16, 'zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
-                {'i': 11, 'zh': '格式工具', 'ds': 'JSON / XML / SQL', 'icon': 'braces', 'grad': 'c4'},
-                {'i': 12, 'zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'plug', 'grad': 'c3'},
-            ],
-        }
+        """首页 Web/Native 共用 summary（失败返回可渲染默认）。"""
         try:
-            from tools import dashboard_release_items as _dri
-            from tools import requirements as _req
+            from tools.dashboard_summary import build_dashboard_summary
+            return build_dashboard_summary(
+                language=self.language,
+                username=str(self._settings.get('home_username') or 'Lihp'),
+            )
         except Exception:
-            return payload
-        now = datetime.datetime.now()
-        today = now.date()
-        if self.language == 'zh':
-            hour_text = '上午好' if now.hour < 12 else ('下午好' if now.hour < 18 else '晚上好')
-            weekday = '一二三四五六日'[today.weekday()]
-            payload['greeting'] = hour_text
-            payload['date_line'] = f'今天是 {today.month} 月 {today.day} 日 星期{weekday} · 本地数据已同步'
-        else:
-            payload['greeting'] = 'Good afternoon' if now.hour < 18 else 'Good evening'
-            payload['date_line'] = f'{today.isoformat()} · Local data synced'
-        try:
-            requirements = _req.load_requirements()
-        except Exception:
-            requirements = []
-        open_reqs = [r for r in requirements
-                     if str(r.get('status') or '') not in ('已完成', 'done', 'closed', '已关闭')]
-        payload['stats']['req_open'] = len(open_reqs)
-        payload['stats']['req_trend'] = f'共 {len(requirements)} 条'
-        recent = []
-        for r in list(reversed(requirements[-5:])):
-            status = str(r.get('status') or '进行中')
-            cls = 'ok' if status == '已完成' else ('rev' if '评审' in status else 'run')
-            recent.append({
-                'code': str(r.get('code') or r.get('id') or ''),
-                'title': str(r.get('title') or r.get('name') or '未命名需求'),
-                'status': cls,
-                'color': {'run': '#F59E0B', 'rev': '#3B82F6', 'ok': '#10B981'}.get(cls, '#C9CCDD'),
-                'nav': 10,
-            })
-        payload['recent'] = recent
-        try:
-            items = _dri.load_release_items()
-            board = _dri.load_release_board()
-            completed = set(board.get('completed_requirement_keys') or [])
-            months = _dri.collect_release_months(requirements) if requirements else []
-            month = months[0] if months else ''
-            total = len(items)
-            done = sum(1 for it in items if _dri.is_board_item_completed(it, month, completed))
-            dates = sorted({it.get('planned_date') for it in items if it.get('planned_date')})
-            days_left = None
-            next_text = '计划日期待定'
-            if dates:
-                try:
-                    days_left = (datetime.date.fromisoformat(dates[0]) - today).days
-                    next_text = f'计划 {dates[0][5:]} 发布'
-                except ValueError:
-                    pass
-            rel = payload['release']
-            rel.update({'total': total, 'done': done,
-                        'percent': int(done * 100 / total) if total else 0,
-                        'days_left': days_left, 'date_text': next_text})
-            payload['checklist'] = [
-                {'t': '升级准备清单核对', 'color': '#10B981' if done else '#E4E1EC',
-                 'mini': f'{done}/{total} 项'},
-                {'t': '发布包密钥扫描', 'color': '#E4E1EC', 'mini': '发布前执行'},
-            ]
-        except Exception:
-            pass
-        try:
-            from tools import daily_reports as _daily
-            reports = _daily.load_reports()
-            week_dates = set()
-            for offset in range(today.weekday() + 1):
-                day = today - datetime.timedelta(days=offset)
-                week_dates.add(day.isoformat())
-            keys = set(reports.keys()) if isinstance(reports, dict) else set()
-            payload['stats']['daily_done'] = len(week_dates & keys)
-            payload['stats']['daily_note'] = ('今日已提交' if today.isoformat() in keys
-                                              else '今日未提交')
-        except Exception:
-            pass
-        return payload
+            return {
+                'username': str(self._settings.get('home_username') or 'Lihp'),
+                'greeting': '下午好',
+                'date_line': '本地数据已同步',
+                'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5, 'daily_note': ''},
+                'release': {
+                    'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
+                    'days_left': None, 'date_text': '计划日期待定', 'countdown_state': 'unset',
+                },
+                'recent': [], 'checklist': [], 'tools': [], 'monthly_release_tasks': [],
+            }
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:

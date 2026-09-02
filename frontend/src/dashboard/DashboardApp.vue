@@ -47,7 +47,8 @@ const dailyDoneText = computed(() => {
 
 const releaseDaysText = computed(() => {
   const rel = summary.value?.release
-  if (!rel || rel.days_left == null) return '–'
+  if (!rel || rel.countdown_state === 'unset' || rel.days_left == null) return '–'
+  if (rel.countdown_state === 'overdue') return rel.date_text || `D${rel.days_left}`
   return `D-${rel.days_left}`
 })
 
@@ -185,6 +186,22 @@ const releasePercent = computed(() => {
             <span class="dot" :style="{ background: c.color || '#C9CCDD' }"></span>
             <span class="t">{{ c.t }}</span>
             <span v-if="c.mini" class="mini">{{ c.mini }}</span>
+          </div>
+        </div>
+        <div v-if="summary.monthly_release_tasks && summary.monthly_release_tasks.length" class="req-list" style="margin-top:12px">
+          <div
+            v-for="task in summary.monthly_release_tasks"
+            :key="task.id || task.code || task.title"
+            class="ck"
+            @click="onNavClick(task.nav ?? 10)"
+          >
+            <span class="t">
+              <b v-if="task.code">{{ task.code }}</b>
+              {{ task.title }}
+              · {{ task.system }}
+              · {{ task.test_points }}
+            </span>
+            <span class="mini">{{ task.status }}</span>
           </div>
         </div>
       </div>
