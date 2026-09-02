@@ -9,6 +9,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -55,9 +56,28 @@ def _window():
     if window is None:
         os.environ['PENGTOOLS_SYNC_BOOT'] = '1'
         from main_window import MainWindow
-        window = MainWindow()
+        from config import DEFAULT_SETTINGS
+        settings = dict(DEFAULT_SETTINGS)
+        settings['ui_web_shell'] = False
+        with patch('main_window.load_settings', return_value=settings):
+            window = MainWindow()
         _WINDOW_CACHE['window'] = window
     return window
+
+
+def tearDownModule():
+    window = _WINDOW_CACHE.pop('window', None)
+    if window is None:
+        return
+    try:
+        window._force_exit = True
+        window.close()
+        window.deleteLater()
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        QApplication.processEvents()
+    except RuntimeError:
+        pass
 
 
 def _panel_for(nav_index: int):

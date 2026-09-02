@@ -14,6 +14,7 @@ from tools.ops_commands import (
 )
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.field_metrics import apply_form, size_combo, size_line
+from ui.splitter_prefs import install_splitter_prefs
 
 
 class CustomCommandDialog(QDialog):
@@ -298,6 +299,14 @@ class OpsPanel(QWidget):
         right_container_layout.addLayout(actions)
         splitter.addWidget(right_container)
         splitter.setSizes([350, 650])
+        install_splitter_prefs(
+            splitter,
+            defaults=[350, 650],
+            page_id='ops-commands',
+            tab_id='list-detail',
+            min_sizes=[220, 360],
+            accessible_name='运维命令列表/详情分隔',
+        )
         root.addWidget(splitter, 1)
 
     def _dismiss_safety(self):

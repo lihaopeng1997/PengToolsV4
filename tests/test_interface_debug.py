@@ -479,6 +479,23 @@ class NavigationAndPanelSmokeTests(unittest.TestCase):
         except ImportError:
             cls.qt = False
 
+    def _make_panel(self, panel_type, *args):
+        panel = panel_type(*args)
+        self.addCleanup(self._cleanup_panel, panel)
+        return panel
+
+    def _cleanup_panel(self, panel):
+        if hasattr(panel, 'shutdown_cleanup'):
+            with mock.patch('panels.interface_debug_panel.restore_proxy_from_snapshot'), \
+                 mock.patch('tools.ie_proxy.ensure_system_proxy_safe'):
+                panel.shutdown_cleanup()
+        panel.close()
+        panel.deleteLater()
+        self.app.processEvents()
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_nav_item_12(self):
         from ui.navigation_model import NAV_ITEMS, display_name, icon_role_for
         self.assertIn(12, NAV_ITEMS)
@@ -495,7 +512,7 @@ class NavigationAndPanelSmokeTests(unittest.TestCase):
         if not self.qt:
             self.skipTest('no qt')
         from panels.format_panel import FormatToolsPanel
-        p = FormatToolsPanel('zh')
+        p = self._make_panel(FormatToolsPanel, 'zh')
         self.assertEqual(p.tabs.count(), 4)
         self.assertIn('文本', p.tabs.tabText(3))
 
@@ -503,7 +520,7 @@ class NavigationAndPanelSmokeTests(unittest.TestCase):
         if not self.qt:
             self.skipTest('no qt')
         from panels.interface_debug_panel import InterfaceDebugPanel
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel(InterfaceDebugPanel, 'zh')
         self.assertFalse(p._listening)
         p.clear_session()
         self.assertEqual(p._records, [])
@@ -514,7 +531,7 @@ class NavigationAndPanelSmokeTests(unittest.TestCase):
         if not self.qt:
             self.skipTest('no qt')
         from panels.gateway_panel import GatewayDecodePanel
-        p = GatewayDecodePanel('zh')
+        p = self._make_panel(GatewayDecodePanel, 'zh')
         self.assertTrue(hasattr(p, 'to_iface_btn'))
         p.set_cipher_text('abc')
         self.assertEqual(p.payload_cipher.toPlainText(), 'abc')

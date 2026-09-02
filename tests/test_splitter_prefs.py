@@ -17,7 +17,7 @@ try:
     from PyQt6.QtCore import Qt
     from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QApplication, QLabel, QSplitter
-    from ui.splitter_prefs import install_splitter_prefs
+    from ui.splitter_prefs import SPLITTER_HANDLE_WIDTH, install_splitter_prefs
     QT_AVAILABLE = True
 except ImportError:
     QT_AVAILABLE = False
@@ -40,7 +40,7 @@ class SplitterPrefsTests(unittest.TestCase):
         QApplication.processEvents()
 
         self.assertFalse(splitter.childrenCollapsible())
-        self.assertGreaterEqual(splitter.handleWidth(), 6)
+        self.assertGreaterEqual(splitter.handleWidth(), SPLITTER_HANDLE_WIDTH)
 
         splitter.setSizes([80, 420])
         QApplication.processEvents()
@@ -106,6 +106,24 @@ class SplitterPrefsTests(unittest.TestCase):
         QApplication.processEvents()
         after = list(splitter.sizes())
         self.assertNotEqual(before, after)
+
+    def test_extreme_saved_sizes_restore_safe_defaults(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        splitter.resize(500, 120)
+        install_splitter_prefs(
+            splitter,
+            defaults=[200, 300],
+            saved=[900, 20],
+            min_sizes=[120, 160],
+            persist=False,
+        )
+        splitter.show()
+        QApplication.processEvents()
+        sizes = list(splitter.sizes())
+        self.assertAlmostEqual(sizes[0], 200, delta=8)
+        self.assertAlmostEqual(sizes[1], 300, delta=8)
 
 
 if __name__ == '__main__':

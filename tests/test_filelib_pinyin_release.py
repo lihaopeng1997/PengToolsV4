@@ -14,6 +14,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 
+def _cleanup_panel(panel, app):
+    panel.close()
+    panel.deleteLater()
+    app.processEvents()
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
 class PinyinSearchTests(unittest.TestCase):
     def test_initials_and_match_chinese(self):
         from tools.pinyin_search import build_search_blob, match_query, pinyin_initials, backend_name
@@ -84,11 +93,13 @@ class ReleaseLinkNamingTests(unittest.TestCase):
         from panels.sql_panel import SqlToolPanel
         self.assertEqual(display_name(2, 'zh'), '发版联动')
         p = SqlToolPanel()
+        self.addCleanup(_cleanup_panel, p, self.app)
         self.assertEqual(p.tabs.tabText(1), '发版联动')
 
     def test_requirement_file_tab_name(self):
         from panels.requirement_panel import RequirementPanel
         p = RequirementPanel('zh')
+        self.addCleanup(_cleanup_panel, p, self.app)
         texts = [p.detail_tabs.tabText(i) for i in range(p.detail_tabs.count())]
         self.assertIn('文件库', texts)
         self.assertEqual(p.sql_btn.text(), '打开发版联动')
@@ -106,6 +117,7 @@ class FileLibraryFilterTests(unittest.TestCase):
     def test_filter_from_cache_no_rescan(self):
         from panels.requirement_panel import RequirementPanel
         p = RequirementPanel('zh')
+        self.addCleanup(_cleanup_panel, p, self.app)
         p._file_entries_cache = [
             {
                 'path': r'C:\tmp\req\a\note.txt', 'relative_path': 'a/note.txt',
@@ -147,6 +159,7 @@ class GatewayParamsStillVisible(unittest.TestCase):
     def test_key_visible(self):
         from panels.gateway_panel import GatewayDecodePanel
         p = GatewayDecodePanel('zh')
+        self.addCleanup(_cleanup_panel, p, self.app)
         self.assertFalse(p.config_group.isHidden())
         self.assertIn('密钥', p.key_label.text())
         p.key_cipher.setPlainText('aabb')

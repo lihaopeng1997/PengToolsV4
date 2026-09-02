@@ -8,9 +8,9 @@ import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from config import load_systems
@@ -284,11 +284,19 @@ class TicketSubmitDialog(QDialog):
     def __init__(self, requirements, selected_ids=None, parent=None, compact=False):
         super().__init__(parent)
         self.setWindowTitle('一键提签')
-        self.resize(560 if compact else 680, 500 if compact else 620)
         self._all_requirements = list(requirements or [])
         self._compact = bool(compact)
+        self._resize_for_screen(parent)
         root = QVBoxLayout(self)
-        root.addWidget(_hint_label(
+        self.content_scroll = QScrollArea()
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.content_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.content_host = QWidget()
+        content = QVBoxLayout(self.content_host)
+        content.setContentsMargins(0, 0, 0, 0)
+        self.content_scroll.setWidget(self.content_host)
+        content.addWidget(_hint_label(
             '选好签和需求后点「确认提签」。软件会复制该环境最新一份签，把需求写进去，再提交到 SVN。'
         ))
         form = QVBoxLayout()
@@ -337,19 +345,22 @@ class TicketSubmitDialog(QDialog):
             self.program_edit.hide()
             self.remark_edit.hide()
             form.addWidget(flag_row)
-        root.addLayout(form)
+        content.addLayout(form)
         self.preview = QLabel()
         self.preview.setObjectName('field-hint')
         self.preview.setWordWrap(True)
-        root.addWidget(self.preview)
-        root.addWidget(QLabel('勾选要写进这份签的需求（可多条）'))
+        content.addWidget(self.preview)
+        content.addWidget(QLabel('勾选要写进这份签的需求（可多条）'))
         self.req_list = QListWidget()
         self.req_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        root.addWidget(self.req_list, 1)
+        self.req_list.setMinimumHeight(220 if compact else 280)
+        self.req_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        content.addWidget(self.req_list, 1)
         cfg = QPushButton('配置签库地址…')
         apply_button(cfg, 'secondary', compact=True)
         cfg.clicked.connect(self._open_config)
-        root.addWidget(cfg, 0, Qt.AlignmentFlag.AlignLeft)
+        content.addWidget(cfg, 0, Qt.AlignmentFlag.AlignLeft)
+        root.addWidget(self.content_scroll, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
         )
@@ -370,6 +381,25 @@ class TicketSubmitDialog(QDialog):
         self._selected_ids = set(selected_ids or [])
         self._load_profiles()
         self._apply_last_submit()
+
+    def _resize_for_screen(self, parent):
+        screen = None
+        if parent is not None:
+            try:
+                screen = QApplication.screenAt(parent.mapToGlobal(parent.rect().center()))
+            except Exception:
+                screen = None
+        screen = screen or QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else None
+        target_width = 600 if self._compact else 720
+        target_height = 680 if self._compact else 760
+        height_ratio = 0.78 if self._compact else 0.82
+        if available is None:
+            self.resize(target_width, target_height)
+            return
+        width = min(target_width, max(1, available.width() - 32))
+        height = min(target_height, max(1, int(available.height() * height_ratio)))
+        self.resize(width, height)
 
     def _load_profiles(self):
         self._profiles = load_ticket_profiles()

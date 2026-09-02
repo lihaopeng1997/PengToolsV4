@@ -170,6 +170,24 @@ class IfaceLibraryPanelSmoke(unittest.TestCase):
         from PyQt6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication([])
 
+    def _cleanup_panel(self, panel):
+        with mock.patch('panels.interface_debug_panel.restore_proxy_from_snapshot'), \
+             mock.patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             mock.patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
+             mock.patch('tools.ie_proxy.ensure_system_proxy_safe'):
+            panel._stop_listen()
+
+        stop_thread = getattr(panel, '_capture_stop_thread', None)
+        if stop_thread is not None and stop_thread.is_alive():
+            stop_thread.join(timeout=5)
+
+        panel.close()
+        panel.deleteLater()
+        self.app.processEvents()
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_panel_has_library_widgets(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
         from tools.iface_request_library import build_api_from_form, upsert_api
@@ -178,9 +196,10 @@ class IfaceLibraryPanelSmoke(unittest.TestCase):
             with mock.patch('tools.iface_request_library.LIBRARY_FILE', path), \
                  mock.patch('panels.interface_debug_panel.show_success'), \
                  mock.patch('panels.interface_debug_panel.show_warning'), \
-                 mock.patch('panels.interface_debug_panel.show_info'), \
-                 mock.patch('panels.interface_debug_panel.confirm_action', return_value=True):
+                mock.patch('panels.interface_debug_panel.show_info'), \
+                mock.patch('panels.interface_debug_panel.confirm_action', return_value=True):
                 p = InterfaceDebugPanel(language='zh')
+                self.addCleanup(self._cleanup_panel, p)
                 self.assertTrue(hasattr(p, 'rt_lib_list'))
                 self.assertTrue(hasattr(p, 'rt_save_api_btn'))
                 self.assertTrue(hasattr(p, 'rt_category_combo'))
@@ -217,7 +236,6 @@ class IfaceLibraryPanelSmoke(unittest.TestCase):
                         p.rt_lib_mode.setCurrentIndex(i)
                         break
                 self.assertGreaterEqual(p.rt_lib_list.count(), 1)
-                p.close()
 
 
 if __name__ == '__main__':

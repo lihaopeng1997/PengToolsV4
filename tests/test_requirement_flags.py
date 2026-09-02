@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QCoreApplication, QEvent
 from PyQt6.QtWidgets import QApplication, QDialog
 
 from panels.requirement_panel import RequirementDialog, RequirementPanel
@@ -31,6 +32,13 @@ class RequirementFlagTests(unittest.TestCase):
         self._last_choices_patcher.start()
         self.addCleanup(self._last_choices_patcher.stop)
 
+    def _cleanup_widget(self, widget):
+        widget.close()
+        widget.deleteLater()
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_dialog_values_keep_checkbox_flags(self):
         dialog = RequirementDialog({
             'title': '测试', 'code': 'REQ-FLAG',
@@ -38,6 +46,7 @@ class RequirementFlagTests(unittest.TestCase):
             'needs_peripheral_upgrade': False, 'needs_interface_update': False,
             'sql_parts': [], 'source_files': [],
         })
+        self.addCleanup(self._cleanup_widget, dialog)
         dialog.title_edit.setText('标记保存测试')
         dialog.has_sql.setChecked(True)
         dialog.temporary.setChecked(True)
@@ -57,6 +66,7 @@ class RequirementFlagTests(unittest.TestCase):
                     patch('panels.requirement_panel.save_requirements') as save_mock, \
                     patch('panels.requirement_panel.offer_next_steps', return_value=None):
                 panel = RequirementPanel()
+                self.addCleanup(self._cleanup_widget, panel)
 
                 class FakeDialog:
                     def __init__(self, *args, **kwargs):
@@ -128,6 +138,7 @@ class RequirementFlagTests(unittest.TestCase):
                 patch('panels.requirement_panel.save_requirement_ui'), \
                 patch('panels.requirement_panel.RequirementPanel._refresh_file_tree', lambda self: None):
             panel = RequirementPanel('zh')
+            self.addCleanup(self._cleanup_widget, panel)
             panel.resize(1100, 800)
             panel.show()
             self.app.processEvents()
@@ -177,6 +188,7 @@ class RequirementFlagTests(unittest.TestCase):
             'online_month': '2026-07', 'status': '开发中',
         }]):
             panel = RequirementPanel()
+            self.addCleanup(self._cleanup_widget, panel)
             panel.resize(960, 640)
             panel.show()
             self.app.processEvents()
@@ -214,6 +226,7 @@ class RequirementFlagTests(unittest.TestCase):
 
     def test_dialog_uses_online_matter_labels(self):
         dialog = RequirementDialog({'title': 'x', 'code': 'c', 'sql_parts': [], 'source_files': []})
+        self.addCleanup(self._cleanup_widget, dialog)
         self.assertEqual(dialog.has_sql.text(), '涉及 SQL')
         self.assertEqual(dialog.peripheral.text(), '通知周边系统')
         self.assertEqual(dialog.interface_update.text(), '更新接口文档')
@@ -235,6 +248,7 @@ class RequirementFlagTests(unittest.TestCase):
                 {'name': 'right.sql', 'content': 'select 2'},
             ],
         })
+        self.addCleanup(self._cleanup_widget, dialog)
         self.assertEqual(dialog.source_list.count(), 2)
         self.assertEqual(dialog.sql_list.count(), 2)
         dialog.source_list.item(0).setSelected(True)
@@ -260,6 +274,7 @@ class RequirementFlagTests(unittest.TestCase):
             'source_files': [{'name': 'keep.docx', 'content': 'x', 'file_type': 'Word'}],
             'sql_parts': [{'name': 'keep.sql', 'content': 'select 1'}],
         })
+        self.addCleanup(self._cleanup_widget, dialog)
         dialog.source_list.item(0).setSelected(True)
         dialog.source_list.setCurrentRow(0)
         dialog.sql_list.item(0).setSelected(True)

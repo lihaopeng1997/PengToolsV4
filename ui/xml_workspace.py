@@ -14,6 +14,7 @@ from tools.xml_formatter import format_xml_text, normalize_xml_input
 from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.foldable_text_edit import FoldablePlainTextEdit
+from ui.splitter_prefs import install_splitter_prefs
 from ui.search_highlight import (
     apply_text_match_index,
     clear_text_highlights,
@@ -149,7 +150,6 @@ class XmlWorkspace(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setObjectName('xml-splitter')
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(6)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -182,6 +182,14 @@ class XmlWorkspace(QWidget):
         self.splitter.addWidget(right)
 
         self.splitter.setSizes([480, 520])
+        install_splitter_prefs(
+            self.splitter,
+            defaults=[480, 520],
+            page_id='format-tools',
+            tab_id='xml',
+            min_sizes=[220, 220],
+            accessible_name='格式工具 XML 分隔',
+        )
         work_layout.addWidget(self.splitter, 1)
         root.addWidget(work, 1)
 

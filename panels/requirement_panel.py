@@ -14,6 +14,27 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+try:
+    from PyQt6.sip import isdeleted as _sip_isdeleted
+except ImportError:
+    try:
+        import sip
+        _sip_isdeleted = sip.isdeleted
+    except ImportError:
+        _sip_isdeleted = None
+
+
+def _is_alive(obj) -> bool:
+    if obj is None:
+        return False
+    if _sip_isdeleted is not None:
+        try:
+            if _sip_isdeleted(obj):
+                return False
+        except Exception:
+            return False
+    return True
+
 
 class _ElideTextDelegate(QStyledItemDelegate):
     """文件库：单行省略号；选中态强制高对比字色，避免 setForeground 盖住。"""
@@ -249,10 +270,10 @@ class RequirementTree(QTreeWidget):
             for item in self.selectedItems()
             if isinstance(item.data(0, Qt.ItemDataRole.UserRole), dict)
         ]
-        if month is None or not requirement_ids:
-            event.ignore()
-            return
-        QTimer.singleShot(0, lambda ids=list(requirement_ids), target_month=month: self.requirementsMoved.emit(ids, target_month))
+        def _safe_emit_moved():
+            if _is_alive(self):
+                self.requirementsMoved.emit(list(requirement_ids), month)
+        QTimer.singleShot(0, _safe_emit_moved)
         event.ignore()
 
 
@@ -3247,7 +3268,11 @@ class RequirementPanel(QWidget):
         elif not self._task_failed:
             self.svn_activity.setText('后台状态已更新。')
             self.svn_activity.show()
-            QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
+            def _safe_hide_activity():
+                if _is_alive(self) and hasattr(self, 'svn_activity') and _is_alive(self.svn_activity):
+                    if not getattr(self, '_active_worker', None):
+                        self.svn_activity.hide()
+            QTimer.singleShot(2500, _safe_hide_activity)
         if self._task_failed:
             self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
             self.svn_activity.show()
@@ -3255,7 +3280,10 @@ class RequirementPanel(QWidget):
             worker.deleteLater()
         if self._pending_file_refresh:
             self._pending_file_refresh = False
-            QTimer.singleShot(0, self._refresh_file_tree)
+            def _safe_refresh_tree():
+                if _is_alive(self):
+                    self._refresh_file_tree()
+            QTimer.singleShot(0, _safe_refresh_tree)
 
     def _scan_folder(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
@@ -4136,7 +4164,11 @@ class RequirementPanel(QWidget):
             f' · 标记 {flag_status_text(target)}'
         )
         self.svn_activity.show()
-        QTimer.singleShot(2500, lambda: self.svn_activity.hide() if not self._active_worker else None)
+        def _safe_hide_activity():
+            if _is_alive(self) and hasattr(self, 'svn_activity') and _is_alive(self.svn_activity):
+                if not getattr(self, '_active_worker', None):
+                    self.svn_activity.hide()
+        QTimer.singleShot(2500, _safe_hide_activity)
         if offer_next:
             self._offer_next_steps(target, context='save' if not is_new else 'import')
         return target

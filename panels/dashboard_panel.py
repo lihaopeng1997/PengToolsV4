@@ -28,6 +28,28 @@ from ui.page_chrome import make_page_header
 from ui.responsive import set_subtitle_visible
 
 
+try:
+    from PyQt6.sip import isdeleted as _sip_isdeleted
+except ImportError:
+    try:
+        import sip
+        _sip_isdeleted = sip.isdeleted
+    except ImportError:
+        _sip_isdeleted = None
+
+
+def _is_alive(obj) -> bool:
+    if obj is None:
+        return False
+    if _sip_isdeleted is not None:
+        try:
+            if _sip_isdeleted(obj):
+                return False
+        except Exception:
+            return False
+    return True
+
+
 def _parse_date(text: str):
     try:
         return datetime.date.fromisoformat(str(text)[:10])
@@ -171,6 +193,10 @@ class TaskRow(QFrame):
         layout.addWidget(arrow)
 
     def _update_title_elision(self):
+        if not _is_alive(self):
+            return
+        if not hasattr(self, 'title_label') or not _is_alive(self.title_label):
+            return
         available = self.title_label.width()
         if available > 0:
             elided = self.title_label.fontMetrics().elidedText(
@@ -479,6 +505,8 @@ class DashboardPanel(QWidget):
         QTimer.singleShot(0, self._refresh_if_stale_after_show)
 
     def _refresh_if_stale_after_show(self):
+        if not _is_alive(self):
+            return
         self._pending_show_refresh = False
         if not self.isVisible():
             return
@@ -756,7 +784,11 @@ class DashboardPanel(QWidget):
     def _refresh_release_after_action(self):
         """在按钮点击事件返回后刷新，避免事件派发中销毁当前任务行。"""
         # 普通刷新：不传 preferred，保留用户当前月份选择
-        QTimer.singleShot(0, lambda: self.refresh(preferred_release_month=None))
+        def _safe_refresh():
+            if not _is_alive(self):
+                return
+            self.refresh(preferred_release_month=None)
+        QTimer.singleShot(0, _safe_refresh)
 
     def _set_release_item_completed(self, kind, item, month, completed):
         """仅更新工作台独立完成态，不修改需求业务状态/实际上线日期。"""

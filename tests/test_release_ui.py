@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import sys
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -17,9 +18,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QCoreApplication, QDate, QEvent, Qt
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QSplitter
+from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QSizePolicy, QSplitter
 
 from panels.requirement_panel import (
     DateInput, RequirementDialog, RequirementPanel, _ElideTextDelegate, format_online_month_label,
@@ -38,16 +39,47 @@ class ReleaseUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setFont(QFont('Microsoft YaHei UI', 10))
 
+    def _cleanup_panel(self, panel):
+        worker = getattr(panel, '_active_worker', None)
+        if worker is not None and hasattr(worker, 'isRunning') and worker.isRunning():
+            worker.wait(5000)
+        panel.close()
+        panel.deleteLater()
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
+    def _track_widget(self, widget):
+        self.addCleanup(self._dispose_widget, widget)
+        return widget
+
+    def _dispose_widget(self, widget):
+        """每个测试独占其创建的 Qt 顶层对象，失败路径也必须释放。"""
+        try:
+            worker = getattr(widget, '_active_worker', None)
+            if worker is not None and hasattr(worker, 'isRunning') and worker.isRunning():
+                worker.wait(5000)
+        except RuntimeError:
+            return
+        try:
+            widget.close()
+            widget.deleteLater()
+        except RuntimeError:
+            return
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_requirement_allows_empty_development_svn(self):
         system_name = load_systems()[0]['name']
-        dialog = RequirementDialog()
+        dialog = self._track_widget(RequirementDialog())
         dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog._accept_checked()
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(dialog.values()['svn_url'], '')
         self.assertEqual(dialog.values()['dev_local_path'], '')
-        dialog = RequirementDialog()
+        dialog = self._track_widget(RequirementDialog())
         dialog.set_selected_systems([system_name])
         dialog.title_edit.setText('测试需求')
         dialog._binding_rows[system_name]['svn'].setText('svn://10/x/DEV_REQ_TEST')
@@ -60,7 +92,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_requirement_dev_local_path_saved_and_opens_from_list(self):
         from tools.requirements import normalize_requirement
         with tempfile.TemporaryDirectory() as temp:
-            dialog = RequirementDialog()
+            dialog = self._track_widget(RequirementDialog())
             dialog.title_edit.setText('本地开发地址')
             dialog.dev_local_path_edit.setText(temp)
             dialog._accept_checked()
@@ -76,7 +108,7 @@ class ReleaseUiTests(unittest.TestCase):
             requirement = normalize_requirement({
                 'id': 'dev-1', 'title': '可打开', 'dev_local_path': temp,
             })
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
             opened = []
             with patch('panels.requirement_panel.QDesktopServices.openUrl', side_effect=lambda url: opened.append(url.toLocalFile())):
                 panel._open_dev_project_folder(requirement)
@@ -92,7 +124,7 @@ class ReleaseUiTests(unittest.TestCase):
         names = [item['name'] for item in load_systems()[:2]]
         self.assertGreaterEqual(len(names), 2)
         with tempfile.TemporaryDirectory() as temp:
-            dialog = RequirementDialog()
+            dialog = self._track_widget(RequirementDialog())
             dialog.title_edit.setText('跨系统需求')
             dialog.set_selected_systems(names)
             self.app.processEvents()
@@ -127,7 +159,7 @@ class ReleaseUiTests(unittest.TestCase):
             rows = explode_requirement_for_release(values)
             self.assertEqual(len(rows), 2)
 
-            panel = SqlToolPanel()
+            panel = self._track_widget(SqlToolPanel())
             panel._release_reload_timer.stop()
             with patch('panels.sql_panel.load_requirements', return_value=[values]):
                 panel._load_release_candidates()
@@ -144,8 +176,8 @@ class ReleaseUiTests(unittest.TestCase):
             '待分析', '待开发', '开发中', '待测试', '集成测试',
             '用户测试', '模拟测试', '待上线', '已上线', '暂停',
         ]
-        dialog = RequirementDialog()
-        panel = RequirementPanel()
+        dialog = self._track_widget(RequirementDialog())
+        panel = self._track_widget(RequirementPanel())
         self.assertEqual([dialog.status_combo.itemText(index) for index in range(dialog.status_combo.count())], expected)
         self.assertEqual(
             [panel.status_filter.itemText(index) for index in range(1, panel.status_filter.count())],
@@ -154,9 +186,9 @@ class ReleaseUiTests(unittest.TestCase):
         dialog.close(); panel.close()
 
     def test_requirement_system_configuration_is_shared(self):
-        panel = RequirementPanel()
+        panel = self._track_widget(RequirementPanel())
         requirement_systems = [panel.system_filter.itemData(index) for index in range(1, panel.system_filter.count())]
-        sql_panel = SqlToolPanel()
+        sql_panel = self._track_widget(SqlToolPanel())
         sql_systems = [system['name'] for system in sql_panel._systems]
         self.assertEqual(requirement_systems, sql_systems)
         opened = []
@@ -166,7 +198,7 @@ class ReleaseUiTests(unittest.TestCase):
         panel.close(); sql_panel.close()
 
     def test_delete_confirmation_is_cancel_first_and_cancel_default(self):
-        dialog = ConfirmActionDialog('删除测试', '删除后无法恢复')
+        dialog = self._track_widget(ConfirmActionDialog('删除测试', '删除后无法恢复'))
         dialog.show()
         self.app.processEvents()
         buttons = dialog.layout().itemAt(2).layout()
@@ -178,14 +210,14 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertTrue(dialog.cancel_button.hasFocus())
         dialog.reject()
 
-        notice = AppNoticeDialog('升级材料已生成', 'Sheet 已写入', kind='success')
+        notice = self._track_widget(AppNoticeDialog('升级材料已生成', 'Sheet 已写入', kind='success'))
         notice.show()
         self.app.processEvents()
         self.assertEqual(notice.ok_button.text(), '知道了')
         self.assertTrue(notice.ok_button.isDefault())
         notice.accept()
 
-        close_dialog = CloseActionDialog(language='zh', default_action='minimize')
+        close_dialog = self._track_widget(CloseActionDialog(language='zh', default_action='minimize'))
         close_dialog.show()
         self.app.processEvents()
         self.assertEqual(close_dialog.windowTitle(), '关闭 PengToolsHub？')
@@ -197,13 +229,13 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertTrue(close_dialog.dont_ask_again())
 
         # 默认动作若为 exit：焦点仍落在安全控件（取消），不误触危险卡
-        close_exit_default = CloseActionDialog(language='zh', default_action='exit')
+        close_exit_default = self._track_widget(CloseActionDialog(language='zh', default_action='exit'))
         close_exit_default.show()
         self.app.processEvents()
         self.assertTrue(close_exit_default.cancel_button.hasFocus())
         close_exit_default.reject()
 
-        panel = SqlToolPanel()
+        panel = self._track_widget(SqlToolPanel())
         original_count = len(panel._systems)
         with patch('panels.sql_panel.confirm_action', return_value=False), patch('panels.sql_panel.save_systems'):
             panel._delete_system()
@@ -215,7 +247,7 @@ class ReleaseUiTests(unittest.TestCase):
 
     def test_pasted_bug_prompts_for_development_svn(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
         self.assertFalse(hasattr(panel, 'category_filter'))
         self.assertEqual(panel.lock_file_btn.text(), '锁定')
         self.assertEqual(panel.unlock_file_btn.text(), '解锁')
@@ -259,10 +291,31 @@ class ReleaseUiTests(unittest.TestCase):
                     patch('panels.requirement_panel.show_success'), \
                     patch('panels.requirement_panel.show_warning'), \
                     patch('panels.requirement_panel.offer_next_steps', return_value=None):
-                panel = RequirementPanel()
-                panel._start_task('scanning', scan_working_copies, (temp,), panel._scan_finished)
+                panel = self._track_widget(RequirementPanel())
+                self.addCleanup(self._cleanup_panel, panel)
+                panel.resize(1200, 780)
+                panel.show()
+                self.app.processEvents()
+                started = threading.Event()
+                release = threading.Event()
+                self.addCleanup(release.set)
+
+                def controlled_scan(path):
+                    started.set()
+                    if not release.wait(timeout=10):
+                        raise TimeoutError('controlled scan was not released')
+                    return scan_working_copies(path)
+
+                panel._start_task('scanning', controlled_scan, (temp,), panel._scan_finished)
+                self.assertTrue(started.wait(timeout=5))
+                deadline = time.time() + 2
+                while not panel.loading._is_shown and time.time() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.01)
                 self.assertFalse(panel.loading.isHidden())
                 self.assertFalse(panel.requirement_list.isEnabled())
+
+                release.set()
 
                 deadline = time.time() + 10
                 idle_cycles = 0
@@ -290,7 +343,6 @@ class ReleaseUiTests(unittest.TestCase):
                 self.assertTrue(panel.requirement_list.isEnabled())
                 self.assertTrue(panel.edit_btn.isEnabled())
                 self.assertTrue(panel.open_folder_btn.isEnabled())
-                panel.close()
 
     def test_failed_waiting_task_restores_controls(self):
         def fail_task():
@@ -298,7 +350,7 @@ class ReleaseUiTests(unittest.TestCase):
 
         with patch('panels.requirement_panel.load_requirements', return_value=[]), \
                 patch('panels.requirement_panel.show_warning') as warning:
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
             panel._start_task('waiting', fail_task, (), lambda _result: None)
             deadline = time.time() + 5
             while panel._active_worker is not None and time.time() < deadline:
@@ -324,7 +376,7 @@ class ReleaseUiTests(unittest.TestCase):
             {'id': 'long', 'title': 'Long code', 'code': 'REQ-VERY-LONG-CODE-202606-01', 'online_month': '2026-06', 'source_modified_at': '2026-07-15T12:00:00'},
         ]
         with patch('panels.requirement_panel.load_requirements', return_value=requirements):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
         self.assertEqual(panel.requirement_list.topLevelItemCount(), 2)
         june = panel.requirement_list.topLevelItem(0)
         february = panel.requirement_list.topLevelItem(1)
@@ -347,7 +399,7 @@ class ReleaseUiTests(unittest.TestCase):
         ]
         with patch('panels.requirement_panel.load_requirements', return_value=requirements), \
                 patch('panels.requirement_panel.save_requirements') as save_data:
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
             june = panel.requirement_list.topLevelItem(0)
             sql_item, bug_item = june.child(0), june.child(1)
             self.assertGreater(june.font(0).pointSize(), sql_item.font(0).pointSize())
@@ -399,7 +451,7 @@ class ReleaseUiTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             os.makedirs(os.path.join(temp, '.svn'))
-            dialog = RequirementDialog()
+            dialog = self._track_widget(RequirementDialog())
             dialog.title_edit.setText('绑定目录测试')
             dialog.svn_url_edit.setText('svn://10/example/DEV_REQ_TEST')
             dialog.local_path_edit.setText(temp)
@@ -444,7 +496,7 @@ class ReleaseUiTests(unittest.TestCase):
             self.assertEqual(len(entries), 807)
 
             with patch('panels.requirement_panel.load_requirements', return_value=[]):
-                panel = RequirementPanel()
+                panel = self._track_widget(RequirementPanel())
             panel._current = {
                 'id': 'locked', 'local_path': temp, 'workspace_kind': 'svn',
                 'svn_locks': {os.path.join('SQL', 'upgrade.sql'): '2026-07-17T11:00:00'},
@@ -474,7 +526,7 @@ class ReleaseUiTests(unittest.TestCase):
         import tempfile
         from panels.requirement_panel import _svn_status_color
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
         # _current_path() 要求 local_path 真实存在，否则 _file_tree_loaded 会按过期回调丢弃
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -510,7 +562,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_requirement_file_tree_refresh_is_silent_and_tree_has_selection_controls(self):
         with tempfile.TemporaryDirectory() as temp, \
                 patch('panels.requirement_panel.load_requirements', return_value=[]):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
             panel._current = {'id': 'folder', 'local_path': temp, 'workspace_kind': 'folder'}
             with patch.object(panel, '_start_task') as start_task:
                 panel._refresh_file_tree()
@@ -534,7 +586,8 @@ class ReleaseUiTests(unittest.TestCase):
 
     def test_requirement_file_library_keeps_selected_file_actions_and_prioritizes_tree_space(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
+        self.addCleanup(self._cleanup_panel, panel)
         self.assertFalse(hasattr(panel, 'vcs_scope_combo'))
         self.assertFalse(hasattr(panel, 'select_all_files_btn'))
         self.assertFalse(hasattr(panel, 'clear_file_sel_btn'))
@@ -542,7 +595,9 @@ class ReleaseUiTests(unittest.TestCase):
             [button.text() for button in panel.file_library_action_buttons],
             ['打开目录', '刷新', '更新', '添加文件', '新建文本', '锁定', '解锁', '回滚', '提交'],
         )
-        self.assertTrue(all(button.height() == 28 for button in panel.file_library_action_buttons))
+        for button in panel.file_library_action_buttons:
+            self.assertTrue(button.property('compactAction'))
+            self.assertEqual(button.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Fixed)
         self.assertTrue(hasattr(panel, 'file_more_btn'))
         self.assertGreaterEqual(panel.file_tree.minimumHeight(), 240)
         with patch.object(panel, '_resolve_vcs_targets', return_value=([], '选中项 0 个')):
@@ -551,11 +606,10 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertFalse(panel.unlock_file_btn.isEnabled())
         self.assertFalse(panel.revert_btn.isEnabled())
         self.assertFalse(panel.commit_btn.isEnabled())
-        panel.close()
 
     def test_requirement_file_tree_elides_long_names_and_keeps_compact_rows(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[]):
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
         self.assertIsInstance(panel.file_tree.itemDelegate(), _ElideTextDelegate)
         self.assertEqual(panel.file_tree.textElideMode(), Qt.TextElideMode.ElideRight)
         self.assertTrue(panel.file_tree.uniformRowHeights())
@@ -591,7 +645,7 @@ class ReleaseUiTests(unittest.TestCase):
         with patch('panels.requirement_panel.load_requirements', return_value=[]), \
                 patch('panels.requirement_panel.load_requirement_ui', return_value={'splitter_sizes': [430, 620], 'content_splitter_sizes': [340, 230]}), \
                 patch('panels.requirement_panel.save_requirement_ui') as save_ui:
-            panel = RequirementPanel()
+            panel = self._track_widget(RequirementPanel())
             panel.resize(1200, 780)
             panel.show()
             self.app.processEvents()
@@ -649,7 +703,7 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertIn('QCalendarWidget QWidget#qt_calendar_navigationbar', style)
 
     def test_release_page_is_first_and_date_auto_loads_candidates(self):
-        panel = SqlToolPanel()
+        panel = self._track_widget(SqlToolPanel())
         self.assertEqual(panel.tabs.tabText(0), '升级准备')
         self.assertEqual(panel.tabs.tabText(1), '发版联动')
         self.assertEqual(panel.tabs.tabText(2), '系统配置')
@@ -695,7 +749,7 @@ class ReleaseUiTests(unittest.TestCase):
         panel.close()
 
     def test_requirement_sql_lands_on_organize_tab_and_empty_focuses_row(self):
-        panel = SqlToolPanel()
+        panel = self._track_widget(SqlToolPanel())
         landed = panel.receive_from_requirement(
             '补发保单',
             'select 1 from dual',
@@ -726,9 +780,10 @@ class ReleaseUiTests(unittest.TestCase):
     def test_only_learning_module_is_hidden(self):
         locked = dict(DEFAULT_SETTINGS)
         locked['private_unlocked'] = False
+        locked['ui_web_shell'] = False
         with patch('main_window.load_settings', return_value=locked), \
                 patch('main_window.save_settings', side_effect=lambda s: dict(s)):
-            window = MainWindow()
+            window = self._track_widget(MainWindow())
             self.assertTrue(window.nav_buttons[8].isHidden())
             self.assertFalse(window.nav_buttons[9].isHidden())
             self.assertFalse(window.nav_buttons[10].isHidden())
@@ -753,9 +808,10 @@ class ReleaseUiTests(unittest.TestCase):
         """彩蛋解锁写入 data 后，重新打开应一直展示自我学习。"""
         unlocked = dict(DEFAULT_SETTINGS)
         unlocked['private_unlocked'] = True
+        unlocked['ui_web_shell'] = False
         with patch('main_window.load_settings', return_value=unlocked), \
                 patch('main_window.save_settings', side_effect=lambda s: dict(s)):
-            window = MainWindow()
+            window = self._track_widget(MainWindow())
             self.assertTrue(window._private_unlocked)
             self.assertFalse(window.nav_buttons[8].isHidden())
             window._force_exit = True
@@ -782,7 +838,7 @@ class ReleaseUiTests(unittest.TestCase):
             workbook.save(template)
             workbook.close()
 
-            panel = SqlToolPanel()
+            panel = self._track_widget(SqlToolPanel())
             panel._release_reload_timer.stop()
             panel.release_root.setText(temp)
             panel.release_date.blockSignals(True)
@@ -805,7 +861,7 @@ class ReleaseUiTests(unittest.TestCase):
             panel.close()
 
     def test_multiple_systems_generate_separate_sql_packages(self):
-        panel = SqlToolPanel()
+        panel = self._track_widget(SqlToolPanel())
         first, second = panel._systems[:2]
         requirements = [
             {
@@ -888,7 +944,7 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertNotIn('rmdir', setup)
         self.assertNotIn('del ', setup)
         self.assertNotIn('copy /y "%source_dir%data', setup)
-        self.assertIn('if not exist "%install_dir%\\data" mkdir', setup)
+        self.assertIn('if not exist "%app_dir%data" mkdir', setup)
 
     def test_upgrade_reuses_data_directory_and_accepts_legacy_requirement(self):
         old_exe = r'D:\PengToolsPrivate\PengToolsHub_Private_V4.24.exe'
@@ -900,7 +956,7 @@ class ReleaseUiTests(unittest.TestCase):
             'planned_online_date': '2026-07-23', 'svn_url': 'svn://10/x/DEV_OLD',
             'legacy_custom_field': '必须保留',
         }
-        panel = SqlToolPanel()
+        panel = self._track_widget(SqlToolPanel())
         panel._release_reload_timer.stop()
         panel.release_date.blockSignals(True)
         panel.release_date.setDate(QDate(2026, 7, 23))

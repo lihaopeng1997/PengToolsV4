@@ -247,9 +247,36 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         from PyQt6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_panel_has_request_test_and_export(self):
+    def _make_panel(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
-        p = InterfaceDebugPanel(language='zh')
+        panel = InterfaceDebugPanel(language='zh')
+        self.addCleanup(self._cleanup_panel, panel)
+        return panel
+
+    def _cleanup_panel(self, panel):
+        with mock.patch('panels.interface_debug_panel.restore_proxy_from_snapshot'), \
+             mock.patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             mock.patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
+             mock.patch('tools.ie_proxy.ensure_system_proxy_safe'):
+            panel._stop_listen()
+
+        stop_thread = getattr(panel, '_capture_stop_thread', None)
+        if stop_thread is not None and stop_thread.is_alive():
+            stop_thread.join(timeout=5)
+
+        boot_worker = getattr(panel, '_capture_boot_worker', None)
+        if boot_worker is not None and hasattr(boot_worker, 'wait'):
+            boot_worker.wait(5000)
+
+        panel.close()
+        panel.deleteLater()
+        self.app.processEvents()
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
+    def test_panel_has_request_test_and_export(self):
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'rt_send_btn'))
         self.assertTrue(hasattr(p, 'export_detail_btn'))
         self.assertTrue(hasattr(p, 'rt_import_btn'))
@@ -292,9 +319,8 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         self.assertEqual(params.toPlainText(), 'page=1\nsize=20')
 
     def test_fill_and_export_from_panel(self):
-        from panels.interface_debug_panel import InterfaceDebugPanel
         from tools.iface_request_test import build_export_document, parse_import_document
-        p = InterfaceDebugPanel(language='zh')
+        p = self._make_panel()
         rec = {
             'id': 'r1',
             'url': 'http://remote:10110/api/demo?q=1',
@@ -326,8 +352,7 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
         self.assertIn('localhost', p.rt_url.text())
 
     def test_response_view_keeps_full_body_and_format_buttons(self):
-        from panels.interface_debug_panel import InterfaceDebugPanel
-        p = InterfaceDebugPanel(language='zh')
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'rt_req_format_btn'))
         self.assertTrue(hasattr(p, 'rt_resp_format_btn'))
         big = '{"data":"' + ('A' * 20000) + '"}'
@@ -355,7 +380,6 @@ class IfacePanelRequestTestSmoke(unittest.TestCase):
             self.assertIn('req', copy_mock.call_args[0][0])
             p._rt_copy_response_body()
             self.assertIn('AAAA', copy_mock.call_args[0][0])
-        p.close()
 
 
 if __name__ == '__main__':

@@ -23,6 +23,44 @@ PANEL_SRC = io.open(os.path.join(ROOT, 'panels', 'interface_debug_panel.py'),
                     encoding='utf-8').read()
 
 
+
+def _close_capture_panel(panel, app=None):
+    if panel is None:
+        return
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = app or QApplication.instance()
+    except Exception:
+        app = None
+    with patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+         patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
+         patch('tools.ie_proxy.ensure_system_proxy_safe'):
+        try:
+            panel._stop_listen()
+        except Exception:
+            pass
+    stop_thread = getattr(panel, '_capture_stop_thread', None)
+    if stop_thread is not None and stop_thread.is_alive():
+        stop_thread.join(timeout=5)
+    boot_worker = getattr(panel, '_capture_boot_worker', None)
+    if boot_worker is not None and hasattr(boot_worker, 'wait'):
+        boot_worker.wait(5000)
+    if app:
+        app.processEvents()
+    try:
+        panel.close()
+        panel.deleteLater()
+    except Exception:
+        pass
+    if app:
+        app.processEvents()
+        try:
+            from PyQt6.QtCore import QCoreApplication, QEvent
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            app.processEvents()
+        except Exception:
+            pass
+
 def _free_port():
     s = socket.socket()
     s.bind(('127.0.0.1', 0))
@@ -178,7 +216,7 @@ class PanelImmediateRestartTest(unittest.TestCase):
         panel._ie_worker = MagicMock()
 
     def tearDown(self):
-        self.panel.close()
+        _close_capture_panel(self.panel, getattr(self, "app", None))
         self.worker_patch.stop()
         self.cert_patch.stop()
 
@@ -258,7 +296,7 @@ class EpochAwareCallbackTest(unittest.TestCase):
         self.assertFalse(panel._listening)
         self.assertIsNone(panel._ie_worker)
         self.assertEqual(panel._lifecycle.state, IDLE)
-        panel.close()
+        _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_old_error_ignored_current_error_idles(self):
         panel = self._make_panel(epoch=1)
@@ -275,7 +313,7 @@ class EpochAwareCallbackTest(unittest.TestCase):
             self.assertFalse(panel._listening)
             self.assertIsNone(panel._ie_worker)
             self.assertEqual(panel._lifecycle.state, IDLE)
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
 
 class StaleBootResultTest(unittest.TestCase):
@@ -307,7 +345,7 @@ class StaleBootResultTest(unittest.TestCase):
         panel._on_capture_boot_result(stale_result, boot_epoch=1, port=8899, title='t', zh=True)
         self.assertEqual(panel._lifecycle.state, RUNNING)
         self.assertIn(stale_worker, detached)
-        panel.close()
+        _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_stale_failure_not_affect_current(self):
         panel = self._make_panel(epoch=1)
@@ -315,12 +353,14 @@ class StaleBootResultTest(unittest.TestCase):
         before_worker = panel._ie_worker
         stale_result = {'ok': False, 'error': '过期失败', 'worker': None, 'epoch': 999}
         with patch('panels.interface_debug_panel.show_warning'), \
-             patch('tools.ie_proxy.restore_proxy_from_snapshot'):
+             patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.ensure_system_proxy_safe'), \
+             patch('tools.ie_proxy.mark_capture_proxy_inactive'):
             panel._on_capture_boot_result(stale_result, boot_epoch=999, port=8899, title='t', zh=True)
-        self.assertEqual(panel._lifecycle.state, RUNNING)   # 当前 RUNNING 不受影响
-        self.assertTrue(before_listening)
-        self.assertIs(panel._ie_worker, before_worker)
-        panel.close()
+            self.assertEqual(panel._lifecycle.state, RUNNING)   # 当前 RUNNING 不受影响
+            self.assertTrue(before_listening)
+            self.assertIs(panel._ie_worker, before_worker)
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_boot_success_marks_running(self):
         panel = self._make_panel(epoch=1)
@@ -333,7 +373,7 @@ class StaleBootResultTest(unittest.TestCase):
         self.assertEqual(panel._lifecycle.state, RUNNING)
         self.assertIs(panel._ie_worker, worker)
         self.assertTrue(panel._listening)
-        panel.close()
+        _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_boot_failure_back_to_idle(self):
         panel = self._make_panel(epoch=1)
@@ -342,10 +382,12 @@ class StaleBootResultTest(unittest.TestCase):
         self.assertEqual(panel._lifecycle.state, STARTING)
         result = {'ok': False, 'error': '端口被占用', 'worker': None, 'epoch': e2}
         with patch('panels.interface_debug_panel.show_warning'), \
-             patch('tools.ie_proxy.restore_proxy_from_snapshot'):
+             patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.ensure_system_proxy_safe'), \
+             patch('tools.ie_proxy.mark_capture_proxy_inactive'):
             panel._on_capture_boot_result(result, boot_epoch=e2, port=8899, title='t', zh=True)
-        self.assertEqual(panel._lifecycle.state, IDLE)
-        panel.close()
+            self.assertEqual(panel._lifecycle.state, IDLE)
+            _close_capture_panel(panel, getattr(self, "app", None))
 
 
 class RealWorkerSamePortFiveRoundsTest(unittest.TestCase):
@@ -437,7 +479,7 @@ class StopFinalizedEpochGuardTest(unittest.TestCase):
         self.assertTrue(panel._listening)
         self.assertTrue(panel._channel_ready)
         panel._start_local_proxy.assert_not_called()
-        panel.close()
+        _close_capture_panel(panel, self.app)
 
     def test_current_finalized_pending_restart_reboots(self):
         panel, e1 = self._make_panel_running(1)
@@ -488,9 +530,9 @@ class StopFinalizedEpochGuardTest(unittest.TestCase):
             th = panel._capture_stop_thread
             if th is not None and th.is_alive():
                 th.join(timeout=5)
-        self.assertEqual(panel._lifecycle.state, IDLE)
-        panel._ie_worker = None
-        panel.close()
+            self.assertEqual(panel._lifecycle.state, IDLE)
+            panel._ie_worker = None
+            _close_capture_panel(panel, self.app)
 
 
 class H2MitigationGuardTest(unittest.TestCase):
@@ -528,7 +570,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             panel._ensure_capture_ready_silently()
             mock_ensure.assert_called_once()
             mock_install.assert_not_called()
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_first_capture_prompts_consent_and_cancels(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
@@ -543,7 +585,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             mock_worker.assert_not_called()
             self.assertEqual(panel._lifecycle.state, IDLE)
             self.assertFalse(panel._listening)
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_first_capture_consent_install_success_proceeds(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
@@ -573,7 +615,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             mock_consent.assert_called_once()
             mock_install.assert_called_once()
             self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_first_capture_install_failure_aborts_start(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
@@ -589,7 +631,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             mock_worker.assert_not_called()
             self.assertEqual(panel._lifecycle.state, IDLE)
             self.assertFalse(panel._listening)
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_existing_installed_ca_skips_consent_dialog(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
@@ -610,7 +652,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             panel._start_local_proxy()
             mock_consent.assert_not_called()
             self.assertIn(panel._lifecycle.state, (STARTING, RUNNING))
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_stale_thumbprint_detected_as_not_installed(self):
         from tools.ie_proxy import is_recorded_root_cert_installed
@@ -629,7 +671,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             mock_remove.assert_not_called()
             mock_warn.assert_called_once()
             self.assertIn('停止监听', mock_warn.call_args[0][2])
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_remove_cert_failure_retains_thumbprint(self):
         from tools.ie_proxy import remove_recorded_cert, IeProxyError
@@ -738,7 +780,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             mock_worker.assert_not_called()
             self.assertEqual(panel._lifecycle.state, IDLE)
             self.assertFalse(panel._listening)
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
     def test_toolbar_status_and_menu_rendering(self):
         from panels.interface_debug_panel import InterfaceDebugPanel
@@ -759,7 +801,7 @@ class HttpsCertConsentAndSafetyTests(unittest.TestCase):
             text = panel.toolbar_hint.text()
             self.assertIn('监听中', text)
             self.assertIn('HTTPS 解密：已启用', text)
-        panel.close()
+            _close_capture_panel(panel, getattr(self, "app", None))
 
 
 if __name__ == '__main__':

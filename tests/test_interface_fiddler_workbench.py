@@ -116,7 +116,7 @@ class SessionViewLogicTests(unittest.TestCase):
 
 
 try:
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import QCoreApplication, QEvent, Qt
     from PyQt6.QtWidgets import QApplication
     from panels.interface_debug_panel import InterfaceDebugPanel
     QT = True
@@ -130,8 +130,36 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def _make_panel(self):
+        panel = InterfaceDebugPanel('zh')
+        self.addCleanup(self._cleanup_panel, panel)
+        return panel
+
+    def _cleanup_panel(self, panel):
+        """在测试结束时排空面板自身的异步清理，避免 Qt 对象跨用例存活。"""
+        with patch('panels.interface_debug_panel.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.mark_capture_proxy_inactive'), \
+             patch('tools.ie_proxy.ensure_system_proxy_safe'):
+            panel.shutdown_cleanup()
+            panel._stop_listen()
+
+        stop_thread = getattr(panel, '_capture_stop_thread', None)
+        if stop_thread is not None and stop_thread.is_alive():
+            stop_thread.join(timeout=5)
+
+        boot_worker = getattr(panel, '_capture_boot_worker', None)
+        if boot_worker is not None and hasattr(boot_worker, 'wait'):
+            boot_worker.wait(5000)
+
+        panel.close()
+        panel.deleteLater()
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_request_test_has_environment_and_filter_config_entries(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'rt_environment_config_btn'))
         self.assertTrue(hasattr(p, 'rt_filter_config_btn'))
         self.assertFalse(p.rt_environment_config_btn.isHidden())
@@ -143,7 +171,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
             self.assertTrue(widget.isHidden())
 
     def test_library_history_actions_move_to_context_menu(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertFalse(p.rt_lib_load_btn.isVisible())
         self.assertFalse(p.rt_lib_resend_btn.isVisible())
         self.assertFalse(p.rt_lib_del_btn.isVisible())
@@ -155,7 +183,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertTrue(p.rt_lib_cat_label.isHidden())
 
     def test_history_fill_url_preserves_request_editor_content(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._rt_lib = {
             'history': [{
                 'id': 'history-1', 'method': 'POST', 'url': 'https://api.example.com/orders?trace=1',
@@ -176,7 +204,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p.rt_body.toPlainText(), '{"editing":true}')
 
     def test_library_activation_fills_form_without_sending(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._rt_lib = {
             'history': [],
             'apis': [{'id': 'api-1', 'name': '查询订单', 'method': 'GET', 'url': 'https://api.example.com/orders'}],
@@ -193,7 +221,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         send.assert_not_called()
 
     def test_history_copy_curl_keeps_saved_full_url(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._rt_lib = {
             'history': [{
                 'id': 'history-curl', 'method': 'GET', 'url': 'https://api.example.com/orders?trace=1',
@@ -210,7 +238,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertIn('https://api.example.com/orders?trace=1', QApplication.clipboard().text())
 
     def test_request_test_uses_resizable_editor_response_splitter(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'rt_editor_response_splitter'))
         self.assertEqual(p.rt_editor_response_splitter.orientation(), Qt.Orientation.Vertical)
         self.assertGreaterEqual(p.draft_preview.minimumHeight(), 220)
@@ -224,7 +252,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(sizes[0], sizes[1])
 
     def test_request_test_splitter_persists_only_visual_sizes(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p.rt_headers.setPlainText('Authorization: Bearer private-token')
         p.rt_body.setPlainText('{"request_body":"private"}')
         p.draft_preview.setPlainText('{"response_body":"private"}')
@@ -235,7 +263,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         save.assert_called_once_with({'request_test_splitter_sizes': expected_sizes})
 
     def test_detail_summary_includes_capture_time_and_current_environment(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._config['local_targets'] = [{'id': 'env-1', 'name': '测试环境', 'base_url': 'https://test.example.com'}]
         p.local_target_combo.addItem('测试环境', 'env-1')
         p.local_target_combo.setCurrentIndex(p.local_target_combo.count() - 1)
@@ -253,7 +281,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertNotIn('secret', p.detail_summary.text())
 
     def test_detail_environment_context_uses_name_without_base_url(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._config['local_targets'] = [{'id': 'env-private', 'name': '内网测试', 'base_url': 'https://host/?token=private'}]
         p.local_target_combo.clear()
         p.local_target_combo.addItem('内网测试 · https://host/?token=private', 'env-private')
@@ -264,7 +292,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertNotIn('private', p.detail_summary.text())
 
     def test_detail_workspace_keeps_summary_and_readable_response(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertEqual(
             [p.detail_tabs.tabText(i) for i in range(p.detail_tabs.count())],
             ['概览', '请求', '响应', '请求验证'],
@@ -291,7 +319,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertTrue(p.detail_summary.isHidden())
 
     def test_compact_session_view_column_menu_matches_visible_columns(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         actions = {action.text(): action for action in p._cols_menu.actions()}
         for key, label in p.COL_LABELS_ZH.items():
             action = actions[label]
@@ -299,7 +327,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
             self.assertFalse(action.isEnabled())
 
     def test_session_list_uses_compact_two_line_diagnostics_view(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._records_by_id = {
             'two-line': {
                 'id': 'two-line', 'seq': 1, 'method': 'GET',
@@ -318,7 +346,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
             self.assertTrue(p.table.isColumnHidden(p._column_index(key)))
 
     def test_four_detail_tabs_and_columns(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertEqual(p.detail_tabs.count(), 4)
         # Fiddler 式列：# / 结果 / 协议 / 方法 / 名称 / 主机 / URL / Body / 类型 / 耗时 / 时间
         self.assertEqual(p.table.columnCount(), 11)
@@ -349,7 +377,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p.table.rowCount(), 0)
 
     def test_narrow_layout_can_hide_left_session_pane_without_hiding_capture(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p.apply_layout_mode('narrow', True)
         self.assertFalse(p.capture_toggle_btn.isHidden())
         self.assertFalse(p._toggle_list_btn.isHidden())
@@ -360,14 +388,14 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p._session_list_widget.isHidden())
 
     def test_wide_layout_defaults_prioritize_detail_pane(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._prefs['splitter_sizes']['wide'] = [340, 680]
         p.apply_layout_mode('wide', False)
         sizes = p.mid_splitter.sizes()
         self.assertGreater(sizes[1], sizes[0] * 1.7)
 
     def test_reapplying_same_layout_preserves_dragged_splitter_sizes(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p.resize(1280, 800)
         p.show()
         self.app.processEvents()
@@ -381,7 +409,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p.mid_splitter.sizes(), expected_sizes)
 
     def test_workspace_places_capture_and_session_tools_inside_left_pane(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'capture_zone'))
         self.assertTrue(hasattr(p, 'session_toolbar_scroll'))
         self.assertTrue(p.capture_zone.isHidden())
@@ -403,7 +431,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p.session_toolbar_scroll.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def test_session_toolbar_moves_optional_actions_into_overflow_when_left_pane_is_narrow(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._update_session_toolbar_overflow(420)
         self.assertFalse(p.session_actions_more_btn.isHidden())
         self.assertTrue(all(chip.isHidden() for chip in p._filter_chips.values()))
@@ -423,7 +451,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p._toggle_list_btn.isHidden())
 
     def test_all_action_rows_and_session_columns_adapt_to_available_workspace_width(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._update_responsive_workspace(left_width=360, right_width=320, table_width=300)
         self.assertFalse(p.capture_actions_more_btn.isHidden())
         self.assertTrue(p.test_listen_btn.isHidden())
@@ -458,7 +486,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p.table.isColumnHidden(p._column_index('time')))
 
     def test_request_test_secondary_actions_move_into_overflow_without_hiding_send(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._update_responsive_workspace(left_width=760, right_width=420, table_width=720)
         self.assertFalse(p.rt_form_more_btn.isHidden())
         self.assertFalse(p.rt_send_btn.isHidden())
@@ -479,7 +507,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertFalse(p.rt_save_api_btn.isHidden())
 
     def test_compact_overflow_labels_refresh_after_language_switch(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._update_responsive_workspace(left_width=360, right_width=320, table_width=300)
         p.set_language('en')
         self.assertEqual(p.session_actions_more_btn.text(), 'More')
@@ -488,7 +516,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertIn('Export session details', [action.text() for action in p._session_actions_menu.actions()])
 
     def test_result_columns_recalculate_after_deferred_splitter_resize(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._update_responsive_workspace(left_width=760, right_width=760, table_width=760)
         self.assertFalse(p.table.isColumnHidden(p._column_index('duration')))
         self.assertFalse(p.table.isColumnHidden(p._column_index('time')))
@@ -497,7 +525,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertTrue(p.table.isColumnHidden(p._column_index('time')))
 
     def test_capture_control_is_one_stateful_action_and_keeps_proxy_tools(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         self.assertTrue(hasattr(p, 'capture_toggle_btn'))
         self.assertFalse(p.capture_toggle_btn.isHidden())
         self.assertFalse(p.test_listen_btn.isHidden())
@@ -511,7 +539,7 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertEqual(p._mode, 'proxy')
 
     def test_capture_action_switches_without_clearing_session(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._records = [{'id': '1'}]
         p._records_by_id = {'1': {'id': '1', 'url': 'http://x'}}
         p._listening = True
@@ -530,10 +558,12 @@ class FiddlerPanelSmokeTests(unittest.TestCase):
         self.assertTrue(p.stop_btn.isHidden())
 
     def test_shutdown_clears_memory(self):
-        p = InterfaceDebugPanel('zh')
+        p = self._make_panel()
         p._records = [{'id': '1'}]
         p._records_by_id = {'1': {'id': '1', 'url': 'http://x'}}
-        p.shutdown_cleanup()
+        with patch('panels.interface_debug_panel.restore_proxy_from_snapshot'), \
+             patch('tools.ie_proxy.ensure_system_proxy_safe'):
+            p.shutdown_cleanup()
         self.assertEqual(p._records, [])
         self.assertEqual(p._records_by_id, {})
 

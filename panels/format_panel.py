@@ -497,15 +497,6 @@ class FormatToolsPanel(QWidget):
 
         # XML：复用 XmlWorkspace
         self.xml_workspace = XmlWorkspace(self.language)
-        if hasattr(self.xml_workspace, 'splitter') and self.xml_workspace.splitter is not None:
-            install_splitter_prefs(
-                self.xml_workspace.splitter,
-                defaults=[480, 520],
-                page_id='format-tools',
-                tab_id='xml',
-                min_sizes=[220, 220],
-                accessible_name='格式工具 XML 分隔',
-            )
         # 精简 XML 页顶区说明（工具内已有 zone）
         self.tabs.addTab(self.xml_workspace, 'XML')
 

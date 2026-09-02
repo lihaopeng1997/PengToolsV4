@@ -22,6 +22,27 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+try:
+    from PyQt6.sip import isdeleted as _sip_isdeleted
+except ImportError:
+    try:
+        import sip
+        _sip_isdeleted = sip.isdeleted
+    except ImportError:
+        _sip_isdeleted = None
+
+
+def _is_alive(obj) -> bool:
+    if obj is None:
+        return False
+    if _sip_isdeleted is not None:
+        try:
+            if _sip_isdeleted(obj):
+                return False
+        except Exception:
+            return False
+    return True
+
 from tools.browser_debug import (
     BrowserDebugError, connect_page_session, discover_browsers, fetch_cdp_targets,
     is_loopback_host, launch_debug_browser, mask_sensitive_value, mask_url_query,
@@ -198,6 +219,10 @@ class InterfaceDebugPanel(QWidget):
         self._ie_worker = None
         self._listening = False
         self._channel_ready = False
+        for timer_name in ('_search_timer', '_ingest_flush_timer', '_wait_hint_timer', '_status_tick', '_width_save_timer'):
+            timer = getattr(self, timer_name, None)
+            if timer is not None and hasattr(timer, 'stop'):
+                timer.stop()
         self._capture_epoch = 0
         self._capture_boot_worker = None
         from tools.capture_lifecycle import CaptureLifecycle
@@ -238,6 +263,9 @@ class InterfaceDebugPanel(QWidget):
         self._status_tick = QTimer(self)
         self._status_tick.setInterval(2000)
         self._status_tick.timeout.connect(self._refresh_live_status)
+        self._width_save_timer = QTimer(self)
+        self._width_save_timer.setSingleShot(True)
+        self._width_save_timer.timeout.connect(self._save_column_widths_to_prefs)
         self._sensitive_copy_warned = False
         # 跨线程投递：QueuedConnection
         self._sig_capture_record.connect(self._on_capture_record)
@@ -252,7 +280,10 @@ class InterfaceDebugPanel(QWidget):
         # 离屏初始化无有效布局宽度；首次真实 resize/splitter 事件再计算收纳状态。
         # 离屏/测试环境跳过延时恢复提示
         if os.environ.get('QT_QPA_PLATFORM', '').lower() != 'offscreen':
-            QTimer.singleShot(200, self._check_orphan_proxy_snapshot)
+            def _safe_check_orphan():
+                if _is_alive(self):
+                    self._check_orphan_proxy_snapshot()
+            QTimer.singleShot(200, _safe_check_orphan)
 
     # ── UI ──────────────────────────────────────────────
     def _setup_ui(self):
@@ -993,8 +1024,11 @@ class InterfaceDebugPanel(QWidget):
             on_changed=lambda values: self._save_splitter_sizes(*values[:2]),
         )
         # splitterMoved 发生时子控件几何信息尚未稳定，下一事件循环再按最终宽度重算按钮和列。
+        def _safe_update_responsive(*_):
+            if _is_alive(self):
+                self._update_responsive_workspace()
         self.mid_splitter.splitterMoved.connect(
-            lambda *_: QTimer.singleShot(0, self._update_responsive_workspace)
+            lambda *_: QTimer.singleShot(0, _safe_update_responsive)
         )
         root.addWidget(self.mid_splitter, 1)
 
@@ -1277,13 +1311,15 @@ class InterfaceDebugPanel(QWidget):
         widths[key] = max(40, int(new))
         self._prefs['column_widths'] = widths
         # 防抖保存
-        if not hasattr(self, '_width_save_timer'):
-            self._width_save_timer = QTimer(self)
-            self._width_save_timer.setSingleShot(True)
-            self._width_save_timer.timeout.connect(
-                lambda: update_ui_prefs({'column_widths': self._prefs.get('column_widths')})
-            )
-        self._width_save_timer.start(400)
+        if hasattr(self, '_width_save_timer') and _is_alive(self._width_save_timer):
+            self._width_save_timer.start(400)
+
+    def _save_column_widths_to_prefs(self):
+        if not _is_alive(self):
+            return
+        prefs = getattr(self, '_prefs', None)
+        if isinstance(prefs, dict):
+            update_ui_prefs({'column_widths': prefs.get('column_widths')})
 
     def _on_header_clicked(self, index: int):
         if index < 0 or index >= len(COLUMN_KEYS):
@@ -1632,7 +1668,10 @@ class InterfaceDebugPanel(QWidget):
         self.status_label.setText(
             f'调试浏览器已启动 · 端口 {port} · 请打开业务页后点击「开始监听」'
         )
-        QTimer.singleShot(400, self._refresh_targets)
+        def _safe_refresh_targets():
+            if _is_alive(self):
+                self._refresh_targets()
+        QTimer.singleShot(400, _safe_refresh_targets)
 
     def _on_launch_fail(self, msg):
         self.loading.fail(msg)
@@ -1766,12 +1805,20 @@ class InterfaceDebugPanel(QWidget):
             show_warning(self, '连接 CDP', str(exc))
 
     def _on_cdp_event_thread(self, method, params):
-        QTimer.singleShot(0, lambda m=method, p=dict(params or {}): self._handle_cdp_event(m, p))
+        def _safe_cdp_event():
+            if _is_alive(self):
+                self._handle_cdp_event(method, dict(params or {}))
+        QTimer.singleShot(0, _safe_cdp_event)
 
     def _on_cdp_error_thread(self, msg):
-        QTimer.singleShot(0, lambda: self._on_cdp_error(msg))
+        def _safe_cdp_error():
+            if _is_alive(self):
+                self._on_cdp_error(msg)
+        QTimer.singleShot(0, _safe_cdp_error)
 
     def _on_cdp_error(self, msg):
+        if not _is_alive(self):
+            return
         self.status_label.setText(f'CDP 错误：{msg}')
         if self._listening and not self._channel_ready:
             self.loading.fail(str(msg))
@@ -1779,7 +1826,10 @@ class InterfaceDebugPanel(QWidget):
             self._set_listening_ui(False)
 
     def _on_cdp_closed_thread(self):
-        QTimer.singleShot(0, self._on_cdp_closed)
+        def _safe_cdp_closed():
+            if _is_alive(self):
+                self._on_cdp_closed()
+        QTimer.singleShot(0, _safe_cdp_closed)
 
     def _on_cdp_closed(self):
         if self._listening and self._mode == 'chromium':
@@ -1887,11 +1937,32 @@ class InterfaceDebugPanel(QWidget):
                 time.sleep(0.08)
 
             def _try_once():
+                def _safe_emit_rec(rec, e=boot_epoch):
+                    if _is_alive(self):
+                        try:
+                            self._sig_capture_record.emit(int(e), dict(rec or {}))
+                        except Exception:
+                            pass
+
+                def _safe_emit_err(msg, e=boot_epoch):
+                    if _is_alive(self):
+                        try:
+                            self._sig_capture_error.emit(int(e), str(msg or ''))
+                        except Exception:
+                            pass
+
+                def _safe_emit_stopped(e=boot_epoch):
+                    if _is_alive(self):
+                        try:
+                            self._sig_capture_stopped.emit(int(e))
+                        except Exception:
+                            pass
+
                 worker = HttpCaptureWorker(
                     port=port,
-                    on_record=lambda rec, e=boot_epoch: self._sig_capture_record.emit(int(e), dict(rec or {})),
-                    on_error=lambda msg, e=boot_epoch: self._sig_capture_error.emit(int(e), str(msg or '')),
-                    on_stopped=lambda e=boot_epoch: self._sig_capture_stopped.emit(int(e)),
+                    on_record=_safe_emit_rec,
+                    on_error=_safe_emit_err,
+                    on_stopped=_safe_emit_stopped,
                     show_static=True,
                     source_label='http_capture',
                     apply_system_proxy=True,
@@ -1943,10 +2014,17 @@ class InterfaceDebugPanel(QWidget):
         boot = _Boot(self)
         self._capture_boot_worker = boot
 
-        boot.done.connect(
-            lambda result: self._on_capture_boot_result(
-                result, boot_epoch=boot_epoch, port=port, title=title, zh=zh))
-        boot.finished.connect(lambda: setattr(self, '_capture_boot_worker', None))
+        def _safe_boot_done(result):
+            if _is_alive(self):
+                self._on_capture_boot_result(
+                    result, boot_epoch=boot_epoch, port=port, title=title, zh=zh)
+
+        def _safe_boot_finished():
+            if _is_alive(self):
+                setattr(self, '_capture_boot_worker', None)
+
+        boot.done.connect(_safe_boot_done)
+        boot.finished.connect(_safe_boot_finished)
         boot.start()
 
     def _on_capture_boot_result(self, result, boot_epoch: int, port: int, title: str, zh: bool):
@@ -2029,6 +2107,8 @@ class InterfaceDebugPanel(QWidget):
             self._status_tick.start()
 
     def _on_wait_hint(self):
+        if not _is_alive(self):
+            return
         if not self._listening or not self._channel_ready:
             return
         if self._records:
@@ -2043,6 +2123,8 @@ class InterfaceDebugPanel(QWidget):
         self._update_empty_hint()
 
     def _refresh_live_status(self):
+        if not _is_alive(self):
+            return
         if not self._listening:
             self.live_status.setText('')
             return
@@ -2104,7 +2186,10 @@ class InterfaceDebugPanel(QWidget):
                     pass
             except Exception as exc:
                 err = str(exc)
-            QTimer.singleShot(0, lambda: self._on_probe_done(err))
+            def _safe_probe_done():
+                if _is_alive(self):
+                    self._on_probe_done(err)
+            QTimer.singleShot(0, _safe_probe_done)
 
         # 同步注入内存探测记录，保证列表至少有一条（离线可见）
         self._ingest_record({
@@ -2302,6 +2387,8 @@ class InterfaceDebugPanel(QWidget):
             self._ingest_flush_timer.start()
 
     def _flush_ingest_ui(self):
+        if not _is_alive(self):
+            return
         if not self._ingest_dirty and self._ingest_count_since_flush == 0:
             return
         prev_selected = self._selected_id
@@ -2663,7 +2750,19 @@ class InterfaceDebugPanel(QWidget):
         """以当前主题 Token 重建会话状态色，不改变抓包数据或选择状态。"""
         self._rebuild_table()
 
+    def closeEvent(self, event):
+        try:
+            for timer_name in ('_search_timer', '_ingest_flush_timer', '_wait_hint_timer', '_status_tick', '_width_save_timer'):
+                timer = getattr(self, timer_name, None)
+                if timer is not None and hasattr(timer, 'stop'):
+                    timer.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     def _rebuild_table(self):
+        if not _is_alive(self):
+            return
         prev_id = self._selected_id
         at_top = self.table.rowCount() == 0 or (
             self.table.currentRow() <= 0 and self._follow_latest

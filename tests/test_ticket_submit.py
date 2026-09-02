@@ -212,6 +212,53 @@ class TicketSubmitTests(unittest.TestCase):
         dialog.close()
         app  # keep ref
 
+    def test_submit_dialog_keeps_requirement_list_large_and_actions_fixed(self):
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QScrollArea
+        from panels.ticket_submit_dialog import TicketSubmitDialog
+        from tools.ticket_submit import default_ticket_profiles
+        app = QApplication.instance() or QApplication([])
+        requirements = [
+            {'id': str(i), 'code': f'REQ-{i}', 'title': f'需求{i}', 'systems': ['客户信息平台（ECIF）']}
+            for i in range(50)
+        ]
+        with patch('panels.ticket_submit_dialog.load_ticket_profiles', return_value=default_ticket_profiles()):
+            dialog = TicketSubmitDialog(requirements)
+        dialog.show()
+        QApplication.processEvents()
+        self.assertGreaterEqual(dialog.req_list.minimumHeight(), 280)
+        self.assertGreaterEqual(dialog.req_list.height(), 280)
+        self.assertEqual(dialog.req_list.count(), 50)
+        self.assertIsInstance(dialog.content_scroll, QScrollArea)
+        buttons = dialog.findChild(QDialogButtonBox)
+        self.assertIsNotNone(buttons)
+        self.assertIs(buttons.parentWidget(), dialog)
+        self.assertLessEqual(dialog.height(), QApplication.primaryScreen().availableGeometry().height())
+        dialog.close()
+        app
+
+    def test_compact_submit_dialog_keeps_requirement_list_large(self):
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QApplication
+        from panels.ticket_submit_dialog import TicketSubmitDialog
+        from tools.ticket_submit import default_ticket_profiles
+        app = QApplication.instance() or QApplication([])
+        requirements = [
+            {'id': str(i), 'code': f'REQ-{i}', 'title': f'需求{i}', 'systems': ['客户信息平台（ECIF）']}
+            for i in range(20)
+        ]
+        with patch('panels.ticket_submit_dialog.load_ticket_profiles', return_value=default_ticket_profiles()):
+            dialog = TicketSubmitDialog(requirements, compact=True)
+        dialog.show()
+        QApplication.processEvents()
+        self.assertGreaterEqual(dialog.req_list.minimumHeight(), 220)
+        self.assertGreaterEqual(dialog.req_list.height(), 220)
+        self.assertLessEqual(dialog.height(), QApplication.primaryScreen().availableGeometry().height())
+        dialog.close()
+        app
+
     def test_last_submit_survives_profile_save(self):
         with tempfile.TemporaryDirectory() as temp:
             path = os.path.join(temp, 'ticket_submit.json')

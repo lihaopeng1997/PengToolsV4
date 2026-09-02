@@ -23,6 +23,7 @@ from tools.daily_reports import (
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.daily_rich_edit import DailyRichEdit
 from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
+from ui.splitter_prefs import install_splitter_prefs
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
     extract_document_entries, extract_document_text, extract_workbook_entries,
@@ -334,6 +335,14 @@ class KnowledgeTab(QWidget):
         detail.addLayout(action_row)
         splitter.addWidget(right)
         splitter.setSizes([360, 680])
+        install_splitter_prefs(
+            splitter,
+            defaults=[360, 680],
+            page_id='personal-knowledge',
+            tab_id='list-detail',
+            min_sizes=[220, 360],
+            accessible_name='个人资料列表/详情分隔',
+        )
         root.addWidget(splitter, 1)
 
     def apply_layout_mode(self, mode, low_height=False):

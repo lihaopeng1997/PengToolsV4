@@ -7,6 +7,30 @@ from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QSplitter, QSplitterHandle
 
+try:
+    from PyQt6.sip import isdeleted as _sip_isdeleted
+except ImportError:
+    try:
+        import sip
+        _sip_isdeleted = sip.isdeleted
+    except ImportError:
+        _sip_isdeleted = None
+
+
+def _is_widget_alive(widget: QObject | None) -> bool:
+    if widget is None:
+        return False
+    if _sip_isdeleted is not None:
+        try:
+            if _sip_isdeleted(widget):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+SPLITTER_HANDLE_WIDTH = 8
+
 
 def layout_bucket(mode: str | None = None, width: int | None = None) -> str:
     if mode in ('wide', 'standard', 'compact', 'narrow'):
@@ -71,6 +95,17 @@ def clamp_splitter_sizes(sizes: list[int], min_sizes: list[int], total: int | No
     return clamped
 
 
+def has_extreme_splitter_sizes(sizes: list[int], min_sizes: list[int]) -> bool:
+    """识别历史配置中已被误拖到近乎不可见的 pane。"""
+    if not sizes or len(sizes) != len(min_sizes):
+        return True
+    try:
+        values = [int(value) for value in sizes]
+    except (TypeError, ValueError):
+        return True
+    return any(value <= 0 or value < minimum // 2 for value, minimum in zip(values, min_sizes))
+
+
 class _SplitterInteractionFilter(QObject):
     def __init__(
         self,
@@ -90,7 +125,7 @@ class _SplitterInteractionFilter(QObject):
         self.double_click_reset = bool(double_click_reset)
 
     def eventFilter(self, watched, event):
-        if event is None:
+        if event is None or not _is_widget_alive(self.splitter):
             return False
         et = event.type()
         if et == QEvent.Type.MouseButtonDblClick and getattr(event, 'button', lambda: None)() == Qt.MouseButton.LeftButton:
@@ -116,6 +151,8 @@ class _SplitterInteractionFilter(QObject):
         return False
 
     def _restore_defaults(self):
+        if not _is_widget_alive(self.splitter):
+            return
         if self.defaults and self.splitter.count() == len(self.defaults):
             sizes = clamp_splitter_sizes(self.defaults, self.min_sizes, self._total())
             self.splitter.setSizes(sizes)
@@ -123,6 +160,8 @@ class _SplitterInteractionFilter(QObject):
                 self.on_changed(list(self.splitter.sizes()))
 
     def _nudge(self, delta: int):
+        if not _is_widget_alive(self.splitter):
+            return
         sizes = list(self.splitter.sizes())
         if len(sizes) < 2:
             return
@@ -134,6 +173,8 @@ class _SplitterInteractionFilter(QObject):
             self.on_changed(list(self.splitter.sizes()))
 
     def _total(self) -> int:
+        if not _is_widget_alive(self.splitter):
+            return 1
         if self.splitter.orientation() == Qt.Orientation.Horizontal:
             return max(1, self.splitter.width())
         return max(1, self.splitter.height())
@@ -159,15 +200,14 @@ def install_splitter_prefs(
         return
     count = splitter.count()
     splitter.setChildrenCollapsible(False)
-    if splitter.handleWidth() < 6:
-        splitter.setHandleWidth(6)
+    if splitter.handleWidth() < SPLITTER_HANDLE_WIDTH:
+        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
     mins = _scaled_mins(min_sizes, count)
     for index in range(count):
         try:
             splitter.setCollapsible(index, False)
         except Exception:
             pass
-
     name = accessible_name or (f'{page_id or "panel"} 分隔条' if page_id else '工作区分隔条')
     splitter.setAccessibleName(name)
     splitter.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -185,7 +225,9 @@ def install_splitter_prefs(
     target = None
     if isinstance(loaded, (list, tuple)) and len(loaded) == count:
         try:
-            target = [max(1, int(item)) for item in loaded]
+            candidate = [int(item) for item in loaded]
+            if not has_extreme_splitter_sizes(candidate, mins):
+                target = candidate
         except (TypeError, ValueError):
             target = None
     if target is None and defaults and len(defaults) == count:
@@ -193,6 +235,8 @@ def install_splitter_prefs(
     if target:
         def _apply_initial_sizes():
             """在首轮真实布局后重申初始比例，避免子控件 sizeHint 覆盖默认值。"""
+            if not _is_widget_alive(splitter):
+                return
             if splitter.count() != len(target):
                 return
             total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
@@ -218,6 +262,8 @@ def install_splitter_prefs(
     timer.setInterval(max(0, int(debounce_ms)))
 
     def _emit():
+        if not _is_widget_alive(splitter):
+            return
         total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
         sizes = clamp_splitter_sizes(list(splitter.sizes()), mins, total if total > 40 else None)
         if sizes != list(splitter.sizes()):
