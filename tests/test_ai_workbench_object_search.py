@@ -10,6 +10,12 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# Discover 会在运行任何 setUpClass 之前 import 本文件；QApplication 必须晚于
+# QtWebEngineWidgets，否则 ui.web_shell 会永久 WEB_SHELL_AVAILABLE=False。
+try:
+    import ui.web_shell  # noqa: F401
+except Exception:
+    pass
 _app = QApplication.instance() or QApplication([])
 
 from panels.ai_workbench_panel import AiWorkbenchPanel
