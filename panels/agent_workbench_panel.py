@@ -413,8 +413,11 @@ class AgentWorkbenchPanel(QWidget):
         )
         self.bind_dir_btn.setText('绑定目录' if zh else 'Bind folder')
         ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
-        self.dir_label.setText(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
-        self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if zh else '(No folder bound)'))
+        bound = (f'已绑定：{ws_dir}' if zh else f'Bound: {ws_dir}') if ws_dir else (
+            '（未绑定目录）' if zh else '(No folder bound)'
+        )
+        self.dir_label.setText(bound)
+        self.dir_label.setToolTip(bound)
         self.new_ws_btn.setToolTip('新建工作区' if zh else 'New workspace')
         self.new_btn.setText('新建工作区' if zh else 'New workspace')
         self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
@@ -554,8 +557,12 @@ class AgentWorkbenchPanel(QWidget):
         self.exec_mode_combo.blockSignals(False)
         self._update_exec_mode_tooltips()
         ws_dir = ws.get('workspace_dir') or ''
-        self.dir_label.setText(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
-        self.dir_label.setToolTip(ws_dir or ('（未绑定目录）' if self.language == 'zh' else '(No folder bound)'))
+        zh = self.language == 'zh'
+        bound = (f'已绑定：{ws_dir}' if zh else f'Bound: {ws_dir}') if ws_dir else (
+            '（未绑定目录）' if zh else '(No folder bound)'
+        )
+        self.dir_label.setText(bound)
+        self.dir_label.setToolTip(bound)
         if ws_dir:
             self._refresh_tree(ws_dir)
         else:
@@ -1133,7 +1140,12 @@ class AgentWorkbenchPanel(QWidget):
         lbl = QLabel()
         lbl.setWordWrap(True)
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        prefix = '🤖 ' if role == 'assistant' else '👤 '
+        if role == 'tool':
+            prefix = '🔧 '
+        elif role == 'assistant':
+            prefix = '🤖 '
+        else:
+            prefix = '👤 '
         lbl.setText(prefix + content)
         bl.addWidget(lbl)
 
