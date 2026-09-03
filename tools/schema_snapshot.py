@@ -243,6 +243,15 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
     try:
         if dialect == 'oceanbase':
             ob_mode = normalize_oceanbase_mode((item or {}).get('mode'))
+            if ob_mode == 'oracle' and (item or {}).get('oceanbase_oracle_provider') != 'odbc':
+                payload['status'] = 'failed'
+                payload['warning'] = (
+                    '[ODBC_SCHEMA_CONFIRM_REQUIRED] 当前 OceanBase (Oracle 模式) 连接尚未确认 Database/Schema 语义。\n'
+                    '说明：旧版本 OceanBase Oracle 的 Database 字段曾用于保存 SID 或服务名；\n'
+                    '在 Windows ODBC provider 中，Database 表示要访问的目标 Schema。\n'
+                    '请在连接管理器中打开“编辑连接”，确认 Database/Schema 后重新保存。'
+                )
+                return payload
             is_mysql_schema = (ob_mode == 'mysql')
         else:
             is_mysql_schema = (dialect == 'mysql')

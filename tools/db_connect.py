@@ -579,13 +579,25 @@ def oceanbase_oracle_provider_status() -> dict:
 
     driver_name = ''
     driver_available = False
+    status_code = 'PYODBC_REQUIRED'
+    message = '当前 Python 环境缺少 pyodbc 库'
+
     if pyodbc_available:
         try:
             selected, _ = oceanbase_odbc_driver_status(drivers)
             driver_name = selected
             driver_available = True
-        except DbError:
+            status_code = 'READY'
+            message = f'已就绪（驱动：{selected}）'
+        except DbError as exc:
             driver_available = False
+            err_text = str(exc)
+            if 'AMBIGUOUS_ODBC_DRIVER' in err_text:
+                status_code = 'AMBIGUOUS_ODBC_DRIVER'
+                message = '系统存在多个候选 OceanBase ODBC 驱动，无法自动决定'
+            else:
+                status_code = 'ODBC_DRIVER_REQUIRED'
+                message = '系统未安装 OceanBase ODBC 驱动'
 
     return {
         'provider': 'odbc',
@@ -594,7 +606,24 @@ def oceanbase_oracle_provider_status() -> dict:
         'driver_available': driver_available,
         'driver': driver_name,
         'ready': bool(pyodbc_available and driver_available),
+        'status_code': status_code,
+        'message': message,
     }
+
+
+def require_oceanbase_oracle_odbc_config(item: dict) -> None:
+    """检查 OceanBase Oracle 配置是否已经过 ODBC Schema 语义显式确认。"""
+    if (item or {}).get('oceanbase_oracle_provider') != 'odbc':
+        host = str((item or {}).get('host') or '').strip()
+        port = str((item or {}).get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
+        db = str((item or {}).get('database') or '').strip()
+        ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle (ODBC)"
+        raise DbError(
+            f"[ODBC_SCHEMA_CONFIRM_REQUIRED] 当前 OceanBase (Oracle 模式) 连接尚未确认 Database/Schema 语义。{ctx}\n"
+            "说明：旧版本 OceanBase Oracle 的 Database 字段曾用于保存 SID 或服务名；\n"
+            "在 Windows ODBC provider 中，Database 表示要访问的目标 Schema。\n"
+            "处理建议：请在连接管理器中打开“编辑连接”，确认 Database/Schema 后重新保存，然后再发起连接。"
+        )
 
 
 def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None, plain_password: str | None = None) -> str:
@@ -652,6 +681,9 @@ def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None
 
 
 def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
+    # 0. 迁移安全门禁：旧配置必须先在连接设置中确认 Schema 语义，禁止静默直接连
+    require_oceanbase_oracle_odbc_config(item)
+
     try:
         import pyodbc
     except ImportError as exc:

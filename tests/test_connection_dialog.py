@@ -137,6 +137,8 @@ class ConnectionDialogTests(unittest.TestCase):
             self.assertEqual(dialog.mode.currentData(), "mysql")
             self.assertTrue(dialog.oracle_hint.isHidden())
             self.assertEqual(dialog.database_label.text(), "库名")
+            payload_mysql, _ = dialog.payload()
+            self.assertNotIn("oceanbase_oracle_provider", payload_mysql)
 
             # 切换回 Oracle 模式
             oracle_idx = dialog.mode.findData("oracle")
@@ -144,6 +146,28 @@ class ConnectionDialogTests(unittest.TestCase):
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
             self.assertEqual(dialog.database_label.text(), "Database / Schema")
+        finally:
+            dialog.close()
+
+    def test_oceanbase_switching_from_saved_mysql_to_oracle_requires_reconfirmation(self):
+        """F. 原保存为 MySQL 的配置切到 Oracle，必须重新显示 Database/Schema 确认提示"""
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"name": "OB MySQL 实例", "dialect": "oceanbase", "host": "10.0.0.1", "mode": "mysql", "oceanbase_oracle_provider": "odbc"},
+        )
+        try:
+            # 切换到 Oracle 模式：原 item 是 mysql，必须重新提示确认
+            oracle_idx = dialog.mode.findData("oracle")
+            dialog.mode.setCurrentIndex(oracle_idx)
+            self.assertEqual(dialog.mode.currentData(), "oracle")
+            self.assertFalse(dialog.oracle_hint.isHidden())
+            self.assertIn("旧版本此字段可能保存的是 SID/服务名", dialog.oracle_hint.text())
+
+            # 确认保存后打上 odbc marker
+            item, _ = dialog.payload()
+            self.assertEqual(item.get("oceanbase_oracle_provider"), "odbc")
         finally:
             dialog.close()
 

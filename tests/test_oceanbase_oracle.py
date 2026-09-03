@@ -50,6 +50,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "port": 2883,
             "database": "OBORCL",
             "username": "user",
+            "oceanbase_oracle_provider": "odbc",
         }
         with patch.dict("sys.modules", {"pyodbc": None}):
             with self.assertRaises(DbError) as ctx:
@@ -65,6 +66,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "port": 2883,
             "database": "OBORCL",
             "username": "user",
+            "oceanbase_oracle_provider": "odbc",
         }
         fake_pyodbc = MagicMock()
         fake_pyodbc.drivers.return_value = ["SQL Server", "MySQL ODBC Driver"]
@@ -100,6 +102,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "port": 2883,
             "database": "ob;db",
             "username": "user;tenant}cluster",
+            "oceanbase_oracle_provider": "odbc",
         }
         fake_pyodbc = MagicMock()
         fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
@@ -131,6 +134,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "host": "10.0.0.1",
             "database": "OB",
             "username": "user",
+            "oceanbase_oracle_provider": "odbc",
         }
         fake_pyodbc = MagicMock()
         fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
@@ -143,6 +147,61 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             self.assertNotIn("abc;123}xyz", err_msg)
             self.assertNotIn("abc", err_msg)
             self.assertNotIn("123}}xyz", err_msg)
+
+    # ── Section 9: Legacy Config Schema Confirmation Gate Tests ──
+
+    def test_regression_legacy_missing_marker_blocked(self):
+        """9A. 旧版本 OceanBase Oracle 配置（无 odbc marker）必须拒绝连接，不得调用 pyodbc.connect"""
+        item = {
+            "dialect": "oceanbase",
+            "mode": "oracle",
+            "host": "10.0.0.1",
+            "port": 2883,
+            "database": "ORCL",
+            "username": "user",
+        }
+        fake_pyodbc = MagicMock()
+        fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            with self.assertRaises(DbError) as ctx:
+                open_connection(item, plain_password="pw")
+            self.assertIn("[ODBC_SCHEMA_CONFIRM_REQUIRED]", str(ctx.exception))
+            fake_pyodbc.connect.assert_not_called()
+
+    def test_regression_legacy_missing_mode_blocked(self):
+        """9B. 旧版本未配置 mode 的 OceanBase（默认 oracle 模式）若无 marker 同样拒绝连接"""
+        item = {
+            "dialect": "oceanbase",
+            "host": "10.0.0.1",
+            "port": 2883,
+            "database": "ORCL",
+            "username": "user",
+        }
+        fake_pyodbc = MagicMock()
+        fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            with self.assertRaises(DbError) as ctx:
+                open_connection(item, plain_password="pw")
+            self.assertIn("[ODBC_SCHEMA_CONFIRM_REQUIRED]", str(ctx.exception))
+            fake_pyodbc.connect.assert_not_called()
+
+    def test_regression_legacy_standalone_mode_blocked(self):
+        """9B-2. 旧版本 mode=standalone 的 OceanBase 无 marker 同样拒绝连接"""
+        item = {
+            "dialect": "oceanbase",
+            "mode": "standalone",
+            "host": "10.0.0.1",
+            "port": 2883,
+            "database": "ORCL",
+            "username": "user",
+        }
+        fake_pyodbc = MagicMock()
+        fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            with self.assertRaises(DbError) as ctx:
+                open_connection(item, plain_password="pw")
+            self.assertIn("[ODBC_SCHEMA_CONFIRM_REQUIRED]", str(ctx.exception))
+            fake_pyodbc.connect.assert_not_called()
 
     def test_regression_g_numeric_bind_single(self):
         """G. :1 -> ? 转换"""
@@ -208,6 +267,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "port": 2883,
             "database": "OB_SERVICE",
             "username": "test_user",
+            "oceanbase_oracle_provider": "odbc",
         }
         with patch("tools.db_connect.open_connection", return_value=fake_conn):
             res = probe_connection(item, plain_password="clear_password")
@@ -229,7 +289,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
                 probe_connection(item, plain_password="clear_password")
 
     def test_regression_l_scan_schema_production_path_through_adapter(self):
-        """L. scan_schema 生产真实 item shape (无 fake schema): database 作为 schema 正确转换查询"""
+        """L. scan_schema 生产真实已确认 item (含 marker): database 作为 schema 正确转换查询"""
         from tools.schema_snapshot import scan_schema
         executed_calls = []
         mock_raw_cursor = MagicMock()
@@ -244,8 +304,8 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         mock_raw_conn.cursor.return_value = mock_raw_cursor
         odbc_conn = OceanBaseOdbcConnection(mock_raw_conn, driver_name="OceanBase ODBC 2.0 Driver")
 
-        # 真实 item shape：只有 database="APP"，绝无额外注入的 schema
-        item = {"dialect": "oceanbase", "mode": "oracle", "database": "APP", "username": "APP"}
+        # 真实已确认 item shape：database="APP"，标记 oceanbase_oracle_provider="odbc"
+        item = {"dialect": "oceanbase", "mode": "oracle", "database": "APP", "username": "APP", "oceanbase_oracle_provider": "odbc"}
         payload = scan_schema(odbc_conn, item)
         self.assertEqual(payload.get("status"), "ok")
 
@@ -274,6 +334,20 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         self.assertTrue(len(oracle_comments) > 0)
         # 绝不把 ORCL 当成 WHERE owner = ?
         self.assertIn("owner NOT IN", oracle_comments[0][0])
+
+    def test_regression_scan_schema_legacy_direct_call_blocked(self):
+        """9G. 未经确认的旧版 OceanBase Oracle 配置调用 scan_schema 必须返回 status=failed 且不得执行 cursor.execute"""
+        from tools.schema_snapshot import scan_schema
+        mock_raw_cursor = MagicMock()
+        mock_raw_conn = MagicMock()
+        mock_raw_conn.cursor.return_value = mock_raw_cursor
+        odbc_conn = OceanBaseOdbcConnection(mock_raw_conn, driver_name="OceanBase ODBC 2.0 Driver")
+
+        item = {"dialect": "oceanbase", "mode": "oracle", "database": "ORCL", "username": "APP"}
+        payload = scan_schema(odbc_conn, item)
+        self.assertEqual(payload.get("status"), "failed")
+        self.assertIn("ODBC_SCHEMA_CONFIRM_REQUIRED", payload.get("warning", ""))
+        mock_raw_cursor.execute.assert_not_called()
 
     def test_regression_m_list_columns_production_path_through_adapter(self):
         """M. list_columns 生产路径通过 adapter 正确转换 :1/:2 并返回字段清单"""
@@ -390,6 +464,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             st_a = oceanbase_oracle_provider_status()
             self.assertFalse(st_a["ready"])
             self.assertFalse(st_a["driver_available"])
+            self.assertEqual(st_a["status_code"], "ODBC_DRIVER_REQUIRED")
 
         # Case B: drivers=["OceanBase ODBC 2.0 Driver"] -> ready=True
         fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
@@ -398,13 +473,19 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             self.assertTrue(st_b["ready"])
             self.assertTrue(st_b["driver_available"])
             self.assertEqual(st_b["driver"], "OceanBase ODBC 2.0 Driver")
+            self.assertEqual(st_b["status_code"], "READY")
 
-        # Case C: 多个模糊候选 -> 歧义安全拒绝，ready=False
-        fake_pyodbc.drivers.return_value = ["OceanBase Driver A", "OceanBase Driver B"]
+        # Case C: 多个模糊候选（均包含 oceanbase 与 odbc）-> 触发 production 歧义安全拒绝
+        drivers_c = ["OceanBase Custom ODBC Driver A", "OceanBase Custom ODBC Driver B"]
+        fake_pyodbc.drivers.return_value = drivers_c
         with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
             st_c = oceanbase_oracle_provider_status()
             self.assertFalse(st_c["ready"])
             self.assertFalse(st_c["driver_available"])
+            self.assertEqual(st_c["status_code"], "AMBIGUOUS_ODBC_DRIVER")
+            with self.assertRaises(DbError) as ctx:
+                oceanbase_odbc_driver_status(drivers_c)
+            self.assertIn("[AMBIGUOUS_ODBC_DRIVER]", str(ctx.exception))
 
         # 真实环境只验证返回结构键契约，不写死 driver_available 为 False
         st_real = oceanbase_oracle_provider_status()
@@ -413,6 +494,8 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         self.assertIn("pyodbc_available", st_real)
         self.assertIn("driver_available", st_real)
         self.assertIn("driver", st_real)
+        self.assertIn("status_code", st_real)
+        self.assertIn("message", st_real)
 
 
 if __name__ == "__main__":

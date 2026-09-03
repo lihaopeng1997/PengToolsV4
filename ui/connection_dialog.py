@@ -324,16 +324,22 @@ class ConnectionDialog(QDialog):
         zh = self.language == "zh"
         mode = normalize_oceanbase_mode(self.mode.currentData())
         if mode == "oracle":
-            is_legacy = bool(
+            orig_dialect = (self._item or {}).get("dialect")
+            orig_mode = normalize_oceanbase_mode((self._item or {}).get("mode"))
+            orig_marker = (self._item or {}).get("oceanbase_oracle_provider")
+            # 只有原配置本身就是 oceanbase + oracle 模式且已具有 odbc 标记，才算已确认过 Schema 语义
+            is_confirmed = bool(
                 self._item
-                and self._item.get("dialect") == "oceanbase"
-                and self._item.get("oceanbase_oracle_provider") != "odbc"
+                and orig_dialect == "oceanbase"
+                and orig_mode == "oracle"
+                and orig_marker == "odbc"
             )
+            needs_confirmation = bool(self._item and not is_confirmed)
             migration_msg = (
                 "\n旧版本此字段可能保存的是 SID/服务名；Windows ODBC provider 中 Database 表示 Schema，请确认后重新保存。"
                 if zh
                 else "\nLegacy configurations may have saved SID/service; Windows ODBC provider uses Database as Schema, please verify and resave."
-            ) if is_legacy else ""
+            ) if needs_confirmation else ""
 
             self.oracle_hint.setText(
                 ("提示：OceanBase Oracle 模式使用 Windows OceanBase Connector/ODBC（Python pyodbc 绑定）。若未安装系统驱动，测试连接时将提示安装 x64 ODBC 驱动。" + migration_msg)
@@ -576,7 +582,10 @@ class ConnectionDialog(QDialog):
             item["mode"] = normalize_oceanbase_mode(self.mode.currentData())
             if item["mode"] == "oracle":
                 item["oceanbase_oracle_provider"] = "odbc"
+            else:
+                item.pop("oceanbase_oracle_provider", None)
         else:
+            item.pop("oceanbase_oracle_provider", None)
             item["mode"] = self.mode.currentData() or "standalone"
         if item["dialect"] == "redis":
             item["auth_mode"] = self.auth_mode.currentData() or REDIS_AUTH_NONE
