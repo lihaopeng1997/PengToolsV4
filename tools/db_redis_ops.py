@@ -8,9 +8,34 @@ decode_responses=False（返回 bytes），本模块统一做字节安全解码�
 from __future__ import annotations
 
 import re
+import socket
 from typing import Any
 
-from tools.db_connect import DbError
+from tools.db_connect import DbError, redact_error
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """区分网络/传输层异常与程序/API逻辑错误，严禁把代码 Bug 伪装成节点离线。"""
+    if isinstance(exc, (TypeError, AttributeError, ValueError, KeyError, IndexError, NameError, SyntaxError)):
+        return False
+    try:
+        import redis.exceptions as rexc
+        redis_transport_types = (
+            rexc.ConnectionError,
+            rexc.TimeoutError,
+            rexc.ClusterDownError,
+            rexc.BusyLoadingError,
+            rexc.ClusterError,
+            rexc.ReadOnlyError,
+        )
+        if isinstance(exc, redis_transport_types):
+            return True
+    except ImportError:
+        pass
+    if isinstance(exc, (OSError, socket.error, TimeoutError)):
+        return True
+    low = str(exc).lower()
+    return any(token in low for token in ('connection', 'timeout', 'timed out', 'network', 'clusterdown', 'refused', 'reset'))
 
 
 def _b(value: Any) -> str:
@@ -560,19 +585,12 @@ def redis_scan_page(
             while len(collected) < cap:
                 if cancel and cancel():
                     break
-                nxt = 0
-                batch = []
                 try:
                     nxt, batch = conn.scan(cursor=cur, match=match, count=batch_size)
-                except Exception:
-                    try:
-                        for index, key in enumerate(conn.scan_iter(match=match, count=batch_size)):
-                            batch.append(key)
-                            if index + 1 >= batch_size:
-                                break
-                        nxt = 0
-                    except Exception as exc:
-                        raise DbError(f'SCAN 失败：{exc}') from exc
+                except DbError:
+                    raise
+                except Exception as exc:
+                    raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
                 for key in batch or []:
                     k = _b(key)
                     if k not in seen:
@@ -585,7 +603,7 @@ def redis_scan_page(
         except DbError:
             raise
         except Exception as exc:
-            raise DbError(f'SCAN 失败：{exc}') from exc
+            raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
         return {
             'keys': collected,
             'cursor': cur,
@@ -607,36 +625,27 @@ def redis_scan_page(
     try:
         if not cursors_map:
             # 首次全集群扫描：广播 cursor=0
+            # 外部审核规则：首次 aggregate Cluster scan 出错必须直接外抛 DbError，禁止 catch-all 伪装成 partial
             try:
                 raw_res = conn.scan(cursor=0, match=match, count=batch_size)
-                if isinstance(raw_res, tuple) and len(raw_res) == 2:
-                    init_cursors, init_batch = raw_res
-                    if isinstance(init_cursors, dict):
-                        cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
-                    else:
-                        cursors_map = {'default': int(init_cursors or 0)}
-                    for key in init_batch or []:
-                        k = _b(key)
-                        if k not in seen:
-                            seen.add(k)
-                            collected.append(k)
-                elif isinstance(raw_res, dict):
-                    cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
-            except Exception:
-                known_nodes = []
-                if hasattr(conn, 'get_nodes'):
-                    try:
-                        for n in conn.get_nodes() or []:
-                            name = getattr(n, 'name', None) or getattr(n, 'node_name', None) or str(n)
-                            known_nodes.append(name)
-                    except Exception:
-                        pass
-                if known_nodes:
-                    for name in known_nodes:
-                        if name not in failed_nodes:
-                            failed_nodes.append(name)
+            except DbError:
+                raise
+            except Exception as exc:
+                raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+
+            if isinstance(raw_res, tuple) and len(raw_res) == 2:
+                init_cursors, init_batch = raw_res
+                if isinstance(init_cursors, dict):
+                    cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
                 else:
-                    raise
+                    cursors_map = {'default': int(init_cursors or 0)}
+                for key in init_batch or []:
+                    k = _b(key)
+                    if k not in seen:
+                        seen.add(k)
+                        collected.append(k)
+            elif isinstance(raw_res, dict):
+                cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
 
         # 遍历所有未耗尽节点（node cursor != 0）进行分页
         while len(collected) < cap:
@@ -686,12 +695,16 @@ def redis_scan_page(
                         new_cur = int(cur_res or 0)
                     cursors_map[name] = int(new_cur or 0)
                     progress_made = True
-                except Exception:
-                    # 单节点网络波动/部分节点异常不拖垮其他节点，记录为 failed_nodes，不假装 finished
-                    if name not in failed_nodes:
-                        failed_nodes.append(name)
-                    cursors_map.pop(name, None)
-                    progress_made = True
+                except Exception as exc:
+                    if _is_transport_error(exc):
+                        # 单节点网络/传输层异常不拖垮其他节点，记录为 failed_nodes，不假装 finished
+                        if name not in failed_nodes:
+                            failed_nodes.append(name)
+                        cursors_map.pop(name, None)
+                        progress_made = True
+                    else:
+                        # 编程/类型/API错误（如 TypeError, AttributeError 等）禁止吞掉，向外抛出 DbError
+                        raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
                 if len(collected) >= cap:
                     break
             if not progress_made:
@@ -699,7 +712,7 @@ def redis_scan_page(
     except DbError:
         raise
     except Exception as exc:
-        raise DbError(f'SCAN 失败：{exc}') from exc
+        raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
 
     is_partial = bool(failed_nodes)
     finished = all(c == 0 for c in cursors_map.values()) if cursors_map else True

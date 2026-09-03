@@ -2,6 +2,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+import redis.exceptions as rexc
+
+from tools.db_connect import DbError
 from tools.db_redis_ops import (
     RedisScanState,
     redis_scan_page,
@@ -156,24 +159,77 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
         self.assertTrue(applied2)
         self.assertEqual(state.keys, ['new_key'])
 
-    def test_partial_node_error_does_not_crash_scan(self):
+    def test_cluster_initial_programming_error_raises_dberror(self):
+        """A. 首次全集群 scan 发生 TypeError 等编程错误，必须直接抛出 DbError，严禁伪装成 partial。"""
         conn = MagicMock()
         conn.is_cluster = True
-        conn.get_nodes.return_value = ['node-good', 'node-bad']
+        conn.scan.side_effect = TypeError("bad api arguments")
+
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("bad api arguments", str(ctx.exception))
+
+    def test_cluster_targeted_node_network_error_marks_partial(self):
+        """B. 具体 target node 发生 ConnectionError 网络错误，其他节点继续，failed_nodes 包含该节点，结果标记 partial=True。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A', 'node-B']
+        # 首次广播拿到 node-A 与 node-B 的游标
+        # 第二次对 node-A 扫描抛 ConnectionError，第三次对 node-B 正常返回 cursor=0
         conn.scan.side_effect = [
-            ({'node-good': 10, 'node-bad': 20}, ['k_init']),
-            ({'node-good': 0}, ['k_good']),
-            Exception('Connection to node-bad failed'),
+            ({'node-A': 10, 'node-B': 20}, ['k_init']),
+            rexc.ConnectionError("Connection to node-A lost"),
+            ({'node-B': 0}, ['k_b']),
         ]
         res = redis_scan_page(conn, cursor=0, limit=10)
         self.assertIn('k_init', res['keys'])
-        self.assertIn('k_good', res['keys'])
-        # 游标已全部耗尽（node-good 为 0，node-bad 失败已剔除）：finished=True，无更多游标可推进
-        self.assertTrue(res['finished'])
-        # 但结果不完整：partial=True, incomplete=True
+        self.assertIn('k_b', res['keys'])
+        self.assertIn('node-A', res['failed_nodes'])
         self.assertTrue(res['partial'])
         self.assertTrue(res['incomplete'])
-        self.assertIn('node-bad', res['failed_nodes'])
+        self.assertTrue(res['finished'])
+
+    def test_cluster_targeted_programming_error_raises_dberror(self):
+        """C. 具体 target node 发生 TypeError 等编程错误，必须向外抛出 DbError，严禁吞掉。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            TypeError("unexpected argument during node scan"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("unexpected argument", str(ctx.exception))
+
+    def test_standalone_scan_error_propagates_and_no_scan_iter(self):
+        """D. Standalone scan 抛出 ConnectionError 时必须直接抛出 DbError，严禁调用 scan_iter 回退。"""
+        conn = MagicMock()
+        conn.is_cluster = False
+        del conn.get_nodes
+        conn.scan.side_effect = rexc.ConnectionError("Standalone connection lost")
+        conn.scan_iter = MagicMock()
+
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("Standalone connection lost", str(ctx.exception))
+        conn.scan_iter.assert_not_called()
+
+    def test_redis_single_node_targeted_network_failure_terminal_case(self):
+        """E. 集群单节点推进游标时遭遇真实 ConnectionError：cursor 为空，finished=True, partial=True, incomplete=True。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-solo']
+        conn.scan.side_effect = [
+            ({'node-solo': 10}, ['k1']),
+            rexc.ConnectionError('node-solo connection lost'),
+        ]
+        res = redis_scan_page(conn, cursor=0, limit=10)
+        self.assertEqual(res['cursor'], {})
+        self.assertTrue(res['finished'])
+        self.assertTrue(res['partial'])
+        self.assertTrue(res['incomplete'])
+        self.assertEqual(res['failed_nodes'], ['node-solo'])
 
     def test_redis_scan_state_partial_sticky_across_pages(self):
         """Page 1 发生节点失败后，Page 2 即使正常结束，partial 与 failed_nodes 也必须跨页保持。"""
@@ -197,20 +253,6 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
         self.assertTrue(state.partial)
         self.assertTrue(state.incomplete)
         self.assertEqual(state.failed_nodes, ['node-A'])
-
-    def test_redis_single_node_failure_terminal_case(self):
-        """集群中仅有 1 个节点且该节点失败：cursor 为空，finished=True, partial=True, incomplete=True。"""
-        conn = MagicMock()
-        conn.is_cluster = True
-        conn.get_nodes.return_value = ['node-solo']
-        conn.scan.side_effect = Exception('node-solo down')
-
-        res = redis_scan_page(conn, cursor=0, limit=10)
-        self.assertEqual(res['cursor'], {})
-        self.assertTrue(res['finished'])
-        self.assertTrue(res['partial'])
-        self.assertTrue(res['incomplete'])
-        self.assertEqual(res['failed_nodes'], ['node-solo'])
 
     def test_scan_batch_never_drops_keys_standalone(self):
         """Standalone: 剩余配额 1，SCAN 返回 5 个 Key 且 cursor != 0，必须完整保留全部 5 个 Key。"""
