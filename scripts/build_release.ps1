@@ -330,6 +330,7 @@ $list
         '--hidden-import', 'encodings.idna',
         '--collect-all', 'cryptography',
         '--collect-all', 'oracledb',
+        '--collect-all', 'pyodbc',
         # PyQt6: use --collect-binaries (collect_dynamic_libs) instead of --collect-all.
         # collect_all pulls in QML/translations (~6573 entries) -> OOM during build, and the
         # standard PyQt6 hook does NOT collect Qt6Core/Gui/Widgets.dll from Qt6/bin -> DLL load
@@ -346,6 +347,7 @@ $list
         '--hidden-import', 'pymysql',
         '--hidden-import', 'redis',
         '--hidden-import', 'pymongo',
+        '--hidden-import', 'pyodbc',
         '--hidden-import', 'panels.ai_workbench_panel',
         '--hidden-import', 'panels.model_chat_panel',
         '--hidden-import', 'panels.agent_workbench_panel',
@@ -584,7 +586,11 @@ $list
         }
     }
 
-    $ZipPath = Join-Path $ProjectDir 'PengToolsHub_Offline_Setup.zip'
+    $ZipName = 'PengToolsHub_Offline_Setup.zip'
+    if ($env:PENGTOOLS_RELEASE_ZIP_NAME) {
+        $ZipName = $env:PENGTOOLS_RELEASE_ZIP_NAME
+    }
+    $ZipPath = Join-Path $ProjectDir $ZipName
     if (Test-Path -LiteralPath $ZipPath) {
         cmd /c "del /f /q `"$ZipPath`"" 2>$null
     }

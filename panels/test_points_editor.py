@@ -112,6 +112,7 @@ class TestPointsEditor(QWidget):
         persist_callback=None,
         compact=False,
         auto_seed=True,
+        show_header=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -122,10 +123,12 @@ class TestPointsEditor(QWidget):
         self._pending_seed = False
         self._points = []
         self._rebuilding = False
+        self._compact = bool(compact)
+        self._show_header = bool(compact if show_header is None else show_header)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(6)
 
         self.hint = QLabel()
         self.hint.setObjectName('test-points-hint')
@@ -142,6 +145,19 @@ class TestPointsEditor(QWidget):
         hint_row.addWidget(self.commit_seed_btn, 0)
         root.addLayout(hint_row)
 
+        self.header = QWidget()
+        header_l = QHBoxLayout(self.header)
+        header_l.setContentsMargins(0, 0, 0, 0)
+        self.header_title = QLabel('测试任务点')
+        self.header_title.setObjectName('zone-title')
+        self.header_progress = QLabel('0 / 0')
+        self.header_progress.setObjectName('field-hint')
+        header_l.addWidget(self.header_title)
+        header_l.addStretch(1)
+        header_l.addWidget(self.header_progress)
+        self.header.setVisible(self._show_header)
+        root.addWidget(self.header)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -150,7 +166,7 @@ class TestPointsEditor(QWidget):
         self.list_layout = QVBoxLayout(self.list_host)
         self.list_layout.setContentsMargins(0, 0, 4, 0)
         self.list_layout.setSpacing(4)
-        self.empty = QLabel('还没有测试点，在下方添加，或从需求说明提取。')
+        self.empty = QLabel('暂无测试点')
         self.empty.setObjectName('test-points-empty')
         self.empty.setWordWrap(True)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -158,11 +174,13 @@ class TestPointsEditor(QWidget):
         self.list_layout.addStretch(1)
         self.scroll.setWidget(self.list_host)
         if compact:
-            self.scroll.setMinimumHeight(120)
-            self.scroll.setMaximumHeight(180)
+            self.scroll.setMinimumHeight(48)
+            self.scroll.setMaximumHeight(140)
+            self.scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            self.setMaximumHeight(220)
         else:
             self.scroll.setMinimumHeight(160)
-        self.scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self.scroll, 1)
 
         add_row = QHBoxLayout()
@@ -234,6 +252,7 @@ class TestPointsEditor(QWidget):
             elif self.list_layout.indexOf(self.empty) < 0:
                 self.list_layout.addWidget(self.empty)
             self.empty.setVisible(not self._points)
+            self.empty.setText('暂无测试点')
             for point in self._points:
                 row = TestPointRow(point)
                 row.toggled.connect(self._on_toggled)
@@ -246,8 +265,14 @@ class TestPointsEditor(QWidget):
             self._rebuilding = False
 
     def _sync_hint(self):
+        done, total = test_points_progress(self._points)
+        if hasattr(self, 'header_progress'):
+            self.header_progress.setText(f'{done} / {total}')
+        extracted = extract_test_points_from_text(self._description)
+        can_extract = bool(extracted)
+        self.extract_btn.setEnabled(can_extract)
+        self.extract_btn.setToolTip('' if can_extract else '需求说明中没有可提取的测试点')
         if self._pending_seed and self._points:
-            done, total = test_points_progress(self._points)
             self.hint.setText(f'已从需求说明识别 {total} 条，尚未写入台账。勾选或点「写入清单」后保存；原说明不会删除。')
             self.hint.show()
             self.commit_seed_btn.show()

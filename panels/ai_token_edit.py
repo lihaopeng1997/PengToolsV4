@@ -141,11 +141,18 @@ class AiPromptEdit(QTextEdit):
         menu.addSeparator()
         menu.addAction(view)
         menu.addAction(clear)
-        std = self.createStandardContextMenu()
-        if std is not None:
-            menu.addSeparator()
-            for action in std.actions():
-                menu.addAction(action)
+        menu.addSeparator()
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            copy = QAction('复制' if zh else 'Copy', self)
+            copy.triggered.connect(self.copy)
+            menu.addAction(copy)
+        paste = QAction('粘贴' if zh else 'Paste', self)
+        paste.triggered.connect(self.paste)
+        menu.addAction(paste)
+        select = QAction('全选' if zh else 'Select all', self)
+        select.triggered.connect(self.selectAll)
+        menu.addAction(select)
         menu.exec(self.mapToGlobal(pos))
 
     def _clear_tokens_keep_text(self):

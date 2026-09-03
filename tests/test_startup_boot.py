@@ -64,5 +64,59 @@ class StartupBootTests(unittest.TestCase):
         splash.close()
 
 
+    def test_startup_top_level_widgets_no_isolated_buttons(self):
+        from config import DEFAULT_SETTINGS
+        from main_window import MainWindow
+        from PyQt6.QtWidgets import QPushButton
+
+        initial_top = set(self.app.topLevelWidgets())
+        settings = dict(DEFAULT_SETTINGS, ui_web_shell=False)
+        with patch('main_window.load_settings', return_value=settings):
+            window = MainWindow()
+        try:
+            window.show()
+            self.app.processEvents()
+            new_top = set(self.app.topLevelWidgets()) - initial_top
+            for widget in new_top:
+                if isinstance(widget, QPushButton):
+                    self.assertNotIn(widget.text(), ('检出代码', '导入资料', '系统配置'))
+                title = getattr(widget, 'windowTitle', lambda: '')()
+                self.assertNotIn(title, ('检出代码', '导入资料', '系统配置'))
+                if widget.isVisible():
+                    self.assertIn(widget.__class__.__name__, ('MainWindow', 'QuickPanel'))
+        finally:
+            if window.hotkey_service:
+                window.hotkey_service.unregister()
+            if window.quick_panel is not None:
+                window.quick_panel.close_toolbar()
+            if window.tray_service is not None:
+                window.tray_service.hide()
+            if window.keep_awake_service is not None:
+                window.keep_awake_service.stop()
+            window.hide()
+            window.deleteLater()
+
+
+    def test_smoke_exit_ms_validation(self):
+        from unittest.mock import MagicMock
+        mock_exit = MagicMock()
+
+        def parse_and_schedule(raw_val):
+            if raw_val:
+                try:
+                    smoke_ms = int(str(raw_val).strip())
+                    if smoke_ms > 0:
+                        mock_exit(smoke_ms)
+                except Exception:
+                    pass
+
+        for invalid in ('-100', '-1', '0', 'abc', '', '   ', None):
+            parse_and_schedule(invalid)
+        mock_exit.assert_not_called()
+
+        parse_and_schedule('3000')
+        mock_exit.assert_called_once_with(3000)
+
+
 if __name__ == '__main__':
     unittest.main()

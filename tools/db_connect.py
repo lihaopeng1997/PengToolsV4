@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -33,14 +34,259 @@ from tools.sql_guard import (
 )
 
 PAGE_SIZE = 20
-MAX_ROWS = 2000
+MAX_ROWS = 2000  # Redis/Mongo 等非 SQL 路径保护；SQL 分页不再用它做总行上限
+FETCH_CHUNK = 500
+RESULT_BYTE_LIMIT = 50 * 1024 * 1024
 CELL_MAX = 200
 
 NOSQL = frozenset({'redis', 'mongodb'})
+REDIS_AUTH_NONE = 'none'
+REDIS_AUTH_PASSWORD = 'password'
+REDIS_AUTH_ACL = 'acl'
+MONGO_MECH_AUTO = 'auto'
 
 
 class DbError(Exception):
     pass
+
+
+def is_mongo_uri(host: str) -> bool:
+    text = str(host or '').strip().lower()
+    return text.startswith('mongodb://') or text.startswith('mongodb+srv://')
+
+
+def normalize_redis_auth_mode(item: dict | None) -> str:
+    """历史配置：有 username → acl；只有密码 → password；都没有 → none。"""
+    data = item or {}
+    raw = str(data.get('auth_mode') or '').strip().lower()
+    if raw in (REDIS_AUTH_NONE, REDIS_AUTH_PASSWORD, REDIS_AUTH_ACL):
+        return raw
+    if str(data.get('username') or '').strip():
+        return REDIS_AUTH_ACL
+    if str(data.get('password') or '').strip():
+        return REDIS_AUTH_PASSWORD
+    return REDIS_AUTH_NONE
+
+
+def redis_auth_kwargs(item: dict | None, password: str) -> dict[str, Any]:
+    mode = normalize_redis_auth_mode(item)
+    if mode == REDIS_AUTH_NONE:
+        return {'username': None, 'password': None}
+    if mode == REDIS_AUTH_PASSWORD:
+        return {'username': None, 'password': password or None}
+    username = str((item or {}).get('username') or '').strip() or None
+    return {'username': username, 'password': password or None}
+
+
+def normalize_redis_seed_nodes(item: dict | None) -> list[dict]:
+    """Cluster seed 列表；旧配置仅 host/port 时视为单个 seed。"""
+    data = item or {}
+    result: list[dict] = []
+    raw_seeds = data.get('seed_nodes')
+    if isinstance(raw_seeds, list):
+        for entry in raw_seeds:
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get('host') or '').strip()
+            if not host:
+                continue
+            try:
+                port = int(entry.get('port'))
+            except (TypeError, ValueError) as exc:
+                raise DbError(f'Redis 端口无效：{entry.get("port")!r}（须为 1–65535）') from exc
+            if not 1 <= port <= 65535:
+                raise DbError(f'Redis 端口无效：{port}（须为 1–65535）')
+            result.append({'host': host, 'port': port})
+    if result:
+        return result
+    host = str(data.get('host') or '').strip() or '127.0.0.1'
+    try:
+        port = int(data.get('port') or DEFAULT_PORTS.get('redis', 6379))
+    except (TypeError, ValueError) as exc:
+        raise DbError(f'Redis 端口无效：{data.get("port")!r}（须为 1–65535）') from exc
+    if not 1 <= port <= 65535:
+        raise DbError(f'Redis 端口无效：{port}（须为 1–65535）')
+    return [{'host': host, 'port': port}]
+
+
+def normalize_mongo_seed_nodes(item: dict | None) -> list[dict]:
+    """MongoDB Cluster seed 列表；旧配置仅 host/port 时兼容为单个 seed。"""
+    data = item or {}
+    result: list[dict] = []
+    raw_seeds = data.get('seed_nodes')
+    if isinstance(raw_seeds, list):
+        for entry in raw_seeds:
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get('host') or '').strip()
+            if not host:
+                continue
+            try:
+                port = int(entry.get('port'))
+            except (TypeError, ValueError) as exc:
+                raise DbError(f'MongoDB 端口无效：{entry.get("port")!r}（须为 1–65535）') from exc
+            if not 1 <= port <= 65535:
+                raise DbError(f'MongoDB 端口无效：{port}（须为 1–65535）')
+            result.append({'host': host, 'port': port})
+    if result:
+        return result
+    host = str(data.get('host') or '').strip() or '127.0.0.1'
+    try:
+        port = int(data.get('port') or DEFAULT_PORTS.get('mongodb', 27017))
+    except (TypeError, ValueError) as exc:
+        raise DbError(f'MongoDB 端口无效：{data.get("port")!r}（须为 1–65535）') from exc
+    if not 1 <= port <= 65535:
+        raise DbError(f'MongoDB 端口无效：{port}（须为 1–65535）')
+    return [{'host': host, 'port': port}]
+
+
+def mongo_auth_source(item: dict | None) -> str:
+    data = item or {}
+    explicit = str(data.get('auth_source') or '').strip()
+    if explicit:
+        return explicit
+    database = str(data.get('database') or '').strip()
+    if database:
+        return database
+    return 'admin'
+
+
+def mongo_auth_mechanism(item: dict | None) -> str:
+    raw = str((item or {}).get('auth_mechanism') or '').strip()
+    if not raw or raw.lower() in (MONGO_MECH_AUTO, 'automatic', 'default'):
+        return ''
+    return raw
+
+
+def _redis_error_message(exc: BaseException, auth_mode: str) -> str:
+    text = redact_error(str(exc))
+    low = text.lower()
+    authish = (
+        'invalid username-password' in low
+        or 'user is disabled' in low
+        or 'wrongpass' in low
+        or 'noauth' in low
+        or 'authentication required' in low
+        or 'auth' in low and 'fail' in low
+    )
+    if authish:
+        if auth_mode == REDIS_AUTH_ACL:
+            return (
+                'Redis 认证失败。\n'
+                '当前认证模式：ACL 用户名 + 密码\n'
+                '请确认用户名是否存在、是否启用，以及密码是否正确。\n'
+                f'原始错误：{text}'
+            )
+        if auth_mode == REDIS_AUTH_PASSWORD:
+            return (
+                'Redis 认证失败。\n'
+                '当前认证模式：仅密码\n'
+                '该集群可能启用了 ACL 用户认证，请尝试选择“ACL 用户名 + 密码”。\n'
+                f'原始错误：{text}'
+            )
+        return (
+            'Redis 认证失败。\n'
+            '当前认证模式：无认证\n'
+            '服务器要求认证，请选择“仅密码”或“ACL 用户名 + 密码”。\n'
+            f'原始错误：{text}'
+        )
+    return f'Redis 连接失败：{text}'
+
+
+def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
+    text = redact_error(str(exc))
+    code = getattr(exc, 'code', None)
+    low = text.lower()
+
+    safe_info = []
+    if item:
+        mode = str(item.get('mode') or 'standalone').strip().lower()
+        if mode == 'cluster':
+            try:
+                seeds = normalize_mongo_seed_nodes(item)
+                nodes_txt = ', '.join(f"{s.get('host')}:{s.get('port')}" for s in seeds)
+                safe_info.append(f"集群节点：{nodes_txt}")
+            except Exception:
+                pass
+        else:
+            safe_info.append(f"主机端口：{item.get('host')}:{item.get('port')}")
+        safe_info.append(f"认证库：{mongo_auth_source(item)}")
+        mech = mongo_auth_mechanism(item)
+        if mech:
+            safe_info.append(f"认证机制：{mech}")
+        rs = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+        if rs:
+            safe_info.append(f"ReplicaSet：{rs}")
+    config_ctx = ('\n连接参数：' + ' | '.join(safe_info)) if safe_info else ''
+
+    exc_type_name = type(exc).__name__
+    try:
+        import pymongo.errors as pyerrors
+    except ImportError:
+        pyerrors = None
+
+    # 1. 认证错误
+    if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
+        return (
+            f'[AUTH_ERROR] MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
+            '请核对用户名、密码、认证库（authSource）和认证机制。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    # 2. TLS/SSL 错误（优先于 ServerSelectionTimeout，因为底层证书/握手失败常被 PyMongo 包装为 ServerSelectionTimeoutError）
+    is_tls = (
+        'certificate_verify_failed' in low
+        or 'ssl: certificate_verify_failed' in low
+        or 'tlshandshakeerror' in low
+        or 'sslerror' in low
+        or 'certificate' in low
+        or 'cert' in low
+        or 'tls' in low
+        or 'ssl' in low
+    )
+    if is_tls:
+        return (
+            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    # 3. 服务器选择超时 / 节点拓扑选择失败（在排除 TLS 之后）
+    is_server_timeout = (
+        (pyerrors is not None and isinstance(exc, getattr(pyerrors, 'ServerSelectionTimeoutError', ())))
+        or exc_type_name == 'ServerSelectionTimeoutError'
+        or 'serverselectiontimeouterror' in low
+        or 'replicasetnoprimary' in low
+        or 'no primary available for writes' in low
+        or ('timed out' in low and ('server' in low or 'topology' in low or 'connection' in low))
+    )
+    if is_server_timeout:
+        return (
+            f'[SERVER_SELECTION_ERROR] MongoDB 服务器选择超时，无法连通目标节点或无可用主节点。\n'
+            '请检查集群各节点主机名、IP、端口及网络链路是否通畅。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    # 4. 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
+    rs_mismatch = (
+        'not a member of replica set' in low
+        or 'does not match the replica set name' in low
+        or 'replica set name does not match' in low
+        or 'replica set configuration mismatch' in low
+        or ('replicaset' in low and ('mismatch' in low or 'not a member' in low or 'different' in low))
+    )
+    if rs_mismatch:
+        return (
+            f'[REPLICA_SET_MISMATCH] MongoDB 副本集配置不匹配。\n'
+            '请检查所填写的 ReplicaSet 名称是否与集群实际副本集名称一致，若连接 mongos 或分片集群请留空。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    if 'invaliduri' in low or 'configurationerror' in low or 'invalid' in low:
+        return (
+            f'[INVALID_CONFIG] MongoDB 配置无效。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+    return f'MongoDB 连接失败：{text}{config_ctx}'
 
 
 def _encrypt(plain: str) -> str:
@@ -118,52 +364,427 @@ def delete_connection(conn_id: str) -> None:
     save_connections([row for row in load_connections() if row.get('id') != conn_id])
 
 
-def open_connection(item: dict):
-    dialect = str(item.get('dialect') or 'oracle').lower()
-    password = _decrypt(item.get('password') or '')
+def resolve_db_provider(item: dict | None) -> str:
+    """显式解析数据库底层 provider，禁止 Oracle 与 OceanBase 混在模糊分支。"""
+    dialect = str((item or {}).get('dialect') or 'oracle').strip().lower()
+    if dialect == 'oceanbase':
+        ob_mode = normalize_oceanbase_mode((item or {}).get('mode'))
+        return 'oceanbase_oracle' if ob_mode == 'oracle' else 'oceanbase_mysql'
+    if dialect == 'oracle':
+        return 'oracle'
+    if dialect == 'mysql':
+        return 'mysql'
+    return dialect
+
+
+def escape_odbc_value(val: Any) -> str:
+    """对 ODBC 连接串的属性值进行标准安全转义。
+    若包含分号、花括号、等号或空格等保留字符，使用 {} 包裹并将内部的 } 转义为 }}。
+    """
+    s = str(val or '')
+    if any(c in s for c in (';', '{', '}', '=', ' ')) or not s:
+        return '{' + s.replace('}', '}}') + '}'
+    return s
+
+
+def _sanitize_odbc_error(text: str, plain_password: str | None = None) -> str:
+    """清理 ODBC 异常信息中可能泄露的明文或转义密码。"""
+    s = str(text or '')
+    if plain_password:
+        raw_pw = str(plain_password).strip()
+        if raw_pw:
+            escaped_pw = escape_odbc_value(raw_pw)
+            if escaped_pw:
+                s = s.replace(escaped_pw, '{***}')
+            inner = raw_pw.replace('}', '}}')
+            if inner:
+                s = s.replace(inner, '***')
+            s = s.replace(raw_pw, '***')
+    # 正则匹配 ODBC 风格的 Password={...} 或 PWD={...}（支持花括号内包含分号与双花括号）
+    s = re.sub(r'(?i)\b(Password|PWD)\s*=\s*\{[^\}]*(?:\}\}[^\}]*)*\}', r'\1={***}', s)
+    return redact_error(s)
+
+
+def translate_numeric_binds(sql: str, params: Any) -> tuple[str, Any]:
+    """将 Oracle 风格的数字绑定参数 (:1, :2...) 转换为 pyodbc 支持的 qmark 风格 (?)。
+    严格保证符合 python-oracledb 原生 positional 绑定契约：
+    - 当 params 为 sequence (list/tuple) 时，占位符在 SQL 中出现的顺序与 params 元素一一对应，
+      占位符标签数字不决定下标，重复出现的占位符消耗对应的序列参数项；
+    - 当 params 为 dict 时，按占位符标签数字提取对应的值；
+    - 忽略字符串字面量内部的冒号（如 ':1 not a bind' 或时间格式 '12:00:00'）；
+    - 若 SQL 已是 qmark 格式且不包含 :1 风格数字绑定，直接透传。
+    """
+    if not params:
+        return sql, params
+    if '?' in sql and not re.search(r':[1-9]\d*\b', sql):
+        return sql, params
+
+    pattern = re.compile(r"('(?:''|[^'])*'|\"[^\"]*\")|:([1-9]\d*)\b")
+
+    if isinstance(params, (list, tuple)):
+        new_sql = pattern.sub(lambda m: m.group(1) if m.group(1) else '?', sql)
+        return new_sql, tuple(params)
+
+    if isinstance(params, dict):
+        new_params = []
+        def repl_dict(m: re.Match) -> str:
+            if m.group(1):
+                return m.group(1)
+            key_str = m.group(2)
+            key_int = int(key_str)
+            if key_str in params:
+                val = params[key_str]
+            elif key_int in params:
+                val = params[key_int]
+            else:
+                raise KeyError(f'Bind parameter :{key_str} not found in params dict')
+            new_params.append(val)
+            return '?'
+        new_sql = pattern.sub(repl_dict, sql)
+        return new_sql, tuple(new_params)
+
+    return sql, params
+
+
+class OceanBaseOdbcCursor:
+    """pyodbc Cursor 的 DB-API 适配层：将 :1, :2 等数字绑定参数转换为 qmark 风格。"""
+
+    def __init__(self, raw_cursor):
+        self._cursor = raw_cursor
+
+    def execute(self, sql: str, params: Any = None):
+        if params is not None:
+            translated_sql, translated_params = translate_numeric_binds(sql, params)
+            return self._cursor.execute(translated_sql, translated_params)
+        return self._cursor.execute(sql)
+
+    def executemany(self, sql: str, seq_of_params):
+        if seq_of_params:
+            first = seq_of_params[0]
+            translated_sql, _ = translate_numeric_binds(sql, first)
+            new_seq = []
+            for p in seq_of_params:
+                _, tp = translate_numeric_binds(sql, p)
+                new_seq.append(tp)
+            return self._cursor.executemany(translated_sql, new_seq)
+        return self._cursor.executemany(sql, seq_of_params)
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def fetchmany(self, size: int | None = None):
+        if size is not None:
+            return self._cursor.fetchmany(size)
+        return self._cursor.fetchmany()
+
+    def close(self):
+        return self._cursor.close()
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __getattr__(self, name: str):
+        return getattr(self._cursor, name)
+
+
+class OceanBaseOdbcConnection:
+    """pyodbc Connection 的包装层，生产统一提供适配 Cursor。"""
+
+    def __init__(self, raw_conn, driver_name: str = 'OceanBase ODBC 2.0 Driver'):
+        self._conn = raw_conn
+        self.driver_name = driver_name
+        self._driver_name = driver_name
+
+    def cursor(self):
+        return OceanBaseOdbcCursor(self._conn.cursor())
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
+def oceanbase_odbc_driver_status(available_drivers: list[str] | None = None) -> tuple[str, list[str]]:
+    """检测当前 Python 环境可见的 OceanBase ODBC 驱动。
+    规则：
+    1. 首选精确匹配 'OceanBase ODBC 2.0 Driver'；
+    2. 兼容包含 'oceanbase' 与 'odbc' 的名称（忽略大小写）；
+    3. 若匹配到多个候选且无精确匹配，明确报错歧义，不随机挑选；
+    4. 若未匹配到候选，报错提示安装驱动。
+    返回 (selected_driver, all_drivers)。
+    """
+    if available_drivers is None:
+        try:
+            import pyodbc
+            drivers = list(pyodbc.drivers() or [])
+        except ImportError as exc:
+            raise DbError('[PYODBC_REQUIRED] 当前 Python 环境缺少 pyodbc，请在运行环境中安装 pyodbc==5.3.0。') from exc
+        except Exception:
+            drivers = []
+    else:
+        drivers = list(available_drivers)
+
+    if 'OceanBase ODBC 2.0 Driver' in drivers:
+        return 'OceanBase ODBC 2.0 Driver', drivers
+
+    candidates = [
+        d for d in drivers
+        if 'oceanbase' in d.lower() and 'odbc' in d.lower()
+    ]
+    if len(candidates) == 1:
+        return candidates[0], drivers
+    if len(candidates) > 1:
+        raise DbError(
+            f'[AMBIGUOUS_ODBC_DRIVER] 发现多个 OceanBase ODBC 驱动候选：{candidates}，无法自动确定，请在系统 ODBC 管理器中明确配置。'
+        )
+
+    raise DbError(
+        f'[ODBC_DRIVER_REQUIRED] 未找到 OceanBase ODBC 驱动。系统已安装驱动：{drivers or "无"}。\n'
+        '请安装与当前 Python 架构一致的 Windows x64 OceanBase Connector/ODBC（首选驱动名：OceanBase ODBC 2.0 Driver）。'
+    )
+
+
+def oceanbase_oracle_provider_status() -> dict:
+    """提供纯 helper，供测试与设置页诊断复用，不包含任何凭据。"""
+    try:
+        import pyodbc
+        pyodbc_available = True
+        pyodbc_version = str(getattr(pyodbc, 'version', ''))
+        try:
+            drivers = list(pyodbc.drivers() or [])
+        except Exception:
+            drivers = []
+    except ImportError:
+        pyodbc_available = False
+        pyodbc_version = ''
+        drivers = []
+
+    driver_name = ''
+    driver_available = False
+    status_code = 'PYODBC_REQUIRED'
+    message = '当前 Python 环境缺少 pyodbc 库'
+
+    if pyodbc_available:
+        try:
+            selected, _ = oceanbase_odbc_driver_status(drivers)
+            driver_name = selected
+            driver_available = True
+            status_code = 'READY'
+            message = f'已就绪（驱动：{selected}）'
+        except DbError as exc:
+            driver_available = False
+            err_text = str(exc)
+            if 'AMBIGUOUS_ODBC_DRIVER' in err_text:
+                status_code = 'AMBIGUOUS_ODBC_DRIVER'
+                message = '系统存在多个候选 OceanBase ODBC 驱动，无法自动决定'
+            else:
+                status_code = 'ODBC_DRIVER_REQUIRED'
+                message = '系统未安装 OceanBase ODBC 驱动'
+
+    return {
+        'provider': 'odbc',
+        'pyodbc_available': pyodbc_available,
+        'pyodbc_version': pyodbc_version,
+        'driver_available': driver_available,
+        'driver': driver_name,
+        'ready': bool(pyodbc_available and driver_available),
+        'status_code': status_code,
+        'message': message,
+    }
+
+
+def require_oceanbase_oracle_odbc_config(item: dict) -> None:
+    """检查 OceanBase Oracle 配置是否已经过 ODBC Schema 语义显式确认。"""
+    if (item or {}).get('oceanbase_oracle_provider') != 'odbc':
+        host = str((item or {}).get('host') or '').strip()
+        port = str((item or {}).get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
+        db = str((item or {}).get('database') or '').strip()
+        ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle (ODBC)"
+        raise DbError(
+            f"[ODBC_SCHEMA_CONFIRM_REQUIRED] 当前 OceanBase (Oracle 模式) 连接尚未确认 Database/Schema 语义。{ctx}\n"
+            "说明：旧版本 OceanBase Oracle 的 Database 字段曾用于保存 SID 或服务名；\n"
+            "在 Windows ODBC provider 中，Database 表示要访问的目标 Schema。\n"
+            "处理建议：请在连接管理器中打开“编辑连接”，确认 Database/Schema 后重新保存，然后再发起连接。"
+        )
+
+
+def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None, plain_password: str | None = None) -> str:
+    raw_text = str(exc)
+    text = _sanitize_odbc_error(raw_text, plain_password=plain_password)
+    low = text.lower()
+    host = (item or {}).get('host') or ''
+    port = (item or {}).get('port') or ''
+    db = (item or {}).get('database') or ''
+    ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle (ODBC)"
+
+    # 1. 优先判定传输层报文完整性故障（如 ORA-12569，即使带有 08S01 等网络 SQLSTATE 状态码也优先归类）
+    if 'ora-12569' in low or 'packet checksum failure' in low or 'checksum' in low:
+        return (
+            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569）。'
+            f'{ctx}\n'
+            '排查建议：客户端与目标 OceanBase/OBProxy 之间的底层网络或报文校验不匹配，请检查网络中间代理或路由环境。'
+        )
+
+    sqlstate = ''
+    if hasattr(exc, 'args') and exc.args and isinstance(exc.args[0], str):
+        sqlstate = exc.args[0].strip().upper()
+    if not sqlstate:
+        m = re.search(r'\[([0-9A-Z]{5})\]', text)
+        if m:
+            sqlstate = m.group(1).upper()
+
+    if sqlstate in ('IM002', 'IM003') or 'im002' in low or 'im003' in low or 'data source name not found' in low:
+        return (
+            f'[ODBC_DRIVER_REQUIRED] OceanBase (Oracle 模式) 驱动未安装或配置错误（SQLSTATE: {sqlstate or "IM002"}）。'
+            f'{ctx}\n'
+            '原因：系统 ODBC 管理器中未找到指定的 OceanBase ODBC 驱动。\n'
+            '排查建议：请安装与当前 Python 架构一致的 Windows x64 OceanBase Connector/ODBC（首选驱动名：OceanBase ODBC 2.0 Driver）。'
+        )
+    if sqlstate == '28000' or '28000' in low or 'invalid authorization' in low or 'login failed' in low:
+        return (
+            f'[AUTH_ERROR] OceanBase (Oracle 模式) 认证失败（用户名或密码错误，SQLSTATE: 28000）。'
+            f'{ctx}\n'
+            '排查建议：请核对用户名格式（user 或 user@tenant#cluster）与连接密码。'
+        )
+    if sqlstate in ('08001', '08004', '08S01') or '08001' in low or '08004' in low or '08s01' in low or 'could not connect' in low or 'connection refused' in low:
+        return (
+            f'[NETWORK / CONNECTION_ERROR] OceanBase (Oracle 模式) 无法建立网络连接（SQLSTATE: {sqlstate or "08001"}）。'
+            f'{ctx}\n'
+            '排查建议：请检查目标主机地址与端口是否可达，以及目标 OceanBase/OBProxy 监听服务是否正常。'
+        )
+    if sqlstate in ('HYT00', 'HYT01') or 'hyt00' in low or 'hyt01' in low or 'timeout' in low:
+        return (
+            f'[TIMEOUT] OceanBase (Oracle 模式) 连接或查询超时（SQLSTATE: {sqlstate or "HYT00"}）。'
+            f'{ctx}\n'
+            '排查建议：网络链路延迟过高或目标服务端响应超时，请检查网络质量及服务负载。'
+        )
+
+    return f'[ODBC_ERROR] OceanBase (Oracle 模式) 操作失败：{text}{ctx}'
+
+
+def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
+    # 0. 迁移安全门禁：旧配置必须先在连接设置中确认 Schema 语义，禁止静默直接连
+    require_oceanbase_oracle_odbc_config(item)
+
+    try:
+        import pyodbc
+    except ImportError as exc:
+        raise DbError('[PYODBC_REQUIRED] 当前 Python 环境缺少 pyodbc，请在运行环境中安装 pyodbc==5.3.0。') from exc
+
     host = str(item.get('host') or '').strip()
-    port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
+    if not host:
+        raise DbError('主机地址不能为空')
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
+    except (TypeError, ValueError):
+        port = 2883
+    database = str(item.get('database') or '').strip()
+    if not database:
+        raise DbError('Database/Schema 不能为空')
+    username = str(item.get('username') or '').strip()
+    if not username:
+        raise DbError('用户名不能为空')
+    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
+
+    driver_name, _ = oceanbase_odbc_driver_status()
+
+    # 根据官方 OceanBase Connector/ODBC Windows DSN-less 规范构建连接串：
+    # Option=3 follows OceanBase official Windows ODBC example and selects TCP/IP connection mode.
+    conn_str = (
+        f"Driver={{{driver_name}}};"
+        f"Server={escape_odbc_value(host)};"
+        f"Port={port};"
+        f"Database={escape_odbc_value(database)};"
+        f"User={escape_odbc_value(username)};"
+        f"Password={escape_odbc_value(password)};"
+        "Option=3"
+    )
+
+    try:
+        raw_conn = pyodbc.connect(conn_str, timeout=8, autocommit=False)
+        return OceanBaseOdbcConnection(raw_conn, driver_name=driver_name)
+    except Exception as exc:
+        msg = _oceanbase_oracle_error_message(exc, item, plain_password=password)
+        raise DbError(msg) from exc
+
+
+def _connect_oracle(item: dict, plain_password: str | None = None):
+    try:
+        import oracledb
+    except ImportError as exc:
+        raise DbError('未安装 oracledb，请安装依赖后重试') from exc
+
+    host = str(item.get('host') or '').strip()
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get('oracle', 1521))
+    except (TypeError, ValueError):
+        port = 1521
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
-    if dialect == 'oceanbase':
-        ob_mode = normalize_oceanbase_mode(item.get('mode'))
-        is_oracle_mode = (ob_mode == 'oracle')
-        is_mysql_mode = (ob_mode == 'mysql')
-    else:
-        is_oracle_mode = (dialect == 'oracle')
-        is_mysql_mode = (dialect == 'mysql')
+    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
 
-    if is_oracle_mode:
-        try:
-            import oracledb
-        except ImportError as exc:
-            raise DbError('未安装 oracledb，请安装依赖后重试') from exc
-        oracle = load_oracle_paths()
-        try:
-            ensure_oracle_client(
-                oracle['mode'],
-                lib_dir=oracle['lib_dir'],
-                home=oracle['home'],
-                oci_lib=oracle['oci_lib'],
-            )
-        except OracleRuntimeError as exc:
-            raise DbError(str(exc)) from exc
-        dsn = database if '/' in database or ':' in database else f'{host}:{port}/{database}'
-        try:
-            return oracledb.connect(user=username, password=password, dsn=dsn)
-        except Exception as exc:
-            text = redact_error(str(exc))
-            if 'DPY-3010' in text:
-                raise DbError(thick_required_message(text)) from exc
-            if 'DPY-3016' in text or 'pbkdf2' in text:
-                raise DbError(
-                    'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
-                    '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
-                    f' 原始错误：{text}'
-                ) from exc
-            label = 'OceanBase (Oracle 模式)' if dialect == 'oceanbase' else 'Oracle'
-            raise DbError(f'{label} 连接失败：{text}') from exc
-    if is_mysql_mode:
+    oracle_conf = load_oracle_paths()
+    try:
+        ensure_oracle_client(
+            oracle_conf['mode'],
+            lib_dir=oracle_conf['lib_dir'],
+            home=oracle_conf['home'],
+            oci_lib=oracle_conf['oci_lib'],
+        )
+    except OracleRuntimeError as exc:
+        raise DbError(str(exc)) from exc
+
+    dsn = database if ('/' in database or ':' in database) else f'{host}:{port}/{database}'
+    try:
+        return oracledb.connect(user=username, password=password, dsn=dsn)
+    except Exception as exc:
+        text = redact_error(str(exc))
+        if 'DPY-3010' in text:
+            raise DbError(thick_required_message(text)) from exc
+        if 'DPY-3016' in text or 'pbkdf2' in text:
+            raise DbError(
+                'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
+                '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
+                f' 原始错误：{text}'
+            ) from exc
+        raise DbError(f'Oracle 连接失败：{text}') from exc
+
+
+def open_connection(item: dict, plain_password: str | None = None):
+    dialect = str(item.get('dialect') or 'oracle').lower()
+    password = str(plain_password) if plain_password is not None else _decrypt(item.get('password') or '')
+    host = str(item.get('host') or '').strip()
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get(dialect, 1521))
+    except (TypeError, ValueError):
+        port = DEFAULT_PORTS.get(dialect, 1521)
+    database = str(item.get('database') or '').strip()
+    username = str(item.get('username') or '').strip()
+    provider = resolve_db_provider(item)
+
+    if provider == 'oceanbase_oracle':
+        return _connect_oceanbase_oracle(item, plain_password=password)
+    if provider == 'oracle':
+        return _connect_oracle(item, plain_password=password)
+    if provider in ('oceanbase_mysql', 'mysql'):
         try:
             import pymysql
         except ImportError as exc:
@@ -197,30 +818,45 @@ def open_connection(item: dict):
         except ValueError:
             db_index = 0
         mode = str(item.get('mode') or 'standalone').strip().lower()
+        auth_mode = normalize_redis_auth_mode(item)
+        auth = redis_auth_kwargs(item, password)
         try:
+            seeds = normalize_redis_seed_nodes(item)
             if mode == 'cluster':
-                client = redis.RedisCluster(
-                    host=host or '127.0.0.1',
-                    port=port,
-                    password=password or None,
-                    username=username or None,
-                    decode_responses=False,
-                    socket_connect_timeout=8,
-                )
+                try:
+                    from redis.cluster import ClusterNode, RedisCluster as ClusterClient
+                    nodes = [ClusterNode(seed['host'], seed['port']) for seed in seeds]
+                    client = ClusterClient(
+                        startup_nodes=nodes,
+                        decode_responses=False,
+                        socket_connect_timeout=8,
+                        **auth,
+                    )
+                except ImportError:
+                    first = seeds[0]
+                    client = redis.RedisCluster(
+                        host=first['host'],
+                        port=first['port'],
+                        decode_responses=False,
+                        socket_connect_timeout=8,
+                        **auth,
+                    )
             else:
+                first = seeds[0]
                 client = redis.Redis(
-                    host=host or '127.0.0.1',
-                    port=port,
-                    password=password or None,
-                    username=username or None,
+                    host=first['host'],
+                    port=first['port'],
                     db=db_index,
                     decode_responses=False,
                     socket_connect_timeout=8,
+                    **auth,
                 )
             client.ping()
             return client
+        except DbError:
+            raise
         except Exception as exc:
-            raise DbError(f'Redis 连接失败：{exc}') from exc
+            raise DbError(_redis_error_message(exc, auth_mode)) from exc
     if dialect == 'mongodb':
         try:
             from pymongo import MongoClient
@@ -229,44 +865,159 @@ def open_connection(item: dict):
         raw_host = str(host or '').strip()
         mongo_mode = str(item.get('mode') or 'standalone').strip().lower()
         try:
-            # 支持 from URL：host 形如 mongodb://user:pass@host1,host2,host3/?replicaSet=...&authSource=...
-            # URL 已含用户名/密码/replicaSet/authSource，直接用完整连接串（覆盖拆分的 user/pass）
-            if raw_host.startswith('mongodb://') or raw_host.startswith('mongodb+srv://'):
+            if is_mongo_uri(raw_host):
                 client = MongoClient(raw_host, serverSelectionTimeoutMS=8000)
                 client.admin.command('ping')
                 return client[database or 'admin']
             if not database:
                 raise DbError('MongoDB 请填写库名')
-            # 集群模式：host 支持多主机逗号分隔（副本集/分片 mongos），可附加 ?replicaSet=...&authSource=...
             if mongo_mode == 'cluster':
-                if ',' in raw_host or 'replicaSet' in raw_host or '?' in raw_host:
-                    conn_uri = raw_host
-                    if not conn_uri.startswith('mongodb'):
-                        # 多主机/带参数但未写协议头，补协议 + 认证（若填了 user/pass）
-                        auth = ''
-                        if username:
-                            from urllib.parse import quote_plus
-                            auth = f'{quote_plus(username)}:{quote_plus(password or "")}@'
-                        conn_uri = f'mongodb://{auth}{conn_uri}'
-                    client = MongoClient(conn_uri, serverSelectionTimeoutMS=8000)
-                else:
-                    # 集群模式但只填了单主机：按多 host 列表 + 可选副本集连接
-                    kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
-                    if username:
-                        kwargs['username'] = username
-                        kwargs['password'] = password
-                    client = MongoClient(**kwargs)
+                seeds = normalize_mongo_seed_nodes(item)
+                host_list = [f"{s['host']}:{s['port']}" for s in seeds]
+                kwargs: dict[str, Any] = {
+                    'host': host_list,
+                    'directConnection': False,
+                    'serverSelectionTimeoutMS': 8000,
+                }
+                replica_set = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+                if replica_set:
+                    kwargs['replicaSet'] = replica_set
             else:
-                kwargs = {'host': raw_host or '127.0.0.1', 'port': port, 'serverSelectionTimeoutMS': 8000}
-                if username:
-                    kwargs['username'] = username
-                    kwargs['password'] = password
-                client = MongoClient(**kwargs)
+                kwargs: dict[str, Any] = {
+                    'host': raw_host or '127.0.0.1',
+                    'port': port,
+                    'serverSelectionTimeoutMS': 8000,
+                }
+            if username:
+                kwargs['username'] = username
+                kwargs['password'] = password
+                kwargs['authSource'] = mongo_auth_source(item)
+                mechanism = mongo_auth_mechanism(item)
+                if mechanism:
+                    kwargs['authMechanism'] = mechanism
+            client = MongoClient(**kwargs)
             client.admin.command('ping')
             return client[database]
+        except DbError:
+            raise
         except Exception as exc:
-            raise DbError(f'MongoDB 连接失败：{exc}') from exc
+            raise DbError(_mongo_error_message(exc, item)) from exc
     raise DbError(f'不支持的数据库类型：{dialect}')
+
+
+def probe_connection(item: dict, plain_password: str | None = None) -> dict:
+    """测试当前输入能否连通；不写入配置。"""
+    dialect = str(item.get('dialect') or '').lower()
+    conn = open_connection(item, plain_password=plain_password)
+    try:
+        if dialect == 'redis':
+            from tools.db_redis_ops import redis_server_info
+            info = redis_server_info(conn)
+            mode = str(item.get('mode') or 'standalone')
+            node = ''
+            nodes = info.get('nodes') or []
+            if nodes:
+                first = nodes[0]
+                node = f"{first.get('host', '')}:{first.get('port', '')}"
+            else:
+                seeds = normalize_redis_seed_nodes(item)
+                node = f"{seeds[0]['host']}:{seeds[0]['port']}"
+            summary = (
+                f"模式：{'Cluster' if mode == 'cluster' else 'Standalone'}\n"
+                f"Redis 版本：{info.get('redis_version') or info.get('version') or '未知'}\n"
+                f"成功节点：{node or '本机连接'}"
+            )
+            return {'ok': True, 'summary': summary, 'info': info}
+        if dialect == 'mongodb':
+            client = getattr(conn, 'client', None) or conn
+            target_db = conn if hasattr(conn, 'command') else client[item.get('database') or 'admin']
+            try:
+                target_db.command('ping')
+            except Exception:
+                client.admin.command('ping')
+            meta_info = ''
+            try:
+                dbs = client.list_database_names()
+                meta_info = f'，可访问数据库数：{len(dbs)}'
+            except Exception:
+                try:
+                    cols = target_db.list_collection_names()
+                    meta_info = f'，当前库集合数：{len(cols)}'
+                except Exception:
+                    pass
+            mode = str(item.get('mode') or 'standalone').strip().lower()
+            auth_src = mongo_auth_source(item)
+            auth_mech = mongo_auth_mechanism(item) or '默认'
+            replica_set = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+            if mode == 'cluster':
+                seeds = normalize_mongo_seed_nodes(item)
+                nodes_str = ', '.join(f"{s['host']}:{s['port']}" for s in seeds)
+                summary_lines = [
+                    'MongoDB 集群连接成功',
+                    f'模式：Cluster（节点数：{len(seeds)}）',
+                    f'集群节点：{nodes_str}',
+                    f'目标库：{item.get("database") or "admin"}{meta_info}',
+                    f'认证库：{auth_src} | 机制：{auth_mech}',
+                ]
+                if replica_set:
+                    summary_lines.append(f'ReplicaSet：{replica_set}')
+            else:
+                summary_lines = [
+                    'MongoDB 连接成功',
+                    f'模式：Standalone',
+                    f'地址：{item.get("host") or "127.0.0.1"}:{item.get("port") or 27017}',
+                    f'目标库：{item.get("database") or "admin"}{meta_info}',
+                    f'认证库：{auth_src} | 机制：{auth_mech}',
+                ]
+            return {'ok': True, 'summary': '\n'.join(summary_lines)}
+        provider = resolve_db_provider(item)
+        if provider == 'oceanbase_oracle':
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT 1 FROM DUAL')
+                cursor.fetchone()
+                cursor.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'), SYS_CONTEXT('USERENV', 'SESSION_USER') FROM DUAL")
+                row = cursor.fetchone()
+                current_schema = row[0] if row else ''
+                current_user = row[1] if row and len(row) > 1 else ''
+                cursor.execute("SELECT COUNT(*) FROM USER_TABLES")
+                cnt_row = cursor.fetchone()
+                tbl_cnt = cnt_row[0] if cnt_row else 0
+            except Exception as exc:
+                msg = _oceanbase_oracle_error_message(exc, item)
+                raise DbError(msg) from exc
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            driver_name = getattr(conn, 'driver_name', '') or getattr(conn, '_driver_name', '') or 'OceanBase ODBC 2.0 Driver'
+            summary = (
+                'OceanBase (Oracle 模式) 连接与业务验证成功\n'
+                'Provider: OceanBase ODBC\n'
+                f'Driver: {driver_name}\n'
+                f'目标 Schema：{item.get("database") or current_schema or current_user or "默认"}\n'
+                f'当前用户：{current_user or item.get("username")}\n'
+                f'用户表数量：{tbl_cnt}'
+            )
+            return {'ok': True, 'summary': summary}
+        if provider == 'oracle':
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT 1 FROM DUAL')
+                cursor.fetchone()
+                cursor.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL")
+                row = cursor.fetchone()
+                current_schema = row[0] if row else ''
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            return {'ok': True, 'summary': f'Oracle 连接与业务验证成功，Schema：{current_schema or item.get("database") or "默认"}'}
+        return {'ok': True, 'summary': '连接成功'}
+    finally:
+        close_connection(conn)
 
 
 def close_connection(conn) -> None:
@@ -456,7 +1207,7 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
     cursor_out = 0
     has_more = False
     if cmd == 'scan':
-        cursor = int(offset or 0)
+        cursor = offset if isinstance(offset, (int, dict)) else (0 if not offset else offset)
         match = '*'
         count = int(limit)
         if 'match' in [a.lower() for a in args]:
@@ -468,19 +1219,36 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
                         count = int(args[i + 1])
                     except ValueError:
                         pass
-        try:
-            cursor_out, keys = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
-        except Exception:
-            # RedisCluster 无 scan()（仅 scan_iter），cluster 下退化为单页枚举
-            keys = list(conn.scan_iter(match=match, count=max(count, int(limit))))
-            cursor_out = 0
+        from tools.db_redis_ops import redis_scan_page
+        page = redis_scan_page(
+            conn,
+            pattern=match,
+            cursor=cursor,
+            count=max(count, int(limit)),
+            limit=int(limit),
+        )
         columns = ['key']
-        rows = [[_b(key)] for key in keys]
-        has_more = int(cursor_out or 0) != 0
-        return {
-            'columns': columns, 'rows': rows, 'offset': int(cursor_out or 0),
-            'limit': int(limit), 'has_more': has_more, 'sql': sql,
+        rows = [[_b(key)] for key in page.get('keys') or []]
+        cursor_out = page.get('cursor', 0)
+        has_more = not bool(page.get('finished'))
+        partial = bool(page.get('partial'))
+        failed_nodes = list(page.get('failed_nodes') or [])
+
+        res = {
+            'columns': columns,
+            'rows': rows,
+            'offset': cursor_out,
+            'limit': int(limit),
+            'has_more': has_more,
+            'sql': sql,
+            'partial': partial,
+            'incomplete': bool(page.get('incomplete')),
+            'failed_nodes': failed_nodes,
         }
+        if partial or failed_nodes:
+            failed_str = ', '.join(failed_nodes)
+            res['warning'] = f'Redis 节点扫描不完整，失败节点: {failed_str}'
+        return res
     if cmd in ('get', 'type', 'ttl', 'pttl', 'strlen', 'exists'):
         key = args[0] if args else ''
         value = conn.execute_command(*parts)
@@ -512,13 +1280,14 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
             rows = [[_b(k), _stringify(v)] for k, v in value.items()]
         else:
             rows = [[cmd, _stringify(value)]]
-    sliced = rows[int(offset): int(offset) + int(limit)]
+    offset_idx = 0 if isinstance(offset, dict) else int(offset or 0)
+    sliced = rows[offset_idx: offset_idx + int(limit)]
     return {
         'columns': columns,
         'rows': sliced,
-        'offset': int(offset) + len(sliced),
+        'offset': offset_idx + len(sliced),
         'limit': int(limit),
-        'has_more': int(offset) + len(sliced) < len(rows),
+        'has_more': offset_idx + len(sliced) < len(rows),
         'sql': sql,
     }
 
@@ -583,18 +1352,48 @@ def _stringify(value: Any) -> str:
     return text
 
 
+def estimate_cell_bytes(value) -> int:
+    """结果单元格近似体积；与 _stringify 实际保留文本一致。"""
+    from datetime import date, datetime
+    if value is None:
+        return 0
+    if isinstance(value, (bytes, bytearray)):
+        text = bytes(value).decode('utf-8', errors='replace')
+    elif isinstance(value, bool):
+        text = str(value)
+    elif isinstance(value, (int, float)):
+        text = str(value)
+    elif isinstance(value, datetime):
+        text = value.isoformat(sep=' ', timespec='seconds')
+    elif isinstance(value, date):
+        text = value.isoformat()
+    else:
+        text = str(value)
+    if len(text) > CELL_MAX:
+        text = text[:CELL_MAX] + '…'
+    return len(text.encode('utf-8', errors='replace'))
+
+
+def estimate_row_bytes(row) -> int:
+    if not row:
+        return 0
+    return sum(estimate_cell_bytes(cell) for cell in row)
+
+
 def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:
     kind = str(dialect or 'oracle').lower()
     reason = reject_reason(sql, kind)
     if reason:
         raise DbError(reason)
     if kind == 'redis':
-        return _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+        redis_offset = offset if isinstance(offset, dict) else int(offset or 0)
+        return _run_redis(conn, sql, redis_offset, min(int(limit), MAX_ROWS))
     if kind == 'mongodb':
         return _run_mongo(conn, sql, int(offset), min(int(limit), MAX_ROWS))
     if not is_read_query(sql):
         raise DbError('仅允许查询语句')
-    wrapped = _wrap_paged(sql, dialect, offset, min(int(limit), MAX_ROWS))
+    page_limit = max(1, int(limit))
+    wrapped = _wrap_paged(sql, dialect, offset, page_limit)
     cur = _cursor(conn)
     try:
         cur.execute(wrapped)
@@ -608,12 +1407,12 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
                 trimmed.append(tuple(cell for i, cell in enumerate(row) if i not in drop))
             rows = trimmed
         data = [[_stringify(cell) for cell in row] for row in rows]
-        has_more = len(data) >= int(limit)
+        has_more = len(data) >= page_limit
         return {
             'columns': columns,
             'rows': data,
             'offset': int(offset) + len(data),
-            'limit': int(limit),
+            'limit': page_limit,
             'has_more': has_more,
             'sql': sql,
         }
@@ -624,6 +1423,93 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
             cur.close()
         except Exception:
             pass
+
+
+def fetch_query_chunks(
+    conn,
+    dialect: str,
+    sql: str,
+    *,
+    offset: int = 0,
+    chunk_size: int = FETCH_CHUNK,
+    byte_limit: int = RESULT_BYTE_LIMIT,
+    cancel=None,
+    progress=None,
+) -> dict:
+    """分块读取查询结果，直到 EOF、取消或字节上限。"""
+    import time
+    started = time.perf_counter()
+    columns: list[str] = []
+    rows: list[list] = []
+    total_bytes = 0
+    cur_offset = int(offset)
+    status = 'DONE'
+    chunk = max(1, int(chunk_size or FETCH_CHUNK))
+    limit = int(byte_limit if byte_limit is not None else RESULT_BYTE_LIMIT)
+    try:
+        while True:
+            if cancel and cancel():
+                status = 'CANCELLED'
+                break
+            page = run_read_query(conn, dialect, sql, offset=cur_offset, limit=chunk)
+            if not columns:
+                columns = list(page.get('columns') or [])
+            batch = list(page.get('rows') or [])
+            if not batch:
+                status = 'DONE'
+                break
+            stopped = False
+            for row in batch:
+                rows.append(row)
+                total_bytes += estimate_row_bytes(row)
+                if total_bytes >= limit:
+                    status = 'LIMIT_REACHED'
+                    stopped = True
+                    break
+            cur_offset = int(page.get('offset') or (cur_offset + len(batch)))
+            if progress:
+                progress({
+                    'rows': int(offset) + len(rows),
+                    'bytes': total_bytes,
+                    'status': status,
+                })
+            if stopped:
+                break
+            if not page.get('has_more'):
+                status = 'DONE'
+                break
+    except Exception as exc:
+        status = 'ERROR'
+        err = redact_error(str(exc))
+        if progress:
+            progress({
+                'rows': int(offset) + len(rows),
+                'bytes': total_bytes,
+                'status': status,
+            })
+        return {
+            'columns': columns,
+            'rows': rows,
+            'offset': cur_offset,
+            'has_more': True,
+            'sql': sql,
+            'status': status,
+            'bytes': total_bytes,
+            'error': err,
+            'elapsed_ms': int((time.perf_counter() - started) * 1000),
+            'rowcount': len(rows),
+        }
+    return {
+        'columns': columns,
+        'rows': rows,
+        'offset': cur_offset,
+        'has_more': bool(status == 'LIMIT_REACHED'),
+        'sql': sql,
+        'status': status,
+        'bytes': total_bytes,
+        'elapsed_ms': int((time.perf_counter() - started) * 1000),
+        'rowcount': len(rows),
+    }
 
 
 def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limit: int = PAGE_SIZE) -> dict:
@@ -642,7 +1528,8 @@ def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limi
         result['tx'] = ''
         return result
     if kind == 'redis':
-        result = _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+        redis_offset = offset if isinstance(offset, dict) else int(offset or 0)
+        result = _run_redis(conn, sql, redis_offset, min(int(limit), MAX_ROWS))
         result['elapsed_ms'] = int((time.perf_counter() - started) * 1000)
         result['category'] = info.get('category')
         result['rowcount'] = len(result.get('rows') or [])

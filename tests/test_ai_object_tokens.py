@@ -105,7 +105,7 @@ class SqlConsoleUiTests(unittest.TestCase):
         self.assertIn('start_busy', source)
         self.assertIn('正在执行查询', source)
         self.assertEqual(panel.side_tabs.tabText(0), 'AI 助手')
-        self.assertEqual(panel.ai_gen_btn.text(), '生成 SQL 草案')
+        self.assertEqual(panel.ai_gen_btn.text(), '生成 SQL')
         self.assertEqual(panel.run_btn.text(), '执行当前 SQL')
         self.assertIn('prepare_request', source)
         self.assertIn('validate_generated_sql', source)

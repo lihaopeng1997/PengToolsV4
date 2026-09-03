@@ -162,7 +162,150 @@ class PlanConfirmTests(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(tmp, 'y.txt')))
 
 
+class ToolCallNormalizeTests(unittest.TestCase):
+    def test_tool_plus_args(self):
+        calls = ar.parse_tool_calls('{"tool": "list_dir", "args": {"path": ""}}')
+        self.assertEqual(calls, [{'tool': 'list_dir', 'args': {'path': ''}}])
+
+    def test_name_plus_parameters_incident_format(self):
+        raw = '{"name": "list_dir", "parameters": {"path": ""}}'
+        calls = ar.parse_tool_calls(raw)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['tool'], 'list_dir')
+        self.assertEqual(calls[0]['args'], {'path': ''})
+
+    def test_parameters_json_string(self):
+        raw = '{"name": "read_file", "parameters": "{\\"path\\":\\"main.py\\"}"}'
+        calls = ar.parse_tool_calls(raw)
+        self.assertEqual(calls[0]['tool'], 'read_file')
+        self.assertEqual(calls[0]['args']['path'], 'main.py')
+
+    def test_invalid_parameters_json(self):
+        raw = '{"name": "read_file", "parameters": "{not json"}'
+        calls = ar.parse_tool_calls(raw)
+        self.assertEqual(calls[0]['tool'], 'read_file')
+        self.assertEqual(calls[0]['error'], ar.INVALID_TOOL_ARGUMENTS)
+
+    def test_tool_calls_envelope(self):
+        raw = json.dumps({
+            'tool_calls': [
+                {'name': 'read_file', 'parameters': {'path': 'main.py'}},
+            ]
+        })
+        calls = ar.parse_tool_calls(raw)
+        self.assertEqual(calls[0]['tool'], 'read_file')
+        self.assertEqual(calls[0]['args']['path'], 'main.py')
+
+    def test_unknown_tool_execute(self):
+        with path_workspace() as tmp:
+            r = ar.execute_tool('delete_everything', {}, tmp)
+        self.assertFalse(r['ok'])
+        self.assertEqual(r['error'], ar.UNKNOWN_TOOL)
+
+
+class BoundProjectAndLoopTests(unittest.TestCase):
+    def test_incident_name_parameters_executes_list_dir(self):
+        responses = iter([
+            '{"name": "list_dir", "parameters": {"path": ""}}',
+            '目录已看完',
+        ])
+
+        def fake_chat(messages, cfg=None, model_config_id=None):
+            return next(responses)
+
+        with path_workspace() as tmp:
+            with open(os.path.join(tmp, 'main.py'), 'w', encoding='utf-8') as stream:
+                stream.write('print("hi")\n')
+            os.makedirs(os.path.join(tmp, 'src'), exist_ok=True)
+            with open(os.path.join(tmp, 'src', 'demo.py'), 'w', encoding='utf-8') as stream:
+                stream.write('demo = 1\n')
+            with patch.object(ar, 'chat_completions', new=fake_chat):
+                final, msgs, tcs = ar.run_agent_loop('看看有哪些 Python 文件', tmp, {}, [], [])
+        self.assertEqual(final, '目录已看完')
+        self.assertEqual(tcs[0]['tool'], 'list_dir')
+        payload = json.loads(tcs[0]['result'])
+        self.assertTrue(payload['ok'])
+        self.assertTrue(payload['success'])
+        names = [e['name'] for e in payload['data']]
+        self.assertIn('main.py', names)
+        self.assertIn('src', names)
+        assistant_json = [m for m in msgs if m.get('role') == 'assistant' and '"name": "list_dir"' in (m.get('content') or '')]
+        self.assertEqual(assistant_json, [])
+
+    def test_multi_round_list_dir_then_read_file(self):
+        executed = []
+        orig = ar.execute_tool
+
+        def wrapped(tool, args, workspace_dir, confirm_cb=None):
+            executed.append(tool)
+            return orig(tool, args, workspace_dir, confirm_cb=confirm_cb)
+
+        responses = iter([
+            '{"name": "list_dir", "parameters": {"path": ""}}',
+            '{"name": "read_file", "parameters": {"path": "main.py"}}',
+            '我已经读取 main.py，项目入口……',
+        ])
+
+        def fake_chat(messages, cfg=None, model_config_id=None):
+            return next(responses)
+
+        with path_workspace() as tmp:
+            with open(os.path.join(tmp, 'main.py'), 'w', encoding='utf-8') as stream:
+                stream.write('print("entry")\n')
+            os.makedirs(os.path.join(tmp, 'src'), exist_ok=True)
+            with open(os.path.join(tmp, 'src', 'demo.py'), 'w', encoding='utf-8') as stream:
+                stream.write('demo = True\n')
+            with patch.object(ar, 'execute_tool', new=wrapped):
+                with patch.object(ar, 'chat_completions', new=fake_chat):
+                    final, _, tcs = ar.run_agent_loop('分析项目', tmp, {}, [], [])
+        self.assertEqual(executed, ['list_dir', 'read_file'])
+        self.assertEqual([c['tool'] for c in tcs], ['list_dir', 'read_file'])
+        self.assertIn('main.py', final)
+        read_payload = json.loads(tcs[1]['result'])
+        self.assertIn('print("entry")', read_payload['data'])
+
+    def test_bound_project_list_read_search(self):
+        with path_workspace() as tmp:
+            with open(os.path.join(tmp, 'main.py'), 'w', encoding='utf-8') as stream:
+                stream.write('from src.demo import x\n')
+            os.makedirs(os.path.join(tmp, 'src'), exist_ok=True)
+            with open(os.path.join(tmp, 'src', 'demo.py'), 'w', encoding='utf-8') as stream:
+                stream.write('demo = 1\n')
+            listed = ar.execute_tool('list_dir', {'path': ''}, tmp)
+            read = ar.execute_tool('read_file', {'path': 'main.py'}, tmp)
+            found = ar.execute_tool('search_code', {'pattern': 'demo'}, tmp)
+        self.assertTrue(listed['ok'])
+        self.assertTrue(read['ok'])
+        self.assertIn('from src.demo', read['content'])
+        self.assertTrue(found['ok'])
+        files = {m['file'].replace('\\', '/') for m in found['matches']}
+        self.assertTrue(files)
+        self.assertTrue(all(not p.startswith('..') for p in files))
+        self.assertTrue(any('demo' in p for p in files))
+
+    def test_path_escape_rejected(self):
+        with path_workspace() as tmp:
+            outside = os.path.join(os.path.dirname(tmp), 'outside.txt')
+            with open(outside, 'w', encoding='utf-8') as stream:
+                stream.write('secret')
+            rel = ar.execute_tool('read_file', {'path': '../outside.txt'}, tmp)
+            abs_path = ar.execute_tool('read_file', {'path': outside}, tmp)
+            self.assertFalse(rel['ok'])
+            self.assertFalse(abs_path['ok'])
+            try:
+                link = os.path.join(tmp, 'escape_link')
+                os.symlink(os.path.dirname(tmp), link)
+                escaped = ar.execute_tool('read_file', {'path': 'escape_link/outside.txt'}, tmp)
+                self.assertFalse(escaped['ok'])
+            except OSError:
+                pass
+            finally:
+                if os.path.exists(outside):
+                    os.remove(outside)
+
+
 def path_workspace():
+
     """返回一个可用的临时工作目录上下文管理器。"""
     import contextlib
 

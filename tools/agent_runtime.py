@@ -23,6 +23,8 @@ from tools.sql_guard import redact_error
 MAX_TOOL_ROUNDS = 10  # 单次请求最多工具调用轮次（含 Plan 阶段）
 MAX_FILE_SIZE = 200 * 1024  # 单文件最大读取 200KB
 TOOL_ID_PREFIX = 'call_'
+INVALID_TOOL_ARGUMENTS = 'INVALID_TOOL_ARGUMENTS'
+UNKNOWN_TOOL = 'UNKNOWN_TOOL'
 
 # 白名单扩展名（用于目录树索引）
 WHITELIST_EXTENSIONS = frozenset(
@@ -147,6 +149,17 @@ TOOL_SCHEMAS = [
 
 # ─── 路径安全校验 ────────────────────────────────────────────────────────────
 
+def _is_within_workspace(resolved: str, workspace_dir: str) -> bool:
+    """realpath 后再比较，拦截 .. / 绝对路径 / junction 逃逸。"""
+    try:
+        real_path = os.path.normcase(os.path.realpath(resolved))
+        real_root = os.path.normcase(os.path.realpath(workspace_dir))
+        common = os.path.commonpath([real_path, real_root])
+    except (OSError, ValueError):
+        return False
+    return common == real_root
+
+
 def validate_path(relative_path: str, workspace_dir: str) -> tuple[bool, str, str]:
     """校验相对路径不越界。返回 (ok, resolved_path, error_msg)。"""
     if not relative_path:
@@ -156,20 +169,12 @@ def validate_path(relative_path: str, workspace_dir: str) -> tuple[bool, str, st
     if os.path.isabs(relative_path):
         return False, '', '禁止绝对路径'
 
-    # 解析并重.resolve(..) 以去除 ..
     try:
         resolved = os.path.realpath(os.path.join(workspace_dir, relative_path))
     except Exception as e:
         return False, '', f'路径解析失败: {e}'
 
-    # 确保 resolved 在 workspace_dir 内
-    try:
-        common = os.path.commonpath([resolved, os.path.realpath(workspace_dir)])
-    except ValueError:
-        return False, '', '路径无效（不在工作文件夹内）'
-
-    real_workspace = os.path.realpath(workspace_dir)
-    if not common.startswith(real_workspace + os.sep) and common != real_workspace:
+    if not _is_within_workspace(resolved, workspace_dir):
         return False, '', f'禁止越界访问: {resolved} 不在 {workspace_dir} 内'
 
     return True, resolved, ''
@@ -221,12 +226,42 @@ def _read_file_impl(relative_path: str, workspace_dir: str) -> dict:
         return {'ok': False, 'error': f'文件超过 {MAX_FILE_SIZE // 1024}KB 限制，拒绝读取'}
 
     try:
-        with open(resolved, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read()
+        with open(resolved, 'rb') as f:
+            raw = f.read()
     except OSError as e:
-        return {'ok': False, 'error': f'读取失败: {e}'}
+        return {'ok': False, 'success': False, 'tool': 'read_file', 'error': f'读取失败: {e}', 'data': None}
+    if b'\x00' in raw[:4096]:
+        return {
+            'ok': False,
+            'success': False,
+            'tool': 'read_file',
+            'error': '该文件不是可读取的文本（二进制文件）',
+            'data': None,
+        }
+    try:
+        content = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            content = raw.decode('gb18030')
+        except UnicodeDecodeError:
+            return {
+                'ok': False,
+                'success': False,
+                'tool': 'read_file',
+                'error': '文件编码无法识别为 UTF-8/GB18030',
+                'data': None,
+            }
 
-    return {'ok': True, 'path': relative_path, 'size': size, 'content': content}
+    return {
+        'ok': True,
+        'success': True,
+        'tool': 'read_file',
+        'path': relative_path,
+        'size': size,
+        'content': content,
+        'data': content,
+        'error': '',
+    }
 
 
 def _search_code_impl(pattern: str, workspace_dir: str, file_pattern: str = '') -> dict:
@@ -257,6 +292,10 @@ def _search_code_impl(pattern: str, workspace_dir: str, file_pattern: str = '') 
                         continue
                 fpath = os.path.join(root, fname)
                 try:
+                    with open(fpath, 'rb') as bf:
+                        head = bf.read(2048)
+                    if b'\x00' in head:
+                        continue
                     with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                         for lineno, line in enumerate(f, 1):
                             if regex.search(line):
@@ -507,63 +546,141 @@ def execute_tool(
             args.get('paths', ''),
         )
     else:
-        return {'ok': False, 'error': f'未知工具: {tool}'}
+        return {
+            'ok': False,
+            'success': False,
+            'tool': tool,
+            'error': UNKNOWN_TOOL,
+            'data': None,
+        }
 
 
 # ─── 解析模型输出中的工具调用 ───────────────────────────────────────────────
 
+def _looks_like_tool_call(obj: dict) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    if obj.get('tool'):
+        return True
+    if obj.get('name') and (
+        'parameters' in obj or 'args' in obj or 'arguments' in obj
+    ):
+        return True
+    fn = obj.get('function')
+    return isinstance(fn, dict) and bool(fn.get('name'))
+
+
+def _coerce_tool_args(raw) -> tuple[dict, str]:
+    """返回 (args, error)。error 非空表示 INVALID_TOOL_ARGUMENTS。"""
+    if raw is None:
+        return {}, ''
+    if isinstance(raw, dict):
+        return raw, ''
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}, ''
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return {}, INVALID_TOOL_ARGUMENTS
+        if isinstance(data, dict):
+            return data, ''
+        return {}, INVALID_TOOL_ARGUMENTS
+    return {}, INVALID_TOOL_ARGUMENTS
+
+
+def normalize_tool_call(obj: dict) -> dict | None:
+    """把 name/parameters、tool/args、function.name 统一成 {tool, args}。"""
+    if not _looks_like_tool_call(obj):
+        return None
+    tool = ''
+    raw_args = {}
+    fn = obj.get('function') if isinstance(obj.get('function'), dict) else None
+    if obj.get('tool'):
+        tool = str(obj.get('tool') or '').strip()
+        raw_args = obj['args'] if 'args' in obj else obj.get('parameters', obj.get('arguments', {}))
+    elif fn and fn.get('name'):
+        tool = str(fn.get('name') or '').strip()
+        raw_args = fn.get('arguments', fn.get('parameters', fn.get('args', {})))
+    else:
+        tool = str(obj.get('name') or '').strip()
+        raw_args = obj['parameters'] if 'parameters' in obj else obj.get('args', obj.get('arguments', {}))
+    args, err = _coerce_tool_args(raw_args)
+    if not tool:
+        return None
+    out = {'tool': tool, 'args': args}
+    if err:
+        out['error'] = INVALID_TOOL_ARGUMENTS
+    return out
+
+
+def _flatten_tool_payloads(data) -> list[dict]:
+    items: list[dict] = []
+    if isinstance(data, dict):
+        if isinstance(data.get('tool_calls'), list):
+            for entry in data['tool_calls']:
+                if isinstance(entry, dict):
+                    items.append(entry)
+            return items
+        items.append(data)
+        return items
+    if isinstance(data, list):
+        for entry in data:
+            if isinstance(entry, dict) and isinstance(entry.get('tool_calls'), list):
+                items.extend(_flatten_tool_payloads(entry))
+            elif isinstance(entry, dict):
+                items.append(entry)
+    return items
+
+
 def parse_tool_calls(text: str) -> list[dict]:
-    """从模型输出文本中解析 JSON 工具调用列表（支持嵌套 JSON）。"""
+    """从模型输出解析工具调用，并 normalize 为 canonical {tool, args}。"""
     raw = strip_markdown_fence(text).strip()
     if not raw:
         return []
 
-    # 尝试解析为 JSON 数组（整段）
+    payloads: list[dict] = []
     try:
         data = json.loads(raw)
-        if isinstance(data, dict):
-            data = [data]
+        payloads = _flatten_tool_payloads(data)
     except Exception:
-        data = None
+        payloads = []
 
-    if data is not None:
-        if not isinstance(data, list):
-            return []
-        return [item for item in data if isinstance(item, dict) and 'tool' in item]
+    if not payloads:
+        i = 0
+        n = len(raw)
+        while i < n:
+            j = raw.find('{', i)
+            if j < 0:
+                break
+            depth = 0
+            k = j
+            while k < n:
+                c = raw[k]
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            else:
+                i = j + 1
+                continue
+            candidate = raw[j:k + 1]
+            try:
+                obj = json.loads(candidate)
+                payloads.extend(_flatten_tool_payloads(obj))
+            except Exception:
+                pass
+            i = k + 1
 
-    # 逐字符扫描，匹配顶层 JSON 对象 { ... }
     results = []
-    i = 0
-    n = len(raw)
-    while i < n:
-        # 跳过到下一个 {
-        j = raw.find('{', i)
-        if j < 0:
-            break
-        # 匹配配对的 }
-        depth = 0
-        k = j
-        while k < n:
-            c = raw[k]
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-                if depth == 0:
-                    break
-            k += 1
-        else:
-            i = j + 1
-            continue
-        candidate = raw[j:k + 1]
-        try:
-            obj = json.loads(candidate)
-            if isinstance(obj, dict) and 'tool' in obj:
-                results.append(obj)
-        except Exception:
-            pass
-        i = k + 1
-
+    for item in payloads:
+        normalized = normalize_tool_call(item)
+        if normalized:
+            results.append(normalized)
     return results
 
 
@@ -644,22 +761,22 @@ def run_agent_loop(
                 progress_cb('assistant', answer)
             return answer, messages, tool_calls
 
-        # 脱敏后写入历史
         safe_response = redact_error(raw_response)
-        messages.append({
-            'id': _new_id(),
-            'role': 'assistant',
-            'content': safe_response,
-            'created_at': _now(),
-        })
-        if progress_cb:
-            progress_cb('assistant', safe_response)
-
-        # 解析工具调用
         parsed = parse_tool_calls(raw_response)
         if not parsed:
-            # 无工具调用 = 最终答案
+            messages.append({
+                'id': _new_id(),
+                'role': 'assistant',
+                'content': safe_response,
+                'created_at': _now(),
+            })
+            if progress_cb:
+                progress_cb('assistant', safe_response)
             return safe_response, messages, tool_calls
+
+        status = '正在调用工具：' + '、'.join(str(c.get('tool') or '') for c in parsed)
+        if progress_cb:
+            progress_cb('tool', status)
 
         # plan_confirm=True：执行前先把本轮工具调用作为计划交给用户确认
         if plan_confirm and confirm_cb:
@@ -677,31 +794,27 @@ def run_agent_loop(
 
         for call in parsed:
             tool_name = str(call.get('tool', ''))
-            if tool_name not in tool_names:
-                result_text = f'未知工具: {tool_name}'
-                tool_calls.append({
-                    'id': _new_id(),
-                    'tool': tool_name,
-                    'args': call.get('args') or {},
-                    'result': result_text,
-                    'error': '',
-                    'timestamp': _now(),
-                })
-                messages.append({
-                    'id': _new_id(),
-                    'role': 'tool',
-                    'content': result_text,
-                    'tool_call_id': call.get('id', ''),
-                    'created_at': _now(),
-                })
-                continue
-
             args = call.get('args') or {}
             tool_id = call.get('id') or _new_id()
-
-            # 执行工具（write/edit/delete 走 confirm_cb）
-            result = execute_tool(tool_name, args, workspace_dir, confirm_cb=confirm_cb)
-            result_text = json.dumps(result, ensure_ascii=False, indent=2)
+            if call.get('error') == INVALID_TOOL_ARGUMENTS:
+                result = {
+                    'ok': False,
+                    'success': False,
+                    'tool': tool_name,
+                    'error': INVALID_TOOL_ARGUMENTS,
+                    'data': None,
+                }
+            else:
+                result = execute_tool(tool_name, args, workspace_dir, confirm_cb=confirm_cb)
+            result.setdefault('success', bool(result.get('ok')))
+            result.setdefault('tool', tool_name)
+            result_text = json.dumps({
+                'ok': bool(result.get('ok')),
+                'success': bool(result.get('success', result.get('ok'))),
+                'tool': tool_name,
+                'data': result.get('data', result.get('content', result.get('entries', result.get('matches')))),
+                'error': result.get('error') or '',
+            }, ensure_ascii=False)
             safe_result = redact_error(result_text)
 
             tool_calls.append({
@@ -720,11 +833,18 @@ def run_agent_loop(
                 'created_at': _now(),
             })
             if progress_cb:
-                progress_cb('tool', safe_result)
+                compact = {
+                    'list_dir': '已读取项目目录',
+                    'read_file': f"已读取文件 {args.get('path') or ''}".strip(),
+                    'search_code': '已搜索代码',
+                }.get(tool_name, f"工具 {tool_name} 已完成")
+                if not result.get('ok'):
+                    compact = f"{tool_name} 失败：{result.get('error') or ''}"
+                progress_cb('tool', compact)
 
     # 超出轮次上限
     return (
-        f'已达到最大工具调用轮次（{MAX_TOOL_ROUNDS} 轮），请重新发起请求或缩小任务范围。',
+        f'工具调用次数达到本轮上限（已达到最大工具调用轮次 {MAX_TOOL_ROUNDS}）。请重新发起请求或缩小任务范围。',
         messages,
         tool_calls,
     )

@@ -16,11 +16,13 @@ from PyQt6.QtWidgets import (
 from config import DASHBOARD_RELEASE_ITEMS_FILE, REQUIREMENTS_FILE
 from tools.dashboard_release_items import (
     collect_release_months,
-    is_board_item_completed,
+    effective_release_month,
     load_release_board,
-    release_month_for,
+    release_display_state,
     save_release_board,
+    valid_iso_date,
 )
+from tools.dashboard_summary import build_dashboard_summary
 from tools.requirements import load_requirements, systems_display_text, test_points_button_text
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
@@ -265,6 +267,18 @@ class DashboardPanel(QWidget):
         )
         layout.addWidget(header)
 
+        self.stats_row = QHBoxLayout()
+        self.stats_row.setSpacing(8)
+        self.stat_todo = QLabel()
+        self.stat_daily = QLabel()
+        self.stat_countdown = QLabel()
+        self.stat_release = QLabel()
+        for lbl in (self.stat_todo, self.stat_daily, self.stat_countdown, self.stat_release):
+            lbl.setObjectName('dashboard-stat-chip')
+            lbl.setWordWrap(True)
+            self.stats_row.addWidget(lbl, 1)
+        layout.addLayout(self.stats_row)
+
         # 两列任务卡撑满中间；任务增多只在列表内滚动，常用工具钉在底部
         self.tasks_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.tasks_row.setSpacing(12)
@@ -331,6 +345,15 @@ class DashboardPanel(QWidget):
         self.release_summary.setObjectName('field-hint')
         self.release_summary.setWordWrap(False)
         release_layout.addWidget(self.release_summary)
+        target_row = QHBoxLayout()
+        self.release_target_edit = QLabel()
+        self.release_target_edit.setObjectName('field-hint')
+        target_row.addWidget(self.release_target_edit, 1)
+        self.release_target_clear = QPushButton()
+        apply_button(self.release_target_clear, 'ghost', compact=True)
+        self.release_target_clear.clicked.connect(self._clear_release_target)
+        target_row.addWidget(self.release_target_clear)
+        release_layout.addLayout(target_row)
         self.release_scroll = QScrollArea()
         self.release_scroll.setWidgetResizable(True)
         self.release_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -518,6 +541,7 @@ class DashboardPanel(QWidget):
         self.setUpdatesEnabled(False)
         try:
             requirements = load_requirements()
+            self._apply_summary(requirements)
             self._fill_recent(requirements)
             self._fill_release(requirements, preferred_release_month=preferred_release_month)
             self._apply_list_geometry()
@@ -526,10 +550,8 @@ class DashboardPanel(QWidget):
             self.setUpdatesEnabled(True)
 
     def refresh_for_requirement(self, requirement):
-        """需求编辑保存后刷新；仅当入选上线相关字段时定位到目标月份。"""
-        month = ''
-        if isinstance(requirement, dict) and requirement.get('is_monthly_release'):
-            month = release_month_for(requirement, fallback_current=True)
+        """需求编辑保存后刷新；有有效发版月份则定位。"""
+        month = effective_release_month(requirement) if isinstance(requirement, dict) else ''
         self.refresh(preferred_release_month=month or None)
 
     def _on_release_month_changed(self, *_args):
@@ -658,17 +680,15 @@ class DashboardPanel(QWidget):
             self.release_summary.setText('待处理 0 · 已完成 0' if zh else 'Open 0 · Done 0')
             self.release_list.addStretch(1)
             return
-        completed_requirement_keys = set(board.get('completed_requirement_keys', []))
         pending = []
         done_items = []
         for item in requirements:
-            if not item.get('is_monthly_release'):
-                continue
-            item_month = release_month_for(item, fallback_current=True)
+            item_month = effective_release_month(item)
             if not item_month or item_month != month_key:
                 continue
+            display = release_display_state(item)
             entry = ('requirement', item, _parse_date(item.get('planned_online_date')))
-            if is_board_item_completed(item, month_key, completed_requirement_keys):
+            if display.get('done'):
                 done_items.append(entry)
             else:
                 pending.append(entry)
@@ -720,10 +740,18 @@ class DashboardPanel(QWidget):
         identifier = str(item.get('code') or '').strip() or str(
             item.get('record_kind') or ('需求' if zh else 'Requirement')
         )
-        date_text = planned_date.isoformat() if planned_date else month_key
-        badge = f'计划 {date_text}' if zh else f'Plan {date_text}'
+        display = release_display_state(item)
+        planned = valid_iso_date(item.get('planned_online_date')) or (planned_date.isoformat() if planned_date else '')
+        actual = valid_iso_date(item.get('actual_online_date'))
         system = systems_display_text(item, empty=('未选系统' if zh else 'No system'))
-        meta = f'{system} · {badge}'
+        dates = []
+        if planned:
+            dates.append(f'计划 {planned}' if zh else f'Plan {planned}')
+        if actual:
+            dates.append(f'实际 {actual}' if zh else f'Actual {actual}')
+        progress = test_points_button_text(item.get('test_points'), zh=zh)
+        meta = ' · '.join([p for p in (system, progress, *dates) if p])
+        status_text = display.get('state') or (item.get('status') or '')
         if completed:
             action = (
                 '撤销完成' if zh else 'Undo',
@@ -731,7 +759,6 @@ class DashboardPanel(QWidget):
                     'requirement', current, month_key, False
                 ),
             )
-            status_text = '已完成' if zh else 'Done'
         else:
             action = (
                 '已完成' if zh else 'Complete',
@@ -739,7 +766,6 @@ class DashboardPanel(QWidget):
                     'requirement', current, month_key, True
                 ),
             )
-            status_text = item.get('status') or ''
         test_action = (
             test_points_button_text(item.get('test_points'), zh=zh),
             lambda _checked=False, current=item: self._open_test_points(current),
@@ -822,6 +848,46 @@ class DashboardPanel(QWidget):
             self.requirements_updated.emit()
         self._refresh_release_after_action()
 
+    def _apply_summary(self, requirements):
+        summary = build_dashboard_summary(
+            language=self.language,
+            requirements=requirements,
+            board=load_release_board(),
+        )
+        stats = summary.get('stats') or {}
+        rel = summary.get('release') or {}
+        zh = self.language == 'zh'
+        self.stat_todo.setText(
+            f"{'待办' if zh else 'Open'}\n{stats.get('req_open') or 0}"
+        )
+        self.stat_daily.setText(
+            f"{'日报' if zh else 'Daily'}\n{stats.get('daily_done') or 0}/{stats.get('daily_total') or 5}\n{stats.get('daily_note') or ''}"
+        )
+        days = rel.get('days_left')
+        if rel.get('countdown_state') == 'unset' or days is None:
+            count_text = '–'
+        elif days < 0:
+            count_text = rel.get('date_text') or f'D{days}'
+        else:
+            count_text = f'D-{days}'
+        self.stat_countdown.setText(
+            f"{'发版倒计时' if zh else 'Countdown'}\n{count_text}\n{rel.get('date_text') or ''}"
+        )
+        self.stat_release.setText(
+            f"{'发版清单' if zh else 'Release'}\n{rel.get('total') or 0}\n{'已完成' if zh else 'Done'} {rel.get('done') or 0}"
+        )
+        target = rel.get('target_date') or ''
+        self.release_target_edit.setText(
+            (f'发版日 {target}' if target else '发版日：自动（本月最近计划）') if zh
+            else (f'Release {target}' if target else 'Release date: auto')
+        )
+
+    def _clear_release_target(self):
+        board = load_release_board()
+        board['release_target_date'] = ''
+        save_release_board(board)
+        self.refresh(preferred_release_month=None)
+
     def _on_requirement_clicked(self, item):
         if isinstance(item, dict):
             self.open_requirement.emit(item)
@@ -839,10 +905,12 @@ class DashboardPanel(QWidget):
             self.recent_more.setText('全部')
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
             self.recent_more.setToolTip('打开需求管理查看完整目录')
-            self.release_title.setText('待升级事项')
+            self.release_title.setText('本月升级任务')
             self.release_more.setText('发版联动')
             self.release_month_combo.setToolTip('选择要查看的上线月份')
-            self.release_empty.setText('该月份暂无待升级事项。可在需求中勾选「是否本月上线」。')
+            self.release_empty.setText('该月份暂无升级任务。填写计划上线或实际上线日期后会出现在这里。')
+            if hasattr(self, 'release_target_clear'):
+                self.release_target_clear.setText('清除发版日')
             if hasattr(self, 'release_summary') and not self.release_summary.text():
                 self.release_summary.setText('待处理 0 · 已完成 0')
             self.tools_label.setText('常用工具')
@@ -860,10 +928,12 @@ class DashboardPanel(QWidget):
             self.recent_more.setText('All')
             self.recent_empty.setText('No requirements yet. Add or scan in Requirements.')
             self.recent_more.setToolTip('Open Requirements for the full library')
-            self.release_title.setText('Upcoming releases')
+            self.release_title.setText('Monthly upgrade tasks')
             self.release_more.setText('Release prep')
             self.release_month_combo.setToolTip('Choose a release month')
-            self.release_empty.setText('No release items for this month. Tick monthly release on a requirement.')
+            self.release_empty.setText('No upgrade tasks this month. Add planned or actual online dates.')
+            if hasattr(self, 'release_target_clear'):
+                self.release_target_clear.setText('Clear date')
             if hasattr(self, 'release_summary') and not self.release_summary.text():
                 self.release_summary.setText('Open 0 · Done 0')
             self.tools_label.setText('TOOLS')

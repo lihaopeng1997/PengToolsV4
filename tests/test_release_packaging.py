@@ -31,6 +31,12 @@ class ReleasePackagingGuardTest(unittest.TestCase):
 
     # ---------- 基础守护 ----------
 
+    def test_0_build_release_utf8_bom(self):
+        """构建脚本 scripts/build_release.ps1 必须保留 UTF-8 BOM（d10ede8 契约守护）。"""
+        with open(SCRIPT, 'rb') as fh:
+            raw = fh.read(3)
+        self.assertTrue(raw.startswith(b'\xef\xbb\xbf'), "scripts/build_release.ps1 必须以 UTF-8 BOM (\\xef\\xbb\\xbf) 开头")
+
     def test_1_no_rmdir_of_user_data(self):
         """构建脚本不得出现任何针对 data 目录的 rmdir 删除逻辑（按行）。"""
         hits = [line for line in self.lines

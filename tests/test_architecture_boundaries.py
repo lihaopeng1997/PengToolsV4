@@ -12,6 +12,7 @@ UI_TOOL_PORTS = {
     'tools.code_folding',
     'tools.credit_code',
     'tools.daily_reports',
+    'tools.db_connect',
     'tools.db_contracts',
     'tools.id_documents',
     'tools.intranet_llm',

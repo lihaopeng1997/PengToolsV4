@@ -236,6 +236,9 @@ class CompactStepperTests(unittest.TestCase):
 
         self.assertFalse(stepper.suffix_label.isHidden())
         self.assertEqual(stepper.suffix_label.text(), '条')
+        core_w = stepper.minus_btn.width() + stepper.edit.width() + stepper.plus_btn.width()
+        self.assertGreaterEqual(core_w, 96)
+        self.assertLessEqual(core_w, 116)
         stepper.deleteLater()
 
     def test_stepper_value_clamping_and_bounds(self):
@@ -263,21 +266,59 @@ class CompactStepperTests(unittest.TestCase):
         self.assertEqual(stepper.value(), 0)
         stepper.deleteLater()
 
+    def test_stepper_keyboard_and_disabled(self):
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        from ui.field_metrics import CompactStepper
+
+        stepper = CompactStepper(minimum=0, maximum=10, value=5, suffix='条')
+        # Up / Down keyboard navigation
+        up_ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
+        self.app.sendEvent(stepper.edit, up_ev)
+        self.assertEqual(stepper.value(), 6)
+
+        down_ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
+        self.app.sendEvent(stepper.edit, down_ev)
+        self.assertEqual(stepper.value(), 5)
+
+        # Manual edit + Enter commit
+        stepper.edit.setText('8')
+        enter_ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+        self.app.sendEvent(stepper.edit, enter_ev)
+        self.assertEqual(stepper.value(), 8)
+
+        # Disabled state
+        stepper.setEnabled(False)
+        self.assertFalse(stepper.isEnabled())
+        self.assertFalse(stepper.edit.isEnabled())
+        self.assertFalse(stepper.minus_btn.isEnabled())
+        self.assertFalse(stepper.plus_btn.isEnabled())
+
+        stepper.setEnabled(True)
+        self.assertTrue(stepper.isEnabled())
+        self.assertTrue(stepper.minus_btn.isEnabled())
+        self.assertTrue(stepper.plus_btn.isEnabled())
+        stepper.deleteLater()
+
 
 class SegmentedStepperQssTests(unittest.TestCase):
     def test_qss_contains_segmented_stepper_contract(self):
-        from ui.theme_manager import ThemeManager
+        from ui.theme_manager import ThemeManager, THEMES
 
         manager = ThemeManager.instance()
         manager.load_template()
-        qss = manager.render('calm')
 
-        self.assertIn('QWidget#compact-stepper', qss)
-        self.assertIn('QPushButton#compact-step-minus', qss)
-        self.assertIn('QLineEdit#compact-step-value', qss)
-        self.assertIn('QPushButton#compact-step-plus', qss)
-        self.assertIn('border-top-left-radius: 6px', qss)
-        self.assertIn('border-top-right-radius: 6px', qss)
+        for theme_id in THEMES:
+            qss = manager.render(theme_id)
+            self.assertIn('QWidget#compact-stepper', qss)
+            self.assertIn('QPushButton#compact-step-minus', qss)
+            self.assertIn('QLineEdit#compact-step-value', qss)
+            self.assertIn('QPushButton#compact-step-plus', qss)
+            self.assertIn('border-radius: 8px', qss)
+            self.assertIn('qlineargradient', qss)
+            self.assertIn('chat-user-bubble', qss)
+            self.assertIn('QPushButton#primary-btn', qss)
+            self.assertIn('QPushButton#btn-secondary', qss)
 
 
 if __name__ == '__main__':

@@ -8,9 +8,68 @@ decode_responses=False（返回 bytes），本模块统一做字节安全解码�
 from __future__ import annotations
 
 import re
+import socket
 from typing import Any
 
-from tools.db_connect import DbError
+from tools.db_connect import DbError, redact_error
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """仅将明确的单节点底层网络/IO故障判定为 transport 异常。
+
+    必须严格排除：
+    - 认证/授权（AuthenticationError, AuthorizationError, NoPermissionError）
+    - 连接池耗尽（MaxConnectionsError）
+    - 集群状态/响应/只读（ClusterDownError, ClusterError, ReadOnlyError, ResponseError, BusyLoadingError）
+    - 编程/逻辑/代码错误（TypeError, AttributeError, ValueError, RuntimeError 等）
+    上述异常均严禁判定为节点网络故障，必须向外抛出。
+    严禁使用任意字符串猜测。
+    """
+    try:
+        import redis.exceptions as rexc
+    except ImportError:
+        rexc = None
+
+    if rexc is not None:
+        # 1. 优先排除非节点网络故障的 Redis 异常（包括 ConnectionError 的各类非网络子类）
+        excluded_redis_types = (
+            rexc.AuthenticationError,
+            rexc.AuthorizationError,
+            getattr(rexc, 'NoPermissionError', ()),
+            getattr(rexc, 'ExternalAuthProviderError', ()),
+            rexc.MaxConnectionsError,
+            rexc.BusyLoadingError,
+            rexc.ClusterDownError,
+            rexc.ClusterError,
+            rexc.ReadOnlyError,
+            rexc.ResponseError,
+            rexc.DataError,
+            getattr(rexc, 'SlotNotCoveredError', ()),
+            getattr(rexc, 'RedisClusterException', ()),
+        )
+        if isinstance(exc, excluded_redis_types):
+            return False
+
+        # 2. 匹配明确的 Redis 网络/超时连接异常
+        if isinstance(exc, (rexc.ConnectionError, rexc.TimeoutError)):
+            return True
+
+    # 3. 匹配标准库明确的 Socket/IO/网络超时异常
+    network_io_types = (
+        socket.timeout,
+        getattr(socket, 'gaierror', ()),
+        getattr(socket, 'herror', ()),
+        ConnectionResetError,
+        ConnectionRefusedError,
+        BrokenPipeError,
+        ConnectionAbortedError,
+        TimeoutError,
+    )
+    if isinstance(exc, network_io_types):
+        return True
+
+    # 4. 其他任何异常（包括通用 RuntimeError, Exception 等）严禁靠字符串猜测
+    return False
 
 
 def _b(value: Any) -> str:
@@ -115,24 +174,592 @@ def redis_scan_keys(conn, pattern: str = '*', limit: int = 200) -> list[str]:
         raise DbError(f'SCAN 失败：{exc}') from exc
 
 
-def redis_db_count(conn) -> int:
-    """返回当前 DB 的 key 数量（dbsize，cluster 不支持时返回 0）。"""
+SCAN_PAGE_COUNT = 500
+SCAN_PAGE_LIMIT = 2000
+INFO_SECRET_KEYS = frozenset({'requirepass', 'masterauth', 'masteruser'})
+INFO_PRIORITY = (
+    'redis_version', 'redis_mode', 'os', 'arch_bits', 'uptime_in_days',
+    'connected_clients', 'used_memory_human', 'used_memory_peak_human',
+    'total_connections_received', 'total_commands_processed',
+    'instantaneous_ops_per_sec', 'keyspace_hits', 'keyspace_misses',
+    'cluster_enabled',
+)
+
+
+def redis_db_count(conn) -> int | None:
+    """DBSIZE；失败返回 None，不用 0 假装空库。"""
     try:
-        return int(conn.dbsize() or 0)
+        return int(conn.dbsize())
     except Exception:
-        return 0
+        return None
+
+
+def format_redis_bytes(value) -> str:
+    if value is None or value == '':
+        return '—'
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text or '—'
+    if n < 0:
+        return '—'
+    if n < 1024:
+        return f'{n} B'
+    for unit, size in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+        if n >= size:
+            val = n / size
+            if abs(val - round(val)) < 1e-9:
+                return f'{int(round(val))} {unit}'
+            return f'{val:.1f} {unit}'
+    return f'{n} B'
+
+
+def split_key_prefix(key: str) -> list[str]:
+    """逻辑前缀分段：优先 ':' 与 '/'，不把每个 '.' 拆成深层目录。"""
+    text = str(key or '')
+    if ':' in text:
+        return [part for part in text.split(':') if part != '']
+    if '/' in text:
+        return [part for part in text.split('/') if part != '']
+    return [text] if text else []
+
+
+def build_prefix_index(keys: list[str], *, incomplete: bool = False) -> dict:
+    """从已扫描 keys 构建前缀树（不含叶子 Key）。count 语义由 incomplete 标记。"""
+    counts: dict[str, int] = {}
+    children: dict[str, set[str]] = {}
+    for key in keys:
+        parts = split_key_prefix(key)
+        if len(parts) < 2:
+            continue
+        acc = []
+        for part in parts[:-1]:
+            acc.append(part)
+            path = ':'.join(acc)
+            counts[path] = counts.get(path, 0) + 1
+            parent = ':'.join(acc[:-1])
+            children.setdefault(parent, set()).add(path)
+
+    def _node(path: str) -> dict:
+        name = path.split(':')[-1] if path else ''
+        kids = sorted(children.get(path, []), key=str.lower)
+        return {
+            'name': name,
+            'path': path,
+            'count': counts.get(path, 0),
+            'incomplete': bool(incomplete),
+            'children': [_node(child) for child in kids],
+        }
+
+    roots = sorted(children.get('', []), key=str.lower)
+    return {
+        'incomplete': bool(incomplete),
+        'prefixes': [_node(path) for path in roots],
+        'counts': counts,
+    }
+
+
+def keys_for_prefix(keys: list[str], prefix: str) -> list[str]:
+    path = str(prefix or '')
+    if not path:
+        return list(keys)
+    token = path + ':'
+    slash = path + '/'
+    return [key for key in keys if key.startswith(token) or key.startswith(slash) or key == path]
+
+
+class RedisScanState:
+    """SCAN 分页 + generation，供 UI 与测试共用。"""
+
+    def __init__(self):
+        self.generation = 0
+        self.cursor: int | dict = 0
+        self.finished = False
+        self.partial = False
+        self.incomplete = False
+        self.failed_nodes: list[str] = []
+        self.pattern = '*'
+        self.keys: list[str] = []
+
+    def start(self, pattern: str = '*') -> int:
+        self.generation += 1
+        self.cursor = 0
+        self.finished = False
+        self.partial = False
+        self.incomplete = False
+        self.failed_nodes = []
+        self.pattern = pattern or '*'
+        self.keys = []
+        return self.generation
+
+    def apply(
+        self,
+        generation: int,
+        keys: list[str],
+        cursor: int | dict | None,
+        finished: bool,
+        *,
+        partial: bool = False,
+        failed_nodes: list[str] | None = None,
+    ) -> bool:
+        if int(generation) != int(self.generation):
+            return False
+        seen = set(self.keys)
+        for key in keys:
+            if key not in seen:
+                seen.add(key)
+                self.keys.append(key)
+        if isinstance(cursor, dict):
+            self.cursor = dict(cursor)
+        else:
+            self.cursor = int(cursor or 0)
+        # partial 状态在当前 generation 跨分页必须 sticky 保持
+        self.partial = self.partial or bool(partial) or bool(failed_nodes)
+        if failed_nodes:
+            for node_name in failed_nodes:
+                if str(node_name) not in self.failed_nodes:
+                    self.failed_nodes.append(str(node_name))
+        # finished 代表是否已无 cursor 可继续推进
+        self.finished = bool(finished)
+        # incomplete 代表未全部扫描完成（游标未耗尽或曾发生节点失败）
+        self.incomplete = (not self.finished) or self.partial
+        return True
+
+
+def _as_int(value) -> int | None:
+    if value is None or value == '':
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_role(role: str) -> str:
+    text = str(role or '').strip().lower()
+    if text in ('master', 'primary'):
+        return 'primary'
+    if text in ('slave', 'replica'):
+        return 'replica'
+    return text
+
+
+def _parse_keyspace(keyspace: dict | None) -> tuple[int | None, int | None, int | None]:
+    if not keyspace:
+        return None, None, None
+    keys_total = 0
+    expires_total = 0
+    avg_samples: list[int] = []
+    found = False
+    for name, raw in keyspace.items():
+        if not str(name).lower().startswith('db'):
+            continue
+        found = True
+        data = raw
+        if not isinstance(data, dict):
+            data = {}
+            for part in str(raw or '').split(','):
+                if '=' not in part:
+                    continue
+                k, v = part.split('=', 1)
+                data[k.strip()] = v.strip()
+        keys_total += int(data.get('keys') or 0)
+        expires_total += int(data.get('expires') or 0)
+        avg = _as_int(data.get('avg_ttl'))
+        if avg is not None:
+            avg_samples.append(avg)
+    if not found:
+        return None, None, None
+    avg_ttl = None
+    if avg_samples:
+        avg_ttl = int(sum(avg_samples) / len(avg_samples))
+    return keys_total, expires_total, avg_ttl
+
+
+def _safe_info(conn, section: str | None = None) -> dict:
+    try:
+        if section:
+            payload = conn.info(section) or {}
+        else:
+            payload = conn.info() or {}
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cluster_node_row(node) -> dict:
+    host = _stringify(getattr(node, 'host', '') or '')
+    try:
+        port = int(getattr(node, 'port', 0) or 0)
+    except (TypeError, ValueError):
+        port = 0
+    role = _normalize_role(
+        _stringify(getattr(node, 'server_type', None) or getattr(node, 'role', None) or '')
+    )
+    row = {
+        'host': host,
+        'port': port,
+        'role': role or None,
+        'status': 'unavailable',
+        'keys': None,
+        'expires': None,
+        'avg_ttl': None,
+        'used_memory': None,
+        'used_memory_human': None,
+        'redis_version': None,
+    }
+    nconn = getattr(node, 'redis_connection', None)
+    if nconn is None:
+        return row
+    try:
+        server = nconn.info('server') or {}
+        if not isinstance(server, dict):
+            raise TypeError('invalid server info')
+        memory = nconn.info('memory') or {}
+        if not isinstance(memory, dict):
+            memory = {}
+        try:
+            keyspace = nconn.info('keyspace') or {}
+            if not isinstance(keyspace, dict):
+                keyspace = {}
+        except Exception:
+            keyspace = {}
+        if not row['role']:
+            try:
+                repl = nconn.info('replication') or {}
+                row['role'] = _normalize_role(_stringify((repl or {}).get('role') or '')) or None
+            except Exception:
+                pass
+        keys, expires, avg_ttl = _parse_keyspace(keyspace)
+        if keys is None:
+            try:
+                keys = int(nconn.dbsize())
+            except Exception:
+                keys = None
+        used = _as_int(memory.get('used_memory'))
+        row.update({
+            'status': 'online',
+            'keys': keys,
+            'expires': expires,
+            'avg_ttl': avg_ttl,
+            'used_memory': used,
+            'used_memory_human': _stringify(memory.get('used_memory_human') or '') or format_redis_bytes(used),
+            'redis_version': _stringify(server.get('redis_version') or '') or None,
+        })
+    except Exception:
+        row['status'] = 'unavailable'
+    return row
+
+
+def redis_cluster_nodes_info(conn) -> list[dict]:
+    get_nodes = getattr(conn, 'get_nodes', None)
+    if not callable(get_nodes):
+        return []
+    try:
+        nodes = list(get_nodes() or [])
+    except Exception:
+        return []
+    rows = []
+    for node in nodes:
+        try:
+            rows.append(_cluster_node_row(node))
+        except Exception:
+            rows.append({
+                'host': '', 'port': 0, 'role': None, 'status': 'unavailable',
+                'keys': None, 'expires': None, 'avg_ttl': None,
+                'used_memory': None, 'used_memory_human': None, 'redis_version': None,
+            })
+    return rows
+
+
+def redis_info_sections(conn) -> dict:
+    """安全只读 INFO 扁平表；不含密码类字段。"""
+    raw = _safe_info(conn)
+    if not raw:
+        for section in ('server', 'clients', 'memory', 'stats', 'cluster', 'keyspace', 'replication'):
+            raw.update(_safe_info(conn, section))
+    items = []
+    seen = set()
+    for key in INFO_PRIORITY:
+        if key in raw and key not in INFO_SECRET_KEYS:
+            items.append({'name': key, 'value': _stringify(raw.get(key))})
+            seen.add(key)
+    extras = []
+    for key, value in raw.items():
+        name = str(key)
+        if name in seen or name.lower() in INFO_SECRET_KEYS:
+            continue
+        if isinstance(value, dict):
+            extras.append({'name': name, 'value': _stringify(value)})
+        else:
+            extras.append({'name': name, 'value': _stringify(value)})
+    extras.sort(key=lambda row: row['name'])
+    return {'priority': items, 'all': items + extras}
+
+
+def redis_overview(conn) -> dict:
+    server = _safe_info(conn, 'server')
+    memory = _safe_info(conn, 'memory')
+    cluster = _safe_info(conn, 'cluster')
+    stats = _safe_info(conn, 'stats')
+    clients = _safe_info(conn, 'clients')
+    version = _stringify(server.get('redis_version') or '') or None
+    used_memory = _as_int(memory.get('used_memory'))
+    used_human = _stringify(memory.get('used_memory_human') or '') or format_redis_bytes(used_memory)
+    cluster_enabled = str(cluster.get('cluster_enabled') or server.get('redis_mode') or '') in (
+        '1', 'True', 'true', 'cluster',
+    )
+    nodes = redis_cluster_nodes_info(conn)
+    mode = 'cluster' if cluster_enabled or nodes else 'standalone'
+    total_keys = None
+    total_exact = False
+    if mode == 'standalone':
+        total_keys = redis_db_count(conn)
+        total_exact = total_keys is not None
+        if not nodes:
+            ks = _safe_info(conn, 'keyspace')
+            keys, expires, avg_ttl = _parse_keyspace(ks)
+            nodes = [{
+                'host': 'local',
+                'port': 0,
+                'role': 'primary',
+                'status': 'online' if version else 'unavailable',
+                'keys': keys if keys is not None else total_keys,
+                'expires': expires,
+                'avg_ttl': avg_ttl,
+                'used_memory': used_memory,
+                'used_memory_human': used_human,
+                'redis_version': version,
+            }]
+    else:
+        primary_keys = []
+        all_ok = True
+        for node in nodes:
+            if _normalize_role(node.get('role') or '') == 'replica':
+                continue
+            if node.get('status') != 'online' or node.get('keys') is None:
+                all_ok = False
+                continue
+            primary_keys.append(int(node['keys']))
+        if primary_keys and all_ok:
+            total_keys = sum(primary_keys)
+            total_exact = True
+        elif primary_keys:
+            total_keys = sum(primary_keys)
+            total_exact = False
+    online = sum(1 for node in nodes if node.get('status') == 'online')
+    return {
+        'mode': mode,
+        'redis_version': version,
+        'used_memory': used_memory,
+        'used_memory_human': used_human,
+        'total_keys': total_keys,
+        'total_keys_exact': total_exact,
+        'cluster_node_count': len(nodes) if mode == 'cluster' else max(1, len(nodes)),
+        'nodes_online': online,
+        'nodes': nodes,
+        'info': {
+            'redis_version': version,
+            'redis_mode': _stringify(server.get('redis_mode') or mode),
+            'os': _stringify(server.get('os') or ''),
+            'arch_bits': _stringify(server.get('arch_bits') or ''),
+            'uptime_in_days': _stringify(server.get('uptime_in_days') or ''),
+            'connected_clients': _stringify(clients.get('connected_clients') or ''),
+            'used_memory_human': used_human,
+            'used_memory_peak_human': _stringify(memory.get('used_memory_peak_human') or ''),
+            'total_connections_received': _stringify(stats.get('total_connections_received') or ''),
+            'total_commands_processed': _stringify(stats.get('total_commands_processed') or ''),
+            'instantaneous_ops_per_sec': _stringify(stats.get('instantaneous_ops_per_sec') or ''),
+            'keyspace_hits': _stringify(stats.get('keyspace_hits') or ''),
+            'keyspace_misses': _stringify(stats.get('keyspace_misses') or ''),
+            'cluster_enabled': _stringify(cluster.get('cluster_enabled') or ('1' if mode == 'cluster' else '0')),
+        },
+        'error': None if (online or mode == 'standalone') else 'all_nodes_failed',
+    }
 
 
 def redis_server_info(conn) -> dict:
-    """返回版本 / 模式等摘要（失败时返回占位）。"""
-    try:
-        info = conn.info('server') or {}
-        version = _stringify(info.get('redis_version') or '')
-    except Exception:
-        version = ''
+    """兼容旧摘要结构；精确计数语义见 redis_overview。"""
+    overview = redis_overview(conn)
     return {
-        'version': version,
-        'db': 0,
+        'version': overview.get('redis_version') or '',
+        'redis_version': overview.get('redis_version') or '',
+        'mode': overview.get('mode') or 'standalone',
+        'used_memory_human': overview.get('used_memory_human') or '',
+        'total_keys': overview.get('total_keys') if overview.get('total_keys') is not None else 0,
+        'total_keys_exact': bool(overview.get('total_keys_exact')),
+        'nodes': overview.get('nodes') or [],
+        'db': 0 if overview.get('mode') == 'standalone' else None,
+    }
+
+
+def redis_scan_page(
+    conn,
+    pattern: str = '*',
+    *,
+    cursor: int | dict | None = 0,
+    count: int = SCAN_PAGE_COUNT,
+    limit: int = SCAN_PAGE_LIMIT,
+    cancel=None,
+) -> dict:
+    """分批 SCAN，禁止全库 KEYS 命令。原生支持 Standalone 整数游标与 Cluster 字典游标。"""
+    match = pattern or '*'
+    collected: list[str] = []
+    seen: set[str] = set()
+    batch_size = max(16, int(count or SCAN_PAGE_COUNT))
+    cap = max(1, int(limit or SCAN_PAGE_LIMIT))
+
+    is_cluster = isinstance(cursor, dict) or getattr(conn, 'is_cluster', False) or hasattr(conn, 'get_nodes')
+
+    if not is_cluster:
+        cur = int(cursor or 0)
+        finished = False
+        try:
+            while len(collected) < cap:
+                if cancel and cancel():
+                    break
+                try:
+                    nxt, batch = conn.scan(cursor=cur, match=match, count=batch_size)
+                except DbError:
+                    raise
+                except Exception as exc:
+                    raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+                for key in batch or []:
+                    k = _b(key)
+                    if k not in seen:
+                        seen.add(k)
+                        collected.append(k)
+                cur = int(nxt or 0) if not isinstance(nxt, dict) else 0
+                if cur == 0:
+                    finished = True
+                    break
+        except DbError:
+            raise
+        except Exception as exc:
+            raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+        return {
+            'keys': collected,
+            'cursor': cur,
+            'finished': finished,
+            'incomplete': not finished,
+            'partial': False,
+            'failed_nodes': [],
+            'pattern': match,
+            'count': len(collected),
+        }
+
+    # ── Cluster 模式：维护 node_name -> cursor 状态 ──
+    cursors_map: dict[str, int] = {}
+    if isinstance(cursor, dict) and cursor:
+        cursors_map = {str(k): int(v or 0) for k, v in cursor.items()}
+
+    failed_nodes: list[str] = []
+
+    try:
+        if not cursors_map:
+            # 首次全集群扫描：广播 cursor=0
+            # 外部审核规则：首次 aggregate Cluster scan 出错必须直接外抛 DbError，禁止 catch-all 伪装成 partial
+            try:
+                raw_res = conn.scan(cursor=0, match=match, count=batch_size)
+            except DbError:
+                raise
+            except Exception as exc:
+                raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+
+            if isinstance(raw_res, tuple) and len(raw_res) == 2:
+                init_cursors, init_batch = raw_res
+                if isinstance(init_cursors, dict):
+                    cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
+                else:
+                    cursors_map = {'default': int(init_cursors or 0)}
+                for key in init_batch or []:
+                    k = _b(key)
+                    if k not in seen:
+                        seen.add(k)
+                        collected.append(k)
+            elif isinstance(raw_res, dict):
+                cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
+
+        # 遍历所有未耗尽节点（node cursor != 0）进行分页
+        while len(collected) < cap:
+            if cancel and cancel():
+                break
+            active_nodes = [name for name, c in cursors_map.items() if c != 0]
+            if not active_nodes:
+                break
+            progress_made = False
+            for name in active_nodes:
+                if cancel and cancel():
+                    break
+                node_cur = cursors_map.get(name, 0)
+                if node_cur == 0:
+                    continue
+
+                if hasattr(conn, 'get_node'):
+                    try:
+                        node_obj = conn.get_node(node_name=name)
+                    except Exception:
+                        node_obj = None
+                    if node_obj is None:
+                        # get_node 返回 None 时不得把 target_nodes=None 传给 cluster scan（防全集群广播）
+                        if name not in failed_nodes:
+                            failed_nodes.append(name)
+                        cursors_map.pop(name, None)
+                        continue
+                else:
+                    node_obj = name
+
+                try:
+                    cur_res, batch = conn.scan(
+                        cursor=node_cur,
+                        match=match,
+                        count=batch_size,
+                        target_nodes=node_obj,
+                    )
+                    # 必须完整消费该 batch，不得推进 cursor 后丢弃 batch 尾部
+                    for key in batch or []:
+                        k = _b(key)
+                        if k not in seen:
+                            seen.add(k)
+                            collected.append(k)
+                    if isinstance(cur_res, dict):
+                        new_cur = cur_res.get(name, 0)
+                    else:
+                        new_cur = int(cur_res or 0)
+                    cursors_map[name] = int(new_cur or 0)
+                    progress_made = True
+                except Exception as exc:
+                    if _is_transport_error(exc):
+                        # 单节点网络/传输层异常不拖垮其他节点，记录为 failed_nodes，不假装 finished
+                        if name not in failed_nodes:
+                            failed_nodes.append(name)
+                        cursors_map.pop(name, None)
+                        progress_made = True
+                    else:
+                        # 编程/类型/API错误（如 TypeError, AttributeError 等）禁止吞掉，向外抛出 DbError
+                        raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+                if len(collected) >= cap:
+                    break
+            if not progress_made:
+                break
+    except DbError:
+        raise
+    except Exception as exc:
+        raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
+
+    is_partial = bool(failed_nodes)
+    finished = all(c == 0 for c in cursors_map.values()) if cursors_map else True
+    incomplete = (not finished) or is_partial
+    return {
+        'keys': collected,
+        'cursor': cursors_map,
+        'finished': finished,
+        'incomplete': incomplete,
+        'partial': is_partial,
+        'failed_nodes': failed_nodes,
+        'pattern': match,
+        'count': len(collected),
     }
 
 

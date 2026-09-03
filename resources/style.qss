@@ -116,9 +116,10 @@ QCheckBox#flag-check::indicator {
     min-height: 52px;
 }
 #sidebar-brand-icon {
-    background: __PRIMARY_SOFT__;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
     border-radius: 10px;
-    border: 1px solid __PRIMARY_SOFT__;
+    border: 1px solid __PRIMARY__;
 }
 #sidebar_title {
     color: __TEXT_STRONG__;
@@ -249,12 +250,14 @@ QPushButton#primary-btn:pressed, QPushButton#card-action:pressed {
     color: __ON_PRIMARY__;
 }
 QPushButton#primary-btn, QPushButton#card-action {
-    background: __PRIMARY__;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
     color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 7px 14px;
     border-radius: 10px;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover {
-    background: __PRIMARY_HOVER__;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 __PRIMARY_HOVER__, stop:1 __PRIMARY__);
     color: __ON_PRIMARY__;
 }
 QPushButton#primary-btn:disabled, QPushButton#card-action:disabled {
@@ -677,19 +680,23 @@ QGroupBox#docx-file-group::title {
     padding: 0 4px;
     color: __TEXT_MUTED__;
 }
-/* 统一数量/步进器 Segmented Stepper: [ - ][ 数字 ][ + ] */
+/* 分段步进器：单一外框 + 内部分隔，不是三个独立输入框 */
 QWidget#compact-stepper {
-    background: transparent;
-}
-QPushButton#compact-step-minus {
     background: __SURFACE__;
-    color: __TEXT__;
     border: 1px solid __BORDER__;
-    border-right: none;
-    border-top-left-radius: 6px;
-    border-bottom-left-radius: 6px;
-    border-top-right-radius: 0px;
-    border-bottom-right-radius: 0px;
+    border-radius: 8px;
+    min-height: 28px;
+    max-height: 32px;
+}
+QWidget#compact-stepper:hover {
+    border-color: __PRIMARY__;
+}
+QPushButton#compact-step-minus,
+QPushButton#compact-step-plus {
+    background: transparent;
+    color: __TEXT__;
+    border: none;
+    border-radius: 0px;
     font-size: 14px;
     font-weight: bold;
     padding: 0;
@@ -698,26 +705,30 @@ QPushButton#compact-step-minus {
     min-height: 28px;
     max-height: 28px;
 }
-QPushButton#compact-step-minus:hover {
-    background: __SURFACE_SOFT__;
-    color: __PRIMARY__;
+QPushButton#compact-step-minus:hover,
+QPushButton#compact-step-plus:hover {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
 }
-QPushButton#compact-step-minus:pressed {
+QPushButton#compact-step-minus:pressed,
+QPushButton#compact-step-plus:pressed {
     background: __PRIMARY_SOFT__;
     color: __PRIMARY__;
 }
-QPushButton#compact-step-minus:disabled {
-    background: __SURFACE__;
+QPushButton#compact-step-minus:disabled,
+QPushButton#compact-step-plus:disabled {
+    background: transparent;
     color: __TEXT_MUTED__;
-    border-color: __BORDER__;
 }
 QLineEdit#compact-step-value {
-    background: __INPUT_BG__;
+    background: transparent;
     color: __TEXT_STRONG__;
-    border: 1px solid __BORDER__;
+    border: none;
+    border-left: 1px solid __BORDER__;
+    border-right: 1px solid __BORDER__;
     border-radius: 0px;
     font-size: 13px;
-    padding: 2px 4px;
+    padding: 0 4px;
     min-width: 36px;
     min-height: 28px;
     max-height: 28px;
@@ -725,41 +736,28 @@ QLineEdit#compact-step-value {
     selection-color: __TEXT_STRONG__;
 }
 QLineEdit#compact-step-value:focus {
-    border-color: __PRIMARY__;
+    background: __INPUT_BG__;
 }
 QLineEdit#compact-step-value:disabled {
-    background: __SURFACE__;
     color: __TEXT_MUTED__;
 }
-QPushButton#compact-step-plus {
-    background: __SURFACE__;
-    color: __TEXT__;
-    border: 1px solid __BORDER__;
-    border-left: none;
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
-    border-top-left-radius: 0px;
-    border-bottom-left-radius: 0px;
-    font-size: 14px;
-    font-weight: bold;
-    padding: 0;
-    min-width: 28px;
-    max-width: 28px;
-    min-height: 28px;
-    max-height: 28px;
-}
-QPushButton#compact-step-plus:hover {
-    background: __SURFACE_SOFT__;
-    color: __PRIMARY__;
-}
-QPushButton#compact-step-plus:pressed {
+QFrame#chat-user-bubble {
     background: __PRIMARY_SOFT__;
-    color: __PRIMARY__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __PRIMARY_SOFT__;
+    border-radius: 12px;
 }
-QPushButton#compact-step-plus:disabled {
-    background: __SURFACE__;
-    color: __TEXT_MUTED__;
-    border-color: __BORDER__;
+QFrame#chat-assistant-bubble {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QPushButton#chat-copy-btn {
+    padding: 0 8px;
+    min-height: 22px;
+    max-height: 22px;
+    font-size: 11px;
 }
 QFrame#gateway-work-zone QLabel#zone-title {
     border-left-color: __TEXT_MUTED__;
@@ -1914,7 +1912,8 @@ QPlainTextEdit#floating-learn-content {
     color: __TEXT_STRONG__;
 }
 #sidebar-brand-icon {
-    background: __PRIMARY_SOFT__;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
     border-radius: 10px;
 }
 

@@ -243,6 +243,15 @@ def scan_schema(conn, item: dict, cancel=None) -> dict:
     try:
         if dialect == 'oceanbase':
             ob_mode = normalize_oceanbase_mode((item or {}).get('mode'))
+            if ob_mode == 'oracle' and (item or {}).get('oceanbase_oracle_provider') != 'odbc':
+                payload['status'] = 'failed'
+                payload['warning'] = (
+                    '[ODBC_SCHEMA_CONFIRM_REQUIRED] 当前 OceanBase (Oracle 模式) 连接尚未确认 Database/Schema 语义。\n'
+                    '说明：旧版本 OceanBase Oracle 的 Database 字段曾用于保存 SID 或服务名；\n'
+                    '在 Windows ODBC provider 中，Database 表示要访问的目标 Schema。\n'
+                    '请在连接管理器中打开“编辑连接”，确认 Database/Schema 后重新保存。'
+                )
+                return payload
             is_mysql_schema = (ob_mode == 'mysql')
         else:
             is_mysql_schema = (dialect == 'mysql')
@@ -323,8 +332,24 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                     "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
                     "FROM USER_TABLES"
                 )
+        elif dialect == 'oceanbase':
+            # OceanBase Oracle ODBC provider: Database 官方语义即为要访问的 Schema
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
+            if target_schema:
+                cur.execute(
+                    "SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    "WHERE table_type IN ('TABLE', 'VIEW') AND owner = :1",
+                    (target_schema,),
+                )
+            else:
+                excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+                placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+                cur.execute(
+                    f"SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    f"WHERE table_type IN ('TABLE', 'VIEW') AND owner NOT IN ({placeholders})"
+                )
         else:
-            # Oracle / OceanBase Oracle mode: database 字段为 SID/DSN 目标，不得当成 schema
+            # native Oracle: database 字段为 SID/DSN 目标，绝不能当成 schema
             target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
             if target_schema:
                 cur.execute(
@@ -364,7 +389,12 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                     "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
                 )
         else:
-            target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
+            if dialect == 'oceanbase':
+                # OceanBase Oracle ODBC provider: Database 官方语义即为要访问的 Schema
+                target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
+            else:
+                # native Oracle: database 字段为 SID/DSN 目标，绝不能当成 schema
+                target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
             if target_schema:
                 cur.execute(
                     "SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "

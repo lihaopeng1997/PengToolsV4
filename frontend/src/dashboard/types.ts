@@ -13,6 +13,21 @@ export interface DashboardRelease {
   percent?: number | null
   days_left?: number | null
   date_text?: string | null
+  countdown_state?: 'future' | 'today' | 'overdue' | 'unset' | string | null
+  target_date?: string | null
+}
+
+export interface MonthlyReleaseTask {
+  id?: string | null
+  code?: string | null
+  title?: string | null
+  system?: string | null
+  status?: string | null
+  test_points?: string | null
+  planned_online_date?: string | null
+  actual_online_date?: string | null
+  done?: boolean | null
+  nav?: number | null
 }
 
 export interface DashboardRecentItem {
@@ -46,4 +61,5 @@ export interface DashboardSummary {
   recent?: DashboardRecentItem[] | null
   checklist?: DashboardChecklistItem[] | null
   tools?: DashboardToolItem[] | null
+  monthly_release_tasks?: MonthlyReleaseTask[] | null
 }

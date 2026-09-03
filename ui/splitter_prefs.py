@@ -61,13 +61,13 @@ def _dpi_scale() -> float:
 
 
 def _scaled_mins(min_sizes: list[int] | None, count: int) -> list[int]:
-    scale = _dpi_scale()
+    # min_sizes 已是 Qt 逻辑像素；不要再乘 DPI，否则高分屏会把邻格压扁。
     if not min_sizes:
-        return [max(80, int(120 * scale)) for _ in range(count)]
+        return [80 for _ in range(count)]
     out = []
     for index in range(count):
-        raw = min_sizes[index] if index < len(min_sizes) else 120
-        out.append(max(48, int(raw * scale)))
+        raw = min_sizes[index] if index < len(min_sizes) else 80
+        out.append(max(48, int(raw)))
     return out
 
 

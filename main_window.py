@@ -87,6 +87,11 @@ class MainWindow(QMainWindow):
         # 先建工作台，用户立刻看到首页骨架
         self._ensure_dashboard_panel()
         self.stack.setCurrentIndex(0)
+        log_web_event(
+            'renderers_initialized',
+            main_shell=self.main_shell_renderer,
+            dashboard=self.dashboard_renderer,
+        )
         self._show_startup_loading('正在加载模块…' if self.language == 'zh' else 'Loading modules…')
         # 测试/offscreen：同步 boot，避免用例拿到半成品窗口
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or os.environ.get('PENGTOOLS_SYNC_BOOT') == '1':
@@ -115,9 +120,25 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         # ── V2 Web 铬层：可用且未禁用时启用（侧栏双页栈：0=原生保底 1=Web）──
+        ui_web_setting = bool(self._settings.get('ui_web_shell', True))
+        runtime_web_available = _web_shell.runtime_web_shell_available()
         self._web_shell_enabled = (
-            _web_shell.runtime_web_shell_available()
-            and bool(self._settings.get('ui_web_shell', True))
+            runtime_web_available
+            and ui_web_setting
+        )
+        chrome_local_path = _web_shell.webui_url('vue/chrome.html').toLocalFile()
+        dashboard_local_path = _web_shell.webui_url('vue/dashboard.html').toLocalFile()
+        log_web_event(
+            'startup_web_diagnostics',
+            web_shell_available=_web_shell.WEB_SHELL_AVAILABLE,
+            import_error=getattr(_web_shell, 'WEB_SHELL_IMPORT_ERROR', ''),
+            runtime_available=runtime_web_available,
+            ui_web_shell_setting=ui_web_setting,
+            web_shell_enabled=self._web_shell_enabled,
+            chrome_resolved_path=chrome_local_path,
+            chrome_exists=os.path.exists(chrome_local_path),
+            dashboard_resolved_path=dashboard_local_path,
+            dashboard_exists=os.path.exists(dashboard_local_path),
         )
         self._chrome_bridge = None
         self._dash_web = None
@@ -149,6 +170,12 @@ class MainWindow(QMainWindow):
             layout.addWidget(side_stack)
             self._web_timeout_timer.start(10000)
         else:
+            reason = (
+                'ui_web_shell_setting_disabled'
+                if not ui_web_setting
+                else 'runtime_web_shell_unavailable'
+            )
+            log_web_event('web_shell_disabled_startup', reason=reason)
             layout.addWidget(self._create_legacy_sidebar())
 
         content = QFrame()
@@ -286,7 +313,7 @@ class MainWindow(QMainWindow):
             self._dash_holder.setCurrentIndex(0)
             self._mount_panel(0, self._dash_holder)
             if hasattr(self._dash_web, 'web_view') and hasattr(self._dash_web.web_view, 'loadFinished'):
-                self._dash_web.web_view.loadFinished.connect(lambda ok: ok is False and self._disable_web_shell_live())
+                self._dash_web.web_view.loadFinished.connect(lambda ok: (not ok) and self._disable_web_shell_live('dashboard_load_failed'))
         else:
             self._mount_panel(0, panel)
         self.dashboard_panel = panel
@@ -1301,19 +1328,36 @@ class MainWindow(QMainWindow):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
+    @property
+    def main_shell_renderer(self) -> str:
+        if getattr(self, '_web_shell_enabled', False) and getattr(self, '_sidebar_stack', None) is not None:
+            if self._sidebar_stack.currentIndex() == 1:
+                return 'web'
+        return 'native'
+
+    @property
+    def dashboard_renderer(self) -> str:
+        if getattr(self, '_web_shell_enabled', False) and getattr(self, '_dash_holder', None) is not None:
+            if self._dash_holder.currentIndex() == 0:
+                return 'web'
+        return 'native'
+
     def _disable_web_shell_live(self, reason='unknown'):
         """整壳回退经典 UI（幂等）：Web 侧栏→原生侧栏，Web 首页→原生首页。
         仅当前会话回退，不修改用户 settings.json。"""
         if not getattr(self, '_web_shell_enabled', False):
             return
         self._web_shell_enabled = False
-        log_web_event('web_shell_fallback', reason=reason)
+        log_web_event('web_shell_fallback', reason=reason,
+                      main_shell='native', dashboard='native')
         try:
             self._web_timeout_timer.stop()
         except Exception:
             pass
         try:
-            self.status_bar.showMessage('V2 界面加载失败，已回退经典界面', 8000)
+            zh = getattr(self, 'language', 'zh') == 'zh'
+            msg = f'V2 界面加载失败 ({reason})，已回退经典界面' if zh else f'Web Shell fallback ({reason}), using legacy UI'
+            self.status_bar.showMessage(msg, 8000)
         except Exception:
             pass
         if getattr(self, '_sidebar_stack', None) is not None:
@@ -1420,100 +1464,25 @@ class MainWindow(QMainWindow):
                 'current': int(getattr(self, '_current_nav_index', 0) or 0)}
 
     def _dashboard_summary_payload(self):
-        """首页 Web 数据（main_window→tools 合法；宽松容错，失败返回可渲染默认）。"""
-        import datetime
-        payload = {
-            'username': str(self._settings.get('home_username') or 'Lihp'),
-            'greeting': '下午好', 'date_line': '本地数据已同步',
-            'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5,
-                      'daily_note': ''},
-            'release': {'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
-                        'days_left': None, 'date_text': '计划日期待定'},
-            'recent': [], 'checklist': [],
-            'tools': [
-                {'i': 14, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
-                {'i': 16, 'zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
-                {'i': 11, 'zh': '格式工具', 'ds': 'JSON / XML / SQL', 'icon': 'braces', 'grad': 'c4'},
-                {'i': 12, 'zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'plug', 'grad': 'c3'},
-            ],
-        }
+        """首页 Web/Native 共用 summary（失败返回可渲染默认）。"""
         try:
-            from tools import dashboard_release_items as _dri
-            from tools import requirements as _req
+            from tools.dashboard_summary import build_dashboard_summary
+            return build_dashboard_summary(
+                language=self.language,
+                username=str(self._settings.get('home_username') or 'Lihp'),
+            )
         except Exception:
-            return payload
-        now = datetime.datetime.now()
-        today = now.date()
-        if self.language == 'zh':
-            hour_text = '上午好' if now.hour < 12 else ('下午好' if now.hour < 18 else '晚上好')
-            weekday = '一二三四五六日'[today.weekday()]
-            payload['greeting'] = hour_text
-            payload['date_line'] = f'今天是 {today.month} 月 {today.day} 日 星期{weekday} · 本地数据已同步'
-        else:
-            payload['greeting'] = 'Good afternoon' if now.hour < 18 else 'Good evening'
-            payload['date_line'] = f'{today.isoformat()} · Local data synced'
-        try:
-            requirements = _req.load_requirements()
-        except Exception:
-            requirements = []
-        open_reqs = [r for r in requirements
-                     if str(r.get('status') or '') not in ('已完成', 'done', 'closed', '已关闭')]
-        payload['stats']['req_open'] = len(open_reqs)
-        payload['stats']['req_trend'] = f'共 {len(requirements)} 条'
-        recent = []
-        for r in list(reversed(requirements[-5:])):
-            status = str(r.get('status') or '进行中')
-            cls = 'ok' if status == '已完成' else ('rev' if '评审' in status else 'run')
-            recent.append({
-                'code': str(r.get('code') or r.get('id') or ''),
-                'title': str(r.get('title') or r.get('name') or '未命名需求'),
-                'status': cls,
-                'color': {'run': '#F59E0B', 'rev': '#3B82F6', 'ok': '#10B981'}.get(cls, '#C9CCDD'),
-                'nav': 10,
-            })
-        payload['recent'] = recent
-        try:
-            items = _dri.load_release_items()
-            board = _dri.load_release_board()
-            completed = set(board.get('completed_requirement_keys') or [])
-            months = _dri.collect_release_months(requirements) if requirements else []
-            month = months[0] if months else ''
-            total = len(items)
-            done = sum(1 for it in items if _dri.is_board_item_completed(it, month, completed))
-            dates = sorted({it.get('planned_date') for it in items if it.get('planned_date')})
-            days_left = None
-            next_text = '计划日期待定'
-            if dates:
-                try:
-                    days_left = (datetime.date.fromisoformat(dates[0]) - today).days
-                    next_text = f'计划 {dates[0][5:]} 发布'
-                except ValueError:
-                    pass
-            rel = payload['release']
-            rel.update({'total': total, 'done': done,
-                        'percent': int(done * 100 / total) if total else 0,
-                        'days_left': days_left, 'date_text': next_text})
-            payload['checklist'] = [
-                {'t': '升级准备清单核对', 'color': '#10B981' if done else '#E4E1EC',
-                 'mini': f'{done}/{total} 项'},
-                {'t': '发布包密钥扫描', 'color': '#E4E1EC', 'mini': '发布前执行'},
-            ]
-        except Exception:
-            pass
-        try:
-            from tools import daily_reports as _daily
-            reports = _daily.load_reports()
-            week_dates = set()
-            for offset in range(today.weekday() + 1):
-                day = today - datetime.timedelta(days=offset)
-                week_dates.add(day.isoformat())
-            keys = set(reports.keys()) if isinstance(reports, dict) else set()
-            payload['stats']['daily_done'] = len(week_dates & keys)
-            payload['stats']['daily_note'] = ('今日已提交' if today.isoformat() in keys
-                                              else '今日未提交')
-        except Exception:
-            pass
-        return payload
+            return {
+                'username': str(self._settings.get('home_username') or 'Lihp'),
+                'greeting': '下午好',
+                'date_line': '本地数据已同步',
+                'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5, 'daily_note': ''},
+                'release': {
+                    'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
+                    'days_left': None, 'date_text': '计划日期待定', 'countdown_state': 'unset',
+                },
+                'recent': [], 'checklist': [], 'tools': [], 'monthly_release_tasks': [],
+            }
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
@@ -2087,7 +2056,18 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         if self.quick_panel is not None:
-            self.quick_panel.close()
+            qp = self.quick_panel
+            shutdown = getattr(qp, 'shutdown', None)
+            try:
+                if callable(shutdown):
+                    shutdown()
+                else:
+                    qp.close()
+            except Exception:
+                try:
+                    qp.close()
+                except Exception:
+                    pass
         if self.tray_service is not None:
             self.tray_service.hide()
         event.accept()
