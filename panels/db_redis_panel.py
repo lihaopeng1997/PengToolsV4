@@ -946,7 +946,10 @@ class RedisWorkbenchPanel(QWidget):
             self._key_cache = list(self._scan.keys)
             if payload.get('overview') is not None:
                 self._fill_overview(payload.get('overview'), payload.get('info_table'))
-            self._render_prefix_tree(self._key_cache, incomplete=not self._scan.finished)
+            self._render_prefix_tree(
+                self._key_cache,
+                incomplete=getattr(self._scan, 'incomplete', not self._scan.finished),
+            )
         elif kind == 'overview':
             self._fill_overview((payload or {}).get('overview'), (payload or {}).get('info_table'))
         elif kind == 'key_meta':

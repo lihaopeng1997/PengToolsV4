@@ -218,6 +218,7 @@ class RedisScanState:
         self.cursor: int | dict = 0
         self.finished = False
         self.partial = False
+        self.incomplete = False
         self.failed_nodes: list[str] = []
         self.pattern = '*'
         self.keys: list[str] = []
@@ -227,6 +228,7 @@ class RedisScanState:
         self.cursor = 0
         self.finished = False
         self.partial = False
+        self.incomplete = False
         self.failed_nodes = []
         self.pattern = pattern or '*'
         self.keys = []
@@ -253,10 +255,16 @@ class RedisScanState:
             self.cursor = dict(cursor)
         else:
             self.cursor = int(cursor or 0)
-        self.partial = bool(partial) or bool(failed_nodes)
+        # partial 状态在当前 generation 跨分页必须 sticky 保持
+        self.partial = self.partial or bool(partial) or bool(failed_nodes)
         if failed_nodes:
-            self.failed_nodes = list(failed_nodes)
-        self.finished = bool(finished) and not self.partial
+            for node_name in failed_nodes:
+                if str(node_name) not in self.failed_nodes:
+                    self.failed_nodes.append(str(node_name))
+        # finished 代表是否已无 cursor 可继续推进
+        self.finished = bool(finished)
+        # incomplete 代表未全部扫描完成（游标未耗尽或曾发生节点失败）
+        self.incomplete = (not self.finished) or self.partial
         return True
 
 
@@ -599,20 +607,36 @@ def redis_scan_page(
     try:
         if not cursors_map:
             # 首次全集群扫描：广播 cursor=0
-            raw_res = conn.scan(cursor=0, match=match, count=batch_size)
-            if isinstance(raw_res, tuple) and len(raw_res) == 2:
-                init_cursors, init_batch = raw_res
-                if isinstance(init_cursors, dict):
-                    cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
+            try:
+                raw_res = conn.scan(cursor=0, match=match, count=batch_size)
+                if isinstance(raw_res, tuple) and len(raw_res) == 2:
+                    init_cursors, init_batch = raw_res
+                    if isinstance(init_cursors, dict):
+                        cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
+                    else:
+                        cursors_map = {'default': int(init_cursors or 0)}
+                    for key in init_batch or []:
+                        k = _b(key)
+                        if k not in seen:
+                            seen.add(k)
+                            collected.append(k)
+                elif isinstance(raw_res, dict):
+                    cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
+            except Exception:
+                known_nodes = []
+                if hasattr(conn, 'get_nodes'):
+                    try:
+                        for n in conn.get_nodes() or []:
+                            name = getattr(n, 'name', None) or getattr(n, 'node_name', None) or str(n)
+                            known_nodes.append(name)
+                    except Exception:
+                        pass
+                if known_nodes:
+                    for name in known_nodes:
+                        if name not in failed_nodes:
+                            failed_nodes.append(name)
                 else:
-                    cursors_map = {'default': int(init_cursors or 0)}
-                for key in init_batch or []:
-                    k = _b(key)
-                    if k not in seen:
-                        seen.add(k)
-                        collected.append(k)
-            elif isinstance(raw_res, dict):
-                cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
+                    raise
 
         # 遍历所有未耗尽节点（node cursor != 0）进行分页
         while len(collected) < cap:
@@ -678,7 +702,7 @@ def redis_scan_page(
         raise DbError(f'SCAN 失败：{exc}') from exc
 
     is_partial = bool(failed_nodes)
-    finished = (all(c == 0 for c in cursors_map.values()) if cursors_map else True) and not is_partial
+    finished = all(c == 0 for c in cursors_map.values()) if cursors_map else True
     incomplete = (not finished) or is_partial
     return {
         'keys': collected,

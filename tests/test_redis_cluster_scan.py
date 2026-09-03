@@ -168,11 +168,49 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
         res = redis_scan_page(conn, cursor=0, limit=10)
         self.assertIn('k_init', res['keys'])
         self.assertIn('k_good', res['keys'])
-        # 节点失败不得假装 finished
-        self.assertFalse(res['finished'])
+        # 游标已全部耗尽（node-good 为 0，node-bad 失败已剔除）：finished=True，无更多游标可推进
+        self.assertTrue(res['finished'])
+        # 但结果不完整：partial=True, incomplete=True
         self.assertTrue(res['partial'])
         self.assertTrue(res['incomplete'])
         self.assertIn('node-bad', res['failed_nodes'])
+
+    def test_redis_scan_state_partial_sticky_across_pages(self):
+        """Page 1 发生节点失败后，Page 2 即使正常结束，partial 与 failed_nodes 也必须跨页保持。"""
+        state = RedisScanState()
+        gen = state.start('user:*')
+
+        # Page 1: node-B cursor=100, node-A failed
+        ok1 = state.apply(gen, ['k1'], {'node-B': 100}, finished=False, partial=True, failed_nodes=['node-A'])
+        self.assertTrue(ok1)
+        self.assertFalse(state.finished)
+        self.assertTrue(state.partial)
+        self.assertTrue(state.incomplete)
+        self.assertEqual(state.failed_nodes, ['node-A'])
+
+        # Page 2: node-B cursor=0, finished=True, partial=False, failed_nodes=[]
+        ok2 = state.apply(gen, ['k2'], {'node-B': 0}, finished=True, partial=False, failed_nodes=[])
+        self.assertTrue(ok2)
+        # finished 为 True（游标耗尽，无需继续加载）
+        self.assertTrue(state.finished)
+        # partial 与 failed_nodes 跨页 sticky 保持
+        self.assertTrue(state.partial)
+        self.assertTrue(state.incomplete)
+        self.assertEqual(state.failed_nodes, ['node-A'])
+
+    def test_redis_single_node_failure_terminal_case(self):
+        """集群中仅有 1 个节点且该节点失败：cursor 为空，finished=True, partial=True, incomplete=True。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-solo']
+        conn.scan.side_effect = Exception('node-solo down')
+
+        res = redis_scan_page(conn, cursor=0, limit=10)
+        self.assertEqual(res['cursor'], {})
+        self.assertTrue(res['finished'])
+        self.assertTrue(res['partial'])
+        self.assertTrue(res['incomplete'])
+        self.assertEqual(res['failed_nodes'], ['node-solo'])
 
     def test_scan_batch_never_drops_keys_standalone(self):
         """Standalone: 剩余配额 1，SCAN 返回 5 个 Key 且 cursor != 0，必须完整保留全部 5 个 Key。"""
@@ -210,7 +248,7 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
         conn.scan.assert_not_called()
         self.assertIn('node-ghost', res['failed_nodes'])
         self.assertTrue(res['partial'])
-        self.assertFalse(res['finished'])
+        self.assertTrue(res['finished'])
         self.assertTrue(res['incomplete'])
 
     def test_worker_production_chain_with_dict_cursor(self):
