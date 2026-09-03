@@ -17,9 +17,11 @@ from tools.db_connect import (
     DbError,
     mongo_auth_mechanism,
     mongo_auth_source,
+    normalize_mongo_seed_nodes,
     normalize_redis_auth_mode,
     normalize_redis_seed_nodes,
     open_connection,
+    probe_connection,
     redis_auth_kwargs,
 )
 
@@ -217,28 +219,199 @@ class MongoContractTests(unittest.TestCase):
         self.assertEqual(captured["authSource"], "admin")
         self.assertEqual(captured["authMechanism"], "SCRAM-SHA-256")
 
-    def test_authentication_failed_classified(self):
-        class AuthFailed(Exception):
-            code = 18
+    def test_mongo_normalize_seed_nodes(self):
+        # 1. 旧单机兼容
+        single = normalize_mongo_seed_nodes({"host": "10.0.0.1", "port": 27017})
+        self.assertEqual(single, [{"host": "10.0.0.1", "port": 27017}])
+
+        # 2. 多 seed 规范化与持久化
+        multi = normalize_mongo_seed_nodes({
+            "seed_nodes": [
+                {"host": "10.0.0.1", "port": 27017},
+                {"host": "10.0.0.2", "port": 27018},
+                {"host": "10.0.0.3", "port": 27019},
+            ]
+        })
+        self.assertEqual(len(multi), 3)
+        self.assertEqual(multi[1], {"host": "10.0.0.2", "port": 27018})
+
+        # 3. 端口非法拦截
+        with self.assertRaises(DbError):
+            normalize_mongo_seed_nodes({"seed_nodes": [{"host": "h", "port": 0}]})
+        with self.assertRaises(DbError):
+            normalize_mongo_seed_nodes({"seed_nodes": [{"host": "h", "port": 70000}]})
+
+    def test_mongo_cluster_multi_seed_client_call(self):
+        """真实事故：3 个 seed、1 组用户名密码，证明 MongoClient 接收全部 seed 且 directConnection=False。"""
+        captured = {}
 
         class FakeClient:
             def __init__(self, **kwargs):
+                captured.update(kwargs)
                 self.admin = MagicMock()
-                self.admin.command.side_effect = AuthFailed("Authentication failed")
+                self.admin.command.return_value = {"ok": 1}
+
+            def __getitem__(self, name):
+                box = MagicMock()
+                box.name = name
+                box.client = self
+                return box
 
         pymongo_mod = types.SimpleNamespace(MongoClient=FakeClient)
         item = {
             "dialect": "mongodb",
-            "host": "10.0.0.8",
-            "port": 27017,
-            "database": "biz",
-            "username": "app",
+            "mode": "cluster",
+            "seed_nodes": [
+                {"host": "10.0.0.1", "port": 27017},
+                {"host": "10.0.0.2", "port": 27017},
+                {"host": "10.0.0.3", "port": 27017},
+            ],
+            "database": "appdb",
+            "username": "cluster_admin",
+            "auth_source": "admin",
+            "replica_set_name": "my-rs",
         }
         with patch.dict(sys.modules, {"pymongo": pymongo_mod}):
-            with self.assertRaises(DbError) as ctx:
-                open_connection(item, plain_password="bad")
-        self.assertIn("认证失败", str(ctx.exception))
-        self.assertIn("code 18", str(ctx.exception))
+            open_connection(item, plain_password="secure_password_123")
+
+        self.assertEqual(captured.get("host"), [
+            "10.0.0.1:27017",
+            "10.0.0.2:27017",
+            "10.0.0.3:27017",
+        ])
+        self.assertFalse(captured.get("directConnection"))
+        self.assertEqual(captured.get("replicaSet"), "my-rs")
+        self.assertEqual(captured.get("username"), "cluster_admin")
+        self.assertEqual(captured.get("password"), "secure_password_123")
+        self.assertEqual(captured.get("authSource"), "admin")
+
+    def test_mongo_cluster_replica_set_optional(self):
+        """Replica Set 为可选；不填写时交由 PyMongo 自动发现拓扑，不传 replicaSet 参数。"""
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.admin = MagicMock()
+                self.admin.command.return_value = {"ok": 1}
+
+            def __getitem__(self, name):
+                box = MagicMock()
+                box.name = name
+                box.client = self
+                return box
+
+        pymongo_mod = types.SimpleNamespace(MongoClient=FakeClient)
+        item = {
+            "dialect": "mongodb",
+            "mode": "cluster",
+            "seed_nodes": [
+                {"host": "10.0.0.1", "port": 27017},
+                {"host": "10.0.0.2", "port": 27017},
+            ],
+            "database": "testdb",
+        }
+        with patch.dict(sys.modules, {"pymongo": pymongo_mod}):
+            open_connection(item)
+
+        self.assertNotIn("replicaSet", captured)
+        self.assertFalse(captured.get("directConnection"))
+
+    def test_mongo_probe_connection_real_operations_and_metadata(self):
+        """测试连接不仅构造 MongoClient，必须执行真实 ping 与至少一个 metadata operation，且密码不外露。"""
+        ping_called = []
+        metadata_called = []
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                self.admin = MagicMock()
+                self.admin.command.side_effect = lambda cmd: ping_called.append(cmd) or {"ok": 1}
+
+            def list_database_names(self):
+                metadata_called.append("list_database_names")
+                return ["admin", "appdb", "config"]
+
+            def __getitem__(self, name):
+                box = MagicMock()
+                box.name = name
+                box.client = self
+                box.command.side_effect = lambda cmd: ping_called.append(cmd) or {"ok": 1}
+                box.list_collection_names.return_value = ["users", "orders"]
+                return box
+
+            def close(self):
+                pass
+
+        pymongo_mod = types.SimpleNamespace(MongoClient=FakeClient)
+        item = {
+            "dialect": "mongodb",
+            "mode": "cluster",
+            "seed_nodes": [
+                {"host": "10.0.0.1", "port": 27017},
+                {"host": "10.0.0.2", "port": 27017},
+            ],
+            "database": "appdb",
+            "username": "my_user",
+        }
+        with patch.dict(sys.modules, {"pymongo": pymongo_mod}):
+            res = probe_connection(item, plain_password="super_secret_pwd")
+
+        self.assertTrue(res.get("ok"))
+        self.assertIn("ping", ping_called)
+        self.assertIn("list_database_names", metadata_called)
+        summary = res.get("summary") or ""
+        self.assertIn("MongoDB 集群连接成功", summary)
+        self.assertIn("10.0.0.1:27017", summary)
+        self.assertIn("可访问数据库数：3", summary)
+        # 密码绝对不得显示在 summary 中
+        self.assertNotIn("super_secret_pwd", summary)
+
+    def test_mongo_error_classification_all_categories(self):
+        """测试错误分类：AUTH_ERROR, SERVER_SELECTION_ERROR, REPLICA_SET_MISMATCH, TLS_ERROR, INVALID_CONFIG。"""
+        class MockAuthFail(Exception):
+            code = 18
+
+        class MockServerSelectionTimeout(Exception):
+            pass
+
+        class MockReplicaSetMismatch(Exception):
+            pass
+
+        class MockTlsError(Exception):
+            pass
+
+        class MockInvalidConfig(Exception):
+            pass
+
+        cases = [
+            (MockAuthFail("auth failed"), "AUTH_ERROR"),
+            (MockServerSelectionTimeout("ServerSelectionTimeoutError: timed out connecting to server"), "SERVER_SELECTION_ERROR"),
+            (MockReplicaSetMismatch("ConfigurationError: not a member of replica set 'rs0'"), "REPLICA_SET_MISMATCH"),
+            (MockTlsError("SSLError: certificate verify failed"), "TLS_ERROR"),
+            (MockInvalidConfig("ConfigurationError: invalid port configuration"), "INVALID_CONFIG"),
+        ]
+
+        for exc_instance, expected_tag in cases:
+            class FailingClient:
+                def __init__(self, **kwargs):
+                    self.admin = MagicMock()
+                    self.admin.command.side_effect = exc_instance
+
+            pymongo_mod = types.SimpleNamespace(MongoClient=FailingClient)
+            item = {
+                "dialect": "mongodb",
+                "mode": "cluster",
+                "seed_nodes": [{"host": "10.0.0.1", "port": 27017}],
+                "database": "biz",
+                "username": "app",
+            }
+            with patch.dict(sys.modules, {"pymongo": pymongo_mod}):
+                with self.assertRaises(DbError) as ctx:
+                    open_connection(item, plain_password="secret_password")
+            err_msg = str(ctx.exception)
+            self.assertIn(f"[{expected_tag}]", err_msg)
+            # 确认不显示密码
+            self.assertNotIn("secret_password", err_msg)
 
 
 class RedisInfoTests(unittest.TestCase):

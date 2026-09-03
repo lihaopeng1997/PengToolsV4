@@ -26,6 +26,7 @@ from tools.db_connect import (
     DbError,
     is_mongo_uri,
     mongo_auth_mechanism,
+    normalize_mongo_seed_nodes,
     normalize_redis_auth_mode,
     normalize_redis_seed_nodes,
     probe_connection,
@@ -104,7 +105,9 @@ class ConnectionDialog(QDialog):
         self.seed_label = QLabel("集群节点" if zh else "Seed nodes")
         self.add_seed_btn = QPushButton("+ 添加节点" if zh else "+ Add node")
         apply_button(self.add_seed_btn, "ghost", compact=True)
-        self.add_seed_btn.clicked.connect(lambda: self._add_seed_row())
+        self.add_seed_btn.clicked.connect(
+            lambda: self._add_seed_row("", 27017 if (self.dialect.currentData() or "") == "mongodb" else 6379)
+        )
         self.cluster_hint = QLabel(
             "集群模式忽略 Redis DB 序号，使用上方种子节点发现集群。"
             if zh
@@ -158,6 +161,24 @@ class ConnectionDialog(QDialog):
         self.mongo_uri_hint.setObjectName("field-hint")
         self.mongo_uri_hint.setWordWrap(True)
 
+        self.mongo_replica_set = QLineEdit(
+            str(self._item.get("replica_set_name") or self._item.get("replicaSet") or "")
+        )
+        self.mongo_replica_set.setPlaceholderText(
+            "可选，留空自动发现（mongos/分片集群通常无需填写）"
+            if zh
+            else "Optional, leave empty for auto discovery"
+        )
+        size_line(self.mongo_replica_set, "path")
+        self.mongo_replica_set_label = QLabel("Replica Set" if zh else "Replica Set")
+        self.mongo_replica_set_hint = QLabel(
+            "仅在已知名称时填写；mongos/sharded cluster 通常无需填写"
+            if zh
+            else "Fill only if known; mongos/sharded clusters usually do not need this"
+        )
+        self.mongo_replica_set_hint.setObjectName("field-hint")
+        self.mongo_replica_set_hint.setWordWrap(True)
+
         self.oracle_hint = QLabel(
             "Oracle 客户端在「设置 → Oracle 兼容」中统一配置主目录和 oci.dll，所有 Oracle 连接共用。"
             if zh
@@ -179,6 +200,8 @@ class ConnectionDialog(QDialog):
         form.addRow(self.auth_mode_label, self.auth_mode)
         form.addRow(self.mongo_auth_source_label, self.mongo_auth_source)
         form.addRow(self.mongo_auth_mech_label, self.mongo_auth_mech)
+        form.addRow(self.mongo_replica_set_label, self.mongo_replica_set)
+        form.addRow(self.mongo_replica_set_hint)
         form.addRow(self.mongo_uri_hint)
         form.addRow(self.user_label, self.username)
         form.addRow(self.password_label, self.password_row)
@@ -206,14 +229,22 @@ class ConnectionDialog(QDialog):
     def _load_seed_rows(self) -> None:
         while self._seed_rows:
             self._remove_seed_row(self._seed_rows[0][0], force=True)
-        try:
-            seeds = normalize_redis_seed_nodes(self._item)
-        except DbError:
-            seeds = [{"host": str(self._item.get("host") or ""), "port": 6379}]
+        dialect = (self.dialect.currentData() or "").lower()
+        default_port = 27017 if dialect == "mongodb" else 6379
+        if dialect == "mongodb":
+            try:
+                seeds = normalize_mongo_seed_nodes(self._item)
+            except DbError:
+                seeds = [{"host": str(self._item.get("host") or ""), "port": default_port}]
+        else:
+            try:
+                seeds = normalize_redis_seed_nodes(self._item)
+            except DbError:
+                seeds = [{"host": str(self._item.get("host") or ""), "port": default_port}]
         if not seeds:
-            seeds = [{"host": "", "port": 6379}]
+            seeds = [{"host": "", "port": default_port}]
         for seed in seeds:
-            self._add_seed_row(seed.get("host") or "", int(seed.get("port") or 6379))
+            self._add_seed_row(seed.get("host") or "", int(seed.get("port") or default_port))
 
     def _add_seed_row(self, host: str = "", port: int = 6379) -> None:
         row = QWidget()
@@ -307,14 +338,31 @@ class ConnectionDialog(QDialog):
     def _update_nosql_ui(self) -> None:
         dialect = self.dialect.currentData() or "oracle"
         zh = self.language == "zh"
-        redis_cluster = dialect == "redis" and (self.mode.currentData() or "") == "cluster"
+        mode = str(self.mode.currentData() or "standalone").lower()
+        redis_cluster = dialect == "redis" and mode == "cluster"
         mongo = dialect == "mongodb"
+        mongo_cluster = mongo and mode == "cluster"
+        cluster_active = redis_cluster or mongo_cluster
         uri = mongo and is_mongo_uri(self.host.text())
-        self._set_redis_seed_visible(redis_cluster)
-        self.host.setVisible(not redis_cluster)
-        self.host_label.setVisible(not redis_cluster)
-        self.port.setVisible(not redis_cluster and not uri)
-        self.port_label.setVisible(not redis_cluster and not uri)
+
+        self._set_redis_seed_visible(cluster_active and not uri)
+        if mongo_cluster:
+            self.cluster_hint.setText(
+                "集群节点支持多 IP 部署（如多个 mongos 或 Replica Set 节点）；Replica Set 名称仅在已知时填写。"
+                if zh
+                else "Cluster nodes support multiple IPs (mongos or replica set members)."
+            )
+        elif redis_cluster:
+            self.cluster_hint.setText(
+                "集群模式忽略 Redis DB 序号，使用上方种子节点发现集群。"
+                if zh
+                else "Cluster mode ignores Redis DB index and uses seed nodes."
+            )
+
+        self.host.setVisible(not (cluster_active and not uri))
+        self.host_label.setVisible(not (cluster_active and not uri))
+        self.port.setVisible(not cluster_active and not uri)
+        self.port_label.setVisible(not cluster_active and not uri)
         self.port.setEnabled(not uri)
         self.auth_mode_label.setVisible(dialect == "redis")
         self.auth_mode.setVisible(dialect == "redis")
@@ -322,6 +370,9 @@ class ConnectionDialog(QDialog):
         self.mongo_auth_source.setVisible(mongo)
         self.mongo_auth_mech_label.setVisible(mongo)
         self.mongo_auth_mech.setVisible(mongo)
+        self.mongo_replica_set_label.setVisible(mongo_cluster and not uri)
+        self.mongo_replica_set.setVisible(mongo_cluster and not uri)
+        self.mongo_replica_set_hint.setVisible(mongo_cluster and not uri)
         self.mongo_uri_hint.setVisible(uri)
         if dialect == "redis":
             auth = self.auth_mode.currentData() or REDIS_AUTH_NONE
@@ -360,6 +411,9 @@ class ConnectionDialog(QDialog):
             self.mongo_auth_source_label.setVisible(False)
             self.mongo_auth_mech.setVisible(False)
             self.mongo_auth_mech_label.setVisible(False)
+            self.mongo_replica_set_label.setVisible(False)
+            self.mongo_replica_set.setVisible(False)
+            self.mongo_replica_set_hint.setVisible(False)
             self.mongo_uri_hint.setVisible(False)
             self.host.setVisible(True)
             self.host_label.setVisible(True)
@@ -398,6 +452,7 @@ class ConnectionDialog(QDialog):
                     else "mongodb://... or hostname"
                 )
                 self.user_label.setText("用户名" if zh else "Username")
+            self._load_seed_rows()
             self._update_nosql_ui()
         elif dialect == "oracle":
             self.mode.setVisible(False)
@@ -409,6 +464,9 @@ class ConnectionDialog(QDialog):
             self.mongo_auth_source_label.setVisible(False)
             self.mongo_auth_mech.setVisible(False)
             self.mongo_auth_mech_label.setVisible(False)
+            self.mongo_replica_set_label.setVisible(False)
+            self.mongo_replica_set.setVisible(False)
+            self.mongo_replica_set_hint.setVisible(False)
             self.mongo_uri_hint.setVisible(False)
             self.oracle_hint.setVisible(True)
             self.database_label.setText("SID/服务名" if zh else "SID")
@@ -433,6 +491,9 @@ class ConnectionDialog(QDialog):
             self.mongo_auth_source_label.setVisible(False)
             self.mongo_auth_mech.setVisible(False)
             self.mongo_auth_mech_label.setVisible(False)
+            self.mongo_replica_set_label.setVisible(False)
+            self.mongo_replica_set.setVisible(False)
+            self.mongo_replica_set_hint.setVisible(False)
             self.mongo_uri_hint.setVisible(False)
             self.oracle_hint.setVisible(False)
             self.database_label.setText("模式/库名" if zh else "Schema")
@@ -455,6 +516,9 @@ class ConnectionDialog(QDialog):
             self.mongo_auth_source_label.setVisible(False)
             self.mongo_auth_mech.setVisible(False)
             self.mongo_auth_mech_label.setVisible(False)
+            self.mongo_replica_set_label.setVisible(False)
+            self.mongo_replica_set.setVisible(False)
+            self.mongo_replica_set_hint.setVisible(False)
             self.mongo_uri_hint.setVisible(False)
             self.oracle_hint.setVisible(False)
             self.database_label.setText("库名" if zh else "Database")
@@ -503,6 +567,18 @@ class ConnectionDialog(QDialog):
             item["auth_source"] = self.mongo_auth_source.text().strip()
             mech = self.mongo_auth_mech.currentData() or "auto"
             item["auth_mechanism"] = "" if mech == "auto" else mech
+            if item["mode"] == "cluster" and not is_mongo_uri(item["host"]):
+                seeds = self._collect_seed_nodes()
+                item["seed_nodes"] = seeds
+                item["host"] = seeds[0]["host"]
+                item["port"] = seeds[0]["port"]
+                replica_set = self.mongo_replica_set.text().strip()
+                item["replica_set_name"] = replica_set
+                item["replicaSet"] = replica_set
+            else:
+                item["seed_nodes"] = [{"host": item["host"] or "127.0.0.1", "port": int(item["port"] or 27017)}]
+                item.pop("replica_set_name", None)
+                item.pop("replicaSet", None)
         return item, self.password.text()
 
     def payload(self) -> tuple[dict, str]:

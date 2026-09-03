@@ -108,6 +108,37 @@ def normalize_redis_seed_nodes(item: dict | None) -> list[dict]:
     return [{'host': host, 'port': port}]
 
 
+def normalize_mongo_seed_nodes(item: dict | None) -> list[dict]:
+    """MongoDB Cluster seed 列表；旧配置仅 host/port 时兼容为单个 seed。"""
+    data = item or {}
+    result: list[dict] = []
+    raw_seeds = data.get('seed_nodes')
+    if isinstance(raw_seeds, list):
+        for entry in raw_seeds:
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get('host') or '').strip()
+            if not host:
+                continue
+            try:
+                port = int(entry.get('port'))
+            except (TypeError, ValueError) as exc:
+                raise DbError(f'MongoDB 端口无效：{entry.get("port")!r}（须为 1–65535）') from exc
+            if not 1 <= port <= 65535:
+                raise DbError(f'MongoDB 端口无效：{port}（须为 1–65535）')
+            result.append({'host': host, 'port': port})
+    if result:
+        return result
+    host = str(data.get('host') or '').strip() or '127.0.0.1'
+    try:
+        port = int(data.get('port') or DEFAULT_PORTS.get('mongodb', 27017))
+    except (TypeError, ValueError) as exc:
+        raise DbError(f'MongoDB 端口无效：{data.get("port")!r}（须为 1–65535）') from exc
+    if not 1 <= port <= 65535:
+        raise DbError(f'MongoDB 端口无效：{port}（须为 1–65535）')
+    return [{'host': host, 'port': port}]
+
+
 def mongo_auth_source(item: dict | None) -> str:
     data = item or {}
     explicit = str(data.get('auth_source') or '').strip()
@@ -161,24 +192,61 @@ def _redis_error_message(exc: BaseException, auth_mode: str) -> str:
     return f'Redis 连接失败：{text}'
 
 
-def _mongo_error_message(exc: BaseException) -> str:
+def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
     text = redact_error(str(exc))
     code = getattr(exc, 'code', None)
-    name = type(exc).__name__
     low = text.lower()
+
+    safe_info = []
+    if item:
+        mode = str(item.get('mode') or 'standalone').strip().lower()
+        if mode == 'cluster':
+            try:
+                seeds = normalize_mongo_seed_nodes(item)
+                nodes_txt = ', '.join(f"{s.get('host')}:{s.get('port')}" for s in seeds)
+                safe_info.append(f"集群节点：{nodes_txt}")
+            except Exception:
+                pass
+        else:
+            safe_info.append(f"主机端口：{item.get('host')}:{item.get('port')}")
+        safe_info.append(f"认证库：{mongo_auth_source(item)}")
+        mech = mongo_auth_mechanism(item)
+        if mech:
+            safe_info.append(f"认证机制：{mech}")
+        rs = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+        if rs:
+            safe_info.append(f"ReplicaSet：{rs}")
+    config_ctx = ('\n连接参数：' + ' | '.join(safe_info)) if safe_info else ''
+
     if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
         return (
-            'MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
-            '请核对用户名、密码、认证库（authSource）和认证机制。\n'
-            f'原始错误：{text}'
+            f'[AUTH_ERROR] MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
+            '请核对用户名、密码、认证库（authSource）和认证机制。'
+            f'{config_ctx}\n原始错误：{text}'
         )
-    if 'ServerSelectionTimeout' in name or 'timed out' in low and 'server' in low:
-        return f'MongoDB 服务器选择超时，请检查主机、端口和网络。\n原始错误：{text}'
-    if 'InvalidURI' in name or 'invalid uri' in low:
-        return f'MongoDB 连接串无效。\n原始错误：{text}'
-    if 'network' in low or 'connection refused' in low or '10061' in text:
-        return f'MongoDB 网络连接失败。\n原始错误：{text}'
-    return f'MongoDB 连接失败：{text}'
+    if 'replicaset' in low or 'replica set' in low or 'not a member of replica set' in low:
+        return (
+            f'[REPLICA_SET_MISMATCH] MongoDB 副本集配置不匹配。\n'
+            '请检查所填写的 ReplicaSet 名称是否与集群实际副本集名称一致，若连接 mongos 或分片集群请留空。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+    if 'tls' in low or 'ssl' in low or 'certificate' in low:
+        return (
+            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+    if 'serverselectiontimeout' in low or ('timed out' in low and 'server' in low):
+        return (
+            f'[SERVER_SELECTION_ERROR] MongoDB 服务器选择超时，无法连通目标节点。\n'
+            '请检查集群各节点主机名、IP、端口及网络链路是否通畅。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+    if 'invaliduri' in low or 'configurationerror' in low or 'invalid' in low:
+        return (
+            f'[INVALID_CONFIG] MongoDB 配置无效。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+    return f'MongoDB 连接失败：{text}{config_ctx}'
 
 
 def _encrypt(plain: str) -> str:
@@ -391,35 +459,37 @@ def open_connection(item: dict, plain_password: str | None = None):
                 return client[database or 'admin']
             if not database:
                 raise DbError('MongoDB 请填写库名')
-            if mongo_mode == 'cluster' and (',' in raw_host or 'replicaSet' in raw_host or '?' in raw_host):
-                conn_uri = raw_host
-                if not conn_uri.startswith('mongodb'):
-                    auth = ''
-                    if username:
-                        from urllib.parse import quote_plus
-                        auth = f'{quote_plus(username)}:{quote_plus(password or "")}@'
-                    conn_uri = f'mongodb://{auth}{conn_uri}'
-                client = MongoClient(conn_uri, serverSelectionTimeoutMS=8000)
+            if mongo_mode == 'cluster':
+                seeds = normalize_mongo_seed_nodes(item)
+                host_list = [f"{s['host']}:{s['port']}" for s in seeds]
+                kwargs: dict[str, Any] = {
+                    'host': host_list,
+                    'directConnection': False,
+                    'serverSelectionTimeoutMS': 8000,
+                }
+                replica_set = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+                if replica_set:
+                    kwargs['replicaSet'] = replica_set
             else:
                 kwargs: dict[str, Any] = {
                     'host': raw_host or '127.0.0.1',
                     'port': port,
                     'serverSelectionTimeoutMS': 8000,
                 }
-                if username:
-                    kwargs['username'] = username
-                    kwargs['password'] = password
-                    kwargs['authSource'] = mongo_auth_source(item)
-                    mechanism = mongo_auth_mechanism(item)
-                    if mechanism:
-                        kwargs['authMechanism'] = mechanism
-                client = MongoClient(**kwargs)
+            if username:
+                kwargs['username'] = username
+                kwargs['password'] = password
+                kwargs['authSource'] = mongo_auth_source(item)
+                mechanism = mongo_auth_mechanism(item)
+                if mechanism:
+                    kwargs['authMechanism'] = mechanism
+            client = MongoClient(**kwargs)
             client.admin.command('ping')
             return client[database]
         except DbError:
             raise
         except Exception as exc:
-            raise DbError(_mongo_error_message(exc)) from exc
+            raise DbError(_mongo_error_message(exc, item)) from exc
     raise DbError(f'不支持的数据库类型：{dialect}')
 
 
@@ -447,8 +517,47 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
             )
             return {'ok': True, 'summary': summary, 'info': info}
         if dialect == 'mongodb':
-            name = str(getattr(conn, 'name', '') or item.get('database') or '')
-            return {'ok': True, 'summary': f'MongoDB 已连通，目标库：{name or "admin"}'}
+            client = getattr(conn, 'client', None) or conn
+            target_db = conn if hasattr(conn, 'command') else client[item.get('database') or 'admin']
+            try:
+                target_db.command('ping')
+            except Exception:
+                client.admin.command('ping')
+            meta_info = ''
+            try:
+                dbs = client.list_database_names()
+                meta_info = f'，可访问数据库数：{len(dbs)}'
+            except Exception:
+                try:
+                    cols = target_db.list_collection_names()
+                    meta_info = f'，当前库集合数：{len(cols)}'
+                except Exception:
+                    pass
+            mode = str(item.get('mode') or 'standalone').strip().lower()
+            auth_src = mongo_auth_source(item)
+            auth_mech = mongo_auth_mechanism(item) or '默认'
+            replica_set = str(item.get('replica_set_name') or item.get('replicaSet') or '').strip()
+            if mode == 'cluster':
+                seeds = normalize_mongo_seed_nodes(item)
+                nodes_str = ', '.join(f"{s['host']}:{s['port']}" for s in seeds)
+                summary_lines = [
+                    'MongoDB 集群连接成功',
+                    f'模式：Cluster（节点数：{len(seeds)}）',
+                    f'集群节点：{nodes_str}',
+                    f'目标库：{item.get("database") or "admin"}{meta_info}',
+                    f'认证库：{auth_src} | 机制：{auth_mech}',
+                ]
+                if replica_set:
+                    summary_lines.append(f'ReplicaSet：{replica_set}')
+            else:
+                summary_lines = [
+                    'MongoDB 连接成功',
+                    f'模式：Standalone',
+                    f'地址：{item.get("host") or "127.0.0.1"}:{item.get("port") or 27017}',
+                    f'目标库：{item.get("database") or "admin"}{meta_info}',
+                    f'认证库：{auth_src} | 机制：{auth_mech}',
+                ]
+            return {'ok': True, 'summary': '\n'.join(summary_lines)}
         return {'ok': True, 'summary': '连接成功'}
     finally:
         close_connection(conn)

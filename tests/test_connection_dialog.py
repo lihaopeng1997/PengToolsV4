@@ -240,6 +240,37 @@ class ConnectionDialogTests(unittest.TestCase):
         finally:
             dialog.close()
 
+    def test_mongodb_cluster_multi_seed_and_replica_set_payload(self):
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={
+                "dialect": "mongodb",
+                "mode": "cluster",
+                "seed_nodes": [
+                    {"host": "192.168.1.10", "port": 27017},
+                    {"host": "192.168.1.11", "port": 27017},
+                ],
+                "database": "admin",
+                "replica_set_name": "rs-prod",
+            },
+            locked_dialect="mongodb",
+        )
+        try:
+            self.assertFalse(dialog.seed_host.isHidden())
+            self.assertTrue(dialog.host.isHidden())
+            self.assertFalse(dialog.mongo_replica_set.isHidden())
+            self.assertEqual(dialog.mongo_replica_set.text(), "rs-prod")
+            item, _ = dialog.payload()
+            self.assertEqual(item["mode"], "cluster")
+            self.assertEqual(len(item["seed_nodes"]), 2)
+            self.assertEqual(item["seed_nodes"][0]["host"], "192.168.1.10")
+            self.assertEqual(item["seed_nodes"][1]["host"], "192.168.1.11")
+            self.assertEqual(item["replica_set_name"], "rs-prod")
+        finally:
+            dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
