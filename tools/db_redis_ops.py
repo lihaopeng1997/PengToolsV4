@@ -236,7 +236,10 @@ class RedisScanState:
             if key not in seen:
                 seen.add(key)
                 self.keys.append(key)
-        self.cursor = int(cursor or 0)
+        if isinstance(cursor, dict):
+            self.cursor = dict(cursor)
+        else:
+            self.cursor = int(cursor or 0)
         self.finished = bool(finished)
         return True
 
@@ -512,50 +515,139 @@ def redis_scan_page(
     conn,
     pattern: str = '*',
     *,
-    cursor: int = 0,
+    cursor: int | dict | None = 0,
     count: int = SCAN_PAGE_COUNT,
     limit: int = SCAN_PAGE_LIMIT,
     cancel=None,
 ) -> dict:
-    """分批 SCAN，禁止全库 KEYS 命令。"""
+    """分批 SCAN，禁止全库 KEYS 命令。原生支持 Standalone 整数游标与 Cluster 字典游标。"""
     match = pattern or '*'
     collected: list[str] = []
-    cur = int(cursor or 0)
-    finished = False
+    seen: set[str] = set()
     batch_size = max(16, int(count or SCAN_PAGE_COUNT))
     cap = max(1, int(limit or SCAN_PAGE_LIMIT))
+
+    is_cluster = isinstance(cursor, dict) or getattr(conn, 'is_cluster', False) or hasattr(conn, 'get_nodes')
+
+    if not is_cluster:
+        cur = int(cursor or 0)
+        finished = False
+        try:
+            while len(collected) < cap:
+                if cancel and cancel():
+                    break
+                nxt = 0
+                batch = []
+                try:
+                    nxt, batch = conn.scan(cursor=cur, match=match, count=batch_size)
+                except Exception:
+                    try:
+                        for index, key in enumerate(conn.scan_iter(match=match, count=batch_size)):
+                            batch.append(key)
+                            if index + 1 >= batch_size:
+                                break
+                        nxt = 0
+                    except Exception as exc:
+                        raise DbError(f'SCAN 失败：{exc}') from exc
+                for key in batch or []:
+                    k = _b(key)
+                    if k not in seen:
+                        seen.add(k)
+                        collected.append(k)
+                    if len(collected) >= cap:
+                        break
+                cur = int(nxt or 0) if not isinstance(nxt, dict) else 0
+                if cur == 0:
+                    finished = True
+                    break
+        except DbError:
+            raise
+        except Exception as exc:
+            raise DbError(f'SCAN 失败：{exc}') from exc
+        return {
+            'keys': collected,
+            'cursor': cur,
+            'finished': finished,
+            'incomplete': not finished,
+            'pattern': match,
+            'count': len(collected),
+        }
+
+    # ── Cluster 模式：维护 node_name -> cursor 状态 ──
+    cursors_map: dict[str, int] = {}
+    if isinstance(cursor, dict) and cursor:
+        cursors_map = {str(k): int(v or 0) for k, v in cursor.items()}
+
     try:
+        if not cursors_map:
+            # 首次全集群扫描：广播 cursor=0
+            raw_res = conn.scan(cursor=0, match=match, count=batch_size)
+            if isinstance(raw_res, tuple) and len(raw_res) == 2:
+                init_cursors, init_batch = raw_res
+                if isinstance(init_cursors, dict):
+                    cursors_map = {str(k): int(v or 0) for k, v in init_cursors.items()}
+                else:
+                    cursors_map = {'default': int(init_cursors or 0)}
+                for key in init_batch or []:
+                    k = _b(key)
+                    if k not in seen:
+                        seen.add(k)
+                        collected.append(k)
+            elif isinstance(raw_res, dict):
+                cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
+
+        # 遍历所有未耗尽节点（node cursor != 0）进行分页
         while len(collected) < cap:
             if cancel and cancel():
                 break
-            nxt = 0
-            batch = []
-            try:
-                nxt, batch = conn.scan(cursor=cur, match=match, count=batch_size)
-            except Exception:
+            active_nodes = [name for name, c in cursors_map.items() if c != 0]
+            if not active_nodes:
+                break
+            progress_made = False
+            for name in active_nodes:
+                if cancel and cancel():
+                    break
+                node_cur = cursors_map.get(name, 0)
+                if node_cur == 0:
+                    continue
                 try:
-                    for index, key in enumerate(conn.scan_iter(match=match, count=batch_size)):
-                        batch.append(key)
-                        if index + 1 >= batch_size:
+                    node_obj = conn.get_node(node_name=name) if hasattr(conn, 'get_node') else name
+                    cur_res, batch = conn.scan(
+                        cursor=node_cur,
+                        match=match,
+                        count=batch_size,
+                        target_nodes=node_obj,
+                    )
+                    for key in batch or []:
+                        k = _b(key)
+                        if k not in seen:
+                            seen.add(k)
+                            collected.append(k)
+                        if len(collected) >= cap:
                             break
-                    nxt = 0
-                except Exception as exc:
-                    raise DbError(f'SCAN 失败：{exc}') from exc
-            for key in batch or []:
-                collected.append(_b(key))
+                    if isinstance(cur_res, dict):
+                        new_cur = cur_res.get(name, 0)
+                    else:
+                        new_cur = int(cur_res or 0)
+                    cursors_map[name] = int(new_cur or 0)
+                    progress_made = True
+                except Exception:
+                    # 单节点网络波动/部分节点异常不拖垮其他节点，将该节点游标置 0 退出轮询
+                    cursors_map[name] = 0
+                    progress_made = True
                 if len(collected) >= cap:
                     break
-            cur = int(nxt or 0)
-            if cur == 0:
-                finished = True
+            if not progress_made:
                 break
     except DbError:
         raise
     except Exception as exc:
         raise DbError(f'SCAN 失败：{exc}') from exc
+
+    finished = all(c == 0 for c in cursors_map.values()) if cursors_map else True
     return {
         'keys': collected,
-        'cursor': cur,
+        'cursor': cursors_map,
         'finished': finished,
         'incomplete': not finished,
         'pattern': match,

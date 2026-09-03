@@ -641,7 +641,7 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
     cursor_out = 0
     has_more = False
     if cmd == 'scan':
-        cursor = int(offset or 0)
+        cursor = offset if isinstance(offset, (int, dict)) else (0 if not offset else offset)
         match = '*'
         count = int(limit)
         if 'match' in [a.lower() for a in args]:
@@ -654,16 +654,22 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
                     except ValueError:
                         pass
         try:
-            cursor_out, keys = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
+            raw_res = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
+            if isinstance(raw_res, tuple) and len(raw_res) == 2:
+                cursor_out, keys = raw_res
+            else:
+                cursor_out, keys = 0, []
         except Exception:
-            # RedisCluster 无 scan()（仅 scan_iter），cluster 下退化为单页枚举
             keys = list(conn.scan_iter(match=match, count=max(count, int(limit))))
             cursor_out = 0
         columns = ['key']
         rows = [[_b(key)] for key in keys]
-        has_more = int(cursor_out or 0) != 0
+        if isinstance(cursor_out, dict):
+            has_more = any(int(c or 0) != 0 for c in cursor_out.values())
+        else:
+            has_more = int(cursor_out or 0) != 0
         return {
-            'columns': columns, 'rows': rows, 'offset': int(cursor_out or 0),
+            'columns': columns, 'rows': rows, 'offset': cursor_out,
             'limit': int(limit), 'has_more': has_more, 'sql': sql,
         }
     if cmd in ('get', 'type', 'ttl', 'pttl', 'strlen', 'exists'):

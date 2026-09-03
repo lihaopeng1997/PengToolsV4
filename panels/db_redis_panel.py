@@ -65,7 +65,7 @@ class _RedisWorker(QThread):
                     page = redis_scan_page(
                         conn,
                         self.kwargs.get('pattern', '*'),
-                        cursor=int(self.kwargs.get('cursor') or 0),
+                        cursor=self.kwargs.get('cursor', 0),
                         count=int(self.kwargs.get('count') or 500),
                         limit=int(self.kwargs.get('limit') or 2000),
                         cancel=lambda: self.cancelled,
@@ -933,7 +933,7 @@ class RedisWorkbenchPanel(QWidget):
             if not payload.get('append'):
                 self._key_cache = []
                 self._scan.keys = []
-            self._scan.apply(self._scan.generation, keys, int(page.get('cursor') or 0), bool(page.get('finished')))
+            self._scan.apply(self._scan.generation, keys, page.get('cursor'), bool(page.get('finished')))
             self._key_cache = list(self._scan.keys)
             if payload.get('overview') is not None:
                 self._fill_overview(payload.get('overview'), payload.get('info_table'))
