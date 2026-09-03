@@ -324,6 +324,127 @@ def delete_connection(conn_id: str) -> None:
     save_connections([row for row in load_connections() if row.get('id') != conn_id])
 
 
+def resolve_db_provider(item: dict | None) -> str:
+    """显式解析数据库底层 provider，禁止 Oracle 与 OceanBase 混在模糊分支。"""
+    dialect = str((item or {}).get('dialect') or 'oracle').strip().lower()
+    if dialect == 'oceanbase':
+        ob_mode = normalize_oceanbase_mode((item or {}).get('mode'))
+        return 'oceanbase_oracle' if ob_mode == 'oracle' else 'oceanbase_mysql'
+    if dialect == 'oracle':
+        return 'oracle'
+    if dialect == 'mysql':
+        return 'mysql'
+    return dialect
+
+
+def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None) -> str:
+    text = redact_error(str(exc))
+    low = text.lower()
+    host = (item or {}).get('host') or ''
+    port = (item or {}).get('port') or ''
+    db = (item or {}).get('database') or ''
+    ctx = f"\n连接目标：{host}:{port}/{db} | 驱动：python-oracledb"
+
+    if 'ora-12569' in low or 'packet checksum failure' in low or 'checksum' in low:
+        return (
+            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569: TNS:packet checksum failure）。'
+            f'{ctx}\n'
+            '原因：python-oracledb 纯 Python (Thin) 模式与 OceanBase/OBProxy 之间的底层报文校验和不兼容。\n'
+            '排查建议：\n'
+            '1. 确认已配置 64 位 OBCI / Oracle Instant Client 客户端，并在「设置 → Oracle 兼容」中选择 Thick 模式；\n'
+            '2. 检查 OBProxy 是否开启了报文校验，或网络链路中存在修改 TCP 报文的中间代理；\n'
+            '3. 核对用户名租户格式（如 user@tenant#cluster）与服务名配置。'
+        )
+    return f'OceanBase (Oracle 模式) 连接失败：{text}{ctx}'
+
+
+def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
+    try:
+        import oracledb
+    except ImportError as exc:
+        raise DbError('未安装 oracledb，请安装依赖后重试') from exc
+
+    host = str(item.get('host') or '').strip()
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
+    except (TypeError, ValueError):
+        port = 2883
+    database = str(item.get('database') or '').strip()
+    username = str(item.get('username') or '').strip()
+    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
+
+    oracle_conf = load_oracle_paths()
+    try:
+        ensure_oracle_client(
+            oracle_conf['mode'],
+            lib_dir=oracle_conf['lib_dir'],
+            home=oracle_conf['home'],
+            oci_lib=oracle_conf['oci_lib'],
+        )
+    except OracleRuntimeError as exc:
+        raise DbError(str(exc)) from exc
+
+    is_thin = getattr(oracledb, 'is_thin_mode', lambda: True)()
+    if is_thin:
+        raise DbError(
+            '[CLIENT_LIBRARY_REQUIRED] OceanBase (Oracle 模式) 需要 Thick 驱动模式与兼容客户端（OBCI 或 64 位 Oracle Instant Client）。\n'
+            '当前运行于 python-oracledb 纯 Python (Thin) 模式，直连 OceanBase/OBProxy 会因底层报文校验不兼容抛出 ORA-12569。\n'
+            f'目标地址：{host}:{port}/{database or "ORCL"}\n'
+            '配置说明：\n'
+            '1. 请打开「设置 → Oracle 兼容」，驱动模式选择 Thick；\n'
+            '2. 指定包含 oci.dll 或 libobclient.dll 的 64 位客户端目录；\n'
+            '3. 保存并重启应用后重试。'
+        )
+
+    dsn = database if ('/' in database or ':' in database) else f'{host}:{port}/{database}'
+    try:
+        return oracledb.connect(user=username, password=password, dsn=dsn)
+    except Exception as exc:
+        raise DbError(_oceanbase_oracle_error_message(exc, item)) from exc
+
+
+def _connect_oracle(item: dict, plain_password: str | None = None):
+    try:
+        import oracledb
+    except ImportError as exc:
+        raise DbError('未安装 oracledb，请安装依赖后重试') from exc
+
+    host = str(item.get('host') or '').strip()
+    try:
+        port = int(item.get('port') or DEFAULT_PORTS.get('oracle', 1521))
+    except (TypeError, ValueError):
+        port = 1521
+    database = str(item.get('database') or '').strip()
+    username = str(item.get('username') or '').strip()
+    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
+
+    oracle_conf = load_oracle_paths()
+    try:
+        ensure_oracle_client(
+            oracle_conf['mode'],
+            lib_dir=oracle_conf['lib_dir'],
+            home=oracle_conf['home'],
+            oci_lib=oracle_conf['oci_lib'],
+        )
+    except OracleRuntimeError as exc:
+        raise DbError(str(exc)) from exc
+
+    dsn = database if ('/' in database or ':' in database) else f'{host}:{port}/{database}'
+    try:
+        return oracledb.connect(user=username, password=password, dsn=dsn)
+    except Exception as exc:
+        text = redact_error(str(exc))
+        if 'DPY-3010' in text:
+            raise DbError(thick_required_message(text)) from exc
+        if 'DPY-3016' in text or 'pbkdf2' in text:
+            raise DbError(
+                'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
+                '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
+                f' 原始错误：{text}'
+            ) from exc
+        raise DbError(f'Oracle 连接失败：{text}') from exc
+
+
 def open_connection(item: dict, plain_password: str | None = None):
     dialect = str(item.get('dialect') or 'oracle').lower()
     password = str(plain_password) if plain_password is not None else _decrypt(item.get('password') or '')
@@ -334,45 +455,13 @@ def open_connection(item: dict, plain_password: str | None = None):
         port = DEFAULT_PORTS.get(dialect, 1521)
     database = str(item.get('database') or '').strip()
     username = str(item.get('username') or '').strip()
-    if dialect == 'oceanbase':
-        ob_mode = normalize_oceanbase_mode(item.get('mode'))
-        is_oracle_mode = (ob_mode == 'oracle')
-        is_mysql_mode = (ob_mode == 'mysql')
-    else:
-        is_oracle_mode = (dialect == 'oracle')
-        is_mysql_mode = (dialect == 'mysql')
+    provider = resolve_db_provider(item)
 
-    if is_oracle_mode:
-        try:
-            import oracledb
-        except ImportError as exc:
-            raise DbError('未安装 oracledb，请安装依赖后重试') from exc
-        oracle = load_oracle_paths()
-        try:
-            ensure_oracle_client(
-                oracle['mode'],
-                lib_dir=oracle['lib_dir'],
-                home=oracle['home'],
-                oci_lib=oracle['oci_lib'],
-            )
-        except OracleRuntimeError as exc:
-            raise DbError(str(exc)) from exc
-        dsn = database if '/' in database or ':' in database else f'{host}:{port}/{database}'
-        try:
-            return oracledb.connect(user=username, password=password, dsn=dsn)
-        except Exception as exc:
-            text = redact_error(str(exc))
-            if 'DPY-3010' in text:
-                raise DbError(thick_required_message(text)) from exc
-            if 'DPY-3016' in text or 'pbkdf2' in text:
-                raise DbError(
-                    'Oracle 瘦模式缺少 cryptography（pbkdf2）。请换用最新离线安装包；'
-                    '或本机已装 Instant Client 时，到设置的 Oracle 兼容中指定主目录和 oci.dll 后重启。'
-                    f' 原始错误：{text}'
-                ) from exc
-            label = 'OceanBase (Oracle 模式)' if dialect == 'oceanbase' else 'Oracle'
-            raise DbError(f'{label} 连接失败：{text}') from exc
-    if is_mysql_mode:
+    if provider == 'oceanbase_oracle':
+        return _connect_oceanbase_oracle(item, plain_password=password)
+    if provider == 'oracle':
+        return _connect_oracle(item, plain_password=password)
+    if provider in ('oceanbase_mysql', 'mysql'):
         try:
             import pymysql
         except ImportError as exc:
@@ -558,6 +647,49 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
                     f'认证库：{auth_src} | 机制：{auth_mech}',
                 ]
             return {'ok': True, 'summary': '\n'.join(summary_lines)}
+        provider = resolve_db_provider(item)
+        if provider == 'oceanbase_oracle':
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT 1 FROM DUAL')
+                cursor.fetchone()
+                cursor.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'), SYS_CONTEXT('USERENV', 'SESSION_USER') FROM DUAL")
+                row = cursor.fetchone()
+                current_schema = row[0] if row else ''
+                current_user = row[1] if row and len(row) > 1 else ''
+                tbl_cnt = 0
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM USER_TABLES")
+                    cnt_row = cursor.fetchone()
+                    tbl_cnt = cnt_row[0] if cnt_row else 0
+                except Exception:
+                    pass
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            summary = (
+                'OceanBase (Oracle 模式) 连接与业务验证成功\n'
+                f'目标服务：{item.get("database") or "默认服务"}\n'
+                f'当前 Schema/用户：{current_schema or current_user or item.get("username")}\n'
+                f'用户表数量：{tbl_cnt}'
+            )
+            return {'ok': True, 'summary': summary}
+        if provider == 'oracle':
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT 1 FROM DUAL')
+                cursor.fetchone()
+                cursor.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL")
+                row = cursor.fetchone()
+                current_schema = row[0] if row else ''
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            return {'ok': True, 'summary': f'Oracle 连接与业务验证成功，Schema：{current_schema or item.get("database") or "默认"}'}
         return {'ok': True, 'summary': '连接成功'}
     finally:
         close_connection(conn)
