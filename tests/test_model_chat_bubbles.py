@@ -94,3 +94,116 @@ class ModelChatBubbleLayoutTests(unittest.TestCase):
         self.assertTrue(any('Qwen3.6' in (m.text() or '') for m in meta))
         self.assertFalse(any(m.text() == '助手' for m in meta))
         panel.deleteLater()
+
+    def test_pending_bubble_shows_thinking_indicator_and_hides_copy(self):
+        """M1, M2. pending 状态立即展示 ThinkingIndicator，且 Copy 按钮隐藏，绝无空气泡。"""
+        from tools.model_chat_store import append_message, create_session
+        from ui.thinking_indicator import ThinkingIndicator
+        from PyQt6.QtWidgets import QPushButton
+
+        panel = ModelChatPanel(language='zh')
+        try:
+            session = create_session(model_config_id='m1', model='Qwen3.6')
+            session = append_message(session['id'], 'user', '帮我写个脚本')
+            session = append_message(session['id'], 'assistant', '', status='pending', model='Qwen3.6')
+            panel._session = session
+            panel._render_messages()
+            self.app.processEvents()
+
+            asst_row = panel.thread_layout.itemAt(1).widget()
+            asst_frame = asst_row.findChild(QFrame, 'chat-assistant-bubble')
+            self.assertIsNotNone(asst_frame)
+
+            indicator = asst_frame.findChild(ThinkingIndicator)
+            self.assertIsNotNone(indicator)
+            self.assertTrue(indicator.is_running())
+            self.assertIn('正在思考', indicator.text())
+
+            copy_btn = asst_frame.findChild(QPushButton, 'chat-copy-btn')
+            self.assertIsNotNone(copy_btn)
+            self.assertTrue(copy_btn.isHidden())
+        finally:
+            panel.deleteLater()
+
+    def test_complete_bubble_hides_indicator_and_shows_copy(self):
+        """M3. 成功后恢复正常文本展示，ThinkingIndicator 不存在，Copy 按钮可见。"""
+        from tools.model_chat_store import append_message, create_session
+        from ui.thinking_indicator import ThinkingIndicator
+        from PyQt6.QtWidgets import QPushButton
+
+        panel = ModelChatPanel(language='zh')
+        try:
+            session = create_session(model_config_id='m1', model='Qwen3.6')
+            session = append_message(session['id'], 'user', '测试')
+            session = append_message(session['id'], 'assistant', '这里是正常模型回答', status='complete', model='Qwen3.6')
+            panel._session = session
+            panel._render_messages()
+            self.app.processEvents()
+
+            asst_row = panel.thread_layout.itemAt(1).widget()
+            asst_frame = asst_row.findChild(QFrame, 'chat-assistant-bubble')
+            indicator = asst_frame.findChild(ThinkingIndicator)
+            self.assertIsNone(indicator)
+
+            body = asst_frame.findChild(QLabel, 'chat-bubble-body')
+            self.assertIsNotNone(body)
+            self.assertIn('这里是正常模型回答', body.text())
+
+            copy_btn = asst_frame.findChild(QPushButton, 'chat-copy-btn')
+            self.assertIsNotNone(copy_btn)
+            self.assertFalse(copy_btn.isHidden())
+        finally:
+            panel.deleteLater()
+
+    def test_stopped_and_failed_bubbles_display_state_never_empty(self):
+        """M4. stopped 与 failed 状态即使原 content 为空也必须有明确状态文字，杜绝空气泡。"""
+        from tools.model_chat_store import append_message, create_session
+
+        panel = ModelChatPanel(language='zh')
+        try:
+            session = create_session(model_config_id='m1', model='Qwen3.6')
+            session = append_message(session['id'], 'assistant', '', status='stopped', model='Qwen3.6')
+            session = append_message(session['id'], 'assistant', '', status='failed', model='Qwen3.6')
+            panel._session = session
+            panel._render_messages()
+            self.app.processEvents()
+
+            row0 = panel.thread_layout.itemAt(0).widget()
+            body0 = row0.findChild(QLabel, 'chat-bubble-body')
+            self.assertIn('已停止', body0.text())
+
+            row1 = panel.thread_layout.itemAt(1).widget()
+            body1 = row1.findChild(QLabel, 'chat-bubble-body')
+            self.assertIn('失败', body1.text())
+        finally:
+            panel.deleteLater()
+
+    def test_stop_lifecycle_prevents_stale_overwrite(self):
+        """M5. Stop 触发后设置 _stop_requested，旧 worker 延后返回的 ok/fail 不得覆盖 stopped 消息。"""
+        from tools.model_chat_store import append_message, create_session
+
+        panel = ModelChatPanel(language='zh')
+        try:
+            session = create_session(model_config_id='m1', model='Qwen3.6')
+            session = append_message(session['id'], 'assistant', '', status='pending', model='Qwen3.6')
+            panel._session = session
+            panel._pending_id = session['messages'][0]['id']
+            panel._is_running = True
+
+            # 用户点击停止
+            panel._stop()
+            self.assertTrue(panel._stop_requested)
+            self.assertEqual(panel._session['messages'][0]['status'], 'stopped')
+
+            # 模拟旧 worker 延后返回结果
+            panel._on_chat_ok('延迟到达的回答')
+            # 状态和内容不应被覆盖
+            self.assertEqual(panel._session['messages'][0]['status'], 'stopped')
+            self.assertNotIn('延迟到达的回答', panel._session['messages'][0]['content'])
+
+            # worker 结束
+            panel._on_chat_done()
+            self.assertFalse(panel._is_running)
+            self.assertFalse(panel._stop_requested)
+        finally:
+            panel.deleteLater()

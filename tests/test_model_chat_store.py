@@ -61,6 +61,22 @@ class ModelChatStoreTests(unittest.TestCase):
         self.assertLessEqual(len(payload), 5)
         self.assertEqual(len(messages), 40)
 
+    def test_trim_excludes_pending_messages(self):
+        """M6. status == 'pending' 的 assistant 消息绝不能发给模型上下文。"""
+        from tools.model_chat_store import trim_messages_for_request
+
+        messages = [
+            {'role': 'user', 'content': '你好', 'status': 'complete'},
+            {'role': 'assistant', 'content': '', 'status': 'pending'},
+        ]
+        payload, trimmed = trim_messages_for_request(messages)
+        self.assertEqual(len(payload), 2)  # system + user
+        self.assertEqual(payload[0]['role'], 'system')
+        self.assertEqual(payload[1]['role'], 'user')
+        self.assertEqual(payload[1]['content'], '你好')
+        roles = [p['role'] for p in payload]
+        self.assertNotIn('assistant', roles)
+
 
 class ModelChatPanelSmokeTests(unittest.TestCase):
     @classmethod

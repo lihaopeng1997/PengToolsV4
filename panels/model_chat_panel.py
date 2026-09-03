@@ -101,6 +101,7 @@ class ModelChatPanel(QWidget):
         self._session = None
         self._pending_id = ''
         self._is_running = False
+        self._stop_requested = False
         self._text_attachments: list[dict] = []
         self._image_attachments: list[dict] = []
         self._bubble_width_lock = False
@@ -333,13 +334,19 @@ class ModelChatPanel(QWidget):
 
     def _sync_running_state(self):
         zh = self.language == 'zh'
-        if self._is_running:
+        if self._stop_requested:
+            self.send_btn.setText('停止中…' if zh else 'Stopping…')
+            self.send_btn.setEnabled(False)
+            self.retry_btn.setEnabled(False)
+        elif self._is_running:
             self.send_btn.setText('停止' if zh else 'Stop')
             apply_button(self.send_btn, 'secondary', compact=True)
+            self.send_btn.setEnabled(True)
             self.retry_btn.setEnabled(False)
         else:
             self.send_btn.setText('发送' if zh else 'Send')
             apply_button(self.send_btn, 'primary', compact=True)
+            self.send_btn.setEnabled(True)
             self.retry_btn.setEnabled(self._session is not None)
             self._sync_send_enabled()
 
@@ -596,19 +603,39 @@ class ModelChatPanel(QWidget):
     def _make_message_row(self, msg: dict) -> QWidget:
         zh = self.language == 'zh'
         role = msg.get('role')
+        status = str(msg.get('status') or 'complete')
         frame = QFrame()
         frame.setObjectName('chat-user-bubble' if role == 'user' else 'chat-assistant-bubble')
         frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         box = QVBoxLayout(frame)
         box.setContentsMargins(14, 8, 14, 8)
         box.setSpacing(4)
-        body = QLabel(str(msg.get('content') or ''))
-        body.setObjectName('chat-bubble-body')
-        body.setWordWrap(True)
-        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        if msg.get('status') == 'stopped':
-            body.setText(body.text() + ('\n（已停止/未完成）' if zh else '\n(stopped)'))
-        box.addWidget(body)
+
+        if role == 'assistant' and status == 'pending':
+            from ui.thinking_indicator import ThinkingIndicator
+            indicator = ThinkingIndicator(frame, text='正在思考...' if zh else 'Thinking...')
+            indicator.setObjectName('chat-thinking-indicator')
+            indicator.start()
+            box.addWidget(indicator)
+        else:
+            raw_content = str(msg.get('content') or '')
+            if status == 'stopped':
+                if not raw_content:
+                    raw_content = '（请求已停止）' if zh else '(Request stopped)'
+                else:
+                    raw_content += ('\n（已停止/未完成）' if zh else '\n(stopped)')
+            elif status == 'failed':
+                if not raw_content:
+                    raw_content = '（请求失败）' if zh else '(Request failed)'
+            elif not raw_content and role != 'user':
+                raw_content = '（无内容）' if zh else '(Empty)'
+
+            body = QLabel(raw_content)
+            body.setObjectName('chat-bubble-body')
+            body.setWordWrap(True)
+            body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            box.addWidget(body)
+
         meta_row = QHBoxLayout()
         meta_row.setContentsMargins(0, 0, 0, 0)
         meta_row.setSpacing(6)
@@ -621,12 +648,16 @@ class ModelChatPanel(QWidget):
             mname = msg.get('model') or msg.get('config_name') or 'AI'
             meta.setText(f'{mname} · {clock}'.strip(' ·'))
         meta_row.addWidget(meta, 1)
+
         if role != 'user':
-            copy = QPushButton('复制' if zh else 'Copy')
-            copy.setObjectName('chat-copy-btn')
+            copy = QPushButton('复制' if zh else 'Copy', frame)
             apply_button(copy, 'ghost', compact=True)
+            copy.setObjectName('chat-copy-btn')
             copy.clicked.connect(lambda _=False, text=str(msg.get('content') or ''): self._copy(text))
+            if status == 'pending':
+                copy.hide()
             meta_row.addWidget(copy, 0)
+
         box.addLayout(meta_row)
         wrap = QHBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
@@ -672,6 +703,8 @@ class ModelChatPanel(QWidget):
         if not text and not self._text_attachments and not self._image_attachments:
             return
         if self._worker is not None and self._worker.isRunning():
+            return
+        if self._stop_requested:
             return
         if model is None:
             show_warning(self, '请先选择模型' if zh else 'Pick a model', '请选择已启用的模型配置。')
@@ -742,6 +775,7 @@ class ModelChatPanel(QWidget):
         cfg = dict(model)
         cfg['enabled'] = True
         self._is_running = True
+        self._stop_requested = False
         self._sync_running_state()
         self._worker = _ChatWorker(messages, cfg)
         self._worker.completed.connect(self._on_chat_ok)
@@ -753,25 +787,32 @@ class ModelChatPanel(QWidget):
         save_settings(settings)
 
     def _on_chat_ok(self, text: str):
+        if self._stop_requested:
+            return
         if self._session and self._pending_id:
             self._session = update_message(self._session.get('id'), self._pending_id, content=text, status='complete')
             self._render_messages()
 
     def _on_chat_fail(self, message: str):
+        if self._stop_requested:
+            return
         if self._session and self._pending_id:
             self._session = update_message(
                 self._session.get('id'), self._pending_id,
-                content=redact_error(message), status='stopped',
+                content=redact_error(message), status='failed',
             )
             self._render_messages()
         self.ping_status.setText(redact_error(message))
 
     def _on_chat_done(self):
         self._is_running = False
+        self._stop_requested = False
         self._sync_running_state()
+        self._worker = None
 
     def _stop(self):
         zh = self.language == 'zh'
+        self._stop_requested = True
         if self._worker is not None:
             self._worker.cancelled = True
         if self._session and self._pending_id:
@@ -781,13 +822,13 @@ class ModelChatPanel(QWidget):
                     current = str(msg.get('content') or '')
             self._session = update_message(
                 self._session.get('id'), self._pending_id,
-                content=current, status='stopped',
+                content=current if current else ('（请求已停止）' if zh else '(Request stopped)'),
+                status='stopped',
             )
             self._render_messages()
         self.ping_status.setText(
             '请求已停止' if zh else 'The request was stopped.'
         )
-        self._is_running = False
         self._sync_running_state()
 
     def _regenerate(self):

@@ -249,7 +249,12 @@ def update_message(session_id: str, message_id: str, **fields) -> dict | None:
 
 
 def trim_messages_for_request(messages, *, max_messages: int = MAX_CONTEXT_MESSAGES, max_chars: int = MAX_CONTEXT_CHARS) -> tuple[list[dict], bool]:
-    rows = [item for item in (messages or []) if isinstance(item, dict) and item.get('role') != 'system']
+    rows = [
+        item for item in (messages or [])
+        if isinstance(item, dict)
+        and item.get('role') != 'system'
+        and str(item.get('status') or '').lower() != 'pending'
+    ]
     trimmed = False
     while len(rows) > max_messages and len(rows) >= 2:
         rows = rows[2:]
