@@ -36,7 +36,7 @@ def pick_terminal_font(point_size: int = TERM_FONT_PT_DEFAULT) -> QFont:
     preferred = ('Cascadia Mono', 'Cascadia Code', 'Consolas', 'Lucida Console')
     families = set(QFontDatabase.families())
     name = next((item for item in preferred if item in families), '')
-    font = QFont(name) if name else QFont()
+    font = QFont(name) if name else QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setFixedPitch(True)
     font.setKerning(False)
@@ -48,10 +48,31 @@ def pick_terminal_font(point_size: int = TERM_FONT_PT_DEFAULT) -> QFont:
     return font
 
 
-def terminal_cell_metrics(font: QFont) -> dict:
-    """逻辑像素 cell 尺寸；不用 CJK 宽字符决定单格宽度。"""
+def terminal_font_metrics(font: QFont) -> dict:
+    """纯诊断 helper：获取等宽字体及单格尺寸信息，不记录用户终端内容。"""
     fm = QFontMetrics(font)
-    cell_width = max(1, max(fm.horizontalAdvance(ch) for ch in '0MW'))
+    info = QFontInfo(font)
+    adv_0 = int(fm.horizontalAdvance('0'))
+    adv_M = int(fm.horizontalAdvance('M'))
+    adv_W = int(fm.horizontalAdvance('W'))
+    cell_w = max(1, adv_0)
+    cell_h = max(1, int(fm.height()) + 1)
+    return {
+        'family': font.family(),
+        'actual_family': info.family(),
+        'fixed_pitch': info.fixedPitch(),
+        'advance_0': adv_0,
+        'advance_M': adv_M,
+        'advance_W': adv_W,
+        'cell_width': cell_w,
+        'cell_height': cell_h,
+    }
+
+
+def terminal_cell_metrics(font: QFont) -> dict:
+    """逻辑像素 cell 尺寸；优先使用单个标准 ASCII cell advance ('0')，避免宽字符拉大字距。"""
+    fm = QFontMetrics(font)
+    cell_width = max(1, int(fm.horizontalAdvance('0')))
     cell_height = max(1, int(fm.height()) + 1)
     ascent = max(1, int(fm.ascent()))
     return {
@@ -60,6 +81,77 @@ def terminal_cell_metrics(font: QFont) -> dict:
         'ascent': ascent,
         'baseline_offset': ascent,
     }
+
+
+def build_row_foreground_runs(row: list[Cell], default_fg: str = '') -> list[dict]:
+    """将一行 Cell 拆分为连续可打印 ASCII text run 与独立 wide/特殊字符 cell。
+
+    连续 ASCII run 必须满足：
+    - cell.width == 1
+    - 单字符且属于可打印 ASCII (32 <= ord(ch) <= 126)
+    - 相同 style (bold, italic, underline)
+    - 相同前景色 fg
+    非 ASCII、wide cell (width==2)、trailing cell (width==0)、或样式变化均切分 run。
+    """
+    runs: list[dict] = []
+    current_run: dict | None = None
+
+    for col_idx, cell in enumerate(row):
+        if cell.width == 0:
+            # wide char 尾部占位 cell，打断当前 run 并跳过
+            if current_run is not None:
+                runs.append(current_run)
+                current_run = None
+            continue
+
+        ch = cell.char or ' '
+        is_ascii_printable = (cell.width == 1 and len(ch) == 1 and 32 <= ord(ch) <= 126)
+        style = cell.style
+        fg = style.fg or default_fg
+
+        if is_ascii_printable:
+            if current_run is not None:
+                same_style = (
+                    current_run['style'].bold == style.bold
+                    and current_run['style'].italic == style.italic
+                    and current_run['style'].underline == style.underline
+                    and current_run['fg'] == fg
+                )
+                if same_style:
+                    current_run['text'] += ch
+                    current_run['width'] += 1
+                    continue
+                else:
+                    runs.append(current_run)
+                    current_run = None
+
+            current_run = {
+                'kind': 'ascii_run',
+                'col': col_idx,
+                'text': ch,
+                'style': style,
+                'fg': fg,
+                'width': 1,
+            }
+        else:
+            if current_run is not None:
+                runs.append(current_run)
+                current_run = None
+
+            if cell.char and cell.char != ' ':
+                runs.append({
+                    'kind': 'single',
+                    'col': col_idx,
+                    'text': cell.char,
+                    'style': style,
+                    'fg': fg,
+                    'width': max(1, cell.width),
+                })
+
+    if current_run is not None:
+        runs.append(current_run)
+
+    return runs
 
 
 def terminal_grid_size(
@@ -468,14 +560,14 @@ class _SshTerminalView(QAbstractScrollArea):
         for r, row in enumerate(visible_rows):
             abs_row = abs_row_start + r
             y = pad_y + r * lh
-            col_x = pad_x
+
+            # Pass 1: Background, Selection & Find highlight per cell grid
             for col_idx, cell in enumerate(row):
                 if cell.width == 0:
                     continue  # Trailing cell of wide char
                 cell_w = cw * max(1, cell.width)
-                cell_rect = QRect(col_x, y, cell_w, lh)
+                cell_rect = QRect(pad_x + col_idx * cw, y, cell_w, lh)
 
-                # Background fill
                 is_selected = self._is_cell_selected(abs_row, col_idx, sel_range)
                 is_find = self._is_cell_find_highlight(abs_row, col_idx)
 
@@ -488,22 +580,25 @@ class _SshTerminalView(QAbstractScrollArea):
                     if bg_color.isValid():
                         painter.fillRect(cell_rect, bg_color)
 
-                # Foreground character
-                if cell.char and cell.char != ' ':
-                    fg = cell.style.fg
-                    fg_color = QColor(fg) if (fg and QColor(fg).isValid()) else QColor(c['fg'])
-                    painter.setPen(fg_color)
-                    font = self.font()
-                    if cell.style.bold:
-                        font.setBold(True)
-                    if cell.style.underline:
-                        font.setUnderline(True)
-                    if cell.style.italic:
-                        font.setItalic(True)
-                    painter.setFont(font)
-                    painter.drawText(col_x, y + ascent, cell.char)
-
-                col_x += cell_w
+            # Pass 2: Foreground text runs (ASCII 连续文本合并渲染，Wide/特殊字符保持独立)
+            runs = build_row_foreground_runs(row, default_fg=c['fg'])
+            for item in runs:
+                text = item['text']
+                style = item['style']
+                if not text.strip() and not style.underline:
+                    continue
+                run_x = pad_x + item['col'] * cw
+                fg_color = QColor(item['fg']) if (item['fg'] and QColor(item['fg']).isValid()) else QColor(c['fg'])
+                painter.setPen(fg_color)
+                font = self.font()
+                if style.bold:
+                    font.setBold(True)
+                if style.underline:
+                    font.setUnderline(True)
+                if style.italic:
+                    font.setItalic(True)
+                painter.setFont(font)
+                painter.drawText(run_x, y + ascent, text)
 
         # Draw Cursor
         if scroll_offset == 0 and self._emulator.cursor_visible:

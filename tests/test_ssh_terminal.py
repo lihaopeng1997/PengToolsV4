@@ -12,9 +12,10 @@ from PyQt6.QtGui import QKeyEvent, QInputMethodEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from PyQt6.QtGui import QFont, QFontInfo
+from tools.terminal_emulator import Cell, CellStyle, DEFAULT_STYLE
 from ui.ssh_terminal import (
     SshTerminalWidget, _SshTerminalView, pick_terminal_font, terminal_cell_metrics,
-    terminal_grid_size,
+    terminal_font_metrics, terminal_grid_size, build_row_foreground_runs,
 )
 
 
@@ -270,6 +271,115 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.assertLess(cols_b, cols_a)
         self.assertGreaterEqual(cols_a, 1)
         self.assertGreaterEqual(rows_a, 1)
+
+    def test_ascii_continuous_run_not_fragmented(self):
+        """A. 相同 style 的连续 ASCII 文本应合并为连续 text run，绝不拆成 20 个单字符 run。"""
+        text = "user@linux:~$ ls -la"
+        row = [Cell(char=ch, width=1, style=DEFAULT_STYLE) for ch in text]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]['kind'], 'ascii_run')
+        self.assertEqual(runs[0]['text'], text)
+        self.assertEqual(runs[0]['col'], 0)
+        self.assertEqual(runs[0]['width'], len(text))
+
+    def test_wide_cjk_properly_segments_runs(self):
+        """B. 'abc中文def'：abc 与 def 为 ASCII run，中与文作为独立 wide cell。"""
+        row = [
+            Cell(char='a', width=1, style=DEFAULT_STYLE),
+            Cell(char='b', width=1, style=DEFAULT_STYLE),
+            Cell(char='c', width=1, style=DEFAULT_STYLE),
+            Cell(char='中', width=2, style=DEFAULT_STYLE),
+            Cell(char='', width=0, style=DEFAULT_STYLE),
+            Cell(char='文', width=2, style=DEFAULT_STYLE),
+            Cell(char='', width=0, style=DEFAULT_STYLE),
+            Cell(char='d', width=1, style=DEFAULT_STYLE),
+            Cell(char='e', width=1, style=DEFAULT_STYLE),
+            Cell(char='f', width=1, style=DEFAULT_STYLE),
+        ]
+        runs = build_row_foreground_runs(row)
+        # 应切分为 4 个部分：'abc', '中', '文', 'def'
+        self.assertEqual(len(runs), 4)
+        self.assertEqual(runs[0]['kind'], 'ascii_run')
+        self.assertEqual(runs[0]['text'], 'abc')
+        self.assertEqual(runs[0]['col'], 0)
+
+        self.assertEqual(runs[1]['kind'], 'single')
+        self.assertEqual(runs[1]['text'], '中')
+        self.assertEqual(runs[1]['col'], 3)
+        self.assertEqual(runs[1]['width'], 2)
+
+        self.assertEqual(runs[2]['kind'], 'single')
+        self.assertEqual(runs[2]['text'], '文')
+        self.assertEqual(runs[2]['col'], 5)
+        self.assertEqual(runs[2]['width'], 2)
+
+        self.assertEqual(runs[3]['kind'], 'ascii_run')
+        self.assertEqual(runs[3]['text'], 'def')
+        self.assertEqual(runs[3]['col'], 7)
+
+    def test_style_change_segments_runs(self):
+        """C. abc + bold DEF + ghi：样式变化正确拆成 3 个 runs。"""
+        s_normal = DEFAULT_STYLE
+        s_bold = CellStyle(bold=True)
+        row = [
+            Cell(char='a', width=1, style=s_normal),
+            Cell(char='b', width=1, style=s_normal),
+            Cell(char='c', width=1, style=s_normal),
+            Cell(char='D', width=1, style=s_bold),
+            Cell(char='E', width=1, style=s_bold),
+            Cell(char='F', width=1, style=s_bold),
+            Cell(char='g', width=1, style=s_normal),
+            Cell(char='h', width=1, style=s_normal),
+            Cell(char='i', width=1, style=s_normal),
+        ]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 3)
+        self.assertEqual(runs[0]['text'], 'abc')
+        self.assertFalse(runs[0]['style'].bold)
+        self.assertEqual(runs[1]['text'], 'DEF')
+        self.assertTrue(runs[1]['style'].bold)
+        self.assertEqual(runs[2]['text'], 'ghi')
+        self.assertFalse(runs[2]['style'].bold)
+
+    def test_trailing_wide_cell_zero_width_never_enters_ascii_run(self):
+        """D. width=0 的占位 cell 绝不混入 ASCII text run。"""
+        row = [
+            Cell(char='你', width=2, style=DEFAULT_STYLE),
+            Cell(char='', width=0, style=DEFAULT_STYLE),
+            Cell(char='x', width=1, style=DEFAULT_STYLE),
+        ]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(runs[0]['text'], '你')
+        self.assertEqual(runs[1]['text'], 'x')
+        self.assertEqual(runs[1]['col'], 2)
+
+    def test_cell_width_ratio_to_fixed_advance_contract(self):
+        """E. cell_width 与 fixed-pitch '0' advance 的比例严格为 1.0，不被 'W' 异常放大。"""
+        font = pick_terminal_font(10)
+        from PyQt6.QtGui import QFontMetrics
+        fm = QFontMetrics(font)
+        adv_0 = fm.horizontalAdvance('0')
+        metrics = terminal_cell_metrics(font)
+        ratio = metrics['cell_width'] / adv_0
+        self.assertAlmostEqual(ratio, 1.0, delta=0.01)
+
+        # 检查诊断信息 helper 正常工作且不空
+        diag = terminal_font_metrics(font)
+        self.assertEqual(diag['advance_0'], adv_0)
+        self.assertEqual(diag['cell_width'], metrics['cell_width'])
+        self.assertGreater(diag['cell_height'], 0)
+
+    def test_terminal_grid_size_and_resize_consistency(self):
+        """F. terminal_grid_size 仍使用相同 cell_width，Pty resize cols 语义一致。"""
+        cw, lh = self.view._cell_dimensions()
+        cols, rows = terminal_grid_size(800, 600, cw, lh)
+        self.assertEqual(cols, (800 - 2 * 8) // cw)
+        self.assertEqual(rows, (600 - 2 * 5) // lh)
+        self.view.resize_pty(cols, rows)
+        self.assertEqual(self.view._emulator.cols, cols)
+        self.assertEqual(self.view._emulator.rows, rows)
 
 
 if __name__ == '__main__':
