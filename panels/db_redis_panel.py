@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import time
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QSplitter, QTabWidget, QTableWidget,
-    QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QHeaderView,
+    QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter,
+    QTabWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget, QHeaderView,
 )
 
 from ui.connection_dialog import ConnectionDialog
@@ -22,9 +23,9 @@ from tools.db_connect import (
     load_connections, open_connection, upsert_connection,
 )
 from tools.db_redis_ops import (
-    build_key_tree, filter_keys_by_pattern, redis_db_count, redis_delete_key,
-    redis_expire_key, redis_get_value, redis_rename_key, redis_scan_keys,
-    redis_server_info, redis_ttl, redis_type,
+    RedisScanState, build_prefix_index, format_redis_bytes, keys_for_prefix,
+    redis_delete_key, redis_expire_key, redis_get_value, redis_info_sections,
+    redis_overview, redis_rename_key, redis_scan_page, redis_ttl, redis_type,
 )
 from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
@@ -45,6 +46,7 @@ class _RedisWorker(QThread):
         self.item = dict(item or {})
         self.kwargs = kwargs
         self.cancelled = False
+        self.generation = int(kwargs.get('generation') or 0)
 
     def run(self):
         conn = None
@@ -52,12 +54,37 @@ class _RedisWorker(QThread):
             conn = open_connection(self.item)
             if self.kind == 'test':
                 self.completed.emit('test', {'ok': True})
-            elif self.kind == 'scan':
-                keys = redis_scan_keys(conn, self.kwargs.get('pattern', '*'),
-                                       int(self.kwargs.get('limit', 500)))
-                info = redis_server_info(conn)
-                self.completed.emit('scan', {'keys': keys, 'count': len(keys),
-                                             'db_count': redis_db_count(conn), 'info': info})
+            elif self.kind in ('scan', 'bootstrap', 'overview'):
+                overview = None
+                if self.kind in ('bootstrap', 'overview') or self.kwargs.get('with_overview'):
+                    overview = redis_overview(conn)
+                if self.cancelled:
+                    return
+                page = None
+                if self.kind != 'overview':
+                    page = redis_scan_page(
+                        conn,
+                        self.kwargs.get('pattern', '*'),
+                        cursor=int(self.kwargs.get('cursor') or 0),
+                        count=int(self.kwargs.get('count') or 500),
+                        limit=int(self.kwargs.get('limit') or 2000),
+                        cancel=lambda: self.cancelled,
+                    )
+                if self.cancelled:
+                    return
+                info_table = None
+                if overview is not None:
+                    try:
+                        info_table = redis_info_sections(conn)
+                    except Exception:
+                        info_table = {'priority': [], 'all': []}
+                self.completed.emit(self.kind, {
+                    'overview': overview,
+                    'info_table': info_table,
+                    'scan': page,
+                    'generation': int(self.kwargs.get('generation') or 0),
+                    'append': bool(self.kwargs.get('append')),
+                })
             elif self.kind == 'key_meta':
                 key = self.kwargs.get('key', '')
                 kind_name = redis_type(conn, key)
@@ -98,10 +125,19 @@ class RedisWorkbenchPanel(QWidget):
         self.language = language
         self._conn = None
         self._worker = None
+        self._bg_worker = None
         self._selected_key = ''
         self._selected_type = ''
         self._key_cache = []
         self._tree_filter = ''
+        self._selected_prefix = ''
+        self._scan = RedisScanState()
+        self._overview = None
+        self._info_all = False
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(280)
+        self._search_timer.timeout.connect(self._start_search_scan)
         self._setup_ui()
         self.set_language(language)
         self._reload_connections()
@@ -166,16 +202,36 @@ class RedisWorkbenchPanel(QWidget):
         left_l.addWidget(self.db_badge)
         self.key_filter = QLineEdit()
         size_line(self.key_filter, 'std')
-        self.key_filter.setPlaceholderText('搜索 Key（* 通配符）')
+        self.key_filter.setPlaceholderText('搜索 Key / 前缀')
         self.key_filter.textChanged.connect(self._on_filter_changed)
         left_l.addWidget(self.key_filter)
+        self.prefix_label = QLabel()
+        self.prefix_label.setObjectName('field-hint')
+        left_l.addWidget(self.prefix_label)
         self.key_tree = QTreeWidget()
-        self.key_tree.setHeaderHidden(True)
+        self.key_tree.setColumnCount(2)
+        self.key_tree.setHeaderLabels(['Prefix', 'Keys'])
         self.key_tree.setIndentation(14)
-        self.key_tree.itemClicked.connect(self._on_key_clicked)
+        self.key_tree.setRootIsDecorated(True)
+        self.key_tree.itemClicked.connect(self._on_prefix_clicked)
+        self.key_tree.header().setStretchLastSection(False)
+        self.key_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.key_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         left_l.addWidget(self.key_tree, 1)
+        self.key_list_label = QLabel()
+        self.key_list_label.setObjectName('field-hint')
+        left_l.addWidget(self.key_list_label)
+        self.key_list = QListWidget()
+        self.key_list.itemClicked.connect(self._on_key_list_clicked)
+        left_l.addWidget(self.key_list, 1)
+        self.load_more_btn = QPushButton()
+        apply_button(self.load_more_btn, 'ghost', compact=True)
+        self.load_more_btn.clicked.connect(self._load_more_keys)
+        self.load_more_btn.hide()
+        left_l.addWidget(self.load_more_btn)
         self.key_stats = QLabel()
         self.key_stats.setObjectName('field-hint')
+        self.key_stats.setWordWrap(True)
         left_l.addWidget(self.key_stats)
         body.addWidget(left)
 
@@ -183,6 +239,50 @@ class RedisWorkbenchPanel(QWidget):
         right_l = QVBoxLayout(right)
         right_l.setContentsMargins(0, 0, 0, 0)
         self.side_tabs = QTabWidget()
+
+        overview = QWidget()
+        ov_l = QVBoxLayout(overview)
+        ov_l.setContentsMargins(10, 8, 10, 8)
+        ov_l.setSpacing(8)
+        cards = QHBoxLayout()
+        cards.setSpacing(8)
+        self.card_keys = self._make_summary_card('Keys')
+        self.card_memory = self._make_summary_card('Memory')
+        self.card_nodes = self._make_summary_card('Nodes')
+        self.card_version = self._make_summary_card('Version')
+        for card in (self.card_keys, self.card_memory, self.card_nodes, self.card_version):
+            cards.addWidget(card)
+        ov_l.addLayout(cards)
+        self.ov_hint = QLabel()
+        self.ov_hint.setObjectName('field-hint')
+        self.ov_hint.setWordWrap(True)
+        ov_l.addWidget(self.ov_hint)
+        self.nodes_title = QLabel()
+        self.nodes_title.setObjectName('section-title')
+        ov_l.addWidget(self.nodes_title)
+        self.nodes_table = QTableWidget()
+        self.nodes_table.setColumnCount(7)
+        apply_table(self.nodes_table, alternating=True)
+        self.nodes_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.nodes_table.setMaximumHeight(180)
+        ov_l.addWidget(self.nodes_table)
+        info_head = QHBoxLayout()
+        self.info_title = QLabel()
+        self.info_title.setObjectName('section-title')
+        self.info_all_btn = QPushButton()
+        apply_button(self.info_all_btn, 'ghost', compact=True)
+        self.info_all_btn.clicked.connect(self._toggle_info_all)
+        info_head.addWidget(self.info_title)
+        info_head.addStretch(1)
+        info_head.addWidget(self.info_all_btn)
+        ov_l.addLayout(info_head)
+        self.info_table = QTableWidget()
+        self.info_table.setColumnCount(2)
+        apply_table(self.info_table, alternating=True)
+        self.info_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.info_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        ov_l.addWidget(self.info_table, 1)
+        self.side_tabs.addTab(overview, 'Overview')
 
         # Tab 1：Key 详情
         detail = QWidget()
@@ -325,15 +425,32 @@ class RedisWorkbenchPanel(QWidget):
         self.refresh_btn.setText('刷新' if zh else 'Refresh')
         self.home_btn.setText('返回首页' if zh else 'Home')
         self.home_btn.setToolTip('返回首页' if zh else 'Return to Home')
-        self.key_filter.setPlaceholderText('搜索 Key（* 通配符）' if zh else 'Search keys (* wildcard)')
+        self.key_filter.setPlaceholderText('搜索 Key / 前缀' if zh else 'Search key / prefix')
+        self.prefix_label.setText('Prefix Tree')
+        self.key_list_label.setText('Selected Prefix Keys')
+        self.load_more_btn.setText('加载更多' if zh else 'Load more')
+        self.nodes_title.setText('节点' if zh else 'Nodes')
+        self.info_title.setText('Redis 信息' if zh else 'Redis INFO')
+        self.info_all_btn.setText('查看全部 INFO' if zh else 'Show all INFO')
+        self.nodes_table.setHorizontalHeaderLabels(
+            ['节点', '角色', '状态', 'Keys', 'Expires', 'Avg TTL', 'Memory']
+            if zh else
+            ['Node', 'Role', 'Status', 'Keys', 'Expires', 'Avg TTL', 'Memory']
+        )
+        self.info_table.setHorizontalHeaderLabels(['Name', 'Value'])
+        self.card_keys.caption.setText('Keys')
+        self.card_memory.caption.setText('Memory')
+        self.card_nodes.caption.setText('Nodes')
+        self.card_version.caption.setText('Version')
         self.refresh_val_btn.setText('刷新值' if zh else 'Refresh value')
         self.copy_val_btn.setText('复制值' if zh else 'Copy value')
         self.copy_key_btn.setText('复制 Key 名' if zh else 'Copy key name')
         self.del_btn.setText('删除 Key' if zh else 'Delete key')
         self.rename_btn.setText('重命名' if zh else 'Rename')
         self.expire_btn.setText('设置过期' if zh else 'Set TTL')
-        self.side_tabs.setTabText(0, 'Key 详情' if zh else 'Key details')
-        self.side_tabs.setTabText(1, 'AI 助手' if zh else 'AI assistant')
+        self.side_tabs.setTabText(0, 'Overview')
+        self.side_tabs.setTabText(1, 'Key 详情' if zh else 'Key details')
+        self.side_tabs.setTabText(2, 'AI 助手' if zh else 'AI assistant')
         self.ai_send_btn.setText('发送' if zh else 'Send')
         self.ai_input.setPlaceholderText(
             '描述 Redis 操作需求，AI 基于当前选中 Key 生成命令/Lua 脚本（不会自动执行）'
@@ -354,6 +471,60 @@ class RedisWorkbenchPanel(QWidget):
     def _title(self) -> str:
         # 仍用于业务提示 / 对话框标题，勿删。
         return 'Redis 工作台' if self.language == 'zh' else 'Redis Workbench'
+
+    def _make_summary_card(self, caption: str) -> QFrame:
+        card = QFrame()
+        card.setObjectName('dashboard-task-card')
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(0)
+        cap = QLabel(caption)
+        cap.setObjectName('field-hint')
+        val = QLabel('—')
+        val.setObjectName('section-title')
+        lay.addWidget(cap)
+        lay.addWidget(val)
+        card.caption = cap
+        card.value = val
+        return card
+
+    def _dash(self, value) -> str:
+        if value is None or value == '':
+            return '—'
+        return str(value)
+
+    def _fmt_count(self, value, *, exact: bool) -> str:
+        if value is None:
+            return '—'
+        text = f'{int(value):,}'
+        return text if exact else f'{text}+'
+
+    def _scan_pattern(self) -> str:
+        text = (self._tree_filter or '').strip()
+        if not text or text == '*':
+            return '*'
+        if any(ch in text for ch in '*?[]'):
+            return text
+        return f'*{text}*'
+
+    def _clear_workspace(self):
+        self._scan.start(self._scan_pattern())
+        self._key_cache = []
+        self._selected_prefix = ''
+        self._selected_key = ''
+        self._selected_type = ''
+        self._overview = None
+        self.key_tree.clear()
+        self.key_list.clear()
+        self.nodes_table.setRowCount(0)
+        self.info_table.setRowCount(0)
+        for card in (self.card_keys, self.card_memory, self.card_nodes, self.card_version):
+            card.value.setText('…')
+        self.ov_hint.setText('加载中…' if self.language == 'zh' else 'Loading…')
+        self.key_stats.setText('加载中…' if self.language == 'zh' else 'Loading…')
+        self.load_more_btn.hide()
+        self.key_name.setText('')
+        self.key_meta.setText('')
 
     # ── 连接管理 ──────────────────────────────────────────────────────────
 
@@ -377,15 +548,24 @@ class RedisWorkbenchPanel(QWidget):
         return dict(data) if isinstance(data, dict) else None
 
     def _on_connection_changed(self):
+        if self._bg_worker is not None and self._bg_worker.isRunning():
+            self._bg_worker.cancelled = True
         item = self._current_conn()
+        self._clear_workspace()
         if item:
-            self.db_badge.setText(f"🟢 {item.get('host') or ''}:{item.get('port') or 6379}")
+            mode = str(item.get('mode') or '').lower()
+            if mode == 'cluster':
+                self.db_badge.setText(f"集群 · {item.get('name') or item.get('host') or ''}")
+            else:
+                self.db_badge.setText(f"{item.get('host') or ''}:{item.get('port') or 6379}")
             self.cmd_prompt.setText(f"{item.get('host') or '127.0.0.1'}:{item.get('port') or 6379}>")
             self._refresh_keys()
         else:
             self.db_badge.setText('未连接' if self.language == 'zh' else 'Not connected')
-            self.key_tree.clear()
             self.key_stats.setText('未连接 Redis' if self.language == 'zh' else 'Not connected')
+            self.ov_hint.setText('未连接' if self.language == 'zh' else 'Not connected')
+            for card in (self.card_keys, self.card_memory, self.card_nodes, self.card_version):
+                card.value.setText('—')
         self._update_ai_banner()
 
     def _edit_connection(self, new=False):
@@ -423,48 +603,97 @@ class RedisWorkbenchPanel(QWidget):
         item = self._current_conn()
         if not item:
             return
-        self._run_worker('scan', item, pattern=self._tree_filter or '*', limit=500)
+        gen = self._scan.start(self._scan_pattern())
+        self._key_cache = []
+        self._run_bg('bootstrap', item, pattern=self._scan.pattern, cursor=0,
+                     limit=2000, generation=gen, append=False)
+
+    def _start_search_scan(self):
+        item = self._current_conn()
+        if not item:
+            return
+        gen = self._scan.start(self._scan_pattern())
+        self._key_cache = []
+        self._selected_prefix = ''
+        self.key_list.clear()
+        self._run_bg('scan', item, pattern=self._scan.pattern, cursor=0,
+                     limit=2000, generation=gen, append=False)
+
+    def _load_more_keys(self):
+        item = self._current_conn()
+        if not item or self._scan.finished:
+            return
+        self._run_bg(
+            'scan', item, pattern=self._scan.pattern, cursor=self._scan.cursor,
+            limit=2000, generation=self._scan.generation, append=True,
+        )
 
     def _on_filter_changed(self, text):
         self._tree_filter = text.strip()
-        if self._key_cache:
-            self._render_key_tree(self._key_cache)
-        else:
-            self._refresh_keys()
+        self._search_timer.start()
 
-    def _render_key_tree(self, keys: list[str]):
-        filtered = filter_keys_by_pattern(keys, self._tree_filter)
-        tree = build_key_tree(filtered)
+    def _render_prefix_tree(self, keys: list[str], *, incomplete: bool):
+        index = build_prefix_index(keys, incomplete=incomplete)
+        self.key_tree.setUpdatesEnabled(False)
         self.key_tree.blockSignals(True)
         self.key_tree.clear()
 
         def add_nodes(parent, nodes):
             for node in nodes:
                 item = QTreeWidgetItem(parent)
-                if node.get('is_folder'):
-                    item.setText(0, node['name'] + ':')
-                    item.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'folder', 'name': node['name']})
-                    item.setExpanded(True)
-                    add_nodes(item, node.get('children', []))
-                else:
-                    item.setText(0, node['name'])
-                    item.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'key', 'key': node['full']})
-                    add_nodes(item, node.get('children', []))
+                count = node.get('count') or 0
+                label = f'{count}+' if node.get('incomplete') else f'{count}'
+                item.setText(0, node.get('name') or '')
+                item.setText(1, label)
+                item.setToolTip(0, '基于当前扫描结果' if self.language == 'zh' else 'Based on current scan')
+                item.setData(0, Qt.ItemDataRole.UserRole, {
+                    'kind': 'prefix', 'path': node.get('path') or '',
+                })
+                item.setExpanded(True)
+                add_nodes(item, node.get('children') or [])
 
-        add_nodes(self.key_tree.invisibleRootItem(), tree)
+        add_nodes(self.key_tree.invisibleRootItem(), index.get('prefixes') or [])
         self.key_tree.blockSignals(False)
-        self.key_stats.setText(
-            f'共 {len(keys)} 个 Key · 显示 {len(filtered)} 个' if self.language == 'zh'
-            else f'{len(keys)} keys · {len(filtered)} shown'
-        )
+        self.key_tree.setUpdatesEnabled(True)
+        if not (index.get('prefixes') or []) and not keys:
+            self.key_stats.setText(
+                '当前范围未发现 Key' if self.language == 'zh' else 'No keys in this range'
+            )
+        self._render_key_list(keys)
 
-    def _on_key_clicked(self, item: QTreeWidgetItem, _column: int):
+    def _render_key_list(self, keys: list[str]):
+        shown = keys_for_prefix(keys, self._selected_prefix)
+        self.key_list.setUpdatesEnabled(False)
+        self.key_list.clear()
+        for key in shown[:5000]:
+            item = QListWidgetItem(key)
+            self.key_list.addItem(item)
+        self.key_list.setUpdatesEnabled(True)
+        extra = ''
+        if not self._scan.finished:
+            extra = ' · 当前扫描结果，不代表全集' if self.language == 'zh' else ' · sampled, not complete'
+        self.key_stats.setText(
+            f'已加载 {len(keys)} 个 Key · 列表 {len(shown)}{extra}'
+            if self.language == 'zh' else
+            f'Loaded {len(keys)} keys · list {len(shown)}{extra}'
+        )
+        self.load_more_btn.setVisible(not self._scan.finished)
+
+    def _on_prefix_clicked(self, item: QTreeWidgetItem, _column: int):
         meta = item.data(0, Qt.ItemDataRole.UserRole) or {}
-        if meta.get('kind') != 'key':
+        if meta.get('kind') != 'prefix':
             return
-        self._selected_key = str(meta.get('key') or '')
+        self._selected_prefix = str(meta.get('path') or '')
+        self._render_key_list(self._key_cache)
+
+    def _on_key_list_clicked(self, item: QListWidgetItem):
+        key = (item.text() if item is not None else '') or ''
+        if not key:
+            return
+        self._selected_key = key
         self._selected_type = ''
         self.key_name.setText(self._selected_key)
+        self.side_tabs.setCurrentIndex(1)
         self._load_key_meta()
 
     def _load_key_meta(self):
@@ -610,20 +839,107 @@ class RedisWorkbenchPanel(QWidget):
 
     # ── Worker 调度 ───────────────────────────────────────────────────────
 
+    def _run_bg(self, kind, item, **kwargs):
+        if self._bg_worker is not None and self._bg_worker.isRunning():
+            self._bg_worker.cancelled = True
+        worker = _RedisWorker(kind, item, **kwargs)
+        self._bg_worker = worker
+        worker.completed.connect(lambda k, p, w=worker: self._on_worker_done(k, p, w))
+        worker.failed.connect(lambda k, e, w=worker: self._on_worker_failed(k, e, w))
+        worker.start()
+
     def _run_worker(self, kind, item, **kwargs):
+        if kind in ('scan', 'bootstrap', 'overview'):
+            self._run_bg(kind, item, **kwargs)
+            return
         if self._worker is not None and self._worker.isRunning():
             return
         self._worker = _RedisWorker(kind, item, **kwargs)
-        self._worker.completed.connect(self._on_worker_done)
-        self._worker.failed.connect(self._on_worker_failed)
+        self._worker.completed.connect(lambda k, p, w=self._worker: self._on_worker_done(k, p, w))
+        self._worker.failed.connect(lambda k, e, w=self._worker: self._on_worker_failed(k, e, w))
         self._worker.start()
 
-    def _on_worker_done(self, kind: str, payload):
+    def _fill_overview(self, overview: dict | None, info_table: dict | None):
+        zh = self.language == 'zh'
+        self._overview = overview or {}
+        ov = self._overview
+        exact = bool(ov.get('total_keys_exact'))
+        self.card_keys.value.setText(self._fmt_count(ov.get('total_keys'), exact=exact))
+        self.card_memory.value.setText(ov.get('used_memory_human') or format_redis_bytes(ov.get('used_memory')))
+        self.card_nodes.value.setText(self._dash(ov.get('cluster_node_count')))
+        self.card_version.value.setText(self._dash(ov.get('redis_version')))
+        hints = []
+        if ov.get('mode') == 'cluster' and not exact:
+            hints.append('Keys 为当前可聚合扫描/节点结果，不代表全集' if zh else 'Key count is sampled, not a full inventory')
+        unavailable = [n for n in (ov.get('nodes') or []) if n.get('status') != 'online']
+        if unavailable and ov.get('mode') == 'cluster':
+            hints.append('部分节点不可用' if zh else 'Some nodes unavailable')
+        if ov.get('error') == 'all_nodes_failed':
+            hints = ['连接失败：所有节点不可用' if zh else 'All cluster nodes unavailable']
+        self.ov_hint.setText(' · '.join(hints))
+        nodes = ov.get('nodes') or []
+        self.nodes_table.setRowCount(len(nodes))
+        for row, node in enumerate(nodes):
+            label = f"{node.get('host') or ''}:{node.get('port') or ''}".strip(':')
+            values = [
+                label or '—',
+                node.get('role') or '—',
+                node.get('status') or 'unavailable',
+                '—' if node.get('keys') is None else f"{int(node['keys']):,}",
+                '—' if node.get('expires') is None else f"{int(node['expires']):,}",
+                '—' if node.get('avg_ttl') is None else str(node.get('avg_ttl')),
+                node.get('used_memory_human') or format_redis_bytes(node.get('used_memory')),
+            ]
+            for col, text in enumerate(values):
+                self.nodes_table.setItem(row, col, QTableWidgetItem(str(text)))
+        self._info_table_data = info_table or {'priority': [], 'all': []}
+        self._render_info_table()
+
+    def _render_info_table(self):
+        data = getattr(self, '_info_table_data', {'priority': [], 'all': []})
+        rows = data.get('all') if self._info_all else data.get('priority')
+        rows = rows or []
+        self.info_table.setRowCount(len(rows))
+        if not rows:
+            self.info_table.setRowCount(1)
+            self.info_table.setItem(0, 0, QTableWidgetItem('INFO'))
+            self.info_table.setItem(0, 1, QTableWidgetItem('unavailable'))
+            return
+        for i, item in enumerate(rows):
+            self.info_table.setItem(i, 0, QTableWidgetItem(str(item.get('name') or '')))
+            self.info_table.setItem(i, 1, QTableWidgetItem(str(item.get('value') or '—')))
+
+    def _toggle_info_all(self):
+        self._info_all = not self._info_all
+        zh = self.language == 'zh'
+        self.info_all_btn.setText(
+            ('收起 INFO' if self._info_all else '查看全部 INFO') if zh else
+            ('Hide extra INFO' if self._info_all else 'Show all INFO')
+        )
+        self._render_info_table()
+
+    def _on_worker_done(self, kind: str, payload, worker=None):
+        if worker is not None and getattr(worker, 'cancelled', False):
+            return
+        if kind in ('scan', 'bootstrap', 'overview'):
+            gen = int((payload or {}).get('generation') or getattr(worker, 'generation', 0) or 0)
+            if gen and gen != self._scan.generation:
+                return
         if kind == 'test':
             show_info(self, self._title(), '连接成功' if self.language == 'zh' else 'Connection OK')
-        elif kind == 'scan':
-            self._key_cache = list(payload.get('keys') or [])
-            self._render_key_tree(self._key_cache)
+        elif kind in ('scan', 'bootstrap'):
+            page = (payload or {}).get('scan') or {}
+            keys = list(page.get('keys') or [])
+            if not payload.get('append'):
+                self._key_cache = []
+                self._scan.keys = []
+            self._scan.apply(self._scan.generation, keys, int(page.get('cursor') or 0), bool(page.get('finished')))
+            self._key_cache = list(self._scan.keys)
+            if payload.get('overview') is not None:
+                self._fill_overview(payload.get('overview'), payload.get('info_table'))
+            self._render_prefix_tree(self._key_cache, incomplete=not self._scan.finished)
+        elif kind == 'overview':
+            self._fill_overview((payload or {}).get('overview'), (payload or {}).get('info_table'))
         elif kind == 'key_meta':
             self._selected_type = str(payload.get('type') or '')
             ttl = int(payload.get('ttl') or -2)
@@ -655,7 +971,18 @@ class RedisWorkbenchPanel(QWidget):
                     line = '  '.join(_stringify(c) for c in row)
                 self.cmd_output.appendPlainText(line)
 
-    def _on_worker_failed(self, kind: str, error: str):
+    def _on_worker_failed(self, kind: str, error: str, worker=None):
+        if worker is not None and getattr(worker, 'cancelled', False):
+            return
+        if kind in ('scan', 'bootstrap', 'overview'):
+            gen = getattr(worker, 'generation', 0)
+            if gen and gen != self._scan.generation:
+                return
+            self.ov_hint.setText(error)
+            self.key_stats.setText(error)
+            if kind == 'overview':
+                show_error(self, self._title(), error)
+            return
         if kind == 'command':
             self.cmd_output.appendPlainText(f'错误: {error}')
         else:
