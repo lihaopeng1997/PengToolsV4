@@ -414,6 +414,38 @@ class MongoContractTests(unittest.TestCase):
             # 确认不显示密码
             self.assertNotIn("secret_password", err_msg)
 
+    def test_mongo_error_regression_abc(self):
+        """明确回归测试 A, B, C:
+        A. ServerSelectionTimeoutError + ReplicaSetNoPrimary -> SERVER_SELECTION_ERROR
+        B. ServerSelectionTimeoutError + SSL/CERTIFICATE_VERIFY_FAILED -> TLS_ERROR
+        C. 明确 not a member of replica set -> REPLICA_SET_MISMATCH
+        """
+        class ServerSelectionTimeoutError(Exception):
+            pass
+
+        class ConfigurationError(Exception):
+            pass
+
+        from tools.db_connect import _mongo_error_message
+
+        # A: ServerSelectionTimeoutError + ReplicaSetNoPrimary -> SERVER_SELECTION_ERROR
+        err_a = ServerSelectionTimeoutError("No replica set members match selector ... ReplicaSetNoPrimary: no primary available")
+        msg_a = _mongo_error_message(err_a)
+        self.assertIn("[SERVER_SELECTION_ERROR]", msg_a)
+        self.assertNotIn("[REPLICA_SET_MISMATCH]", msg_a)
+
+        # B: ServerSelectionTimeoutError + SSL/CERTIFICATE_VERIFY_FAILED -> TLS_ERROR
+        err_b = ServerSelectionTimeoutError("10.0.0.1:27017: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        msg_b = _mongo_error_message(err_b)
+        self.assertIn("[TLS_ERROR]", msg_b)
+        self.assertNotIn("[SERVER_SELECTION_ERROR]", msg_b)
+
+        # C: 明确 not a member of replica set -> REPLICA_SET_MISMATCH
+        err_c = ConfigurationError("ConfigurationError: not a member of replica set 'prod-rs'")
+        msg_c = _mongo_error_message(err_c)
+        self.assertIn("[REPLICA_SET_MISMATCH]", msg_c)
+        self.assertNotIn("[SERVER_SELECTION_ERROR]", msg_c)
+
 
 class RedisInfoTests(unittest.TestCase):
     def test_server_info_structure(self):

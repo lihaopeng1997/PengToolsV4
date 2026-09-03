@@ -219,7 +219,12 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
     config_ctx = ('\n连接参数：' + ' | '.join(safe_info)) if safe_info else ''
 
     exc_type_name = type(exc).__name__
+    try:
+        import pymongo.errors as pyerrors
+    except ImportError:
+        pyerrors = None
 
+    # 1. 认证错误
     if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
         return (
             f'[AUTH_ERROR] MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
@@ -227,9 +232,27 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
             f'{config_ctx}\n原始错误：{text}'
         )
 
-    # 服务器选择超时 / 节点拓扑选择失败优先识别（避免 ReplicaSetNoPrimary 误报为名称配置错误）
+    # 2. TLS/SSL 错误（优先于 ServerSelectionTimeout，因为底层证书/握手失败常被 PyMongo 包装为 ServerSelectionTimeoutError）
+    is_tls = (
+        'certificate_verify_failed' in low
+        or 'ssl: certificate_verify_failed' in low
+        or 'tlshandshakeerror' in low
+        or 'sslerror' in low
+        or 'certificate' in low
+        or 'cert' in low
+        or 'tls' in low
+        or 'ssl' in low
+    )
+    if is_tls:
+        return (
+            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    # 3. 服务器选择超时 / 节点拓扑选择失败（在排除 TLS 之后）
     is_server_timeout = (
-        exc_type_name == 'ServerSelectionTimeoutError'
+        (pyerrors is not None and isinstance(exc, getattr(pyerrors, 'ServerSelectionTimeoutError', ())))
+        or exc_type_name == 'ServerSelectionTimeoutError'
         or 'serverselectiontimeouterror' in low
         or 'replicasetnoprimary' in low
         or 'no primary available for writes' in low
@@ -242,13 +265,7 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
             f'{config_ctx}\n原始错误：{text}'
         )
 
-    if 'tls' in low or 'ssl' in low or 'certificate' in low or 'cert' in low:
-        return (
-            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
-            f'{config_ctx}\n原始错误：{text}'
-        )
-
-    # 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
+    # 4. 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
     rs_mismatch = (
         'not a member of replica set' in low
         or 'does not match the replica set name' in low
