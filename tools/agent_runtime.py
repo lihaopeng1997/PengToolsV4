@@ -29,8 +29,14 @@ UNKNOWN_TOOL = 'UNKNOWN_TOOL'
 # 白名单扩展名（用于目录树索引）
 WHITELIST_EXTENSIONS = frozenset(
     '.py .js .ts .vue .html .css .scss .md .json .txt .yml .yaml .xml '
-    '.sql .sh .bat .ps1 .rs .go .java .c .cpp .h .hpp .less'.split()
+    '.sql .sh .bat .ps1 .rs .go .java .c .cpp .h .hpp .less .properties .gradle'.split()
 )
+
+# 默认跳过的大型/生成目录
+IGNORED_DIR_NAMES = frozenset({
+    '.git', '.svn', '.idea', '.gradle', 'target', 'build', 'out',
+    'node_modules', '__pycache__', 'dist', '.pytest_cache', '.mypy_cache',
+})
 
 
 def _now() -> str:
@@ -199,11 +205,13 @@ def _list_dir_impl(relative_path: str, workspace_dir: str) -> dict:
 
     result = []
     for name in sorted(entries):
+        if name in IGNORED_DIR_NAMES or name.startswith('.'):
+            continue
         full = os.path.join(resolved, name)
         is_dir = os.path.isdir(full)
         ext = os.path.splitext(name)[1].lower()
-        # 非白名单扩展名且非目录则跳过（隐藏文件也跳过）
-        if not is_dir and ext not in WHITELIST_EXTENSIONS and not name.startswith('.'):
+        # 非白名单扩展名且非目录则跳过
+        if not is_dir and ext not in WHITELIST_EXTENSIONS:
             continue
         result.append({'name': name, 'type': 'dir' if is_dir else 'file'})
     return {'ok': True, 'entries': result}
@@ -230,28 +238,19 @@ def _read_file_impl(relative_path: str, workspace_dir: str) -> dict:
             raw = f.read()
     except OSError as e:
         return {'ok': False, 'success': False, 'tool': 'read_file', 'error': f'读取失败: {e}', 'data': None}
-    if b'\x00' in raw[:4096]:
+
+    from tools.text_file_codec import decode_text_bytes
+    decoded = decode_text_bytes(raw, filename=relative_path)
+    if not decoded.get('ok') or decoded.get('binary'):
         return {
             'ok': False,
             'success': False,
             'tool': 'read_file',
-            'error': '该文件不是可读取的文本（二进制文件）',
+            'error': decoded.get('error') or '文件包含二进制内容或未知编码，无法作为文本读取',
             'data': None,
         }
-    try:
-        content = raw.decode('utf-8')
-    except UnicodeDecodeError:
-        try:
-            content = raw.decode('gb18030')
-        except UnicodeDecodeError:
-            return {
-                'ok': False,
-                'success': False,
-                'tool': 'read_file',
-                'error': '文件编码无法识别为 UTF-8/GB18030',
-                'data': None,
-            }
 
+    content = decoded.get('text', '')
     return {
         'ok': True,
         'success': True,
@@ -274,14 +273,13 @@ def _search_code_impl(pattern: str, workspace_dir: str, file_pattern: str = '') 
     except re.error as e:
         return {'ok': False, 'error': f'正则表达式错误: {e}'}
 
+    from tools.text_file_codec import decode_text_bytes, MAX_SEARCH_TEXT_FILE_SIZE
+
     results = []
     try:
         for root, dirs, files in os.walk(workspace_dir):
-            # 跳过隐藏目录和常见非源码目录
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (
-                '__pycache__', 'node_modules', '.git', '.svn', 'dist', 'build',
-                '.pytest_cache', '.mypy_cache'
-            )]
+            # 跳过隐藏目录和常见生成/非源码目录
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in IGNORED_DIR_NAMES]
             for fname in files:
                 ext = os.path.splitext(fname)[1].lower()
                 if ext not in WHITELIST_EXTENSIONS and not fname.startswith('.'):
@@ -292,21 +290,25 @@ def _search_code_impl(pattern: str, workspace_dir: str, file_pattern: str = '') 
                         continue
                 fpath = os.path.join(root, fname)
                 try:
-                    with open(fpath, 'rb') as bf:
-                        head = bf.read(2048)
-                    if b'\x00' in head:
+                    sz = os.path.getsize(fpath)
+                    if sz > MAX_SEARCH_TEXT_FILE_SIZE:
                         continue
-                    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                        for lineno, line in enumerate(f, 1):
-                            if regex.search(line):
-                                rel = os.path.relpath(fpath, workspace_dir)
-                                results.append({
-                                    'file': rel,
-                                    'line': lineno,
-                                    'text': line.rstrip(),
-                                })
-                                if len(results) >= 200:  # 限制结果数
-                                    break
+                    with open(fpath, 'rb') as bf:
+                        raw = bf.read()
+                    decoded = decode_text_bytes(raw, filename=fname)
+                    if not decoded.get('ok') or decoded.get('binary'):
+                        continue
+                    text = decoded.get('text', '')
+                    for lineno, line in enumerate(text.splitlines(), 1):
+                        if regex.search(line):
+                            rel = os.path.relpath(fpath, workspace_dir)
+                            results.append({
+                                'file': rel,
+                                'line': lineno,
+                                'text': line,
+                            })
+                            if len(results) >= 200:  # 限制结果数
+                                break
                 except OSError:
                     continue
             if len(results) >= 200:

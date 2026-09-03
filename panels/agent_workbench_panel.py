@@ -682,8 +682,14 @@ class AgentWorkbenchPanel(QWidget):
             self.preview.setPlainText(f'文件超过 200KB 限制（{size // 1024}KB），拒绝读取。')
             return
         try:
-            with open(full, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
+            with open(full, 'rb') as f:
+                raw_bytes = f.read()
+            from tools.text_file_codec import decode_text_bytes
+            res = decode_text_bytes(raw_bytes, filename=os.path.basename(full))
+            if not res.get('ok') or res.get('binary'):
+                content = f"（二进制文件或未知编码无法作为文本预览，大小: {size} 字节）" if self.language == 'zh' else f"(Binary file cannot be previewed, size: {size} bytes)"
+            else:
+                content = res.get('text', '')
         except Exception as e:
             content = f'读取失败: {e}'
         self.preview.setPlainText(content)

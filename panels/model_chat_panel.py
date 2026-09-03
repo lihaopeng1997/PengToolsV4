@@ -376,11 +376,22 @@ class ModelChatPanel(QWidget):
                 if sz > MAX_TEXT_FILE_SIZE:
                     show_warning(self, '文件过大', f'文件「{os.path.basename(p)}」超过 {MAX_TEXT_FILE_SIZE // 1024} KB 限制。')
                     continue
-                with open(p, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                self._text_attachments.append({'name': os.path.basename(p), 'content': content})
+                with open(p, 'rb') as f:
+                    raw_bytes = f.read()
+                from tools.text_file_codec import decode_text_bytes
+                fname = os.path.basename(p)
+                res = decode_text_bytes(raw_bytes, filename=fname)
+                if not res.get('ok') or res.get('binary'):
+                    show_warning(
+                        self,
+                        '无法添加附件' if zh else 'Cannot attach file',
+                        f'文件「{fname}」不是可安全识别的文本，未加入模型上下文。' if zh else
+                        f'File "{fname}" is not safe text and was not attached.',
+                    )
+                    continue
+                self._text_attachments.append({'name': fname, 'content': res.get('text', '')})
             except Exception as exc:
-                show_warning(self, '读取失败', str(exc))
+                show_warning(self, '读取失败' if zh else 'Read failed', str(exc))
         self._refresh_attachment_bar()
 
     def _pick_image_file(self):
