@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 # WorkBuddy/CodeBuddy sandbox shim intercepts os.remove() (safe-delete) and breaks PyInstaller
 # cache cleanup / EXE overwrite. Clear its trigger env vars so deletion goes through normally.
@@ -584,7 +584,8 @@ $list
         }
     }
 
-    $ZipPath = Join-Path $ProjectDir 'PengToolsHub_Offline_Setup.zip'
+    $ZipName = if ($env:PENGTOOLS_RELEASE_ZIP_NAME) { $env:PENGTOOLS_RELEASE_ZIP_NAME } else { 'PengToolsHub_Offline_Setup.zip' }
+    $ZipPath = Join-Path $ProjectDir $ZipName
     if (Test-Path -LiteralPath $ZipPath) {
         cmd /c "del /f /q `"$ZipPath`"" 2>$null
     }
