@@ -284,6 +284,9 @@ class ConnectionDialog(QDialog):
             btn.setEnabled(not disable)
 
     def _collect_seed_nodes(self) -> list[dict]:
+        dialect = (self.dialect.currentData() or "").lower()
+        default_port = 27017 if dialect == "mongodb" else 6379
+        label = "MongoDB" if dialect == "mongodb" else "Redis"
         seeds = []
         for host_w, port_w, _btn in self._seed_rows:
             host = host_w.text().strip()
@@ -291,11 +294,11 @@ class ConnectionDialog(QDialog):
             if not host and not raw_port:
                 continue
             try:
-                port = int(raw_port or 6379)
+                port = int(raw_port or default_port)
             except ValueError as exc:
-                raise DbError(f"Redis 端口无效：{raw_port!r}（须为 1–65535）") from exc
+                raise DbError(f"{label} 端口无效：{raw_port!r}（须为 1–65535）") from exc
             if not 1 <= port <= 65535:
-                raise DbError(f"Redis 端口无效：{port}（须为 1–65535）")
+                raise DbError(f"{label} 端口无效：{port}（须为 1–65535）")
             if not host:
                 raise DbError("集群节点主机不能为空")
             seeds.append({"host": host, "port": port})

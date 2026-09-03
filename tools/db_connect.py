@@ -218,29 +218,51 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
             safe_info.append(f"ReplicaSet：{rs}")
     config_ctx = ('\n连接参数：' + ' | '.join(safe_info)) if safe_info else ''
 
+    exc_type_name = type(exc).__name__
+
     if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
         return (
             f'[AUTH_ERROR] MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
             '请核对用户名、密码、认证库（authSource）和认证机制。'
             f'{config_ctx}\n原始错误：{text}'
         )
-    if 'replicaset' in low or 'replica set' in low or 'not a member of replica set' in low:
+
+    # 服务器选择超时 / 节点拓扑选择失败优先识别（避免 ReplicaSetNoPrimary 误报为名称配置错误）
+    is_server_timeout = (
+        exc_type_name == 'ServerSelectionTimeoutError'
+        or 'serverselectiontimeouterror' in low
+        or 'replicasetnoprimary' in low
+        or 'no primary available for writes' in low
+        or ('timed out' in low and ('server' in low or 'topology' in low or 'connection' in low))
+    )
+    if is_server_timeout:
+        return (
+            f'[SERVER_SELECTION_ERROR] MongoDB 服务器选择超时，无法连通目标节点或无可用主节点。\n'
+            '请检查集群各节点主机名、IP、端口及网络链路是否通畅。'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    if 'tls' in low or 'ssl' in low or 'certificate' in low or 'cert' in low:
+        return (
+            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
+            f'{config_ctx}\n原始错误：{text}'
+        )
+
+    # 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
+    rs_mismatch = (
+        'not a member of replica set' in low
+        or 'does not match the replica set name' in low
+        or 'replica set name does not match' in low
+        or 'replica set configuration mismatch' in low
+        or ('replicaset' in low and ('mismatch' in low or 'not a member' in low or 'different' in low))
+    )
+    if rs_mismatch:
         return (
             f'[REPLICA_SET_MISMATCH] MongoDB 副本集配置不匹配。\n'
             '请检查所填写的 ReplicaSet 名称是否与集群实际副本集名称一致，若连接 mongos 或分片集群请留空。'
             f'{config_ctx}\n原始错误：{text}'
         )
-    if 'tls' in low or 'ssl' in low or 'certificate' in low:
-        return (
-            f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
-            f'{config_ctx}\n原始错误：{text}'
-        )
-    if 'serverselectiontimeout' in low or ('timed out' in low and 'server' in low):
-        return (
-            f'[SERVER_SELECTION_ERROR] MongoDB 服务器选择超时，无法连通目标节点。\n'
-            '请检查集群各节点主机名、IP、端口及网络链路是否通畅。'
-            f'{config_ctx}\n原始错误：{text}'
-        )
+
     if 'invaliduri' in low or 'configurationerror' in low or 'invalid' in low:
         return (
             f'[INVALID_CONFIG] MongoDB 配置无效。\n'

@@ -386,6 +386,7 @@ class MongoContractTests(unittest.TestCase):
         cases = [
             (MockAuthFail("auth failed"), "AUTH_ERROR"),
             (MockServerSelectionTimeout("ServerSelectionTimeoutError: timed out connecting to server"), "SERVER_SELECTION_ERROR"),
+            (MockServerSelectionTimeout("ServerSelectionTimeoutError: No replica set members match selector ... ReplicaSetNoPrimary: could not find primary"), "SERVER_SELECTION_ERROR"),
             (MockReplicaSetMismatch("ConfigurationError: not a member of replica set 'rs0'"), "REPLICA_SET_MISMATCH"),
             (MockTlsError("SSLError: certificate verify failed"), "TLS_ERROR"),
             (MockInvalidConfig("ConfigurationError: invalid port configuration"), "INVALID_CONFIG"),

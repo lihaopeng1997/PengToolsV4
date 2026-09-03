@@ -271,6 +271,30 @@ class ConnectionDialogTests(unittest.TestCase):
         finally:
             dialog.close()
 
+    def test_mongodb_seed_default_port_and_error_label(self):
+        from tools.db_connect import DbError
+        from ui.connection_dialog import ConnectionDialog
+
+        dialog = ConnectionDialog(
+            language="zh",
+            item={"dialect": "mongodb", "mode": "cluster", "host": "10.0.0.1", "port": 27017},
+            locked_dialect="mongodb",
+        )
+        try:
+            # 1. Mongo cluster row port 清空 -> default to 27017, not 6379
+            dialog._seed_rows[0][1].setText("")
+            seeds = dialog._collect_seed_nodes()
+            self.assertEqual(seeds[0]["port"], 27017)
+
+            # 2. 错误提示按 dialect 输出 "MongoDB 端口无效"
+            dialog._seed_rows[0][1].setText("99999")
+            with self.assertRaises(DbError) as ctx:
+                dialog._collect_seed_nodes()
+            self.assertIn("MongoDB 端口无效", str(ctx.exception))
+            self.assertNotIn("Redis 端口无效", str(ctx.exception))
+        finally:
+            dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
