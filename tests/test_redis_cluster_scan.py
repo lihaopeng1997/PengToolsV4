@@ -202,6 +202,99 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
             redis_scan_page(conn, cursor=0, limit=10)
         self.assertIn("unexpected argument", str(ctx.exception))
 
+    def test_cluster_targeted_node_timeout_error_marks_partial(self):
+        """B. 具体 target node 发生 TimeoutError，标记 partial=True，其他节点继续。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A', 'node-B']
+        conn.scan.side_effect = [
+            ({'node-A': 10, 'node-B': 20}, ['k_init']),
+            rexc.TimeoutError("Timeout connecting to node-A"),
+            ({'node-B': 0}, ['k_b']),
+        ]
+        res = redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn('node-A', res['failed_nodes'])
+        self.assertTrue(res['partial'])
+        self.assertTrue(res['finished'])
+
+    def test_cluster_targeted_auth_error_raises_dberror(self):
+        """C. 具体 target node 发生 AuthenticationError，必须抛出 DbError，严禁伪装 partial。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            rexc.AuthenticationError("AUTH failed on node-A"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("AUTH failed", str(ctx.exception))
+
+    def test_cluster_targeted_authorization_error_raises_dberror(self):
+        """D. 具体 target node 发生 AuthorizationError，必须抛出 DbError，严禁伪装 partial。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            rexc.AuthorizationError("NOPERM this user has no permissions to scan"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("NOPERM", str(ctx.exception))
+
+    def test_cluster_targeted_max_connections_raises_dberror(self):
+        """E. 具体 target node 发生 MaxConnectionsError 连接池耗尽，必须抛出 DbError，严禁伪装 partial。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            rexc.MaxConnectionsError("Too many connections"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("Too many connections", str(ctx.exception))
+
+    def test_cluster_targeted_cluster_down_raises_dberror(self):
+        """F. 具体 target node 发生 ClusterDownError，必须抛出 DbError，严禁伪装 partial。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            rexc.ClusterDownError("CLUSTERDOWN Hash slot not served"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("CLUSTERDOWN", str(ctx.exception))
+
+    def test_cluster_targeted_readonly_raises_dberror(self):
+        """G. 具体 target node 发生 ReadOnlyError，必须抛出 DbError，严禁伪装 partial。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            rexc.ReadOnlyError("READONLY You can't write against a read only replica"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("READONLY", str(ctx.exception))
+
+    def test_cluster_targeted_runtime_error_not_heuristically_guessed_as_transport(self):
+        """H. RuntimeError("connection state corrupted") 必须抛出 DbError，严禁靠字符串猜测判定为网络异常。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-A']
+        conn.scan.side_effect = [
+            ({'node-A': 10}, ['k_init']),
+            RuntimeError("connection state corrupted"),
+        ]
+        with self.assertRaises(DbError) as ctx:
+            redis_scan_page(conn, cursor=0, limit=10)
+        self.assertIn("connection state corrupted", str(ctx.exception))
+
     def test_standalone_scan_error_propagates_and_no_scan_iter(self):
         """D. Standalone scan 抛出 ConnectionError 时必须直接抛出 DbError，严禁调用 scan_iter 回退。"""
         conn = MagicMock()

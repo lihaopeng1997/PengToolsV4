@@ -15,27 +15,61 @@ from tools.db_connect import DbError, redact_error
 
 
 def _is_transport_error(exc: BaseException) -> bool:
-    """区分网络/传输层异常与程序/API逻辑错误，严禁把代码 Bug 伪装成节点离线。"""
-    if isinstance(exc, (TypeError, AttributeError, ValueError, KeyError, IndexError, NameError, SyntaxError)):
-        return False
+    """仅将明确的单节点底层网络/IO故障判定为 transport 异常。
+
+    必须严格排除：
+    - 认证/授权（AuthenticationError, AuthorizationError, NoPermissionError）
+    - 连接池耗尽（MaxConnectionsError）
+    - 集群状态/响应/只读（ClusterDownError, ClusterError, ReadOnlyError, ResponseError, BusyLoadingError）
+    - 编程/逻辑/代码错误（TypeError, AttributeError, ValueError, RuntimeError 等）
+    上述异常均严禁判定为节点网络故障，必须向外抛出。
+    严禁使用任意字符串猜测。
+    """
     try:
         import redis.exceptions as rexc
-        redis_transport_types = (
-            rexc.ConnectionError,
-            rexc.TimeoutError,
-            rexc.ClusterDownError,
+    except ImportError:
+        rexc = None
+
+    if rexc is not None:
+        # 1. 优先排除非节点网络故障的 Redis 异常（包括 ConnectionError 的各类非网络子类）
+        excluded_redis_types = (
+            rexc.AuthenticationError,
+            rexc.AuthorizationError,
+            getattr(rexc, 'NoPermissionError', ()),
+            getattr(rexc, 'ExternalAuthProviderError', ()),
+            rexc.MaxConnectionsError,
             rexc.BusyLoadingError,
+            rexc.ClusterDownError,
             rexc.ClusterError,
             rexc.ReadOnlyError,
+            rexc.ResponseError,
+            rexc.DataError,
+            getattr(rexc, 'SlotNotCoveredError', ()),
+            getattr(rexc, 'RedisClusterException', ()),
         )
-        if isinstance(exc, redis_transport_types):
+        if isinstance(exc, excluded_redis_types):
+            return False
+
+        # 2. 匹配明确的 Redis 网络/超时连接异常
+        if isinstance(exc, (rexc.ConnectionError, rexc.TimeoutError)):
             return True
-    except ImportError:
-        pass
-    if isinstance(exc, (OSError, socket.error, TimeoutError)):
+
+    # 3. 匹配标准库明确的 Socket/IO/网络超时异常
+    network_io_types = (
+        socket.timeout,
+        getattr(socket, 'gaierror', ()),
+        getattr(socket, 'herror', ()),
+        ConnectionResetError,
+        ConnectionRefusedError,
+        BrokenPipeError,
+        ConnectionAbortedError,
+        TimeoutError,
+    )
+    if isinstance(exc, network_io_types):
         return True
-    low = str(exc).lower()
-    return any(token in low for token in ('connection', 'timeout', 'timed out', 'network', 'clusterdown', 'refused', 'reset'))
+
+    # 4. 其他任何异常（包括通用 RuntimeError, Exception 等）严禁靠字符串猜测
+    return False
 
 
 def _b(value: Any) -> str:
