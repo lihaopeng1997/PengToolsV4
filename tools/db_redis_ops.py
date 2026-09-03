@@ -114,9 +114,26 @@ def is_probably_text(text: str, original_bytes: bytes, encoding: str) -> bool:
     return True
 
 
-def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTES) -> dict:
-    """检查 Redis 原始字节并返回保留原始 bytes 的结构体，杜绝提前字符串化丢失真实数据。"""
+def redis_bytes_base64(raw: bytes | None, max_bytes: int = 512 * 1024) -> str:
+    """按需生成 Base64 字符串，超过 max_bytes 时进行安全截断提示，防止大值冻结 GUI。"""
+    if not raw:
+        return ""
+    if not isinstance(raw, bytes):
+        raw = str(raw).encode('utf-8', errors='ignore')
     import base64
+    size = len(raw)
+    if size > max_bytes:
+        chunk = raw[:max_bytes]
+        b64 = base64.b64encode(chunk).decode('ascii')
+        return (
+            f"[数据较大（{size / (1024 * 1024):.2f} MB），为避免界面卡顿仅展示前 {max_bytes // 1024} KB Base64 预览]\n"
+            f"{b64} ..."
+        )
+    return base64.b64encode(raw).decode('ascii')
+
+
+def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTES) -> dict:
+    """检查 Redis 原始字节并返回保留原始 bytes 的结构体，杜绝提前字符串化丢失真实数据。不预先生成完整 Base64。"""
     if raw is None:
         return {
             "raw": b"",
@@ -124,7 +141,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
             "text": "",
             "size": 0,
             "hex_preview": "",
-            "base64": "",
         }
     if not isinstance(raw, bytes):
         if isinstance(raw, str):
@@ -135,7 +151,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
         raw_bytes = raw
 
     size = len(raw_bytes)
-    b64_str = base64.b64encode(raw_bytes).decode('ascii')
     preview_chunk = raw_bytes[:preview_limit]
     hex_preview = preview_chunk.hex(' ') + (' ...' if size > preview_limit else '')
 
@@ -156,7 +171,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
             "text": '\n'.join(desc),
             "size": size,
             "hex_preview": hex_preview,
-            "base64": b64_str,
         }
 
     # 2. Strict UTF-8 with is_probably_text
@@ -169,7 +183,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
                 "text": u8_text,
                 "size": size,
                 "hex_preview": hex_preview,
-                "base64": b64_str,
             }
     except UnicodeDecodeError:
         pass
@@ -184,7 +197,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
                 "text": gb_text,
                 "size": size,
                 "hex_preview": hex_preview,
-                "base64": b64_str,
             }
     except UnicodeDecodeError:
         pass
@@ -203,7 +215,6 @@ def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTE
         "text": '\n'.join(bin_desc),
         "size": size,
         "hex_preview": hex_preview,
-        "base64": b64_str,
     }
 
 
@@ -270,7 +281,13 @@ def redis_get_value(conn, key: str, kind: str | None = None) -> Any:
             return inspect_redis_bytes(raw_val)
         if t == 'hash':
             raw = conn.hgetall(key) or {}
-            return {_b(k): inspect_redis_bytes(v) for k, v in raw.items()}
+            entries = []
+            for k, v in raw.items():
+                entries.append({
+                    'field': inspect_redis_bytes(k),
+                    'value': inspect_redis_bytes(v),
+                })
+            return entries
         if t == 'list':
             raw_items = conn.lrange(key, 0, -1) or []
             return [inspect_redis_bytes(v) for v in raw_items]
@@ -279,7 +296,7 @@ def redis_get_value(conn, key: str, kind: str | None = None) -> Any:
             return [inspect_redis_bytes(v) for v in raw_items]
         if t == 'zset':
             raw = conn.zrange(key, 0, -1, withscores=True) or []
-            return [{'member': _b(m), 'score': str(s), 'inspected_member': inspect_redis_bytes(m)} for m, s in raw]
+            return [{'member': inspect_redis_bytes(m), 'score': str(s)} for m, s in raw]
         raw_val = conn.get(key)
         return inspect_redis_bytes(raw_val)
     except Exception as exc:

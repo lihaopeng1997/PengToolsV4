@@ -607,6 +607,15 @@ class RedisConsoleScanContractTests(unittest.TestCase):
 class MongoAndRedisRound4Tests(unittest.TestCase):
     """Round 4A: MongoDB 错误清洗、Code 13/18 区分、探针权限校验，及 Redis 多编码安全展示。"""
 
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        try:
+            from PyQt6.QtWidgets import QApplication
+            cls.app = QApplication.instance() or QApplication([])
+        except Exception:
+            cls.app = None
+
     def test_clean_mongo_error_message_strips_internal_noise(self):
         from tools.db_connect import clean_mongo_error_message
         raw = (
@@ -717,9 +726,9 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
         self.assertNotIn('lsid:', err_msg)
 
     def test_redis_raw_bytes_preserved_and_format_switching(self):
-        """F, G, H. Redis 原始 bytes 完整保留在 inspect_redis_bytes，支持真实 GB18030、Hex、Base64 roundtrip。"""
+        """F, G, H. Redis 原始 bytes 完整保留在 inspect_redis_bytes，支持真实 GB18030、Hex、按需 Base64 roundtrip。"""
         import base64
-        from tools.db_redis_ops import inspect_redis_bytes
+        from tools.db_redis_ops import inspect_redis_bytes, redis_bytes_base64
 
         # F. GB18030 raw bytes
         gb_raw = "系统运维数据看板".encode('gb18030')
@@ -730,8 +739,9 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
         self.assertEqual(res['raw'], gb_raw)
         self.assertEqual(res['raw'].hex(' '), gb_raw.hex(' '))
         self.assertNotEqual(res['raw'].hex(' '), "系统运维数据看板".encode('utf-8').hex(' '))
-        # H. Base64: 往返解密必须完全等于原始字节
-        self.assertEqual(base64.b64decode(res['base64']), gb_raw)
+        # H. Base64: 确认 inspect 未 eager 生成 base64；调用按需 helper 往返必须完全等于原始字节
+        self.assertNotIn('base64', res)
+        self.assertEqual(base64.b64decode(redis_bytes_base64(gb_raw)), gb_raw)
 
     def test_redis_random_binary_heuristic_not_misidentified_as_text(self):
         """I. 随机二进制即使落在 GB18030 解码范围，也必须通过 is_probably_text 归为 binary。"""
@@ -764,12 +774,79 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
         mock_conn.hgetall.return_value = {b'k1': b'hello_utf8', b'k2': bin_val}
 
         val = redis_get_value(mock_conn, 'my_hash', kind='hash')
-        self.assertIn('k1', val)
-        self.assertIn('k2', val)
-        self.assertEqual(val['k1']['kind'], 'utf8')
-        self.assertEqual(val['k1']['text'], 'hello_utf8')
-        self.assertEqual(val['k2']['kind'], 'binary')
-        self.assertEqual(val['k2']['raw'], bin_val)
+        self.assertEqual(len(val), 2)
+        entry_map = {e['field']['text']: e['value'] for e in val}
+        self.assertIn('k1', entry_map)
+        self.assertIn('k2', entry_map)
+        self.assertEqual(entry_map['k1']['kind'], 'utf8')
+        self.assertEqual(entry_map['k1']['text'], 'hello_utf8')
+        self.assertEqual(entry_map['k2']['kind'], 'binary')
+        self.assertEqual(entry_map['k2']['raw'], bin_val)
+
+    def test_redis_ui_render_value_binary_safe_and_bounded(self):
+        """UI 渲染断言：ZSet binary member、Hash binary field/value、Java 与 bounded tooltip。"""
+        from panels.db_redis_panel import RedisWorkbenchPanel
+        from tools.db_redis_ops import inspect_redis_bytes
+
+        panel = RedisWorkbenchPanel('zh')
+        try:
+            # 1. ZSet binary member
+            bin_member = bytes([0xff, 0x00, 0x81, 0x30])
+            zset_data = [{'member': inspect_redis_bytes(bin_member), 'score': '99.5'}]
+            panel._render_value('zset', zset_data)
+            col0_text = panel.zset_table.item(0, 0).text()
+            self.assertNotIn('\ufffd', col0_text)
+            self.assertEqual(col0_text, '<Binary 4 B>')
+            self.assertEqual(panel.zset_table.item(0, 1).text(), '99.5')
+
+            # 2. Hash binary field & Java value
+            bin_field = bytes([0xfe, 0x00, 0x12])
+            java_val = b'\xac\xed\x00\x05sr\x00\x04Test'
+            hash_data = [{'field': inspect_redis_bytes(bin_field), 'value': inspect_redis_bytes(java_val)}]
+            panel._render_value('hash', hash_data)
+            f_cell_text = panel.hash_table.item(0, 0).text()
+            v_cell_text = panel.hash_table.item(0, 1).text()
+            self.assertNotIn('\ufffd', f_cell_text)
+            self.assertEqual(f_cell_text, '<Binary 3 B>')
+            self.assertIn('<Java Serialized', v_cell_text)
+
+            # 3. Large nested value: tooltip 必须 bounded
+            huge_text = "A" * 5000
+            huge_hash = [{'field': inspect_redis_bytes(b'k_huge'), 'value': inspect_redis_bytes(huge_text.encode('utf-8'))}]
+            panel._render_value('hash', huge_hash)
+            tip = panel.hash_table.item(0, 1).toolTip()
+            self.assertLessEqual(len(tip), 1010, f'Tooltip 长度未受控截断: {len(tip)}')
+        finally:
+            panel.close()
+
+    def test_mongo_list_databases_handles_client_and_database_without_nameerror(self):
+        """Mongo list_databases 兼容 MongoClient 与 Database 对象，无 NameError。"""
+        from tools.db_mongo_ops import list_databases
+
+        mock_client = MagicMock(spec=['list_database_names'])
+        mock_client.list_database_names.return_value = ['db1', 'db2']
+        # 1. 传入 client
+        self.assertEqual(list_databases(mock_client), ['db1', 'db2'])
+
+        # 2. 传入 database（带有 .client 属性）
+        mock_db = MagicMock(spec=['client'])
+        mock_db.client = mock_client
+        self.assertEqual(list_databases(mock_db), ['db1', 'db2'])
+
+    def test_mongo_worker_delete_payload_compatibility(self):
+        """Mongo Worker 与 UI delete 契约：必须包含真实条数，杜绝 None。"""
+        from panels.db_mongodb_panel import MongoDBWorkbenchPanel
+
+        panel = MongoDBWorkbenchPanel('zh')
+        try:
+            with patch('panels.db_mongodb_panel.show_info') as mock_info:
+                panel._on_worker_done('delete', {'deleted': 3, 'deleted_count': 3})
+                self.assertTrue(mock_info.called)
+                msg = mock_info.call_args[0][2]
+                self.assertIn('已删除 3 条', msg)
+                self.assertNotIn('None', msg)
+        finally:
+            panel.close()
 
     def test_oceanbase_error_message_is_concise_without_driver_noise(self):
         """O. ODBC_DRIVER_REQUIRED 错误信息干净精简，严禁列出 SQL Server / Access / Excel 等系统技术噪音。"""

@@ -1112,9 +1112,8 @@ class RedisWorkbenchPanel(QWidget):
             else:
                 self.string_value.setPlainText(raw_b.hex(' '))
         elif idx == 4:  # Base64
-            import base64
-            b64 = base64.b64encode(raw_b).decode('ascii')
-            self.string_value.setPlainText(b64)
+            from tools.db_redis_ops import redis_bytes_base64
+            self.string_value.setPlainText(redis_bytes_base64(raw_b))
         elif idx == 5:  # JSON (格式化)
             try:
                 txt = raw_b.decode('utf-8')
@@ -1126,34 +1125,59 @@ class RedisWorkbenchPanel(QWidget):
     def _render_value(self, kind: str, value):
         kind = (kind or '').lower()
 
+        DISPLAY_PREVIEW_CHARS = 300
+        TOOLTIP_PREVIEW_CHARS = 1000
+
         def cell_preview(v):
             if isinstance(v, dict) and 'raw' in v:
                 k = v.get('kind', '')
                 sz = v.get('size', 0)
                 if k in ('utf8', 'gb18030'):
-                    t = v.get('text', '')
-                    return (t[:300] + '...' if len(t) > 300 else t), t
+                    t = str(v.get('text') or '')
+                    disp = (t[:DISPLAY_PREVIEW_CHARS] + '...') if len(t) > DISPLAY_PREVIEW_CHARS else t
+                    tip = (t[:TOOLTIP_PREVIEW_CHARS] + '...') if len(t) > TOOLTIP_PREVIEW_CHARS else t
+                    return disp, tip
                 elif k == 'java_serialized':
-                    return f"<Java Serialized {sz} B>", v.get('text', '')
+                    t = str(v.get('text') or '')
+                    tip = (t[:TOOLTIP_PREVIEW_CHARS] + '...') if len(t) > TOOLTIP_PREVIEW_CHARS else t
+                    return f"<Java Serialized {sz} B>", tip
                 elif k == 'binary':
-                    return f"<Binary {sz} B>", v.get('hex_preview', '')
-                return v.get('text', ''), ''
-            s = str(v)
-            return s, s
+                    hex_p = str(v.get('hex_preview') or '')
+                    tip = (hex_p[:TOOLTIP_PREVIEW_CHARS] + '...') if len(hex_p) > TOOLTIP_PREVIEW_CHARS else hex_p
+                    return f"<Binary {sz} B>", tip
+                t = str(v.get('text') or '')
+                disp = (t[:DISPLAY_PREVIEW_CHARS] + '...') if len(t) > DISPLAY_PREVIEW_CHARS else t
+                tip = (t[:TOOLTIP_PREVIEW_CHARS] + '...') if len(t) > TOOLTIP_PREVIEW_CHARS else t
+                return disp, tip
+            s = str(v or '')
+            disp = (s[:DISPLAY_PREVIEW_CHARS] + '...') if len(s) > DISPLAY_PREVIEW_CHARS else s
+            tip = (s[:TOOLTIP_PREVIEW_CHARS] + '...') if len(s) > TOOLTIP_PREVIEW_CHARS else s
+            return disp, tip
 
         if kind == 'hash':
             self.value_tabs.setCurrentIndex(1)
             self.hash_table.setRowCount(0)
-            data = value if isinstance(value, dict) else {}
-            for k, v in data.items():
-                disp, tip = cell_preview(v)
+            if isinstance(value, list):
+                entries = value
+            elif isinstance(value, dict):
+                entries = [{'field': k, 'value': v} for k, v in value.items()]
+            else:
+                entries = []
+            for entry in entries:
+                f_data = entry.get('field') if isinstance(entry, dict) else None
+                v_data = entry.get('value') if isinstance(entry, dict) else None
+                f_disp, f_tip = cell_preview(f_data)
+                v_disp, v_tip = cell_preview(v_data)
                 row = self.hash_table.rowCount()
                 self.hash_table.insertRow(row)
-                self.hash_table.setItem(row, 0, QTableWidgetItem(str(k)))
-                val_item = QTableWidgetItem(disp)
-                if tip:
-                    val_item.setToolTip(tip)
-                self.hash_table.setItem(row, 1, val_item)
+                f_cell = QTableWidgetItem(f_disp)
+                if f_tip:
+                    f_cell.setToolTip(f_tip)
+                self.hash_table.setItem(row, 0, f_cell)
+                v_cell = QTableWidgetItem(v_disp)
+                if v_tip:
+                    v_cell.setToolTip(v_tip)
+                self.hash_table.setItem(row, 1, v_cell)
         elif kind == 'list' or kind == 'set':
             self.value_tabs.setCurrentIndex(2)
             self.list_table.setRowCount(0)
@@ -1173,13 +1197,16 @@ class RedisWorkbenchPanel(QWidget):
             data = value if isinstance(value, list) else []
             for entry in data:
                 if isinstance(entry, dict):
+                    m_data = entry.get('member')
+                    disp_m, tip_m = cell_preview(m_data)
                     row = self.zset_table.rowCount()
                     self.zset_table.insertRow(row)
-                    self.zset_table.setItem(row, 0, QTableWidgetItem(str(entry.get('member', ''))))
-                    disp, tip = cell_preview(entry.get('inspected_member', entry.get('score', '')))
-                    score_item = QTableWidgetItem(str(entry.get('score', '')))
-                    if tip:
-                        score_item.setToolTip(tip)
+                    m_item = QTableWidgetItem(disp_m)
+                    if tip_m:
+                        m_item.setToolTip(tip_m)
+                    self.zset_table.setItem(row, 0, m_item)
+                    score_str = str(entry.get('score', ''))
+                    score_item = QTableWidgetItem(score_str)
                     self.zset_table.setItem(row, 1, score_item)
         else:
             self.value_tabs.setCurrentIndex(0)

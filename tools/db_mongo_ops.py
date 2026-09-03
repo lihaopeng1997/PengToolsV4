@@ -36,8 +36,11 @@ def list_collections(conn, item: dict | None = None) -> list[str]:
 
 
 def list_databases(client) -> list[str]:
-    """从 MongoClient 列出数据库名。conn 为 database 对象时回退到 client。"""
-    cli = getattr(conn, 'client', client) if hasattr(conn, 'client') else client
+    """从 MongoClient 或 Database 列出数据库名。"""
+    if hasattr(client, 'list_database_names') and callable(getattr(client, 'list_database_names', None)):
+        cli = client
+    else:
+        cli = getattr(client, 'client', client)
     try:
         return sorted(str(name) for name in (cli.list_database_names() or []))
     except Exception:
@@ -117,18 +120,6 @@ def sample_schema(conn, collection: str, limit: int = 20, item: dict | None = No
     except Exception as exc:
         from tools.db_connect import mongo_operation_error
         raise mongo_operation_error(exc, item=item, operation='sampleSchema', database=db_name, collection=collection) from exc
-    try:
-        docs = list(conn[collection].find().limit(int(limit)))
-    except Exception:
-        return []
-    keys: list[str] = []
-    for doc in docs:
-        if isinstance(doc, dict):
-            for key in doc.keys():
-                name = str(key)
-                if name not in keys:
-                    keys.append(name)
-    return keys
 
 
 def parse_mongo_query(text: str) -> dict:

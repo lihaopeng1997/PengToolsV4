@@ -87,7 +87,7 @@ class _MongoWorker(QThread):
                 collection = self.kwargs.get('collection', '')
                 filt = self.kwargs.get('filter', {})
                 cnt = delete_docs(conn, collection, filt, item=self.item)
-                self.completed.emit('delete', {'deleted_count': cnt})
+                self.completed.emit('delete', {'deleted': cnt, 'deleted_count': cnt})
             elif self.kind == 'command':
                 sql = self.kwargs.get('sql', '')
                 q = parse_mongo_query(sql)
@@ -721,9 +721,10 @@ class MongoDBWorkbenchPanel(QWidget):
                       else f"Inserted, _id = {payload.get('inserted_id')}")
         elif kind == 'delete':
             self._reset_query()
+            del_cnt = payload.get('deleted') if payload.get('deleted') is not None else payload.get('deleted_count', 0)
             show_info(self, self._title(),
-                      f"已删除 {payload.get('deleted')} 条" if self.language == 'zh'
-                      else f"Deleted {payload.get('deleted')} docs")
+                      f"已删除 {del_cnt} 条" if self.language == 'zh'
+                      else f"Deleted {del_cnt} docs")
         elif kind == 'command':
             docs = list(payload.get('docs') or [])
             try:
