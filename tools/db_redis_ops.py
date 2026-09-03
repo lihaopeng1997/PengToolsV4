@@ -215,8 +215,10 @@ class RedisScanState:
 
     def __init__(self):
         self.generation = 0
-        self.cursor = 0
+        self.cursor: int | dict = 0
         self.finished = False
+        self.partial = False
+        self.failed_nodes: list[str] = []
         self.pattern = '*'
         self.keys: list[str] = []
 
@@ -224,11 +226,22 @@ class RedisScanState:
         self.generation += 1
         self.cursor = 0
         self.finished = False
+        self.partial = False
+        self.failed_nodes = []
         self.pattern = pattern or '*'
         self.keys = []
         return self.generation
 
-    def apply(self, generation: int, keys: list[str], cursor: int, finished: bool) -> bool:
+    def apply(
+        self,
+        generation: int,
+        keys: list[str],
+        cursor: int | dict | None,
+        finished: bool,
+        *,
+        partial: bool = False,
+        failed_nodes: list[str] | None = None,
+    ) -> bool:
         if int(generation) != int(self.generation):
             return False
         seen = set(self.keys)
@@ -240,7 +253,10 @@ class RedisScanState:
             self.cursor = dict(cursor)
         else:
             self.cursor = int(cursor or 0)
-        self.finished = bool(finished)
+        self.partial = bool(partial) or bool(failed_nodes)
+        if failed_nodes:
+            self.failed_nodes = list(failed_nodes)
+        self.finished = bool(finished) and not self.partial
         return True
 
 
@@ -554,8 +570,6 @@ def redis_scan_page(
                     if k not in seen:
                         seen.add(k)
                         collected.append(k)
-                    if len(collected) >= cap:
-                        break
                 cur = int(nxt or 0) if not isinstance(nxt, dict) else 0
                 if cur == 0:
                     finished = True
@@ -569,6 +583,8 @@ def redis_scan_page(
             'cursor': cur,
             'finished': finished,
             'incomplete': not finished,
+            'partial': False,
+            'failed_nodes': [],
             'pattern': match,
             'count': len(collected),
         }
@@ -577,6 +593,8 @@ def redis_scan_page(
     cursors_map: dict[str, int] = {}
     if isinstance(cursor, dict) and cursor:
         cursors_map = {str(k): int(v or 0) for k, v in cursor.items()}
+
+    failed_nodes: list[str] = []
 
     try:
         if not cursors_map:
@@ -610,21 +628,34 @@ def redis_scan_page(
                 node_cur = cursors_map.get(name, 0)
                 if node_cur == 0:
                     continue
+
+                if hasattr(conn, 'get_node'):
+                    try:
+                        node_obj = conn.get_node(node_name=name)
+                    except Exception:
+                        node_obj = None
+                    if node_obj is None:
+                        # get_node 返回 None 时不得把 target_nodes=None 传给 cluster scan（防全集群广播）
+                        if name not in failed_nodes:
+                            failed_nodes.append(name)
+                        cursors_map.pop(name, None)
+                        continue
+                else:
+                    node_obj = name
+
                 try:
-                    node_obj = conn.get_node(node_name=name) if hasattr(conn, 'get_node') else name
                     cur_res, batch = conn.scan(
                         cursor=node_cur,
                         match=match,
                         count=batch_size,
                         target_nodes=node_obj,
                     )
+                    # 必须完整消费该 batch，不得推进 cursor 后丢弃 batch 尾部
                     for key in batch or []:
                         k = _b(key)
                         if k not in seen:
                             seen.add(k)
                             collected.append(k)
-                        if len(collected) >= cap:
-                            break
                     if isinstance(cur_res, dict):
                         new_cur = cur_res.get(name, 0)
                     else:
@@ -632,8 +663,10 @@ def redis_scan_page(
                     cursors_map[name] = int(new_cur or 0)
                     progress_made = True
                 except Exception:
-                    # 单节点网络波动/部分节点异常不拖垮其他节点，将该节点游标置 0 退出轮询
-                    cursors_map[name] = 0
+                    # 单节点网络波动/部分节点异常不拖垮其他节点，记录为 failed_nodes，不假装 finished
+                    if name not in failed_nodes:
+                        failed_nodes.append(name)
+                    cursors_map.pop(name, None)
                     progress_made = True
                 if len(collected) >= cap:
                     break
@@ -644,12 +677,16 @@ def redis_scan_page(
     except Exception as exc:
         raise DbError(f'SCAN 失败：{exc}') from exc
 
-    finished = all(c == 0 for c in cursors_map.values()) if cursors_map else True
+    is_partial = bool(failed_nodes)
+    finished = (all(c == 0 for c in cursors_map.values()) if cursors_map else True) and not is_partial
+    incomplete = (not finished) or is_partial
     return {
         'keys': collected,
         'cursor': cursors_map,
         'finished': finished,
-        'incomplete': not finished,
+        'incomplete': incomplete,
+        'partial': is_partial,
+        'failed_nodes': failed_nodes,
         'pattern': match,
         'count': len(collected),
     }

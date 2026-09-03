@@ -670,7 +670,9 @@ class RedisWorkbenchPanel(QWidget):
             self.key_list.addItem(item)
         self.key_list.setUpdatesEnabled(True)
         extra = ''
-        if not self._scan.finished:
+        if getattr(self._scan, 'partial', False):
+            extra = ' · 部分节点扫描失败，Key 列表可能不完整' if self.language == 'zh' else ' · some nodes failed, key list may be incomplete'
+        elif not self._scan.finished:
             extra = ' · 当前扫描结果，不代表全集' if self.language == 'zh' else ' · sampled, not complete'
         self.key_stats.setText(
             f'已加载 {len(keys)} 个 Key · 列表 {len(shown)}{extra}'
@@ -933,7 +935,14 @@ class RedisWorkbenchPanel(QWidget):
             if not payload.get('append'):
                 self._key_cache = []
                 self._scan.keys = []
-            self._scan.apply(self._scan.generation, keys, page.get('cursor'), bool(page.get('finished')))
+            self._scan.apply(
+                self._scan.generation,
+                keys,
+                page.get('cursor'),
+                bool(page.get('finished')),
+                partial=bool(page.get('partial')),
+                failed_nodes=list(page.get('failed_nodes') or []),
+            )
             self._key_cache = list(self._scan.keys)
             if payload.get('overview') is not None:
                 self._fill_overview(payload.get('overview'), payload.get('info_table'))

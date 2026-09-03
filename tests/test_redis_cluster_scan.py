@@ -168,7 +168,50 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
         res = redis_scan_page(conn, cursor=0, limit=10)
         self.assertIn('k_init', res['keys'])
         self.assertIn('k_good', res['keys'])
-        self.assertTrue(res['finished'])
+        # 节点失败不得假装 finished
+        self.assertFalse(res['finished'])
+        self.assertTrue(res['partial'])
+        self.assertTrue(res['incomplete'])
+        self.assertIn('node-bad', res['failed_nodes'])
+
+    def test_scan_batch_never_drops_keys_standalone(self):
+        """Standalone: 剩余配额 1，SCAN 返回 5 个 Key 且 cursor != 0，必须完整保留全部 5 个 Key。"""
+        fake_conn = MagicMock()
+        fake_conn.is_cluster = False
+        del fake_conn.get_nodes
+        fake_conn.scan.return_value = (99, ['key_1', 'key_2', 'key_3', 'key_4', 'key_5'])
+
+        res = redis_scan_page(fake_conn, cursor=0, limit=1)
+        self.assertEqual(len(res['keys']), 5)
+        self.assertEqual(res['keys'], ['key_1', 'key_2', 'key_3', 'key_4', 'key_5'])
+        self.assertEqual(res['cursor'], 99)
+        self.assertFalse(res['finished'])
+
+    def test_scan_batch_never_drops_keys_cluster(self):
+        """Cluster: 剩余配额 1，单批返回 5 个 Key 且 node cursor != 0，必须完整保留全部 5 个 Key。"""
+        conn = FakeClusterConnection({
+            'node-1': [(88, ['c_1', 'c_2', 'c_3', 'c_4', 'c_5'])],
+        })
+        res = redis_scan_page(conn, cursor=0, limit=1)
+        self.assertEqual(len(res['keys']), 5)
+        self.assertEqual(res['keys'], ['c_1', 'c_2', 'c_3', 'c_4', 'c_5'])
+        self.assertEqual(res['cursor'], {'node-1': 88})
+        self.assertFalse(res['finished'])
+
+    def test_cluster_get_node_returns_none_guards_against_broadcast(self):
+        """get_node 返回 None 时不得把 target_nodes=None 传给 cluster scan，且记录为 failed_nodes。"""
+        conn = MagicMock()
+        conn.is_cluster = True
+        conn.get_nodes.return_value = ['node-ghost']
+        conn.get_node.return_value = None  # 节点脱机或拓扑变更找不到 node_name
+
+        res = redis_scan_page(conn, cursor={'node-ghost': 100}, limit=10)
+        # scan 不得以 target_nodes=None 调用以防意外广播全集群
+        conn.scan.assert_not_called()
+        self.assertIn('node-ghost', res['failed_nodes'])
+        self.assertTrue(res['partial'])
+        self.assertFalse(res['finished'])
+        self.assertTrue(res['incomplete'])
 
     def test_worker_production_chain_with_dict_cursor(self):
         from panels.db_redis_panel import _RedisWorker
