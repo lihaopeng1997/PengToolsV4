@@ -365,64 +365,40 @@ def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None
     host = (item or {}).get('host') or ''
     port = (item or {}).get('port') or ''
     db = (item or {}).get('database') or ''
-    ctx = f"\n连接目标：{host}:{port}/{db} | 驱动：python-oracledb"
+    ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle"
 
     if 'ora-12569' in low or 'packet checksum failure' in low or 'checksum' in low:
         return (
             f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569: TNS:packet checksum failure）。'
             f'{ctx}\n'
-            '原因：python-oracledb 纯 Python (Thin) 模式与 OceanBase/OBProxy 之间的底层报文校验和不兼容。\n'
+            '原因：客户端与目标 OceanBase/OBProxy 之间的底层网络或 TNS 报文校验不匹配。\n'
             '排查建议：\n'
-            '1. 确认已配置 64 位 OBCI / Oracle Instant Client 客户端，并在「设置 → Oracle 兼容」中选择 Thick 模式；\n'
-            '2. 检查 OBProxy 是否开启了报文校验，或网络链路中存在修改 TCP 报文的中间代理；\n'
-            '3. 核对用户名租户格式（如 user@tenant#cluster）与服务名配置。'
+            '1. 检查网络链路中是否存在对 TCP 报文做修改或重写的中间代理；\n'
+            '2. 核对用户名租户格式（如 user@tenant#cluster）及目标服务名；\n'
+            '3. 当前 Windows 运行环境尚未提供官方验证的 OceanBase OBCI 专用驱动。'
         )
     return f'OceanBase (Oracle 模式) 连接失败：{text}{ctx}'
 
 
 def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
-    try:
-        import oracledb
-    except ImportError as exc:
-        raise DbError('未安装 oracledb，请安装依赖后重试') from exc
-
     host = str(item.get('host') or '').strip()
     try:
         port = int(item.get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
     except (TypeError, ValueError):
         port = 2883
     database = str(item.get('database') or '').strip()
-    username = str(item.get('username') or '').strip()
-    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
 
-    oracle_conf = load_oracle_paths()
-    try:
-        ensure_oracle_client(
-            oracle_conf['mode'],
-            lib_dir=oracle_conf['lib_dir'],
-            home=oracle_conf['home'],
-            oci_lib=oracle_conf['oci_lib'],
-        )
-    except OracleRuntimeError as exc:
-        raise DbError(str(exc)) from exc
-
-    is_thin = getattr(oracledb, 'is_thin_mode', lambda: True)()
-    if is_thin:
-        raise DbError(
-            '[CLIENT_LIBRARY_REQUIRED] OceanBase (Oracle 模式) 需要 Thick 驱动模式与兼容客户端（OBCI 或 64 位 Oracle Instant Client）。\n'
-            '当前运行于 python-oracledb 纯 Python (Thin) 模式，直连 OceanBase/OBProxy 会因底层报文校验不兼容抛出 ORA-12569。\n'
-            f'目标地址：{host}:{port}/{database or "ORCL"}\n'
-            '配置说明：\n'
-            '1. 请打开「设置 → Oracle 兼容」，驱动模式选择 Thick；\n'
-            '2. 指定包含 oci.dll 或 libobclient.dll 的 64 位客户端目录；\n'
-            '3. 保存并重启应用后重试。'
-        )
-
-    dsn = database if ('/' in database or ':' in database) else f'{host}:{port}/{database}'
-    try:
-        return oracledb.connect(user=username, password=password, dsn=dsn)
-    except Exception as exc:
-        raise DbError(_oceanbase_oracle_error_message(exc, item)) from exc
+    # 外部审核规则：当前 Windows 打包环境未包含经实机验证的 OceanBase 官方 Oracle 驱动（OBCI / C 驱动组件），
+    # 现有的 Oracle Instant Client 加载器仅适配 Oracle 官方 Instant Client，不支持作为 OBCI 替代。
+    # 状态明确标识为 BLOCKED_DEPENDENCY，坚决不误导用户，拒绝伪造支持。
+    raise DbError(
+        f'[BLOCKED_DEPENDENCY] 当前运行环境尚未集成经实机验证的 OceanBase Oracle 专用驱动。\n'
+        f'连接目标：{host}:{port}/{database or "ORCL"}\n'
+        '现状说明：\n'
+        '1. 内置 Oracle 客户端加载器仅针对 Oracle 官方 Instant Client 校验加载，不适用于 OceanBase OBCI 库；\n'
+        '2. 在缺乏验证驱动的前提下，无法保证 TNS 报文握手完整性（可能触发 ORA-12569 等传输层异常）；\n'
+        '3. OceanBase (Oracle 模式) 驱动正在规划专项适配，当前版本处于依赖阻断（BLOCKED_DEPENDENCY）状态。'
+    )
 
 
 def _connect_oracle(item: dict, plain_password: str | None = None):
