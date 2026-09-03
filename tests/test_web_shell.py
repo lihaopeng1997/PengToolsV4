@@ -482,5 +482,31 @@ class WebRendererContractTest(unittest.TestCase):
         self.assertIn('renderers_initialized', src)
 
 
+class SettingsVersionMigrationTest(unittest.TestCase):
+    """Round 3-A Review Gate: 验证版本化一次性迁移与用户显式 false 保持。"""
+
+    def test_legacy_settings_without_version_migrates_once(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            tmp_json = os.path.join(td, 'settings.json')
+            # 1. 模拟旧测试遗留配置：无 settings_version，且 ui_web_shell=False
+            with open(tmp_json, 'w', encoding='utf-8') as f:
+                json.dump({'ui_web_shell': False, 'font_size': 12}, f)
+            with patch('config.SETTINGS_FILE', tmp_json):
+                migrated = load_settings()
+                self.assertTrue(migrated['ui_web_shell'])
+                self.assertEqual(migrated['settings_version'], 1)
+
+            # 2. 模拟用户在此之后显式保存 ui_web_shell=False (已具备 settings_version=1)
+            with open(tmp_json, 'w', encoding='utf-8') as f:
+                json.dump({'ui_web_shell': False, 'settings_version': 1, 'font_size': 12}, f)
+            with patch('config.SETTINGS_FILE', tmp_json):
+                reloaded = load_settings()
+                # 显式 false 绝不再被覆盖
+                self.assertFalse(reloaded['ui_web_shell'])
+                self.assertEqual(reloaded['settings_version'], 1)
+
+
 if __name__ == '__main__':
     unittest.main()

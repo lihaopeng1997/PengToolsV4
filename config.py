@@ -127,6 +127,8 @@ DEFAULT_SETTINGS = {
     'home_username': 'Lihp',
     # Web 铬层开关（侧栏/首页 Web 化）；False 或依赖缺失时回退原生侧栏
     'ui_web_shell': True,
+    # 配置架构版本（用于单次迁移识别）
+    'settings_version': 1,
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -219,6 +221,7 @@ def normalize_settings(settings):
         result['ui_web_shell'] = web_shell.strip().lower() in ('1', 'true', 'yes', 'on')
     else:
         result['ui_web_shell'] = bool(web_shell)
+    result['settings_version'] = max(1, int(result.get('settings_version') or 1))
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
     if theme == 'night':
         theme = 'black'
@@ -284,9 +287,20 @@ def load_settings():
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as stream:
             data = json.load(stream)
-            if isinstance(data, dict) and data.get('ui_web_shell') is False:
-                if os.environ.get('PENGTOOLS_DISABLE_WEB_SHELL') != '1' and os.environ.get('PENGTOOLS_FORCE_NATIVE_SHELL') != '1':
-                    data['ui_web_shell'] = True
+            if isinstance(data, dict):
+                current_ver = int(data.get('settings_version') or 0)
+                if current_ver < 1:
+                    # Versioned one-time migration:
+                    # 仅在无 settings_version 的历史旧配置上执行一次性修复，消除旧测试阶段遗留的 ui_web_shell: false
+                    if data.get('ui_web_shell') is False:
+                        if (os.environ.get('PENGTOOLS_DISABLE_WEB_SHELL') != '1'
+                                and os.environ.get('PENGTOOLS_FORCE_NATIVE_SHELL') != '1'):
+                            data['ui_web_shell'] = True
+                    data['settings_version'] = 1
+                    try:
+                        save_settings(data)
+                    except Exception:
+                        pass
             return normalize_settings(data)
     except (OSError, ValueError, TypeError):
         return dict(DEFAULT_SETTINGS)

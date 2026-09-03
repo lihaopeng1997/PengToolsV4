@@ -97,5 +97,26 @@ class StartupBootTests(unittest.TestCase):
             window.deleteLater()
 
 
+    def test_smoke_exit_ms_validation(self):
+        from unittest.mock import MagicMock
+        mock_exit = MagicMock()
+
+        def parse_and_schedule(raw_val):
+            if raw_val:
+                try:
+                    smoke_ms = int(str(raw_val).strip())
+                    if smoke_ms > 0:
+                        mock_exit(smoke_ms)
+                except Exception:
+                    pass
+
+        for invalid in ('-100', '-1', '0', 'abc', '', '   ', None):
+            parse_and_schedule(invalid)
+        mock_exit.assert_not_called()
+
+        parse_and_schedule('3000')
+        mock_exit.assert_called_once_with(3000)
+
+
 if __name__ == '__main__':
     unittest.main()

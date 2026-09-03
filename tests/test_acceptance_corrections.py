@@ -183,6 +183,7 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
             win._disable_web_shell_live('test_failure')
             self.assertEqual(win.main_shell_renderer, 'native')
             self.assertEqual(win.dashboard_renderer, 'native')
+            self.assertIn('test_failure', win.status_bar.currentMessage())
         finally:
             if win.hotkey_service: win.hotkey_service.unregister()
             if win.quick_panel: win.quick_panel.close_toolbar()
