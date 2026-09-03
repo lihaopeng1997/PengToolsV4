@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """全应用统一的表单字段尺寸，保证下拉/录入/日期视觉整齐舒适。"""
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QWidget
 
 # 统一控件高度：与「检出代码」等紧凑按钮对齐
@@ -300,7 +300,29 @@ class CompactStepper(QWidget):
         self.minus_btn.clicked.connect(lambda: self.setValue(self.value() - 1))
         self.plus_btn.clicked.connect(lambda: self.setValue(self.value() + 1))
         self.edit.editingFinished.connect(self._commit_edit)
+        self.edit.installEventFilter(self)
         self.setValue(value)
+
+    def eventFilter(self, watched, event):
+        if watched is self.edit and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Up:
+                self.setValue(self.value() + 1)
+                return True
+            elif event.key() == Qt.Key.Key_Down:
+                self.setValue(self.value() - 1)
+                return True
+        return super().eventFilter(watched, event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Up:
+            self.setValue(self.value() + 1)
+            event.accept()
+            return
+        elif event.key() == Qt.Key.Key_Down:
+            self.setValue(self.value() - 1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def value(self) -> int:
         try:
