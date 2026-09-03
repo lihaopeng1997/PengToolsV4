@@ -468,5 +468,19 @@ class VueDashboardReducedMotionGuardTest(unittest.TestCase):
         self.assertIn('transform:none', reduced_block)
 
 
+class WebRendererContractTest(unittest.TestCase):
+    """Round 3-A: 验证主界面与首页渲染器属性、状态记录与加载契约。"""
+
+    def test_renderer_properties_and_diagnostics_contract(self):
+        with open(os.path.join(ROOT, 'main_window.py'), encoding='utf-8') as fh:
+            src = fh.read()
+        self.assertIn('def main_shell_renderer', src)
+        self.assertIn('def dashboard_renderer', src)
+        self.assertIn('startup_web_diagnostics', src)
+        self.assertIn('chrome_resolved_path', src)
+        self.assertIn('dashboard_resolved_path', src)
+        self.assertIn('renderers_initialized', src)
+
+
 if __name__ == '__main__':
     unittest.main()

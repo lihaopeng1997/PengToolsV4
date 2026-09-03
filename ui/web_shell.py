@@ -23,8 +23,10 @@ try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     # 语义：仅代表 WebEngine Python 模块可导入；运行时健康由 pageReady/renderProcess 信号判定。
     WEB_SHELL_AVAILABLE = True
-except Exception:  # pragma: no cover - 依赖缺失环境
+    WEB_SHELL_IMPORT_ERROR = ''
+except Exception as _exc:  # pragma: no cover - 依赖缺失环境
     WEB_SHELL_AVAILABLE = False
+    WEB_SHELL_IMPORT_ERROR = f'{type(_exc).__name__}: {_exc}'
 
 
 def _project_root() -> str:

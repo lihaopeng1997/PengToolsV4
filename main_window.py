@@ -87,6 +87,11 @@ class MainWindow(QMainWindow):
         # 先建工作台，用户立刻看到首页骨架
         self._ensure_dashboard_panel()
         self.stack.setCurrentIndex(0)
+        log_web_event(
+            'renderers_initialized',
+            main_shell=self.main_shell_renderer,
+            dashboard=self.dashboard_renderer,
+        )
         self._show_startup_loading('正在加载模块…' if self.language == 'zh' else 'Loading modules…')
         # 测试/offscreen：同步 boot，避免用例拿到半成品窗口
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or os.environ.get('PENGTOOLS_SYNC_BOOT') == '1':
@@ -115,9 +120,25 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         # ── V2 Web 铬层：可用且未禁用时启用（侧栏双页栈：0=原生保底 1=Web）──
+        ui_web_setting = bool(self._settings.get('ui_web_shell', True))
+        runtime_web_available = _web_shell.runtime_web_shell_available()
         self._web_shell_enabled = (
-            _web_shell.runtime_web_shell_available()
-            and bool(self._settings.get('ui_web_shell', True))
+            runtime_web_available
+            and ui_web_setting
+        )
+        chrome_local_path = _web_shell.webui_url('vue/chrome.html').toLocalFile()
+        dashboard_local_path = _web_shell.webui_url('vue/dashboard.html').toLocalFile()
+        log_web_event(
+            'startup_web_diagnostics',
+            web_shell_available=_web_shell.WEB_SHELL_AVAILABLE,
+            import_error=getattr(_web_shell, 'WEB_SHELL_IMPORT_ERROR', ''),
+            runtime_available=runtime_web_available,
+            ui_web_shell_setting=ui_web_setting,
+            web_shell_enabled=self._web_shell_enabled,
+            chrome_resolved_path=chrome_local_path,
+            chrome_exists=os.path.exists(chrome_local_path),
+            dashboard_resolved_path=dashboard_local_path,
+            dashboard_exists=os.path.exists(dashboard_local_path),
         )
         self._chrome_bridge = None
         self._dash_web = None
@@ -149,6 +170,12 @@ class MainWindow(QMainWindow):
             layout.addWidget(side_stack)
             self._web_timeout_timer.start(10000)
         else:
+            reason = (
+                'ui_web_shell_setting_disabled'
+                if not ui_web_setting
+                else 'runtime_web_shell_unavailable'
+            )
+            log_web_event('web_shell_disabled_startup', reason=reason)
             layout.addWidget(self._create_legacy_sidebar())
 
         content = QFrame()
@@ -286,7 +313,7 @@ class MainWindow(QMainWindow):
             self._dash_holder.setCurrentIndex(0)
             self._mount_panel(0, self._dash_holder)
             if hasattr(self._dash_web, 'web_view') and hasattr(self._dash_web.web_view, 'loadFinished'):
-                self._dash_web.web_view.loadFinished.connect(lambda ok: ok is False and self._disable_web_shell_live())
+                self._dash_web.web_view.loadFinished.connect(lambda ok: (not ok) and self._disable_web_shell_live('dashboard_load_failed'))
         else:
             self._mount_panel(0, panel)
         self.dashboard_panel = panel
@@ -1301,19 +1328,36 @@ class MainWindow(QMainWindow):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
 
+    @property
+    def main_shell_renderer(self) -> str:
+        if getattr(self, '_web_shell_enabled', False) and getattr(self, '_sidebar_stack', None) is not None:
+            if self._sidebar_stack.currentIndex() == 1:
+                return 'web'
+        return 'native'
+
+    @property
+    def dashboard_renderer(self) -> str:
+        if getattr(self, '_web_shell_enabled', False) and getattr(self, '_dash_holder', None) is not None:
+            if self._dash_holder.currentIndex() == 0:
+                return 'web'
+        return 'native'
+
     def _disable_web_shell_live(self, reason='unknown'):
         """整壳回退经典 UI（幂等）：Web 侧栏→原生侧栏，Web 首页→原生首页。
         仅当前会话回退，不修改用户 settings.json。"""
         if not getattr(self, '_web_shell_enabled', False):
             return
         self._web_shell_enabled = False
-        log_web_event('web_shell_fallback', reason=reason)
+        log_web_event('web_shell_fallback', reason=reason,
+                      main_shell='native', dashboard='native')
         try:
             self._web_timeout_timer.stop()
         except Exception:
             pass
         try:
-            self.status_bar.showMessage('V2 界面加载失败，已回退经典界面', 8000)
+            zh = getattr(self, 'language', 'zh') == 'zh'
+            msg = f'V2 界面加载失败 ({reason})，已回退经典界面' if zh else f'Web Shell fallback ({reason}), using legacy UI'
+            self.status_bar.showMessage(msg, 8000)
         except Exception:
             pass
         if getattr(self, '_sidebar_stack', None) is not None:

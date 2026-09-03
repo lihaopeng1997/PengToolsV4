@@ -1502,14 +1502,14 @@ class RequirementPanel(QWidget):
         toolbar_layout = QHBoxLayout(toolbar_card)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(8)
-        self.scan_btn = QPushButton('扫描需求目录'); self.scan_btn.clicked.connect(self._scan_folder)
-        self.checkout_btn = QPushButton('检出代码'); self.checkout_btn.clicked.connect(self._checkout_svn)
-        self.update_all_btn = QPushButton('更新全部'); self.update_all_btn.clicked.connect(self._update_all)
-        self.bug_btn = QPushButton('登记缺陷'); self.bug_btn.clicked.connect(self._paste_bug)
-        self.import_btn = QPushButton('导入资料'); self.import_btn.clicked.connect(self._import_requirement)
-        self.system_config_btn = QPushButton('系统配置'); self.system_config_btn.clicked.connect(self.open_system_config.emit)
+        self.scan_btn = QPushButton('扫描需求目录', toolbar_card); self.scan_btn.clicked.connect(self._scan_folder)
+        self.checkout_btn = QPushButton('检出代码', toolbar_card); self.checkout_btn.clicked.connect(self._checkout_svn)
+        self.update_all_btn = QPushButton('更新全部', toolbar_card); self.update_all_btn.clicked.connect(self._update_all)
+        self.bug_btn = QPushButton('登记缺陷', toolbar_card); self.bug_btn.clicked.connect(self._paste_bug)
+        self.import_btn = QPushButton('导入资料', toolbar_card); self.import_btn.clicked.connect(self._import_requirement)
+        self.system_config_btn = QPushButton('系统配置', toolbar_card); self.system_config_btn.clicked.connect(self.open_system_config.emit)
 
-        self.toolbar_more_btn = QPushButton('更多 ▾')
+        self.toolbar_more_btn = QPushButton('更多 ▾', toolbar_card)
         self.toolbar_more_menu = QMenu(self.toolbar_more_btn)
         self._action_checkout = self.toolbar_more_menu.addAction('检出代码', self._checkout_svn)
         self._action_import = self.toolbar_more_menu.addAction('导入资料', self._import_requirement)
@@ -1518,13 +1518,12 @@ class RequirementPanel(QWidget):
         self.toolbar_more_btn.setMenu(self.toolbar_more_menu)
 
         for button in (
-            self.scan_btn, self.update_all_btn,
-            self.bug_btn, self.toolbar_more_btn,
+            self.scan_btn, self.checkout_btn, self.update_all_btn,
+            self.bug_btn, self.import_btn, self.system_config_btn,
+            self.toolbar_more_btn,
         ):
             size_compact_button(button)
             toolbar_layout.addWidget(button)
-        for hidden_btn in (self.checkout_btn, self.import_btn, self.system_config_btn):
-            hidden_btn.hide()
         self.toolbar_more_btn.show()
         toolbar_layout.addStretch(1)
         # 仅在扫描/SVN 任务运行时显示；默认隐藏，不占常驻说明

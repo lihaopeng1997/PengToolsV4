@@ -150,13 +150,17 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
     def test_homepage_bridge_navigate_requested_changes_panel(self):
         from main_window import MainWindow
         settings = dict(DEFAULT_SETTINGS, ui_web_shell=True)
-        dummy_widget = QWidget()
-        dummy_widget.web_view = MagicMock()
-        dummy_widget.web_page = MagicMock()
-        dummy_widget.web_name = 'dashboard'
-        # 该用例只验证 HomeBridge.navigate；真实 QWebEngineView 在 offscreen 下会 native crash。
-        with patch('ui.web_shell.create_dashboard_widget', return_value=dummy_widget), \
-             patch('ui.web_shell.create_chrome_widget', return_value=dummy_widget), \
+        dummy_chrome = QWidget()
+        dummy_chrome.web_view = MagicMock()
+        dummy_chrome.web_page = MagicMock()
+        dummy_chrome.web_name = 'chrome'
+        dummy_dash = QWidget()
+        dummy_dash.web_view = MagicMock()
+        dummy_dash.web_page = MagicMock()
+        dummy_dash.web_name = 'dashboard'
+        # 该用例只验证 HomeBridge.navigate 与渲染器契约；真实 QWebEngineView 在 offscreen 下会 native crash。
+        with patch('ui.web_shell.create_dashboard_widget', return_value=dummy_dash), \
+             patch('ui.web_shell.create_chrome_widget', return_value=dummy_chrome), \
              patch('ui.web_shell.runtime_web_shell_available', return_value=True), \
              patch('main_window.load_settings', return_value=settings):
             win = MainWindow()
@@ -174,6 +178,11 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
 
             win._dash_bridge.navigate(0)
             self.assertEqual(win._current_nav_index, 0)
+            self.assertEqual(win.main_shell_renderer, 'web')
+            self.assertEqual(win.dashboard_renderer, 'web')
+            win._disable_web_shell_live('test_failure')
+            self.assertEqual(win.main_shell_renderer, 'native')
+            self.assertEqual(win.dashboard_renderer, 'native')
         finally:
             if win.hotkey_service: win.hotkey_service.unregister()
             if win.quick_panel: win.quick_panel.close_toolbar()

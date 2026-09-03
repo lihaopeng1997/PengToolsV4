@@ -153,6 +153,14 @@ def main():
     splash.finish(window)
     app.processEvents()
 
+    smoke_ms = os.environ.get('PENGTOOLS_SMOKE_EXIT_MS')
+    if smoke_ms:
+        try:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(int(smoke_ms), window.exit_application)
+        except Exception:
+            pass
+
     return app.exec()
 
 

@@ -283,7 +283,11 @@ def load_settings():
     ensure_config_dir()
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as stream:
-            return normalize_settings(json.load(stream))
+            data = json.load(stream)
+            if isinstance(data, dict) and data.get('ui_web_shell') is False:
+                if os.environ.get('PENGTOOLS_DISABLE_WEB_SHELL') != '1' and os.environ.get('PENGTOOLS_FORCE_NATIVE_SHELL') != '1':
+                    data['ui_web_shell'] = True
+            return normalize_settings(data)
     except (OSError, ValueError, TypeError):
         return dict(DEFAULT_SETTINGS)
 

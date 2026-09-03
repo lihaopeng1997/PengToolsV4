@@ -64,5 +64,38 @@ class StartupBootTests(unittest.TestCase):
         splash.close()
 
 
+    def test_startup_top_level_widgets_no_isolated_buttons(self):
+        from config import DEFAULT_SETTINGS
+        from main_window import MainWindow
+        from PyQt6.QtWidgets import QPushButton
+
+        initial_top = set(self.app.topLevelWidgets())
+        settings = dict(DEFAULT_SETTINGS, ui_web_shell=False)
+        with patch('main_window.load_settings', return_value=settings):
+            window = MainWindow()
+        try:
+            window.show()
+            self.app.processEvents()
+            new_top = set(self.app.topLevelWidgets()) - initial_top
+            for widget in new_top:
+                if isinstance(widget, QPushButton):
+                    self.assertNotIn(widget.text(), ('检出代码', '导入资料', '系统配置'))
+                title = getattr(widget, 'windowTitle', lambda: '')()
+                self.assertNotIn(title, ('检出代码', '导入资料', '系统配置'))
+                if widget.isVisible():
+                    self.assertIn(widget.__class__.__name__, ('MainWindow', 'QuickPanel'))
+        finally:
+            if window.hotkey_service:
+                window.hotkey_service.unregister()
+            if window.quick_panel is not None:
+                window.quick_panel.close_toolbar()
+            if window.tray_service is not None:
+                window.tray_service.hide()
+            if window.keep_awake_service is not None:
+                window.keep_awake_service.stop()
+            window.hide()
+            window.deleteLater()
+
+
 if __name__ == '__main__':
     unittest.main()

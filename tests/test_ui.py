@@ -305,6 +305,14 @@ class UiRegressionTests(unittest.TestCase):
         self.assertEqual(requirement.scan_btn.text(), '扫描需求目录')
         self.assertEqual(requirement.checkout_btn.text(), '检出代码')
         self.assertEqual(requirement.update_all_btn.text(), '更新全部')
+        # Round 3-A: 工具栏按钮必须有 parent，不得成为孤立 top-level 窗口
+        for btn in (requirement.scan_btn, requirement.checkout_btn, requirement.update_all_btn,
+                    requirement.bug_btn, requirement.import_btn, requirement.system_config_btn):
+            self.assertIsNotNone(btn.parent(), f'{btn.text()} 必须有 parent widget')
+            self.assertNotIn(btn, QApplication.topLevelWidgets(), f'{btn.text()} 不能是顶级窗口')
+        requirement.apply_layout_mode('wide')
+        for btn in (requirement.checkout_btn, requirement.import_btn, requirement.system_config_btn):
+            self.assertNotIn(btn, QApplication.topLevelWidgets(), f'wide 模式下 {btn.text()} 不能变成顶级窗口')
         # 文件表：名称 / 类型 / 修改时间 / 大小 / 路径
         self.assertEqual(requirement.file_tree.columnCount(), 5)
         self.assertEqual(
