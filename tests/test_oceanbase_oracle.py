@@ -74,7 +74,8 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             with self.assertRaises(DbError) as ctx:
                 open_connection(item, plain_password="pw")
             self.assertIn("[ODBC_DRIVER_REQUIRED]", str(ctx.exception))
-            self.assertIn("SQL Server", str(ctx.exception))
+            self.assertIn("OceanBase ODBC 2.0 Driver", str(ctx.exception))
+            self.assertNotIn("SQL Server", str(ctx.exception))
 
     def test_regression_c_driver_selection_exact_match(self):
         """C. 驱动选择首选精确匹配 OceanBase ODBC 2.0 Driver"""

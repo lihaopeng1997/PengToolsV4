@@ -342,25 +342,35 @@ class ConnectionDialog(QDialog):
             ) if needs_confirmation else ""
 
             from tools.db_connect import oceanbase_oracle_provider_status
+            import platform, sys
+            arch = platform.machine() or ('x64' if sys.maxsize > 2**32 else 'x86')
             st = oceanbase_oracle_provider_status()
+            pyodbc_avail = bool(st.get("pyodbc_available"))
+            pyodbc_ver = str(st.get("pyodbc_version") or "")
             driver_avail = bool(st.get("driver_available"))
             driver_name = str(st.get("driver") or "")
-            drivers_installed = st.get("installed_drivers") or []
 
-            if driver_avail:
+            if not pyodbc_avail:
                 status_tip = (
-                    f"✅ 系统已检测到 OceanBase ODBC 驱动（{driver_name}）。"
+                    f"⚠️ 当前运行环境缺少 pyodbc 绑定库（Python 架构：{arch}）。\n"
+                    "请先在 Python 环境中安装 pyodbc。"
                     if zh else
-                    f"✅ OceanBase ODBC driver ready ({driver_name})."
+                    f"⚠️ pyodbc binding missing for current Python runtime ({arch})."
+                )
+            elif driver_avail:
+                status_tip = (
+                    f"✅ 已就绪（pyodbc {pyodbc_ver}，驱动：{driver_name}）。"
+                    if zh else
+                    f"✅ Ready (pyodbc {pyodbc_ver}, driver: {driver_name})."
                 )
             else:
-                installed_preview = ("，当前系统仅检测到：" + "、".join(drivers_installed[:4])) if drivers_installed else "，当前系统未检测到任何 ODBC 驱动"
                 status_tip = (
-                    f"⚠️ 未检测到 Windows x64 OceanBase ODBC 驱动（pyodbc 5.3.0 已就绪{installed_preview}）。\n"
-                    "请前往 OceanBase 官网下载并安装「OceanBase Connector/ODBC」（首选驱动名：OceanBase ODBC 2.0 Driver）。"
+                    f"⚠️ 未检测到 Windows {arch} OceanBase ODBC 驱动（pyodbc {pyodbc_ver} 已就绪）。\n"
+                    "需要驱动：OceanBase ODBC 2.0 Driver\n"
+                    "请安装与当前 Python 架构匹配的 Windows OceanBase Connector/ODBC 后重试。"
                     if zh else
-                    f"⚠️ OceanBase ODBC driver not found (pyodbc 5.3.0 ready{installed_preview}).\n"
-                    "Please download and install Windows x64 OceanBase Connector/ODBC (preferred: OceanBase ODBC 2.0 Driver)."
+                    f"⚠️ Windows {arch} OceanBase ODBC driver not found (pyodbc {pyodbc_ver} ready).\n"
+                    "Required: OceanBase ODBC 2.0 Driver."
                 )
 
             self.oracle_hint.setText(

@@ -648,17 +648,19 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
         self.assertIn('要求身份认证', msg_13_no_user)
 
     def test_mongo_probe_detects_unauthorized_database_permission(self):
-        """当配置指定数据库时，若 list_collection_names 报 code 13，probe_connection 必须拦截并抛出 AUTHZ_ERROR。"""
+        """B. ping PASS + listCollections code13 -> AUTHZ_ERROR FAIL"""
         from tools.db_connect import probe_connection
 
         mock_client = MagicMock()
         mock_client.list_database_names.return_value = ['app_db']
         mock_db = MagicMock()
+        mock_db.name = 'app_db'
         mock_db.client = mock_client
         mock_db.command.return_value = {'ok': 1}
         exc_unauth = Exception("not authorized on app_db to execute command: listCollections")
         setattr(exc_unauth, 'code', 13)
         mock_db.list_collection_names.side_effect = exc_unauth
+        mock_client.__getitem__.return_value = mock_db
 
         with patch('tools.db_connect.open_connection', return_value=mock_db):
             item = {'dialect': 'mongodb', 'host': '127.0.0.1', 'port': 27017, 'database': 'app_db', 'username': 'user1'}
@@ -667,35 +669,139 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
             self.assertIn('[AUTHZ_ERROR]', str(ctx.exception))
             self.assertIn('app_db', str(ctx.exception))
 
-    def test_redis_safe_decode_bytes_multi_encoding_no_mojibake(self):
-        """安全解码：UTF-8、GB18030、Java 序列化与纯二进制，绝不产生 \\ufffd 乱码。"""
-        from tools.db_redis_ops import safe_decode_redis_bytes
+    def test_mongo_probe_fails_on_timeout_and_generic_failure(self):
+        """C & D. ping PASS 但 listCollections 超时或通用异常 -> 必须 FAIL，绝不能报连接成功。"""
+        from tools.db_connect import probe_connection
 
-        # 1. UTF-8
-        utf8_text = "中国智造 · 极速体验"
-        text, fmt = safe_decode_redis_bytes(utf8_text.encode('utf-8'))
-        self.assertEqual(fmt, 'utf-8')
-        self.assertEqual(text, utf8_text)
+        mock_client = MagicMock()
+        mock_db = MagicMock()
+        mock_db.name = 'admin'
+        mock_db.client = mock_client
+        mock_db.command.return_value = {'ok': 1}
+        mock_client.__getitem__.return_value = mock_db
 
-        # 2. GB18030
-        gbk_bytes = "测试GB18030中文数据".encode('gb18030')
-        text_gbk, fmt_gbk = safe_decode_redis_bytes(gbk_bytes)
-        self.assertEqual(fmt_gbk, 'gb18030')
-        self.assertEqual(text_gbk, "测试GB18030中文数据")
+        # C. Timeout
+        mock_db.list_collection_names.side_effect = Exception("ServerSelectionTimeoutError: connection timed out")
+        with patch('tools.db_connect.open_connection', return_value=mock_db):
+            item = {'dialect': 'mongodb', 'host': '127.0.0.1', 'port': 27017, 'database': 'admin'}
+            with self.assertRaises(DbError) as ctx:
+                probe_connection(item)
+            self.assertIn('[SERVER_SELECTION_ERROR]', str(ctx.exception))
 
-        # 3. Java 序列化魔数 \xac\xed\x00\x05
-        java_obj = b'\xac\xed\x00\x05sr\x00\x1fcom.pengtools.model.UserSession'
-        text_java, fmt_java = safe_decode_redis_bytes(java_obj)
-        self.assertEqual(fmt_java, 'java_serialized')
-        self.assertIn('Java Serialization Stream', text_java)
-        self.assertIn('com.pengtools.model.UserSession', text_java)
+        # D. Generic OperationFailure
+        mock_db.list_collection_names.side_effect = Exception("OperationFailure: internal server error")
+        with patch('tools.db_connect.open_connection', return_value=mock_db):
+            item = {'dialect': 'mongodb', 'host': '127.0.0.1', 'port': 27017, 'database': 'admin'}
+            with self.assertRaises(DbError) as ctx:
+                probe_connection(item)
+            self.assertIn('[MONGO_OPERATION_ERROR]', str(ctx.exception))
 
-        # 4. 任意二进制字节：绝不使用 errors="replace"，不得出现 \ufffd
-        binary_raw = bytes([0xff, 0xfe, 0x00, 0x88, 0xaa, 0xbb])
-        text_bin, fmt_bin = safe_decode_redis_bytes(binary_raw)
-        self.assertEqual(fmt_bin, 'binary_hex')
-        self.assertNotIn('\ufffd', text_bin)
-        self.assertIn('Binary / Hex', text_bin)
+    def test_mongo_find_docs_unauthorized_classified_without_noise(self):
+        """E. find code13 -> 抛出 AUTHZ_ERROR 且无 clusterTime / lsid 噪声。"""
+        from tools.db_mongo_ops import find_docs
+
+        mock_db = MagicMock()
+        mock_db.name = 'order_db'
+        exc = Exception("not authorized on order_db to execute command: find, $clusterTime: {ts: 123}, lsid: {id: 456}")
+        setattr(exc, 'code', 13)
+        mock_db.__getitem__.return_value.find.side_effect = exc
+
+        item = {'dialect': 'mongodb', 'username': 'app_user', 'auth_source': 'admin'}
+        with self.assertRaises(DbError) as ctx:
+            find_docs(mock_db, 'orders', item=item)
+        err_msg = str(ctx.exception)
+        self.assertIn('[AUTHZ_ERROR]', err_msg)
+        self.assertIn('order_db', err_msg)
+        self.assertIn('orders', err_msg)
+        self.assertNotIn('$clusterTime', err_msg)
+        self.assertNotIn('lsid:', err_msg)
+
+    def test_redis_raw_bytes_preserved_and_format_switching(self):
+        """F, G, H. Redis 原始 bytes 完整保留在 inspect_redis_bytes，支持真实 GB18030、Hex、Base64 roundtrip。"""
+        import base64
+        from tools.db_redis_ops import inspect_redis_bytes
+
+        # F. GB18030 raw bytes
+        gb_raw = "系统运维数据看板".encode('gb18030')
+        res = inspect_redis_bytes(gb_raw)
+        self.assertEqual(res['kind'], 'gb18030')
+        self.assertEqual(res['text'], "系统运维数据看板")
+        # G. Hex: 必须是原始 GB18030 字节的 Hex，绝不是 UTF-8 重新编码的 Hex
+        self.assertEqual(res['raw'], gb_raw)
+        self.assertEqual(res['raw'].hex(' '), gb_raw.hex(' '))
+        self.assertNotEqual(res['raw'].hex(' '), "系统运维数据看板".encode('utf-8').hex(' '))
+        # H. Base64: 往返解密必须完全等于原始字节
+        self.assertEqual(base64.b64decode(res['base64']), gb_raw)
+
+    def test_redis_random_binary_heuristic_not_misidentified_as_text(self):
+        """I. 随机二进制即使落在 GB18030 解码范围，也必须通过 is_probably_text 归为 binary。"""
+        from tools.db_redis_ops import inspect_redis_bytes, is_probably_text
+
+        # 构造包含非打印控制符与高频非字符字节的数据
+        fake_binary = bytes([0x81, 0x30, 0x81, 0x30, 0x01, 0x02, 0x03, 0xff, 0xfe])
+        res = inspect_redis_bytes(fake_binary)
+        self.assertEqual(res['kind'], 'binary')
+        self.assertIn('[Binary Data]', res['text'])
+        self.assertNotIn('\ufffd', res['text'])
+
+    def test_redis_java_serialization_bounded_preview_no_deserialization(self):
+        """J. Java AC ED 00 05 识别为 java_serialized，安全提取类名，杜绝反序列化。"""
+        from tools.db_redis_ops import inspect_redis_bytes
+
+        java_payload = b'\xac\xed\x00\x05sr\x00\x1acom.pengtools.dto.TaskPlan' + bytes(range(64))
+        res = inspect_redis_bytes(java_payload)
+        self.assertEqual(res['kind'], 'java_serialized')
+        self.assertIn('com.pengtools.dto.TaskPlan', res['text'])
+        self.assertIn('Java Serialized Object', res['text'])
+
+    def test_redis_hash_and_list_contain_inspected_cells(self):
+        """K. Hash / List 单元格使用 inspect_redis_bytes，保留 raw 且无 \ufffd 破坏。"""
+        from tools.db_redis_ops import redis_get_value
+
+        mock_conn = MagicMock()
+        mock_conn.type.return_value = 'hash'
+        bin_val = bytes([0x00, 0x01, 0x02, 0x03, 0xff])
+        mock_conn.hgetall.return_value = {b'k1': b'hello_utf8', b'k2': bin_val}
+
+        val = redis_get_value(mock_conn, 'my_hash', kind='hash')
+        self.assertIn('k1', val)
+        self.assertIn('k2', val)
+        self.assertEqual(val['k1']['kind'], 'utf8')
+        self.assertEqual(val['k1']['text'], 'hello_utf8')
+        self.assertEqual(val['k2']['kind'], 'binary')
+        self.assertEqual(val['k2']['raw'], bin_val)
+
+    def test_oceanbase_error_message_is_concise_without_driver_noise(self):
+        """O. ODBC_DRIVER_REQUIRED 错误信息干净精简，严禁列出 SQL Server / Access / Excel 等系统技术噪音。"""
+        from tools.db_connect import _connect_oceanbase_oracle
+
+        item = {'dialect': 'oceanbase', 'mode': 'oracle', 'oceanbase_oracle_provider': 'odbc', 'host': '127.0.0.1', 'port': 2828, 'database': 'SYS', 'username': 'root'}
+        # 模拟系统安装了其他驱动但无 OceanBase
+        with patch('tools.db_connect.oceanbase_oracle_provider_status', return_value={
+            'pyodbc_available': True, 'driver_available': False, 'status_code': 'ODBC_DRIVER_REQUIRED',
+            'installed_drivers': ['SQL Server', 'Microsoft Access Driver (*.mdb, *.accdb)', 'Excel']
+        }):
+            with patch('pyodbc.drivers', return_value=['SQL Server', 'Microsoft Access Driver (*.mdb, *.accdb)', 'Excel']):
+                with self.assertRaises(DbError) as ctx:
+                    _connect_oceanbase_oracle(item)
+                err = str(ctx.exception)
+                self.assertIn('[ODBC_DRIVER_REQUIRED]', err)
+                self.assertIn('OceanBase ODBC 2.0 Driver', err)
+                self.assertNotIn('SQL Server', err)
+                self.assertNotIn('Microsoft Access', err)
+                self.assertNotIn('Excel', err)
+
+    def test_oceanbase_provider_hint_dynamic_version_and_architecture(self):
+        """P. OceanBase provider hint 动态读取 pyodbc 版本与系统架构。"""
+        from tools.db_connect import oceanbase_oracle_provider_status
+
+        st = oceanbase_oracle_provider_status()
+        self.assertIn('pyodbc_available', st)
+        self.assertIn('pyodbc_version', st)
+        self.assertIn('driver_available', st)
+        self.assertIn('status_code', st)
+        if st['pyodbc_available']:
+            self.assertTrue(len(st['pyodbc_version']) > 0)
 
 
 if __name__ == "__main__":

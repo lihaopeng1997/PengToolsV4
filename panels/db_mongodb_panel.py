@@ -48,24 +48,20 @@ class _MongoWorker(QThread):
         try:
             conn = open_connection(self.item)
             if self.kind == 'test':
-                # 测试不仅 ping，还校验目标库集合读取权限，杜绝测试成功但刷新报错
-                target_database = str(self.item.get('database') or '').strip()
-                if target_database and target_database != 'admin':
-                    try:
-                        conn.list_collection_names()
-                    except Exception as perm_exc:
-                        p_code = getattr(perm_exc, 'code', None)
-                        p_low = str(perm_exc).lower()
-                        if p_code == 13 or 'unauthorized' in p_low or 'not authorized' in p_low:
-                            from tools.db_connect import clean_mongo_error_message
-                            cleaned = clean_mongo_error_message(perm_exc)
-                            raise DbError(
-                                f"[AUTHZ_ERROR] 连接认证成功，但对数据库「{target_database}」授权不足（Unauthorized / code 13）："
-                                f"缺少集合列表权限（listCollections）。\n原始错误：{cleaned}"
-                            ) from perm_exc
-                self.completed.emit('test', {'ok': True})
+                target_database = str(self.item.get('database') or 'admin').strip() or 'admin'
+                try:
+                    cols = conn.list_collection_names()
+                    self.completed.emit('test', {'ok': True, 'collections_count': len(cols)})
+                except Exception as perm_exc:
+                    from tools.db_connect import mongo_operation_error
+                    raise mongo_operation_error(
+                        perm_exc,
+                        item=self.item,
+                        operation='listCollections',
+                        database=target_database,
+                    ) from perm_exc
             elif self.kind == 'collections':
-                colls = list_collections(conn)
+                colls = list_collections(conn, item=self.item)
                 self.completed.emit('collections', {'collections': colls})
             elif self.kind == 'query':
                 collection = self.kwargs.get('collection', '')
@@ -74,30 +70,30 @@ class _MongoWorker(QThread):
                 projection = self.kwargs.get('projection')
                 skip = int(self.kwargs.get('skip', 0))
                 limit = int(self.kwargs.get('limit', 50))
-                docs = find_docs(conn, collection, filt, sort, projection, skip, limit)
-                total = count_docs(conn, collection, filt)
+                docs = find_docs(conn, collection, filt, sort, projection, skip, limit, item=self.item)
+                total = count_docs(conn, collection, filt, item=self.item)
                 self.completed.emit('query', {'docs': docs, 'total': total, 'limit': limit,
                                               'collection': collection})
             elif self.kind == 'schema':
                 collection = self.kwargs.get('collection', '')
-                fields = sample_schema(conn, collection)
+                fields = sample_schema(conn, collection, item=self.item)
                 self.completed.emit('schema', {'collection': collection, 'fields': fields})
             elif self.kind == 'insert':
                 collection = self.kwargs.get('collection', '')
                 doc = self.kwargs.get('doc', {})
-                inserted_id = insert_doc(conn, collection, doc)
+                inserted_id = insert_doc(conn, collection, doc, item=self.item)
                 self.completed.emit('insert', {'inserted_id': inserted_id})
             elif self.kind == 'delete':
                 collection = self.kwargs.get('collection', '')
                 filt = self.kwargs.get('filter', {})
-                n = delete_docs(conn, collection, filt)
-                self.completed.emit('delete', {'deleted': n})
+                cnt = delete_docs(conn, collection, filt, item=self.item)
+                self.completed.emit('delete', {'deleted_count': cnt})
             elif self.kind == 'command':
                 sql = self.kwargs.get('sql', '')
                 q = parse_mongo_query(sql)
                 collection = q.get('collection', '')
                 docs = find_docs(conn, collection, q.get('filter', {}), q.get('sort'),
-                                 q.get('projection'), 0, q.get('limit') or 50)
+                                 q.get('projection'), 0, q.get('limit') or 50, item=self.item)
                 self.completed.emit('command', {'docs': docs, 'collection': collection})
             else:
                 raise DbError(f'未知任务：{self.kind}')

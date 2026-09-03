@@ -266,8 +266,8 @@ class RedisWorkbenchPanel(QWidget):
         self.left_split.setStretchFactor(1, 1)
         left_l.addWidget(self.left_split, 1)
         install_splitter_prefs(
-            self.left_split, defaults=[260, 360], page_id='redis-workbench', tab_id='left_split',
-            min_sizes=[120, 150], accessible_name='Redis 左侧前缀与Key列表分隔',
+            self.left_split, defaults=[320, 360], page_id='redis-workbench', tab_id='left_split',
+            min_sizes=[140, 160], accessible_name='Redis 左侧前缀与Key列表分隔',
         )
 
         # ── 右侧区域 ───────────────────────────────────────────────────────
@@ -340,7 +340,7 @@ class RedisWorkbenchPanel(QWidget):
         self.fmt_label = QLabel('编码视图:')
         self.fmt_label.setObjectName('field-hint')
         self.fmt_combo = QComboBox()
-        self.fmt_combo.addItems(['自动安全解码', 'UTF-8', 'GB18030', 'Hex (十六进制)', 'JSON (格式化)'])
+        self.fmt_combo.addItems(['自动安全解码', 'UTF-8', 'GB18030', 'Hex (十六进制)', 'Base64', 'JSON (格式化)'])
         self.fmt_combo.currentIndexChanged.connect(self._on_fmt_changed)
         fmt_bar.addWidget(self.fmt_label)
         fmt_bar.addWidget(self.fmt_combo)
@@ -463,8 +463,8 @@ class RedisWorkbenchPanel(QWidget):
         self.main_split.setStretchFactor(1, 5)
         root.addWidget(self.main_split, 1)
         install_splitter_prefs(
-            self.main_split, defaults=[340, 720], page_id='redis-workbench', tab_id='main_split',
-            min_sizes=[240, 400], accessible_name='Redis 左右主分隔',
+            self.main_split, defaults=[440, 960], page_id='redis-workbench', tab_id='main_split',
+            min_sizes=[360, 520], accessible_name='Redis 左右主分隔',
         )
 
     def set_language(self, language):
@@ -703,7 +703,7 @@ class RedisWorkbenchPanel(QWidget):
         self.key_tree.blockSignals(True)
         self.key_tree.clear()
 
-        def add_nodes(parent, nodes):
+        def add_nodes(parent, nodes, depth=0):
             for node in nodes:
                 item = QTreeWidgetItem(parent)
                 count = node.get('count') or 0
@@ -713,14 +713,21 @@ class RedisWorkbenchPanel(QWidget):
                 folder_ico = qicon('folder-open', size=14)
                 if not folder_ico.isNull():
                     item.setIcon(0, folder_ico)
-                item.setToolTip(0, '基于当前扫描结果' if self.language == 'zh' else 'Based on current scan')
+                path_str = str(node.get('path') or '')
+                breadcrumb_path = path_str.replace(':', ' / ')
+                item.setToolTip(0, f"前缀：{breadcrumb_path}（基于当前扫描结果）" if self.language == 'zh' else f"Prefix: {breadcrumb_path}")
                 item.setData(0, Qt.ItemDataRole.UserRole, {
-                    'kind': 'prefix', 'path': node.get('path') or '',
+                    'kind': 'prefix', 'path': path_str,
                 })
+                # 父节点加粗，强化结构清晰度
+                if depth == 0 or bool(node.get('children')):
+                    f = item.font(0)
+                    f.setBold(True)
+                    item.setFont(0, f)
                 item.setExpanded(True)
-                add_nodes(item, node.get('children') or [])
+                add_nodes(item, node.get('children') or [], depth + 1)
 
-        add_nodes(self.key_tree.invisibleRootItem(), index.get('prefixes') or [])
+        add_nodes(self.key_tree.invisibleRootItem(), index.get('prefixes') or [], 0)
         self.key_tree.blockSignals(False)
         self.key_tree.setUpdatesEnabled(True)
         if not (index.get('prefixes') or []) and not keys:
@@ -738,6 +745,10 @@ class RedisWorkbenchPanel(QWidget):
             item = QListWidgetItem(key)
             if not key_ico.isNull():
                 item.setIcon(key_ico)
+            f = item.font()
+            f.setFamily('Consolas')
+            item.setFont(f)
+            item.setToolTip(key)
             self.key_list.addItem(item)
         self.key_list.setUpdatesEnabled(True)
         extra = ''
@@ -1078,50 +1089,84 @@ class RedisWorkbenchPanel(QWidget):
 
     def _on_fmt_changed(self, idx: int):
         raw_b = getattr(self, '_raw_string_bytes', b'')
-        raw_t = getattr(self, '_raw_string_text', '')
-        if not raw_b and not raw_t:
+        inspected = getattr(self, '_string_inspected', {})
+        default_text = inspected.get('text') if isinstance(inspected, dict) else getattr(self, '_raw_string_text', '')
+        if not raw_b and not default_text:
             return
         if idx == 0:  # 自动安全解码
-            self.string_value.setPlainText(raw_t)
+            self.string_value.setPlainText(default_text or '')
         elif idx == 1:  # UTF-8
             try:
                 self.string_value.setPlainText(raw_b.decode('utf-8'))
             except Exception as e:
-                self.string_value.setPlainText(f'[UTF-8 解码失败: {e}]\n{raw_t}')
+                self.string_value.setPlainText(f'[UTF-8 解码失败: {e}]\n前缀 Hex:\n{raw_b[:128].hex(" ")}')
         elif idx == 2:  # GB18030
             try:
                 self.string_value.setPlainText(raw_b.decode('gb18030'))
             except Exception as e:
-                self.string_value.setPlainText(f'[GB18030 解码失败: {e}]\n{raw_t}')
+                self.string_value.setPlainText(f'[GB18030 解码失败: {e}]\n前缀 Hex:\n{raw_b[:128].hex(" ")}')
         elif idx == 3:  # Hex (十六进制)
-            self.string_value.setPlainText(raw_b.hex(' '))
-        elif idx == 4:  # JSON (格式化)
+            if len(raw_b) > 512 * 1024:
+                preview = raw_b[:512 * 1024].hex(' ')
+                self.string_value.setPlainText(f'[大文件截断：仅展示前 512KB Hex，总大小 {len(raw_b)} 字节]\n{preview}')
+            else:
+                self.string_value.setPlainText(raw_b.hex(' '))
+        elif idx == 4:  # Base64
+            import base64
+            b64 = base64.b64encode(raw_b).decode('ascii')
+            self.string_value.setPlainText(b64)
+        elif idx == 5:  # JSON (格式化)
             try:
-                parsed = json.loads(raw_t)
+                txt = raw_b.decode('utf-8')
+                parsed = json.loads(txt)
                 self.string_value.setPlainText(json.dumps(parsed, ensure_ascii=False, indent=2))
             except Exception as e:
-                self.string_value.setPlainText(f'[JSON 解析失败: {e}]\n{raw_t}')
+                self.string_value.setPlainText(f'[JSON 解析失败: {e}]\n{default_text}')
 
     def _render_value(self, kind: str, value):
         kind = (kind or '').lower()
+
+        def cell_preview(v):
+            if isinstance(v, dict) and 'raw' in v:
+                k = v.get('kind', '')
+                sz = v.get('size', 0)
+                if k in ('utf8', 'gb18030'):
+                    t = v.get('text', '')
+                    return (t[:300] + '...' if len(t) > 300 else t), t
+                elif k == 'java_serialized':
+                    return f"<Java Serialized {sz} B>", v.get('text', '')
+                elif k == 'binary':
+                    return f"<Binary {sz} B>", v.get('hex_preview', '')
+                return v.get('text', ''), ''
+            s = str(v)
+            return s, s
+
         if kind == 'hash':
             self.value_tabs.setCurrentIndex(1)
             self.hash_table.setRowCount(0)
             data = value if isinstance(value, dict) else {}
             for k, v in data.items():
+                disp, tip = cell_preview(v)
                 row = self.hash_table.rowCount()
                 self.hash_table.insertRow(row)
                 self.hash_table.setItem(row, 0, QTableWidgetItem(str(k)))
-                self.hash_table.setItem(row, 1, QTableWidgetItem(str(v)))
+                val_item = QTableWidgetItem(disp)
+                if tip:
+                    val_item.setToolTip(tip)
+                self.hash_table.setItem(row, 1, val_item)
         elif kind == 'list' or kind == 'set':
             self.value_tabs.setCurrentIndex(2)
             self.list_table.setRowCount(0)
             data = value if isinstance(value, (list, tuple, set)) else []
             for i, v in enumerate(data):
+                disp, tip = cell_preview(v)
                 row = self.list_table.rowCount()
                 self.list_table.insertRow(row)
                 self.list_table.setItem(row, 0, QTableWidgetItem(str(i)))
-                self.list_table.setItem(row, 1, QTableWidgetItem(str(v)))
+                val_item = QTableWidgetItem(disp)
+                if tip:
+                    val_item.setToolTip(tip)
+                self.list_table.setItem(row, 1, val_item)
         elif kind == 'zset':
             self.value_tabs.setCurrentIndex(3)
             self.zset_table.setRowCount(0)
@@ -1131,16 +1176,22 @@ class RedisWorkbenchPanel(QWidget):
                     row = self.zset_table.rowCount()
                     self.zset_table.insertRow(row)
                     self.zset_table.setItem(row, 0, QTableWidgetItem(str(entry.get('member', ''))))
-                    self.zset_table.setItem(row, 1, QTableWidgetItem(str(entry.get('score', ''))))
+                    disp, tip = cell_preview(entry.get('inspected_member', entry.get('score', '')))
+                    score_item = QTableWidgetItem(str(entry.get('score', '')))
+                    if tip:
+                        score_item.setToolTip(tip)
+                    self.zset_table.setItem(row, 1, score_item)
         else:
             self.value_tabs.setCurrentIndex(0)
-            if isinstance(value, dict) and 'raw' in value and 'text' in value:
+            if isinstance(value, dict) and 'raw' in value:
                 self._raw_string_bytes = value.get('raw') if isinstance(value.get('raw'), bytes) else str(value.get('raw') or '').encode('utf-8')
+                self._string_inspected = value
                 self._raw_string_text = str(value.get('text') or '')
             elif isinstance(value, bytes):
-                from tools.db_redis_ops import _b
+                from tools.db_redis_ops import inspect_redis_bytes
+                self._string_inspected = inspect_redis_bytes(value)
                 self._raw_string_bytes = value
-                self._raw_string_text = _b(value)
+                self._raw_string_text = self._string_inspected.get('text', '')
             elif isinstance(value, (dict, list)):
                 try:
                     text = json.dumps(value, ensure_ascii=False, indent=2)
@@ -1148,10 +1199,12 @@ class RedisWorkbenchPanel(QWidget):
                     text = str(value)
                 self._raw_string_text = text
                 self._raw_string_bytes = text.encode('utf-8', errors='ignore')
+                self._string_inspected = {'raw': self._raw_string_bytes, 'text': text}
             else:
                 text = str(value or '')
                 self._raw_string_text = text
                 self._raw_string_bytes = text.encode('utf-8', errors='ignore')
+                self._string_inspected = {'raw': self._raw_string_bytes, 'text': text}
 
             if hasattr(self, 'fmt_combo'):
                 self.fmt_combo.blockSignals(True)

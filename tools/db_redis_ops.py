@@ -72,54 +72,159 @@ def _is_transport_error(exc: BaseException) -> bool:
     return False
 
 
-def safe_decode_redis_bytes(data: bytes) -> tuple[str, str]:
-    """安全多编码探测与展示，杜绝 errors='replace' 产生 \\ufffd 乱码。
+HEX_PREVIEW_BYTES = 256
 
-    返回 (decoded_text, format_name):
-    - format_name: 'utf-8' | 'gb18030' | 'java_serialized' | 'binary_hex'
-    """
-    if not isinstance(data, bytes):
-        return str(data), 'text'
-    if not data:
-        return '', 'empty'
 
-    # 1. Java 序列化魔数识别：0xAC 0xED 0x00 0x05
-    if data.startswith(b'\xac\xed\x00\x05'):
+def is_probably_text(text: str, original_bytes: bytes, encoding: str) -> bool:
+    """检验解码后的文本可读性，防止 random binary 误判为合法文本。"""
+    if not text:
+        return True
+    # 1. 严格往返校验
+    try:
+        if text.encode(encoding) != original_bytes:
+            return False
+    except Exception:
+        return False
+    # 2. 禁止含有 NUL 字符
+    if '\x00' in text:
+        return False
+    # 3. 统计控制字符与有效字符比例
+    import unicodedata
+    control_count = 0
+    printable_count = 0
+    for ch in text:
+        if ch in ('\t', '\n', '\r'):
+            printable_count += 1
+            continue
+        cat = unicodedata.category(ch)
+        if cat.startswith('C'):  # Cc, Cf, Cs, Co, Cn
+            control_count += 1
+        else:
+            printable_count += 1
+    total = control_count + printable_count
+    if total == 0:
+        return False
+    if (control_count / total) > 0.015:
+        return False
+    # 对于 GB18030: 检查未分配/私用字符比例（随机字节常落入此类稀疏区域）
+    if encoding.lower() in ('gb18030', 'gbk', 'gb2312'):
+        private_or_unassigned = sum(1 for ch in text if unicodedata.category(ch) in ('Co', 'Cn'))
+        if (private_or_unassigned / total) > 0.03:
+            return False
+    return True
+
+
+def inspect_redis_bytes(raw: bytes | None, preview_limit: int = HEX_PREVIEW_BYTES) -> dict:
+    """检查 Redis 原始字节并返回保留原始 bytes 的结构体，杜绝提前字符串化丢失真实数据。"""
+    import base64
+    if raw is None:
+        return {
+            "raw": b"",
+            "kind": "empty",
+            "text": "",
+            "size": 0,
+            "hex_preview": "",
+            "base64": "",
+        }
+    if not isinstance(raw, bytes):
+        if isinstance(raw, str):
+            raw_bytes = raw.encode('utf-8')
+        else:
+            raw_bytes = str(raw).encode('utf-8')
+    else:
+        raw_bytes = raw
+
+    size = len(raw_bytes)
+    b64_str = base64.b64encode(raw_bytes).decode('ascii')
+    preview_chunk = raw_bytes[:preview_limit]
+    hex_preview = preview_chunk.hex(' ') + (' ...' if size > preview_limit else '')
+
+    # 1. Java 序列化魔数识别：0xAC 0xED 0x00 0x05（严禁反序列化，只读安全元数据）
+    if raw_bytes.startswith(b'\xac\xed\x00\x05'):
         import re
-        readable = re.findall(b'[\x20-\x7e]{4,}', data)
+        readable = re.findall(b'[\x20-\x7e]{4,}', raw_bytes[:512])
         strings_found = [s.decode('ascii', errors='ignore') for s in readable]
-        hex_preview = data[:64].hex(' ') + (' ...' if len(data) > 64 else '')
         desc = [
-            f'[Java Serialization Stream] (Length: {len(data)} bytes)',
-            f'Hex: {hex_preview}',
+            f"[Java Serialized Object] 大小: {size} 字节",
+            f"Hex (前 {min(size, preview_limit)} 字节):\n{hex_preview}",
         ]
         if strings_found:
-            desc.append('Embedded Strings: ' + ', '.join(strings_found[:10]))
-        return '\n'.join(desc), 'java_serialized'
+            desc.append("提取类名/常量: " + ", ".join(strings_found[:8]))
+        return {
+            "raw": raw_bytes,
+            "kind": "java_serialized",
+            "text": '\n'.join(desc),
+            "size": size,
+            "hex_preview": hex_preview,
+            "base64": b64_str,
+        }
 
-    # 2. Strict UTF-8
+    # 2. Strict UTF-8 with is_probably_text
     try:
-        return data.decode('utf-8'), 'utf-8'
+        u8_text = raw_bytes.decode('utf-8')
+        if is_probably_text(u8_text, raw_bytes, 'utf-8'):
+            return {
+                "raw": raw_bytes,
+                "kind": "utf8",
+                "text": u8_text,
+                "size": size,
+                "hex_preview": hex_preview,
+                "base64": b64_str,
+            }
     except UnicodeDecodeError:
         pass
 
-    # 3. Strict GB18030 / GBK 中文编码
+    # 3. Strict GB18030 with is_probably_text
     try:
-        return data.decode('gb18030'), 'gb18030'
+        gb_text = raw_bytes.decode('gb18030')
+        if is_probably_text(gb_text, raw_bytes, 'gb18030'):
+            return {
+                "raw": raw_bytes,
+                "kind": "gb18030",
+                "text": gb_text,
+                "size": size,
+                "hex_preview": hex_preview,
+                "base64": b64_str,
+            }
     except UnicodeDecodeError:
         pass
 
-    # 4. Binary Hex 回退（绝不使用 errors='replace' 生成 \ufffd）
-    hex_repr = data.hex(' ')
-    return f'[Binary / Hex ({len(data)} bytes)]:\n{hex_repr}', 'binary_hex'
+    # 4. Binary Fallback (bounded preview)
+    bin_desc = [
+        f"[Binary Data] 大小: {size} 字节",
+        f"Hex (前 {min(size, preview_limit)} 字节):\n{hex_preview}",
+    ]
+    if size > preview_limit:
+        bin_desc.append(f"\n（提示：当前仅展示前 {preview_limit} 字节，切换「Hex」或「Base64」可查看完整数据）")
+
+    return {
+        "raw": raw_bytes,
+        "kind": "binary",
+        "text": '\n'.join(bin_desc),
+        "size": size,
+        "hex_preview": hex_preview,
+        "base64": b64_str,
+    }
+
+
+def safe_decode_redis_bytes(data: bytes) -> tuple[str, str]:
+    """安全多编码探测与展示，杜绝 errors='replace' 产生 \\ufffd 乱码。"""
+    res = inspect_redis_bytes(data)
+    return res['text'], res['kind']
 
 
 def _b(value: Any) -> str:
-    """字节安全解码：自动适配 UTF-8 / GB18030 / Java 序列化 / Hex，不抛异常，不产生乱码。"""
+    """针对 Redis key、命令与标识符的转换，与 value 层多格式解码解耦。"""
     if value is None:
         return ''
     if isinstance(value, bytes):
-        return safe_decode_redis_bytes(value)[0]
+        try:
+            return value.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                return value.decode('gb18030')
+            except UnicodeDecodeError:
+                return value.decode('utf-8', errors='replace')
     return str(value)
 
 
@@ -154,25 +259,29 @@ def redis_ttl(conn, key: str) -> int:
 
 
 def redis_get_value(conn, key: str, kind: str | None = None) -> Any:
-    """按类型读取 key 的值；kind 未知时自动探测。"""
+    """按类型读取 key 的值；kind 未知时自动探测。严格保留原始 bytes。"""
     try:
         t = (kind or redis_type(conn, key)).lower()
     except DbError:
         t = ''
     try:
         if t == 'string':
-            return _b(conn.get(key))
+            raw_val = conn.get(key)
+            return inspect_redis_bytes(raw_val)
         if t == 'hash':
             raw = conn.hgetall(key) or {}
-            return {_b(k): _stringify(v) for k, v in raw.items()}
+            return {_b(k): inspect_redis_bytes(v) for k, v in raw.items()}
         if t == 'list':
-            return [_stringify(v) for v in (conn.lrange(key, 0, -1) or [])]
+            raw_items = conn.lrange(key, 0, -1) or []
+            return [inspect_redis_bytes(v) for v in raw_items]
         if t == 'set':
-            return [_stringify(v) for v in (conn.smembers(key) or [])]
+            raw_items = conn.smembers(key) or []
+            return [inspect_redis_bytes(v) for v in raw_items]
         if t == 'zset':
             raw = conn.zrange(key, 0, -1, withscores=True) or []
-            return [{'member': _b(m), 'score': _stringify(s)} for m, s in raw]
-        return _b(conn.get(key))
+            return [{'member': _b(m), 'score': str(s), 'inspected_member': inspect_redis_bytes(m)} for m, s in raw]
+        raw_val = conn.get(key)
+        return inspect_redis_bytes(raw_val)
     except Exception as exc:
         raise DbError(f'读取值失败：{exc}') from exc
 

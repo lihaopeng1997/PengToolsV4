@@ -33,20 +33,34 @@ class RedisPanelLayoutGeometryTest(unittest.TestCase):
         return RedisWorkbenchPanel('zh')
 
     def test_workbench_geometry_at_typical_size(self):
-        """1600x900 下 toolbar/主分隔/Key 树/详情页签/命令输出全部真实可见。"""
+        """1600x900 下 toolbar/主分隔/Key 树/详情页签/命令输出全部真实可见且符合层次架构。"""
         panel = self._make_panel()
         panel.resize(1600, 900)
         panel.show()
         try:
             self.app.processEvents()
             self.assertGreater(panel.toolbar.height(), 0, '连接 toolbar 必须在顶部且可见')
-            self.assertGreater(panel._bottom_split.height(), 300, '主业务分隔高度塌陷')
-            body = panel._bottom_split.widget(0)
-            self.assertIsNotNone(body, '_bottom_split 主区（body）缺失')
-            self.assertGreater(body.height(), 200, 'body 主区高度塌陷')
-            self.assertGreater(panel.key_tree.width(), 0, 'Key 树宽度为 0')
+
+            # 1. 层次结构断言：main_split 包含左侧全高容器与右侧上下区域
+            left_container = panel.main_split.widget(0)
+            self.assertEqual(panel.main_split.indexOf(left_container), 0, 'main_split 索引 0 必须是左侧浏览器')
+            self.assertEqual(panel.main_split.indexOf(panel._bottom_split), 1, 'main_split 索引 1 必须是右侧区域')
+
+            # 2. 控制台归位断言：Console 仅归属右侧下半部分，绝不横跨左侧
+            self.assertEqual(panel._bottom_split.indexOf(panel.side_tabs), 0, '右侧上半部分必须是详情 side_tabs')
+            self.assertEqual(panel._bottom_split.indexOf(panel.bottom_frame), 1, '右侧下半部分必须是控制台 bottom_frame')
+
+            # 3. 尺寸断言：左侧容器宽度在 1600x900 下必须达到至少 360px
+            self.assertGreaterEqual(left_container.width(), 360, f'左侧浏览器宽度偏窄: {left_container.width()} < 360')
+
+            # 4. 左侧内部高度断言：Key 树与 Key 列表均有充足高度
+            self.assertGreaterEqual(panel.key_tree.height(), 100, f'Key 树高度塌陷: {panel.key_tree.height()}')
+            self.assertGreaterEqual(panel.key_list.height(), 100, f'Key 列表高度塌陷: {panel.key_list.height()}')
+
+            # 5. 右侧详情与控制台几何断言
             self.assertGreater(panel.side_tabs.width(), 0, 'Key 详情/AI 助手页签宽度为 0')
             self.assertGreater(panel.cmd_output.height(), 0, '命令输出区高度塌陷')
+            self.assertLessEqual(panel.cmd_output.width(), panel._bottom_split.width(), '控制台宽度不得越界覆盖左侧')
         finally:
             panel.close()
 

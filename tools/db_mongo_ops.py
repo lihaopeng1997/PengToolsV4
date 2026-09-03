@@ -26,20 +26,13 @@ def _stringify(value: Any) -> str:
     return str(value)
 
 
-def list_collections(conn) -> list[str]:
+def list_collections(conn, item: dict | None = None) -> list[str]:
+    db_name = getattr(conn, 'name', '') or ''
     try:
         return sorted(str(name) for name in conn.list_collection_names())
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        code = getattr(exc, 'code', None)
-        low = str(exc).lower()
-        cleaned = clean_mongo_error_message(exc)
-        if code == 13 or 'unauthorized' in low or 'not authorized' in low:
-            raise DbError(
-                f'[AUTHZ_ERROR] 读取集合列表失败（Unauthorized / code 13）：当前账号缺少 listCollections 权限。\n'
-                f'原始错误：{cleaned}'
-            ) from exc
-        raise DbError(f'读取集合失败：{cleaned}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='listCollections', database=db_name) from exc
 
 
 def list_databases(client) -> list[str]:
@@ -52,8 +45,9 @@ def list_databases(client) -> list[str]:
 
 
 def find_docs(conn, collection: str, filt: dict | None = None, sort: list | None = None,
-              projection: dict | None = None, skip: int = 0, limit: int = 50) -> list[dict]:
+              projection: dict | None = None, skip: int = 0, limit: int = 50, item: dict | None = None) -> list[dict]:
     """查询文档，返回文档列表（字段值保持原类型，由调用方决定渲染）。"""
+    db_name = getattr(conn, 'name', '') or ''
     try:
         cursor = conn[collection].find(filt or {})
         if projection:
@@ -63,50 +57,66 @@ def find_docs(conn, collection: str, filt: dict | None = None, sort: list | None
         docs = list(cursor.skip(int(skip)).limit(int(limit) + 1))
         return docs
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        raise DbError(f'查询失败：{clean_mongo_error_message(exc)}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='find', database=db_name, collection=collection) from exc
 
 
-def count_docs(conn, collection: str, filt: dict | None = None) -> int:
+def count_docs(conn, collection: str, filt: dict | None = None, item: dict | None = None) -> int:
+    db_name = getattr(conn, 'name', '') or ''
     try:
         return int(conn[collection].count_documents(filt or {}))
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        raise DbError(f'计数失败：{clean_mongo_error_message(exc)}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='count', database=db_name, collection=collection) from exc
 
 
-def aggregate_docs(conn, collection: str, pipeline: list) -> list[dict]:
+def aggregate_docs(conn, collection: str, pipeline: list, item: dict | None = None) -> list[dict]:
+    db_name = getattr(conn, 'name', '') or ''
     try:
         return list(conn[collection].aggregate(pipeline or []))
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        raise DbError(f'聚合失败：{clean_mongo_error_message(exc)}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='aggregate', database=db_name, collection=collection) from exc
 
 
-def insert_doc(conn, collection: str, doc: dict) -> str:
+def insert_doc(conn, collection: str, doc: dict, item: dict | None = None) -> str:
     if not isinstance(doc, dict):
         raise DbError('插入内容必须是 JSON 对象')
+    db_name = getattr(conn, 'name', '') or ''
     try:
         result = conn[collection].insert_one(doc)
         return _stringify(getattr(result, 'inserted_id', ''))
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        raise DbError(f'插入失败：{clean_mongo_error_message(exc)}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='insert', database=db_name, collection=collection) from exc
 
 
-def delete_docs(conn, collection: str, filt: dict) -> int:
+def delete_docs(conn, collection: str, filt: dict, item: dict | None = None) -> int:
     if not isinstance(filt, dict):
         raise DbError('删除条件必须是 JSON 对象')
+    db_name = getattr(conn, 'name', '') or ''
     try:
         result = conn[collection].delete_many(filt)
         return int(getattr(result, 'deleted_count', 0) or 0)
     except Exception as exc:
-        from tools.db_connect import clean_mongo_error_message
-        raise DbError(f'删除失败：{clean_mongo_error_message(exc)}') from exc
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='delete', database=db_name, collection=collection) from exc
 
 
-def sample_schema(conn, collection: str, limit: int = 20) -> list[str]:
+def sample_schema(conn, collection: str, limit: int = 20, item: dict | None = None) -> list[str]:
     """从抽样文档提取字段名列表（保留出现顺序，去重）。"""
+    db_name = getattr(conn, 'name', '') or ''
+    try:
+        docs = find_docs(conn, collection, limit=limit, item=item)
+        fields = []
+        for doc in docs:
+            for k in doc.keys():
+                if k not in fields:
+                    fields.append(k)
+        return fields
+    except Exception as exc:
+        from tools.db_connect import mongo_operation_error
+        raise mongo_operation_error(exc, item=item, operation='sampleSchema', database=db_name, collection=collection) from exc
     try:
         docs = list(conn[collection].find().limit(int(limit)))
     except Exception:
