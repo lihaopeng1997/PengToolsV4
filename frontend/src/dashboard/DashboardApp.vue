@@ -190,8 +190,8 @@ const releasePercent = computed(() => {
         </div>
         <div v-if="summary.monthly_release_tasks && summary.monthly_release_tasks.length" class="req-list" style="margin-top:12px">
           <div
-            v-for="task in summary.monthly_release_tasks"
-            :key="task.id || task.code || task.title"
+            v-for="(task, idx) in summary.monthly_release_tasks"
+            :key="task.id || task.code || task.title || idx"
             class="ck"
             @click="onNavClick(task.nav ?? 10)"
           >
