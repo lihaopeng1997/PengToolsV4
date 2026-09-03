@@ -584,7 +584,10 @@ $list
         }
     }
 
-    $ZipName = if ($env:PENGTOOLS_RELEASE_ZIP_NAME) { $env:PENGTOOLS_RELEASE_ZIP_NAME } else { 'PengToolsHub_Offline_Setup.zip' }
+    $ZipName = 'PengToolsHub_Offline_Setup.zip'
+    if ($env:PENGTOOLS_RELEASE_ZIP_NAME) {
+        $ZipName = $env:PENGTOOLS_RELEASE_ZIP_NAME
+    }
     $ZipPath = Join-Path $ProjectDir $ZipName
     if (Test-Path -LiteralPath $ZipPath) {
         cmd /c "del /f /q `"$ZipPath`"" 2>$null
