@@ -106,7 +106,7 @@ class ConnectionDialogTests(unittest.TestCase):
         try:
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+            self.assertEqual(dialog.database_label.text(), "Database / 服务")
 
             item, _ = dialog.payload()
             self.assertEqual(item["mode"], "oracle")
@@ -124,7 +124,7 @@ class ConnectionDialogTests(unittest.TestCase):
             # 初始为 Oracle 模式
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+            self.assertEqual(dialog.database_label.text(), "Database / 服务")
 
             # 切换到 MySQL 模式
             mysql_idx = dialog.mode.findData("mysql")
@@ -138,7 +138,7 @@ class ConnectionDialogTests(unittest.TestCase):
             dialog.mode.setCurrentIndex(oracle_idx)
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "SID/服务名")
+            self.assertEqual(dialog.database_label.text(), "Database / 服务")
         finally:
             dialog.close()
 

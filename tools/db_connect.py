@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -376,46 +377,302 @@ def resolve_db_provider(item: dict | None) -> str:
     return dialect
 
 
+def escape_odbc_value(val: Any) -> str:
+    """对 ODBC 连接串的属性值进行标准安全转义。
+    若包含分号、花括号、等号或空格等保留字符，使用 {} 包裹并将内部的 } 转义为 }}。
+    """
+    s = str(val or '')
+    if any(c in s for c in (';', '{', '}', '=', ' ')) or not s:
+        return '{' + s.replace('}', '}}') + '}'
+    return s
+
+
+def translate_numeric_binds(sql: str, params: Any) -> tuple[str, Any]:
+    """将 Oracle 风格的数字绑定参数 (:1, :2...) 转换为 pyodbc 支持的 qmark 风格 (?)。
+    严格保证：
+    - 忽略字符串字面量内部的冒号（如 ':1 not a bind' 或时间格式 '12:00:00'）；
+    - 重复的占位符（如 x=:1 OR y=:1）正确复制对应的参数值；
+    - 乱序占位符按照在 SQL 中出现的顺序构建新的参数元组；
+    - 若 SQL 已是 qmark 格式且不包含 :1 风格数字绑定，直接透传。
+    """
+    if not params:
+        return sql, params
+    if '?' in sql and not re.search(r':[1-9]\d*\b', sql):
+        return sql, params
+
+    pattern = re.compile(r"('(?:''|[^'])*'|\"[^\"]*\")|:([1-9]\d*)\b")
+    new_params = []
+
+    def repl(m: re.Match) -> str:
+        if m.group(1):
+            return m.group(1)
+        bind_idx = int(m.group(2))
+        if isinstance(params, (list, tuple)):
+            if 1 <= bind_idx <= len(params):
+                val = params[bind_idx - 1]
+            else:
+                raise IndexError(f'Bind parameter :{bind_idx} out of range (params len: {len(params)})')
+        elif isinstance(params, dict):
+            if bind_idx in params:
+                val = params[bind_idx]
+            elif str(bind_idx) in params:
+                val = params[str(bind_idx)]
+            else:
+                raise KeyError(f'Bind parameter :{bind_idx} not found in params dict')
+        else:
+            val = params
+        new_params.append(val)
+        return '?'
+
+    new_sql = pattern.sub(repl, sql)
+    if not new_params:
+        return sql, params
+    return new_sql, tuple(new_params)
+
+
+class OceanBaseOdbcCursor:
+    """pyodbc Cursor 的 DB-API 适配层：将 :1, :2 等数字绑定参数转换为 qmark 风格。"""
+
+    def __init__(self, raw_cursor):
+        self._cursor = raw_cursor
+
+    def execute(self, sql: str, params: Any = None):
+        if params is not None:
+            translated_sql, translated_params = translate_numeric_binds(sql, params)
+            return self._cursor.execute(translated_sql, translated_params)
+        return self._cursor.execute(sql)
+
+    def executemany(self, sql: str, seq_of_params):
+        if seq_of_params:
+            first = seq_of_params[0]
+            translated_sql, _ = translate_numeric_binds(sql, first)
+            new_seq = []
+            for p in seq_of_params:
+                _, tp = translate_numeric_binds(sql, p)
+                new_seq.append(tp)
+            return self._cursor.executemany(translated_sql, new_seq)
+        return self._cursor.executemany(sql, seq_of_params)
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def fetchmany(self, size: int | None = None):
+        if size is not None:
+            return self._cursor.fetchmany(size)
+        return self._cursor.fetchmany()
+
+    def close(self):
+        return self._cursor.close()
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __getattr__(self, name: str):
+        return getattr(self._cursor, name)
+
+
+class OceanBaseOdbcConnection:
+    """pyodbc Connection 的包装层，生产统一提供适配 Cursor。"""
+
+    def __init__(self, raw_conn, driver_name: str = 'OceanBase ODBC 2.0 Driver'):
+        self._conn = raw_conn
+        self.driver_name = driver_name
+        self._driver_name = driver_name
+
+    def cursor(self):
+        return OceanBaseOdbcCursor(self._conn.cursor())
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
+def oceanbase_odbc_driver_status(available_drivers: list[str] | None = None) -> tuple[str, list[str]]:
+    """检测当前 Python 环境可见的 OceanBase ODBC 驱动。
+    规则：
+    1. 首选精确匹配 'OceanBase ODBC 2.0 Driver'；
+    2. 兼容包含 'oceanbase' 与 'odbc' 的名称（忽略大小写）；
+    3. 若匹配到多个候选且无精确匹配，明确报错歧义，不随机挑选；
+    4. 若未匹配到候选，报错提示安装驱动。
+    返回 (selected_driver, all_drivers)。
+    """
+    if available_drivers is None:
+        try:
+            import pyodbc
+            drivers = list(pyodbc.drivers() or [])
+        except ImportError as exc:
+            raise DbError('[PYODBC_REQUIRED] 当前 Python 环境缺少 pyodbc，请在运行环境中安装 pyodbc==5.3.0。') from exc
+        except Exception:
+            drivers = []
+    else:
+        drivers = list(available_drivers)
+
+    if 'OceanBase ODBC 2.0 Driver' in drivers:
+        return 'OceanBase ODBC 2.0 Driver', drivers
+
+    candidates = [
+        d for d in drivers
+        if 'oceanbase' in d.lower() and 'odbc' in d.lower()
+    ]
+    if len(candidates) == 1:
+        return candidates[0], drivers
+    if len(candidates) > 1:
+        raise DbError(
+            f'[AMBIGUOUS_ODBC_DRIVER] 发现多个 OceanBase ODBC 驱动候选：{candidates}，无法自动确定，请在系统 ODBC 管理器中明确配置。'
+        )
+
+    raise DbError(
+        f'[ODBC_DRIVER_REQUIRED] 未找到 OceanBase ODBC 驱动。系统已安装驱动：{drivers or "无"}。\n'
+        '请安装与当前 Python 架构一致的 Windows x64 OceanBase Connector/ODBC（首选驱动名：OceanBase ODBC 2.0 Driver）。'
+    )
+
+
+def oceanbase_oracle_provider_status() -> dict:
+    """提供纯 helper，供测试与设置页诊断复用，不包含任何凭据。"""
+    try:
+        import pyodbc
+        pyodbc_available = True
+        pyodbc_version = str(getattr(pyodbc, 'version', ''))
+        try:
+            drivers = list(pyodbc.drivers() or [])
+        except Exception:
+            drivers = []
+    except ImportError:
+        pyodbc_available = False
+        pyodbc_version = ''
+        drivers = []
+
+    driver_name = ''
+    driver_available = False
+    if pyodbc_available:
+        try:
+            selected, _ = oceanbase_odbc_driver_status(drivers)
+            driver_name = selected
+            driver_available = True
+        except DbError:
+            driver_available = False
+
+    return {
+        'provider': 'odbc',
+        'pyodbc_available': pyodbc_available,
+        'pyodbc_version': pyodbc_version,
+        'driver_available': driver_available,
+        'driver': driver_name,
+        'ready': bool(pyodbc_available and driver_available),
+    }
+
+
 def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None) -> str:
     text = redact_error(str(exc))
     low = text.lower()
     host = (item or {}).get('host') or ''
     port = (item or {}).get('port') or ''
     db = (item or {}).get('database') or ''
-    ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle"
+    ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle (ODBC)"
 
-    if 'ora-12569' in low or 'packet checksum failure' in low or 'checksum' in low:
+    sqlstate = ''
+    if hasattr(exc, 'args') and exc.args and isinstance(exc.args[0], str):
+        sqlstate = exc.args[0].strip().upper()
+    if not sqlstate:
+        m = re.search(r'\[([0-9A-Z]{5})\]', text)
+        if m:
+            sqlstate = m.group(1).upper()
+
+    if sqlstate in ('IM002', 'IM003') or 'im002' in low or 'im003' in low or 'data source name not found' in low:
         return (
-            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569: TNS:packet checksum failure）。'
+            f'[ODBC_DRIVER_REQUIRED] OceanBase (Oracle 模式) 驱动未安装或配置错误（SQLSTATE: {sqlstate or "IM002"}）。'
             f'{ctx}\n'
-            '原因：客户端与目标 OceanBase/OBProxy 之间的底层网络或 TNS 报文校验不匹配。\n'
-            '排查建议：\n'
-            '1. 检查网络链路中是否存在对 TCP 报文做修改或重写的中间代理；\n'
-            '2. 核对用户名租户格式（如 user@tenant#cluster）及目标服务名；\n'
-            '3. 当前 Windows 运行环境尚未提供官方验证的 OceanBase OBCI 专用驱动。'
+            '原因：系统 ODBC 管理器中未找到指定的 OceanBase ODBC 驱动。\n'
+            '排查建议：请安装与当前 Python 架构一致的 Windows x64 OceanBase Connector/ODBC（首选驱动名：OceanBase ODBC 2.0 Driver）。'
         )
-    return f'OceanBase (Oracle 模式) 连接失败：{text}{ctx}'
+    if sqlstate == '28000' or '28000' in low or 'invalid authorization' in low or 'login failed' in low:
+        return (
+            f'[AUTH_ERROR] OceanBase (Oracle 模式) 认证失败（用户名或密码错误，SQLSTATE: 28000）。'
+            f'{ctx}\n'
+            '排查建议：请核对用户名格式（user 或 user@tenant#cluster）与连接密码。'
+        )
+    if sqlstate in ('08001', '08004', '08S01') or '08001' in low or '08004' in low or '08s01' in low or 'could not connect' in low or 'connection refused' in low:
+        return (
+            f'[NETWORK / CONNECTION_ERROR] OceanBase (Oracle 模式) 无法建立网络连接（SQLSTATE: {sqlstate or "08001"}）。'
+            f'{ctx}\n'
+            '排查建议：请检查目标主机地址与端口是否可达，以及目标 OceanBase/OBProxy 监听服务是否正常。'
+        )
+    if sqlstate in ('HYT00', 'HYT01') or 'hyt00' in low or 'hyt01' in low or 'timeout' in low:
+        return (
+            f'[TIMEOUT] OceanBase (Oracle 模式) 连接或查询超时（SQLSTATE: {sqlstate or "HYT00"}）。'
+            f'{ctx}\n'
+            '排查建议：网络链路延迟过高或目标服务端响应超时，请检查网络质量及服务负载。'
+        )
+    if 'ora-12569' in low or 'checksum' in low:
+        return (
+            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569）。'
+            f'{ctx}\n'
+            '排查建议：客户端与目标 OceanBase/OBProxy 之间的底层网络或报文校验不匹配，请检查网络中间代理或路由环境。'
+        )
+
+    return f'[ODBC_ERROR] OceanBase (Oracle 模式) 操作失败：{text}{ctx}'
 
 
 def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
+    try:
+        import pyodbc
+    except ImportError as exc:
+        raise DbError('[PYODBC_REQUIRED] 当前 Python 环境缺少 pyodbc，请在运行环境中安装 pyodbc==5.3.0。') from exc
+
     host = str(item.get('host') or '').strip()
+    if not host:
+        raise DbError('主机地址不能为空')
     try:
         port = int(item.get('port') or DEFAULT_PORTS.get('oceanbase', 2883))
     except (TypeError, ValueError):
         port = 2883
     database = str(item.get('database') or '').strip()
+    if not database:
+        raise DbError('Database/服务名不能为空')
+    username = str(item.get('username') or '').strip()
+    if not username:
+        raise DbError('用户名不能为空')
+    password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
 
-    # 外部审核规则：当前 Windows 打包环境未包含经实机验证的 OceanBase 官方 Oracle 驱动（OBCI / C 驱动组件），
-    # 现有的 Oracle Instant Client 加载器仅适配 Oracle 官方 Instant Client，不支持作为 OBCI 替代。
-    # 状态明确标识为 BLOCKED_DEPENDENCY，坚决不误导用户，拒绝伪造支持。
-    raise DbError(
-        f'[BLOCKED_DEPENDENCY] 当前运行环境尚未集成经实机验证的 OceanBase Oracle 专用驱动。\n'
-        f'连接目标：{host}:{port}/{database or "ORCL"}\n'
-        '现状说明：\n'
-        '1. 内置 Oracle 客户端加载器仅针对 Oracle 官方 Instant Client 校验加载，不适用于 OceanBase OBCI 库；\n'
-        '2. 在缺乏验证驱动的前提下，无法保证 TNS 报文握手完整性（可能触发 ORA-12569 等传输层异常）；\n'
-        '3. OceanBase (Oracle 模式) 驱动正在规划专项适配，当前版本处于依赖阻断（BLOCKED_DEPENDENCY）状态。'
+    driver_name, _ = oceanbase_odbc_driver_status()
+
+    # 根据官方 OceanBase Connector/ODBC Windows DSN-less 规范构建连接串：
+    # Option=3 遵循官方 OceanBase ODBC Windows 示例（设置 FOUND_ROWS 与客户端传输兼容项）
+    conn_str = (
+        f"Driver={{{driver_name}}};"
+        f"Server={escape_odbc_value(host)};"
+        f"Port={port};"
+        f"Database={escape_odbc_value(database)};"
+        f"User={escape_odbc_value(username)};"
+        f"Password={escape_odbc_value(password)};"
+        "Option=3"
     )
+
+    try:
+        raw_conn = pyodbc.connect(conn_str, timeout=8, autocommit=False)
+        return OceanBaseOdbcConnection(raw_conn, driver_name=driver_name)
+    except Exception as exc:
+        msg = _oceanbase_oracle_error_message(exc, item)
+        raise DbError(msg) from exc
 
 
 def _connect_oracle(item: dict, plain_password: str | None = None):
@@ -672,20 +929,22 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
                 row = cursor.fetchone()
                 current_schema = row[0] if row else ''
                 current_user = row[1] if row and len(row) > 1 else ''
-                tbl_cnt = 0
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM USER_TABLES")
-                    cnt_row = cursor.fetchone()
-                    tbl_cnt = cnt_row[0] if cnt_row else 0
-                except Exception:
-                    pass
+                cursor.execute("SELECT COUNT(*) FROM USER_TABLES")
+                cnt_row = cursor.fetchone()
+                tbl_cnt = cnt_row[0] if cnt_row else 0
+            except Exception as exc:
+                msg = _oceanbase_oracle_error_message(exc, item)
+                raise DbError(msg) from exc
             finally:
                 try:
                     cursor.close()
                 except Exception:
                     pass
+            driver_name = getattr(conn, 'driver_name', '') or getattr(conn, '_driver_name', '') or 'OceanBase ODBC 2.0 Driver'
             summary = (
                 'OceanBase (Oracle 模式) 连接与业务验证成功\n'
+                'Provider: OceanBase ODBC\n'
+                f'Driver: {driver_name}\n'
                 f'目标服务：{item.get("database") or "默认服务"}\n'
                 f'当前 Schema/用户：{current_schema or current_user or item.get("username")}\n'
                 f'用户表数量：{tbl_cnt}'

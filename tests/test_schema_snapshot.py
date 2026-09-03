@@ -377,9 +377,10 @@ class AiSqlDraftTests(unittest.TestCase):
             open_connection(item_mysql)
             mock_pymysql.assert_called_once()
 
-        # 2. explicit oracle -> oracledb
-        with patch('oracledb.connect') as mock_oracle, \
-             patch('tools.db_connect.ensure_oracle_client'):
+        # 2. explicit oracle -> pyodbc (OceanBase ODBC)
+        fake_pyodbc = MagicMock()
+        fake_pyodbc.drivers.return_value = ['OceanBase ODBC 2.0 Driver']
+        with patch.dict('sys.modules', {'pyodbc': fake_pyodbc}):
             item_oracle = {
                 'dialect': 'oceanbase',
                 'mode': 'oracle',
@@ -390,11 +391,11 @@ class AiSqlDraftTests(unittest.TestCase):
                 'password': '',
             }
             open_connection(item_oracle)
-            mock_oracle.assert_called_once()
+            fake_pyodbc.connect.assert_called_once()
 
-        # 3. legacy standalone -> oracledb
-        with patch('oracledb.connect') as mock_oracle, \
-             patch('tools.db_connect.ensure_oracle_client'):
+        # 3. legacy standalone -> pyodbc (OceanBase ODBC)
+        fake_pyodbc.reset_mock()
+        with patch.dict('sys.modules', {'pyodbc': fake_pyodbc}):
             item_standalone = {
                 'dialect': 'oceanbase',
                 'mode': 'standalone',
@@ -405,11 +406,11 @@ class AiSqlDraftTests(unittest.TestCase):
                 'password': '',
             }
             open_connection(item_standalone)
-            mock_oracle.assert_called_once()
+            fake_pyodbc.connect.assert_called_once()
 
-        # 4. legacy missing mode -> oracledb
-        with patch('oracledb.connect') as mock_oracle, \
-             patch('tools.db_connect.ensure_oracle_client'):
+        # 4. legacy missing mode -> pyodbc (OceanBase ODBC)
+        fake_pyodbc.reset_mock()
+        with patch.dict('sys.modules', {'pyodbc': fake_pyodbc}):
             item_missing_mode = {
                 'dialect': 'oceanbase',
                 'host': '127.0.0.1',
@@ -419,7 +420,7 @@ class AiSqlDraftTests(unittest.TestCase):
                 'password': '',
             }
             open_connection(item_missing_mode)
-            mock_oracle.assert_called_once()
+            fake_pyodbc.connect.assert_called_once()
 
     def test_oceanbase_scan_schema_legacy_normalization(self):
         from tools.schema_snapshot import scan_schema
