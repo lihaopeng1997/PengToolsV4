@@ -472,6 +472,87 @@ class RedisInfoTests(unittest.TestCase):
         self.assertEqual(info["nodes"][0]["port"], 47005)
 
 
+class RedisConsoleScanContractTests(unittest.TestCase):
+    def test_standalone_scan_connection_error_propagates_no_scan_iter(self):
+        """A. Standalone conn.scan raises ConnectionError -> DbError -> scan_iter NOT called"""
+        from tools.db_connect import run_read_query, run_console_statement, DbError
+        conn = MagicMock()
+        conn.scan.side_effect = ConnectionError("Connection refused by peer")
+        conn.scan_iter = MagicMock()
+
+        with self.assertRaises(DbError) as ctx:
+            run_read_query(conn, 'redis', 'SCAN 0')
+        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        self.assertIn('Connection refused by peer', str(ctx.exception))
+        conn.scan_iter.assert_not_called()
+
+        with self.assertRaises(DbError) as ctx:
+            run_console_statement(conn, 'redis', 'SCAN 0')
+        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        conn.scan_iter.assert_not_called()
+
+    def test_standalone_scan_type_error_propagates_no_scan_iter(self):
+        """B. Standalone conn.scan raises TypeError / programming error -> DbError -> scan_iter NOT called"""
+        from tools.db_connect import run_read_query, run_console_statement, DbError
+        conn = MagicMock()
+        conn.scan.side_effect = TypeError("scan() takes 0 positional arguments but 1 was given")
+        conn.scan_iter = MagicMock()
+
+        with self.assertRaises(DbError) as ctx:
+            run_read_query(conn, 'redis', 'SCAN 0')
+        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        conn.scan_iter.assert_not_called()
+
+        conn.scan.side_effect = ValueError("Invalid cursor format")
+        with self.assertRaises(DbError) as ctx:
+            run_console_statement(conn, 'redis', 'SCAN 0')
+        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        conn.scan_iter.assert_not_called()
+
+    def test_cluster_scan_returns_dict_cursor_has_more_true(self):
+        """C. Cluster scan returns: ({"node-a": 100, "node-b": 0}, [keys...]) -> offset 保持 dict -> has_more=True"""
+        from tools.db_connect import run_read_query
+        conn = MagicMock()
+        conn.scan.return_value = ({"node-a": 100, "node-b": 0}, ["k1", "k2"])
+
+        res = run_read_query(conn, 'redis', 'SCAN 0', limit=10)
+        self.assertEqual(res['rows'], [["k1"], ["k2"]])
+        self.assertEqual(res['offset'], {"node-a": 100, "node-b": 0})
+        self.assertTrue(res['has_more'])
+
+    def test_cluster_scan_next_page_preserves_dict_cursor(self):
+        """D. 下一页传入上述 dict cursor -> conn.scan 收到同一 cursor contract -> 不 int(dict)"""
+        from tools.db_connect import run_read_query, run_console_statement
+        conn = MagicMock()
+        dict_cursor = {"node-a": 100, "node-b": 0}
+        conn.scan.return_value = ({"node-a": 200, "node-b": 0}, ["k3"])
+
+        # Page 2 via run_read_query with dict offset
+        res = run_read_query(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=10)
+        conn.scan.assert_called_with(cursor=dict_cursor, match='*', count=10)
+        self.assertEqual(res['offset'], {"node-a": 200, "node-b": 0})
+        self.assertTrue(res['has_more'])
+
+        # Page 2 via run_console_statement with dict offset
+        conn.scan.reset_mock()
+        conn.scan.return_value = ({"node-a": 250, "node-b": 0}, ["k4"])
+        res2 = run_console_statement(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=10)
+        conn.scan.assert_called_with(cursor=dict_cursor, match='*', count=10)
+        self.assertEqual(res2['offset'], {"node-a": 250, "node-b": 0})
+        self.assertTrue(res2['has_more'])
+
+    def test_cluster_scan_final_has_more_false(self):
+        """E. Cluster final: {"node-a": 0, "node-b": 0} -> has_more=False"""
+        from tools.db_connect import run_read_query
+        conn = MagicMock()
+        final_cursor = {"node-a": 0, "node-b": 0}
+        conn.scan.return_value = (final_cursor, ["k5"])
+
+        res = run_read_query(conn, 'redis', 'SCAN 0', offset={"node-a": 200, "node-b": 0}, limit=10)
+        self.assertEqual(res['offset'], final_cursor)
+        self.assertFalse(res['has_more'])
+
+
 if __name__ == "__main__":
     unittest.main()
 

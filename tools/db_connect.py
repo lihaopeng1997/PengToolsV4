@@ -915,9 +915,9 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
                 cursor_out, keys = raw_res
             else:
                 cursor_out, keys = 0, []
-        except Exception:
-            keys = list(conn.scan_iter(match=match, count=max(count, int(limit))))
-            cursor_out = 0
+        except Exception as exc:
+            text = redact_error(str(exc))
+            raise DbError(f'Redis SCAN 执行失败：{text}') from exc
         columns = ['key']
         rows = [[_b(key)] for key in keys]
         if isinstance(cursor_out, dict):
@@ -959,13 +959,14 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
             rows = [[_b(k), _stringify(v)] for k, v in value.items()]
         else:
             rows = [[cmd, _stringify(value)]]
-    sliced = rows[int(offset): int(offset) + int(limit)]
+    offset_idx = 0 if isinstance(offset, dict) else int(offset or 0)
+    sliced = rows[offset_idx: offset_idx + int(limit)]
     return {
         'columns': columns,
         'rows': sliced,
-        'offset': int(offset) + len(sliced),
+        'offset': offset_idx + len(sliced),
         'limit': int(limit),
-        'has_more': int(offset) + len(sliced) < len(rows),
+        'has_more': offset_idx + len(sliced) < len(rows),
         'sql': sql,
     }
 
@@ -1064,7 +1065,8 @@ def run_read_query(conn, dialect: str, sql: str, *, offset: int = 0, limit: int 
     if reason:
         raise DbError(reason)
     if kind == 'redis':
-        return _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+        redis_offset = offset if isinstance(offset, dict) else int(offset or 0)
+        return _run_redis(conn, sql, redis_offset, min(int(limit), MAX_ROWS))
     if kind == 'mongodb':
         return _run_mongo(conn, sql, int(offset), min(int(limit), MAX_ROWS))
     if not is_read_query(sql):
@@ -1205,7 +1207,8 @@ def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limi
         result['tx'] = ''
         return result
     if kind == 'redis':
-        result = _run_redis(conn, sql, int(offset), min(int(limit), MAX_ROWS))
+        redis_offset = offset if isinstance(offset, dict) else int(offset or 0)
+        result = _run_redis(conn, sql, redis_offset, min(int(limit), MAX_ROWS))
         result['elapsed_ms'] = int((time.perf_counter() - started) * 1000)
         result['category'] = info.get('category')
         result['rowcount'] = len(result.get('rows') or [])
