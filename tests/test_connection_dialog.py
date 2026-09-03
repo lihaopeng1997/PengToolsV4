@@ -106,10 +106,13 @@ class ConnectionDialogTests(unittest.TestCase):
         try:
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "Database / 服务")
+            self.assertEqual(dialog.database_label.text(), "Database / Schema")
+            # 旧配置（未标记 odbc）显示迁移提示
+            self.assertIn("旧版本此字段可能保存的是 SID/服务名", dialog.oracle_hint.text())
 
             item, _ = dialog.payload()
             self.assertEqual(item["mode"], "oracle")
+            self.assertEqual(item.get("oceanbase_oracle_provider"), "odbc")
         finally:
             dialog.close()
 
@@ -118,13 +121,15 @@ class ConnectionDialogTests(unittest.TestCase):
 
         dialog = ConnectionDialog(
             language="zh",
-            item={"name": "OB 模式切换测试", "dialect": "oceanbase", "host": "10.0.0.1", "mode": "oracle"},
+            item={"name": "OB 模式切换测试", "dialect": "oceanbase", "host": "10.0.0.1", "mode": "oracle", "oceanbase_oracle_provider": "odbc"},
         )
         try:
             # 初始为 Oracle 模式
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "Database / 服务")
+            self.assertEqual(dialog.database_label.text(), "Database / Schema")
+            # 已标记 odbc 的新配置不显示旧迁移提示
+            self.assertNotIn("旧版本此字段可能保存的是 SID/服务名", dialog.oracle_hint.text())
 
             # 切换到 MySQL 模式
             mysql_idx = dialog.mode.findData("mysql")
@@ -138,7 +143,7 @@ class ConnectionDialogTests(unittest.TestCase):
             dialog.mode.setCurrentIndex(oracle_idx)
             self.assertEqual(dialog.mode.currentData(), "oracle")
             self.assertFalse(dialog.oracle_hint.isHidden())
-            self.assertEqual(dialog.database_label.text(), "Database / 服务")
+            self.assertEqual(dialog.database_label.text(), "Database / Schema")
         finally:
             dialog.close()
 

@@ -324,14 +324,25 @@ class ConnectionDialog(QDialog):
         zh = self.language == "zh"
         mode = normalize_oceanbase_mode(self.mode.currentData())
         if mode == "oracle":
-            self.oracle_hint.setText(
-                "提示：OceanBase Oracle 模式使用 Windows OceanBase Connector/ODBC（Python pyodbc 绑定）。若未安装系统驱动，测试连接时将提示安装 x64 ODBC 驱动。"
+            is_legacy = bool(
+                self._item
+                and self._item.get("dialect") == "oceanbase"
+                and self._item.get("oceanbase_oracle_provider") != "odbc"
+            )
+            migration_msg = (
+                "\n旧版本此字段可能保存的是 SID/服务名；Windows ODBC provider 中 Database 表示 Schema，请确认后重新保存。"
                 if zh
-                else "Notice: OceanBase Oracle mode uses Windows OceanBase Connector/ODBC (pyodbc binding). Install x64 ODBC driver if missing."
+                else "\nLegacy configurations may have saved SID/service; Windows ODBC provider uses Database as Schema, please verify and resave."
+            ) if is_legacy else ""
+
+            self.oracle_hint.setText(
+                ("提示：OceanBase Oracle 模式使用 Windows OceanBase Connector/ODBC（Python pyodbc 绑定）。若未安装系统驱动，测试连接时将提示安装 x64 ODBC 驱动。" + migration_msg)
+                if zh
+                else ("Notice: OceanBase Oracle mode uses Windows OceanBase Connector/ODBC (pyodbc binding). Install x64 ODBC driver if missing." + migration_msg)
             )
             self.oracle_hint.setVisible(True)
-            self.database_label.setText("Database / 服务" if zh else "Database / Service")
-            self.database.setPlaceholderText("Database 或服务名" if zh else "Database or service name")
+            self.database_label.setText("Database / Schema")
+            self.database.setPlaceholderText("Schema 名称，例如 sys / APP" if zh else "Schema name, e.g. sys / APP")
         else:
             self.oracle_hint.setVisible(False)
             self.database_label.setText("库名" if zh else "Database")
@@ -563,6 +574,8 @@ class ConnectionDialog(QDialog):
         item["username"] = self.username.text().strip()
         if item["dialect"] == "oceanbase":
             item["mode"] = normalize_oceanbase_mode(self.mode.currentData())
+            if item["mode"] == "oracle":
+                item["oceanbase_oracle_provider"] = "odbc"
         else:
             item["mode"] = self.mode.currentData() or "standalone"
         if item["dialect"] == "redis":

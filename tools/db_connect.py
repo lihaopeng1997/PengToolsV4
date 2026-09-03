@@ -387,12 +387,31 @@ def escape_odbc_value(val: Any) -> str:
     return s
 
 
+def _sanitize_odbc_error(text: str, plain_password: str | None = None) -> str:
+    """清理 ODBC 异常信息中可能泄露的明文或转义密码。"""
+    s = str(text or '')
+    if plain_password:
+        raw_pw = str(plain_password).strip()
+        if raw_pw:
+            escaped_pw = escape_odbc_value(raw_pw)
+            if escaped_pw:
+                s = s.replace(escaped_pw, '{***}')
+            inner = raw_pw.replace('}', '}}')
+            if inner:
+                s = s.replace(inner, '***')
+            s = s.replace(raw_pw, '***')
+    # 正则匹配 ODBC 风格的 Password={...} 或 PWD={...}（支持花括号内包含分号与双花括号）
+    s = re.sub(r'(?i)\b(Password|PWD)\s*=\s*\{[^\}]*(?:\}\}[^\}]*)*\}', r'\1={***}', s)
+    return redact_error(s)
+
+
 def translate_numeric_binds(sql: str, params: Any) -> tuple[str, Any]:
     """将 Oracle 风格的数字绑定参数 (:1, :2...) 转换为 pyodbc 支持的 qmark 风格 (?)。
-    严格保证：
+    严格保证符合 python-oracledb 原生 positional 绑定契约：
+    - 当 params 为 sequence (list/tuple) 时，占位符在 SQL 中出现的顺序与 params 元素一一对应，
+      占位符标签数字不决定下标，重复出现的占位符消耗对应的序列参数项；
+    - 当 params 为 dict 时，按占位符标签数字提取对应的值；
     - 忽略字符串字面量内部的冒号（如 ':1 not a bind' 或时间格式 '12:00:00'）；
-    - 重复的占位符（如 x=:1 OR y=:1）正确复制对应的参数值；
-    - 乱序占位符按照在 SQL 中出现的顺序构建新的参数元组；
     - 若 SQL 已是 qmark 格式且不包含 :1 风格数字绑定，直接透传。
     """
     if not params:
@@ -401,33 +420,30 @@ def translate_numeric_binds(sql: str, params: Any) -> tuple[str, Any]:
         return sql, params
 
     pattern = re.compile(r"('(?:''|[^'])*'|\"[^\"]*\")|:([1-9]\d*)\b")
-    new_params = []
 
-    def repl(m: re.Match) -> str:
-        if m.group(1):
-            return m.group(1)
-        bind_idx = int(m.group(2))
-        if isinstance(params, (list, tuple)):
-            if 1 <= bind_idx <= len(params):
-                val = params[bind_idx - 1]
-            else:
-                raise IndexError(f'Bind parameter :{bind_idx} out of range (params len: {len(params)})')
-        elif isinstance(params, dict):
-            if bind_idx in params:
-                val = params[bind_idx]
-            elif str(bind_idx) in params:
-                val = params[str(bind_idx)]
-            else:
-                raise KeyError(f'Bind parameter :{bind_idx} not found in params dict')
-        else:
-            val = params
-        new_params.append(val)
-        return '?'
+    if isinstance(params, (list, tuple)):
+        new_sql = pattern.sub(lambda m: m.group(1) if m.group(1) else '?', sql)
+        return new_sql, tuple(params)
 
-    new_sql = pattern.sub(repl, sql)
-    if not new_params:
-        return sql, params
-    return new_sql, tuple(new_params)
+    if isinstance(params, dict):
+        new_params = []
+        def repl_dict(m: re.Match) -> str:
+            if m.group(1):
+                return m.group(1)
+            key_str = m.group(2)
+            key_int = int(key_str)
+            if key_str in params:
+                val = params[key_str]
+            elif key_int in params:
+                val = params[key_int]
+            else:
+                raise KeyError(f'Bind parameter :{key_str} not found in params dict')
+            new_params.append(val)
+            return '?'
+        new_sql = pattern.sub(repl_dict, sql)
+        return new_sql, tuple(new_params)
+
+    return sql, params
 
 
 class OceanBaseOdbcCursor:
@@ -581,13 +597,22 @@ def oceanbase_oracle_provider_status() -> dict:
     }
 
 
-def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None) -> str:
-    text = redact_error(str(exc))
+def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None, plain_password: str | None = None) -> str:
+    raw_text = str(exc)
+    text = _sanitize_odbc_error(raw_text, plain_password=plain_password)
     low = text.lower()
     host = (item or {}).get('host') or ''
     port = (item or {}).get('port') or ''
     db = (item or {}).get('database') or ''
     ctx = f"\n连接目标：{host}:{port}/{db} | Provider：oceanbase_oracle (ODBC)"
+
+    # 1. 优先判定传输层报文完整性故障（如 ORA-12569，即使带有 08S01 等网络 SQLSTATE 状态码也优先归类）
+    if 'ora-12569' in low or 'packet checksum failure' in low or 'checksum' in low:
+        return (
+            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569）。'
+            f'{ctx}\n'
+            '排查建议：客户端与目标 OceanBase/OBProxy 之间的底层网络或报文校验不匹配，请检查网络中间代理或路由环境。'
+        )
 
     sqlstate = ''
     if hasattr(exc, 'args') and exc.args and isinstance(exc.args[0], str):
@@ -622,12 +647,6 @@ def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None
             f'{ctx}\n'
             '排查建议：网络链路延迟过高或目标服务端响应超时，请检查网络质量及服务负载。'
         )
-    if 'ora-12569' in low or 'checksum' in low:
-        return (
-            f'[TRANSPORT / TNS PACKET INTEGRITY] OceanBase (Oracle 模式) 传输层报文校验失败（ORA-12569）。'
-            f'{ctx}\n'
-            '排查建议：客户端与目标 OceanBase/OBProxy 之间的底层网络或报文校验不匹配，请检查网络中间代理或路由环境。'
-        )
 
     return f'[ODBC_ERROR] OceanBase (Oracle 模式) 操作失败：{text}{ctx}'
 
@@ -647,7 +666,7 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
         port = 2883
     database = str(item.get('database') or '').strip()
     if not database:
-        raise DbError('Database/服务名不能为空')
+        raise DbError('Database/Schema 不能为空')
     username = str(item.get('username') or '').strip()
     if not username:
         raise DbError('用户名不能为空')
@@ -656,7 +675,7 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
     driver_name, _ = oceanbase_odbc_driver_status()
 
     # 根据官方 OceanBase Connector/ODBC Windows DSN-less 规范构建连接串：
-    # Option=3 遵循官方 OceanBase ODBC Windows 示例（设置 FOUND_ROWS 与客户端传输兼容项）
+    # Option=3 follows OceanBase official Windows ODBC example and selects TCP/IP connection mode.
     conn_str = (
         f"Driver={{{driver_name}}};"
         f"Server={escape_odbc_value(host)};"
@@ -671,7 +690,7 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
         raw_conn = pyodbc.connect(conn_str, timeout=8, autocommit=False)
         return OceanBaseOdbcConnection(raw_conn, driver_name=driver_name)
     except Exception as exc:
-        msg = _oceanbase_oracle_error_message(exc, item)
+        msg = _oceanbase_oracle_error_message(exc, item, plain_password=password)
         raise DbError(msg) from exc
 
 
@@ -945,8 +964,8 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
                 'OceanBase (Oracle 模式) 连接与业务验证成功\n'
                 'Provider: OceanBase ODBC\n'
                 f'Driver: {driver_name}\n'
-                f'目标服务：{item.get("database") or "默认服务"}\n'
-                f'当前 Schema/用户：{current_schema or current_user or item.get("username")}\n'
+                f'目标 Schema：{item.get("database") or current_schema or current_user or "默认"}\n'
+                f'当前用户：{current_user or item.get("username")}\n'
                 f'用户表数量：{tbl_cnt}'
             )
             return {'ok': True, 'summary': summary}

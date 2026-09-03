@@ -323,8 +323,24 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                     "SELECT USER AS OWNER, TABLE_NAME, 'TABLE' AS OBJECT_TYPE, '' AS COMMENTS "
                     "FROM USER_TABLES"
                 )
+        elif dialect == 'oceanbase':
+            # OceanBase Oracle ODBC provider: Database 官方语义即为要访问的 Schema
+            target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
+            if target_schema:
+                cur.execute(
+                    "SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    "WHERE table_type IN ('TABLE', 'VIEW') AND owner = :1",
+                    (target_schema,),
+                )
+            else:
+                excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+                placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+                cur.execute(
+                    f"SELECT owner, table_name, 'TABLE', comments FROM all_tab_comments "
+                    f"WHERE table_type IN ('TABLE', 'VIEW') AND owner NOT IN ({placeholders})"
+                )
         else:
-            # Oracle / OceanBase Oracle mode: database 字段为 SID/DSN 目标，不得当成 schema
+            # native Oracle: database 字段为 SID/DSN 目标，绝不能当成 schema
             target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
             if target_schema:
                 cur.execute(
@@ -364,7 +380,12 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                     "FROM USER_TAB_COLUMNS ORDER BY TABLE_NAME, COLUMN_ID"
                 )
         else:
-            target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
+            if dialect == 'oceanbase':
+                # OceanBase Oracle ODBC provider: Database 官方语义即为要访问的 Schema
+                target_schema = str(item_data.get('schema') or item_data.get('owner') or item_data.get('database') or '').strip().upper()
+            else:
+                # native Oracle: database 字段为 SID/DSN 目标，绝不能当成 schema
+                target_schema = str(item_data.get('schema') or item_data.get('owner') or '').strip().upper()
             if target_schema:
                 cur.execute(
                     "SELECT col.owner, col.table_name, col.column_name, col.data_type, col.nullable, "

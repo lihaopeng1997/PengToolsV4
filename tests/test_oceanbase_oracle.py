@@ -123,7 +123,8 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         self.assertIn("Option=3", conn_str)
 
     def test_regression_f_password_never_appears_in_dberror(self):
-        """F. 发生连接异常时，明文密码绝不出现在的 DbError 中"""
+        """F. 发生连接异常或 ODBC 兜底错误时，明文密码与转义密码绝不出现在的 DbError 中"""
+        pw = "abc;123}xyz"
         item = {
             "dialect": "oceanbase",
             "mode": "oracle",
@@ -133,12 +134,15 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         }
         fake_pyodbc = MagicMock()
         fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
-        fake_pyodbc.connect.side_effect = Exception("[08001] Could not connect to host with secret_password_999")
+        fake_pyodbc.connect.side_effect = Exception(f"[HY000] driver failed; Password={{{pw.replace('}', '}}')}}}; detail info")
 
         with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
             with self.assertRaises(DbError) as ctx:
-                open_connection(item, plain_password="secret_password_999")
-            self.assertNotIn("secret_password_999", str(ctx.exception))
+                open_connection(item, plain_password=pw)
+            err_msg = str(ctx.exception)
+            self.assertNotIn("abc;123}xyz", err_msg)
+            self.assertNotIn("abc", err_msg)
+            self.assertNotIn("123}}xyz", err_msg)
 
     def test_regression_g_numeric_bind_single(self):
         """G. :1 -> ? 转换"""
@@ -147,22 +151,37 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         self.assertEqual(params, (123,))
 
     def test_regression_h_numeric_bind_multiple(self):
-        """H. :1/:2 -> ?/? 转换与保序"""
+        """H. :1/:2 -> ?/? 顺序绑定"""
         sql, params = translate_numeric_binds("WHERE a = :1 AND b = :2", ["A", "B"])
         self.assertEqual(sql, "WHERE a = ? AND b = ?")
         self.assertEqual(params, ("A", "B"))
 
-    def test_regression_i_repeated_numeric_bind(self):
-        """I. 重复的 :1 正确复制对应参数"""
-        sql, params = translate_numeric_binds("WHERE x = :1 OR y = :1", ["val"])
-        self.assertEqual(sql, "WHERE x = ? OR y = ?")
-        self.assertEqual(params, ("val", "val"))
+    def test_regression_i_positional_bind_semantics(self):
+        """I. Positional bind: placeholder 顺序决定参数，标签数字不决定下标；重复 placeholder 消耗对应参数"""
+        # A. :1,:2 + [A,B] -> (?,?) + (A,B)
+        sA, pA = translate_numeric_binds("WHERE a=:1 AND b=:2", ["A", "B"])
+        self.assertEqual(sA, "WHERE a=? AND b=?")
+        self.assertEqual(pA, ("A", "B"))
 
-    def test_regression_j_qmark_sql_remains_unchanged(self):
-        """J. 已是 qmark 的 SQL 保持不变，不产生二次改写"""
-        sql, params = translate_numeric_binds("WHERE a = ? AND b = ?", [1, 2])
-        self.assertEqual(sql, "WHERE a = ? AND b = ?")
-        self.assertEqual(params, [1, 2])
+        # B. :2,:1 + [A,B] -> (?,?) + (A,B) (位置绑定优先于标签数字)
+        sB, pB = translate_numeric_binds("WHERE a=:2 AND b=:1", ["A", "B"])
+        self.assertEqual(sB, "WHERE a=? AND b=?")
+        self.assertEqual(pB, ("A", "B"))
+
+        # C. :1,:1 + [A,B] -> (?,?) + (A,B) (各消耗一个位置参数)
+        sC, pC = translate_numeric_binds("WHERE x=:1 OR y=:1", ["A", "B"])
+        self.assertEqual(sC, "WHERE x=? OR y=?")
+        self.assertEqual(pC, ("A", "B"))
+
+    def test_regression_j_qmark_and_quotes(self):
+        """J. qmark 原样透传；引文字符串内部的 ':1' 绝不误改写"""
+        sD, pD = translate_numeric_binds("WHERE a = ? AND b = ?", [1, 2])
+        self.assertEqual(sD, "WHERE a = ? AND b = ?")
+        self.assertEqual(pD, [1, 2])
+
+        sE, pE = translate_numeric_binds("SELECT ':1 not bind' AS c FROM t WHERE x = :1", [99])
+        self.assertEqual(sE, "SELECT ':1 not bind' AS c FROM t WHERE x = ?")
+        self.assertEqual(pE, (99,))
 
     def test_regression_k_probe_connection_production_operations(self):
         """K. probe_connection 必须执行整条业务验证链，且若失败直接抛错不吞"""
@@ -199,6 +218,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         self.assertTrue(any("USER_TABLES" in s for s in executed))
         self.assertIn("Provider: OceanBase ODBC", res["summary"])
         self.assertIn("Driver: OceanBase ODBC 2.0 Driver", res["summary"])
+        self.assertIn("目标 Schema：OB_SERVICE", res["summary"])
         self.assertNotIn("clear_password", res["summary"])
 
         # 验证若生产操作失败，probe 必须抛异常失败：
@@ -209,7 +229,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
                 probe_connection(item, plain_password="clear_password")
 
     def test_regression_l_scan_schema_production_path_through_adapter(self):
-        """L. scan_schema 生产路径通过 adapter 正确执行，内部 :1 成功转换为 ?"""
+        """L. scan_schema 生产真实 item shape (无 fake schema): database 作为 schema 正确转换查询"""
         from tools.schema_snapshot import scan_schema
         executed_calls = []
         mock_raw_cursor = MagicMock()
@@ -224,13 +244,36 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         mock_raw_conn.cursor.return_value = mock_raw_cursor
         odbc_conn = OceanBaseOdbcConnection(mock_raw_conn, driver_name="OceanBase ODBC 2.0 Driver")
 
-        item = {"dialect": "oceanbase", "mode": "oracle", "database": "OB", "username": "APP", "schema": "APP"}
+        # 真实 item shape：只有 database="APP"，绝无额外注入的 schema
+        item = {"dialect": "oceanbase", "mode": "oracle", "database": "APP", "username": "APP"}
         payload = scan_schema(odbc_conn, item)
-        self.assertIn("objects", payload)
-        converted_calls = [c for c in executed_calls if "?" in c[0]]
-        self.assertTrue(len(converted_calls) > 0)
-        for sql, p in executed_calls:
+        self.assertEqual(payload.get("status"), "ok")
+
+        # 验证 all_tab_comments 查询：WHERE owner = ? 带 params: ("APP",)
+        comments_calls = [c for c in executed_calls if "all_tab_comments" in c[0].lower()]
+        self.assertTrue(len(comments_calls) > 0)
+        self.assertIn("WHERE table_type IN ('TABLE', 'VIEW') AND owner = ?", comments_calls[0][0])
+        self.assertEqual(comments_calls[0][1], ("APP",))
+
+        # 验证 all_tab_columns 查询：WHERE col.owner = ? 带 params: ("APP",)
+        columns_calls = [c for c in executed_calls if "all_tab_columns" in c[0].lower()]
+        self.assertTrue(len(columns_calls) > 0)
+        self.assertIn("WHERE col.owner = ?", columns_calls[0][0])
+        self.assertEqual(columns_calls[0][1], ("APP",))
+
+        # 确保没有 :1 传给底层 pyodbc
+        for sql, _ in executed_calls:
             self.assertNotIn(":1", sql)
+
+        # 同时验证 native Oracle 保持 database 绝不能当成 schema
+        executed_oracle_calls = []
+        mock_raw_cursor.execute.side_effect = lambda sql, params=None: executed_oracle_calls.append((sql, params))
+        item_oracle = {"dialect": "oracle", "database": "ORCL", "username": "SCOTT"}
+        scan_schema(odbc_conn, item_oracle)
+        oracle_comments = [c for c in executed_oracle_calls if "all_tab_comments" in c[0].lower()]
+        self.assertTrue(len(oracle_comments) > 0)
+        # 绝不把 ORCL 当成 WHERE owner = ?
+        self.assertIn("owner NOT IN", oracle_comments[0][0])
 
     def test_regression_m_list_columns_production_path_through_adapter(self):
         """M. list_columns 生产路径通过 adapter 正确转换 :1/:2 并返回字段清单"""
@@ -311,7 +354,7 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         mock_raw_conn.rollback.assert_called_once()
 
     def test_error_classification_sqlstates(self):
-        """13. ODBC SQLSTATE 错误分类解析验证"""
+        """13. ODBC SQLSTATE 错误分类解析验证，包括 ORA-12569 优先于 08S01 状态码"""
         item = {"host": "10.0.0.1", "port": 2883, "database": "OB", "username": "user"}
 
         # 28000 -> AUTH_ERROR
@@ -329,20 +372,47 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         m3 = _oceanbase_oracle_error_message(e3, item)
         self.assertIn("[TIMEOUT]", m3)
 
-        # ORA-12569 -> TRANSPORT / TNS PACKET INTEGRITY
-        e4 = Exception("ORA-12569: TNS:packet checksum failure")
+        # ORA-12569 带 08S01 状态码，必须优先识别为 TRANSPORT / TNS PACKET INTEGRITY
+        class CustomOdbcError(Exception):
+            pass
+        e4 = CustomOdbcError("08S01", "[08S01] [OceanBase][ODBC] ORA-12569: TNS:packet checksum failure")
         m4 = _oceanbase_oracle_error_message(e4, item)
         self.assertIn("[TRANSPORT / TNS PACKET INTEGRITY]", m4)
+        self.assertNotIn("[NETWORK / CONNECTION_ERROR]", m4)
 
-    def test_oceanbase_oracle_provider_status_helper(self):
-        """19. oceanbase_oracle_provider_status 诊断 helper 契约验证"""
-        status = oceanbase_oracle_provider_status()
-        self.assertEqual(status["provider"], "odbc")
-        self.assertTrue(status["pyodbc_available"])
-        self.assertEqual(status["pyodbc_version"], "5.3.0")
-        # 当前开发机未安装真实系统驱动
-        self.assertFalse(status["driver_available"])
-        self.assertFalse(status["ready"])
+    def test_oceanbase_oracle_provider_status_helper_env_independent(self):
+        """19. oceanbase_oracle_provider_status 诊断 helper 单元测试必须环境无关"""
+        fake_pyodbc = MagicMock()
+
+        # Case A: drivers=[] -> ready=False
+        fake_pyodbc.drivers.return_value = []
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            st_a = oceanbase_oracle_provider_status()
+            self.assertFalse(st_a["ready"])
+            self.assertFalse(st_a["driver_available"])
+
+        # Case B: drivers=["OceanBase ODBC 2.0 Driver"] -> ready=True
+        fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            st_b = oceanbase_oracle_provider_status()
+            self.assertTrue(st_b["ready"])
+            self.assertTrue(st_b["driver_available"])
+            self.assertEqual(st_b["driver"], "OceanBase ODBC 2.0 Driver")
+
+        # Case C: 多个模糊候选 -> 歧义安全拒绝，ready=False
+        fake_pyodbc.drivers.return_value = ["OceanBase Driver A", "OceanBase Driver B"]
+        with patch.dict("sys.modules", {"pyodbc": fake_pyodbc}):
+            st_c = oceanbase_oracle_provider_status()
+            self.assertFalse(st_c["ready"])
+            self.assertFalse(st_c["driver_available"])
+
+        # 真实环境只验证返回结构键契约，不写死 driver_available 为 False
+        st_real = oceanbase_oracle_provider_status()
+        self.assertEqual(st_real["provider"], "odbc")
+        self.assertIn("ready", st_real)
+        self.assertIn("pyodbc_available", st_real)
+        self.assertIn("driver_available", st_real)
+        self.assertIn("driver", st_real)
 
 
 if __name__ == "__main__":
