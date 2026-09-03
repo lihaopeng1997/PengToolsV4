@@ -409,6 +409,76 @@ class RedisClusterGuiContractTests(unittest.TestCase):
         finally:
             panel.deleteLater()
 
+    def test_redis_scan_partial_sticky_across_pages_and_resets(self):
+        """7 & 8. Partial warning must survive pagination and reset cleanly on new query."""
+        panel = AiWorkbenchPanel(language='zh')
+        try:
+            panel._query_status = 'query'
+
+            # Page 1: node-A failed, node-B has cursor=100, has_more=True
+            page1_payload = {
+                'sql': 'SCAN 0',
+                'offset': {'node-B': 100},
+                'has_more': True,
+                'partial': True,
+                'incomplete': True,
+                'failed_nodes': ['node-A'],
+                'warning': 'Redis 节点扫描不完整，失败节点: node-A',
+                'rows': [['k1']],
+                'columns': ['key'],
+                'elapsed_ms': 10,
+            }
+            panel._on_db_ok('query', page1_payload, kwargs={'append': False})
+            self.assertTrue(panel._redis_scan_partial)
+            self.assertEqual(panel._redis_scan_failed_nodes, ['node-A'])
+            self.assertIn('node-A', panel.result_status.text())
+            self.assertIn('不完整', panel.result_status.text())
+
+            # Page 2: node-B finishes cleanly with cursor=0, has_more=False, no new failures
+            page2_payload = {
+                'sql': 'SCAN 0',
+                'offset': {'node-B': 0},
+                'has_more': False,
+                'partial': False,
+                'incomplete': False,
+                'failed_nodes': [],
+                'rows': [['k2']],
+                'columns': ['key'],
+                'elapsed_ms': 12,
+            }
+            panel._on_db_ok('query', page2_payload, kwargs={'append': True})
+            # 最终状态仍必须保留 sticky partial 与 node-A 告警
+            self.assertTrue(panel._redis_scan_partial)
+            self.assertEqual(panel._redis_scan_failed_nodes, ['node-A'])
+            self.assertIn('node-A', panel.result_status.text())
+            self.assertIn('不完整', panel.result_status.text())
+            self.assertFalse(panel.next_btn.isEnabled())
+            self.assertFalse(panel.all_btn.isEnabled())
+
+            # 8. Reset regression: 执行新 query reset=True
+            with patch.object(panel, '_current_conn', return_value={'name': 'test', 'dialect': 'redis'}), \
+                 patch.object(panel, '_start_db'):
+                panel._current_editor().setPlainText('GET mykey')
+                panel._run_sql(reset=True)
+            self.assertFalse(panel._redis_scan_partial)
+            self.assertEqual(panel._redis_scan_failed_nodes, [])
+
+            # 新的正常 query 完成后不再携带旧的 Redis partial warning
+            clean_payload = {
+                'sql': 'GET mykey',
+                'offset': 0,
+                'has_more': False,
+                'rows': [['val']],
+                'columns': ['value'],
+                'elapsed_ms': 5,
+            }
+            panel._on_db_ok('query', clean_payload, kwargs={'append': False})
+            self.assertFalse(panel._redis_scan_partial)
+            self.assertNotIn('node-A', panel.result_status.text())
+            self.assertNotIn('不完整', panel.result_status.text())
+        finally:
+            panel.deleteLater()
+
 
 if __name__ == '__main__':
     unittest.main()

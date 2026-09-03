@@ -259,6 +259,8 @@ class AiWorkbenchPanel(QWidget):
         self._search_timer.timeout.connect(self._on_search_timer)
         self._offset = 0
         self._has_more = False
+        self._redis_scan_partial = False
+        self._redis_scan_failed_nodes = []
         self._last_sql = ''
         self._query_status = 'IDLE'
         self._result_bytes = 0
@@ -898,6 +900,8 @@ class AiWorkbenchPanel(QWidget):
         if tab is not None:
             tab.conn_item = dict(item) if isinstance(item, dict) else None
         self._snapshot = load_snapshot(str(item.get('id') or '')) if item else None
+        self._redis_scan_partial = False
+        self._redis_scan_failed_nodes = []
         self.nl_input.bind_snapshot(self._snapshot)
         self._rebuild_tree()
         self._refresh_header()
@@ -1251,13 +1255,29 @@ class AiWorkbenchPanel(QWidget):
             else:
                 self._offset = int(raw_offset or 0)
             self._has_more = bool(payload.get('has_more'))
+
+            # Sticky Redis Cluster scan partial state:
+            if payload.get('partial') or payload.get('failed_nodes'):
+                self._redis_scan_partial = True
+                for node in (payload.get('failed_nodes') or []):
+                    if node not in self._redis_scan_failed_nodes:
+                        self._redis_scan_failed_nodes.append(node)
+
             self._fill_result(payload, append=append)
             shown = self.result.rowCount()
             elapsed = payload.get('elapsed_ms')
             rowcount = payload.get('rowcount', shown)
             tx = payload.get('tx') or ''
             extra = ''
-            if payload.get('warning'):
+            if self._redis_scan_partial:
+                failed_str = ', '.join(self._redis_scan_failed_nodes)
+                warn_text = (
+                    f'部分节点扫描失败，Key 列表可能不完整（失败节点: {failed_str}）'
+                    if zh else
+                    f'Partial scan failure, key list may be incomplete (failed nodes: {failed_str})'
+                )
+                extra += f'，警告：{warn_text}' if zh else f', Warning: {warn_text}'
+            elif payload.get('warning'):
                 extra += f'，警告：{payload.get("warning")}' if zh else f', Warning: {payload.get("warning")}'
             if tx == 'committed':
                 extra = '，已提交' if zh else ', committed'
@@ -1406,6 +1426,8 @@ class AiWorkbenchPanel(QWidget):
         if reset:
             self._offset = 0
             self._last_sql = sql
+            self._redis_scan_partial = False
+            self._redis_scan_failed_nodes = []
             self.result.setRowCount(0)
         self._start_db('query', sql=sql, offset=self._offset if not reset else 0, limit=PAGE_SIZE, append=not reset)
 
