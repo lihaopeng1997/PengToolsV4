@@ -12,10 +12,11 @@ from PyQt6.QtGui import QKeyEvent, QInputMethodEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from PyQt6.QtGui import QFont, QFontInfo
-from tools.terminal_emulator import Cell, CellStyle, DEFAULT_STYLE
+from tools.terminal_emulator import Cell, CellStyle, DEFAULT_STYLE, TerminalEmulator
 from ui.ssh_terminal import (
     SshTerminalWidget, _SshTerminalView, pick_terminal_font, terminal_cell_metrics,
     terminal_font_metrics, terminal_grid_size, build_row_foreground_runs,
+    resolve_terminal_cell_style,
 )
 
 
@@ -380,6 +381,114 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.view.resize_pty(cols, rows)
         self.assertEqual(self.view._emulator.cols, cols)
         self.assertEqual(self.view._emulator.rows, rows)
+
+    def test_reverse_style_segments_runs(self):
+        """A. normal 'abc' + reverse 'DEF' + normal 'ghi' => 3 个独立 runs。"""
+        s_normal = DEFAULT_STYLE
+        s_rev = CellStyle(reverse=True)
+        row = [
+            Cell(char='a', width=1, style=s_normal),
+            Cell(char='b', width=1, style=s_normal),
+            Cell(char='c', width=1, style=s_normal),
+            Cell(char='D', width=1, style=s_rev),
+            Cell(char='E', width=1, style=s_rev),
+            Cell(char='F', width=1, style=s_rev),
+            Cell(char='g', width=1, style=s_normal),
+            Cell(char='h', width=1, style=s_normal),
+            Cell(char='i', width=1, style=s_normal),
+        ]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 3)
+        self.assertEqual(runs[0]['text'], 'abc')
+        self.assertFalse(runs[0]['style'].reverse)
+        self.assertEqual(runs[1]['text'], 'DEF')
+        self.assertTrue(runs[1]['style'].reverse)
+        self.assertEqual(runs[2]['text'], 'ghi')
+        self.assertFalse(runs[2]['style'].reverse)
+
+    def test_dim_style_segments_runs(self):
+        """B. normal 与 dim 状态不同 => 不得合并。"""
+        s_normal = DEFAULT_STYLE
+        s_dim = CellStyle(dim=True)
+        row = [
+            Cell(char='a', width=1, style=s_normal),
+            Cell(char='b', width=1, style=s_dim),
+        ]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 2)
+        self.assertFalse(runs[0]['style'].dim)
+        self.assertTrue(runs[1]['style'].dim)
+
+    def test_hidden_style_segments_runs(self):
+        """C. normal 与 hidden 状态不同 => 不得合并。"""
+        s_normal = DEFAULT_STYLE
+        s_hidden = CellStyle(hidden=True)
+        row = [
+            Cell(char='a', width=1, style=s_normal),
+            Cell(char='b', width=1, style=s_hidden),
+        ]
+        runs = build_row_foreground_runs(row)
+        self.assertEqual(len(runs), 2)
+        self.assertFalse(runs[0]['style'].hidden)
+        self.assertTrue(runs[1]['style'].hidden)
+
+    def test_resolve_terminal_cell_style_reverse_swap(self):
+        """D. resolve style：normal fg/bg 正常，reverse 下 effective fg/bg 正确交换。"""
+        # 1. 明确带前背景色
+        s_normal = CellStyle(fg='#FF0000', bg='#00FF00')
+        res_n = resolve_terminal_cell_style(s_normal, default_fg='#FFFFFF', default_bg='#000000')
+        self.assertEqual(res_n['foreground'], '#FF0000')
+        self.assertEqual(res_n['background'], '#00FF00')
+
+        s_rev = CellStyle(fg='#FF0000', bg='#00FF00', reverse=True)
+        res_r = resolve_terminal_cell_style(s_rev, default_fg='#FFFFFF', default_bg='#000000')
+        self.assertEqual(res_r['foreground'], '#00FF00')
+        self.assertEqual(res_r['background'], '#FF0000')
+
+        # 2. 默认缺省颜色反色
+        s_def_rev = CellStyle(reverse=True)
+        res_dr = resolve_terminal_cell_style(s_def_rev, default_fg='#111111', default_bg='#222222')
+        self.assertEqual(res_dr['foreground'], '#222222')
+        self.assertEqual(res_dr['background'], '#111111')
+
+    def test_hidden_effective_style_flag(self):
+        """E. hidden: resolve_terminal_cell_style 标记 hidden=True，foreground render path 明确跳过不绘制。"""
+        s_hidden = CellStyle(hidden=True)
+        res = resolve_terminal_cell_style(s_hidden)
+        self.assertTrue(res['hidden'])
+
+        row = [Cell(char='X', width=1, style=s_hidden)]
+        runs = build_row_foreground_runs(row)
+        eff = resolve_terminal_cell_style(runs[0]['style'])
+        self.assertTrue(eff['hidden'])
+
+    def test_terminal_emulator_real_sgr_feeds_renderer(self):
+        """F. 使用真实 TerminalEmulator 输入 ANSI SGR，验证真实 parser 生成的 CellStyle 正常被 renderer 解析。"""
+        emu = TerminalEmulator(cols=80, rows=24)
+        emu.feed_text("\x1b[7mREV\x1b[0m \x1b[8mSECRET\x1b[0m \x1b[2mDIM\x1b[0m")
+        row = emu.screen.grid[0]
+
+        runs = build_row_foreground_runs(row, default_fg='#E8EEF4')
+        texts = [r['text'] for r in runs if r['text'].strip()]
+        self.assertIn('REV', texts)
+        self.assertIn('SECRET', texts)
+        self.assertIn('DIM', texts)
+
+        rev_run = next(r for r in runs if r['text'] == 'REV')
+        self.assertTrue(rev_run['style'].reverse)
+        eff_rev = resolve_terminal_cell_style(rev_run['style'], default_fg='#E8EEF4', default_bg='#121A22')
+        self.assertEqual(eff_rev['foreground'], '#121A22')
+        self.assertEqual(eff_rev['background'], '#E8EEF4')
+
+        sec_run = next(r for r in runs if r['text'] == 'SECRET')
+        self.assertTrue(sec_run['style'].hidden)
+        eff_sec = resolve_terminal_cell_style(sec_run['style'])
+        self.assertTrue(eff_sec['hidden'])
+
+        dim_run = next(r for r in runs if r['text'] == 'DIM')
+        self.assertTrue(dim_run['style'].dim)
+        eff_dim = resolve_terminal_cell_style(dim_run['style'])
+        self.assertTrue(eff_dim['dim'])
 
 
 if __name__ == '__main__':

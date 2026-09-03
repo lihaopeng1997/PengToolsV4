@@ -83,14 +83,54 @@ def terminal_cell_metrics(font: QFont) -> dict:
     }
 
 
+def resolve_terminal_cell_style(
+    style: CellStyle,
+    default_fg: str = '#E8EEF4',
+    default_bg: str = '#121A22',
+) -> dict:
+    """计算单个 CellStyle 在当前主题与 ANSI 属性下的实际渲染样式。
+
+    返回字典：
+    - foreground / fg: 有效前景色（支持 reverse 互换）
+    - background / bg: 有效背景色（支持 reverse 互换）
+    - bold: 是否粗体
+    - italic: 是否斜体
+    - underline: 是否下划线
+    - dim: 是否暗淡
+    - hidden: 是否隐藏
+    - reverse: 是否反色
+    """
+    raw_fg = style.fg or default_fg
+    raw_bg = style.bg or default_bg
+
+    if style.reverse:
+        eff_fg = raw_bg
+        eff_bg = raw_fg
+    else:
+        eff_fg = raw_fg
+        eff_bg = style.bg or default_bg
+
+    return {
+        'foreground': eff_fg,
+        'background': eff_bg,
+        'fg': eff_fg,
+        'bg': eff_bg,
+        'bold': style.bold,
+        'italic': style.italic,
+        'underline': style.underline,
+        'dim': style.dim,
+        'hidden': style.hidden,
+        'reverse': style.reverse,
+    }
+
+
 def build_row_foreground_runs(row: list[Cell], default_fg: str = '') -> list[dict]:
     """将一行 Cell 拆分为连续可打印 ASCII text run 与独立 wide/特殊字符 cell。
 
     连续 ASCII run 必须满足：
     - cell.width == 1
     - 单字符且属于可打印 ASCII (32 <= ord(ch) <= 126)
-    - 相同 style (bold, italic, underline)
-    - 相同前景色 fg
+    - 相同完整的 CellStyle (fg, bg, bold, dim, italic, underline, reverse, hidden)
     非 ASCII、wide cell (width==2)、trailing cell (width==0)、或样式变化均切分 run。
     """
     runs: list[dict] = []
@@ -111,13 +151,8 @@ def build_row_foreground_runs(row: list[Cell], default_fg: str = '') -> list[dic
 
         if is_ascii_printable:
             if current_run is not None:
-                same_style = (
-                    current_run['style'].bold == style.bold
-                    and current_run['style'].italic == style.italic
-                    and current_run['style'].underline == style.underline
-                    and current_run['fg'] == fg
-                )
-                if same_style:
+                # 严格按完整 CellStyle 对比切分 boundary
+                if current_run['style'] == style:
                     current_run['text'] += ch
                     current_run['width'] += 1
                     continue
@@ -575,27 +610,41 @@ class _SshTerminalView(QAbstractScrollArea):
                     painter.fillRect(cell_rect, QColor(c['find_cur'] if is_find == 2 else c['find']))
                 elif is_selected:
                     painter.fillRect(cell_rect, QColor(c['sel']))
-                elif cell.style.bg:
-                    bg_color = QColor(cell.style.bg)
-                    if bg_color.isValid():
-                        painter.fillRect(cell_rect, bg_color)
+                else:
+                    eff_style = resolve_terminal_cell_style(cell.style, default_fg=c['fg'], default_bg=c['bg'])
+                    if cell.style.reverse or cell.style.bg:
+                        bg_color = QColor(eff_style['background'])
+                        if bg_color.isValid():
+                            painter.fillRect(cell_rect, bg_color)
 
             # Pass 2: Foreground text runs (ASCII 连续文本合并渲染，Wide/特殊字符保持独立)
             runs = build_row_foreground_runs(row, default_fg=c['fg'])
             for item in runs:
                 text = item['text']
                 style = item['style']
-                if not text.strip() and not style.underline:
+                eff = resolve_terminal_cell_style(style, default_fg=c['fg'], default_bg=c['bg'])
+
+                # SGR 8 hidden: 明确不绘制 foreground glyph
+                if eff['hidden']:
                     continue
+
+                if not text.strip() and not eff['underline']:
+                    continue
+
                 run_x = pad_x + item['col'] * cw
-                fg_color = QColor(item['fg']) if (item['fg'] and QColor(item['fg']).isValid()) else QColor(c['fg'])
+                fg_color = QColor(eff['foreground']) if (eff['foreground'] and QColor(eff['foreground']).isValid()) else QColor(c['fg'])
+                # SGR 2 dim: 降低前景色强度
+                if eff['dim']:
+                    fg_color = QColor(fg_color)
+                    fg_color.setAlpha(150)
+
                 painter.setPen(fg_color)
                 font = self.font()
-                if style.bold:
+                if eff['bold']:
                     font.setBold(True)
-                if style.underline:
+                if eff['underline']:
                     font.setUnderline(True)
-                if style.italic:
+                if eff['italic']:
                     font.setItalic(True)
                 painter.setFont(font)
                 painter.drawText(run_x, y + ascent, text)
@@ -613,7 +662,7 @@ class _SshTerminalView(QAbstractScrollArea):
                     # redraw character underneath cursor in inverse color
                     if cy < len(self._emulator.screen.grid) and cx < len(self._emulator.screen.grid[cy]):
                         cur_cell = self._emulator.screen.grid[cy][cx]
-                        if cur_cell.char and cur_cell.char != ' ':
+                        if cur_cell.char and cur_cell.char != ' ' and not cur_cell.style.hidden:
                             painter.setPen(QColor(c['bg']))
                             painter.drawText(pad_x + cx * cw, pad_y + cy * lh + ascent, cur_cell.char)
                 else:
