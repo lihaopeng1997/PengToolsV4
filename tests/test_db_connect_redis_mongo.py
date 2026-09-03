@@ -472,6 +472,39 @@ class RedisInfoTests(unittest.TestCase):
         self.assertEqual(info["nodes"][0]["port"], 47005)
 
 
+class StrictClusterConn:
+    def __init__(self):
+        self.is_cluster = True
+        self.node_a = MagicMock(name="node-a-obj")
+        self.node_b = MagicMock(name="node-b-obj")
+        self.scan_calls = []
+
+    def get_node(self, node_name=None):
+        if node_name == "node-a":
+            return self.node_a
+        if node_name == "node-b":
+            return self.node_b
+        return None
+
+    def scan(self, cursor=0, match="*", count=10, target_nodes=None):
+        if isinstance(cursor, dict):
+            raise AssertionError("Strict contract violation: conn.scan received dict cursor instead of scalar integer cursor!")
+        self.scan_calls.append({
+            "cursor": cursor,
+            "match": match,
+            "count": count,
+            "target_nodes": target_nodes,
+        })
+        if target_nodes is None and cursor == 0:
+            return ({"node-a": 100, "node-b": 0}, ["k1"])
+        if target_nodes == self.node_a:
+            if cursor == 100:
+                return (50, ["k2"])
+            elif cursor == 50:
+                return (0, ["k3"])
+        return (0, [])
+
+
 class RedisConsoleScanContractTests(unittest.TestCase):
     def test_standalone_scan_connection_error_propagates_no_scan_iter(self):
         """A. Standalone conn.scan raises ConnectionError -> DbError -> scan_iter NOT called"""
@@ -482,13 +515,13 @@ class RedisConsoleScanContractTests(unittest.TestCase):
 
         with self.assertRaises(DbError) as ctx:
             run_read_query(conn, 'redis', 'SCAN 0')
-        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        self.assertIn('SCAN 失败', str(ctx.exception))
         self.assertIn('Connection refused by peer', str(ctx.exception))
         conn.scan_iter.assert_not_called()
 
         with self.assertRaises(DbError) as ctx:
             run_console_statement(conn, 'redis', 'SCAN 0')
-        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        self.assertIn('SCAN 失败', str(ctx.exception))
         conn.scan_iter.assert_not_called()
 
     def test_standalone_scan_type_error_propagates_no_scan_iter(self):
@@ -500,57 +533,75 @@ class RedisConsoleScanContractTests(unittest.TestCase):
 
         with self.assertRaises(DbError) as ctx:
             run_read_query(conn, 'redis', 'SCAN 0')
-        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        self.assertIn('SCAN 失败', str(ctx.exception))
         conn.scan_iter.assert_not_called()
 
         conn.scan.side_effect = ValueError("Invalid cursor format")
         with self.assertRaises(DbError) as ctx:
             run_console_statement(conn, 'redis', 'SCAN 0')
-        self.assertIn('Redis SCAN 执行失败', str(ctx.exception))
+        self.assertIn('SCAN 失败', str(ctx.exception))
         conn.scan_iter.assert_not_called()
 
-    def test_cluster_scan_returns_dict_cursor_has_more_true(self):
-        """C. Cluster scan returns: ({"node-a": 100, "node-b": 0}, [keys...]) -> offset 保持 dict -> has_more=True"""
+    def test_cluster_scan_first_page_returns_dict_cursor_has_more_true(self):
+        """C1. First Cluster page: scan(cursor=0) -> ({"node-a": 100, "node-b": 0}, ["k1"]) -> offset 保持 dict, has_more=True"""
         from tools.db_connect import run_read_query
-        conn = MagicMock()
-        conn.scan.return_value = ({"node-a": 100, "node-b": 0}, ["k1", "k2"])
+        conn = StrictClusterConn()
 
-        res = run_read_query(conn, 'redis', 'SCAN 0', limit=10)
-        self.assertEqual(res['rows'], [["k1"], ["k2"]])
+        res = run_read_query(conn, 'redis', 'SCAN 0', limit=1)
+        self.assertEqual(res['rows'], [["k1"]])
         self.assertEqual(res['offset'], {"node-a": 100, "node-b": 0})
         self.assertTrue(res['has_more'])
+        self.assertEqual(len(conn.scan_calls), 1)
+        self.assertEqual(conn.scan_calls[0]["cursor"], 0)
+        self.assertIsNone(conn.scan_calls[0]["target_nodes"])
 
-    def test_cluster_scan_next_page_preserves_dict_cursor(self):
-        """D. 下一页传入上述 dict cursor -> conn.scan 收到同一 cursor contract -> 不 int(dict)"""
+    def test_cluster_scan_second_page_uses_scalar_cursor_and_target_node(self):
+        """C2. Second Cluster page: 传入 dict offset -> get_node("node-a") -> scan(cursor=100, target_nodes=node_a) -> 严格标量游标"""
         from tools.db_connect import run_read_query, run_console_statement
-        conn = MagicMock()
+        conn = StrictClusterConn()
         dict_cursor = {"node-a": 100, "node-b": 0}
-        conn.scan.return_value = ({"node-a": 200, "node-b": 0}, ["k3"])
 
         # Page 2 via run_read_query with dict offset
-        res = run_read_query(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=10)
-        conn.scan.assert_called_with(cursor=dict_cursor, match='*', count=10)
-        self.assertEqual(res['offset'], {"node-a": 200, "node-b": 0})
+        res = run_read_query(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=1)
+        self.assertEqual(res['rows'], [["k2"]])
+        self.assertEqual(res['offset'], {"node-a": 50, "node-b": 0})
         self.assertTrue(res['has_more'])
 
+        # 验证调用详情：必须是标量 cursor=100 与 target_nodes=node_a
+        self.assertEqual(len(conn.scan_calls), 1)
+        self.assertEqual(conn.scan_calls[0]["cursor"], 100)
+        self.assertIsInstance(conn.scan_calls[0]["cursor"], int)
+        self.assertEqual(conn.scan_calls[0]["target_nodes"], conn.node_a)
+
         # Page 2 via run_console_statement with dict offset
-        conn.scan.reset_mock()
-        conn.scan.return_value = ({"node-a": 250, "node-b": 0}, ["k4"])
-        res2 = run_console_statement(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=10)
-        conn.scan.assert_called_with(cursor=dict_cursor, match='*', count=10)
-        self.assertEqual(res2['offset'], {"node-a": 250, "node-b": 0})
+        conn.scan_calls.clear()
+        res2 = run_console_statement(conn, 'redis', 'SCAN 0', offset=dict_cursor, limit=1)
+        self.assertEqual(res2['rows'], [["k2"]])
+        self.assertEqual(res2['offset'], {"node-a": 50, "node-b": 0})
         self.assertTrue(res2['has_more'])
+        self.assertEqual(conn.scan_calls[0]["cursor"], 100)
+        self.assertEqual(conn.scan_calls[0]["target_nodes"], conn.node_a)
 
     def test_cluster_scan_final_has_more_false(self):
-        """E. Cluster final: {"node-a": 0, "node-b": 0} -> has_more=False"""
+        """C3. Final: node-a 返回 0 -> 全部节点耗尽 -> has_more=False"""
         from tools.db_connect import run_read_query
-        conn = MagicMock()
-        final_cursor = {"node-a": 0, "node-b": 0}
-        conn.scan.return_value = (final_cursor, ["k5"])
-
-        res = run_read_query(conn, 'redis', 'SCAN 0', offset={"node-a": 200, "node-b": 0}, limit=10)
-        self.assertEqual(res['offset'], final_cursor)
+        conn = StrictClusterConn()
+        res = run_read_query(conn, 'redis', 'SCAN 0', offset={"node-a": 50, "node-b": 0}, limit=1)
+        self.assertEqual(res['rows'], [["k3"]])
+        self.assertEqual(res['offset'], {"node-a": 0, "node-b": 0})
         self.assertFalse(res['has_more'])
+
+    def test_cluster_scan_partial_not_silent(self):
+        """C4. 节点故障时 partial/failed_nodes 不得静默，传播 warning 并在结果中暴露"""
+        from tools.db_connect import run_read_query
+        conn = StrictClusterConn()
+        conn.get_node = lambda node_name=None: None  # 模拟 node 丢失
+
+        res = run_read_query(conn, 'redis', 'SCAN 0', offset={"node-a": 100, "node-b": 0}, limit=1)
+        self.assertTrue(res['partial'])
+        self.assertTrue(res['incomplete'])
+        self.assertIn("node-a", res['failed_nodes'])
+        self.assertIn("node-a", res.get('warning', ''))
 
 
 if __name__ == "__main__":

@@ -170,16 +170,24 @@ class _DbWorker(QThread):
                 save_snapshot(payload)
                 self.completed.emit(payload)
             elif self.kind == 'query':
+                raw_offset = self.kwargs.get('offset')
+                if isinstance(raw_offset, dict):
+                    offset_val = dict(raw_offset)
+                else:
+                    offset_val = int(raw_offset or 0)
                 result = run_console_statement(
                     conn, dialect, self.kwargs.get('sql') or '',
-                    offset=int(self.kwargs.get('offset') or 0),
+                    offset=offset_val,
                     limit=int(self.kwargs.get('limit') or PAGE_SIZE),
                 )
                 self.completed.emit(result)
             elif self.kind == 'fetch_all':
+                raw_offset = self.kwargs.get('offset')
+                if isinstance(raw_offset, dict):
+                    raise DbError('Redis Cluster SCAN 不支持「获取全部」，请使用「下一页」分页扫描')
                 result = fetch_query_chunks(
                     conn, dialect, self.kwargs.get('sql') or '',
-                    offset=int(self.kwargs.get('offset') or 0),
+                    offset=int(raw_offset or 0),
                     chunk_size=int(self.kwargs.get('chunk_size') or FETCH_CHUNK),
                     byte_limit=int(self.kwargs.get('byte_limit') or RESULT_BYTE_LIMIT),
                     cancel=lambda: self.cancelled,
@@ -1168,7 +1176,10 @@ class AiWorkbenchPanel(QWidget):
             return
         self.all_btn.setText('获取全部' if zh else 'Fetch all')
         self.next_btn.setEnabled(self._has_more)
-        self.all_btn.setEnabled(self._has_more)
+        if isinstance(self._offset, dict):
+            self.all_btn.setEnabled(False)
+        else:
+            self.all_btn.setEnabled(self._has_more)
 
     def _start_db(self, kind: str, **kwargs):
         item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
@@ -1234,7 +1245,11 @@ class AiWorkbenchPanel(QWidget):
         if kind in ('query', 'fetch_all'):
             append = bool(kwargs.get('append'))
             self._last_sql = str(payload.get('sql') or self._last_sql)
-            self._offset = int(payload.get('offset') or 0)
+            raw_offset = payload.get('offset')
+            if isinstance(raw_offset, dict):
+                self._offset = dict(raw_offset)
+            else:
+                self._offset = int(raw_offset or 0)
             self._has_more = bool(payload.get('has_more'))
             self._fill_result(payload, append=append)
             shown = self.result.rowCount()
@@ -1242,6 +1257,8 @@ class AiWorkbenchPanel(QWidget):
             rowcount = payload.get('rowcount', shown)
             tx = payload.get('tx') or ''
             extra = ''
+            if payload.get('warning'):
+                extra += f'，警告：{payload.get("warning")}' if zh else f', Warning: {payload.get("warning")}'
             if tx == 'committed':
                 extra = '，已提交' if zh else ', committed'
             elif tx == 'implicit':
@@ -1411,6 +1428,14 @@ class AiWorkbenchPanel(QWidget):
 
     def _fetch_all(self):
         if not self._last_sql or not self._has_more:
+            return
+        if isinstance(self._offset, dict):
+            zh = self.language == 'zh'
+            self.result_status.setText(
+                'Redis Cluster SCAN 请使用「下一页」继续扫描'
+                if zh else
+                'Redis Cluster SCAN: please use "Next" to continue scanning'
+            )
             return
         self._start_db(
             'fetch_all',

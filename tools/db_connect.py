@@ -909,25 +909,36 @@ def _run_redis(conn, sql: str, offset: int, limit: int) -> dict:
                         count = int(args[i + 1])
                     except ValueError:
                         pass
-        try:
-            raw_res = conn.scan(cursor=cursor, match=match, count=max(count, int(limit)))
-            if isinstance(raw_res, tuple) and len(raw_res) == 2:
-                cursor_out, keys = raw_res
-            else:
-                cursor_out, keys = 0, []
-        except Exception as exc:
-            text = redact_error(str(exc))
-            raise DbError(f'Redis SCAN 执行失败：{text}') from exc
+        from tools.db_redis_ops import redis_scan_page
+        page = redis_scan_page(
+            conn,
+            pattern=match,
+            cursor=cursor,
+            count=max(count, int(limit)),
+            limit=int(limit),
+        )
         columns = ['key']
-        rows = [[_b(key)] for key in keys]
-        if isinstance(cursor_out, dict):
-            has_more = any(int(c or 0) != 0 for c in cursor_out.values())
-        else:
-            has_more = int(cursor_out or 0) != 0
-        return {
-            'columns': columns, 'rows': rows, 'offset': cursor_out,
-            'limit': int(limit), 'has_more': has_more, 'sql': sql,
+        rows = [[_b(key)] for key in page.get('keys') or []]
+        cursor_out = page.get('cursor', 0)
+        has_more = not bool(page.get('finished'))
+        partial = bool(page.get('partial'))
+        failed_nodes = list(page.get('failed_nodes') or [])
+
+        res = {
+            'columns': columns,
+            'rows': rows,
+            'offset': cursor_out,
+            'limit': int(limit),
+            'has_more': has_more,
+            'sql': sql,
+            'partial': partial,
+            'incomplete': bool(page.get('incomplete')),
+            'failed_nodes': failed_nodes,
         }
+        if partial or failed_nodes:
+            failed_str = ', '.join(failed_nodes)
+            res['warning'] = f'Redis 节点扫描不完整，失败节点: {failed_str}'
+        return res
     if cmd in ('get', 'type', 'ttl', 'pttl', 'strlen', 'exists'):
         key = args[0] if args else ''
         value = conn.execute_command(*parts)

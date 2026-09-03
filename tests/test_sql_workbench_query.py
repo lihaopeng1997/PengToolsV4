@@ -326,5 +326,89 @@ class AiLayoutMenuTests(unittest.TestCase):
         panel.deleteLater()
 
 
+class RedisClusterGuiContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_db_worker_run_redis_dict_offset_not_int(self):
+        """D. Real GUI worker path: _DbWorker.run() with Redis query + dict offset 不得 int(dict)，验证收到 cursor state"""
+        from panels.ai_workbench_panel import _DbWorker
+
+        worker = _DbWorker(
+            kind='query',
+            item={'dialect': 'redis', 'name': 'test-cluster'},
+            sql='SCAN 0',
+            offset={'node-a': 100, 'node-b': 0},
+            limit=10,
+        )
+        fake_conn = MagicMock()
+        completed_results = []
+        worker.completed.connect(lambda res: completed_results.append(res))
+
+        with patch('panels.ai_workbench_panel.open_connection', return_value=fake_conn), \
+             patch('panels.ai_workbench_panel.close_connection'), \
+             patch('panels.ai_workbench_panel.run_console_statement') as mock_stmt:
+            mock_stmt.return_value = {'rows': [['k1']], 'offset': {'node-a': 50, 'node-b': 0}, 'has_more': True}
+            worker.run()
+            self.assertEqual(len(completed_results), 1)
+            mock_stmt.assert_called_once_with(
+                fake_conn, 'redis', 'SCAN 0',
+                offset={'node-a': 100, 'node-b': 0},
+                limit=10,
+            )
+
+    def test_panel_query_result_preserves_dict_offset_and_fetch_next(self):
+        """E. Real Panel result path: 接收 payload['offset'] = dict 不抛 TypeError，_offset 为 dict，_fetch_next 正确传递"""
+        panel = AiWorkbenchPanel(language='zh')
+        try:
+            panel._query_status = 'query'
+            payload = {
+                'sql': 'SCAN 0',
+                'offset': {'node-a': 100, 'node-b': 0},
+                'has_more': True,
+                'rows': [['k1'], ['k2']],
+                'columns': ['key'],
+                'elapsed_ms': 15,
+                'warning': 'Redis 节点扫描不完整，失败节点: node-c',
+            }
+            panel._on_db_ok('query', payload, kwargs={'append': False})
+            self.assertIsInstance(panel._offset, dict)
+            self.assertEqual(panel._offset, {'node-a': 100, 'node-b': 0})
+            self.assertTrue(panel._has_more)
+            self.assertIn('node-c', panel.result_status.text())
+
+            with patch.object(panel, '_start_db') as mock_start:
+                panel._fetch_next()
+                mock_start.assert_called_once_with(
+                    'query',
+                    sql='SCAN 0',
+                    offset={'node-a': 100, 'node-b': 0},
+                    limit=20,
+                    append=True,
+                )
+        finally:
+            panel.deleteLater()
+
+    def test_fetch_all_guard_when_offset_is_dict(self):
+        """F. Fetch All guard: 当 _offset 为 dict 且 has_more=True 时，next_btn enabled, all_btn disabled；调用 _fetch_all 不启动 worker 不 int(dict)"""
+        panel = AiWorkbenchPanel(language='zh')
+        try:
+            panel._offset = {'node-a': 100, 'node-b': 0}
+            panel._has_more = True
+            panel._last_sql = 'SCAN 0'
+            panel._sync_fetch_buttons()
+
+            self.assertTrue(panel.next_btn.isEnabled())
+            self.assertFalse(panel.all_btn.isEnabled())
+
+            with patch.object(panel, '_start_db') as mock_start:
+                panel._fetch_all()
+                mock_start.assert_not_called()
+                self.assertIn('下一页', panel.result_status.text())
+        finally:
+            panel.deleteLater()
+
+
 if __name__ == '__main__':
     unittest.main()
