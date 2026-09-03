@@ -48,6 +48,21 @@ class _MongoWorker(QThread):
         try:
             conn = open_connection(self.item)
             if self.kind == 'test':
+                # 测试不仅 ping，还校验目标库集合读取权限，杜绝测试成功但刷新报错
+                target_database = str(self.item.get('database') or '').strip()
+                if target_database and target_database != 'admin':
+                    try:
+                        conn.list_collection_names()
+                    except Exception as perm_exc:
+                        p_code = getattr(perm_exc, 'code', None)
+                        p_low = str(perm_exc).lower()
+                        if p_code == 13 or 'unauthorized' in p_low or 'not authorized' in p_low:
+                            from tools.db_connect import clean_mongo_error_message
+                            cleaned = clean_mongo_error_message(perm_exc)
+                            raise DbError(
+                                f"[AUTHZ_ERROR] 连接认证成功，但对数据库「{target_database}」授权不足（Unauthorized / code 13）："
+                                f"缺少集合列表权限（listCollections）。\n原始错误：{cleaned}"
+                            ) from perm_exc
                 self.completed.emit('test', {'ok': True})
             elif self.kind == 'collections':
                 colls = list_collections(conn)
@@ -452,8 +467,19 @@ class MongoDBWorkbenchPanel(QWidget):
     # ── 文档查询 ──────────────────────────────────────────────────────────
 
     def _run_query(self):
+        coll = self._selected_coll
+        raw = self.query_input.toPlainText().strip()
+        if not coll and raw:
+            try:
+                parsed = parse_mongo_query(raw)
+                extracted = parsed.get('collection') or ''
+                if extracted:
+                    self._selected_coll = extracted
+                    coll = extracted
+            except Exception:
+                pass
         if not self._selected_coll:
-            show_warning(self, self._title(), '请先选择集合' if self.language == 'zh' else 'Pick a collection')
+            show_warning(self, self._title(), '请先选择集合或在命令中指定集合（如 db.my_coll.find()）' if self.language == 'zh' else 'Pick a collection or specify in query (e.g. db.my_coll.find())')
             return
         item = self._current_conn()
         if not item:
@@ -710,8 +736,29 @@ class MongoDBWorkbenchPanel(QWidget):
                 text = str(docs)
             self.cmd_output.appendPlainText(text)
 
+    def _render_unauthorized_collections(self, error: str):
+        self.coll_tree.blockSignals(True)
+        self.coll_tree.clear()
+        db = self._selected_db or 'db'
+        root = QTreeWidgetItem([f'{db} (未授权 listCollections)' if self.language == 'zh' else f'{db} (unauthorized listCollections)'])
+        root.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'db', 'name': db})
+        hint_child = QTreeWidgetItem([
+            '⚠️ 授权不足，请在右侧直接输入集合名查询' if self.language == 'zh' else '⚠️ Unauthorized, specify collection name in query directly'
+        ])
+        hint_child.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'hint'})
+        root.addChild(hint_child)
+        self.coll_tree.addTopLevelItem(root)
+        root.setExpanded(True)
+        self.coll_tree.blockSignals(False)
+        self.coll_stats.setText(
+            '集合列表未授权 (code 13)' if self.language == 'zh' else 'Unauthorized listCollections (code 13)'
+        )
+
     def _on_worker_failed(self, kind: str, error: str):
         if kind == 'command':
             self.cmd_output.appendPlainText(f'错误: {error}')
+        elif kind == 'collections' and ('[AUTHZ_ERROR]' in error or 'code 13' in error or 'unauthorized' in error.lower() or 'not authorized' in error.lower()):
+            self._render_unauthorized_collections(error)
+            show_warning(self, self._title(), error)
         else:
             show_error(self, self._title(), error)

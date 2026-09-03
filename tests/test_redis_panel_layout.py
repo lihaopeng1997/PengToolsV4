@@ -56,8 +56,8 @@ class RedisPanelLayoutGeometryTest(unittest.TestCase):
             src = fh.read()
         self.assertNotIn('root.replaceWidget(', src, '禁止 replaceWidget 布局断链构造')
         self.assertNotIn('make_page_header', src, 'Redis 内容区不应再有视觉 header')
-        self.assertIn('root.addWidget(self._bottom_split, 1)', src,
-                      '_bottom_split 必须直接作为 root 主 stretch 内容')
+        self.assertIn('root.addWidget(self.main_split, 1)', src,
+                      'main_split 必须直接作为 root 主 stretch 内容')
 
 
 if __name__ == '__main__':

@@ -341,10 +341,34 @@ class ConnectionDialog(QDialog):
                 else "\nLegacy configurations may have saved SID/service; Windows ODBC provider uses Database as Schema, please verify and resave."
             ) if needs_confirmation else ""
 
+            from tools.db_connect import oceanbase_oracle_provider_status
+            st = oceanbase_oracle_provider_status()
+            driver_avail = bool(st.get("driver_available"))
+            driver_name = str(st.get("driver") or "")
+            drivers_installed = st.get("installed_drivers") or []
+
+            if driver_avail:
+                status_tip = (
+                    f"✅ 系统已检测到 OceanBase ODBC 驱动（{driver_name}）。"
+                    if zh else
+                    f"✅ OceanBase ODBC driver ready ({driver_name})."
+                )
+            else:
+                installed_preview = ("，当前系统仅检测到：" + "、".join(drivers_installed[:4])) if drivers_installed else "，当前系统未检测到任何 ODBC 驱动"
+                status_tip = (
+                    f"⚠️ 未检测到 Windows x64 OceanBase ODBC 驱动（pyodbc 5.3.0 已就绪{installed_preview}）。\n"
+                    "请前往 OceanBase 官网下载并安装「OceanBase Connector/ODBC」（首选驱动名：OceanBase ODBC 2.0 Driver）。"
+                    if zh else
+                    f"⚠️ OceanBase ODBC driver not found (pyodbc 5.3.0 ready{installed_preview}).\n"
+                    "Please download and install Windows x64 OceanBase Connector/ODBC (preferred: OceanBase ODBC 2.0 Driver)."
+                )
+
             self.oracle_hint.setText(
-                ("提示：OceanBase Oracle 模式使用 Windows OceanBase Connector/ODBC（Python pyodbc 绑定）。若未安装系统驱动，测试连接时将提示安装 x64 ODBC 驱动。" + migration_msg)
+                ("提示：OceanBase Oracle 模式使用 Windows OceanBase Connector/ODBC（Python pyodbc 绑定）。\n"
+                 f"{status_tip}" + migration_msg)
                 if zh
-                else ("Notice: OceanBase Oracle mode uses Windows OceanBase Connector/ODBC (pyodbc binding). Install x64 ODBC driver if missing." + migration_msg)
+                else ("Notice: OceanBase Oracle mode uses Windows OceanBase Connector/ODBC (pyodbc binding).\n"
+                      f"{status_tip}" + migration_msg)
             )
             self.oracle_hint.setVisible(True)
             self.database_label.setText("Database / Schema")

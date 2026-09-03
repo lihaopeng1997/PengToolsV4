@@ -193,10 +193,49 @@ def _redis_error_message(exc: BaseException, auth_mode: str) -> str:
     return f'Redis 连接失败：{text}'
 
 
+def clean_mongo_error_message(exc_or_text: BaseException | str) -> str:
+    """清理 MongoDB 报错信息中的内部噪声（$clusterTime, lsid, signature, operationTime 等）。"""
+    import re
+    if isinstance(exc_or_text, BaseException):
+        details = getattr(exc_or_text, 'details', None)
+        if isinstance(details, dict):
+            errmsg = str(details.get('errmsg') or '').strip()
+            code = details.get('code')
+            code_name = str(details.get('codeName') or '').strip()
+            if errmsg:
+                tag = f" (code {code}: {code_name})" if (code is not None and code_name) else (f" (code {code})" if code is not None else "")
+                return f"{errmsg}{tag}"
+        raw = str(exc_or_text)
+    else:
+        raw = str(exc_or_text or '')
+
+    cleaned = redact_error(raw)
+    cleaned = re.sub(r",\s*['\"]\$clusterTime['\"]\s*:\s*\{.*?\}\s*\}", "", cleaned)
+    cleaned = re.sub(r",\s*['\"]operationTime['\"]\s*:\s*Timestamp\(.*?\)", "", cleaned)
+    cleaned = re.sub(r",\s*['\"]lsid['\"]\s*:\s*\{.*?\}", "", cleaned)
+    cleaned = re.sub(r",\s*['\"]signature['\"]\s*:\s*\{.*?\}", "", cleaned)
+    m_err = re.search(r"['\"]errmsg['\"]\s*:\s*['\"](.*?)['\"]", cleaned)
+    m_code = re.search(r"['\"]code['\"]\s*:\s*(\d+)", cleaned)
+    m_codename = re.search(r"['\"]codeName['\"]\s*:\s*['\"](.*?)['\"]", cleaned)
+    if m_err:
+        errmsg = m_err.group(1)
+        code = m_code.group(1) if m_code else None
+        cname = m_codename.group(1) if m_codename else None
+        tag = f" (code {code}: {cname})" if (code and cname) else (f" (code {code})" if code else "")
+        prefix = cleaned.split(", full error:")[0] if ", full error:" in cleaned else ""
+        if prefix and prefix.strip() != errmsg.strip():
+            return f"{prefix.strip()}: {errmsg}{tag}"
+        return f"{errmsg}{tag}"
+    return cleaned.strip()
+
+
 def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
-    text = redact_error(str(exc))
+    cleaned_err = clean_mongo_error_message(exc)
     code = getattr(exc, 'code', None)
-    low = text.lower()
+    if code is None and hasattr(exc, 'details') and isinstance(exc.details, dict):
+        code = exc.details.get('code')
+    low = (str(exc) + ' ' + cleaned_err).lower()
+    has_user = bool(item and str(item.get('username') or '').strip())
 
     safe_info = []
     if item:
@@ -225,15 +264,29 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
     except ImportError:
         pyerrors = None
 
-    # 1. 认证错误
+    # 1. 认证错误 (code 18 / AuthenticationFailed)
     if code == 18 or 'authentication failed' in low or 'authenticationfailed' in low:
         return (
             f'[AUTH_ERROR] MongoDB 认证失败（AuthenticationFailed / code 18）。\n'
             '请核对用户名、密码、认证库（authSource）和认证机制。'
-            f'{config_ctx}\n原始错误：{text}'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
         )
 
-    # 2. TLS/SSL 错误（优先于 ServerSelectionTimeout，因为底层证书/握手失败常被 PyMongo 包装为 ServerSelectionTimeoutError）
+    # 2. 授权不足或未配置账号 (code 13 / Unauthorized / requires authentication)
+    if code == 13 or 'unauthorized' in low or 'not authorized' in low or 'requires authentication' in low:
+        if not has_user and 'requires authentication' in low:
+            return (
+                f'[AUTH_REQUIRED] MongoDB 服务器要求身份认证（Unauthorized / code 13）。\n'
+                '当前连接未配置用户名与密码，请在连接设置中配置鉴权账号。'
+                f'{config_ctx}\n原始错误：{cleaned_err}'
+            )
+        return (
+            f'[AUTHZ_ERROR] MongoDB 授权不足（Unauthorized / code 13）。\n'
+            '当前用户已通过认证，但对目标数据库或集合缺少操作权限（例如缺少 read 或 listCollections 角色）。'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
+        )
+
+    # 3. TLS/SSL 错误（优先于 ServerSelectionTimeout，因为底层证书/握手失败常被 PyMongo 包装为 ServerSelectionTimeoutError）
     is_tls = (
         'certificate_verify_failed' in low
         or 'ssl: certificate_verify_failed' in low
@@ -247,10 +300,10 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
     if is_tls:
         return (
             f'[TLS_ERROR] MongoDB TLS/SSL 握手或证书验证失败。\n'
-            f'{config_ctx}\n原始错误：{text}'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
         )
 
-    # 3. 服务器选择超时 / 节点拓扑选择失败（在排除 TLS 之后）
+    # 4. 服务器选择超时 / 节点拓扑选择失败（在排除 TLS 之后）
     is_server_timeout = (
         (pyerrors is not None and isinstance(exc, getattr(pyerrors, 'ServerSelectionTimeoutError', ())))
         or exc_type_name == 'ServerSelectionTimeoutError'
@@ -263,10 +316,10 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
         return (
             f'[SERVER_SELECTION_ERROR] MongoDB 服务器选择超时，无法连通目标节点或无可用主节点。\n'
             '请检查集群各节点主机名、IP、端口及网络链路是否通畅。'
-            f'{config_ctx}\n原始错误：{text}'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
         )
 
-    # 4. 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
+    # 5. 副本集名称不匹配：仅在明确属于名称不匹配/非副本集成员时分类，不把全部包含 replicaset 的错误乱归类
     rs_mismatch = (
         'not a member of replica set' in low
         or 'does not match the replica set name' in low
@@ -278,15 +331,15 @@ def _mongo_error_message(exc: BaseException, item: dict | None = None) -> str:
         return (
             f'[REPLICA_SET_MISMATCH] MongoDB 副本集配置不匹配。\n'
             '请检查所填写的 ReplicaSet 名称是否与集群实际副本集名称一致，若连接 mongos 或分片集群请留空。'
-            f'{config_ctx}\n原始错误：{text}'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
         )
 
     if 'invaliduri' in low or 'configurationerror' in low or 'invalid' in low:
         return (
             f'[INVALID_CONFIG] MongoDB 配置无效。\n'
-            f'{config_ctx}\n原始错误：{text}'
+            f'{config_ctx}\n原始错误：{cleaned_err}'
         )
-    return f'MongoDB 连接失败：{text}{config_ctx}'
+    return f'MongoDB 连接失败：{cleaned_err}{config_ctx}'
 
 
 def _encrypt(plain: str) -> str:
@@ -605,6 +658,7 @@ def oceanbase_oracle_provider_status() -> dict:
         'pyodbc_version': pyodbc_version,
         'driver_available': driver_available,
         'driver': driver_name,
+        'installed_drivers': drivers,
         'ready': bool(pyodbc_available and driver_available),
         'status_code': status_code,
         'message': message,
@@ -930,7 +984,8 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
             return {'ok': True, 'summary': summary, 'info': info}
         if dialect == 'mongodb':
             client = getattr(conn, 'client', None) or conn
-            target_db = conn if hasattr(conn, 'command') else client[item.get('database') or 'admin']
+            target_database = str(item.get('database') or '').strip()
+            target_db = conn if hasattr(conn, 'command') else client[target_database or 'admin']
             try:
                 target_db.command('ping')
             except Exception:
@@ -940,6 +995,24 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
                 dbs = client.list_database_names()
                 meta_info = f'，可访问数据库数：{len(dbs)}'
             except Exception:
+                pass
+
+            # 深入探测业务库实际访问权限，杜绝测试通过但刷新报 Unauthorized
+            if target_database and target_database != 'admin':
+                try:
+                    cols = target_db.list_collection_names()
+                    if not meta_info:
+                        meta_info = f'，当前库集合数：{len(cols)}'
+                except Exception as probe_err:
+                    p_code = getattr(probe_err, 'code', None)
+                    p_low = str(probe_err).lower()
+                    if p_code == 13 or 'unauthorized' in p_low or 'not authorized' in p_low:
+                        cleaned = clean_mongo_error_message(probe_err)
+                        raise DbError(
+                            f"[AUTHZ_ERROR] MongoDB 连接认证成功，但对目标数据库「{target_database}」授权不足（Unauthorized / code 13）："
+                            f"缺少读取集合列表权限（listCollections）。\n原始错误：{cleaned}"
+                        ) from probe_err
+            elif not meta_info:
                 try:
                     cols = target_db.list_collection_names()
                     meta_info = f'，当前库集合数：{len(cols)}'

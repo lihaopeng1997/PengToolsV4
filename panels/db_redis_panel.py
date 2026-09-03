@@ -32,7 +32,7 @@ from ui.confirm_dialog import confirm_action, show_error, show_info, show_warnin
 from ui.design_system import apply_button, apply_table
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_page_toolbar
-from ui.icons import apply_icon
+from ui.icons import apply_icon, qicon
 from ui.splitter_prefs import install_splitter_prefs
 
 
@@ -190,13 +190,12 @@ class RedisWorkbenchPanel(QWidget):
         self.toolbar = toolbar
         root.addWidget(toolbar)
 
-        # 主区：左 Key 树 | 右（详情/AI 助手）
-        body = QSplitter(Qt.Orientation.Horizontal)
-
+        # ── 左侧容器：全高拉伸 ──────────────────────────────────────────────
         left = QFrame()
         left.setObjectName('dashboard-task-card')
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(8, 8, 8, 8)
+        left_l.setSpacing(6)
         self.db_badge = QLabel()
         self.db_badge.setObjectName('status-pill')
         left_l.addWidget(self.db_badge)
@@ -205,39 +204,73 @@ class RedisWorkbenchPanel(QWidget):
         self.key_filter.setPlaceholderText('搜索 Key / 前缀')
         self.key_filter.textChanged.connect(self._on_filter_changed)
         left_l.addWidget(self.key_filter)
+
+        # 内部垂直 Splitter：上方 Prefix 树，下方 Key 列表
+        self.left_split = QSplitter(Qt.Orientation.Vertical)
+
+        # 上半部分：Prefix 树
+        tree_container = QWidget()
+        tree_l = QVBoxLayout(tree_container)
+        tree_l.setContentsMargins(0, 0, 0, 0)
+        tree_l.setSpacing(4)
         self.prefix_label = QLabel()
         self.prefix_label.setObjectName('field-hint')
-        left_l.addWidget(self.prefix_label)
+        tree_l.addWidget(self.prefix_label)
         self.key_tree = QTreeWidget()
         self.key_tree.setColumnCount(2)
         self.key_tree.setHeaderLabels(['Prefix', 'Keys'])
-        self.key_tree.setIndentation(14)
+        self.key_tree.setIndentation(18)
         self.key_tree.setRootIsDecorated(True)
         self.key_tree.itemClicked.connect(self._on_prefix_clicked)
         self.key_tree.header().setStretchLastSection(False)
         self.key_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.key_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        left_l.addWidget(self.key_tree, 1)
+        tree_l.addWidget(self.key_tree, 1)
+        self.left_split.addWidget(tree_container)
+
+        # 下半部分：Key 列表与面包屑导航栏
+        list_container = QWidget()
+        list_l = QVBoxLayout(list_container)
+        list_l.setContentsMargins(0, 0, 0, 0)
+        list_l.setSpacing(4)
+
+        breadcrumb_bar = QHBoxLayout()
+        breadcrumb_bar.setContentsMargins(0, 2, 0, 2)
+        breadcrumb_bar.setSpacing(6)
         self.key_list_label = QLabel()
         self.key_list_label.setObjectName('field-hint')
-        left_l.addWidget(self.key_list_label)
+        self.key_list_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.clear_prefix_btn = QPushButton()
+        apply_button(self.clear_prefix_btn, 'ghost', compact=True)
+        self.clear_prefix_btn.hide()
+        self.clear_prefix_btn.clicked.connect(self._clear_selected_prefix)
+        breadcrumb_bar.addWidget(self.key_list_label, 1)
+        breadcrumb_bar.addWidget(self.clear_prefix_btn)
+        list_l.addLayout(breadcrumb_bar)
+
         self.key_list = QListWidget()
         self.key_list.itemClicked.connect(self._on_key_list_clicked)
-        left_l.addWidget(self.key_list, 1)
+        list_l.addWidget(self.key_list, 1)
         self.load_more_btn = QPushButton()
         apply_button(self.load_more_btn, 'ghost', compact=True)
         self.load_more_btn.clicked.connect(self._load_more_keys)
         self.load_more_btn.hide()
-        left_l.addWidget(self.load_more_btn)
+        list_l.addWidget(self.load_more_btn)
         self.key_stats = QLabel()
         self.key_stats.setObjectName('field-hint')
         self.key_stats.setWordWrap(True)
-        left_l.addWidget(self.key_stats)
-        body.addWidget(left)
+        list_l.addWidget(self.key_stats)
+        self.left_split.addWidget(list_container)
 
-        right = QFrame()
-        right_l = QVBoxLayout(right)
-        right_l.setContentsMargins(0, 0, 0, 0)
+        self.left_split.setStretchFactor(0, 1)
+        self.left_split.setStretchFactor(1, 1)
+        left_l.addWidget(self.left_split, 1)
+        install_splitter_prefs(
+            self.left_split, defaults=[260, 360], page_id='redis-workbench', tab_id='left_split',
+            min_sizes=[120, 150], accessible_name='Redis 左侧前缀与Key列表分隔',
+        )
+
+        # ── 右侧区域 ───────────────────────────────────────────────────────
         self.side_tabs = QTabWidget()
 
         overview = QWidget()
@@ -297,9 +330,27 @@ class RedisWorkbenchPanel(QWidget):
         self.key_meta.setWordWrap(True)
         det_l.addWidget(self.key_meta)
         self.value_tabs = QTabWidget()
+
+        # String 子页签：增加多编码切换栏
+        str_container = QWidget()
+        str_l = QVBoxLayout(str_container)
+        str_l.setContentsMargins(0, 4, 0, 0)
+        str_l.setSpacing(4)
+        fmt_bar = QHBoxLayout()
+        self.fmt_label = QLabel('编码视图:')
+        self.fmt_label.setObjectName('field-hint')
+        self.fmt_combo = QComboBox()
+        self.fmt_combo.addItems(['自动安全解码', 'UTF-8', 'GB18030', 'Hex (十六进制)', 'JSON (格式化)'])
+        self.fmt_combo.currentIndexChanged.connect(self._on_fmt_changed)
+        fmt_bar.addWidget(self.fmt_label)
+        fmt_bar.addWidget(self.fmt_combo)
+        fmt_bar.addStretch(1)
+        str_l.addLayout(fmt_bar)
         self.string_value = QPlainTextEdit()
         self.string_value.setReadOnly(True)
-        self.value_tabs.addTab(self.string_value, 'String')
+        str_l.addWidget(self.string_value, 1)
+        self.value_tabs.addTab(str_container, 'String')
+
         self.hash_table = QTableWidget()
         self.hash_table.setColumnCount(2)
         self.hash_table.setHorizontalHeaderLabels(['field', 'value'])
@@ -369,16 +420,7 @@ class RedisWorkbenchPanel(QWidget):
         ai_l.addLayout(ai_send)
         self.side_tabs.addTab(ai_page, 'AI 助手')
 
-        right_l.addWidget(self.side_tabs)
-        body.addWidget(right)
-        body.setStretchFactor(0, 2)
-        body.setStretchFactor(1, 3)
-        install_splitter_prefs(
-            body, defaults=[340, 620], page_id='redis-workbench', tab_id='main',
-            min_sizes=[240, 400], accessible_name='Redis 左右分隔',
-        )
-
-        # 底部命令行
+        # 底部命令行（Console 只放右侧下方）
         bottom = QFrame()
         bottom.setObjectName('dashboard-task-card')
         bottom_l = QVBoxLayout(bottom)
@@ -398,21 +440,31 @@ class RedisWorkbenchPanel(QWidget):
         bottom_l.addLayout(cmd_bar)
         self.cmd_output = QPlainTextEdit()
         self.cmd_output.setReadOnly(True)
-        self.cmd_output.setMinimumHeight(160)
+        self.cmd_output.setMinimumHeight(120)
         bottom_l.addWidget(self.cmd_output, 1)
         self.bottom_frame = bottom
-        # 一次性构造成最终树：_bottom_split 直接成为 root 的主 stretch 内容。
-        # 禁止先 root.addWidget 再 reparent 进 splitter（replaceWidget 对已
-        # reparent 的子项不可靠，曾导致主业务区整体塌陷成空白）。
+
+        # 右侧上下垂直 Splitter：上面是详情页签，下面是控制台
         self._bottom_split = QSplitter(Qt.Orientation.Vertical)
-        self._bottom_split.addWidget(body)
+        self._bottom_split.addWidget(self.side_tabs)
         self._bottom_split.addWidget(bottom)
         self._bottom_split.setStretchFactor(0, 3)
         self._bottom_split.setStretchFactor(1, 1)
-        root.addWidget(self._bottom_split, 1)
         install_splitter_prefs(
-            self._bottom_split, defaults=[560, 220], page_id='redis-workbench', tab_id='body',
-            min_sizes=[240, 140], accessible_name='Redis 上下分隔',
+            self._bottom_split, defaults=[520, 200], page_id='redis-workbench', tab_id='right_split',
+            min_sizes=[240, 120], accessible_name='Redis 右侧上下分隔',
+        )
+
+        # 全局主水平 Splitter：左全高 Key 树与列表 | 右侧上下工作台与控制台
+        self.main_split = QSplitter(Qt.Orientation.Horizontal)
+        self.main_split.addWidget(left)
+        self.main_split.addWidget(self._bottom_split)
+        self.main_split.setStretchFactor(0, 2)
+        self.main_split.setStretchFactor(1, 5)
+        root.addWidget(self.main_split, 1)
+        install_splitter_prefs(
+            self.main_split, defaults=[340, 720], page_id='redis-workbench', tab_id='main_split',
+            min_sizes=[240, 400], accessible_name='Redis 左右主分隔',
         )
 
     def set_language(self, language):
@@ -426,8 +478,14 @@ class RedisWorkbenchPanel(QWidget):
         self.home_btn.setText('返回首页' if zh else 'Home')
         self.home_btn.setToolTip('返回首页' if zh else 'Return to Home')
         self.key_filter.setPlaceholderText('搜索 Key / 前缀' if zh else 'Search key / prefix')
-        self.prefix_label.setText('Prefix Tree')
-        self.key_list_label.setText('Selected Prefix Keys')
+        self.prefix_label.setText('前缀树 (Prefix Tree)' if zh else 'Prefix Tree')
+        if not getattr(self, '_selected_prefix', ''):
+            self.key_list_label.setText('全部 Key' if zh else 'All Keys')
+        else:
+            self.key_list_label.setText(f'前缀: {self._selected_prefix}' if zh else f'Prefix: {self._selected_prefix}')
+        self.clear_prefix_btn.setText('清空前缀' if zh else 'Clear')
+        if hasattr(self, 'fmt_label'):
+            self.fmt_label.setText('编码视图:' if zh else 'Encoding:')
         self.load_more_btn.setText('加载更多' if zh else 'Load more')
         self.nodes_title.setText('节点' if zh else 'Nodes')
         self.info_title.setText('Redis 信息' if zh else 'Redis INFO')
@@ -632,6 +690,13 @@ class RedisWorkbenchPanel(QWidget):
         self._tree_filter = text.strip()
         self._search_timer.start()
 
+    def _clear_selected_prefix(self):
+        self._selected_prefix = ''
+        self.key_list_label.setText('全部 Key' if self.language == 'zh' else 'All Keys')
+        self.clear_prefix_btn.hide()
+        self.key_tree.clearSelection()
+        self._render_key_list(self._key_cache)
+
     def _render_prefix_tree(self, keys: list[str], *, incomplete: bool):
         index = build_prefix_index(keys, incomplete=incomplete)
         self.key_tree.setUpdatesEnabled(False)
@@ -645,6 +710,9 @@ class RedisWorkbenchPanel(QWidget):
                 label = f'{count}+' if node.get('incomplete') else f'{count}'
                 item.setText(0, node.get('name') or '')
                 item.setText(1, label)
+                folder_ico = qicon('folder-open', size=14)
+                if not folder_ico.isNull():
+                    item.setIcon(0, folder_ico)
                 item.setToolTip(0, '基于当前扫描结果' if self.language == 'zh' else 'Based on current scan')
                 item.setData(0, Qt.ItemDataRole.UserRole, {
                     'kind': 'prefix', 'path': node.get('path') or '',
@@ -665,8 +733,11 @@ class RedisWorkbenchPanel(QWidget):
         shown = keys_for_prefix(keys, self._selected_prefix)
         self.key_list.setUpdatesEnabled(False)
         self.key_list.clear()
+        key_ico = qicon('shield-key', size=14)
         for key in shown[:5000]:
             item = QListWidgetItem(key)
+            if not key_ico.isNull():
+                item.setIcon(key_ico)
             self.key_list.addItem(item)
         self.key_list.setUpdatesEnabled(True)
         extra = ''
@@ -685,7 +756,12 @@ class RedisWorkbenchPanel(QWidget):
         meta = item.data(0, Qt.ItemDataRole.UserRole) or {}
         if meta.get('kind') != 'prefix':
             return
-        self._selected_prefix = str(meta.get('path') or '')
+        prefix = str(meta.get('path') or '')
+        self._selected_prefix = prefix
+        self.key_list_label.setText(
+            f'前缀: {prefix}' if self.language == 'zh' else f'Prefix: {prefix}'
+        )
+        self.clear_prefix_btn.show()
         self._render_key_list(self._key_cache)
 
     def _on_key_list_clicked(self, item: QListWidgetItem):
@@ -1000,6 +1076,32 @@ class RedisWorkbenchPanel(QWidget):
         else:
             show_error(self, self._title(), error)
 
+    def _on_fmt_changed(self, idx: int):
+        raw_b = getattr(self, '_raw_string_bytes', b'')
+        raw_t = getattr(self, '_raw_string_text', '')
+        if not raw_b and not raw_t:
+            return
+        if idx == 0:  # 自动安全解码
+            self.string_value.setPlainText(raw_t)
+        elif idx == 1:  # UTF-8
+            try:
+                self.string_value.setPlainText(raw_b.decode('utf-8'))
+            except Exception as e:
+                self.string_value.setPlainText(f'[UTF-8 解码失败: {e}]\n{raw_t}')
+        elif idx == 2:  # GB18030
+            try:
+                self.string_value.setPlainText(raw_b.decode('gb18030'))
+            except Exception as e:
+                self.string_value.setPlainText(f'[GB18030 解码失败: {e}]\n{raw_t}')
+        elif idx == 3:  # Hex (十六进制)
+            self.string_value.setPlainText(raw_b.hex(' '))
+        elif idx == 4:  # JSON (格式化)
+            try:
+                parsed = json.loads(raw_t)
+                self.string_value.setPlainText(json.dumps(parsed, ensure_ascii=False, indent=2))
+            except Exception as e:
+                self.string_value.setPlainText(f'[JSON 解析失败: {e}]\n{raw_t}')
+
     def _render_value(self, kind: str, value):
         kind = (kind or '').lower()
         if kind == 'hash':
@@ -1032,11 +1134,27 @@ class RedisWorkbenchPanel(QWidget):
                     self.zset_table.setItem(row, 1, QTableWidgetItem(str(entry.get('score', ''))))
         else:
             self.value_tabs.setCurrentIndex(0)
-            if isinstance(value, (dict, list)):
+            if isinstance(value, dict) and 'raw' in value and 'text' in value:
+                self._raw_string_bytes = value.get('raw') if isinstance(value.get('raw'), bytes) else str(value.get('raw') or '').encode('utf-8')
+                self._raw_string_text = str(value.get('text') or '')
+            elif isinstance(value, bytes):
+                from tools.db_redis_ops import _b
+                self._raw_string_bytes = value
+                self._raw_string_text = _b(value)
+            elif isinstance(value, (dict, list)):
                 try:
                     text = json.dumps(value, ensure_ascii=False, indent=2)
                 except Exception:
                     text = str(value)
+                self._raw_string_text = text
+                self._raw_string_bytes = text.encode('utf-8', errors='ignore')
             else:
-                text = str(value)
-            self.string_value.setPlainText(text)
+                text = str(value or '')
+                self._raw_string_text = text
+                self._raw_string_bytes = text.encode('utf-8', errors='ignore')
+
+            if hasattr(self, 'fmt_combo'):
+                self.fmt_combo.blockSignals(True)
+                self.fmt_combo.setCurrentIndex(0)
+                self.fmt_combo.blockSignals(False)
+            self.string_value.setPlainText(self._raw_string_text)

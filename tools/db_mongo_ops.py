@@ -30,7 +30,16 @@ def list_collections(conn) -> list[str]:
     try:
         return sorted(str(name) for name in conn.list_collection_names())
     except Exception as exc:
-        raise DbError(f'读取集合失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        code = getattr(exc, 'code', None)
+        low = str(exc).lower()
+        cleaned = clean_mongo_error_message(exc)
+        if code == 13 or 'unauthorized' in low or 'not authorized' in low:
+            raise DbError(
+                f'[AUTHZ_ERROR] 读取集合列表失败（Unauthorized / code 13）：当前账号缺少 listCollections 权限。\n'
+                f'原始错误：{cleaned}'
+            ) from exc
+        raise DbError(f'读取集合失败：{cleaned}') from exc
 
 
 def list_databases(client) -> list[str]:
@@ -54,21 +63,24 @@ def find_docs(conn, collection: str, filt: dict | None = None, sort: list | None
         docs = list(cursor.skip(int(skip)).limit(int(limit) + 1))
         return docs
     except Exception as exc:
-        raise DbError(f'查询失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        raise DbError(f'查询失败：{clean_mongo_error_message(exc)}') from exc
 
 
 def count_docs(conn, collection: str, filt: dict | None = None) -> int:
     try:
         return int(conn[collection].count_documents(filt or {}))
     except Exception as exc:
-        raise DbError(f'计数失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        raise DbError(f'计数失败：{clean_mongo_error_message(exc)}') from exc
 
 
 def aggregate_docs(conn, collection: str, pipeline: list) -> list[dict]:
     try:
         return list(conn[collection].aggregate(pipeline or []))
     except Exception as exc:
-        raise DbError(f'聚合失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        raise DbError(f'聚合失败：{clean_mongo_error_message(exc)}') from exc
 
 
 def insert_doc(conn, collection: str, doc: dict) -> str:
@@ -78,7 +90,8 @@ def insert_doc(conn, collection: str, doc: dict) -> str:
         result = conn[collection].insert_one(doc)
         return _stringify(getattr(result, 'inserted_id', ''))
     except Exception as exc:
-        raise DbError(f'插入失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        raise DbError(f'插入失败：{clean_mongo_error_message(exc)}') from exc
 
 
 def delete_docs(conn, collection: str, filt: dict) -> int:
@@ -88,7 +101,8 @@ def delete_docs(conn, collection: str, filt: dict) -> int:
         result = conn[collection].delete_many(filt)
         return int(getattr(result, 'deleted_count', 0) or 0)
     except Exception as exc:
-        raise DbError(f'删除失败：{exc}') from exc
+        from tools.db_connect import clean_mongo_error_message
+        raise DbError(f'删除失败：{clean_mongo_error_message(exc)}') from exc
 
 
 def sample_schema(conn, collection: str, limit: int = 20) -> list[str]:

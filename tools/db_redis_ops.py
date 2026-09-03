@@ -72,12 +72,54 @@ def _is_transport_error(exc: BaseException) -> bool:
     return False
 
 
+def safe_decode_redis_bytes(data: bytes) -> tuple[str, str]:
+    """安全多编码探测与展示，杜绝 errors='replace' 产生 \\ufffd 乱码。
+
+    返回 (decoded_text, format_name):
+    - format_name: 'utf-8' | 'gb18030' | 'java_serialized' | 'binary_hex'
+    """
+    if not isinstance(data, bytes):
+        return str(data), 'text'
+    if not data:
+        return '', 'empty'
+
+    # 1. Java 序列化魔数识别：0xAC 0xED 0x00 0x05
+    if data.startswith(b'\xac\xed\x00\x05'):
+        import re
+        readable = re.findall(b'[\x20-\x7e]{4,}', data)
+        strings_found = [s.decode('ascii', errors='ignore') for s in readable]
+        hex_preview = data[:64].hex(' ') + (' ...' if len(data) > 64 else '')
+        desc = [
+            f'[Java Serialization Stream] (Length: {len(data)} bytes)',
+            f'Hex: {hex_preview}',
+        ]
+        if strings_found:
+            desc.append('Embedded Strings: ' + ', '.join(strings_found[:10]))
+        return '\n'.join(desc), 'java_serialized'
+
+    # 2. Strict UTF-8
+    try:
+        return data.decode('utf-8'), 'utf-8'
+    except UnicodeDecodeError:
+        pass
+
+    # 3. Strict GB18030 / GBK 中文编码
+    try:
+        return data.decode('gb18030'), 'gb18030'
+    except UnicodeDecodeError:
+        pass
+
+    # 4. Binary Hex 回退（绝不使用 errors='replace' 生成 \ufffd）
+    hex_repr = data.hex(' ')
+    return f'[Binary / Hex ({len(data)} bytes)]:\n{hex_repr}', 'binary_hex'
+
+
 def _b(value: Any) -> str:
-    """字节安全解码：二进制 key/value 用 errors='replace' 转文本，不抛 UnicodeDecodeError。"""
+    """字节安全解码：自动适配 UTF-8 / GB18030 / Java 序列化 / Hex，不抛异常，不产生乱码。"""
     if value is None:
         return ''
     if isinstance(value, bytes):
-        return value.decode('utf-8', errors='replace')
+        return safe_decode_redis_bytes(value)[0]
     return str(value)
 
 
@@ -85,7 +127,7 @@ def _stringify(value: Any) -> str:
     if value is None:
         return ''
     if isinstance(value, bytes):
-        return value.decode('utf-8', errors='replace')
+        return safe_decode_redis_bytes(value)[0]
     if isinstance(value, dict):
         return '{' + ', '.join(
             f'{_stringify(k)}: {_stringify(v)}' for k, v in value.items()

@@ -604,6 +604,100 @@ class RedisConsoleScanContractTests(unittest.TestCase):
         self.assertIn("node-a", res.get('warning', ''))
 
 
+class MongoAndRedisRound4Tests(unittest.TestCase):
+    """Round 4A: MongoDB 错误清洗、Code 13/18 区分、探针权限校验，及 Redis 多编码安全展示。"""
+
+    def test_clean_mongo_error_message_strips_internal_noise(self):
+        from tools.db_connect import clean_mongo_error_message
+        raw = (
+            "command listCollections requires authentication, full error: "
+            "{'ok': 0.0, 'errmsg': 'command listCollections requires authentication', 'code': 13, 'codeName': 'Unauthorized', "
+            "'$clusterTime': {'clusterTime': Timestamp(1725345600, 1), 'signature': {'hash': b'\\x00\\x01', 'keyId': 723456789}}, "
+            "'operationTime': Timestamp(1725345600, 1), 'lsid': {'id': UUID('12345678-1234-5678-1234-567812345678')}}"
+        )
+        cleaned = clean_mongo_error_message(raw)
+        self.assertNotIn('$clusterTime', cleaned)
+        self.assertNotIn('operationTime', cleaned)
+        self.assertNotIn('signature', cleaned)
+        self.assertNotIn('lsid', cleaned)
+        self.assertIn('requires authentication', cleaned)
+        self.assertIn('code 13: Unauthorized', cleaned)
+
+    def test_mongo_error_message_separates_code_18_and_13(self):
+        from tools.db_connect import _mongo_error_message
+
+        # Code 18: AuthenticationFailed
+        exc_18 = Exception("Authentication failed.")
+        setattr(exc_18, 'code', 18)
+        msg_18 = _mongo_error_message(exc_18, {'username': 'app_user'})
+        self.assertTrue(msg_18.startswith('[AUTH_ERROR]'))
+        self.assertIn('code 18', msg_18)
+
+        # Code 13 with username: Unauthorized (AUTHZ_ERROR)
+        exc_13_user = Exception("not authorized on test_db to execute command")
+        setattr(exc_13_user, 'code', 13)
+        msg_13_user = _mongo_error_message(exc_13_user, {'username': 'app_user'})
+        self.assertTrue(msg_13_user.startswith('[AUTHZ_ERROR]'))
+        self.assertIn('授权不足', msg_13_user)
+
+        # Code 13 without username: requires authentication (AUTH_REQUIRED)
+        exc_13_no_user = Exception("command listCollections requires authentication")
+        setattr(exc_13_no_user, 'code', 13)
+        msg_13_no_user = _mongo_error_message(exc_13_no_user, {})
+        self.assertTrue(msg_13_no_user.startswith('[AUTH_REQUIRED]'))
+        self.assertIn('要求身份认证', msg_13_no_user)
+
+    def test_mongo_probe_detects_unauthorized_database_permission(self):
+        """当配置指定数据库时，若 list_collection_names 报 code 13，probe_connection 必须拦截并抛出 AUTHZ_ERROR。"""
+        from tools.db_connect import probe_connection
+
+        mock_client = MagicMock()
+        mock_client.list_database_names.return_value = ['app_db']
+        mock_db = MagicMock()
+        mock_db.client = mock_client
+        mock_db.command.return_value = {'ok': 1}
+        exc_unauth = Exception("not authorized on app_db to execute command: listCollections")
+        setattr(exc_unauth, 'code', 13)
+        mock_db.list_collection_names.side_effect = exc_unauth
+
+        with patch('tools.db_connect.open_connection', return_value=mock_db):
+            item = {'dialect': 'mongodb', 'host': '127.0.0.1', 'port': 27017, 'database': 'app_db', 'username': 'user1'}
+            with self.assertRaises(DbError) as ctx:
+                probe_connection(item)
+            self.assertIn('[AUTHZ_ERROR]', str(ctx.exception))
+            self.assertIn('app_db', str(ctx.exception))
+
+    def test_redis_safe_decode_bytes_multi_encoding_no_mojibake(self):
+        """安全解码：UTF-8、GB18030、Java 序列化与纯二进制，绝不产生 \\ufffd 乱码。"""
+        from tools.db_redis_ops import safe_decode_redis_bytes
+
+        # 1. UTF-8
+        utf8_text = "中国智造 · 极速体验"
+        text, fmt = safe_decode_redis_bytes(utf8_text.encode('utf-8'))
+        self.assertEqual(fmt, 'utf-8')
+        self.assertEqual(text, utf8_text)
+
+        # 2. GB18030
+        gbk_bytes = "测试GB18030中文数据".encode('gb18030')
+        text_gbk, fmt_gbk = safe_decode_redis_bytes(gbk_bytes)
+        self.assertEqual(fmt_gbk, 'gb18030')
+        self.assertEqual(text_gbk, "测试GB18030中文数据")
+
+        # 3. Java 序列化魔数 \xac\xed\x00\x05
+        java_obj = b'\xac\xed\x00\x05sr\x00\x1fcom.pengtools.model.UserSession'
+        text_java, fmt_java = safe_decode_redis_bytes(java_obj)
+        self.assertEqual(fmt_java, 'java_serialized')
+        self.assertIn('Java Serialization Stream', text_java)
+        self.assertIn('com.pengtools.model.UserSession', text_java)
+
+        # 4. 任意二进制字节：绝不使用 errors="replace"，不得出现 \ufffd
+        binary_raw = bytes([0xff, 0xfe, 0x00, 0x88, 0xaa, 0xbb])
+        text_bin, fmt_bin = safe_decode_redis_bytes(binary_raw)
+        self.assertEqual(fmt_bin, 'binary_hex')
+        self.assertNotIn('\ufffd', text_bin)
+        self.assertIn('Binary / Hex', text_bin)
+
+
 if __name__ == "__main__":
     unittest.main()
 
