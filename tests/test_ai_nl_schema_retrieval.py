@@ -259,6 +259,89 @@ class AiNlSchemaRetrievalTests(unittest.TestCase):
         self.assertIn('PRP.PRPCMAIN', prompt)
         self.assertIn('RISKCODE', prompt)
 
+    def test_datatype_first_numeric_and_varchar_formatting(self):
+        """Review Fix 2: 验证数据类型第一优先级（VARCHAR 引号+前导零，NUMBER 去前导零纯数字，未知类型保守加引号）。"""
+        from tools.tameng_agent import format_condition_hint
+        from tools.ai_sql_draft import _format_condition_hint
+
+        # 验证两处为同一单源 formatter
+        self.assertIs(_format_condition_hint, format_condition_hint)
+
+        tables = [{
+            'qualified_name': 'PRP.PRPCMAIN',
+            'columns': [
+                {'name': 'RISKCODE', 'data_type': 'VARCHAR2(10)'},
+                {'name': 'SEQNO', 'data_type': 'NUMBER(10)'},
+                {'name': 'SUMPREM', 'data_type': 'NUMBER(14,2)'},
+            ],
+        }]
+
+        # A. VARCHAR2: RISKCODE = 0525 -> '0525'
+        h_a = {'field': 'RISKCODE', 'op': '=', 'val': '0525'}
+        self.assertEqual(format_condition_hint(h_a, tables), "RISKCODE = '0525'")
+
+        # B. NUMBER: SEQNO = 0525 -> 525 (leading zero stripped for true numeric type)
+        h_b = {'field': 'SEQNO', 'op': '=', 'val': '0525'}
+        self.assertEqual(format_condition_hint(h_b, tables), "SEQNO = 525")
+
+        # C. NUMBER: SUMPREM >= 1000 -> SUMPREM >= 1000
+        h_c = {'field': 'SUMPREM', 'op': '>=', 'val': '1000'}
+        self.assertEqual(format_condition_hint(h_c, tables), "SUMPREM >= 1000")
+
+        # D. unknown datatype: CODE = 0525 -> CODE = '0525' (conservative quoted)
+        h_d = {'field': 'CODE', 'op': '=', 'val': '0525'}
+        self.assertEqual(format_condition_hint(h_d, tables), "CODE = '0525'")
+
+    def test_pathological_condition_value_hard_cap(self):
+        """Review Fix 2: 超长条件值（20,000 字符），prompt 与 safe_context 必须 <= MAX_CONTEXT_CHARS 并保留关键标识符。"""
+        from tools.tameng_agent import bounded_evidence_prompt_text
+        from tools.ai_sql_draft import build_safe_context
+
+        huge_val = 'A' * 20000
+        evidence = {
+            'dialect': 'oracle',
+            'snapshot_id': 'snap-huge-val',
+            'scanned_at': '2026-09-04 08:00:00',
+            'confirmed_fields': ['PRP.PRPCMAIN.RISKCODE'],
+            'tables': [
+                {
+                    'qualified_name': 'PRP.PRPCMAIN',
+                    'object_type': 'TABLE',
+                    'comment': '保单主表',
+                    'columns': [
+                        {'name': 'POLICYNO', 'data_type': 'VARCHAR2(30)', 'comment': '保单号'},
+                        {'name': 'RISKCODE', 'data_type': 'VARCHAR2(10)', 'comment': '险种代码'},
+                    ],
+                    'indexes': [{'name': 'PK_PRPCMAIN', 'columns': ['POLICYNO']}],
+                }
+            ],
+            'condition_hints': [
+                {'field': 'RISKCODE', 'op': '=', 'val': huge_val},
+            ],
+        }
+
+        # E. evidence_prompt_text / bounded_evidence_prompt_text <= MAX_CONTEXT_CHARS
+        prompt = evidence_prompt_text(evidence)
+        self.assertLessEqual(len(prompt), MAX_CONTEXT_CHARS)
+        self.assertEqual(prompt, bounded_evidence_prompt_text(evidence))
+
+        # F. 超限后仍包含关键标识符
+        self.assertIn('PRP.PRPCMAIN', prompt)
+        self.assertIn('RISKCODE', prompt)
+
+        # 验证 build_safe_context 不重复展开 20k 条件或膨胀 Schema
+        safe_ctx = build_safe_context(
+            dialect='oracle',
+            alias='prod-db',
+            question='查询 prpcmain',
+            action='generate',
+            evidence=evidence,
+        )
+        self.assertLessEqual(len(safe_ctx), MAX_CONTEXT_CHARS + 500)
+        self.assertIn('PRP.PRPCMAIN', safe_ctx)
+        self.assertIn('RISKCODE', safe_ctx)
+        self.assertNotIn(huge_val, safe_ctx)
+
     def test_panel_no_token_true_e2e(self):
         """Item 6: 真实实例化 AiWorkbenchPanel 跑无 Token 自然语言生成 E2E，验证绝不自动执行。"""
         app = QApplication.instance() or QApplication([])

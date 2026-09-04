@@ -10,7 +10,7 @@ from tools.ai_harness import strip_markdown_fence
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.schema_snapshot import clip_snapshot_for_prompt
 from tools.sql_guard import ai_draft_safety, classify_statement
-from tools.tameng_agent import evidence_prompt_text
+from tools.tameng_agent import evidence_prompt_text, format_condition_hint
 
 _SQL_KEYWORDS = frozenset({
     'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as',
@@ -88,27 +88,7 @@ def get_effective_sql_dialect(dialect: str, oceanbase_mode: str = '') -> str:
         mode = normalize_oceanbase_mode(oceanbase_mode)
         return 'mysql' if mode == 'mysql' else 'oracle'
     return d or 'oracle'
-def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
-    field = str(hint.get('field') or '').strip()
-    op = str(hint.get('op') or '=').strip()
-    val = str(hint.get('val') or '').strip()
-    field_upper = field.upper()
-    data_type = ''
-    for t in tables or []:
-        for col in (t.get('columns') or []):
-            if str(col.get('name') or '').upper() == field_upper:
-                data_type = str(col.get('data_type') or '').upper()
-                break
-        if data_type:
-            break
-    is_numeric_type = any(t in data_type for t in ('INT', 'NUMBER', 'DECIMAL', 'FLOAT', 'DOUBLE', 'NUMERIC'))
-    is_char_or_date = any(t in data_type for t in ('CHAR', 'VARCHAR', 'TEXT', 'DATE', 'TIME', 'CLOB'))
-    has_leading_zero = len(val) > 1 and val.startswith('0') and val.isdigit()
-    if is_char_or_date or has_leading_zero or not is_numeric_type:
-        val_str = f"'{val}'"
-    else:
-        val_str = val
-    return f"{field} {op} {val_str}"
+_format_condition_hint = format_condition_hint
 
 
 def build_safe_context(
@@ -152,12 +132,7 @@ def build_safe_context(
         return '\n'.join(parts)
     if isinstance(evidence, dict) and evidence.get('tables'):
         parts.append('Agent Schema Evidence（仅元数据，禁止猜测未列出的字段）：\n' + evidence_prompt_text(evidence))
-        confirmed = [str(item) for item in (evidence.get('confirmed_fields') or []) if str(item)]
-        if confirmed:
-            parts.append('SQL 只允许引用 Schema Evidence 中提供的字段：' + ', '.join(confirmed))
-        if evidence.get('condition_hints'):
-            hint_strs = [_format_condition_hint(h, evidence.get('tables')) for h in evidence['condition_hints']]
-            parts.append('从问题解析出的过滤条件提示：' + ', '.join(hint_strs))
+        parts.append('SQL 只允许引用 Schema Evidence 中提供的字段。')
     else:
         if tables:
             parts.append('用户选中对象：' + ', '.join(tables))

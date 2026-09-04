@@ -675,7 +675,10 @@ def build_retrieved_evidence(
         'confirmed_fields': all_confirmed_fields,
         'allow_join': bool(terms.get('wants_join')),
         'field_evidence': field_evidence_list,
-        'condition_hints': list(terms.get('condition_hints') or []),
+        'condition_hints': [
+            {**h, 'val': (str(h.get('val') or '')[:120] + '...') if len(str(h.get('val') or '')) > 120 else str(h.get('val') or '')}
+            for h in (terms.get('condition_hints') or [])
+        ],
         'retrieval_confidence': confidence,
         'retrieval_summary': retrieval_summary,
     }
@@ -695,6 +698,7 @@ def build_retrieved_evidence(
             single_tbl['comment'] = c[:20]
             continue
         break
+    assert len(evidence_prompt_text(evidence)) <= MAX_CONTEXT_CHARS
     return evidence
 
 
@@ -932,7 +936,7 @@ def format_evidence_bar(evidence: dict | None) -> str:
     return prefix or detail
 
 
-def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
+def format_condition_hint(hint: dict, tables: list | None = None) -> str:
     field = str(hint.get('field') or '').strip()
     op = str(hint.get('op') or '=').strip()
     val = str(hint.get('val') or '').strip()
@@ -940,22 +944,41 @@ def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
     data_type = ''
     for t in tables or []:
         for col in (t.get('columns') or []):
-            if str(col.get('name') or '').upper() == field_upper:
+            c_name = str(col.get('name') or '').upper()
+            if c_name == field_upper or field_upper.endswith('.' + c_name):
                 data_type = str(col.get('data_type') or '').upper()
                 break
         if data_type:
             break
+
     is_numeric_type = any(t in data_type for t in ('INT', 'NUMBER', 'DECIMAL', 'FLOAT', 'DOUBLE', 'NUMERIC'))
     is_char_or_date = any(t in data_type for t in ('CHAR', 'VARCHAR', 'TEXT', 'DATE', 'TIME', 'CLOB'))
-    has_leading_zero = len(val) > 1 and val.startswith('0') and val.isdigit()
-    if is_char_or_date or has_leading_zero or not is_numeric_type:
-        val_str = f"'{val}'"
+
+    val_clean = val.strip("'\"")
+
+    # Datatype takes absolute priority:
+    if is_numeric_type:
+        if val_clean.isdigit():
+            val_str = str(int(val_clean))
+        elif re.match(r'^-?\d+(\.\d+)?$', val_clean):
+            val_str = val_clean
+        else:
+            val_str = val_clean
+    elif is_char_or_date:
+        escaped = val_clean.replace("'", "''")
+        val_str = f"'{escaped}'"
     else:
-        val_str = val
+        # unknown datatype: conservative quoted
+        escaped = val_clean.replace("'", "''")
+        val_str = f"'{escaped}'"
     return f"{field} {op} {val_str}"
 
 
-def evidence_prompt_text(evidence: dict | None) -> str:
+def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
+    return format_condition_hint(hint, tables)
+
+
+def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     data = evidence if isinstance(evidence, dict) else {}
     base_dialect = str(data.get('dialect') or 'oracle')
     ob_m = str(data.get('oceanbase_mode') or '')
@@ -966,28 +989,135 @@ def evidence_prompt_text(evidence: dict | None) -> str:
         dialect_str = f"OceanBase ({mode_label})"
     else:
         dialect_str = base_dialect
-    lines = [
-        f"方言：{dialect_str}",
-        f"snapshot_id：{data.get('snapshot_id') or ''}",
-        f"扫描时间：{data.get('scanned_at') or ''}",
-        'Schema Evidence 字段：' + (', '.join(data.get('confirmed_fields') or []) or '（无）'),
-    ]
-    tables = data.get('tables') or []
-    if data.get('condition_hints'):
-        hint_strs = [_format_condition_hint(h, tables) for h in data['condition_hints']]
-        lines.append('条件提示：' + ', '.join(hint_strs))
-    for table in tables:
-        cols = ', '.join(
-            f"{col.get('name')} {col.get('data_type')} {col.get('comment')}".strip()
-            for col in table.get('columns') or []
-        )
-        idx = ', '.join(
-            f"{item.get('name')}({','.join(item.get('columns') or [])})"
-            for item in table.get('indexes') or []
-        )
-        extra = f" 索引:{idx}" if idx else ''
-        lines.append(f"- {table.get('qualified_name')} [{table.get('object_type')}] {table.get('comment')} :: {cols}{extra}")
-    return '\n'.join(lines)
+
+    tables = list(data.get('tables') or [])
+    hint_strs = []
+    for h in (data.get('condition_hints') or []):
+        hint_copy = dict(h)
+        v = str(hint_copy.get('val') or '')
+        if len(v) > 120:
+            hint_copy['val'] = v[:120] + '...'
+        hint_strs.append(format_condition_hint(hint_copy, tables))
+
+    confirmed_fields = list(data.get('confirmed_fields') or [])
+
+    def _render(
+        tbls,
+        hints=None,
+        conf_fields=None,
+        inc_idx=True,
+        inc_col_cmt=True,
+        inc_tbl_cmt=True,
+        max_col_cmt=100,
+        max_tbl_cmt=200,
+    ) -> str:
+        cur_conf = confirmed_fields if conf_fields is None else conf_fields
+        lines = [
+            f"方言：{dialect_str}",
+            f"snapshot_id：{data.get('snapshot_id') or ''}",
+            f"扫描时间：{data.get('scanned_at') or ''}",
+            'Schema Evidence 字段：' + (', '.join(cur_conf) or '（无）'),
+        ]
+        cur_hints = hint_strs if hints is None else hints
+        if cur_hints:
+            lines.append('条件提示：' + ', '.join(cur_hints))
+        for table in tbls:
+            cols_parts = []
+            for col in (table.get('columns') or []):
+                name = str(col.get('name') or '')
+                dtype = str(col.get('data_type') or '')
+                cmt = str(col.get('comment') or '') if inc_col_cmt else ''
+                if cmt and len(cmt) > max_col_cmt:
+                    cmt = cmt[:max_col_cmt]
+                cols_parts.append(f"{name} {dtype} {cmt}".strip())
+            cols = ', '.join(cols_parts)
+
+            extra = ''
+            if inc_idx:
+                idx = ', '.join(
+                    f"{item.get('name')}({','.join(item.get('columns') or [])})"
+                    for item in (table.get('indexes') or [])
+                )
+                if idx:
+                    extra = f" 索引:{idx}"
+            t_cmt = str(table.get('comment') or '') if inc_tbl_cmt else ''
+            if t_cmt and len(t_cmt) > max_tbl_cmt:
+                t_cmt = t_cmt[:max_tbl_cmt]
+            lines.append(f"- {table.get('qualified_name')} [{table.get('object_type')}] {t_cmt} :: {cols}{extra}".strip())
+        return '\n'.join(lines)
+
+    text = _render(tables)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 1: drop indexes
+    text = _render(tables, inc_idx=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 2: shorten comments
+    text = _render(tables, inc_idx=False, max_col_cmt=30, max_tbl_cmt=50)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 3: drop comments completely
+    text = _render(tables, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 4: trim secondary tables (keep top table)
+    curr_tbls = [dict(t) for t in tables]
+    while len(curr_tbls) > 1 and len(text) > max_chars:
+        curr_tbls.pop()
+        text = _render(curr_tbls, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 5: trim secondary columns in top table (keep at least 1 column, preserving confirmed)
+    if curr_tbls:
+        t0 = dict(curr_tbls[0])
+        cols = list(t0.get('columns') or [])
+        conf_names = {c.split('.')[-1].upper() for c in confirmed_fields}
+        while len(cols) > 1 and len(text) > max_chars:
+            drop_idx = -1
+            for idx in range(len(cols) - 1, -1, -1):
+                if str(cols[idx].get('name') or '').upper() not in conf_names:
+                    drop_idx = idx
+                    break
+            if drop_idx >= 0:
+                cols.pop(drop_idx)
+            else:
+                cols.pop()
+            t0['columns'] = cols
+            text = _render([t0], inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+        curr_tbls = [t0]
+    if len(text) <= max_chars:
+        return text
+
+    # Step 6: trim secondary condition hints
+    curr_hints = list(hint_strs)
+    while curr_hints and len(text) > max_chars:
+        curr_hints.pop()
+        text = _render(curr_tbls, hints=curr_hints, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 7: trim secondary confirmed fields
+    curr_conf = list(confirmed_fields)
+    while len(curr_conf) > 1 and len(text) > max_chars:
+        curr_conf.pop()
+        text = _render(curr_tbls, hints=curr_hints, conf_fields=curr_conf, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 8: Absolute hard fallback
+    if len(text) > max_chars:
+        text = text[:max_chars]
+    return text
+
+
+def bounded_evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHARS) -> str:
+    return evidence_prompt_text(evidence, max_chars=max_chars)
 
 
 def _strip_literals(sql: str) -> str:
