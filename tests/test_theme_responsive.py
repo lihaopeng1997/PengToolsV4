@@ -793,29 +793,59 @@ class VisualFoundationV1Tests(unittest.TestCase):
             self.assertIn(glass_hl, qss, f'{tid} rendered QSS 未包含 GLASS_HIGHLIGHT {glass_hl}')
             self.assertIn('QFrame#ds-glass', qss)
 
-    def test_v1_16_web_theme_payload_contains_new_tokens(self):
-        """V1-16: ThemeManager.palette 包含新 token，供 Web themePayload 自动消费。"""
-        tm = ThemeManager.instance()
-        pal = tm.palette('calm')
-        for key in ('PRIMARY_GRAD_START', 'PRIMARY_GRAD_END', 'GLASS_HIGHLIGHT', 'ELEVATED_BORDER'):
-            self.assertIn(key, pal, f'Theme palette 缺少新 token {key}')
-            self.assertEqual(pal[key], THEMES['calm'][key])
-
+    def test_v1_16_production_web_theme_sync_contract(self):
+        """V1-16: 真实调用 MainWindow._sync_web_theme，验证 calm 与 black 双模式同步。"""
+        import json
+        from types import SimpleNamespace
+        from main_window import MainWindow
+        from ui.theme_manager import ThemeManager
         from ui import web_shell
-        if getattr(web_shell, 'WEB_SHELL_AVAILABLE', False):
-            import json
-            bridge = web_shell.HomeBridge()
-            payload = {
-                'id': 'calm',
-                'is_dark': False,
-                'tokens': pal,
-            }
-            bridge.set_theme_payload(payload)
-            parsed = json.loads(bridge.themePayload())
-            tokens = parsed.get('tokens', {})
-            for key in ('PRIMARY_GRAD_START', 'PRIMARY_GRAD_END', 'GLASS_HIGHLIGHT', 'ELEVATED_BORDER'):
-                self.assertIn(key, tokens)
-                self.assertEqual(tokens[key], THEMES['calm'][key])
+
+        tm = ThemeManager.instance()
+        old_theme = tm.theme_id
+
+        try:
+            tokens_to_check = (
+                'PRIMARY_GRAD_START',
+                'PRIMARY_GRAD_END',
+                'GLASS_HIGHLIGHT',
+                'ELEVATED_BORDER',
+                'AURORA_START',
+                'AURORA_MID',
+                'AURORA_END',
+            )
+
+            # 验证 palette 包含新 tokens
+            for theme_id in ('calm', 'black'):
+                pal = tm.palette(theme_id)
+                for key in tokens_to_check:
+                    self.assertIn(key, pal, f'{theme_id} palette 缺少 {key}')
+                    self.assertEqual(pal[key], THEMES[theme_id][key])
+
+            if getattr(web_shell, 'WEB_SHELL_AVAILABLE', False):
+                chrome = web_shell.HomeBridge()
+                dash = web_shell.HomeBridge()
+                dummy = SimpleNamespace(
+                    _chrome_bridge=chrome,
+                    _dash_bridge=dash,
+                )
+
+                for theme_id, expected_dark in (('calm', False), ('black', True)):
+                    tm._theme_id = theme_id
+                    MainWindow._sync_web_theme(dummy)
+
+                    chrome_payload = json.loads(chrome.themePayload())
+                    dash_payload = json.loads(dash.themePayload())
+
+                    for name, payload in (('chrome', chrome_payload), ('dash', dash_payload)):
+                        self.assertEqual(payload['id'], theme_id, f'{name} id 错误')
+                        self.assertEqual(payload['is_dark'], expected_dark, f'{name} is_dark 错误')
+                        tokens = payload['tokens']
+                        for key in tokens_to_check:
+                            self.assertIn(key, tokens, f'{name} tokens 缺少 {key}')
+                            self.assertEqual(tokens[key], THEMES[theme_id][key])
+        finally:
+            tm._theme_id = old_theme
 
     def test_v1_17_frontend_diff_is_empty(self):
         """V1-17: frontend/ 与 resources/webui/vue/ 必须保持不变。"""
