@@ -207,3 +207,36 @@ class ModelChatBubbleLayoutTests(unittest.TestCase):
             self.assertFalse(panel._stop_requested)
         finally:
             panel.deleteLater()
+
+    def test_thinking_indicator_theme_tokens(self):
+        """测试 ThinkingIndicator 真实消费 ThemeManager 的 PRIMARY 与 TEXT_MUTED 语义 token。"""
+        from ui.thinking_indicator import ThinkingIndicator, thinking_colors
+        from ui.theme_manager import ThemeManager, THEMES
+
+        # 1. 验证 calm 主题调色板
+        calm_pal = THEMES['calm']
+        accent_calm, text_calm = thinking_colors(calm_pal)
+        self.assertEqual(accent_calm.name().upper(), calm_pal['PRIMARY'].upper())
+        self.assertEqual(text_calm.name().upper(), calm_pal['TEXT_MUTED'].upper())
+
+        # 2. 验证 black 主题调色板
+        black_pal = THEMES['black']
+        accent_black, text_black = thinking_colors(black_pal)
+        self.assertEqual(accent_black.name().upper(), black_pal['PRIMARY'].upper())
+        self.assertEqual(text_black.name().upper(), black_pal['TEXT_MUTED'].upper())
+
+        # 3. 切换 ThemeManager 单例主题并验证默认 thinking_colors()
+        tm = ThemeManager.instance()
+        old_theme = tm.theme_id
+        try:
+            tm.apply(None, 'calm')
+            acc, txt = thinking_colors()
+            self.assertEqual(acc.name().upper(), calm_pal['PRIMARY'].upper())
+            self.assertEqual(txt.name().upper(), calm_pal['TEXT_MUTED'].upper())
+
+            tm.apply(None, 'black')
+            acc, txt = thinking_colors()
+            self.assertEqual(acc.name().upper(), black_pal['PRIMARY'].upper())
+            self.assertEqual(txt.name().upper(), black_pal['TEXT_MUTED'].upper())
+        finally:
+            tm.apply(None, old_theme)

@@ -291,6 +291,131 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
         finally:
             panel.deleteLater()
 
+    def test_agent_user_and_assistant_single_render_and_reopen(self):
+        """测试 Agent 发送用户消息与接收最终回答时，UI 与持久化气泡数均严格为 1，重开后仍各为 1。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from tools.agent_store import empty_workspace, save_workspace, load_workspace
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QLabel
+
+        ws = empty_workspace(title='单次渲染测试空间')
+        ws_dir = os.path.join(self.tmp_dir, 'wb_test_ws')
+        os.makedirs(ws_dir, exist_ok=True)
+        ws['workspace_dir'] = ws_dir
+        save_workspace(ws)
+
+        panel = AgentWorkbenchPanel()
+        try:
+            panel._select_workspace(ws['id'])
+            active_conv = panel._active_conversation_of(panel._workspace_session)
+            self.assertIsNotNone(active_conv)
+
+            # 模拟模型配置已就绪，避免 _send 被早期拦截
+            with patch.object(panel, '_current_model', return_value={'enabled': True, 'base_url': 'http://dummy'}):
+                with patch('panels.agent_workbench_panel._WorkbenchWorker') as mock_worker_cls:
+                    mock_worker = mock_worker_cls.return_value
+                    mock_worker.isRunning.return_value = False
+
+                    # 输入并发送
+                    panel.input.setPlainText('请帮我查找所有的订单接口')
+                    panel._send()
+                    self.app.processEvents()
+
+                    # 1. 验证持久化 messages 中 user 消息恰好只有 1 条
+                    conv = panel._active_conversation_of(panel._workspace_session)
+                    user_msgs = [m for m in (conv.get('messages') or []) if m.get('role') == 'user']
+                    self.assertEqual(len(user_msgs), 1, "持久化 messages 中 user 消息必须恰好 1 条")
+
+                    # 2. 统计当前 UI 气泡数量
+                    def count_ui_bubbles(p):
+                        users, assts = 0, 0
+                        for i in range(p.thread_layout.count()):
+                            w = p.thread_layout.itemAt(i).widget()
+                            if not w:
+                                continue
+                            lbls = w.findChildren(QLabel)
+                            for lbl in lbls:
+                                txt = lbl.text() or ''
+                                if txt.startswith('👤 '):
+                                    users += 1
+                                elif txt.startswith('🤖 '):
+                                    assts += 1
+                        return users, assts
+
+                    u_count, a_count = count_ui_bubbles(panel)
+                    self.assertEqual(u_count, 1, "发送后当前 UI user bubble 必须恰好 1 个")
+                    self.assertEqual(a_count, 0)
+
+                    # 3. 模拟 Agent 完成回调（_on_agent_done）
+                    final_answer = '已为您找到 3 个订单接口。'
+                    updated_msgs = list(conv.get('messages') or []) + [
+                        {'id': 'asst-1', 'role': 'assistant', 'content': final_answer}
+                    ]
+                    panel._on_agent_done(final_answer, updated_msgs, [])
+                    self.app.processEvents()
+
+                    u_count, a_count = count_ui_bubbles(panel)
+                    self.assertEqual(u_count, 1, "完成回答后 UI user bubble 必须恰好 1 个")
+                    self.assertEqual(a_count, 1, "完成回答后 UI assistant bubble 必须恰好 1 个")
+
+                    # 4. 重新加载/重新渲染对话（模拟 reopen workspace）
+                    saved_ws = load_workspace(ws['id'])
+                    panel._workspace_session = saved_ws
+                    reopen_conv = panel._active_conversation_of(saved_ws)
+                    panel._render_conversation(saved_ws, reopen_conv)
+                    self.app.processEvents()
+
+                    u_reopen, a_reopen = count_ui_bubbles(panel)
+                    self.assertEqual(u_reopen, 1, "重新渲染后 user bubble 仍必须恰好 1 个")
+                    self.assertEqual(a_reopen, 1, "重新渲染后 assistant bubble 仍必须恰好 1 个")
+        finally:
+            panel.deleteLater()
+
+    def test_project_tree_shared_ignore_and_whitelist(self):
+        """测试项目树严格遵循共享过滤契约：显示 Java/Gradle 源码，隐藏 target/build/out/node_modules 等。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from PyQt6.QtWidgets import QTreeWidgetItem
+
+        ws_dir = os.path.join(self.tmp_dir, 'java_project')
+        os.makedirs(ws_dir, exist_ok=True)
+
+        # 创建白名单允许的源码/配置文件
+        for fname in ('pom.xml', 'build.gradle', 'settings.gradle', 'application.properties'):
+            with open(os.path.join(ws_dir, fname), 'w', encoding='utf-8') as f:
+                f.write(f"# {fname}")
+        os.makedirs(os.path.join(ws_dir, 'src'), exist_ok=True)
+
+        # 创建应被忽略的目录
+        for ign in ('target', 'build', 'out', 'node_modules', '.git', '.idea'):
+            ign_path = os.path.join(ws_dir, ign)
+            os.makedirs(ign_path, exist_ok=True)
+            with open(os.path.join(ign_path, 'dummy.txt'), 'w', encoding='utf-8') as f:
+                f.write("ignore me")
+
+        panel = AgentWorkbenchPanel()
+        try:
+            panel._workspace_session = {'id': 'test_java_ws', 'workspace_dir': ws_dir}
+            root_item = QTreeWidgetItem()
+            root_item.setData(0, Qt.ItemDataRole.UserRole, ws_dir)
+            panel._populate_dir_item(root_item, ws_dir)
+
+            child_texts = [root_item.child(i).text(0) for i in range(root_item.childCount())]
+
+            # 必须看见：pom.xml, build.gradle, settings.gradle, application.properties, src/
+            self.assertIn('pom.xml', child_texts)
+            self.assertIn('build.gradle', child_texts)
+            self.assertIn('settings.gradle', child_texts)
+            self.assertIn('application.properties', child_texts)
+            self.assertIn('src/', child_texts)
+
+            # 必须看不见：target/, build/, out/, node_modules/, .git/, .idea/
+            for ign in ('target/', 'build/', 'out/', 'node_modules/', '.git/', '.idea/'):
+                self.assertNotIn(ign, child_texts)
+            for ign in ('target', 'build', 'out', 'node_modules', '.git', '.idea'):
+                self.assertNotIn(ign, child_texts)
+        finally:
+            panel.deleteLater()
+
 
 if __name__ == '__main__':
     unittest.main()

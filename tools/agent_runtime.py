@@ -295,7 +295,7 @@ def _search_code_impl(pattern: str, workspace_dir: str, file_pattern: str = '') 
                         continue
                     with open(fpath, 'rb') as bf:
                         raw = bf.read()
-                    decoded = decode_text_bytes(raw, filename=fname)
+                    decoded = decode_text_bytes(raw, filename=fname, max_size=MAX_SEARCH_TEXT_FILE_SIZE)
                     if not decoded.get('ok') or decoded.get('binary'):
                         continue
                     text = decoded.get('text', '')

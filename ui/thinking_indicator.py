@@ -36,6 +36,14 @@ def _qc(pal: dict, key: str, fallback: str = '#29332E') -> QColor:
     return c if c.isValid() else QColor(fallback)
 
 
+def thinking_colors(palette: dict | None = None) -> tuple[QColor, QColor]:
+    """返回 ThinkingIndicator 在给定（或当前全局）调色板下的 (accent_color, text_color)。"""
+    pal = palette if palette is not None else _palette()
+    accent = _qc(pal, 'PRIMARY', '#0D9488')
+    text_color = _qc(pal, 'TEXT_MUTED', '#64748B')
+    return accent, text_color
+
+
 class ThinkingIndicator(QWidget):
     """用于气泡内嵌的轻量 Thinking 状态指示器。"""
 
@@ -92,9 +100,7 @@ class ThinkingIndicator(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-        pal = _palette()
-        accent = _qc(pal, 'accent', '#0D9488')
-        text_color = _qc(pal, 'text_muted', '#64748B')
+        accent, text_color = thinking_colors()
 
         # 1. 绘制 3 个动态脉动光点 (Aurora dots)
         dot_radius_base = 3.0

@@ -30,6 +30,7 @@ from tools.agent_store import (
     set_active_conversation,
     update_workspace,
 )
+from tools.agent_runtime import IGNORED_DIR_NAMES, WHITELIST_EXTENSIONS
 from tools.intranet_llm import list_enabled_items
 from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_warning
@@ -635,13 +636,8 @@ class AgentWorkbenchPanel(QWidget):
         except OSError:
             return
 
-        whitelist = ('.py', '.js', '.ts', '.vue', '.html', '.css', '.scss',
-                     '.md', '.json', '.txt', '.yml', '.yaml', '.xml',
-                     '.sql', '.sh', '.bat', '.ps1', '.rs', '.go',
-                     '.java', '.c', '.cpp', '.h', '.hpp', '.less')
-
         for name in entries:
-            if name.startswith('.'):
+            if name.startswith('.') or name in IGNORED_DIR_NAMES:
                 continue
             full = os.path.join(dir_path, name)
             # 安全检查：canonical target 必须在当前工作区内，否则不向树中添加
@@ -649,7 +645,7 @@ class AgentWorkbenchPanel(QWidget):
                 continue
             is_dir = os.path.isdir(full)
             ext = os.path.splitext(name)[1].lower()
-            if not is_dir and ext not in whitelist:
+            if not is_dir and ext not in WHITELIST_EXTENSIONS:
                 continue
 
             item = QTreeWidgetItem(parent_item)
@@ -1081,7 +1077,6 @@ class AgentWorkbenchPanel(QWidget):
         conv['tool_calls'] = tool_calls
         save_workspace(self._workspace_session)
         self._render_conversation(self._workspace_session, conv)
-        self._append_message('user', text)
 
         model_cfg = self._current_model() or {}
         if not model_cfg.get('enabled') or not model_cfg.get('base_url'):

@@ -66,58 +66,77 @@ def decode_text_bytes(
         "text": str,
         "encoding": str,
         "binary": bool,
+        "too_large": bool,
+        "reason": str,  # "too_large" | "binary" | ""
         "error": str
     }
     """
     if raw is None:
-        return {'ok': True, 'text': '', 'encoding': 'empty', 'binary': False, 'error': ''}
+        return {'ok': True, 'text': '', 'encoding': 'empty', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
 
     if not isinstance(raw, bytes):
         raw = str(raw).encode('utf-8', errors='ignore')
 
+    file_label = f"「{filename}」" if filename else "文件"
+
+    # 大小门禁检查 (max_size)
+    if max_size > 0 and len(raw) > max_size:
+        size_kb = max(1, max_size // 1024) if max_size >= 1024 else max_size
+        unit = 'KB' if max_size >= 1024 else '字节'
+        return {
+            'ok': False,
+            'text': '',
+            'encoding': 'too_large',
+            'binary': False,
+            'too_large': True,
+            'reason': 'too_large',
+            'error': f"{file_label}大小超过限制（{size_kb} {unit}），无法作为文本处理。",
+        }
+
     if len(raw) == 0:
-        return {'ok': True, 'text': '', 'encoding': 'utf-8', 'binary': False, 'error': ''}
+        return {'ok': True, 'text': '', 'encoding': 'utf-8', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
 
     # 1. 检查 UTF-8 BOM
     if raw.startswith(b'\xef\xbb\xbf'):
         try:
-            t = raw.decode('utf-8-sig')
+            t = raw.decode('utf-8-sig', errors='strict')
             if is_probably_text(t, raw, 'utf-8-sig'):
-                return {'ok': True, 'text': t, 'encoding': 'utf-8-sig', 'binary': False, 'error': ''}
+                return {'ok': True, 'text': t, 'encoding': 'utf-8-sig', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
         except UnicodeDecodeError:
             pass
 
     # 2. 检查 UTF-16 BOM (LE / BE)
     if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
         try:
-            t = raw.decode('utf-16')
+            t = raw.decode('utf-16', errors='strict')
             if is_probably_text(t, raw, 'utf-16'):
-                return {'ok': True, 'text': t, 'encoding': 'utf-16', 'binary': False, 'error': ''}
+                return {'ok': True, 'text': t, 'encoding': 'utf-16', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
         except (UnicodeDecodeError, ValueError):
             pass
 
-    # 3. Strict UTF-8
+    # 3. Strict UTF-8 + roundtrip check
     try:
-        t = raw.decode('utf-8')
-        if is_probably_text(t, raw, 'utf-8'):
-            return {'ok': True, 'text': t, 'encoding': 'utf-8', 'binary': False, 'error': ''}
-    except UnicodeDecodeError:
+        t = raw.decode('utf-8', errors='strict')
+        if t.encode('utf-8', errors='strict') == raw and is_probably_text(t, raw, 'utf-8'):
+            return {'ok': True, 'text': t, 'encoding': 'utf-8', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
+    except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):
         pass
 
-    # 4. Strict GB18030 (需通过文本可读性门禁)
+    # 4. Strict GB18030 + roundtrip check + is_probably_text 门禁
     try:
-        t = raw.decode('gb18030')
-        if is_probably_text(t, raw, 'gb18030'):
-            return {'ok': True, 'text': t, 'encoding': 'gb18030', 'binary': False, 'error': ''}
-    except UnicodeDecodeError:
+        t = raw.decode('gb18030', errors='strict')
+        if t.encode('gb18030', errors='strict') == raw and is_probably_text(t, raw, 'gb18030'):
+            return {'ok': True, 'text': t, 'encoding': 'gb18030', 'binary': False, 'too_large': False, 'reason': '', 'error': ''}
+    except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):
         pass
 
     # 5. 二进制/不可安全解码回退
-    file_label = f"「{filename}」" if filename else "文件"
     return {
         'ok': False,
         'text': '',
         'encoding': 'binary',
         'binary': True,
+        'too_large': False,
+        'reason': 'binary',
         'error': f"{file_label}包含二进制内容或未知字符编码，无法安全作为文本处理。",
     }

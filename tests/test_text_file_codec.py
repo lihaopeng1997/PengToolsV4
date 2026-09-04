@@ -76,6 +76,43 @@ class TextFileCodecTests(unittest.TestCase):
         self.assertFalse(res_ctrl['ok'])
         self.assertTrue(res_ctrl['binary'])
 
+    def test_c1_gb18030_exact_roundtrip(self):
+        """C1. GB18030 Chinese SQL decode exact and re-encode exact == original."""
+        sql = "-- 保单报表统计\nSELECT * FROM prpduser WHERE username = '张三' AND dept = '理赔部';"
+        raw = sql.encode('gb18030')
+        res = decode_text_bytes(raw, filename='test_roundtrip.sql')
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['encoding'], 'gb18030')
+        self.assertEqual(res['text'], sql)
+        self.assertEqual(res['text'].encode('gb18030', errors='strict'), raw)
+
+    def test_c2_gb18030_roundtrip_mismatch_rejected(self):
+        """C2. 验证 GB18030 roundtrip 校验失败分支：若 decode 成功但 re-encode 不等于原字节，必须被阻断。"""
+        class FakeBytes(bytes):
+            def decode(self, encoding='utf-8', errors='strict'):
+                if encoding == 'gb18030':
+                    class FakeStr(str):
+                        def encode(self, enc='utf-8', errors='strict'):
+                            return b'mismatched_bytes'
+                    return FakeStr('fake')
+                return super().decode(encoding, errors)
+
+        raw = FakeBytes(b'\x81\x30\x81\x30')
+        res = decode_text_bytes(raw, filename='mismatch.txt')
+        self.assertFalse(res['ok'])
+        self.assertTrue(res['binary'])
+        self.assertEqual(res['reason'], 'binary')
+
+    def test_c3_max_size_boundary(self):
+        """C3. max_size=10, raw len=11 -> controlled too_large, binary=False."""
+        raw = b"0123456789A"  # 11 bytes
+        res = decode_text_bytes(raw, filename='big.txt', max_size=10)
+        self.assertFalse(res['ok'])
+        self.assertFalse(res['binary'])
+        self.assertTrue(res['too_large'])
+        self.assertEqual(res['reason'], 'too_large')
+        self.assertIn('超过限制', res['error'])
+
 
 class AgentFileOperationsCodecTests(unittest.TestCase):
     def setUp(self):
@@ -145,6 +182,33 @@ class AgentFileOperationsCodecTests(unittest.TestCase):
         self.assertEqual(len(search_res['matches']), 1)
         self.assertIn('src', search_res['matches'][0]['file'])
         self.assertNotIn('target', search_res['matches'][0]['file'])
+
+    def test_c4_search_code_300kb_text_within_1mb(self):
+        """C4. search_code 300KB 合法 UTF-8 文本（> 256KB 且 <= 1MB）仍可正常搜索，证明显式传入 MAX_SEARCH_TEXT_FILE_SIZE。"""
+        large_text = "line with regular text\n" * 12000 + "target_keyword_in_300kb_file\n" + "trailing text\n" * 1000
+        raw = large_text.encode('utf-8')
+        self.assertGreater(len(raw), 256 * 1024)
+        self.assertLess(len(raw), 1024 * 1024)
+        fpath = os.path.join(self.test_dir, 'large_search.txt')
+        with open(fpath, 'wb') as f:
+            f.write(raw)
+        res = _search_code_impl('target_keyword_in_300kb_file', self.test_dir)
+        self.assertTrue(res['ok'])
+        self.assertEqual(len(res['matches']), 1)
+        self.assertEqual(res['matches'][0]['file'], 'large_search.txt')
+        self.assertIn('target_keyword_in_300kb_file', res['matches'][0]['text'])
+
+    def test_c5_search_code_skips_files_over_1mb(self):
+        """C5. > 1MB 的超大文件自动被 search_code 跳过，保障内存安全。"""
+        huge_text = "dummy text line\n" * 70000 + "secret_in_huge_file\n"
+        raw = huge_text.encode('utf-8')
+        self.assertGreater(len(raw), 1024 * 1024)
+        fpath = os.path.join(self.test_dir, 'huge_file.txt')
+        with open(fpath, 'wb') as f:
+            f.write(raw)
+        res = _search_code_impl('secret_in_huge_file', self.test_dir)
+        self.assertTrue(res['ok'])
+        self.assertEqual(len(res['matches']), 0)
 
 
 if __name__ == '__main__':
