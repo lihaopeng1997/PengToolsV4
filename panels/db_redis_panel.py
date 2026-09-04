@@ -29,7 +29,7 @@ from tools.db_redis_ops import (
 )
 from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
-from ui.design_system import apply_button, apply_table
+from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_page_toolbar
 from ui.icons import apply_icon, qicon
@@ -192,7 +192,7 @@ class RedisWorkbenchPanel(QWidget):
 
         # ── 左侧容器：全高拉伸 ──────────────────────────────────────────────
         left = QFrame()
-        left.setObjectName('dashboard-task-card')
+        left.setObjectName('redis-left-pane')
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(8, 8, 8, 8)
         left_l.setSpacing(6)
@@ -319,12 +319,30 @@ class RedisWorkbenchPanel(QWidget):
 
         # Tab 1：Key 详情
         detail = QWidget()
+        detail.setObjectName('redis-detail-pane')
         det_l = QVBoxLayout(detail)
         det_l.setContentsMargins(10, 10, 10, 10)
         self.key_name = QLabel()
         self.key_name.setObjectName('section-title')
         self.key_name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         det_l.addWidget(self.key_name)
+        summary_strip = QHBoxLayout()
+        summary_strip.setContentsMargins(0, 0, 0, 0)
+        summary_strip.setSpacing(6)
+        self.key_type_badge = QLabel('')
+        self.key_type_badge.setObjectName('status-pill')
+        self.key_type_badge.hide()
+        self.key_ttl_badge = QLabel('')
+        self.key_ttl_badge.setObjectName('status-pill')
+        self.key_ttl_badge.hide()
+        self.key_size_badge = QLabel('')
+        self.key_size_badge.setObjectName('status-pill')
+        self.key_size_badge.hide()
+        summary_strip.addWidget(self.key_type_badge)
+        summary_strip.addWidget(self.key_ttl_badge)
+        summary_strip.addWidget(self.key_size_badge)
+        summary_strip.addStretch(1)
+        det_l.addLayout(summary_strip)
         self.key_meta = QLabel()
         self.key_meta.setObjectName('field-hint')
         self.key_meta.setWordWrap(True)
@@ -422,7 +440,7 @@ class RedisWorkbenchPanel(QWidget):
 
         # 底部命令行（Console 只放右侧下方）
         bottom = QFrame()
-        bottom.setObjectName('dashboard-task-card')
+        bottom.setObjectName('redis-console-pane')
         bottom_l = QVBoxLayout(bottom)
         bottom_l.setContentsMargins(8, 8, 8, 8)
         cmd_bar = QHBoxLayout()
@@ -583,6 +601,10 @@ class RedisWorkbenchPanel(QWidget):
         self.load_more_btn.hide()
         self.key_name.setText('')
         self.key_meta.setText('')
+        if hasattr(self, 'key_type_badge'):
+            self.key_type_badge.hide()
+            self.key_ttl_badge.hide()
+            self.key_size_badge.hide()
 
     # ── 连接管理 ──────────────────────────────────────────────────────────
 
@@ -1042,17 +1064,44 @@ class RedisWorkbenchPanel(QWidget):
         elif kind == 'key_meta':
             self._selected_type = str(payload.get('type') or '')
             ttl = int(payload.get('ttl') or -2)
+            ttl_str = f'{ttl}s' if ttl >= 0 else ('永不过期' if ttl == -1 else '已过期')
+            if hasattr(self, 'key_type_badge'):
+                self.key_type_badge.setText(f'TYPE: {self._selected_type.upper()}')
+                self.key_type_badge.show()
+                self.key_ttl_badge.setText(f'TTL: {ttl_str}')
+                self.key_ttl_badge.show()
+                self.key_size_badge.hide()
             self.key_meta.setText(
                 f'类型: {self._selected_type} · TTL: {ttl if ttl >= 0 else "永不过期"}'
             )
             self._load_key_value()
             self._update_ai_banner()
         elif kind == 'key_value':
-            self._render_value(str(payload.get('type') or ''), payload.get('value'))
+            k_type = str(payload.get('type') or '')
+            val = payload.get('value')
+            if hasattr(self, 'key_size_badge'):
+                if isinstance(val, dict) and 'size' in val:
+                    self.key_size_badge.setText(f'SIZE: {val["size"]} B')
+                    self.key_size_badge.show()
+                elif isinstance(val, (list, tuple, set)):
+                    self.key_size_badge.setText(f'LENGTH: {len(val)}')
+                    self.key_size_badge.show()
+                elif isinstance(val, dict) and 'raw' in val:
+                    sz = len(val.get('raw') or b'')
+                    self.key_size_badge.setText(f'SIZE: {sz} B')
+                    self.key_size_badge.show()
+                elif isinstance(val, (str, bytes)):
+                    self.key_size_badge.setText(f'SIZE: {len(val)} B')
+                    self.key_size_badge.show()
+            self._render_value(k_type, val)
         elif kind == 'delete':
             self._selected_key = ''
             self.key_name.setText('')
             self.key_meta.setText('')
+            if hasattr(self, 'key_type_badge'):
+                self.key_type_badge.hide()
+                self.key_ttl_badge.hide()
+                self.key_size_badge.hide()
             self._refresh_keys()
         elif kind == 'rename':
             self._refresh_keys()

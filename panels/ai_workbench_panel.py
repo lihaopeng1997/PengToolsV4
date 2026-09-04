@@ -40,7 +40,7 @@ from ui.aurora_progress import AuroraProgress
 from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.connection_dialog import ConnectionDialog as _ConnectionDialog
-from ui.design_system import apply_button, apply_table
+from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_secret_field
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
@@ -69,26 +69,6 @@ class _SchemaSearchPopup(QFrame):
         self.list_widget.setObjectName('schema-search-list')
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list_widget.setStyleSheet("""
-            QListWidget#schema-search-list {
-                border: 1px solid rgba(128, 128, 128, 0.28);
-                border-radius: 6px;
-                background-color: palette(base);
-                padding: 2px;
-            }
-            QListWidget#schema-search-list::item {
-                padding: 4px 6px;
-                border-radius: 4px;
-                margin: 1px 0px;
-            }
-            QListWidget#schema-search-list::item:selected {
-                background-color: rgba(64, 128, 255, 0.22);
-                color: palette(text);
-            }
-            QListWidget#schema-search-list::item:hover {
-                background-color: rgba(128, 128, 128, 0.12);
-            }
-        """)
         layout.addWidget(self.list_widget)
 
     def set_results(self, results: list[dict]):
@@ -388,7 +368,7 @@ class AiWorkbenchPanel(QWidget):
         root.addWidget(self.narrow_chrome)
 
         left = QFrame()
-        left.setObjectName('dashboard-task-card')
+        left.setObjectName('sql-object-pane')
         self.left_pane = left
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(10, 10, 10, 10)
@@ -440,6 +420,7 @@ class AiWorkbenchPanel(QWidget):
         editor_row.addWidget(self.risk_chip, 0, Qt.AlignmentFlag.AlignVCenter)
         mid_l.addLayout(editor_row)
         self.sql_tabs = QTabWidget()
+        self.sql_tabs.setObjectName('sql-editor-tabs')
         self.sql_tabs.setTabsClosable(True)
         self.sql_tabs.tabCloseRequested.connect(self._close_sql_tab)
         self.sql_tabs.currentChanged.connect(self._on_sql_tab_changed)
@@ -447,7 +428,9 @@ class AiWorkbenchPanel(QWidget):
         columns.addWidget(middle)
 
         self.side_tabs = QTabWidget()
+        self.side_tabs.setObjectName('sql-side-tabs')
         ai_page = QWidget()
+        ai_page.setObjectName('sql-ai-pane')
         ai_page_l = QVBoxLayout(ai_page)
         ai_page_l.setContentsMargins(10, 10, 10, 10)
         ai_page_l.setSpacing(6)
@@ -556,6 +539,7 @@ class AiWorkbenchPanel(QWidget):
         self.side_tabs.addTab(ai_page, 'AI 助手')
 
         detail = QWidget()
+        detail.setObjectName('sql-detail-pane')
         det_l = QVBoxLayout(detail)
         det_l.setContentsMargins(10, 10, 10, 10)
         self.detail_title = QLabel()
@@ -604,6 +588,7 @@ class AiWorkbenchPanel(QWidget):
         body.addWidget(columns)
 
         bottom = QTabWidget()
+        bottom.setObjectName('sql-result-tabs')
         self.result = QTableWidget()
         apply_table(self.result, alternating=True)
         try:
@@ -611,6 +596,7 @@ class AiWorkbenchPanel(QWidget):
         except Exception:
             pass
         result_page = QWidget()
+        result_page.setObjectName('sql-result-page')
         result_l = QVBoxLayout(result_page)
         result_l.setContentsMargins(0, 8, 0, 0)
         page_row = QHBoxLayout()

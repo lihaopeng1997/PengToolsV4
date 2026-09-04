@@ -970,8 +970,9 @@ QFrame#req-filter-card {
     border-style: solid;
 }
 QFrame#req-tree-card {
-    background: __SURFACE__;
-    border-left: 3px solid __PRIMARY__;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
 }
 QFrame#req-file-card {
     background: __SURFACE__;
@@ -2833,4 +2834,100 @@ QFrame#test-point-row[done="true"] QLabel#test-point-text {
 }
 QDialog#test-points-dialog {
     background: __SURFACE__;
+}
+
+/* ── Correction Round 4-V2A: Native Data Workbenches ── */
+
+/* SQL Workbench Surfaces */
+QFrame#sql-object-pane {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QTabWidget#sql-editor-tabs QTabBar {
+    background: transparent;
+}
+
+QTabWidget#sql-editor-tabs QTabBar::tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    color: __TEXT_MUTED__;
+}
+
+QTabWidget#sql-editor-tabs QTabBar::tab:hover {
+    color: __TEXT_STRONG__;
+    background: __PRIMARY_SOFT__;
+}
+
+QTabWidget#sql-editor-tabs QTabBar::tab:selected {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 700;
+}
+
+QWidget#sql-ai-pane,
+QWidget#sql-detail-pane {
+    background: __SURFACE_SOFT__;
+}
+
+QTabWidget#sql-side-tabs::pane {
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    background: __SURFACE_SOFT__;
+}
+
+QTabWidget#sql-result-tabs::pane {
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    background: __SURFACE__;
+}
+
+/* SQL Schema Search Popup (Migrated from inline setStyleSheet) */
+QFrame#schema-search-popup {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __ELEVATED_BORDER__;
+    border-radius: 6px;
+}
+
+QListWidget#schema-search-list {
+    background: transparent;
+    border: none;
+    padding: 2px;
+}
+
+QListWidget#schema-search-list::item {
+    padding: 4px 6px;
+    border-radius: 4px;
+    margin: 1px 0px;
+    color: __TEXT__;
+}
+
+QListWidget#schema-search-list::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+}
+
+QListWidget#schema-search-list::item:hover:!selected {
+    background: __PRIMARY_SOFT__;
+}
+
+/* Redis Workbench Surfaces */
+QFrame#redis-left-pane {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QWidget#redis-detail-pane {
+    background: __SURFACE__;
+}
+
+QFrame#redis-console-pane {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
 }
