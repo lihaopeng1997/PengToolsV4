@@ -50,7 +50,7 @@ class PageChrome(QWidget):
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.layout_metrics import PAGE_HEADER_H
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter
+from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPainter
 
 
 class _PageHeaderFrame(QFrame):
@@ -59,17 +59,19 @@ class _PageHeaderFrame(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._has_bottom_divider = True
+        self._paint_count = 0
 
     def has_bottom_divider(self) -> bool:
         return self._has_bottom_divider
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        self._paint_count += 1
         w = self.width()
         h = self.height()
         if w <= 0 or h <= 0:
             return
-        painter = QPainter(self)
+
         try:
             from ui.theme_manager import ThemeManager, parse_color
             tm = ThemeManager.instance()
@@ -92,7 +94,12 @@ class _PageHeaderFrame(QFrame):
         grad.setColorAt(0.06, base_col)
         grad.setColorAt(0.94, base_col)
         grad.setColorAt(1.0, c_fade)
-        painter.fillRect(0, h - 1, w, 1, grad)
+
+        painter = QPainter(self)
+        try:
+            painter.fillRect(0, h - 1, w, 1, QBrush(grad))
+        finally:
+            painter.end()
 
 
 def make_page_header(

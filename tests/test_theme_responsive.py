@@ -782,23 +782,40 @@ class VisualFoundationV1Tests(unittest.TestCase):
         self.assertEqual(f.objectName(), 'ds-elevated')
         f.deleteLater()
 
-    def test_v1_16_web_theme_payload_contains_new_tokens(self):
-        """V1-16: Web themePayload 自动带入新增 tokens。"""
-        import json
-        from ui.web_shell import HomeBridge
-        bridge = HomeBridge()
+    def test_v1_8_rendered_qss_ds_glass_consumes_glass_highlight(self):
+        """V1-8: rendered QSS 中 QFrame#ds-glass 必须实际消费 GLASS_HIGHLIGHT。"""
         tm = ThemeManager.instance()
-        payload = {
-            'id': 'calm',
-            'is_dark': False,
-            'tokens': tm.palette('calm'),
-        }
-        bridge.set_theme_payload(payload)
-        parsed = json.loads(bridge.themePayload())
-        tokens = parsed['tokens']
+        tm.load_template()
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            pal = tm.palette(tid)
+            glass_hl = pal['GLASS_HIGHLIGHT']
+            qss = tm.render(tid)
+            self.assertIn(glass_hl, qss, f'{tid} rendered QSS 未包含 GLASS_HIGHLIGHT {glass_hl}')
+            self.assertIn('QFrame#ds-glass', qss)
+
+    def test_v1_16_web_theme_payload_contains_new_tokens(self):
+        """V1-16: ThemeManager.palette 包含新 token，供 Web themePayload 自动消费。"""
+        tm = ThemeManager.instance()
+        pal = tm.palette('calm')
         for key in ('PRIMARY_GRAD_START', 'PRIMARY_GRAD_END', 'GLASS_HIGHLIGHT', 'ELEVATED_BORDER'):
-            self.assertIn(key, tokens, f'Web payload tokens 缺少 {key}')
-            self.assertEqual(tokens[key], THEMES['calm'][key])
+            self.assertIn(key, pal, f'Theme palette 缺少新 token {key}')
+            self.assertEqual(pal[key], THEMES['calm'][key])
+
+        from ui import web_shell
+        if getattr(web_shell, 'WEB_SHELL_AVAILABLE', False):
+            import json
+            bridge = web_shell.HomeBridge()
+            payload = {
+                'id': 'calm',
+                'is_dark': False,
+                'tokens': pal,
+            }
+            bridge.set_theme_payload(payload)
+            parsed = json.loads(bridge.themePayload())
+            tokens = parsed.get('tokens', {})
+            for key in ('PRIMARY_GRAD_START', 'PRIMARY_GRAD_END', 'GLASS_HIGHLIGHT', 'ELEVATED_BORDER'):
+                self.assertIn(key, tokens)
+                self.assertEqual(tokens[key], THEMES['calm'][key])
 
     def test_v1_17_frontend_diff_is_empty(self):
         """V1-17: frontend/ 与 resources/webui/vue/ 必须保持不变。"""

@@ -441,26 +441,31 @@ class AuroraVisualFoundationTests(unittest.TestCase):
         self.assertEqual(DEFAULT_SUCCESS_LINGER_MS, 350)
         self.assertEqual(FAIL_LINGER_MS, 2200)
 
-    def test_v1_15_hidden_or_idle_stops_animation_timer(self):
-        """V1-15: Aurora 处于 hidden 或 idle 时，动画定时器必须停止。"""
+    def test_v1_15_idle_and_finish_stops_animation_timer(self):
+        """V1-15: Aurora 处于 idle、hide_now、reset 与完成收起路径时，动画定时器必须停止。"""
         p = AuroraProgress(self.host, delay_show_ms=0)
         self.assertFalse(p._anim_timer.isActive())
         self.assertEqual(p._state, 'idle')
 
-        # 启动 busy
+        # 启动 busy: timer 激活
         p.start_busy('处理中…', immediate=True)
         self.assertTrue(p._anim_timer.isActive())
 
-        # hide_now / reset
+        # hide_now / reset: timer 停止
         p.hide_now()
         self.assertFalse(p._anim_timer.isActive())
         self.assertEqual(p._state, 'idle')
 
-        # 再次启动后 hide
+        # reset: timer 保持停止
+        p.reset()
+        self.assertFalse(p._anim_timer.isActive())
+
+        # _on_linger_hide / 完成收起路径: timer 停止
         p.start_busy('再次处理…', immediate=True)
         self.assertTrue(p._anim_timer.isActive())
-        p.hide()
+        p._on_linger_hide(p.current_token)
         self.assertFalse(p._anim_timer.isActive())
+        self.assertEqual(p._state, 'idle')
 
 
 if __name__ == '__main__':

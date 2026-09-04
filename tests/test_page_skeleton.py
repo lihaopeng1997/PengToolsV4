@@ -257,13 +257,33 @@ class PageHeaderDividerTests(unittest.TestCase):
         self.assertIsInstance(title, QLabel)
         self.assertIsInstance(subtitle, QLabel)
         self.assertEqual(frame.objectName(), 'page-header')
-        # 验证分割线标记与 paintEvent 无报错
+        # 验证分割线标记与无 timer
         self.assertTrue(getattr(frame, '_has_bottom_divider', False) or hasattr(frame, 'has_bottom_divider'))
-        frame.resize(800, 60)
-        frame.repaint()
-        # 不增加 timer
         self.assertEqual(len(frame.findChildren(QTimer)), 0)
         frame.deleteLater()
+
+    def test_v1_9_real_render_offscreen_regression(self):
+        """V1-9 Real Render: host.show() + frame.show() + grab() 验证真实 paintEvent 执行。"""
+        from PyQt6.QtWidgets import QWidget
+        from ui.page_chrome import make_page_header
+
+        host = QWidget()
+        host.resize(800, 200)
+        frame, title, subtitle = make_page_header('测试渲染', subtitle='副标题')
+        frame.setParent(host)
+        frame.resize(800, 60)
+        host.show()
+        frame.show()
+        self.app.processEvents()
+
+        pix = frame.grab()
+        self.assertFalse(pix.isNull(), '渲染 grab 图像不应为空')
+        self.assertGreater(pix.width(), 0)
+        self.assertGreater(pix.height(), 0)
+        self.assertGreater(getattr(frame, '_paint_count', 0), 0, 'paintEvent 应当实际执行')
+
+        host.close()
+        host.deleteLater()
 
     def test_v1_10_page_header_viewport_geometry_not_increased(self):
         """V1-10: 页面头部高度不因 divider 显著增加。"""

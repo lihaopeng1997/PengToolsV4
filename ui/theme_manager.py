@@ -447,9 +447,6 @@ class ThemeManager:
     def theme_id(self) -> str:
         return self._theme_id
 
-    def get_theme_id(self) -> str:
-        return self._theme_id
-
     def palette(self, theme_id: str | None = None) -> dict[str, str]:
         return deepcopy(THEMES[resolve_theme_id(theme_id or self._theme_id)])
 

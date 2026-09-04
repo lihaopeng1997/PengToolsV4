@@ -645,6 +645,7 @@ QFrame#ds-muted {
 QFrame#ds-glass {
     background: __GLASS_BG__;
     border: 1px solid __GLASS_BORDER__;
+    border-top: 1px solid __GLASS_HIGHLIGHT__;
     border-radius: 12px;
 }
 QFrame#ds-elevated {
@@ -1490,8 +1491,8 @@ QComboBox#table-combo:hover, QComboBox#release-extra-system:hover {
     background: __SURFACE__;
 }
 QDialog#confirm-dialog {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __ELEVATED_BORDER__;
 }
 QLabel#confirm-title {
     color: __TEXT_STRONG__;
@@ -1501,8 +1502,8 @@ QLabel#confirm-title {
     background: transparent;
 }
 QFrame#confirm-card {
-    background: __ELEVATED_SURFACE__;
-    border: 1px solid __ELEVATED_BORDER__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
     border-radius: 12px;
 }
 QLabel#confirm-message {
