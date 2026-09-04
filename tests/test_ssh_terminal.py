@@ -527,17 +527,28 @@ class SshTerminalWidgetTests(unittest.TestCase):
         container.close()
 
     def test_t3_slow_fake_channel_send_is_nonblocking_and_timer_runs(self):
-        """T3: 慢速 channel 发送时，GUI 线程必须在 50ms 内返回，且 QTimer/事件循环正常处理。"""
+        """T3: 真实终端+慢速 channel 发送时，QTest Tab 必须在 50ms 内返回，且 QTimer 在阻塞期间正常触发。"""
         import time
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QWidget, QLineEdit, QVBoxLayout
         from tools.ops_ssh_shell import InteractiveShell
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        test_widget = SshTerminalWidget()
+        line_edit = QLineEdit()
+        layout.addWidget(test_widget)
+        layout.addWidget(line_edit)
+        container.show()
+        QApplication.processEvents()
 
         sent_payloads = []
 
-        class FakeChannel:
+        class SlowChannel:
             def __init__(self):
                 self.closed = False
             def send(self, data):
-                time.sleep(0.3)
+                time.sleep(0.4)
                 sent_payloads.append(bytes(data))
                 return len(data)
             def recv(self, n):
@@ -548,23 +559,49 @@ class SshTerminalWidgetTests(unittest.TestCase):
 
         class FakeClient:
             def invoke_shell(self, **kwargs):
-                return FakeChannel()
+                return SlowChannel()
 
         shell = InteractiveShell()
         shell.attach_client(FakeClient())
 
+        test_widget.view._shell = shell
+        test_widget.view._connected = True
+        test_widget.view.setFocus()
+        QApplication.processEvents()
+        self.assertTrue(test_widget.view.hasFocus())
+
+        timer_fired = []
+        def on_timer():
+            timer_fired.append(True)
+
+        QTimer.singleShot(40, on_timer)
+
         t0 = time.perf_counter()
-        shell.send(b'\t')
+        QTest.keyClick(test_widget.view, Qt.Key.Key_Tab)
         t1 = time.perf_counter()
 
         # 必须瞬间入队并返回 (< 50ms)
         self.assertLess(t1 - t0, 0.05)
+        # 焦点必须保留在终端，不发生 Qt focus traversal
+        self.assertTrue(test_widget.view.hasFocus())
+        self.assertFalse(line_edit.hasFocus())
 
+        # 在底层 channel.send(0.4s) 仍被阻塞期间，QTimer 必须能够正常调度触发
+        t_deadline = time.time() + 0.25
+        while not timer_fired and time.time() < t_deadline:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        self.assertTrue(timer_fired, "QTimer 必须在 channel.send 仍在后台阻塞时正常响应并触发")
+
+        # 等待后台 writer 发送完毕
         timeout_at = time.time() + 1.0
         while not sent_payloads and time.time() < timeout_at:
             time.sleep(0.02)
         self.assertEqual(sent_payloads, [b'\t'])
+
+        test_widget.detach()
         shell.close()
+        container.close()
 
     def test_t4_ctrl_i_equals_tab(self):
         """T4: Ctrl+I 映射为等价 ASCII TAB (b'\t')。"""
@@ -640,19 +677,23 @@ class SshTerminalWidgetTests(unittest.TestCase):
         shell.close()
 
     def test_t7_old_session_queued_write_does_not_leak_after_reconnect(self):
-        """T7: 旧 session 未发出的残留数据在重连后不会泄露到新 session 通道。"""
+        """T7: 旧 session 未发出的残留数据在重连后不会泄露到新 session 通道（确定性竞态验证）。"""
         import time
+        import threading
         from tools.ops_ssh_shell import InteractiveShell
 
+        writer1_blocked = threading.Event()
+        writer1_release = threading.Event()
         chan1_sent = []
         chan2_sent = []
 
-        class FakeBlockedChannel:
+        class SlowBlockedChannel:
             def __init__(self):
                 self.closed = False
             def send(self, data):
-                time.sleep(1.0)
                 chan1_sent.append(bytes(data))
+                writer1_blocked.set()
+                writer1_release.wait(timeout=2.0)
                 return len(data)
             def recv(self, n):
                 time.sleep(0.05)
@@ -660,7 +701,7 @@ class SshTerminalWidgetTests(unittest.TestCase):
             def close(self):
                 self.closed = True
 
-        class FakeNormalChannel:
+        class FastChannel:
             def __init__(self):
                 self.closed = False
             def send(self, data):
@@ -674,25 +715,75 @@ class SshTerminalWidgetTests(unittest.TestCase):
 
         class FakeClient1:
             def invoke_shell(self, **kwargs):
-                return FakeBlockedChannel()
+                return SlowBlockedChannel()
 
         class FakeClient2:
             def invoke_shell(self, **kwargs):
-                return FakeNormalChannel()
+                return FastChannel()
 
         shell = InteractiveShell()
         shell.attach_client(FakeClient1())
-        shell.send(b'stale_session_1_data')
 
+        # 发送第一个包，让旧 writer1 阻塞在 send() 内部
+        shell.send(b'sess1_data')
+        self.assertTrue(writer1_blocked.wait(timeout=1.0))
+
+        # 在 writer1 仍被卡住的情况下重连到 session 2
         shell.attach_client(FakeClient2())
-        shell.send(b'session_2_hello')
+        shell.send(b'sess2_hello')
 
+        # 释放 writer1
+        writer1_release.set()
+
+        # 等待新 session 发送完毕
         timeout_at = time.time() + 1.0
         while not chan2_sent and time.time() < timeout_at:
-            time.sleep(0.02)
+            time.sleep(0.01)
 
-        self.assertEqual(b''.join(chan2_sent), b'session_2_hello')
-        self.assertNotIn(b'stale_session_1_data', b''.join(chan2_sent))
+        # 确定性断言：新 channel 只能收到新 session 数据，旧 writer 绝不可触碰新 channel 或新队列
+        self.assertEqual(chan1_sent, [b'sess1_data'])
+        self.assertEqual(chan2_sent, [b'sess2_hello'])
+        self.assertNotIn(b'sess1_data', chan2_sent)
+        shell.close()
+
+    def test_t8_send_put_nowait_queue_full_raises_ops_ssh_error(self):
+        """T8: 发送队列满时 put_nowait 立即抛出 OpsSshError，绝不在 GUI 线程阻塞。"""
+        import time
+        from tools.ops_ssh_shell import InteractiveShell, OpsSshError
+
+        class MockBlockedChannel:
+            def __init__(self):
+                self.closed = False
+            def send(self, data):
+                time.sleep(10.0)
+                return len(data)
+            def recv(self, n):
+                time.sleep(0.05)
+                return b''
+            def close(self):
+                self.closed = True
+
+        class MockClient:
+            def invoke_shell(self, **kwargs):
+                return MockBlockedChannel()
+
+        shell = InteractiveShell()
+        shell.attach_client(MockClient())
+
+        # 人为把 write_queue 填满
+        q = shell._write_queue
+        while not q.full():
+            try:
+                q.put_nowait(b'x')
+            except Exception:
+                break
+
+        t0 = time.perf_counter()
+        with self.assertRaises(OpsSshError):
+            shell.send(b'overflow')
+        t1 = time.perf_counter()
+        # 必须瞬间抛错 (< 15ms)，绝不在队列满时阻塞 50ms
+        self.assertLess(t1 - t0, 0.02)
         shell.close()
 
 

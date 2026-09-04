@@ -66,6 +66,40 @@ def normalize_terminal_text(text: str) -> str:
     return t
 
 
+class _SessionState:
+    """每个活跃会话的独立 I/O 状态，确保线程生命周期与通道严格隔离。"""
+
+    def __init__(self, session_id: int, channel, client, owns_client: bool):
+        self.session_id = session_id
+        self.channel = channel
+        self.client = client
+        self.owns_client = owns_client
+        self.stop_event = threading.Event()
+        self.write_queue: queue.Queue = queue.Queue(maxsize=4096)
+        self.reader_thread: Optional[threading.Thread] = None
+        self.writer_thread: Optional[threading.Thread] = None
+
+    def close(self) -> None:
+        self.stop_event.set()
+        try:
+            self.write_queue.put_nowait(None)
+        except Exception:
+            pass
+        if self.channel is not None:
+            try:
+                self.channel.close()
+            except Exception:
+                pass
+        if self.owns_client and self.client is not None:
+            close_ssh_client(self.client)
+        th = self.reader_thread
+        if th and th.is_alive() and th is not threading.current_thread():
+            th.join(timeout=0.3)
+        wth = self.writer_thread
+        if wth and wth.is_alive() and wth is not threading.current_thread():
+            wth.join(timeout=0.3)
+
+
 class InteractiveShell:
     """非 Qt 依赖的交互 shell；通过回调交付数据。"""
 
@@ -85,24 +119,80 @@ class InteractiveShell:
         self.term = term
         self.width = max(40, int(width or 120))
         self.height = max(10, int(height or 32))
-        self._client = None
-        self._channel = None
-        self._owns_client = False
-        self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._writer_thread: Optional[threading.Thread] = None
-        self._write_queue: queue.Queue = queue.Queue(maxsize=4096)
+        self._session_counter = 0
+        self._current_session: Optional[_SessionState] = None
         self._lock = threading.Lock()
 
     @property
     def alive(self) -> bool:
-        ch = self._channel
+        with self._lock:
+            sess = self._current_session
+        if sess is None or sess.stop_event.is_set():
+            return False
+        ch = sess.channel
         if ch is None:
             return False
         try:
-            return not ch.closed
+            return not getattr(ch, 'closed', False)
         except Exception:
             return False
+
+    @property
+    def _channel(self):
+        with self._lock:
+            return self._current_session.channel if self._current_session else None
+
+    @_channel.setter
+    def _channel(self, chan):
+        with self._lock:
+            if chan is None:
+                if self._current_session is not None:
+                    self._current_session.channel = None
+                return
+            self._session_counter += 1
+            sess = _SessionState(self._session_counter, chan, None, False)
+            self._current_session = sess
+            sess.writer_thread = threading.Thread(
+                target=self._write_loop,
+                args=(sess,),
+                name=f'ssh-shell-writer-{sess.session_id}',
+                daemon=True,
+            )
+            sess.writer_thread.start()
+
+    @property
+    def _client(self):
+        with self._lock:
+            return self._current_session.client if self._current_session else None
+
+    @property
+    def _owns_client(self):
+        with self._lock:
+            return self._current_session.owns_client if self._current_session else False
+
+    @property
+    def _stop(self):
+        with self._lock:
+            if self._current_session is not None:
+                return self._current_session.stop_event
+            evt = threading.Event()
+            evt.set()
+            return evt
+
+    @property
+    def _write_queue(self):
+        with self._lock:
+            return self._current_session.write_queue if self._current_session else None
+
+    @property
+    def _thread(self):
+        with self._lock:
+            return self._current_session.reader_thread if self._current_session else None
+
+    @property
+    def _writer_thread(self):
+        with self._lock:
+            return self._current_session.writer_thread if self._current_session else None
 
     def attach_client(self, client, *, owns_client: bool = False) -> None:
         """在已有 SSHClient 上打开 shell 通道。"""
@@ -110,16 +200,14 @@ class InteractiveShell:
             raise OpsSshError('未安装 paramiko')
         if client is None:
             raise OpsSshError('SSH 客户端为空')
-        self.close()
-        self._client = client
-        self._owns_client = bool(owns_client)
-        self._stop.clear()
-        # 清空队列，防止上一个 session 的残留数据泄漏到新通道
-        while not self._write_queue.empty():
-            try:
-                self._write_queue.get_nowait()
-            except queue.Empty:
-                break
+
+        # 1. 关停并孤立旧 session（旧 session 的 stop_event 被 set，绝不再被重置）
+        with self._lock:
+            old_sess = self._current_session
+            self._current_session = None
+        if old_sess is not None:
+            old_sess.close()
+
         try:
             chan = client.invoke_shell(
                 term=self.term,
@@ -128,36 +216,40 @@ class InteractiveShell:
             )
             if hasattr(chan, 'settimeout'):
                 chan.settimeout(0.05)
-            # 尽量不要 delay
             try:
                 chan.set_combine_stderr(True)
             except Exception:
                 pass
-            # invoke_shell 返回后仍须校验通道：部分服务器会立即关闭不支持的 PTY，
-            # 此时不能把它暴露为“已就绪”的交互终端。
             if bool(getattr(chan, 'closed', False)):
                 try:
                     chan.close()
                 except Exception:
                     pass
                 raise OpsSshError('交互终端通道已关闭')
-            self._channel = chan
         except Exception as exc:
-            self._channel = None
             raise OpsSshError(f'无法打开交互终端：{exc}') from exc
-        self._thread = threading.Thread(
-            target=self._read_loop,
-            name='ssh-shell-reader',
-            daemon=True,
-        )
-        self._thread.start()
 
-        self._writer_thread = threading.Thread(
-            target=self._write_loop,
-            name='ssh-shell-writer',
+        # 2. 为新 session 创建全新独立状态
+        with self._lock:
+            self._session_counter += 1
+            sess = _SessionState(self._session_counter, chan, client, owns_client)
+            self._current_session = sess
+
+        sess.reader_thread = threading.Thread(
+            target=self._read_loop,
+            args=(sess,),
+            name=f'ssh-shell-reader-{sess.session_id}',
             daemon=True,
         )
-        self._writer_thread.start()
+        sess.reader_thread.start()
+
+        sess.writer_thread = threading.Thread(
+            target=self._write_loop,
+            args=(sess,),
+            name=f'ssh-shell-writer-{sess.session_id}',
+            daemon=True,
+        )
+        sess.writer_thread.start()
 
     def connect_server(self, server: dict, password_override: str | None = None, timeout_sec: int = 30) -> None:
         """自行建立连接并打开 shell。"""
@@ -171,16 +263,21 @@ class InteractiveShell:
     def send(self, data: str | bytes) -> None:
         """非阻塞按键/字节入队；不在主线程执行同步网络写。"""
         with self._lock:
-            ch = self._channel
+            sess = self._current_session
+            if sess is None or sess.stop_event.is_set():
+                raise OpsSshError('终端未连接')
+            ch = sess.channel
             if ch is None or getattr(ch, 'closed', False):
                 raise OpsSshError('终端未连接')
-            if (self._writer_thread is None or not self._writer_thread.is_alive()) and not self._stop.is_set():
-                self._writer_thread = threading.Thread(
+            if (sess.writer_thread is None or not sess.writer_thread.is_alive()) and not sess.stop_event.is_set():
+                sess.writer_thread = threading.Thread(
                     target=self._write_loop,
-                    name='ssh-shell-writer',
+                    args=(sess,),
+                    name=f'ssh-shell-writer-{sess.session_id}',
                     daemon=True,
                 )
-                self._writer_thread.start()
+                sess.writer_thread.start()
+            q = sess.write_queue
         if isinstance(data, str):
             payload = data.encode('utf-8', errors='replace')
         else:
@@ -188,32 +285,33 @@ class InteractiveShell:
         if not payload:
             return
         try:
-            self._write_queue.put(payload, timeout=0.05)
+            q.put_nowait(payload)
         except queue.Full as exc:
             raise OpsSshError('终端发送队列已满') from exc
 
-    def _write_loop(self) -> None:
-        """专用后台写线程：严格保证 FIFO 顺序交付到底层 Channel。"""
-        while not self._stop.is_set():
+    def _write_loop(self, sess: _SessionState) -> None:
+        """专用后台写线程：严格保证当前 session FIFO 顺序交付到底层 Channel。"""
+        stop_event = sess.stop_event
+        write_queue = sess.write_queue
+        ch = sess.channel
+        while not stop_event.is_set():
             try:
-                item = self._write_queue.get(timeout=0.05)
+                item = write_queue.get(timeout=0.05)
             except queue.Empty:
                 continue
             if item is None:
                 break
-            with self._lock:
-                ch = self._channel
-            if ch is None or ch.closed:
+            if ch is None or getattr(ch, 'closed', False):
                 break
             try:
                 view = memoryview(item)
-                while len(view) > 0 and not self._stop.is_set():
+                while len(view) > 0 and not stop_event.is_set():
                     sent = ch.send(view)
                     if sent <= 0:
                         break
                     view = view[sent:]
             except Exception as exc:
-                if not self._stop.is_set():
+                if not stop_event.is_set():
                     self._emit_error(f'发送失败：{exc}')
                 break
 
@@ -230,8 +328,9 @@ class InteractiveShell:
         self.width = max(1, int(width or 1))
         self.height = max(1, int(height or 1))
         with self._lock:
-            ch = self._channel
-        if ch is None or ch.closed:
+            sess = self._current_session
+            ch = sess.channel if sess is not None else None
+        if ch is None or getattr(ch, 'closed', False):
             return
         try:
             ch.resize_pty(width=self.width, height=self.height)
@@ -239,38 +338,11 @@ class InteractiveShell:
             pass
 
     def close(self) -> None:
-        self._stop.set()
-        try:
-            self._write_queue.put_nowait(None)
-        except Exception:
-            pass
         with self._lock:
-            ch = self._channel
-            client = self._client
-            owns = self._owns_client
-            self._channel = None
-            self._client = None
-            self._owns_client = False
-        if ch is not None:
-            try:
-                ch.close()
-            except Exception:
-                pass
-        if owns and client is not None:
-            close_ssh_client(client)
-        th = self._thread
-        self._thread = None
-        if th and th.is_alive() and th is not threading.current_thread():
-            th.join(timeout=0.3)
-        wth = self._writer_thread
-        self._writer_thread = None
-        if wth and wth.is_alive() and wth is not threading.current_thread():
-            wth.join(timeout=0.3)
-        while not self._write_queue.empty():
-            try:
-                self._write_queue.get_nowait()
-            except queue.Empty:
-                break
+            sess = self._current_session
+            self._current_session = None
+        if sess is not None:
+            sess.close()
 
     def _emit_data(self, data: bytes | str) -> None:
         if not data:
@@ -298,21 +370,18 @@ class InteractiveShell:
             except Exception:
                 pass
 
-    def _read_loop(self) -> None:
+    def _read_loop(self, sess: _SessionState) -> None:
+        stop_event = sess.stop_event
+        ch = sess.channel
         try:
-            while not self._stop.is_set():
-                with self._lock:
-                    ch = self._channel
-                if ch is None:
-                    break
-                if ch.closed:
+            while not stop_event.is_set():
+                if ch is None or getattr(ch, 'closed', False):
                     break
                 data = b''
                 try:
                     if ch.recv_ready():
                         data = ch.recv(4096)
                     elif ch.exit_status_ready():
-                        # drain
                         while ch.recv_ready():
                             chunk = ch.recv(4096)
                             if not chunk:
@@ -325,14 +394,14 @@ class InteractiveShell:
                 except socket.timeout:
                     continue
                 except Exception as exc:
-                    if not self._stop.is_set():
+                    if not stop_event.is_set():
                         self._emit_error(str(exc))
                     break
                 if not data:
-                    if ch.closed or ch.exit_status_ready():
+                    if getattr(ch, 'closed', False) or ch.exit_status_ready():
                         break
                     continue
                 self._emit_data(data)
         finally:
-            if not self._stop.is_set():
+            if not stop_event.is_set():
                 self._emit_closed()

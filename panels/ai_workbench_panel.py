@@ -766,15 +766,24 @@ class AiWorkbenchPanel(QWidget):
                     editor.setMinimumHeight(min_h)
         if not hasattr(self, 'columns_splitter'):
             return
+        prev_mode = getattr(self, '_prev_applied_mode', None)
+        mode_changed = prev_mode != mode
+        self._prev_applied_mode = mode
+
         if mode == 'narrow':
             # 显式紧凑：默认单主区（编辑器），目录/助手按需打开，禁止常驻三栏
+            narrow_vis_changed = (
+                self.left_pane.isVisible() != self._narrow_show_objects or
+                self.side_tabs.isVisible() != self._narrow_show_ai
+            )
             self.left_pane.setVisible(self._narrow_show_objects)
             self.side_tabs.setVisible(self._narrow_show_ai)
             self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
-            left_w = 240 if self._narrow_show_objects else 0
-            right_w = 280 if self._narrow_show_ai else 0
-            mid_w = max(360, 900 - left_w - right_w)
-            self.columns_splitter.setSizes([left_w, mid_w, right_w])
+            if mode_changed or narrow_vis_changed:
+                left_w = 240 if self._narrow_show_objects else 0
+                right_w = 280 if self._narrow_show_ai else 0
+                mid_w = max(360, 900 - left_w - right_w)
+                self.columns_splitter.setSizes([left_w, mid_w, right_w])
             for i, w in enumerate((self.left_pane, self.columns_splitter.widget(1), self.side_tabs)):
                 if w is None:
                     continue
@@ -782,25 +791,6 @@ class AiWorkbenchPanel(QWidget):
                     w.setMinimumWidth(360)
                 elif w.isVisible():
                     w.setMinimumWidth(200)
-        elif mode == 'compact':
-            self.left_pane.setVisible(True)
-            self.side_tabs.setVisible(True)
-            self.columns_splitter.setSizes([240, 640, 240])
-            self.left_pane.setMinimumWidth(240)
-            self.side_tabs.setMinimumWidth(200)
-            mid = self.columns_splitter.widget(1)
-            if mid is not None:
-                mid.setMinimumWidth(360)
-        else:
-            self.left_pane.setVisible(True)
-            self.side_tabs.setVisible(True)
-            self.columns_splitter.setSizes([240, 560, 320])
-            self.left_pane.setMinimumWidth(240)
-            self.side_tabs.setMinimumWidth(240)
-            mid = self.columns_splitter.widget(1)
-            if mid is not None:
-                mid.setMinimumWidth(520)
-        if mode == 'narrow':
             col_mins = [
                 200 if self._narrow_show_objects else 0,
                 360,
@@ -808,9 +798,23 @@ class AiWorkbenchPanel(QWidget):
             ]
             col_defs = [200, 480, 200]
         elif mode == 'compact':
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.left_pane.setMinimumWidth(240)
+            self.side_tabs.setMinimumWidth(200)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(360)
             col_mins = [240, 420, 240]
             col_defs = [240, 560, 260]
         else:
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.left_pane.setMinimumWidth(240)
+            self.side_tabs.setMinimumWidth(240)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(520)
             col_mins = [260, 480, 300]
             col_defs = [300, 700, 340]
         install_splitter_prefs(

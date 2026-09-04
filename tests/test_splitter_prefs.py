@@ -293,6 +293,51 @@ class SplitterPrefsTests(unittest.TestCase):
         self.assertAlmostEqual(restored[1], saved_sizes[1], delta=10)
         self.assertAlmostEqual(restored[2], saved_sizes[2], delta=10)
 
+    def test_s10_sql_real_panel_apply_layout_mode_preserves_drag(self):
+        """S10: 真实 AiWorkbenchPanel 在同 bucket apply_layout_mode 时绝不重置用户拖拽尺寸。"""
+        from panels.ai_workbench_panel import AiWorkbenchPanel
+
+        panel = AiWorkbenchPanel(dialect='oracle')
+        panel.resize(1600, 900)
+        panel.show()
+        panel.apply_layout_mode('wide')
+        QApplication.processEvents()
+
+        # 模拟用户拖拽 custom 尺寸
+        custom_wide = [350, 780, 420]
+        panel.columns_splitter.setSizes(custom_wide)
+        QApplication.processEvents()
+
+        # 再次 apply_layout_mode('wide') (同 bucket)
+        panel.apply_layout_mode('wide')
+        QApplication.processEvents()
+
+        wide_sizes = panel.columns_splitter.sizes()
+        self.assertAlmostEqual(wide_sizes[0], custom_wide[0], delta=20)
+        self.assertAlmostEqual(wide_sizes[1], custom_wide[1], delta=20)
+        self.assertAlmostEqual(wide_sizes[2], custom_wide[2], delta=20)
+
+        # 切到 compact 模式（视口调整到典型 compact 宽度 1100）
+        panel.resize(1100, 700)
+        panel.apply_layout_mode('compact')
+        QApplication.processEvents()
+
+        # 拖拽 compact 尺寸
+        custom_compact = [240, 560, 260]
+        panel.columns_splitter.setSizes(custom_compact)
+        QApplication.processEvents()
+
+        # 第二次 apply_layout_mode('compact')，不得 reset
+        panel.apply_layout_mode('compact')
+        QApplication.processEvents()
+
+        compact_sizes = panel.columns_splitter.sizes()
+        self.assertAlmostEqual(compact_sizes[0], custom_compact[0], delta=20)
+        self.assertAlmostEqual(compact_sizes[1], custom_compact[1], delta=20)
+        self.assertAlmostEqual(compact_sizes[2], custom_compact[2], delta=20)
+
+        panel.close()
+
 
 if __name__ == '__main__':
     unittest.main()
