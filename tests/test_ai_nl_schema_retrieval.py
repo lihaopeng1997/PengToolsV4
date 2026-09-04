@@ -260,7 +260,7 @@ class AiNlSchemaRetrievalTests(unittest.TestCase):
         self.assertIn('RISKCODE', prompt)
 
     def test_datatype_first_numeric_and_varchar_formatting(self):
-        """Review Fix 2: 验证数据类型第一优先级（VARCHAR 引号+前导零，NUMBER 去前导零纯数字，未知类型保守加引号）。"""
+        """Review Fix 2 & 3: 验证数据类型第一优先级（纯字符串去前导零，Decimal保持精度，5000位超大数字不报错，非数字安全加引号）。"""
         from tools.tameng_agent import format_condition_hint
         from tools.ai_sql_draft import _format_condition_hint
 
@@ -280,34 +280,58 @@ class AiNlSchemaRetrievalTests(unittest.TestCase):
         h_a = {'field': 'RISKCODE', 'op': '=', 'val': '0525'}
         self.assertEqual(format_condition_hint(h_a, tables), "RISKCODE = '0525'")
 
-        # B. NUMBER: SEQNO = 0525 -> 525 (leading zero stripped for true numeric type)
-        h_b = {'field': 'SEQNO', 'op': '=', 'val': '0525'}
-        self.assertEqual(format_condition_hint(h_b, tables), "SEQNO = 525")
+        # B. NUMBER 规范化（无 int() 强转）:
+        # 0525 -> 525
+        self.assertEqual(format_condition_hint({'field': 'SEQNO', 'op': '=', 'val': '0525'}, tables), "SEQNO = 525")
+        # 0000 -> 0
+        self.assertEqual(format_condition_hint({'field': 'SEQNO', 'op': '=', 'val': '0000'}, tables), "SEQNO = 0")
+        # -005 -> -5
+        self.assertEqual(format_condition_hint({'field': 'SEQNO', 'op': '=', 'val': '-005'}, tables), "SEQNO = -5")
+        # 001.50 -> 1.50
+        self.assertEqual(format_condition_hint({'field': 'SUMPREM', 'op': '=', 'val': '001.50'}, tables), "SUMPREM = 1.50")
+        # SUMPREM >= 1000 -> SUMPREM >= 1000
+        self.assertEqual(format_condition_hint({'field': 'SUMPREM', 'op': '>=', 'val': '1000'}, tables), "SUMPREM >= 1000")
 
-        # C. NUMBER: SUMPREM >= 1000 -> SUMPREM >= 1000
-        h_c = {'field': 'SUMPREM', 'op': '>=', 'val': '1000'}
-        self.assertEqual(format_condition_hint(h_c, tables), "SUMPREM >= 1000")
+        # 5000 位超大数字不调用 int() 转换，不触发 ValueError
+        huge_num = '000' + ('9' * 5000)
+        h_huge = {'field': 'SEQNO', 'op': '=', 'val': huge_num}
+        self.assertEqual(format_condition_hint(h_huge, tables), f"SEQNO = {'9' * 5000}")
+
+        # NUMBER 字段收到非数值条件 ABC，不得输出裸 SEQNO = ABC，应带引号并标记 mismatch
+        h_mismatch = {'field': 'SEQNO', 'op': '=', 'val': 'ABC'}
+        self.assertEqual(format_condition_hint(h_mismatch, tables), "SEQNO = 'ABC'")
+        self.assertTrue(h_mismatch.get('value_type_mismatch'))
 
         # D. unknown datatype: CODE = 0525 -> CODE = '0525' (conservative quoted)
         h_d = {'field': 'CODE', 'op': '=', 'val': '0525'}
         self.assertEqual(format_condition_hint(h_d, tables), "CODE = '0525'")
 
     def test_pathological_condition_value_hard_cap(self):
-        """Review Fix 2: 超长条件值（20,000 字符），prompt 与 safe_context 必须 <= MAX_CONTEXT_CHARS 并保留关键标识符。"""
+        """Review Fix 2 & 3: 超长快照/注释/条件/字段（20,000 字符），prompt 必须结构完整 <= MAX_CONTEXT_CHARS，无 raw slice。"""
+        import inspect
+        from tools import tameng_agent
         from tools.tameng_agent import bounded_evidence_prompt_text
         from tools.ai_sql_draft import build_safe_context
 
+        # 断言实现源码中最终 serializer 不存在 raw text[:max_chars] 切片
+        source = inspect.getsource(tameng_agent.evidence_prompt_text)
+        self.assertNotIn('[:max_chars]', source)
+
         huge_val = 'A' * 20000
+        huge_comment = 'B' * 20000
+        huge_snap_id = 'snap-' + ('S' * 20000)
+        many_confirmed = [f'PRP.PRPCMAIN.COL_{i}' for i in range(500)]
+
         evidence = {
             'dialect': 'oracle',
-            'snapshot_id': 'snap-huge-val',
+            'snapshot_id': huge_snap_id,
             'scanned_at': '2026-09-04 08:00:00',
-            'confirmed_fields': ['PRP.PRPCMAIN.RISKCODE'],
+            'confirmed_fields': ['PRP.PRPCMAIN.RISKCODE'] + many_confirmed,
             'tables': [
                 {
                     'qualified_name': 'PRP.PRPCMAIN',
                     'object_type': 'TABLE',
-                    'comment': '保单主表',
+                    'comment': huge_comment,
                     'columns': [
                         {'name': 'POLICYNO', 'data_type': 'VARCHAR2(30)', 'comment': '保单号'},
                         {'name': 'RISKCODE', 'data_type': 'VARCHAR2(10)', 'comment': '险种代码'},

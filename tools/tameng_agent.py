@@ -71,15 +71,36 @@ _OP_MAP = {
     '小于': '<', '<': '<',
 }
 
+MAX_IDENTIFIER_CHARS = 128
+MAX_META_VALUE_CHARS = 120
+
+_IDENT_PART_PATTERN = r'(?:[A-Za-z_][A-Za-z0-9_$#]*|"(?:""|[^"])+"|`[^`]+`)'
+_QUALIFIED_OBJ_PATTERN = rf'({_IDENT_PART_PATTERN}(?:\s*\.\s*{_IDENT_PART_PATTERN})?)'
+
 _IDENT_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_$#]*')
+_IDENT_TOKEN_RE = re.compile(
+    r'"((?:""|[^"])+)"|`([^`]+)`|([A-Za-z_][A-Za-z0-9_$#]*)'
+)
 _OBJ_RE = re.compile(
-    r'\b(?:from|join|update|into)\s+([A-Za-z_][\w$#]*(?:\.[A-Za-z_][\w$#]*)?)',
+    rf'\b(?:from|join|update|into)\s+{_QUALIFIED_OBJ_PATTERN}',
     re.IGNORECASE,
 )
 _ALIAS_RE = re.compile(
-    r'\b(?:from|join)\s+[A-Za-z_][\w$#]*(?:\.[A-Za-z_][\w$#]*)?\s+(?:as\s+)?([A-Za-z_][\w$#]*)',
+    rf'\b(?:from|join)\s+{_QUALIFIED_OBJ_PATTERN}\s+(?:as\s+)?({_IDENT_PART_PATTERN})',
     re.IGNORECASE,
 )
+
+
+def _clean_token(tok: str) -> str:
+    t = str(tok or '').strip()
+    if (t.startswith('"') and t.endswith('"')) or (t.startswith('`') and t.endswith('`')):
+        return t[1:-1].replace('""', '"').strip()
+    return t
+
+
+def _normalize_obj_name(raw: str) -> str:
+    parts = [_clean_token(p) for p in str(raw or '').split('.')]
+    return '.'.join(p for p in parts if p)
 
 
 def normalize_identifier(value: str) -> str:
@@ -936,15 +957,48 @@ def format_evidence_bar(evidence: dict | None) -> str:
     return prefix or detail
 
 
+def _is_numeric_literal(s: str) -> bool:
+    return bool(re.match(r'^[+-]?\d+(?:\.\d+)?$', s.strip()))
+
+
+def _normalize_numeric_string(val: str) -> str:
+    s = val.strip()
+    if not s:
+        return s
+    negative = False
+    if s.startswith('-'):
+        negative = True
+        s = s[1:]
+    elif s.startswith('+'):
+        s = s[1:]
+
+    if not s:
+        return val
+
+    if '.' in s:
+        parts = s.split('.', 1)
+        int_part = parts[0].lstrip('0') or '0'
+        frac_part = parts[1]
+        if int_part == '0' and (not frac_part or set(frac_part) == {'0'}):
+            negative = False
+        res = f"{int_part}.{frac_part}"
+        return f"-{res}" if negative else res
+    else:
+        int_part = s.lstrip('0')
+        if not int_part:
+            return '0'
+        return f"-{int_part}" if negative else int_part
+
+
 def format_condition_hint(hint: dict, tables: list | None = None) -> str:
     field = str(hint.get('field') or '').strip()
     op = str(hint.get('op') or '=').strip()
     val = str(hint.get('val') or '').strip()
-    field_upper = field.upper()
+    field_upper = _clean_token(field).upper()
     data_type = ''
     for t in tables or []:
         for col in (t.get('columns') or []):
-            c_name = str(col.get('name') or '').upper()
+            c_name = _clean_token(col.get('name') or '').upper()
             if c_name == field_upper or field_upper.endswith('.' + c_name):
                 data_type = str(col.get('data_type') or '').upper()
                 break
@@ -958,12 +1012,12 @@ def format_condition_hint(hint: dict, tables: list | None = None) -> str:
 
     # Datatype takes absolute priority:
     if is_numeric_type:
-        if val_clean.isdigit():
-            val_str = str(int(val_clean))
-        elif re.match(r'^-?\d+(\.\d+)?$', val_clean):
-            val_str = val_clean
+        if _is_numeric_literal(val_clean):
+            val_str = _normalize_numeric_string(val_clean)
         else:
-            val_str = val_clean
+            hint['value_type_mismatch'] = True
+            escaped = val_clean.replace("'", "''")
+            val_str = f"'{escaped}'"
     elif is_char_or_date:
         escaped = val_clean.replace("'", "''")
         val_str = f"'{escaped}'"
@@ -980,8 +1034,8 @@ def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
 
 def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     data = evidence if isinstance(evidence, dict) else {}
-    base_dialect = str(data.get('dialect') or 'oracle')
-    ob_m = str(data.get('oceanbase_mode') or '')
+    base_dialect = str(data.get('dialect') or 'oracle')[:MAX_IDENTIFIER_CHARS]
+    ob_m = str(data.get('oceanbase_mode') or '')[:MAX_IDENTIFIER_CHARS]
     if base_dialect.lower() == 'oceanbase':
         from tools.db_contracts import normalize_oceanbase_mode
         eff_mode = normalize_oceanbase_mode(ob_m)
@@ -990,37 +1044,67 @@ def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHA
     else:
         dialect_str = base_dialect
 
-    tables = list(data.get('tables') or [])
+    snapshot_id = str(data.get('snapshot_id') or '')[:MAX_META_VALUE_CHARS]
+    scanned_at = str(data.get('scanned_at') or '')[:MAX_META_VALUE_CHARS]
+
+    raw_tables = list(data.get('tables') or [])
+    tables = []
+    for t in raw_tables:
+        t_copy = dict(t)
+        t_copy['qualified_name'] = str(t.get('qualified_name') or '')[:MAX_IDENTIFIER_CHARS]
+        t_copy['object_type'] = str(t.get('object_type') or 'TABLE')[:30]
+        cols = []
+        for col in (t.get('columns') or []):
+            c_copy = dict(col)
+            c_copy['name'] = str(col.get('name') or '')[:MAX_IDENTIFIER_CHARS]
+            c_copy['data_type'] = str(col.get('data_type') or '')[:60]
+            cols.append(c_copy)
+        t_copy['columns'] = cols
+        tables.append(t_copy)
+
     hint_strs = []
+    has_type_mismatch = False
     for h in (data.get('condition_hints') or []):
         hint_copy = dict(h)
         v = str(hint_copy.get('val') or '')
         if len(v) > 120:
             hint_copy['val'] = v[:120] + '...'
-        hint_strs.append(format_condition_hint(hint_copy, tables))
+        formatted = format_condition_hint(hint_copy, tables)
+        if hint_copy.get('value_type_mismatch'):
+            has_type_mismatch = True
+        hint_strs.append(formatted)
 
-    confirmed_fields = list(data.get('confirmed_fields') or [])
+    confirmed_fields = [str(item)[:MAX_IDENTIFIER_CHARS] for item in (data.get('confirmed_fields') or [])]
 
     def _render(
         tbls,
         hints=None,
         conf_fields=None,
+        inc_meta=True,
         inc_idx=True,
         inc_col_cmt=True,
         inc_tbl_cmt=True,
         max_col_cmt=100,
         max_tbl_cmt=200,
     ) -> str:
+        lines = [f"方言：{dialect_str}"]
+        if inc_meta:
+            lines.extend([
+                f"snapshot_id：{snapshot_id}",
+                f"扫描时间：{scanned_at}",
+            ])
         cur_conf = confirmed_fields if conf_fields is None else conf_fields
-        lines = [
-            f"方言：{dialect_str}",
-            f"snapshot_id：{data.get('snapshot_id') or ''}",
-            f"扫描时间：{data.get('scanned_at') or ''}",
-            'Schema Evidence 字段：' + (', '.join(cur_conf) or '（无）'),
-        ]
+        if cur_conf:
+            lines.append('Schema Evidence 字段：' + ', '.join(cur_conf))
+        elif inc_meta:
+            lines.append('Schema Evidence 字段：（无）')
+
         cur_hints = hint_strs if hints is None else hints
         if cur_hints:
             lines.append('条件提示：' + ', '.join(cur_hints))
+        if has_type_mismatch:
+            lines.append('提示：NUMBER 字段收到非数值条件，请模型不要擅自转换，必要时请求澄清。')
+
         for table in tbls:
             cols_parts = []
             for col in (table.get('columns') or []):
@@ -1077,11 +1161,11 @@ def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHA
     if curr_tbls:
         t0 = dict(curr_tbls[0])
         cols = list(t0.get('columns') or [])
-        conf_names = {c.split('.')[-1].upper() for c in confirmed_fields}
+        conf_names = {_clean_token(c.split('.')[-1]).upper() for c in confirmed_fields}
         while len(cols) > 1 and len(text) > max_chars:
             drop_idx = -1
             for idx in range(len(cols) - 1, -1, -1):
-                if str(cols[idx].get('name') or '').upper() not in conf_names:
+                if _clean_token(cols[idx].get('name') or '').upper() not in conf_names:
                     drop_idx = idx
                     break
             if drop_idx >= 0:
@@ -1096,7 +1180,7 @@ def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHA
 
     # Step 6: trim secondary condition hints
     curr_hints = list(hint_strs)
-    while curr_hints and len(text) > max_chars:
+    while len(curr_hints) > 1 and len(text) > max_chars:
         curr_hints.pop()
         text = _render(curr_tbls, hints=curr_hints, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
     if len(text) <= max_chars:
@@ -1110,9 +1194,23 @@ def evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CONTEXT_CHA
     if len(text) <= max_chars:
         return text
 
-    # Step 8: Absolute hard fallback
-    if len(text) > max_chars:
-        text = text[:max_chars]
+    # Step 8: drop non-essential metadata (snapshot_id, scanned_at)
+    text = _render(curr_tbls, hints=curr_hints, conf_fields=curr_conf, inc_meta=False, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 9: drop condition hints if still needed
+    if curr_hints and len(text) > max_chars:
+        text = _render(curr_tbls, hints=[], conf_fields=curr_conf, inc_meta=False, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
+    # Step 10: drop confirmed_fields line if still needed (table line already has the column!)
+    if curr_conf and len(text) > max_chars:
+        text = _render(curr_tbls, hints=[], conf_fields=[], inc_meta=False, inc_idx=False, inc_col_cmt=False, inc_tbl_cmt=False)
+    if len(text) <= max_chars:
+        return text
+
     return text
 
 
@@ -1123,18 +1221,21 @@ def bounded_evidence_prompt_text(evidence: dict | None, max_chars: int = MAX_CON
 def _strip_literals(sql: str) -> str:
     text = strip_sql_comments(sql)
     text = re.sub(r"'(?:''|[^'])*'", ' ', text)
-    text = re.sub(r'"(?:""|[^"])*"', ' ', text)
     return text
 
 
 def _sql_objects(sql: str) -> list[str]:
-    return [match.group(1) for match in _OBJ_RE.finditer(_strip_literals(sql))]
+    results = []
+    for match in _OBJ_RE.finditer(_strip_literals(sql)):
+        raw = match.group(1)
+        results.append(_normalize_obj_name(raw))
+    return results
 
 
 def _sql_aliases(sql: str) -> set[str]:
     aliases = set()
     for match in _ALIAS_RE.finditer(_strip_literals(sql)):
-        name = match.group(1)
+        name = _clean_token(match.group(2))
         if name.lower() in _SQL_KEYWORDS:
             continue
         aliases.add(name.upper())
@@ -1172,21 +1273,26 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbas
         result['reason'] = '草案被拦截：模型生成了未被确认的 Join 条件。'
         result['risk_level'] = 'unknown'
         return result
-    evidence_objects = []
+    evidence_objects = set()
     evidence_fields = set()
     for table in data.get('tables') or []:
-        qn = str(table.get('qualified_name') or '')
+        qn = _normalize_obj_name(table.get('qualified_name') or '')
         name = qn.split('.')[-1] if qn else ''
-        evidence_objects.extend([qn.upper(), name.upper()])
-        evidence_objects.extend(part.upper() for part in qn.split('.') if part)
+        evidence_objects.add(qn.upper())
+        evidence_objects.add(name.upper())
+        for part in qn.split('.'):
+            if part:
+                evidence_objects.add(part.upper())
         for col in table.get('columns') or []:
-            evidence_fields.add(str(col.get('name') or '').upper())
-            evidence_fields.add(f"{name}.{col.get('name')}".upper())
+            c_name = _clean_token(col.get('name') or '')
+            evidence_fields.add(c_name.upper())
+            evidence_fields.add(f"{name}.{c_name}".upper())
             if qn:
-                evidence_fields.add(f"{qn}.{col.get('name')}".upper())
+                evidence_fields.add(f"{qn}.{c_name}".upper())
     for item in data.get('confirmed_fields') or []:
-        evidence_fields.add(str(item).upper())
-        evidence_fields.add(str(item).split('.')[-1].upper())
+        clean_item = _normalize_obj_name(str(item))
+        evidence_fields.add(clean_item.upper())
+        evidence_fields.add(clean_item.split('.')[-1].upper())
     used_objects = _sql_objects(parts[0])
     unknown_objects = []
     for raw in used_objects:
@@ -1200,9 +1306,11 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbas
         return result
     aliases = _sql_aliases(parts[0])
     unknown_fields = []
-    for token in _IDENT_RE.findall(body):
-        upper = token.upper()
-        if token.lower() in _SQL_KEYWORDS:
+    for match in _IDENT_TOKEN_RE.finditer(body):
+        raw_tok = match.group(1) or match.group(2) or match.group(3)
+        tok = raw_tok.replace('""', '"').strip()
+        upper = tok.upper()
+        if tok.lower() in _SQL_KEYWORDS:
             continue
         if upper in aliases:
             continue
@@ -1212,7 +1320,7 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbas
             continue
         if upper in _SQL_FUNCTIONS:
             continue
-        unknown_fields.append(token)
+        unknown_fields.append(tok)
     if unknown_fields:
         result['unknown_fields'] = unknown_fields
         result['reason'] = f'草案引用了当前快照不存在的字段或函数 {unknown_fields[0]}，已拦截且未写入 SQL 编辑器。'

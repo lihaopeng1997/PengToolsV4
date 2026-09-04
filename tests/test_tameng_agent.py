@@ -374,6 +374,63 @@ class TamengAgentTests(unittest.TestCase):
         self.assertFalse(res['allowed'])
         self.assertIn('GHOST_COLUMN', res['unknown_fields'])
 
+    def test_quoted_identifier_validation_oracle_and_mysql(self):
+        """Fix 3: 验证 Oracle 双引号与 MySQL 反引号对象与字段校验，未知引用 fail-closed。"""
+        from tools.tameng_agent import validate_generated_sql
+        evidence_oracle = {
+            'dialect': 'oracle',
+            'tables': [{
+                'qualified_name': 'PRP.PRPCMAIN',
+                'columns': [{'name': 'RISKCODE', 'data_type': 'VARCHAR2'}],
+            }],
+            'confirmed_fields': ['PRP.PRPCMAIN.RISKCODE'],
+        }
+
+        # 1. Oracle quoted field and object: PASS
+        res = validate_generated_sql('SELECT "RISKCODE" FROM "PRP"."PRPCMAIN"', evidence_oracle, 'oracle')
+        self.assertTrue(res['allowed'], res.get('reason'))
+
+        # 2. Oracle quoted unknown field: FAIL-CLOSED
+        res_ghost_col = validate_generated_sql('SELECT "GHOST_COLUMN" FROM "PRP"."PRPCMAIN"', evidence_oracle, 'oracle')
+        self.assertFalse(res_ghost_col['allowed'])
+        self.assertIn('GHOST_COLUMN', res_ghost_col['unknown_fields'])
+
+        # 3. Oracle quoted unknown object: FAIL-CLOSED
+        res_ghost_tbl = validate_generated_sql('SELECT "RISKCODE" FROM "PRP"."GHOST_TABLE"', evidence_oracle, 'oracle')
+        self.assertFalse(res_ghost_tbl['allowed'])
+        self.assertTrue(any('GHOST_TABLE' in obj for obj in res_ghost_tbl['unknown_objects']))
+
+        # 4. Oracle alias with quoted field: PASS
+        res_alias_pass = validate_generated_sql('SELECT p."RISKCODE" FROM "PRP"."PRPCMAIN" p', evidence_oracle, 'oracle')
+        self.assertTrue(res_alias_pass['allowed'], res_alias_pass.get('reason'))
+
+        # 5. Oracle alias with quoted ghost field: FAIL
+        res_alias_fail = validate_generated_sql('SELECT p."GHOST" FROM "PRP"."PRPCMAIN" p', evidence_oracle, 'oracle')
+        self.assertFalse(res_alias_fail['allowed'])
+        self.assertIn('GHOST', res_alias_fail['unknown_fields'])
+
+        # 6. MySQL backtick identifier: PASS
+        evidence_mysql = {
+            'dialect': 'mysql',
+            'tables': [{
+                'qualified_name': 'app.policy',
+                'columns': [{'name': 'risk_code', 'data_type': 'varchar'}],
+            }],
+            'confirmed_fields': ['app.policy.risk_code'],
+        }
+        res_mysql_pass = validate_generated_sql('SELECT `risk_code` FROM `app`.`policy`', evidence_mysql, 'mysql')
+        self.assertTrue(res_mysql_pass['allowed'], res_mysql_pass.get('reason'))
+
+        # 7. MySQL unknown backtick field: FAIL
+        res_mysql_fail_col = validate_generated_sql('SELECT `unknown_col` FROM `app`.`policy`', evidence_mysql, 'mysql')
+        self.assertFalse(res_mysql_fail_col['allowed'])
+        self.assertIn('unknown_col', res_mysql_fail_col['unknown_fields'])
+
+        # 8. MySQL unknown backtick table: FAIL
+        res_mysql_fail_tbl = validate_generated_sql('SELECT `risk_code` FROM `app`.`ghost_table`', evidence_mysql, 'mysql')
+        self.assertFalse(res_mysql_fail_tbl['allowed'])
+        self.assertTrue(any('ghost_table' in obj.lower() for obj in res_mysql_fail_tbl['unknown_objects']))
+
     def test_dialect_validation_oracle_and_mysql(self):
         from tools.tameng_agent import validate_generated_sql
         evidence = {
