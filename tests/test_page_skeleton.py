@@ -117,6 +117,45 @@ class PageHeaderTests(unittest.TestCase):
                 problems.append(label)
         self.assertEqual(problems, [], f'以下页面缺少 L1 页头: {problems}')
 
+    def test_h1_ops_log_header_title_and_subtitle_non_empty(self):
+        """H1: 日志排查页标题与副标题非空。"""
+        panel = _panel_for(13)
+        self.assertTrue(hasattr(panel, 'title_label'))
+        self.assertEqual(panel.title_label.text(), '日志排查')
+        self.assertFalse(panel.title_label.isHidden())
+        self.assertIn('SSH 会话', panel.subtitle_label.text())
+
+    def test_h2_page_header_title_audit_all_pages_non_empty(self):
+        """H2: 全页面页头审计：所有主页面的 page-title 均不得为空字符串。"""
+        empty_titles = []
+        for nav, label in STACK_PAGES:
+            panel = _panel_for(nav)
+            header = panel.findChild(QFrame, 'page-header')
+            if header is not None:
+                title_lbl = header.findChild(QLabel, 'page-title')
+                if title_lbl is not None and not title_lbl.text().strip():
+                    empty_titles.append(f'{label}(nav={nav})')
+        self.assertEqual(empty_titles, [], f'以下页面页头标题为空: {empty_titles}')
+
+    def test_f1_f2_f3_font_size_control_layout(self):
+        """F1-F3: 设置页字体步进器无内部后缀，外部独立 px 标签，且无几何重叠。"""
+        window = _window()
+        panel = _panel_for(7)
+        self.assertTrue(hasattr(panel, 'font_size'))
+        self.assertTrue(hasattr(panel, 'font_unit_label'))
+        # F1: Stepper 内部无 suffix
+        self.assertEqual(panel.font_size.suffix_label.text(), '')
+        self.assertFalse(panel.font_size.suffix_label.isVisible())
+        # F2: 外部独立 px 标签
+        self.assertEqual(panel.font_unit_label.text(), 'px')
+        # F3: 几何布局不重叠且有间距
+        window.show()
+        QApplication.processEvents()
+        stepper_geom = panel.font_size.geometry()
+        label_geom = panel.font_unit_label.geometry()
+        self.assertGreater(label_geom.left(), stepper_geom.right())
+        self.assertGreaterEqual(label_geom.left() - stepper_geom.right(), 4)
+
 
 class PrimaryActionTests(unittest.TestCase):
     """约束 2：每页主操作 ≤1（硬断言，无基线豁免；多 Tab 容器页按 Tab 页分别约束）。"""

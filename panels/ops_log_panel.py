@@ -1722,12 +1722,12 @@ class OpsLogPanel(QWidget):
         self.disconnect_btn.clicked.connect(self._disconnect_session)
         self.disconnect_btn.setEnabled(False)
         self.header, self.title_label, self.subtitle_label = make_page_header(
-            '', '', icon_role='search',
+            '日志排查' if self.language == 'zh' else 'Log Investigation',
+            'SSH 会话 · 远端目录 · 日志检索与批量导出' if self.language == 'zh' else 'SSH sessions · remote files · log search and batch export',
+            icon_role='search',
             primary_button=self.cmd_send_btn,
             trailing=self.header_status,
         )
-        self.title_label.hide()
-        self.subtitle_label.hide()
         self.header_status.setObjectName('status-pill')
         self.header.layout().addWidget(self.disconnect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(self.header)
@@ -2445,10 +2445,9 @@ class OpsLogPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.title_label.setText('')
-        self.subtitle_label.setText('')
-        self.title_label.hide()
-        self.subtitle_label.hide()
+        self.title_label.setText('日志排查' if zh else 'Log Investigation')
+        self.subtitle_label.setText('SSH 会话 · 远端目录 · 日志检索与批量导出' if zh else 'SSH sessions · remote files · log search and batch export')
+        self.title_label.show()
         if hasattr(self, 'mode_session_btn'):
             self.mode_session_btn.setText('会话' if zh else 'Session')
             self.mode_export_btn.setText('批量导出' if zh else 'Batch export')
