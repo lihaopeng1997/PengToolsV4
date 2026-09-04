@@ -132,6 +132,14 @@ def build_safe_context(
         confirmed = [str(item) for item in (evidence.get('confirmed_fields') or []) if str(item)]
         if confirmed:
             parts.append('SQL 只允许引用已确认字段：' + ', '.join(confirmed))
+        if evidence.get('condition_hints'):
+            hint_strs = [
+                f"{h.get('field')} {h.get('op', '=')} '{h.get('val')}'"
+                if not str(h.get('val')).isdigit()
+                else f"{h.get('field')} {h.get('op', '=')} {h.get('val')}"
+                for h in evidence['condition_hints']
+            ]
+            parts.append('从问题解析出的过滤条件提示：' + ', '.join(hint_strs))
     else:
         if tables:
             parts.append('用户选中对象：' + ', '.join(tables))
@@ -153,6 +161,16 @@ def _idents(sql: str) -> set[str]:
     return {item.upper() for item in re.findall(r'[A-Za-z_][A-Za-z0-9_]*', str(sql or ''))}
 
 
+_SQL_FUNCTIONS = frozenset({
+    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'NVL', 'NVL2', 'COALESCE', 'DECODE',
+    'TO_CHAR', 'TO_DATE', 'TO_NUMBER', 'TRUNC', 'SUBSTR', 'INSTR', 'LENGTH',
+    'CONCAT', 'LOWER', 'UPPER', 'TRIM', 'LTRIM', 'RTRIM', 'REPLACE', 'ROUND',
+    'CEIL', 'FLOOR', 'ABS', 'MOD', 'SYSDATE', 'SYSTIMESTAMP', 'NOW', 'CURDATE',
+    'CURTIME', 'DATE_FORMAT', 'STR_TO_DATE', 'DATEDIFF', 'DATE_ADD', 'DATE_SUB',
+    'IFNULL', 'NULLIF', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'OVER', 'PARTITION',
+})
+
+
 def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dialect: str = 'oracle') -> dict:
     data = empty_draft(**{k: v for k, v in (draft or {}).items() if k in empty_draft()})
     warnings = [str(item) for item in (data.get('warnings') or []) if str(item).strip()]
@@ -161,12 +179,13 @@ def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dial
     sql = str(data.get('sql') or '').strip()
     data['sql'] = sql
     if fields and sql:
-        allowed = {item.upper() for item in fields} | {item.upper() for item in tables} | {'COUNT'}
+        allowed = {item.upper() for item in fields} | {item.upper() for item in tables} | _SQL_FUNCTIONS
+        func_calls = {m.group(1).upper() for m in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_$#]*)\s*\(', sql)}
         leftover = []
         for token in _idents(sql):
             if token.lower() in _SQL_KEYWORDS:
                 continue
-            if token in allowed:
+            if token in allowed or token in func_calls:
                 continue
             leftover.append(token)
         if leftover:

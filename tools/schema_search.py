@@ -267,3 +267,26 @@ def get_matched_table_identities(
             matched.add((entry['owner_lower'], entry['table_name_lower']))
 
     return matched
+
+
+_SEARCH_INDEX_CACHE: Dict[str, Any] = {}
+
+
+def get_cached_schema_search_index(snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """按 snapshot 标识与版本缓存 Schema 搜索索引，快照更新时自动重新构建。"""
+    if not isinstance(snapshot, dict):
+        return build_schema_search_index(snapshot)
+    cache_key = (
+        f"{snapshot.get('connection_id') or ''}|"
+        f"{snapshot.get('snapshot_id') or ''}|"
+        f"{snapshot.get('scanned_at') or ''}|"
+        f"{snapshot.get('version') or ''}|"
+        f"{len(snapshot.get('objects') or [])}"
+    )
+    if cache_key in _SEARCH_INDEX_CACHE:
+        return _SEARCH_INDEX_CACHE[cache_key]
+    idx = build_schema_search_index(snapshot)
+    if len(_SEARCH_INDEX_CACHE) >= 16:
+        _SEARCH_INDEX_CACHE.pop(next(iter(_SEARCH_INDEX_CACHE)))
+    _SEARCH_INDEX_CACHE[cache_key] = idx
+    return idx
