@@ -304,6 +304,162 @@ class BoundProjectAndLoopTests(unittest.TestCase):
                     os.remove(outside)
 
 
+class AgentIncidentAndReActLoopTests(unittest.TestCase):
+    """测试 Round 4-B Agent 工具解析 incident 格式、ReAct 观察回路、熔断与取消。"""
+
+    def test_a1_a2_flat_incident_tool_format_normalized(self):
+        """A1, A2. 支持扁平 incident 格式 {"name":"list_dir","path":""} 及 read_file。"""
+        # A1. list_dir
+        raw1 = '{"name":"list_dir","path":""}'
+        calls1 = ar.parse_tool_calls(raw1)
+        self.assertEqual(len(calls1), 1)
+        self.assertEqual(calls1[0]['tool'], 'list_dir')
+        self.assertEqual(calls1[0]['args'], {'path': ''})
+
+        # A2. read_file with extra parameters filtered by schema properties
+        raw2 = '{"name":"read_file","path":"src/main/java/App.java","comment":"ignore this"}'
+        calls2 = ar.parse_tool_calls(raw2)
+        self.assertEqual(len(calls2), 1)
+        self.assertEqual(calls2[0]['tool'], 'read_file')
+        self.assertEqual(calls2[0]['args'], {'path': 'src/main/java/App.java'})
+
+    def test_a3_arbitrary_json_not_misidentified_as_tool_call(self):
+        """A3. 普通 JSON 结构如 {"name":"Alice","path":""} 绝不当成工具调用。"""
+        raw = '{"name":"Alice","path":""}'
+        calls = ar.parse_tool_calls(raw)
+        self.assertEqual(calls, [])
+
+    def test_a4_a5_a6_a7_java_project_multi_round_react_loop(self):
+        """A4, A5, A6, A7. 模拟 Java 项目完整 ReAct 回路：
+        MODEL -> list_dir -> OBSERVATION -> MODEL -> read_file -> OBSERVATION -> MODEL -> final answer。
+        断言：
+        - 工具执行结果真实进入下一轮 messages (role=tool)
+        - 原始工具 JSON 绝不作为最终 assistant 回复
+        - UI/finished 最终回答恰好 1 次
+        """
+        captured_messages = []
+        progress_events = []
+
+        fake_responses = iter([
+            '{"name":"list_dir","path":""}',
+            '{"name":"list_dir","path":"src/main/java"}',
+            '{"name":"read_file","path":"src/main/java/com/acme/App.java"}',
+            '我已经读取项目，入口类为 App.java，主方法已就绪。',
+        ])
+
+        def fake_chat(messages, cfg=None, model_config_id=None):
+            captured_messages.append(list(messages))
+            return next(fake_responses)
+
+        def progress_cb(role, content):
+            progress_events.append((role, content))
+
+        with path_workspace() as tmp:
+            # 建立 Java 工程目录树
+            os.makedirs(os.path.join(tmp, 'src', 'main', 'java', 'com', 'acme'), exist_ok=True)
+            with open(os.path.join(tmp, 'pom.xml'), 'w', encoding='utf-8') as f:
+                f.write('<project></project>')
+            with open(os.path.join(tmp, 'src', 'main', 'java', 'com', 'acme', 'App.java'), 'w', encoding='utf-8') as f:
+                f.write('package com.acme;\npublic class App { public static void main(String[] args) {} }\n')
+
+            with patch.object(ar, 'chat_completions', new=fake_chat):
+                final_answer, msgs, tcs = ar.run_agent_loop(
+                    user_message='帮我读取下项目代码',
+                    workspace_dir=tmp,
+                    model_cfg={'enabled': True},
+                    messages=[],
+                    tool_calls=[],
+                    progress_cb=progress_cb,
+                )
+
+        # 验证最终回答内容与唯一性
+        self.assertIn('入口类为 App.java', final_answer)
+        self.assertEqual(len(tcs), 3)
+
+        # A5. 验证工具结果真实进入后续模型的上下文 (role='tool')
+        self.assertEqual(len(captured_messages), 4)
+        # Round 2 调用的 messages 应包含 Round 1 的 tool observation
+        round2_msgs = captured_messages[1]
+        tool_in_r2 = [m for m in round2_msgs if m.get('role') == 'tool']
+        self.assertEqual(len(tool_in_r2), 1)
+        self.assertIn('pom.xml', tool_in_r2[0]['content'])
+
+        # Round 4 调用的 messages 应包含全部 3 次 tool observations
+        round4_msgs = captured_messages[3]
+        tool_in_r4 = [m for m in round4_msgs if m.get('role') == 'tool']
+        self.assertEqual(len(tool_in_r4), 3)
+        self.assertIn('public class App', tool_in_r4[2]['content'])
+
+        # A6. 原始工具 JSON 绝不作为 assistant final 回复
+        self.assertNotIn('{"name":"list_dir"', final_answer)
+
+        # A7. 进度回调中不包含 assistant 最终回答（杜绝与 _on_agent_done 双写）
+        assistant_progress = [content for role, content in progress_events if role == 'assistant']
+        self.assertEqual(assistant_progress, [])
+
+    def test_a12_repeated_identical_tool_loop_broken(self):
+        """A12. 模型连续重复调用相同只读工具（如连续 3 次 list_dir path=""）必须被熔断停止。"""
+        fake_responses = iter([
+            '{"name":"list_dir","path":""}',
+            '{"name":"list_dir","path":""}',
+            '{"name":"list_dir","path":""}',
+            '{"name":"list_dir","path":""}',
+        ])
+
+        def fake_chat(messages, cfg=None, model_config_id=None):
+            return next(fake_responses)
+
+        with path_workspace() as tmp:
+            with patch.object(ar, 'chat_completions', new=fake_chat):
+                final_answer, msgs, tcs = ar.run_agent_loop(
+                    user_message='测试重复工具',
+                    workspace_dir=tmp,
+                    model_cfg={'enabled': True},
+                    messages=[],
+                    tool_calls=[],
+                )
+
+        self.assertIn('模型重复请求相同工具调用', final_answer)
+        self.assertIn('已停止以避免无效循环', final_answer)
+        self.assertLessEqual(len(tcs), 3)
+
+    def test_a13_cancel_stops_subsequent_tool_execution(self):
+        """A13. cancel_cb 触发后，立即中断循环，后续工具绝不被执行。"""
+        execution_count = 0
+
+        def fake_chat(messages, cfg=None, model_config_id=None):
+            return '{"name":"list_dir","path":""}'
+
+        is_cancelled = False
+
+        def cancel_gate():
+            return is_cancelled
+
+        original_exec = ar.execute_tool
+
+        def tracking_exec(*args, **kwargs):
+            nonlocal execution_count, is_cancelled
+            execution_count += 1
+            # 首次执行后取消
+            is_cancelled = True
+            return original_exec(*args, **kwargs)
+
+        with path_workspace() as tmp:
+            with patch.object(ar, 'chat_completions', new=fake_chat):
+                with patch.object(ar, 'execute_tool', new=tracking_exec):
+                    final_answer, msgs, tcs = ar.run_agent_loop(
+                        user_message='测试取消',
+                        workspace_dir=tmp,
+                        model_cfg={'enabled': True},
+                        messages=[],
+                        tool_calls=[],
+                        cancel_cb=cancel_gate,
+                    )
+
+        self.assertIn('已由用户手动停止', final_answer)
+        self.assertEqual(execution_count, 1)
+
+
 def path_workspace():
 
     """返回一个可用的临时工作目录上下文管理器。"""

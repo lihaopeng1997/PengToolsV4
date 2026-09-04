@@ -557,16 +557,23 @@ def execute_tool(
         }
 
 
-# ─── 解析模型输出中的工具调用 ───────────────────────────────────────────────
+# 有效受控工具白名单及参数属性
+KNOWN_TOOL_NAMES = frozenset(s['name'] for s in TOOL_SCHEMAS)
+TOOL_ALLOWED_ARGS = {
+    s['name']: frozenset((s.get('parameters') or {}).get('properties', {}).keys())
+    for s in TOOL_SCHEMAS
+}
+
 
 def _looks_like_tool_call(obj: dict) -> bool:
     if not isinstance(obj, dict):
         return False
     if obj.get('tool'):
         return True
-    if obj.get('name') and (
-        'parameters' in obj or 'args' in obj or 'arguments' in obj
-    ):
+    name = str(obj.get('name') or '').strip()
+    if name in KNOWN_TOOL_NAMES:
+        return True
+    if name and ('parameters' in obj or 'args' in obj or 'arguments' in obj):
         return True
     fn = obj.get('function')
     return isinstance(fn, dict) and bool(fn.get('name'))
@@ -593,7 +600,7 @@ def _coerce_tool_args(raw) -> tuple[dict, str]:
 
 
 def normalize_tool_call(obj: dict) -> dict | None:
-    """把 name/parameters、tool/args、function.name 统一成 {tool, args}。"""
+    """把 name/parameters、tool/args、function.name 及扁平 {"name": "list_dir", "path": ""} 统一成 {tool, args}。"""
     if not _looks_like_tool_call(obj):
         return None
     tool = ''
@@ -607,7 +614,19 @@ def normalize_tool_call(obj: dict) -> dict | None:
         raw_args = fn.get('arguments', fn.get('parameters', fn.get('args', {})))
     else:
         tool = str(obj.get('name') or '').strip()
-        raw_args = obj['parameters'] if 'parameters' in obj else obj.get('args', obj.get('arguments', {}))
+        if 'parameters' in obj:
+            raw_args = obj['parameters']
+        elif 'args' in obj:
+            raw_args = obj['args']
+        elif 'arguments' in obj:
+            raw_args = obj['arguments']
+        elif tool in KNOWN_TOOL_NAMES:
+            # 扁平 incident 格式：严格按 schema properties 白名单提取参数
+            allowed_props = TOOL_ALLOWED_ARGS.get(tool, frozenset())
+            raw_args = {k: v for k, v in obj.items() if k in allowed_props}
+        else:
+            raw_args = {}
+
     args, err = _coerce_tool_args(raw_args)
     if not tool:
         return None
@@ -715,22 +734,10 @@ def run_agent_loop(
     plan_confirm: bool = False,
     confirm_cb=None,  # (title: str, content: str) -> bool
     progress_cb=None,  # (role, content) -> None，实时回调用于流式 UI
+    cancel_cb=None,  # () -> bool，用于检测外部取消信号
 ) -> tuple[str, list[dict], list[dict]]:
     """
     ReAct + Plan & Execute 主循环。
-
-    Args:
-        user_message: 用户输入
-        workspace_dir: 会话绑定的工作文件夹
-        model_cfg: 内网模型配置 dict（含 base_url / model / enabled 等）
-        messages: 现有消息历史（会被追加）
-        tool_calls: 现有工具调用记录（会被追加）
-        plan_confirm: 是否要求计划确认（默认 False = 自动执行）
-        confirm_cb: 确认回调
-        progress_cb: 实时进度回调（role, content 实时写入对话）
-
-    Returns:
-        (final_answer, messages, tool_calls)
     """
     import json as _json
 
@@ -747,21 +754,30 @@ def run_agent_loop(
             'created_at': _now(),
         })
 
-    tool_names = [s['name'] for s in TOOL_SCHEMAS]
+    recent_signatures: list[str] = []
+    READ_ONLY_TOOLS = frozenset({'list_dir', 'read_file', 'search_code'})
 
     for round_idx in range(MAX_TOOL_ROUNDS):
+        if cancel_cb and cancel_cb():
+            cancels = '任务已由用户手动停止。'
+            messages.append({'id': _new_id(), 'role': 'assistant', 'content': cancels, 'created_at': _now()})
+            return cancels, messages, tool_calls
+
         # 构造本次调用消息（含 system + history）
         call_messages = [{'role': 'system', 'content': system_prompt}] + messages[-30:]
 
-        # 流式调用模型（chat_completions 内部固定走 stream，返回 str）
+        # 调用模型
         try:
             raw_response = chat_completions(call_messages, cfg=model_cfg)
         except Exception as e:
             answer = f'模型调用失败: {redact_error(str(e))}'
             messages.append({'id': _new_id(), 'role': 'assistant', 'content': answer, 'created_at': _now()})
-            if progress_cb:
-                progress_cb('assistant', answer)
             return answer, messages, tool_calls
+
+        if cancel_cb and cancel_cb():
+            cancels = '任务已由用户手动停止。'
+            messages.append({'id': _new_id(), 'role': 'assistant', 'content': cancels, 'created_at': _now()})
+            return cancels, messages, tool_calls
 
         safe_response = redact_error(raw_response)
         parsed = parse_tool_calls(raw_response)
@@ -772,29 +788,47 @@ def run_agent_loop(
                 'content': safe_response,
                 'created_at': _now(),
             })
-            if progress_cb:
-                progress_cb('assistant', safe_response)
+            # 注意：最终自然语言回答由调用方在完成时统一渲染，此处不再 progress_cb 双写
             return safe_response, messages, tool_calls
 
         status = '正在调用工具：' + '、'.join(str(c.get('tool') or '') for c in parsed)
         if progress_cb:
             progress_cb('tool', status)
 
+        # 重复调用熔断器检查
+        for c in parsed:
+            t_name = str(c.get('tool') or '')
+            t_args = c.get('args') or {}
+            sig = f"{t_name}:{_json.dumps(t_args, sort_keys=True, ensure_ascii=False)}"
+            if t_name in READ_ONLY_TOOLS:
+                if recent_signatures and recent_signatures[-1] == sig:
+                    repeat_count = sum(1 for s in reversed(recent_signatures) if s == sig)
+                    if repeat_count >= 2:
+                        stop_msg = '模型重复请求相同工具调用，已停止以避免无效循环。'
+                        messages.append({'id': _new_id(), 'role': 'assistant', 'content': stop_msg, 'created_at': _now()})
+                        return stop_msg, messages, tool_calls
+                recent_signatures.append(sig)
+            else:
+                recent_signatures.clear()
+
         # plan_confirm=True：执行前先把本轮工具调用作为计划交给用户确认
         if plan_confirm and confirm_cb:
             plan_lines = []
             for c in parsed:
-                plan_lines.append(f"- {c.get('tool')}: {json.dumps(c.get('args') or {}, ensure_ascii=False)}")
+                plan_lines.append(f"- {c.get('tool')}: {_json.dumps(c.get('args') or {}, ensure_ascii=False)}")
             plan_text = '准备执行以下工具调用：\n' + '\n'.join(plan_lines) if plan_lines else '模型未产生可执行工具调用'
             if not confirm_cb('确认执行计划', plan_text):
                 cancels = '用户取消执行计划，未执行任何工具'
                 messages.append({'id': _new_id(), 'role': 'assistant',
                                  'content': cancels, 'created_at': _now()})
-                if progress_cb:
-                    progress_cb('assistant', cancels)
                 return cancels, messages, tool_calls
 
         for call in parsed:
+            if cancel_cb and cancel_cb():
+                cancels = '任务已由用户手动停止。'
+                messages.append({'id': _new_id(), 'role': 'assistant', 'content': cancels, 'created_at': _now()})
+                return cancels, messages, tool_calls
+
             tool_name = str(call.get('tool', ''))
             args = call.get('args') or {}
             tool_id = call.get('id') or _new_id()
@@ -810,7 +844,7 @@ def run_agent_loop(
                 result = execute_tool(tool_name, args, workspace_dir, confirm_cb=confirm_cb)
             result.setdefault('success', bool(result.get('ok')))
             result.setdefault('tool', tool_name)
-            result_text = json.dumps({
+            result_text = _json.dumps({
                 'ok': bool(result.get('ok')),
                 'success': bool(result.get('success', result.get('ok'))),
                 'tool': tool_name,
@@ -844,9 +878,16 @@ def run_agent_loop(
                     compact = f"{tool_name} 失败：{result.get('error') or ''}"
                 progress_cb('tool', compact)
 
+        if cancel_cb and cancel_cb():
+            cancels = '任务已由用户手动停止。'
+            messages.append({'id': _new_id(), 'role': 'assistant', 'content': cancels, 'created_at': _now()})
+            return cancels, messages, tool_calls
+
     # 超出轮次上限
+    max_round_msg = f'工具调用次数达到本轮上限（已达到最大工具调用轮次 {MAX_TOOL_ROUNDS}）。请重新发起请求或缩小任务范围。'
+    messages.append({'id': _new_id(), 'role': 'assistant', 'content': max_round_msg, 'created_at': _now()})
     return (
-        f'工具调用次数达到本轮上限（已达到最大工具调用轮次 {MAX_TOOL_ROUNDS}）。请重新发起请求或缩小任务范围。',
+        max_round_msg,
         messages,
         tool_calls,
     )

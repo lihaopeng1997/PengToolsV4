@@ -81,7 +81,10 @@ class _WorkbenchBridge(QObject):
 
     @pyqtSlot(str, str)
     def _on_progress(self, role: str, content: str):
-        self._owner._append_message(role, content)
+        if role in ('tool', 'status'):
+            self._owner._set_transient_status(content)
+        else:
+            self._owner._append_message(role, content)
 
 
 class _WorkbenchWorker(QThread):
@@ -116,6 +119,7 @@ class _WorkbenchWorker(QThread):
                 plan_confirm=self.plan_confirm,
                 confirm_cb=self.confirm_cb,
                 progress_cb=self.progress_cb,
+                cancel_cb=lambda: self._stopped,
             )
             self.finished.emit(final, msgs, tcs)
         except Exception as exc:
@@ -136,6 +140,8 @@ class AgentWorkbenchPanel(QWidget):
         self._plan_confirm = False       # 始终先确认计划（默认关）
         self._bridge = None              # 跨线程桥（延迟创建）
         self._file_attachments: list[str] = []
+        self._transient_holder = None
+        self._transient_indicator = None
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
@@ -1097,17 +1103,62 @@ class AgentWorkbenchPanel(QWidget):
             confirm_cb=confirm_cb,
             progress_cb=progress_cb,
         )
+        self._set_transient_status('正在分析项目…' if self.language == 'zh' else 'Analyzing project…')
         self._agent_worker.finished.connect(self._on_agent_done)
         self._agent_worker.failed.connect(self._on_agent_failed)
         self._agent_worker.start()
         self._sync_running_state()
 
+    def _set_transient_status(self, text: str):
+        """显示或更新执行中的瞬态状态指示器，不持久化到消息历史。"""
+        if self._transient_holder is None:
+            from ui.thinking_indicator import ThinkingIndicator
+            bubble = QFrame()
+            bubble.setObjectName('detail-summary-card')
+            bl = QVBoxLayout(bubble)
+            bl.setContentsMargins(10, 6, 10, 6)
+            indicator = ThinkingIndicator(bubble, text=text)
+            indicator.setObjectName('agent-transient-indicator')
+            indicator.start()
+            bl.addWidget(indicator)
+
+            wrap = QHBoxLayout()
+            wrap.addWidget(bubble)
+            wrap.addStretch(1)
+            holder = QWidget()
+            holder.setLayout(wrap)
+            self._transient_holder = holder
+            self._transient_indicator = indicator
+
+            stretch = self.thread_layout.takeAt(self.thread_layout.count() - 1)
+            del stretch
+            self.thread_layout.addWidget(holder)
+            self.thread_layout.addStretch(1)
+        else:
+            if self._transient_indicator is not None:
+                self._transient_indicator.set_text(text)
+        QApplication.processEvents()
+        self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()
+        )
+
+    def _clear_transient_status(self):
+        """清理并销毁瞬态指示器。"""
+        if self._transient_holder is not None:
+            if self._transient_indicator is not None:
+                self._transient_indicator.stop()
+            self._transient_holder.deleteLater()
+            self._transient_holder = None
+            self._transient_indicator = None
+
     def _stop(self):
         if self._agent_worker:
             self._agent_worker.stop()
+        self._clear_transient_status()
         self._sync_running_state()
 
     def _on_agent_done(self, final_answer: str, messages: list, tool_calls: list):
+        self._clear_transient_status()
         self._agent_worker = None
         self._sync_running_state()
 
@@ -1127,6 +1178,7 @@ class AgentWorkbenchPanel(QWidget):
 
     def _on_agent_failed(self, error_text: str):
         """工作台 Agent 子线程异常兜底：在主线程复位按钮并提示，绝不闪退。"""
+        self._clear_transient_status()
         self._agent_worker = None
         self._sync_running_state()
         zh = self.language == 'zh'
