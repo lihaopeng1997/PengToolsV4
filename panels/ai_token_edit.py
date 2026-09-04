@@ -126,12 +126,12 @@ class AiPromptEdit(QTextEdit):
         if parent is not None:
             zh = getattr(parent, 'language', 'zh') == 'zh'
         menu = QMenu(self)
-        add_table = QAction('添加表…' if zh else 'Add table…', self)
-        add_field = QAction('添加字段…' if zh else 'Add field…', self)
-        view = QAction(('查看已添加对象（%s）' if zh else 'Review objects (%s)') % (
+        add_table = QAction('添加表提示…' if zh else 'Add table hint…', self)
+        add_field = QAction('添加字段提示…' if zh else 'Add field hint…', self)
+        view = QAction(('查看已添加结构提示（%s）' if zh else 'Review structure hints (%s)') % (
             len(self.context.get('selected_objects') or []) + len(self.context.get('selected_fields') or [])
         ), self)
-        clear = QAction('清除本次已添加对象' if zh else 'Clear added objects', self)
+        clear = QAction('清除结构提示' if zh else 'Clear structure hints', self)
         add_table.triggered.connect(lambda: self.add_table_requested.emit(self._menu_pos))
         add_field.triggered.connect(lambda: self.add_field_requested.emit(self._menu_pos))
         view.triggered.connect(self._view_tokens)

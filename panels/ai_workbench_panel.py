@@ -695,17 +695,17 @@ class AiWorkbenchPanel(QWidget):
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
         self.ai_title.setText('AI 助手' if zh else 'AI assistant')
         self.ai_hint.setText(
-            '右键输入框添加表/字段。AI 助手仅生成草案，不会执行。'
+            '右键输入框可添加结构提示。AI 助手仅生成草案，绝不自动执行。'
             if zh else
-            'Right-click to add table/field tokens. AI drafts only — never executes.'
+            'Right-click to add structure hints. AI drafts only — never executes automatically.'
         )
         self.nl_input.setPlaceholderText(
-            '用自然语言描述要生成的 SQL，例如：查询 prpcmain 中创建日期倒序'
+            '用自然语言描述要生成的 SQL，例如：帮我查下 prpcmain 中 riskcode 等于 0525 的数据有多少条'
             if zh else
-            'Describe the SQL; only the current snapshot is used'
+            'Describe the SQL; schema context is retrieved automatically'
         )
         self.side_tabs.setTabText(0, 'AI 助手' if zh else 'AI assistant')
-        self.ai_pick_btn.setText('选择表和字段' if zh else 'Pick tables/fields')
+        self.ai_pick_btn.setText('添加结构提示' if zh else 'Add structure hints')
         self.ai_snap_btn.setText('查看快照' if zh else 'View snapshot')
         self.agent_more.setText('更多操作' if zh else 'More')
         self.agent_cancel_btn.setText('取消' if zh else 'Cancel')
@@ -1893,6 +1893,8 @@ class AiWorkbenchPanel(QWidget):
         item = self._browse_conn()
         evidence = None
         if action == 'generate':
+            self.agent_stage.setText('正在理解问题与检索 Schema…' if zh else 'Understanding query and retrieving schema…')
+            self.agent_stage.show()
             prepared = prepare_request(
                 question, self._snapshot, item,
                 tokens=self.nl_input.context,
@@ -1901,15 +1903,19 @@ class AiWorkbenchPanel(QWidget):
                 confirmed=confirmed,
             )
             if prepared.get('state') == 'NEEDS_SELECTION':
+                self.agent_stage.hide()
                 self._show_agent_candidates(prepared)
                 return
             if not prepared.get('ok'):
+                self.agent_stage.hide()
                 self._block_agent(prepared.get('reason') or '', prepared.get('next_action') or '')
                 return
             evidence = prepared.get('evidence')
             self._pending_evidence = evidence
             self.agent_evidence.setText(format_evidence_bar(evidence) or '')
+            self.agent_evidence.show()
             self._hide_agent_candidates()
+            self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
         conn_dialect = str((item or {}).get('dialect') or 'oracle')
         ob_mode = normalize_oceanbase_mode((item or {}).get('mode')) if conn_dialect.lower() == 'oceanbase' else ''
         database = str((item or {}).get('database') or (item or {}).get('service_name') or '')
@@ -1945,6 +1951,8 @@ class AiWorkbenchPanel(QWidget):
         ob_mode = normalize_oceanbase_mode(conn.get('mode')) if dialect.lower() == 'oceanbase' else ''
         evidence = self._pending_evidence
         if evidence is not None:
+            self.agent_stage.setText('正在校验 SQL…' if zh else 'Validating SQL…')
+            self.agent_stage.show()
             checked = validate_generated_sql(sql, evidence, dialect, oceanbase_mode=ob_mode)
             if not checked.get('allowed'):
                 self._block_agent(checked.get('reason') or '草案被拦截', '选择字段后重试')
@@ -2000,8 +2008,12 @@ class AiWorkbenchPanel(QWidget):
         except Exception:
             ready = False
         model = ('模型已配置' if ready else '未配置模型') if zh else ('model ready' if ready else 'no model')
+        objs = (self._snapshot or {}).get('objects') or []
+        obj_count = len(objs)
+        field_count = sum(len(o.get('columns') or []) for o in objs if isinstance(o, dict))
+        scan_part = f" · 结构已扫描：{obj_count} 个对象 · {field_count} 个字段" if obj_count > 0 else ""
         self.agent_status.setText(
-            f"{item.get('name') or ''} · {label} · {status.get('label') or ''} · {model} · 仅草案".strip(' ·')
+            f"{item.get('name') or ''} · {label} · {status.get('label') or ''}{scan_part} · {model} · 仅草案".strip(' ·')
         )
         self.agent_status.setToolTip(
             (self.model_status.text() if hasattr(self, 'model_status') else '') +
@@ -2075,8 +2087,8 @@ class AiWorkbenchPanel(QWidget):
         self._agent_action = action
         self.ai_gen_btn.setEnabled(False)
         self.agent_cancel_btn.show()
-        self.agent_stage.setText('正在校验 Schema 字段…' if zh else 'Checking schema fields…')
-        self.agent_stage.hide()
+        self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
+        self.agent_stage.show()
         self._agent_timer.start()
         self._ai_worker = _AiWorker(kwargs)
         self._ai_worker.completed.connect(self._on_ai_ok)
@@ -2094,13 +2106,13 @@ class AiWorkbenchPanel(QWidget):
             return
         self.agent_stage.show()
         if elapsed < 2:
-            self.agent_stage.setText('正在校验 Schema 字段…' if zh else 'Checking schema fields…')
+            self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
             return
         seconds = int(elapsed)
         self.agent_stage.setText(
-            f'校验快照 → 匹配表字段 → 生成草案 → 复核 SQL · 已耗时 {seconds}s'
+            f'检索 Schema → 生成草案 → 校验 SQL · 已耗时 {seconds}s'
             if zh else
-            f'validate → match → draft → review · {seconds}s'
+            f'retrieve schema → draft → validate · {seconds}s'
         )
 
     def _cancel_agent(self):
@@ -2138,10 +2150,10 @@ class AiWorkbenchPanel(QWidget):
         objs = [str(item.get('qualified_name') or item.get('name')) for item in ctx.get('selected_objects') or []]
         fields = [str(item.get('name') or '') for item in ctx.get('selected_fields') or []]
         if not objs and not fields:
-            self.ai_chips.setText('尚未添加表或字段 Token' if zh else 'No object tokens yet')
+            self.ai_chips.setText('未限定表/字段 · Agent 将从已扫描结构自动检索' if zh else 'No table/field limits · Agent will retrieve from scanned schema')
             return
         self.ai_chips.setText(
-            ('已添加：' if zh else 'Added: ') +
+            ('结构提示：' if zh else 'Structure hints: ') +
             '；'.join((['表 ' + ', '.join(objs)] if objs else []) + (['字段 ' + ', '.join(fields)] if fields else []))
         )
 
