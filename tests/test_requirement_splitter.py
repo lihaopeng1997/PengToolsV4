@@ -171,18 +171,61 @@ class RequirementCompactStackUiTests(unittest.TestCase):
             panel.close()
 
     def test_splitter_handle_hit_target_and_qss_styling(self):
-        """测试 Splitter 保持 6px 交互把手宽度，且 QSS 采用细线边距设计。"""
+        """测试 Splitter 保持 8px 交互把手宽度，且 QSS 采用细线边距设计。"""
         panel = self._make_panel()
         try:
-            self.assertGreaterEqual(panel.detail_splitter.handleWidth(), 6)
+            self.assertGreaterEqual(panel.detail_splitter.handleWidth(), 8)
             from ui.theme_manager import ThemeManager
             manager = ThemeManager.instance()
             manager.load_template()
             qss = manager.render('calm')
             self.assertIn('QSplitter::handle:horizontal', qss)
-            self.assertIn('margin: 0 2px', qss)
+            self.assertIn('margin: 0 3px', qss)
             self.assertIn('QSplitter::handle:vertical', qss)
-            self.assertIn('margin: 2px 0', qss)
+            self.assertIn('margin: 3px 0', qss)
+        finally:
+            panel.close()
+
+    def test_r1_1600_width_first_open_left_ge_400(self):
+        """R1: 1600 宽首次打开左栏 >= 400。"""
+        panel = self._make_panel(ui={})
+        try:
+            panel.resize(1600, 900)
+            panel.show()
+            self.app.processEvents()
+            panel.apply_layout_mode('wide')
+            self.app.processEvents()
+            sizes = panel.detail_splitter.sizes()
+            self.assertGreaterEqual(sizes[0], 400)
+        finally:
+            panel.close()
+
+    def test_r2_1280_width_controls_remain_usable(self):
+        """R2: 1280 宽下左栏与主控件可用。"""
+        panel = self._make_panel(ui={})
+        try:
+            panel.resize(1280, 800)
+            panel.show()
+            self.app.processEvents()
+            panel.apply_layout_mode('standard')
+            self.app.processEvents()
+            sizes = panel.detail_splitter.sizes()
+            self.assertGreaterEqual(sizes[0], 320)
+            self.assertGreaterEqual(sizes[1], 520)
+        finally:
+            panel.close()
+
+    def test_r3_saved_valid_custom_width_wins(self):
+        """R3: 用户拖拽有效自定义宽度在相同 bucket 下优先保留。"""
+        panel = self._make_panel(ui={'splitter_sizes': [480, 800]})
+        try:
+            panel.resize(1280, 800)
+            panel.show()
+            self.app.processEvents()
+            panel.apply_layout_mode('standard')
+            self.app.processEvents()
+            sizes = panel.detail_splitter.sizes()
+            self.assertAlmostEqual(sizes[0], 480, delta=10)
         finally:
             panel.close()
 

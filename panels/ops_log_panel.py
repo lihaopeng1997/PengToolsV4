@@ -2284,10 +2284,10 @@ class OpsLogPanel(QWidget):
         self.main_split.setStretchFactor(1, 1)
         install_splitter_prefs(
             self.main_split,
-            defaults=[420, 860],
+            defaults=[460, 860],
             page_id='ops-log',
             tab_id='main',
-            min_sizes=[260, 360],
+            min_sizes=[360, 480],
             accessible_name='日志排查主分隔',
         )
         # 允许把左侧拖宽看全路径/表单
@@ -2700,8 +2700,6 @@ class OpsLogPanel(QWidget):
             return
         if mode == 'narrow':
             self.main_split.setOrientation(Qt.Orientation.Vertical)
-            # §8.3：终端高 ≥220；上区（主机/日志）与下区（终端）堆叠
-            self.main_split.setSizes([240, 420])
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
@@ -2709,30 +2707,28 @@ class OpsLogPanel(QWidget):
                     w.setMinimumWidth(0)
         elif mode == 'compact':
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
-            self.main_split.setSizes([280, 760])
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(240 if i == 0 else 360)
+                    w.setMinimumWidth(280 if i == 0 else 400)
                     w.setMinimumHeight(0)
         else:
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
-            self.main_split.setSizes([420, 860])
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(260 if i == 0 else 480)
+                    w.setMinimumWidth(360 if i == 0 else 480)
                     w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
-            defaults=[420, 860] if mode != 'narrow' else [240, 420],
+            defaults=[460, 860] if mode != 'narrow' else [240, 420],
             page_id='ops-log',
             tab_id='main',
             bucket=layout_bucket(mode),
             min_sizes=(
                 [200, 220] if mode == 'narrow'
-                else [240, 360] if mode == 'compact'
-                else [260, 480]
+                else [280, 400] if mode == 'compact'
+                else [360, 480]
             ),
             accessible_name='日志排查主分隔',
         )

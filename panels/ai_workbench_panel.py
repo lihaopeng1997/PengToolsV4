@@ -47,6 +47,11 @@ from ui.splitter_prefs import install_splitter_prefs
 from ui.sql_editor import SqlEditor
 
 
+def sql_splitter_tab_id(kind: str, dialect: str | None = None) -> str:
+    d = (dialect or '').strip().lower()
+    return f'{kind}-{d}' if d else kind
+
+
 class _SchemaSearchPopup(QFrame):
     """IDE 风格统一数据库对象搜索下拉建议框。"""
 
@@ -641,18 +646,18 @@ class AiWorkbenchPanel(QWidget):
         self.columns_splitter = columns
         install_splitter_prefs(
             columns,
-            defaults=[240, 560, 320],
+            defaults=[300, 700, 340],
             page_id='sql-console',
-            tab_id=f'columns-{self._dialect}' if self._dialect else 'columns',
-            min_sizes=[240, 360, 240],
+            tab_id=sql_splitter_tab_id('columns', self._dialect),
+            min_sizes=[260, 480, 300],
             accessible_name='SQL 控制台列分隔',
         )
         install_splitter_prefs(
             body,
-            defaults=[580, 310],
+            defaults=[620, 300],
             page_id='sql-console',
-            tab_id=f'body-{self._dialect}' if self._dialect else 'body',
-            min_sizes=[300, 180],
+            tab_id=sql_splitter_tab_id('body', self._dialect),
+            min_sizes=[320, 200],
             accessible_name='SQL 控制台上下分隔',
         )
         root.addWidget(body, 1)
@@ -801,15 +806,18 @@ class AiWorkbenchPanel(QWidget):
                 360,
                 200 if self._narrow_show_ai else 0,
             ]
+            col_defs = [200, 480, 200]
         elif mode == 'compact':
-            col_mins = [240, 360, 200]
+            col_mins = [240, 420, 240]
+            col_defs = [240, 560, 260]
         else:
-            col_mins = [240, 520, 240]
+            col_mins = [260, 480, 300]
+            col_defs = [300, 700, 340]
         install_splitter_prefs(
             self.columns_splitter,
-            defaults=[240, 560, 320],
+            defaults=col_defs,
             page_id='sql-console',
-            tab_id='columns',
+            tab_id=sql_splitter_tab_id('columns', self._dialect),
             bucket=layout_bucket(mode),
             min_sizes=col_mins,
             accessible_name='SQL 控制台列分隔',

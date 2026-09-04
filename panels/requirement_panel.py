@@ -2061,7 +2061,7 @@ class RequirementPanel(QWidget):
         self.file_sql_splitter = None
         self.detail_splitter.addWidget(right)
 
-        from ui.layout_metrics import REQ_LEFT_DEFAULT
+        from ui.layout_metrics import REQ_LEFT_DEFAULT, REQ_LEFT_MIN, REQ_RIGHT_MIN
         requirement_ui = load_requirement_ui()
         sizes = requirement_ui.get('splitter_sizes') or [REQ_LEFT_DEFAULT, 820]
         if len(sizes) >= 2 and sizes[0] < REQ_LEFT_MIN:
@@ -2170,25 +2170,40 @@ class RequirementPanel(QWidget):
         self.detail_splitter.setStretchFactor(1, 1)
         left_pane = self.detail_splitter.widget(0)
         right_pane = self.detail_splitter.widget(1)
-        if mode == 'narrow':
-            if left_pane is not None:
-                left_pane.setMinimumWidth(240)
-            if right_pane is not None:
-                right_pane.setMinimumWidth(360)
-        else:
-            if left_pane is not None:
-                left_pane.setMinimumWidth(REQ_LEFT_MIN)
-            if right_pane is not None:
-                right_pane.setMinimumWidth(REQ_RIGHT_MIN)
-        sizes = self.detail_splitter.sizes()
-        if mode == 'compact':
-            left = min(max(sizes[0] if sizes else 280, REQ_LEFT_MIN), 300)
-            right = max(REQ_RIGHT_MIN, (sizes[1] if len(sizes) > 1 else REQ_RIGHT_MIN))
-            self.detail_splitter.setSizes([left, right])
+        if mode == 'wide':
+            left_min = 340
+            right_min = REQ_RIGHT_MIN
+            left_def = 420
+        elif mode == 'compact':
+            left_min = 280
+            right_min = 460
+            left_def = 320
         elif mode == 'narrow':
-            left = min(max(sizes[0] if sizes else 240, 240), 280)
-            right = max(360, (sizes[1] if len(sizes) > 1 else 360))
-            self.detail_splitter.setSizes([left, right])
+            left_min = 250
+            right_min = 360
+            left_def = 280
+        else:  # standard
+            left_min = 320
+            right_min = REQ_RIGHT_MIN
+            left_def = 400
+
+        if left_pane is not None:
+            left_pane.setMinimumWidth(left_min)
+        if right_pane is not None:
+            right_pane.setMinimumWidth(right_min)
+
+        from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+        install_splitter_prefs(
+            self.detail_splitter,
+            defaults=[left_def, 820],
+            page_id='requirement',
+            tab_id='tree-detail',
+            bucket=layout_bucket(mode),
+            min_sizes=[left_min, right_min],
+            accessible_name='需求管理目录/详情分隔',
+            on_changed=lambda _sizes: self._save_splitter_sizes(),
+            double_click_reset=False,
+        )
 
         # 1. 顶部工具栏响应式收纳
         if hasattr(self, 'toolbar_more_btn'):

@@ -125,6 +125,174 @@ class SplitterPrefsTests(unittest.TestCase):
         self.assertAlmostEqual(sizes[0], 200, delta=8)
         self.assertAlmostEqual(sizes[1], 300, delta=8)
 
+    def test_s1_install_20x_callback_once_per_move(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        splitter.resize(600, 200)
+        splitter.show()
+        QApplication.processEvents()
+
+        calls = []
+        for _ in range(20):
+            install_splitter_prefs(
+                splitter,
+                defaults=[250, 350],
+                min_sizes=[100, 100],
+                debounce_ms=10,
+                on_changed=lambda sz: calls.append(sz),
+                persist=False,
+            )
+
+        splitter.splitterMoved.emit(300, 1)
+        QTest.qWait(50)
+        QApplication.processEvents()
+        self.assertEqual(len(calls), 1)
+
+    def test_s2_handle_hit_width_ge_8(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        install_splitter_prefs(splitter, defaults=[200, 300], persist=False)
+        self.assertGreaterEqual(splitter.handleWidth(), 8)
+        handle = splitter.handle(1)
+        self.assertEqual(handle.cursor().shape(), Qt.CursorShape.SplitHCursor)
+
+    def test_s3_proportional_normalization(self):
+        from ui.splitter_prefs import normalize_splitter_sizes
+        normalized = normalize_splitter_sizes(
+            [960, 960],
+            defaults=[600, 600],
+            min_sizes=[200, 200],
+            current_total=1280,
+            old_total=1920,
+        )
+        self.assertEqual(normalized, [640, 640])
+
+    def test_s4_extreme_old_size_resets_to_defaults(self):
+        from ui.splitter_prefs import normalize_splitter_sizes
+        normalized = normalize_splitter_sizes(
+            [10, 1270],
+            defaults=[400, 880],
+            min_sizes=[200, 300],
+            current_total=1280,
+        )
+        self.assertEqual(normalized, [400, 880])
+
+    def test_s5_same_layout_bucket_does_not_reset_drag(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(QLabel('L'))
+        splitter.addWidget(QLabel('R'))
+        splitter.resize(1000, 300)
+        splitter.show()
+        QApplication.processEvents()
+
+        install_splitter_prefs(
+            splitter,
+            defaults=[400, 600],
+            min_sizes=[200, 200],
+            page_id='test-page',
+            tab_id='test-tab',
+            bucket='standard',
+            persist=False,
+        )
+        QApplication.processEvents()
+        splitter.setSizes([550, 450])
+        dragged = list(splitter.sizes())
+
+        install_splitter_prefs(
+            splitter,
+            defaults=[400, 600],
+            min_sizes=[200, 200],
+            page_id='test-page',
+            tab_id='test-tab',
+            bucket='standard',
+            persist=False,
+        )
+        QApplication.processEvents()
+        self.assertEqual(list(splitter.sizes()), dragged)
+
+    def test_s6_s7_s8_s9_sql_workbench_splitters(self):
+        from panels.ai_workbench_panel import sql_splitter_tab_id
+        # S8: Dialect key consistency
+        self.assertEqual(sql_splitter_tab_id('columns', 'Oracle'), 'columns-oracle')
+        self.assertEqual(sql_splitter_tab_id('body', 'MySQL'), 'body-mysql')
+        self.assertEqual(sql_splitter_tab_id('columns', ''), 'columns')
+
+        # S6: Horizontal columns splitter all panes >= mins [260, 480, 300]
+        col_splitter = QSplitter(Qt.Orientation.Horizontal)
+        col_splitter.addWidget(QLabel('Tree'))
+        col_splitter.addWidget(QLabel('Editor'))
+        col_splitter.addWidget(QLabel('AI'))
+        col_splitter.resize(1600, 600)
+        col_splitter.show()
+        QApplication.processEvents()
+
+        install_splitter_prefs(
+            col_splitter,
+            defaults=[300, 700, 340],
+            min_sizes=[260, 480, 300],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('columns', 'oracle'),
+            bucket='wide',
+            persist=False,
+        )
+        QApplication.processEvents()
+        col_sizes = col_splitter.sizes()
+        self.assertGreaterEqual(col_sizes[0], 260)
+        self.assertGreaterEqual(col_sizes[1], 480)
+        self.assertGreaterEqual(col_sizes[2], 300)
+
+        # S7: Vertical body splitter results >= min 200
+        body_splitter = QSplitter(Qt.Orientation.Vertical)
+        body_splitter.addWidget(QLabel('Top'))
+        body_splitter.addWidget(QLabel('Results'))
+        body_splitter.resize(1000, 800)
+        body_splitter.show()
+        QApplication.processEvents()
+
+        install_splitter_prefs(
+            body_splitter,
+            defaults=[620, 300],
+            min_sizes=[320, 200],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('body', 'oracle'),
+            bucket='wide',
+            persist=False,
+        )
+        QApplication.processEvents()
+        body_sizes = body_splitter.sizes()
+        self.assertGreaterEqual(body_sizes[0], 320)
+        self.assertGreaterEqual(body_sizes[1], 200)
+
+        # S9: Drag -> save -> reconstruct -> restore approximately same ratio
+        col_splitter.setSizes([350, 750, 400])
+        saved_sizes = list(col_splitter.sizes())
+
+        new_splitter = QSplitter(Qt.Orientation.Horizontal)
+        new_splitter.addWidget(QLabel('Tree'))
+        new_splitter.addWidget(QLabel('Editor'))
+        new_splitter.addWidget(QLabel('AI'))
+        new_splitter.resize(1600, 600)
+        new_splitter.show()
+        QApplication.processEvents()
+
+        install_splitter_prefs(
+            new_splitter,
+            defaults=[300, 700, 340],
+            saved=saved_sizes,
+            min_sizes=[260, 480, 300],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('columns', 'oracle'),
+            bucket='wide',
+            persist=False,
+        )
+        QApplication.processEvents()
+        restored = list(new_splitter.sizes())
+        self.assertAlmostEqual(restored[0], saved_sizes[0], delta=10)
+        self.assertAlmostEqual(restored[1], saved_sizes[1], delta=10)
+        self.assertAlmostEqual(restored[2], saved_sizes[2], delta=10)
+
 
 if __name__ == '__main__':
     unittest.main()

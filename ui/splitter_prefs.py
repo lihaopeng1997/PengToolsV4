@@ -106,15 +106,52 @@ def has_extreme_splitter_sizes(sizes: list[int], min_sizes: list[int]) -> bool:
     return any(value <= 0 or value < minimum // 2 for value, minimum in zip(values, min_sizes))
 
 
-class _SplitterInteractionFilter(QObject):
+def normalize_splitter_sizes(
+    sizes: list[int] | None,
+    defaults: list[int],
+    min_sizes: list[int],
+    current_total: int | None = None,
+    old_total: int | None = None,
+) -> list[int]:
+    """根据视口总宽/高按比例归一化分栏尺寸；遇到极值或不合法数据时回退到默认比例。"""
+    count = len(defaults)
+    mins = _scaled_mins(min_sizes, count)
+    target = None
+    if isinstance(sizes, (list, tuple)) and len(sizes) == count:
+        try:
+            cand = [int(x) for x in sizes]
+            if not has_extreme_splitter_sizes(cand, mins):
+                target = cand
+        except (TypeError, ValueError):
+            target = None
+
+    if target is None:
+        target = [max(1, int(x)) for x in defaults]
+
+    base_total = old_total if old_total and old_total > 0 else sum(target)
+    curr = int(current_total) if current_total and current_total > 40 else None
+
+    if curr is not None and base_total > 0 and abs(curr - base_total) > 10:
+        ratio = curr / float(base_total)
+        scaled = [int(round(s * ratio)) for s in target]
+        return clamp_splitter_sizes(scaled, mins, curr)
+
+    return clamp_splitter_sizes(target, mins, curr)
+
+
+class _SplitterCoordinator(QObject):
     def __init__(
         self,
         splitter: QSplitter,
+        *,
         defaults: list[int],
         min_sizes: list[int],
         on_changed=None,
         step: int = 24,
         double_click_reset: bool = True,
+        debounce_ms: int = 250,
+        key: str = '',
+        persist: bool = True,
     ):
         super().__init__(splitter)
         self.splitter = splitter
@@ -123,6 +160,65 @@ class _SplitterInteractionFilter(QObject):
         self.on_changed = on_changed
         self.step = max(8, int(step))
         self.double_click_reset = bool(double_click_reset)
+        self.key = key
+        self.persist = persist
+
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(max(0, int(debounce_ms)))
+        self.timer.timeout.connect(self._on_timeout)
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+
+    def update_config(
+        self,
+        *,
+        defaults: list[int],
+        min_sizes: list[int],
+        on_changed=None,
+        step: int = 24,
+        double_click_reset: bool = True,
+        debounce_ms: int = 250,
+        key: str = '',
+        persist: bool = True,
+    ):
+        self.defaults = [int(item) for item in defaults]
+        self.min_sizes = list(min_sizes)
+        self.on_changed = on_changed
+        self.step = max(8, int(step))
+        self.double_click_reset = bool(double_click_reset)
+        self.key = key
+        self.persist = persist
+        self.timer.setInterval(max(0, int(debounce_ms)))
+
+    def _on_splitter_moved(self, pos: int = 0, index: int = 0):
+        if _is_widget_alive(self.splitter):
+            self.timer.start()
+
+    def _on_timeout(self):
+        if not _is_widget_alive(self.splitter):
+            return
+        total = self._total()
+        sizes = clamp_splitter_sizes(list(self.splitter.sizes()), self.min_sizes, total if total > 40 else None)
+        if sizes != list(self.splitter.sizes()):
+            self.splitter.setSizes(sizes)
+        self._persist(list(self.splitter.sizes()))
+
+    def _persist(self, sizes: list[int]):
+        if callable(self.on_changed):
+            self.on_changed(list(sizes))
+        if self.persist and self.key:
+            try:
+                from config import save_layout_splitter
+                save_layout_splitter(self.key, list(sizes))
+            except Exception:
+                pass
+
+    def _total(self) -> int:
+        if not _is_widget_alive(self.splitter):
+            return 1
+        if self.splitter.orientation() == Qt.Orientation.Horizontal:
+            return max(1, self.splitter.width())
+        return max(1, self.splitter.height())
 
     def eventFilter(self, watched, event):
         if event is None or not _is_widget_alive(self.splitter):
@@ -156,8 +252,7 @@ class _SplitterInteractionFilter(QObject):
         if self.defaults and self.splitter.count() == len(self.defaults):
             sizes = clamp_splitter_sizes(self.defaults, self.min_sizes, self._total())
             self.splitter.setSizes(sizes)
-            if callable(self.on_changed):
-                self.on_changed(list(self.splitter.sizes()))
+            self._persist(list(self.splitter.sizes()))
 
     def _nudge(self, delta: int):
         if not _is_widget_alive(self.splitter):
@@ -169,15 +264,7 @@ class _SplitterInteractionFilter(QObject):
         sizes[1] = sizes[1] - int(delta)
         sizes = clamp_splitter_sizes(sizes, self.min_sizes, self._total())
         self.splitter.setSizes(sizes)
-        if callable(self.on_changed):
-            self.on_changed(list(self.splitter.sizes()))
-
-    def _total(self) -> int:
-        if not _is_widget_alive(self.splitter):
-            return 1
-        if self.splitter.orientation() == Qt.Orientation.Horizontal:
-            return max(1, self.splitter.width())
-        return max(1, self.splitter.height())
+        self._persist(list(self.splitter.sizes()))
 
 
 def install_splitter_prefs(
@@ -208,91 +295,103 @@ def install_splitter_prefs(
             splitter.setCollapsible(index, False)
         except Exception:
             pass
+
+    horizontal = splitter.orientation() == Qt.Orientation.Horizontal
+    cursor = Qt.CursorShape.SplitHCursor if horizontal else Qt.CursorShape.SplitVCursor
+
     name = accessible_name or (f'{page_id or "panel"} 分隔条' if page_id else '工作区分隔条')
     splitter.setAccessibleName(name)
     splitter.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     resolved_bucket = bucket or layout_bucket()
     key = splitter_storage_key(page_id, tab_id, resolved_bucket) if page_id else ''
-    loaded = saved
-    if loaded is None and persist and key:
-        try:
-            from config import load_layout_splitter
-            loaded = load_layout_splitter(key)
-        except Exception:
-            loaded = None
 
-    target = None
-    if isinstance(loaded, (list, tuple)) and len(loaded) == count:
-        try:
-            candidate = [int(item) for item in loaded]
-            if not has_extreme_splitter_sizes(candidate, mins):
-                target = candidate
-        except (TypeError, ValueError):
-            target = None
-    if target is None and defaults and len(defaults) == count:
-        target = [max(1, int(item)) for item in defaults]
-    if target:
+    existing_coord = splitter.property('_pengtools_splitter_coordinator')
+    same_bucket = (
+        existing_coord is not None
+        and getattr(existing_coord, 'key', '') == key
+        and bool(key)
+    )
+
+    current_sizes = list(splitter.sizes()) if count > 0 else []
+    has_valid_live_sizes = (
+        len(current_sizes) == count
+        and not has_extreme_splitter_sizes(current_sizes, mins)
+        and sum(current_sizes) > 40
+    )
+
+    should_apply_sizes = not (same_bucket and has_valid_live_sizes)
+
+    if should_apply_sizes:
+        loaded = saved
+        if loaded is None and persist and key:
+            try:
+                from config import load_layout_splitter
+                loaded = load_layout_splitter(key)
+            except Exception:
+                loaded = None
+
+        total = splitter.width() if horizontal else splitter.height()
+        target = normalize_splitter_sizes(
+            loaded,
+            defaults=defaults,
+            min_sizes=mins,
+            current_total=total if total > 40 else None,
+        )
+
         def _apply_initial_sizes():
-            """在首轮真实布局后重申初始比例，避免子控件 sizeHint 覆盖默认值。"""
             if not _is_widget_alive(splitter):
                 return
             if splitter.count() != len(target):
                 return
-            total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
-            splitter.setSizes(clamp_splitter_sizes(target, mins, total if total > 40 else None))
+            t = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
+            splitter.setSizes(clamp_splitter_sizes(target, mins, t if t > 40 else None))
 
         _apply_initial_sizes()
-        # QSplitter 会在父控件首次 show 后按子控件 sizeHint 重新分配；
-        # 延后到事件循环可确保 defaults / 已保存比例才是最终初始状态。
         QTimer.singleShot(0, _apply_initial_sizes)
+    else:
+        total = splitter.width() if horizontal else splitter.height()
+        splitter.setSizes(clamp_splitter_sizes(current_sizes, mins, total if total > 40 else None))
 
-    def _persist(sizes: list[int]):
-        if callable(on_changed):
-            on_changed(list(sizes))
-        if persist and key:
-            try:
-                from config import save_layout_splitter
-                save_layout_splitter(key, list(sizes))
-            except Exception:
-                pass
+    if existing_coord is not None and isinstance(existing_coord, _SplitterCoordinator):
+        coord = existing_coord
+        coord.update_config(
+            defaults=defaults,
+            min_sizes=mins,
+            on_changed=on_changed,
+            debounce_ms=debounce_ms,
+            key=key,
+            persist=persist,
+            double_click_reset=double_click_reset,
+        )
+    else:
+        coord = _SplitterCoordinator(
+            splitter,
+            defaults=defaults,
+            min_sizes=mins,
+            on_changed=on_changed,
+            debounce_ms=debounce_ms,
+            key=key,
+            persist=persist,
+            double_click_reset=double_click_reset,
+        )
+        splitter.installEventFilter(coord)
+        splitter.setProperty('_pengtools_splitter_coordinator', coord)
 
-    timer = QTimer(splitter)
-    timer.setSingleShot(True)
-    timer.setInterval(max(0, int(debounce_ms)))
-
-    def _emit():
-        if not _is_widget_alive(splitter):
-            return
-        total = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
-        sizes = clamp_splitter_sizes(list(splitter.sizes()), mins, total if total > 40 else None)
-        if sizes != list(splitter.sizes()):
-            splitter.setSizes(sizes)
-        _persist(list(splitter.sizes()))
-
-    timer.timeout.connect(_emit)
-    splitter.splitterMoved.connect(lambda *_: timer.start())
-
-    filtr = _SplitterInteractionFilter(
-        splitter,
-        defaults or list(splitter.sizes()),
-        mins,
-        on_changed=_persist,
-        double_click_reset=double_click_reset,
-    )
-    splitter.installEventFilter(filtr)
     for index in range(1, count):
         handle = splitter.handle(index)
         if handle is None:
             continue
+        handle.setCursor(cursor)
         handle.setAccessibleName(f'{name} · 第{index}格')
         handle.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        handle.installEventFilter(filtr)
+        handle.removeEventFilter(coord)
+        handle.installEventFilter(coord)
         if isinstance(handle, QSplitterHandle):
             tip = '拖动调整；双击恢复默认；方向键微调' if double_click_reset else '拖动调整；方向键微调'
             handle.setToolTip(tip)
 
-    splitter.setProperty('_pengtools_splitter_filter', filtr)
-    splitter.setProperty('_pengtools_splitter_timer', timer)
+    splitter.setProperty('_pengtools_splitter_filter', coord)
+    splitter.setProperty('_pengtools_splitter_timer', coord.timer)
     splitter.setProperty('_pengtools_splitter_key', key)
     splitter.setProperty('_pengtools_splitter_mins', mins)

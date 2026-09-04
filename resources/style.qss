@@ -836,10 +836,9 @@ QLabel[xmlStatus="ok"] {
     font-weight: 650;
 }
 
-/* 全局分割线：极细视觉线（~1-2px），保持 6px 便于拖拽的交互区域，hover/pressed 时高亮提示 */
+/* 全局分割线：极细视觉线（~2px），保持 8px 便于拖拽的交互区域，hover/pressed 时高亮提示 */
 QSplitter::handle:horizontal {
-    width: 6px;
-    margin: 0 2px;
+    margin: 0 3px;
     background: __BORDER__;
     border: none;
     border-radius: 1px;
@@ -848,8 +847,7 @@ QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
 QSplitter#requirement-splitter::handle:horizontal {
-    width: 6px;
-    margin: 0 2px;
+    margin: 0 3px;
     background: __BORDER__;
     border: none;
     border-radius: 1px;
@@ -858,8 +856,7 @@ QSplitter#requirement-splitter::handle:horizontal:hover, QSplitter#requirement-s
     background: __PRIMARY__;
 }
 QSplitter::handle:vertical {
-    height: 6px;
-    margin: 2px 0;
+    margin: 3px 0;
     background: __BORDER__;
     border: none;
     border-radius: 1px;
