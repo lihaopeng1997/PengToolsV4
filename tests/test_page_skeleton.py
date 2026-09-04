@@ -237,5 +237,44 @@ class EmptyStateFactoryTests(unittest.TestCase):
             self.assertIn(selector, template, f'style.qss 缺少 {selector}')
 
 
+class PageHeaderDividerTests(unittest.TestCase):
+    """V1-9 & V1-10: PageHeader API 兼容性与底部分割线测试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_v1_9_page_header_api_and_divider_component(self):
+        """V1-9: make_page_header() 返回 tuple/API 不变，有底部分割线实现，不增加定时器。"""
+        from PyQt6.QtCore import QTimer
+        from ui.page_chrome import make_page_header
+
+        ret = make_page_header('测试页面', subtitle='副标题', icon_role='settings')
+        self.assertIsInstance(ret, tuple)
+        self.assertEqual(len(ret), 3)
+        frame, title, subtitle = ret
+        self.assertIsInstance(frame, QFrame)
+        self.assertIsInstance(title, QLabel)
+        self.assertIsInstance(subtitle, QLabel)
+        self.assertEqual(frame.objectName(), 'page-header')
+        # 验证分割线标记与 paintEvent 无报错
+        self.assertTrue(getattr(frame, '_has_bottom_divider', False) or hasattr(frame, 'has_bottom_divider'))
+        frame.resize(800, 60)
+        frame.repaint()
+        # 不增加 timer
+        self.assertEqual(len(frame.findChildren(QTimer)), 0)
+        frame.deleteLater()
+
+    def test_v1_10_page_header_viewport_geometry_not_increased(self):
+        """V1-10: 页面头部高度不因 divider 显著增加。"""
+        from ui.layout_metrics import PAGE_HEADER_H
+        from ui.page_chrome import make_page_header
+
+        frame, _, _ = make_page_header('测试', subtitle='')
+        self.assertLessEqual(frame.minimumHeight(), PAGE_HEADER_H)
+        self.assertGreaterEqual(frame.minimumHeight(), PAGE_HEADER_H - 16)
+        frame.deleteLater()
+
+
 if __name__ == '__main__':
     unittest.main()

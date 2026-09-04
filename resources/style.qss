@@ -642,6 +642,16 @@ QFrame#ds-muted {
     border: 1px solid __BORDER__;
     border-radius: 10px;
 }
+QFrame#ds-glass {
+    background: __GLASS_BG__;
+    border: 1px solid __GLASS_BORDER__;
+    border-radius: 12px;
+}
+QFrame#ds-elevated {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __ELEVATED_BORDER__;
+    border-radius: 12px;
+}
 /* Gateway 加解密工作台 */
 QGroupBox#gateway-config-group {
     background: __SURFACE__;
@@ -1491,8 +1501,8 @@ QLabel#confirm-title {
     background: transparent;
 }
 QFrame#confirm-card {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __ELEVATED_BORDER__;
     border-radius: 12px;
 }
 QLabel#confirm-message {

@@ -1777,7 +1777,7 @@ class MainWindow(QMainWindow):
         try:
             from ui.theme_manager import ThemeManager, theme_mode
             tm = ThemeManager.instance()
-            theme_id = tm.theme_id()
+            theme_id = tm.theme_id if isinstance(tm.theme_id, str) else (tm.get_theme_id() if hasattr(tm, 'get_theme_id') else tm.theme_id())
             is_dark = (theme_mode(theme_id) == 'dark')
             payload = {
                 'id': theme_id,

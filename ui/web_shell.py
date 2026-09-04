@@ -164,7 +164,8 @@ else:  # pragma: no cover - 依赖缺失环境
             pass
 
         def set_theme_payload(self, data: dict):
-            pass
+            self._theme_json = json.dumps(data, ensure_ascii=False)
+            self.themeChanged.emit(self._theme_json)
 
         def navigate(self, nav_index):
             self.navigateRequested.emit(int(nav_index))
@@ -182,7 +183,7 @@ else:  # pragma: no cover - 依赖缺失环境
             return 'Lihp'
 
         def themePayload(self):
-            return '{}'
+            return getattr(self, '_theme_json', '{}')
 
         def pageReady(self, page_name):
             self.pageReadyReceived.emit(str(page_name or ''))

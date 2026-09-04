@@ -166,5 +166,55 @@ class DialogPathsTests(unittest.TestCase):
             self.assertEqual(loaded_dir, os.path.abspath(work_dir))
 
 
+class DialogSafeDefaultsAndFramelessContractTests(unittest.TestCase):
+    """V1-11 & V1-12: 弹窗安全默认与无侵入契约测试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_v1_11_confirm_dialog_cancel_default_and_focus(self):
+        """V1-11: 危险操作弹窗 Cancel 默认与安全焦点契约不变。"""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import QPropertyAnimation
+        from ui.confirm_dialog import ConfirmActionDialog
+
+        dlg = ConfirmActionDialog('测试删除', '确定删除该项？', danger=True)
+        # Cancel 为默认按钮
+        self.assertTrue(dlg.cancel_button.isDefault())
+        self.assertFalse(dlg.confirm_button.isDefault())
+        # DIALOG_FRAMELESS: NO
+        flags = dlg.windowFlags()
+        self.assertEqual(flags & Qt.WindowType.FramelessWindowHint, Qt.WindowType(0))
+        # DIALOG_MOTION: DEFERRED_TO_V3（无 QPropertyAnimation 动画侵入）
+        anims = dlg.findChildren(QPropertyAnimation)
+        self.assertEqual(len(anims), 0)
+        dlg.deleteLater()
+
+    def test_v1_12_close_dialog_safe_defaults_unchanged(self):
+        """V1-12: 退出确认安全默认保持不变。"""
+        from PyQt6.QtCore import Qt
+        from ui.confirm_dialog import CloseActionDialog
+
+        dlg = CloseActionDialog(default_action='minimize')
+        # DIALOG_FRAMELESS: NO
+        flags = dlg.windowFlags()
+        self.assertEqual(flags & Qt.WindowType.FramelessWindowHint, Qt.WindowType(0))
+        # 默认动作不是强制退出，首选安全操作（隐藏或取消），退出按钮永远不是 default
+        self.assertIsNotNone(dlg.cancel_button)
+        self.assertIsNotNone(dlg.minimize_button)
+        self.assertFalse(dlg.exit_button.isDefault())
+        self.assertEqual(dlg.focusWidget(), dlg.minimize_button)
+        dlg.deleteLater()
+
+        # 当 default_action == 'exit' 时，安全焦点落在取消按钮上
+        dlg_exit = CloseActionDialog(default_action='exit')
+        self.assertTrue(dlg_exit.cancel_button.isDefault())
+        self.assertEqual(dlg_exit.focusWidget(), dlg_exit.cancel_button)
+        self.assertFalse(dlg_exit.exit_button.isDefault())
+        dlg_exit.deleteLater()
+
+
 if __name__ == '__main__':
     unittest.main()

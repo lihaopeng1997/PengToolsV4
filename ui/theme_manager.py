@@ -119,6 +119,16 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#ECEEFA',
         'USER_CHIP_TEXT': '#41449C',
         'SCROLL_HANDLE': '#C2C6D4',
+        'PRIMARY_GRAD_START': '#5B5FC7',
+        'PRIMARY_GRAD_END': '#4C50B0',
+        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.45)',
+        'ELEVATED_BORDER': '#C7CCDA',
+        'SHADOW_L1': 'rgba(43, 48, 74, 25)',
+        'SHADOW_L2': 'rgba(43, 48, 74, 45)',
+        'SHADOW_L4': 'rgba(27, 30, 42, 90)',
+        'AURORA_START': '#5B5FC7',
+        'AURORA_MID': '#0EA5E9',
+        'AURORA_END': '#818CF8',
     }, {
         'CODE_BG': '#F0F1F6',
         'ELEVATED_SURFACE': '#FFFFFF',
@@ -170,6 +180,16 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#E6EEF5',
         'USER_CHIP_TEXT': '#2C4559',
         'SCROLL_HANDLE': '#BDC6D2',
+        'PRIMARY_GRAD_START': '#3A5770',
+        'PRIMARY_GRAD_END': '#2B4357',
+        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.50)',
+        'ELEVATED_BORDER': '#C2CBD7',
+        'SHADOW_L1': 'rgba(22, 29, 38, 20)',
+        'SHADOW_L2': 'rgba(22, 29, 38, 40)',
+        'SHADOW_L4': 'rgba(14, 20, 28, 80)',
+        'AURORA_START': '#3A5770',
+        'AURORA_MID': '#4E7A9E',
+        'AURORA_END': '#688BA8',
     }, {
         'CODE_BG': '#F0F3F7',
         'INFO_BG': '#EAF2FA',
@@ -223,6 +243,16 @@ THEMES: dict[str, dict[str, str]] = {
         'USER_CHIP_BG': '#F1E6D8',
         'USER_CHIP_TEXT': '#5E3C25',
         'SCROLL_HANDLE': '#C9BDAA',
+        'PRIMARY_GRAD_START': '#7A5133',
+        'PRIMARY_GRAD_END': '#5E3C25',
+        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.55)',
+        'ELEVATED_BORDER': '#D2C4B0',
+        'SHADOW_L1': 'rgba(36, 28, 22, 20)',
+        'SHADOW_L2': 'rgba(36, 28, 22, 40)',
+        'SHADOW_L4': 'rgba(24, 18, 14, 80)',
+        'AURORA_START': '#7A5133',
+        'AURORA_MID': '#A67C52',
+        'AURORA_END': '#C49A6C',
     }, {
         'CODE_BG': '#F4EEE4',
         'MONTH_HEADER_BG': '#F1E6D8',
@@ -314,6 +344,16 @@ THEMES: dict[str, dict[str, str]] = {
         'GLASS_BG': 'rgba(22, 22, 24, 230)',
         'GLASS_BORDER': 'rgba(63, 63, 70, 200)',
         'GLASS_SHADOW': 'rgba(0, 0, 0, 90)',
+        'PRIMARY_GRAD_START': '#8FBB9E',
+        'PRIMARY_GRAD_END': '#6F9E7E',
+        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.12)',
+        'ELEVATED_BORDER': '#3F3F46',
+        'SHADOW_L1': 'rgba(0, 0, 0, 80)',
+        'SHADOW_L2': 'rgba(0, 0, 0, 130)',
+        'SHADOW_L4': 'rgba(0, 0, 0, 200)',
+        'AURORA_START': '#8FBB9E',
+        'AURORA_MID': '#568266',
+        'AURORA_END': '#A8CDB4',
     },
 }
 
@@ -405,6 +445,9 @@ class ThemeManager:
 
     @property
     def theme_id(self) -> str:
+        return self._theme_id
+
+    def get_theme_id(self) -> str:
         return self._theme_id
 
     def palette(self, theme_id: str | None = None) -> dict[str, str]:

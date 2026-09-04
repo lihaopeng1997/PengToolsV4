@@ -50,6 +50,49 @@ class PageChrome(QWidget):
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
 from ui.layout_metrics import PAGE_HEADER_H
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter
+
+
+class _PageHeaderFrame(QFrame):
+    """带优雅渐变底部分割线的页面头部容器。"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._has_bottom_divider = True
+
+    def has_bottom_divider(self) -> bool:
+        return self._has_bottom_divider
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return
+        painter = QPainter(self)
+        try:
+            from ui.theme_manager import ThemeManager, parse_color
+            tm = ThemeManager.instance()
+            border_raw = tm.token('BORDER') or '#DFE2EC'
+            parsed = parse_color(border_raw)
+            if parsed:
+                r, g, b, a = parsed
+                base_col = QColor(r, g, b, min(255, max(60, a)))
+            else:
+                base_col = QColor(border_raw)
+                if not base_col.isValid():
+                    base_col = QColor('#DFE2EC')
+        except Exception:
+            base_col = QColor('#DFE2EC')
+
+        grad = QLinearGradient(0.0, float(h - 1), float(w), float(h - 1))
+        c_fade = QColor(base_col)
+        c_fade.setAlpha(0)
+        grad.setColorAt(0.0, c_fade)
+        grad.setColorAt(0.06, base_col)
+        grad.setColorAt(0.94, base_col)
+        grad.setColorAt(1.0, c_fade)
+        painter.fillRect(0, h - 1, w, 1, grad)
 
 
 def make_page_header(
@@ -64,7 +107,7 @@ def make_page_header(
     language: str = 'zh',
 ) -> tuple[QFrame, QLabel, QLabel]:
     """创建标准页面标题区，返回 (frame, title_label, subtitle_label)。"""
-    frame = QFrame()
+    frame = _PageHeaderFrame()
     frame.setObjectName('page-header')
     frame.setMinimumHeight(PAGE_HEADER_H - 12)
     layout = QHBoxLayout(frame)

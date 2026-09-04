@@ -677,5 +677,138 @@ class PanelLayoutModeTests(unittest.TestCase):
         ap.fail('失败')
 
 
+class VisualFoundationV1Tests(unittest.TestCase):
+    """Round 4-V1 视觉基准定向回归。"""
+
+    V1_EXPLICIT_TOKENS = (
+        'PRIMARY_GRAD_START',
+        'PRIMARY_GRAD_END',
+        'GLASS_HIGHLIGHT',
+        'ELEVATED_BORDER',
+        'SHADOW_L1',
+        'SHADOW_L2',
+        'SHADOW_L4',
+        'AURORA_START',
+        'AURORA_MID',
+        'AURORA_END',
+    )
+
+    def test_v1_1_all_themes_explicitly_contain_visual_tokens(self):
+        """V1-1: 所有 4 themes 显式包含 10 个视觉 token。"""
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            pal = THEMES[tid]
+            for tok in self.V1_EXPLICIT_TOKENS:
+                self.assertIn(tok, pal, f'{tid} 缺少显式 token {tok}')
+                self.assertTrue(str(pal[tok]).strip(), f'{tid}.{tok} 为空')
+
+    def test_v1_2_palette_directly_exposes_tokens(self):
+        """V1-2: ThemeManager.palette() 直接暴露以上 token。"""
+        tm = ThemeManager.instance()
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            pal = tm.palette(tid)
+            for tok in self.V1_EXPLICIT_TOKENS:
+                self.assertIn(tok, pal)
+                self.assertEqual(pal[tok], THEMES[tid][tok])
+
+    def test_v1_3_rendered_qss_has_no_unresolved_tokens(self):
+        """V1-3: rendered QSS 无 unresolved __TOKEN__。"""
+        tm = ThemeManager.instance()
+        tm.load_template()
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            qss = tm.render(tid)
+            unresolved = theme_manager.unresolved_qss_tokens(qss)
+            self.assertEqual(unresolved, (), f'{tid} QSS 存在未解析 token: {unresolved}')
+
+    def test_v1_4_calm_theme_authority(self):
+        """V1-4: calm: theme meta == Calm Indigo, PRIMARY == #5B5FC7。"""
+        meta = theme_manager.THEME_META['calm']
+        self.assertEqual(meta[1], 'Calm Indigo')
+        self.assertEqual(THEMES['calm']['PRIMARY'].upper(), '#5B5FC7')
+
+    def test_v1_5_primary_button_gradient_tokens_and_start_diff_end(self):
+        """V1-5: primary-btn rendered QSS 包含当前 theme 的 start 与 end，且 start != end。"""
+        tm = ThemeManager.instance()
+        tm.load_template()
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            pal = tm.palette(tid)
+            start = pal['PRIMARY_GRAD_START']
+            end = pal['PRIMARY_GRAD_END']
+            self.assertNotEqual(start, end, f'{tid} gradient start 应不等于 end')
+            qss = tm.render(tid)
+            self.assertIn(start, qss, f'{tid} QSS 未包含 start 渐变色 {start}')
+            self.assertIn(end, qss, f'{tid} QSS 未包含 end 渐变色 {end}')
+
+    def test_v1_6_black_near_black_hierarchy(self):
+        """V1-6: Black: APP_BG/SURFACE/ELEVATED 保持近黑 hierarchy，不得出现 white 卡片。"""
+        pal = THEMES['black']
+        app_bg = pal['APP_BG'].upper()
+        surface = pal['SURFACE'].upper()
+        elevated = pal['ELEVATED_SURFACE'].upper()
+        for c in (app_bg, surface, elevated):
+            self.assertNotIn(c, ('#FFFFFF', '#FFF', 'WHITE'))
+        def _luma(hex_c):
+            h = hex_c.lstrip('#')
+            return (int(h[0:2], 16) + int(h[2:4], 16) + int(h[4:6], 16)) / 3
+        self.assertLess(_luma(app_bg), 40)
+        self.assertLess(_luma(surface), 50)
+        self.assertLess(_luma(elevated), 60)
+
+    def test_v1_7_native_qss_forbidden_css_keywords(self):
+        """V1-7: Native QSS 不含任何 box-shadow, backdrop-filter, transition, transform, @keyframes, linear-gradient。"""
+        tm = ThemeManager.instance()
+        template = tm.load_template()
+        forbidden = [
+            'box-shadow', 'backdrop-filter', 'filter: blur',
+            'transition:', 'transform:', '@keyframes', 'linear-gradient(',
+        ]
+        for kw in forbidden:
+            self.assertNotIn(kw, template, f'style.qss 包含禁止的 CSS 关键字: {kw}')
+
+    def test_v1_8_apply_surface_legacy_and_new_roles(self):
+        """V1-8: apply_surface legacy: card/zone/muted objectName 不变；新增 glass/elevated 可用。"""
+        from PyQt6.QtWidgets import QFrame
+        from ui.design_system import apply_surface
+
+        f = QFrame()
+        apply_surface(f, 'card')
+        self.assertEqual(f.objectName(), 'ds-card')
+        apply_surface(f, 'zone')
+        self.assertEqual(f.objectName(), 'ds-zone')
+        apply_surface(f, 'muted')
+        self.assertEqual(f.objectName(), 'ds-muted')
+        apply_surface(f, 'glass')
+        self.assertEqual(f.objectName(), 'ds-glass')
+        apply_surface(f, 'elevated')
+        self.assertEqual(f.objectName(), 'ds-elevated')
+        f.deleteLater()
+
+    def test_v1_16_web_theme_payload_contains_new_tokens(self):
+        """V1-16: Web themePayload 自动带入新增 tokens。"""
+        import json
+        from ui.web_shell import HomeBridge
+        bridge = HomeBridge()
+        tm = ThemeManager.instance()
+        payload = {
+            'id': 'calm',
+            'is_dark': False,
+            'tokens': tm.palette('calm'),
+        }
+        bridge.set_theme_payload(payload)
+        parsed = json.loads(bridge.themePayload())
+        tokens = parsed['tokens']
+        for key in ('PRIMARY_GRAD_START', 'PRIMARY_GRAD_END', 'GLASS_HIGHLIGHT', 'ELEVATED_BORDER'):
+            self.assertIn(key, tokens, f'Web payload tokens 缺少 {key}')
+            self.assertEqual(tokens[key], THEMES['calm'][key])
+
+    def test_v1_17_frontend_diff_is_empty(self):
+        """V1-17: frontend/ 与 resources/webui/vue/ 必须保持不变。"""
+        import subprocess
+        out = subprocess.check_output(
+            ['git', 'status', '--porcelain', 'frontend/', 'resources/webui/vue/'],
+            text=True,
+        ).strip()
+        self.assertEqual(out, '', f'frontend 或 resources/webui/vue 存在未承诺改动: {out}')
+
+
 if __name__ == '__main__':
     unittest.main()

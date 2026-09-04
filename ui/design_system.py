@@ -198,11 +198,13 @@ def finish_result_rows(table: QTableWidget, row_height: int = 32) -> None:
 
 
 def apply_surface(frame: QWidget, kind: str = 'card') -> None:
-    """轻量表面角色：card | zone | muted。"""
+    """轻量表面角色：card | zone | muted | glass | elevated。"""
     names = {
         'card': 'ds-card',
         'zone': 'ds-zone',
         'muted': 'ds-muted',
+        'glass': 'ds-glass',
+        'elevated': 'ds-elevated',
     }
     frame.setObjectName(names.get(kind, 'ds-card'))
     style = frame.style()

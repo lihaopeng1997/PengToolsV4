@@ -104,6 +104,8 @@ class AuroraProgress(QWidget):
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        if self._anim_timer.isActive():
+            self._anim_timer.stop()
         # 宿主或自身被隐藏（如切页、最小化），取消未触发的延迟定时器，防止切回时突兀弹出
         if not self._is_shown:
             self._cancel_delay_timer()
@@ -279,6 +281,9 @@ class AuroraProgress(QWidget):
         self.hide_now()
 
     def _tick(self):
+        if not self.is_visible_to_user or self.isHidden() or self._state == 'idle':
+            self._anim_timer.stop()
+            return
         self._phase = (self._phase + 4) % 360
         self.update()
 
@@ -289,7 +294,7 @@ class AuroraProgress(QWidget):
         pal = _palette()
 
         surface = _qc(pal, 'ELEVATED_SURFACE', pal.get('SURFACE', '#29332E'))
-        border = _qc(pal, 'BORDER', '#3C4942')
+        border = _qc(pal, 'ELEVATED_BORDER', pal.get('BORDER', '#3C4942'))
         text = _qc(pal, 'TEXT_STRONG', '#EDF2EE')
         primary = _qc(pal, 'PRIMARY', '#9ABAA6')
         primary_soft = _qc(pal, 'PRIMARY_SOFT', '#35483E')
@@ -302,6 +307,10 @@ class AuroraProgress(QWidget):
         danger_border = _qc(pal, 'DANGER_BORDER', '#765055')
         info_bg = _qc(pal, 'INFO_BG', primary_soft)
         info_border = _qc(pal, 'INFO_BORDER', border)
+
+        aurora_start = _qc(pal, 'AURORA_START', primary)
+        aurora_mid = _qc(pal, 'AURORA_MID', _qc(pal, 'CYAN', primary))
+        aurora_end = _qc(pal, 'AURORA_END', _qc(pal, 'PRIMARY_ACTIVE', primary))
 
         # soft shadow from theme SHADOW base
         shadow_base = _qc(pal, 'APP_BG', '#1B211E')
@@ -327,8 +336,8 @@ class AuroraProgress(QWidget):
         accent = QRectF(bounds.left() + 2, bounds.top() + 12, 3.5, bounds.height() - 24)
         painter.setPen(Qt.PenStyle.NoPen)
         accent_grad = QLinearGradient(accent.topLeft(), accent.bottomLeft())
-        accent_grad.setColorAt(0.0, primary)
-        accent_grad.setColorAt(1.0, _qc(pal, 'PRIMARY_ACTIVE', primary))
+        accent_grad.setColorAt(0.0, aurora_start)
+        accent_grad.setColorAt(1.0, aurora_end)
         painter.setBrush(accent_grad)
         painter.drawRoundedRect(accent, 2, 2)
 
@@ -387,8 +396,9 @@ class AuroraProgress(QWidget):
             gradient.setColorAt(0.0, success)
             gradient.setColorAt(1.0, _qc(pal, 'SUCCESS', success))
         else:
-            gradient.setColorAt(0.0, primary)
-            gradient.setColorAt(1.0, _qc(pal, 'PRIMARY_ACTIVE', primary))
+            gradient.setColorAt(0.0, aurora_start)
+            gradient.setColorAt(0.5, aurora_mid)
+            gradient.setColorAt(1.0, aurora_end)
         path = QPainterPath()
         path.addRoundedRect(track_rect, 3, 3)
         painter.save()
