@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple
 
-from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal, QRect, QPoint
+from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal, QRect, QPoint, QEvent
 from PyQt6.QtGui import (
     QColor, QFont, QFontInfo, QFontMetrics, QKeyEvent, QMouseEvent,
     QPainter, QPalette, QPen, QBrush, QInputMethodEvent,
@@ -868,6 +868,17 @@ class _SshTerminalView(QAbstractScrollArea):
             return QRect(cx * cw, cy * lh, cw, lh)
         return super().inputMethodQuery(query)
 
+    def focusNextPrevChild(self, next: bool) -> bool:
+        # 严格截获 Tab/Backtab，禁止离开终端视图，确保由终端输入处理
+        return False
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                self.keyPressEvent(event)
+                return True
+        return super().event(event)
+
     def keyPressEvent(self, event: QKeyEvent):
         mods = event.modifiers()
         key = event.key()
@@ -921,6 +932,8 @@ class _SshTerminalView(QAbstractScrollArea):
 
         # Ctrl+Key combinations
         if mods & Qt.KeyboardModifier.ControlModifier and not (mods & Qt.KeyboardModifier.ShiftModifier):
+            if key == Qt.Key.Key_I:
+                return b'\t'
             if key == Qt.Key.Key_C:
                 return b'\x03'
             if key == Qt.Key.Key_D:
@@ -950,6 +963,8 @@ class _SshTerminalView(QAbstractScrollArea):
             return b'\r'
         if key == Qt.Key.Key_Backspace:
             return b'\x7f'
+        if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and (mods & Qt.KeyboardModifier.ShiftModifier)):
+            return b'\x1b[Z'
         if key == Qt.Key.Key_Tab:
             return b'\t'
         if key == Qt.Key.Key_Escape:

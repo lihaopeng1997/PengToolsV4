@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import queue
 import re
 import socket
 import threading
@@ -89,6 +90,8 @@ class InteractiveShell:
         self._owns_client = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._writer_thread: Optional[threading.Thread] = None
+        self._write_queue: queue.Queue = queue.Queue(maxsize=4096)
         self._lock = threading.Lock()
 
     @property
@@ -111,13 +114,20 @@ class InteractiveShell:
         self._client = client
         self._owns_client = bool(owns_client)
         self._stop.clear()
+        # 清空队列，防止上一个 session 的残留数据泄漏到新通道
+        while not self._write_queue.empty():
+            try:
+                self._write_queue.get_nowait()
+            except queue.Empty:
+                break
         try:
             chan = client.invoke_shell(
                 term=self.term,
                 width=self.width,
                 height=self.height,
             )
-            chan.settimeout(0.05)
+            if hasattr(chan, 'settimeout'):
+                chan.settimeout(0.05)
             # 尽量不要 delay
             try:
                 chan.set_combine_stderr(True)
@@ -142,6 +152,13 @@ class InteractiveShell:
         )
         self._thread.start()
 
+        self._writer_thread = threading.Thread(
+            target=self._write_loop,
+            name='ssh-shell-writer',
+            daemon=True,
+        )
+        self._writer_thread.start()
+
     def connect_server(self, server: dict, password_override: str | None = None, timeout_sec: int = 30) -> None:
         """自行建立连接并打开 shell。"""
         client = open_ssh_client(server, password_override=password_override, timeout_sec=timeout_sec)
@@ -152,20 +169,53 @@ class InteractiveShell:
             raise
 
     def send(self, data: str | bytes) -> None:
+        """非阻塞按键/字节入队；不在主线程执行同步网络写。"""
         with self._lock:
             ch = self._channel
-        if ch is None or ch.closed:
-            raise OpsSshError('终端未连接')
+            if ch is None or getattr(ch, 'closed', False):
+                raise OpsSshError('终端未连接')
+            if (self._writer_thread is None or not self._writer_thread.is_alive()) and not self._stop.is_set():
+                self._writer_thread = threading.Thread(
+                    target=self._write_loop,
+                    name='ssh-shell-writer',
+                    daemon=True,
+                )
+                self._writer_thread.start()
         if isinstance(data, str):
             payload = data.encode('utf-8', errors='replace')
         else:
-            payload = data
+            payload = bytes(data)
         if not payload:
             return
         try:
-            ch.send(payload)
-        except Exception as exc:
-            raise OpsSshError(f'发送失败：{exc}') from exc
+            self._write_queue.put(payload, timeout=0.05)
+        except queue.Full as exc:
+            raise OpsSshError('终端发送队列已满') from exc
+
+    def _write_loop(self) -> None:
+        """专用后台写线程：严格保证 FIFO 顺序交付到底层 Channel。"""
+        while not self._stop.is_set():
+            try:
+                item = self._write_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if item is None:
+                break
+            with self._lock:
+                ch = self._channel
+            if ch is None or ch.closed:
+                break
+            try:
+                view = memoryview(item)
+                while len(view) > 0 and not self._stop.is_set():
+                    sent = ch.send(view)
+                    if sent <= 0:
+                        break
+                    view = view[sent:]
+            except Exception as exc:
+                if not self._stop.is_set():
+                    self._emit_error(f'发送失败：{exc}')
+                break
 
     def send_text(self, text: str) -> None:
         """发送一行命令（自动补 \\r）。"""
@@ -190,6 +240,10 @@ class InteractiveShell:
 
     def close(self) -> None:
         self._stop.set()
+        try:
+            self._write_queue.put_nowait(None)
+        except Exception:
+            pass
         with self._lock:
             ch = self._channel
             client = self._client
@@ -207,7 +261,16 @@ class InteractiveShell:
         th = self._thread
         self._thread = None
         if th and th.is_alive() and th is not threading.current_thread():
-            th.join(timeout=0.8)
+            th.join(timeout=0.3)
+        wth = self._writer_thread
+        self._writer_thread = None
+        if wth and wth.is_alive() and wth is not threading.current_thread():
+            wth.join(timeout=0.3)
+        while not self._write_queue.empty():
+            try:
+                self._write_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def _emit_data(self, data: bytes | str) -> None:
         if not data:

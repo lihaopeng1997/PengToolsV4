@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import tempfile
+import time
 import unittest
 
 from tools.ops_commands import COMMANDS, build_command
@@ -154,6 +155,9 @@ class OpsSshTests(unittest.TestCase):
 
         # Test send string and bytes
         shell.send('ls -la\r')
+        timeout_at = time.time() + 1.0
+        while not fake_chan.sent and time.time() < timeout_at:
+            time.sleep(0.01)
         self.assertEqual(fake_chan.sent[-1], b'ls -la\r')
 
         # Test resize

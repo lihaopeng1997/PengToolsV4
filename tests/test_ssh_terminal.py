@@ -9,6 +9,7 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QKeyEvent, QInputMethodEvent, QMouseEvent
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from PyQt6.QtGui import QFont, QFontInfo
@@ -489,6 +490,210 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.assertTrue(dim_run['style'].dim)
         eff_dim = resolve_terminal_cell_style(dim_run['style'])
         self.assertTrue(eff_dim['dim'])
+
+    def test_t1_map_key_tab(self):
+        """T1: _map_key Tab == b'\t'。"""
+        ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+        self.assertEqual(self.view._map_key(ev), b'\t')
+
+    def test_t2_real_qtest_tab_retains_focus_and_enqueues_exactly_one_tab(self):
+        """T2: 真实 QTest 按 Tab，焦点留在终端，且仅向 shell 发送一次 b'\t'。"""
+        from PyQt6.QtWidgets import QWidget, QLineEdit, QVBoxLayout
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        test_widget = SshTerminalWidget()
+        line_edit = QLineEdit()
+        layout.addWidget(test_widget)
+        layout.addWidget(line_edit)
+        container.show()
+        QApplication.processEvents()
+
+        mock_shell = MagicMock()
+        mock_shell.alive = True
+        test_widget.view._shell = mock_shell
+        test_widget.view._connected = True
+
+        test_widget.view.setFocus()
+        QApplication.processEvents()
+        self.assertTrue(test_widget.view.hasFocus())
+
+        QTest.keyClick(test_widget.view, Qt.Key.Key_Tab)
+        QApplication.processEvents()
+
+        self.assertTrue(test_widget.view.hasFocus())
+        self.assertFalse(line_edit.hasFocus())
+        mock_shell.send.assert_called_once_with(b'\t')
+        test_widget.detach()
+        container.close()
+
+    def test_t3_slow_fake_channel_send_is_nonblocking_and_timer_runs(self):
+        """T3: 慢速 channel 发送时，GUI 线程必须在 50ms 内返回，且 QTimer/事件循环正常处理。"""
+        import time
+        from tools.ops_ssh_shell import InteractiveShell
+
+        sent_payloads = []
+
+        class FakeChannel:
+            def __init__(self):
+                self.closed = False
+            def send(self, data):
+                time.sleep(0.3)
+                sent_payloads.append(bytes(data))
+                return len(data)
+            def recv(self, n):
+                time.sleep(0.05)
+                return b''
+            def close(self):
+                self.closed = True
+
+        class FakeClient:
+            def invoke_shell(self, **kwargs):
+                return FakeChannel()
+
+        shell = InteractiveShell()
+        shell.attach_client(FakeClient())
+
+        t0 = time.perf_counter()
+        shell.send(b'\t')
+        t1 = time.perf_counter()
+
+        # 必须瞬间入队并返回 (< 50ms)
+        self.assertLess(t1 - t0, 0.05)
+
+        timeout_at = time.time() + 1.0
+        while not sent_payloads and time.time() < timeout_at:
+            time.sleep(0.02)
+        self.assertEqual(sent_payloads, [b'\t'])
+        shell.close()
+
+    def test_t4_ctrl_i_equals_tab(self):
+        """T4: Ctrl+I 映射为等价 ASCII TAB (b'\t')。"""
+        ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_I, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(self.view._map_key(ev), b'\t')
+
+    def test_t5_shift_tab_equals_esc_z_and_retains_focus(self):
+        """T5: Shift+Tab / Backtab 映射为 b'\x1b[Z'，且不跳焦。"""
+        from PyQt6.QtWidgets import QWidget, QLineEdit, QVBoxLayout
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        test_widget = SshTerminalWidget()
+        line_edit = QLineEdit()
+        layout.addWidget(test_widget)
+        layout.addWidget(line_edit)
+        container.show()
+        QApplication.processEvents()
+
+        mock_shell = MagicMock()
+        mock_shell.alive = True
+        test_widget.view._shell = mock_shell
+        test_widget.view._connected = True
+
+        ev_backtab = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(test_widget.view._map_key(ev_backtab), b'\x1b[Z')
+
+        test_widget.view.setFocus()
+        QApplication.processEvents()
+        self.assertTrue(test_widget.view.hasFocus())
+
+        QTest.keyClick(test_widget.view, Qt.Key.Key_Backtab)
+        QApplication.processEvents()
+
+        self.assertTrue(test_widget.view.hasFocus())
+        mock_shell.send.assert_called_once_with(b'\x1b[Z')
+        test_widget.detach()
+        container.close()
+
+    def test_t6_write_fifo_order(self):
+        """T6: b'a', b'\t', b'\r' 按严格 FIFO 顺序交付。"""
+        import time
+        from tools.ops_ssh_shell import InteractiveShell
+
+        sent_chunks = []
+        class FakeChannel:
+            def __init__(self):
+                self.closed = False
+            def send(self, data):
+                sent_chunks.append(bytes(data))
+                return len(data)
+            def recv(self, n):
+                time.sleep(0.05)
+                return b''
+            def close(self):
+                self.closed = True
+
+        class FakeClient:
+            def invoke_shell(self, **kwargs):
+                return FakeChannel()
+
+        shell = InteractiveShell()
+        shell.attach_client(FakeClient())
+
+        shell.send(b'a')
+        shell.send(b'\t')
+        shell.send(b'\r')
+
+        timeout_at = time.time() + 1.0
+        while len(sent_chunks) < 3 and time.time() < timeout_at:
+            time.sleep(0.02)
+
+        self.assertEqual(b''.join(sent_chunks), b'a\t\r')
+        shell.close()
+
+    def test_t7_old_session_queued_write_does_not_leak_after_reconnect(self):
+        """T7: 旧 session 未发出的残留数据在重连后不会泄露到新 session 通道。"""
+        import time
+        from tools.ops_ssh_shell import InteractiveShell
+
+        chan1_sent = []
+        chan2_sent = []
+
+        class FakeBlockedChannel:
+            def __init__(self):
+                self.closed = False
+            def send(self, data):
+                time.sleep(1.0)
+                chan1_sent.append(bytes(data))
+                return len(data)
+            def recv(self, n):
+                time.sleep(0.05)
+                return b''
+            def close(self):
+                self.closed = True
+
+        class FakeNormalChannel:
+            def __init__(self):
+                self.closed = False
+            def send(self, data):
+                chan2_sent.append(bytes(data))
+                return len(data)
+            def recv(self, n):
+                time.sleep(0.05)
+                return b''
+            def close(self):
+                self.closed = True
+
+        class FakeClient1:
+            def invoke_shell(self, **kwargs):
+                return FakeBlockedChannel()
+
+        class FakeClient2:
+            def invoke_shell(self, **kwargs):
+                return FakeNormalChannel()
+
+        shell = InteractiveShell()
+        shell.attach_client(FakeClient1())
+        shell.send(b'stale_session_1_data')
+
+        shell.attach_client(FakeClient2())
+        shell.send(b'session_2_hello')
+
+        timeout_at = time.time() + 1.0
+        while not chan2_sent and time.time() < timeout_at:
+            time.sleep(0.02)
+
+        self.assertEqual(b''.join(chan2_sent), b'session_2_hello')
+        self.assertNotIn(b'stale_session_1_data', b''.join(chan2_sent))
+        shell.close()
 
 
 if __name__ == '__main__':
