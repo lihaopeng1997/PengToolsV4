@@ -36,7 +36,9 @@ _SYSTEM = (
     '字段：summary, intent, objects_used, selected_fields, evidence, condition_interpretation, '
     'join_assumptions, risk_level, warnings, sql。'
     'risk_level 只能是 read、write、ddl、unknown。sql 必须是单条草案，禁止用分号拼多条。'
-    '只能使用用户消息中已确认的真实表和字段，禁止猜测不存在的字段名。'
+    '只能使用 Agent Schema Evidence 中提供的真实对象与字段，Evidence 来自当前连接已扫描的结构快照。'
+    '用户手动添加的表/字段仅是 optional hints，不是生成前置条件。'
+    '禁止创造 Evidence 外的表、字段、Owner 或 Join 条件。'
     '多表且关联不明确时，join_assumptions 必须给出假设列表，risk_level 不得视为 read，'
     'warnings 必须包含「需人工补充 Join 条件」。不要隐藏思维链。'
 )
@@ -86,6 +88,27 @@ def get_effective_sql_dialect(dialect: str, oceanbase_mode: str = '') -> str:
         mode = normalize_oceanbase_mode(oceanbase_mode)
         return 'mysql' if mode == 'mysql' else 'oracle'
     return d or 'oracle'
+def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
+    field = str(hint.get('field') or '').strip()
+    op = str(hint.get('op') or '=').strip()
+    val = str(hint.get('val') or '').strip()
+    field_upper = field.upper()
+    data_type = ''
+    for t in tables or []:
+        for col in (t.get('columns') or []):
+            if str(col.get('name') or '').upper() == field_upper:
+                data_type = str(col.get('data_type') or '').upper()
+                break
+        if data_type:
+            break
+    is_numeric_type = any(t in data_type for t in ('INT', 'NUMBER', 'DECIMAL', 'FLOAT', 'DOUBLE', 'NUMERIC'))
+    is_char_or_date = any(t in data_type for t in ('CHAR', 'VARCHAR', 'TEXT', 'DATE', 'TIME', 'CLOB'))
+    has_leading_zero = len(val) > 1 and val.startswith('0') and val.isdigit()
+    if is_char_or_date or has_leading_zero or not is_numeric_type:
+        val_str = f"'{val}'"
+    else:
+        val_str = val
+    return f"{field} {op} {val_str}"
 
 
 def build_safe_context(
@@ -128,17 +151,12 @@ def build_safe_context(
         parts.append('结构快照无效，禁止生成 SQL。')
         return '\n'.join(parts)
     if isinstance(evidence, dict) and evidence.get('tables'):
-        parts.append('已确认结构证据（仅元数据，禁止猜测未列出的字段）：\n' + evidence_prompt_text(evidence))
+        parts.append('Agent Schema Evidence（仅元数据，禁止猜测未列出的字段）：\n' + evidence_prompt_text(evidence))
         confirmed = [str(item) for item in (evidence.get('confirmed_fields') or []) if str(item)]
         if confirmed:
-            parts.append('SQL 只允许引用已确认字段：' + ', '.join(confirmed))
+            parts.append('SQL 只允许引用 Schema Evidence 中提供的字段：' + ', '.join(confirmed))
         if evidence.get('condition_hints'):
-            hint_strs = [
-                f"{h.get('field')} {h.get('op', '=')} '{h.get('val')}'"
-                if not str(h.get('val')).isdigit()
-                else f"{h.get('field')} {h.get('op', '=')} {h.get('val')}"
-                for h in evidence['condition_hints']
-            ]
+            hint_strs = [_format_condition_hint(h, evidence.get('tables')) for h in evidence['condition_hints']]
             parts.append('从问题解析出的过滤条件提示：' + ', '.join(hint_strs))
     else:
         if tables:
@@ -180,12 +198,11 @@ def validate_draft(draft: dict, selected_tables=None, selected_fields=None, dial
     data['sql'] = sql
     if fields and sql:
         allowed = {item.upper() for item in fields} | {item.upper() for item in tables} | _SQL_FUNCTIONS
-        func_calls = {m.group(1).upper() for m in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_$#]*)\s*\(', sql)}
         leftover = []
         for token in _idents(sql):
             if token.lower() in _SQL_KEYWORDS:
                 continue
-            if token in allowed or token in func_calls:
+            if token in allowed:
                 continue
             leftover.append(token)
         if leftover:

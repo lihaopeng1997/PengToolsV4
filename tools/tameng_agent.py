@@ -600,7 +600,7 @@ def build_retrieved_evidence(
             cols_meta.append({
                 'name': c_name,
                 'data_type': str(col.get('data_type') or ''),
-                'comment': str(col.get('comment') or ''),
+                'comment': str(col.get('comment') or '')[:100],
                 'indexed': bool(col.get('indexed')),
                 'primary_key': bool(col.get('primary_key')),
             })
@@ -618,7 +618,7 @@ def build_retrieved_evidence(
         evidence_tables.append({
             'qualified_name': qn,
             'object_type': str(obj.get('object_type') or 'TABLE'),
-            'comment': str(obj.get('comment') or ''),
+            'comment': str(obj.get('comment') or '')[:200],
             'index_metadata_status': str(obj.get('index_metadata_status') or snap.get('index_metadata_status') or ''),
             'columns': cols_meta,
             'indexes': idx_meta,
@@ -634,7 +634,7 @@ def build_retrieved_evidence(
             'qualified_name': fqn,
             'name': str(col.get('name') or ''),
             'data_type': str(col.get('data_type') or ''),
-            'comment': str(col.get('comment') or ''),
+            'comment': str(col.get('comment') or '')[:100],
             'reason': '；'.join(f['reasons']),
             'index': _index_for_column(obj, col),
         })
@@ -680,16 +680,21 @@ def build_retrieved_evidence(
         'retrieval_summary': retrieval_summary,
     }
 
-    # Size bounding
-    prompt_txt = evidence_prompt_text(evidence)
-    if len(prompt_txt) > MAX_CONTEXT_CHARS:
-        for t in evidence['tables']:
-            if len(t['columns']) > 4:
-                t['columns'] = t['columns'][:4]
-        prompt_txt = evidence_prompt_text(evidence)
-        if len(prompt_txt) > MAX_CONTEXT_CHARS:
-            evidence['tables'] = evidence['tables'][:2]
-
+    # Hard cap invariant: ensure prompt text never exceeds MAX_CONTEXT_CHARS
+    while len(evidence_prompt_text(evidence)) > MAX_CONTEXT_CHARS and evidence_tables:
+        if len(evidence_tables) > 1:
+            evidence_tables.pop()
+            continue
+        single_tbl = evidence_tables[0]
+        cols = single_tbl.get('columns') or []
+        if len(cols) > 1:
+            cols.pop()
+            continue
+        c = single_tbl.get('comment') or ''
+        if len(c) > 20:
+            single_tbl['comment'] = c[:20]
+            continue
+        break
     return evidence
 
 
@@ -769,23 +774,17 @@ def resolve_candidates(
             disambiguated_tables = explicit_tables[:1]
         else:
             disambiguated_tables = explicit_tables
-    # 3. Current tree selection (if user query has no explicit NL table mention)
-    elif current_table and isinstance(current_table, dict):
-        curr_qn = qualified_name(current_table)
-        curr_matches = [t for t in ranked_tables if t['qualified_name'] == curr_qn]
-        if curr_matches:
-            disambiguated_tables = curr_matches
-        else:
-            disambiguated_tables = [{
-                'object': current_table,
-                'score': 100,
-                'reasons': ['当前树选中表'],
-                'qualified_name': curr_qn,
-                'name': str(current_table.get('name') or ''),
-                'owner': str(current_table.get('owner') or ''),
-            }]
     else:
-        disambiguated_tables = ranked_tables
+        # current_table is purely an optional ranking hint (+10 in rank_schema_candidates), not a hard selector.
+        if not intent.get('wants_join') and len(ranked_tables) > 1:
+            top_score = ranked_tables[0]['score']
+            second_score = ranked_tables[1]['score']
+            if top_score > second_score and top_score >= 70:
+                disambiguated_tables = [ranked_tables[0]]
+            else:
+                disambiguated_tables = ranked_tables
+        else:
+            disambiguated_tables = ranked_tables
 
     ambiguity = assess_schema_ambiguity(
         disambiguated_tables,
@@ -884,7 +883,7 @@ def build_evidence_context(
     return {
         'dialect': base_d,
         'oceanbase_mode': ob_m,
-        'effective_dialect': get_effective_sql_dialect(base_dialect, ob_m),
+        'effective_dialect': get_effective_sql_dialect(base_d, ob_m),
         'snapshot_id': str(snap.get('snapshot_id') or ''),
         'scanned_at': str(snap.get('scanned_at') or ''),
         'truncated': bool(snap.get('truncated')),
@@ -933,6 +932,29 @@ def format_evidence_bar(evidence: dict | None) -> str:
     return prefix or detail
 
 
+def _format_condition_hint(hint: dict, tables: list | None = None) -> str:
+    field = str(hint.get('field') or '').strip()
+    op = str(hint.get('op') or '=').strip()
+    val = str(hint.get('val') or '').strip()
+    field_upper = field.upper()
+    data_type = ''
+    for t in tables or []:
+        for col in (t.get('columns') or []):
+            if str(col.get('name') or '').upper() == field_upper:
+                data_type = str(col.get('data_type') or '').upper()
+                break
+        if data_type:
+            break
+    is_numeric_type = any(t in data_type for t in ('INT', 'NUMBER', 'DECIMAL', 'FLOAT', 'DOUBLE', 'NUMERIC'))
+    is_char_or_date = any(t in data_type for t in ('CHAR', 'VARCHAR', 'TEXT', 'DATE', 'TIME', 'CLOB'))
+    has_leading_zero = len(val) > 1 and val.startswith('0') and val.isdigit()
+    if is_char_or_date or has_leading_zero or not is_numeric_type:
+        val_str = f"'{val}'"
+    else:
+        val_str = val
+    return f"{field} {op} {val_str}"
+
+
 def evidence_prompt_text(evidence: dict | None) -> str:
     data = evidence if isinstance(evidence, dict) else {}
     base_dialect = str(data.get('dialect') or 'oracle')
@@ -948,17 +970,13 @@ def evidence_prompt_text(evidence: dict | None) -> str:
         f"方言：{dialect_str}",
         f"snapshot_id：{data.get('snapshot_id') or ''}",
         f"扫描时间：{data.get('scanned_at') or ''}",
-        '已确认字段：' + (', '.join(data.get('confirmed_fields') or []) or '（无）'),
+        'Schema Evidence 字段：' + (', '.join(data.get('confirmed_fields') or []) or '（无）'),
     ]
+    tables = data.get('tables') or []
     if data.get('condition_hints'):
-        hint_strs = [
-            f"{h.get('field')} {h.get('op', '=')} '{h.get('val')}'"
-            if not str(h.get('val')).isdigit()
-            else f"{h.get('field')} {h.get('op', '=')} {h.get('val')}"
-            for h in data['condition_hints']
-        ]
+        hint_strs = [_format_condition_hint(h, tables) for h in data['condition_hints']]
         lines.append('条件提示：' + ', '.join(hint_strs))
-    for table in data.get('tables') or []:
+    for table in tables:
         cols = ', '.join(
             f"{col.get('name')} {col.get('data_type')} {col.get('comment')}".strip()
             for col in table.get('columns') or []
@@ -1051,7 +1069,6 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbas
         result['reason'] = '草案引用了当前快照不存在的对象，已拦截且未写入 SQL 编辑器。'
         return result
     aliases = _sql_aliases(parts[0])
-    func_calls = {m.group(1).upper() for m in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_$#]*)\s*\(', body)}
     unknown_fields = []
     for token in _IDENT_RE.findall(body):
         upper = token.upper()
@@ -1065,12 +1082,10 @@ def validate_generated_sql(sql: str, evidence: dict, dialect: str = '', oceanbas
             continue
         if upper in _SQL_FUNCTIONS:
             continue
-        if upper in func_calls:
-            continue
         unknown_fields.append(token)
     if unknown_fields:
         result['unknown_fields'] = unknown_fields
-        result['reason'] = f'草案引用了当前快照不存在的字段 {unknown_fields[0]}，已拦截且未写入 SQL 编辑器。'
+        result['reason'] = f'草案引用了当前快照不存在的字段或函数 {unknown_fields[0]}，已拦截且未写入 SQL 编辑器。'
         return result
     lowered = body.lower()
     if kind in ('oracle', 'dameng', 'dm') and re.search(r'\blimit\b', lowered) and 'fetch' not in lowered:
@@ -1102,6 +1117,16 @@ def retrieve_schema_context(
     confirmed=None,
 ) -> dict:
     intent = extract_schema_terms(question)
+    conn_dialect = str((connection or {}).get('dialect') or (snapshot or {}).get('dialect') or '').strip().lower()
+    if conn_dialect in ('redis', 'mongo', 'mongodb'):
+        return {
+            'ok': False,
+            'state': 'NOSQL_NOT_SUPPORTED',
+            'reason': f'{conn_dialect.upper()} 非关系型数据库，不进入关系型 Schema 自动检索与 SQL 生成流程。',
+            'next_action': '使用对应 NoSQL 语法或切换连接',
+            'intent': intent,
+            'call_model': False,
+        }
     gate = snapshot_gate(connection, snapshot, wants_index=bool(intent.get('wants_index')))
     if not gate.get('ok'):
         return {
