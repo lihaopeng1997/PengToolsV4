@@ -1576,15 +1576,6 @@ class RequirementPanel(QWidget):
         self.tree_count_label.setObjectName('small-label')
         tree_head.addWidget(self.tree_count_label)
         tree_head.addStretch(1)
-        self.req_total_badge = QLabel('')
-        self.req_total_badge.setObjectName('status-pill')
-        self.req_pending_badge = QLabel('')
-        self.req_pending_badge.setObjectName('status-pill')
-        self.req_done_badge = QLabel('')
-        self.req_done_badge.setObjectName('status-pill')
-        for b in (self.req_total_badge, self.req_pending_badge, self.req_done_badge):
-            b.hide()
-            tree_head.addWidget(b)
         left_layout.addLayout(tree_head)
         # 单行工具栏：全选 | 删除 | stretch | 展开 | 折叠（设计文档硬性要求，禁止拆两行）
         tree_tools = QHBoxLayout()
@@ -2450,15 +2441,6 @@ class RequirementPanel(QWidget):
                 self.tree_count_label.setText(f'{len(visible)}/{total_all}')
             else:
                 self.tree_count_label.setText(f'{total_all} 条')
-        if hasattr(self, 'req_total_badge'):
-            done_cnt = sum(1 for r in self._requirements if r.get('status') in ('已上线', '已关闭', '已投产'))
-            pending_cnt = total_all - done_cnt
-            self.req_total_badge.setText(f'总数 {total_all}')
-            self.req_pending_badge.setText(f'待办 {pending_cnt}')
-            self.req_done_badge.setText(f'完成 {done_cnt}')
-            self.req_total_badge.show()
-            self.req_pending_badge.show()
-            self.req_done_badge.show()
         from tools.list_pin import decorate_title, is_pinned, pinned_at_rank
         # 置顶优先，再按月份/更新时间
         visible.sort(

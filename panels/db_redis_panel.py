@@ -36,6 +36,21 @@ from ui.icons import apply_icon, qicon
 from ui.splitter_prefs import install_splitter_prefs
 
 
+def format_key_ttl_badge(ttl: int, language: str = 'zh') -> str:
+    """Format Redis TTL as a concise badge string with strict semantic accuracy."""
+    try:
+        ttl_val = int(ttl)
+    except (ValueError, TypeError):
+        return 'TTL: —'
+    if ttl_val >= 0:
+        return f'TTL: {ttl_val}s'
+    if ttl_val == -1:
+        return 'TTL: 永不过期' if language == 'zh' else 'TTL: No expiry'
+    if ttl_val == -2:
+        return 'TTL: Key 不存在' if language == 'zh' else 'TTL: Key missing'
+    return 'TTL: —'
+
+
 class _RedisWorker(QThread):
     completed = pyqtSignal(str, object)   # (kind, payload)
     failed = pyqtSignal(str, str)         # (kind, error)
@@ -1064,11 +1079,11 @@ class RedisWorkbenchPanel(QWidget):
         elif kind == 'key_meta':
             self._selected_type = str(payload.get('type') or '')
             ttl = int(payload.get('ttl') or -2)
-            ttl_str = f'{ttl}s' if ttl >= 0 else ('永不过期' if ttl == -1 else '已过期')
+            ttl_str = format_key_ttl_badge(ttl, self.language)
             if hasattr(self, 'key_type_badge'):
                 self.key_type_badge.setText(f'TYPE: {self._selected_type.upper()}')
                 self.key_type_badge.show()
-                self.key_ttl_badge.setText(f'TTL: {ttl_str}')
+                self.key_ttl_badge.setText(ttl_str)
                 self.key_ttl_badge.show()
                 self.key_size_badge.hide()
             self.key_meta.setText(
@@ -1083,12 +1098,15 @@ class RedisWorkbenchPanel(QWidget):
                 if isinstance(val, dict) and 'size' in val:
                     self.key_size_badge.setText(f'SIZE: {val["size"]} B')
                     self.key_size_badge.show()
-                elif isinstance(val, (list, tuple, set)):
-                    self.key_size_badge.setText(f'LENGTH: {len(val)}')
-                    self.key_size_badge.show()
                 elif isinstance(val, dict) and 'raw' in val:
                     sz = len(val.get('raw') or b'')
                     self.key_size_badge.setText(f'SIZE: {sz} B')
+                    self.key_size_badge.show()
+                elif isinstance(val, (list, tuple, set)):
+                    self.key_size_badge.setText(f'LENGTH: {len(val)}')
+                    self.key_size_badge.show()
+                elif isinstance(val, dict):
+                    self.key_size_badge.setText(f'LENGTH: {len(val)}')
                     self.key_size_badge.show()
                 elif isinstance(val, (str, bytes)):
                     self.key_size_badge.setText(f'SIZE: {len(val)} B')
