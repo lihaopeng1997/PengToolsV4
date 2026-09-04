@@ -1128,6 +1128,17 @@ class OpsLogPanel(QWidget):
             )
         if hasattr(self, 'disconnect_btn'):
             self.disconnect_btn.setEnabled(connected)
+        if hasattr(self, 'term_status_dot'):
+            self.term_status_dot.setProperty('termConnected', bool(connected))
+            style = self.term_status_dot.style()
+            if style is not None:
+                style.unpolish(self.term_status_dot)
+                style.polish(self.term_status_dot)
+            self.term_status_dot.update()
+        if hasattr(self, 'term_session_info'):
+            srv = sess.get('server_id') or ''
+            st_str = ('已连接' if connected else '未连接') if zh else ('Connected' if connected else 'Disconnected')
+            self.term_session_info.setText(f'会话 {n} ({srv}) · {st_str}' if srv else f'会话 {n} · {st_str}')
 
     def _create_terminal_tab(self, title: str = '会话', *, copy_from_current: bool = False):
         from ui.ssh_terminal import SshTerminalWidget
@@ -2203,12 +2214,24 @@ class OpsLogPanel(QWidget):
         cmd_row.addWidget(self.cmd_send_bottom_btn)
         right_l.addLayout(cmd_row)
 
-        # 浅色外壳 + 深色控制台：与页面 sheet 协调，终端仍鲜明
+        # SSH Terminal Island: 外壳 TERM_CHROME + TERM_BORDER
         self.term_shell = QFrame()
         self.term_shell.setObjectName('ops-term-shell')
         term_shell_l = QVBoxLayout(self.term_shell)
         term_shell_l.setContentsMargins(8, 8, 8, 8)
         term_shell_l.setSpacing(4)
+        term_island_bar = QHBoxLayout()
+        term_island_bar.setContentsMargins(4, 0, 4, 2)
+        term_island_bar.setSpacing(6)
+        self.term_status_dot = QLabel('●')
+        self.term_status_dot.setObjectName('ops-term-status-dot')
+        self.term_status_dot.setProperty('termConnected', False)
+        self.term_session_info = QLabel('SSH 会话 · 未连接')
+        self.term_session_info.setObjectName('ops-term-session-info')
+        term_island_bar.addWidget(self.term_status_dot)
+        term_island_bar.addWidget(self.term_session_info)
+        term_island_bar.addStretch(1)
+        term_shell_l.addLayout(term_island_bar)
         self.term_tabs = QTabWidget()
         self.term_tabs.setObjectName('ops-term-tabs')
         self.term_tabs.setTabsClosable(True)

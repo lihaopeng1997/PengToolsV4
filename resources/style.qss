@@ -2528,11 +2528,32 @@ QFrame#ops-term-card, QFrame#ops-result-card {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-/* 终端外壳：页面卡片色包住深色控制台，避免 sheet 割裂 */
+/* 终端外壳：Terminal Island */
 QFrame#ops-term-shell {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: __TERM_CHROME__;
+    border: 1px solid __TERM_BORDER__;
     border-radius: 12px;
+}
+QLabel#ops-term-status-dot {
+    font-size: 10px;
+    color: __TEXT_MUTED__;
+}
+QLabel#ops-term-status-dot[termConnected="true"] {
+    color: __SUCCESS__;
+}
+QLabel#ops-term-status-dot[termConnected="false"] {
+    color: __TEXT_MUTED__;
+}
+QLabel#ops-term-session-info {
+    color: __TERM_SYS__;
+    font-size: 11px;
+    font-weight: 600;
+}
+QWidget#ops-left-panel {
+    background: __SURFACE_SOFT__;
+}
+QWidget#ops-right-panel {
+    background: __SURFACE__;
 }
 /* 标签栏贴页面；选中与控制台衔接 */
 QTabWidget#ops-term-tabs::pane {
@@ -2687,7 +2708,7 @@ QFrame#theme-card:hover {
 }
 QFrame#theme-card[selected="true"] {
     border: 2px solid __PRIMARY__;
-    background: __PRIMARY_SOFT__;
+    background: __ELEVATED_SURFACE__;
 }
 QFrame#theme-card-preview {
     border-radius: 6px;
