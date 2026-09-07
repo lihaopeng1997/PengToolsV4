@@ -157,7 +157,8 @@ class ModelChatPanel(QWidget):
         # 聊天主内容区（左右 split）
         split = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
-        left.setObjectName('dashboard-task-card')
+        left.setObjectName('chat-session-card')
+        self.session_card = left
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(10, 10, 10, 10)
         search_row = QHBoxLayout()
@@ -217,9 +218,11 @@ class ModelChatPanel(QWidget):
 
         self.chat_vsplit.addWidget(top_chat_widget)
 
-        composer_container = QWidget()
+        composer_container = QFrame()
+        composer_container.setObjectName('chat-composer-card')
+        self.composer_card = composer_container
         composer_l = QVBoxLayout(composer_container)
-        composer_l.setContentsMargins(0, 4, 0, 0)
+        composer_l.setContentsMargins(8, 8, 8, 8)
         composer_l.setSpacing(6)
 
         # 附件状态栏
@@ -230,6 +233,7 @@ class ModelChatPanel(QWidget):
         composer_l.addWidget(self.attachment_bar)
 
         self.input = QPlainTextEdit()
+        self.input.setObjectName('chat-composer-input')
         self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)

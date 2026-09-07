@@ -19,7 +19,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 try:
-    from PyQt6.QtWidgets import QApplication, QWidget
+    from PyQt6.QtWidgets import QApplication, QFrame, QWidget
     QT_AVAILABLE = True
 except Exception:  # pragma: no cover
     QT_AVAILABLE = False
@@ -560,6 +560,118 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             self.assertIn('QTextEdit#ai-prompt-edit', qss)
             self.assertIn('QTextEdit#ai-explain', qss)
             self.assertIn('QFrame#sql-object-pane', qss)
+            # Round 4-V2G-B2 选择器
+            self.assertIn('QPlainTextEdit#iface-detail-edit', qss)
+            self.assertIn('QFrame#chat-session-card', qss)
+            self.assertIn('QFrame#chat-composer-card', qss)
+            self.assertIn('QPlainTextEdit#chat-composer-input', qss)
+            self.assertIn('QFrame#agent-space-card', qss)
+            self.assertIn('QFrame#mongo-tree-card', qss)
+            self.assertIn('QFrame#credit-filter-card', qss)
+            self.assertIn('QGroupBox#gateway-config-group', qss)
+            self.assertIn('QGroupBox#docx-file-group', qss)
+            self.assertIn('QFrame#ops-list-card', qss)
+
+    # ── 10. Round 4-V2G-B2 Observable Native Surfaces ─────────────────────
+
+    def test_interface_debug_workbench_surfaces(self):
+        """Interface Debug: 核心 sidebar / workspace / inspector Surface 与按钮契约完整。"""
+        from panels.interface_debug_panel import InterfaceDebugPanel
+
+        panel = self.track(InterfaceDebugPanel('zh'))
+        self.assertEqual(panel._session_list_widget.objectName(), 'iface-session-pane')
+        self.assertEqual(panel.detail_workspace.objectName(), 'iface-detail-workspace')
+        self.assertEqual(panel.table.objectName(), 'iface-request-table')
+        self.assertEqual(panel.overview_edit.objectName(), 'iface-detail-edit')
+        self.assertEqual(panel.req_detail.objectName(), 'iface-detail-edit')
+        self.assertEqual(panel.resp_detail.objectName(), 'iface-detail-edit')
+        self.assertEqual(panel.mid_splitter.objectName(), 'iface-mid-splitter')
+        self.assertEqual(panel.mid_splitter.count(), 2)
+        self.assertEqual(panel.session_toolbar.objectName(), 'iface-session-toolbar')
+        self.assertEqual(panel.request_verify_context.objectName(), 'request-verify-context')
+        self.assertEqual(panel.capture_toggle_btn.objectName(), 'primary-btn')
+
+    def test_model_chat_surfaces_and_bubbles(self):
+        """Model Chat: 会话、输入岛、气泡语义与空状态完整。"""
+        from panels.model_chat_panel import ModelChatPanel
+
+        panel = self.track(ModelChatPanel('zh'))
+        self.assertEqual(panel.session_card.objectName(), 'chat-session-card')
+        self.assertEqual(panel.composer_card.objectName(), 'chat-composer-card')
+        self.assertEqual(panel.input.objectName(), 'chat-composer-input')
+
+        # 气泡渲染对象名
+        user_row = panel._make_message_row({'role': 'user', 'content': 'Hello'})
+        user_bubble = user_row.findChild(QFrame, 'chat-user-bubble')
+        self.assertIsNotNone(user_bubble)
+        self.assertEqual(user_bubble.objectName(), 'chat-user-bubble')
+
+        assistant_row = panel._make_message_row({'role': 'assistant', 'content': 'Hi there'})
+        assistant_bubble = assistant_row.findChild(QFrame, 'chat-assistant-bubble')
+        self.assertIsNotNone(assistant_bubble)
+        self.assertEqual(assistant_bubble.objectName(), 'chat-assistant-bubble')
+        self.assertIsNotNone(panel.empty)
+
+    def test_agent_workbench_surfaces(self):
+        """Agent Workbench: 空间卡、消息卡、输入卡、上下文卡语义完整。"""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        panel = self.track(AgentWorkbenchPanel('zh'))
+        self.assertEqual(panel.space_card.objectName(), 'agent-space-card')
+        self.assertEqual(panel.thread_card.objectName(), 'agent-thread-card')
+        self.assertEqual(panel.composer_card.objectName(), 'agent-composer-card')
+        self.assertEqual(panel.context_panel.objectName(), 'agent-context-card')
+        self.assertEqual(panel.input.objectName(), 'agent-composer-input')
+        self.assertEqual(panel.send_btn.objectName(), 'primary-btn')
+
+    def test_mongodb_workbench_surfaces(self):
+        """MongoDB Workbench: 集合树、工作区、查询与文档编辑器语义完整。"""
+        from panels.db_mongodb_panel import MongoDBWorkbenchPanel
+
+        panel = self.track(MongoDBWorkbenchPanel('zh'))
+        self.assertEqual(panel.tree_card.objectName(), 'mongo-tree-card')
+        self.assertEqual(panel.workspace_card.objectName(), 'mongo-workspace-card')
+        self.assertEqual(panel.query_input.objectName(), 'mongo-query-edit')
+        self.assertEqual(panel.doc_json.objectName(), 'mongo-doc-edit')
+        self.assertEqual(panel.side_tabs.objectName(), 'module-tabs')
+        self.assertEqual(panel.query_btn.objectName(), 'primary-btn')
+
+    def test_utility_panels_surfaces(self):
+        """工具类页面: 证件、网关、文档、命令库、格式工具表面语义完整。"""
+        from panels.credit_panel import CreditCodePanel
+        from panels.gateway_panel import GatewayDecodePanel
+        from panels.docx_panel import DocxUpdatePanel
+        from panels.ops_panel import OpsPanel
+        from panels.format_panel import FormatToolsPanel
+        from panels.sql_panel import SqlToolPanel
+
+        # 1. 证件面板
+        credit = self.track(CreditCodePanel())
+        self.assertTrue(any(w.objectName() == 'credit-filter-card' for w in credit.findChildren(QWidget)))
+        self.assertEqual(credit.category_tabs.objectName(), 'module-tabs')
+
+        # 2. 网关解密
+        gateway = self.track(GatewayDecodePanel('zh'))
+        self.assertEqual(gateway.config_group.objectName(), 'gateway-config-group')
+        self.assertEqual(gateway.key_cipher.objectName(), 'gateway-key-edit')
+
+        # 3. 文档更新
+        docx = self.track(DocxUpdatePanel('zh'))
+        self.assertEqual(docx.file_group.objectName(), 'docx-file-group')
+        self.assertEqual(docx.output_browser.objectName(), 'docx-output-browser')
+
+        # 4. 命令库
+        ops = self.track(OpsPanel('zh'))
+        self.assertTrue(any(w.objectName() == 'ops-list-card' for w in ops.findChildren(QWidget)))
+        self.assertEqual(ops.command_list.objectName(), 'ops-command-list')
+
+        # 5. 格式工具
+        fmt = self.track(FormatToolsPanel('zh'))
+        self.assertTrue(any(w.objectName() == 'module-tabs' for w in fmt.findChildren(QWidget)))
+
+        # 6. SQL 升级准备
+        sql_tool = self.track(SqlToolPanel())
+        self.assertTrue(any(w.objectName() == 'release-filter-zone' for w in sql_tool.findChildren(QWidget)))
 
 
 if __name__ == '__main__':

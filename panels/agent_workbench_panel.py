@@ -206,7 +206,8 @@ class AgentWorkbenchPanel(QWidget):
 
         # 左栏：空间 / 对话管理树（支持右键管理）
         left_card = QFrame()
-        left_card.setObjectName('dashboard-task-card')
+        left_card.setObjectName('agent-space-card')
+        self.space_card = left_card
         left_l = QVBoxLayout(left_card)
         left_l.setContentsMargins(8, 8, 8, 8)
         left_l.setSpacing(6)
@@ -251,7 +252,8 @@ class AgentWorkbenchPanel(QWidget):
         self.center_split.setHandleWidth(8)
 
         thread_container = QFrame()
-        thread_container.setObjectName('dashboard-task-card')
+        thread_container.setObjectName('agent-thread-card')
+        self.thread_card = thread_container
         thread_l = QVBoxLayout(thread_container)
         thread_l.setContentsMargins(8, 8, 8, 8)
         thread_l.setSpacing(6)
@@ -269,7 +271,8 @@ class AgentWorkbenchPanel(QWidget):
         self.center_split.addWidget(thread_container)
 
         composer_container = QFrame()
-        composer_container.setObjectName('dashboard-task-card')
+        composer_container.setObjectName('agent-composer-card')
+        self.composer_card = composer_container
         composer_l = QVBoxLayout(composer_container)
         composer_l.setContentsMargins(8, 8, 8, 8)
         composer_l.setSpacing(6)
@@ -281,6 +284,7 @@ class AgentWorkbenchPanel(QWidget):
         composer_l.addWidget(self.attachment_bar)
 
         self.input = QPlainTextEdit()
+        self.input.setObjectName('agent-composer-input')
         self.input.setMinimumHeight(100)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
@@ -330,7 +334,7 @@ class AgentWorkbenchPanel(QWidget):
 
         # 右栏：Context 面板（项目文件树 + 预览，可折叠/拖拽）
         self.context_panel = QFrame()
-        self.context_panel.setObjectName('dashboard-task-card')
+        self.context_panel.setObjectName('agent-context-card')
         context_l = QVBoxLayout(self.context_panel)
         context_l.setContentsMargins(8, 8, 8, 8)
         context_l.setSpacing(4)

@@ -3049,3 +3049,185 @@ QFrame#redis-console-pane {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
+
+/* ── Round 4-V2G-B2: Remaining Native Surfaces ───────────────────── */
+
+/* Interface Debug Workbench */
+QWidget#iface-session-pane {
+    background: transparent;
+}
+
+QTableWidget#iface-request-table {
+    background: __SURFACE__;
+    alternate-background-color: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    gridline-color: transparent;
+}
+
+QPlainTextEdit#iface-detail-edit {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+QFrame#request-verify-context {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+/* Model Chat Workbench */
+QFrame#chat-session-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QFrame#chat-composer-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QPlainTextEdit#chat-composer-input {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+QFrame#chat-user-bubble {
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __PRIMARY__;
+    border-radius: 12px;
+}
+
+QFrame#chat-assistant-bubble {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QFrame#chat-risk-banner {
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __PRIMARY__;
+    border-radius: 10px;
+}
+
+/* Agent Workbench */
+QFrame#agent-space-card,
+QFrame#agent-thread-card,
+QFrame#agent-composer-card,
+QFrame#agent-context-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QPlainTextEdit#agent-composer-input {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+/* MongoDB Workbench */
+QFrame#mongo-tree-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QFrame#mongo-workspace-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QPlainTextEdit#mongo-query-edit,
+QPlainTextEdit#mongo-doc-edit {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+/* Utility Panels */
+QFrame#credit-filter-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QGroupBox#gateway-config-group {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding-top: 14px;
+}
+
+QGroupBox#gateway-config-group::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    color: __TEXT_STRONG__;
+    font-weight: 700;
+}
+
+QPlainTextEdit#gateway-key-edit {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+QGroupBox#docx-file-group {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding-top: 14px;
+}
+
+QGroupBox#docx-file-group::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    color: __TEXT_STRONG__;
+    font-weight: 700;
+}
+
+QTreeWidget#docx-output-browser {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+}
+
+QFrame#ops-list-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+
+QListWidget#ops-command-list {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+}
+
+QPlainTextEdit#text-helper-input,
+QPlainTextEdit#text-helper-output {
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+
+QFrame#release-filter-zone {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}

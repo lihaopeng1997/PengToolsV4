@@ -159,10 +159,12 @@ class MongoDBWorkbenchPanel(QWidget):
         root.addWidget(toolbar)
 
         body = QSplitter(Qt.Orientation.Horizontal)
+        body.setObjectName('mongo-main-splitter')
 
         # 左：数据库 → 集合树
         left = QFrame()
-        left.setObjectName('dashboard-task-card')
+        left.setObjectName('mongo-tree-card')
+        self.tree_card = left
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(8, 8, 8, 8)
         self.coll_filter = QLineEdit()
@@ -182,15 +184,19 @@ class MongoDBWorkbenchPanel(QWidget):
 
         # 右：Tab（文档视图 / AI 助手）
         right = QFrame()
+        right.setObjectName('mongo-workspace-card')
+        self.workspace_card = right
         right_l = QVBoxLayout(right)
         right_l.setContentsMargins(0, 0, 0, 0)
         self.side_tabs = QTabWidget()
+        self.side_tabs.setObjectName('module-tabs')
 
         # 文档视图
         docs_page = QWidget()
         docs_l = QVBoxLayout(docs_page)
         docs_l.setContentsMargins(10, 10, 10, 10)
         self.query_input = QPlainTextEdit()
+        self.query_input.setObjectName('mongo-query-edit')
         self.query_input.setMinimumHeight(60)
         self.query_input.setMaximumHeight(110)
         self.query_input.setPlaceholderText('Filter: {"字段":"值"} 或 db.coll.find({...})')
@@ -217,6 +223,7 @@ class MongoDBWorkbenchPanel(QWidget):
         self.doc_table.horizontalHeader().setStretchLastSection(True)
         docs_l.addWidget(self.doc_table, 1)
         self.doc_json = QPlainTextEdit()
+        self.doc_json.setObjectName('mongo-doc-edit')
         self.doc_json.setReadOnly(True)
         self.doc_json.hide()
         docs_l.addWidget(self.doc_json, 1)
