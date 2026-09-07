@@ -76,6 +76,21 @@ class DashboardThemeStaticAuditTest(unittest.TestCase):
         self.assertIn('var(--primary-grad-start)', self.vue_source)
         self.assertIn('var(--primary-grad-end)', self.vue_source)
 
+    def test_no_self_referential_css_variables(self):
+        # 禁止出现 --foo: var(--foo) 自引用
+        self_refs = re.findall(r'--([a-z0-9-]+)\s*:\s*var\(--\1\)', self.vue_source)
+        self.assertEqual(self_refs, [], f'DashboardApp.vue 存在自引用 CSS 变量: {self_refs}')
+
+    def test_shadow_tokens_have_geometry(self):
+        # 阴影 token 是颜色值，不能直接作为裸 box-shadow: var(--shadow-...)
+        bare_shadows = re.findall(r'box-shadow\s*:\s*var\(--shadow-[a-z0-9]+\)', self.vue_source)
+        self.assertEqual(bare_shadows, [], f'DashboardApp.vue 存在缺少几何偏移的裸 shadow token: {bare_shadows}')
+        # 必须存在几何偏移 + 语义 shadow token
+        self.assertIn('0 2px 8px var(--shadow-l1)', self.vue_source)
+        self.assertIn('0 8px 28px var(--shadow-l2)', self.vue_source)
+        self.assertIn('0 8px 22px var(--shadow-l2)', self.vue_source)
+        self.assertIn('0 12px 28px var(--shadow-l4)', self.vue_source)
+
 
 class RgbaCssNormalizationTest(unittest.TestCase):
     """验证 Qt 0-255 alpha 到 CSS 0-1 alpha 的归一化逻辑与 Bridge 契约。"""
