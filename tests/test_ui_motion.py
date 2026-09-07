@@ -2,14 +2,17 @@
 """微动效与交互基础单元测试：
 - Motion Tokens 常量与适配时长 duration()
 - motion_enabled() 开关与测试模式隔离
-- 弹窗轻量入场动画 play_dialog_enter
-- ThinkingIndicator / AuroraProgress 资源与定时器生命周期清理
+- 弹窗轻量入场动画 play_dialog_enter（复用 child、无累积、中断 target 正确）
+- ThinkingIndicator 资源与定时器生命周期清理（hideEvent / closeEvent）
+- AuroraProgress 资源与定时器生命周期清理（busy/finish/pending/close/hideEvent 全面收敛）
 - QSS 核心控件按压/焦点/禁用态完备性
+- Web Dashboard role="button" 键盘 Enter + Space 契约与 demo 行交互语义
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 import unittest
 
@@ -78,22 +81,34 @@ class DialogMotionTests(unittest.TestCase):
         self.assertIsNone(anim)
         dlg.deleteLater()
 
-    def test_play_dialog_enter_enabled(self):
-        from PyQt6.QtCore import QPropertyAnimation
+    def test_play_dialog_enter_does_not_accumulate_children_and_preserves_target(self):
+        from PyQt6.QtCore import QPoint, QPropertyAnimation
         from PyQt6.QtWidgets import QDialog
         from ui.motion import play_dialog_enter, set_motion_enabled_for_test
         set_motion_enabled_for_test(True)
         dlg = QDialog()
-        anim = play_dialog_enter(dlg, offset_y=4)
-        self.assertIsNotNone(anim)
-        self.assertIsInstance(anim, QPropertyAnimation)
-        self.assertEqual(anim.propertyName(), b'pos')
-        self.assertEqual(anim.duration(), 150)
-        self.assertEqual(anim.parent(), dlg)
+        dlg.move(120, 180)
+        target = dlg.pos()
 
-        # 连续调用：停止旧动画并替换，不崩溃
+        # 首次触发
+        anim1 = play_dialog_enter(dlg, offset_y=4)
+        self.assertIsNotNone(anim1)
+        self.assertIsInstance(anim1, QPropertyAnimation)
+        self.assertEqual(anim1.propertyName(), b'pos')
+        self.assertEqual(anim1.duration(), 150)
+        self.assertEqual(anim1.parent(), dlg)
+        self.assertEqual(anim1.endValue(), target)
+        self.assertEqual(anim1.startValue(), target + QPoint(0, 4))
+
+        anims1 = dlg.findChildren(QPropertyAnimation)
+        self.assertEqual(len(anims1), 1)
+
+        # 连续触发：复用同一动画，子对象数量严格保持为 1，且 target 正确
         anim2 = play_dialog_enter(dlg, offset_y=4)
-        self.assertIsNotNone(anim2)
+        self.assertIs(anim1, anim2)
+        anims2 = dlg.findChildren(QPropertyAnimation)
+        self.assertEqual(len(anims2), 1)
+        self.assertEqual(anim2.endValue(), target)
         dlg.deleteLater()
 
     def test_dialogs_show_event_integration(self):
@@ -147,7 +162,7 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.assertFalse(w._timer.isActive())
         w.deleteLater()
 
-    def test_aurora_progress_timer_stopped_on_hide(self):
+    def test_aurora_progress_busy_hide_all_timers_stopped(self):
         from PyQt6.QtGui import QHideEvent
         from ui.aurora_progress import AuroraProgress
 
@@ -155,17 +170,89 @@ class IndicatorLifecycleTests(unittest.TestCase):
         p.start_busy('处理中', immediate=True)
         self.assertTrue(p._anim_timer.isActive())
 
-        # 触发 hideEvent 应停止动画定时器，防止后台空转
+        # busy 显示后 hideEvent：_anim_timer, _delay_timer, _linger_timer 全部收敛
         p.hideEvent(QHideEvent())
         self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNone(p._delay_timer)
+        self.assertIsNone(p._linger_timer)
+        p.deleteLater()
 
-        # hide_now 状态与定时器完全收敛
-        p.start_busy('新任务', immediate=True)
-        self.assertTrue(p._anim_timer.isActive())
-        p.hide_now()
+    def test_aurora_progress_finish_linger_hide_all_timers_stopped(self):
+        from PyQt6.QtGui import QHideEvent
+        from ui.aurora_progress import AuroraProgress
+
+        p = AuroraProgress(None, delay_show_ms=0)
+        p.start_busy('处理中', immediate=True)
+        p.finish('完成')
+        # finish 触发后存在 linger_timer
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
+
+        # hideEvent 后 linger_timer 和 anim_timer 全部停止清理
+        p.hideEvent(QHideEvent())
         self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNone(p._linger_timer)
+        self.assertIsNone(p._delay_timer)
+        p.deleteLater()
+
+    def test_aurora_progress_pending_delay_hide_all_timers_stopped(self):
+        from PyQt6.QtGui import QHideEvent
+        from ui.aurora_progress import AuroraProgress
+
+        p = AuroraProgress(None, delay_show_ms=300)
+        p.start_busy('处理中', immediate=False)
+        self.assertEqual(p._state, 'pending_busy')
+        self.assertIsNotNone(p._delay_timer)
+        self.assertTrue(p._delay_timer.isActive())
+
+        # 在 pending 阶段被隐藏：取消未触发的 delay_timer，重置为 idle，不留后台定时器
+        p.hideEvent(QHideEvent())
+        self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNone(p._delay_timer)
+        self.assertIsNone(p._linger_timer)
         self.assertEqual(p._state, 'idle')
         p.deleteLater()
+
+    def test_aurora_progress_close_all_timers_stopped(self):
+        from PyQt6.QtGui import QCloseEvent
+        from ui.aurora_progress import AuroraProgress
+
+        p = AuroraProgress(None, delay_show_ms=0)
+        p.start_busy('任务进行中', immediate=True)
+        p.finish('成功')
+        self.assertIsNotNone(p._linger_timer)
+
+        p.closeEvent(QCloseEvent())
+        self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNone(p._linger_timer)
+        self.assertIsNone(p._delay_timer)
+        p.deleteLater()
+
+
+class DashboardKeyboardContractTests(unittest.TestCase):
+    def test_dashboard_keyboard_and_demo_row_contract(self):
+        vue_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue')
+        self.assertTrue(os.path.exists(vue_path))
+        with open(vue_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 1. 验证所有 role="button" 的可交互非原生元素均具备 space.prevent 契约
+        # 匹配所有包含 role="button" 的标签块
+        button_tags = re.findall(r'<[a-zA-Z0-9_-]+[^>]*?role="button"[^>]*>', content)
+        self.assertGreater(len(button_tags), 0)
+        for tag in button_tags:
+            self.assertIn('@keydown.space.prevent', tag, f'Tag missing space handler: {tag}')
+            self.assertIn('@keydown.enter', tag, f'Tag missing enter handler: {tag}')
+
+        # 2. 验证 demo 需求行与 demo 任务行的语义绑定（非 demo 时为 button/tabindex=0，demo 时为 undefined）
+        self.assertIn(':tabindex="r.is_demo ? undefined : 0"', content)
+        self.assertIn(':role="r.is_demo ? undefined : \'button\'"', content)
+        self.assertIn(':tabindex="task.is_demo ? undefined : 0"', content)
+        self.assertIn(':role="task.is_demo ? undefined : \'button\'"', content)
+
+        # 3. 验证 demo 样式不响应 hover / active
+        self.assertIn('.ck:not(.is-demo):hover', content)
+        self.assertIn('.ck.is-demo:hover', content)
 
 
 class StyleQssButtonStatesTests(unittest.TestCase):

@@ -143,7 +143,7 @@ function onPaletteClick(): void {
       </div>
       <div class="meta">
         <span>Author · Lihp</span>
-        <span class="kbd" title="快速面板" tabindex="0" role="button" @click="onPaletteClick" @keydown.enter.prevent="onPaletteClick">Ctrl+Shift+P</span>
+        <span class="kbd" title="快速面板" tabindex="0" role="button" @click="onPaletteClick" @keydown.enter.prevent="onPaletteClick" @keydown.space.prevent="onPaletteClick">Ctrl+Shift+P</span>
       </div>
     </div>
   </div>

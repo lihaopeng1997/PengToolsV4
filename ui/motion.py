@@ -59,20 +59,25 @@ def play_dialog_enter(dialog: QDialog, offset_y: int = 4) -> QPropertyAnimation 
         return None
 
     try:
-        existing = getattr(dialog, '_enter_anim', None)
-        if existing is not None and isinstance(existing, QPropertyAnimation):
-            existing.stop()
+        anim = getattr(dialog, '_enter_anim', None)
+        if anim is not None and isinstance(anim, QPropertyAnimation):
+            if anim.state() == QPropertyAnimation.State.Running and anim.endValue() is not None:
+                target_pos = anim.endValue()
+            else:
+                target_pos = dialog.pos()
+            anim.stop()
+        else:
+            target_pos = dialog.pos()
+            anim = QPropertyAnimation(dialog, b'pos', dialog)
+            setattr(dialog, '_enter_anim', anim)
 
-        target_pos = dialog.pos()
         start_pos = target_pos + QPoint(0, max(0, min(8, int(offset_y))))
 
-        anim = QPropertyAnimation(dialog, b'pos', dialog)
         anim.setDuration(duration(DURATION_STANDARD))
         anim.setStartValue(start_pos)
         anim.setEndValue(target_pos)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        setattr(dialog, '_enter_anim', anim)
         anim.start()
         return anim
     except Exception:

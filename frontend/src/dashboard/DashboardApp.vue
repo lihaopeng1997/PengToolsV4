@@ -115,28 +115,28 @@ const releasePercent = computed(() => {
 
     <!-- 4 个统计指标卡片 -->
     <div class="stats enter">
-      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)" @keydown.space.prevent="onNavClick(10)">
         <div class="ic c1"><svg><use href="#i-req" /></svg></div>
         <b>{{ reqOpenText }}</b>
         <div class="lbl">待办需求</div>
         <span v-if="summary.stats?.req_trend" class="trend up">{{ summary.stats.req_trend }}</span>
       </div>
 
-      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(9)" @keydown.enter="onNavClick(9)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(9)" @keydown.enter="onNavClick(9)" @keydown.space.prevent="onNavClick(9)">
         <div class="ic c2"><svg><use href="#i-daily" /></svg></div>
         <b>{{ dailyDoneText }}</b>
         <div class="lbl">本周日报</div>
         <span v-if="summary.stats?.daily_note" class="trend">{{ summary.stats.daily_note }}</span>
       </div>
 
-      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)" @keydown.space.prevent="onNavClick(10)">
         <div class="ic c3"><svg><use href="#i-rocket" /></svg></div>
         <b>{{ monthlyReleaseText }}</b>
         <div class="lbl">{{ isDemoMode ? '本月上线 (示例)' : '本月上线任务' }}</div>
         <span class="trend hot">{{ monthlyReleaseNote }}</span>
       </div>
 
-      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)" @keydown.space.prevent="onNavClick(10)">
         <div class="ic c4"><svg><use href="#i-db" /></svg></div>
         <b>{{ completedTotalText }}</b>
         <div class="lbl">已完成事项</div>
@@ -163,10 +163,11 @@ const releasePercent = computed(() => {
               :key="r.id || r.code || idx"
               class="ck"
               :class="{ 'is-demo': r.is_demo }"
-              tabindex="0"
-              role="button"
+              :tabindex="r.is_demo ? undefined : 0"
+              :role="r.is_demo ? undefined : 'button'"
               @click="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
               @keydown.enter="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
+              @keydown.space.prevent="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
@@ -229,6 +230,7 @@ const releasePercent = computed(() => {
             role="button"
             @click="onNavClick(10)"
             @keydown.enter="onNavClick(10)"
+            @keydown.space.prevent="onNavClick(10)"
           >
             <span class="dot" :style="{ background: c.color || 'var(--edge-strong)' }"></span>
             <span class="t">{{ c.t }}</span>
@@ -241,10 +243,11 @@ const releasePercent = computed(() => {
             :key="task.id || task.code || task.title || idx"
             class="ck"
             :class="{ 'is-demo': task.is_demo }"
-            tabindex="0"
-            role="button"
+            :tabindex="task.is_demo ? undefined : 0"
+            :role="task.is_demo ? undefined : 'button'"
             @click="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
             @keydown.enter="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
+            @keydown.space.prevent="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
           >
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
             <span class="t">
@@ -281,6 +284,7 @@ const releasePercent = computed(() => {
         role="button"
         @click="onNavClick(t.i)"
         @keydown.enter="onNavClick(t.i)"
+        @keydown.space.prevent="onNavClick(t.i)"
       >
         <div class="ic" :class="t.grad || 'c1'">
           <svg><use :href="toolIconHref(t.icon)" /></svg>
@@ -367,7 +371,7 @@ html[data-theme="black"] body::before, html.dark body::before {
 .btn:disabled { opacity: 0.5; pointer-events: none; }
 .btn svg { width:15px; height:15px; }
 .btn-primary { background:var(--grad); color:var(--on-primary); box-shadow:0 8px 22px var(--shadow-l2); }
-.btn-primary:hover { transform:translateY(-1px); box-shadow:0 10px 24px var(--shadow-l4); }
+.btn-primary:hover { transform:translateY(-1px); box-shadow:0 12px 28px var(--shadow-l4); }
 .btn-primary:active { transform:translateY(0) scale(0.98); box-shadow:0 4px 12px var(--shadow-l1); }
 .btn-ghost { background:transparent; color:var(--ink-2); }
 .btn-ghost:hover { color:var(--primary); background:var(--primary-soft); }
@@ -401,9 +405,9 @@ html[data-theme="black"] body::before, html.dark body::before {
 .ph .sp { flex:1; }
 .req-list, .checklist { display:flex; flex-direction:column; gap:2px; flex:1; }
 .ck { display:flex; align-items:center; gap:10px; padding:9px 9px; border-radius:11px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); outline: none; }
-.ck:hover { background:var(--surface-soft); color:var(--ink); transform:translateX(2px); }
-.ck:active { transform:translateX(1px); }
-.ck:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
+.ck:not(.is-demo):hover { background:var(--surface-soft); color:var(--ink); transform:translateX(2px); }
+.ck:not(.is-demo):active { transform:translateX(1px); }
+.ck:not(.is-demo):focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
 .ck .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .ck .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .req-id-badge {
@@ -446,6 +450,7 @@ html.dark .req-id-badge {
 .row-act-btn { opacity:0.85; margin-left:4px; flex-shrink:0; }
 .row-act-btn:hover { opacity:1; }
 .ck.is-demo { opacity:0.88; cursor:default; }
+.ck.is-demo:hover, .ck.is-demo:active { background:transparent !important; transform:none !important; }
 .demo-badge { font-size:10px; font-weight:700; color:var(--ink-3); background:var(--surface-soft); border:1px dashed var(--edge-strong); border-radius:6px; padding:2px 7px; margin-left:4px; flex-shrink:0; }
 .note { font-size:12px; color:var(--ink-3); padding:12px 8px; text-align:center; font-weight:600; }
 .progress { height:9px; border-radius:99px; background:var(--surface-tech, var(--surface-soft)); overflow:hidden; }
