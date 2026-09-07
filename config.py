@@ -208,7 +208,7 @@ def save_systems(systems):
 def _coerce_settings_version(value) -> int:
     try:
         return max(0, int(value or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 

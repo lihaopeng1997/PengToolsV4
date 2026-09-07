@@ -44,6 +44,11 @@ class SettingsThemeMigrationTests(unittest.TestCase):
         self.assertEqual(config._coerce_settings_version(-1), 0)
         self.assertEqual(config._coerce_settings_version(1), 1)
         self.assertEqual(config._coerce_settings_version('2'), 2)
+        self.assertEqual(config._coerce_settings_version(float('inf')), 0)
+        self.assertEqual(config._coerce_settings_version(float('-inf')), 0)
+        self.assertEqual(config._coerce_settings_version(float('nan')), 0)
+        self.assertEqual(config._coerce_settings_version(1e309), 0)
+        self.assertEqual(config._coerce_settings_version(-1e309), 0)
 
     def test_migration_clear_to_calm(self):
         """A. settings_version=1, ui_theme=clear -> calm, version=2, disk rewritten."""
@@ -105,6 +110,24 @@ class SettingsThemeMigrationTests(unittest.TestCase):
         for malformed in ('broken', {}, [], None):
             with self.subTest(malformed=malformed):
                 self._write_settings({'settings_version': malformed, 'ui_theme': 'clear'})
+                loaded = config.load_settings()
+                self.assertEqual(loaded['ui_theme'], 'calm')
+                self.assertEqual(loaded['settings_version'], 2)
+
+                disk = self._read_disk_settings()
+                self.assertEqual(disk['ui_theme'], 'calm')
+                self.assertEqual(disk['settings_version'], 2)
+
+    def test_migration_overflow_settings_version(self):
+        """测试 JSON 中极大数值（如 1e309, -1e309）解析为 inf 时的 OverflowError 容错与迁移。"""
+        raw_cases = [
+            '{"settings_version": 1e309, "ui_theme": "clear"}',
+            '{"settings_version": -1e309, "ui_theme": "clear"}',
+        ]
+        for raw_json in raw_cases:
+            with self.subTest(raw_json=raw_json):
+                with open(self.fake_settings_file, 'w', encoding='utf-8') as f:
+                    f.write(raw_json)
                 loaded = config.load_settings()
                 self.assertEqual(loaded['ui_theme'], 'calm')
                 self.assertEqual(loaded['settings_version'], 2)
