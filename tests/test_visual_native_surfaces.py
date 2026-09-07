@@ -31,12 +31,31 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        self._tracked_widgets = []
+
+    def track(self, widget):
+        if widget is not None:
+            self._tracked_widgets.append(widget)
+        return widget
+
+    def tearDown(self):
+        while self._tracked_widgets:
+            w = self._tracked_widgets.pop()
+            try:
+                w.close()
+                w.deleteLater()
+            except Exception:
+                pass
+        if QT_AVAILABLE and self.app:
+            self.app.processEvents()
+
     # ── 1. SQL Workbench ──────────────────────────────────────────────────
 
     def test_sql_surface_object_names(self):
         """SQL Workbench 核心表面 objectName 存在且符合语义分层。"""
         from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel('zh')
+        panel = self.track(AiWorkbenchPanel('zh'))
 
         object_names = {
             'sql-object-pane',
@@ -60,7 +79,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         from panels.ai_workbench_panel import _SchemaSearchPopup
         from ui.theme_manager import ThemeManager
 
-        popup = _SchemaSearchPopup()
+        popup = self.track(_SchemaSearchPopup())
         self.assertEqual(popup.objectName(), 'schema-search-popup')
         self.assertEqual(popup.list_widget.objectName(), 'schema-search-list')
         self.assertEqual(popup.list_widget.styleSheet(), '', 'list_widget 不得保留行内 styleSheet')
@@ -74,7 +93,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_requirement_tree_card_and_clean_contract(self):
         """RequirementPanel 左侧保持 req-tree-card，tree_count_label 存在，且无发明统计 badge。"""
         from panels.requirement_panel import RequirementPanel
-        panel = RequirementPanel('zh')
+        panel = self.track(RequirementPanel('zh'))
 
         tree_card = None
         for w in panel.findChildren(QWidget):
@@ -91,7 +110,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_requirement_refresh_preserves_status_model(self):
         """RequirementPanel 刷新逻辑不得修改 requirement.status。"""
         from panels.requirement_panel import RequirementPanel
-        panel = RequirementPanel('zh')
+        panel = self.track(RequirementPanel('zh'))
         sample = {'id': 'REQ-TEST-1', 'title': 'Test Req', 'status': '待分析', 'record_kind': '需求'}
         panel._requirements = [sample]
         panel._refresh()
@@ -103,11 +122,35 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_ops_terminal_island_structure_and_pure_display_state(self):
         """Ops Terminal Island 结构完整，且状态刷新为纯 display state（无网络/SSH 线程）。"""
         from panels.ops_log_panel import OpsLogPanel
-        panel = OpsLogPanel('zh')
+        panel = self.track(OpsLogPanel('zh'))
 
+        # Terminal Island 核心表面
         self.assertEqual(panel.term_shell.objectName(), 'ops-term-shell')
         self.assertEqual(panel.term_status_dot.objectName(), 'ops-term-status-dot')
         self.assertEqual(panel.term_session_info.objectName(), 'ops-term-session-info')
+
+        # 左侧上下文三卡片 Surface 与内层 Soft 树
+        self.assertEqual(panel.server_card.objectName(), 'ops-server-card')
+        self.assertEqual(panel.session_ops.objectName(), 'ops-capture-card')
+        self.assertEqual(panel.remote_ops.objectName(), 'ops-remote-card')
+        self.assertEqual(panel.remote_tree.objectName(), 'ops-remote-tree')
+
+        # 工具栏按钮角色
+        self.assertEqual(panel.connect_btn.objectName(), 'btn-secondary')
+        self.assertEqual(panel.toolbar_export_btn.objectName(), 'btn-secondary')
+        self.assertEqual(panel.disconnect_btn.objectName(), 'btn-secondary')
+        self.assertEqual(panel.cmd_send_btn.objectName(), 'primary-btn')
+
+        # 终端每 Tab 会话独立隔离契约
+        self.assertEqual(panel.term_tabs.count(), 1)
+        self.assertEqual(len(panel._term_sessions), 1)
+        panel._add_term_tab()
+        self.assertEqual(panel.term_tabs.count(), 2)
+        self.assertEqual(len(panel._term_sessions), 2)
+        self.assertIsNot(panel._term_sessions[0], panel._term_sessions[1])
+        self.assertIsNot(panel._term_sessions[0]['widget'], panel._term_sessions[1]['widget'])
+        panel._close_term_tab(1)
+        self.assertEqual(panel.term_tabs.count(), 1)
 
         # 初始未连接状态
         self.assertFalse(panel.term_status_dot.property('termConnected'))
@@ -125,13 +168,14 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertIn('已连接', panel.term_session_info.text())
         self.assertIn('prod-bastion-01', panel.term_session_info.text())
 
-    # ── 4. Settings ThemeCard & Font Stepper ───────────────────────────────
+    # ── 4. Settings ThemeCard & Surface Hierarchy ─────────────────────────
 
     def test_settings_theme_card_and_font_stepper(self):
         """ThemeCard 具有 theme-card objectName 与 selected 属性切换契约；字体 px 单位在外。"""
+        from config import DEFAULT_SETTINGS
         from panels.settings_panel import SettingsPanel, ThemeCard
 
-        card = ThemeCard('light')
+        card = self.track(ThemeCard('light'))
         self.assertEqual(card.objectName(), 'theme-card')
         self.assertFalse(card.property('selected'))
         self.assertTrue(card.current_badge.isHidden())
@@ -144,18 +188,73 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertFalse(card.property('selected'))
         self.assertTrue(card.current_badge.isHidden())
 
-        panel = SettingsPanel('zh')
+        panel = self.track(SettingsPanel(DEFAULT_SETTINGS, 'zh'))
         self.assertTrue(hasattr(panel, 'font_size'))
         self.assertTrue(hasattr(panel, 'font_unit_label'))
         self.assertEqual(panel.font_unit_label.text(), 'px')
         self.assertNotEqual(panel.font_size, panel.font_unit_label)
+
+    def test_settings_surface_hierarchy_and_responsive_grid(self):
+        """Settings 卡片语义 objectName、双主题卡契约、wide 双列与 compact 单列自适应布局。"""
+        from config import DEFAULT_SETTINGS
+        from panels.settings_panel import SettingsPanel
+
+        panel = self.track(SettingsPanel(DEFAULT_SETTINGS, 'zh'))
+
+        # 1. 严格仅有两张 ThemeCard (light -> calm, dark -> black)，无 clear/warm/night
+        self.assertEqual(len(panel._theme_cards), 2)
+        self.assertEqual(set(panel._theme_cards.keys()), {'light', 'dark'})
+        self.assertEqual(panel._theme_cards['light'].theme_id, 'calm')
+        self.assertEqual(panel._theme_cards['dark'].theme_id, 'black')
+        self.assertNotIn('clear', panel._theme_cards)
+        self.assertNotIn('warm', panel._theme_cards)
+        self.assertNotIn('night', panel._theme_cards)
+
+        # 2. Section card objectNames and property
+        cards = {
+            'settings-appearance-card': panel.appearance_group,
+            'settings-floating-card': panel.float_group,
+            'settings-shortcuts-card': panel.shortcuts_group,
+            'settings-reminder-card': panel.reminder_group,
+            'settings-behavior-card': panel.behavior_group,
+            'settings-security-card': panel.security_group,
+            'settings-oracle-card': panel.oracle_group,
+            'settings-ai-card': panel.ai_group,
+        }
+        for expected_name, grp in cards.items():
+            self.assertEqual(grp.objectName(), expected_name)
+            self.assertTrue(grp.property('settingsSectionCard'))
+        self.assertEqual(panel.action_bar.objectName(), 'settings-action-bar')
+
+        # 3. 操作按钮层级：Save 为 Primary，Restore 为 Secondary
+        self.assertEqual(panel.save_btn.objectName(), 'primary-btn')
+        self.assertEqual(panel.restore_btn.objectName(), 'btn-secondary')
+
+        # 4. Wide 响应式：两列布局，外观和 AI 跨两列
+        panel.apply_layout_mode('wide')
+        pos = lambda w: panel.sections_grid.getItemPosition(panel.sections_grid.indexOf(w))
+        self.assertEqual(pos(panel.appearance_group), (0, 0, 1, 2))
+        self.assertEqual(pos(panel.float_group), (1, 0, 1, 1))
+        self.assertEqual(pos(panel.shortcuts_group), (1, 1, 1, 1))
+        self.assertEqual(pos(panel.reminder_group), (2, 0, 1, 1))
+        self.assertEqual(pos(panel.behavior_group), (2, 1, 1, 1))
+        self.assertEqual(pos(panel.security_group), (3, 0, 1, 1))
+        self.assertEqual(pos(panel.oracle_group), (3, 1, 1, 1))
+        self.assertEqual(pos(panel.ai_group), (4, 0, 1, 2))
+
+        # 5. Compact 响应式：单列布局
+        panel.apply_layout_mode('compact')
+        for grp in cards.values():
+            _r, col, _rs, cs = pos(grp)
+            self.assertEqual(col, 0)
+            self.assertEqual(cs, 1)
 
     # ── 5. Redis Workbench Surfaces & Badges ──────────────────────────────
 
     def test_redis_surfaces(self):
         """Redis Workbench 具有提升后的表面语义 objectName。"""
         from panels.db_redis_panel import RedisWorkbenchPanel
-        panel = RedisWorkbenchPanel('zh')
+        panel = self.track(RedisWorkbenchPanel('zh'))
 
         found = {w.objectName() for w in panel.findChildren(QWidget)}
         self.assertIn('redis-left-pane', found)
@@ -196,26 +295,22 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             ('en', 'Type', 'No expiry', 'Key missing'),
         ):
             with patch('panels.db_redis_panel.load_connections', return_value=[]):
-                panel = RedisWorkbenchPanel(language)
-            try:
-                for ttl, expected in (
-                    (0, '0s'), (120, '120s'), (-1, no_expiry),
-                    (-2, missing), (-3, '—'), (None, missing), ('invalid', missing),
-                ):
-                    with self.subTest(language=language, ttl=ttl):
-                        panel._on_worker_done('key_meta', {'type': 'string', 'ttl': ttl})
-                        self.assertEqual(panel.key_ttl_badge.text(), f'TTL: {expected}')
-                        self.assertEqual(
-                            panel.key_meta.text(), f'{type_label}: string · TTL: {expected}',
-                        )
-            finally:
-                panel.close()
-                panel.deleteLater()
+                panel = self.track(RedisWorkbenchPanel(language))
+            for ttl, expected in (
+                (0, '0s'), (120, '120s'), (-1, no_expiry),
+                (-2, missing), (-3, '—'), (None, missing), ('invalid', missing),
+            ):
+                with self.subTest(language=language, ttl=ttl):
+                    panel._on_worker_done('key_meta', {'type': 'string', 'ttl': ttl})
+                    self.assertEqual(panel.key_ttl_badge.text(), f'TTL: {expected}')
+                    self.assertEqual(
+                        panel.key_meta.text(), f'{type_label}: string · TTL: {expected}',
+                    )
 
     def test_redis_badges_content_and_visibility(self):
         """Redis Key 详情 badges 覆盖 string inspect model、list、hash、ttl 及隐藏逻辑。"""
         from panels.db_redis_panel import RedisWorkbenchPanel
-        panel = RedisWorkbenchPanel('zh')
+        panel = self.track(RedisWorkbenchPanel('zh'))
 
         # 1. key_meta -> TYPE 与 TTL badge
         panel._on_worker_done('key_meta', {'type': 'string', 'ttl': 120})
@@ -275,7 +370,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_redis_raw_value_preserved_into_renderer(self):
         """Redis value 对象必须原样进入 renderer，严格保持原始对象与 raw bytes identity。"""
         from panels.db_redis_panel import RedisWorkbenchPanel
-        panel = RedisWorkbenchPanel('zh')
+        panel = self.track(RedisWorkbenchPanel('zh'))
 
         raw_inspect_model = {
             'raw': b'\x00\x01\x02\xff\xfe\xca\xfe\xba\xbe',

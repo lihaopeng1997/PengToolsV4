@@ -1819,6 +1819,8 @@ class OpsLogPanel(QWidget):
 
         # —— 当前主机（管理走弹框，不在模块内展开）——
         left, left_l = self._card()
+        left.setObjectName('ops-server-card')
+        self.server_card = left
         left_l.setSpacing(8)
         pick_row = QHBoxLayout()
         self.server_title = QLabel()
@@ -1861,6 +1863,7 @@ class OpsLogPanel(QWidget):
 
         # —— 抓取日志（主区域，默认展开）——
         self.session_ops, sess_l = self._card()
+        self.session_ops.setObjectName('ops-capture-card')
         sess_l.setSpacing(4)
         self.quick_title = QLabel()
         self.quick_title.setObjectName('section-title')
@@ -1942,6 +1945,7 @@ class OpsLogPanel(QWidget):
 
         # —— 远端目录（默认展示；窄栏适配：路径单独一行 + 两列表）——
         self.remote_ops, mid_l = self._card()
+        self.remote_ops.setObjectName('ops-remote-card')
         mid_l.setSpacing(4)
         remote_head = QHBoxLayout()
         self.remote_title = QLabel()
@@ -2033,6 +2037,7 @@ class OpsLogPanel(QWidget):
 
         # —— 批量导出：目标树 + 关键字/目录 ——
         self.export_ops, el_l = self._card()
+        self.export_ops.setObjectName('ops-export-card')
         el_l.setSpacing(4)
         self.export_server_title = QLabel()
         self.export_server_title.setObjectName('section-title')
@@ -2092,6 +2097,7 @@ class OpsLogPanel(QWidget):
         left_root.addWidget(self.export_ops, 1)
 
         self.export_rules, em_l = self._card()
+        self.export_rules.setObjectName('ops-export-rules-card')
         em_l.setSpacing(4)
         self.export_rule_title = QLabel()
         self.export_rule_title.setObjectName('section-title')

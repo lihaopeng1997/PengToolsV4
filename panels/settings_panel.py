@@ -233,7 +233,15 @@ class SettingsPanel(QWidget):
         root.addWidget(header)
         self.title.installEventFilter(self)
 
+        self.sections_grid = QGridLayout()
+        self.sections_grid.setHorizontalSpacing(14)
+        self.sections_grid.setVerticalSpacing(14)
+        self.sections_grid.setContentsMargins(0, 0, 0, 0)
+        root.addLayout(self.sections_grid)
+
         self.appearance_group = QGroupBox()
+        self.appearance_group.setObjectName('settings-appearance-card')
+        self.appearance_group.setProperty('settingsSectionCard', True)
         appearance_outer = QVBoxLayout(self.appearance_group)
         appearance_outer.setSpacing(12)
 
@@ -294,9 +302,10 @@ class SettingsPanel(QWidget):
         self.reset_layout_label = QLabel()
         appearance.addRow(self.reset_layout_label, self.reset_layout_btn)
         appearance_outer.addLayout(appearance)
-        root.addWidget(self.appearance_group)
 
         self.float_group = QGroupBox()
+        self.float_group.setObjectName('settings-floating-card')
+        self.float_group.setProperty('settingsSectionCard', True)
         floating = QFormLayout(self.float_group)
         apply_form(floating)
         opacity_row = QWidget()
@@ -322,10 +331,11 @@ class SettingsPanel(QWidget):
         self.reset_position_btn.clicked.connect(self.reset_floating_position.emit)
         self.reset_position_label = QLabel()
         floating.addRow(self.reset_position_label, self.reset_position_btn)
-        root.addWidget(self.float_group)
 
         # 快捷入口独立分组，避免与透明度/置顶混在一起
         self.shortcuts_group = QGroupBox()
+        self.shortcuts_group.setObjectName('settings-shortcuts-card')
+        self.shortcuts_group.setProperty('settingsSectionCard', True)
         shortcuts_form = QFormLayout(self.shortcuts_group)
         apply_form(shortcuts_form)
         self.edit_shortcuts_btn = QPushButton()
@@ -336,10 +346,11 @@ class SettingsPanel(QWidget):
         self.shortcuts_summary.setObjectName('field-hint')
         self.shortcuts_summary.setWordWrap(True)
         shortcuts_form.addRow(self.shortcuts_summary)
-        root.addWidget(self.shortcuts_group)
 
         # 日报提醒（从日报页迁入）
         self.reminder_group = QGroupBox()
+        self.reminder_group.setObjectName('settings-reminder-card')
+        self.reminder_group.setProperty('settingsSectionCard', True)
         reminder_form = QFormLayout(self.reminder_group)
         apply_form(reminder_form)
         self.reminder_enabled = QCheckBox()
@@ -362,9 +373,10 @@ class SettingsPanel(QWidget):
         size_compact_button(self.reminder_save_btn)
         self.reminder_save_btn.clicked.connect(self._save_reminder_settings)
         reminder_form.addRow(self.reminder_save_btn)
-        root.addWidget(self.reminder_group)
 
         self.behavior_group = QGroupBox()
+        self.behavior_group.setObjectName('settings-behavior-card')
+        self.behavior_group.setProperty('settingsSectionCard', True)
         behavior = QFormLayout(self.behavior_group)
         apply_form(behavior)
         self.close_ask = QCheckBox()
@@ -391,11 +403,12 @@ class SettingsPanel(QWidget):
         self.safety_note.setWordWrap(True)
         self.safety_note.hide()  # 仅「直接退出」时显示
         behavior.addRow(self.safety_note)
-        root.addWidget(self.behavior_group)
         self.close_ask.toggled.connect(self._refresh_close_behavior_hint)
         self.close_default_action.currentIndexChanged.connect(self._refresh_close_behavior_hint)
 
         self.keep_awake_group = QGroupBox()
+        self.keep_awake_group.setObjectName('settings-keep-awake-card')
+        self.keep_awake_group.setProperty('settingsSectionCard', True)
         keep_awake = QFormLayout(self.keep_awake_group)
         apply_form(keep_awake)
         self.keep_awake_enabled = QCheckBox()
@@ -410,10 +423,11 @@ class SettingsPanel(QWidget):
         self.keep_awake_note.setObjectName('ops-safety-note')
         keep_awake.addRow(self.keep_awake_note)
         self.keep_awake_group.hide()
-        root.addWidget(self.keep_awake_group)
 
         # 安测 / 安全基线
         self.security_group = QGroupBox()
+        self.security_group.setObjectName('settings-security-card')
+        self.security_group.setProperty('settingsSectionCard', True)
         security = QFormLayout(self.security_group)
         apply_form(security)
         self.security_ssl_verify = QCheckBox()
@@ -426,9 +440,10 @@ class SettingsPanel(QWidget):
         self.security_note.setObjectName('ops-safety-note')
         self.security_note.setWordWrap(True)
         security.addRow(self.security_note)
-        root.addWidget(self.security_group)
 
         self.oracle_group = QGroupBox()
+        self.oracle_group.setObjectName('settings-oracle-card')
+        self.oracle_group.setProperty('settingsSectionCard', True)
         oracle_form = QFormLayout(self.oracle_group)
         apply_form(oracle_form)
         self.oracle_mode = QComboBox()
@@ -462,9 +477,10 @@ class SettingsPanel(QWidget):
         self.oracle_note.setObjectName('ops-safety-note')
         self.oracle_note.setWordWrap(True)
         oracle_form.addRow(self.oracle_note)
-        root.addWidget(self.oracle_group)
 
         self.ai_group = QGroupBox()
+        self.ai_group.setObjectName('settings-ai-card')
+        self.ai_group.setProperty('settingsSectionCard', True)
         ai_outer = QVBoxLayout(self.ai_group)
         self.ai_list = QListWidget()
         self.ai_list.setMaximumHeight(110)
@@ -560,21 +576,28 @@ class SettingsPanel(QWidget):
         self.ai_note.setWordWrap(True)
         ai_form.addRow(self.ai_note)
         ai_outer.addLayout(ai_form)
-        root.addWidget(self.ai_group)
         self._ai_probe_worker = None
         self._ai_editing_id = ''
         self._ai_loading = False
 
-        buttons = QHBoxLayout()
+        self._layout_sections(is_compact=False)
+
+        self.action_bar = QWidget()
+        self.action_bar.setObjectName('settings-action-bar')
+        buttons = QHBoxLayout(self.action_bar)
+        buttons.setContentsMargins(0, 4, 0, 0)
         buttons.addStretch()
         self.restore_btn = QPushButton()
+        self.restore_btn.setObjectName('btn-secondary')
+        self.restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.restore_btn.clicked.connect(self._restore_defaults)
         buttons.addWidget(self.restore_btn)
         self.save_btn = QPushButton()
         self.save_btn.setObjectName('primary-btn')
+        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.clicked.connect(self._save)
         buttons.addWidget(self.save_btn)
-        root.addLayout(buttons)
+        root.addWidget(self.action_bar)
         root.addStretch()
 
     def values(self):
@@ -634,17 +657,51 @@ class SettingsPanel(QWidget):
             card.set_title(name, current_label=current_label, subtitle=sub)
             card.preview.set_theme_id(meta['canonical'])
 
+    def _layout_sections(self, is_compact: bool):
+        for w in (
+            self.appearance_group, self.float_group, self.shortcuts_group,
+            self.reminder_group, self.behavior_group, self.security_group,
+            self.oracle_group, self.ai_group, self.keep_awake_group,
+        ):
+            self.sections_grid.removeWidget(w)
+
+        if is_compact:
+            self.sections_grid.setColumnStretch(0, 1)
+            self.sections_grid.setColumnStretch(1, 0)
+            row = 0
+            for w in (
+                self.appearance_group, self.float_group, self.shortcuts_group,
+                self.reminder_group, self.behavior_group, self.security_group,
+                self.oracle_group, self.ai_group, self.keep_awake_group,
+            ):
+                self.sections_grid.addWidget(w, row, 0, 1, 1)
+                row += 1
+        else:
+            self.sections_grid.setColumnStretch(0, 1)
+            self.sections_grid.setColumnStretch(1, 1)
+            self.sections_grid.addWidget(self.appearance_group, 0, 0, 1, 2)
+            self.sections_grid.addWidget(self.float_group, 1, 0, 1, 1)
+            self.sections_grid.addWidget(self.shortcuts_group, 1, 1, 1, 1)
+            self.sections_grid.addWidget(self.reminder_group, 2, 0, 1, 1)
+            self.sections_grid.addWidget(self.behavior_group, 2, 1, 1, 1)
+            self.sections_grid.addWidget(self.security_group, 3, 0, 1, 1)
+            self.sections_grid.addWidget(self.oracle_group, 3, 1, 1, 1)
+            self.sections_grid.addWidget(self.ai_group, 4, 0, 1, 2)
+            self.sections_grid.addWidget(self.keep_awake_group, 5, 0, 1, 2)
+
     def apply_layout_mode(self, mode, low_height=False):
-        """主题卡 Wide/Standard 两列，Compact/Narrow 一列。"""
+        """主题卡与分组自适应：Wide/Standard 两列，Compact/Narrow 一列。"""
         from ui.responsive import set_subtitle_visible
         set_subtitle_visible(self.subtitle, low_height)
-        cols = 1 if mode in ('compact', 'narrow') else 2
+        is_compact = mode in ('compact', 'narrow')
+        cols = 1 if is_compact else 2
         # 重新排布 theme_grid
         for i, theme_mode_key in enumerate(THEME_MODES):
             card = self._theme_cards.get(theme_mode_key)
             if card is None:
                 continue
             self.theme_grid.addWidget(card, i // cols, i % cols)
+        self._layout_sections(is_compact=is_compact)
 
     def load_values(self, settings):
         settings = normalize_settings(settings)

@@ -1078,8 +1078,7 @@ QTreeWidget#ops-export-tree QHeaderView::section {
     font-weight: 700;
     font-size: 12px;
 }
-QTreeWidget#requirement-file-tree,
-QTreeWidget#ops-remote-tree {
+QTreeWidget#requirement-file-tree {
     border: 1px solid __BORDER__;
     border-radius: 8px;
     background: __SURFACE__;
@@ -1087,6 +1086,15 @@ QTreeWidget#ops-remote-tree {
     color: __TEXT_STRONG__;
     outline: 0;
     /* 0：图标装饰只出现在名称列，避免选中时其它列也像“带图标” */
+    show-decoration-selected: 0;
+}
+QTreeWidget#ops-remote-tree {
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    background: __SURFACE_SOFT__;
+    alternate-background-color: __SURFACE__;
+    color: __TEXT_STRONG__;
+    outline: 0;
     show-decoration-selected: 0;
 }
 QTreeWidget#requirement-file-tree::item {
@@ -2246,11 +2254,11 @@ QLineEdit#ops-search {
 }
 QLineEdit#ops-search:focus { border-color: __PRIMARY__; }
 QLabel#ops-safety-note {
-    color: __TEXT_MUTED__;
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __PRIMARY_SOFT__;
-    border-radius: 10px;
-    padding: 9px 12px;
+    color: __TEXT__;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    padding: 8px 12px;
 }
 QFrame#ops-list-card, QFrame#ops-param-card {
     background: __SURFACE__;
@@ -2587,13 +2595,7 @@ QLabel#ops-term-session-info {
     font-size: 11px;
     font-weight: 600;
 }
-QWidget#ops-left-panel {
-    background: __SURFACE_SOFT__;
-}
-QWidget#ops-right-panel {
-    background: __SURFACE__;
-}
-/* 标签栏贴页面；选中与控制台衔接 */
+/* 标签栏属于 Terminal Island 整体技术表面 */
 QTabWidget#ops-term-tabs::pane {
     border: 1px solid __TERM_BORDER__;
     border-radius: 10px;
@@ -2603,9 +2605,9 @@ QTabWidget#ops-term-tabs::pane {
     margin: 0;
 }
 QTabWidget#ops-term-tabs QTabBar::tab {
-    background: __SURFACE_SOFT__;
-    color: __TEXT_MUTED__;
-    border: 1px solid __BORDER__;
+    background: __TERM_CHROME__;
+    color: __TERM_MUTED__;
+    border: 1px solid __TERM_BORDER__;
     border-bottom: none;
     border-top-left-radius: 7px;
     border-top-right-radius: 7px;
@@ -2623,8 +2625,8 @@ QTabWidget#ops-term-tabs QTabBar::tab:selected {
     border-color: __TERM_BORDER__;
 }
 QTabWidget#ops-term-tabs QTabBar::tab:hover:!selected {
-    color: __TEXT_STRONG__;
-    background: __PRIMARY_SOFT__;
+    color: __TERM_FG__;
+    background: __TERM_SEL__;
 }
 /* 导出目标树：可横向滚动看全路径 */
 QTreeWidget#ops-export-tree {
@@ -2769,6 +2771,49 @@ QLabel#theme-current-badge {
 QFrame#theme-card {
     min-width: 148px;
     min-height: 96px;
+}
+
+/* ── Settings Section Cards ── */
+QGroupBox[settingsSectionCard="true"],
+QGroupBox#settings-appearance-card,
+QGroupBox#settings-floating-card,
+QGroupBox#settings-shortcuts-card,
+QGroupBox#settings-reminder-card,
+QGroupBox#settings-behavior-card,
+QGroupBox#settings-security-card,
+QGroupBox#settings-oracle-card,
+QGroupBox#settings-ai-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    margin-top: 14px;
+    padding: 18px 14px 14px 14px;
+    font-weight: 650;
+    color: __TEXT_STRONG__;
+}
+
+QGroupBox[settingsSectionCard="true"]::title,
+QGroupBox#settings-appearance-card::title,
+QGroupBox#settings-floating-card::title,
+QGroupBox#settings-shortcuts-card::title,
+QGroupBox#settings-reminder-card::title,
+QGroupBox#settings-behavior-card::title,
+QGroupBox#settings-security-card::title,
+QGroupBox#settings-oracle-card::title,
+QGroupBox#settings-ai-card::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px;
+    padding: 0 8px;
+    color: __TEXT_STRONG__;
+    font-size: 13px;
+    font-weight: 650;
+    background: transparent;
+}
+
+QWidget#settings-action-bar {
+    background: transparent;
+    padding-top: 8px;
 }
 
 /* ── Global workbench contract: density, focus, page chrome and status ── */
