@@ -52,6 +52,14 @@ def sql_splitter_tab_id(kind: str, dialect: str | None = None) -> str:
     return f'{kind}-{d}' if d else kind
 
 
+def _format_workbench_title(dialect_label: str, zh: bool = True) -> str:
+    if not zh:
+        return f'{dialect_label} Workbench'
+    if str(dialect_label or '').strip() == '达梦':
+        return '达梦工作台'
+    return f'{dialect_label} 工作台'
+
+
 class _SchemaSearchPopup(QFrame):
     """IDE 风格统一数据库对象搜索下拉建议框。"""
 
@@ -231,10 +239,7 @@ class AiWorkbenchPanel(QWidget):
         super().__init__()
         self.language = language
         self._connection_id = str(connection_id or '')
-        d = str(dialect or '').strip().lower()
-        if d == 'dm':
-            d = 'dameng'
-        self._dialect = d  # 六面板模式：锁定方言
+        self._dialect = str(dialect or '').strip().lower()  # 六面板模式：锁定方言
         self._bound_conn_item = None  # 如果是绑定连接，缓存完整连接 dict
         self._worker = None
         self._ai_worker = None
@@ -290,8 +295,9 @@ class AiWorkbenchPanel(QWidget):
         trail_l.setSpacing(8)
         trail_l.addWidget(self.conn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
         dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper()) if self._dialect else 'SQL'
+        title_text = _format_workbench_title(dialect_label, zh=True) if self._dialect else 'SQL 控制台'
         header, self.page_title, self.page_subtitle = make_page_header(
-            f'{dialect_label} 工作台' if self._dialect else 'SQL 控制台',
+            title_text,
             '多标签编辑 · 结构快照 · AI 助手生成不执行',
             'database',
             trailing=header_trail,
@@ -673,7 +679,7 @@ class AiWorkbenchPanel(QWidget):
         zh = language == 'zh'
         if self._dialect:
             dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper())
-            self.page_title.setText(f'{dialect_label} 工作台' if zh else f'{dialect_label} Workbench')
+            self.page_title.setText(_format_workbench_title(dialect_label, zh))
         else:
             self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
         self.page_subtitle.setText(
@@ -955,7 +961,7 @@ class AiWorkbenchPanel(QWidget):
             if hasattr(self, 'conn_target_hint'):
                 self.conn_target_hint.setText('目标连接：—' if zh else 'Target: —')
             if self._dialect:
-                self.page_title.setText(f'{dialect_label} 工作台' if zh else f'{dialect_label} Workbench')
+                self.page_title.setText(_format_workbench_title(dialect_label, zh))
             elif not self._connection_id:
                 self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
             self.page_subtitle.setText(
@@ -978,7 +984,7 @@ class AiWorkbenchPanel(QWidget):
                 (f'目标连接：{alias} · {label}' if zh else f'Target: {alias} · {label}').strip()
             )
         if self._dialect:
-            self.page_title.setText(f'{dialect_label} 工作台' if zh else f'{dialect_label} Workbench')
+            self.page_title.setText(_format_workbench_title(dialect_label, zh))
             self.page_subtitle.setText(
                 '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
                 'Multi-tab SQL · schema snapshot · AI drafts never auto-run'

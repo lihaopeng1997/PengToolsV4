@@ -309,7 +309,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         from PyQt6.QtWidgets import QSizePolicy
         from panels.ai_workbench_panel import AiWorkbenchPanel
 
-        for dialect in ('oracle', 'mysql', 'oceanbase', 'dm'):
+        for dialect in ('oracle', 'mysql', 'oceanbase', 'dameng'):
             panel = AiWorkbenchPanel('zh', dialect=dialect)
             try:
                 # 1. input and output widgets exist
@@ -409,13 +409,19 @@ class TestVisualNativeSurfaces(unittest.TestCase):
 
     def test_database_workbench_header_and_toolbar_contract(self):
         """四数据库工作台标题/副标题、连接芯片与工具栏按钮 tooltip 契约完整。"""
-        from panels.ai_workbench_panel import AiWorkbenchPanel
+        from panels.ai_workbench_panel import AiWorkbenchPanel, sql_splitter_tab_id
+
+        # Regression: splitter tab id 保持原有语义，不迁移旧 key
+        self.assertEqual(sql_splitter_tab_id('body', 'dm'), 'body-dm')
+        self.assertEqual(sql_splitter_tab_id('columns', 'dm'), 'columns-dm')
+        self.assertEqual(sql_splitter_tab_id('body', 'dameng'), 'body-dameng')
+        self.assertEqual(sql_splitter_tab_id('columns', 'dameng'), 'columns-dameng')
 
         expected_titles = {
             'oracle': 'Oracle 工作台',
             'mysql': 'MySQL 工作台',
             'oceanbase': 'OceanBase 工作台',
-            'dm': '达梦 工作台',
+            'dameng': '达梦工作台',
         }
         for dialect, expected_title in expected_titles.items():
             panel = AiWorkbenchPanel('zh', dialect=dialect)
