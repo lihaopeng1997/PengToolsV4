@@ -249,6 +249,11 @@ class DashboardKeyboardContractTests(unittest.TestCase):
         self.assertIn(':role="r.is_demo ? undefined : \'button\'"', content)
         self.assertIn(':tabindex="task.is_demo ? undefined : 0"', content)
         self.assertIn(':role="task.is_demo ? undefined : \'button\'"', content)
+        # 验证嵌套交互行采用 .self 防止键盘冒泡重复触发
+        self.assertIn('@keydown.enter.self="!r.is_demo && onOpenRequirement', content)
+        self.assertIn('@keydown.space.self.prevent="!r.is_demo && onOpenRequirement', content)
+        self.assertIn('@keydown.enter.self="!task.is_demo && onOpenRequirement', content)
+        self.assertIn('@keydown.space.self.prevent="!task.is_demo && onOpenRequirement', content)
 
         # 3. 验证 demo 样式不响应 hover / active
         self.assertIn('.ck:not(.is-demo):hover', content)

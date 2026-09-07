@@ -236,6 +236,65 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 self.assertGreaterEqual(badge_res.get('fontSize'), 12.0, '需求编号字号不得过小（>= 12px）')
                 self.assertGreaterEqual(badge_res.get('fontWeight'), 600, '需求编号 font-weight 至少 600')
 
+                # E3. 键盘事件与嵌套按钮冒泡防重：真实需求行 Enter / Space 激活契约
+                # 1) focus row, dispatch Enter => exactly 1 increment
+                open_cnt = len(open_events)
+                js_row_enter = '''(() => {
+                    const row = document.querySelector('.req-list .ck:not(.is-demo)');
+                    if (!row) return false;
+                    row.focus();
+                    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                    return true;
+                })()'''
+                self.assertTrue(run_js(js_row_enter))
+                timer_wait.start(100)
+                loop.exec()
+                self.assertEqual(len(open_events), open_cnt + 1, '聚焦真实需求行按 Enter 必须派发且仅派发 1 次 openRequirement')
+
+                # 2) focus row, dispatch Space => exactly 1 increment
+                open_cnt = len(open_events)
+                js_row_space = '''(() => {
+                    const row = document.querySelector('.req-list .ck:not(.is-demo)');
+                    if (!row) return false;
+                    row.focus();
+                    row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true }));
+                    return true;
+                })()'''
+                self.assertTrue(run_js(js_row_space))
+                timer_wait.start(100)
+                loop.exec()
+                self.assertEqual(len(open_events), open_cnt + 1, '聚焦真实需求行按 Space 必须派发且仅派发 1 次 openRequirement')
+
+                # 3) focus .row-act-btn, dispatch Enter/native activation => exactly 1 increment
+                open_cnt = len(open_events)
+                js_btn_enter = '''(() => {
+                    const btn = document.querySelector('.req-list .ck:not(.is-demo) .row-act-btn');
+                    if (!btn) return false;
+                    btn.focus();
+                    btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                    btn.click();
+                    return true;
+                })()'''
+                self.assertTrue(run_js(js_btn_enter))
+                timer_wait.start(100)
+                loop.exec()
+                self.assertEqual(len(open_events), open_cnt + 1, '聚焦“查看”按钮按 Enter/激活必须且仅派发 1 次 openRequirement（不得重复触发）')
+
+                # 4) focus .row-act-btn, dispatch Space/native activation => exactly 1 increment
+                open_cnt = len(open_events)
+                js_btn_space = '''(() => {
+                    const btn = document.querySelector('.req-list .ck:not(.is-demo) .row-act-btn');
+                    if (!btn) return false;
+                    btn.focus();
+                    btn.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true }));
+                    btn.click();
+                    return true;
+                })()'''
+                self.assertTrue(run_js(js_btn_space))
+                timer_wait.start(100)
+                loop.exec()
+                self.assertEqual(len(open_events), open_cnt + 1, '聚焦“查看”按钮按 Space/激活必须且仅派发 1 次 openRequirement（不得重复触发）')
+
                 # F. 示例模式与虚假 ID 防御
                 open_count_before = len(open_events)
                 bridge.set_summary_provider(
@@ -250,18 +309,28 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 js_demo_check = '''(() => {
                     const demoBadges = document.querySelectorAll('.demo-badge');
                     const demoRow = document.querySelector('.req-list .ck.is-demo');
+                    let role = null;
+                    let tabindex = null;
                     if (demoRow) {
+                        role = demoRow.getAttribute('role');
+                        tabindex = demoRow.getAttribute('tabindex');
                         demoRow.click();
+                        demoRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        demoRow.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true }));
                     }
                     return {
                         badgeCount: demoBadges.length,
-                        hasDemoRow: !!demoRow
+                        hasDemoRow: !!demoRow,
+                        role: role,
+                        tabindex: tabindex,
                     };
                 })()'''
                 demo_res = run_js(js_demo_check)
                 self.assertGreaterEqual(demo_res['badgeCount'], 1, '示例模式下必须渲染示例徽章')
                 self.assertTrue(demo_res['hasDemoRow'], '示例模式下必须渲染带有 is-demo 的需求行')
-                self.assertEqual(len(open_events), open_count_before, '点击示例需求行绝对不得向 Python 派发虚假 ID')
+                self.assertIsNone(demo_res.get('role'), 'Demo 行不得暴露 role="button"')
+                self.assertTrue(demo_res.get('tabindex') is None or int(demo_res.get('tabindex')) < 0, 'Demo 行不得具备键盘可交互 tabindex')
+                self.assertEqual(len(open_events), open_count_before, '点击或键盘激活示例需求行绝对不得向 Python 派发虚假 ID')
 
         finally:
             if widget is not None:

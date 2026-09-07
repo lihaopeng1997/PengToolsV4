@@ -166,8 +166,8 @@ const releasePercent = computed(() => {
               :tabindex="r.is_demo ? undefined : 0"
               :role="r.is_demo ? undefined : 'button'"
               @click="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
-              @keydown.enter="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
-              @keydown.space.prevent="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
+              @keydown.enter.self="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
+              @keydown.space.self.prevent="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
@@ -246,8 +246,8 @@ const releasePercent = computed(() => {
             :tabindex="task.is_demo ? undefined : 0"
             :role="task.is_demo ? undefined : 'button'"
             @click="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
-            @keydown.enter="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
-            @keydown.space.prevent="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
+            @keydown.enter.self="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
+            @keydown.space.self.prevent="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
           >
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
             <span class="t">
@@ -371,7 +371,7 @@ html[data-theme="black"] body::before, html.dark body::before {
 .btn:disabled { opacity: 0.5; pointer-events: none; }
 .btn svg { width:15px; height:15px; }
 .btn-primary { background:var(--grad); color:var(--on-primary); box-shadow:0 8px 22px var(--shadow-l2); }
-.btn-primary:hover { transform:translateY(-1px); box-shadow:0 12px 28px var(--shadow-l4); }
+.btn-primary:hover { transform:translateY(-1px); box-shadow:0 10px 24px var(--shadow-l4); }
 .btn-primary:active { transform:translateY(0) scale(0.98); box-shadow:0 4px 12px var(--shadow-l1); }
 .btn-ghost { background:transparent; color:var(--ink-2); }
 .btn-ghost:hover { color:var(--primary); background:var(--primary-soft); }
