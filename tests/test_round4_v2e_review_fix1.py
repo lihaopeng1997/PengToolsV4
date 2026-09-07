@@ -91,7 +91,8 @@ class TestRound4V2EReviewFix1(unittest.TestCase):
 
     def test_more_menu_sync_toolbar_state(self):
         from unittest.mock import patch
-        with patch('panels.requirement_panel.load_requirements', return_value=[]),              patch('panels.requirement_panel.load_systems', return_value=[]):
+        with patch('panels.requirement_panel.load_requirements', return_value=[]), \
+             patch('panels.requirement_panel.load_systems', return_value=[]):
             panel = RequirementPanel()
             panel._sync_toolbar_more_menu()
             if hasattr(panel, '_action_checkout'):
@@ -99,6 +100,73 @@ class TestRound4V2EReviewFix1(unittest.TestCase):
             if hasattr(panel, '_action_import'):
                 self.assertTrue(panel._action_import.isEnabled())
 
+    def test_requirement_toolbar_modes_and_no_orphan_buttons(self):
+        """测试 4 种响应式布局下工具栏固定 4 主按钮，无 orphan secondary button，More 始终可达。"""
+        from unittest.mock import patch
+        with patch('panels.requirement_panel.load_requirements', return_value=[]), \
+             patch('panels.requirement_panel.load_systems', return_value=[]):
+            panel = RequirementPanel()
+            self.assertFalse(hasattr(panel, 'checkout_btn'))
+            self.assertFalse(hasattr(panel, 'import_btn'))
+            self.assertFalse(hasattr(panel, 'system_config_btn'))
+            more_actions = panel.toolbar_more_menu.actions()
+            self.assertIn(panel._action_checkout, more_actions)
+            self.assertIn(panel._action_import, more_actions)
+            self.assertIn(panel._action_syscfg, more_actions)
+
+            for mode in ('wide', 'standard', 'compact', 'narrow'):
+                panel.apply_layout_mode(mode)
+                self.assertFalse(panel.scan_btn.isHidden())
+                self.assertFalse(panel.update_all_btn.isHidden())
+                self.assertFalse(panel.bug_btn.isHidden())
+                self.assertFalse(panel.toolbar_more_btn.isHidden())
+
+    def test_native_dashboard_save_refresh(self):
+        """测试 MainWindow._push_dashboard_summary 传入 requirement 字典时调用 refresh_for_requirement 保留月份聚焦。"""
+        from unittest.mock import MagicMock, patch
+        from main_window import MainWindow
+        with patch.object(MainWindow, '__init__', return_value=None):
+            mw = MainWindow()
+            mock_dash = MagicMock()
+            mw.dashboard_panel = mock_dash
+            mock_bridge = MagicMock()
+            mw._dash_bridge = mock_bridge
+
+            req = {'id': 'REQ-1', 'actual_release_date': '2026-10-15'}
+            mw._push_dashboard_summary(req)
+
+            mock_dash.refresh_for_requirement.assert_called_once_with(req)
+            mock_bridge.push_summary.assert_called_once()
+
+    def test_requirement_more_method_count_is_one(self):
+        """静态断言 RequirementPanel 中 _sync_toolbar_more_menu 方法定义数量必须严格为 1。"""
+        import inspect
+        from panels import requirement_panel
+        source = inspect.getsource(requirement_panel)
+        matches = [line for line in source.splitlines() if line.strip().startswith('def _sync_toolbar_more_menu(')]
+        self.assertEqual(len(matches), 1, f'_sync_toolbar_more_menu 出现多份定义: {len(matches)}')
+
+    def test_no_planned_field_writes_in_requirements_module(self):
+        """静态断言 tools/requirements.py 中不得有任何 planned_* 字段的写入赋值。"""
+        import inspect
+        from tools import requirements
+        source = inspect.getsource(requirements)
+        lines = source.splitlines()
+        write_matches = []
+        for idx, line in enumerate(lines, 1):
+            if any(key in line for key in ("'planned_", '"planned_', 'planned_online_date', 'planned_release_date')):
+                stripped = line.strip()
+                if '=' in stripped and not stripped.startswith('#'):
+                    # 允许只读 fallback: e.g. req.get('planned_...')
+                    if '==' in stripped or '!=' in stripped:
+                        continue
+                    if 'get(' in stripped and stripped.find('=') < stripped.find('get('):
+                        # This is a read: var = req.get('planned_...')
+                        continue
+                    write_matches.append(f'L{idx}: {stripped}')
+        self.assertEqual(write_matches, [], f'发现生产写入 planned_* 字段: {write_matches}')
+
 
 if __name__ == '__main__':
     unittest.main()
+

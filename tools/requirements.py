@@ -701,18 +701,11 @@ def apply_auto_inference(requirement, systems=None, only_empty=True):
             item['systems'] = list(inferred)
             sync_system_fields(item)
 
-    if not only_empty or not str(item.get('online_month') or '').strip():
-        month = infer_online_month_from_text(corpus)
-        if not month and item.get('local_path'):
-            try:
-                from tools.svn_workspace import infer_online_month
-                month = infer_online_month(item.get('local_path', ''))
-            except Exception:
-                month = ''
-        if month:
-            item['online_month'] = month
-            if not str(item.get('planned_online_date') or '').strip():
-                item['planned_online_date'] = month_end_date(month)
+    # online_month 严格由 actual_release_date 派生；推断不得自动生成 actual_release_date 或 planned_*
+    actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+    item['actual_release_date'] = actual_date
+    item['actual_online_date'] = actual_date
+    item['online_month'] = actual_date[:7] if actual_date else ''
 
     flag_keys = (
         'has_sql',
@@ -920,8 +913,9 @@ def requirement_from_working_copy(copy_info, systems=None):
         'title': title,
         'record_kind': copy_info.get('record_kind', '需求'),
         'category': '缺陷优化' if copy_info.get('record_kind') == 'BUG' else classify_requirement(title),
-        'online_month': copy_info.get('online_month', '') or seed.get('online_month', ''),
-        'planned_online_date': month_end_date(copy_info.get('online_month', '') or seed.get('online_month', '')),
+        'online_month': '',
+        'actual_release_date': '',
+        'actual_online_date': '',
         'svn_url': copy_info.get('svn_url', ''),
         'local_path': path,
         'svn_revision': copy_info.get('svn_revision', ''),
@@ -957,9 +951,7 @@ def merge_working_copies(requirements, copies):
                 'file_count': copy_info.get('file_count', existing.get('file_count', 0)),
                 'source_modified_at': copy_info.get('source_modified_at', existing.get('source_modified_at', '')),
             })
-            if not existing.get('online_month') and copy_info.get('online_month'):
-                existing['online_month'] = copy_info['online_month']
-                existing['planned_online_date'] = month_end_date(copy_info['online_month'])
+            existing['online_month'] = (existing.get('actual_release_date') or existing.get('actual_online_date') or '')[:7]
             existing['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
             updated += 1
             continue

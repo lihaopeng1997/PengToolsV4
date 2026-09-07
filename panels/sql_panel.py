@@ -385,7 +385,7 @@ class SqlToolPanel(QWidget):
         exact = 0
         system_names = [system['name'] for system in self._systems]
         for row, requirement in enumerate(self._release_requirements):
-            date_value = str(requirement.get('actual_online_date') or requirement.get('planned_online_date') or '')[:10]
+            date_value = str(requirement.get('actual_release_date') or requirement.get('actual_online_date') or '')[:10]
             prefer = bool(
                 self._prefer_requirement_key
                 and requirement_identity(requirement) == self._prefer_requirement_key
@@ -1276,8 +1276,8 @@ class SqlToolPanel(QWidget):
         requirement = requirement if isinstance(requirement, dict) else {}
         self._prefer_requirement_key = requirement_identity(requirement)
         date_text = str(
-            requirement.get('actual_online_date')
-            or requirement.get('planned_online_date')
+            requirement.get('actual_release_date')
+            or requirement.get('actual_online_date')
             or ''
         )[:10]
         if not date_text and requirement.get('online_month'):

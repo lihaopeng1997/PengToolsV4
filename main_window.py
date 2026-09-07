@@ -1483,11 +1483,15 @@ class MainWindow(QMainWindow):
                 'recent': [], 'checklist': [], 'tools': [], 'monthly_release_tasks': [],
             }
 
-    def _push_dashboard_summary(self, *_args):
+    def _push_dashboard_summary(self, *args):
         """向 Web Dashboard 与原生 Dashboard 同步推送最新统计与上线数据。"""
         if self.dashboard_panel is not None:
             try:
-                self.dashboard_panel.refresh(preferred_release_month=None)
+                first_arg = args[0] if args else None
+                if isinstance(first_arg, dict) and hasattr(self.dashboard_panel, 'refresh_for_requirement'):
+                    self.dashboard_panel.refresh_for_requirement(first_arg)
+                else:
+                    self.dashboard_panel.refresh(preferred_release_month=None)
             except Exception:
                 pass
         if getattr(self, '_dash_bridge', None) is not None:

@@ -30,7 +30,7 @@ def branch_name_from_svn(url):
 
 
 def requirement_date(requirement):
-    return str(requirement.get('actual_online_date') or requirement.get('planned_online_date') or '').strip()[:10]
+    return str(requirement.get('actual_release_date') or requirement.get('actual_online_date') or '').strip()[:10]
 
 
 def rank_requirements(requirements, upgrade_date):

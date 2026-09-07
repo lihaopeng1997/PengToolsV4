@@ -1487,11 +1487,8 @@ class RequirementPanel(QWidget):
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(8)
         self.scan_btn = QPushButton('扫描需求目录', toolbar_card); self.scan_btn.clicked.connect(self._scan_folder)
-        self.checkout_btn = QPushButton('检出代码', toolbar_card); self.checkout_btn.clicked.connect(self._checkout_svn)
         self.update_all_btn = QPushButton('更新全部', toolbar_card); self.update_all_btn.clicked.connect(self._update_all)
         self.bug_btn = QPushButton('登记缺陷', toolbar_card); self.bug_btn.clicked.connect(self._paste_bug)
-        self.import_btn = QPushButton('导入资料', toolbar_card); self.import_btn.clicked.connect(self._import_requirement)
-        self.system_config_btn = QPushButton('系统配置', toolbar_card); self.system_config_btn.clicked.connect(self.open_system_config.emit)
 
         self.toolbar_more_btn = QPushButton('更多 ▾', toolbar_card)
         self.toolbar_more_menu = QMenu(self.toolbar_more_btn)
@@ -2091,18 +2088,6 @@ class RequirementPanel(QWidget):
             'content_splitter_sizes': self._content_stack_sizes(),
         })
 
-    def _sync_toolbar_more_menu(self):
-        """同步顶部工具栏 More 菜单中的 Action 启用与可见状态。"""
-        if hasattr(self, '_action_checkout') and hasattr(self, 'checkout_btn'):
-            self._action_checkout.setEnabled(self.checkout_btn.isEnabled())
-            self._action_checkout.setVisible(not self.checkout_btn.isVisible())
-        if hasattr(self, '_action_import') and hasattr(self, 'import_btn'):
-            self._action_import.setEnabled(self.import_btn.isEnabled())
-            self._action_import.setVisible(not self.import_btn.isVisible())
-        if hasattr(self, '_action_syscfg') and hasattr(self, 'system_config_btn'):
-            self._action_syscfg.setEnabled(self.system_config_btn.isEnabled())
-            self._action_syscfg.setVisible(not self.system_config_btn.isVisible())
-
     def _sync_file_more_menu(self):
         """同步文件库 More 菜单中 Actions 的启用与可见状态。"""
         if hasattr(self, '_action_new_text') and hasattr(self, 'new_text_btn'):
@@ -2188,28 +2173,10 @@ class RequirementPanel(QWidget):
             double_click_reset=False,
         )
 
-        # 1. 顶部工具栏响应式收纳
+        # 1. 顶部工具栏固定 4 主按钮（扫描/更新/提单/更多），More 菜单始终可达，不产生 layout 外 orphan 按钮
         if hasattr(self, 'toolbar_more_btn'):
-            if mode in ('wide', 'standard'):
-                for b in (self.scan_btn, self.checkout_btn, self.update_all_btn, self.bug_btn, self.import_btn, self.system_config_btn):
-                    b.show()
-                self.toolbar_more_btn.hide()
-            elif mode == 'compact':
-                self.scan_btn.show()
-                self.checkout_btn.show()
-                self.update_all_btn.show()
-                self.bug_btn.show()
-                self.import_btn.hide()
-                self.system_config_btn.hide()
-                self.toolbar_more_btn.show()
-            else:  # narrow
-                self.scan_btn.show()
-                self.checkout_btn.hide()
-                self.update_all_btn.show()
-                self.bug_btn.show()
-                self.import_btn.hide()
-                self.system_config_btn.hide()
-                self.toolbar_more_btn.show()
+            for b in (self.scan_btn, self.update_all_btn, self.bug_btn, self.toolbar_more_btn):
+                b.show()
 
         # 2. 文件库操作栏响应式收纳（常用操作直显，低频操作收进 More）
         if hasattr(self, 'file_more_btn'):

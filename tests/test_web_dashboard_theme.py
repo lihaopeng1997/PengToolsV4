@@ -161,6 +161,19 @@ class RgbaCssNormalizationTest(unittest.TestCase):
         for sig in ['navigateRequested', 'paletteRequested', 'activeChanged', 'pageReadyReceived', 'themeChanged']:
             self.assertTrue(hasattr(bridge, sig), f'HomeBridge 缺少信号: {sig}')
 
+    def test_all_dashboard_icons_defined_in_sprite(self):
+        """Regression: DashboardApp.vue 中使用到的所有 #i-* 图标必须在 IconSprite.vue 中存在。"""
+        vue_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue')
+        sprite_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'IconSprite.vue')
+        with open(vue_path, 'r', encoding='utf-8') as f:
+            vue_source = f.read()
+        with open(sprite_path, 'r', encoding='utf-8') as f:
+            sprite_source = f.read()
+        used = set(re.findall(r'#i-([a-zA-Z0-9_-]+)', vue_source))
+        defined = set(re.findall(r'id=["\']i-([a-zA-Z0-9_-]+)["\']', sprite_source))
+        missing = used - defined
+        self.assertFalse(missing, f'IconSprite.vue 缺少图标定义: {missing}')
+
 
 if __name__ == '__main__':
     unittest.main()

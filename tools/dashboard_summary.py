@@ -104,6 +104,7 @@ def monthly_release_tasks(requirements, month: str, today: datetime.date) -> lis
             'actual_online_date': actual_date,
             'done': bool(display['done']),
             'nav': 10,
+            'is_demo': bool(item.get('is_demo')),
         })
     rows.sort(key=lambda row: (row.get('actual_release_date') or '9999-12-31', row.get('title') or ''))
     return rows
@@ -205,7 +206,7 @@ def build_dashboard_summary(
     display_month_tasks = monthly_release_tasks(display_items, month, day)
     total = len(real_month_tasks)
     done = sum(1 for row in real_month_tasks if row.get('done'))
-    countdown = resolve_release_countdown(display_items, board, day)
+    countdown = resolve_release_countdown(display_items, None, day)
 
     recent = []
     ordered = sorted(
@@ -246,28 +247,34 @@ def build_dashboard_summary(
         'username': username or 'Lihp',
         'greeting': greeting,
         'date_line': date_line,
+        'is_demo': is_demo,
         'stats': {
-            'req_open': len(open_reqs),
-            'req_trend': '暂无真实需求（显示示例）' if is_demo else f'共 {len(requirements)} 条',
+            'req_open': len(open_reqs) if not is_demo else 2,
+            'req_trend': '示例数据' if is_demo else f'共 {len(requirements)} 条',
             'daily_done': daily_done,
             'daily_total': 5,
             'daily_note': daily_note,
-            'monthly_release_total': total,
-            'monthly_release_done': done,
-            'completed_total': sum(1 for item in requirements if str(item.get('status') or '') in _OPEN_STATUSES),
+            'monthly_release_total': total if not is_demo else demo_month_total,
+            'monthly_release_done': done if not is_demo else demo_month_done,
+            'display_monthly_release_total': demo_month_total,
+            'display_monthly_release_done': demo_month_done,
+            'real_monthly_release_total': total,
+            'real_monthly_release_done': done,
+            'completed_total': sum(1 for item in requirements if str(item.get('status') or '') in _OPEN_STATUSES) if not is_demo else 1,
             'is_demo': is_demo,
         },
         'release': {
             'version': 'RELEASE',
             'total': total if not is_demo else demo_month_total,
             'done': done if not is_demo else demo_month_done,
-            'percent': int(done * 100 / total) if total else (
+            'percent': int(done * 100 / total) if (not is_demo and total) else (
                 int(demo_month_done * 100 / demo_month_total) if (is_demo and demo_month_total) else 0
             ),
             'days_left': countdown['days_left'],
             'date_text': countdown['date_text'],
             'countdown_state': countdown['countdown_state'],
             'target_date': countdown['target_date'],
+            'is_demo': is_demo,
         },
         'recent': recent,
         'checklist': [

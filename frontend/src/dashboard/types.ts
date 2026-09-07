@@ -7,6 +7,11 @@ export interface DashboardStats {
   monthly_release_total?: number | null
   monthly_release_done?: number | null
   completed_total?: number | null
+  display_monthly_release_total?: number | null
+  display_monthly_release_done?: number | null
+  real_monthly_release_total?: number | null
+  real_monthly_release_done?: number | null
+  is_demo?: boolean | null
 }
 
 export interface DashboardRelease {
@@ -18,6 +23,7 @@ export interface DashboardRelease {
   date_text?: string | null
   countdown_state?: 'future' | 'today' | 'overdue' | 'unset' | string | null
   target_date?: string | null
+  is_demo?: boolean | null
 }
 
 export interface MonthlyReleaseTask {
@@ -31,6 +37,7 @@ export interface MonthlyReleaseTask {
   actual_online_date?: string | null
   done?: boolean | null
   nav?: number | null
+  is_demo?: boolean | null
 }
 
 export interface DashboardRecentItem {
@@ -46,6 +53,7 @@ export interface DashboardRecentItem {
   color?: string | null
   done?: boolean | null
   nav?: number | null
+  is_demo?: boolean | null
 }
 
 export interface DashboardChecklistItem {
@@ -66,6 +74,7 @@ export interface DashboardSummary {
   username?: string | null
   greeting?: string | null
   date_line?: string | null
+  is_demo?: boolean | null
   stats?: DashboardStats | null
   release?: DashboardRelease | null
   recent?: DashboardRecentItem[] | null

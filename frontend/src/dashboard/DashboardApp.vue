@@ -43,12 +43,17 @@ function onCreateRequirement(): void {
 }
 
 function onOpenRequirement(reqId?: string | null, fallbackNav = 10): void {
-  if (reqId && props.state.bridge?.openRequirement) {
+  if (!reqId || String(reqId).startsWith('demo-')) {
+    return
+  }
+  if (props.state.bridge?.openRequirement) {
     props.state.bridge.openRequirement(reqId)
   } else {
     onNavClick(fallbackNav)
   }
 }
+
+const isDemoMode = computed(() => Boolean(summary.value?.is_demo || summary.value?.stats?.is_demo))
 
 const reqOpenText = computed(() => {
   const v = summary.value?.stats?.req_open
@@ -68,7 +73,7 @@ const monthlyReleaseText = computed(() => {
 
 const monthlyReleaseNote = computed(() => {
   const done = summary.value?.stats?.monthly_release_done ?? summary.value?.release?.done ?? 0
-  return `已完成 ${done} 项`
+  return isDemoMode.value ? `已完成 ${done} 项 · 示例` : `已完成 ${done} 项`
 })
 
 const completedTotalText = computed(() => {
@@ -77,7 +82,7 @@ const completedTotalText = computed(() => {
 })
 
 const completedNote = computed(() => {
-  return '累计已结项'
+  return isDemoMode.value ? '累计已结项 (示例)' : '累计已结项'
 })
 
 const releasePercent = computed(() => {
@@ -127,7 +132,7 @@ const releasePercent = computed(() => {
       <div class="glass stat clickable" @click="onNavClick(10)">
         <div class="ic c3"><svg><use href="#i-rocket" /></svg></div>
         <b>{{ monthlyReleaseText }}</b>
-        <div class="lbl">本月上线任务</div>
+        <div class="lbl">{{ isDemoMode ? '本月上线 (示例)' : '本月上线任务' }}</div>
         <span class="trend hot">{{ monthlyReleaseNote }}</span>
       </div>
 
@@ -145,7 +150,7 @@ const releasePercent = computed(() => {
       <div class="card pad">
         <div class="ph">
           <span class="tt">最近需求</span>
-          <span class="sub">RECENT</span>
+          <span class="sub">{{ isDemoMode ? '示例数据 · DEMO' : 'RECENT' }}</span>
           <span class="sp"></span>
           <button class="btn btn-ghost btn-xs" @click="onNavClick(10)">
             进入需求管理 →
@@ -157,7 +162,8 @@ const releasePercent = computed(() => {
               v-for="(r, idx) in summary.recent"
               :key="r.id || r.code || idx"
               class="ck"
-              @click="onOpenRequirement(r.id, r.nav ?? 10)"
+              :class="{ 'is-demo': r.is_demo }"
+              @click="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span class="t">
@@ -171,9 +177,10 @@ const releasePercent = computed(() => {
               <span class="chip" :class="r.status || 'run'">
                 <i></i>{{ r.status_label || statusLabel(r.status) }}
               </span>
-              <button class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(r.id, r.nav ?? 10)">
+              <button v-if="!r.is_demo" class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(r.id, r.nav ?? 10)">
                 查看
               </button>
+              <span v-else class="demo-badge">示例</span>
             </div>
           </template>
           <div v-else class="note">暂无需求记录</div>
@@ -184,7 +191,7 @@ const releasePercent = computed(() => {
       <div class="card pad">
         <div class="ph">
           <span class="tt">本月上线任务</span>
-          <span class="sub">MONTHLY RELEASE</span>
+          <span class="sub">{{ isDemoMode ? '示例数据 · DEMO' : 'MONTHLY RELEASE' }}</span>
           <span class="sp"></span>
           <button class="btn btn-ghost btn-xs" @click="onNavClick(10)">
             查看全部 →
@@ -193,8 +200,8 @@ const releasePercent = computed(() => {
         <div class="rel">
           <div class="ric"><svg><use href="#i-rocket" /></svg></div>
           <div>
-            <b>本月上线任务</b>
-            <div class="rs">{{ summary.release?.date_text || '按实际上线日期归档' }}</div>
+            <b>{{ isDemoMode ? '本月上线任务 (示例)' : '本月上线任务' }}</b>
+            <div class="rs">{{ isDemoMode ? '当前无真实需求，展示示例数据' : (summary.release?.date_text || '按实际上线日期归档') }}</div>
           </div>
           <span class="dchip">{{ monthlyReleaseText }} 项</span>
         </div>
@@ -205,7 +212,7 @@ const releasePercent = computed(() => {
         <div class="plabel">
           <span>整体进度</span>
           <span>
-            <b>{{ releasePercent }}%</b> · 已完成 {{ summary.release?.done ?? 0 }} / {{ summary.release?.total ?? 0 }} 项
+            <b>{{ releasePercent }}%</b> · 已完成 {{ summary.release?.done ?? 0 }} / {{ summary.release?.total ?? 0 }} 项<template v-if="isDemoMode"> (示例)</template>
           </span>
         </div>
 
@@ -226,7 +233,8 @@ const releasePercent = computed(() => {
             v-for="(task, idx) in summary.monthly_release_tasks"
             :key="task.id || task.code || task.title || idx"
             class="ck"
-            @click="onOpenRequirement(task.id, task.nav ?? 10)"
+            :class="{ 'is-demo': task.is_demo }"
+            @click="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
           >
             <span class="t">
               <b v-if="task.code">{{ task.code }}</b>&nbsp;
@@ -240,9 +248,10 @@ const releasePercent = computed(() => {
             <span class="chip" :class="task.done ? 'ok' : 'run'">
               <i></i>{{ task.done ? '已完成' : (task.status || '进行中') }}
             </span>
-            <button class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(task.id, task.nav ?? 10)">
+            <button v-if="!task.is_demo" class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(task.id, task.nav ?? 10)">
               查看
             </button>
+            <span v-else class="demo-badge">示例</span>
           </div>
         </div>
       </div>
@@ -386,6 +395,8 @@ html[data-theme="black"] body::before, html.dark body::before {
 .ic-xs { width:10px; height:10px; }
 .row-act-btn { opacity:0.85; margin-left:4px; flex-shrink:0; }
 .row-act-btn:hover { opacity:1; }
+.ck.is-demo { opacity:0.88; cursor:default; }
+.demo-badge { font-size:10px; font-weight:700; color:var(--ink-3); background:var(--surface-soft); border:1px dashed var(--edge-strong); border-radius:6px; padding:2px 7px; margin-left:4px; flex-shrink:0; }
 .note { font-size:12px; color:var(--ink-3); padding:12px 8px; text-align:center; font-weight:600; }
 .progress { height:9px; border-radius:99px; background:var(--surface-tech, var(--surface-soft)); overflow:hidden; }
 .progress .fill { height:100%; border-radius:99px; background:var(--grad); position:relative; }
