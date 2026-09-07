@@ -95,6 +95,11 @@ class ConfirmActionDialog(QDialog):
         root.addLayout(buttons)
         self.cancel_button.setFocus()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
+
 
 class _CloseOptionCard(QFrame):
     """可键盘聚焦的选择卡片：一点即选，不再二次确认。"""
@@ -241,6 +246,11 @@ class CloseActionDialog(QDialog):
         else:
             self.minimize_button.setFocus()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
+
     def _choose(self, action):
         self._result = action
         self.accept()
@@ -295,6 +305,11 @@ class AppNoticeDialog(QDialog):
         buttons.addWidget(self.ok_button)
         root.addLayout(buttons)
         self.ok_button.setFocus()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
 
 
 def confirm_action(parent, title, message, confirm_text='确认删除', danger=True):
@@ -390,6 +405,11 @@ class NextStepDialog(QDialog):
         if not any(action_id == recommended or is_primary for action_id, _label, is_primary in actions):
             later.setDefault(True)
             later.setFocus()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
 
     def _choose(self, action_id):
         self._result = action_id
@@ -495,6 +515,11 @@ class HttpsCertConsentDialog(QDialog):
 
         root.addLayout(buttons)
         self.cancel_button.setFocus()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
 
 
 def confirm_https_cert_consent(parent=None, language: str = 'zh', for_listen: bool = True) -> bool:

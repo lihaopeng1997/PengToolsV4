@@ -115,28 +115,28 @@ const releasePercent = computed(() => {
 
     <!-- 4 个统计指标卡片 -->
     <div class="stats enter">
-      <div class="glass stat clickable" @click="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
         <div class="ic c1"><svg><use href="#i-req" /></svg></div>
         <b>{{ reqOpenText }}</b>
         <div class="lbl">待办需求</div>
         <span v-if="summary.stats?.req_trend" class="trend up">{{ summary.stats.req_trend }}</span>
       </div>
 
-      <div class="glass stat clickable" @click="onNavClick(9)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(9)" @keydown.enter="onNavClick(9)">
         <div class="ic c2"><svg><use href="#i-daily" /></svg></div>
         <b>{{ dailyDoneText }}</b>
         <div class="lbl">本周日报</div>
         <span v-if="summary.stats?.daily_note" class="trend">{{ summary.stats.daily_note }}</span>
       </div>
 
-      <div class="glass stat clickable" @click="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
         <div class="ic c3"><svg><use href="#i-rocket" /></svg></div>
         <b>{{ monthlyReleaseText }}</b>
         <div class="lbl">{{ isDemoMode ? '本月上线 (示例)' : '本月上线任务' }}</div>
         <span class="trend hot">{{ monthlyReleaseNote }}</span>
       </div>
 
-      <div class="glass stat clickable" @click="onNavClick(10)">
+      <div class="glass stat clickable" tabindex="0" role="button" @click="onNavClick(10)" @keydown.enter="onNavClick(10)">
         <div class="ic c4"><svg><use href="#i-db" /></svg></div>
         <b>{{ completedTotalText }}</b>
         <div class="lbl">已完成事项</div>
@@ -163,7 +163,10 @@ const releasePercent = computed(() => {
               :key="r.id || r.code || idx"
               class="ck"
               :class="{ 'is-demo': r.is_demo }"
+              tabindex="0"
+              role="button"
               @click="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
+              @keydown.enter="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
@@ -222,7 +225,10 @@ const releasePercent = computed(() => {
             v-for="(c, idx) in (summary.checklist || [])"
             :key="idx"
             class="ck"
+            tabindex="0"
+            role="button"
             @click="onNavClick(10)"
+            @keydown.enter="onNavClick(10)"
           >
             <span class="dot" :style="{ background: c.color || 'var(--edge-strong)' }"></span>
             <span class="t">{{ c.t }}</span>
@@ -235,7 +241,10 @@ const releasePercent = computed(() => {
             :key="task.id || task.code || task.title || idx"
             class="ck"
             :class="{ 'is-demo': task.is_demo }"
+            tabindex="0"
+            role="button"
             @click="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
+            @keydown.enter="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
           >
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
             <span class="t">
@@ -268,7 +277,10 @@ const releasePercent = computed(() => {
         v-for="t in (summary.tools || [])"
         :key="t.i"
         class="card tool"
+        tabindex="0"
+        role="button"
         @click="onNavClick(t.i)"
+        @keydown.enter="onNavClick(t.i)"
       >
         <div class="ic" :class="t.grad || 'c1'">
           <svg><use :href="toolIconHref(t.icon)" /></svg>
@@ -303,6 +315,10 @@ const releasePercent = computed(() => {
   --r-lg: 20px;
   --r-sm: 12px;
   --font: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --motion-fast: 100ms;
+  --motion-standard: 150ms;
+  --motion-enter: 180ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { min-height:100vh; }
@@ -346,20 +362,26 @@ html[data-theme="black"] body::before, html.dark body::before {
 .hero h1 em { font-style:normal; background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .hero p { font-size:12.5px; color:var(--ink-2); margin-top:7px; font-weight:600; }
 .hero .acts { margin-left:auto; display:flex; gap:10px; flex-wrap:wrap; }
-.btn { display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 15px; border-radius:12px; font-size:12.5px; font-weight:700; font-family:var(--font); cursor:pointer; border:1px solid transparent; transition:.22s; }
+.btn { display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 15px; border-radius:12px; font-size:12.5px; font-weight:700; font-family:var(--font); cursor:pointer; border:1px solid transparent; transition:background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); outline: none; }
+.btn:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
+.btn:disabled { opacity: 0.5; pointer-events: none; }
 .btn svg { width:15px; height:15px; }
 .btn-primary { background:var(--grad); color:var(--on-primary); box-shadow:0 8px 22px var(--shadow-l2); }
-.btn-primary:hover { transform:translateY(-1.5px); box-shadow:0 12px 28px var(--shadow-l4); }
+.btn-primary:hover { transform:translateY(-1px); box-shadow:0 10px 24px var(--shadow-l4); }
+.btn-primary:active { transform:translateY(0) scale(0.98); box-shadow:0 4px 12px var(--shadow-l1); }
 .btn-ghost { background:transparent; color:var(--ink-2); }
 .btn-ghost:hover { color:var(--primary); background:var(--primary-soft); }
+.btn-ghost:active { transform:scale(0.98); background:var(--surface-soft); }
 .btn-xs { height:26px; padding:0 10px; font-size:11.5px; border-radius:8px; }
 .clickable { cursor:pointer; }
 .meta-inline { font-size:11px; color:var(--ink-3); font-weight:normal; }
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
-.stat { padding:17px 19px; position:relative; overflow:hidden; transition:.25s; }
-.stat::before { content:""; position:absolute; top:0; left:12%; right:12%; height:2.5px; border-radius:99px; background:var(--grad); opacity:0; transition:.3s; }
-.stat:hover { transform:translateY(-4px); box-shadow:0 12px 28px var(--shadow-l2); }
+.stat { padding:17px 19px; position:relative; overflow:hidden; transition:transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); outline: none; }
+.stat::before { content:""; position:absolute; top:0; left:12%; right:12%; height:2.5px; border-radius:99px; background:var(--grad); opacity:0; transition:opacity var(--motion-fast) var(--ease-out); }
+.stat:hover { transform:translateY(-1.5px); box-shadow:0 8px 20px var(--shadow-l2); }
 .stat:hover::before { opacity:1; }
+.stat:active { transform:translateY(0); }
+.stat:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
 .stat .ic { width:37px; height:37px; border-radius:12px; display:grid; place-items:center; margin-bottom:12px; color:var(--on-primary); }
 .stat .ic svg { width:18px; height:18px; }
 .ic.c1 { background:linear-gradient(135deg, var(--accent-indigo), var(--primary-grad-end)); }
@@ -378,8 +400,10 @@ html[data-theme="black"] body::before, html.dark body::before {
 .ph .tt { font-size:14px; font-weight:800; } .ph .sub { font-size:9.5px; font-weight:800; letter-spacing:1px; color:var(--ink-3); }
 .ph .sp { flex:1; }
 .req-list, .checklist { display:flex; flex-direction:column; gap:2px; flex:1; }
-.ck { display:flex; align-items:center; gap:10px; padding:9px 9px; border-radius:11px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:.18s; }
-.ck:hover { background:var(--surface-soft); color:var(--ink); transform:translateX(3px); }
+.ck { display:flex; align-items:center; gap:10px; padding:9px 9px; border-radius:11px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); outline: none; }
+.ck:hover { background:var(--surface-soft); color:var(--ink); transform:translateX(2px); }
+.ck:active { transform:translateX(1px); }
+.ck:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
 .ck .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .ck .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .req-id-badge {
@@ -436,20 +460,26 @@ html.dark .req-id-badge {
 .rel b { font-size:13px; } .rel .rs { font-size:10.5px; color:var(--ink-2); margin-top:2px; }
 .dchip { margin-left:auto; font-family:Consolas,monospace; font-size:14px; font-weight:800; color:var(--warning); padding:5px 11px; border-radius:10px; background:var(--warning-bg); border:1px solid var(--warning-border); }
 .tools { display:grid; grid-template-columns:repeat(4,1fr); gap:13px; }
-.tool { padding:15px 16px; cursor:pointer; transition:.25s; }
-.tool:hover { transform:translateY(-4px); box-shadow:0 12px 28px var(--shadow-l2); }
-.tool .ic { width:38px; height:38px; border-radius:12px; display:grid; place-items:center; color:var(--on-primary); margin-bottom:10px; transition:.3s cubic-bezier(.34,1.56,.64,1); }
-.tool:hover .ic { transform:scale(1.12) rotate(-6deg); }
+.tool { padding:15px 16px; cursor:pointer; transition:transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); outline: none; }
+.tool:hover { transform:translateY(-1.5px); box-shadow:0 8px 20px var(--shadow-l2); }
+.tool:active { transform:translateY(0) scale(0.99); }
+.tool:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
+.tool .ic { width:38px; height:38px; border-radius:12px; display:grid; place-items:center; color:var(--on-primary); margin-bottom:10px; transition:transform var(--motion-fast) var(--ease-out); }
+.tool:hover .ic { transform:scale(1.05); }
 .tool .ic svg { width:18px; height:18px; }
 .tool .nm { font-size:12.5px; font-weight:800; } .tool .ds { font-size:10px; color:var(--ink-3); margin-top:2px; }
 .ph-row { display:flex; align-items:center; gap:9px; margin:0 2px 12px; }
 .ph-row .tt { font-size:14.5px; font-weight:800; } .ph-row .sub { font-size:9.5px; font-weight:800; letter-spacing:1px; color:var(--ink-3); }
-@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
-.enter { opacity:0; animation:fadeUp .5s cubic-bezier(.22,.9,.32,1) .05s forwards; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.enter { opacity:0; animation:fadeUp var(--motion-enter) var(--ease-out) forwards; }
 @media (max-width:1180px) { .stats { grid-template-columns:repeat(2,1fr); } .grid { grid-template-columns:1fr; } .tools { grid-template-columns:repeat(2,1fr); } }
 @media (prefers-reduced-motion: reduce) {
-  * { animation:none !important; transition:none !important; }
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
   .enter { opacity:1 !important; transform:none !important; }
+  .progress .fill::after { animation: none !important; }
 }
 
 /* 开发 fallback 样式 */

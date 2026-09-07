@@ -104,6 +104,8 @@ class AuroraProgress(QWidget):
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        if hasattr(self, '_anim_timer') and self._anim_timer.isActive():
+            self._anim_timer.stop()
         # 宿主或自身被隐藏（如切页、最小化），取消未触发的延迟定时器，防止切回时突兀弹出
         if not self._is_shown:
             self._cancel_delay_timer()

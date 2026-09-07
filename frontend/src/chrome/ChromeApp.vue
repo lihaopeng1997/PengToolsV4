@@ -82,7 +82,11 @@ function onPaletteClick(): void {
             <div
               class="nav-item parent"
               :class="{ open: openParents.has(it.i) }"
+              tabindex="0"
+              role="button"
               @click="onParentClick(it)"
+              @keydown.enter.prevent="onParentClick(it)"
+              @keydown.space.prevent="onParentClick(it)"
             >
               <NavIcon :name="it.icon" />{{ it.zh }}
               <svg class="ic chev"><use href="#i-chev" /></svg>
@@ -94,7 +98,11 @@ function onPaletteClick(): void {
                 class="nav-item"
                 :class="{ active: active.current === c.i }"
                 :title="c.tip || ''"
+                tabindex="0"
+                role="button"
                 @click="onNavClick(c)"
+                @keydown.enter.prevent="onNavClick(c)"
+                @keydown.space.prevent="onNavClick(c)"
               >
                 <NavIcon :name="c.icon" />{{ c.zh }}
               </div>
@@ -105,7 +113,11 @@ function onPaletteClick(): void {
             class="nav-item"
             :class="{ active: active.current === it.i }"
             :title="it.tip || ''"
+            tabindex="0"
+            role="button"
             @click="onNavClick(it)"
+            @keydown.enter.prevent="onNavClick(it)"
+            @keydown.space.prevent="onNavClick(it)"
           >
             <NavIcon :name="it.icon" />{{ it.zh }}
           </div>
@@ -120,14 +132,18 @@ function onPaletteClick(): void {
           class="nav-item"
           :class="{ active: active.current === model.settings.i }"
           :title="model.settings.tip || ''"
+          tabindex="0"
+          role="button"
           @click="onNavClick(model.settings)"
+          @keydown.enter.prevent="onNavClick(model.settings)"
+          @keydown.space.prevent="onNavClick(model.settings)"
         >
           <NavIcon :name="model.settings.icon" />{{ model.settings.zh }}
         </div>
       </div>
       <div class="meta">
         <span>Author · Lihp</span>
-        <span class="kbd" title="快速面板" @click="onPaletteClick">Ctrl+Shift+P</span>
+        <span class="kbd" title="快速面板" tabindex="0" role="button" @click="onPaletteClick" @keydown.enter.prevent="onPaletteClick">Ctrl+Shift+P</span>
       </div>
     </div>
   </div>
@@ -150,6 +166,9 @@ function onPaletteClick(): void {
   --grad: linear-gradient(115deg, var(--primary-grad-start, #5B73FF), var(--primary-grad-end, #4A61F0));
   --r-sm: 12px;
   --font: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --motion-fast: 100ms;
+  --motion-standard: 150ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { height:100%; }
@@ -176,34 +195,43 @@ body::before {
 html[data-theme="black"] body::before, html.dark body::before {
   opacity: 0.14;
 }
-svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
+svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:opacity var(--motion-fast) var(--ease-out); }
 .sidebar { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; padding: 16px 12px 12px; background: transparent; }
 .brand { display:flex; align-items:center; gap:10px; padding:2px 8px 14px; }
-.logo { width:36px; height:36px; border-radius:11px; background:var(--grad); display:grid; place-items:center; color:#fff; box-shadow:0 6px 16px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.4); transition:transform .35s cubic-bezier(.34,1.56,.64,1); }
+.logo { width:36px; height:36px; border-radius:11px; background:var(--grad); display:grid; place-items:center; color:#fff; box-shadow:0 6px 16px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.4); transition:transform var(--motion-standard) var(--ease-out); }
 .logo svg { width:21px; height:21px; }
-.brand:hover .logo { transform:rotate(-8deg) scale(1.06); }
+.brand:hover .logo { transform:rotate(-4deg) scale(1.03); }
 .brand-name { font-size:15px; font-weight:800; letter-spacing:.2px; color:var(--ink); }
 .nav { flex:1; overflow-y:auto; margin:0 -4px; padding:0 4px; }
 .nav::-webkit-scrollbar { width:6px; } .nav::-webkit-scrollbar-thumb { background:rgba(90,98,132,.22); border-radius:6px; }
 .group { margin-bottom:12px; }
 .g-label { font-size:9.5px; font-weight:800; letter-spacing:1.6px; color:var(--ink-3); padding:0 9px 6px; text-transform:uppercase; display:flex; align-items:center; gap:7px; }
 .g-label::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--edge),transparent); opacity:0.6; }
-.nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:2px; border-radius:var(--r-sm); color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; transition:background .2s,color .2s,transform .2s,box-shadow .2s; }
-.nav-item:hover { background:var(--nav-hover, rgba(255,255,255,.08)); color:var(--ink); transform:translateX(3px); box-shadow:0 4px 12px rgba(0,0,0,.15); }
+.nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:2px; border-radius:var(--r-sm); color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; transition:background var(--motion-fast) var(--ease-out),color var(--motion-fast) var(--ease-out),transform var(--motion-fast) var(--ease-out),box-shadow var(--motion-fast) var(--ease-out); outline: none; }
+.nav-item:hover { background:var(--nav-hover, rgba(255,255,255,.08)); color:var(--ink); transform:translateX(2px); box-shadow:0 4px 12px rgba(0,0,0,.15); }
+.nav-item:active { transform:translateX(1px) scale(0.99); }
+.nav-item:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
 .nav-item.active { background:var(--grad); color:var(--nav-active-text, #fff); font-weight:700; box-shadow:0 8px 18px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.25); }
 .nav-item.active svg { opacity:1; color:#fff; }
-.parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform .25s; }
+.parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform var(--motion-standard) var(--ease-out); }
 .parent.open .chev { transform:rotate(90deg); }
-.sub { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+.sub { max-height:0; overflow:hidden; transition:max-height var(--motion-standard) var(--ease-out); }
 .sub.open { max-height:320px; }
 .sub .nav-item { padding-left:30px; font-size:12px; }
 .sub .nav-item svg { width:14px; height:14px; }
 .foot { border-top:1px solid var(--edge); padding-top:10px; }
 .foot .meta { display:flex; justify-content:space-between; align-items:center; padding:6px 9px 0; font-size:10px; color:var(--ink-3); font-weight:600; }
-.kbd { font-size:9px; font-weight:700; color:var(--c1); background:var(--sidebar-highlight, rgba(255,255,255,.08)); border:1px solid var(--edge); border-bottom-width:2px; padding:2px 6px; border-radius:6px; cursor:pointer; }
-@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
-.sidebar { animation:fadeUp .5s cubic-bezier(.22,.9,.32,1); }
-@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+.kbd { font-size:9px; font-weight:700; color:var(--c1); background:var(--sidebar-highlight, rgba(255,255,255,.08)); border:1px solid var(--edge); border-bottom-width:2px; padding:2px 6px; border-radius:6px; cursor:pointer; transition:background var(--motion-fast) var(--ease-out); outline: none; }
+.kbd:hover { background:var(--nav-hover, rgba(255,255,255,.15)); }
+.kbd:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.sidebar { animation:fadeUp 180ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 
 /* 开发 fallback（无 Qt bridge）最小占位样式 */
 .dev-fallback { height:100%; display:grid; place-items:center; text-align:center; padding:2rem; }

@@ -252,33 +252,45 @@ QPushButton {
     border-radius: 10px; padding: 6px 12px;
     font-weight: 500;
     min-height: 20px;
+    outline: none;
 }
-QPushButton:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QPushButton:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT__; }
+QPushButton:hover { background: __SURFACE_SOFT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
+QPushButton:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
+QPushButton:focus { border-color: __PRIMARY__; outline: none; }
 QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#btn-secondary {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 10px; font-weight: 500;
+    border-radius: 10px; font-weight: 500; padding: 6px 12px;
+    outline: none;
 }
-QPushButton#btn-secondary:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QPushButton#btn-secondary:pressed { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; }
+QPushButton#btn-secondary:hover { background: __SURFACE_SOFT__; border-color: __BORDER_STRONG__; color: __TEXT_STRONG__; }
+QPushButton#btn-secondary:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
+QPushButton#btn-secondary:focus { border-color: __PRIMARY__; outline: none; }
+QPushButton#btn-secondary:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#primary-btn:pressed, QPushButton#card-action:pressed {
-    background: __PRIMARY_HOVER__;
+    background: __PRIMARY_ACTIVE__;
     color: __ON_PRIMARY__;
+    border: 1px solid __PRIMARY_ACTIVE__;
 }
 QPushButton#primary-btn, QPushButton#card-action {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
-    color: __ON_PRIMARY__; border: none; font-weight: 600; padding: 7px 14px;
+    color: __ON_PRIMARY__; border: 1px solid transparent; font-weight: 600; padding: 7px 14px;
     border-radius: 10px;
+    outline: none;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 __PRIMARY_HOVER__, stop:1 __PRIMARY__);
     color: __ON_PRIMARY__;
+    border: 1px solid transparent;
+}
+QPushButton#primary-btn:focus, QPushButton#card-action:focus {
+    border: 1.5px solid __PRIMARY_ACTIVE__;
+    outline: none;
 }
 QPushButton#primary-btn:disabled, QPushButton#card-action:disabled {
-    background: __DISABLED_BG__; color: __DISABLED_TEXT__; border: none;
+    background: __DISABLED_BG__; color: __DISABLED_TEXT__; border: 1px solid __BORDER__;
 }
 /* danger：统一破坏性操作（兼容历史 ops-delete-custom） */
 QPushButton#btn-danger, QPushButton#ops-delete-custom {
@@ -287,15 +299,26 @@ QPushButton#btn-danger, QPushButton#ops-delete-custom {
     border: 1px solid __BORDER__;
     border-radius: 10px;
     font-weight: 700;
+    outline: none;
 }
 QPushButton#btn-danger:hover, QPushButton#ops-delete-custom:hover {
-    background: __SURFACE_SOFT__;
+    background: __DANGER_BG__;
     border-color: __DANGER__;
     color: __DANGER__;
 }
 QPushButton#btn-danger:pressed, QPushButton#ops-delete-custom:pressed {
-    background: __SURFACE_SOFT__;
+    background: __DANGER__;
     border-color: __DANGER__;
+    color: #FFFFFF;
+}
+QPushButton#btn-danger:focus, QPushButton#ops-delete-custom:focus {
+    border-color: __DANGER__;
+    outline: none;
+}
+QPushButton#btn-danger:disabled, QPushButton#ops-delete-custom:disabled {
+    color: __DISABLED_TEXT__;
+    background: __DISABLED_BG__;
+    border-color: __BORDER__;
 }
 /* ghost：次级工具按钮（浅底+边框）；#ghost-btn 为历史别名，样式与 #btn-ghost 一致 */
 QPushButton#btn-ghost,
@@ -305,6 +328,7 @@ QPushButton#ghost-btn {
     border: 1px solid __BORDER__;
     border-radius: 8px;
     font-weight: 600;
+    outline: none;
 }
 QPushButton#btn-ghost:hover,
 QPushButton#ghost-btn:hover {
@@ -314,8 +338,14 @@ QPushButton#ghost-btn:hover {
 }
 QPushButton#btn-ghost:pressed,
 QPushButton#ghost-btn:pressed {
-    background: __PRIMARY_SOFT__;
+    background: __TABLE_SELECT__;
+    border-color: __PRIMARY_ACTIVE__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPushButton#btn-ghost:focus,
+QPushButton#ghost-btn:focus {
     border-color: __PRIMARY__;
+    outline: none;
 }
 QPushButton#btn-ghost:disabled,
 QPushButton#ghost-btn:disabled {

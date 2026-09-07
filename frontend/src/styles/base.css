@@ -1,7 +1,16 @@
-/* STEP-3 scaffold 基础样式：仅系统字体 + 最小排版，无远程字体/CDN，离线可用。 */
+/* STEP-3 scaffold 基础样式：系统字体 + 统一 Motion Tokens，离线可用。 */
 :root {
   color-scheme: light dark;
   font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+
+  /* Motion Tokens */
+  --motion-instant: 70ms;
+  --motion-fast: 100ms;
+  --motion-standard: 150ms;
+  --motion-enter: 180ms;
+  --motion-max: 220ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-in: cubic-bezier(.8, .2, 1, .2);
 }
 
 * {
@@ -40,5 +49,14 @@ body {
   body {
     background: #16181d;
     color: #e6e8eb;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

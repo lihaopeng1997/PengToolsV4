@@ -93,6 +93,10 @@ class ThinkingIndicator(QWidget):
         super().hideEvent(event)
         self.stop()
 
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        self.stop()
+
     def paintEvent(self, event):
         if not self.isVisible():
             return
