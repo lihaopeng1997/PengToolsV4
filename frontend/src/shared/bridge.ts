@@ -50,6 +50,21 @@ interface RawHomeBridge {
   themeChanged?: QWebChannelSignal<string>
 }
 
+export function normalizeCssTokenValue(value: string): string {
+  if (typeof value !== 'string') return value
+  return value.replace(
+    /rgba\(\s*(\d+)(\s*,\s*)(\d+)(\s*,\s*)(\d+)(\s*,\s*)([\d.]+)\s*\)/gi,
+    (_match, r, sep1, g, sep2, b, sep3, aStr) => {
+      const a = Number(aStr)
+      if (Number.isFinite(a) && a > 1 && a <= 255) {
+        const normalizedA = parseFloat((a / 255).toFixed(4))
+        return `rgba(${r}${sep1}${g}${sep2}${b}${sep3}${normalizedA})`
+      }
+      return _match
+    }
+  )
+}
+
 export function applyThemePayload(payloadStr?: string | null): void {
   if (!payloadStr) return
   try {
@@ -63,7 +78,7 @@ export function applyThemePayload(payloadStr?: string | null): void {
       for (const [key, value] of Object.entries(data.tokens)) {
         if (typeof value === 'string') {
           const varName = '--' + key.toLowerCase().replace(/_/g, '-')
-          rootStyle.setProperty(varName, value)
+          rootStyle.setProperty(varName, normalizeCssTokenValue(value))
         }
       }
     }
