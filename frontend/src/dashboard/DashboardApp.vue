@@ -271,7 +271,7 @@ body::before {
     radial-gradient(520px 360px at -80px -80px, var(--aurora-start), transparent 70%),
     radial-gradient(560px 420px at 108% 112%, var(--aurora-mid), transparent 70%),
     radial-gradient(420px 320px at 92% -60px, var(--aurora-end), transparent 70%);
-  opacity:0.25;
+  opacity:0.22;
 }
 html[data-theme="black"] body::before, html.dark body::before {
   opacity:0.16;
@@ -308,10 +308,10 @@ html[data-theme="black"] body::before, html.dark body::before {
 .stat:hover::before { opacity:1; }
 .stat .ic { width:37px; height:37px; border-radius:12px; display:grid; place-items:center; margin-bottom:12px; color:var(--on-primary); }
 .stat .ic svg { width:18px; height:18px; }
-.ic.c1 { background:linear-gradient(135deg, var(--primary-grad-start), var(--primary-grad-end)); }
-.ic.c2 { background:linear-gradient(135deg, var(--cyan), var(--aurora-mid)); }
-.ic.c3 { background:linear-gradient(135deg, var(--warning), var(--danger)); }
-.ic.c4 { background:linear-gradient(135deg, var(--success), var(--primary)); }
+.ic.c1 { background:linear-gradient(135deg, var(--accent-indigo), var(--primary-grad-end)); }
+.ic.c2 { background:linear-gradient(135deg, var(--accent-cyan), var(--cyan)); }
+.ic.c3 { background:linear-gradient(135deg, var(--accent-rose), var(--danger)); }
+.ic.c4 { background:linear-gradient(135deg, var(--accent-emerald), var(--success)); }
 .stat b { font-size:25px; font-weight:800; font-variant-numeric:tabular-nums; }
 .stat b em { font-style:normal; font-size:13px; color:var(--ink-3); }
 .stat .lbl { font-size:11.5px; color:var(--ink-2); margin-top:3px; }

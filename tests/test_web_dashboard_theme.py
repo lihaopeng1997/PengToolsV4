@@ -35,6 +35,10 @@ class DashboardThemeStaticAuditTest(unittest.TestCase):
             '--elevated-surface',
             '--warning',
             '--success',
+            '--accent-indigo',
+            '--accent-cyan',
+            '--accent-rose',
+            '--accent-emerald',
         ]
         for token in required_tokens:
             self.assertIn(token, self.vue_source, f'DashboardApp.vue 缺失必须语义 token: {token}')

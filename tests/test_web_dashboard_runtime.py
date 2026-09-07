@@ -153,9 +153,9 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
             self.assertEqual(calm_res.get('statCount'), 4, 'Production DOM 中必须有 4 个 .stat')
             self.assertGreaterEqual(calm_res.get('cardCount', 0), 2, 'Production DOM 中必须有 .card')
             self.assertTrue(calm_res.get('btnPrimary'), 'Production DOM 中必须有 .btn-primary')
-            self.assertEqual(calm_res.get('primary'), '#5B5FC7')
-            self.assertEqual(calm_res.get('primaryGradStart'), '#5B5FC7')
-            self.assertEqual(calm_res.get('primaryGradEnd'), '#4C50B0')
+            self.assertEqual(calm_res.get('primary'), '#4A61F0')
+            self.assertEqual(calm_res.get('primaryGradStart'), '#5B73FF')
+            self.assertEqual(calm_res.get('primaryGradEnd'), '#4A61F0')
             self.assertEqual(calm_res.get('glassBg'), 'rgba(255, 254, 251, 0.9255)')
 
             # 验证 Calm 高程阴影不是 none，包含正确 px 几何与归一化后的 SHADOW 颜色

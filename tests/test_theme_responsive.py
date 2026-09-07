@@ -720,10 +720,10 @@ class VisualFoundationV1Tests(unittest.TestCase):
             self.assertEqual(unresolved, (), f'{tid} QSS 存在未解析 token: {unresolved}')
 
     def test_v1_4_calm_theme_authority(self):
-        """V1-4: calm: theme meta == Calm Indigo, PRIMARY == #5B5FC7。"""
+        """V1-4: calm: theme meta == Calm Indigo, PRIMARY == #4A61F0。"""
         meta = theme_manager.THEME_META['calm']
         self.assertEqual(meta[1], 'Calm Indigo')
-        self.assertEqual(THEMES['calm']['PRIMARY'].upper(), '#5B5FC7')
+        self.assertEqual(THEMES['calm']['PRIMARY'].upper(), '#4A61F0')
 
     def test_v1_5_primary_button_gradient_tokens_and_start_diff_end(self):
         """V1-5: primary-btn rendered QSS 包含当前 theme 的 start 与 end，且 start != end。"""
