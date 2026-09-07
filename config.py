@@ -86,7 +86,7 @@ AGENT_WORKSPACES_DIR = os.path.join(AGENT_DIR, 'workspaces')
 AGENT_INDEX_FILE = os.path.join(AGENT_DIR, 'index.json')
 DEFAULT_SETTINGS = {
     'font_size': 12,
-    'ui_theme': 'calm',  # calm | clear | warm | black（night 兼容映射到 black）
+    'ui_theme': 'calm',  # calm | black
     'ui_density': 'compact',  # compact | comfortable
     'sidebar_collapsed': False,
     # 侧栏两组可折叠子菜单（SQL 控制台 / 模型）的展开状态持久化
@@ -128,7 +128,7 @@ DEFAULT_SETTINGS = {
     # Web 铬层开关（侧栏/首页 Web 化）；False 或依赖缺失时回退原生侧栏
     'ui_web_shell': True,
     # 配置架构版本（用于单次迁移识别）
-    'settings_version': 1,
+    'settings_version': 2,
 }
 DELIVERY_TEMPLATE = '{日期}/{环境}/{分类}/{系统目录}/{SQL类型}'
 VALIDATION_TEMPLATE = '{日期}/验证SQL/{系统目录}'
@@ -221,11 +221,12 @@ def normalize_settings(settings):
         result['ui_web_shell'] = web_shell.strip().lower() in ('1', 'true', 'yes', 'on')
     else:
         result['ui_web_shell'] = bool(web_shell)
-    result['settings_version'] = max(1, int(result.get('settings_version') or 1))
+    result['settings_version'] = max(1, int(result.get('settings_version') or 2))
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
-    if theme == 'night':
-        theme = 'black'
-    result['ui_theme'] = theme if theme in ('calm', 'clear', 'warm', 'black') else 'calm'
+    if theme in ('black', 'night', 'dark'):
+        result['ui_theme'] = 'black'
+    else:
+        result['ui_theme'] = 'calm'
     density = str(result.get('ui_density') or 'compact').strip().lower()
     result['ui_density'] = density if density in ('compact', 'comfortable') else 'compact'
     sidebar_value = result.get('sidebar_collapsed', False)
@@ -284,26 +285,44 @@ def normalize_settings(settings):
 
 def load_settings():
     ensure_config_dir()
+    data = None
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as stream:
             data = json.load(stream)
-            if isinstance(data, dict):
-                current_ver = int(data.get('settings_version') or 0)
-                if current_ver < 1:
-                    # Versioned one-time migration:
-                    # 仅在无 settings_version 的历史旧配置上执行一次性修复，消除旧测试阶段遗留的 ui_web_shell: false
-                    if data.get('ui_web_shell') is False:
-                        if (os.environ.get('PENGTOOLS_DISABLE_WEB_SHELL') != '1'
-                                and os.environ.get('PENGTOOLS_FORCE_NATIVE_SHELL') != '1'):
-                            data['ui_web_shell'] = True
-                    data['settings_version'] = 1
-                    try:
-                        save_settings(data)
-                    except Exception:
-                        pass
-            return normalize_settings(data)
     except (OSError, ValueError, TypeError):
         return dict(DEFAULT_SETTINGS)
+
+    if isinstance(data, dict):
+        current_ver = int(data.get('settings_version') or 0)
+        migrated = False
+        if current_ver < 1:
+            # Versioned one-time migration:
+            # 仅在无 settings_version 的历史旧配置上执行一次性修复，消除旧测试阶段遗留的 ui_web_shell: false
+            if data.get('ui_web_shell') is False:
+                if (os.environ.get('PENGTOOLS_DISABLE_WEB_SHELL') != '1'
+                        and os.environ.get('PENGTOOLS_FORCE_NATIVE_SHELL') != '1'):
+                    data['ui_web_shell'] = True
+            data['settings_version'] = 1
+            migrated = True
+
+        if current_ver < 2:
+            # Versioned migration v2: 收口为 calm / black 双主题，旧 clear/warm -> calm, night -> black
+            old_theme = str(data.get('ui_theme') or '').strip().lower()
+            if old_theme in ('clear', 'warm', 'light'):
+                data['ui_theme'] = 'calm'
+            elif old_theme in ('night', 'dark'):
+                data['ui_theme'] = 'black'
+            data['settings_version'] = 2
+            migrated = True
+
+        if migrated:
+            try:
+                save_settings(data)
+            except Exception:
+                pass
+        return normalize_settings(data)
+
+    return dict(DEFAULT_SETTINGS)
 
 
 def save_settings(settings):

@@ -190,7 +190,7 @@ svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
 .g-label::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--edge),transparent); opacity:0.6; }
 .nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:2px; border-radius:var(--r-sm); color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; transition:background .2s,color .2s,transform .2s,box-shadow .2s; }
 .nav-item:hover { background:var(--nav-hover, rgba(255,255,255,.08)); color:var(--ink); transform:translateX(3px); box-shadow:0 4px 12px rgba(0,0,0,.15); }
-.nav-item.active { background:var(--grad); color:#fff; font-weight:700; box-shadow:0 8px 18px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.25); }
+.nav-item.active { background:var(--grad); color:var(--nav-active-text, #fff); font-weight:700; box-shadow:0 8px 18px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.25); }
 .nav-item.active svg { opacity:1; color:#fff; }
 .parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform .25s; }
 .parent.open .chev { transform:rotate(90deg); }

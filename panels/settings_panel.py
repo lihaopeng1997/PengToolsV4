@@ -13,8 +13,7 @@ from ui.field_metrics import (
     size_field_height, size_line, size_pick_combo, wrap_path_field, wrap_secret_field,
 )
 from ui.theme_manager import (
-    THEME_IDS, THEME_META, preview_swatches, resolve_theme_id,
-    theme_display_name, theme_mode, theme_subtitle,
+    THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_mode,
 )
 
 THEME_MODES = ('light', 'dark')

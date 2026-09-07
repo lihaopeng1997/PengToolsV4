@@ -171,25 +171,7 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
             self.assertGreaterEqual(calm_res.get('beforeOpacity', 0), 0.20, 'Calm 下 Aurora 透明度应 >= 0.20')
             self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.24, 'Calm 下 Aurora 透明度应 <= 0.24')
 
-            # 2. 动态切换至 Clear 晴空
-            clear_res = probe_theme('clear', False)
-            self.assertEqual(clear_res.get('theme'), 'clear')
-            self.assertFalse(clear_res.get('isDark'))
-            self.assertEqual(clear_res.get('sidebarBgVar'), '#F7F9FC', 'Clear 侧栏背景应为浅蓝灰 #F7F9FC')
-            self.assertEqual(clear_res.get('sidebarTextVar'), '#161D26')
-            self.assertEqual(clear_res.get('navActiveTextVar'), '#2C4559', 'Clear 下激活文字必须为深色 #2C4559')
-            self.assertNotIn('#141B2E', clear_res.get('bodyBg', ''))
-
-            # 3. 动态切换至 Warm 暖书房
-            warm_res = probe_theme('warm', False)
-            self.assertEqual(warm_res.get('theme'), 'warm')
-            self.assertFalse(warm_res.get('isDark'))
-            self.assertEqual(warm_res.get('sidebarBgVar'), '#FBF8F2', 'Warm 侧栏背景应为米暖浅色 #FBF8F2')
-            self.assertEqual(warm_res.get('sidebarTextVar'), '#241C16')
-            self.assertEqual(warm_res.get('navActiveTextVar'), '#5E3C25', 'Warm 下激活文字必须为深色 #5E3C25')
-            self.assertNotIn('#141B2E', warm_res.get('bodyBg', ''))
-
-            # 4. 动态切换至 Black 墨黑
+            # 2. 动态切换至 Black 墨黑
             black_res = probe_theme('black', True)
             self.assertEqual(black_res.get('theme'), 'black')
             self.assertTrue(black_res.get('isDark'))

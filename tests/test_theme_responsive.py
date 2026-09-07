@@ -242,7 +242,7 @@ class NightThemeTokenTests(unittest.TestCase):
     def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
         tm = ThemeManager.instance()
         tm.load_template()
-        for theme_id in ('calm', 'clear', 'warm', 'black'):
+        for theme_id in theme_manager.THEME_IDS:
             qss = tm.render(theme_id)
             pal = THEMES[theme_id]
             self.assertIn(pal['TABLE_SELECT'], qss)
@@ -575,31 +575,31 @@ class PanelLayoutModeTests(unittest.TestCase):
         self.assertFalse(panel_night._theme_cards['light'].property('selected'))
         self.assertTrue(panel_night._theme_cards['dark'].property('selected'))
 
-    def test_settings_legacy_theme_preservation(self):
-        # 兼容旧配置 clear 与 warm：浅色卡选中，但未主动切主题时 values() 保留原值
+    def test_settings_legacy_theme_migration(self):
+        # 兼容旧配置 clear 与 warm：浅色卡选中，归一化迁移为 calm
         panel_clear = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'clear'}, 'zh')
         self.assertTrue(panel_clear._theme_cards['light'].property('selected'))
-        self.assertEqual(panel_clear.values()['ui_theme'], 'clear')
+        self.assertEqual(panel_clear.values()['ui_theme'], 'calm')
         panel_clear.font_size.setValue(15)
-        self.assertEqual(panel_clear.values()['ui_theme'], 'clear')
+        self.assertEqual(panel_clear.values()['ui_theme'], 'calm')
 
         panel_warm = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
         self.assertTrue(panel_warm._theme_cards['light'].property('selected'))
-        self.assertEqual(panel_warm.values()['ui_theme'], 'warm')
+        self.assertEqual(panel_warm.values()['ui_theme'], 'calm')
         panel_warm.font_size.setValue(16)
-        self.assertEqual(panel_warm.values()['ui_theme'], 'warm')
+        self.assertEqual(panel_warm.values()['ui_theme'], 'calm')
 
     def test_settings_explicit_mode_switching(self):
-        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
+        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
         emitted = []
         panel.settings_changed.connect(lambda s: emitted.append(s['ui_theme']))
 
-        # 从 warm 主动切换到深色 -> 发出候选 black
+        # 主动切换到深色 -> 发出候选 black
         panel._on_theme_clicked('dark')
         self.assertEqual(emitted[-1], 'black')
-        # 尚未成功 load_values 前：panel 自身仍保持 warm
-        self.assertEqual(panel._ui_theme, 'warm')
-        self.assertEqual(panel.values()['ui_theme'], 'warm')
+        # 尚未成功 load_values 前：panel 自身仍保持 calm
+        self.assertEqual(panel._ui_theme, 'calm')
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
         self.assertTrue(panel._theme_cards['light'].property('selected'))
         self.assertFalse(panel._theme_cards['dark'].property('selected'))
 
@@ -626,10 +626,10 @@ class PanelLayoutModeTests(unittest.TestCase):
 
     def test_settings_transactional_failure_keeps_previous_state(self):
         """测试主题应用失败/未确认时：SettingsPanel 绝不提前乐观改变当前状态。"""
-        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
+        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
         self.assertTrue(panel._theme_cards['light'].property('selected'))
         self.assertFalse(panel._theme_cards['dark'].property('selected'))
-        self.assertEqual(panel.values()['ui_theme'], 'warm')
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
 
         emitted = []
         panel.settings_changed.connect(lambda s: emitted.append(s))
@@ -640,8 +640,8 @@ class PanelLayoutModeTests(unittest.TestCase):
         self.assertEqual(emitted[0]['ui_theme'], 'black')
 
         # 模拟主窗口应用失败（发生异常并回滚，不调用 panel.load_values）
-        self.assertEqual(panel._ui_theme, 'warm')
-        self.assertEqual(panel.values()['ui_theme'], 'warm')
+        self.assertEqual(panel._ui_theme, 'calm')
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
         self.assertTrue(panel._theme_cards['light'].property('selected'))
         self.assertFalse(panel._theme_cards['dark'].property('selected'))
 
@@ -653,11 +653,11 @@ class PanelLayoutModeTests(unittest.TestCase):
         self.assertEqual(theme_mode('black'), 'dark')
         self.assertEqual(theme_mode('night'), 'dark')
 
-        self.assertEqual(resolve_theme_id('clear'), 'clear')
-        self.assertEqual(resolve_theme_id('warm'), 'warm')
+        self.assertEqual(resolve_theme_id('clear'), 'calm')
+        self.assertEqual(resolve_theme_id('warm'), 'calm')
         self.assertEqual(resolve_theme_id('night'), 'black')
-        self.assertIn('clear', THEMES)
-        self.assertIn('warm', THEMES)
+        self.assertNotIn('clear', THEMES)
+        self.assertNotIn('warm', THEMES)
 
     def test_gateway_and_format_layout_mode(self):
         g = GatewayDecodePanel('zh')
@@ -694,8 +694,8 @@ class VisualFoundationV1Tests(unittest.TestCase):
     )
 
     def test_v1_1_all_themes_explicitly_contain_visual_tokens(self):
-        """V1-1: 所有 4 themes 显式包含 10 个视觉 token。"""
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        """V1-1: 所有规范 themes 显式包含 10 个视觉 token。"""
+        for tid in theme_manager.THEME_IDS:
             pal = THEMES[tid]
             for tok in self.V1_EXPLICIT_TOKENS:
                 self.assertIn(tok, pal, f'{tid} 缺少显式 token {tok}')
@@ -704,7 +704,7 @@ class VisualFoundationV1Tests(unittest.TestCase):
     def test_v1_2_palette_directly_exposes_tokens(self):
         """V1-2: ThemeManager.palette() 直接暴露以上 token。"""
         tm = ThemeManager.instance()
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        for tid in theme_manager.THEME_IDS:
             pal = tm.palette(tid)
             for tok in self.V1_EXPLICIT_TOKENS:
                 self.assertIn(tok, pal)
@@ -714,7 +714,7 @@ class VisualFoundationV1Tests(unittest.TestCase):
         """V1-3: rendered QSS 无 unresolved __TOKEN__。"""
         tm = ThemeManager.instance()
         tm.load_template()
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        for tid in theme_manager.THEME_IDS:
             qss = tm.render(tid)
             unresolved = theme_manager.unresolved_qss_tokens(qss)
             self.assertEqual(unresolved, (), f'{tid} QSS 存在未解析 token: {unresolved}')
@@ -729,7 +729,7 @@ class VisualFoundationV1Tests(unittest.TestCase):
         """V1-5: primary-btn rendered QSS 包含当前 theme 的 start 与 end，且 start != end。"""
         tm = ThemeManager.instance()
         tm.load_template()
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        for tid in theme_manager.THEME_IDS:
             pal = tm.palette(tid)
             start = pal['PRIMARY_GRAD_START']
             end = pal['PRIMARY_GRAD_END']
@@ -786,7 +786,7 @@ class VisualFoundationV1Tests(unittest.TestCase):
         """V1-8: rendered QSS 中 QFrame#ds-glass 必须实际消费 GLASS_HIGHLIGHT。"""
         tm = ThemeManager.instance()
         tm.load_template()
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        for tid in theme_manager.THEME_IDS:
             pal = tm.palette(tid)
             glass_hl = pal['GLASS_HIGHLIGHT']
             qss = tm.render(tid)
@@ -856,33 +856,36 @@ class VisualFoundationV1Tests(unittest.TestCase):
         ).strip()
         self.assertEqual(out, '', f'frontend 或 resources/webui/vue 存在未承诺改动: {out}')
 
-    def test_v1_18_sidebar_contrast_across_all_four_themes(self):
-        """V1-18: 四主题 Sidebar 与 Native subnav 保持高对比，Clear/Warm 保持浅色背景与暗色激活字。"""
-        from ui.theme_manager import ThemeManager, THEMES
+    def test_v1_18_dual_canonical_theme_contracts(self):
+        """V1-18: 验证 canonical theme 契约（仅 calm 与 black），旧 ID 映射至规范主题。"""
+        from ui.theme_manager import THEME_IDS, THEMES, THEME_META, resolve_theme_id, theme_mode
+        self.assertEqual(THEME_IDS, ('calm', 'black'))
+        self.assertEqual(set(THEMES.keys()), {'calm', 'black'})
+        self.assertEqual(set(THEME_META.keys()), {'calm', 'black'})
+
+        # 别名与迁移映射
+        self.assertEqual(resolve_theme_id('clear'), 'calm')
+        self.assertEqual(resolve_theme_id('warm'), 'calm')
+        self.assertEqual(resolve_theme_id('light'), 'calm')
+        self.assertEqual(resolve_theme_id('night'), 'black')
+        self.assertEqual(resolve_theme_id('dark'), 'black')
+        self.assertEqual(resolve_theme_id('unknown'), 'calm')
+
+        self.assertEqual(theme_mode('calm'), 'light')
+        self.assertEqual(theme_mode('black'), 'dark')
+
+        # Sidebar 与对比度验证
         tm = ThemeManager.instance()
         tm.load_template()
-
-        # 1. 验证 ThemeManager palette 对比度与定义
         calm_p = tm.palette('calm')
         self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#161D30')
         self.assertEqual(calm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
-
-        clear_p = tm.palette('clear')
-        self.assertEqual(clear_p['SIDEBAR_BG'].upper(), '#F7F9FC')
-        self.assertNotEqual(clear_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
-        self.assertEqual(clear_p['NAV_ACTIVE_TEXT'].upper(), '#2C4559')
-
-        warm_p = tm.palette('warm')
-        self.assertEqual(warm_p['SIDEBAR_BG'].upper(), '#FBF8F2')
-        self.assertNotEqual(warm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
-        self.assertEqual(warm_p['NAV_ACTIVE_TEXT'].upper(), '#5E3C25')
 
         black_p = tm.palette('black')
         self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#111114')
         self.assertEqual(black_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
 
-        # 2. 验证 QSS 渲染
-        for tid in ('calm', 'clear', 'warm', 'black'):
+        for tid in ('calm', 'black'):
             qss = tm.render(tid)
             p = tm.palette(tid)
             self.assertIn('#sidebar-collapse-btn', qss)

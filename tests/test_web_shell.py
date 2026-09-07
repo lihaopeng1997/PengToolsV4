@@ -496,16 +496,16 @@ class SettingsVersionMigrationTest(unittest.TestCase):
             with patch('config.SETTINGS_FILE', tmp_json):
                 migrated = load_settings()
                 self.assertTrue(migrated['ui_web_shell'])
-                self.assertEqual(migrated['settings_version'], 1)
+                self.assertEqual(migrated['settings_version'], 2)
 
-            # 2. 模拟用户在此之后显式保存 ui_web_shell=False (已具备 settings_version=1)
+            # 2. 模拟用户在此之后显式保存 ui_web_shell=False (具备 settings_version>=1)
             with open(tmp_json, 'w', encoding='utf-8') as f:
                 json.dump({'ui_web_shell': False, 'settings_version': 1, 'font_size': 12}, f)
             with patch('config.SETTINGS_FILE', tmp_json):
                 reloaded = load_settings()
                 # 显式 false 绝不再被覆盖
                 self.assertFalse(reloaded['ui_web_shell'])
-                self.assertEqual(reloaded['settings_version'], 1)
+                self.assertEqual(reloaded['settings_version'], 2)
 
 
 if __name__ == '__main__':

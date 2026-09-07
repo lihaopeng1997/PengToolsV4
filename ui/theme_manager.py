@@ -16,13 +16,17 @@ from PyQt6.QtWidgets import QApplication
 # theme_id → 中英文名 + 副说明
 THEME_META = {
     'calm': ('静谧蓝', 'Calm Indigo', '靛蓝紫的清爽现代工作台', 'Indigo-violet modern workbench'),
-    'clear': ('晴空清晰', 'Clear Sky', '冷钢蓝灰的高效阅读', 'Cool steel-blue clarity'),
-    'warm': ('暖书房', 'Warm Study', '纸感棕调的长时间阅读', 'Warm paper study'),
     'black': ('墨黑', 'Ink Black', '近黑分层、低眩光的夜间工作面', 'Near-black layered night surface'),
 }
 
-THEME_IDS = ('calm', 'clear', 'warm', 'black')
-THEME_ALIASES = {'night': 'black'}
+THEME_IDS = ('calm', 'black')
+THEME_ALIASES = {
+    'clear': 'calm',
+    'warm': 'calm',
+    'night': 'black',
+    'light': 'calm',
+    'dark': 'black',
+}
 
 DEFAULT_THEME_ID = 'calm'
 
@@ -160,146 +164,6 @@ THEMES: dict[str, dict[str, str]] = {
         'TERM_CHROME': '#0E0F1F',
         'TERM_FIND_BG': '#101124',
     }),
-    'clear': _with_extra({
-        'APP_BG': '#F2F4F7',
-        'SIDEBAR_BG': '#F7F9FC',
-        'SIDEBAR_BORDER': '#DCE3EC',
-        'SURFACE': '#FFFFFF',
-        'SURFACE_SOFT': '#F5F8FB',
-        'SURFACE_TECH': '#E6EEF5',
-        'TEXT_STRONG': '#161D26',
-        'TEXT': '#38424E',
-        'TEXT_MUTED': '#667486',
-        'TEXT_NAV': '#3A4654',
-        'BORDER': '#D7DEE7',
-        'BORDER_STRONG': '#C2CBD7',
-        'PRIMARY': '#3A5770',
-        'PRIMARY_HOVER': '#304A60',
-        'PRIMARY_SOFT': '#E6EEF5',
-        'PRIMARY_ACTIVE': '#2C4559',
-        'CYAN': '#2A7A96',
-        'SUCCESS': '#1B7A52',
-        'WARNING': '#B86B16',
-        'DANGER': '#B53D4A',
-        'ICON_MUTED': '#667486',
-        'NAV_HOVER': '#EEF2F7',
-        'NAV_ACTIVE_BG': '#E6EEF5',
-        'STATUS_BAR_BG': '#F6F8FB',
-        'TABLE_ALT': '#F5F8FB',
-        'TABLE_SELECT': '#E6EEF5',
-        'INPUT_BG': '#FFFFFF',
-        'DISABLED_BG': '#EEF1F5',
-        'DISABLED_TEXT': '#A4AEBB',
-        'DISABLED_ICON': '#7A8696',
-        'SHADOW': 'rgba(22, 29, 38, 36)',
-        'BRAND_ICON_BG': '#E6EEF5',
-        'USER_CHIP_BG': '#E6EEF5',
-        'USER_CHIP_TEXT': '#2C4559',
-        'SCROLL_HANDLE': '#BDC6D2',
-        'PRIMARY_GRAD_START': '#3A5770',
-        'PRIMARY_GRAD_END': '#2B4357',
-        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.50)',
-        'ELEVATED_BORDER': '#C2CBD7',
-        'SHADOW_L1': 'rgba(22, 29, 38, 20)',
-        'SHADOW_L2': 'rgba(22, 29, 38, 40)',
-        'SHADOW_L4': 'rgba(14, 20, 28, 80)',
-        'AURORA_START': '#3A5770',
-        'AURORA_MID': '#4E7A9E',
-        'AURORA_END': '#688BA8',
-        'SIDEBAR_TEXT': '#161D26',
-        'SIDEBAR_TEXT_MUTED': '#667486',
-        'SIDEBAR_HIGHLIGHT': 'rgba(0, 0, 0, 0.04)',
-        'NAV_ACTIVE_TEXT': '#2C4559',
-        'ACCENT_INDIGO': '#4F708B',
-        'ACCENT_CYAN': '#3898B3',
-        'ACCENT_ROSE': '#C25D72',
-        'ACCENT_EMERALD': '#3A9468',
-    }, {
-        'CODE_BG': '#F0F3F7',
-        'INFO_BG': '#EAF2FA',
-        'INFO_BORDER': '#B7C9DE',
-        'MONTH_HEADER_BG': '#E6EEF5',
-        'MONTH_HEADER_FG': '#161D26',
-        'FOCUS_RING': '#3A5770',
-        # 晴空：深蓝灰控制台，贴 PRIMARY 蓝
-        'TERM_BG': '#0E1624',
-        'TERM_FG': '#E8EEF8',
-        'TERM_MUTED': '#8B9BB4',
-        'TERM_BORDER': '#2A3F5C',
-        'TERM_SEL': '#1A3350',
-        'TERM_SYS': '#7EB6E0',
-        'TERM_CHROME': '#0B121C',
-        'TERM_FIND_BG': '#0C1420',
-    }),
-    'warm': _with_extra({
-        'APP_BG': '#F6F2EA',
-        'SIDEBAR_BG': '#FBF8F2',
-        'SIDEBAR_BORDER': '#E6DCCE',
-        'SURFACE': '#FFFCF7',
-        'SURFACE_SOFT': '#F7F1E7',
-        'SURFACE_TECH': '#F1E6D8',
-        'TEXT_STRONG': '#241C16',
-        'TEXT': '#4A3E33',
-        'TEXT_MUTED': '#7A6C5C',
-        'TEXT_NAV': '#4A3E33',
-        'BORDER': '#E6DCCE',
-        'BORDER_STRONG': '#D2C4B0',
-        'PRIMARY': '#7A5133',
-        'PRIMARY_HOVER': '#68442A',
-        'PRIMARY_SOFT': '#F1E6D8',
-        'PRIMARY_ACTIVE': '#5E3C25',
-        'CYAN': '#7A6550',
-        'SUCCESS': '#4E6B42',
-        'WARNING': '#B67A2E',
-        'DANGER': '#A85A4A',
-        'ICON_MUTED': '#7A6C5C',
-        'NAV_HOVER': '#F3EBE0',
-        'NAV_ACTIVE_BG': '#F1E6D8',
-        'STATUS_BAR_BG': '#F8F4EC',
-        'TABLE_ALT': '#F7F1E7',
-        'TABLE_SELECT': '#F1E6D8',
-        'INPUT_BG': '#FFFCF7',
-        'DISABLED_BG': '#F0E9DE',
-        'DISABLED_TEXT': '#AFA395',
-        'DISABLED_ICON': '#8C8072',
-        'SHADOW': 'rgba(36, 28, 22, 36)',
-        'BRAND_ICON_BG': '#F1E6D8',
-        'USER_CHIP_BG': '#F1E6D8',
-        'USER_CHIP_TEXT': '#5E3C25',
-        'SCROLL_HANDLE': '#C9BDAA',
-        'PRIMARY_GRAD_START': '#7A5133',
-        'PRIMARY_GRAD_END': '#5E3C25',
-        'GLASS_HIGHLIGHT': 'rgba(255, 255, 255, 0.55)',
-        'ELEVATED_BORDER': '#D2C4B0',
-        'SHADOW_L1': 'rgba(36, 28, 22, 20)',
-        'SHADOW_L2': 'rgba(36, 28, 22, 40)',
-        'SHADOW_L4': 'rgba(24, 18, 14, 80)',
-        'AURORA_START': '#7A5133',
-        'AURORA_MID': '#A67C52',
-        'AURORA_END': '#C49A6C',
-        'SIDEBAR_TEXT': '#241C16',
-        'SIDEBAR_TEXT_MUTED': '#7A6858',
-        'SIDEBAR_HIGHLIGHT': 'rgba(0, 0, 0, 0.04)',
-        'NAV_ACTIVE_TEXT': '#5E3C25',
-        'ACCENT_INDIGO': '#6B6194',
-        'ACCENT_CYAN': '#4F858A',
-        'ACCENT_ROSE': '#B85D52',
-        'ACCENT_EMERALD': '#5C8A54',
-    }, {
-        'CODE_BG': '#F4EEE4',
-        'MONTH_HEADER_BG': '#F1E6D8',
-        'MONTH_HEADER_FG': '#241C16',
-        'FOCUS_RING': '#7A5133',
-        # 暖书房：深褐墨控制台，贴 PRIMARY 棕
-        'TERM_BG': '#16110E',
-        'TERM_FG': '#F2E8DC',
-        'TERM_MUTED': '#A89884',
-        'TERM_BORDER': '#4A3828',
-        'TERM_SEL': '#3A2A1C',
-        'TERM_SYS': '#D4A574',
-        'TERM_CHROME': '#100C09',
-        'TERM_FIND_BG': '#14100C',
-    }),
     # 墨黑：近黑分层 + 鼠尾草主色（与 calm 同源）。禁止白卡片、禁止薄荷绿铺底。
     'black': {
         'APP_BG': '#09090B',
@@ -423,11 +287,11 @@ def resolve_theme_id(theme_id) -> str:
 def theme_mode(theme_id: str | None) -> str:
     """返回主题的外观模式：'dark' 或 'light'。
 
-    black / night -> 'dark'
-    calm / clear / warm / 其它 -> 'light'
+    calm -> 'light'
+    black -> 'dark'
     """
     canonical = resolve_theme_id(theme_id)
-    if canonical in ('black', 'night'):
+    if canonical == 'black':
         return 'dark'
     return 'light'
 
