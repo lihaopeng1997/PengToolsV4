@@ -13,6 +13,7 @@ import tempfile
 import uuid
 
 from config import DASHBOARD_RELEASE_ITEMS_FILE, ensure_config_dir
+from tools.requirements import update_release_date_month
 
 
 _MONTH_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])$')
@@ -48,10 +49,10 @@ def valid_iso_date(value) -> str:
 
 
 def effective_release_date(item) -> str:
-    """实际上线日期优先，否则计划上线日期。"""
+    """实际上线日期 (actual_release_date / actual_online_date)。不再使用计划上线日期。"""
     if not isinstance(item, dict):
         return ''
-    return valid_iso_date(item.get('actual_online_date')) or valid_iso_date(item.get('planned_online_date'))
+    return valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
 
 
 def effective_release_month(item) -> str:
@@ -60,7 +61,7 @@ def effective_release_month(item) -> str:
 
 
 def release_month_for(item, *, fallback_current: bool = True, today=None) -> str:
-    """Dashboard / 发版看板月份归属：只看有效实际/计划日期，不再用 is_monthly_release。
+    """Dashboard / 上线任务月份归属：只看有效实际上线日期，不再用 is_monthly_release。
 
     fallback_current 保留签名兼容，但不再把无日期需求塞进当前月。
     """
@@ -80,45 +81,45 @@ def collect_release_months(requirements, *, today=None) -> list[str]:
 
 
 def release_display_state(item, today=None) -> dict:
-    """首页升级任务展示状态。"""
+    """上线任务展示状态。只依据实际上线日期与需求状态，不展示计划上线日期。"""
     day = today or datetime.date.today()
     if not isinstance(day, datetime.date):
         try:
             day = datetime.date.fromisoformat(str(day)[:10])
         except ValueError:
             day = datetime.date.today()
-    actual = valid_iso_date((item or {}).get('actual_online_date'))
-    planned = valid_iso_date((item or {}).get('planned_online_date'))
+    actual = valid_iso_date((item or {}).get('actual_release_date')) or valid_iso_date((item or {}).get('actual_online_date'))
     status = str((item or {}).get('status') or '').strip()
-    if actual:
+    is_done = status in ('已完成', '已上线')
+    if is_done:
         return {
-            'state': '已上线',
-            'label': f'实际上线 {actual[5:]}',
+            'state': status or '已完成',
+            'label': f'实际上线 {actual[5:]}' if actual else (status or '已完成'),
             'done': True,
+            'actual_release_date': actual,
             'actual_online_date': actual,
-            'planned_online_date': planned,
         }
-    if planned:
-        planned_day = datetime.date.fromisoformat(planned)
-        if planned_day == day:
-            state = '今日升级'
-        elif planned_day < day:
+    if actual:
+        actual_day = datetime.date.fromisoformat(actual)
+        if actual_day == day:
+            state = '今日上线'
+        elif actual_day < day:
             state = '已逾期'
         else:
-            state = status
+            state = status or '进行中'
         return {
             'state': state,
-            'label': f'计划上线 {planned[5:]}',
+            'label': f'实际上线 {actual[5:]}',
             'done': False,
-            'actual_online_date': '',
-            'planned_online_date': planned,
+            'actual_release_date': actual,
+            'actual_online_date': actual,
         }
     return {
         'state': status,
         'label': status,
         'done': False,
+        'actual_release_date': '',
         'actual_online_date': '',
-        'planned_online_date': '',
     }
 
 

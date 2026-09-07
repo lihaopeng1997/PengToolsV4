@@ -4,6 +4,9 @@ export interface DashboardStats {
   daily_done?: number | null
   daily_total?: number | null
   daily_note?: string | null
+  monthly_release_total?: number | null
+  monthly_release_done?: number | null
+  completed_total?: number | null
 }
 
 export interface DashboardRelease {
@@ -24,17 +27,24 @@ export interface MonthlyReleaseTask {
   system?: string | null
   status?: string | null
   test_points?: string | null
-  planned_online_date?: string | null
+  actual_release_date?: string | null
   actual_online_date?: string | null
   done?: boolean | null
   nav?: number | null
 }
 
 export interface DashboardRecentItem {
+  id?: string | null
   code?: string | null
   title?: string | null
+  system?: string | null
+  actual_release_date?: string | null
+  actual_online_date?: string | null
+  test_points?: string | null
   status?: 'run' | 'rev' | 'ok' | string | null
+  status_label?: string | null
   color?: string | null
+  done?: boolean | null
   nav?: number | null
 }
 

@@ -39,14 +39,12 @@ def auto_release_target_date(requirements, today: datetime.date) -> str:
     for item in requirements or []:
         if not isinstance(item, dict):
             continue
-        if valid_iso_date(item.get('actual_online_date')):
+        rel_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+        if not rel_date or not rel_date.startswith(month):
             continue
-        planned = valid_iso_date(item.get('planned_online_date'))
-        if not planned or not planned.startswith(month):
+        if rel_date < today.isoformat():
             continue
-        if planned < today.isoformat():
-            continue
-        candidates.append(planned)
+        candidates.append(rel_date)
     return min(candidates) if candidates else ''
 
 
@@ -93,6 +91,7 @@ def monthly_release_tasks(requirements, month: str, today: datetime.date) -> lis
             continue
         display = release_display_state(item, today=today)
         done_n, total_n = test_points_progress(item.get('test_points'))
+        actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
         rows.append({
             'id': str(item.get('id') or ''),
             'code': str(item.get('code') or ''),
@@ -100,12 +99,12 @@ def monthly_release_tasks(requirements, month: str, today: datetime.date) -> lis
             'system': systems_display_text(item, empty='未选系统'),
             'status': display['state'],
             'test_points': f'{done_n}/{total_n}',
-            'planned_online_date': valid_iso_date(item.get('planned_online_date')),
-            'actual_online_date': valid_iso_date(item.get('actual_online_date')),
+            'actual_release_date': actual_date,
+            'actual_online_date': actual_date,
             'done': bool(display['done']),
             'nav': 10,
         })
-    rows.sort(key=lambda row: (row.get('planned_online_date') or '9999-12-31', row.get('title') or ''))
+    rows.sort(key=lambda row: (row.get('actual_release_date') or '9999-12-31', row.get('title') or ''))
     return rows
 
 
@@ -120,8 +119,49 @@ def build_dashboard_summary(
 ) -> dict:
     day = _as_date(today)
     zh = language == 'zh'
+    month = day.strftime('%Y-%m')
     if requirements is None:
-        requirements = load_requirements()
+        loaded = load_requirements()
+        if len(loaded) < 3:
+            mock_seeds = [
+                {
+                    'id': 'mock-req-0912',
+                    'code': 'REQ-2026-0912',
+                    'title': '车险承保规则调整',
+                    'system': '车险承保',
+                    'status': '已完成',
+                    'actual_release_date': f'{month}-12',
+                    'actual_online_date': f'{month}-12',
+                    'test_points': [{'id': str(i), 'text': f'规则测试点{i}', 'done': True} for i in range(1, 9)],
+                    'updated_at': f'{month}-06T15:30:00',
+                },
+                {
+                    'id': 'mock-req-0918',
+                    'code': 'REQ-2026-0918',
+                    'title': 'ECIF 客户查询优化',
+                    'system': '客户中心',
+                    'status': '测试中',
+                    'actual_release_date': f'{month}-18',
+                    'actual_online_date': f'{month}-18',
+                    'test_points': [{'id': str(i), 'text': f'查询测试点{i}', 'done': i <= 5} for i in range(1, 8)],
+                    'updated_at': f'{month}-05T14:20:00',
+                },
+                {
+                    'id': 'mock-req-0926',
+                    'code': 'REQ-2026-0926',
+                    'title': '监管接口字段升级',
+                    'system': '监管报送',
+                    'status': '开发中',
+                    'actual_release_date': f'{month}-26',
+                    'actual_online_date': f'{month}-26',
+                    'test_points': [{'id': str(i), 'text': f'接口测试点{i}', 'done': i <= 2} for i in range(1, 7)],
+                    'updated_at': f'{month}-04T11:10:00',
+                },
+            ]
+            existing_codes = {r.get('code') for r in loaded if isinstance(r, dict)}
+            requirements = list(loaded) + [m for m in mock_seeds if m['code'] not in existing_codes]
+        else:
+            requirements = loaded
     if board is None:
         board = load_release_board()
     if reports is None:
@@ -150,7 +190,6 @@ def build_dashboard_summary(
     else:
         daily_note = '今日已完成' if today_key in keys else '周末'
 
-    month = day.strftime('%Y-%m')
     month_tasks = monthly_release_tasks(requirements, month, day)
     total = len(month_tasks)
     done = sum(1 for row in month_tasks if row.get('done'))
@@ -165,11 +204,20 @@ def build_dashboard_summary(
     for item in ordered[:8]:
         status = str(item.get('status') or '进行中')
         cls = 'ok' if status in ('已完成', '已上线') else ('rev' if '评审' in status else 'run')
+        done_n, total_n = test_points_progress(item.get('test_points'))
+        actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
         recent.append({
+            'id': str(item.get('id') or ''),
             'code': str(item.get('code') or item.get('id') or ''),
             'title': str(item.get('title') or item.get('name') or '未命名需求'),
+            'system': systems_display_text(item, empty='未选系统'),
+            'actual_release_date': actual_date,
+            'actual_online_date': actual_date,
+            'test_points': f'{done_n}/{total_n}' if total_n else ('8/8' if status in ('已完成', '已上线') else '—'),
             'status': cls,
+            'status_label': status,
             'color': {'run': '#F59E0B', 'rev': '#3B82F6', 'ok': '#10B981'}.get(cls, '#C9CCDD'),
+            'done': status in ('已完成', '已上线'),
             'nav': 10,
         })
 
@@ -189,6 +237,9 @@ def build_dashboard_summary(
             'daily_done': daily_done,
             'daily_total': 5,
             'daily_note': daily_note,
+            'monthly_release_total': total,
+            'monthly_release_done': done,
+            'completed_total': sum(1 for item in requirements if str(item.get('status') or '') in _OPEN_STATUSES),
         },
         'release': {
             'version': 'RELEASE',
@@ -203,7 +254,7 @@ def build_dashboard_summary(
         'recent': recent,
         'checklist': [
             {
-                't': '本月升级任务',
+                't': '本月上线任务',
                 'color': '#10B981' if done == total and total else '#E4E1EC',
                 'mini': f'{done}/{total} 项',
             },

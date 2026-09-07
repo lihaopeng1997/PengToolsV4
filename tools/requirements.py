@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import calendar
 import datetime
 import json
 import os
@@ -8,6 +9,47 @@ import uuid
 
 from config import REQUIREMENTS_FILE, ensure_config_dir
 from tools.svn_workspace import month_end_date
+
+
+def valid_iso_date(value: object) -> str:
+    """检验是否为有效 YYYY-MM-DD 日期字符串。"""
+    if not value:
+        return ''
+    text = str(value).strip()[:10]
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return ''
+    return text
+
+
+def update_release_date_month(current_date: str, target_month: str) -> str:
+    """更新日期的年份和月份为 target_month (格式 'YYYY-MM')，保持日不变。
+    如果目标月份的天数少于原日期的日 (例如 2026-01-31 拖到 2026-02)，
+    则自动 clamp 到目标月份的最后一天 (2026-02-28，闰年 2026-02-29)。
+    若 target_month 无效，则返回原 current_date。
+    """
+    if not target_month:
+        return ''
+    try:
+        parts = str(target_month).strip().split('-')
+        year = int(parts[0])
+        month = int(parts[1])
+    except (ValueError, IndexError):
+        return str(current_date or '')
+
+    orig_day = 1
+    if current_date:
+        try:
+            date_parts = str(current_date).strip().split('-')
+            if len(date_parts) >= 3:
+                orig_day = int(date_parts[2][:2])
+        except (ValueError, IndexError):
+            orig_day = 1
+
+    _, max_days = calendar.monthrange(year, month)
+    day = max(1, min(orig_day, max_days))
+    return f"{year:04d}-{month:02d}-{day:02d}"
 
 
 CATEGORIES = ('功能需求', '缺陷优化', '接口联动', '数据变更', '配置调整', '其他')
@@ -384,11 +426,22 @@ def normalize_requirement(requirement):
     if item.get('code') is None:
         item['code'] = ''
     item['pinned'] = bool(item.get('pinned'))
-    item['is_monthly_release'] = bool(item.get('is_monthly_release'))
     if item['pinned']:
         item['pinned_at'] = str(item.get('pinned_at') or '')
     else:
         item.pop('pinned_at', None)
+    actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+    item['actual_release_date'] = actual_date
+    item['actual_online_date'] = actual_date
+    if actual_date:
+        item['online_month'] = actual_date[:7]
+    elif not item.get('online_month'):
+        item['online_month'] = ''
+    # 彻底永久移除 is_monthly_release 与计划上线日期，不得写入正式数据
+    item.pop('is_monthly_release', None)
+    item.pop('planned_release_date', None)
+    item.pop('planned_online_date', None)
+    item.pop('plan_release_date', None)
     item['svn_url'] = str(item.get('svn_url') or '').strip()
     item['local_path'] = str(item.get('local_path') or '').strip()
     item['dev_local_path'] = str(item.get('dev_local_path') or '').strip()
@@ -489,7 +542,8 @@ def mark_requirement_online(requirement_id, path=None, online_date=None):
 
     def _apply(item):
         item['status'] = ONLINE_STATUS
-        if not str(item.get('actual_online_date') or '').strip():
+        if not str(item.get('actual_release_date') or item.get('actual_online_date') or '').strip():
+            item['actual_release_date'] = day
             item['actual_online_date'] = day
 
     return update_requirement_by_id(requirement_id, _apply, path=path)
@@ -509,6 +563,7 @@ def restore_requirement_from_online(requirement_id, path=None, clear_actual_date
     if is_online_status(target):
         target['status'] = PENDING_ONLINE_STATUS
         if clear_actual_date:
+            target['actual_release_date'] = ''
             target['actual_online_date'] = ''
         changed = True
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
@@ -715,7 +770,7 @@ def requirement_from_text(text, source_name='直接粘贴', systems=None):
         'priority': '普通',
         'system': '',
         'owner': '',
-        'planned_online_date': '',
+        'actual_release_date': '',
         'actual_online_date': '',
         'online_month': '',
         'has_sql': flags['has_sql'],

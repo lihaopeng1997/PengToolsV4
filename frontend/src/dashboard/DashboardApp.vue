@@ -45,21 +45,23 @@ const dailyDoneText = computed(() => {
   return `${s.daily_done}/${s.daily_total ?? 5}`
 })
 
-const releaseDaysText = computed(() => {
-  const rel = summary.value?.release
-  if (!rel || rel.countdown_state === 'unset' || rel.days_left == null) return '–'
-  if (rel.countdown_state === 'overdue') return rel.date_text || `D${rel.days_left}`
-  return `D-${rel.days_left}`
+const monthlyReleaseText = computed(() => {
+  const v = summary.value?.stats?.monthly_release_total ?? summary.value?.release?.total
+  return v != null ? String(v) : '0'
 })
 
-const releaseTotalText = computed(() => {
-  const rel = summary.value?.release
-  return rel && rel.total != null ? String(rel.total) : '–'
+const monthlyReleaseNote = computed(() => {
+  const done = summary.value?.stats?.monthly_release_done ?? summary.value?.release?.done ?? 0
+  return `已完成 ${done} 项`
 })
 
-const releaseItemsNote = computed(() => {
-  const rel = summary.value?.release
-  return `已完成 ${rel ? (rel.done ?? 0) : 0}`
+const completedTotalText = computed(() => {
+  const v = summary.value?.stats?.completed_total
+  return v != null ? String(v) : '0'
+})
+
+const completedNote = computed(() => {
+  return '累计已结项'
 })
 
 const releasePercent = computed(() => {
@@ -92,36 +94,36 @@ const releasePercent = computed(() => {
 
     <!-- 4 个统计指标卡片 -->
     <div class="stats enter">
-      <div class="glass stat">
+      <div class="glass stat clickable" @click="onNavClick(10)">
         <div class="ic c1"><svg><use href="#i-req" /></svg></div>
         <b>{{ reqOpenText }}</b>
         <div class="lbl">待办需求</div>
         <span v-if="summary.stats?.req_trend" class="trend up">{{ summary.stats.req_trend }}</span>
       </div>
 
-      <div class="glass stat">
+      <div class="glass stat clickable" @click="onNavClick(9)">
         <div class="ic c2"><svg><use href="#i-daily" /></svg></div>
         <b>{{ dailyDoneText }}</b>
         <div class="lbl">本周日报</div>
         <span v-if="summary.stats?.daily_note" class="trend">{{ summary.stats.daily_note }}</span>
       </div>
 
-      <div class="glass stat">
+      <div class="glass stat clickable" @click="onNavClick(10)">
         <div class="ic c3"><svg><use href="#i-rocket" /></svg></div>
-        <b>{{ releaseDaysText }}</b>
-        <div class="lbl">发版倒计时</div>
-        <span v-if="summary.release?.date_text" class="trend hot">{{ summary.release.date_text }}</span>
+        <b>{{ monthlyReleaseText }}</b>
+        <div class="lbl">本月上线任务</div>
+        <span class="trend hot">{{ monthlyReleaseNote }}</span>
       </div>
 
-      <div class="glass stat">
+      <div class="glass stat clickable" @click="onNavClick(10)">
         <div class="ic c4"><svg><use href="#i-db" /></svg></div>
-        <b>{{ releaseTotalText }}</b>
-        <div class="lbl">发版清单事项</div>
-        <span class="trend">{{ releaseItemsNote }}</span>
+        <b>{{ completedTotalText }}</b>
+        <div class="lbl">已完成事项</div>
+        <span class="trend">{{ completedNote }}</span>
       </div>
     </div>
 
-    <!-- 主工作区栅格：最近需求 + 发版进度 -->
+    <!-- 主工作区栅格：最近需求 + 本月上线任务 -->
     <div class="grid enter">
       <!-- 最近需求 -->
       <div class="card pad">
@@ -129,21 +131,27 @@ const releasePercent = computed(() => {
           <span class="tt">最近需求</span>
           <span class="sub">RECENT</span>
           <span class="sp"></span>
+          <button class="btn btn-ghost btn-xs" @click="onNavClick(10)">
+            进入需求管理 →
+          </button>
         </div>
         <div class="req-list">
           <template v-if="summary.recent && summary.recent.length > 0">
             <div
               v-for="(r, idx) in summary.recent"
-              :key="idx"
+              :key="r.id || r.code || idx"
               class="ck"
               @click="onNavClick(r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span class="t">
                 <b v-if="r.code">{{ r.code }}</b>&nbsp; {{ r.title || '未命名需求' }}
+                <span v-if="r.system" class="meta-inline"> · {{ r.system }}</span>
+                <span v-if="r.actual_release_date" class="meta-inline"> · 上线: {{ r.actual_release_date }}</span>
+                <span v-if="r.test_points" class="meta-inline"> · 测试: {{ r.test_points }}</span>
               </span>
               <span class="chip" :class="r.status || 'run'">
-                <i></i>{{ statusLabel(r.status) }}
+                <i></i>{{ r.status_label || statusLabel(r.status) }}
               </span>
             </div>
           </template>
@@ -151,20 +159,23 @@ const releasePercent = computed(() => {
         </div>
       </div>
 
-      <!-- 发版进度 -->
+      <!-- 本月上线任务 -->
       <div class="card pad">
         <div class="ph">
-          <span class="tt">发版进度</span>
-          <span class="sub">RELEASE</span>
+          <span class="tt">本月上线任务</span>
+          <span class="sub">MONTHLY RELEASE</span>
           <span class="sp"></span>
+          <button class="btn btn-ghost btn-xs" @click="onNavClick(10)">
+            查看全部 →
+          </button>
         </div>
         <div class="rel">
           <div class="ric"><svg><use href="#i-rocket" /></svg></div>
           <div>
-            <b>发版联动</b>
-            <div class="rs">{{ summary.release?.date_text || '计划日期待定' }}</div>
+            <b>本月上线任务</b>
+            <div class="rs">{{ summary.release?.date_text || '按实际上线日期归档' }}</div>
           </div>
-          <span class="dchip">{{ releaseDaysText }}</span>
+          <span class="dchip">{{ monthlyReleaseText }} 项</span>
         </div>
 
         <div class="progress">
@@ -182,6 +193,7 @@ const releasePercent = computed(() => {
             v-for="(c, idx) in (summary.checklist || [])"
             :key="idx"
             class="ck"
+            @click="onNavClick(10)"
           >
             <span class="dot" :style="{ background: c.color || 'var(--edge-strong)' }"></span>
             <span class="t">{{ c.t }}</span>
@@ -198,8 +210,9 @@ const releasePercent = computed(() => {
             <span class="t">
               <b v-if="task.code">{{ task.code }}</b>
               {{ task.title }}
-              · {{ task.system }}
-              · {{ task.test_points }}
+              <span v-if="task.system" class="meta-inline"> · {{ task.system }}</span>
+              <span v-if="task.actual_release_date" class="meta-inline"> · 上线: {{ task.actual_release_date }}</span>
+              <span v-if="task.test_points" class="meta-inline"> · 测试: {{ task.test_points }}</span>
             </span>
             <span class="mini">{{ task.status }}</span>
           </div>
@@ -301,6 +314,9 @@ html[data-theme="black"] body::before, html.dark body::before {
 .btn-primary:hover { transform:translateY(-1.5px); box-shadow:0 12px 28px var(--shadow-l4); }
 .btn-ghost { background:transparent; color:var(--ink-2); }
 .btn-ghost:hover { color:var(--primary); background:var(--primary-soft); }
+.btn-xs { height:26px; padding:0 10px; font-size:11.5px; border-radius:8px; }
+.clickable { cursor:pointer; }
+.meta-inline { font-size:11px; color:var(--ink-3); font-weight:normal; }
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
 .stat { padding:17px 19px; position:relative; overflow:hidden; transition:.25s; }
 .stat::before { content:""; position:absolute; top:0; left:12%; right:12%; height:2.5px; border-radius:99px; background:var(--grad); opacity:0; transition:.3s; }

@@ -344,9 +344,8 @@ class AiWorkbenchPanel(QWidget):
             self.conn_new_btn.hide()
             self.conn_target_hint.hide()
 
-        body = QSplitter(Qt.Orientation.Vertical)
-        body.setHandleWidth(8)
         columns = QSplitter(Qt.Orientation.Horizontal)
+        columns.setHandleWidth(8)
 
         self.narrow_chrome = QFrame()
         self.narrow_chrome.setObjectName('page-narrow-chrome')
@@ -425,7 +424,7 @@ class AiWorkbenchPanel(QWidget):
         self.sql_tabs.tabCloseRequested.connect(self._close_sql_tab)
         self.sql_tabs.currentChanged.connect(self._on_sql_tab_changed)
         mid_l.addWidget(self.sql_tabs, 1)
-        columns.addWidget(middle)
+        self._middle_pane = middle
 
         self.side_tabs = QTabWidget()
         self.side_tabs.setObjectName('sql-side-tabs')
@@ -453,9 +452,9 @@ class AiWorkbenchPanel(QWidget):
         self.ai_hint.hide()
         ai_page_l.addWidget(self.ai_hint)
         self.nl_input = AiPromptEdit()
-        self.nl_input.setMinimumHeight(110)
-        self.nl_input.setMaximumHeight(160)
-        self.nl_input.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.nl_input.setMinimumHeight(140)
+        self.nl_input.setMaximumHeight(170)
+        self.nl_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
         self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
         self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
@@ -530,7 +529,7 @@ class AiWorkbenchPanel(QWidget):
         self.ai_explain = QTextEdit()
         self.ai_explain.setReadOnly(True)
         self.ai_explain.setObjectName('ai-explain')
-        self.ai_explain.setMinimumHeight(140)
+        self.ai_explain.setMinimumHeight(180)
         self.ai_explain.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.ai_explain.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ai_explain.customContextMenuRequested.connect(self._ai_output_menu)
@@ -581,12 +580,6 @@ class AiWorkbenchPanel(QWidget):
         self._detail_object = None
         self._field_page = 0
         self.side_tabs.addTab(detail, '对象详情')
-        columns.addWidget(self.side_tabs)
-        columns.setStretchFactor(0, 2)
-        columns.setStretchFactor(1, 5)
-        columns.setStretchFactor(2, 3)
-        body.addWidget(columns)
-
         bottom = QTabWidget()
         bottom.setObjectName('sql-result-tabs')
         self.result = QTableWidget()
@@ -623,30 +616,44 @@ class AiWorkbenchPanel(QWidget):
         bottom.addTab(self.msg_view, '消息')
         bottom.addTab(self.hist_view, '历史')
         self.result_tabs = bottom
+
+        # 上下垂直分割：上=SQL编辑器，下=执行结果/消息/历史
+        body = QSplitter(Qt.Orientation.Vertical)
+        body.setObjectName('sql-body-splitter')
+        body.setHandleWidth(8)
+        body.addWidget(self._middle_pane)
         body.addWidget(bottom)
         body.setStretchFactor(0, 3)
         body.setStretchFactor(1, 2)
         body.setChildrenCollapsible(False)
-        columns.setChildrenCollapsible(False)
         self.body_splitter = body
+
+        # 左右列级水平分割：左=对象目录，中=编辑器及结果上下分栏，右=AI助手及详情（全高贯通）
+        columns.addWidget(body)
+        columns.addWidget(self.side_tabs)
+        columns.setStretchFactor(0, 2)
+        columns.setStretchFactor(1, 6)
+        columns.setStretchFactor(2, 3)
+        columns.setChildrenCollapsible(False)
         self.columns_splitter = columns
-        install_splitter_prefs(
-            columns,
-            defaults=[300, 700, 340],
-            page_id='sql-console',
-            tab_id=sql_splitter_tab_id('columns', self._dialect),
-            min_sizes=[260, 480, 300],
-            accessible_name='SQL 控制台列分隔',
-        )
+
         install_splitter_prefs(
             body,
-            defaults=[620, 300],
+            defaults=[450, 280],
             page_id='sql-console',
             tab_id=sql_splitter_tab_id('body', self._dialect),
-            min_sizes=[320, 200],
+            min_sizes=[280, 180],
             accessible_name='SQL 控制台上下分隔',
         )
-        root.addWidget(body, 1)
+        install_splitter_prefs(
+            columns,
+            defaults=[260, 680, 380],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('columns', self._dialect),
+            min_sizes=[200, 400, 320],
+            accessible_name='SQL 控制台列分隔',
+        )
+        root.addWidget(columns, 1)
         self._layout_mode = 'wide'
         self._narrow_show_objects = False
         self._narrow_show_ai = False
@@ -666,7 +673,7 @@ class AiWorkbenchPanel(QWidget):
         else:
             self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
         self.page_subtitle.setText(
-            '多标签编辑 · 结构快照 · AI 助手只生成不执行' if zh else
+            '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
             'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
         )
         self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
@@ -923,17 +930,19 @@ class AiWorkbenchPanel(QWidget):
     def _refresh_header(self):
         zh = self.language == 'zh'
         item = self._browse_conn()
+        dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper()) if self._dialect else ''
         if not item:
             self.conn_meta.setText('未选择连接' if zh else 'No connection')
             if hasattr(self, 'conn_target_hint'):
                 self.conn_target_hint.setText('目标连接：—' if zh else 'Target: —')
-            # 非绑定模式恢复默认页头文案
-            if not self._connection_id:
+            if self._dialect:
+                self.page_title.setText(f'{dialect_label} 工作台' if zh else f'{dialect_label} Workbench')
+            elif not self._connection_id:
                 self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
-                self.page_subtitle.setText(
-                    '多标签编辑 · 结构快照 · AI 助手只生成不执行' if zh else
-                    'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
-                )
+            self.page_subtitle.setText(
+                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
+                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            )
             self._refresh_tree_title()
             self._refresh_risk_chip()
             return
@@ -949,8 +958,13 @@ class AiWorkbenchPanel(QWidget):
             self.conn_target_hint.setText(
                 (f'目标连接：{alias} · {label}' if zh else f'Target: {alias} · {label}').strip()
             )
-        # 绑定模式：页头主标题显示数据库名
-        if self._connection_id:
+        if self._dialect:
+            self.page_title.setText(f'{dialect_label} 工作台' if zh else f'{dialect_label} Workbench')
+            self.page_subtitle.setText(
+                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
+                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            )
+        elif self._connection_id:
             self.page_title.setText(f'{alias}（SQL 控制台）' if zh else f'{alias} (SQL Console)')
             self.page_subtitle.setText(f'{dialect.upper()} · {snap_mark}' if zh else f'{dialect.upper()} · {snap_mark}')
         self._refresh_tree_title()

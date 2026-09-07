@@ -38,14 +38,19 @@ class ReleaseMonthAttributionTests(unittest.TestCase):
                 "actual_online_date": "",
                 "planned_online_date": "2026-10-03",
             }),
+            "",
+        )
+        self.assertEqual(
+            effective_release_month({
+                "actual_release_date": "2026-10-03",
+            }),
             "2026-10",
         )
         self.assertEqual(effective_release_month({"actual_online_date": "", "planned_online_date": ""}), "")
         self.assertEqual(effective_release_date({"planned_online_date": "not-a-date"}), "")
         self.assertEqual(
             release_month_for({
-                "is_monthly_release": False,
-                "planned_online_date": "2026-08-20",
+                "actual_release_date": "2026-08-20",
             }),
             "2026-08",
         )
@@ -58,16 +63,16 @@ class ReleaseMonthAttributionTests(unittest.TestCase):
         )
         months = collect_release_months(
             [
-                {"actual_online_date": "2026-09-01", "planned_online_date": "2026-10-01"},
-                {"planned_online_date": "2026-10-03"},
-                {"planned_online_date": ""},
+                {"actual_online_date": "2026-09-01"},
+                {"actual_release_date": "2026-10-03"},
+                {"actual_release_date": ""},
             ],
             today=today,
         )
         self.assertEqual(months, ["2026-10", "2026-09"])
         self.assertEqual(
-            release_display_state({"actual_online_date": "2026-09-18"}, today=today)["state"],
-            "已上线",
+            release_display_state({"actual_online_date": "2026-09-18", "status": "已完成"}, today=today)["state"],
+            "已完成",
         )
 
     def test_board_completion_ignores_business_status(self):
@@ -98,8 +103,8 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
 
         current = dt.date.today().strftime("%Y-%m")
         requirements = [
-            {"id": "no-month", "title": "空月", "is_monthly_release": True, "status": "开发中"},
-            {"id": "dated", "title": "有计划", "planned_online_date": "2099-01-15", "status": "待测试"},
+            {"id": "no-month", "title": "空月", "status": "开发中"},
+            {"id": "dated", "title": "有计划", "actual_release_date": "2099-01-15", "status": "待测试"},
         ]
         board = {"completed_requirement_keys": [], "ui_prefs": {"completed_section_collapsed": True}}
         with patch("panels.dashboard_panel.load_requirements", return_value=requirements), \
@@ -118,8 +123,8 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel
 
         requirements = [
-            {"id": "a", "title": "A", "planned_online_date": "2026-08-10", "status": "开发中"},
-            {"id": "b", "title": "B", "planned_online_date": "2026-09-10", "status": "待测试"},
+            {"id": "a", "title": "A", "actual_release_date": "2026-08-10", "status": "开发中"},
+            {"id": "b", "title": "B", "actual_release_date": "2026-09-10", "status": "待测试"},
         ]
         board = {"completed_requirement_keys": [], "ui_prefs": {"completed_section_collapsed": True}}
         with patch("panels.dashboard_panel.load_requirements", return_value=requirements), \
@@ -140,9 +145,9 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel
 
         requirements = [
-            {"id": "aug", "title": "八月", "planned_online_date": "2026-08-10", "status": "开发中"},
-            {"id": "sep", "title": "九月", "planned_online_date": "2026-09-10", "status": "待测试"},
-            {"id": "aug-off", "title": "无日期", "is_monthly_release": True, "status": "开发中"},
+            {"id": "aug", "title": "八月", "actual_release_date": "2026-08-10", "status": "开发中"},
+            {"id": "sep", "title": "九月", "actual_release_date": "2026-09-10", "status": "待测试"},
+            {"id": "aug-off", "title": "无日期", "status": "开发中"},
         ]
         board = {"completed_requirement_keys": []}
         with patch("panels.dashboard_panel.load_requirements", return_value=requirements), \
@@ -161,7 +166,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             "id": "r1",
             "code": "REQ-1",
             "title": "独立完成",
-            "planned_online_date": "2026-08-10",
+            "actual_release_date": "2026-08-10",
             "status": "开发中",
         }
         board = {
@@ -188,12 +193,12 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel, TaskRow
 
         one = [{
-            "id": "one", "title": "单条", "planned_online_date": "2026-08-10",
+            "id": "one", "title": "单条", "actual_release_date": "2026-08-10",
             "status": "开发中",
         }]
         many = [
             {
-                "id": f"r{i}", "title": f"T{i}", "planned_online_date": "2026-08-10",
+                "id": f"r{i}", "title": f"T{i}", "actual_release_date": "2026-08-10",
                 "status": "开发中",
             }
             for i in range(12)
@@ -239,7 +244,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel
 
         requirements = [
-            {"id": "a", "title": "A", "planned_online_date": "2026-08-10", "status": "开发中"},
+            {"id": "a", "title": "A", "actual_release_date": "2026-08-10", "status": "开发中"},
         ]
         board = {"completed_requirement_keys": []}
         with patch("panels.dashboard_panel.load_requirements", return_value=requirements), \
@@ -260,10 +265,10 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel
 
         requirements = [
-            {"id": "future", "title": "下月", "planned_online_date": "2026-09-10", "status": "待测试"},
+            {"id": "future", "title": "下月", "actual_release_date": "2026-09-10", "status": "待测试"},
         ]
         saved = {
-            "id": "cur", "title": "本月", "planned_online_date": "2026-08-10",
+            "id": "cur", "title": "本月", "actual_release_date": "2026-08-10",
             "status": "开发中",
         }
         board = {"completed_requirement_keys": []}
@@ -280,11 +285,11 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
         from panels.dashboard_panel import DashboardPanel, SectionHeader
 
         pending = {
-            'id': 'open', 'title': '待处理', 'planned_online_date': '2026-08-20',
+            'id': 'open', 'title': '待处理', 'actual_release_date': '2026-08-20',
             'status': '开发中',
         }
         done = {
-            'id': 'done', 'title': '已完成项', 'planned_online_date': '2026-08-10',
+            'id': 'done', 'title': '已完成项', 'actual_release_date': '2026-08-12',
             'actual_online_date': '2026-08-12', 'status': '开发中',
         }
         board = {

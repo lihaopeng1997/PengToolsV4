@@ -22,15 +22,14 @@ class DashboardSummaryContractTests(unittest.TestCase):
                 "title": "九月实际上线",
                 "status": "开发中",
                 "actual_online_date": "2026-09-01",
-                "planned_online_date": "2026-08-30",
                 "test_points": [{"id": "1", "text": "t", "done": True}],
             },
             {
                 "id": "b",
                 "code": "REQ-B",
-                "title": "九月计划",
+                "title": "九月进行中",
                 "status": "待测试",
-                "planned_online_date": "2026-09-08",
+                "actual_online_date": "2026-09-08",
                 "test_points": [{"id": "1", "text": "t", "done": False}, {"id": "2", "text": "u", "done": True}],
             },
             {
@@ -38,21 +37,20 @@ class DashboardSummaryContractTests(unittest.TestCase):
                 "code": "REQ-C",
                 "title": "无日期",
                 "status": "待分析",
-                "is_monthly_release": True,
             },
             {
                 "id": "d",
                 "code": "REQ-D",
                 "title": "下月",
                 "status": "开发中",
-                "planned_online_date": "2026-10-03",
+                "actual_online_date": "2026-10-03",
             },
             {
                 "id": "e",
                 "code": "REQ-E",
-                "title": "已完成无上线",
+                "title": "已完成",
                 "status": "已完成",
-                "planned_online_date": "2026-09-25",
+                "actual_online_date": "2026-09-25",
             },
         ]
 
@@ -99,7 +97,7 @@ class DashboardSummaryContractTests(unittest.TestCase):
         today = datetime.date(2026, 9, 2)
         self.assertEqual(auto_release_target_date(self._reqs(), today), "2026-09-08")
         self.assertEqual(auto_release_target_date([], today), "")
-        past_only = [{"planned_online_date": "2026-09-01"}]
+        past_only = [{"actual_online_date": "2026-09-01"}]
         self.assertEqual(auto_release_target_date(past_only, today), "")
 
     def test_web_native_same_builder(self):

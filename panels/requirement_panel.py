@@ -815,8 +815,7 @@ class RequirementDialog(QDialog):
         self.system_bindings_layout.setContentsMargins(0, 0, 0, 0)
         self.system_bindings_layout.setSpacing(6)
         self._binding_rows = {}
-        self.planned_date = DateInput(inferred.get('planned_online_date') or base.get('planned_online_date', ''))
-        self.actual_date = DateInput(base.get('actual_online_date', ''))
+        self.actual_date = DateInput(base.get('actual_release_date') or base.get('actual_online_date', ''))
         self.online_month = DateInput(inferred.get('online_month') or base.get('online_month', ''), month_only=True)
         for combo, value in (
             (self.kind_combo, inferred.get('record_kind') or base.get('record_kind', '需求')),
@@ -839,16 +838,8 @@ class RequirementDialog(QDialog):
         form.addWidget(self.svn_label, 6, 0); form.addWidget(self.svn_url_edit, 6, 1, 1, 3)
         form.addWidget(self.dev_label, 7, 0); form.addLayout(self._standalone_dev_row, 7, 1, 1, 3)
         form.addWidget(QLabel('绑定本地目录'), 8, 0); form.addLayout(local_path_row, 8, 1, 1, 3)
-        self.monthly_release = QCheckBox('是否本月上线')
-        self.monthly_release.setToolTip('勾选后会在工作台“待升级事项”中按所选上线月份展示；若未填上线月份，将默认使用当前自然月。')
-        self.monthly_release.setChecked(bool(base.get('is_monthly_release')))
-        self.monthly_release.toggled.connect(self._on_monthly_release_toggled)
-        form.addWidget(QLabel('上线月份'), 9, 0); form.addWidget(self.online_month, 9, 1)
-        form.addWidget(QLabel('计划上线'), 9, 2); form.addWidget(self.planned_date, 9, 3)
-        form.addWidget(self.monthly_release, 10, 1)
-        if self.monthly_release.isChecked() and not str(self.online_month.text() or '').strip():
-            self._on_monthly_release_toggled(True)
-        form.addWidget(QLabel('实际上线'), 10, 2); form.addWidget(self.actual_date, 10, 3)
+        form.addWidget(QLabel('实际上线'), 9, 0); form.addWidget(self.actual_date, 9, 1)
+        form.addWidget(QLabel('上线月份'), 9, 2); form.addWidget(self.online_month, 9, 3)
         self._rebuild_system_bindings()
         layout.addLayout(form)
 
@@ -972,14 +963,6 @@ class RequirementDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
         self._refresh_lists()
-
-    def _on_monthly_release_toggled(self, checked):
-        """勾选“是否本月上线”时，若上线月份为空则填入当前自然月。"""
-        if not checked:
-            return
-        if str(self.online_month.text() or '').strip():
-            return
-        self.online_month.edit.setText(datetime.date.today().strftime('%Y-%m'))
 
     def selected_systems(self):
         return self.system_pick.selected_names()
@@ -1375,7 +1358,7 @@ class RequirementDialog(QDialog):
                 self.dev_local_path_edit.setFocus()
                 return
             self.dev_local_path_edit.clear()
-        for field, label in ((self.online_month, '上线月份'), (self.planned_date, '计划上线'), (self.actual_date, '实际上线')):
+        for field, label in ((self.online_month, '上线月份'), (self.actual_date, '实际上线')):
             if not field.is_valid():
                 tip = '选月份' if getattr(field, 'month_only', False) else '选日期'
                 show_warning(self, label, f'{label}格式不正确，请按输入框提示手动录入，或点击“{tip}”。')
@@ -1387,12 +1370,8 @@ class RequirementDialog(QDialog):
         self.accept()
 
     def values(self):
-        online_month = self._normalize_month_text(self.online_month.text())
-        is_monthly = bool(self.monthly_release.isChecked())
-        if is_monthly and not online_month:
-            online_month = datetime.date.today().strftime('%Y-%m')
-        planned_date = self._normalize_date_text(self.planned_date.text()) or month_end_date(online_month)
         actual_date = self._normalize_date_text(self.actual_date.text())
+        online_month = self._normalize_month_text(self.online_month.text()) or (actual_date[:7] if actual_date else '')
         local_path = self.local_path_edit.text().strip()
         names = self.selected_systems()
         bindings = self._current_binding_map()
@@ -1422,10 +1401,9 @@ class RequirementDialog(QDialog):
                 'folder' if local_path and not os.path.isdir(os.path.join(local_path, '.svn'))
                 else ('svn' if local_path else '')
             ),
-            'planned_online_date': planned_date,
+            'actual_release_date': actual_date,
             'actual_online_date': actual_date,
             'online_month': online_month,
-            'is_monthly_release': is_monthly,
             'has_sql': bool(self.has_sql.isChecked() or self._sql_parts),
             'needs_peripheral_upgrade': bool(self.peripheral.isChecked()),
             'temporary_upgrade': bool(self.temporary.isChecked()),
@@ -1465,6 +1443,10 @@ class RequirementPanel(QWidget):
         self._setup_ui(); self.set_language(language); self._refresh()
         self._clamp_file_library_action_heights()
         self._sources_stamp = self._current_sources_stamp()
+
+    def _sync_toolbar_more_menu(self):
+        """同步更多菜单中的各项操作状态。"""
+        pass
 
     def _setup_ui(self):
         from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN, SPACING_PAGE, TABLE_ROW_H
@@ -1518,9 +1500,8 @@ class RequirementPanel(QWidget):
         self.toolbar_more_btn.setMenu(self.toolbar_more_menu)
 
         for button in (
-            self.scan_btn, self.checkout_btn, self.update_all_btn,
-            self.bug_btn, self.import_btn, self.system_config_btn,
-            self.toolbar_more_btn,
+            self.scan_btn, self.update_all_btn,
+            self.bug_btn, self.toolbar_more_btn,
         ):
             size_compact_button(button)
             toolbar_layout.addWidget(button)
@@ -1714,7 +1695,7 @@ class RequirementPanel(QWidget):
             ('kind', '事项类型'),
             ('status', '进度状态'),
             ('system', '目标系统'),
-            ('online', '计划上线'),
+            ('online', '实际上线'),
         )):
             row, col = divmod(index, 2)
             cell = QVBoxLayout()
@@ -2940,16 +2921,29 @@ class RequirementPanel(QWidget):
         save_requirements(self._requirements); self._refresh()
 
     def _move_requirements(self, requirement_ids, month):
+        from tools.requirements import update_release_date_month
         now = datetime.datetime.now().isoformat(timespec='seconds')
         changed = False
+        target_month = str(month or '').strip()
+        ids = {r if isinstance(r, str) else str((r or {}).get('id') or '') for r in (requirement_ids or [])}
         for requirement in self._requirements:
-            if requirement.get('id') in requirement_ids and requirement.get('online_month', '') != month:
-                requirement['online_month'] = month
-                if month and not requirement.get('planned_online_date'):
-                    requirement['planned_online_date'] = month_end_date(month)
-                requirement['updated_at'] = now; changed = True
+            if requirement.get('id') in ids:
+                cur_date = str(requirement.get('actual_release_date') or requirement.get('actual_online_date') or '').strip()
+                if target_month:
+                    new_date = update_release_date_month(cur_date, target_month)
+                else:
+                    new_date = ''
+                old_month = cur_date[:7] if cur_date else str(requirement.get('online_month') or '').strip()
+                if new_date != cur_date or old_month != target_month:
+                    requirement['actual_release_date'] = new_date
+                    requirement['actual_online_date'] = new_date
+                    requirement['online_month'] = target_month
+                    requirement['updated_at'] = now
+                    changed = True
         if changed:
-            save_requirements(self._requirements); self._refresh()
+            save_requirements(self._requirements)
+            self._refresh()
+            self.requirements_changed.emit()
 
     @staticmethod
     def _open_requirement_folder(requirement):
@@ -3015,7 +3009,7 @@ class RequirementPanel(QWidget):
                 value.setText('—')
                 value.setToolTip('')
             if 'online' in self._detail_captions:
-                self._detail_captions['online'].setText('计划上线')
+                self._detail_captions['online'].setText('实际上线')
             for btn in self._flag_buttons.values():
                 btn.hide()
             self.flag_section.hide()
@@ -3041,17 +3035,14 @@ class RequirementPanel(QWidget):
         system = systems_display_text(requirement, empty='未选系统')
         status = requirement.get('status') or '待分析'
         month = requirement.get('online_month') or ''
-        planned = requirement.get('planned_online_date') or ''
-        actual = requirement.get('actual_online_date') or ''
-        # 动态上线字段名：实际 / 计划 / 月份 / 未安排
+        actual = requirement.get('actual_release_date') or requirement.get('actual_online_date') or ''
+        # 动态上线字段名：实际上线 / 上线月份 / 未安排（彻底移除计划上线）
         if actual:
             online_caption, online_text = '实际上线', actual
-        elif planned:
-            online_caption, online_text = '计划上线', planned
         elif month:
             online_caption, online_text = '上线月份', format_online_month_label(month)
         else:
-            online_caption, online_text = '计划上线', '未安排'
+            online_caption, online_text = '实际上线', '未安排'
         self.detail_title.setText(title)
         self.detail_title.setToolTip(f'{title}\n编号：{code}\n完整信息请点「编辑」')
         if 'online' in self._detail_captions:

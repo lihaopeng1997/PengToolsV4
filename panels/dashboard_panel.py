@@ -17,6 +17,7 @@ from config import DASHBOARD_RELEASE_ITEMS_FILE, REQUIREMENTS_FILE
 from tools.dashboard_release_items import (
     collect_release_months,
     effective_release_month,
+    is_board_item_completed,
     load_release_board,
     release_display_state,
     save_release_board,
@@ -682,13 +683,15 @@ class DashboardPanel(QWidget):
             return
         pending = []
         done_items = []
+        completed_keys = set(board.get('completed_requirement_keys', []) if isinstance(board, dict) else [])
         for item in requirements:
             item_month = effective_release_month(item)
             if not item_month or item_month != month_key:
                 continue
             display = release_display_state(item)
-            entry = ('requirement', item, _parse_date(item.get('planned_online_date')))
-            if display.get('done'):
+            actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+            entry = ('requirement', item, _parse_date(actual_date))
+            if is_board_item_completed(item, month_key, completed_keys) or display.get('done'):
                 done_items.append(entry)
             else:
                 pending.append(entry)
@@ -741,12 +744,9 @@ class DashboardPanel(QWidget):
             item.get('record_kind') or ('需求' if zh else 'Requirement')
         )
         display = release_display_state(item)
-        planned = valid_iso_date(item.get('planned_online_date')) or (planned_date.isoformat() if planned_date else '')
-        actual = valid_iso_date(item.get('actual_online_date'))
+        actual = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
         system = systems_display_text(item, empty=('未选系统' if zh else 'No system'))
         dates = []
-        if planned:
-            dates.append(f'计划 {planned}' if zh else f'Plan {planned}')
         if actual:
             dates.append(f'实际 {actual}' if zh else f'Actual {actual}')
         progress = test_points_button_text(item.get('test_points'), zh=zh)
