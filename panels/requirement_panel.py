@@ -1483,6 +1483,7 @@ class RequirementPanel(QWidget):
         # 次级工具条（扫描/检出/更新等，不抢 Primary）
         toolbar_card = QFrame()
         toolbar_card.setObjectName('page-toolbar')
+        toolbar_card.setProperty('card', True)
         toolbar_layout = QHBoxLayout(toolbar_card)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(8)

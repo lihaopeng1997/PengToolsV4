@@ -231,7 +231,10 @@ class AiWorkbenchPanel(QWidget):
         super().__init__()
         self.language = language
         self._connection_id = str(connection_id or '')
-        self._dialect = str(dialect or '').strip().lower()  # 六面板模式：锁定方言
+        d = str(dialect or '').strip().lower()
+        if d == 'dm':
+            d = 'dameng'
+        self._dialect = d  # 六面板模式：锁定方言
         self._bound_conn_item = None  # 如果是绑定连接，缓存完整连接 dict
         self._worker = None
         self._ai_worker = None
@@ -286,9 +289,10 @@ class AiWorkbenchPanel(QWidget):
         trail_l.setContentsMargins(0, 0, 0, 0)
         trail_l.setSpacing(8)
         trail_l.addWidget(self.conn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
+        dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper()) if self._dialect else 'SQL'
         header, self.page_title, self.page_subtitle = make_page_header(
-            'SQL 控制台',
-            '多标签 SQL 编辑与内网模型草案',
+            f'{dialect_label} 工作台' if self._dialect else 'SQL 控制台',
+            '多标签编辑 · 结构快照 · AI 助手生成不执行',
             'database',
             trailing=header_trail,
         )
@@ -677,20 +681,31 @@ class AiWorkbenchPanel(QWidget):
             'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
         )
         self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
+        self.new_tab_btn.setToolTip('新建一个 SQL 查询编辑器标签页' if zh else 'Create a new SQL editor tab')
         self.conn_new_btn.setText('新建数据库连接' if zh else 'New connection')
+        self.conn_new_btn.setToolTip('新建数据库连接' if zh else 'New connection')
         self.conn_edit_btn.setText('编辑' if zh else 'Edit')
+        self.conn_edit_btn.setToolTip('编辑当前连接配置' if zh else 'Edit connection')
         self.conn_del_btn.setText('删除' if zh else 'Delete')
+        self.conn_del_btn.setToolTip('删除当前连接配置' if zh else 'Delete connection')
         self.test_btn.setText('测试连接' if zh else 'Test')
+        self.test_btn.setToolTip('测试与当前数据库的连通性' if zh else 'Test connection')
         self.scan_btn.setText('扫描结构' if zh else 'Scan schema')
+        self.scan_btn.setToolTip('扫描加载数据库表与字段结构' if zh else 'Scan schema')
         self.scan_cancel_btn.setText('取消扫描' if zh else 'Cancel scan')
+        self.scan_cancel_btn.setToolTip('取消正在进行的结构扫描' if zh else 'Cancel scan')
         self.view_snap_btn.setText('查看结构快照' if zh else 'View schema snapshot')
+        self.view_snap_btn.setToolTip('查看当前数据库本地保存的结构快照' if zh else 'View schema snapshot')
         self.del_snap_btn.setText('删除本地结构快照' if zh else 'Delete local schema snapshot')
+        self.del_snap_btn.setToolTip('删除本地保存的结构快照文件' if zh else 'Delete local schema snapshot')
         self.model_btn.setText('模型配置' if zh else 'Model settings')
+        self.model_btn.setToolTip('配置 AI 助手使用的内网或云端模型' if zh else 'Model settings')
         self.object_filter.setPlaceholderText('搜索表 / 字段 / 注释' if zh else 'Search table / field / comment')
         self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
+        self.save_draft_btn.setToolTip('保存当前 SQL 编辑草稿' if zh else 'Save draft')
         self.ai_title.setText('AI 助手' if zh else 'AI assistant')
         self.ai_hint.setText(
             '右键输入框可添加结构提示。AI 助手仅生成草案，绝不自动执行。'

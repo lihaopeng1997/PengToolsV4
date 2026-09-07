@@ -365,6 +365,101 @@ class TestVisualNativeSurfaces(unittest.TestCase):
                 panel.deleteLater()
                 self.app.processEvents()
 
+    # ── 7. Requirement Surface Hierarchy & 4-Button Contract ──────────────
+
+    def test_requirement_surface_hierarchy_and_toolbar_contract(self):
+        """RequirementPanel 视觉表面层级清晰，严格保持 4 按钮工具栏契约且无已移除旧字段。"""
+        from PyQt6.QtWidgets import QFrame, QTabWidget
+        from panels.requirement_panel import RequirementPanel
+        panel = RequirementPanel('zh')
+        try:
+            # 1. 表面层级容器完整
+            toolbar = panel.findChild(QFrame, 'page-toolbar')
+            self.assertIsNotNone(toolbar, '必须存在 page-toolbar')
+            self.assertTrue(toolbar.property('card'), 'page-toolbar 必须具备 card 属性以呈现卡片表面')
+
+            filter_bar = panel.findChild(QFrame, 'page-filter-bar')
+            self.assertIsNotNone(filter_bar, '必须存在 page-filter-bar')
+
+            tree_card = panel.findChild(QFrame, 'req-tree-card')
+            self.assertIsNotNone(tree_card, '必须存在 req-tree-card')
+
+            detail_card = panel.findChild(QFrame, 'detail-summary-card')
+            self.assertIsNotNone(detail_card, '必须存在 detail-summary-card')
+
+            module_tabs = panel.findChild(QTabWidget, 'module-tabs')
+            self.assertIsNotNone(module_tabs, '必须存在 module-tabs')
+
+            # 2. 四按钮工具栏契约
+            self.assertEqual(panel.scan_btn.text(), '扫描需求目录')
+            self.assertEqual(panel.update_all_btn.text(), '更新全部')
+            self.assertEqual(panel.bug_btn.text(), '登记缺陷')
+            self.assertTrue(panel.toolbar_more_btn.text().startswith('更多'))
+
+            # 3. 严格禁止恢复旧版已移除字段
+            self.assertFalse(hasattr(panel, 'online_month_input'), '禁止恢复 online_month_input')
+            self.assertFalse(hasattr(panel, 'is_this_month_check'), '禁止恢复 is_this_month_check')
+            self.assertFalse(hasattr(panel, 'planned_date_edit'), '禁止恢复 planned_date_edit')
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
+    # ── 8. Database Workbench Header & Toolbar Contract ───────────────────
+
+    def test_database_workbench_header_and_toolbar_contract(self):
+        """四数据库工作台标题/副标题、连接芯片与工具栏按钮 tooltip 契约完整。"""
+        from panels.ai_workbench_panel import AiWorkbenchPanel
+
+        expected_titles = {
+            'oracle': 'Oracle 工作台',
+            'mysql': 'MySQL 工作台',
+            'oceanbase': 'OceanBase 工作台',
+            'dm': '达梦 工作台',
+        }
+        for dialect, expected_title in expected_titles.items():
+            panel = AiWorkbenchPanel('zh', dialect=dialect)
+            try:
+                self.assertEqual(panel.page_title.text(), expected_title)
+                self.assertEqual(panel.page_subtitle.text(), '多标签编辑 · 结构快照 · AI 助手生成不执行')
+                self.assertEqual(panel.conn_meta.objectName(), 'status-pill')
+
+                # 工具栏按钮存在有效提示（de-noised hierarchy）
+                for btn in (
+                    panel.conn_new_btn, panel.conn_edit_btn, panel.conn_del_btn,
+                    panel.test_btn, panel.scan_btn, panel.scan_cancel_btn,
+                    panel.view_snap_btn, panel.del_snap_btn, panel.model_btn,
+                    panel.save_draft_btn,
+                ):
+                    self.assertTrue(bool(btn.toolTip().strip()), f'{dialect} 按钮 {btn} 缺少 tooltip')
+            finally:
+                panel.close()
+                panel.deleteLater()
+                self.app.processEvents()
+
+    # ── 9. Daylight Glass Surface QSS Tokens ──────────────────────────────
+
+    def test_qss_daylight_glass_surface_alignment(self):
+        """全局样式在 Calm 和 Black 主题下成功注入 Daylight Glass 表面 Token 且无未解析变量。"""
+        from ui.theme_manager import ThemeManager, unresolved_qss_tokens
+
+        for theme in ('calm', 'black'):
+            qss = ThemeManager.instance().render(theme)
+
+            # 无悬挂未注入变量
+            unresolved = unresolved_qss_tokens(qss)
+            self.assertEqual(unresolved, (), f'{theme} 主题存在未解析的 QSS 变量: {unresolved}')
+
+            # 关键选择器存在
+            self.assertIn('QSplitter::handle:horizontal', qss)
+            self.assertIn('QSplitter#requirement-splitter::handle:horizontal', qss)
+            self.assertIn('QFrame#page-toolbar[card="true"]', qss)
+            self.assertIn('QFrame#req-tree-card', qss)
+            self.assertIn('QTabWidget#module-tabs QTabBar::tab:selected', qss)
+            self.assertIn('QTextEdit#ai-prompt-edit', qss)
+            self.assertIn('QTextEdit#ai-explain', qss)
+            self.assertIn('QFrame#sql-object-pane', qss)
+
 
 if __name__ == '__main__':
     unittest.main()

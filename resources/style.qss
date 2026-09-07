@@ -451,7 +451,15 @@ QFrame#page-toolbar {
     border: none;
 }
 QFrame#page-toolbar[divided="true"] {
-    border-bottom: 1px solid __BORDER__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QFrame#page-toolbar[card="true"],
+QFrame#req-toolbar-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
 }
 /* SQL 控制台窄屏显式开关条（非 L2 工具栏，避免第二块 page-toolbar Token） */
 QFrame#page-narrow-chrome {
@@ -867,7 +875,7 @@ QLabel[xmlStatus="ok"] {
 /* 全局分割线：极细视觉线（~2px），保持 8px 便于拖拽的交互区域，hover/pressed 时高亮提示 */
 QSplitter::handle:horizontal {
     margin: 0 3px;
-    background: __BORDER__;
+    background: __BORDER_STRONG__;
     border: none;
     border-radius: 1px;
 }
@@ -876,7 +884,7 @@ QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
 }
 QSplitter#requirement-splitter::handle:horizontal {
     margin: 0 3px;
-    background: __BORDER__;
+    background: __BORDER_STRONG__;
     border: none;
     border-radius: 1px;
 }
@@ -885,7 +893,7 @@ QSplitter#requirement-splitter::handle:horizontal:hover, QSplitter#requirement-s
 }
 QSplitter::handle:vertical {
     margin: 3px 0;
-    background: __BORDER__;
+    background: __BORDER_STRONG__;
     border: none;
     border-radius: 1px;
 }
@@ -987,17 +995,17 @@ QFrame#req-filter-card {
     border-style: solid;
 }
 QFrame#req-tree-card {
-    background: __SURFACE_SOFT__;
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-QFrame#req-file-card {
+QFrame#req-file-card,
+QFrame#req-sql-card,
+QFrame#req-test-points-card,
+QFrame#req-history-card {
     background: __SURFACE__;
-    border-top: 2px solid __TEXT_MUTED__;
-}
-QFrame#req-sql-card {
-    background: __SURFACE_SOFT__;
-    border-left: 3px solid __SUCCESS__;
+    border: none;
+    border-radius: 0;
 }
 QListWidget#docx-doc-list {
     background: __SURFACE__;
@@ -1762,8 +1770,8 @@ QTabBar::tab:selected,
 QTabWidget#module-tabs QTabBar::tab:selected {
     color: __PRIMARY_ACTIVE__;
     font-weight: 700;
-    background: __GLASS_BG__;
-    border: 1px solid __GLASS_BORDER__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
     border-bottom: 2px solid __PRIMARY__;
 }
 QTabBar::scroller { width: 28px; }
@@ -2440,12 +2448,25 @@ QDialog {
     border: 1px solid __GLASS_BORDER__;
 }
 /* 实底高对比面：SQL/日志/终端/表格/密钥不使用玻璃 */
+QTextEdit#ai-prompt-edit,
+QTextEdit#ai-explain,
 QPlainTextEdit#ai-prompt-edit,
 QPlainTextEdit#ai-explain,
 QWidget#SqlEditor,
 QTableWidget,
 QTreeWidget {
     background: __SURFACE__;
+}
+QTextEdit#ai-prompt-edit,
+QTextEdit#ai-explain {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 6px 8px;
+    color: __TEXT__;
+}
+QTextEdit#ai-prompt-edit:focus {
+    border: 1px solid __PRIMARY__;
 }
 QToolButton#responsive-more-btn {
     background: __SURFACE__;
@@ -2878,9 +2899,14 @@ QDialog#test-points-dialog {
 
 /* SQL Workbench Surfaces */
 QFrame#sql-object-pane {
-    background: __SURFACE_SOFT__;
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
+}
+QFrame#sql-object-pane QTreeWidget {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
 }
 
 QTabWidget#sql-editor-tabs QTabBar {
@@ -2900,6 +2926,15 @@ QTabWidget#sql-editor-tabs QTabBar::tab:hover {
 }
 
 QTabWidget#sql-editor-tabs QTabBar::tab:selected {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-bottom: 2px solid __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 700;
+}
+
+QTabWidget#sql-result-tabs QTabBar::tab:selected,
+QTabWidget#sql-side-tabs QTabBar::tab:selected {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-bottom: 2px solid __PRIMARY__;
