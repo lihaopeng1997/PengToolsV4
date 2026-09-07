@@ -578,7 +578,11 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         """Interface Debug: 核心 sidebar / workspace / inspector Surface 与按钮契约完整。"""
         from panels.interface_debug_panel import InterfaceDebugPanel
 
-        panel = self.track(InterfaceDebugPanel('zh'))
+        with patch.object(InterfaceDebugPanel, '_toggle_capture') as mock_toggle:
+            panel = self.track(InterfaceDebugPanel('zh'))
+            panel.capture_toggle_btn.click()
+            mock_toggle.assert_called_once()
+
         self.assertEqual(panel._session_list_widget.objectName(), 'iface-session-pane')
         self.assertEqual(panel.detail_workspace.objectName(), 'iface-detail-workspace')
         self.assertEqual(panel.table.objectName(), 'iface-request-table')
@@ -595,7 +599,12 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         """Model Chat: 会话、输入岛、气泡语义与空状态完整。"""
         from panels.model_chat_panel import ModelChatPanel
 
-        panel = self.track(ModelChatPanel('zh'))
+        with patch.object(ModelChatPanel, '_on_action_clicked') as mock_action:
+            panel = self.track(ModelChatPanel('zh'))
+            panel.send_btn.setEnabled(True)
+            panel.send_btn.click()
+            mock_action.assert_called_once()
+
         self.assertEqual(panel.session_card.objectName(), 'chat-session-card')
         self.assertEqual(panel.composer_card.objectName(), 'chat-composer-card')
         self.assertEqual(panel.input.objectName(), 'chat-composer-input')
@@ -615,8 +624,13 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_agent_workbench_surfaces(self):
         """Agent Workbench: 空间卡、消息卡、输入卡、上下文卡语义完整。"""
         from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from ui.thinking_indicator import ThinkingIndicator
 
-        panel = self.track(AgentWorkbenchPanel('zh'))
+        with patch.object(AgentWorkbenchPanel, '_on_action_clicked') as mock_action:
+            panel = self.track(AgentWorkbenchPanel('zh'))
+            panel.send_btn.click()
+            mock_action.assert_called_once()
+
         self.assertEqual(panel.space_card.objectName(), 'agent-space-card')
         self.assertEqual(panel.thread_card.objectName(), 'agent-thread-card')
         self.assertEqual(panel.composer_card.objectName(), 'agent-composer-card')
@@ -624,11 +638,37 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertEqual(panel.input.objectName(), 'agent-composer-input')
         self.assertEqual(panel.send_btn.objectName(), 'primary-btn')
 
+        # Transient Thinking / ReAct status UI contract (zero worker execution)
+        self.assertIsNone(panel._transient_holder)
+        self.assertIsNone(panel._transient_indicator)
+        panel._set_transient_status('正在分析项目…')
+        self.assertIsNotNone(panel._transient_holder)
+        self.assertIsNotNone(panel._transient_indicator)
+        self.assertIsInstance(panel._transient_indicator, ThinkingIndicator)
+        self.assertEqual(panel._transient_indicator.objectName(), 'agent-transient-indicator')
+        self.assertIsNone(panel._agent_worker, '瞬态状态切换绝不启动 _WorkbenchWorker')
+
+        panel._clear_transient_status()
+        self.assertIsNone(panel._transient_holder)
+        self.assertIsNone(panel._transient_indicator)
+
     def test_mongodb_workbench_surfaces(self):
         """MongoDB Workbench: 集合树、工作区、查询与文档编辑器语义完整。"""
         from panels.db_mongodb_panel import MongoDBWorkbenchPanel
 
-        panel = self.track(MongoDBWorkbenchPanel('zh'))
+        with patch('panels.db_mongodb_panel.load_connections', return_value=[]), \
+             patch.object(MongoDBWorkbenchPanel, '_run_query') as mock_query, \
+             patch.object(MongoDBWorkbenchPanel, '_insert_doc') as mock_insert, \
+             patch.object(MongoDBWorkbenchPanel, '_delete_selected') as mock_del:
+            panel = self.track(MongoDBWorkbenchPanel('zh'))
+            panel.query_btn.click()
+            panel.insert_btn.click()
+            panel.del_btn.click()
+            mock_query.assert_called_once()
+            mock_insert.assert_called_once()
+            mock_del.assert_called_once()
+            self.assertIsNone(panel._worker, '测试按钮 callback 时绝不启动 _MongoWorker 或真实连接')
+
         self.assertEqual(panel.tree_card.objectName(), 'mongo-tree-card')
         self.assertEqual(panel.workspace_card.objectName(), 'mongo-workspace-card')
         self.assertEqual(panel.query_input.objectName(), 'mongo-query-edit')
