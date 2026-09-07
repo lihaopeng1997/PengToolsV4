@@ -129,40 +129,20 @@ class RequirementCompactStackUiTests(unittest.TestCase):
             panel.close()
 
     def test_requirement_top_toolbar_responsive(self):
-        """测试需求管理顶部次级工具条在 1440/1280/1100/960 断点下的响应式收纳。"""
+        """测试需求管理顶部工具条在 1440/1280/1100/960 断点下固定 4 主入口，More 菜单始终包含次级动作。"""
         panel = self._make_panel()
         try:
             self.assertTrue(hasattr(panel, 'toolbar_more_btn'))
 
-            # Wide / Standard (>= 1280): 6 个按钮全部直显
-            for mode in ('wide', 'standard'):
+            # 所有布局模式下，4 主按钮均直显，More 菜单始终可达
+            for mode in ('wide', 'standard', 'compact', 'narrow'):
                 panel.apply_layout_mode(mode)
-                for b in (panel.scan_btn, panel.checkout_btn, panel.update_all_btn,
-                          panel.bug_btn, panel.import_btn, panel.system_config_btn):
-                    self.assertFalse(b.isHidden())
-                self.assertTrue(panel.toolbar_more_btn.isHidden())
+                self.assertFalse(panel.scan_btn.isHidden())
+                self.assertFalse(panel.update_all_btn.isHidden())
+                self.assertFalse(panel.bug_btn.isHidden())
+                self.assertFalse(panel.toolbar_more_btn.isHidden())
 
-            # Compact (1100-1279): import_btn, system_config_btn 收纳
-            panel.apply_layout_mode('compact')
-            self.assertFalse(panel.scan_btn.isHidden())
-            self.assertFalse(panel.checkout_btn.isHidden())
-            self.assertFalse(panel.update_all_btn.isHidden())
-            self.assertFalse(panel.bug_btn.isHidden())
-            self.assertTrue(panel.import_btn.isHidden())
-            self.assertTrue(panel.system_config_btn.isHidden())
-            self.assertFalse(panel.toolbar_more_btn.isHidden())
-
-            # Narrow (960-1099): checkout_btn, import_btn, system_config_btn 收纳
-            panel.apply_layout_mode('narrow')
-            self.assertFalse(panel.scan_btn.isHidden())
-            self.assertTrue(panel.checkout_btn.isHidden())
-            self.assertFalse(panel.update_all_btn.isHidden())
-            self.assertFalse(panel.bug_btn.isHidden())
-            self.assertTrue(panel.import_btn.isHidden())
-            self.assertTrue(panel.system_config_btn.isHidden())
-            self.assertFalse(panel.toolbar_more_btn.isHidden())
-
-            # 验证更多菜单可正常到达被收纳动作
+            # 验证更多菜单正常包含被收拢的次级操作
             top_action_texts = [a.text() for a in panel.toolbar_more_menu.actions()]
             self.assertIn('检出代码', top_action_texts)
             self.assertIn('导入资料', top_action_texts)
