@@ -210,6 +210,8 @@ class MainWindow(QMainWindow):
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
             self._dash_bridge.pageReadyReceived.connect(self._on_web_page_ready)
             self._dash_bridge.navigateRequested.connect(self._show_panel)
+            self._dash_bridge.createRequirementRequested.connect(self._on_web_create_requirement)
+            self._dash_bridge.openRequirementRequested.connect(self._on_web_open_requirement)
             self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
             self._dash_web.web_view.loadFinished.connect(
                 lambda ok: self._on_web_load_finished('dashboard', ok))
@@ -426,13 +428,10 @@ class MainWindow(QMainWindow):
         panel.add_to_daily.connect(self._add_requirement_to_daily)
         panel.open_system_config.connect(self._open_system_config)
         panel.open_release_prep.connect(self._open_release_prep)
-        if self.dashboard_panel is not None:
-            panel.requirement_saved.connect(self.dashboard_panel.refresh_for_requirement)
-            panel.requirements_changed.connect(
-                lambda: self.dashboard_panel.refresh(preferred_release_month=None)
-            )
-            if hasattr(self.dashboard_panel, 'requirements_updated'):
-                self.dashboard_panel.requirements_updated.connect(panel.reload_requirements)
+        panel.requirement_saved.connect(self._push_dashboard_summary)
+        panel.requirements_changed.connect(self._push_dashboard_summary)
+        if self.dashboard_panel is not None and hasattr(self.dashboard_panel, 'requirements_updated'):
+            self.dashboard_panel.requirements_updated.connect(panel.reload_requirements)
         self._mount_panel(9, panel)
         self.requirement_panel = panel
         self._apply_panel_chrome(panel)
@@ -1479,10 +1478,37 @@ class MainWindow(QMainWindow):
                 'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5, 'daily_note': ''},
                 'release': {
                     'version': 'RELEASE', 'total': 0, 'done': 0, 'percent': 0,
-                    'days_left': None, 'date_text': '计划日期待定', 'countdown_state': 'unset',
+                    'days_left': None, 'date_text': '按实际上线日期归档', 'countdown_state': 'unset',
                 },
                 'recent': [], 'checklist': [], 'tools': [], 'monthly_release_tasks': [],
             }
+
+    def _push_dashboard_summary(self, *_args):
+        """向 Web Dashboard 与原生 Dashboard 同步推送最新统计与上线数据。"""
+        if self.dashboard_panel is not None:
+            try:
+                self.dashboard_panel.refresh(preferred_release_month=None)
+            except Exception:
+                pass
+        if getattr(self, '_dash_bridge', None) is not None:
+            try:
+                self._dash_bridge.push_summary()
+            except Exception:
+                pass
+
+    def _on_web_create_requirement(self):
+        """Web 首页点击 '+ 新建需求'：切换到需求管理并直接弹出新增对话框。"""
+        self._show_panel(10)
+        panel = self._ensure_requirement_panel()
+        if panel is not None:
+            panel._add_requirement()
+
+    def _on_web_open_requirement(self, req_id: str):
+        """Web 首页点击需求行或查看：切换到需求管理并定位选中该需求。"""
+        self._show_panel(10)
+        panel = self._ensure_requirement_panel()
+        if panel is not None and req_id:
+            panel.focus_requirement(str(req_id))
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:

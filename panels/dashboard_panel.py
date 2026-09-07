@@ -905,10 +905,10 @@ class DashboardPanel(QWidget):
             self.recent_more.setText('全部')
             self.recent_empty.setText('暂无需求记录。可在需求管理中新增或扫描目录。')
             self.recent_more.setToolTip('打开需求管理查看完整目录')
-            self.release_title.setText('本月升级任务')
+            self.release_title.setText('本月上线任务')
             self.release_more.setText('发版联动')
             self.release_month_combo.setToolTip('选择要查看的上线月份')
-            self.release_empty.setText('该月份暂无升级任务。填写计划上线或实际上线日期后会出现在这里。')
+            self.release_empty.setText('该月份暂无上线任务。填写实际上线日期后会出现在这里。')
             if hasattr(self, 'release_target_clear'):
                 self.release_target_clear.setText('清除发版日')
             if hasattr(self, 'release_summary') and not self.release_summary.text():

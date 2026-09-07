@@ -52,11 +52,12 @@ def resolve_release_countdown(requirements, board, today: datetime.date) -> dict
     manual = valid_iso_date((board or {}).get('release_target_date'))
     auto = auto_release_target_date(requirements, today)
     target = manual or auto
+    month = today.strftime('%Y-%m')
     if not target:
         return {
             'target_date': '',
             'days_left': None,
-            'date_text': '计划日期待定',
+            'date_text': f'{month} 上线任务',
             'countdown_state': 'unset',
             'source': 'none',
         }
@@ -65,15 +66,15 @@ def resolve_release_countdown(requirements, board, today: datetime.date) -> dict
     source = 'manual' if manual else 'auto'
     if delta > 0:
         state = 'future'
-        date_text = f'计划 {target[5:]} 发布'
+        date_text = f'上线日 {target[5:]}'
         days_left = delta
     elif delta == 0:
         state = 'today'
-        date_text = f'计划 {target[5:]} 发布'
+        date_text = f'今日上线 ({target[5:]})'
         days_left = 0
     else:
         state = 'overdue'
-        date_text = f'已过期 {abs(delta)} 天'
+        date_text = f'已超期 {abs(delta)} 天 ({target[5:]})'
         days_left = delta
     return {
         'target_date': target,
@@ -120,48 +121,57 @@ def build_dashboard_summary(
     day = _as_date(today)
     zh = language == 'zh'
     month = day.strftime('%Y-%m')
+    is_demo = False
     if requirements is None:
         loaded = load_requirements()
-        if len(loaded) < 3:
+        if not loaded:
+            is_demo = True
             mock_seeds = [
                 {
-                    'id': 'mock-req-0912',
-                    'code': 'REQ-2026-0912',
-                    'title': '车险承保规则调整',
+                    'id': 'demo-req-0912',
+                    'code': 'DEMO-0912',
+                    'title': '【示例】车险承保规则调整',
                     'system': '车险承保',
                     'status': '已完成',
                     'actual_release_date': f'{month}-12',
                     'actual_online_date': f'{month}-12',
                     'test_points': [{'id': str(i), 'text': f'规则测试点{i}', 'done': True} for i in range(1, 9)],
                     'updated_at': f'{month}-06T15:30:00',
+                    'is_demo': True,
                 },
                 {
-                    'id': 'mock-req-0918',
-                    'code': 'REQ-2026-0918',
-                    'title': 'ECIF 客户查询优化',
+                    'id': 'demo-req-0918',
+                    'code': 'DEMO-0918',
+                    'title': '【示例】ECIF 客户查询优化',
                     'system': '客户中心',
                     'status': '测试中',
                     'actual_release_date': f'{month}-18',
                     'actual_online_date': f'{month}-18',
                     'test_points': [{'id': str(i), 'text': f'查询测试点{i}', 'done': i <= 5} for i in range(1, 8)],
                     'updated_at': f'{month}-05T14:20:00',
+                    'is_demo': True,
                 },
                 {
-                    'id': 'mock-req-0926',
-                    'code': 'REQ-2026-0926',
-                    'title': '监管接口字段升级',
+                    'id': 'demo-req-0926',
+                    'code': 'DEMO-0926',
+                    'title': '【示例】监管接口字段升级',
                     'system': '监管报送',
                     'status': '开发中',
                     'actual_release_date': f'{month}-26',
                     'actual_online_date': f'{month}-26',
                     'test_points': [{'id': str(i), 'text': f'接口测试点{i}', 'done': i <= 2} for i in range(1, 7)],
                     'updated_at': f'{month}-04T11:10:00',
+                    'is_demo': True,
                 },
             ]
-            existing_codes = {r.get('code') for r in loaded if isinstance(r, dict)}
-            requirements = list(loaded) + [m for m in mock_seeds if m['code'] not in existing_codes]
+            demo_items = mock_seeds
+            requirements = []
         else:
-            requirements = loaded
+            requirements = list(loaded)
+            demo_items = []
+    else:
+        demo_items = []
+
     if board is None:
         board = load_release_board()
     if reports is None:
@@ -177,6 +187,7 @@ def build_dashboard_summary(
         greeting = 'Good afternoon' if hour < 18 else 'Good evening'
         date_line = f'{day.isoformat()} · Local data synced'
 
+    display_items = demo_items if is_demo else requirements
     open_reqs = [
         item for item in requirements
         if str(item.get('status') or '') not in _OPEN_STATUSES
@@ -190,14 +201,15 @@ def build_dashboard_summary(
     else:
         daily_note = '今日已完成' if today_key in keys else '周末'
 
-    month_tasks = monthly_release_tasks(requirements, month, day)
-    total = len(month_tasks)
-    done = sum(1 for row in month_tasks if row.get('done'))
-    countdown = resolve_release_countdown(requirements, board, day)
+    real_month_tasks = monthly_release_tasks(requirements, month, day)
+    display_month_tasks = monthly_release_tasks(display_items, month, day)
+    total = len(real_month_tasks)
+    done = sum(1 for row in real_month_tasks if row.get('done'))
+    countdown = resolve_release_countdown(display_items, board, day)
 
     recent = []
     ordered = sorted(
-        requirements,
+        display_items,
         key=lambda item: str(item.get('updated_at') or item.get('created_at') or ''),
         reverse=True,
     )
@@ -213,39 +225,45 @@ def build_dashboard_summary(
             'system': systems_display_text(item, empty='未选系统'),
             'actual_release_date': actual_date,
             'actual_online_date': actual_date,
-            'test_points': f'{done_n}/{total_n}' if total_n else ('8/8' if status in ('已完成', '已上线') else '—'),
+            'test_points': f'{done_n}/{total_n}' if total_n else '',
             'status': cls,
             'status_label': status,
             'color': {'run': '#F59E0B', 'rev': '#3B82F6', 'ok': '#10B981'}.get(cls, '#C9CCDD'),
             'done': status in ('已完成', '已上线'),
             'nav': 10,
+            'is_demo': bool(item.get('is_demo')),
         })
 
     tools = [
-        {'i': 14, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
+        {'i': 18, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
         {'i': 16, 'zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
         {'i': 11, 'zh': '格式工具', 'ds': 'JSON / XML / SQL', 'icon': 'braces', 'grad': 'c4'},
         {'i': 12, 'zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'plug', 'grad': 'c3'},
     ]
+    demo_month_total = len(display_month_tasks)
+    demo_month_done = sum(1 for row in display_month_tasks if row.get('done'))
     return {
         'username': username or 'Lihp',
         'greeting': greeting,
         'date_line': date_line,
         'stats': {
             'req_open': len(open_reqs),
-            'req_trend': f'共 {len(requirements)} 条',
+            'req_trend': '暂无真实需求（显示示例）' if is_demo else f'共 {len(requirements)} 条',
             'daily_done': daily_done,
             'daily_total': 5,
             'daily_note': daily_note,
             'monthly_release_total': total,
             'monthly_release_done': done,
             'completed_total': sum(1 for item in requirements if str(item.get('status') or '') in _OPEN_STATUSES),
+            'is_demo': is_demo,
         },
         'release': {
             'version': 'RELEASE',
-            'total': total,
-            'done': done,
-            'percent': int(done * 100 / total) if total else 0,
+            'total': total if not is_demo else demo_month_total,
+            'done': done if not is_demo else demo_month_done,
+            'percent': int(done * 100 / total) if total else (
+                int(demo_month_done * 100 / demo_month_total) if (is_demo and demo_month_total) else 0
+            ),
             'days_left': countdown['days_left'],
             'date_text': countdown['date_text'],
             'countdown_state': countdown['countdown_state'],
@@ -255,11 +273,11 @@ def build_dashboard_summary(
         'checklist': [
             {
                 't': '本月上线任务',
-                'color': '#10B981' if done == total and total else '#E4E1EC',
-                'mini': f'{done}/{total} 项',
+                'color': '#10B981' if ((done == total and total) or (is_demo and demo_month_done == demo_month_total and demo_month_total)) else '#E4E1EC',
+                'mini': f'{done}/{total} 项' if not is_demo else f'{demo_month_done}/{demo_month_total} 项',
             },
         ],
         'tools': tools,
-        'monthly_release_tasks': month_tasks,
-        'release_months': collect_release_months(requirements),
+        'monthly_release_tasks': display_month_tasks,
+        'release_months': collect_release_months(display_items),
     }

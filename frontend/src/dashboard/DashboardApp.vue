@@ -34,6 +34,22 @@ function onNavClick(navIndex: number): void {
   props.state.bridge?.navigate(navIndex)
 }
 
+function onCreateRequirement(): void {
+  if (props.state.bridge?.createRequirement) {
+    props.state.bridge.createRequirement()
+  } else {
+    onNavClick(10)
+  }
+}
+
+function onOpenRequirement(reqId?: string | null, fallbackNav = 10): void {
+  if (reqId && props.state.bridge?.openRequirement) {
+    props.state.bridge.openRequirement(reqId)
+  } else {
+    onNavClick(fallbackNav)
+  }
+}
+
 const reqOpenText = computed(() => {
   const v = summary.value?.stats?.req_open
   return v != null ? String(v) : '–'
@@ -86,7 +102,7 @@ const releasePercent = computed(() => {
         <button class="btn btn-ghost" @click="onNavClick(9)">
           <svg><use href="#i-daily" /></svg>写日报
         </button>
-        <button class="btn btn-primary" @click="onNavClick(10)">
+        <button class="btn btn-primary" @click="onCreateRequirement">
           <svg><use href="#i-plus" /></svg>新建需求
         </button>
       </div>
@@ -141,18 +157,23 @@ const releasePercent = computed(() => {
               v-for="(r, idx) in summary.recent"
               :key="r.id || r.code || idx"
               class="ck"
-              @click="onNavClick(r.nav ?? 10)"
+              @click="onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
               <span class="t">
                 <b v-if="r.code">{{ r.code }}</b>&nbsp; {{ r.title || '未命名需求' }}
                 <span v-if="r.system" class="meta-inline"> · {{ r.system }}</span>
                 <span v-if="r.actual_release_date" class="meta-inline"> · 上线: {{ r.actual_release_date }}</span>
-                <span v-if="r.test_points" class="meta-inline"> · 测试: {{ r.test_points }}</span>
+              </span>
+              <span v-if="r.test_points" class="test-points-badge" :title="'测试点: ' + r.test_points">
+                <svg class="ic-xs"><use href="#i-check" /></svg>{{ r.test_points }}
               </span>
               <span class="chip" :class="r.status || 'run'">
                 <i></i>{{ r.status_label || statusLabel(r.status) }}
               </span>
+              <button class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(r.id, r.nav ?? 10)">
+                查看
+              </button>
             </div>
           </template>
           <div v-else class="note">暂无需求记录</div>
@@ -205,16 +226,23 @@ const releasePercent = computed(() => {
             v-for="(task, idx) in summary.monthly_release_tasks"
             :key="task.id || task.code || task.title || idx"
             class="ck"
-            @click="onNavClick(task.nav ?? 10)"
+            @click="onOpenRequirement(task.id, task.nav ?? 10)"
           >
             <span class="t">
-              <b v-if="task.code">{{ task.code }}</b>
+              <b v-if="task.code">{{ task.code }}</b>&nbsp;
               {{ task.title }}
               <span v-if="task.system" class="meta-inline"> · {{ task.system }}</span>
               <span v-if="task.actual_release_date" class="meta-inline"> · 上线: {{ task.actual_release_date }}</span>
-              <span v-if="task.test_points" class="meta-inline"> · 测试: {{ task.test_points }}</span>
             </span>
-            <span class="mini">{{ task.status }}</span>
+            <span v-if="task.test_points" class="test-points-badge" :title="'测试点: ' + task.test_points">
+              <svg class="ic-xs"><use href="#i-check" /></svg>{{ task.test_points }}
+            </span>
+            <span class="chip" :class="task.done ? 'ok' : 'run'">
+              <i></i>{{ task.done ? '已完成' : (task.status || '进行中') }}
+            </span>
+            <button class="btn btn-ghost btn-xs row-act-btn" @click.stop="onOpenRequirement(task.id, task.nav ?? 10)">
+              查看
+            </button>
           </div>
         </div>
       </div>
@@ -354,6 +382,10 @@ html[data-theme="black"] body::before, html.dark body::before {
 .chip.rev i { background:var(--cyan); }
 .chip.ok { color:var(--success); background:var(--success-bg); border:1px solid var(--success-border); }
 .chip.ok i { background:var(--success); }
+.test-points-badge { font-size:9.5px; font-weight:700; color:var(--ink-2); background:var(--surface-tech, var(--surface-soft)); border:1px solid var(--edge); border-radius:6px; padding:2px 6px; display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
+.ic-xs { width:10px; height:10px; }
+.row-act-btn { opacity:0.85; margin-left:4px; flex-shrink:0; }
+.row-act-btn:hover { opacity:1; }
 .note { font-size:12px; color:var(--ink-3); padding:12px 8px; text-align:center; font-weight:600; }
 .progress { height:9px; border-radius:99px; background:var(--surface-tech, var(--surface-soft)); overflow:hidden; }
 .progress .fill { height:100%; border-radius:99px; background:var(--grad); position:relative; }

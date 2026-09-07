@@ -816,7 +816,6 @@ class RequirementDialog(QDialog):
         self.system_bindings_layout.setSpacing(6)
         self._binding_rows = {}
         self.actual_date = DateInput(base.get('actual_release_date') or base.get('actual_online_date', ''))
-        self.online_month = DateInput(inferred.get('online_month') or base.get('online_month', ''), month_only=True)
         for combo, value in (
             (self.kind_combo, inferred.get('record_kind') or base.get('record_kind', '需求')),
             (self.category_combo, inferred.get('category') or base.get('category', '功能需求')),
@@ -838,8 +837,7 @@ class RequirementDialog(QDialog):
         form.addWidget(self.svn_label, 6, 0); form.addWidget(self.svn_url_edit, 6, 1, 1, 3)
         form.addWidget(self.dev_label, 7, 0); form.addLayout(self._standalone_dev_row, 7, 1, 1, 3)
         form.addWidget(QLabel('绑定本地目录'), 8, 0); form.addLayout(local_path_row, 8, 1, 1, 3)
-        form.addWidget(QLabel('实际上线'), 9, 0); form.addWidget(self.actual_date, 9, 1)
-        form.addWidget(QLabel('上线月份'), 9, 2); form.addWidget(self.online_month, 9, 3)
+        form.addWidget(QLabel('实际上线'), 9, 0); form.addWidget(self.actual_date, 9, 1, 1, 3)
         self._rebuild_system_bindings()
         layout.addLayout(form)
 
@@ -1358,11 +1356,9 @@ class RequirementDialog(QDialog):
                 self.dev_local_path_edit.setFocus()
                 return
             self.dev_local_path_edit.clear()
-        for field, label in ((self.online_month, '上线月份'), (self.actual_date, '实际上线')):
-            if not field.is_valid():
-                tip = '选月份' if getattr(field, 'month_only', False) else '选日期'
-                show_warning(self, label, f'{label}格式不正确，请按输入框提示手动录入，或点击“{tip}”。')
-                field.edit.setFocus(); return
+        if not self.actual_date.is_valid():
+            show_warning(self, '实际上线', '实际上线日期格式不正确，请按输入框提示手动录入，或点击“选日期”。')
+            self.actual_date.edit.setFocus(); return
         pasted = self.sql_paste.toPlainText().strip()
         if pasted:
             self._sql_parts.append({'name': '直接粘贴.sql', 'content': pasted})
@@ -1371,7 +1367,7 @@ class RequirementDialog(QDialog):
 
     def values(self):
         actual_date = self._normalize_date_text(self.actual_date.text())
-        online_month = self._normalize_month_text(self.online_month.text()) or (actual_date[:7] if actual_date else '')
+        online_month = actual_date[:7] if actual_date else ''
         local_path = self.local_path_edit.text().strip()
         names = self.selected_systems()
         bindings = self._current_binding_map()
@@ -1446,7 +1442,13 @@ class RequirementPanel(QWidget):
 
     def _sync_toolbar_more_menu(self):
         """同步更多菜单中的各项操作状态。"""
-        pass
+        has_active_worker = self._active_worker is not None
+        if hasattr(self, '_action_checkout'):
+            self._action_checkout.setEnabled(not has_active_worker)
+        if hasattr(self, '_action_import'):
+            self._action_import.setEnabled(not has_active_worker)
+        if hasattr(self, '_action_syscfg'):
+            self._action_syscfg.setEnabled(True)
 
     def _setup_ui(self):
         from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN, SPACING_PAGE, TABLE_ROW_H
@@ -2937,7 +2939,7 @@ class RequirementPanel(QWidget):
                 if new_date != cur_date or old_month != target_month:
                     requirement['actual_release_date'] = new_date
                     requirement['actual_online_date'] = new_date
-                    requirement['online_month'] = target_month
+                    requirement['online_month'] = new_date[:7] if new_date else ''
                     requirement['updated_at'] = now
                     changed = True
         if changed:

@@ -81,6 +81,9 @@ if WEB_SHELL_AVAILABLE:
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
+        summaryChanged = pyqtSignal(str)
+        createRequirementRequested = pyqtSignal()
+        openRequirementRequested = pyqtSignal(str)
 
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -106,10 +109,27 @@ if WEB_SHELL_AVAILABLE:
         def push_active(self, nav_index: int):
             self.activeChanged.emit(int(nav_index))
 
+        def push_summary(self):
+            try:
+                data = self._summary_provider() if self._summary_provider else {}
+            except Exception:
+                data = {}
+            payload = json.dumps(data, ensure_ascii=False)
+            self.summaryChanged.emit(payload)
+            return payload
+
         # ---- JS 调用槽 ----
         @pyqtSlot(int)
         def navigate(self, nav_index):
             self.navigateRequested.emit(int(nav_index))
+
+        @pyqtSlot()
+        def createRequirement(self):
+            self.createRequirementRequested.emit()
+
+        @pyqtSlot(str)
+        def openRequirement(self, requirement_id):
+            self.openRequirementRequested.emit(str(requirement_id or ''))
 
         @pyqtSlot()
         def openPalette(self):
@@ -152,6 +172,9 @@ else:  # pragma: no cover - 依赖缺失环境
         paletteRequested = pyqtSignal()
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
+        summaryChanged = pyqtSignal(str)
+        createRequirementRequested = pyqtSignal()
+        openRequirementRequested = pyqtSignal(str)
         pageReadyReceived = pyqtSignal(str)
 
         def set_nav_model(self, data):
@@ -161,7 +184,7 @@ else:  # pragma: no cover - 依赖缺失环境
             pass
 
         def set_summary_provider(self, provider):
-            pass
+            self._summary_provider = provider
 
         def set_theme_payload(self, data: dict):
             pass
@@ -169,8 +192,23 @@ else:  # pragma: no cover - 依赖缺失环境
         def navigate(self, nav_index):
             self.navigateRequested.emit(int(nav_index))
 
+        def createRequirement(self):
+            self.createRequirementRequested.emit()
+
+        def openRequirement(self, requirement_id):
+            self.openRequirementRequested.emit(str(requirement_id or ''))
+
         def push_active(self, nav_index):
             self.activeChanged.emit(int(nav_index))
+
+        def push_summary(self):
+            try:
+                data = self._summary_provider() if getattr(self, '_summary_provider', None) else {}
+            except Exception:
+                data = {}
+            payload = json.dumps(data, ensure_ascii=False)
+            self.summaryChanged.emit(payload)
+            return payload
 
         def openPalette(self):
             self.paletteRequested.emit()

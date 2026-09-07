@@ -27,6 +27,16 @@ async function bootstrapDashboard(): Promise<void> {
   bridge.onThemeChanged(applyThemePayload)
   const parsed = JSON.parse(rawSummary) as DashboardSummary
   state.summary = parsed
+  if (typeof bridge.onSummaryChanged === 'function') {
+    bridge.onSummaryChanged(async (newSummaryRaw: string) => {
+      try {
+        state.summary = JSON.parse(newSummaryRaw) as DashboardSummary
+        await nextTick()
+      } catch (err) {
+        console.error('dashboard onSummaryChanged parse failed:', err)
+      }
+    })
+  }
   await nextTick()
   bridge.pageReady('dashboard')
 }

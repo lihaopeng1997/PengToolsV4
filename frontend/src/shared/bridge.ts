@@ -15,6 +15,8 @@ export type PageName = 'chrome' | 'dashboard'
 export interface BridgeApi {
   navigate(index: number): void
   openPalette(): void
+  createRequirement?(): void
+  openRequirement?(reqId: string): void
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -22,6 +24,7 @@ export interface BridgeApi {
   pageReady(page: PageName): void
   onActiveChanged(handler: (index: number) => void): void
   onThemeChanged(handler: (payloadJson: string) => void): void
+  onSummaryChanged?(handler: (summaryJson: string) => void): void
 }
 
 export class BridgeUnavailableError extends Error {
@@ -41,6 +44,8 @@ interface QWebChannelSignal<T = any> {
 interface RawHomeBridge {
   navigate(index: number): void
   openPalette(): void
+  createRequirement?(): void
+  openRequirement?(reqId: string): void
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -48,6 +53,7 @@ interface RawHomeBridge {
   pageReady(page: string): void
   activeChanged?: QWebChannelSignal<number>
   themeChanged?: QWebChannelSignal<string>
+  summaryChanged?: QWebChannelSignal<string>
 }
 
 export function normalizeCssTokenValue(value: string): string {
@@ -126,6 +132,20 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
       resolve({
         navigate: (index: number) => raw.navigate(index),
         openPalette: () => raw.openPalette(),
+        createRequirement: () => {
+          if (typeof raw.createRequirement === 'function') {
+            raw.createRequirement()
+          } else {
+            raw.navigate(10)
+          }
+        },
+        openRequirement: (reqId: string) => {
+          if (typeof raw.openRequirement === 'function') {
+            raw.openRequirement(reqId)
+          } else {
+            raw.navigate(10)
+          }
+        },
         navModel: () => toPromiseString(raw.navModel(), 'navModel'),
         homeUsername: () => toPromiseString(raw.homeUsername(), 'homeUsername'),
         dashboardSummary: () => toPromiseString(raw.dashboardSummary(), 'dashboardSummary'),
@@ -140,6 +160,11 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
         onThemeChanged: (handler: (payloadJson: string) => void) => {
           if (raw.themeChanged) {
             raw.themeChanged.connect(handler)
+          }
+        },
+        onSummaryChanged: (handler: (summaryJson: string) => void) => {
+          if (raw.summaryChanged && typeof raw.summaryChanged.connect === 'function') {
+            raw.summaryChanged.connect(handler)
           }
         },
       })

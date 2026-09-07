@@ -161,8 +161,8 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
 
             self.assertEqual(calm_res.get('theme'), 'calm', '初始主题必须为 calm')
             self.assertFalse(calm_res.get('isDark'), 'calm 模式下 isDark 必须为 False')
-            self.assertEqual(calm_res.get('sidebarBgVar'), '#161D30', 'Calm 下 --sidebar-bg 应为深靛蓝 #161D30')
-            self.assertEqual(calm_res.get('sidebarTextVar'), '#F7F9FF', 'Calm 下 --sidebar-text 应为亮白 #F7F9FF')
+            self.assertEqual(calm_res.get('sidebarBgVar'), '#F6F8FE', 'Calm 下 --sidebar-bg 应为浅色家族 #F6F8FE')
+            self.assertEqual(calm_res.get('sidebarTextVar'), '#1B1E2A', 'Calm 下 --sidebar-text 应为深色 #1B1E2A')
             self.assertEqual(calm_res.get('navActiveTextVar'), '#FFFFFF', 'Calm 下 --nav-active-text 应为 #FFFFFF')
             self.assertEqual(calm_res.get('primaryGradStartVar'), '#5B73FF', 'Calm 下品牌渐变起色应为 #5B73FF')
             self.assertEqual(calm_res.get('primaryGradEnd'), '#4A61F0', 'Calm 下品牌渐变终色应为 #4A61F0')

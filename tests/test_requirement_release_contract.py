@@ -206,26 +206,37 @@ class RequirementReleaseContractTests(unittest.TestCase):
         self.assertNotIn("planned_release_date", normalized)
         self.assertNotIn("plan_release_date", normalized)
 
+        # 重点事故防范：仅有旧计划日期、无 actual_release_date 时，必须一次性迁移，绝不丢弃历史日期
+        planned_only_legacy = {
+            "id": "req-planned-only",
+            "code": "REQ-OLD",
+            "title": "仅有计划日期的旧需求",
+            "status": "开发中",
+            "planned_online_date": "2026-08-25",
+        }
+        migrated = normalize_requirement(planned_only_legacy)
+        self.assertEqual(migrated["actual_release_date"], "2026-08-25")
+        self.assertEqual(migrated["actual_online_date"], "2026-08-25")
+        self.assertEqual(migrated["online_month"], "2026-08")
+        self.assertNotIn("planned_online_date", migrated)
+
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
             temp_file = tf.name
 
         try:
-            save_requirements([normalized], path=temp_file)
+            save_requirements([normalized, migrated], path=temp_file)
             loaded = load_requirements(temp_file)
-            self.assertEqual(len(loaded), 1)
-            loaded_item = loaded[0]
-            self.assertEqual(loaded_item["actual_release_date"], "2026-09-22")
-            self.assertEqual(loaded_item["actual_online_date"], "2026-09-22")
-            self.assertNotIn("is_monthly_release", loaded_item)
-            self.assertNotIn("planned_online_date", loaded_item)
-            self.assertNotIn("planned_release_date", loaded_item)
-            self.assertNotIn("plan_release_date", loaded_item)
+            self.assertEqual(len(loaded), 2)
+            self.assertEqual(loaded[0]["actual_release_date"], "2026-09-22")
+            self.assertEqual(loaded[1]["actual_release_date"], "2026-08-25")
+            self.assertEqual(loaded[1]["online_month"], "2026-08")
+            self.assertNotIn("planned_online_date", loaded[1])
         finally:
             if os.path.exists(temp_file):
                 os.unlink(temp_file)
 
     def test_10_edit_dialog_has_no_is_monthly_release_and_no_planned_date(self):
-        """10. 编辑页不存在“是否本月上线”和“计划上线日期”"""
+        """10. 编辑页不存在“是否本月上线”和“计划上线日期”，且只有一个上线日期编辑来源"""
         from panels.requirement_panel import RequirementDialog
 
         req = {
@@ -235,9 +246,10 @@ class RequirementReleaseContractTests(unittest.TestCase):
         }
         dialog = RequirementDialog(req)
 
-        # 检查内部属性不存在
+        # 检查内部属性：无 monthly_release，无 planned_date，且 online_month 不再作为独立可编辑字段
         self.assertFalse(hasattr(dialog, "monthly_release"))
         self.assertFalse(hasattr(dialog, "planned_date"))
+        self.assertFalse(hasattr(dialog, "online_month"))
         self.assertTrue(hasattr(dialog, "actual_date"))
 
         # 检查对话框导出的数据字典
@@ -248,7 +260,15 @@ class RequirementReleaseContractTests(unittest.TestCase):
         self.assertNotIn("plan_release_date", data)
         self.assertEqual(data.get("actual_release_date"), "2026-09-15")
         self.assertEqual(data.get("actual_online_date"), "2026-09-15")
+        self.assertEqual(data.get("online_month"), "2026-09")
         dialog.close()
+
+    def test_11_drag_empty_date_requirement_sets_month_first_day(self):
+        """11. 拖入无日期任务到目标月时自动设置到目标月 1 日"""
+        from tools.requirements import update_release_date_month
+
+        result = update_release_date_month("", "2026-10")
+        self.assertEqual(result, "2026-10-01")
 
 
 if __name__ == "__main__":

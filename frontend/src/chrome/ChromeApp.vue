@@ -142,10 +142,10 @@ function onPaletteClick(): void {
 <!-- 非 scoped：样式从 legacy chrome.html 原样迁移（含 html/body 背景与高度），保持 V2 白昼玻璃视觉 -->
 <style>
 :root {
-  --ink: var(--sidebar-text, #F7F9FF);
-  --ink-2: var(--text-nav, #9AA6C0);
-  --ink-3: var(--sidebar-text-muted, #8B97B3);
-  --edge: var(--sidebar-border, #242E47);
+  --ink: var(--sidebar-text, #1B1E2A);
+  --ink-2: var(--text-nav, #4B5569);
+  --ink-3: var(--sidebar-text-muted, #6E7486);
+  --edge: var(--sidebar-border, #DFE2EC);
   --c1: var(--primary, #4A61F0);
   --grad: linear-gradient(115deg, var(--primary-grad-start, #5B73FF), var(--primary-grad-end, #4A61F0));
   --r-sm: 12px;
@@ -160,7 +160,7 @@ body {
   color: var(--ink);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  background: var(--sidebar-bg, #161D30);
+  background: var(--sidebar-bg, #F6F8FE);
   border-right: 1px solid var(--edge);
 }
 body::before {
@@ -171,7 +171,7 @@ body::before {
   background:
     radial-gradient(420px 300px at -60px -40px, var(--aurora-mid, #0EA5E9), transparent 70%),
     radial-gradient(380px 320px at 110% 108%, var(--aurora-start, #5B73FF), transparent 70%);
-  opacity: 0.22;
+  opacity: 0.12;
 }
 html[data-theme="black"] body::before, html.dark body::before {
   opacity: 0.14;

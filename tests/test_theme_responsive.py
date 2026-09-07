@@ -878,7 +878,7 @@ class VisualFoundationV1Tests(unittest.TestCase):
         tm = ThemeManager.instance()
         tm.load_template()
         calm_p = tm.palette('calm')
-        self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#161D30')
+        self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#F6F8FE')
         self.assertEqual(calm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
 
         black_p = tm.palette('black')

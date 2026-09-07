@@ -431,12 +431,16 @@ def normalize_requirement(requirement):
     else:
         item.pop('pinned_at', None)
     actual_date = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+    # 旧数据平滑迁移：若无 actual date，从旧计划日期中恢复，绝不丢弃历史日期
+    if not actual_date:
+        actual_date = (
+            valid_iso_date(item.get('planned_online_date'))
+            or valid_iso_date(item.get('planned_release_date'))
+            or valid_iso_date(item.get('plan_release_date'))
+        )
     item['actual_release_date'] = actual_date
     item['actual_online_date'] = actual_date
-    if actual_date:
-        item['online_month'] = actual_date[:7]
-    elif not item.get('online_month'):
-        item['online_month'] = ''
+    item['online_month'] = actual_date[:7] if actual_date else ''
     # 彻底永久移除 is_monthly_release 与计划上线日期，不得写入正式数据
     item.pop('is_monthly_release', None)
     item.pop('planned_release_date', None)
