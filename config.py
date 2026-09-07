@@ -205,6 +205,13 @@ def save_systems(systems):
         json.dump([_normalize_system(item) for item in systems], stream, indent=2, ensure_ascii=False)
 
 
+def _coerce_settings_version(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def normalize_settings(settings):
     result = dict(DEFAULT_SETTINGS)
     if isinstance(settings, dict):
@@ -221,7 +228,7 @@ def normalize_settings(settings):
         result['ui_web_shell'] = web_shell.strip().lower() in ('1', 'true', 'yes', 'on')
     else:
         result['ui_web_shell'] = bool(web_shell)
-    result['settings_version'] = max(1, int(result.get('settings_version') or 2))
+    result['settings_version'] = max(2, _coerce_settings_version(result.get('settings_version')))
     theme = str(result.get('ui_theme') or 'calm').strip().lower()
     if theme in ('black', 'night', 'dark'):
         result['ui_theme'] = 'black'
@@ -293,7 +300,7 @@ def load_settings():
         return dict(DEFAULT_SETTINGS)
 
     if isinstance(data, dict):
-        current_ver = int(data.get('settings_version') or 0)
+        current_ver = _coerce_settings_version(data.get('settings_version'))
         migrated = False
         if current_ver < 1:
             # Versioned one-time migration:

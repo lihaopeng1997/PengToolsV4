@@ -63,7 +63,7 @@ class StartupSplash(QWidget):
     """现代圆角品牌启动卡片：
     - 延迟展示（>=300ms）：快启动完全静默无感知。
     - 最短展示时间（~550ms）：慢启动展示后平滑过渡，避免瞬间闪退。
-    - 纯语义色主题自适应（calm / clear / warm / black）。
+    - 纯语义色主题自适应（calm / black）。
     - 低 CPU 占用轻量 loading track 动画。
     """
 
