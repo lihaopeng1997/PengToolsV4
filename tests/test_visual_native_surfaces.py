@@ -302,6 +302,69 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertIs(value, raw_inspect_model, 'value 对象必须是传入的原始对象')
         self.assertEqual(value['raw'], b'\x00\x01\x02\xff\xfe\xca\xfe\xba\xbe')
 
+    # ── 6. Database AI Assistant Geometry & Button Contracts ───────────────
+
+    def test_database_ai_assistant_geometry_and_buttons(self):
+        """四数据库工作台（Oracle/MySQL/OceanBase/达梦）AI 助手稳定 1:1 输入/输出比例与非空按钮契约。"""
+        from PyQt6.QtWidgets import QSizePolicy
+        from panels.ai_workbench_panel import AiWorkbenchPanel
+
+        for dialect in ('oracle', 'mysql', 'oceanbase', 'dm'):
+            panel = AiWorkbenchPanel('zh', dialect=dialect)
+            try:
+                # 1. input and output widgets exist
+                self.assertIsNotNone(panel.nl_input, f'{dialect} nl_input 必须存在')
+                self.assertIsNotNone(panel.ai_explain, f'{dialect} ai_explain 必须存在')
+
+                # 2. both Expanding
+                self.assertEqual(
+                    panel.nl_input.sizePolicy().verticalPolicy(),
+                    QSizePolicy.Policy.Expanding,
+                    f'{dialect} nl_input 必须使用 Expanding vertical policy'
+                )
+                self.assertEqual(
+                    panel.ai_explain.sizePolicy().verticalPolicy(),
+                    QSizePolicy.Policy.Expanding,
+                    f'{dialect} ai_explain 必须使用 Expanding vertical policy'
+                )
+
+                # 3. input no tiny fixed maximum height
+                self.assertGreater(
+                    panel.nl_input.maximumHeight(),
+                    1000,
+                    f'{dialect} nl_input 不得有 <= 170 的矮限制'
+                )
+
+                # 4. default geometry / stretch approximately balanced (1:1)
+                panel.resize(1200, 800)
+                panel.show()
+                self.app.processEvents()
+                h_in = panel.nl_input.height()
+                h_out = panel.ai_explain.height()
+                self.assertGreater(h_in, 100, f'{dialect} nl_input 高度过小')
+                self.assertGreater(h_out, 100, f'{dialect} ai_explain 高度过小')
+                diff = abs(h_in - h_out)
+                self.assertLessEqual(
+                    diff,
+                    25,
+                    f'{dialect} 输入输出高度不平衡: in={h_in}, out={h_out}, diff={diff}'
+                )
+
+                # 5. button row contains no visible empty-text QPushButton
+                for btn in (panel.ai_gen_btn, panel.ai_pick_btn, panel.ai_snap_btn, panel.agent_more):
+                    self.assertTrue(btn.isVisible(), f'{dialect} 核心操作按钮必须可见')
+                    text = btn.text().strip()
+                    self.assertTrue(
+                        bool(text),
+                        f'{dialect} 按钮 {btn} 存在空白文字占位'
+                    )
+                self.assertEqual(panel.ai_gen_btn.text(), '生成 SQL')
+                self.assertEqual(panel.ai_gen_btn.toolTip(), '生成 SQL 草案')
+            finally:
+                panel.close()
+                panel.deleteLater()
+                self.app.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

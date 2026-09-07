@@ -166,8 +166,9 @@ const releasePercent = computed(() => {
               @click="!r.is_demo && onOpenRequirement(r.id, r.nav ?? 10)"
             >
               <span class="dot" :style="{ background: r.color || 'var(--edge-strong)' }"></span>
+              <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
               <span class="t">
-                <b v-if="r.code">{{ r.code }}</b>&nbsp; {{ r.title || '未命名需求' }}
+                <span class="req-title">{{ r.title || '未命名需求' }}</span>
                 <span v-if="r.system" class="meta-inline"> · {{ r.system }}</span>
                 <span v-if="r.actual_release_date" class="meta-inline"> · 上线: {{ r.actual_release_date }}</span>
               </span>
@@ -236,9 +237,9 @@ const releasePercent = computed(() => {
             :class="{ 'is-demo': task.is_demo }"
             @click="!task.is_demo && onOpenRequirement(task.id, task.nav ?? 10)"
           >
+            <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
             <span class="t">
-              <b v-if="task.code">{{ task.code }}</b>&nbsp;
-              {{ task.title }}
+              <span class="req-title">{{ task.title }}</span>
               <span v-if="task.system" class="meta-inline"> · {{ task.system }}</span>
               <span v-if="task.actual_release_date" class="meta-inline"> · 上线: {{ task.actual_release_date }}</span>
             </span>
@@ -381,7 +382,32 @@ html[data-theme="black"] body::before, html.dark body::before {
 .ck:hover { background:var(--surface-soft); color:var(--ink); transform:translateX(3px); }
 .ck .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .ck .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ck .t b { color:var(--primary); font-family:Consolas,monospace; font-size:10px; letter-spacing:.4px; }
+.req-id-badge {
+  display:inline-flex;
+  align-items:center;
+  font-family:Consolas, "Courier New", monospace;
+  font-size:13px;
+  font-weight:600;
+  line-height:1.25;
+  letter-spacing:.3px;
+  white-space:nowrap;
+  padding:2px 8px;
+  border-radius:6px;
+  background:var(--primary-soft);
+  color:var(--primary);
+  border:1px solid var(--edge);
+  flex-shrink:0;
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+html[data-theme="black"] .req-id-badge,
+html.dark .req-id-badge {
+  background:var(--surface-soft);
+  color:var(--primary-active, var(--primary));
+  border-color:var(--edge-strong);
+}
+.req-title { color:var(--ink); font-weight:700; font-size:12.5px; }
 .ck .mini { font-size:9.5px; color:var(--ink-3); font-weight:700; }
 .chip { font-size:9.5px; font-weight:800; padding:3px 9px; border-radius:99px; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; }
 .chip i { width:5px; height:5px; border-radius:50%; }

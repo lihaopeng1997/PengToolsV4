@@ -255,13 +255,13 @@ class AiLayoutMenuTests(unittest.TestCase):
             return AiWorkbenchPanel(language='zh')
 
     def test_ai_assistant_layout_contract(self):
-        """验证 AI 助手生产布局：
-        - AI page 不存在内部垂直 QSplitter (ai_vsplit 已彻底废除)
-        - nl_input 不使用 stretch=1 抢剩余空间
-        - prompt 有合理受控的 maximumHeight (120~170)
-        - ai_explain SizePolicy vertical == Expanding
+        """验证 AI 助手生产布局（Round 4-V2F 稳定 1:1 工作区契约）：
+        - AI page 不存在多余内部垂直 QSplitter
+        - nl_input 移除 maximumHeight 170 矮限制，使用 Expanding 与 stretch=1
+        - ai_explain 使用 Expanding 与 stretch=1，达到 1:1 稳定工作区
+        - 中间操作工具条固定高度 (stretch=0)
         - agent_candidates 具备最大高度约束 (<= 160)
-        - generate/pick/more/cancel 等业务按钮依然完整可用
+        - generate/pick/more/cancel 等业务按钮依然完整可用且文案/tooltip 正常
         """
         panel = self._panel()
         try:
@@ -272,21 +272,21 @@ class AiLayoutMenuTests(unittest.TestCase):
             v_splitters = [w for w in ai_tab.findChildren(QSplitter) if w.orientation() == Qt.Orientation.Vertical]
             self.assertEqual(len(v_splitters), 0)
 
-            # 2. nl_input 高度受控，不抢占剩余空间
+            # 2. nl_input 与 ai_explain 均为 Expanding 且 stretch 1:1
             self.assertGreaterEqual(panel.nl_input.minimumHeight(), 100)
-            self.assertLessEqual(panel.nl_input.maximumHeight(), 170)
-            layout = ai_tab.layout()
-            self.assertEqual(layout.stretch(layout.indexOf(panel.nl_input)), 0)
-
-            # 3. ai_explain 是剩余空间的主要消费者
+            self.assertGreater(panel.nl_input.maximumHeight(), 1000, '必须删除 maximumHeight <= 170 限制')
+            self.assertEqual(panel.nl_input.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Expanding)
             self.assertEqual(panel.ai_explain.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Expanding)
+            layout = ai_tab.layout()
+            self.assertEqual(layout.stretch(layout.indexOf(panel.nl_input)), 1)
             self.assertEqual(layout.stretch(layout.indexOf(panel.ai_explain)), 1)
 
-            # 4. agent_candidates 具有最大高度上限
+            # 3. agent_candidates 具有最大高度上限
             self.assertLessEqual(panel.agent_candidates.maximumHeight(), 160)
 
-            # 5. 核心交互按钮完整
-            self.assertTrue(panel.ai_gen_btn.text().startswith('生成'))
+            # 4. 核心交互按钮完整且文案正确
+            self.assertEqual(panel.ai_gen_btn.text(), '生成 SQL')
+            self.assertEqual(panel.ai_gen_btn.toolTip(), '生成 SQL 草案')
             self.assertIsNotNone(panel.ai_pick_btn)
             self.assertIsNotNone(panel.agent_more)
             self.assertIsNotNone(panel.agent_cancel_btn)

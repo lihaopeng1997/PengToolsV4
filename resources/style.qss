@@ -278,7 +278,7 @@ QPushButton#primary-btn:hover, QPushButton#card-action:hover {
     color: __ON_PRIMARY__;
 }
 QPushButton#primary-btn:disabled, QPushButton#card-action:disabled {
-    background: __DISABLED_BG__; color: __PRIMARY_SOFT__; border: none;
+    background: __DISABLED_BG__; color: __DISABLED_TEXT__; border: none;
 }
 /* danger：统一破坏性操作（兼容历史 ops-delete-custom） */
 QPushButton#btn-danger, QPushButton#ops-delete-custom {

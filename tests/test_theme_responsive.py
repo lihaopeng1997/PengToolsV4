@@ -894,6 +894,26 @@ class VisualFoundationV1Tests(unittest.TestCase):
             self.assertIn(f"color: {p['NAV_ACTIVE_TEXT']};", qss)
             self.assertIn(f"background: {p['NAV_ACTIVE_BG']};", qss)
 
+    def test_disabled_primary_button_has_accessible_contrast(self):
+        """QPushButton#primary-btn:disabled 必须使用 DISABLED_TEXT 保证可读对比度，杜绝空白按钮现象。"""
+        manager = ThemeManager.instance()
+        manager.load_template()
+        for theme_id in ('calm', 'black'):
+            qss = manager.render(theme_id)
+            idx = qss.find('QPushButton#primary-btn:disabled')
+            self.assertNotEqual(idx, -1, f'{theme_id} QSS 中必须包含 primary-btn:disabled')
+            chunk = qss[idx:idx + 180]
+            palette = manager.palette(theme_id)
+            self.assertIn(
+                f"color: {palette['DISABLED_TEXT']};",
+                chunk,
+                f'{theme_id} primary-btn:disabled 颜色必须是 DISABLED_TEXT ({palette["DISABLED_TEXT"]})'
+            )
+            self.assertNotIn(
+                f"color: {palette['PRIMARY_SOFT']};",
+                chunk,
+                f'{theme_id} primary-btn:disabled 不得使用低对比度的 PRIMARY_SOFT'
+            )
 
 
 if __name__ == '__main__':

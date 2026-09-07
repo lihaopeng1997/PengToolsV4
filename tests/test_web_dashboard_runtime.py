@@ -217,6 +217,25 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 self.assertTrue(run_js(js_click_view), '页面中必须找到真实需求行的“查看”按钮')
                 self.assertIn('REQ-PROD-99', open_events, '点击真实需求“查看”必须向 Python 派发对应 ID')
 
+                # E2. 验证 Requirement ID Badge 存在、内容、title 与字号契约
+                js_check_id_badge = '''(() => {
+                    const badge = document.querySelector('.req-list .ck:not(.is-demo) .req-id-badge');
+                    if (!badge) return null;
+                    const style = getComputedStyle(badge);
+                    return {
+                        text: badge.textContent.trim(),
+                        title: badge.getAttribute('title'),
+                        fontSize: parseFloat(style.fontSize) || 0,
+                        fontWeight: parseInt(style.fontWeight, 10) || 0,
+                    };
+                })()'''
+                badge_res = run_js(js_check_id_badge)
+                self.assertIsNotNone(badge_res, '真实需求行必须渲染 .req-id-badge')
+                self.assertEqual(badge_res.get('text'), 'REQ-0099')
+                self.assertEqual(badge_res.get('title'), 'REQ-0099')
+                self.assertGreaterEqual(badge_res.get('fontSize'), 12.0, '需求编号字号不得过小（>= 12px）')
+                self.assertGreaterEqual(badge_res.get('fontWeight'), 600, '需求编号 font-weight 至少 600')
+
                 # F. 示例模式与虚假 ID 防御
                 open_count_before = len(open_events)
                 bridge.set_summary_provider(
