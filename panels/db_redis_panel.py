@@ -36,19 +36,24 @@ from ui.icons import apply_icon, qicon
 from ui.splitter_prefs import install_splitter_prefs
 
 
-def format_key_ttl_badge(ttl: int, language: str = 'zh') -> str:
-    """Format Redis TTL as a concise badge string with strict semantic accuracy."""
+def format_key_ttl_value(ttl: int, language: str = 'zh') -> str:
+    """Format Redis TTL consistently for badges and detail metadata."""
     try:
         ttl_val = int(ttl)
     except (ValueError, TypeError):
-        return 'TTL: —'
+        return '—'
     if ttl_val >= 0:
-        return f'TTL: {ttl_val}s'
+        return f'{ttl_val}s'
     if ttl_val == -1:
-        return 'TTL: 永不过期' if language == 'zh' else 'TTL: No expiry'
+        return '永不过期' if language == 'zh' else 'No expiry'
     if ttl_val == -2:
-        return 'TTL: Key 不存在' if language == 'zh' else 'TTL: Key missing'
-    return 'TTL: —'
+        return 'Key 不存在' if language == 'zh' else 'Key missing'
+    return '—'
+
+
+def format_key_ttl_badge(ttl: int, language: str = 'zh') -> str:
+    """Add the TTL label to the shared display value."""
+    return f'TTL: {format_key_ttl_value(ttl, language)}'
 
 
 class _RedisWorker(QThread):
@@ -1078,7 +1083,11 @@ class RedisWorkbenchPanel(QWidget):
             self._fill_overview((payload or {}).get('overview'), (payload or {}).get('info_table'))
         elif kind == 'key_meta':
             self._selected_type = str(payload.get('type') or '')
-            ttl = int(payload.get('ttl') or -2)
+            raw_ttl = payload.get('ttl')
+            try:
+                ttl = int(raw_ttl) if raw_ttl is not None else -2
+            except (TypeError, ValueError):
+                ttl = -2
             ttl_str = format_key_ttl_badge(ttl, self.language)
             if hasattr(self, 'key_type_badge'):
                 self.key_type_badge.setText(f'TYPE: {self._selected_type.upper()}')
@@ -1087,7 +1096,8 @@ class RedisWorkbenchPanel(QWidget):
                 self.key_ttl_badge.show()
                 self.key_size_badge.hide()
             self.key_meta.setText(
-                f'类型: {self._selected_type} · TTL: {ttl if ttl >= 0 else "永不过期"}'
+                f'{"类型" if self.language == "zh" else "Type"}: {self._selected_type}'
+                f' · TTL: {format_key_ttl_value(ttl, self.language)}'
             )
             self._load_key_value()
             self._update_ai_banner()

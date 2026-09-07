@@ -11,6 +11,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -185,6 +186,31 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         # 绝不出现“已过期”
         self.assertNotIn('已过期', format_key_ttl_badge(-2, 'zh'))
         self.assertNotIn('已过期', format_key_ttl_badge(-1, 'zh'))
+
+    def test_redis_ttl_production_display_consistency(self):
+        """真实 key_meta 回调保留零值，且中英文 badge/detail 使用相同 TTL 语义。"""
+        from panels.db_redis_panel import RedisWorkbenchPanel
+
+        for language, type_label, no_expiry, missing in (
+            ('zh', '类型', '永不过期', 'Key 不存在'),
+            ('en', 'Type', 'No expiry', 'Key missing'),
+        ):
+            with patch('panels.db_redis_panel.load_connections', return_value=[]):
+                panel = RedisWorkbenchPanel(language)
+            try:
+                for ttl, expected in (
+                    (0, '0s'), (120, '120s'), (-1, no_expiry),
+                    (-2, missing), (-3, '—'), (None, missing), ('invalid', missing),
+                ):
+                    with self.subTest(language=language, ttl=ttl):
+                        panel._on_worker_done('key_meta', {'type': 'string', 'ttl': ttl})
+                        self.assertEqual(panel.key_ttl_badge.text(), f'TTL: {expected}')
+                        self.assertEqual(
+                            panel.key_meta.text(), f'{type_label}: string · TTL: {expected}',
+                        )
+            finally:
+                panel.close()
+                panel.deleteLater()
 
     def test_redis_badges_content_and_visibility(self):
         """Redis Key 详情 badges 覆盖 string inspect model、list、hash、ttl 及隐藏逻辑。"""
