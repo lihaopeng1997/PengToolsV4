@@ -856,6 +856,42 @@ class VisualFoundationV1Tests(unittest.TestCase):
         ).strip()
         self.assertEqual(out, '', f'frontend 或 resources/webui/vue 存在未承诺改动: {out}')
 
+    def test_v1_18_sidebar_contrast_across_all_four_themes(self):
+        """V1-18: 四主题 Sidebar 与 Native subnav 保持高对比，Clear/Warm 保持浅色背景与暗色激活字。"""
+        from ui.theme_manager import ThemeManager, THEMES
+        tm = ThemeManager.instance()
+        tm.load_template()
+
+        # 1. 验证 ThemeManager palette 对比度与定义
+        calm_p = tm.palette('calm')
+        self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#161D30')
+        self.assertEqual(calm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
+
+        clear_p = tm.palette('clear')
+        self.assertEqual(clear_p['SIDEBAR_BG'].upper(), '#F7F9FC')
+        self.assertNotEqual(clear_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
+        self.assertEqual(clear_p['NAV_ACTIVE_TEXT'].upper(), '#2C4559')
+
+        warm_p = tm.palette('warm')
+        self.assertEqual(warm_p['SIDEBAR_BG'].upper(), '#FBF8F2')
+        self.assertNotEqual(warm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
+        self.assertEqual(warm_p['NAV_ACTIVE_TEXT'].upper(), '#5E3C25')
+
+        black_p = tm.palette('black')
+        self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#111114')
+        self.assertEqual(black_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
+
+        # 2. 验证 QSS 渲染
+        for tid in ('calm', 'clear', 'warm', 'black'):
+            qss = tm.render(tid)
+            p = tm.palette(tid)
+            self.assertIn('#sidebar-collapse-btn', qss)
+            self.assertIn('#sidebar #user-chip', qss)
+            self.assertIn('QPushButton#nav-sub-item:checked', qss)
+            self.assertIn(f"color: {p['NAV_ACTIVE_TEXT']};", qss)
+            self.assertIn(f"background: {p['NAV_ACTIVE_BG']};", qss)
+
+
 
 if __name__ == '__main__':
     unittest.main()

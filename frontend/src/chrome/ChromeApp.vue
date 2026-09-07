@@ -155,24 +155,31 @@ function onPaletteClick(): void {
 html,body { height:100%; }
 #app { height:100%; }
 body {
-  font-family:var(--font); color:var(--ink); overflow:hidden; -webkit-font-smoothing:antialiased;
+  position: relative;
+  font-family: var(--font);
+  color: var(--ink);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  background: var(--sidebar-bg, #161D30);
+  border-right: 1px solid var(--edge);
+}
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   background:
     radial-gradient(420px 300px at -60px -40px, var(--aurora-mid, #0EA5E9), transparent 70%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-start, #5B73FF), transparent 70%),
-    linear-gradient(180deg, var(--sidebar-bg, #161D30), #141B2E);
-  border-right:1px solid var(--edge);
+    radial-gradient(380px 320px at 110% 108%, var(--aurora-start, #5B73FF), transparent 70%);
+  opacity: 0.22;
 }
-html[data-theme="black"] body, html.dark body {
-  background:
-    radial-gradient(420px 300px at -60px -40px, var(--aurora-mid, rgba(86,130,102,.15)), transparent 70%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-start, rgba(143,187,158,.15)), transparent 70%),
-    linear-gradient(180deg, var(--sidebar-bg, #111114), #09090B);
-  border-right:1px solid var(--edge);
+html[data-theme="black"] body::before, html.dark body::before {
+  opacity: 0.14;
 }
 svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
-.sidebar { height:100%; display:flex; flex-direction:column; padding:16px 12px 12px; background:transparent; }
+.sidebar { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; padding: 16px 12px 12px; background: transparent; }
 .brand { display:flex; align-items:center; gap:10px; padding:2px 8px 14px; }
-.logo { width:36px; height:36px; border-radius:11px; background:var(--grad); display:grid; place-items:center; color:#fff; box-shadow:0 6px 16px rgba(74,97,240,.4), inset 0 1px 0 rgba(255,255,255,.4); transition:transform .35s cubic-bezier(.34,1.56,.64,1); }
+.logo { width:36px; height:36px; border-radius:11px; background:var(--grad); display:grid; place-items:center; color:#fff; box-shadow:0 6px 16px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.4); transition:transform .35s cubic-bezier(.34,1.56,.64,1); }
 .logo svg { width:21px; height:21px; }
 .brand:hover .logo { transform:rotate(-8deg) scale(1.06); }
 .brand-name { font-size:15px; font-weight:800; letter-spacing:.2px; color:var(--ink); }
@@ -183,7 +190,7 @@ svg.ic { width:17px; height:17px; flex-shrink:0; opacity:.8; transition:.2s; }
 .g-label::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--edge),transparent); opacity:0.6; }
 .nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:2px; border-radius:var(--r-sm); color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; transition:background .2s,color .2s,transform .2s,box-shadow .2s; }
 .nav-item:hover { background:var(--nav-hover, rgba(255,255,255,.08)); color:var(--ink); transform:translateX(3px); box-shadow:0 4px 12px rgba(0,0,0,.15); }
-.nav-item.active { background:var(--grad); color:#fff; font-weight:700; box-shadow:0 8px 18px rgba(74,97,240,.38), inset 0 1px 0 rgba(255,255,255,.25); }
+.nav-item.active { background:var(--grad); color:#fff; font-weight:700; box-shadow:0 8px 18px var(--shadow-l2, rgba(0,0,0,.25)), inset 0 1px 0 rgba(255,255,255,.25); }
 .nav-item.active svg { opacity:1; color:#fff; }
 .parent .chev { margin-left:auto; width:13px !important; height:13px !important; opacity:.55 !important; transition:transform .25s; }
 .parent.open .chev { transform:rotate(90deg); }

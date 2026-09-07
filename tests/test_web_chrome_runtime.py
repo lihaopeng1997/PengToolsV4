@@ -96,7 +96,7 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
 
             self.assertIn('chrome', ready_pages, '生产链必须触发 pageReady("chrome")')
 
-            # 验证 Calm 下 Chrome 侧栏计算样式与 DOM
+            # 验证 Chrome 侧栏计算样式、覆盖层与 DOM
             js_probe = '''(() => {
                 const root = document.documentElement;
                 const body = document.body;
@@ -105,6 +105,7 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
                 const brand = document.querySelector('.brand-name');
                 const sRoot = getComputedStyle(root);
                 const sBody = getComputedStyle(body);
+                const sBefore = getComputedStyle(body, '::before');
                 const sActive = activeItem ? getComputedStyle(activeItem) : null;
                 const sLogo = logo ? getComputedStyle(logo) : null;
                 return {
@@ -112,16 +113,43 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
                     isDark: root.classList.contains('dark'),
                     sidebarBgVar: sRoot.getPropertyValue('--sidebar-bg').trim(),
                     sidebarTextVar: sRoot.getPropertyValue('--sidebar-text').trim(),
+                    navActiveTextVar: sRoot.getPropertyValue('--nav-active-text').trim(),
                     primaryGradStartVar: sRoot.getPropertyValue('--primary-grad-start').trim(),
                     primaryGradEnd: sRoot.getPropertyValue('--primary-grad-end').trim(),
-                    bodyBg: sBody.backgroundImage || sBody.background,
-                    brandNameColor: brand ? getComputedStyle(brand).color : '',
+                    bodyBg: sBody.backgroundColor || sBody.background,
+                    beforeOpacity: parseFloat(sBefore.opacity || '0'),
+                    beforeBg: sBefore.backgroundImage || sBefore.background,
                     hasActiveItem: !!activeItem,
+                    activeColor: sActive ? sActive.color : '',
                     activeBg: sActive ? (sActive.backgroundImage || sActive.background) : '',
-                    logoBg: sLogo ? (sLogo.backgroundImage || sLogo.background) : ''
+                    logoBg: sLogo ? (sLogo.backgroundImage || sLogo.background) : '',
+                    logoShadow: sLogo ? sLogo.boxShadow : ''
                 };
             })()'''
 
+            def probe_theme(theme_name: str, is_dark: bool) -> dict:
+                tm.apply(app, theme_name)
+                payload = {
+                    'id': theme_name,
+                    'is_dark': is_dark,
+                    'tokens': tm.palette(theme_name),
+                }
+                bridge.set_theme_payload(payload)
+
+                res = {}
+                def on_res(r):
+                    res.update(r or {})
+                    loop.quit()
+
+                timeout_timer.start(4000)
+                t_switch = QTimer()
+                t_switch.setSingleShot(True)
+                t_switch.timeout.connect(lambda: widget.web_page.runJavaScript(js_probe, on_res))
+                t_switch.start(350)
+                loop.exec()
+                return res
+
+            # 1. 初始 Calm 模式验证
             calm_res = {}
             def on_calm_result(res):
                 calm_res.update(res or {})
@@ -135,34 +163,41 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
             self.assertFalse(calm_res.get('isDark'), 'calm 模式下 isDark 必须为 False')
             self.assertEqual(calm_res.get('sidebarBgVar'), '#161D30', 'Calm 下 --sidebar-bg 应为深靛蓝 #161D30')
             self.assertEqual(calm_res.get('sidebarTextVar'), '#F7F9FF', 'Calm 下 --sidebar-text 应为亮白 #F7F9FF')
+            self.assertEqual(calm_res.get('navActiveTextVar'), '#FFFFFF', 'Calm 下 --nav-active-text 应为 #FFFFFF')
             self.assertEqual(calm_res.get('primaryGradStartVar'), '#5B73FF', 'Calm 下品牌渐变起色应为 #5B73FF')
             self.assertEqual(calm_res.get('primaryGradEnd'), '#4A61F0', 'Calm 下品牌渐变终色应为 #4A61F0')
             self.assertTrue(calm_res.get('hasActiveItem'), '侧栏必须渲染激活导航项')
+            self.assertNotIn('#141B2E', calm_res.get('bodyBg', ''), 'body 背景不得写死固定 Navy #141B2E')
+            self.assertGreaterEqual(calm_res.get('beforeOpacity', 0), 0.20, 'Calm 下 Aurora 透明度应 >= 0.20')
+            self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.24, 'Calm 下 Aurora 透明度应 <= 0.24')
 
-            # 动态切换至 black 墨黑
-            tm.apply(app, 'black')
-            black_payload = {
-                'id': 'black',
-                'is_dark': True,
-                'tokens': tm.palette(),
-            }
-            bridge.set_theme_payload(black_payload)
+            # 2. 动态切换至 Clear 晴空
+            clear_res = probe_theme('clear', False)
+            self.assertEqual(clear_res.get('theme'), 'clear')
+            self.assertFalse(clear_res.get('isDark'))
+            self.assertEqual(clear_res.get('sidebarBgVar'), '#F7F9FC', 'Clear 侧栏背景应为浅蓝灰 #F7F9FC')
+            self.assertEqual(clear_res.get('sidebarTextVar'), '#161D26')
+            self.assertEqual(clear_res.get('navActiveTextVar'), '#2C4559', 'Clear 下激活文字必须为深色 #2C4559')
+            self.assertNotIn('#141B2E', clear_res.get('bodyBg', ''))
 
-            black_res = {}
-            def on_black_result(res):
-                black_res.update(res or {})
-                loop.quit()
+            # 3. 动态切换至 Warm 暖书房
+            warm_res = probe_theme('warm', False)
+            self.assertEqual(warm_res.get('theme'), 'warm')
+            self.assertFalse(warm_res.get('isDark'))
+            self.assertEqual(warm_res.get('sidebarBgVar'), '#FBF8F2', 'Warm 侧栏背景应为米暖浅色 #FBF8F2')
+            self.assertEqual(warm_res.get('sidebarTextVar'), '#241C16')
+            self.assertEqual(warm_res.get('navActiveTextVar'), '#5E3C25', 'Warm 下激活文字必须为深色 #5E3C25')
+            self.assertNotIn('#141B2E', warm_res.get('bodyBg', ''))
 
-            timeout_timer.start(4000)
-            t_switch = QTimer()
-            t_switch.setSingleShot(True)
-            t_switch.timeout.connect(lambda: widget.web_page.runJavaScript(js_probe, on_black_result))
-            t_switch.start(350)
-            loop.exec()
-
-            self.assertEqual(black_res.get('theme'), 'black', '动态切换后主题必须为 black')
-            self.assertTrue(black_res.get('isDark'), 'black 模式下 isDark 必须为 True')
+            # 4. 动态切换至 Black 墨黑
+            black_res = probe_theme('black', True)
+            self.assertEqual(black_res.get('theme'), 'black')
+            self.assertTrue(black_res.get('isDark'))
             self.assertEqual(black_res.get('sidebarBgVar'), '#111114', 'Black 侧栏背景应为近黑 #111114')
+            self.assertEqual(black_res.get('navActiveTextVar'), '#FFFFFF')
+            self.assertGreaterEqual(black_res.get('beforeOpacity', 0), 0.12, 'Black 下 Aurora 透明度应 >= 0.12')
+            self.assertLessEqual(black_res.get('beforeOpacity', 0), 0.16, 'Black 下 Aurora 透明度应 <= 0.16')
+            self.assertNotIn('74, 97, 240', black_res.get('logoShadow', ''), 'Black 模式下不得包含硬编码 Indigo glow')
 
         finally:
             if widget is not None:
