@@ -16,22 +16,15 @@ from ui.theme_manager import (
     THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_mode,
 )
 
-THEME_MODES = ('light', 'dark')
+THEME_MODES = ()
 
 THEME_MODE_META = {
     'light': {
         'canonical': 'calm',
-        'title_zh': '浅色',
-        'title_en': 'Light',
-        'sub_zh': '明亮、清晰的日间工作界面',
-        'sub_en': 'Bright interface for daytime work',
-    },
-    'dark': {
-        'canonical': 'black',
-        'title_zh': '深色',
-        'title_en': 'Dark',
-        'sub_zh': '低眩光的深色工作界面',
-        'sub_en': 'Low-glare dark interface',
+        'title_zh': '晴空棱镜',
+        'title_en': 'Sky Prism',
+        'sub_zh': '晴空浅紫棱镜工作台',
+        'sub_en': 'Sky prism modern workbench',
     },
 }
 
@@ -129,14 +122,10 @@ class ThemeCard(QFrame):
 
     clicked = pyqtSignal(str)
 
-    def __init__(self, mode_or_theme: str, parent=None):
+    def __init__(self, mode_or_theme: str = 'calm', parent=None):
         super().__init__(parent)
-        if mode_or_theme in THEME_MODES:
-            self.mode = mode_or_theme
-            self.theme_id = THEME_MODE_META[mode_or_theme]['canonical']
-        else:
-            self.theme_id = resolve_theme_id(mode_or_theme)
-            self.mode = theme_mode(self.theme_id)
+        self.theme_id = resolve_theme_id(mode_or_theme)
+        self.mode = 'light'
         self.setObjectName('theme-card')
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumSize(148, 96)
@@ -254,18 +243,17 @@ class SettingsPanel(QWidget):
         self.theme_note = QLabel()
         self.theme_note.hide()
 
+        # 单一晴空棱镜架构：删除 Light/Dark 选择入口
         self.theme_grid = QGridLayout()
         self.theme_grid.setSpacing(10)
         self._theme_cards = {}
-        for index, mode in enumerate(THEME_MODES):
-            card = ThemeCard(mode)
-            card.clicked.connect(self._on_theme_clicked)
-            self._theme_cards[mode] = card
-            self.theme_grid.addWidget(card, 0, index)
-        appearance_outer.addLayout(self.theme_grid)
 
         appearance = QFormLayout()
         apply_form(appearance)
+        self.theme_label = QLabel('外观主题')
+        self.theme_display = QLabel('晴空棱镜 (Sky Prism)')
+        self.theme_display.setObjectName('settings-theme-display')
+        appearance.addRow(self.theme_label, self.theme_display)
         self.font_size = CompactStepper(10, 18, 13, suffix='')
         self.font_unit_label = QLabel('px')
         self.font_unit_label.setObjectName('font-size-unit-label')
@@ -635,27 +623,12 @@ class SettingsPanel(QWidget):
         self.floating_opacity_preview.emit(value)
 
     def _on_theme_clicked(self, mode_or_theme: str):
-        """将外观模式切换请求（浅色/深色）交给主窗口原子应用；失败时保持当前卡片与配置不变。"""
-        target_mode = mode_or_theme if mode_or_theme in THEME_MODES else theme_mode(mode_or_theme)
-        current_mode = theme_mode(self._ui_theme)
-        if target_mode == current_mode:
-            return
-        new_theme_id = THEME_MODE_META[target_mode]['canonical']
-        settings = self.values()
-        settings['ui_theme'] = new_theme_id
-        self.settings_changed.emit(settings)
+        """单一晴空棱镜架构：无切换动作。"""
+        pass
 
     def _refresh_theme_cards(self):
-        current_mode = theme_mode(self._ui_theme)
-        zh = self.language == 'zh'
-        current_label = '当前使用' if zh else 'Current'
-        for mode, card in self._theme_cards.items():
-            meta = THEME_MODE_META.get(mode, THEME_MODE_META['light'])
-            card.set_selected(mode == current_mode)
-            name = meta['title_zh'] if zh else meta['title_en']
-            sub = meta['sub_zh'] if zh else meta['sub_en']
-            card.set_title(name, current_label=current_label, subtitle=sub)
-            card.preview.set_theme_id(meta['canonical'])
+        """单一晴空棱镜架构：无多卡刷新动作。"""
+        pass
 
     def _layout_sections(self, is_compact: bool):
         for w in (
@@ -1281,6 +1254,9 @@ class SettingsPanel(QWidget):
             'Themes only change appearance — never files, data, SVN or feature placement.'
         )
         self._refresh_theme_cards()
+        if hasattr(self, 'theme_label'):
+            self.theme_label.setText('外观主题' if zh else 'Theme')
+            self.theme_display.setText('晴空棱镜 (Sky Prism)' if zh else 'Sky Prism')
         self.font_label.setText('全局字体大小' if zh else 'Global font size')
         self.density_label.setText('信息密度' if zh else 'Information density')
         self.density_combo.setItemText(0, '紧凑' if zh else 'Compact')

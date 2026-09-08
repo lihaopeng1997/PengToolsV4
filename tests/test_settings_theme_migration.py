@@ -72,15 +72,15 @@ class SettingsThemeMigrationTests(unittest.TestCase):
         self.assertEqual(disk['ui_theme'], 'calm')
         self.assertEqual(disk['settings_version'], 2)
 
-    def test_migration_night_to_black(self):
-        """C. version=1, night -> black + disk v2."""
+    def test_migration_night_to_calm(self):
+        """C. version=1, night -> calm + disk v2."""
         self._write_settings({'settings_version': 1, 'ui_theme': 'night'})
         loaded = config.load_settings()
-        self.assertEqual(loaded['ui_theme'], 'black')
+        self.assertEqual(loaded['ui_theme'], 'calm')
         self.assertEqual(loaded['settings_version'], 2)
 
         disk = self._read_disk_settings()
-        self.assertEqual(disk['ui_theme'], 'black')
+        self.assertEqual(disk['ui_theme'], 'calm')
         self.assertEqual(disk['settings_version'], 2)
 
     def test_migration_light_alias_to_calm(self):
@@ -94,15 +94,15 @@ class SettingsThemeMigrationTests(unittest.TestCase):
         self.assertEqual(disk['ui_theme'], 'calm')
         self.assertEqual(disk['settings_version'], 2)
 
-    def test_migration_dark_alias_to_black(self):
-        """E. version=1, dark -> black."""
+    def test_migration_dark_alias_to_calm(self):
+        """E. version=1, dark -> calm."""
         self._write_settings({'settings_version': 1, 'ui_theme': 'dark'})
         loaded = config.load_settings()
-        self.assertEqual(loaded['ui_theme'], 'black')
+        self.assertEqual(loaded['ui_theme'], 'calm')
         self.assertEqual(loaded['settings_version'], 2)
 
         disk = self._read_disk_settings()
-        self.assertEqual(disk['ui_theme'], 'black')
+        self.assertEqual(disk['ui_theme'], 'calm')
         self.assertEqual(disk['settings_version'], 2)
 
     def test_migration_malformed_settings_version(self):
@@ -177,16 +177,16 @@ class SettingsThemeMigrationTests(unittest.TestCase):
         self.assertEqual(disk['close_default_action'], 'exit')
 
     def test_normalize_settings_always_canonical_theme_and_v2(self):
-        """normalize_settings 永远返回 canonical theme ('calm' | 'black') 且 settings_version >= 2。"""
+        """normalize_settings 永远返回 canonical theme ('calm') 且 settings_version >= 2。"""
         legacy_cases = [
             ('clear', 'calm'),
             ('warm', 'calm'),
             ('light', 'calm'),
             ('unknown_foo', 'calm'),
             ('calm', 'calm'),
-            ('night', 'black'),
-            ('dark', 'black'),
-            ('black', 'black'),
+            ('night', 'calm'),
+            ('dark', 'calm'),
+            ('black', 'calm'),
         ]
         for input_theme, expected in legacy_cases:
             with self.subTest(input_theme=input_theme):

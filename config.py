@@ -229,11 +229,8 @@ def normalize_settings(settings):
     else:
         result['ui_web_shell'] = bool(web_shell)
     result['settings_version'] = max(2, _coerce_settings_version(result.get('settings_version')))
-    theme = str(result.get('ui_theme') or 'calm').strip().lower()
-    if theme in ('black', 'night', 'dark'):
-        result['ui_theme'] = 'black'
-    else:
-        result['ui_theme'] = 'calm'
+    # 权威单一晴空棱镜指令 SINGLE_THEME_ONLY：统一收口为 calm
+    result['ui_theme'] = 'calm'
     density = str(result.get('ui_density') or 'compact').strip().lower()
     result['ui_density'] = density if density in ('compact', 'comfortable') else 'compact'
     sidebar_value = result.get('sidebar_collapsed', False)
@@ -313,13 +310,15 @@ def load_settings():
             migrated = True
 
         if current_ver < 2:
-            # Versioned migration v2: 收口为 calm / black 双主题，旧 clear/warm -> calm, night -> black
-            old_theme = str(data.get('ui_theme') or '').strip().lower()
-            if old_theme in ('clear', 'warm', 'light'):
-                data['ui_theme'] = 'calm'
-            elif old_theme in ('night', 'dark'):
-                data['ui_theme'] = 'black'
+            # Versioned migration v2: 收口为唯一生产主题 calm
+            data['ui_theme'] = 'calm'
             data['settings_version'] = 2
+            migrated = True
+
+        # 权威指令 SINGLE_THEME_ONLY：所有历史别名及旧主题统一 migrate -> calm
+        old_theme = str(data.get('ui_theme') or '').strip().lower()
+        if old_theme != 'calm':
+            data['ui_theme'] = 'calm'
             migrated = True
 
         if migrated:

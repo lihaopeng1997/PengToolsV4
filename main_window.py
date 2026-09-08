@@ -791,17 +791,6 @@ class MainWindow(QMainWindow):
         self.nav_buttons[7] = self.settings_button
         footer.addWidget(self.settings_button, 1)
 
-        # 快速主题切换：一键在双主题（Calm/Black）间循环，无需进入设置页
-        self.theme_cycle_button = QPushButton()
-        self.theme_cycle_button.setObjectName('nav-btn-settings')
-        self.theme_cycle_button.setCheckable(False)
-        self.theme_cycle_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.theme_cycle_button.setProperty('iconOnly', True)
-        self.theme_cycle_button.clicked.connect(self._cycle_theme)
-        apply_icon(self.theme_cycle_button, 'filter', size=20)
-        self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
-        footer.addWidget(self.theme_cycle_button, 0)
-
         self.user_chip = QToolButton()
         self.user_chip.setObjectName('user-chip')
         self.user_chip.setText('LH')
@@ -1262,8 +1251,6 @@ class MainWindow(QMainWindow):
         if self.nav_buttons[7] is not None and not self._nav_icon_only:
             self.nav_buttons[7].setText('设置' if zh else 'Settings')
             apply_icon(self.nav_buttons[7], 'settings', size=20)
-        if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
-            self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         # 刷新 DB 子菜单文案（语言切换时）
         self._refresh_nav_texts_db()
 
@@ -1880,46 +1867,11 @@ class MainWindow(QMainWindow):
         )
 
     def apply_theme(self, theme_id: str) -> bool:
-        """兼容主题切换入口：由统一设置事务负责应用与保存。"""
+        """兼容主题切换入口：由统一设置事务负责应用与保存（单一晴空棱镜模式下规范化为 calm）。"""
+        from ui.theme_manager import resolve_theme_id
         settings = dict(self._settings)
-        settings['ui_theme'] = theme_id
+        settings['ui_theme'] = resolve_theme_id(theme_id)
         return self._apply_settings(settings)
-
-    def _theme_cycle_tooltip(self) -> str:
-        """当前外观模式提示（随语言切换）。"""
-        from ui.theme_manager import theme_mode
-        current = self._settings.get('ui_theme', 'calm')
-        mode = theme_mode(current)
-        zh = self.language == 'zh'
-        if mode == 'dark':
-            curr_label = '深色' if zh else 'Dark'
-            next_label = '浅色' if zh else 'Light'
-        else:
-            curr_label = '浅色' if zh else 'Light'
-            next_label = '深色' if zh else 'Dark'
-        if zh:
-            return f'当前：{curr_label}\n点击切换到{next_label}'
-        return f'Current: {curr_label}\nSwitch to {next_label}'
-
-    def _cycle_theme(self):
-        """在浅色与深色外观模式之间快速切换，即时应用并保存。"""
-        from ui.theme_manager import theme_mode
-        current = self._settings.get('ui_theme', 'calm')
-        mode = theme_mode(current)
-        nxt = 'calm' if mode == 'dark' else 'black'
-        if not self.apply_theme(nxt):
-            if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
-                self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
-            return
-        if hasattr(self, 'theme_cycle_button') and self.theme_cycle_button is not None:
-            self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
-        zh = self.language == 'zh'
-        target_mode = theme_mode(nxt)
-        shown = ('深色' if target_mode == 'dark' else '浅色') if zh else ('Dark' if target_mode == 'dark' else 'Light')
-        self.status_bar.showMessage(
-            f'已切换到{shown}' if zh else f'Switched to {shown} theme',
-            2000,
-        )
 
     def _reset_floating_position(self):
         if self.quick_panel is None:

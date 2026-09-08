@@ -54,12 +54,16 @@ class TestPrismFoundation(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        self.app.setStyleSheet('')
+
     def test_01_theme_ids_and_meta(self):
-        """1. THEME_IDS: 必须严格为 ('calm', 'black')，显示名对齐。"""
+        """1. THEME_IDS: 必须严格为 ('calm',)，显示名对齐。"""
         from ui.theme_manager import THEME_IDS, THEMES, THEME_META
 
-        self.assertEqual(THEME_IDS, ('calm', 'black'))
-        self.assertEqual(set(THEMES.keys()), {'calm', 'black'})
+        self.assertEqual(THEME_IDS, ('calm',))
+        self.assertIn('calm', THEMES)
+        self.assertIn('black', THEMES)  # 兼容保留调色板
         self.assertEqual(set(THEME_META.keys()), {'calm', 'black'})
 
         calm_meta = THEME_META['calm']
@@ -71,27 +75,24 @@ class TestPrismFoundation(unittest.TestCase):
         self.assertEqual(black_meta[1], 'Ink Black')
 
     def test_02_aliases(self):
-        """2. ALIASES: 历史别名规范解析至 calm 与 black。"""
+        """2. ALIASES: 历史别名全部规范解析至唯一主题 calm。"""
         from ui.theme_manager import resolve_theme_id
 
         self.assertEqual(resolve_theme_id('clear'), 'calm')
         self.assertEqual(resolve_theme_id('warm'), 'calm')
         self.assertEqual(resolve_theme_id('light'), 'calm')
-        self.assertEqual(resolve_theme_id('night'), 'black')
-        self.assertEqual(resolve_theme_id('dark'), 'black')
+        self.assertEqual(resolve_theme_id('night'), 'calm')
+        self.assertEqual(resolve_theme_id('dark'), 'calm')
+        self.assertEqual(resolve_theme_id('black'), 'calm')
         self.assertEqual(resolve_theme_id('unknown'), 'calm')
 
     def test_03_settings_normalization(self):
-        """3. SETTINGS: 旧设置在 normalize_settings 下正确规范化。"""
+        """3. SETTINGS: 旧设置在 normalize_settings 下统一规范化为 calm。"""
         from config import normalize_settings
 
-        for alias in ('clear', 'warm', 'light'):
+        for alias in ('clear', 'warm', 'light', 'night', 'dark', 'black'):
             norm = normalize_settings({'ui_theme': alias})
             self.assertEqual(norm['ui_theme'], 'calm')
-
-        for alias in ('night', 'dark'):
-            norm = normalize_settings({'ui_theme': alias})
-            self.assertEqual(norm['ui_theme'], 'black')
 
     def test_04_prism_calm_core_tokens(self):
         """4. PRISM_CALM_CORE_TOKENS: 权威母版色值校验。"""

@@ -58,10 +58,11 @@ class ThemePreviewTests(unittest.TestCase):
 
     def test_settings_panel_creates_theme_mode_cards(self):
         page = SettingsPanel(DEFAULT_SETTINGS)
-        self.assertEqual(len(page._theme_cards), 2)
-        for mode, card in page._theme_cards.items():
-            self.assertIsInstance(card, ThemeCard)
-            self.assertEqual(card.mode, mode)
+        # 单一晴空棱镜架构：无 Light/Dark 切换卡
+        self.assertEqual(len(page._theme_cards), 0)
+        card = ThemeCard('calm')
+        self.assertEqual(card.theme_id, 'calm')
+        self.assertEqual(card.mode, 'light')
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')

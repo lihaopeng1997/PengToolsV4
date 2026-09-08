@@ -38,17 +38,20 @@ except ImportError:
 class NightThemeTokenTests(unittest.TestCase):
     def test_night_display_name(self):
         self.assertEqual(theme_display_name('black', 'zh'), '墨黑')
-        self.assertEqual(theme_display_name('night', 'zh'), '墨黑')
+        self.assertEqual(theme_display_name('night', 'zh'), '晴空棱镜')
         self.assertTrue(
             '近黑' in theme_subtitle('black', 'zh')
             or '低眩光' in theme_subtitle('black', 'zh')
         )
 
-    def test_night_alias_resolves_to_black(self):
-        self.assertEqual(theme_manager.resolve_theme_id('night'), 'black')
-        self.assertEqual(theme_manager.resolve_theme_id('BLACK'), 'black')
-        self.assertNotIn('night', THEMES)
-        self.assertEqual(tuple(THEMES), theme_manager.THEME_IDS)
+    def test_all_aliases_resolve_to_calm(self):
+        self.assertEqual(theme_manager.resolve_theme_id('night'), 'calm')
+        self.assertEqual(theme_manager.resolve_theme_id('BLACK'), 'calm')
+        self.assertEqual(theme_manager.resolve_theme_id('dark'), 'calm')
+        self.assertEqual(theme_manager.resolve_theme_id('clear'), 'calm')
+        self.assertEqual(theme_manager.resolve_theme_id('warm'), 'calm')
+        self.assertEqual(theme_manager.resolve_theme_id('light'), 'calm')
+        self.assertEqual(theme_manager.THEME_IDS, ('calm',))
 
     def test_all_themes_have_extended_tokens(self):
         required = (
@@ -430,74 +433,19 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         window._apply_settings({**DEFAULT_SETTINGS, 'sidebar_collapsed': True})
         self.assertFalse(window._nav_collapsed)
 
-    def test_quick_theme_cycle_light_dark(self):
+    def test_single_theme_removes_sidebar_cycle_button(self):
         from main_window import MainWindow
 
         window = self._track_window(MainWindow())
-        # calm -> black
-        window._settings['ui_theme'] = 'calm'
-        window._cycle_theme()
-        self.assertEqual(window._settings['ui_theme'], 'black')
+        self.assertFalse(hasattr(window, 'theme_cycle_button'), 'theme_cycle_button 必须从左侧栏底部移除')
 
-        # clear -> black
-        window._settings['ui_theme'] = 'clear'
-        window._cycle_theme()
-        self.assertEqual(window._settings['ui_theme'], 'black')
-
-        # warm -> black
-        window._settings['ui_theme'] = 'warm'
-        window._cycle_theme()
-        self.assertEqual(window._settings['ui_theme'], 'black')
-
-        # black -> calm
-        window._settings['ui_theme'] = 'black'
-        window._cycle_theme()
-        self.assertEqual(window._settings['ui_theme'], 'calm')
-
-        # night -> calm
-        window._settings['ui_theme'] = 'night'
-        window._cycle_theme()
-        self.assertEqual(window._settings['ui_theme'], 'calm')
-
-    def test_theme_cycle_tooltip_shows_light_dark_only(self):
+    def test_apply_theme_normalizes_all_to_calm(self):
         from main_window import MainWindow
 
         window = self._track_window(MainWindow())
-        window._settings['ui_theme'] = 'calm'
-        tip = window._theme_cycle_tooltip()
-        self.assertIn('浅色', tip)
-        self.assertIn('深色', tip)
-        for legacy in ('静谧蓝', '晴空清晰', '暖书房', '墨黑'):
-            self.assertNotIn(legacy, tip)
-
-        window._settings['ui_theme'] = 'black'
-        tip_black = window._theme_cycle_tooltip()
-        self.assertIn('当前：深色', tip_black)
-        self.assertIn('切换到浅色', tip_black)
-
-    def test_quick_theme_cycle_failure_guard(self):
-        from main_window import MainWindow
-        from unittest.mock import patch
-
-        window = self._track_window(MainWindow())
-        window._settings['ui_theme'] = 'calm'
-        window.status_bar.clearMessage()
-
-        with patch.object(window, 'apply_theme', return_value=False):
-            window._cycle_theme()
-
-        # 失败时不展示“已切换到深色”成功提示
-        self.assertNotIn('已切换', window.status_bar.currentMessage())
-        self.assertEqual(window._settings['ui_theme'], 'calm')
-        tip = window._theme_cycle_tooltip()
-        self.assertIn('当前：浅色', tip)
-        self.assertIn('切换到深色', tip)
-
-        # 成功时正常更新
-        with patch.object(window, 'apply_theme', side_effect=lambda t: window._settings.update({'ui_theme': t}) or True):
-            window._cycle_theme()
-        self.assertIn('已切换到深色', window.status_bar.currentMessage())
-        self.assertEqual(window._settings['ui_theme'], 'black')
+        for tid in ('calm', 'black', 'night', 'dark', 'clear', 'warm', 'light'):
+            window.apply_theme(tid)
+            self.assertEqual(window._settings['ui_theme'], 'calm')
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
@@ -544,106 +492,39 @@ class PanelLayoutModeTests(unittest.TestCase):
         self.assertEqual(values['ui_density'], 'comfortable')
         self.assertTrue(values['sidebar_collapsed'])
 
-    def test_settings_theme_grid_columns(self):
+    def test_settings_single_theme_display_and_no_mode_cards(self):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
-        panel.apply_layout_mode('narrow')
-        # 单列：2 张卡片位于 row 0 和 row 1
-        item = panel.theme_grid.itemAtPosition(1, 0)
-        self.assertIsNotNone(item)
-        panel.apply_layout_mode('wide')
-        item = panel.theme_grid.itemAtPosition(0, 1)
-        self.assertIsNotNone(item)
-
-    def test_settings_creates_only_light_and_dark_cards(self):
-        panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
-        self.assertEqual(list(panel._theme_cards.keys()), ['light', 'dark'])
-        self.assertEqual(panel._theme_cards['light'].name_label.text(), '浅色')
-        self.assertEqual(panel._theme_cards['dark'].name_label.text(), '深色')
-        self.assertIn('日间', panel._theme_cards['light'].subtitle_label.text())
-        self.assertIn('深色', panel._theme_cards['dark'].subtitle_label.text())
+        self.assertEqual(len(panel._theme_cards), 0, '单一主题架构下不创建 Light/Dark 切换卡片')
+        self.assertEqual(panel.theme_display.text(), '晴空棱镜 (Sky Prism)')
 
     def test_settings_canonical_theme_selection(self):
         panel_calm = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
-        self.assertTrue(panel_calm._theme_cards['light'].property('selected'))
-        self.assertFalse(panel_calm._theme_cards['dark'].property('selected'))
+        self.assertEqual(panel_calm.values()['ui_theme'], 'calm')
 
         panel_black = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'black'}, 'zh')
-        self.assertFalse(panel_black._theme_cards['light'].property('selected'))
-        self.assertTrue(panel_black._theme_cards['dark'].property('selected'))
+        self.assertEqual(panel_black.values()['ui_theme'], 'calm')
 
         panel_night = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'night'}, 'zh')
-        self.assertFalse(panel_night._theme_cards['light'].property('selected'))
-        self.assertTrue(panel_night._theme_cards['dark'].property('selected'))
+        self.assertEqual(panel_night.values()['ui_theme'], 'calm')
 
     def test_settings_legacy_theme_migration(self):
-        # 兼容旧配置 clear 与 warm：浅色卡选中，归一化迁移为 calm
         panel_clear = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'clear'}, 'zh')
-        self.assertTrue(panel_clear._theme_cards['light'].property('selected'))
         self.assertEqual(panel_clear.values()['ui_theme'], 'calm')
         panel_clear.font_size.setValue(15)
         self.assertEqual(panel_clear.values()['ui_theme'], 'calm')
 
         panel_warm = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'warm'}, 'zh')
-        self.assertTrue(panel_warm._theme_cards['light'].property('selected'))
         self.assertEqual(panel_warm.values()['ui_theme'], 'calm')
         panel_warm.font_size.setValue(16)
         self.assertEqual(panel_warm.values()['ui_theme'], 'calm')
 
-    def test_settings_explicit_mode_switching(self):
+    def test_settings_single_theme_persistence(self):
         panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
-        emitted = []
-        panel.settings_changed.connect(lambda s: emitted.append(s['ui_theme']))
-
-        # 主动切换到深色 -> 发出候选 black
         panel._on_theme_clicked('dark')
-        self.assertEqual(emitted[-1], 'black')
-        # 尚未成功 load_values 前：panel 自身仍保持 calm
-        self.assertEqual(panel._ui_theme, 'calm')
         self.assertEqual(panel.values()['ui_theme'], 'calm')
-        self.assertTrue(panel._theme_cards['light'].property('selected'))
-        self.assertFalse(panel._theme_cards['dark'].property('selected'))
 
-        # 模拟主窗口成功应用并回刷
         panel.load_values({**DEFAULT_SETTINGS, 'ui_theme': 'black'})
-        self.assertEqual(panel._ui_theme, 'black')
-        self.assertEqual(panel.values()['ui_theme'], 'black')
-        self.assertTrue(panel._theme_cards['dark'].property('selected'))
-        self.assertFalse(panel._theme_cards['light'].property('selected'))
-
-        # 从深色切换回浅色 -> 发出候选 calm
-        panel._on_theme_clicked('light')
-        self.assertEqual(emitted[-1], 'calm')
-        # 尚未成功 load_values 前：panel 自身仍保持 black
-        self.assertEqual(panel._ui_theme, 'black')
-        self.assertEqual(panel.values()['ui_theme'], 'black')
-
-        # 模拟主窗口成功应用并回刷
-        panel.load_values({**DEFAULT_SETTINGS, 'ui_theme': 'calm'})
-        self.assertEqual(panel._ui_theme, 'calm')
         self.assertEqual(panel.values()['ui_theme'], 'calm')
-        self.assertTrue(panel._theme_cards['light'].property('selected'))
-        self.assertFalse(panel._theme_cards['dark'].property('selected'))
-
-    def test_settings_transactional_failure_keeps_previous_state(self):
-        """测试主题应用失败/未确认时：SettingsPanel 绝不提前乐观改变当前状态。"""
-        panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_theme': 'calm'}, 'zh')
-        self.assertTrue(panel._theme_cards['light'].property('selected'))
-        self.assertFalse(panel._theme_cards['dark'].property('selected'))
-        self.assertEqual(panel.values()['ui_theme'], 'calm')
-
-        emitted = []
-        panel.settings_changed.connect(lambda s: emitted.append(s))
-
-        # 用户点击深色卡
-        panel._on_theme_clicked('dark')
-        self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]['ui_theme'], 'black')
-
-        # 模拟主窗口应用失败（发生异常并回滚，不调用 panel.load_values）
-        self.assertEqual(panel._ui_theme, 'calm')
-        self.assertEqual(panel.values()['ui_theme'], 'calm')
-        self.assertTrue(panel._theme_cards['light'].property('selected'))
-        self.assertFalse(panel._theme_cards['dark'].property('selected'))
 
     def test_theme_mode_and_internal_themes_compatibility(self):
         from ui.theme_manager import theme_mode, resolve_theme_id, THEMES
@@ -655,7 +536,7 @@ class PanelLayoutModeTests(unittest.TestCase):
 
         self.assertEqual(resolve_theme_id('clear'), 'calm')
         self.assertEqual(resolve_theme_id('warm'), 'calm')
-        self.assertEqual(resolve_theme_id('night'), 'black')
+        self.assertEqual(resolve_theme_id('night'), 'calm')
         self.assertNotIn('clear', THEMES)
         self.assertNotIn('warm', THEMES)
 
@@ -867,19 +748,21 @@ class VisualFoundationV1Tests(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, f'verify:embedded 校验失败: {res.stdout}\n{res.stderr}')
 
-    def test_v1_18_dual_canonical_theme_contracts(self):
-        """V1-18: 验证 canonical theme 契约（仅 calm 与 black），旧 ID 映射至规范主题。"""
+    def test_v1_18_single_canonical_theme_contracts(self):
+        """V1-18: 验证 canonical theme 契约（严格收口至 calm），所有旧 ID 映射至 calm。"""
         from ui.theme_manager import THEME_IDS, THEMES, THEME_META, resolve_theme_id, theme_mode
-        self.assertEqual(THEME_IDS, ('calm', 'black'))
-        self.assertEqual(set(THEMES.keys()), {'calm', 'black'})
+        self.assertEqual(THEME_IDS, ('calm',))
+        self.assertIn('calm', THEMES)
+        self.assertIn('black', THEMES)
         self.assertEqual(set(THEME_META.keys()), {'calm', 'black'})
 
-        # 别名与迁移映射
+        # 别名与迁移映射全量指向 calm
         self.assertEqual(resolve_theme_id('clear'), 'calm')
         self.assertEqual(resolve_theme_id('warm'), 'calm')
         self.assertEqual(resolve_theme_id('light'), 'calm')
-        self.assertEqual(resolve_theme_id('night'), 'black')
-        self.assertEqual(resolve_theme_id('dark'), 'black')
+        self.assertEqual(resolve_theme_id('night'), 'calm')
+        self.assertEqual(resolve_theme_id('dark'), 'calm')
+        self.assertEqual(resolve_theme_id('black'), 'calm')
         self.assertEqual(resolve_theme_id('unknown'), 'calm')
 
         self.assertEqual(theme_mode('calm'), 'light')

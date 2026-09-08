@@ -19,13 +19,14 @@ THEME_META = {
     'black': ('墨黑', 'Ink Black', '低眩光深灰紫分层工作面', 'Deep twilight layered night surface'),
 }
 
-THEME_IDS = ('calm', 'black')
+THEME_IDS = ('calm',)
 THEME_ALIASES = {
     'clear': 'calm',
     'warm': 'calm',
-    'night': 'black',
+    'night': 'calm',
     'light': 'calm',
-    'dark': 'black',
+    'dark': 'calm',
+    'black': 'calm',
 }
 
 DEFAULT_THEME_ID = 'calm'
@@ -280,30 +281,28 @@ def _app_dir() -> str:
 def resolve_theme_id(theme_id) -> str:
     text = str(theme_id or '').strip().lower()
     text = THEME_ALIASES.get(text, text)
-    if text in THEMES:
+    if text in THEME_IDS:
         return text
     return DEFAULT_THEME_ID
 
 
-def theme_mode(theme_id: str | None) -> str:
-    """返回主题的外观模式：'dark' 或 'light'。
-
-    calm -> 'light'
-    black -> 'dark'
-    """
-    canonical = resolve_theme_id(theme_id)
-    if canonical == 'black':
+def theme_mode(theme_id: str | None = None) -> str:
+    """返回主题的外观模式。生产统一为 'light'，保留 'black' 兼容映射为 'dark'。"""
+    text = str(theme_id or '').strip().lower()
+    if text in ('black', 'dark', 'night'):
         return 'dark'
     return 'light'
 
 
 def theme_display_name(theme_id: str, language: str = 'zh') -> str:
-    meta = THEME_META.get(resolve_theme_id(theme_id), THEME_META[DEFAULT_THEME_ID])
+    tid = theme_id if theme_id in THEME_META else resolve_theme_id(theme_id)
+    meta = THEME_META.get(tid, THEME_META[DEFAULT_THEME_ID])
     return meta[0] if language == 'zh' else meta[1]
 
 
 def theme_subtitle(theme_id: str, language: str = 'zh') -> str:
-    meta = THEME_META.get(resolve_theme_id(theme_id), THEME_META[DEFAULT_THEME_ID])
+    tid = theme_id if theme_id in THEME_META else resolve_theme_id(theme_id)
+    meta = THEME_META.get(tid, THEME_META[DEFAULT_THEME_ID])
     return meta[2] if language == 'zh' else meta[3]
 
 
@@ -353,7 +352,10 @@ class ThemeManager:
         return self._theme_id
 
     def palette(self, theme_id: str | None = None) -> dict[str, str]:
-        return deepcopy(THEMES[resolve_theme_id(theme_id or self._theme_id)])
+        tid = theme_id or self._theme_id
+        if tid in THEMES:
+            return deepcopy(THEMES[tid])
+        return deepcopy(THEMES[resolve_theme_id(tid)])
 
     def token(self, name: str, theme_id: str | None = None) -> str:
         return self.palette(theme_id).get(name, '#000000')
@@ -383,11 +385,13 @@ class ThemeManager:
         return ''
 
     def render(self, theme_id: str | None = None, font_size: int | None = None) -> str:
-        theme_id = resolve_theme_id(theme_id or self._theme_id)
+        tid = theme_id or self._theme_id
+        if tid not in THEMES:
+            tid = resolve_theme_id(tid)
         if self._template is None:
             self.load_template()
         qss = self._template or ''
-        palette = dict(THEMES[theme_id])
+        palette = dict(THEMES[tid])
         palette.setdefault('PRIMARY_GRAD_START', palette.get('PRIMARY', '#5B5FC7'))
         palette.setdefault('PRIMARY_GRAD_END', palette.get('PRIMARY_HOVER', palette.get('PRIMARY', '#4C50B0')))
         for key, value in palette.items():
@@ -420,7 +424,7 @@ class ThemeManager:
         """注入主题到 QApplication；失败回退上一主题。"""
         app = app or QApplication.instance()
         prev = self._theme_id
-        theme_id = resolve_theme_id(theme_id)
+        theme_id = theme_id if theme_id in THEMES else resolve_theme_id(theme_id)
         try:
             if self._template is None:
                 self.load_template()
@@ -592,7 +596,8 @@ def build_app_palette(tokens: dict[str, str]):
 
 def preview_swatches(theme_id: str) -> dict[str, str]:
     """主题卡预览用色块（完整微型界面：底/侧栏/卡/输入/按钮/正文/边框）。"""
-    p = THEMES[resolve_theme_id(theme_id)]
+    tid = theme_id if theme_id in THEMES else resolve_theme_id(theme_id)
+    p = THEMES[tid]
     return {
         'bg': p['APP_BG'],
         'surface': p['SURFACE'],

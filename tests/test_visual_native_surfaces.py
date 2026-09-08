@@ -201,14 +201,15 @@ class TestVisualNativeSurfaces(unittest.TestCase):
 
         panel = self.track(SettingsPanel(DEFAULT_SETTINGS, 'zh'))
 
-        # 1. 严格仅有两张 ThemeCard (light -> calm, dark -> black)，无 clear/warm/night
-        self.assertEqual(len(panel._theme_cards), 2)
-        self.assertEqual(set(panel._theme_cards.keys()), {'light', 'dark'})
-        self.assertEqual(panel._theme_cards['light'].theme_id, 'calm')
-        self.assertEqual(panel._theme_cards['dark'].theme_id, 'black')
+        # 1. 严格单一晴空棱镜架构：删除 Light/Dark 选择入口，_theme_cards 无切换卡片
+        self.assertEqual(len(panel._theme_cards), 0)
+        self.assertNotIn('light', panel._theme_cards)
+        self.assertNotIn('dark', panel._theme_cards)
         self.assertNotIn('clear', panel._theme_cards)
         self.assertNotIn('warm', panel._theme_cards)
         self.assertNotIn('night', panel._theme_cards)
+        self.assertNotIn('black', panel._theme_cards)
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
 
         # 2. Section card objectNames and property
         cards = {
