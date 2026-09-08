@@ -8,13 +8,13 @@
       <symbol id="i-logo" viewBox="0 0 64 64">
         <defs>
           <linearGradient id="prism-logo-grad" x2="1" y2="1">
-            <stop stop-color="#9e8cf2"/>
-            <stop offset="1" stop-color="#6453d5"/>
+            <stop stop-color="var(--primary-grad-start)"/>
+            <stop offset="1" stop-color="var(--primary-grad-end)"/>
           </linearGradient>
         </defs>
         <rect x="2" y="2" width="60" height="60" rx="19" fill="url(#prism-logo-grad)"/>
-        <path d="M22 17h16c17 0 16 25-1 25h-8l-3 10H15Zm10 10-2 7h7c6 0 7-7 1-7Z" fill="white"/>
-        <path d="m44 9 4 7 8 2-8 3-3 7-2-8-7-3 8-2Z" fill="#d7fbf2" opacity=".9"/>
+        <path d="M22 17h16c17 0 16 25-1 25h-8l-3 10H15Zm10 10-2 7h7c6 0 7-7 1-7Z" fill="var(--nav-active-text)"/>
+        <path d="m44 9 4 7 8 2-8 3-3 7-2-8-7-3 8-2Z" fill="var(--accent-cyan)" opacity=".9"/>
       </symbol>
       <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.8 10.2V20h12.4v-9.8"/><path d="M10 20v-5h4v5"/></symbol>
       <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.6" rx="7" ry="2.7"/><path d="M5 5.6v12.8c0 1.5 3.1 2.7 7 2.7s7-1.2 7-2.7V5.6"/><path d="M5 12c0 1.5 3.1 2.7 7 2.7s7-1.2 7-2.7"/></symbol>

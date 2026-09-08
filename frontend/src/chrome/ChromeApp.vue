@@ -157,35 +157,22 @@ function onPaletteClick(): void {
 <!-- 非 scoped：消费 ThemeManager 权威 Prism tokens，并保障全屏高度与背景 -->
 <style>
 :root {
-  --ink: var(--sidebar-text, #262438);
-  --ink-2: var(--text-nav, #4B5569);
-  --ink-3: var(--sidebar-text-muted, #615D73);
-  --edge: var(--sidebar-border, #E6E2F0);
-  --c1: var(--primary, #6C58D9);
-  --grad: linear-gradient(115deg, var(--primary-grad-start, #7C6AE6), var(--primary-grad-end, #6C58D9));
-  --nav-hover-bg: var(--nav-hover, rgba(108, 88, 217, 0.08));
-  --nav-active-bg: var(--nav-active-bg, #6C58D9);
-  --nav-active-text: var(--nav-active-text, #FFFFFF);
-  --parent-open-bg: var(--sidebar-highlight, rgba(108, 88, 217, 0.05));
+  --ink: var(--sidebar-text);
+  --ink-2: var(--text-nav);
+  --ink-3: var(--sidebar-text-muted);
+  --edge: var(--sidebar-border);
+  --c1: var(--primary);
+  --grad: linear-gradient(115deg, var(--primary-grad-start), var(--primary-grad-end));
+  --nav-hover-bg: var(--nav-hover);
+  --nav-active-bg: var(--nav-active-bg);
+  --nav-active-text: var(--nav-active-text);
+  --parent-open-bg: var(--sidebar-highlight);
   --r-sm: 10px;
   --font: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   --motion-fast: 100ms;
   --motion-standard: 150ms;
   --motion-enter: 180ms;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
-}
-
-html[data-theme="black"], html.dark {
-  --ink: var(--sidebar-text, #ECEAF7);
-  --ink-2: var(--text-nav, #B0ACC4);
-  --ink-3: var(--sidebar-text-muted, #AEA9C2);
-  --edge: var(--sidebar-border, #393548);
-  --c1: var(--primary, #8E7CE8);
-  --grad: linear-gradient(115deg, var(--primary-grad-start, #A99AF5), var(--primary-grad-end, #8E7CE8));
-  --nav-hover-bg: var(--nav-hover, #242233);
-  --nav-active-bg: var(--nav-active-bg, #322B4D);
-  --nav-active-text: var(--nav-active-text, #FFFFFF);
-  --parent-open-bg: var(--sidebar-highlight, rgba(255, 255, 255, 0.05));
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -198,12 +185,8 @@ body {
   color: var(--ink);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  background: var(--sidebar-bg, #F7F6FC);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--edge);
-}
-
-html[data-theme="black"] body, html.dark body {
-  background: var(--sidebar-bg, #191924);
 }
 
 body::before {
@@ -212,8 +195,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(420px 300px at -60px -40px, var(--aurora-mid, #7C6AE6), transparent 70%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-start, #6C58D9), transparent 70%);
+    radial-gradient(420px 300px at -60px -40px, var(--aurora-mid), transparent 70%),
+    radial-gradient(380px 320px at 110% 108%, var(--aurora-start), transparent 70%);
   opacity: 0.06;
 }
 
@@ -276,7 +259,7 @@ svg.ic {
 }
 
 .nav::-webkit-scrollbar { width: 6px; }
-.nav::-webkit-scrollbar-thumb { background: rgba(90, 98, 132, 0.22); border-radius: 6px; }
+.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 6px; }
 
 .group {
   margin-bottom: 16px;
@@ -409,7 +392,7 @@ svg.ic {
   font-size: 9px;
   font-weight: 700;
   color: var(--c1);
-  background: var(--sidebar-highlight, rgba(108, 88, 217, 0.06));
+  background: var(--sidebar-highlight);
   border: 1px solid var(--edge);
   border-bottom-width: 2px;
   padding: 2px 6px;

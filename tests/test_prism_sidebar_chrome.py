@@ -108,6 +108,18 @@ class WebChromeSourceContractTests(unittest.TestCase):
         self.assertIn('width: 20px', self.vue_src, '普通导航图标必须定义 20px 尺寸')
         self.assertIn('height: 20px', self.vue_src, '普通导航图标必须定义 20px 尺寸')
 
+        # 验证单一权威 ThemeManager 语义 token 消费（无本地重复调色板）
+        tokens = [
+            '--sidebar-bg', '--sidebar-text', '--nav-hover', '--nav-active-bg',
+            '--primary', '--primary-grad-start', '--primary-grad-end',
+            '--aurora-start', '--aurora-mid', '--scroll-handle',
+        ]
+        for tk in tokens:
+            self.assertIn(f'var({tk})', self.vue_src, f'ChromeApp.vue 必须纯消费语义变量 var({tk})')
+
+        # 验证未重复定义调色板
+        self.assertNotIn('html[data-theme="black"] {', self.vue_src, '不得在 Vue 内重复定义 Black 主题调色板')
+
     def test_icon_only_hitbox_and_rules(self):
         self.assertIn('@media (max-width: 120px)', self.vue_src, '必须定义 <= 120px 的 icon-only 响应式分支')
         self.assertIn('width: 44px', self.vue_src, 'Icon-only 命中区必须为 44x44')
@@ -122,9 +134,10 @@ class WebChromeSourceContractTests(unittest.TestCase):
     def test_icon_sprite_prism_brand_and_stroke(self):
         self.assertIn('id="i-logo"', self.sprite_src, '必须定义 i-logo')
         self.assertIn('viewBox="0 0 64 64"', self.sprite_src, 'Prism 品牌矢量必须使用 64x64 viewBox')
-        self.assertIn('#9e8cf2', self.sprite_src.lower(), 'Prism 品牌渐变必须包含 #9e8cf2')
-        self.assertIn('#6453d5', self.sprite_src.lower(), 'Prism 品牌渐变必须包含 #6453d5')
-        self.assertIn('#d7fbf2', self.sprite_src.lower(), 'Prism 品牌星芒必须包含 #d7fbf2')
+        self.assertIn('var(--primary-grad-start)', self.sprite_src, '品牌渐变起色必须消费 --primary-grad-start')
+        self.assertIn('var(--primary-grad-end)', self.sprite_src, '品牌渐变终色必须消费 --primary-grad-end')
+        self.assertIn('var(--accent-cyan)', self.sprite_src, '品牌星芒必须消费 --accent-cyan')
+        self.assertIn('var(--nav-active-text)', self.sprite_src, '品牌字标必须消费 --nav-active-text')
         self.assertIn('stroke-width="1.6"', self.sprite_src, '线性图标必须统一使用 1.6 描边')
 
     def test_no_fake_ui_elements(self):
@@ -190,10 +203,17 @@ class NativeFallbackPrismTests(unittest.TestCase):
         self.assertTrue(self.win._nav_collapsed)
         self.assertEqual(self.win._sidebar.width(), NAV_ICON)
         self.assertTrue(self.win._nav_icon_only)
+        # 验证 Settings 保持可见且处于 icon-only 状态（FIX-A 契约）
+        self.assertFalse(self.win.settings_button.isHidden(), '手动折叠必须保留设置按钮可见')
+        self.assertTrue(self.win.settings_button.property('iconOnly'), '手动折叠必须置 iconOnly 为 True')
+        self.assertEqual(self.win.settings_button.text(), '', '手动折叠设置按钮必须隐藏文字')
+        self.assertTrue(bool(self.win.settings_button.toolTip()), '手动折叠设置按钮必须保留 tooltip')
 
         # 恢复
         self.win._set_nav_collapsed(False, persist=False)
         self.assertFalse(self.win._nav_collapsed)
+        self.assertFalse(self.win.settings_button.isHidden())
+        self.assertFalse(self.win.settings_button.property('iconOnly'))
 
 
 if __name__ == '__main__':

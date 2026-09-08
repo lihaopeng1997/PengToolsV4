@@ -1186,9 +1186,7 @@ class MainWindow(QMainWindow):
             self.settings_button.setToolTip('')
         self.settings_button.style().unpolish(self.settings_button)
         self.settings_button.style().polish(self.settings_button)
-        # 手动折叠后隐藏设置按钮，底部仅保留 LH 图标
-        if hasattr(self, '_nav_collapsed'):
-            self.settings_button.setVisible(not self._nav_collapsed)
+        self.settings_button.setVisible(True)
         self.layout_mode_changed.emit(mode, low_height)
         # 刷新导航文案（非 icon 模式）
         if not icon_only:
