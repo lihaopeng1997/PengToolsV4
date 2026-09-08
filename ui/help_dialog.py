@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.design_system import apply_button
+from ui.dialog_buttons import clamp_dialog_geometry
+from ui.motion import play_dialog_enter
 
 
 def help_html_path() -> str:
@@ -38,8 +40,7 @@ class UserGuideDialog(QDialog):
         zh = language == 'zh'
         self.setObjectName('user-guide-dialog')
         self.setWindowTitle('PengToolsHub 使用说明' if zh else 'PengToolsHub User Guide')
-        self.setMinimumSize(880, 620)
-        self.resize(960, 720)
+        clamp_dialog_geometry(self, 960, 720, min_width=640, min_height=480)
         self.setModal(False)
 
         root = QVBoxLayout(self)
@@ -76,6 +77,10 @@ class UserGuideDialog(QDialog):
         root.addLayout(foot)
 
         self._load_html()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _load_html(self):
         path = help_html_path()

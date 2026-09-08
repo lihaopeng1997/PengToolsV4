@@ -9,7 +9,7 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -22,7 +22,7 @@ from tools.ticket_submit import (
 )
 from ui.confirm_dialog import show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
-from ui.dialog_buttons import localize_button_box
+from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import size_compact_button, size_enum_combo, size_line, size_pick_combo
 
 
@@ -58,9 +58,11 @@ class TicketSubmitConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle('配置签库地址')
-        self.resize(760, 620)
+        clamp_dialog_geometry(self, 720, 760, min_width=600, min_height=500)
         self._profiles = [normalize_ticket_profile(item) for item in load_ticket_profiles()]
         root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(12)
         root.addWidget(_hint_label(
             '左边选一套签（比如客户信息平台、车险共享中心），右边填这套签在各环境的 SVN 目录。'
             '没填 SVN 的环境，一键提签时选不了。'
@@ -69,7 +71,7 @@ class TicketSubmitConfigDialog(QDialog):
         left = QVBoxLayout()
         left.addWidget(QLabel('签文档所属系统'))
         self.list = QListWidget()
-        self.list.setMinimumWidth(160)
+        self.list.setMinimumWidth(180)
         self.list.currentRowChanged.connect(self._show_profile)
         left.addWidget(self.list, 1)
         body.addLayout(left, 1)
@@ -279,6 +281,11 @@ class TicketSubmitConfigDialog(QDialog):
         save_ticket_profiles(self._profiles)
         self.accept()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
+
 
 class TicketSubmitDialog(QDialog):
     def __init__(self, requirements, selected_ids=None, parent=None, compact=False):
@@ -288,6 +295,8 @@ class TicketSubmitDialog(QDialog):
         self._compact = bool(compact)
         self._resize_for_screen(parent)
         root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(12)
         self.content_scroll = QScrollArea()
         self.content_scroll.setWidgetResizable(True)
         self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -299,16 +308,12 @@ class TicketSubmitDialog(QDialog):
         content.addWidget(_hint_label(
             '选好签和需求后点「确认提签」。软件会复制该环境最新一份签，把需求写进去，再提交到 SVN。'
         ))
-        form = QVBoxLayout()
-        form.setSpacing(2)
         self.profile_combo = QComboBox()
         size_pick_combo(self.profile_combo)
-        form.addWidget(_field_block('提到哪套签', '客户信息平台、车险共享中心等。没有的话先点下面「配置签库地址」。', self.profile_combo))
         self.env_combo = QComboBox()
         for env in TICKET_ENVS:
             self.env_combo.addItem(ENV_LABELS[env], env)
         size_enum_combo(self.env_combo)
-        form.addWidget(_field_block('提到哪个环境', '系统测试 SIT / 集成测试 INT / 用户测试 UAT。', self.env_combo))
         self.slot_combo = QComboBox()
         self.slot_combo.addItem('上午 10 点', '10')
         self.slot_combo.addItem('下午 15 点', '15')
@@ -316,11 +321,9 @@ class TicketSubmitDialog(QDialog):
         self.slot_combo.addItem('19 点', '19')
         size_enum_combo(self.slot_combo)
         self.slot_combo.setCurrentIndex(0 if default_slot() == '10' else 1)
-        form.addWidget(_field_block('几点的签', '上午默认 10 点，下午默认 15 点。会写进文件夹名字。', self.slot_combo))
         self.owner_edit = QLineEdit()
         size_line(self.owner_edit, 'std')
         self.owner_edit.setPlaceholderText('写在签上和文件夹名后面的人，例如 李浩鹏')
-        form.addWidget(_field_block('责任人', '签文档「责任人」和目录名末尾。', self.owner_edit))
         self.host_edit = QLineEdit()
         self.host_edit.hide()
         self.program_edit = QLineEdit()
@@ -337,15 +340,30 @@ class TicketSubmitDialog(QDialog):
         flag_l.addWidget(self.jar_check)
         flag_l.addWidget(self.sql_check)
         flag_l.addStretch(1)
+
         if not compact:
-            form.addWidget(_field_block('程序清单', '填到签上「修改的程序清单」，如 后端、前端。文件个数和升级环境地址不填。', self.program_edit))
-            form.addWidget(_field_block('备注', '', self.remark_edit))
-            form.addWidget(_field_block('是否有 jar / SQL', '按这次升级勾选，会写进签上的「是 / 否」。', flag_row))
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(16)
+            grid.setVerticalSpacing(4)
+            grid.addWidget(_field_block('提到哪套签', '客户信息平台、车险共享中心等。没有的话先点下面「配置签库地址」。', self.profile_combo), 0, 0)
+            grid.addWidget(_field_block('提到哪个环境', '系统测试 SIT / 集成测试 INT / 用户测试 UAT。', self.env_combo), 0, 1)
+            grid.addWidget(_field_block('几点的签', '上午默认 10 点，下午默认 15 点。会写进文件夹名字。', self.slot_combo), 1, 0)
+            grid.addWidget(_field_block('责任人', '签文档「责任人」和目录名末尾。', self.owner_edit), 1, 1)
+            grid.addWidget(_field_block('程序清单', '填到签上「修改的程序清单」，如 后端、前端。文件个数和升级环境地址不填。', self.program_edit), 2, 0)
+            grid.addWidget(_field_block('备注', '', self.remark_edit), 2, 1)
+            grid.addWidget(_field_block('是否有 jar / SQL', '按这次升级勾选，会写进签上的「是 / 否」。', flag_row), 3, 0, 1, 2)
+            content.addLayout(grid)
         else:
+            form = QVBoxLayout()
+            form.setSpacing(2)
+            form.addWidget(_field_block('提到哪套签', '客户信息平台、车险共享中心等。没有的话先点下面「配置签库地址」。', self.profile_combo))
+            form.addWidget(_field_block('提到哪个环境', '系统测试 SIT / 集成测试 INT / 用户测试 UAT。', self.env_combo))
+            form.addWidget(_field_block('几点的签', '上午默认 10 点，下午默认 15 点。会写进文件夹名字。', self.slot_combo))
+            form.addWidget(_field_block('责任人', '签文档「责任人」和目录名末尾。', self.owner_edit))
             self.program_edit.hide()
             self.remark_edit.hide()
             form.addWidget(flag_row)
-        content.addLayout(form)
+            content.addLayout(form)
         self.preview = QLabel()
         self.preview.setObjectName('field-hint')
         self.preview.setWordWrap(True)
@@ -361,19 +379,19 @@ class TicketSubmitDialog(QDialog):
         cfg.clicked.connect(self._open_config)
         content.addWidget(cfg, 0, Qt.AlignmentFlag.AlignLeft)
         root.addWidget(self.content_scroll, 1)
-        buttons = QDialogButtonBox(
+        self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
         )
-        localize_button_box(buttons, 'zh', Ok='确认提签')
-        cancel = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        localize_button_box(self.button_box, 'zh', Ok='确认提签')
+        cancel = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        ok = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         cancel.setDefault(True)
         cancel.setAutoDefault(True)
         ok.setDefault(False)
         ok.setAutoDefault(False)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self._submit)
-        root.addWidget(buttons)
+        self.button_box.rejected.connect(self.reject)
+        self.button_box.accepted.connect(self._submit)
+        root.addWidget(self.button_box)
         self.profile_combo.currentIndexChanged.connect(self._reload_requirements)
         self.env_combo.currentIndexChanged.connect(self._on_env_changed)
         self.slot_combo.currentIndexChanged.connect(self._refresh_preview)
@@ -383,23 +401,9 @@ class TicketSubmitDialog(QDialog):
         self._apply_last_submit()
 
     def _resize_for_screen(self, parent):
-        screen = None
-        if parent is not None:
-            try:
-                screen = QApplication.screenAt(parent.mapToGlobal(parent.rect().center()))
-            except Exception:
-                screen = None
-        screen = screen or QApplication.primaryScreen()
-        available = screen.availableGeometry() if screen is not None else None
-        target_width = 600 if self._compact else 720
+        target_width = 640 if self._compact else 860
         target_height = 680 if self._compact else 760
-        height_ratio = 0.78 if self._compact else 0.82
-        if available is None:
-            self.resize(target_width, target_height)
-            return
-        width = min(target_width, max(1, available.width() - 32))
-        height = min(target_height, max(1, int(available.height() * height_ratio)))
-        self.resize(width, height)
+        clamp_dialog_geometry(self, target_width, target_height, min_width=560, min_height=480)
 
     def _load_profiles(self):
         self._profiles = load_ticket_profiles()
@@ -554,6 +558,11 @@ class TicketSubmitDialog(QDialog):
             f"目录：{result.get('folder')}\nSVN：{result.get('url')}\n\n请在内网核对提交结果。",
         )
         self.accept()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
 
 
 def open_ticket_submit_dialog(requirements, selected_ids=None, parent=None, compact=False):

@@ -22,7 +22,9 @@ from tools.daily_reports import (
 )
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.daily_rich_edit import DailyRichEdit
+from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
+from ui.motion import play_dialog_enter
 from ui.splitter_prefs import install_splitter_prefs
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
@@ -57,7 +59,7 @@ class PasteKnowledgeDialog(QDialog):
     def __init__(self, initial_text='', parent=None):
         super().__init__(parent)
         self.setWindowTitle('粘贴后自动整理')
-        self.resize(760, 580)
+        clamp_dialog_geometry(self, 640, 500, min_width=540, min_height=380)
         layout = QVBoxLayout(self)
         note = QLabel('整篇直接粘贴即可。软件会自动切段、生成标题、判断分类并批量保存。')
         note.setObjectName('ops-safety-note')
@@ -75,6 +77,10 @@ class PasteKnowledgeDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
+
     def _accept_checked(self):
         if not self.content_edit.toPlainText().strip():
             show_warning(self, 'PengTools 私人版', '请先粘贴内容。')
@@ -89,7 +95,7 @@ class KnowledgeEditDialog(QDialog):
     def __init__(self, entry=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle('编辑学习内容' if entry else '新增学习内容')
-        self.resize(680, 560)
+        clamp_dialog_geometry(self, 640, 520, min_width=540, min_height=400)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         apply_form(form)
@@ -119,6 +125,10 @@ class KnowledgeEditDialog(QDialog):
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _accept_checked(self):
         if not self.title_edit.text().strip() or not self.content_edit.toPlainText().strip():

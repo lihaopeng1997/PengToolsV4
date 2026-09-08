@@ -36,7 +36,9 @@ from tools.ops_ssh import (
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
+from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
+from ui.motion import play_dialog_enter
 from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 from ui.ssh_terminal import SshTerminalWidget
@@ -135,7 +137,7 @@ class CategoryManageDialog(QDialog):
         self._servers = [dict(s) for s in (servers or [])]
         zh = language == 'zh'
         self.setWindowTitle('管理服务器分类' if zh else 'Manage server categories')
-        self.setMinimumWidth(420)
+        clamp_dialog_geometry(self, 440, 420, min_width=440, min_height=320)
         layout = QVBoxLayout(self)
         hint = QLabel(
             '自定义分类，例如：集成服务器、模拟服务器、生产服务器。删除分类后，其下服务器会回到「未分类」。'
@@ -165,6 +167,10 @@ class CategoryManageDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _reload(self):
         self.list.clear()
@@ -265,9 +271,7 @@ class ServerEditorDialog(QDialog):
         zh = language == 'zh'
         self.setObjectName('server-editor-dialog')
         self.setWindowTitle('编辑服务器' if self._server.get('id') else ('新增服务器' if zh else 'Add server'))
-        self.setMinimumWidth(640)
-        self.setMinimumHeight(520)
-        self.resize(720, 580)
+        clamp_dialog_geometry(self, 720, 580, min_width=640, min_height=480)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
@@ -413,6 +417,9 @@ class ServerEditorDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _load_services_table(self):
         from tools.ops_ssh import server_services
@@ -642,8 +649,7 @@ class LogSettingsDialog(QDialog):
         zh = language == 'zh'
         self.setObjectName('log-settings-dialog')
         self.setWindowTitle('截取设置' if zh else 'Capture settings')
-        self.setMinimumWidth(420)
-        self.setMinimumHeight(360)
+        clamp_dialog_geometry(self, 560, 420, min_width=440, min_height=360)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         apply_form(form)
@@ -678,6 +684,10 @@ class LogSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
+
     def values(self) -> dict:
         return {
             'context_lines': self.context_spin.value(),
@@ -702,8 +712,7 @@ class ServerManageDialog(QDialog):
         zh = language == 'zh'
         self.setObjectName('server-manage-dialog')
         self.setWindowTitle('管理服务器' if zh else 'Manage servers')
-        self.setMinimumSize(640, 480)
-        self.resize(720, 520)
+        clamp_dialog_geometry(self, 860, 580, min_width=640, min_height=480)
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
@@ -723,25 +732,27 @@ class ServerManageDialog(QDialog):
         self.category_filter = QComboBox()
         size_combo(self.category_filter, 'md')
         self.category_filter.currentIndexChanged.connect(self._reload)
-        filter_row.addWidget(self.category_filter, 1)
-        self.manage_cat_btn = QPushButton('分类…' if zh else 'Categories…')
-        apply_button(self.manage_cat_btn, 'ghost', compact=True)
+        filter_row.addWidget(QLabel('按分类筛选:' if zh else 'Category:'))
+        filter_row.addWidget(self.category_filter)
+        self.manage_cat_btn = QPushButton('分类管理…' if zh else 'Categories…')
+        apply_button(self.manage_cat_btn, 'secondary', compact=True)
+        self.manage_cat_btn.setToolTip('新增、重命名或删除服务器分类' if zh else 'Add, rename or delete categories')
         self.manage_cat_btn.clicked.connect(self._manage_categories)
         filter_row.addWidget(self.manage_cat_btn)
+        filter_row.addStretch(1)
         root.addLayout(filter_row)
 
         self.list = QListWidget()
         self.list.setObjectName('ops-command-list')
-        self.list.setMinimumHeight(260)
         self.list.itemDoubleClicked.connect(lambda *_: self._edit())
         root.addWidget(self.list, 1)
 
         btn_row = QHBoxLayout()
-        self.add_btn = QPushButton('新增' if zh else 'Add')
-        apply_button(self.add_btn, 'secondary', compact=True, icon='add', icon_size=16)
+        self.add_btn = QPushButton('新增服务器' if zh else 'Add')
+        apply_button(self.add_btn, 'secondary', compact=True, icon='server-add', icon_size=16)
         self.add_btn.clicked.connect(self._add)
         self.edit_btn = QPushButton('编辑' if zh else 'Edit')
-        apply_button(self.edit_btn, 'ghost', compact=True, icon='edit', icon_size=16)
+        apply_button(self.edit_btn, 'secondary', compact=True, icon='edit', icon_size=16)
         self.edit_btn.clicked.connect(self._edit)
         self.test_btn = QPushButton('测试连接' if zh else 'Test')
         apply_button(self.test_btn, 'ghost', compact=True)
@@ -759,6 +770,10 @@ class ServerManageDialog(QDialog):
         root.addLayout(btn_row)
         self._fill_filter()
         self._reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _fill_filter(self):
         zh = self.language == 'zh'
@@ -894,8 +909,7 @@ class CommandHistoryDialog(QDialog):
         zh = language == 'zh'
         self.setObjectName('cmd-history-dialog')
         self.setWindowTitle('命令历史' if zh else 'Command history')
-        self.setMinimumSize(560, 420)
-        self.resize(620, 480)
+        clamp_dialog_geometry(self, 860, 560, min_width=560, min_height=420)
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(10)
@@ -953,6 +967,10 @@ class CommandHistoryDialog(QDialog):
         row.addWidget(close_btn)
         root.addLayout(row)
         self._reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _reload(self):
         self.list.clear()

@@ -30,6 +30,8 @@ from tools.model_chat_store import (
 from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.design_system import apply_button
+from ui.dialog_buttons import clamp_dialog_geometry
+from ui.motion import play_dialog_enter
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
@@ -917,7 +919,7 @@ class _SkillManagerDialog(QDialog):
         self.language = language
         self.zh = language == 'zh'
         self.setWindowTitle('skill 管理' if self.zh else 'Skills')
-        self.resize(560, 420)
+        clamp_dialog_geometry(self, 860, 600, min_width=560, min_height=420)
         self._setup_ui()
         self._reload()
 
@@ -955,6 +957,10 @@ class _SkillManagerDialog(QDialog):
         root.addLayout(btns)
 
         self._on_selection_changed()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _current_task(self) -> dict | None:
         item = self.list_widget.currentItem()

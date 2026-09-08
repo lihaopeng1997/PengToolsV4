@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 from tools.ai_object_context import empty_context, keep_tokens, remove_token
 from tools.schema_snapshot import format_field_label, format_object_label, search_fields, search_objects
 from ui.design_system import apply_button
+from ui.dialog_buttons import clamp_dialog_geometry
+from ui.motion import play_dialog_enter
 
 TOKEN_PROP = 0x0A11
 
@@ -250,7 +252,7 @@ class ObjectPickDialog(QDialog):
         self.redis = redis
         zh = language == 'zh'
         self.setWindowTitle('添加字段到自然语言' if mode == 'field' and zh else ('添加表到自然语言' if zh else 'Add object'))
-        self.resize(760, 500)
+        clamp_dialog_geometry(self, 860, 600, min_width=640, min_height=480)
         self._object = None
         root = QVBoxLayout(self)
         cols = QHBoxLayout()
@@ -293,6 +295,10 @@ class ObjectPickDialog(QDialog):
         root.addLayout(btns)
         self._fill_objects()
         self._refresh_ok()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _fill_objects(self, _text=''):
         self.obj_list.clear()

@@ -19,6 +19,7 @@ from tools.requirements import (
 )
 from ui.confirm_dialog import confirm_action, show_error
 from ui.design_system import apply_button
+from ui.dialog_buttons import clamp_dialog_geometry, size_dialog_button
 from ui.field_metrics import size_line
 
 
@@ -33,10 +34,13 @@ class TestPointRow(QFrame):
         self._point_id = point['id']
         self._editing = False
         self.setProperty('done', bool(point.get('done')))
+        self.setMinimumHeight(44)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(10)
         self.check = QCheckBox()
+        self.check.setFixedSize(28, 28)
+        self.check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check.setChecked(bool(point.get('done')))
         self.check.toggled.connect(self._on_toggled)
         layout.addWidget(self.check, 0)
@@ -53,7 +57,7 @@ class TestPointRow(QFrame):
         self.text_edit.returnPressed.connect(self._commit_edit)
         layout.addWidget(self.text_edit, 1)
         self.delete_btn = QPushButton('删除')
-        apply_button(self.delete_btn, 'ghost', compact=True)
+        size_dialog_button(self.delete_btn, 'ghost')
         self.delete_btn.clicked.connect(self._on_delete)
         layout.addWidget(self.delete_btn, 0)
         self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -369,14 +373,14 @@ class TestPointsDialog(QDialog):
         self.setObjectName('test-points-dialog')
         self.setWindowTitle('测试任务点')
         self.setModal(True)
-        self.resize(520, 560)
+        clamp_dialog_geometry(self, 640, 680, min_width=520, min_height=420)
         self._requirement = dict(requirement or {})
         self._persist = bool(persist)
         self._saved = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(12)
 
         title = QLabel(self._requirement.get('title') or '未命名需求')
         title.setObjectName('section-title')
@@ -402,10 +406,15 @@ class TestPointsDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         close_btn = QPushButton('关闭')
-        apply_button(close_btn, 'secondary', compact=True)
+        size_dialog_button(close_btn, 'secondary')
         close_btn.clicked.connect(self.accept)
         buttons.addWidget(close_btn)
         root.addLayout(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
 
     def saved(self):
         return self._saved

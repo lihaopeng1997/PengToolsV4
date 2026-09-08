@@ -194,7 +194,9 @@ from ui.confirm_dialog import (
     confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
 )
 from ui.aurora_progress import AuroraProgress
+from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_date, size_line
+from ui.motion import play_dialog_enter
 
 
 IS_DIR_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -303,6 +305,7 @@ class MonthPickerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('选择月份')
         self.setModal(True)
+        clamp_dialog_geometry(self, 380, 220, min_width=320, min_height=180)
         today = QDate.currentDate()
         year = int(year or today.year())
         month = int(month or today.month())
@@ -334,6 +337,10 @@ class MonthPickerDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def month_text(self):
         return f'{self.year_spin.value():04d}-{int(self.month_combo.currentData()):02d}'
@@ -457,7 +464,7 @@ class RequirementAttachmentDialog(QDialog):
         self._entry = copy.deepcopy(entry)
         self._hidden_rows = set(); self._hidden_columns = set(); self._highlights = []
         self.setWindowTitle(f"附件编辑器 · {entry.get('file_type', '文档')}")
-        self.resize(1050, 720)
+        clamp_dialog_geometry(self, 860, 700, min_width=640, min_height=500)
         root = QVBoxLayout(self)
         root.addWidget(QLabel(f"{entry.get('file_type', '文档')} · {entry.get('name') or entry.get('source', '未命名')}"))
         content_type = entry.get('content_type', 'text_document')
@@ -472,6 +479,10 @@ class RequirementAttachmentDialog(QDialog):
         from ui.dialog_buttons import localize_button_box
         localize_button_box(buttons, 'zh', Save='保存附件修改')
         buttons.accepted.connect(self._accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     @staticmethod
     def _column_name(index):
@@ -644,7 +655,7 @@ class SvnCheckoutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle('检出需求代码')
-        self.resize(720, 380)
+        clamp_dialog_geometry(self, 720, 380, min_width=520, min_height=320)
         root = QVBoxLayout(self)
         note = QLabel('填写 SVN 地址，选择类型与上线月份后检出到本机。使用本机已缓存认证，不保存密码。')
         note.setObjectName('ops-safety-note'); note.setWordWrap(True); root.addWidget(note)
@@ -673,6 +684,10 @@ class SvnCheckoutDialog(QDialog):
         localize_button_box(buttons, 'zh', Ok='开始检出')
         buttons.accepted.connect(self._accept_checked); buttons.rejected.connect(self.reject); root.addWidget(buttons)
         self.kind_combo.currentTextChanged.connect(lambda value: self.month_enabled.setChecked(value != 'BUG'))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _browse(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
@@ -741,7 +756,7 @@ class RequirementDialog(QDialog):
     def __init__(self, requirement=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle('编辑需求' if requirement else '新增需求')
-        self.resize(850, 760)
+        clamp_dialog_geometry(self, 1000, 760, min_width=800, min_height=600)
         base = requirement or {}
         self._sql_parts = [dict(item) for item in base.get('sql_parts', [])]
         self._source_files = [dict(item) for item in base.get('source_files', [])]
@@ -961,6 +976,10 @@ class RequirementDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
         self._refresh_lists()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def selected_systems(self):
         return self.system_pick.selected_names()

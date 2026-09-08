@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 import random
 
 from ui.design_system import apply_button
-from ui.dialog_buttons import size_dialog_button
+from ui.dialog_buttons import clamp_dialog_geometry, size_dialog_button
 from ui.icons import make_badge_label, apply_icon
 
 
@@ -30,10 +30,9 @@ class ConfirmActionDialog(QDialog):
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(460)
-        self.setMaximumWidth(560)
+        clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 20, 22, 16)
+        root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(14)
 
         header = QHBoxLayout()
@@ -56,7 +55,7 @@ class ConfirmActionDialog(QDialog):
         card = QFrame()
         card.setObjectName('confirm-card')
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setContentsMargins(16, 14, 16, 14)
         message_label = QLabel(message)
         message_label.setObjectName('confirm-message')
         message_label.setWordWrap(True)
@@ -65,7 +64,7 @@ class ConfirmActionDialog(QDialog):
         root.addWidget(card)
 
         buttons = QHBoxLayout()
-        buttons.setSpacing(10)
+        buttons.setSpacing(8)
         buttons.addStretch()
         self.cancel_button = QPushButton('取消')
         size_dialog_button(self.cancel_button, 'secondary')
@@ -187,11 +186,10 @@ class CloseActionDialog(QDialog):
             APP_NAME = 'PengToolsHub'
         self.setWindowTitle(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         self.setModal(True)
-        self.setMinimumWidth(360)
-        self.setMaximumWidth(420)
+        clamp_dialog_geometry(self, max(560, self.sizeHint().width()), min_width=560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(14)
 
         # —— 决策标题 ——
         title = QLabel(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
@@ -270,10 +268,9 @@ class AppNoticeDialog(QDialog):
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(420)
-        self.setMaximumWidth(560)
+        clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
+        root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(14)
 
         header = QHBoxLayout()
@@ -296,6 +293,7 @@ class AppNoticeDialog(QDialog):
         root.addLayout(header)
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         buttons.addStretch()
         self.ok_button = QPushButton(button_text)
         size_dialog_button(self.ok_button, 'primary')
@@ -358,11 +356,10 @@ class NextStepDialog(QDialog):
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(460)
-        self.setMaximumWidth(620)
+        clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(14)
 
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
@@ -440,10 +437,9 @@ class HttpsCertConsentDialog(QDialog):
         title = '启用 HTTPS 抓包' if zh else 'Enable HTTPS Capture'
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(500)
-        self.setMaximumWidth(580)
+        clamp_dialog_geometry(self, max(560, self.sizeHint().width()), min_width=560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 20, 22, 16)
+        root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(14)
 
         header = QHBoxLayout()
@@ -465,7 +461,7 @@ class HttpsCertConsentDialog(QDialog):
         card = QFrame()
         card.setObjectName('confirm-card')
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(8)
 
         desc_text = (
@@ -493,7 +489,7 @@ class HttpsCertConsentDialog(QDialog):
         root.addWidget(card)
 
         buttons = QHBoxLayout()
-        buttons.setSpacing(10)
+        buttons.setSpacing(8)
         buttons.addStretch()
 
         self.cancel_button = QPushButton('取消' if zh else 'Cancel')

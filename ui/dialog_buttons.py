@@ -3,10 +3,55 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QDialogButtonBox, QPushButton, QSizePolicy
+from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QPushButton, QSizePolicy
 
 DIALOG_BUTTON_H = 30
 DIALOG_BUTTON_MIN_W = 60
+
+
+def clamp_dialog_geometry(
+    dialog: QDialog,
+    target_width: int,
+    target_height: int | None = None,
+    *,
+    min_width: int | None = None,
+    min_height: int | None = None,
+    margin: int = 48,
+) -> tuple[int, int]:
+    """根据屏幕可用几何区域 (availableGeometry) 自适应夹取弹窗尺寸，防止在小屏或多屏环境下被裁切。"""
+    screen = None
+    if dialog.parent() is not None and hasattr(dialog.parent(), "window"):
+        parent_win = dialog.parent().window()
+        if hasattr(parent_win, "screen"):
+            screen = parent_win.screen()
+    if screen is None and hasattr(dialog, "screen"):
+        screen = dialog.screen()
+    if screen is None:
+        screen = QApplication.primaryScreen()
+
+    if screen is not None:
+        avail = screen.availableGeometry()
+        max_w = max(320, avail.width() - margin)
+        max_h = max(200, avail.height() - margin)
+    else:
+        max_w, max_h = 1920, 1080
+
+    w = min(target_width, max_w)
+    if min_width:
+        w = max(min(min_width, max_w), w)
+
+    if target_height is not None:
+        h = min(target_height, max_h)
+        if min_height:
+            h = max(min(min_height, max_h), h)
+    else:
+        h = min(max(dialog.sizeHint().height(), min_height or 0), max_h)
+
+    dialog.setMaximumSize(max_w, max_h)
+    if min_width or min_height:
+        dialog.setMinimumSize(min(min_width or 0, max_w), min(min_height or 0, max_h))
+    dialog.resize(w, h)
+    return w, h
 
 
 _ZH_LABELS = {

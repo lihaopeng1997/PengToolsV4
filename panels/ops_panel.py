@@ -13,7 +13,9 @@ from tools.ops_commands import (
     output_guide, save_custom_commands, search_commands,
 )
 from ui.confirm_dialog import confirm_action, show_error, show_warning
+from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_form, size_combo, size_line
+from ui.motion import play_dialog_enter
 from ui.splitter_prefs import install_splitter_prefs
 
 
@@ -23,7 +25,7 @@ class CustomCommandDialog(QDialog):
         self.language = language
         zh = language == 'zh'
         self.setWindowTitle('新增自定义运维命令' if zh else 'Add custom operations command')
-        self.setMinimumWidth(560)
+        clamp_dialog_geometry(self, 640, 520, min_width=540, min_height=400)
         layout = QVBoxLayout(self)
         note = QLabel(
             '内置命令不可修改或删除；自定义命令也不允许包含 rm、rmdir、unlink、shred 或 find -delete。'
@@ -59,11 +61,14 @@ class CustomCommandDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        from ui.dialog_buttons import localize_button_box
         localize_button_box(buttons, self.language)
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _accept_checked(self):
         zh = self.language == 'zh'
