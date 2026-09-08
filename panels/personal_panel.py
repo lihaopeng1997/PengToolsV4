@@ -1141,7 +1141,7 @@ class DailyReportTab(QWidget):
         self.splitter = splitter
         left = QFrame()
         left.setObjectName('ops-list-card')
-        left.setMinimumWidth(240)
+        left.setMinimumWidth(264)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 10, 12, 12)
         left_layout.setSpacing(8)
@@ -1191,7 +1191,7 @@ class DailyReportTab(QWidget):
         editor = QWidget()
         form_layout = QVBoxLayout(editor)
         form_layout.setContentsMargins(12, 8, 12, 12)
-        form_layout.setSpacing(8)
+        form_layout.setSpacing(6)
         date_row = QHBoxLayout()
         date_row.setSpacing(8)
         date_caption = QLabel('日报日期')
@@ -1247,11 +1247,11 @@ class DailyReportTab(QWidget):
         )
         self.issues = self._report_editor(
             form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……',
-            height=64, preferred=80, stretch=1,
+            height=64, preferred=120, stretch=1,
         )
         self.tomorrow = self._report_editor(
             form_layout, '明日计划', '下一步准备完成的事项……',
-            height=64, preferred=80, stretch=1,
+            height=64, preferred=120, stretch=1,
         )
         self.notes = self._report_editor(
             form_layout, '备注', '补充信息、链接、截图……',
@@ -1264,16 +1264,16 @@ class DailyReportTab(QWidget):
             ed.assets_changed.connect(self._on_editor_changed)
         scroll.setWidget(editor)
         splitter.addWidget(scroll)
-        splitter.setSizes([250, 780])
+        splitter.setSizes([264, 780])
         try:
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 splitter,
-                defaults=[250, 780],
+                defaults=[264, 780],
                 page_id='daily-report',
                 tab_id='history-editor',
                 bucket=layout_bucket('standard'),
-                min_sizes=[240, 520],
+                min_sizes=[264, 520],
                 accessible_name='日报历史/编辑分隔',
             )
         except Exception:
@@ -1298,7 +1298,7 @@ class DailyReportTab(QWidget):
                     right.setMinimumHeight(editor_min_height())
             else:
                 if left is not None:
-                    left.setMinimumWidth(240)
+                    left.setMinimumWidth(264)
                     left.setMinimumHeight(0)
                 if right is not None:
                     right.setMinimumWidth(520)

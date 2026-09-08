@@ -286,7 +286,7 @@ class DocxUpdatePanel(QWidget):
         from ui.responsive import editor_min_height as _docx_editor_min
         self.sql_editor = QPlainTextEdit()
         self.sql_editor.setPlaceholderText('CREATE TABLE ...;\nALTER TABLE ... ADD (...);')
-        self.sql_editor.setMinimumHeight(_docx_editor_min())
+        self.sql_editor.setMinimumHeight(220)
         input_layout.addWidget(self.sql_editor, 1)
         work_split.addWidget(input_box)
 
@@ -320,16 +320,16 @@ class DocxUpdatePanel(QWidget):
         work_split.setSizes([360, 160])
         work_layout.addWidget(work_split)
         mid.addWidget(work_box)
-        mid.setSizes([340, 720])
+        mid.setSizes([280, 720])
         try:
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 mid,
-                defaults=[340, 720],
+                defaults=[280, 720],
                 page_id='docx-update',
                 tab_id='browser-work',
                 bucket=layout_bucket('standard'),
-                min_sizes=[240, 520],
+                min_sizes=[280, 520],
                 accessible_name='接口文档浏览器/编辑分隔',
             )
             install_splitter_prefs(
@@ -404,7 +404,7 @@ class DocxUpdatePanel(QWidget):
                     right.setMinimumHeight(min_h)
             else:
                 if left is not None:
-                    left.setMinimumWidth(240)
+                    left.setMinimumWidth(280)
                     left.setMinimumHeight(0)
                 if right is not None:
                     right.setMinimumWidth(520 if mode != 'narrow' else 360)
@@ -414,12 +414,12 @@ class DocxUpdatePanel(QWidget):
             for i in range(editor_sp.count()):
                 w = editor_sp.widget(i)
                 if w is not None and i == 0:
-                    w.setMinimumHeight(min_h)
+                    w.setMinimumHeight(220)
         for name in ('sql_editor', 'log_edit', 'preview_edit'):
             ed = getattr(self, name, None)
             if ed is not None and hasattr(ed, 'setMinimumHeight'):
                 if name == 'sql_editor':
-                    ed.setMinimumHeight(min_h)
+                    ed.setMinimumHeight(220)
 
     def set_language(self, language):
         self.language = language

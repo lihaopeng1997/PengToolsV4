@@ -2141,7 +2141,7 @@ class RequirementPanel(QWidget):
     def apply_layout_mode(self, mode, low_height=False):
         """响应主窗口断点：收紧左栏、收纳次要工具栏与文件库操作。"""
         self._layout_mode = mode
-        from ui.layout_metrics import REQ_LEFT_MIN, REQ_RIGHT_MIN
+        from ui.layout_metrics import REQ_LEFT_MAX, REQ_LEFT_MIN, REQ_RIGHT_MIN
         from ui.responsive import page_spacing_for_mode, set_subtitle_visible
         if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
             self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
@@ -2177,6 +2177,10 @@ class RequirementPanel(QWidget):
 
         if left_pane is not None:
             left_pane.setMinimumWidth(left_min)
+            if mode in ('wide', 'standard'):
+                left_pane.setMaximumWidth(REQ_LEFT_MAX)
+            else:
+                left_pane.setMaximumWidth(16777215)
         if right_pane is not None:
             right_pane.setMinimumWidth(right_min)
 
@@ -2465,10 +2469,11 @@ class RequirementPanel(QWidget):
             try:
                 from ui.theme_manager import ThemeManager
                 pal = ThemeManager.instance().palette()
-                header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', '#1E2A44')))
-                mbg = QColor(pal.get('MONTH_HEADER_BG', '#F0F3FA'))
+                header.setForeground(0, QColor(pal.get('MONTH_HEADER_FG', ThemeManager.instance().token('TEXT_STRONG'))))
+                mbg = QColor(pal.get('MONTH_HEADER_BG', ThemeManager.instance().token('SURFACE_VARIANT')))
             except Exception:
-                header.setForeground(0, QColor('#1E2A44')); mbg = QColor('#F0F3FA')
+                header.setForeground(0, QColor('#262438'))
+                mbg = QColor('#ECEFF8')
             header.setBackground(0, mbg); header.setBackground(1, mbg)
             self.requirement_list.addTopLevelItem(header)
             header.setFirstColumnSpanned(True)
