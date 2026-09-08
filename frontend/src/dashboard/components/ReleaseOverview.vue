@@ -48,6 +48,61 @@ const monthLabel = computed(() => {
   const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
   return `${months[d.getMonth()]} / ${d.getFullYear()}`
 })
+const milestoneStats = computed(() => {
+  let passedTestPoints = 0
+  let totalTestPoints = 0
+  let pendingConfirmCount = 0
+  let testingCount = 0
+
+  const tasks = props.tasks || []
+  for (const task of tasks) {
+    let p = 0
+    let t = 0
+    let hasPoints = false
+    if (task.test_points) {
+      const parts = task.test_points.split('/')
+      if (parts.length === 2) {
+        p = parseInt(parts[0], 10) || 0
+        t = parseInt(parts[1], 10) || 0
+        hasPoints = true
+      }
+    }
+    if (hasPoints) {
+      passedTestPoints += p
+      totalTestPoints += t
+    }
+
+    if (!task.done) {
+      const status = String(task.status || '').trim()
+      const allPassed = hasPoints && t > 0 && p >= t
+      const isPendingConfirm =
+        allPassed ||
+        status === '待上线' ||
+        status === '今日上线' ||
+        status === '待确认' ||
+        status.includes('待确认') ||
+        status.includes('待上线')
+
+      if (isPendingConfirm) {
+        pendingConfirmCount++
+      } else {
+        testingCount++
+      }
+    }
+  }
+
+  const passedText = totalTestPoints > 0
+    ? `${passedTestPoints} / ${totalTestPoints}`
+    : `${passedTestPoints} 项`
+
+  return {
+    passedTestPoints,
+    totalTestPoints,
+    passedText,
+    pendingConfirmCount,
+    testingCount
+  }
+})
 </script>
 
 <template>
@@ -80,7 +135,7 @@ const monthLabel = computed(() => {
           <PrismIcon name="check" :size="14" class="m-ico success" />
           <span>测试点已通过</span>
         </span>
-        <span class="m-val">{{ doneCount }} 项</span>
+        <span class="m-val">{{ milestoneStats.passedText }}</span>
       </div>
 
       <div class="milestone">
@@ -88,7 +143,7 @@ const monthLabel = computed(() => {
           <PrismIcon name="clock" :size="14" class="m-ico warning" />
           <span>待上线确认</span>
         </span>
-        <span class="m-val">{{ Math.max(0, Math.floor(pendingCount / 2)) }} 项</span>
+        <span class="m-val">{{ milestoneStats.pendingConfirmCount }} 项</span>
       </div>
 
       <div class="milestone">
@@ -96,7 +151,7 @@ const monthLabel = computed(() => {
           <PrismIcon name="activity" :size="14" class="m-ico primary" />
           <span>正在测试验证</span>
         </span>
-        <span class="m-val">{{ Math.ceil(pendingCount / 2) }} 项</span>
+        <span class="m-val">{{ milestoneStats.testingCount }} 项</span>
       </div>
     </div>
 

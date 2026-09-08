@@ -15,8 +15,8 @@ const DEFAULT_TOOLS: DashboardToolItem[] = [
   { i: 18, zh: '数据中心', ds: 'SQL/连接', icon: 'db' },
   { i: 16, zh: '模型对话', ds: 'AI/提示词', icon: 'chat' },
   { i: 12, zh: '接口排查', ds: '抓包/调试', icon: 'api' },
-  { i: 17, zh: '运维日志', ds: 'SSH/多机', icon: 'logs' },
-  { i: 14, zh: '国密计算', ds: 'SM2/3/4', icon: 'crypto' },
+  { i: 13, zh: '日志排查', ds: 'SSH/多机', icon: 'logs' },
+  { i: 5, zh: '加解密', ds: '网关国密', icon: 'crypto' },
   { i: 11, zh: '格式工具', ds: 'JSON/XML', icon: 'format' }
 ]
 

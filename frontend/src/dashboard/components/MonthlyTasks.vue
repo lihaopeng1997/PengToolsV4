@@ -35,6 +35,10 @@ function statusLabel(status?: string | null): string {
   return status
 }
 
+function isRowInteractive(item?: { is_demo?: boolean | null } | null): boolean {
+  return !isDemoMode.value && !item?.is_demo
+}
+
 function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   if (isDemoMode.value || !reqId || String(reqId).startsWith('demo-')) {
     return
@@ -63,12 +67,12 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
             v-for="(r, idx) in props.recent"
             :key="r.id || r.code || idx"
             class="ck task-row"
-            :class="{ 'clickable': !r.is_demo && !isDemoMode, 'is-demo': Boolean(r.is_demo || isDemoMode) }"
-            :tabindex="r.is_demo ? undefined : 0"
-            :role="r.is_demo ? undefined : 'button'"
-            @click="!r.is_demo && onOpenRequirement(r.id)"
-            @keydown.enter.self="!r.is_demo && onOpenRequirement(r.id)"
-            @keydown.space.self.prevent="!r.is_demo && onOpenRequirement(r.id)"
+            :class="{ 'clickable': isRowInteractive(r), 'is-demo': !isRowInteractive(r) }"
+            :tabindex="isRowInteractive(r) ? 0 : undefined"
+            :role="isRowInteractive(r) ? 'button' : undefined"
+            @click="isRowInteractive(r) && onOpenRequirement(r.id)"
+            @keydown.enter.self="isRowInteractive(r) && onOpenRequirement(r.id)"
+            @keydown.space.self.prevent="isRowInteractive(r) && onOpenRequirement(r.id)"
           >
             <span class="dot" :class="statusChipClass(r.status)" />
             <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
@@ -88,7 +92,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
             </span>
 
             <button
-              v-if="!r.is_demo && !isDemoMode"
+              v-if="isRowInteractive(r)"
               class="btn btn-ghost btn-xs row-act-btn"
               type="button"
               @click.stop="emit('openRequirement', r.id)"
@@ -129,12 +133,12 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
             v-for="(task, idx) in props.tasks"
             :key="task.id || task.code || task.title || idx"
             class="ck task-row"
-            :class="{ 'clickable': !task.is_demo && !isDemoMode, 'is-demo': Boolean(task.is_demo || isDemoMode) }"
-            :tabindex="task.is_demo ? undefined : 0"
-            :role="task.is_demo ? undefined : 'button'"
-            @click="!task.is_demo && onOpenRequirement(task.id)"
-            @keydown.enter.self="!task.is_demo && onOpenRequirement(task.id)"
-            @keydown.space.self.prevent="!task.is_demo && onOpenRequirement(task.id)"
+            :class="{ 'clickable': isRowInteractive(task), 'is-demo': !isRowInteractive(task) }"
+            :tabindex="isRowInteractive(task) ? 0 : undefined"
+            :role="isRowInteractive(task) ? 'button' : undefined"
+            @click="isRowInteractive(task) && onOpenRequirement(task.id)"
+            @keydown.enter.self="isRowInteractive(task) && onOpenRequirement(task.id)"
+            @keydown.space.self.prevent="isRowInteractive(task) && onOpenRequirement(task.id)"
           >
             <span class="dot" :class="task.done ? 'ok' : statusChipClass(task.status)" />
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
@@ -154,7 +158,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
             </span>
 
             <button
-              v-if="!task.is_demo && !isDemoMode"
+              v-if="isRowInteractive(task)"
               class="btn btn-ghost btn-xs row-act-btn"
               type="button"
               @click.stop="emit('openRequirement', task.id)"
