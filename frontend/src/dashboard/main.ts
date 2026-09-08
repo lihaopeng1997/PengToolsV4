@@ -18,6 +18,42 @@ const state = reactive<{
 const app = createApp(DashboardApp, { state })
 app.mount('#app')
 
+let cachedNavTools: DashboardSummary['tools'] | null = null
+
+function deriveQuickToolsFromNavModel(rawNav: string): DashboardSummary['tools'] | null {
+  if (!rawNav) return null
+  try {
+    const navData = JSON.parse(rawNav)
+    if (!navData || !Array.isArray(navData.groups)) return null
+    const navItemMap = new Map<number, { i: number; zh?: string; dash_zh?: string; tip?: string; icon?: string }>()
+    for (const g of navData.groups) {
+      if (Array.isArray(g.items)) {
+        for (const it of g.items) {
+          navItemMap.set(it.i, it)
+          if (Array.isArray(it.children)) {
+            for (const ch of it.children) {
+              navItemMap.set(ch.i, ch)
+            }
+          }
+        }
+      }
+    }
+    if (navItemMap.size === 0) return null
+    const quickIndices = [18, 16, 12, 13, 5, 11]
+    return quickIndices.map(idx => {
+      const item = navItemMap.get(idx)
+      return {
+        i: idx,
+        zh: item?.dash_zh || item?.zh || `工具 ${idx}`,
+        ds: item?.tip || '',
+        icon: item?.icon || 'database',
+      }
+    })
+  } catch {
+    return null
+  }
+}
+
 async function loadData(bridge: BridgeApi): Promise<void> {
   const [rawSummary, rawNav, themeRaw] = await Promise.all([
     bridge.dashboardSummary(),
@@ -28,45 +64,21 @@ async function loadData(bridge: BridgeApi): Promise<void> {
   bridge.onThemeChanged(applyThemePayload)
   const parsed = JSON.parse(rawSummary) as DashboardSummary
   if (rawNav) {
-    try {
-      const navData = JSON.parse(rawNav)
-      if (navData && Array.isArray(navData.groups)) {
-        const navItemMap = new Map<number, { i: number; zh?: string; tip?: string; icon?: string }>()
-        for (const g of navData.groups) {
-          if (Array.isArray(g.items)) {
-            for (const it of g.items) {
-              navItemMap.set(it.i, it)
-              if (Array.isArray(it.children)) {
-                for (const ch of it.children) {
-                  navItemMap.set(ch.i, ch)
-                }
-              }
-            }
-          }
-        }
-        const quickIndices = [18, 16, 12, 13, 5, 11]
-        const derivedTools = quickIndices.map(idx => {
-          const item = navItemMap.get(idx)
-          return {
-            i: idx,
-            zh: idx === 18 ? '数据中心' : (idx === 16 ? '模型对话' : (item?.zh || `工具 ${idx}`)),
-            ds: item?.tip || '',
-            icon: item?.icon || 'database',
-          }
-        })
-        if (!parsed.tools || parsed.tools.length === 0) {
-          parsed.tools = derivedTools
-        }
-      }
-    } catch {
-      // ignore
+    const derived = deriveQuickToolsFromNavModel(rawNav)
+    if (derived && derived.length > 0) {
+      cachedNavTools = derived
+      parsed.tools = derived
     }
   }
   state.summary = parsed
   if (typeof bridge.onSummaryChanged === 'function') {
     bridge.onSummaryChanged(async (newSummaryRaw: string) => {
       try {
-        state.summary = JSON.parse(newSummaryRaw) as DashboardSummary
+        const newSummary = JSON.parse(newSummaryRaw) as DashboardSummary
+        if (cachedNavTools && cachedNavTools.length > 0) {
+          newSummary.tools = cachedNavTools
+        }
+        state.summary = newSummary
         await nextTick()
       } catch (err) {
         console.error('dashboard onSummaryChanged parse failed:', err)

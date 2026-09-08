@@ -87,6 +87,8 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
             tm.apply(app, 'calm')
 
             bridge = web_shell.HomeBridge()
+            from ui.navigation_model import build_web_nav_model_data
+            bridge.set_nav_model(build_web_nav_model_data())
             bridge.navigateRequested.connect(nav_events.append)
             bridge.createRequirementRequested.connect(lambda: create_events.append(True))
             bridge.openRequirementRequested.connect(open_events.append)
@@ -496,6 +498,156 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 win._force_exit = True
                 win.close()
                 win.deleteLater()
+                app.processEvents()
+
+    def test_dashboard_real_qwebengine_nav_model_authority_over_summary(self):
+        """测试 3：验证 navModel 是 Dashboard 常用工具的绝对生产权威（覆盖 summary 冲突与 push_summary 二次覆盖）。"""
+        from PyQt6.QtCore import QEventLoop, QTimer
+        from PyQt6.QtWidgets import QApplication
+        from ui.theme_manager import ThemeManager
+        from ui.navigation_model import build_web_nav_model_data
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        tm = ThemeManager.instance()
+
+        nav_events = []
+        widget = None
+        loop = QEventLoop()
+
+        timeout_timer = QTimer()
+        timeout_timer.setSingleShot(True)
+        timed_out = [False]
+
+        def on_timeout():
+            timed_out[0] = True
+            loop.quit()
+
+        timeout_timer.timeout.connect(on_timeout)
+        timeout_timer.start(8000)
+
+        try:
+            bridge = web_shell.HomeBridge()
+            bridge.navigateRequested.connect(nav_events.append)
+
+            # 1. summary 故意提供与 navModel 冲突的伪造工具数据
+            conflicting_summary = {
+                'username': 'Tester',
+                'greeting': '你好',
+                'date_line': '2026-09-08',
+                'stats': {'req_open': 0, 'req_trend': '', 'daily_done': 0, 'daily_total': 5, 'daily_note': ''},
+                'release': {
+                    'version': 'R1', 'total': 0, 'done': 0, 'percent': 0,
+                    'days_left': 1, 'date_text': '2026-09-30', 'countdown_state': 'ok',
+                },
+                'recent': [],
+                'checklist': [],
+                'monthly_release_tasks': [],
+                'tools': [
+                    {'i': 999, 'zh': '冲突假工具999', 'ds': '假描述999', 'icon': 'fake-icon-999'},
+                    {'i': 888, 'zh': '冲突假工具888', 'ds': '假描述888', 'icon': 'fake-icon-888'},
+                ],
+            }
+            current_summary = [conflicting_summary]
+            bridge.set_summary_provider(lambda: current_summary[0])
+
+            # 2. 注入唯一权威 navModel
+            nav_model_data = build_web_nav_model_data(private_unlocked=False, current=0)
+            bridge.set_nav_model(nav_model_data)
+
+            # 3. 注入主题
+            bridge.set_theme_payload({
+                'id': 'calm',
+                'is_dark': False,
+                'tokens': tm.palette(),
+            })
+
+            widget = web_shell.create_dashboard_widget(bridge)
+            widget.show()
+
+            ready_pages = []
+            bridge.pageReadyReceived.connect(lambda p: (ready_pages.append(p), loop.quit()))
+            loop.exec()
+
+            if timed_out[0]:
+                self.fail('QWebEngine 未在 8 秒内触发 pageReady，加载超时')
+
+            timeout_timer.stop()
+            self.assertIn('dashboard', ready_pages)
+
+            def run_js(code):
+                res_box = {}
+
+                def on_res(r):
+                    res_box['val'] = r
+                    loop.quit()
+
+                t_js = QTimer()
+                t_js.setSingleShot(True)
+                t_js.timeout.connect(loop.quit)
+                t_js.start(3000)
+                widget.web_page.runJavaScript(code, on_res)
+                loop.exec()
+                t_js.stop()
+                return res_box.get('val')
+
+            # 4. 验证初次渲染：必须无视 summary 中的冲突工具，权威渲染 navModel 派生的 6 个工具
+            js_inspect_tools = '''(() => {
+                const btns = Array.from(document.querySelectorAll('.quick-btn.tool'));
+                return btns.map(b => ({
+                    name: b.querySelector('.quick-name')?.textContent?.trim() || '',
+                    sub: b.querySelector('.quick-sub')?.textContent?.trim() || '',
+                }));
+            })()'''
+
+            tools_rendered = run_js(js_inspect_tools) or []
+            self.assertEqual(len(tools_rendered), 6, 'DOM 中必须严格渲染 6 个常用工具')
+
+            tool_names = [t['name'] for t in tools_rendered]
+            self.assertNotIn('冲突假工具999', tool_names, 'DOM 中绝不能出现 summary 中的冲突假工具 999')
+            self.assertNotIn('冲突假工具888', tool_names, 'DOM 中绝不能出现 summary 中的冲突假工具 888')
+
+            self.assertEqual(tool_names[0], '数据中心', '第 1 个工具必须权威展示为数据中心')
+            self.assertEqual(tool_names[1], '模型对话', '第 2 个工具必须权威展示为模型对话')
+            self.assertIn('接口排查', tool_names)
+            self.assertIn('日志排查', tool_names)
+            self.assertIn('加解密', tool_names)
+            self.assertIn('格式工具', tool_names)
+
+            # 5. 测试交互：点击“数据中心”工具 => Python 必须收到 nav 18
+            js_click_dc = '''(() => {
+                const tools = Array.from(document.querySelectorAll('.tool'));
+                const dc = tools.find(el => el.textContent.includes('数据中心'));
+                if (dc) { dc.click(); return true; }
+                return false;
+            })()'''
+            self.assertTrue(run_js(js_click_dc), '页面中必须找到“数据中心”工具')
+            self.assertIn(18, nav_events, '点击权威数据中心工具必须向 Python 派发 nav 18')
+
+            # 6. 验证二次推送：调用 bridge.push_summary 注入新一批冲突假数据，DOM 仍必须被 navModel 守卫
+            second_conflicting = dict(conflicting_summary)
+            second_conflicting['tools'] = [
+                {'i': 777, 'zh': '二次冲突假工具777', 'ds': '假描述777', 'icon': 'fake-icon-777'},
+            ]
+            current_summary[0] = second_conflicting
+            bridge.push_summary()
+
+            timer_wait = QTimer()
+            timer_wait.setSingleShot(True)
+            timer_wait.timeout.connect(loop.quit)
+            timer_wait.start(250)
+            loop.exec()
+
+            tools_after_push = run_js(js_inspect_tools) or []
+            self.assertEqual(len(tools_after_push), 6, 'push_summary 后 DOM 仍必须保持 6 个权威工具')
+            names_after_push = [t['name'] for t in tools_after_push]
+            self.assertNotIn('二次冲突假工具777', names_after_push, 'push_summary 绝不能以新 tools 覆盖 navModel 权威')
+            self.assertEqual(names_after_push[0], '数据中心')
+            self.assertEqual(names_after_push[1], '模型对话')
+
+        finally:
+            if widget is not None:
+                widget.close()
+                widget.deleteLater()
                 app.processEvents()
 
 

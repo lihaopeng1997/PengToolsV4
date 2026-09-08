@@ -120,6 +120,26 @@ class DashboardSummaryContractTests(unittest.TestCase):
             self.assertEqual(web["release"][key], native["release"][key])
         self.assertEqual(web["monthly_release_tasks"], native["monthly_release_tasks"])
 
+    def test_get_dashboard_quick_tools_single_source(self):
+        from ui.navigation_model import get_dashboard_quick_tools, NAV_ITEMS
+
+        tools = get_dashboard_quick_tools()
+        self.assertEqual(len(tools), 6)
+        expected_indices = [18, 16, 12, 13, 5, 11]
+        self.assertEqual([t['i'] for t in tools], expected_indices)
+
+        # 验证展示名完全来源于 NavItem.dashboard_label or name_zh，无任何硬编码分叉
+        for t in tools:
+            idx = t['i']
+            item = NAV_ITEMS[idx]
+            expected_zh = item.dashboard_label or item.name_zh
+            self.assertEqual(t['zh'], expected_zh)
+            self.assertEqual(t['ds'], item.tooltip_zh)
+            self.assertEqual(t['icon'], item.icon_role)
+
+        self.assertEqual(tools[0]['zh'], '数据中心')
+        self.assertEqual(tools[1]['zh'], '模型对话')
+
 
 class TestPointsCompactContractTests(unittest.TestCase):
     @classmethod

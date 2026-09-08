@@ -12,6 +12,7 @@ export interface NavChild {
   icon: string
   dia?: string
   tip?: string
+  dash_zh?: string
 }
 
 export interface NavItem {
@@ -20,6 +21,7 @@ export interface NavItem {
   en: string
   icon: string
   tip?: string
+  dash_zh?: string
   children?: NavChild[]
 }
 
@@ -67,6 +69,9 @@ function validateItem(raw: unknown, where: string, allowChildren: boolean): NavI
   if (typeof raw['tip'] === 'string') {
     item.tip = raw['tip']
   }
+  if (typeof raw['dash_zh'] === 'string') {
+    item.dash_zh = raw['dash_zh']
+  }
   if (raw['children'] !== undefined) {
     if (!allowChildren || !Array.isArray(raw['children'])) {
       throw new Error(`navModel 结构无效：${where}.children 必须是数组`)
@@ -76,6 +81,9 @@ function validateItem(raw: unknown, where: string, allowChildren: boolean): NavI
       const out: NavChild = { i: c.i, zh: c.zh, en: c.en, icon: c.icon }
       if (typeof (child as Record<string, unknown>)['dia'] === 'string') {
         out.dia = (child as Record<string, unknown>)['dia'] as string
+      }
+      if (typeof (child as Record<string, unknown>)['dash_zh'] === 'string') {
+        out.dash_zh = (child as Record<string, unknown>)['dash_zh'] as string
       }
       return out
     })

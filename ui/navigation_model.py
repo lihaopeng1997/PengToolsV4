@@ -123,6 +123,7 @@ class NavItem:
     requires_easter_egg: bool
     tooltip_zh: str = ''
     tooltip_en: str = ''
+    dashboard_label: str = ''
 
 
 def _build_items() -> dict[int, NavItem]:
@@ -175,6 +176,7 @@ def _build_items() -> dict[int, NavItem]:
         index=16, name_zh='聊天', name_en='Chat', icon_role='chat',
         group_key='ai', floating_eligible=True, requires_easter_egg=False,
         tooltip_zh=tooltips[16][0], tooltip_en=tooltips[16][1],
+        dashboard_label='模型对话',
     )
     items[17] = NavItem(
         index=17, name_zh='工作', name_en='Work', icon_role='workbench',
@@ -188,6 +190,7 @@ def _build_items() -> dict[int, NavItem]:
             icon_role=icon_role, group_key='sql_console_db',
             floating_eligible=False, requires_easter_egg=False,
             tooltip_zh=tooltips[nav_index][0], tooltip_en=tooltips[nav_index][1],
+            dashboard_label='数据中心' if nav_index == 18 else '',
         )
     # 设置在侧栏底部，不进 NAV_MODEL 分组列表，但导航索引仍有效
     items[7] = NavItem(
@@ -332,11 +335,70 @@ def get_dashboard_quick_tools() -> list[dict]:
         item = get_nav_item(idx)
         if not item:
             continue
-        zh = '数据中心' if idx == 18 else ('模型对话' if idx == 16 else item.name_zh)
         tools.append({
             'i': idx,
-            'zh': zh,
+            'zh': item.dashboard_label or item.name_zh,
             'ds': item.tooltip_zh,
             'icon': item.icon_role,
         })
     return tools
+
+
+def build_web_nav_model_data(*, private_unlocked: bool = False, current: int = 0) -> dict:
+    """侧栏与首页 Web 渲染共享数据：唯一权威 ui/navigation_model.py。"""
+    dia_short = {
+        'oracle': 'ORA', 'mysql': 'MY', 'oceanbase': 'OB',
+        'dameng': 'DM', 'redis': 'KV', 'mongodb': 'DOC',
+    }
+    groups = []
+    for key, entries in NAV_MODEL:
+        items = []
+        for nav_index, name_zh, name_en, icon_role in entries:
+            if nav_index == 8 and not private_unlocked:
+                continue
+            info = NAV_ITEMS[nav_index]
+            entry = {
+                'i': nav_index,
+                'zh': name_zh,
+                'en': name_en,
+                'dash_zh': info.dashboard_label or name_zh,
+                'icon': icon_role,
+                'tip': info.tooltip_zh,
+            }
+            if nav_index == 14:
+                entry['children'] = [
+                    {
+                        'i': i,
+                        'zh': zh,
+                        'en': zh,
+                        'dash_zh': NAV_ITEMS[i].dashboard_label or zh,
+                        'icon': icon,
+                        'dia': dia_short.get(dialect, dialect[:2].upper()),
+                    }
+                    for zh, dialect, i, icon in FIXED_DB_PAGES
+                ]
+            elif nav_index == 15:
+                entry['children'] = [
+                    {
+                        'i': AI_CHAT_NAV,
+                        'zh': '聊天',
+                        'en': 'CHAT',
+                        'dash_zh': NAV_ITEMS[AI_CHAT_NAV].dashboard_label or '聊天',
+                        'icon': 'chat',
+                    },
+                    {
+                        'i': AI_WORKBENCH_NAV,
+                        'zh': '工作',
+                        'en': 'AGENT',
+                        'dash_zh': NAV_ITEMS[AI_WORKBENCH_NAV].dashboard_label or '工作',
+                        'icon': 'spark',
+                    },
+                ]
+            items.append(entry)
+        zh_label, en_label = GROUP_LABELS[key]
+        groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
+    return {
+        'groups': groups,
+        'settings': {'i': 7, 'zh': '设置', 'en': 'SET', 'dash_zh': '设置', 'icon': 'gear'},
+        'current': int(current or 0),
+    }

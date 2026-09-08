@@ -1465,37 +1465,11 @@ class MainWindow(QMainWindow):
 
     def _build_web_nav_model(self):
         """侧栏 Web 渲染数据：唯一权威 ui/navigation_model.py，JS 端不硬编码。"""
-        from ui.navigation_model import (
-            NAV_MODEL, GROUP_LABELS, NAV_ITEMS, FIXED_DB_PAGES, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+        from ui.navigation_model import build_web_nav_model_data
+        return build_web_nav_model_data(
+            private_unlocked=bool(getattr(self, '_private_unlocked', False)),
+            current=int(getattr(self, '_current_nav_index', 0) or 0),
         )
-        dia_short = {'oracle': 'ORA', 'mysql': 'MY', 'oceanbase': 'OB',
-                     'dameng': 'DM', 'redis': 'KV', 'mongodb': 'DOC'}
-        groups = []
-        for key, entries in NAV_MODEL:
-            items = []
-            for nav_index, name_zh, name_en, icon_role in entries:
-                if nav_index == 8 and not self._private_unlocked:
-                    continue
-                info = NAV_ITEMS[nav_index]
-                entry = {'i': nav_index, 'zh': name_zh, 'en': name_en,
-                         'icon': icon_role, 'tip': info.tooltip_zh}
-                if nav_index == 14:
-                    entry['children'] = [
-                        {'i': i, 'zh': zh, 'en': zh, 'icon': icon,
-                         'dia': dia_short.get(dialect, dialect[:2].upper())}
-                        for zh, dialect, i, icon in FIXED_DB_PAGES
-                    ]
-                elif nav_index == 15:
-                    entry['children'] = [
-                        {'i': AI_CHAT_NAV, 'zh': '聊天', 'en': 'CHAT', 'icon': 'chat'},
-                        {'i': AI_WORKBENCH_NAV, 'zh': '工作', 'en': 'AGENT', 'icon': 'spark'},
-                    ]
-                items.append(entry)
-            zh_label, en_label = GROUP_LABELS[key]
-            groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
-        return {'groups': groups,
-                'settings': {'i': 7, 'zh': '设置', 'en': 'SET', 'icon': 'gear'},
-                'current': int(getattr(self, '_current_nav_index', 0) or 0)}
 
     def _dashboard_summary_payload(self):
         """首页 Web/Native 共用 summary（失败返回可渲染默认）。"""
