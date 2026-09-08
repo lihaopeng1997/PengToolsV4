@@ -68,15 +68,20 @@ def apply_button(
     button,
     role: str = 'secondary',
     *,
-    compact: bool = False,
+    compact: bool = True,
     icon: str | None = None,
     icon_size: int = 18,
 ) -> None:
     """为按钮打上设计系统角色，不改 clicked 信号与文案。"""
     object_name = BUTTON_ROLES.get(role, BUTTON_ROLES['secondary'])
     button.setObjectName(object_name)
-    size_compact_button(button)
-    button.setProperty('compactAction', True)
+    button.setProperty('actionRole', role)
+    if compact:
+        size_compact_button(button)
+        button.setProperty('compactAction', True)
+    else:
+        button.setFixedHeight(32)
+        button.setProperty('compactAction', False)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon:
         icon_kwargs = {}
@@ -90,16 +95,16 @@ def apply_button(
         elif role in ('danger', 'delete'):
             try:
                 from ui.theme_manager import ThemeManager
-                danger = ThemeManager.instance().token('DANGER') or '#B42318'
+                danger = ThemeManager.instance().token('DANGER') or '#C45371'
             except Exception:
-                danger = '#B42318'
+                danger = '#C45371'
             icon_kwargs = {'normal': danger, 'active': danger}
         elif role == 'fold':
             try:
                 from ui.theme_manager import ThemeManager
-                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#3D594A'
+                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#503DBE'
             except Exception:
-                accent = '#3D594A'
+                accent = '#503DBE'
             icon_kwargs = {'normal': accent, 'active': accent}
         apply_icon(button, icon, size=icon_size, **icon_kwargs)
     style = button.style()
@@ -198,15 +203,17 @@ def finish_result_rows(table: QTableWidget, row_height: int = 32) -> None:
 
 
 def apply_surface(frame: QWidget, kind: str = 'card') -> None:
-    """轻量表面角色：card | zone | muted | glass | elevated。"""
+    """轻量表面角色：card | zone | muted | glass | elevated | tech。"""
     names = {
         'card': 'ds-card',
         'zone': 'ds-zone',
         'muted': 'ds-muted',
         'glass': 'ds-glass',
         'elevated': 'ds-elevated',
+        'tech': 'ds-tech',
     }
     frame.setObjectName(names.get(kind, 'ds-card'))
+    frame.setProperty('surfaceRole', kind)
     style = frame.style()
     if style is not None:
         style.unpolish(frame)

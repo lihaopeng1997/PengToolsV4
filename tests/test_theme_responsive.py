@@ -720,10 +720,10 @@ class VisualFoundationV1Tests(unittest.TestCase):
             self.assertEqual(unresolved, (), f'{tid} QSS 存在未解析 token: {unresolved}')
 
     def test_v1_4_calm_theme_authority(self):
-        """V1-4: calm: theme meta == Calm Indigo, PRIMARY == #4A61F0。"""
+        """V1-4: calm: theme meta == Sky Prism, PRIMARY == #6C58D9。"""
         meta = theme_manager.THEME_META['calm']
-        self.assertEqual(meta[1], 'Calm Indigo')
-        self.assertEqual(THEMES['calm']['PRIMARY'].upper(), '#4A61F0')
+        self.assertEqual(meta[1], 'Sky Prism')
+        self.assertEqual(THEMES['calm']['PRIMARY'].upper(), '#6C58D9')
 
     def test_v1_5_primary_button_gradient_tokens_and_start_diff_end(self):
         """V1-5: primary-btn rendered QSS 包含当前 theme 的 start 与 end，且 start != end。"""
@@ -878,11 +878,11 @@ class VisualFoundationV1Tests(unittest.TestCase):
         tm = ThemeManager.instance()
         tm.load_template()
         calm_p = tm.palette('calm')
-        self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#F6F8FE')
+        self.assertEqual(calm_p['SIDEBAR_BG'].upper(), '#F7F6FC')
         self.assertEqual(calm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
 
         black_p = tm.palette('black')
-        self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#111114')
+        self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#191924')
         self.assertEqual(black_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
 
         for tid in ('calm', 'black'):
