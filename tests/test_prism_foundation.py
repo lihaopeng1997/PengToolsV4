@@ -358,24 +358,103 @@ class TestPrismFoundation(unittest.TestCase):
         self.assertIn('QFrame#ds-elevated', qss)
         self.assertIn('QFrame#ds-tech', qss)
 
-    def test_17_focus_disabled_and_web_parity(self):
-        """17. FOCUS_STATES, DISABLED_STATES & WEB_THEME_TOKEN_PARITY。"""
+    @staticmethod
+    def _extract_css_block(qss: str, selector_pattern: str) -> str:
+        """从 QSS 提取指定选择器对应的规则块内容。"""
+        pattern = re.compile(selector_pattern + r'\s*\{([^}]+)\}', re.MULTILINE | re.DOTALL)
+        match = pattern.search(qss)
+        return match.group(1).strip() if match else ''
+
+    def test_17_focus_contract_and_selector_blocks(self):
+        """17. FOCUS_CONTRACT: 验证具体控件选择器块均具备 2px solid FOCUS_RING，绝非仅字串匹配。"""
+        from ui.theme_manager import THEMES, ThemeManager
+
+        tm = ThemeManager.instance()
+        tm.load_template()
+
+        for tid in ('calm', 'black'):
+            qss = tm.render(tid)
+            focus_ring = THEMES[tid]['FOCUS_RING']
+
+            # 1. 按钮基础 focus
+            btn_block = self._extract_css_block(qss, r'QPushButton:focus')
+            self.assertTrue(btn_block, f'{tid} 缺少 QPushButton:focus 规则块')
+            self.assertIn('2px solid', btn_block)
+            self.assertIn(focus_ring, btn_block)
+
+            # 2. 单行与下拉控件 focus 块 (QLineEdit, QComboBox, QDateEdit, QTimeEdit, etc.)
+            input_block = self._extract_css_block(
+                qss,
+                r'QComboBox:focus,\s*QLineEdit:focus,\s*QDateEdit:focus,\s*QTimeEdit:focus,\s*QTextEdit:focus,\s*QPlainTextEdit:focus',
+            )
+            self.assertTrue(input_block, f'{tid} 缺少输入控件通用 focus 规则块')
+            self.assertIn('2px solid', input_block)
+            self.assertIn(focus_ring, input_block)
+
+            # 3. 多行编辑区通用 focus 块
+            multiline_block = self._extract_css_block(qss, r'QPlainTextEdit:focus,\s*QTextEdit:focus')
+            self.assertTrue(multiline_block, f'{tid} 缺少多行编辑区 focus 规则块')
+            self.assertIn('2px solid', multiline_block)
+            self.assertIn(focus_ring, multiline_block)
+
+            # 4. 可编辑表单字段专用 focus 块：必须是 2px FOCUS_RING，不得回退为 1px
+            editable_block = self._extract_css_block(
+                qss,
+                r'QLineEdit\[editableField="true"\]:focus,\s*QPlainTextEdit\[editableField="true"\]:focus,\s*QTextEdit\[editableField="true"\]:focus',
+            )
+            self.assertTrue(editable_block, f'{tid} 缺少 editableField focus 规则块')
+            self.assertIn('2px solid', editable_block)
+            self.assertIn(focus_ring, editable_block)
+
+            # 5. 只读字段专用 focus 块：保持弱化，不冒充激活的 2px focus ring
+            readonly_block = self._extract_css_block(
+                qss,
+                r'QLineEdit\[readOnlyField="true"\]:focus,\s*QPlainTextEdit\[readOnlyField="true"\]:focus,\s*QTextEdit\[readOnlyField="true"\]:focus',
+            )
+            self.assertTrue(readonly_block, f'{tid} 缺少 readOnlyField focus 规则块')
+            self.assertNotIn('2px solid', readonly_block)
+
+            # 6. 全局兜底焦点规则块
+            global_focus_block = self._extract_css_block(
+                qss,
+                r'QPushButton:focus,\s*QLineEdit:focus,\s*QComboBox:focus,\s*QTextEdit:focus,\s*QPlainTextEdit:focus,\s*QDateEdit:focus,\s*QTimeEdit:focus,\s*QSpinBox:focus',
+            )
+            self.assertTrue(global_focus_block, f'{tid} 缺少全局 focus 规则块')
+            self.assertIn('2px solid', global_focus_block)
+            self.assertIn(focus_ring, global_focus_block)
+
+            # 7. 禁用态验证：具备可见文本与背景对比度
+            self.assertIn('QPushButton:disabled', qss)
+            self.assertIn('QPushButton#primary-btn:disabled', qss)
+            self.assertIn(THEMES[tid]['DISABLED_TEXT'], qss)
+            self.assertIn(THEMES[tid]['DISABLED_BG'], qss)
+
+        # 实例化控件应用 QSS 运行冒烟测试
+        btn = QPushButton('Test Action')
+        le = QLineEdit('Input Value')
+        cb = QComboBox()
+        cb.addItem('Choice 1')
+        calm_rendered = tm.render('calm')
+        btn.setStyleSheet(calm_rendered)
+        le.setStyleSheet(calm_rendered)
+        cb.setStyleSheet(calm_rendered)
+        self.assertIsNotNone(btn.style())
+        self.assertIsNotNone(le.style())
+        self.assertIsNotNone(cb.style())
+        self.assertIsNotNone(btn.palette())
+        self.assertIsNotNone(le.palette())
+        btn.deleteLater()
+        le.deleteLater()
+        cb.deleteLater()
+
+    def test_18_web_theme_parity(self):
+        """18. WEB_THEME_TOKEN_PARITY: Web bridge payload 与 Python theme tokens 完全对齐。"""
         from ui.theme_manager import THEMES, ThemeManager
         from ui import web_shell
 
         tm = ThemeManager.instance()
         tm.load_template()
-        calm_qss = tm.render('calm')
 
-        # 焦点与禁用样式验证
-        self.assertIn('QPushButton:focus', calm_qss)
-        self.assertIn('QLineEdit:focus', calm_qss)
-        self.assertIn('QComboBox:focus', calm_qss)
-        self.assertIn('QPushButton:disabled', calm_qss)
-        self.assertIn('QPushButton#primary-btn:disabled', calm_qss)
-        self.assertIn('border: 2px solid', calm_qss)
-
-        # Web Bridge 对齐验证
         for tid in ('calm', 'black'):
             pal = tm.palette(tid)
             self.assertEqual(pal['PRIMARY'], THEMES[tid]['PRIMARY'])

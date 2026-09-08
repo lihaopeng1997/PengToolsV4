@@ -1,6 +1,6 @@
 /* PengTools V4.27 · Quiet aesthetics + theme tokens
  * Placeholders injected by ui/theme_manager.py
- * Themes: calm (default) | clear | warm | black（night 兼容别名）
+ * Themes: calm (default) | black (legacy aliases migrate)
  * Tokens: __APP_BG__ __SIDEBAR_BG__ __SURFACE__ __PRIMARY__ __TEXT__ ...
  */
 /*
@@ -9,7 +9,7 @@
  * text-strong __TEXT_STRONG__ | text __TEXT__ | text-muted __TEXT_MUTED__ | nav-text __TEXT_NAV__
  * border __BORDER__ | primary __PRIMARY__ | primary-soft __PRIMARY_SOFT__ | primary-active __PRIMARY_ACTIVE__
  * cyan __CYAN__ | success __SUCCESS__ | warning __WARNING__ | danger __DANGER__
- * radius-control 10 | radius-card 14 | radius-dialog 18 | control-h 28
+ * radius-control 8 | surface 16/12 | dialog 16 | control-h 28
  */
 QWidget {
     color: __TEXT__;
@@ -256,7 +256,7 @@ QPushButton {
 }
 QPushButton:hover { background: __SURFACE_SOFT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
 QPushButton:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
-QPushButton:focus { border-color: __FOCUS_RING__; outline: none; }
+QPushButton:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#btn-secondary,
 QPushButton[actionRole="secondary"] {
@@ -642,8 +642,9 @@ QComboBox { padding-right: 38px; }
 QDateEdit, QTimeEdit { min-width: 150px; max-width: 160px; padding-right: 36px; }
 QComboBox:hover, QLineEdit:hover, QDateEdit:hover, QTimeEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
 QComboBox:focus, QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
     background: __SURFACE__;
+    outline: none;
 }
 QComboBox:disabled, QLineEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
     color: __TEXT_MUTED__;
@@ -667,8 +668,9 @@ QTextEdit[editableField="true"]:hover {
 QLineEdit[editableField="true"]:focus,
 QPlainTextEdit[editableField="true"]:focus,
 QTextEdit[editableField="true"]:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
     background-color: __INPUT_BG__;
+    outline: none;
 }
 QLineEdit[readOnlyField="true"],
 QPlainTextEdit[readOnlyField="true"],
@@ -894,9 +896,10 @@ QPlainTextEdit#gateway-cipher-edit {
 }
 QPlainTextEdit#gateway-key-edit:focus,
 QPlainTextEdit#gateway-cipher-edit:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
     background: __SURFACE__;
     color: __TEXT_STRONG__;
+    outline: none;
 }
 /* xml-splitter 已由全局 QSplitter::handle 统一管理 */
 /* XML 工具工作区 */
@@ -932,9 +935,10 @@ QPlainTextEdit#xml-output {
 }
 QPlainTextEdit#xml-input:focus,
 QPlainTextEdit#xml-output:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
     background: __SURFACE__;
     color: __TEXT_STRONG__;
+    outline: none;
 }
 QPlainTextEdit#xml-output {
     background: __SURFACE__;
@@ -1428,9 +1432,10 @@ QPlainTextEdit#text-helper-input:focus,
 QPlainTextEdit#text-helper-output:focus,
 QPlainTextEdit#iface-detail-edit:focus,
 QPlainTextEdit#iface-draft-preview:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
     background: __SURFACE__;
     color: __TEXT_STRONG__;
+    outline: none;
 }
 QTableWidget#iface-request-table {
     background: __SURFACE__;
@@ -1690,7 +1695,7 @@ QDateEdit {
     selection-background-color: __PRIMARY__; selection-color: __SURFACE__;
 }
 QDateEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
-QDateEdit:focus { border: 2px solid __PRIMARY__; padding: 6px 37px 6px 10px; }
+QDateEdit:focus { border: 2px solid __FOCUS_RING__; padding: 6px 37px 6px 10px; outline: none; }
 QDateEdit::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 32px; border: none; border-left: 1px solid __BORDER__;
@@ -2335,7 +2340,7 @@ QLineEdit#ops-search {
     padding: 9px 13px;
     font-size: 13px;
 }
-QLineEdit#ops-search:focus { border-color: __PRIMARY__; }
+QLineEdit#ops-search:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QLabel#ops-safety-note {
     color: __TEXT__;
     background: __SURFACE_SOFT__;
@@ -2490,7 +2495,7 @@ QLineEdit#ops-search {
     color: __TEXT_STRONG__;
     border: 2px solid __BORDER__;
 }
-QLineEdit#ops-search:focus { border-color: __PRIMARY__; }
+QLineEdit#ops-search:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 /* ops-delete-custom 已并入上方 btn-danger 体系统一样式 */
 QLabel#settings-value {
     color: __PRIMARY_ACTIVE__;
@@ -2557,7 +2562,8 @@ QTextEdit#ai-explain {
     color: __TEXT__;
 }
 QTextEdit#ai-prompt-edit:focus {
-    border: 1px solid __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
+    outline: none;
 }
 QToolButton#responsive-more-btn {
     background: __SURFACE__;
@@ -2582,7 +2588,8 @@ QPlainTextEdit, QTextEdit {
     border: 1px solid __BORDER__;
 }
 QPlainTextEdit:focus, QTextEdit:focus {
-    border-color: __PRIMARY__;
+    border: 2px solid __FOCUS_RING__;
+    outline: none;
 }
 
 /* ── SSH 终端：控制台岛（深底亮字，与页面强对比；色相贴主题） ── */
@@ -2936,8 +2943,10 @@ QComboBox:focus,
 QTextEdit:focus,
 QPlainTextEdit:focus,
 QDateEdit:focus,
+QTimeEdit:focus,
 QSpinBox:focus {
     border: 2px solid __FOCUS_RING__;
+    outline: none;
 }
 QLabel#page-context {
     color: __TEXT_MUTED__;
