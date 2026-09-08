@@ -13,12 +13,13 @@ if app is None:
 from tools.dashboard_summary import build_dashboard_summary, resolve_release_countdown
 from tools.requirements import normalize_requirement
 from ui.web_shell import HomeBridge
+from ui.navigation_model import get_dashboard_quick_tools
 from panels.requirement_panel import RequirementDialog, RequirementPanel, DateInput
 
 
 class TestRound4V2EReviewFix1(unittest.TestCase):
     def test_data_center_quick_tool_navigates_to_oracle(self):
-        summary = build_dashboard_summary(requirements=[], today=datetime.date(2026, 9, 7))
+        summary = build_dashboard_summary(requirements=[], today=datetime.date(2026, 9, 7), tools=get_dashboard_quick_tools())
         tools = summary.get('tools', [])
         dc_tool = next((t for t in tools if t['zh'] == '数据中心'), None)
         self.assertIsNotNone(dc_tool)

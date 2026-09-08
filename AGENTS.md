@@ -2,6 +2,12 @@
 
 This file covers durable repository conventions. The user task and current source are authoritative for task scope and dynamic facts.
 
+## Project handoff and current UI decisions
+
+- Requirements and development agents start at `docs/project/README.md`; use its product/source map and collaboration protocol. Historical handoffs are context, not automatic current authority.
+- The user confirmed the single Prism `calm` theme. Follow the V2.1 specification linked there; do not restore the superseded dual-theme selector.
+- Report actual branch/SHA and distinguish current source behavior, approved targets, runtime evidence, and pending visual acceptance. Git-only agents cannot see uncommitted local changes.
+
 ## Start each task
 
 - Read this file, inspect `git status --short --branch`, and read only the source needed for the task.

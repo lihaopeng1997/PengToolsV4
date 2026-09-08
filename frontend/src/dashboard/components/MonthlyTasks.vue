@@ -27,14 +27,6 @@ function statusChipClass(status?: string | null): string {
   return 'run'
 }
 
-function statusLabel(status?: string | null): string {
-  if (!status) return '推进中'
-  if (status === 'ok') return '已完成'
-  if (status === 'rev') return '测试中'
-  if (status === 'run') return '推进中'
-  return status
-}
-
 function isRowInteractive(item?: { is_demo?: boolean | null } | null): boolean {
   return !isDemoMode.value && !item?.is_demo
 }
@@ -49,65 +41,8 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 
 <template>
   <div class="tasks-container">
-    <!-- 卡片 1: 最近需求 (Card 1) -->
-    <section class="card pad task-section-card">
-      <div class="ph">
-        <div class="ph-left">
-          <span class="tt">最近需求</span>
-          <span class="sub">{{ isDemoMode ? '示例数据 · DEMO' : 'RECENT' }}</span>
-        </div>
-        <button class="btn btn-ghost btn-xs" type="button" @click="emit('navigate', 10)">
-          进入需求台账
-        </button>
-      </div>
-
-      <div class="req-list">
-        <template v-if="props.recent && props.recent.length > 0">
-          <div
-            v-for="(r, idx) in props.recent"
-            :key="r.id || r.code || idx"
-            class="ck task-row"
-            :class="{ 'clickable': isRowInteractive(r), 'is-demo': !isRowInteractive(r) }"
-            :tabindex="isRowInteractive(r) ? 0 : undefined"
-            :role="isRowInteractive(r) ? 'button' : undefined"
-            @click="isRowInteractive(r) && onOpenRequirement(r.id)"
-            @keydown.enter.self="isRowInteractive(r) && onOpenRequirement(r.id)"
-            @keydown.space.self.prevent="isRowInteractive(r) && onOpenRequirement(r.id)"
-          >
-            <span class="dot" :class="statusChipClass(r.status)" />
-            <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
-            <span class="t">
-              <span class="req-title">{{ r.title || '未命名需求' }}</span>
-              <span v-if="r.system" class="meta-inline"> · {{ r.system }}</span>
-              <span v-if="r.actual_release_date" class="meta-inline"> · 发版: {{ r.actual_release_date }}</span>
-            </span>
-
-            <span v-if="r.test_points" class="test-points-badge" :title="'测试点: ' + r.test_points">
-              <PrismIcon name="check" :size="12" />
-              <span>{{ r.test_points }}</span>
-            </span>
-
-            <span class="chip" :class="statusChipClass(r.status)">
-              {{ r.status_label || statusLabel(r.status) }}
-            </span>
-
-            <button
-              v-if="isRowInteractive(r)"
-              class="btn btn-ghost btn-xs row-act-btn"
-              type="button"
-              @click.stop="emit('openRequirement', r.id)"
-            >
-              查看
-            </button>
-            <span v-else class="demo-badge">示例</span>
-          </div>
-        </template>
-        <div v-else class="empty-hint">暂无需求记录</div>
-      </div>
-    </section>
-
-    <!-- 卡片 2: 本月上线任务 (Card 2) -->
-    <section class="card pad task-section-card">
+    <!-- 首页唯一任务区；recent DTO保留兼容，但不再重复显示旧需求卡片。 -->
+    <section class="card pad task-section-card" data-testid="monthly-release-tasks">
       <div class="ph">
         <div class="ph-left">
           <span class="tt">本月上线任务</span>

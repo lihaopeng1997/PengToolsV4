@@ -1475,9 +1475,11 @@ class MainWindow(QMainWindow):
         """首页 Web/Native 共用 summary（失败返回可渲染默认）。"""
         try:
             from tools.dashboard_summary import build_dashboard_summary
+            from ui.navigation_model import get_dashboard_quick_tools
             return build_dashboard_summary(
                 language=self.language,
                 username=str(self._settings.get('home_username') or 'Lihp'),
+                tools=get_dashboard_quick_tools(),
             )
         except Exception:
             return {

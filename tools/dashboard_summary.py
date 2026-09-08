@@ -236,12 +236,10 @@ def build_dashboard_summary(
             'is_demo': bool(item.get('is_demo')),
         })
 
+    # Navigation is presentation data, injected by MainWindow/native panel.
+    # The headless summary builder must not import ui or invent a second catalog.
     if tools is None:
-        try:
-            from ui.navigation_model import get_dashboard_quick_tools
-            tools = get_dashboard_quick_tools()
-        except Exception:
-            tools = []
+        tools = []
     demo_month_total = len(display_month_tasks)
     demo_month_done = sum(1 for row in display_month_tasks if row.get('done'))
     return {

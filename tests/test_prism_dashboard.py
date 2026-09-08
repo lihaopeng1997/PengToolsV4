@@ -15,7 +15,7 @@ Verification scope:
    - Responsive: C>=1200 (R330), 1020<=C<1200 (R300), C<1020 (single column)
    - Outer padding 0 0 8px
 3. Hero Structure & 120x120 Graphic (Section 7.1 & 7.2):
-   - 176px height, padding 24
+   - 176px minimum height, padding 24
    - 120x120 decorative prism-orb graphic
    - 4.8s ease-in-out loop: y: 0/-5/0, rotate: -5/5/-5deg, scale: 1/1.04/1
 4. Motion Contract (Section 7.2):
@@ -116,9 +116,9 @@ class PrismDashboardContractTests(unittest.TestCase):
         self.assertIn('@media (max-width: 1019px)', self.vue_src)
 
     def test_03_hero_structure_and_graphic(self):
-        """3. Hero: 176px height, 120x120 prism-orb graphic and 4.8s animation."""
+        """3. Hero: 176px minimum height, 120x120 prism-orb graphic and 4.8s animation."""
         self.assertIn('min-height: 176px;', self.hero_src)
-        self.assertIn('height: 176px;', self.hero_src)
+        self.assertIn('height: auto;', self.hero_src)
         self.assertIn('width: 120px;', self.hero_src)
         self.assertIn('height: 120px;', self.hero_src)
         self.assertIn('class="prism-orb"', self.hero_src)
@@ -179,7 +179,7 @@ class PrismDashboardContractTests(unittest.TestCase):
         self.assertIn('daily-quotes.json', self.panel_src)
         self.assertIn('class PrismOrbWidget', self.panel_src)
         self.assertIn('self.hero_card = QFrame()', self.panel_src)
-        self.assertIn('self.hero_card.setFixedHeight(176)', self.panel_src)
+        self.assertIn('self.hero_card.setMinimumHeight(176)', self.panel_src)
         self.assertIn('self.quote_refresh_btn', self.panel_src)
         self.assertIn('self.prism_orb = PrismOrbWidget', self.panel_src)
         self.assertIn('QVariantAnimation', self.panel_src)

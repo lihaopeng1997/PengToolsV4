@@ -4,7 +4,7 @@
 覆盖两大生产测试矩阵：
 1. test_dashboard_real_qwebengine_production_chain_and_interactions:
    - 生产 HTML + QWebChannel + HomeBridge + Vue 完整就绪
-   - Calm vs Black 运行态主题探针（tokens / 几何阴影 / 背景色）
+   - 单主题与旧 Black 输入兼容归一探针（tokens / 几何阴影 / 背景色）
    - 真实 DOM 交互：点击数据中心派发 nav=18、点击新建需求派发信号、点击真实需求查看派发 ID
    - 示例模式隔离：呈现“示例”徽标，点击示例行严防虚假 ID 派发
 
@@ -12,7 +12,7 @@
    - 严格数据隔离：主动导入并显式 patch tools.dashboard_summary.load_requirements 等数据源
    - 真实 MainWindow + RequirementPanel + 信号连接
    - 自然事件流：RequirementPanel._move_requirements -> requirements_changed -> MainWindow._push_dashboard_summary -> _dash_bridge.push_summary -> Vue
-   - 同一个已加载 Vue DOM 响应式清零月度任务（1 -> 0）并更新下月日期，全程无手工 push
+   - 同一个已加载 Vue DOM 响应式清零月度任务（1 -> 0）并确认旧最近需求卡片未重新出现，全程无手工 push
 """
 import datetime
 import os
@@ -459,7 +459,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
 
                 # Step C: DOM 确认初始当月上线任务数量 = 1
                 js_init_count = '''(() => {
-                    const tasks = document.querySelectorAll('.card:nth-child(2) .req-list .ck');
+                    const tasks = document.querySelectorAll('[data-testid=monthly-release-tasks] .req-list .ck');
                     return tasks.length;
                 })()'''
                 init_tasks = run_js(js_init_count)
@@ -478,20 +478,20 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
 
                 # Step G & H: 在同一个已加载的 Vue 页面 DOM 中验证（无 reload，无手工 push）
                 js_after_state = f"""(() => {{
-                    const tasks = document.querySelectorAll('.card:nth-child(2) .req-list .ck');
-                    const dchip = document.querySelector('.card:nth-child(2) .dchip')?.textContent?.trim() || '';
-                    const recentText = document.querySelector('.card:nth-child(1) .req-list .ck')?.textContent || '';
+                    const tasks = document.querySelectorAll('[data-testid=monthly-release-tasks] .req-list .ck');
+                    const dchip = document.querySelector('[data-testid=monthly-release-tasks] .dchip')?.textContent?.trim() || '';
+                    const oldCardAbsent = !document.body.textContent.includes('最近需求');
                     return {{
                         count: tasks.length,
                         dchip: dchip,
-                        hasNewDate: recentText.includes('{next_month}')
+                        oldCardAbsent: oldCardAbsent
                     }};
                 }})()"""
                 after_state = run_js(js_after_state)
 
                 self.assertEqual(after_state['count'], 0, '自然信号触发下，DOM 中当月任务列表已自动清零（1 -> 0）')
                 self.assertEqual(after_state['dchip'], '0 项', '自然信号触发下，DOM 徽标已自动更新为 0 项')
-                self.assertTrue(after_state['hasNewDate'], f'自然信号触发下，最近需求已自动同步为下月日期: {next_month}')
+                self.assertTrue(after_state['oldCardAbsent'], '首页只显示月度任务，不重新引入最近需求卡片')
 
         finally:
             if win is not None:

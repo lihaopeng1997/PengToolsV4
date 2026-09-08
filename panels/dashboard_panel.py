@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from ui.navigation_model import get_dashboard_quick_tools
+
 import datetime
 import json
 import os
@@ -366,10 +368,10 @@ class DashboardPanel(QWidget):
         self._quotes = _load_daily_quotes()
         self._quote_offset = 0
 
-        # Hero 卡片：176px 高度，包含问候、日期、每日经典句、换一句与 120x120 装饰图形
+        # Hero 卡片：最小176px高度，包含问候、日期、每日经典句、换一句与 120x120 装饰图形
         self.hero_card = QFrame()
         self.hero_card.setObjectName('dashboard-hero-card')
-        self.hero_card.setFixedHeight(176)
+        self.hero_card.setMinimumHeight(176)
         hero_layout = QHBoxLayout(self.hero_card)
         hero_layout.setContentsMargins(24, 18, 24, 18)
         hero_layout.setSpacing(16)
@@ -487,6 +489,8 @@ class DashboardPanel(QWidget):
         self.recent_scroll.setWidget(self.recent_list_host)
         recent_layout.addWidget(self.recent_scroll, 1)
         self.tasks_row.addWidget(self.recent_card, 1)
+        # Keep legacy references/signals for compatibility; the home task surface is monthly only.
+        self.recent_card.hide()
 
         self.release_card = QFrame()
         self.release_card.setObjectName('dashboard-task-card')
@@ -1043,6 +1047,7 @@ class DashboardPanel(QWidget):
             language=self.language,
             requirements=requirements,
             board=load_release_board(),
+            tools=get_dashboard_quick_tools(),
         )
         stats = summary.get('stats') or {}
         rel = summary.get('release') or {}

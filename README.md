@@ -2,6 +2,8 @@
 
 Windows 离线桌面工具台（Python 3.12 + PyQt6）。界面显示名 **PengToolsHub**，版本文案 **V4 Private**。
 
+当前晴空棱镜改造采用 **单主题 calm + Vue/PyQt 混合界面**，保持现有业务行为。需求 AI 和开发 AI 从 [项目交接入口](docs/project/README.md) 开始；原型不能替代生产功能契约。
+
 ## 仓库结构（与架构分层一致）
 
 ```
@@ -9,7 +11,7 @@ PengToolsV4/
 ├── run.py                 # 入口：QApplication / 主题 / 单实例
 ├── main_window.py         # 装配：导航、Stack、跨模块信号、托盘
 ├── config.py              # 配置：local_data_dir、JSON 路径与默认值
-├── panels/                # 界面层（12 个业务面板）
+├── panels/                # 页面与工作台界面层
 ├── tools/                 # 无界面业务逻辑层（可单测）
 ├── ui/                    # 基础 UI 能力层（主题/图标/弹窗/响应式）
 ├── resources/             # 打进安装包的资源（QSS/图标/模板/种子）
@@ -19,7 +21,7 @@ PengToolsV4/
 ├── docs/                  # 架构 / 交接 / UI 需求文档
 ├── packaging/             # 安装布局说明
 ├── Installer/             # 安装模板（gitignore 含 EXE）
-├── frontend/              # Vue 3 + TypeScript + Vite 前端迁移骨架（node_modules/ dist/ 不提交）
+├── frontend/              # Vue 3 + TypeScript + Vite 侧栏与首页源码（node_modules/ dist/ 不提交）
 ├── requirements.txt
 ├── AGENTS.md              # AI/开发硬规则
 └── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
@@ -66,7 +68,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 .\.venv-dev\Scripts\python.exe -X utf8 -m pip_audit -r requirements.txt
 ```
 
-Frontend（Vue 3 + TypeScript + Vite，迁移骨架，Node ≥ 20.19 或 ≥ 22.12）：
+Frontend（Vue 3 + TypeScript + Vite，侧栏与首页，Node ≥ 20.19 或 ≥ 22.12）：
 
 ```powershell
 cd frontend
@@ -74,7 +76,7 @@ npm ci         # 按 package-lock.json 精确还原依赖
 npm run check  # vue-tsc 类型检查 + Vite 双入口构建（file:// 相对产物）+ verify:dist 守护
 ```
 
-`frontend/dist/` 为开发构建产物（gitignore）；`npm run build:embedded` 产出正式运行时资源 `resources/webui/vue/`（已提交，随 PyInstaller 整体打包）。STEP-4 起左侧 Sidebar 由 Vue 渲染（`vue/chrome.html`），Dashboard 仍为 legacy `dashboard.html`。
+`frontend/dist/` 为开发构建产物（gitignore）；`npm run build:embedded` 产出正式运行时资源 `resources/webui/vue/`（已提交，随 PyInstaller 整体打包）。当前侧栏与首页分别加载 `vue/chrome.html`、`vue/dashboard.html`，由 QWebChannel 对接 Python；原生侧栏/首页保留为回退。密集业务工作台继续使用 PyQt。
 
 发布打包：
 
@@ -109,7 +111,8 @@ PengToolsHub
 | 文档 | 说明 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 硬规则（边界/导航/数据） |
-| [Grok 完整交接](docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md) | 接手开发必读 |
+| [当前项目与 AI 协作入口](docs/project/README.md) | 产品功能、代码地图、当前决定、开发协议与审计，接手必读 |
+| [历史 Grok 交接](docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md) | 历史背景，动态事实按当前分支核实 |
 | [整体架构](docs/架构/PengToolsV4_项目整体架构文档_V1.0.md) | 分层与规范 |
 | [docs/README.md](docs/README.md) | 文档目录索引 |
 

@@ -95,7 +95,7 @@ const quoteTitle = computed(() => {
 .hero {
   position: relative;
   min-height: 176px;
-  height: 176px;
+  height: auto;
   padding: 24px;
   border-radius: 16px;
   display: flex;

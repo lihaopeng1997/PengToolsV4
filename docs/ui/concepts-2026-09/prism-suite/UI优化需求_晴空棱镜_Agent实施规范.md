@@ -1,10 +1,19 @@
-# PengToolsHub 晴空棱镜：全软件 UI 重构开发规格 V2.0
+# PengToolsHub 晴空棱镜：全软件 UI 重构开发规格 V2.1
 
-日期：2026-09-08。**本文件是唯一当前实施需求，替代 V1.1；不要求开发 Agent 读取历史对话。** 原型：同目录 index.html。代码基线：D:/PengTools，main，提交 `7c4e0e3fe1c31dbccdeeff12f0631d00b69cddb2`。基线只作核对，不授权切分支或重置工作区。
+日期：2026-09-08。**本文件定义 UI 目标，V2.1 纳入用户已确认的单主题调整，替代 V2.0 中冲突条款。** 当前项目背景与协作约束见 [项目入口](../../../project/README.md)。 原型：同目录 index.html。历史设计基线：main，提交 `7c4e0e3fe1c31dbccdeeff12f0631d00b69cddb2`。基线只作核对，不授权切分支或重置工作区。
 
 用户目标：推翻全软件旧 UI，以已选定的“02 晴空棱镜”重做所有现有页面、导航、表单、弹框、图标、提示、边框视觉、悬浮窗和状态；**保持现有功能逻辑不变**。首页图标要轻动态；星期后显示多样化经典句；收起的悬浮窗只有一个图标。
 
-交付性质：本文件可直接作为开发任务输入，组件、文件、约束、技术决策与验收均在文中。技术可行性由源码和官方文档支持；尚未执行正式软件重构或对目标效果做原生性能实测。不要把“技术可实现”写成“已经在生产完成”。
+交付性质：本文件可直接作为开发任务输入，组件、文件、约束、技术决策与验收均在文中。技术可行性由源码和官方文档支持；当前分支已有分阶段实现，进展与验证状态见 [偏离审计](../../../project/DRIFT_AUDIT_2026-09-08.md)；本文件不是运行验收报告。不要把“技术可实现”写成“已经在生产完成”。
+
+
+## V2.1 已确认变更（2026-09-08）
+
+- 用户明确回复：“已确认，保留单主题并更新规范”。生产仅提供晴空棱镜 `calm`，不恢复深色主题选择器。现有旧主题标识到 `calm` 的兼容映射保留；残留的历史色表不代表第二个可选主题。
+- 这是“功能逻辑不变”原则中的已批准外观偏好例外，不授权删除其他设置、迁移数据结构或重写业务。
+- 首页只展示详细的本月上线任务，移除旧“最近需求”卡片；汇总 DTO 中的兼容字段可保留。首页任务进入已有需求编辑完成操作，不新增写 Bridge。
+- Hero 的 176 是最小高度，长文本自然增高；动效、每日经典与减弱动态策略仍按第7节执行。
+- V2.0 的双主题验收改为：单主题显示、旧主题配置兼容归一、原生与 Web 一致。历史快照 `implementation-source-baseline.json` 不作为当前分支代码清单。
 
 ## 阅读顺序与执行规则
 
@@ -13,7 +22,7 @@
 3. 第11–15节是实现接口、行为保持、任务依赖、测试与交付要求。
 4. 附录列出本地类、控件信号和源码定位；完整静态索引为 implementation-source-baseline.json。它不含业务记录或配置值。
 
-相互冲突时：用户“功能不变” > 当前业务源码 > 本文明确技术裁决 > 目标尺寸 > HTML演示。HTML不是可直接替换生产的网页，不允许把其模拟业务代码复制进正式软件。
+相互冲突时：用户最新明确决定及其决策记录优先；既有业务行为是 UI 改造的不变基线，本文定义展示目标，HTML 为视觉参考。不能以当前代码存在某个偏离为由修改需求使其合理化；也不能以旧规范覆盖已确认的新决定。HTML不是可直接替换生产的网页，不允许把其模拟业务代码复制进正式软件。
 
 ## 1. 重构范围与不变契约
 
@@ -81,7 +90,7 @@ frontend/vite.config.ts是chrome.html和dashboard.html双入口、base='./'；�
 | SVG高清图标 | 现有ui/icons.py、QtSvg、Web SVG | 可实现，DPR正确缓存 | 使用项目资产，不加图标CDN |
 | 长表格/SQL/终端 | 当前QTableWidget/View、模型、SqlEditor、SshTerminal | 可实现；不要为了视觉替换为浏览器DOM表格 | 原编辑器与结果模型直接复用 |
 | 弹框/下拉跨Qt与Web边界 | QDialog/QMenu；Web局部浮层 | Web浮层不能越过自身视图矩形 | 全局/业务模态使用Qt，Web仅自身范围tooltip等 |
-| 多主题/密度/高DPI | ThemeManager、QPalette、layout_metrics、现有偏好 | 可实现，字体DIP与DPR不同 | 保留calm/black ID、默认值和全部持久化键 |
+| 单主题/密度/高DPI | ThemeManager、QPalette、layout_metrics、现有偏好 | 可实现，字体DIP与DPR不同 | 仅calm可选，旧ID兼容归一；其他偏好与保存流程保持 |
 | 每日一句 | 本地静态数据+日期选择纯函数 | 可实现，不改summary或联网 | 本地日历轮换，12条初始句库 |
 
 QGraphicsBlurEffect模糊的是它自己的源内容，不能把它当作Windows背景模糊。QSS只使用Qt支持的属性，禁止复制backdrop-filter、CSS box-shadow、CSS变量或@keyframes到style.qss。
@@ -125,7 +134,7 @@ summary provider -> 原dashboardSummary/summaryChanged -> 展示组件
 | 文件 | 允许改动 | 禁止改动 |
 |---|---|---|
 | main_window.py | 容器排布、边距、ContextHeader展示接入、原生侧栏绘制 | _ensure/_mount调用时机、stack索引、导航解析、关闭/回退/启动状态机 |
-| ui/theme_manager.py | calm/black配色和现有语义映射；界面展示名可为晴空棱镜/墨黑 | ID/alias/default和保存流程 |
+| ui/theme_manager.py | calm配色和现有语义映射；界面展示名为晴空棱镜 | ID/alias/default和保存流程 |
 | ui/layout_metrics.py、field_metrics.py | 尺寸权威引用和展示默认值；统一避免重复常量 | 私改各模块断点或用户保存键 |
 | ui/design_system.py、page_chrome.py、responsive.py | 通用展示组件/动作条/样式 | 点击业务、QAction启用策略 |
 | ui/icons.py、resources/icons、resources/brand | SVG/ICO视觉及缓存使用 | 业务角色ID/图标加载公共函数契约 |
@@ -184,23 +193,23 @@ ContextHeader padding左右P；图标20；名称14/20；快速入口32高、图�
 
 ### 6.1 颜色与字体
 
-| 语义 | 晴空（calm） | 墨黑（black） | 用途 |
-|---|---|---|---|
-|APP_BG|#F4F3FA|#15151E|窗口客户区|
-|SURFACE|#FDFDFF|#1E1E2B|表单/表格实底|
-|SURFACE_SOFT|#F0ECFA|#262437|次级区|
-|PRIMARY|#6C58D9|#A99AF5|主强调|
-|PRIMARY_HOVER|#5D49C5|#BCB0FF|hover|
-|PRIMARY_SOFT|#EEE9FF|#322B4D|轻选中|
-|TEXT_STRONG|#262438|#ECEAF7|主要文字|
-|TEXT_MUTED|#615D73|#AEA9C2|说明|
-|BORDER|#E6E2F0|#393548|细边框|
-|SUCCESS|#247F75|#74CABB|成功|
-|WARNING|#A5772A|#E2B96D|提醒|
-|DANGER|#C45371|#F18CA7|失败|
-|ON_PRIMARY|#FFFFFF|#191527|按钮文字|
+| 语义 | 晴空（calm） | 用途 |
+|---|---|---|
+|APP_BG|#F4F3FA|窗口客户区|
+|SURFACE|#FDFDFF|表单/表格实底|
+|SURFACE_SOFT|#F0ECFA|次级区|
+|PRIMARY|#6C58D9|主强调|
+|PRIMARY_HOVER|#5D49C5|hover|
+|PRIMARY_SOFT|#EEE9FF|轻选中|
+|TEXT_STRONG|#262438|主要文字|
+|TEXT_MUTED|#615D73|说明|
+|BORDER|#E6E2F0|细边框|
+|SUCCESS|#247F75|成功|
+|WARNING|#A5772A|提醒|
+|DANGER|#C45371|失败|
+|ON_PRIMARY|#FFFFFF|按钮文字|
 
-其他既有token从对应语义派生，不能删除TERM_*、CODE_BG、SEARCH_*、FOCUS_RING、STATUS_*、GLASS_*等角色。overlay透明度Qt用0–255、CSS用0–1，通过现有normalizeCssTokenValue统一，不能混用。浅色玻璃alpha236/255、深色238/255；焦点环2px、offset2。代码/终端遵循现有专用token，不把终端强制改白底。
+其他既有token从对应语义派生，不能删除TERM_*、CODE_BG、SEARCH_*、FOCUS_RING、STATUS_*、GLASS_*等角色。overlay透明度Qt用0–255、CSS用0–1，通过现有normalizeCssTokenValue统一，不能混用。晴空玻璃alpha236/255；焦点环2px、offset2。代码/终端遵循现有专用token，不把终端强制改白底。
 
 默认字体13、行20；说明12/18；h1 26/34；h2 16/24；h3 14/20；统计30/36；代码13/20等宽。中文沿用系统/现有字体fallback，不嵌入字体。长文本可复制，关键状态不只靠颜色。验收要求正文4.5:1、大字与关键非文本3:1；开发时用最终实际组合测量，色板本身不是对比度合格证明。
 
@@ -357,7 +366,7 @@ LD-04/按钮busy仅在已有任务状态可观测时接入，使用已有busy信
 
 ### 10.4 Loading 专项用例
 
-LD-T01：100ms任务看不到busy；LD-T02：400ms任务展示后按现有500+linger时间收起，结果已正常应用；LD-T03：A开始、B开始、A迟到finish，B不被隐藏；LD-T04：fail打断pending并显示原错误；LD-T05：set_progress在100ms按原接口立即显示；LD-T06：用户切页/关窗后视觉timer停止，业务取消/继续按原逻辑；LD-T07：有旧结果查询中不被清空；LD-T08：首次AI内容到达的等待状态与原生命周期一致；LD-T09：reduced-motion静态但任务仍可完成；LD-T10：light/black都清楚可读；LD-T11：主窗口、弹框、浮窗分别测试，不抢焦点；LD-T12：启动完成/失败fallback不被动画延迟。
+LD-T01：100ms任务看不到busy；LD-T02：400ms任务展示后按现有500+linger时间收起，结果已正常应用；LD-T03：A开始、B开始、A迟到finish，B不被隐藏；LD-T04：fail打断pending并显示原错误；LD-T05：set_progress在100ms按原接口立即显示；LD-T06：用户切页/关窗后视觉timer停止，业务取消/继续按原逻辑；LD-T07：有旧结果查询中不被清空；LD-T08：首次AI内容到达的等待状态与原生命周期一致；LD-T09：reduced-motion静态但任务仍可完成；LD-T10：calm清楚可读，旧主题输入归一后仍清楚；LD-T11：主窗口、弹框、浮窗分别测试，不抢焦点；LD-T12：启动完成/失败fallback不被动画延迟。
 
 使用现有tests.test_loading_feedback、tests.test_startup_splash、tests.test_ui_motion作为回归入口；对新增纯绘制仅做局部截图与生命周期烟测，不用源码字符串断言当作动画验收。
 
@@ -415,7 +424,7 @@ ThemeManager保留palette/token/render/apply/add_listener/remove_listener；Layo
 | 工单 | 文件/范围 | 输入 -> 产物 | 前置 | 完成条件 |
 |---|---|---|---|---|
 |UI-P00|只读基线与截图|本文件+源码 -> 模块行为对照表/截图|无|所有模块/子窗有负责人清单；不改业务 |
-|UI-P01|theme_manager/layout_metrics/field_metrics/design_system|token与密度表 -> 双主题统一展示基础|P00|Qt/Web同语义，28与32/36用途一致，原设置回归 |
+|UI-P01|theme_manager/layout_metrics/field_metrics/design_system|token与密度表 -> 单主题统一展示基础|P00|Qt/Web同语义，28与32/36用途一致，原设置回归 |
 |UI-P02|icons、brand资源|统一SVG/ICO -> 所有尺寸资产|P01|角色覆盖、DPR/托盘16px可读，无外链 |
 |UI-P03|page_chrome/responsive/main_window布局|第5节 -> 新客户区骨架+ContextHeader|P01|槽位、原生边框、生命周期和fallback保持 |
 |UI-P04|chrome Vue及原生侧栏|原nav payload -> 新导航视觉|P02/P03|父级/底部/私有项/折叠行为全保持 |
@@ -453,7 +462,7 @@ P09A–E可由不同开发者在P01–P08稳定后分工；本文是未来工单
 
 ### 14.2 必备视觉和交互样本
 
-视口：1440×900（展开/收起各一次）、1280×800、1100×720、960×640；DPI100/125/150/200%，两块屏幕及负坐标；主题calm/black；中文/英文与长内容；原字体放大。主操作必须可见或通过已有更多入口可达，表内横滚允许，整个主窗横向溢出不允许。
+视口：1440×900（展开/收起各一次）、1280×800、1100×720、960×640；DPI100/125/150/200%，两块屏幕及负坐标；主题calm及旧主题配置兼容归一；中文/英文与长内容；原字体放大。主操作必须可见或通过已有更多入口可达，表内横滚允许，整个主窗横向溢出不允许。
 
 状态：0项、1项、长列表、超长标题/路径、loading、业务空结果、失败、已禁用、正在执行且切页、取消后恢复、已保存的极端splitter宽度、WebEngine不可用、私有项锁定/解锁。
 
@@ -473,7 +482,7 @@ P09A–E可由不同开发者在P01–P08稳定后分工；本文是未来工单
 
 交付源代码、正确生成的Web资源、资产、逐工单行为对照、前后图、测试命令/结果和剩余限制。原型和DEMO仅留docs，不混入正式资源。现有业务代码/配置键/API未变须有diff与测试支持，不能只写口头保证。
 
-开发完成定义：所有本期展示面替换完成、行为保持、低宽/双主题/原生fallback与loading全部验收；系统原生非客户区保留是已明确设计选择。若用户未来要求完全自绘系统边框，按第3.2单独实施，不隐瞒为“已像素还原HTML”。
+开发完成定义：所有本期展示面替换完成、行为保持、低宽/单主题兼容/原生fallback与loading全部验收；系统原生非客户区保留是已明确设计选择。若用户未来要求完全自绘系统边框，按第3.2单独实施，不隐瞒为“已像素还原HTML”。
 
 明确当前范围：本次交付需求和实施设计，不开始正式生产代码重写、提交或发版。所有源码事实以基线为准，开发前只需核对分支漂移与新的用户需求，不需要重新做一轮技术选型。文档有未覆盖且会改功能的事项时记录差异，保持原实现，不能自行补新业务。
 
