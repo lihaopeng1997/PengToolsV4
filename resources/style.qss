@@ -2094,7 +2094,7 @@ QPlainTextEdit#floating-learn-content {
 #dashboard-task-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
+    border-radius: 16px;
 }
 #dashboard-task-row {
     background: __SURFACE_SOFT__;

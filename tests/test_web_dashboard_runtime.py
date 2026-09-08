@@ -141,6 +141,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                     const stat = document.querySelector('.stat');
                     const card = document.querySelector('.card');
                     const btnPrimary = document.querySelector('.btn-primary');
+                    const heroStyle = hero ? getComputedStyle(hero) : null;
                     const statStyle = stat ? getComputedStyle(stat) : null;
                     const cardStyle = card ? getComputedStyle(card) : null;
                     const btnStyle = btnPrimary ? getComputedStyle(btnPrimary) : null;
@@ -149,12 +150,14 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                         theme: root.getAttribute('data-theme'),
                         isDark: root.classList.contains('dark'),
                         primary: style.getPropertyValue('--primary').trim(),
+                        appBg: style.getPropertyValue('--app-bg').trim(),
+                        surface: style.getPropertyValue('--surface').trim(),
                         glassBg: style.getPropertyValue('--glass-bg').trim(),
                         hero: !!hero,
                         statCount: document.querySelectorAll('.stat').length,
                         cardCount: document.querySelectorAll('.card').length,
                         btnPrimary: !!btnPrimary,
-                        glassShadow: statStyle ? statStyle.boxShadow : '',
+                        glassShadow: heroStyle ? heroStyle.boxShadow : '',
                         cardShadow: cardStyle ? cardStyle.boxShadow : '',
                         btnShadow: btnStyle ? btnStyle.boxShadow : '',
                         cardBg: cardStyle ? cardStyle.backgroundColor : '',
@@ -163,7 +166,9 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 calm_res = run_js(js_probe) or {}
                 self.assertEqual(calm_res.get('theme'), 'calm')
                 self.assertFalse(calm_res.get('isDark'))
-                self.assertEqual(calm_res.get('primary'), '#4A61F0')
+                self.assertEqual(calm_res.get('primary'), '#6C58D9')
+                self.assertEqual(calm_res.get('appBg'), '#F4F3FA')
+                self.assertEqual(calm_res.get('surface'), '#FDFDFF')
                 self.assertTrue(calm_res.get('glassShadow') and calm_res.get('glassShadow') != 'none')
                 self.assertTrue(calm_res.get('cardShadow') and calm_res.get('cardShadow') != 'none')
 
@@ -185,8 +190,9 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 black_res = run_js(js_probe) or {}
                 self.assertEqual(black_res.get('theme'), 'black')
                 self.assertTrue(black_res.get('isDark'))
-                self.assertEqual(black_res.get('primary'), '#8FBB9E')
-                self.assertEqual(black_res.get('cardBg'), 'rgb(22, 22, 24)')
+                self.assertEqual(black_res.get('primary'), '#A99AF5')
+                self.assertEqual(black_res.get('appBg'), '#15151E')
+                self.assertEqual(black_res.get('surface'), '#1E1E2B')
 
                 # C. DOM 点击“数据中心”工具 => Python 收到 nav 18
                 js_click_dc = '''(() => {

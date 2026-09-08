@@ -878,7 +878,7 @@ class DashboardPanel(QWidget):
         )
         target = rel.get('target_date') or ''
         self.release_target_edit.setText(
-            (f'发版日 {target}' if target else '发版日：自动（本月最近计划）') if zh
+            (f'发版日 {target}' if target else '发版日：自动（按本月实际上线日期）') if zh
             else (f'Release {target}' if target else 'Release date: auto')
         )
 
@@ -931,7 +931,7 @@ class DashboardPanel(QWidget):
             self.release_title.setText('Monthly upgrade tasks')
             self.release_more.setText('Release prep')
             self.release_month_combo.setToolTip('Choose a release month')
-            self.release_empty.setText('No upgrade tasks this month. Add planned or actual online dates.')
+            self.release_empty.setText('No upgrade tasks this month. Set an actual release date to include a task here.')
             if hasattr(self, 'release_target_clear'):
                 self.release_target_clear.setText('Clear date')
             if hasattr(self, 'release_summary') and not self.release_summary.text():

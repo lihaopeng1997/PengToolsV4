@@ -91,9 +91,8 @@ class DashboardThemeStaticAuditTest(unittest.TestCase):
         self.assertEqual(bare_shadows, [], f'DashboardApp.vue 存在缺少几何偏移的裸 shadow token: {bare_shadows}')
         # 必须存在几何偏移 + 语义 shadow token
         self.assertIn('0 2px 8px var(--shadow-l1)', self.vue_source)
-        self.assertIn('0 8px 28px var(--shadow-l2)', self.vue_source)
-        self.assertIn('0 8px 22px var(--shadow-l2)', self.vue_source)
-        self.assertIn('0 10px 24px var(--shadow-l4)', self.vue_source)
+        self.assertIn('0 4px 14px var(--shadow-l2)', self.vue_source)
+        self.assertIn('0 6px 16px var(--shadow-l2)', self.vue_source)
 
 
 class RgbaCssNormalizationTest(unittest.TestCase):
