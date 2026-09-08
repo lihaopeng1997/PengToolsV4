@@ -168,15 +168,38 @@ class PrismDialogContractTests(unittest.TestCase):
         finally:
             submit_dlg.close()
 
+    def test_dialog_standard_button_spec(self):
+        """V2.0 Section 6.2: 弹窗标准操作按钮高 32px，最小宽 72px。"""
+        from ui.dialog_buttons import DIALOG_BUTTON_H, DIALOG_BUTTON_MIN_W
+        self.assertEqual(DIALOG_BUTTON_H, 32)
+        self.assertEqual(DIALOG_BUTTON_MIN_W, 72)
+
     def test_test_points_dialog_and_row(self):
-        """TestPointsDialog 宽度 640，TestPointRow 行高 >= 44px，checkbox 命中区 >= 28px。"""
+        """TestPointsDialog 宽度 640，TestPointRow 行高 >= 44px，checkbox 28px，编辑/删除 28x28 图标按钮。"""
         from panels.test_points_editor import TestPointsDialog, TestPointRow
 
         row = TestPointRow({"id": "tp-1", "title": "测试点1", "done": False})
         try:
             self.assertGreaterEqual(row.minimumHeight(), 44)
-            self.assertGreaterEqual(row.check.width(), 28)
-            self.assertGreaterEqual(row.check.height(), 28)
+            self.assertEqual(row.check.width(), 28)
+            self.assertEqual(row.check.height(), 28)
+            self.assertEqual(row.edit_btn.width(), 28)
+            self.assertEqual(row.edit_btn.height(), 28)
+            self.assertEqual(row.delete_btn.width(), 28)
+            self.assertEqual(row.delete_btn.height(), 28)
+
+            # 验证点击编辑图标按钮触发编辑态
+            self.assertFalse(row._editing)
+            row.edit_btn.click()
+            self.assertTrue(row._editing)
+            self.assertFalse(row.text_edit.isHidden())
+            self.assertTrue(row.text_label.isHidden())
+
+            # 验证点击删除图标按钮触发 removed 信号
+            deleted_ids = []
+            row.removed.connect(lambda pid: deleted_ids.append(pid))
+            row.delete_btn.click()
+            self.assertEqual(deleted_ids, ["tp-1"])
         finally:
             row.deleteLater()
 
@@ -230,6 +253,56 @@ class PrismDialogContractTests(unittest.TestCase):
         finally:
             for dlg in dialogs:
                 dlg.close()
+
+    def test_dialogs_960x640_and_font_scale_adaptability(self):
+        """验证在 960x640 紧凑屏幕与字体缩放 (125%/150%) 下，弹窗尺寸不超边界且渲染正常。"""
+        from PyQt6.QtCore import QRect
+        from PyQt6.QtGui import QFont
+        from unittest.mock import MagicMock, patch
+        from ui.dialog_buttons import clamp_dialog_geometry
+        from ui.connection_dialog import ConnectionDialog
+        from panels.test_points_editor import TestPointsDialog
+        from panels.ticket_submit_dialog import TicketSubmitDialog
+        from ui.confirm_dialog import ConfirmActionDialog
+
+        # 模拟 960x640 屏幕
+        mock_screen = MagicMock()
+        mock_screen.availableGeometry.return_value = QRect(0, 0, 960, 640)
+
+        with patch("PyQt6.QtWidgets.QApplication.primaryScreen", return_value=mock_screen):
+            # 1. ConnectionDialog 在 960x640 下夹取
+            conn_dlg = ConnectionDialog(parent=None)
+            try:
+                w, h = clamp_dialog_geometry(conn_dlg, 860, 680, screen=mock_screen)
+                self.assertLessEqual(w, 960 - 48)
+                self.assertLessEqual(h, 640 - 48)
+            finally:
+                conn_dlg.close()
+
+            # 2. TestPointsDialog 在 960x640 下夹取
+            tp_dlg = TestPointsDialog({"code": "R1", "title": "测试需求"}, parent=None)
+            try:
+                w, h = clamp_dialog_geometry(tp_dlg, 640, 520, screen=mock_screen)
+                self.assertLessEqual(w, 960 - 48)
+                self.assertLessEqual(h, 640 - 48)
+            finally:
+                tp_dlg.close()
+
+            # 3. 字体放大测试 (125% ~ 150%: 12pt -> 15pt)，验证主要弹窗布局不抛出异常、不超界
+            for font_size in (12, 15):
+                f = QFont("Microsoft YaHei", font_size)
+                self.app.setFont(f)
+
+                dlg_action = ConfirmActionDialog("确认操作", "测试文案内容", "确认", danger=False)
+                try:
+                    dlg_action.show()
+                    self.app.processEvents()
+                    self.assertLessEqual(dlg_action.width(), 960)
+                    self.assertLessEqual(dlg_action.height(), 640)
+                    self.assertEqual(dlg_action.confirm_button.height(), 32)
+                    self.assertGreaterEqual(dlg_action.confirm_button.width(), 72)
+                finally:
+                    dlg_action.close()
 
 
 if __name__ == "__main__":

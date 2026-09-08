@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QPushButton, QSizePolicy
 
-DIALOG_BUTTON_H = 30
-DIALOG_BUTTON_MIN_W = 60
+DIALOG_BUTTON_H = 32
+DIALOG_BUTTON_MIN_W = 72
 
 
 def clamp_dialog_geometry(
@@ -17,17 +17,18 @@ def clamp_dialog_geometry(
     min_width: int | None = None,
     min_height: int | None = None,
     margin: int = 48,
+    screen=None,
 ) -> tuple[int, int]:
     """根据屏幕可用几何区域 (availableGeometry) 自适应夹取弹窗尺寸，防止在小屏或多屏环境下被裁切。"""
-    screen = None
-    if dialog.parent() is not None and hasattr(dialog.parent(), "window"):
-        parent_win = dialog.parent().window()
-        if hasattr(parent_win, "screen"):
-            screen = parent_win.screen()
-    if screen is None and hasattr(dialog, "screen"):
-        screen = dialog.screen()
     if screen is None:
-        screen = QApplication.primaryScreen()
+        if dialog.parent() is not None and hasattr(dialog.parent(), "window"):
+            parent_win = dialog.parent().window()
+            if hasattr(parent_win, "screen"):
+                screen = parent_win.screen()
+        if screen is None and hasattr(dialog, "screen"):
+            screen = dialog.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
 
     if screen is not None:
         avail = screen.availableGeometry()

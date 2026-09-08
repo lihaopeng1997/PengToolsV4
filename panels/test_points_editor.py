@@ -21,6 +21,7 @@ from ui.confirm_dialog import confirm_action, show_error
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry, size_dialog_button
 from ui.field_metrics import size_line
+from ui.icons import apply_icon
 
 
 class TestPointRow(QFrame):
@@ -56,8 +57,24 @@ class TestPointRow(QFrame):
         self.text_edit.editingFinished.connect(self._commit_edit)
         self.text_edit.returnPressed.connect(self._commit_edit)
         layout.addWidget(self.text_edit, 1)
-        self.delete_btn = QPushButton('删除')
-        size_dialog_button(self.delete_btn, 'ghost')
+
+        # 28x28 编辑图标按钮
+        self.edit_btn = QPushButton()
+        self.edit_btn.setObjectName('test-point-edit-btn')
+        apply_button(self.edit_btn, 'ghost', compact=True)
+        apply_icon(self.edit_btn, 'edit', 14)
+        self.edit_btn.setFixedSize(28, 28)
+        self.edit_btn.setToolTip('编辑测试点')
+        self.edit_btn.clicked.connect(self._begin_edit)
+        layout.addWidget(self.edit_btn, 0)
+
+        # 28x28 移除/删除图标按钮
+        self.delete_btn = QPushButton()
+        self.delete_btn.setObjectName('test-point-delete-btn')
+        apply_button(self.delete_btn, 'ghost', compact=True)
+        apply_icon(self.delete_btn, 'delete', 14)
+        self.delete_btn.setFixedSize(28, 28)
+        self.delete_btn.setToolTip('删除测试点')
         self.delete_btn.clicked.connect(self._on_delete)
         layout.addWidget(self.delete_btn, 0)
         self.setCursor(Qt.CursorShape.ArrowCursor)
