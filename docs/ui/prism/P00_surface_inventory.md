@@ -1,6 +1,6 @@
 # PengToolsHub 晴空棱镜 · 界面全量盘点与基线冻结 (P00_surface_inventory)
 
-- **工单编号**: `ROUND: PRISM-UI-P00`
+- **工单编号**: `ROUND: PRISM-UI-P00-FIX-1`
 - **基线提交 (Base SHA)**: `32d7880af3d7246d0e586e3d7b2e16854e712cce`
 - **开发分支**: `ui/prism-v1`
 - **设计权威文档**: `docs/ui/concepts-2026-09/prism-suite/UI优化需求_晴空棱镜_Agent实施规范.md`
@@ -13,14 +13,14 @@
 
 ## 1. 导航结构盘点 (22 Leaf Pages + 2 Parent Folders)
 
-依据 `ui/navigation_model.py` 权威定义，当前软件导航共有 **22 个功能叶子页面**，以及 **2 个纯折叠父级目录**（无独立 QWidget 页面，仅供侧栏折叠/展开）。
+依据 `ui/navigation_model.py` 及 `main_window.py` 运行时挂载机制权威定义，当前软件导航共有 **22 个业务叶子页面**，以及 **2 个纯折叠父级目录**（无独立 QWidget 页面，仅供侧栏折叠/展开）。
 
-### 1.1 业务叶子页面清单 (22 / 22)
+### 1.1 业务叶子页面清单 (22 / 22，全部源码路径与真实类名机械校验通过)
 
-| 导航索引 (`nav_index`) | 中文名称 | 英文名称 | 业务图标角色 (`icon_role`) | 导航分组 (`group_key`) | 对应面板类 (`Panel Class`) | 源码文件 | 渲染通道 | 响应式支持 |
+| 导航索引 (`nav_index`) | 中文名称 | 英文名称 | 业务图标角色 (`icon_role`) | 导航分组 (`group_key`) | 对应面板类 (`Panel Class`) | 真实源码文件路径 | 渲染通道 | 响应式支持 |
 |:---:|:---|:---|:---|:---|:---|:---|:---:|:---:|
 | **0** | 首页 | Home | `home` | `workspace` | `DashboardPanel` | `panels/dashboard_panel.py` | Web/原生双通道 | 是 (CSS Grid / QLayout) |
-| **1** | 证件类型 | Documents | `document-id` | `devtools` | `CreditCodePanel` | `panels/credit_code_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **1** | 证件类型 | Documents | `document-id` | `devtools` | `CreditCodePanel` | `panels/credit_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **2** | 发版联动 | Release Link | `release` | `delivery` | `SqlToolPanel` | `panels/sql_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **3** | 接口文档更新 | Interface Docs | `doc-update` | `delivery` | `DocxUpdatePanel` | `panels/docx_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **4** | 车辆 VIN | Vehicle VIN | `vin` | `devtools` | `VinPanel` | `panels/vin_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
@@ -30,32 +30,32 @@
 | **8** | 自我学习 | Learning | `learning` | `personal` | `PersonalPanel` (知识库Tab) | `panels/personal_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **9** | 日报 | Daily Report | `daily-report` | `delivery` | `PersonalPanel` (日报Tab) | `panels/personal_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **10** | 需求管理 | Requirements | `requirements` | `delivery` | `RequirementPanel` | `panels/requirement_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **11** | 格式工具 | Format Tools | `json` | `devtools` | `FormatToolsPanel` | `panels/format_tools_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **11** | 格式工具 | Format Tools | `json` | `devtools` | `FormatToolsPanel` | `panels/format_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **12** | 接口排查 | API Debug | `api-debug` | `devtools` | `InterfaceDebugPanel` | `panels/interface_debug_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **13** | 日志排查 | Log Inspect | `search` | `ops` | `OpsLogPanel` | `panels/ops_log_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **16** | 聊天 | AI Chat | `chat` | `ai` | `ModelChatPanel` | `panels/model_chat_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 | **17** | 工作 | Agent Workbench | `chat` | `ai` | `AgentWorkbenchPanel` | `panels/agent_workbench_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **18** | Oracle | Oracle DB | `database` | `workspace` | `OracleWorkbenchPanel` | `panels/sql_db_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **19** | MySQL | MySQL DB | `database` | `workspace` | `MySQLWorkbenchPanel` | `panels/sql_db_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **20** | OceanBase | OceanBase DB | `database` | `workspace` | `OceanBaseWorkbenchPanel` | `panels/sql_db_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **21** | 达梦 | Dameng DB | `database` | `workspace` | `DamengWorkbenchPanel` | `panels/sql_db_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **22** | Redis | Redis DB | `database` | `workspace` | `RedisWorkbenchPanel` | `panels/redis_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
-| **23** | MongoDB | MongoDB DB | `database` | `workspace` | `MongoDBWorkbenchPanel` | `panels/mongodb_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **18** | Oracle | Oracle DB | `database` | `workspace` | `AiWorkbenchPanel` (`dialect='oracle'`) | `panels/ai_workbench_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **19** | MySQL | MySQL DB | `database` | `workspace` | `AiWorkbenchPanel` (`dialect='mysql'`) | `panels/ai_workbench_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **20** | OceanBase | OceanBase DB | `database` | `workspace` | `AiWorkbenchPanel` (`dialect='oceanbase'`) | `panels/ai_workbench_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **21** | 达梦 | Dameng DB | `database` | `workspace` | `AiWorkbenchPanel` (`dialect='dameng'`) | `panels/ai_workbench_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **22** | Redis | Redis DB | `database` | `workspace` | `RedisWorkbenchPanel` | `panels/db_redis_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
+| **23** | MongoDB | MongoDB DB | `database` | `workspace` | `MongoDBWorkbenchPanel` | `panels/db_mongodb_panel.py` | 原生 QWidget | 是 (`apply_layout_mode`) |
 
 ### 1.2 父级折叠目录 (2 / 2)
 
 | 导航索引 (`nav_index`) | 中文名称 | 英文名称 | 业务图标角色 | 导航分组 | 交互行为 | 实施说明 |
 |:---:|:---|:---|:---|:---|:---|:---|
-| **14** | 数据中心 | Data Center | `database` | `workspace` | 仅折叠/展开子菜单 (18~23) | **无对应独立页面**，点击切换展开状态，不触发 `QStackedWidget.setCurrentIndex` |
-| **15** | 模型 | AI | `chat` | `ai` | 仅折叠/展开子菜单 (16, 17) | **无对应独立页面**，点击切换展开状态，不触发 `QStackedWidget.setCurrentIndex` |
+| **14** | 数据中心 | Data Center | `database` | `workspace` | 仅折叠/展开子菜单 (18~23) | **无对应独立 QWidget 页面**，点击切换展开/折叠状态，不触发 `QStackedWidget.setCurrentIndex` |
+| **15** | 模型 | AI | `chat` | `ai` | 仅折叠/展开子菜单 (16, 17) | **无对应独立 QWidget 页面**，点击切换展开/折叠状态，不触发 `QStackedWidget.setCurrentIndex` |
 
 ---
 
-## 2. 弹窗与子窗口盘点 (26 QDialog Subclasses)
+## 2. 弹窗与子窗口盘点 (26 QDialog Subclasses，全部实测导入通过)
 
 经全代码库扫描，系统内共有 **26 个继承自 `QDialog` 的窗口与编辑器**，所有子窗口必须在晴空棱镜规范下进行视觉重构，同时保持模态行为、返回码、参数及业务方法不变。
 
-| 序号 | 类名 (`Class Name`) | 源码定义位置 | 触发入口与所属模块 | 模态与交互类型 | 主要业务职责 |
+| 序号 | 类名 (`Class Name`) | 真实源码定义位置 | 触发入口与所属模块 | 模态与交互类型 | 主要业务职责 |
 |:---:|:---|:---|:---|:---|:---|
 | 1 | `ObjectPickDialog` | `panels/ai_token_edit.py:244` | AI 规则与对象选择 | 模态 (`exec()`) | 数据库对象/表结构选择注入 prompt |
 | 2 | `PasteKnowledgeDialog` | `panels/personal_panel.py:56` | 个人学习知识库 | 模态 (`exec()`) | 剪贴板大段文本快速解析并录入知识库 |
@@ -177,7 +177,7 @@
 
 ## 5. 结论与基线签署
 
-1. **22 个功能叶子页面与 2 个折叠父级** 全部盘点无误，严格锁定导航映射规范。
-2. **26 个 QDialog 子窗口** 已全量建档并锁定生命周期与调用协议。
+1. **22 个功能叶子页面与 2 个折叠父级** 全部盘点无误，严格锁定导航映射规范，源码路径与真实类名全部经 Python AST 校验。
+2. **26 个 QDialog 子窗口** 已全量建档并锁定生命周期与调用协议，全部实测可正常导入。
 3. **96 张全矩阵截图** 已生成并存放于本地 `.codex_work/prism-p00/` 供后续各阶段像素级比对。
 4. 本次交付物仅包含盘点文档与测试基准，**未对任何生产代码产生修改**。
