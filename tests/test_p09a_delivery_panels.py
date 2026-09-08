@@ -4,7 +4,7 @@
 覆盖：
 1. 需求管理 (RequirementPanel): 分栏 400/C-416, 左右几何限制 (320~560 / min 520), 窄布局自适应, Calm Token 消费;
 2. 接口文档 (DocxUpdatePanel): 文档列表 280, SQL 编辑器最小高 220px, 响应式布局;
-3. 个人日报 (DailyReportTab): 日期树 264, 三大主正文编辑区 preferred_height 120px / 间距规范, 响应式布局;
+3. 个人日报 (DailyReportTab): 日期树 264, 正文 preferred_height 280/120/120/72, 表单间距 6, 响应式布局;
 4. 发版联动 (SqlToolPanel): SQL 输入最小高 240px, 弱步骤条响应式收纳;
 5. 测试点清单 (TestPointRow / TestPointsDialog): 行高 min 44, 图标及复选框命中 28x28, 弹窗几何限制。
 """
