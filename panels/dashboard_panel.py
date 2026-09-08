@@ -234,7 +234,7 @@ class TaskRow(QFrame):
 
 
 def _load_daily_quotes() -> list[dict]:
-    """从统一静态 JSON 资源读取 12 条公版经典句。"""
+    """从 resources/ui/daily-quotes.json 读取 12 条公版经典句，唯一真实数据源。"""
     try:
         path = resource_path('resources', 'ui', 'daily-quotes.json')
         if os.path.exists(path):
@@ -244,14 +244,7 @@ def _load_daily_quotes() -> list[dict]:
                     return data
     except Exception:
         pass
-    return [
-        {
-            'id': 'quote-01',
-            'text': '长风破浪会有时，直挂云帆济沧海。',
-            'source': '李白《行路难·其一》',
-            'author': '李白'
-        }
-    ]
+    return []
 
 
 class PrismOrbWidget(QWidget):
@@ -262,7 +255,7 @@ class PrismOrbWidget(QWidget):
         self.setFixedSize(120, 120)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._offset_y = 0.0
-        self._angle = -5.0
+        self._angle = 0.0
         self._scale = 1.0
         self._anim = None
         if motion_enabled():
@@ -279,11 +272,26 @@ class PrismOrbWidget(QWidget):
         self._anim.valueChanged.connect(self._on_anim_value)
         self._anim.start()
 
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if self._anim is not None and self._anim.state() == self._anim.State.Running:
+            self._anim.pause()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if motion_enabled():
+            if self._anim is None:
+                self._init_animation()
+            elif self._anim.state() == self._anim.State.Paused:
+                self._anim.resume()
+            elif self._anim.state() == self._anim.State.Stopped:
+                self._anim.start()
+
     def _on_anim_value(self, val: float):
         import math
         rad = val * 2.0 * math.pi
         self._offset_y = -2.5 * (1.0 - math.cos(rad))
-        self._angle = -5.0 + 5.0 * math.sin(rad)
+        self._angle = 5.0 * math.sin(rad)
         self._scale = 1.0 + 0.02 * (1.0 - math.cos(rad))
         self.update()
 
@@ -324,6 +332,7 @@ class DashboardPanel(QWidget):
     open_ops = pyqtSignal()
     open_ai_workbench = pyqtSignal()
     open_requirements = pyqtSignal()
+    create_requirement = pyqtSignal()
     open_requirement = pyqtSignal(object)  # 具体需求 dict 或 id
     requirements_updated = pyqtSignal()  # 工作台改了需求台账（标记上线/恢复待办）
 
@@ -407,7 +416,7 @@ class DashboardPanel(QWidget):
         hero_acts.setSpacing(8)
         self.hero_create_req = QPushButton('新建需求')
         apply_button(self.hero_create_req, 'primary', compact=True, icon='add')
-        self.hero_create_req.clicked.connect(self.open_requirements.emit)
+        self.hero_create_req.clicked.connect(self.create_requirement.emit)
         hero_acts.addWidget(self.hero_create_req)
         hero_acts.addStretch(1)
         left_hero.addLayout(hero_acts)

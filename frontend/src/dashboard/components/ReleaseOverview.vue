@@ -39,7 +39,7 @@ const percent = computed(() => {
 const ringStyle = computed(() => {
   const p = percent.value
   return {
-    background: `conic-gradient(var(--primary, #6c58d9) ${p}%, var(--primary-soft, #eae5f5) 0)`
+    background: `conic-gradient(var(--primary) ${p}%, var(--primary-soft) 0)`
   }
 })
 
@@ -83,9 +83,18 @@ const milestoneStats = computed(() => {
         status.includes('待确认') ||
         status.includes('待上线')
 
+      const isTestingVerification =
+        !isPendingConfirm &&
+        (status.includes('测试') ||
+         status.includes('开发') ||
+         status.includes('进行中') ||
+         status.includes('待评审') ||
+         status === 'rev' ||
+         status === 'run')
+
       if (isPendingConfirm) {
         pendingConfirmCount++
-      } else {
+      } else if (isTestingVerification) {
         testingCount++
       }
     }
@@ -170,21 +179,15 @@ const milestoneStats = computed(() => {
 .release-overview {
   height: 300px;
   min-height: 300px;
-  background: var(--surface, #fdfdff);
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.15));
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px;
-  box-shadow: 0 4px 16px rgba(132, 128, 173, 0.04);
+  box-shadow: 0 4px 16px var(--shadow-l1);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-sizing: border-box;
-}
-
-:global([data-theme="black"]) .release-overview,
-:global(body.theme-black) .release-overview {
-  background: var(--surface, #1e1e2b);
-  border-color: var(--border, rgba(255, 255, 255, 0.08));
 }
 
 .card-head {
@@ -197,14 +200,14 @@ const milestoneStats = computed(() => {
 .card-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text, #28324a);
+  color: var(--text);
   margin: 0;
 }
 
 .month-label {
   font: 9px Consolas, monospace;
   letter-spacing: 1px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
 }
 
 .ring-row {
@@ -228,7 +231,7 @@ const milestoneStats = computed(() => {
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  background: var(--surface, #faf9fe);
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -236,15 +239,10 @@ const milestoneStats = computed(() => {
   z-index: 1;
 }
 
-:global([data-theme="black"]) .ring-center,
-:global(body.theme-black) .ring-center {
-  background: var(--surface, #1e1e2b);
-}
-
 .ring-num {
   font-size: 20px;
   font-weight: 600;
-  color: var(--text, #28324a);
+  color: var(--text);
   letter-spacing: -0.5px;
   line-height: 1.1;
 }
@@ -252,7 +250,7 @@ const milestoneStats = computed(() => {
 .ring-sub {
   font: 8px Consolas, monospace;
   letter-spacing: 0.5px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
 }
 
 .ring-info {
@@ -263,13 +261,13 @@ const milestoneStats = computed(() => {
 .info-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text, #28324a);
+  color: var(--text);
   margin: 0 0 4px 0;
 }
 
 .info-hint {
   font-size: 11px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
   margin: 0 0 6px 0;
 }
 
@@ -278,15 +276,15 @@ const milestoneStats = computed(() => {
   padding: 2px 7px;
   border-radius: 4px;
   font-size: 10px;
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
-  color: var(--primary, #6c58d9);
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .milestones {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  border-top: 1px solid var(--border, rgba(119, 123, 163, 0.08));
+  border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 
@@ -295,7 +293,7 @@ const milestoneStats = computed(() => {
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--text, #28324a);
+  color: var(--text);
 }
 
 .m-left {
@@ -305,31 +303,31 @@ const milestoneStats = computed(() => {
 }
 
 .m-ico.success {
-  color: var(--success, #247f75);
+  color: var(--success);
 }
 .m-ico.warning {
-  color: var(--warning, #a5772a);
+  color: var(--warning);
 }
 .m-ico.primary {
-  color: var(--primary, #6c58d9);
+  color: var(--primary);
 }
 
 .m-val {
   font-size: 11px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
 }
 
 .card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid var(--border, rgba(119, 123, 163, 0.08));
+  border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 
 .foot-hint {
   font-size: 10px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
 }
 
 .foot-btn {
@@ -337,7 +335,7 @@ const milestoneStats = computed(() => {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--primary, #6c58d9);
+  color: var(--primary);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -347,6 +345,6 @@ const milestoneStats = computed(() => {
 }
 
 .foot-btn:hover {
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
+  background: var(--primary-soft);
 }
 </style>

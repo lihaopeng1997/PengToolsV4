@@ -168,7 +168,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
             <span v-else class="demo-badge">示例</span>
           </div>
         </template>
-        <div v-else class="empty-hint">本月暂无计划上线任务</div>
+        <div v-else class="empty-hint">本月暂无实际上线任务</div>
       </div>
     </section>
   </div>
@@ -186,7 +186,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px;
-  box-shadow: 0 2px 8px var(--shadow-l1, rgba(132, 128, 173, 0.04));
+  box-shadow: 0 2px 8px var(--shadow-l1);
   box-sizing: border-box;
 }
 
@@ -221,8 +221,8 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  background: var(--surface-soft, rgba(108, 88, 217, 0.04));
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.1));
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
   border-radius: 10px;
   margin-bottom: 12px;
 }
@@ -233,7 +233,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   display: grid;
   place-items: center;
   border-radius: 6px;
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
+  background: var(--primary-soft);
   color: var(--primary);
   flex-shrink: 0;
 }
@@ -261,7 +261,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
+  background: var(--primary-soft);
   color: var(--primary);
 }
 
@@ -280,7 +280,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   min-height: 42px;
   padding: 7px 10px;
   border-radius: 8px;
-  border-bottom: 1px solid var(--border, rgba(119, 123, 163, 0.08));
+  border-bottom: 1px solid var(--border);
   background: transparent;
   transition: background 0.15s ease;
   box-sizing: border-box;
@@ -288,7 +288,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 
 .ck.clickable:hover,
 .ck:not(.is-demo):hover {
-  background: var(--primary-soft, rgba(108, 88, 217, 0.06));
+  background: var(--primary-soft);
   cursor: pointer;
 }
 
@@ -314,7 +314,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   flex-shrink: 0;
 }
 .dot.run { background: var(--warning); }
-.dot.rev { background: var(--accent-cyan, var(--cyan, rgb(32, 148, 139))); }
+.dot.rev { background: var(--accent-cyan, var(--cyan)); }
 .dot.ok { background: var(--success); }
 
 .req-id-badge {
@@ -323,7 +323,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   font-weight: 650;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--surface-soft, rgba(108, 88, 217, 0.08));
+  background: var(--surface-soft);
   color: var(--primary);
   white-space: nowrap;
   flex-shrink: 0;
@@ -372,15 +372,15 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   flex-shrink: 0;
 }
 .chip.run {
-  background: rgba(108, 88, 217, 0.1);
+  background: var(--primary-soft);
   color: var(--primary);
 }
 .chip.rev {
-  background: rgba(165, 119, 42, 0.12);
+  background: var(--status-warning-bg, var(--primary-soft));
   color: var(--warning);
 }
 .chip.ok {
-  background: rgba(36, 127, 117, 0.12);
+  background: var(--status-success-bg, var(--primary-soft));
   color: var(--success);
 }
 
@@ -388,21 +388,21 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   padding: 3px 8px;
   font-size: 10px;
   border-radius: 4px;
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.2));
+  border: 1px solid var(--border);
   background: transparent;
   color: var(--primary);
   cursor: pointer;
   flex-shrink: 0;
 }
 .btn-xs:hover {
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
+  background: var(--primary-soft);
 }
 
 .demo-badge {
   font-size: 9px;
   padding: 2px 5px;
   border-radius: 4px;
-  background: rgba(119, 123, 163, 0.15);
+  background: var(--surface-soft);
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;

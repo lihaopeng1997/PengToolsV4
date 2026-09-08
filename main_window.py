@@ -320,6 +320,8 @@ class MainWindow(QMainWindow):
             panel.open_ai_workbench.connect(lambda: self._show_panel(SQL_DB_NAV_START))
         if hasattr(panel, 'open_requirements'):
             panel.open_requirements.connect(lambda: self._show_panel(10))
+        if hasattr(panel, 'create_requirement'):
+            panel.create_requirement.connect(self._on_web_create_requirement)
         if hasattr(panel, 'open_requirement'):
             panel.open_requirement.connect(self._open_requirement_from_dashboard)
         if getattr(self, '_web_shell_enabled', False) and getattr(self, '_dash_web', None) is not None:

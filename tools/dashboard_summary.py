@@ -118,6 +118,7 @@ def build_dashboard_summary(
     requirements=None,
     board=None,
     reports=None,
+    tools: list[dict] | None = None,
 ) -> dict:
     day = _as_date(today)
     zh = language == 'zh'
@@ -235,14 +236,12 @@ def build_dashboard_summary(
             'is_demo': bool(item.get('is_demo')),
         })
 
-    tools = [
-        {'i': 18, 'zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
-        {'i': 16, 'zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
-        {'i': 12, 'zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'api', 'grad': 'c3'},
-        {'i': 13, 'zh': '日志排查', 'ds': 'SSH 多机并行日志', 'icon': 'logs', 'grad': 'c5'},
-        {'i': 5, 'zh': '加解密', 'ds': '网关国密加解密', 'icon': 'crypto', 'grad': 'c6'},
-        {'i': 11, 'zh': '格式工具', 'ds': 'JSON / XML / SQL', 'icon': 'format', 'grad': 'c4'},
-    ]
+    if tools is None:
+        try:
+            from ui.navigation_model import get_dashboard_quick_tools
+            tools = get_dashboard_quick_tools()
+        except Exception:
+            tools = []
     demo_month_total = len(display_month_tasks)
     demo_month_done = sum(1 for row in display_month_tasks if row.get('done'))
     return {

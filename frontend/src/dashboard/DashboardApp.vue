@@ -16,6 +16,7 @@ const props = defineProps<{
     summary: DashboardSummary | null
     bridge: BridgeApi | null
     error?: string | null
+    retry?: () => Promise<void>
   }
 }>()
 
@@ -78,6 +79,14 @@ function onOpenRequirement(reqId?: string | null, fallbackNav = 10): void {
 
 function onWriteDaily(): void {
   onNavClick(9)
+}
+
+function onRetry(): void {
+  if (props.state.retry) {
+    props.state.retry()
+  } else {
+    onNavClick(0)
+  }
 }
 </script>
 
@@ -148,7 +157,7 @@ function onWriteDaily(): void {
   <div v-else-if="error" class="error-view">
     <PrismIcon name="file" :size="32" />
     <p>{{ error }}</p>
-    <button class="btn btn-primary" type="button" @click="onNavClick(0)">重试加载</button>
+    <button class="btn btn-primary" type="button" @click="onRetry">重试加载</button>
   </div>
 </template>
 

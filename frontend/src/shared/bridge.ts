@@ -79,6 +79,10 @@ export function applyThemePayload(payloadStr?: string | null): void {
     const isDark = Boolean(data.is_dark)
     document.documentElement.setAttribute('data-theme', themeId)
     document.documentElement.classList.toggle('dark', isDark)
+    if (typeof data.motion_enabled === 'boolean') {
+      document.body.classList.toggle('motion-disabled', !data.motion_enabled)
+      document.documentElement.setAttribute('data-motion', data.motion_enabled ? 'enabled' : 'disabled')
+    }
     if (data.tokens && typeof data.tokens === 'object') {
       const rootStyle = document.documentElement.style
       for (const [key, value] of Object.entries(data.tokens)) {

@@ -7,6 +7,7 @@ const state = reactive<{
   summary: DashboardSummary | null
   bridge: BridgeApi | null
   error: string | null
+  retry?: () => Promise<void>
 }>({
   summary: null,
   bridge: null,
@@ -17,10 +18,7 @@ const state = reactive<{
 const app = createApp(DashboardApp, { state })
 app.mount('#app')
 
-async function bootstrapDashboard(): Promise<void> {
-  // 时序：Vue mount → connectBridge → dashboardSummary → JSON.parse → state 应用成功 → DOM/render 就绪 → pageReady('dashboard')
-  const bridge = await connectBridge()
-  state.bridge = bridge
+async function loadData(bridge: BridgeApi): Promise<void> {
   const rawSummary = await bridge.dashboardSummary()
   const themeRaw = await bridge.themePayload()
   applyThemePayload(themeRaw)
@@ -40,6 +38,30 @@ async function bootstrapDashboard(): Promise<void> {
   await nextTick()
   bridge.pageReady('dashboard')
 }
+
+async function bootstrapDashboard(): Promise<void> {
+  // 时序：Vue mount → connectBridge → dashboardSummary → JSON.parse → state 应用成功 → DOM/render 就绪 → pageReady('dashboard')
+  const bridge = await connectBridge()
+  state.bridge = bridge
+  await loadData(bridge)
+}
+
+async function retryLoad(): Promise<void> {
+  state.error = null
+  try {
+    if (!state.bridge) {
+      await bootstrapDashboard()
+      return
+    }
+    await loadData(state.bridge)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error('dashboard retry failed:', msg)
+    state.error = msg
+  }
+}
+
+state.retry = retryLoad
 
 bootstrapDashboard().catch((err: unknown) => {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)

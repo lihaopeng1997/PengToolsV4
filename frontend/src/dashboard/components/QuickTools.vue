@@ -11,20 +11,8 @@ const emit = defineEmits<{
   (e: 'navigate', navIndex: number): void
 }>()
 
-const DEFAULT_TOOLS: DashboardToolItem[] = [
-  { i: 18, zh: '数据中心', ds: 'SQL/连接', icon: 'db' },
-  { i: 16, zh: '模型对话', ds: 'AI/提示词', icon: 'chat' },
-  { i: 12, zh: '接口排查', ds: '抓包/调试', icon: 'api' },
-  { i: 13, zh: '日志排查', ds: 'SSH/多机', icon: 'logs' },
-  { i: 5, zh: '加解密', ds: '网关国密', icon: 'crypto' },
-  { i: 11, zh: '格式工具', ds: 'JSON/XML', icon: 'format' }
-]
-
 const displayTools = computed<DashboardToolItem[]>(() => {
-  if (props.tools && props.tools.length > 0) {
-    return props.tools
-  }
-  return DEFAULT_TOOLS
+  return props.tools || []
 })
 </script>
 
@@ -36,7 +24,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
     </div>
 
     <!-- 2 列网格，每卡 64px 高度；保留 .tool 供测试与运行态选择器识别 -->
-    <div class="quick-grid">
+    <div v-if="displayTools.length > 0" class="quick-grid">
       <button
         v-for="tool in displayTools"
         :key="tool.i"
@@ -53,6 +41,9 @@ const displayTools = computed<DashboardToolItem[]>(() => {
         </span>
       </button>
     </div>
+    <div v-else class="empty-tools-hint">
+      暂无常用工具
+    </div>
   </section>
 </template>
 
@@ -62,7 +53,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px;
-  box-shadow: 0 2px 8px var(--shadow-l1, rgba(132, 128, 173, 0.04));
+  box-shadow: 0 2px 8px var(--shadow-l1);
   box-sizing: border-box;
 }
 
@@ -100,8 +91,8 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: var(--surface-soft, rgba(255, 255, 255, 0.65));
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.15));
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
   border-radius: 10px;
   text-align: left;
   cursor: pointer;
@@ -115,7 +106,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 .quick-btn:focus-visible {
   transform: translateY(-2px) rotate(-6deg);
   border-color: var(--primary);
-  box-shadow: 0 4px 14px var(--shadow-l2, rgba(108, 88, 217, 0.12));
+  box-shadow: 0 4px 14px var(--shadow-l2);
 }
 
 .quick-btn:focus-visible {
@@ -129,7 +120,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: var(--primary-soft, rgba(108, 88, 217, 0.08));
+  background: var(--primary-soft);
   color: var(--primary);
   flex-shrink: 0;
 }
