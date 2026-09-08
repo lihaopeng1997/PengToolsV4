@@ -649,18 +649,18 @@ class AiWorkbenchPanel(QWidget):
 
         install_splitter_prefs(
             body,
-            defaults=[450, 280],
+            defaults=[260, 380],
             page_id='sql-console',
             tab_id=sql_splitter_tab_id('body', self._dialect),
-            min_sizes=[280, 180],
+            min_sizes=[220, 180],
             accessible_name='SQL 控制台上下分隔',
         )
         install_splitter_prefs(
             columns,
-            defaults=[260, 680, 380],
+            defaults=[220, 710, 270],
             page_id='sql-console',
             tab_id=sql_splitter_tab_id('columns', self._dialect),
-            min_sizes=[200, 400, 320],
+            min_sizes=[200, 420, 240],
             accessible_name='SQL 控制台列分隔',
         )
         root.addWidget(columns, 1)
@@ -818,23 +818,23 @@ class AiWorkbenchPanel(QWidget):
         elif mode == 'compact':
             self.left_pane.setVisible(True)
             self.side_tabs.setVisible(True)
-            self.left_pane.setMinimumWidth(240)
+            self.left_pane.setMinimumWidth(200)
             self.side_tabs.setMinimumWidth(200)
             mid = self.columns_splitter.widget(1)
             if mid is not None:
                 mid.setMinimumWidth(360)
-            col_mins = [240, 420, 240]
-            col_defs = [240, 560, 260]
+            col_mins = [200, 360, 200]
+            col_defs = [200, 560, 240]
         else:
             self.left_pane.setVisible(True)
             self.side_tabs.setVisible(True)
-            self.left_pane.setMinimumWidth(240)
+            self.left_pane.setMinimumWidth(200)
             self.side_tabs.setMinimumWidth(240)
             mid = self.columns_splitter.widget(1)
             if mid is not None:
-                mid.setMinimumWidth(520)
-            col_mins = [260, 480, 300]
-            col_defs = [300, 700, 340]
+                mid.setMinimumWidth(420)
+            col_mins = [200, 420, 240]
+            col_defs = [220, 710, 270]
         install_splitter_prefs(
             self.columns_splitter,
             defaults=col_defs,
@@ -1432,10 +1432,10 @@ class AiWorkbenchPanel(QWidget):
         editor = self._current_editor()
         if editor is None:
             return ''
-        selected, pos = editor.selected_or_all()
+        selected, _pos = editor.selected_or_all()
         if selected:
             return selected
-        return statement_at_cursor(editor.toPlainText(), pos)
+        return editor.toPlainText().strip()
 
     def _run_sql(self, *, reset: bool = True):
         item = self._current_conn()

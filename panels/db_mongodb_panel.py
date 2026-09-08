@@ -197,8 +197,8 @@ class MongoDBWorkbenchPanel(QWidget):
         docs_l.setContentsMargins(10, 10, 10, 10)
         self.query_input = QPlainTextEdit()
         self.query_input.setObjectName('mongo-query-edit')
-        self.query_input.setMinimumHeight(60)
-        self.query_input.setMaximumHeight(110)
+        self.query_input.setMinimumHeight(96)
+        self.query_input.setMaximumHeight(160)
         self.query_input.setPlaceholderText('Filter: {"字段":"值"} 或 db.coll.find({...})')
         docs_l.addWidget(self.query_input)
         qrow = QHBoxLayout()
@@ -290,6 +290,7 @@ class MongoDBWorkbenchPanel(QWidget):
         body.addWidget(right)
         body.setStretchFactor(0, 1)
         body.setStretchFactor(1, 3)
+        self.body_splitter = body
         install_splitter_prefs(
             body, defaults=[240, 720], page_id='mongodb-workbench', tab_id='main',
             min_sizes=[180, 400], accessible_name='MongoDB 左右分隔',
@@ -357,8 +358,24 @@ class MongoDBWorkbenchPanel(QWidget):
         )
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible
-        set_subtitle_visible(self.page_subtitle, low_height)
+        from ui.responsive import page_spacing_for_mode, set_subtitle_visible
+        from ui.splitter_prefs import layout_bucket
+        self._layout_mode = mode
+        if hasattr(self, '_root_layout') and self._root_layout is not None:
+            self._root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
+        set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
+        if hasattr(self, 'body_splitter') and self.body_splitter is not None:
+            col_mins = [180, 360] if mode in ('narrow', 'compact') else [200, 400]
+            col_defs = [240, 560] if mode in ('narrow', 'compact') else [240, 720]
+            install_splitter_prefs(
+                self.body_splitter,
+                defaults=col_defs,
+                page_id='mongodb-workbench',
+                tab_id='main',
+                bucket=layout_bucket(mode),
+                min_sizes=col_mins,
+                accessible_name='MongoDB 左右分隔',
+            )
 
     def _title(self) -> str:
         return 'MongoDB 工作台' if self.language == 'zh' else 'MongoDB Workbench'

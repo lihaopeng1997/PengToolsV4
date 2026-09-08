@@ -168,6 +168,7 @@ class RedisWorkbenchPanel(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(6)
+        self.root_layout = root
 
         # 模块身份由 Sidebar 标明，内容区不再重复大标题/副标题（Step 4B 收口）；
         # 页面首个主要区域 = 连接 toolbar。
@@ -368,6 +369,7 @@ class RedisWorkbenchPanel(QWidget):
         self.key_meta.setWordWrap(True)
         det_l.addWidget(self.key_meta)
         self.value_tabs = QTabWidget()
+        self.value_tabs.setMinimumHeight(280)
 
         # String 子页签：增加多编码切换栏
         str_container = QWidget()
@@ -501,8 +503,8 @@ class RedisWorkbenchPanel(QWidget):
         self.main_split.setStretchFactor(1, 5)
         root.addWidget(self.main_split, 1)
         install_splitter_prefs(
-            self.main_split, defaults=[440, 960], page_id='redis-workbench', tab_id='main_split',
-            min_sizes=[360, 520], accessible_name='Redis 左右主分隔',
+            self.main_split, defaults=[240, 960], page_id='redis-workbench', tab_id='main_split',
+            min_sizes=[240, 480], accessible_name='Redis 左右主分隔',
         )
 
     def set_language(self, language):
@@ -560,9 +562,27 @@ class RedisWorkbenchPanel(QWidget):
         )
 
     def apply_layout_mode(self, mode, low_height=False):
-        # 视觉 header 已整体移除（模块身份由 Sidebar 标明），无 subtitle 可调；
-        # main_window 经 hasattr 鸭子调用，保留方法签名即可。
-        return
+        from ui.responsive import page_spacing_for_mode
+        from ui.splitter_prefs import layout_bucket
+        self._layout_mode = mode
+        if hasattr(self, 'root_layout') and self.root_layout is not None:
+            self.root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
+        if hasattr(self, 'main_split') and self.main_split is not None:
+            if mode in ('narrow', 'compact'):
+                col_defs = [240, 680]
+                col_mins = [200, 360]
+            else:
+                col_defs = [240, 960]
+                col_mins = [240, 480]
+            install_splitter_prefs(
+                self.main_split,
+                defaults=col_defs,
+                page_id='redis-workbench',
+                tab_id='main_split',
+                bucket=layout_bucket(mode),
+                min_sizes=col_mins,
+                accessible_name='Redis 左右主分隔',
+            )
 
     def _title(self) -> str:
         # 仍用于业务提示 / 对话框标题，勿删。
