@@ -32,26 +32,27 @@ const props = withDefaults(
 <style scoped>
 .prism-surface {
   position: relative;
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.13));
+  border: 1px solid var(--border);
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   min-width: 0;
   box-sizing: border-box;
 }
 
 .tone-surface {
-  background: var(--surface, #fdfdff);
+  background: var(--surface);
 }
 
 .tone-soft {
-  background: var(--surface-soft, #f0ecfa);
+  background: var(--surface-soft);
 }
 
 .tone-paper {
-  background: var(--paper, rgba(255, 255, 255, 0.85));
+  background: var(--elevated-surface);
 }
 
 .tone-glass {
-  background: var(--paper, rgba(255, 255, 255, 0.72));
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }

@@ -81,13 +81,8 @@ export function useDailyQuote(getNow: () => Date = () => new Date()) {
     return (raw + total) % total
   })
 
-  const quote = computed<DailyQuoteItem>(() => {
-    return DAILY_QUOTES[quoteIndex.value] || {
-      id: 'quote-01',
-      text: '长风破浪会有时，直挂云帆济沧海。',
-      source: '李白《行路难·其一》',
-      author: '李白'
-    }
+  const quote = computed<DailyQuoteItem | null>(() => {
+    return DAILY_QUOTES[quoteIndex.value] || null
   })
 
   function nextQuote() {

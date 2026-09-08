@@ -326,24 +326,17 @@ DASHBOARD_QUICK_TOOL_INDICES = (18, 16, 12, 13, 5, 11)
 
 
 def get_dashboard_quick_tools() -> list[dict]:
-    """从权威导航模型 NAV_ITEMS 派生 Dashboard 6 大常用工具。"""
-    meta_extra = {
-        18: {'name_zh': '数据中心', 'ds': '6 类数据库 · AI 助手', 'icon': 'db', 'grad': 'c2'},
-        16: {'name_zh': '模型对话', 'ds': '内网模型 · 聊天/工作', 'icon': 'chat', 'grad': 'c1'},
-        12: {'name_zh': '接口排查', 'ds': '多浏览器实时抓包', 'icon': 'api', 'grad': 'c3'},
-        13: {'name_zh': '日志排查', 'ds': 'SSH 多机并行日志', 'icon': 'logs', 'grad': 'c5'},
-        5:  {'name_zh': '加解密',   'ds': '网关国密加解密',     'icon': 'crypto', 'grad': 'c6'},
-        11: {'name_zh': '格式工具', 'ds': 'JSON / XML / SQL',   'icon': 'format', 'grad': 'c4'},
-    }
+    """从权威导航模型 NAV_ITEMS 单一派生 Dashboard 6 大常用工具。"""
     tools = []
     for idx in DASHBOARD_QUICK_TOOL_INDICES:
         item = get_nav_item(idx)
-        extra = meta_extra.get(idx, {})
+        if not item:
+            continue
+        zh = '数据中心' if idx == 18 else ('模型对话' if idx == 16 else item.name_zh)
         tools.append({
             'i': idx,
-            'zh': extra.get('name_zh') or (item.name_zh if item else f'工具 {idx}'),
-            'ds': extra.get('ds') or (item.tooltip_zh if item else ''),
-            'icon': extra.get('icon') or (item.icon_role if item else 'tools'),
-            'grad': extra.get('grad', 'c1'),
+            'zh': zh,
+            'ds': item.tooltip_zh,
+            'icon': item.icon_role,
         })
     return tools

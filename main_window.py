@@ -221,6 +221,7 @@ class MainWindow(QMainWindow):
         if self._web_shell_enabled:
             self._dash_bridge = _web_shell.HomeBridge(self)
             self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
+            self._dash_bridge.set_nav_model(self._build_web_nav_model())
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
             self._dash_bridge.pageReadyReceived.connect(self._on_web_page_ready)
             self._dash_bridge.navigateRequested.connect(self._show_panel)

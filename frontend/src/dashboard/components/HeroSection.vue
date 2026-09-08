@@ -21,11 +21,7 @@ const props = withDefaults(
     greeting: '下午好',
     username: 'Lihp',
     dateText: '',
-    quote: () => ({
-      text: '长风破浪会有时，直挂云帆济沧海。',
-      source: '李白《行路难·其一》',
-      author: '李白'
-    }),
+    quote: null,
     isDemo: false
   }
 )
@@ -56,17 +52,20 @@ const quoteTitle = computed(() => {
       </h2>
 
       <p class="daily-line">
-        <span class="date-part">{{ props.dateText }} · </span>
-        <span class="quote-part" :title="quoteTitle">{{ props.quote?.text }}</span>
-        <button
-          class="quote-next"
-          type="button"
-          aria-label="换一句经典诗文"
-          :title="`换一句 · ${quoteTitle}`"
-          @click="emit('changeQuote')"
-        >
-          <PrismIcon name="refresh" :size="13" />
-        </button>
+        <span class="date-part">{{ props.dateText }}</span>
+        <template v-if="props.quote?.text">
+          <span> · </span>
+          <span class="quote-part" :title="quoteTitle">{{ props.quote.text }}</span>
+          <button
+            class="quote-next"
+            type="button"
+            aria-label="换一句经典诗文"
+            :title="`换一句 · ${quoteTitle}`"
+            @click="emit('changeQuote')"
+          >
+            <PrismIcon name="refresh" :size="13" />
+          </button>
+        </template>
       </p>
 
       <div class="hero-actions">
@@ -102,17 +101,11 @@ const quoteTitle = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(110deg, rgba(228, 220, 250, 0.76), rgba(231, 231, 251, 0.65) 60%, rgba(214, 240, 242, 0.48));
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.16));
-  box-shadow: 0 4px 14px var(--shadow-l2, rgba(113, 87, 209, 0.12));
+  background: linear-gradient(110deg, var(--aurora-start), var(--aurora-mid) 60%, var(--aurora-end));
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px var(--shadow-l2);
   overflow: hidden;
   box-sizing: border-box;
-}
-
-:global([data-theme="black"]) .hero,
-:global(body.theme-black) .hero {
-  background: linear-gradient(110deg, rgba(38, 36, 55, 0.85), rgba(30, 30, 43, 0.8) 60%, rgba(25, 33, 44, 0.7));
-  border-color: var(--border, rgba(255, 255, 255, 0.08));
 }
 
 .hero-content {
@@ -127,7 +120,7 @@ const quoteTitle = computed(() => {
 .eyebrow {
   font: 10px Consolas, monospace;
   letter-spacing: 2px;
-  color: var(--primary, rgb(108, 88, 217));
+  color: var(--primary);
   opacity: 0.85;
   margin-bottom: 4px;
 }
@@ -136,7 +129,7 @@ const quoteTitle = computed(() => {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.4px;
-  color: var(--text, rgb(40, 50, 74));
+  color: var(--text);
   margin: 2px 0 6px 0;
   display: flex;
   align-items: baseline;
@@ -147,12 +140,12 @@ const quoteTitle = computed(() => {
 .user-greeting {
   font-size: 13px;
   font-weight: normal;
-  color: var(--text-muted, rgb(123, 132, 153));
+  color: var(--text-muted);
 }
 
 .user-greeting em {
   font-style: normal;
-  color: var(--primary, rgb(108, 88, 217));
+  color: var(--primary);
   font-weight: 500;
 }
 
@@ -160,8 +153,8 @@ const quoteTitle = computed(() => {
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(108, 88, 217, 0.12);
-  color: var(--primary, rgb(108, 88, 217));
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .daily-line {
@@ -169,14 +162,14 @@ const quoteTitle = computed(() => {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--text-muted, rgb(123, 132, 153));
+  color: var(--text-muted);
   margin: 4px 0 14px 0;
   line-height: 1.5;
   flex-wrap: nowrap;
 }
 
 .date-part {
-  color: var(--text, rgb(40, 50, 74));
+  color: var(--text);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -196,17 +189,17 @@ const quoteTitle = computed(() => {
   display: inline-grid;
   place-items: center;
   border-radius: 6px;
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.15));
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--text-muted, rgb(123, 132, 153));
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0;
   transition: transform 0.18s ease, color 0.18s ease, background 0.18s ease;
 }
 
 .quote-next:hover {
-  background: var(--primary-soft, rgba(108, 88, 217, 0.12));
-  color: var(--primary, rgb(108, 88, 217));
+  background: var(--primary-soft);
+  color: var(--primary);
   transform: rotate(30deg);
 }
 
@@ -222,36 +215,36 @@ const quoteTitle = computed(() => {
   justify-content: center;
   gap: 7px;
   padding: 7px 14px;
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.2));
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--surface);
   font-size: 11px;
   font-weight: 500;
-  color: var(--text, rgb(40, 50, 74));
+  color: var(--text);
   cursor: pointer;
   transition: background 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
 }
 
 .btn-primary {
-  background: var(--primary, rgb(108, 88, 217));
-  color: var(--on-primary, rgb(255, 255, 255));
-  border-color: var(--primary, rgb(108, 88, 217));
-  box-shadow: 0 6px 16px var(--shadow-l2, rgba(108, 88, 217, 0.2));
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+  box-shadow: 0 6px 16px var(--shadow-l2);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover, rgb(91, 70, 199));
+  background: var(--primary-hover);
   transform: translateY(-1px);
 }
 
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.65);
-  color: var(--text, rgb(40, 50, 74));
+  background: var(--surface-soft);
+  color: var(--text);
 }
 
 .btn-ghost:hover {
-  background: var(--primary-soft, rgba(108, 88, 217, 0.1));
-  color: var(--primary, rgb(108, 88, 217));
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 /* 120x120 主视觉图形规范 */
@@ -284,27 +277,27 @@ const quoteTitle = computed(() => {
   content: "";
   position: absolute;
   inset: 10px 0;
-  border: 1px solid rgba(183, 161, 228, 0.55);
+  border: 1px solid var(--border-strong);
   border-radius: 50%;
   transform: rotate(-30deg);
 }
 
 .orb-inner::after {
   inset: 0 14px;
-  border-color: rgba(255, 255, 255, 0.85);
+  border-color: var(--glass-border);
   transform: rotate(30deg);
 }
 
 .orb-gem {
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--glass-border);
   width: 60px;
   height: 60px;
   border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(198, 175, 248, 0.35));
-  box-shadow: inset 4px 4px 12px rgba(255, 255, 255, 0.4), 0 6px 20px rgba(108, 88, 217, 0.15);
-  color: var(--primary, rgb(108, 88, 217));
+  background: linear-gradient(135deg, var(--glass-bg), var(--primary-soft));
+  box-shadow: inset 4px 4px 12px var(--shadow-l1), 0 6px 20px var(--shadow-l2);
+  color: var(--primary);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }

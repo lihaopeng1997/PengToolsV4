@@ -19,11 +19,49 @@ const app = createApp(DashboardApp, { state })
 app.mount('#app')
 
 async function loadData(bridge: BridgeApi): Promise<void> {
-  const rawSummary = await bridge.dashboardSummary()
-  const themeRaw = await bridge.themePayload()
+  const [rawSummary, rawNav, themeRaw] = await Promise.all([
+    bridge.dashboardSummary(),
+    typeof bridge.navModel === 'function' ? bridge.navModel() : Promise.resolve(''),
+    bridge.themePayload(),
+  ])
   applyThemePayload(themeRaw)
   bridge.onThemeChanged(applyThemePayload)
   const parsed = JSON.parse(rawSummary) as DashboardSummary
+  if (rawNav) {
+    try {
+      const navData = JSON.parse(rawNav)
+      if (navData && Array.isArray(navData.groups)) {
+        const navItemMap = new Map<number, { i: number; zh?: string; tip?: string; icon?: string }>()
+        for (const g of navData.groups) {
+          if (Array.isArray(g.items)) {
+            for (const it of g.items) {
+              navItemMap.set(it.i, it)
+              if (Array.isArray(it.children)) {
+                for (const ch of it.children) {
+                  navItemMap.set(ch.i, ch)
+                }
+              }
+            }
+          }
+        }
+        const quickIndices = [18, 16, 12, 13, 5, 11]
+        const derivedTools = quickIndices.map(idx => {
+          const item = navItemMap.get(idx)
+          return {
+            i: idx,
+            zh: idx === 18 ? '数据中心' : (idx === 16 ? '模型对话' : (item?.zh || `工具 ${idx}`)),
+            ds: item?.tip || '',
+            icon: item?.icon || 'database',
+          }
+        })
+        if (!parsed.tools || parsed.tools.length === 0) {
+          parsed.tools = derivedTools
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
   state.summary = parsed
   if (typeof bridge.onSummaryChanged === 'function') {
     bridge.onSummaryChanged(async (newSummaryRaw: string) => {

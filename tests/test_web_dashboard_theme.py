@@ -174,5 +174,50 @@ class RgbaCssNormalizationTest(unittest.TestCase):
         self.assertFalse(missing, f'IconSprite.vue 缺少图标定义: {missing}')
 
 
+class AllDashboardComponentsThemeAuditTest(unittest.TestCase):
+    """扫描全部 P05 组件，严格禁止硬编码 Hex、RGB/RGBA fallback 和 data-theme='black' 分支。"""
+
+    P05_COMPONENTS = [
+        'frontend/src/dashboard/DashboardApp.vue',
+        'frontend/src/dashboard/components/HeroSection.vue',
+        'frontend/src/dashboard/components/StatsGrid.vue',
+        'frontend/src/dashboard/components/MonthlyTasks.vue',
+        'frontend/src/dashboard/components/ReleaseOverview.vue',
+        'frontend/src/dashboard/components/QuickTools.vue',
+        'frontend/src/shared/components/PrismSurface.vue',
+    ]
+
+    def _get_styles(self, rel_path):
+        full_path = os.path.join(ROOT, rel_path)
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        styles = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
+        return content, '\n'.join(styles)
+
+    def test_no_hardcoded_hex_colors_in_any_p05_component(self):
+        for comp in self.P05_COMPONENTS:
+            _, style = self._get_styles(comp)
+            hex_matches = re.findall(r'#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b', style)
+            self.assertEqual(hex_matches, [], f'{comp} 包含硬编码 Hex 颜色: {hex_matches}')
+
+    def test_no_rgb_rgba_fallbacks_or_literals_in_styles(self):
+        for comp in self.P05_COMPONENTS:
+            _, style = self._get_styles(comp)
+            rgb_matches = re.findall(r'rgba?\([^)]+\)', style)
+            self.assertEqual(rgb_matches, [], f'{comp} 包含裸 rgb/rgba 颜色: {rgb_matches}')
+
+    def test_no_black_theme_branches_in_any_p05_component(self):
+        for comp in self.P05_COMPONENTS:
+            content, _ = self._get_styles(comp)
+            self.assertNotIn('theme="black"', content, f'{comp} 仍包含 theme="black" 分支')
+            self.assertNotIn('theme-black', content, f'{comp} 仍包含 theme-black 分支')
+
+    def test_no_var_fallback_color_literals(self):
+        for comp in self.P05_COMPONENTS:
+            _, style = self._get_styles(comp)
+            var_fallbacks = re.findall(r'var\(--[a-zA-Z0-9_-]+\s*,\s*(#[0-9a-fA-F]+|rgba?\([^)]+\))', style)
+            self.assertEqual(var_fallbacks, [], f'{comp} 存在硬编码颜色 fallback: {var_fallbacks}')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -116,21 +116,15 @@ const completedTotalText = computed(() => {
   height: 108px;
   min-height: 108px;
   padding: 16px 18px;
-  background: var(--surface, #fdfdff);
-  border: 1px solid var(--border, rgba(119, 123, 163, 0.15));
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-sizing: border-box;
-  box-shadow: 0 4px 16px rgba(132, 128, 173, 0.04);
+  box-shadow: 0 4px 16px var(--shadow-l1);
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-:global([data-theme="black"]) .stat,
-:global(body.theme-black) .stat {
-  background: var(--surface, #1e1e2b);
-  border-color: var(--border, rgba(255, 255, 255, 0.08));
 }
 
 .stat.clickable {
@@ -139,18 +133,18 @@ const completedTotalText = computed(() => {
 
 .stat.clickable:hover {
   transform: translateY(-2px);
-  border-color: var(--primary, #6c58d9);
-  box-shadow: 0 8px 20px rgba(108, 88, 217, 0.08);
+  border-color: var(--primary);
+  box-shadow: 0 8px 20px var(--shadow-l2);
 }
 
 .stat.clickable:focus-visible {
-  outline: 2px solid var(--primary, #6c58d9);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
 .stat-label {
   font-size: 11px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 7px;
@@ -164,8 +158,8 @@ const completedTotalText = computed(() => {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: var(--primary-soft, rgba(108, 88, 217, 0.08));
-  color: var(--primary, #6c58d9);
+  background: var(--primary-soft);
+  color: var(--primary);
   will-change: transform;
 }
 
@@ -199,20 +193,20 @@ const completedTotalText = computed(() => {
   font-size: 26px;
   letter-spacing: -0.8px;
   font-weight: 600;
-  color: var(--text, #28324a);
+  color: var(--text);
   line-height: 1.1;
   margin: 2px 0;
 }
 
 .stat-val small {
   font-size: 12px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
   font-weight: 400;
 }
 
 .stat-tip {
   font-size: 10px;
-  color: var(--muted, #7b8499);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
