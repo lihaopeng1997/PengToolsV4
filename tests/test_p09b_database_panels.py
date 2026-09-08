@@ -235,6 +235,50 @@ class TestP09BDatabasePanels(unittest.TestCase):
             self.assertAlmostEqual(live_sizes[0], custom_sizes[0], delta=20)
             self.assertAlmostEqual(live_sizes[1], custom_sizes[1], delta=20)
             self.assertAlmostEqual(live_sizes[2], custom_sizes[2], delta=20)
+
+            # Case F: 隐藏侧栏与 Splitter 移动/协调器落盘隔离性回归 (P09B-FIX-2)
+            panel.resize(1144, 900)
+            panel.apply_layout_mode('wide', content_width=1144)
+            self.app.processEvents()
+
+            # 场景 1: 只打开 objects，保持 AI hidden
+            panel.show_objects_btn.setChecked(True)
+            panel.show_ai_side_btn.setChecked(False)
+            self.app.processEvents()
+            self.assertTrue(panel.left_pane.isVisible())
+            self.assertFalse(panel.side_tabs.isVisible())
+
+            # 模拟用户移动对象目录 splitter 或协调器落盘
+            coord = _coord(panel.columns_splitter)
+            if coord and hasattr(coord, '_on_timeout'):
+                panel.columns_splitter.splitterMoved.emit(240, 1)
+                coord._on_timeout()
+            self.app.processEvents()
+            # 断言 AI 侧栏仍严格保持隐藏，不可被反向唤醒
+            self.assertFalse(
+                panel.side_tabs.isVisible(),
+                "拖拽可见对象目录时，明确关闭的 AI 辅助栏绝不可被意外唤醒显示",
+            )
+            self.assertFalse(panel._narrow_show_ai)
+
+            # 场景 2: 反向：只打开 AI，保持 objects hidden
+            panel.show_objects_btn.setChecked(False)
+            panel.show_ai_side_btn.setChecked(True)
+            self.app.processEvents()
+            self.assertFalse(panel.left_pane.isVisible())
+            self.assertTrue(panel.side_tabs.isVisible())
+
+            # 模拟用户移动 AI splitter 或协调器落盘
+            if coord and hasattr(coord, '_on_timeout'):
+                panel.columns_splitter.splitterMoved.emit(280, 2)
+                coord._on_timeout()
+            self.app.processEvents()
+            # 断言 objects 目录仍严格保持隐藏，不可被反向唤醒
+            self.assertFalse(
+                panel.left_pane.isVisible(),
+                "拖拽可见 AI 辅助栏时，明确关闭的对象目录绝不可被意外唤醒显示",
+            )
+            self.assertFalse(panel._narrow_show_objects)
         finally:
             panel.deleteLater()
 

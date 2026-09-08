@@ -646,26 +646,6 @@ class AiWorkbenchPanel(QWidget):
         columns.setStretchFactor(2, 3)
         columns.setChildrenCollapsible(False)
         self.columns_splitter = columns
-        orig_set_sizes = columns.setSizes
-
-        def _custom_set_sizes(sizes):
-            if sizes and len(sizes) >= 3 and getattr(self, '_initial_init_done', False):
-                import inspect
-                caller_names = [f.function for f in inspect.stack()[:5]]
-                if '_apply_initial_sizes' not in caller_names and '_restore_defaults' not in caller_names:
-                    if sizes[0] > 0 and hasattr(self, 'left_pane') and not self.left_pane.isVisible():
-                        self._narrow_show_objects = True
-                        self.left_pane.setVisible(True)
-                        if hasattr(self, 'show_objects_btn'):
-                            self.show_objects_btn.setChecked(True)
-                    if sizes[2] > 0 and hasattr(self, 'side_tabs') and not self.side_tabs.isVisible():
-                        self._narrow_show_ai = True
-                        self.side_tabs.setVisible(True)
-                        if hasattr(self, 'show_ai_side_btn'):
-                            self.show_ai_side_btn.setChecked(True)
-            orig_set_sizes(sizes)
-
-        columns.setSizes = _custom_set_sizes
 
         install_splitter_prefs(
             body,

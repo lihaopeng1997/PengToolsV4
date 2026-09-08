@@ -320,6 +320,9 @@ class SplitterPrefsTests(unittest.TestCase):
         # 切到 compact 模式（视口调整到典型 compact 宽度 1100）
         panel.resize(1100, 700)
         panel.apply_layout_mode('compact')
+        # C < 1200 下窄面板开关生效，展开双侧栏模拟用户调整三栏分栏
+        panel.show_objects_btn.setChecked(True)
+        panel.show_ai_side_btn.setChecked(True)
         QApplication.processEvents()
 
         # 拖拽 compact 尺寸
