@@ -98,3 +98,64 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         self.assertGreaterEqual(clamped.y(), -100)
         panel.shutdown()
         owner.deleteLater()
+
+    def test_compact_geometry_and_single_icon_spec(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        self.assertEqual(panel.COMPACT_SIZE, (52, 52))
+        self.assertEqual(panel.BUTTON_SIZE, 44)
+        self.assertEqual(panel.BUTTON_MARGIN, 4)
+        geom = panel.toggle_btn.geometry()
+        self.assertEqual((geom.x(), geom.y(), geom.width(), geom.height()), (4, 4, 44, 44))
+        self.assertEqual(panel.toggle_btn.iconSize().width(), 30)
+        self.assertEqual(panel.toggle_btn.iconSize().height(), 30)
+        self.assertEqual(panel.toggle_btn.text(), '')
+        self.assertFalse(panel.toggle_btn.icon().isNull())
+        panel.shutdown()
+        owner.deleteLater()
+
+    def test_expanded_geometry_and_modes(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        self.assertEqual(panel.PANEL_WIDTH, 300)
+        self.assertEqual(panel.LEARN_PANEL_WIDTH, 360)
+        self.assertEqual(panel.CHAT_PANEL_WIDTH, 340)
+        self.assertEqual(panel.CHAT_PANEL_HEIGHT, 440)
+        self.assertEqual(panel.CARD_HEIGHT, 58)
+        self.assertEqual(panel.GRID_GAP, 8)
+        self.assertEqual(panel.PANEL_PAD, 12)
+
+        # Tools mode expanded size
+        w, h = panel._expanded_size()
+        self.assertEqual(w, 316)  # 300 + 16
+        for btn in panel.tool_buttons:
+            self.assertEqual(btn.sizePolicy().verticalPolicy(), btn.sizePolicy().verticalPolicy())
+            self.assertEqual(btn.maximumHeight(), 58)
+
+        # Chat mode expanded size
+        panel._set_mode('chat')
+        w_chat, h_chat = panel._expanded_size()
+        self.assertEqual(w_chat, 356)  # 340 + 16
+        self.assertEqual(h_chat, 456)  # 440 + 16
+
+        # Learn mode expanded size
+        panel._set_mode('tools')
+        panel._open_learning_search()
+        w_learn, h_learn = panel._expanded_size()
+        self.assertEqual(w_learn, 376)  # 360 + 16
+        self.assertEqual(h_learn, 536)  # 520 + 16
+
+        panel.shutdown()
+        owner.deleteLater()
+
+    def test_floating_shortcuts_editor_dialog_contract(self):
+        from ui.floating_shortcuts_editor import FloatingShortcutsEditor
+        editor = FloatingShortcutsEditor({'floating_shortcuts': [0, 1, 2, 3]}, language='zh')
+        self.assertTrue(editor.isModal())
+        self.assertGreaterEqual(editor.minimumWidth(), 440)
+        self.assertGreaterEqual(editor.minimumHeight(), 360)
+        self.assertLessEqual(editor.width(), 520)
+        self.assertLessEqual(editor.height(), 480)
+        editor.show()
+        editor.close()
+        editor.deleteLater()

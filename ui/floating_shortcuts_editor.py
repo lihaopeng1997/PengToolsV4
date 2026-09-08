@@ -11,7 +11,9 @@ from PyQt6.QtWidgets import (
 
 from ui.confirm_dialog import show_info
 from config import normalize_settings, save_settings
+from ui.dialog_buttons import clamp_dialog_geometry
 from ui.icons import qicon
+from ui.motion import play_dialog_enter
 from ui.navigation_model import (
     DEFAULT_FLOATING_SHORTCUTS,
     MAX_FLOATING_SHORTCUTS,
@@ -46,11 +48,14 @@ class FloatingShortcutsEditor(QDialog):
         self.setObjectName('floating-shortcuts-editor')
         self.setWindowTitle('编辑快捷入口' if language == 'zh' else 'Edit shortcuts')
         self.setModal(True)
-        self.setMinimumWidth(520)
-        self.resize(520, 480)
+        clamp_dialog_geometry(self, 520, 480, min_width=440, min_height=360)
         self._setup_ui()
         self._reload_list()
         self._apply_language()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        play_dialog_enter(self)
 
     def _setup_ui(self):
         root = QVBoxLayout(self)

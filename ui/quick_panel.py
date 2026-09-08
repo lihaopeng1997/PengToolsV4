@@ -551,11 +551,11 @@ class QuickPanel(QWidget):
             self.tool_buttons.append(button)
 
     def _content_height(self) -> int:
-        if self.learn_search.isVisible():
+        if hasattr(self, 'learn_search') and not self.learn_search.isHidden():
             return self.LEARN_SEARCH_HEIGHT
-        if self.preview.isVisible():
+        if hasattr(self, 'preview') and not self.preview.isHidden():
             return 420
-        if hasattr(self, 'chat_container') and self.chat_container.isVisible():
+        if self._mode == 'chat' or (hasattr(self, 'chat_container') and not self.chat_container.isHidden()):
             return self.CHAT_PANEL_HEIGHT
         count = max(1, len(self._shortcuts))
         rows = (count + 1) // 2
@@ -569,9 +569,9 @@ class QuickPanel(QWidget):
         )
 
     def _expanded_size(self) -> tuple[int, int]:
-        if self.learn_search.isVisible():
+        if hasattr(self, 'learn_search') and not self.learn_search.isHidden():
             return self.LEARN_PANEL_WIDTH + 16, self.LEARN_SEARCH_HEIGHT + 16
-        if hasattr(self, 'chat_container') and self.chat_container.isVisible():
+        if self._mode == 'chat' or (hasattr(self, 'chat_container') and not self.chat_container.isHidden()):
             return self.CHAT_PANEL_WIDTH + 16, self.CHAT_PANEL_HEIGHT + 16
         height = max(200, min(380, self._content_height()))
         return self.PANEL_WIDTH + 16, height + 16
@@ -583,24 +583,24 @@ class QuickPanel(QWidget):
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('PRIMARY_ACTIVE')
         except Exception:
-            return '#4F735F'
+            return '#6C58D9'
 
     def _surface_tint(self) -> str:
         try:
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('TEXT_STRONG')
         except Exception:
-            return '#1E2A42'
+            return '#262438'
 
     def _apply_toggle_icon(self):
         tint = self._surface_tint() if self.expanded else self._theme_tint()
-        pix = brand_pixmap('floating', size=28, tint=tint)
+        pix = brand_pixmap('floating', size=30, tint=tint)
         if pix.isNull():
             # 最后回退：app ico 缩放，仍不使用文字 P
-            pix = brand_pixmap('app_ico', size=28, tint=tint)
+            pix = brand_pixmap('app_ico', size=30, tint=tint)
         if not pix.isNull():
             self.toggle_btn.setIcon(QIcon(pix))
-            self.toggle_btn.setIconSize(QSize(28, 28))
+            self.toggle_btn.setIconSize(QSize(30, 30))
             self.toggle_btn.setText('')
         else:
             self.toggle_btn.setText('')
