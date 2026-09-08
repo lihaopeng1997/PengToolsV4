@@ -92,7 +92,13 @@ class ThinkingIndicator(QWidget):
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        self.stop()
+        self._timer.stop()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._is_running:
+            if not self._timer.isActive():
+                self._timer.start()
 
     def closeEvent(self, event):
         super().closeEvent(event)

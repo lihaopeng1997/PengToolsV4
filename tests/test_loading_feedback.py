@@ -323,7 +323,7 @@ class LoadingFeedbackTest(unittest.TestCase):
         self.assertEqual(p._label, '任务 B')
 
     def test_hide_event_cancels_pending_delay_timer(self):
-        """当宿主被隐藏时，pending 延迟定时器立即取消，切回时不闪现。"""
+        """V2.0 Section 10.2/10.3: 宿主隐藏时仅暂停绘制定时器，后台业务延迟状态机与 delay_timer 保持存活。"""
         p = AuroraProgress(self.host, delay_show_ms=200)
         p.start_busy('等待操作…')
         self.assertEqual(p._state, 'pending_busy')
@@ -332,8 +332,10 @@ class LoadingFeedbackTest(unittest.TestCase):
         # 模拟宿主隐藏（如切页切换 QStackedWidget）
         self.host.hide()
         self.app.processEvents()
-        self.assertEqual(p._state, 'idle')
-        self.assertIsNone(p._delay_timer)
+        self.assertEqual(p._state, 'pending_busy')
+        self.assertIsNotNone(p._delay_timer)
+        self.assertTrue(p._delay_timer.isActive())
+        self.assertFalse(p._anim_timer.isActive())
 
     def test_same_token_supports_multiple_progress_updates_and_finish(self):
         """同一任务 token 在多次进度刷新和最终 finish 期间保持有效。"""

@@ -104,17 +104,30 @@ class AuroraProgress(QWidget):
             return True
 
     def eventFilter(self, watched, event):
-        if watched == self.parentWidget() and event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
-            self._cancel_all_visual_timers()
-            if not self._is_shown:
-                self._state = 'idle'
+        if watched == self.parentWidget():
+            if event.type() == QEvent.Type.Close:
+                self._cancel_all_visual_timers()
+                if not self._is_shown:
+                    self._state = 'idle'
+            elif event.type() == QEvent.Type.Hide:
+                if hasattr(self, '_anim_timer') and self._anim_timer.isActive():
+                    self._anim_timer.stop()
+            elif event.type() == QEvent.Type.Show:
+                if self._is_shown and self._state in ('busy', 'progress', 'finish'):
+                    if not self._anim_timer.isActive():
+                        self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
         return super().eventFilter(watched, event)
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        self._cancel_all_visual_timers()
-        if not self._is_shown:
-            self._state = 'idle'
+        if hasattr(self, '_anim_timer') and self._anim_timer.isActive():
+            self._anim_timer.stop()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._is_shown and self._state in ('busy', 'progress', 'finish'):
+            if not self._anim_timer.isActive():
+                self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
 
     def closeEvent(self, event):
         super().closeEvent(event)
@@ -194,8 +207,11 @@ class AuroraProgress(QWidget):
         self.place_overlay()
         self.show()
         self.raise_()
-        if not self._anim_timer.isActive():
-            self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
+        if self._state != 'fail':
+            if not self._anim_timer.isActive():
+                self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
+        else:
+            self._anim_timer.stop()
         self.update()
 
     def _on_delay_show_timeout(self, gen: int | None = None):
@@ -261,12 +277,12 @@ class AuroraProgress(QWidget):
         self._generation += 1
         gen = self._generation
         self._cancel_timers()
-        self._anim_timer.stop()
 
         self._state = 'fail'
         self._value = 0
         self._label = label or self._label or '失败'
         self._show_overlay_now()
+        self._anim_timer.stop()
 
         timer = QTimer(self)
         timer.setSingleShot(True)

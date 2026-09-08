@@ -140,7 +140,7 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.app = QApplication.instance() or QApplication([])
 
     def test_thinking_indicator_lifecycle(self):
-        from PyQt6.QtGui import QCloseEvent, QHideEvent
+        from PyQt6.QtGui import QCloseEvent, QHideEvent, QShowEvent
         from ui.thinking_indicator import ThinkingIndicator
 
         w = ThinkingIndicator(None, text='正在推理...')
@@ -149,8 +149,18 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.assertTrue(w.is_running())
         self.assertTrue(w._timer.isActive())
 
-        # hideEvent 自动 stop
+        # hideEvent 仅暂停绘制定时器，业务 is_running 严格保持 True
         w.hideEvent(QHideEvent())
+        self.assertTrue(w.is_running())
+        self.assertFalse(w._timer.isActive())
+
+        # showEvent 恢复绘制定时器
+        w.showEvent(QShowEvent())
+        self.assertTrue(w.is_running())
+        self.assertTrue(w._timer.isActive())
+
+        # 显式业务 stop() 才真正置 is_running = False
+        w.stop()
         self.assertFalse(w.is_running())
         self.assertFalse(w._timer.isActive())
 
@@ -162,7 +172,7 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.assertFalse(w._timer.isActive())
         w.deleteLater()
 
-    def test_aurora_progress_busy_hide_all_timers_stopped(self):
+    def test_aurora_progress_busy_hide_anim_timer_stopped(self):
         from PyQt6.QtGui import QHideEvent
         from ui.aurora_progress import AuroraProgress
 
@@ -170,14 +180,12 @@ class IndicatorLifecycleTests(unittest.TestCase):
         p.start_busy('处理中', immediate=True)
         self.assertTrue(p._anim_timer.isActive())
 
-        # busy 显示后 hideEvent：_anim_timer, _delay_timer, _linger_timer 全部收敛
+        # busy 显示后 hideEvent：_anim_timer 停止，保持后台状态机
         p.hideEvent(QHideEvent())
         self.assertFalse(p._anim_timer.isActive())
-        self.assertIsNone(p._delay_timer)
-        self.assertIsNone(p._linger_timer)
         p.deleteLater()
 
-    def test_aurora_progress_finish_linger_hide_all_timers_stopped(self):
+    def test_aurora_progress_finish_linger_hide_keeps_linger_timer(self):
         from PyQt6.QtGui import QHideEvent
         from ui.aurora_progress import AuroraProgress
 
@@ -188,14 +196,14 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(p._linger_timer)
         self.assertTrue(p._linger_timer.isActive())
 
-        # hideEvent 后 linger_timer 和 anim_timer 全部停止清理
+        # hideEvent 仅停止 anim_timer，linger_timer 必须继续存活以保障状态机最终收敛
         p.hideEvent(QHideEvent())
         self.assertFalse(p._anim_timer.isActive())
-        self.assertIsNone(p._linger_timer)
-        self.assertIsNone(p._delay_timer)
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
         p.deleteLater()
 
-    def test_aurora_progress_pending_delay_hide_all_timers_stopped(self):
+    def test_aurora_progress_pending_delay_hide_keeps_delay_timer(self):
         from PyQt6.QtGui import QHideEvent
         from ui.aurora_progress import AuroraProgress
 
@@ -205,12 +213,25 @@ class IndicatorLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(p._delay_timer)
         self.assertTrue(p._delay_timer.isActive())
 
-        # 在 pending 阶段被隐藏：取消未触发的 delay_timer，重置为 idle，不留后台定时器
+        # 在 pending 阶段被隐藏：delay_timer 仍然存活，仅停绘制定时器，保持 pending 状态
         p.hideEvent(QHideEvent())
         self.assertFalse(p._anim_timer.isActive())
-        self.assertIsNone(p._delay_timer)
-        self.assertIsNone(p._linger_timer)
-        self.assertEqual(p._state, 'idle')
+        self.assertIsNotNone(p._delay_timer)
+        self.assertTrue(p._delay_timer.isActive())
+        self.assertEqual(p._state, 'pending_busy')
+        p.deleteLater()
+
+    def test_aurora_progress_fail_static_no_anim(self):
+        from ui.aurora_progress import AuroraProgress
+
+        p = AuroraProgress(None, delay_show_ms=0)
+        p.fail('加载失败')
+        self.assertEqual(p._state, 'fail')
+        self.assertTrue(p._is_shown)
+        # fail 状态严格静态错误展示，禁止存在活跃的 anim_timer
+        self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
         p.deleteLater()
 
     def test_aurora_progress_close_all_timers_stopped(self):
@@ -253,16 +274,16 @@ class DashboardKeyboardContractTests(unittest.TestCase):
             self.assertIn('@keydown.space.prevent', tag, f'Tag missing space handler: {tag}')
             self.assertIn('@keydown.enter', tag, f'Tag missing enter handler: {tag}')
 
-        # 2. 验证 demo 需求行与 demo 任务行的语义绑定（非 demo 时为 button/tabindex=0，demo 时为 undefined）
-        self.assertIn(':tabindex="r.is_demo ? undefined : 0"', content)
-        self.assertIn(':role="r.is_demo ? undefined : \'button\'"', content)
-        self.assertIn(':tabindex="task.is_demo ? undefined : 0"', content)
-        self.assertIn(':role="task.is_demo ? undefined : \'button\'"', content)
+        # 2. 验证 demo 需求行与 demo 任务行的语义绑定（仅在非 demo 且可交互时为 button/tabindex=0，demo 模式或 demo 需求行下均为 undefined）
+        self.assertIn(':tabindex="isRowInteractive(r) ? 0 : undefined"', content)
+        self.assertIn(':role="isRowInteractive(r) ? \'button\' : undefined"', content)
+        self.assertIn(':tabindex="isRowInteractive(task) ? 0 : undefined"', content)
+        self.assertIn(':role="isRowInteractive(task) ? \'button\' : undefined"', content)
         # 验证嵌套交互行采用 .self 防止键盘冒泡重复触发
-        self.assertIn('@keydown.enter.self="!r.is_demo && onOpenRequirement', content)
-        self.assertIn('@keydown.space.self.prevent="!r.is_demo && onOpenRequirement', content)
-        self.assertIn('@keydown.enter.self="!task.is_demo && onOpenRequirement', content)
-        self.assertIn('@keydown.space.self.prevent="!task.is_demo && onOpenRequirement', content)
+        self.assertIn('@keydown.enter.self="isRowInteractive(r) && onOpenRequirement', content)
+        self.assertIn('@keydown.space.self.prevent="isRowInteractive(r) && onOpenRequirement', content)
+        self.assertIn('@keydown.enter.self="isRowInteractive(task) && onOpenRequirement', content)
+        self.assertIn('@keydown.space.self.prevent="isRowInteractive(task) && onOpenRequirement', content)
 
         # 3. 验证 demo 样式不响应 hover / active
         self.assertIn('.ck:not(.is-demo):hover', content)

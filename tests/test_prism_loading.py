@@ -255,6 +255,76 @@ class PrismLoadingContractTests(unittest.TestCase):
         self.assertTrue(ti.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
         ti.deleteLater()
 
+    def test_ld_t13_parent_hide_preserves_linger_timer(self):
+        """LD-T13: 宿主/浮层 hide 仅停止绘制定时器，不得销毁 linger 状态收尾定时器。"""
+        from PyQt6.QtGui import QHideEvent
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        p.start_busy('数据导出中…', immediate=True)
+        p.finish('导出完毕')
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
+
+        # 触发 hideEvent
+        p.hideEvent(QHideEvent())
+        # 绘制定时器必须停止
+        self.assertFalse(p._anim_timer.isActive())
+        # linger 定时器必须存活
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
+        p.deleteLater()
+
+    def test_ld_t14_parent_hide_preserves_delay_timer(self):
+        """LD-T14: 延迟展示阶段页面隐藏，delay_timer 继续存活，状态机保持 pending_busy。"""
+        from PyQt6.QtGui import QHideEvent
+        p = AuroraProgress(self.host, delay_show_ms=300)
+        p.start_busy('等待网络中…', immediate=False)
+        self.assertEqual(p._state, 'pending_busy')
+        self.assertIsNotNone(p._delay_timer)
+        self.assertTrue(p._delay_timer.isActive())
+
+        # 触发 hideEvent
+        p.hideEvent(QHideEvent())
+        self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNotNone(p._delay_timer)
+        self.assertTrue(p._delay_timer.isActive())
+        self.assertEqual(p._state, 'pending_busy')
+        p.deleteLater()
+
+    def test_ld_t15_fail_is_strictly_static_no_anim_timer(self):
+        """LD-T15: fail() 为纯静态红色错误反馈，禁止存在任何活跃的 _anim_timer 循环。"""
+        p = AuroraProgress(self.host, delay_show_ms=0)
+        p.fail('连接超时: 504')
+        self.assertEqual(p._state, 'fail')
+        self.assertTrue(p._is_shown)
+        self.assertFalse(p._anim_timer.isActive())
+        self.assertIsNotNone(p._linger_timer)
+        self.assertTrue(p._linger_timer.isActive())
+        p.deleteLater()
+
+    def test_ld_t16_thinking_indicator_hide_preserves_is_running_and_show_resumes(self):
+        """LD-T16: ThinkingIndicator 在 hide 时仅暂停绘制定时器，保持 is_running，show 后恢复。"""
+        from PyQt6.QtGui import QHideEvent, QShowEvent
+        ti = ThinkingIndicator(None, text='思考中…')
+        ti.start()
+        self.assertTrue(ti.is_running())
+        self.assertTrue(ti._timer.isActive())
+
+        # hideEvent：暂停绘制，保持 running
+        ti.hideEvent(QHideEvent())
+        self.assertTrue(ti.is_running())
+        self.assertFalse(ti._timer.isActive())
+
+        # showEvent：恢复绘制
+        ti.showEvent(QShowEvent())
+        self.assertTrue(ti.is_running())
+        self.assertTrue(ti._timer.isActive())
+
+        # 显式业务 stop：真正停止
+        ti.stop()
+        self.assertFalse(ti.is_running())
+        self.assertFalse(ti._timer.isActive())
+        ti.deleteLater()
+
     def test_web_prism_loading_component_exists_and_valid(self):
         """验证 frontend/src/shared/components/PrismLoading.vue 规范组件存在且契约完备。"""
         vue_path = os.path.join(ROOT, 'frontend', 'src', 'shared', 'components', 'PrismLoading.vue')
