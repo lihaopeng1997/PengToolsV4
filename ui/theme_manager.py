@@ -394,8 +394,8 @@ class ThemeManager:
             qss = qss.replace(f'__{key}__', value)
         try:
             from ui.icons import icon_url, tinted_icon_url
-            arrow_tint = palette.get('ICON_MUTED') or palette.get('TEXT_MUTED') or '#8A8A90'
-            arrow = tinted_icon_url('dropdown', arrow_tint) or icon_url('dropdown')
+            dropdown_tint = palette.get('TEXT_MUTED') or palette.get('PRIMARY_ACTIVE') or '#8A8A90'
+            arrow = tinted_icon_url('dropdown', dropdown_tint) or icon_url('dropdown')
             check = icon_url('check')
         except Exception:
             resource_dir = os.path.dirname(self._template_path) if self._template_path else ''
@@ -404,9 +404,9 @@ class ThemeManager:
         qss = qss.replace('__DROPDOWN_ARROW__', arrow).replace('__CHECKMARK__', check)
         try:
             from ui.icons import tinted_icon_url
-            tint = palette.get('PRIMARY_ACTIVE') or palette.get('TEXT_STRONG') or '#3D594A'
-            qss = qss.replace('__BRANCH_CLOSED__', tinted_icon_url('chevron-right', tint) or arrow)
-            qss = qss.replace('__BRANCH_OPEN__', tinted_icon_url('chevron-down-tree', tint) or arrow)
+            branch_tint = palette.get('PRIMARY_ACTIVE') or palette.get('TEXT_STRONG') or '#6C58D9'
+            qss = qss.replace('__BRANCH_CLOSED__', tinted_icon_url('chevron-right', branch_tint) or arrow)
+            qss = qss.replace('__BRANCH_OPEN__', tinted_icon_url('chevron-down-tree', branch_tint) or arrow)
         except Exception:
             qss = qss.replace('__BRANCH_CLOSED__', arrow).replace('__BRANCH_OPEN__', arrow)
         unresolved = unresolved_qss_tokens(qss)

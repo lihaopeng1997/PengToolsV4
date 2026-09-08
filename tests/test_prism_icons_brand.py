@@ -44,7 +44,7 @@ from ui.theme_manager import ThemeManager
 try:
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QIcon, QPixmap
-    from PyQt6.QtWidgets import QApplication, QPushButton
+    from PyQt6.QtWidgets import QApplication, QComboBox, QPushButton
     QT_AVAILABLE = True
 except ImportError:
     QT_AVAILABLE = False
@@ -290,6 +290,43 @@ class PrismRuntimeRenderAndCacheTests(unittest.TestCase):
         info2_after = brand_pixmap.cache_info()
         self.assertEqual(info1_after.currsize, 0, "icon_pixmap 缓存未被清空")
         self.assertEqual(info2_after.currsize, 0, "brand_pixmap 缓存未被清空")
+
+    def test_dropdown_tint_injection(self):
+        """ThemeManager.render() 生成的 QSS 中，__DROPDOWN_ARROW__ 必须注入主题 tint 物理 SVG，不得依赖裸 currentColor。"""
+        tm = ThemeManager.instance()
+        for theme in ('calm', 'black'):
+            qss = tm.render(theme)
+            palette = tm.palette(theme)
+            expected_tint = palette.get('TEXT_MUTED') or palette.get('PRIMARY_ACTIVE')
+            self.assertTrue(expected_tint, f"主题 {theme} 缺少 TEXT_MUTED/PRIMARY_ACTIVE token")
+
+            # 从 QSS 提取 QComboBox 下拉箭头图片路径
+            matches = re.findall(r'QComboBox::down-arrow\s*\{[^}]*image:\s*url\(([^)]+)\)', qss)
+            self.assertTrue(matches, f"主题 {theme} QSS 未找到 QComboBox::down-arrow image:url")
+            raw_url = matches[0].strip('\'"')
+            self.assertTrue(os.path.exists(raw_url), f"主题 {theme} dropdown SVG 物理文件不存在: {raw_url}")
+
+            with open(raw_url, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+
+            self.assertNotIn('currentColor', svg_content, f"主题 {theme} dropdown SVG 残留 currentColor")
+            self.assertIn(expected_tint, svg_content, f"主题 {theme} dropdown SVG 未包含预期主题色 {expected_tint}")
+
+    def test_qcombobox_render_smoke(self):
+        """Calm 与 Black 主题下，应用完整 QSS 渲染 QComboBox 正常展示、无崩溃。"""
+        tm = ThemeManager.instance()
+        for theme in ('calm', 'black'):
+            tm.apply(self.app, theme)
+            combo = QComboBox()
+            combo.addItems(['Option 1', 'Option 2', 'Option 3'])
+            combo.setCurrentIndex(0)
+            combo.show()
+            self.app.processEvents()
+            pix = combo.grab()
+            self.assertFalse(pix.isNull(), f"主题 {theme} 下 QComboBox grab 返回空 Pixmap")
+            self.assertGreater(pix.width(), 0)
+            self.assertGreater(pix.height(), 0)
+            combo.close()
 
 
 if __name__ == '__main__':
