@@ -1838,16 +1838,18 @@ class MainWindow(QMainWindow):
         return True
 
     def _sync_web_theme(self):
-        """向 Chrome / Dashboard Web 视图同步当前主题 Token 与深浅色模式。"""
+        """向 Chrome / Dashboard Web 视图同步当前主题 Token、深浅色模式与动效契约。"""
         try:
-            from ui.theme_manager import ThemeManager, theme_mode
+            from ui.theme_manager import ThemeManager, theme_mode, resolve_theme_id
+            from ui.motion import motion_enabled
             tm = ThemeManager.instance()
-            theme_id = tm.theme_id
+            theme_id = resolve_theme_id(tm.theme_id)
             is_dark = (theme_mode(theme_id) == 'dark')
             payload = {
                 'id': theme_id,
                 'is_dark': is_dark,
-                'tokens': tm.palette(),
+                'tokens': tm.palette(theme_id),
+                'motion_enabled': motion_enabled(),
             }
             if getattr(self, '_chrome_bridge', None) is not None:
                 self._chrome_bridge.set_theme_payload(payload)

@@ -172,14 +172,19 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 self.assertTrue(calm_res.get('glassShadow') and calm_res.get('glassShadow') != 'none')
                 self.assertTrue(calm_res.get('cardShadow') and calm_res.get('cardShadow') != 'none')
 
-                # B. 动态切换至 black 墨黑主题
-                tm.apply(app, 'black')
-                black_payload = {
-                    'id': 'black',
-                    'is_dark': True,
-                    'tokens': tm.palette(),
+                # B. 验证单一晴空棱镜：尝试切换至 black 时，生产管理器安全收口为 calm，杜绝进入 black
+                applied = tm.apply(app, 'black')
+                self.assertEqual(applied, 'calm')
+                self.assertEqual(tm.theme_id, 'calm')
+                calm_tokens = tm.palette()
+                self.assertEqual(calm_tokens['PRIMARY'], '#6C58D9')
+                payload = {
+                    'id': tm.theme_id,
+                    'is_dark': False,
+                    'tokens': calm_tokens,
+                    'motion_enabled': True,
                 }
-                bridge.set_theme_payload(black_payload)
+                bridge.set_theme_payload(payload)
 
                 timer_wait = QTimer()
                 timer_wait.setSingleShot(True)
@@ -188,11 +193,11 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 loop.exec()
 
                 black_res = run_js(js_probe) or {}
-                self.assertEqual(black_res.get('theme'), 'black')
-                self.assertTrue(black_res.get('isDark'))
-                self.assertEqual(black_res.get('primary'), '#A99AF5')
-                self.assertEqual(black_res.get('appBg'), '#15151E')
-                self.assertEqual(black_res.get('surface'), '#1E1E2B')
+                self.assertEqual(black_res.get('theme'), 'calm')
+                self.assertFalse(black_res.get('isDark'))
+                self.assertEqual(black_res.get('primary'), '#6C58D9')
+                self.assertEqual(black_res.get('appBg'), '#F4F3FA')
+                self.assertEqual(black_res.get('surface'), '#FDFDFF')
 
                 # C. DOM 点击“数据中心”工具 => Python 收到 nav 18
                 js_click_dc = '''(() => {

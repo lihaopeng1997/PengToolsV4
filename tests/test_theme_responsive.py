@@ -149,8 +149,9 @@ class NightThemeTokenTests(unittest.TestCase):
         tm = ThemeManager.instance()
         tm.load_template()
         qss = tm.render('black')
-        self.assertIn(THEMES['black']['APP_BG'], qss)
-        self.assertIn(THEMES['black']['SURFACE'], qss)
+        self.assertIn(THEMES['calm']['APP_BG'], qss)
+        self.assertIn(THEMES['calm']['SURFACE'], qss)
+        self.assertNotIn(THEMES['black']['APP_BG'], qss)
         self.assertNotIn('color: white;', qss.lower().replace(' ', ''))
         self.assertNotIn('#536DFE', qss.upper())
         self.assertIn('QScrollArea::viewport', qss)
@@ -177,11 +178,12 @@ class NightThemeTokenTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         tm = ThemeManager.instance()
         tm.load_template()
-        tm.apply(app, 'black')
-        applied = app.palette().color(QPalette.ColorRole.Window)
-        self.assertLess((applied.red() + applied.green() + applied.blue()) / 3, 40)
+        applied = tm.apply(app, 'black')
+        self.assertEqual(applied, 'calm')
+        self.assertEqual(tm.theme_id, 'calm')
+        applied_color = app.palette().color(QPalette.ColorRole.Window)
+        self.assertGreater((applied_color.red() + applied_color.green() + applied_color.blue()) / 3, 200)
         style_name = (app.style().objectName() if app.style() else '').lower()
-        # offscreen 插件可能不回写 objectName；有名字时必须是 Fusion
         if style_name:
             self.assertEqual(style_name, 'fusion')
         tm.apply(app, 'calm')
@@ -215,31 +217,13 @@ class NightThemeTokenTests(unittest.TestCase):
         self.assertEqual(combo.maximumWidth(), COMBO_PICK_W)
         self.assertEqual(combo.minimumWidth(), COMBO_PICK_W)
 
-    def test_black_groupbox_and_combo_are_not_white(self):
-        from PyQt6.QtWidgets import QComboBox, QGroupBox, QVBoxLayout, QWidget
-
+    def test_apply_black_normalizes_to_calm(self):
         app = QApplication.instance() or QApplication([])
         tm = ThemeManager.instance()
         tm.load_template()
-        tm.apply(app, 'black')
-        host = QWidget()
-        host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        layout = QVBoxLayout(host)
-        box = QGroupBox('外观')
-        combo = QComboBox()
-        combo.addItem('全随机')
-        inner = QVBoxLayout(box)
-        inner.addWidget(combo)
-        layout.addWidget(box)
-        host.resize(320, 180)
-        host.show()
-        app.processEvents()
-        for widget, label in ((host, 'host'), (box, 'groupbox'), (combo, 'combo')):
-            image = widget.grab().toImage()
-            color = image.pixelColor(max(4, image.width() // 2), max(4, image.height() // 2))
-            luma = (color.red() + color.green() + color.blue()) / 3
-            self.assertLess(luma, 90, msg=f'{label} still light: {color.name()}')
-        host.close()
+        res = tm.apply(app, 'black')
+        self.assertEqual(res, 'calm')
+        self.assertEqual(tm.theme_id, 'calm')
         tm.apply(app, 'calm')
 
     def test_list_selection_uses_theme_soft_fill_not_system_blue(self):
@@ -261,7 +245,6 @@ class NightThemeTokenTests(unittest.TestCase):
         app.processEvents()
         image = w.grab().toImage().convertToFormat(QImage.Format.Format_ARGB32)
         opaque = 0
-        near_white = 0
         colors = set()
         for y in range(0, image.height(), 2):
             for x in range(0, image.width(), 2):
@@ -269,11 +252,8 @@ class NightThemeTokenTests(unittest.TestCase):
                 if c.alpha() > 200:
                     opaque += 1
                     colors.add((c.red() // 20, c.green() // 20, c.blue() // 20))
-                    if c.red() > 245 and c.green() > 245 and c.blue() > 245:
-                        near_white += 1
         self.assertGreater(opaque, 40)
         self.assertGreaterEqual(len(colors), 2)
-        self.assertLess(near_white, max(1, opaque * 0.2))
         w.close()
 
 
@@ -696,12 +676,14 @@ class VisualFoundationV1Tests(unittest.TestCase):
                 'AURORA_END',
             )
 
-            # 验证 palette 包含新 tokens
-            for theme_id in ('calm', 'black'):
-                pal = tm.palette(theme_id)
-                for key in tokens_to_check:
-                    self.assertIn(key, pal, f'{theme_id} palette 缺少 {key}')
-                    self.assertEqual(pal[key], THEMES[theme_id][key])
+            # 验证 calm palette 包含新 tokens
+            pal = tm.palette('calm')
+            for key in tokens_to_check:
+                self.assertIn(key, pal, f'calm palette 缺少 {key}')
+                self.assertEqual(pal[key], THEMES['calm'][key])
+
+            # 验证 black 生产入口无条件规范化为 calm
+            self.assertEqual(tm.palette('black'), tm.palette('calm'))
 
             if getattr(web_shell, 'WEB_SHELL_AVAILABLE', False):
                 chrome = web_shell.HomeBridge()
@@ -711,20 +693,19 @@ class VisualFoundationV1Tests(unittest.TestCase):
                     _dash_bridge=dash,
                 )
 
-                for theme_id, expected_dark in (('calm', False), ('black', True)):
-                    tm._theme_id = theme_id
-                    MainWindow._sync_web_theme(dummy)
+                MainWindow._sync_web_theme(dummy)
 
-                    chrome_payload = json.loads(chrome.themePayload())
-                    dash_payload = json.loads(dash.themePayload())
+                chrome_payload = json.loads(chrome.themePayload())
+                dash_payload = json.loads(dash.themePayload())
 
-                    for name, payload in (('chrome', chrome_payload), ('dash', dash_payload)):
-                        self.assertEqual(payload['id'], theme_id, f'{name} id 错误')
-                        self.assertEqual(payload['is_dark'], expected_dark, f'{name} is_dark 错误')
-                        tokens = payload['tokens']
-                        for key in tokens_to_check:
-                            self.assertIn(key, tokens, f'{name} tokens 缺少 {key}')
-                            self.assertEqual(tokens[key], THEMES[theme_id][key])
+                for name, payload in (('chrome', chrome_payload), ('dash', dash_payload)):
+                    self.assertEqual(payload['id'], 'calm', f'{name} id 错误')
+                    self.assertEqual(payload['is_dark'], False, f'{name} is_dark 错误')
+                    self.assertIn('motion_enabled', payload, f'{name} 缺少 motion_enabled')
+                    tokens = payload['tokens']
+                    for key in tokens_to_check:
+                        self.assertIn(key, tokens, f'{name} tokens 缺少 {key}')
+                        self.assertEqual(tokens[key], THEMES['calm'][key])
         finally:
             tm._theme_id = old_theme
 
@@ -776,8 +757,9 @@ class VisualFoundationV1Tests(unittest.TestCase):
         self.assertEqual(calm_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
 
         black_p = tm.palette('black')
-        self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#191924')
+        self.assertEqual(black_p['SIDEBAR_BG'].upper(), '#F7F6FC')  # 生产 API 规范化收口为 calm
         self.assertEqual(black_p['NAV_ACTIVE_TEXT'].upper(), '#FFFFFF')
+        self.assertEqual(THEMES['black']['SIDEBAR_BG'].upper(), '#191924')  # 归档调色板留档
 
         for tid in ('calm', 'black'):
             qss = tm.render(tid)

@@ -373,7 +373,9 @@ class TestPrismFoundation(unittest.TestCase):
         tm = ThemeManager.instance()
         tm.load_template()
 
-        for tid in ('calm', 'black'):
+        self.assertEqual(tm.render('black'), tm.render('calm'))
+
+        for tid in ('calm',):
             qss = tm.render(tid)
             focus_ring = THEMES[tid]['FOCUS_RING']
 
@@ -456,27 +458,34 @@ class TestPrismFoundation(unittest.TestCase):
         tm = ThemeManager.instance()
         tm.load_template()
 
-        for tid in ('calm', 'black'):
-            pal = tm.palette(tid)
-            self.assertEqual(pal['PRIMARY'], THEMES[tid]['PRIMARY'])
-            self.assertEqual(pal['APP_BG'], THEMES[tid]['APP_BG'])
-            self.assertEqual(pal['SURFACE'], THEMES[tid]['SURFACE'])
+        # calm 生产调色板严格与 THEMES['calm'] 保持完全一致
+        calm_pal = tm.palette('calm')
+        self.assertEqual(calm_pal['PRIMARY'], THEMES['calm']['PRIMARY'])
+        self.assertEqual(calm_pal['APP_BG'], THEMES['calm']['APP_BG'])
+        self.assertEqual(calm_pal['SURFACE'], THEMES['calm']['SURFACE'])
+
+        # 生产 API 彻底封死 black：请求 black 必须无条件规范化为 calm
+        black_pal = tm.palette('black')
+        self.assertEqual(black_pal['PRIMARY'], THEMES['calm']['PRIMARY'])
+        self.assertEqual(black_pal['APP_BG'], THEMES['calm']['APP_BG'])
+        self.assertEqual(black_pal['SURFACE'], THEMES['calm']['SURFACE'])
 
         if getattr(web_shell, 'WEB_SHELL_AVAILABLE', False):
             bridge = web_shell.HomeBridge()
-            for tid, is_dark in (('calm', False), ('black', True)):
-                payload = {
-                    'id': tid,
-                    'is_dark': is_dark,
-                    'tokens': tm.palette(tid),
-                }
-                bridge.set_theme_payload(payload)
-                raw = bridge.themePayload()
-                decoded = json.loads(raw)
-                self.assertEqual(decoded['id'], tid)
-                self.assertEqual(decoded['is_dark'], is_dark)
-                self.assertEqual(decoded['tokens']['PRIMARY'], THEMES[tid]['PRIMARY'])
-                self.assertEqual(decoded['tokens']['SURFACE'], THEMES[tid]['SURFACE'])
+            payload = {
+                'id': 'calm',
+                'is_dark': False,
+                'tokens': tm.palette('calm'),
+                'motion_enabled': True,
+            }
+            bridge.set_theme_payload(payload)
+            raw = bridge.themePayload()
+            decoded = json.loads(raw)
+            self.assertEqual(decoded['id'], 'calm')
+            self.assertEqual(decoded['is_dark'], False)
+            self.assertEqual(decoded['tokens']['PRIMARY'], THEMES['calm']['PRIMARY'])
+            self.assertEqual(decoded['tokens']['SURFACE'], THEMES['calm']['SURFACE'])
+            self.assertEqual(decoded.get('motion_enabled'), True)
 
 
 if __name__ == '__main__':
