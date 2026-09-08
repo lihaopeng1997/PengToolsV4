@@ -371,16 +371,17 @@ def brand_tray_icon() -> QIcon:
         icon = QIcon(hc)
         if not icon.isNull():
             return icon
-    # 回退：固定深墨绿 tint 的 tray SVG，避免夜间主题染成近黑
+    # 回退：固定 Prism 安全主色 tint 的 tray SVG，避免夜间主题染成近黑
+    prism_tray_tint = '#6C58D9'
     for size in (20, 16, 24, 32):
-        pix = brand_pixmap('tray', size=size, tint='#1F3D32')
+        pix = brand_pixmap('tray', size=size, tint=prism_tray_tint)
         if not pix.isNull():
             icon = QIcon()
             icon.addPixmap(pix)
             for extra in (16, 20, 24, 32):
                 if extra == size:
                     continue
-                extra_pix = brand_pixmap('tray', size=extra, tint='#1F3D32')
+                extra_pix = brand_pixmap('tray', size=extra, tint=prism_tray_tint)
                 if not extra_pix.isNull():
                     icon.addPixmap(extra_pix)
             return icon
