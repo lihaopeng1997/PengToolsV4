@@ -670,6 +670,7 @@ class MainWindow(QMainWindow):
         # 品牌区
         brand_block = QFrame()
         brand_block.setObjectName('sidebar-brand')
+        brand_block.setFixedHeight(64)
         self._brand_block = brand_block
         brand_layout = QHBoxLayout(brand_block)
         brand_layout.setContentsMargins(8, 8, 8, 8)
@@ -684,6 +685,7 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(0)
         brand = QLabel(APP_NAME)
         brand.setObjectName('sidebar_title')
+        self.sidebar_title = brand
         # 常驻只显示作者；版本/构建/彩蛋进 tooltip（双击仍解锁）
         self.version_label = QLabel('作者：Lihp')
         self.version_label.setObjectName('sidebar_version')
@@ -789,7 +791,7 @@ class MainWindow(QMainWindow):
         self.nav_buttons[7] = self.settings_button
         footer.addWidget(self.settings_button, 1)
 
-        # 快速主题切换：一键在四套主题间循环，无需进入设置页
+        # 快速主题切换：一键在双主题（Calm/Black）间循环，无需进入设置页
         self.theme_cycle_button = QPushButton()
         self.theme_cycle_button.setObjectName('nav-btn-settings')
         self.theme_cycle_button.setCheckable(False)
@@ -1130,10 +1132,13 @@ class MainWindow(QMainWindow):
         # 手动折叠时强制 icon-only 模式
         if self._nav_collapsed:
             icon_only = True
-            self._sidebar.setFixedWidth(NAV_ICON)
+            target_width = NAV_ICON
         else:
             icon_only = is_icon_nav(mode)
-            self._sidebar.setFixedWidth(nav_width_for_mode(mode))
+            target_width = nav_width_for_mode(mode)
+        self._sidebar.setFixedWidth(target_width)
+        if getattr(self, '_sidebar_stack', None) is not None:
+            self._sidebar_stack.setFixedWidth(target_width)
         self._nav_icon_only = icon_only
         margin = content_margin_for_mode(mode)
         if hasattr(self, '_page_body_layout') and self._page_body_layout is not None:
@@ -1163,12 +1168,24 @@ class MainWindow(QMainWindow):
                 button.setToolTip('')
             button.style().unpolish(button)
             button.style().polish(button)
-        # 品牌副标题
+        # 品牌副标题与标题
+        if hasattr(self, 'sidebar_title') and self.sidebar_title is not None:
+            self.sidebar_title.setVisible(not icon_only)
         self.version_label.setVisible(not icon_only and not low_height)
         self.brand_icon.setVisible(True)
+        if hasattr(self, '_sql_expand_btn') and self._sql_expand_btn is not None:
+            self._sql_expand_btn.setVisible(not icon_only)
+        if hasattr(self, '_ai_expand_btn') and self._ai_expand_btn is not None:
+            self._ai_expand_btn.setVisible(not icon_only)
         if icon_only:
             self.settings_button.setText('')
             self.settings_button.setToolTip('设置' if self.language == 'zh' else 'Settings')
+            self.settings_button.setProperty('iconOnly', True)
+        else:
+            self.settings_button.setProperty('iconOnly', False)
+            self.settings_button.setToolTip('')
+        self.settings_button.style().unpolish(self.settings_button)
+        self.settings_button.style().polish(self.settings_button)
         # 手动折叠后隐藏设置按钮，底部仅保留 LH 图标
         if hasattr(self, '_nav_collapsed'):
             self.settings_button.setVisible(not self._nav_collapsed)
@@ -1223,7 +1240,7 @@ class MainWindow(QMainWindow):
             from ui.theme_manager import ThemeManager
             accent = ThemeManager.instance().token('PRIMARY_ACTIVE')
         except Exception:
-            accent = '#4F735F'
+            accent = '#6C58D9'
         # 侧栏：36px 底板内 24px 品牌标识
         pix = brand_pixmap('app_mark', size=24, tint=accent)
         if pix.isNull():

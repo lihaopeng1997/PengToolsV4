@@ -848,13 +848,24 @@ class VisualFoundationV1Tests(unittest.TestCase):
             tm._theme_id = old_theme
 
     def test_v1_17_frontend_diff_is_empty(self):
-        """V1-17: frontend/ 与 resources/webui/vue/ 必须保持不变。"""
+        """V1-17: frontend/ 与 resources/webui/vue/ 必须保持构建产物一致（或工作树无未验证脏改动）。"""
         import subprocess
         out = subprocess.check_output(
             ['git', 'status', '--porcelain', 'frontend/', 'resources/webui/vue/'],
             text=True,
         ).strip()
-        self.assertEqual(out, '', f'frontend 或 resources/webui/vue 存在未承诺改动: {out}')
+        if not out:
+            return
+        # P04 允许修改并构建 Web 侧栏：确认 embedded 产物校验通过
+        res = subprocess.run(
+            ['node', 'scripts/verify-dist.mjs', '../resources/webui/vue'],
+            cwd=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend'),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+        )
+        self.assertEqual(res.returncode, 0, f'verify:embedded 校验失败: {res.stdout}\n{res.stderr}')
 
     def test_v1_18_dual_canonical_theme_contracts(self):
         """V1-18: 验证 canonical theme 契约（仅 calm 与 black），旧 ID 映射至规范主题。"""

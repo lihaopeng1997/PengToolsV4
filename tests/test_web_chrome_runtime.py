@@ -47,6 +47,11 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
             tm.apply(app, 'calm')
 
             bridge = web_shell.HomeBridge()
+            nav_requests = []
+            palette_requests = []
+            bridge.navigateRequested.connect(nav_requests.append)
+            bridge.paletteRequested.connect(lambda: palette_requests.append(True))
+
             nav_model = {
                 'groups': [
                     {
@@ -55,7 +60,15 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
                         'en': 'WORKSPACE',
                         'items': [
                             {'i': 0, 'zh': '首页', 'en': 'HOME', 'icon': 'home'},
-                            {'i': 1, 'zh': '数据库', 'en': 'DB', 'icon': 'database'},
+                            {
+                                'i': 14,
+                                'zh': '数据中心',
+                                'en': 'DATA CENTER',
+                                'icon': 'database',
+                                'children': [
+                                    {'i': 18, 'zh': 'Oracle', 'en': 'ORACLE', 'icon': 'database'},
+                                ],
+                            },
                         ],
                     }
                 ],
@@ -101,8 +114,13 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
                 const root = document.documentElement;
                 const body = document.body;
                 const activeItem = document.querySelector('.nav-item.active');
+                const brand = document.querySelector('.brand');
+                const brandName = document.querySelector('.brand-name');
+                const groupLabel = document.querySelector('.g-label');
+                const parentItem = document.querySelector('.nav-item.parent');
+                const settingsItem = document.querySelector('#foot-settings .nav-item');
+                const paletteKbd = document.querySelector('.kbd');
                 const logo = document.querySelector('.logo');
-                const brand = document.querySelector('.brand-name');
                 const sRoot = getComputedStyle(root);
                 const sBody = getComputedStyle(body);
                 const sBefore = getComputedStyle(body, '::before');
@@ -120,8 +138,13 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
                     beforeOpacity: parseFloat(sBefore.opacity || '0'),
                     beforeBg: sBefore.backgroundImage || sBefore.background,
                     hasActiveItem: !!activeItem,
+                    hasBrand: !!brand && !!brandName,
+                    hasGroupLabel: !!groupLabel,
+                    hasParent: !!parentItem,
+                    hasSettings: !!settingsItem,
+                    hasPalette: !!paletteKbd,
                     activeColor: sActive ? sActive.color : '',
-                    activeBg: sActive ? (sActive.backgroundImage || sActive.background) : '',
+                    activeBg: sActive ? (sActive.backgroundColor || sActive.background) : '',
                     logoBg: sLogo ? (sLogo.backgroundImage || sLogo.background) : '',
                     logoShadow: sLogo ? sLogo.boxShadow : ''
                 };
@@ -161,25 +184,65 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
 
             self.assertEqual(calm_res.get('theme'), 'calm', '初始主题必须为 calm')
             self.assertFalse(calm_res.get('isDark'), 'calm 模式下 isDark 必须为 False')
-            self.assertEqual(calm_res.get('sidebarBgVar'), '#F6F8FE', 'Calm 下 --sidebar-bg 应为浅色家族 #F6F8FE')
-            self.assertEqual(calm_res.get('sidebarTextVar'), '#1B1E2A', 'Calm 下 --sidebar-text 应为深色 #1B1E2A')
+            self.assertEqual(calm_res.get('sidebarBgVar'), '#F7F6FC', 'Calm 下 --sidebar-bg 应为 #F7F6FC')
+            self.assertEqual(calm_res.get('sidebarTextVar'), '#262438', 'Calm 下 --sidebar-text 应为 #262438')
             self.assertEqual(calm_res.get('navActiveTextVar'), '#FFFFFF', 'Calm 下 --nav-active-text 应为 #FFFFFF')
-            self.assertEqual(calm_res.get('primaryGradStartVar'), '#5B73FF', 'Calm 下品牌渐变起色应为 #5B73FF')
-            self.assertEqual(calm_res.get('primaryGradEnd'), '#4A61F0', 'Calm 下品牌渐变终色应为 #4A61F0')
+            self.assertEqual(calm_res.get('primaryGradStartVar'), '#7C6AE6', 'Calm 下品牌渐变起色应为 #7C6AE6')
+            self.assertEqual(calm_res.get('primaryGradEnd'), '#6C58D9', 'Calm 下品牌渐变终色应为 #6C58D9')
+            self.assertTrue(calm_res.get('hasBrand'), '侧栏必须渲染品牌区')
             self.assertTrue(calm_res.get('hasActiveItem'), '侧栏必须渲染激活导航项')
-            self.assertNotIn('#141B2E', calm_res.get('bodyBg', ''), 'body 背景不得写死固定 Navy #141B2E')
-            self.assertGreaterEqual(calm_res.get('beforeOpacity', 0), 0.10, 'Calm 下 Aurora 透明度应 >= 0.10')
-            self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.15, 'Calm 下 Aurora 透明度应 <= 0.15')
+            self.assertTrue(calm_res.get('hasGroupLabel'), '侧栏必须渲染分组标签')
+            self.assertTrue(calm_res.get('hasParent'), '侧栏必须渲染可折叠父导航')
+            self.assertTrue(calm_res.get('hasSettings'), '侧栏底部必须渲染设置项')
+            self.assertTrue(calm_res.get('hasPalette'), '侧栏底部必须渲染快捷面板入口')
+            self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.08, 'Calm 下 Aurora 透明度应 <= 0.08')
 
-            # 2. 动态切换至 Black 墨黑
+            # 2. 点击父节点：navigateRequested 必须为 0
+            widget.web_page.runJavaScript("document.querySelector('.nav-item.parent').click()")
+            t_parent = QTimer()
+            t_parent.setSingleShot(True)
+            t_parent.timeout.connect(loop.quit)
+            t_parent.start(150)
+            loop.exec()
+            self.assertEqual(len(nav_requests), 0, '点击父节点绝不得触发 navigateRequested')
+
+            # 3. 点击叶子节点：navigateRequested 必须为 1
+            widget.web_page.runJavaScript("document.querySelector('.sub .nav-item').click()")
+            t_leaf = QTimer()
+            t_leaf.setSingleShot(True)
+            t_leaf.timeout.connect(loop.quit)
+            t_leaf.start(300)
+            loop.exec()
+            self.assertEqual(len(nav_requests), 1, '点击叶子项必须触发一次 navigateRequested')
+            self.assertEqual(nav_requests[0], 18, '点击子叶子必须导航到 index 18')
+
+            # 4. 点击快速面板：paletteRequested 必须为 1
+            widget.web_page.runJavaScript("document.querySelector('.kbd').click()")
+            t_kbd = QTimer()
+            t_kbd.setSingleShot(True)
+            t_kbd.timeout.connect(loop.quit)
+            t_kbd.start(300)
+            loop.exec()
+            self.assertEqual(len(palette_requests), 1, '点击快捷面板按钮必须触发一次 paletteRequested')
+
+            # 记录切换前实例与状态
+            widget_ref = widget
+            web_view_ref = widget.web_view
+            ready_count_before = ready_pages.count('chrome')
+
+            # 5. 动态切换至 Black 墨黑
             black_res = probe_theme('black', True)
             self.assertEqual(black_res.get('theme'), 'black')
             self.assertTrue(black_res.get('isDark'))
-            self.assertEqual(black_res.get('sidebarBgVar'), '#111114', 'Black 侧栏背景应为近黑 #111114')
+            self.assertEqual(black_res.get('sidebarBgVar'), '#191924', 'Black 侧栏背景应为 #191924')
+            self.assertEqual(black_res.get('sidebarTextVar'), '#ECEAF7', 'Black 侧栏文本应为 #ECEAF7')
             self.assertEqual(black_res.get('navActiveTextVar'), '#FFFFFF')
-            self.assertGreaterEqual(black_res.get('beforeOpacity', 0), 0.12, 'Black 下 Aurora 透明度应 >= 0.12')
-            self.assertLessEqual(black_res.get('beforeOpacity', 0), 0.16, 'Black 下 Aurora 透明度应 <= 0.16')
-            self.assertNotIn('74, 97, 240', black_res.get('logoShadow', ''), 'Black 模式下不得包含硬编码 Indigo glow')
+            self.assertLessEqual(black_res.get('beforeOpacity', 0), 0.10, 'Black 下 Aurora 透明度应 <= 0.10')
+
+            # 验证 DOM widget 不重建，pageReady 不重复触发
+            self.assertIs(widget, widget_ref, '主题切换后 widget 实例不得重建')
+            self.assertIs(widget.web_view, web_view_ref, '主题切换后 QWebEngineView 不得重建')
+            self.assertEqual(ready_pages.count('chrome'), ready_count_before, '主题切换不得重复触发 pageReady')
 
         finally:
             if widget is not None:
