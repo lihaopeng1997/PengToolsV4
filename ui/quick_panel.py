@@ -694,11 +694,8 @@ class QuickPanel(QWidget):
             self.BUTTON_SIZE,
             self.BUTTON_SIZE,
         )
-        # tools 避开 toggle 区域
-        tools_x = 18 if not self._expand_right else 18 + self.BUTTON_SIZE
-        tools_w = width - 36 - (self.BUTTON_SIZE if self._expand_right else 0)
-        # 实际面板内容在 shell 内，tools 覆盖主体
-        self.tools.setGeometry(16, 16, width - 32, height - 32)
+        # 实际面板内容在 shell 内，tools 覆盖主体（对齐 300px/360px/340px，避免二次 shadow inset）
+        self.tools.setGeometry(8, 8, width - 16, height - 16)
         self.tools.show()
         self.tools.raise_()
         self.toggle_btn.raise_()

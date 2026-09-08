@@ -125,18 +125,43 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         self.assertEqual(panel.GRID_GAP, 8)
         self.assertEqual(panel.PANEL_PAD, 12)
 
-        # Tools mode expanded size
+        # Tools mode nominal expanded size
         w, h = panel._expanded_size()
         self.assertEqual(w, 316)  # 300 + 16
-        for btn in panel.tool_buttons:
-            self.assertEqual(btn.sizePolicy().verticalPolicy(), btn.sizePolicy().verticalPolicy())
-            self.assertEqual(btn.maximumHeight(), 58)
+
+        # Actual Qt layout geometry assertions (PRISM-UI-P08-FIX-1)
+        panel.show_panel()
+        self.app.processEvents()
+
+        # 1. Shell and content container widths
+        self.assertEqual(panel.shell.width(), 300)
+        self.assertEqual(panel.tools.width(), 300)
+
+        # 2. Content padding
+        layout_margins = panel.tools.layout().contentsMargins()
+        self.assertEqual(layout_margins.left(), 12)
+        self.assertEqual(layout_margins.right(), 12)
+        self.assertEqual(panel.grid_host.width(), 300 - 12 - 12)  # 276
+
+        # 3. Card dimensions: 134px width, 58px height, 8px gap
+        self.assertGreaterEqual(len(panel.tool_buttons), 2)
+        btn0 = panel.tool_buttons[0]
+        btn1 = panel.tool_buttons[1]
+        self.assertEqual(btn0.width(), 134)
+        self.assertEqual(btn1.width(), 134)
+        self.assertEqual(btn0.height(), 58)
+        self.assertEqual(btn1.height(), 58)
+        gap = btn1.geometry().x() - (btn0.geometry().x() + btn0.width())
+        self.assertEqual(gap, 8)
 
         # Chat mode expanded size
         panel._set_mode('chat')
         w_chat, h_chat = panel._expanded_size()
         self.assertEqual(w_chat, 356)  # 340 + 16
         self.assertEqual(h_chat, 456)  # 440 + 16
+        self.app.processEvents()
+        self.assertEqual(panel.shell.width(), 340)
+        self.assertEqual(panel.tools.width(), 340)
 
         # Learn mode expanded size
         panel._set_mode('tools')
@@ -144,6 +169,9 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         w_learn, h_learn = panel._expanded_size()
         self.assertEqual(w_learn, 376)  # 360 + 16
         self.assertEqual(h_learn, 536)  # 520 + 16
+        self.app.processEvents()
+        self.assertEqual(panel.shell.width(), 360)
+        self.assertEqual(panel.tools.width(), 360)
 
         panel.shutdown()
         owner.deleteLater()
