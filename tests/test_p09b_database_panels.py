@@ -3,8 +3,8 @@
 
 规范覆盖：
 1. SQL 工作台 (AiWorkbenchPanel):
-   - C>=1200: 树 220, 主 C-522, 辅助 270 (col_defs=[220, 710, 270]);
-   - C<1200: 树 200 + 主 C-216, AI/对象使用窄面板切换 (col_defs=[200, 560, 240] / [200, 480, 200]);
+   - C>=1200: 树 220, 主 C-522, 辅助 270 (col_defs=[220, max(420, C-522), 270]);
+   - C<1200: 树 200 + 主 C-216, AI/对象使用窄面板切换 (col_defs=[200, max(360, C-216), 240]);
    - 主编辑初始 260, 结果余 V-276 (body_splitter defaults=[260, 380]);
    - DATA_CENTER_SQL_EXECUTION_SCOPE: 有选中执行选中，无选中执行全文，空编辑器提示，快捷键对齐；
    - 顶部标题栏无冗余执行按钮，仅保留在编辑器工作区内部。
@@ -62,10 +62,10 @@ class TestP09BDatabasePanels(unittest.TestCase):
             self.assertEqual(coord_body.defaults, [260, 380])
             self.assertEqual(coord_body.min_sizes, [220, 180])
 
-            # 验证水平列 columns_splitter 默认宽度配置为 220 / 710 / 270
+            # 验证水平列 columns_splitter 默认宽度配置为 树 220 / 主 (C-522=918) / 辅助 270
             coord_cols = _coord(panel.columns_splitter)
             self.assertIsNotNone(coord_cols)
-            self.assertEqual(coord_cols.defaults, [220, 710, 270])
+            self.assertEqual(coord_cols.defaults, [220, 1440 - 522, 270])
             self.assertEqual(coord_cols.min_sizes, [200, 420, 240])
 
             # 顶部标题栏不应有执行按钮 (已移除到编辑器工具条)
@@ -130,25 +130,113 @@ class TestP09BDatabasePanels(unittest.TestCase):
             panel.deleteLater()
 
     def test_03_sql_workbench_dialects_and_responsive(self):
-        """3. SQL 工作台：四大方言与响应式布局模式适配。"""
+        """3. SQL 工作台：四大方言、C=1200 阈值响应式切换与 Splitter 持久化。"""
         dialects = ['oracle', 'mysql', 'oceanbase', 'dameng']
         for d in dialects:
             panel = AiWorkbenchPanel(dialect=d, language='zh')
             try:
                 self.assertEqual(panel._dialect, d)
-                # 验证响应式适配
-                panel.apply_layout_mode('wide')
-                self.assertEqual(panel._layout_mode, 'wide')
-
-                panel.apply_layout_mode('compact')
-                self.assertEqual(panel._layout_mode, 'compact')
-                coord = _coord(panel.columns_splitter)
-                self.assertEqual(coord.defaults, [200, 560, 240])
-
-                panel.apply_layout_mode('narrow')
-                self.assertEqual(panel._layout_mode, 'narrow')
             finally:
                 panel.deleteLater()
+
+        panel = AiWorkbenchPanel(dialect='oracle', language='zh')
+        try:
+            panel.show()
+            self.app.processEvents()
+
+            # Case A: 同一 mode='wide' 下，C=1144 < 1200 (1440 展开导航基准) -> 窄面板开关栏可见，三栏非常驻
+            panel.resize(1144, 900)
+            panel.apply_layout_mode('wide', content_width=1144)
+            self.app.processEvents()
+            self.assertTrue(
+                panel.narrow_chrome.isVisible(),
+                "C=1144 < 1200 时必须显示窄面板切换条 (narrow_chrome)",
+            )
+            # 默认对象树与 AI 侧栏隐藏
+            self.assertFalse(panel.left_pane.isVisible())
+            self.assertFalse(panel.side_tabs.isVisible())
+
+            # 验证窄面板开关交互：点击展开对象栏与 AI 助手
+            panel.show_objects_btn.setChecked(True)
+            self.app.processEvents()
+            self.assertTrue(panel.left_pane.isVisible())
+
+            panel.show_ai_side_btn.setChecked(True)
+            self.app.processEvents()
+            self.assertTrue(panel.side_tabs.isVisible())
+
+            # 验证 C < 1200 默认分栏配置契约：树 200 + 主 C-216 (1144-216=928) + 辅助 240
+            coord = _coord(panel.columns_splitter)
+            self.assertEqual(coord.defaults, [200, 928, 240])
+
+            # 收起窄面板
+            panel.show_objects_btn.setChecked(False)
+            panel.show_ai_side_btn.setChecked(False)
+            self.app.processEvents()
+            self.assertFalse(panel.left_pane.isVisible())
+            self.assertFalse(panel.side_tabs.isVisible())
+
+            # Case B: 同一 mode='wide' 下，C=1308 >= 1200 (1440 图标导航基准) -> 三栏常驻，窄面板开关栏隐藏
+            panel.resize(1308, 900)
+            panel.apply_layout_mode('wide', content_width=1308)
+            self.app.processEvents()
+            self.assertFalse(
+                panel.narrow_chrome.isVisible(),
+                "C=1308 >= 1200 时必须隐藏窄面板切换条 (narrow_chrome)",
+            )
+            self.assertTrue(
+                panel.left_pane.isVisible(),
+                "C=1308 >= 1200 时左侧对象树必须常驻可见",
+            )
+            self.assertTrue(
+                panel.side_tabs.isVisible(),
+                "C=1308 >= 1200 时右侧辅助侧栏必须常驻可见",
+            )
+            # 验证 C >= 1200 默认分栏配置契约：树 220 + 主 C-522 (1308-522=786) + 辅助 270
+            coord = _coord(panel.columns_splitter)
+            self.assertEqual(coord.defaults, [220, 786, 270])
+
+            # Case C: 动态 resize 跨越 1200 阈值自适应 (1144 <-> 1308)
+            panel.resize(1144, 900)
+            self.app.processEvents()
+            self.assertTrue(panel.narrow_chrome.isVisible())
+
+            panel.resize(1308, 900)
+            self.app.processEvents()
+            self.assertFalse(panel.narrow_chrome.isVisible())
+            self.assertTrue(panel.left_pane.isVisible())
+            self.assertTrue(panel.side_tabs.isVisible())
+
+            # Case D: 其他基准宽度验证 (§5.1 明确基准)
+            # 1280 展开导航: C=1020 < 1200
+            panel.resize(1020, 800)
+            panel.apply_layout_mode('standard', content_width=1020)
+            self.app.processEvents()
+            self.assertTrue(panel.narrow_chrome.isVisible())
+
+            # 1100 图标导航: C=984 < 1200
+            panel.resize(984, 720)
+            panel.apply_layout_mode('compact', content_width=984)
+            self.app.processEvents()
+            self.assertTrue(panel.narrow_chrome.isVisible())
+
+            # Case E: 用户 splitter 持久化保留
+            panel.resize(1308, 900)
+            panel.apply_layout_mode('wide', content_width=1308)
+            self.app.processEvents()
+            custom_sizes = [250, 750, 308]
+            panel.columns_splitter.setSizes(custom_sizes)
+            self.app.processEvents()
+
+            # 再次 apply_layout_mode 同 bucket 不得重置用户拖拽尺寸
+            panel.apply_layout_mode('wide', content_width=1308)
+            self.app.processEvents()
+            live_sizes = panel.columns_splitter.sizes()
+            self.assertAlmostEqual(live_sizes[0], custom_sizes[0], delta=20)
+            self.assertAlmostEqual(live_sizes[1], custom_sizes[1], delta=20)
+            self.assertAlmostEqual(live_sizes[2], custom_sizes[2], delta=20)
+        finally:
+            panel.deleteLater()
 
     def test_04_redis_workbench_geometry_and_contracts(self):
         """4. Redis 工作台：树 240 / 类型值区 min 280 / CLI 高度 200。"""

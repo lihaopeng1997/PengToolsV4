@@ -646,6 +646,26 @@ class AiWorkbenchPanel(QWidget):
         columns.setStretchFactor(2, 3)
         columns.setChildrenCollapsible(False)
         self.columns_splitter = columns
+        orig_set_sizes = columns.setSizes
+
+        def _custom_set_sizes(sizes):
+            if sizes and len(sizes) >= 3 and getattr(self, '_initial_init_done', False):
+                import inspect
+                caller_names = [f.function for f in inspect.stack()[:5]]
+                if '_apply_initial_sizes' not in caller_names and '_restore_defaults' not in caller_names:
+                    if sizes[0] > 0 and hasattr(self, 'left_pane') and not self.left_pane.isVisible():
+                        self._narrow_show_objects = True
+                        self.left_pane.setVisible(True)
+                        if hasattr(self, 'show_objects_btn'):
+                            self.show_objects_btn.setChecked(True)
+                    if sizes[2] > 0 and hasattr(self, 'side_tabs') and not self.side_tabs.isVisible():
+                        self._narrow_show_ai = True
+                        self.side_tabs.setVisible(True)
+                        if hasattr(self, 'show_ai_side_btn'):
+                            self.show_ai_side_btn.setChecked(True)
+            orig_set_sizes(sizes)
+
+        columns.setSizes = _custom_set_sizes
 
         install_splitter_prefs(
             body,
@@ -754,26 +774,95 @@ class AiWorkbenchPanel(QWidget):
         self.result_tabs.setTabText(2, '历史' if zh else 'History')
         self._refresh_model_status()
         self._refresh_header()
+        self._initial_init_done = True
 
     def _toggle_narrow_objects(self, checked: bool):
         self._narrow_show_objects = bool(checked)
-        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'left_pane'):
+        c = self.width()
+        if (c < 1200 or getattr(self, '_layout_mode', '') == 'narrow') and hasattr(self, 'left_pane'):
             self.left_pane.setVisible(self._narrow_show_objects)
+            if hasattr(self, 'columns_splitter'):
+                left_w = 200 if self._narrow_show_objects else 0
+                sizes = self.columns_splitter.sizes()
+                right_w = sizes[2] if (len(sizes) >= 3 and hasattr(self, 'side_tabs') and self.side_tabs.isVisible()) else 0
+                mid_w = max(360, c - left_w - right_w - 32)
+                self.columns_splitter.setSizes([left_w, mid_w, right_w])
 
     def _toggle_narrow_ai(self, checked: bool):
         self._narrow_show_ai = bool(checked)
-        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'side_tabs'):
+        c = self.width()
+        if (c < 1200 or getattr(self, '_layout_mode', '') == 'narrow') and hasattr(self, 'side_tabs'):
             self.side_tabs.setVisible(self._narrow_show_ai)
+            if hasattr(self, 'columns_splitter'):
+                sizes = self.columns_splitter.sizes()
+                left_w = sizes[0] if (len(sizes) >= 3 and hasattr(self, 'left_pane') and self.left_pane.isVisible()) else 0
+                right_w = 240 if self._narrow_show_ai else 0
+                mid_w = max(360, c - left_w - right_w - 32)
+                self.columns_splitter.setSizes([left_w, mid_w, right_w])
 
-    def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
+    def _sync_c_threshold_layout(self, c: int, mode: str | None = None):
+        """依据实际工作区宽度 C 是否达到 1200px 切换三栏 / 窄面板开关。"""
         from ui.splitter_prefs import layout_bucket
+        if mode is None:
+            mode = getattr(self, '_layout_mode', 'wide')
+        self._prev_applied_c = c
+        is_wide_c = c >= 1200
+
+        if hasattr(self, 'narrow_chrome'):
+            self.narrow_chrome.setVisible(not is_wide_c)
+
+        if is_wide_c:
+            # C >= 1200: 树 220，主 C-522，辅助 270，gap 16
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.left_pane.setMinimumWidth(200)
+            self.side_tabs.setMinimumWidth(240)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(420)
+            col_mins = [200, 420, 240]
+            col_defs = [220, max(420, c - 522), 270]
+            bucket_name = f'{mode}_wide' if mode != 'wide' else 'wide'
+        else:
+            # C < 1200: 树 200 + 主 C-216，AI/对象使用现有窄面板切换
+            self.left_pane.setVisible(self._narrow_show_objects)
+            self.side_tabs.setVisible(self._narrow_show_ai)
+            self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(360)
+            if self._narrow_show_objects:
+                self.left_pane.setMinimumWidth(200)
+            if self._narrow_show_ai:
+                self.side_tabs.setMinimumWidth(200)
+            col_mins = [
+                200 if self._narrow_show_objects else 0,
+                360,
+                200 if self._narrow_show_ai else 0,
+            ]
+            col_defs = [200, max(360, c - 216), 240]
+            bucket_name = f'{mode}_narrow' if mode == 'wide' else layout_bucket(mode)
+
+        self._in_sync_layout = True
+        try:
+            install_splitter_prefs(
+                self.columns_splitter,
+                defaults=col_defs,
+                page_id='sql-console',
+                tab_id=sql_splitter_tab_id('columns', self._dialect),
+                bucket=bucket_name,
+                min_sizes=col_mins,
+                accessible_name='SQL 控制台列分隔',
+            )
+        finally:
+            self._in_sync_layout = False
+
+    def apply_layout_mode(self, mode, low_height=False, content_width: int | None = None):
+        from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
         self._layout_mode = mode
         if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
             self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
-        if hasattr(self, 'narrow_chrome'):
-            self.narrow_chrome.setVisible(mode == 'narrow')
         min_h = editor_min_height()
         tabs = getattr(self, 'sql_tabs', None)
         if tabs is not None:
@@ -784,66 +873,11 @@ class AiWorkbenchPanel(QWidget):
                     editor.setMinimumHeight(min_h)
         if not hasattr(self, 'columns_splitter'):
             return
-        prev_mode = getattr(self, '_prev_applied_mode', None)
-        mode_changed = prev_mode != mode
-        self._prev_applied_mode = mode
 
-        if mode == 'narrow':
-            # 显式紧凑：默认单主区（编辑器），目录/助手按需打开，禁止常驻三栏
-            narrow_vis_changed = (
-                self.left_pane.isVisible() != self._narrow_show_objects or
-                self.side_tabs.isVisible() != self._narrow_show_ai
-            )
-            self.left_pane.setVisible(self._narrow_show_objects)
-            self.side_tabs.setVisible(self._narrow_show_ai)
-            self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
-            if mode_changed or narrow_vis_changed:
-                left_w = 240 if self._narrow_show_objects else 0
-                right_w = 280 if self._narrow_show_ai else 0
-                mid_w = max(360, 900 - left_w - right_w)
-                self.columns_splitter.setSizes([left_w, mid_w, right_w])
-            for i, w in enumerate((self.left_pane, self.columns_splitter.widget(1), self.side_tabs)):
-                if w is None:
-                    continue
-                if i == 1:
-                    w.setMinimumWidth(360)
-                elif w.isVisible():
-                    w.setMinimumWidth(200)
-            col_mins = [
-                200 if self._narrow_show_objects else 0,
-                360,
-                200 if self._narrow_show_ai else 0,
-            ]
-            col_defs = [200, 480, 200]
-        elif mode == 'compact':
-            self.left_pane.setVisible(True)
-            self.side_tabs.setVisible(True)
-            self.left_pane.setMinimumWidth(200)
-            self.side_tabs.setMinimumWidth(200)
-            mid = self.columns_splitter.widget(1)
-            if mid is not None:
-                mid.setMinimumWidth(360)
-            col_mins = [200, 360, 200]
-            col_defs = [200, 560, 240]
-        else:
-            self.left_pane.setVisible(True)
-            self.side_tabs.setVisible(True)
-            self.left_pane.setMinimumWidth(200)
-            self.side_tabs.setMinimumWidth(240)
-            mid = self.columns_splitter.widget(1)
-            if mid is not None:
-                mid.setMinimumWidth(420)
-            col_mins = [200, 420, 240]
-            col_defs = [220, 710, 270]
-        install_splitter_prefs(
-            self.columns_splitter,
-            defaults=col_defs,
-            page_id='sql-console',
-            tab_id=sql_splitter_tab_id('columns', self._dialect),
-            bucket=layout_bucket(mode),
-            min_sizes=col_mins,
-            accessible_name='SQL 控制台列分隔',
-        )
+        c = content_width if content_width is not None and content_width > 40 else self.width()
+        if c <= 40:
+            c = 1308 if mode == 'wide' else 1000
+        self._sync_c_threshold_layout(c, mode)
 
     def _title(self) -> str:
         return 'SQL 控制台' if self.language == 'zh' else 'SQL Console'
@@ -1184,6 +1218,11 @@ class AiWorkbenchPanel(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'loading'):
             self.loading.place_overlay(self)
+        c = self.width()
+        if c > 40:
+            prev_c = getattr(self, '_prev_applied_c', None)
+            if prev_c is None or (prev_c >= 1200) != (c >= 1200):
+                self._sync_c_threshold_layout(c)
 
     def _busy(self, on: bool, message: str = '', *, fetch_all: bool = False) -> int:
         zh = self.language == 'zh'
