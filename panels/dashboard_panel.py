@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal
@@ -26,9 +27,10 @@ from tools.dashboard_release_items import (
 from tools.dashboard_summary import build_dashboard_summary
 from tools.requirements import load_requirements, systems_display_text, test_points_button_text
 from ui.design_system import apply_button
-from ui.icons import apply_icon, icon_pixmap
+from ui.icons import apply_icon, icon_pixmap, resource_path
 from ui.page_chrome import make_page_header
 from ui.responsive import set_subtitle_visible
+from ui.motion import motion_enabled
 
 
 try:
@@ -230,6 +232,89 @@ class TaskRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
+
+def _load_daily_quotes() -> list[dict]:
+    """从统一静态 JSON 资源读取 12 条公版经典句。"""
+    try:
+        path = resource_path('resources', 'ui', 'daily-quotes.json')
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+    except Exception:
+        pass
+    return [
+        {
+            'id': 'quote-01',
+            'text': '长风破浪会有时，直挂云帆济沧海。',
+            'source': '李白《行路难·其一》',
+            'author': '李白'
+        }
+    ]
+
+
+class PrismOrbWidget(QWidget):
+    """120x120 晴空棱镜装饰图形；启用动效时由单一 QVariantAnimation 驱动小幅浮动。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(120, 120)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._offset_y = 0.0
+        self._angle = -5.0
+        self._scale = 1.0
+        self._anim = None
+        if motion_enabled():
+            self._init_animation()
+
+    def _init_animation(self):
+        from PyQt6.QtCore import QVariantAnimation, QEasingCurve
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(4800)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setLoopCount(-1)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._anim.valueChanged.connect(self._on_anim_value)
+        self._anim.start()
+
+    def _on_anim_value(self, val: float):
+        import math
+        rad = val * 2.0 * math.pi
+        self._offset_y = -2.5 * (1.0 - math.cos(rad))
+        self._angle = -5.0 + 5.0 * math.sin(rad)
+        self._scale = 1.0 + 0.02 * (1.0 - math.cos(rad))
+        self.update()
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QLinearGradient
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        cx, cy = 60.0, 60.0 + self._offset_y
+        painter.translate(cx, cy)
+        painter.rotate(self._angle)
+        painter.scale(self._scale, self._scale)
+
+        # 外环 1
+        painter.setPen(QPen(QColor(183, 161, 228, 140), 1.2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(-48, -44, 96, 88)
+
+        # 外环 2
+        painter.setPen(QPen(QColor(255, 255, 255, 180), 1.0))
+        painter.drawEllipse(-44, -48, 88, 96)
+
+        # 中心棱镜宝石
+        grad = QLinearGradient(-26, -26, 26, 26)
+        grad.setColorAt(0.0, QColor(255, 255, 255, 210))
+        grad.setColorAt(1.0, QColor(198, 175, 248, 130))
+        painter.setBrush(QBrush(grad))
+        painter.setPen(QPen(QColor(255, 255, 255, 230), 1.2))
+        painter.drawRoundedRect(-28, -28, 56, 56, 16, 16)
+        painter.end()
+
+
 class DashboardPanel(QWidget):
     open_credit = pyqtSignal()
     open_sql = pyqtSignal()
@@ -267,6 +352,80 @@ class DashboardPanel(QWidget):
             show_home=False,
         )
         layout.addWidget(header)
+
+        # 12 条公版经典句唯一数据源加载与本地 UTC 序数轮换 (V2.0 规范 7.3 & 11)
+        self._quotes = _load_daily_quotes()
+        self._quote_offset = 0
+
+        # Hero 卡片：176px 高度，包含问候、日期、每日经典句、换一句与 120x120 装饰图形
+        self.hero_card = QFrame()
+        self.hero_card.setObjectName('dashboard-hero-card')
+        self.hero_card.setFixedHeight(176)
+        hero_layout = QHBoxLayout(self.hero_card)
+        hero_layout.setContentsMargins(24, 18, 24, 18)
+        hero_layout.setSpacing(16)
+
+        left_hero = QVBoxLayout()
+        left_hero.setContentsMargins(0, 0, 0, 0)
+        left_hero.setSpacing(5)
+
+        self.hero_eyebrow = QLabel('YOUR NEXT MOVE / PRISM WORKSPACE')
+        self.hero_eyebrow.setObjectName('hero-eyebrow')
+        left_hero.addWidget(self.hero_eyebrow)
+
+        self.hero_title = QLabel('让每个想法，轻盈落地。')
+        self.hero_title.setObjectName('hero-title')
+        left_hero.addWidget(self.hero_title)
+
+        # 每日经典句行：日期 · 诗文 + 28x28 换一句按钮
+        daily_row = QHBoxLayout()
+        daily_row.setContentsMargins(0, 0, 0, 0)
+        daily_row.setSpacing(6)
+
+        self.quote_date_lbl = QLabel()
+        self.quote_date_lbl.setObjectName('quote-date-label')
+        daily_row.addWidget(self.quote_date_lbl)
+
+        self.quote_text_lbl = QLabel()
+        self.quote_text_lbl.setObjectName('quote-text-label')
+        daily_row.addWidget(self.quote_text_lbl)
+
+        self.quote_refresh_btn = QToolButton()
+        self.quote_refresh_btn.setObjectName('quote-refresh-btn')
+        self.quote_refresh_btn.setFixedSize(28, 28)
+        apply_icon(self.quote_refresh_btn, 'refresh', 14)
+        self.quote_refresh_btn.setToolTip('换一句经典诗文')
+        self.quote_refresh_btn.clicked.connect(self.next_quote)
+        daily_row.addWidget(self.quote_refresh_btn)
+        daily_row.addStretch(1)
+
+        left_hero.addLayout(daily_row)
+
+        # 快捷动作
+        hero_acts = QHBoxLayout()
+        hero_acts.setContentsMargins(0, 4, 0, 0)
+        hero_acts.setSpacing(8)
+        self.hero_create_req = QPushButton('新建需求')
+        apply_button(self.hero_create_req, 'primary', compact=True, icon='add')
+        self.hero_create_req.clicked.connect(self.open_requirements.emit)
+        hero_acts.addWidget(self.hero_create_req)
+        hero_acts.addStretch(1)
+        left_hero.addLayout(hero_acts)
+
+        hero_layout.addLayout(left_hero, 1)
+
+        self.prism_orb = PrismOrbWidget(self.hero_card)
+        hero_layout.addWidget(self.prism_orb, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        layout.addWidget(self.hero_card)
+
+        # 60s 跨日轮换定时器
+        self._quote_timer = QTimer(self)
+        self._quote_timer.setInterval(60000)
+        self._quote_timer.timeout.connect(self._update_daily_quote)
+        self._quote_timer.start()
+
+        self._update_daily_quote()
 
         self.stats_row = QHBoxLayout()
         self.stats_row.setSpacing(8)
@@ -536,6 +695,28 @@ class DashboardPanel(QWidget):
             return
         if self._sources_changed():
             self.refresh()
+
+    def _update_daily_quote(self):
+        """按本地日历计算 UTC day ordinal 并索引 12 条经典句。"""
+        if not hasattr(self, '_quotes') or not self._quotes:
+            return
+        today = datetime.date.today()
+        epoch = datetime.date(1970, 1, 1)
+        day_ordinal = (today - epoch).days
+        idx = ((day_ordinal + self._quote_offset) % len(self._quotes) + len(self._quotes)) % len(self._quotes)
+        quote = self._quotes[idx]
+        weekdays = ['一', '二', '三', '四', '五', '六', '日']
+        w = weekdays[today.weekday()]
+        self.quote_date_lbl.setText(f"{today.month} 月 {today.day} 日，星期{w} · ")
+        self.quote_text_lbl.setText(f"“{quote.get('text', '')}”")
+        source = quote.get('source', '') or quote.get('author', '')
+        self.quote_text_lbl.setToolTip(source)
+        self.quote_refresh_btn.setToolTip(f"换一句 · {source}")
+
+    def next_quote(self):
+        """换一句经典诗文，仅递增会话内临时偏移。"""
+        self._quote_offset += 1
+        self._update_daily_quote()
 
     def refresh(self, preferred_release_month=None):
         """刷新工作台。preferred 仅在有明确目标月份时传入；普通刷新保留用户有效月份选择。"""

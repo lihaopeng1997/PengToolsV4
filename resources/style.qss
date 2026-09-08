@@ -3366,3 +3366,43 @@ QFrame#release-filter-zone {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
+
+
+/* 首页 Hero 卡片与每日经典句 */
+#dashboard-hero-card {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0.8,
+        stop:0 __SURFACE_SOFT__, stop:0.6 __SURFACE__, stop:1 __SURFACE_SOFT__);
+    border: 1px solid __BORDER__;
+    border-radius: 16px;
+}
+#hero-eyebrow {
+    font-family: Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: __PRIMARY__;
+}
+#hero-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: __TEXT_STRONG__;
+}
+#quote-date-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: __TEXT_STRONG__;
+}
+#quote-text-label {
+    font-size: 11px;
+    color: __TEXT_MUTED__;
+}
+#quote-refresh-btn {
+    border: 1px solid __BORDER__;
+    border-radius: 6px;
+    background: __SURFACE__;
+    color: __TEXT_MUTED__;
+}
+#quote-refresh-btn:hover {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+    border-color: __PRIMARY__;
+}
