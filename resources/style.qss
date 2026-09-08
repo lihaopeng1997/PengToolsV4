@@ -20,8 +20,9 @@ QWidget {
 QMainWindow {
     background: __APP_BG__;
 }
-QFrame#content_area, QStackedWidget {
+QFrame#content_area, QFrame#page-body, #page-body, QStackedWidget {
     background: __APP_BG__;
+    border: none;
 }
 QStackedWidget > QWidget {
     background: __APP_BG__;
@@ -1884,9 +1885,39 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     background: __STATUS_BAR_BG__;
     color: __TEXT_MUTED__;
     border-top: 1px solid __BORDER__;
-    min-height: 28px;
+    min-height: 27px;
+    max-height: 27px;
     padding-left: 10px;
+    font-size: 11px;
+}
+/* ContextHeader (Prism Client Shell V1.0) */
+#context-header {
+    background-color: __SURFACE__;
+    border-bottom: 1px solid __BORDER__;
+}
+#context-header-icon {
+    background: transparent;
+}
+#context-header-name {
+    color: __TEXT_STRONG__;
+    font-size: 14px;
+    font-weight: 600;
+}
+#context-quick-btn {
+    min-height: 32px;
+    max-height: 32px;
     font-size: 12px;
+    font-weight: 500;
+    padding: 0 12px;
+}
+#context-quick-btn[compact="true"] {
+    min-width: 32px;
+    max-width: 32px;
+    padding: 0;
+}
+#context-quick-btn:focus {
+    border: 2px solid __FOCUS_RING__;
+    outline: none;
 }
 #clock-label {
     color: __TEXT_MUTED__;

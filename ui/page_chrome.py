@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
@@ -49,8 +49,113 @@ class PageChrome(QWidget):
 
 from ui.design_system import apply_button
 from ui.icons import apply_icon, icon_pixmap
-from ui.layout_metrics import PAGE_HEADER_H
+from ui.layout_metrics import CONTEXT_ACTION_H, CONTEXT_HEADER_H, PAGE_HEADER_H
 from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPainter
+
+
+class ContextHeader(QFrame):
+    """Prism 主客户区顶栏上下文 Header（高度 52px）。
+
+    展示当前叶子导航的图标、模块名称，并在右侧提供快速面板（Ctrl+K）触发按钮。
+    根据窗口响应式断点自动切换边距与快速面板紧凑模式。
+    """
+
+    quick_panel_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName('context-header')
+        self.setFixedHeight(CONTEXT_HEADER_H)
+        self._icon_role = 'home'
+        self._language = 'zh'
+        self._compact = False
+        self._horizontal_padding = 20
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(self._horizontal_padding, 0, self._horizontal_padding, 0)
+        layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.icon_label = QLabel(self)
+        self.icon_label.setObjectName('context-header-icon')
+        self.icon_label.setFixedSize(20, 20)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.icon_label)
+
+        self.name_label = QLabel(self)
+        self.name_label.setObjectName('context-header-name')
+        self.name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.name_label)
+
+        layout.addStretch(1)
+
+        self.quick_btn = QPushButton(self)
+        self.quick_btn.setObjectName('context-quick-btn')
+        self.quick_btn.setFixedHeight(CONTEXT_ACTION_H)
+        self.quick_btn.setProperty('actionRole', 'ghost')
+        self.quick_btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.quick_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.quick_btn.clicked.connect(self.quick_panel_requested.emit)
+        layout.addWidget(self.quick_btn)
+
+        self._update_quick_btn()
+        self.refresh_icon()
+
+    def set_context(self, name: str, icon_role: str = '') -> None:
+        """设置上下文模块名称与图标角色。"""
+        self.name_label.setText(name)
+        if icon_role:
+            self._icon_role = icon_role
+        self.refresh_icon()
+
+    def set_language(self, language: str) -> None:
+        """更新语言并同步快速面板按钮文案及提示。"""
+        self._language = language
+        self._update_quick_btn()
+
+    def set_horizontal_padding(self, px: int) -> None:
+        """动态设置横向 padding，与页面主体边距保持对齐。"""
+        self._horizontal_padding = max(0, int(px))
+        self.layout().setContentsMargins(self._horizontal_padding, 0, self._horizontal_padding, 0)
+
+    def set_compact(self, compact: bool) -> None:
+        """Compact/Narrow 模式下快速面板仅保留图标。"""
+        self._compact = bool(compact)
+        self._update_quick_btn()
+
+    def refresh_icon(self) -> None:
+        """按当前主题色刷新模块图标与快速面板图标。"""
+        try:
+            from ui.theme_manager import ThemeManager
+            tint = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#6C58D9'
+        except Exception:
+            tint = '#6C58D9'
+        pix = icon_pixmap(self._icon_role, 20, tint)
+        if not pix.isNull():
+            self.icon_label.setPixmap(pix)
+        else:
+            self.icon_label.clear()
+        apply_icon(self.quick_btn, 'search', size=18)
+
+    def _update_quick_btn(self) -> None:
+        zh = self._language == 'zh'
+        tip = '快速面板 (Ctrl+K)' if zh else 'Quick Panel (Ctrl+K)'
+        self.quick_btn.setToolTip(tip)
+        self.quick_btn.setAccessibleName(tip)
+        if self._compact:
+            self.quick_btn.setText('')
+            self.quick_btn.setFixedWidth(CONTEXT_ACTION_H)
+            self.quick_btn.setProperty('compact', True)
+        else:
+            self.quick_btn.setMinimumWidth(0)
+            self.quick_btn.setMaximumWidth(16777215)
+            self.quick_btn.setText('快速面板' if zh else 'Quick Panel')
+            self.quick_btn.setProperty('compact', False)
+        apply_icon(self.quick_btn, 'search', size=18)
+        style = self.quick_btn.style()
+        if style is not None:
+            style.unpolish(self.quick_btn)
+            style.polish(self.quick_btn)
 
 
 class _PageHeaderFrame(QFrame):

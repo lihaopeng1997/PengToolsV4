@@ -21,6 +21,8 @@ from ui.navigation_model import (
 )
 from ui import web_shell as _web_shell
 WEB_SHELL_AVAILABLE = _web_shell.WEB_SHELL_AVAILABLE
+from ui.layout_metrics import STATUS_H
+from ui.page_chrome import ContextHeader
 from ui.web_diagnostics import log_web_event
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from config import (
@@ -87,6 +89,7 @@ class MainWindow(QMainWindow):
         # 先建工作台，用户立刻看到首页骨架
         self._ensure_dashboard_panel()
         self.stack.setCurrentIndex(0)
+        self._refresh_context_header()
         log_web_event(
             'renderers_initialized',
             main_shell=self.main_shell_renderer,
@@ -183,8 +186,19 @@ class MainWindow(QMainWindow):
         content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._content_frame = content
         self._content_layout = QVBoxLayout(content)
-        self._content_layout.setContentsMargins(24, 20, 24, 16)
-        self._content_layout.setSpacing(16)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+
+        self._context_header = ContextHeader(self._content_frame)
+        self._context_header.quick_panel_requested.connect(lambda: self._open_quick_panel())
+        self._content_layout.addWidget(self._context_header, 0)
+
+        self._page_body = QFrame(self._content_frame)
+        self._page_body.setObjectName('page-body')
+        self._page_body_layout = QVBoxLayout(self._page_body)
+        self._page_body_layout.setContentsMargins(20, 20, 20, 20)
+        self._page_body_layout.setSpacing(0)
+
         self.stack = QStackedWidget()
         self.stack.setSizePolicy(
             self.stack.sizePolicy().horizontalPolicy(),
@@ -220,11 +234,13 @@ class MainWindow(QMainWindow):
             self._dash_holder = None
             self._sync_web_theme()
 
-        self._content_layout.addWidget(self.stack, 1)
+        self._page_body_layout.addWidget(self.stack, 1)
+        self._content_layout.addWidget(self._page_body, 1)
         layout.addWidget(content, 1)
 
         self.status_bar = QStatusBar()
         self.status_bar.setObjectName('status_bar')
+        self.status_bar.setFixedHeight(STATUS_H)
         self.setStatusBar(self.status_bar)
         self.clock_label = QLabel()
         self.clock_label.setObjectName('clock-label')
@@ -1120,7 +1136,11 @@ class MainWindow(QMainWindow):
             self._sidebar.setFixedWidth(nav_width_for_mode(mode))
         self._nav_icon_only = icon_only
         margin = content_margin_for_mode(mode)
-        self._content_layout.setContentsMargins(margin, margin - 4, margin, 12)
+        if hasattr(self, '_page_body_layout') and self._page_body_layout is not None:
+            self._page_body_layout.setContentsMargins(margin, margin, margin, margin)
+        if hasattr(self, '_context_header') and self._context_header is not None:
+            self._context_header.set_horizontal_padding(margin)
+            self._context_header.set_compact(is_icon_nav(mode))
         # 分组标题 / 导航文字
         for key, label in self._group_labels.items():
             if key == 'personal' and not self._private_unlocked:
@@ -1231,6 +1251,16 @@ class MainWindow(QMainWindow):
             self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         # 刷新 DB 子菜单文案（语言切换时）
         self._refresh_nav_texts_db()
+
+    def _refresh_context_header(self):
+        """同步 ContextHeader 的模块文案、图标与语言。"""
+        if not hasattr(self, '_context_header') or self._context_header is None:
+            return
+        idx = getattr(self, '_current_nav_index', 0)
+        name = display_name(idx, self.language)
+        icon_role = icon_role_for(idx)
+        self._context_header.set_language(self.language)
+        self._context_header.set_context(name, icon_role)
 
     def _iter_created_panels(self):
         """已实例化面板（懒加载未创建的跳过）。"""
@@ -1630,6 +1660,7 @@ class MainWindow(QMainWindow):
         }
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
+        self._refresh_context_header()
 
     def _open_format_xml(self, text: str):
         self._show_panel(11)
@@ -1760,6 +1791,8 @@ class MainWindow(QMainWindow):
         # 导航图标与局部手工刷色随主题重新染色。
         self._apply_nav_texts()
         self._refresh_brand_icon()
+        if hasattr(self, '_context_header') and self._context_header is not None:
+            self._context_header.refresh_icon()
         for panel in (
             self.personal_panel, self.requirement_panel,
             self.format_panel, self.interface_debug_panel,
