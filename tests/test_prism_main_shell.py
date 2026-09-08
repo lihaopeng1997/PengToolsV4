@@ -89,12 +89,14 @@ class ContextHeaderUnitTests(unittest.TestCase):
     def test_set_language_and_tooltips(self):
         self.header.set_language('zh')
         self.assertIn('快速面板', self.header.quick_btn.toolTip())
-        self.assertIn('Ctrl+K', self.header.quick_btn.toolTip())
+        self.assertIn('Ctrl+Shift+P', self.header.quick_btn.toolTip())
+        self.assertEqual(self.header.quick_btn.accessibleName(), '快速面板 (Ctrl+Shift+P)')
         self.assertEqual(self.header.quick_btn.text(), '快速面板')
 
         self.header.set_language('en')
         self.assertIn('Quick Panel', self.header.quick_btn.toolTip())
-        self.assertIn('Ctrl+K', self.header.quick_btn.toolTip())
+        self.assertIn('Ctrl+Shift+P', self.header.quick_btn.toolTip())
+        self.assertEqual(self.header.quick_btn.accessibleName(), 'Quick Panel (Ctrl+Shift+P)')
         self.assertEqual(self.header.quick_btn.text(), 'Quick Panel')
 
     def test_compact_mode_toggle(self):
@@ -250,15 +252,41 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.win._show_panel(0)
         self.win._set_language(0)  # zh
         self.assertEqual(self.win._context_header.name_label.text(), '首页')
-        self.assertIn('快速面板', self.win._context_header.quick_btn.toolTip())
+        self.assertIn('快速面板 (Ctrl+Shift+P)', self.win._context_header.quick_btn.toolTip())
+        self.assertEqual(self.win._context_header.quick_btn.accessibleName(), '快速面板 (Ctrl+Shift+P)')
 
         self.win._set_language(1)  # en
         self.assertEqual(self.win._context_header.name_label.text(), 'Home')
-        self.assertIn('Quick Panel', self.win._context_header.quick_btn.toolTip())
+        self.assertIn('Quick Panel (Ctrl+Shift+P)', self.win._context_header.quick_btn.toolTip())
+        self.assertEqual(self.win._context_header.quick_btn.accessibleName(), 'Quick Panel (Ctrl+Shift+P)')
 
         # restore zh
         self.win._set_language(0)
         self.assertEqual(self.win._context_header.name_label.text(), '首页')
+
+    def test_failed_leaf_open_context_stability(self):
+        # 1. 先停留在一个已成功页面（如 nav 1 证件类型）
+        self.win._show_panel(1)
+        self.assertEqual(self.win._context_header.name_label.text(), '证件类型')
+        prev_icon = self.win._context_header._icon_role
+
+        # 2. mock _ensure_panel_for_nav 对另一个叶子（如 10 需求管理）抛出异常
+        original_ensure = self.win._ensure_panel_for_nav
+        def mock_ensure(index):
+            if index == 10:
+                raise RuntimeError('Simulated panel creation failure')
+            return original_ensure(index)
+
+        try:
+            self.win._ensure_panel_for_nav = mock_ensure
+            # 3. 调用 _show_panel(10)
+            self.win._show_panel(10)
+
+            # 4. ContextHeader name/icon 必须仍显示原成功页面
+            self.assertEqual(self.win._context_header.name_label.text(), '证件类型')
+            self.assertEqual(self.win._context_header._icon_role, prev_icon)
+        finally:
+            self.win._ensure_panel_for_nav = original_ensure
 
     def test_quick_button_click_triggers_open_quick_panel(self):
         called = []

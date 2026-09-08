@@ -56,7 +56,7 @@ from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPainter
 class ContextHeader(QFrame):
     """Prism 主客户区顶栏上下文 Header（高度 52px）。
 
-    展示当前叶子导航的图标、模块名称，并在右侧提供快速面板（Ctrl+K）触发按钮。
+    展示当前叶子导航的图标、模块名称，并在右侧提供快速面板（Ctrl+Shift+P）触发按钮。
     根据窗口响应式断点自动切换边距与快速面板紧凑模式。
     """
 
@@ -139,7 +139,7 @@ class ContextHeader(QFrame):
 
     def _update_quick_btn(self) -> None:
         zh = self._language == 'zh'
-        tip = '快速面板 (Ctrl+K)' if zh else 'Quick Panel (Ctrl+K)'
+        tip = '快速面板 (Ctrl+Shift+P)' if zh else 'Quick Panel (Ctrl+Shift+P)'
         self.quick_btn.setToolTip(tip)
         self.quick_btn.setAccessibleName(tip)
         if self._compact:
