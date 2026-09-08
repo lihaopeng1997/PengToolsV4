@@ -221,7 +221,7 @@ class RequirementFlagTests(unittest.TestCase):
                     self.assertFalse(g.intersects(other), f'{g} overlaps {other}')
                 rects.append(g)
             # 动态上线字段
-            self.assertEqual(panel._detail_captions['online'].text(), '上线月份')
+            self.assertEqual(panel._detail_captions['online'].text(), '实际上线')
             panel.close()
 
     def test_dialog_uses_online_matter_labels(self):

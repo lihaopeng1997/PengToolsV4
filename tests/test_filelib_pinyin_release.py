@@ -15,12 +15,13 @@ sys.path.insert(0, ROOT)
 
 
 def _cleanup_panel(panel, app):
-    panel.close()
-    panel.deleteLater()
-    app.processEvents()
-    from PyQt6.QtCore import QCoreApplication, QEvent
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    app.processEvents()
+    try:
+        panel.close()
+        panel.deleteLater()
+        if app is not None:
+            app.processEvents()
+    except Exception:
+        pass
 
 
 class PinyinSearchTests(unittest.TestCase):

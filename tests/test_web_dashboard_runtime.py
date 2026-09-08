@@ -389,9 +389,14 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
         timeout_timer.timeout.connect(on_timeout)
         timeout_timer.start(8000)
 
+        import config
+        test_settings = dict(config.load_settings())
+        test_settings['ui_web_shell'] = True
+
         try:
             # 显式 patch 所有相关数据源，保证 import 顺序无关性
-            with patch('tools.dashboard_summary.load_requirements', side_effect=fake_load), \
+            with patch('main_window.load_settings', return_value=test_settings), \
+                 patch('tools.dashboard_summary.load_requirements', side_effect=fake_load), \
                  patch('tools.dashboard_summary.load_release_board', return_value={}), \
                  patch('tools.daily_reports.load_reports', return_value={}), \
                  patch('tools.requirements.load_requirements', side_effect=fake_load), \

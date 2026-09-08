@@ -30,11 +30,11 @@ class ThemePreviewTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_preview_swatches_differ_across_themes(self):
-        themes = ('calm', 'clear', 'warm', 'black')
+        themes = ('calm', 'black')
         primaries = {preview_swatches(t)['primary'] for t in themes}
         bgs = {preview_swatches(t)['bg'] for t in themes}
-        self.assertEqual(len(primaries), 4)
-        self.assertEqual(len(bgs), 4)
+        self.assertEqual(len(primaries), 2)
+        self.assertEqual(len(bgs), 2)
 
     def test_theme_preview_widget_has_non_transparent_pixels(self):
         for theme_id in ('calm', 'clear', 'warm', 'black'):

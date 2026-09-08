@@ -93,7 +93,7 @@ class DashboardThemeStaticAuditTest(unittest.TestCase):
         self.assertIn('0 2px 8px var(--shadow-l1)', self.vue_source)
         self.assertIn('0 8px 28px var(--shadow-l2)', self.vue_source)
         self.assertIn('0 8px 22px var(--shadow-l2)', self.vue_source)
-        self.assertIn('0 12px 28px var(--shadow-l4)', self.vue_source)
+        self.assertIn('0 10px 24px var(--shadow-l4)', self.vue_source)
 
 
 class RgbaCssNormalizationTest(unittest.TestCase):

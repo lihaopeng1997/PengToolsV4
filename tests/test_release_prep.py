@@ -48,10 +48,10 @@ class ReleasePrepTests(unittest.TestCase):
             'DEV_prpcar_20260715-REQ-20260528-0006-SP',
         )
         records = [
-            {'code': 'C', 'planned_online_date': ''},
-            {'code': 'B', 'planned_online_date': '2026-07-10'},
-            {'code': 'A', 'planned_online_date': '2026-07-23'},
-            {'code': 'D', 'planned_online_date': '2026-08-01'},
+            {'code': 'C', 'actual_release_date': ''},
+            {'code': 'B', 'actual_release_date': '2026-07-10'},
+            {'code': 'A', 'actual_release_date': '2026-07-23'},
+            {'code': 'D', 'actual_release_date': '2026-08-01'},
         ]
         self.assertEqual([item['code'] for item in rank_requirements(records, '2026-07-23')], ['A', 'B', 'D', 'C'])
 

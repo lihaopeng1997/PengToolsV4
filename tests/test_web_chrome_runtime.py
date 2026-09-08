@@ -168,8 +168,8 @@ class WebChromeProductionRuntimeTest(unittest.TestCase):
             self.assertEqual(calm_res.get('primaryGradEnd'), '#4A61F0', 'Calm 下品牌渐变终色应为 #4A61F0')
             self.assertTrue(calm_res.get('hasActiveItem'), '侧栏必须渲染激活导航项')
             self.assertNotIn('#141B2E', calm_res.get('bodyBg', ''), 'body 背景不得写死固定 Navy #141B2E')
-            self.assertGreaterEqual(calm_res.get('beforeOpacity', 0), 0.20, 'Calm 下 Aurora 透明度应 >= 0.20')
-            self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.24, 'Calm 下 Aurora 透明度应 <= 0.24')
+            self.assertGreaterEqual(calm_res.get('beforeOpacity', 0), 0.10, 'Calm 下 Aurora 透明度应 >= 0.10')
+            self.assertLessEqual(calm_res.get('beforeOpacity', 0), 0.15, 'Calm 下 Aurora 透明度应 <= 0.15')
 
             # 2. 动态切换至 Black 墨黑
             black_res = probe_theme('black', True)

@@ -64,7 +64,12 @@ class LazyWorkflowPhase1Tests(unittest.TestCase):
         self.assertTrue(item['has_sql'])
         self.assertTrue(item['needs_interface_update'])
         self.assertTrue(item['needs_peripheral_upgrade'])
-        self.assertEqual(item['online_month'], '2026-06')
+        # online_month 由实际发布/上线日期派生，自动推断不得伪造实际日期
+        self.assertEqual(item.get('online_month', ''), '')
+        from tools.requirements import normalize_requirement
+        item['actual_release_date'] = '2026-06-01'
+        norm = normalize_requirement(item)
+        self.assertEqual(norm['online_month'], '2026-06')
         # 已有 system 不被覆盖
         kept = apply_auto_inference(
             {'title': '车险承保中心', 'system': '共享中心', 'description': 'prpcar'},

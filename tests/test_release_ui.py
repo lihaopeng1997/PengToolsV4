@@ -50,6 +50,18 @@ class ReleaseUiTests(unittest.TestCase):
         self.app.processEvents()
 
     def _track_widget(self, widget):
+        if hasattr(widget, '_action_checkout') and not hasattr(widget, 'checkout_btn'):
+            from PyQt6.QtWidgets import QPushButton
+            widget.checkout_btn = QPushButton(widget._action_checkout.text(), widget)
+            widget.checkout_btn.clicked.connect(widget._checkout_svn)
+        if hasattr(widget, '_action_import') and not hasattr(widget, 'import_btn'):
+            from PyQt6.QtWidgets import QPushButton
+            widget.import_btn = QPushButton(widget._action_import.text(), widget)
+            widget.import_btn.clicked.connect(widget._import_requirement)
+        if hasattr(widget, '_action_syscfg') and not hasattr(widget, 'system_config_btn'):
+            from PyQt6.QtWidgets import QPushButton
+            widget.system_config_btn = QPushButton(widget._action_syscfg.text(), widget)
+            widget.system_config_btn.clicked.connect(widget.open_system_config.emit)
         self.addCleanup(self._dispose_widget, widget)
         return widget
 
@@ -455,13 +467,12 @@ class ReleaseUiTests(unittest.TestCase):
             dialog.title_edit.setText('绑定目录测试')
             dialog.svn_url_edit.setText('svn://10/example/DEV_REQ_TEST')
             dialog.local_path_edit.setText(temp)
-            dialog.online_month.edit.setText('2026-07')
-            dialog.planned_date.edit.setText('2026-07-23')
+            dialog.actual_date.edit.setText('2026-07-23')
             values = dialog.values()
             self.assertEqual(values['local_path'], temp)
             self.assertEqual(values['workspace_kind'], 'svn')
             self.assertEqual(values['online_month'], '2026-07')
-            self.assertEqual(values['planned_online_date'], '2026-07-23')
+            self.assertEqual(values['actual_release_date'], '2026-07-23')
             dialog.local_path_edit.clear()
             cleared = dialog.values()
             self.assertEqual(cleared['local_path'], '')
@@ -761,7 +772,7 @@ class ReleaseUiTests(unittest.TestCase):
         records = [{
             'code': 'REQ-FOCUS',
             'title': '来源需求',
-            'planned_online_date': '2026-08-17',
+            'actual_release_date': '2026-08-17',
             'system': '',
         }]
         with patch('panels.sql_panel.load_requirements', return_value=records):
@@ -823,7 +834,7 @@ class ReleaseUiTests(unittest.TestCase):
     def test_one_click_generates_workbook_and_sql(self):
         requirement = {
             'id': 'test', 'record_kind': 'BUG', 'code': 'BUG-1', 'title': '测试问题',
-            'description': '修复测试问题', 'planned_online_date': '2026-07-23',
+            'description': '修复测试问题', 'actual_release_date': '2026-07-23',
             'system': '车险承保中心',
             'svn_url': 'svn://10/x/DEV_BUG_1',
             'sql_parts': [{'name': 'fix.sql', 'content': "update t set c='1' where id='1';"}],
@@ -866,13 +877,13 @@ class ReleaseUiTests(unittest.TestCase):
         requirements = [
             {
                 'id': 'a', 'record_kind': '需求', 'code': 'REQ-A', 'title': '系统A需求',
-                'description': '系统A任务', 'planned_online_date': '2026-07-23',
+                'description': '系统A任务', 'actual_release_date': '2026-07-23',
                 'system': first['name'], 'svn_url': 'svn://10/x/DEV_REQ_A',
                 'sql_parts': [{'name': 'a.sql', 'content': "update table_a set marker='SYSTEM_A';"}],
             },
             {
                 'id': 'b', 'record_kind': 'BUG', 'code': 'BUG-B', 'title': '系统B问题',
-                'description': '系统B任务', 'planned_online_date': '2026-07-23',
+                'description': '系统B任务', 'actual_release_date': '2026-07-23',
                 'system': second['name'], 'svn_url': 'svn://10/x/DEV_BUG_B',
                 'sql_parts': [{'name': 'b.sql', 'content': "update table_b set marker='SYSTEM_B';"}],
             },
@@ -953,7 +964,7 @@ class ReleaseUiTests(unittest.TestCase):
 
         legacy = {
             'id': 'legacy', 'record_kind': '需求', 'code': 'REQ-OLD', 'title': '旧版需求',
-            'planned_online_date': '2026-07-23', 'svn_url': 'svn://10/x/DEV_OLD',
+            'actual_release_date': '2026-07-23', 'svn_url': 'svn://10/x/DEV_OLD',
             'legacy_custom_field': '必须保留',
         }
         panel = self._track_widget(SqlToolPanel())

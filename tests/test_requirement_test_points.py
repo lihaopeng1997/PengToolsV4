@@ -186,7 +186,7 @@ class TestPointUiTests(unittest.TestCase):
             {
                 'id': 'r1',
                 'title': '有测试点',
-                'planned_online_date': current,
+                'actual_release_date': current,
                 'status': '待测试',
                 'test_points': [
                     {'id': 'p1', 'text': 'A', 'done': True},
@@ -196,7 +196,7 @@ class TestPointUiTests(unittest.TestCase):
             {
                 'id': 'r2',
                 'title': '无测试点',
-                'planned_online_date': current,
+                'actual_release_date': current,
                 'status': '开发中',
                 'test_points': [],
             },
