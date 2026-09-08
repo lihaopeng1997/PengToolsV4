@@ -2159,7 +2159,7 @@ class RequirementPanel(QWidget):
         left_pane = self.detail_splitter.widget(0)
         right_pane = self.detail_splitter.widget(1)
         if mode == 'wide':
-            left_min = 340
+            left_min = REQ_LEFT_MIN
             right_min = REQ_RIGHT_MIN
             left_def = 420
         elif mode == 'compact':
