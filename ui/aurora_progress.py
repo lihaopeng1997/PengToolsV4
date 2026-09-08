@@ -1,23 +1,23 @@
 # -*- coding: utf-8 -*-
 """企业级浮层 Loading：与布局隔离，API 保持 start_busy / set_progress / finish / fail。
 
-UX 契约：
-- 短任务（<300ms 完成）：不展示 loading / busy 浮层，彻底杜绝短操作闪烁；
-- 中长任务（>=300ms）：延迟 300ms 触发统一 busy 浮层；
-- 浮层一旦实际展示，保障至少 500ms 最小可视驻留时长，避免闪现；
-- 失败（fail）：立即展示，取消 pending 延迟，合理驻留供用户阅读；
-- 状态与定时器安全：基于 generation 世代标记，废弃过期 timer，防止状态污染；
-- 视觉权威：完全自适应 Light / Dark 主题语义 Tokens。
+晴空棱镜 V2.0 规范 (LD-02 / LD-08):
+- 视觉语言：“棱镜环 + 克制的光带”，品牌单菱形静置，外围 24x24 细弧环缓转 (900ms 周期)；
+- 浮层定位：固定高 62px，目标宽 320px（max 宿主宽-32），右上 16px（窄宿主居中）；
+- 状态反馈：成功为静态绿色对勾（淡入 150ms，禁止放礼花），失败为静态红色错误图标（无 shake）；
+- 鼠标穿透：WA_TransparentForMouseEvents 保持，不拦截底层操作；
+- 状态机契约：300ms 延迟展示、500ms 最少可视驻留、finish 驻留 (remaining + success_linger)、fail 2200ms、generation token 隔离；
+- 无障碍与动效：支持 prefers-reduced-motion / motion-disabled 静态降级。
 """
 
+import math
 import time
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QBrush
 from PyQt6.QtWidgets import QWidget
 
 DEFAULT_DELAY_SHOW_MS = 300
 DEFAULT_MIN_VISIBLE_MS = 500
-SUCCESS_LINGER_MS = 180
 DEFAULT_SUCCESS_LINGER_MS = 350
 FAIL_LINGER_MS = 2200
 DEFAULT_ANIM_TICK_MS = 28
@@ -66,21 +66,22 @@ class AuroraProgress(QWidget):
         self._generation = 0
         self._is_shown = False
         self._shown_timestamp = 0.0
-        self._phase = 0
+        self._finish_timestamp = 0.0
         self._value = -1
         self._label = ''
-        self._state = 'idle'
+        self._state = 'idle'  # idle, pending_busy, busy, progress, finish, fail
 
         self._delay_timer: QTimer | None = None
         self._linger_timer: QTimer | None = None
 
         self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(DEFAULT_ANIM_TICK_MS)
         self._anim_timer.timeout.connect(self._tick)
 
         self.setFixedHeight(62)
+        self.setFixedWidth(320)
         # 仅作视觉反馈：不拦截鼠标，避免「Loading 盖住界面 → 点什么都没反应」
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        # 浮层默认不占布局；hide 时也不会把按钮顶上/顶下
         self.hide()
         if parent is not None:
             parent.installEventFilter(self)
@@ -94,6 +95,13 @@ class AuroraProgress(QWidget):
     def current_token(self) -> int:
         """当前世代 token。"""
         return self._generation
+
+    def _is_motion_enabled(self) -> bool:
+        try:
+            from ui.motion import motion_enabled
+            return motion_enabled()
+        except Exception:
+            return True
 
     def eventFilter(self, watched, event):
         if watched == self.parentWidget() and event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
@@ -142,15 +150,20 @@ class AuroraProgress(QWidget):
         self._cancel_linger_timer()
 
     def place_overlay(self, host=None):
-        """相对宿主水平居中浮于顶部附近。不修改宿主 layout。"""
+        """相对宿主定位：目标宽 320，max host 宽-32；右上 16；窄 host 居中。"""
         host = host or self.parentWidget()
         if host is None:
             return
         host_w = max(host.width(), 1)
-        width = min(540, max(300, host_w - 48))
+        width = min(320, max(240, host_w - 32))
         self.setFixedWidth(width)
-        x = max(24, (host_w - width) // 2)
-        y = 56 if host.height() >= 160 else max(12, host.height() // 8)
+
+        if host_w >= 480:
+            x = host_w - width - 16
+        else:
+            x = max(16, (host_w - width) // 2)
+
+        y = 16 if host.height() >= 100 else max(8, host.height() // 8)
         self.move(x, y)
         self.raise_()
 
@@ -160,7 +173,6 @@ class AuroraProgress(QWidget):
         gen = self._generation
         self._label = label or ''
         self._value = -1
-        self._phase = 0
         self._cancel_timers()
 
         if self._is_shown or immediate or self._delay_show_ms <= 0:
@@ -218,16 +230,15 @@ class AuroraProgress(QWidget):
         self._cancel_delay_timer()
 
         if not self._is_shown:
-            # 短任务在 300ms 内完成，直接收起，绝不闪现
             self._state = 'idle'
             self._value = -1
             self._label = ''
             self.hide()
             return
 
-        # 已实际展示过，满足最小可视驻留时长
         self._state = 'finish'
         self._value = 100
+        self._finish_timestamp = time.monotonic()
         if label:
             self._label = label
         self.update()
@@ -289,130 +300,171 @@ class AuroraProgress(QWidget):
         self.hide_now()
 
     def _tick(self):
-        self._phase = (self._phase + 4) % 360
         self.update()
 
     def paintEvent(self, _event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        bounds = QRectF(5.0, 4.0, self.width() - 10, self.height() - 9)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        bounds = QRectF(4.0, 4.0, self.width() - 8, self.height() - 8)
         pal = _palette()
 
-        surface = _qc(pal, 'ELEVATED_SURFACE', pal.get('SURFACE', '#29332E'))
-        border = _qc(pal, 'ELEVATED_BORDER', pal.get('BORDER', '#3C4942'))
-        text = _qc(pal, 'TEXT_STRONG', '#EDF2EE')
-        primary = _qc(pal, 'PRIMARY', '#9ABAA6')
-        primary_soft = _qc(pal, 'PRIMARY_SOFT', '#35483E')
-        track = _qc(pal, 'LOADING_TRACK', '#425047')
-        success = _qc(pal, 'SUCCESS', '#7BA88A')
-        success_bg = _qc(pal, 'SUCCESS_BG', '#263D31')
-        success_border = _qc(pal, 'SUCCESS_BORDER', '#4D765D')
-        danger = _qc(pal, 'DANGER', '#C78A8A')
-        danger_bg = _qc(pal, 'DANGER_BG', '#432E30')
-        danger_border = _qc(pal, 'DANGER_BORDER', '#765055')
-        info_bg = _qc(pal, 'INFO_BG', primary_soft)
-        info_border = _qc(pal, 'INFO_BORDER', border)
+        surface = _qc(pal, 'ELEVATED_SURFACE', pal.get('SURFACE', '#FFFFFF'))
+        border = _qc(pal, 'ELEVATED_BORDER', pal.get('BORDER', '#E6E2F0'))
+        text_strong = _qc(pal, 'TEXT_STRONG', '#262438')
+        text_muted = _qc(pal, 'TEXT_MUTED', '#615D73')
+        primary = _qc(pal, 'PRIMARY', '#6C58D9')
+        primary_soft = _qc(pal, 'PRIMARY_SOFT', '#EEE9FF')
+        track_color = _qc(pal, 'LOADING_TRACK', '#E6EBF5')
+        success = _qc(pal, 'SUCCESS', '#247F75')
+        success_bg = _qc(pal, 'SUCCESS_BG', '#F0F9F6')
+        success_border = _qc(pal, 'SUCCESS_BORDER', '#A3D9C9')
+        danger = _qc(pal, 'DANGER', '#C45371')
+        danger_bg = _qc(pal, 'DANGER_BG', '#FDF2F4')
+        danger_border = _qc(pal, 'DANGER_BORDER', '#F5BAC7')
 
-        aurora_start = _qc(pal, 'AURORA_START', primary)
-        aurora_mid = _qc(pal, 'AURORA_MID', _qc(pal, 'CYAN', primary))
-        aurora_end = _qc(pal, 'AURORA_END', _qc(pal, 'PRIMARY_ACTIVE', primary))
-
-        # soft shadow from theme SHADOW base
-        shadow_base = _qc(pal, 'APP_BG', '#1B211E')
-        for i, alpha in enumerate((30, 50, 70)):
-            shadow = bounds.adjusted(-1 + i * 0.4, 1 + i * 0.5, 1 - i * 0.4, 2 + i * 0.55)
-            painter.setPen(Qt.PenStyle.NoPen)
+        # 1. 柔和阴影层
+        shadow_base = _qc(pal, 'SHADOW', 'rgba(38, 36, 56, 45)')
+        painter.setPen(Qt.PenStyle.NoPen)
+        for i in (3, 2, 1):
             sc = QColor(shadow_base)
-            sc.setAlpha(alpha)
+            sc.setAlpha(max(4, shadow_base.alpha() // (i + 1)))
             painter.setBrush(sc)
-            painter.drawRoundedRect(shadow, 14, 14)
+            painter.drawRoundedRect(bounds.adjusted(-i * 1.2, -i * 0.8 + 1.5, i * 1.2, i * 1.5 + 1.5), 14, 14)
 
-        # elevated surface (deep for night, light for day)
-        body = QLinearGradient(bounds.topLeft(), bounds.bottomLeft())
-        soft = _qc(pal, 'SURFACE_SOFT', surface)
-        body.setColorAt(0.0, surface)
-        body.setColorAt(0.65, soft)
-        body.setColorAt(1.0, surface)
-        painter.setPen(QPen(border, 1))
-        painter.setBrush(body)
-        painter.drawRoundedRect(bounds, 13, 13)
+        # 2. 容器卡片背景与边框 (高斯毛玻璃感/高层表面)
+        painter.setPen(QPen(border, 1.0))
+        painter.setBrush(surface)
+        painter.drawRoundedRect(bounds, 12, 12)
 
-        # left brand bar
-        accent = QRectF(bounds.left() + 2, bounds.top() + 12, 3.5, bounds.height() - 24)
+        is_fail = self._state == 'fail'
+        is_finish = self._state == 'finish'
+        has_progress = self._value >= 0 and not is_fail and not is_finish
+        motion_on = self._is_motion_enabled() and (self._anim_timer.isActive() or is_finish)
+
+        now = time.monotonic()
+        elapsed = now - self._shown_timestamp if self._shown_timestamp > 0 else 0.0
+
+        # 3. 左侧指示器区域：24x24 环 / 静态成功 / 静态失败 (LD-02 / LD-08)
+        ind_size = 24.0
+        ind_x = bounds.left() + 14.0
+        ind_y = bounds.top() + (bounds.height() - ind_size) / 2.0 - (2.0 if has_progress else 0.0)
+        ind_rect = QRectF(ind_x, ind_y, ind_size, ind_size)
+        center_x = ind_x + ind_size / 2.0
+        center_y = ind_y + ind_size / 2.0
+
+        if is_finish:
+            # LD-08: 静态 18px 绿色对勾（淡入 150ms，禁止放礼花）
+            finish_elapsed = (now - self._finish_timestamp) if self._finish_timestamp > 0 else 0.15
+            fade = min(1.0, max(0.2, finish_elapsed / 0.15))
+            c = QColor(success)
+            c.setAlpha(int(fade * 255))
+            painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            # 对勾折线: (cx-5, cy) -> (cx-1, cy+4) -> (cx+6, cy-4)
+            path = QPainterPath()
+            path.moveTo(center_x - 5.5, center_y)
+            path.lineTo(center_x - 1.5, center_y + 4.0)
+            path.lineTo(center_x + 6.0, center_y - 4.5)
+            painter.drawPath(path)
+
+        elif is_fail:
+            # LD-08: 静态 18px 红色错误叉号（无 shake，无循环动画）
+            painter.setPen(QPen(danger, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            # 叉号两条线: (cx-4.5, cy-4.5) <-> (cx+4.5, cy+4.5)
+            painter.drawLine(QPointF(center_x - 4.5, center_y - 4.5), QPointF(center_x + 4.5, center_y + 4.5))
+            painter.drawLine(QPointF(center_x + 4.5, center_y - 4.5), QPointF(center_x - 4.5, center_y + 4.5))
+
+        else:
+            # LD-02: 24x24 棱镜环，描边 2，前景 90 度圆弧；900ms 循环；中心单菱形静置
+            # 背景圆环 (Loading Track)
+            track_pen = QPen(track_color, 2.0)
+            painter.setPen(track_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(ind_rect.adjusted(1, 1, -1, -1))
+
+            # 前景 90 度圆弧 (900ms 周期线性旋转)
+            if motion_on:
+                rot_deg = (elapsed / 0.9 * 360.0) % 360.0
+            else:
+                rot_deg = 45.0
+            arc_pen = QPen(primary, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            painter.setPen(arc_pen)
+            painter.drawArc(ind_rect.adjusted(1, 1, -1, -1), int(rot_deg * 16), int(90 * 16))
+
+            # 中心单菱形微晶静置 (4x4 菱形)
+            gem_path = QPainterPath()
+            gem_path.moveTo(center_x, center_y - 2.5)
+            gem_path.lineTo(center_x + 2.5, center_y)
+            gem_path.lineTo(center_x, center_y + 2.5)
+            gem_path.lineTo(center_x - 2.5, center_y)
+            gem_path.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(primary)
+            painter.drawPath(gem_path)
+
+        # 4. 右侧状态徽标 (Status Chip)
+        chip_w = 54 if has_progress else 60
+        chip_h = 22.0
+        chip = QRectF(bounds.right() - chip_w - 12.0, bounds.top() + (bounds.height() - chip_h) / 2.0 - (3.0 if has_progress else 0.0), chip_w, chip_h)
         painter.setPen(Qt.PenStyle.NoPen)
-        accent_grad = QLinearGradient(accent.topLeft(), accent.bottomLeft())
-        accent_grad.setColorAt(0.0, aurora_start)
-        accent_grad.setColorAt(1.0, aurora_end)
-        painter.setBrush(accent_grad)
-        painter.drawRoundedRect(accent, 2, 2)
 
-        # status chip
-        is_fail = self._state == 'fail' or (self._value == 0 and not self._anim_timer.isActive())
-        is_finish = self._state == 'finish' or self._value >= 100
-        chip_w = 54 if self._value >= 0 else 62
-        chip = QRectF(bounds.right() - chip_w - 12, bounds.top() + 10, chip_w, 22)
-        painter.setPen(Qt.PenStyle.NoPen)
         if is_fail:
             painter.setBrush(danger_bg)
-            painter.setPen(QPen(danger_border, 1))
+            painter.setPen(QPen(danger_border, 1.0))
             chip_fg = danger
-        elif is_finish:
-            painter.setBrush(success_bg)
-            painter.setPen(QPen(success_border, 1))
-            chip_fg = success
-        else:
-            painter.setBrush(info_bg)
-            painter.setPen(QPen(info_border, 1))
-            chip_fg = primary
-        painter.drawRoundedRect(chip, 11, 11)
-        painter.setPen(chip_fg)
-        painter.setFont(QFont('Microsoft YaHei UI', 8, QFont.Weight.Bold))
-        if self._value < 0:
-            chip_text = '处理中'
-        elif is_fail:
             chip_text = '失败'
         elif is_finish:
+            painter.setBrush(success_bg)
+            painter.setPen(QPen(success_border, 1.0))
+            chip_fg = success
             chip_text = '完成'
-        else:
+        elif has_progress:
+            painter.setBrush(primary_soft)
+            painter.setPen(QPen(border, 1.0))
+            chip_fg = primary
             chip_text = f'{self._value}%'
+        else:
+            painter.setBrush(primary_soft)
+            painter.setPen(QPen(border, 1.0))
+            chip_fg = primary
+            chip_text = '处理中'
+
+        painter.drawRoundedRect(chip, 10, 10)
+        painter.setPen(chip_fg)
+        painter.setFont(QFont('Microsoft YaHei UI', 8, QFont.Weight.Bold))
         painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, chip_text)
 
-        # progress track
-        track_rect = QRectF(bounds.left() + 18, bounds.bottom() - 15, bounds.width() - 36, 5.5)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(track)
-        painter.drawRoundedRect(track_rect, 3, 3)
+        # 5. 主文本描述 (13px / TEXT_STRONG)
+        label_x = ind_x + ind_size + 10.0
+        label_w = chip.left() - label_x - 8.0
+        label_y = bounds.top() + 12.0 if has_progress else bounds.top() + (bounds.height() - 20.0) / 2.0
+        label_rect = QRectF(label_x, label_y, max(0.0, label_w), 20.0)
 
-        if self._value < 0:
-            width = max(72.0, track_rect.width() * 0.22)
-            x = track_rect.left() + ((self._phase / 360.0) * (track_rect.width() + width)) - width
-            fill = QRectF(x, track_rect.top(), width, track_rect.height())
-        else:
-            fill = QRectF(
-                track_rect.left(), track_rect.top(),
-                track_rect.width() * self._value / 100.0, track_rect.height(),
-            )
-
-        gradient = QLinearGradient(fill.left(), fill.top(), fill.right(), fill.top())
-        if is_fail:
-            gradient.setColorAt(0.0, danger)
-            gradient.setColorAt(1.0, _qc(pal, 'DANGER', danger))
-        elif is_finish:
-            gradient.setColorAt(0.0, success)
-            gradient.setColorAt(1.0, _qc(pal, 'SUCCESS', success))
-        else:
-            gradient.setColorAt(0.0, aurora_start)
-            gradient.setColorAt(0.5, aurora_mid)
-            gradient.setColorAt(1.0, aurora_end)
-        path = QPainterPath()
-        path.addRoundedRect(track_rect, 3, 3)
-        painter.save()
-        painter.setClipPath(path)
-        painter.fillRect(fill, gradient)
-        painter.restore()
-
-        # label
-        painter.setPen(text)
+        painter.setPen(text_strong)
         painter.setFont(QFont('Microsoft YaHei UI', 9, QFont.Weight.DemiBold))
-        label_rect = QRectF(bounds.left() + 18, bounds.top() + 9, bounds.width() - chip_w - 40, 22)
         painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._label)
+
+        # 6. 细进度轨道（有真实进度时显示：4px 细轨道，无任务阻断鼠标）
+        if has_progress:
+            track_rect = QRectF(label_x, bounds.bottom() - 14.0, bounds.right() - label_x - 14.0, 4.0)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(track_color)
+            painter.drawRoundedRect(track_rect, 2.0, 2.0)
+
+            val_pct = max(0.0, min(1.0, self._value / 100.0))
+            fill_rect = QRectF(track_rect.left(), track_rect.top(), track_rect.width() * val_pct, track_rect.height())
+
+            fill_grad = QLinearGradient(fill_rect.topLeft(), fill_rect.topRight())
+            fill_grad.setColorAt(0.0, _qc(pal, 'PRIMARY_GRAD_START', primary))
+            fill_grad.setColorAt(1.0, _qc(pal, 'PRIMARY_GRAD_END', primary))
+
+            path = QPainterPath()
+            path.addRoundedRect(track_rect, 2.0, 2.0)
+            painter.save()
+            painter.setClipPath(path)
+            painter.setBrush(fill_grad)
+            painter.drawRoundedRect(fill_rect, 2.0, 2.0)
+            painter.restore()

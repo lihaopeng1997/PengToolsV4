@@ -34,6 +34,13 @@ function statusLabel(status?: string | null): string {
   if (status === 'run') return '推进中'
   return status
 }
+
+function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
+  if (isDemoMode.value || !reqId || String(reqId).startsWith('demo-')) {
+    return
+  }
+  emit('openRequirement', reqId)
+}
 </script>
 
 <template>
@@ -57,11 +64,11 @@ function statusLabel(status?: string | null): string {
             :key="r.id || r.code || idx"
             class="ck task-row"
             :class="{ 'clickable': !r.is_demo && !isDemoMode, 'is-demo': Boolean(r.is_demo || isDemoMode) }"
-            :tabindex="r.is_demo || isDemoMode ? undefined : 0"
-            :role="r.is_demo || isDemoMode ? undefined : 'button'"
-            @click="!r.is_demo && !isDemoMode && emit('openRequirement', r.id)"
-            @keydown.enter.self="!r.is_demo && !isDemoMode && emit('openRequirement', r.id)"
-            @keydown.space.self.prevent="!r.is_demo && !isDemoMode && emit('openRequirement', r.id)"
+            :tabindex="r.is_demo ? undefined : 0"
+            :role="r.is_demo ? undefined : 'button'"
+            @click="!r.is_demo && onOpenRequirement(r.id)"
+            @keydown.enter.self="!r.is_demo && onOpenRequirement(r.id)"
+            @keydown.space.self.prevent="!r.is_demo && onOpenRequirement(r.id)"
           >
             <span class="dot" :class="statusChipClass(r.status)" />
             <span v-if="r.code" class="req-id-badge" :title="r.code">{{ r.code }}</span>
@@ -123,11 +130,11 @@ function statusLabel(status?: string | null): string {
             :key="task.id || task.code || task.title || idx"
             class="ck task-row"
             :class="{ 'clickable': !task.is_demo && !isDemoMode, 'is-demo': Boolean(task.is_demo || isDemoMode) }"
-            :tabindex="task.is_demo || isDemoMode ? undefined : 0"
-            :role="task.is_demo || isDemoMode ? undefined : 'button'"
-            @click="!task.is_demo && !isDemoMode && emit('openRequirement', task.id)"
-            @keydown.enter.self="!task.is_demo && !isDemoMode && emit('openRequirement', task.id)"
-            @keydown.space.self.prevent="!task.is_demo && !isDemoMode && emit('openRequirement', task.id)"
+            :tabindex="task.is_demo ? undefined : 0"
+            :role="task.is_demo ? undefined : 'button'"
+            @click="!task.is_demo && onOpenRequirement(task.id)"
+            @keydown.enter.self="!task.is_demo && onOpenRequirement(task.id)"
+            @keydown.space.self.prevent="!task.is_demo && onOpenRequirement(task.id)"
           >
             <span class="dot" :class="task.done ? 'ok' : statusChipClass(task.status)" />
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
@@ -275,9 +282,15 @@ function statusLabel(status?: string | null): string {
   box-sizing: border-box;
 }
 
-.ck.clickable:hover, .ck:hover:not(.is-demo) {
+.ck.clickable:hover,
+.ck:not(.is-demo):hover {
   background: var(--primary-soft, rgba(108, 88, 217, 0.06));
   cursor: pointer;
+}
+
+.ck.is-demo:hover {
+  background: transparent;
+  cursor: default;
 }
 
 .ck:focus-visible:not(.is-demo) {

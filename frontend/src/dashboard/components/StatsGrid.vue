@@ -48,14 +48,7 @@ const completedTotalText = computed(() => {
 <template>
   <div class="stat-grid">
     <!-- 1. 待办需求 (可点击跳转 nav 10) -->
-    <article
-      class="stat card clickable stat-1"
-      tabindex="0"
-      role="button"
-      @click="emit('navigate', 10)"
-      @keydown.enter="emit('navigate', 10)"
-      @keydown.space.prevent="emit('navigate', 10)"
-    >
+    <article class="stat card clickable stat-1" tabindex="0" role="button" @click="emit('navigate', 10)" @keydown.enter="emit('navigate', 10)" @keydown.space.prevent="emit('navigate', 10)">
       <label class="stat-label">
         <span class="stat-icon-wrap ic-1">
           <PrismIcon name="file" :size="14" />
@@ -67,14 +60,7 @@ const completedTotalText = computed(() => {
     </article>
 
     <!-- 2. 本周日报 (可点击跳转 nav 9) -->
-    <article
-      class="stat card clickable stat-2"
-      tabindex="0"
-      role="button"
-      @click="emit('navigate', 9)"
-      @keydown.enter="emit('navigate', 9)"
-      @keydown.space.prevent="emit('navigate', 9)"
-    >
+    <article class="stat card clickable stat-2" tabindex="0" role="button" @click="emit('navigate', 9)" @keydown.enter="emit('navigate', 9)" @keydown.space.prevent="emit('navigate', 9)">
       <label class="stat-label">
         <span class="stat-icon-wrap ic-2">
           <PrismIcon name="calendar" :size="14" />
@@ -86,14 +72,7 @@ const completedTotalText = computed(() => {
     </article>
 
     <!-- 3. 本月上线 (可点击跳转 nav 10) -->
-    <article
-      class="stat card clickable stat-3"
-      tabindex="0"
-      role="button"
-      @click="emit('navigate', 10)"
-      @keydown.enter="emit('navigate', 10)"
-      @keydown.space.prevent="emit('navigate', 10)"
-    >
+    <article class="stat card clickable stat-3" tabindex="0" role="button" @click="emit('navigate', 10)" @keydown.enter="emit('navigate', 10)" @keydown.space.prevent="emit('navigate', 10)">
       <label class="stat-label">
         <span class="stat-icon-wrap ic-3">
           <PrismIcon name="rocket" :size="14" />

@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""启动闪屏：现代化品牌浮层，自适应 Light / Dark 主题语义色，慢启动平滑反馈，快启动静默。"""
+"""启动闪屏：现代圆角品牌启动卡片。
+
+晴空棱镜 V2.0 规范 (LD-01):
+- 尺寸：480×280px，卡片圆角 20px；
+- 品牌图标：64×64px 位于 (208, 48)；
+- 品牌外圈：900ms 线性循环旋转（外围两段细弧缓转）；
+- 主标题：居中 y=132，高 28px；
+- 说明副文案：居中 y=172，高 20px；
+- 进度轨道：坐标 (48, 216, 384, 4)；
+- 往返光带：无真实进度时，活动光带片段宽 96px 水平往返 1.6s 周期；
+- 文案与反馈：沿用启动阶段真实文字，不显示“100%”直到已有完成；
+- 契约：300ms 延迟展示（快启动静默），550ms 最少可视驻留，非阻塞 finish。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +20,7 @@ import time
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QRect, QRectF
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap, QPainterPath
 from PyQt6.QtWidgets import QApplication, QWidget
 
 
@@ -16,7 +28,7 @@ DEFAULT_SPLASH_DELAY_MS = 300
 MIN_VISIBLE_MS = 550
 
 
-def _brand_pixmap(size: int = 56, tint: str = '#5B5FC7') -> QPixmap:
+def _brand_pixmap(size: int = 64, tint: str = '#6C58D9') -> QPixmap:
     try:
         from ui.icons import brand_pixmap
         pix = brand_pixmap('app', size=size, tint=tint)
@@ -27,7 +39,6 @@ def _brand_pixmap(size: int = 56, tint: str = '#5B5FC7') -> QPixmap:
             return pix
     except Exception:
         pass
-    # 退化：纯色块
     pix = QPixmap(size, size)
     pix.fill(QColor(tint))
     return pix
@@ -48,24 +59,19 @@ def _resolve_palette() -> dict:
         'SURFACE': '#FFFFFF',
         'ELEVATED_SURFACE': '#FFFFFF',
         'APP_BG': '#EEF0F6',
-        'TEXT_STRONG': '#1B1E2A',
-        'TEXT_MUTED': '#6E7486',
-        'BORDER': '#DFE2EC',
+        'TEXT_STRONG': '#262438',
+        'TEXT_MUTED': '#615D73',
+        'BORDER': '#E6E2F0',
         'GLASS_BORDER': 'rgba(221, 218, 210, 200)',
-        'PRIMARY': '#5B5FC7',
-        'PRIMARY_SOFT': '#ECEEF7',
-        'LOADING_TRACK': '#E2E8F0',
-        'SHADOW': 'rgba(27, 30, 42, 28)',
+        'PRIMARY': '#6C58D9',
+        'PRIMARY_SOFT': '#EEE9FF',
+        'LOADING_TRACK': '#E6EBF5',
+        'SHADOW': 'rgba(38, 36, 56, 45)',
     }
 
 
 class StartupSplash(QWidget):
-    """现代圆角品牌启动卡片：
-    - 延迟展示（>=300ms）：快启动完全静默无感知。
-    - 最短展示时间（~550ms）：慢启动展示后平滑过渡，避免瞬间闪退。
-    - 纯语义色主题自适应（calm / black）。
-    - 低 CPU 占用轻量 loading track 动画。
-    """
+    """现代圆角品牌启动卡片 (LD-01 晴空棱镜规范)。"""
 
     def __init__(
         self,
@@ -96,16 +102,15 @@ class StartupSplash(QWidget):
         self._subtitle = 'Developer & Ops Workbench'
         self._message = '正在准备工作台…'
 
-        primary_color = self._palette.get('PRIMARY') or '#5B5FC7'
-        self._logo = _brand_pixmap(56, tint=primary_color)
+        primary_color = self._palette.get('PRIMARY') or '#6C58D9'
+        self._logo = _brand_pixmap(64, tint=primary_color)
 
-        # 动效状态机
-        self._anim_progress = 0.0
+        # 动效计时与定时器 (~30 FPS)
         self._anim_timer = QTimer(self)
-        self._anim_timer.setInterval(35)  # ~28 FPS
+        self._anim_timer.setInterval(33)
         self._anim_timer.timeout.connect(self._on_anim_tick)
 
-        # 延迟展示 timer：300ms 到点自动尝试展示，不依赖新的 show_status 调用
+        # 延迟展示 timer
         self._show_timer: Optional[QTimer] = None
         if self._delay_ms > 0:
             self._show_timer = QTimer(self)
@@ -127,8 +132,14 @@ class StartupSplash(QWidget):
     def is_visible_to_user(self) -> bool:
         return self._is_visible and not self.isHidden()
 
+    def _is_motion_enabled(self) -> bool:
+        try:
+            from ui.motion import motion_enabled
+            return motion_enabled()
+        except Exception:
+            return True
+
     def _on_anim_tick(self):
-        self._anim_progress = (self._anim_progress + 0.02) % 1.0
         if self._is_visible and self.isVisible():
             self.update()
 
@@ -137,7 +148,7 @@ class StartupSplash(QWidget):
             self.check_delayed_show()
 
     def check_delayed_show(self) -> bool:
-        """根据已耗时检查是否达到展示阈值（>=delay_ms）。达到阈值才展示闪屏。"""
+        """根据已耗时检查是否达到展示阈值（>=delay_ms）。"""
         if self._is_finished or self._finish_requested:
             if self._show_timer is not None and self._show_timer.isActive():
                 self._show_timer.stop()
@@ -171,7 +182,6 @@ class StartupSplash(QWidget):
                 app.processEvents()
 
     def showMessage(self, message: str, alignment: int = 0, color: QColor | None = None):  # noqa: N802
-        """兼容 QSplashScreen 接口。"""
         self.show_status(message)
 
     def finish(self, window=None):
@@ -228,23 +238,22 @@ class StartupSplash(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         pal = self._palette
         card_bg = QColor(pal.get('ELEVATED_SURFACE') or pal.get('SURFACE') or '#FFFFFF')
-        text_strong = QColor(pal.get('TEXT_STRONG') or '#1B1E2A')
-        text_muted = QColor(pal.get('TEXT_MUTED') or '#6E7486')
-        border_color = QColor(pal.get('GLASS_BORDER') or pal.get('BORDER') or '#DFE2EC')
-        primary_color = QColor(pal.get('PRIMARY') or '#5B5FC7')
-        track_color = QColor(pal.get('LOADING_TRACK') or pal.get('SURFACE_TECH') or '#E2E8F0')
+        text_strong = QColor(pal.get('TEXT_STRONG') or '#262438')
+        text_muted = QColor(pal.get('TEXT_MUTED') or '#615D73')
+        border_color = QColor(pal.get('GLASS_BORDER') or pal.get('BORDER') or '#E6E2F0')
+        primary_color = QColor(pal.get('PRIMARY') or '#6C58D9')
+        track_color = QColor(pal.get('LOADING_TRACK') or pal.get('SURFACE_TECH') or '#E6EBF5')
 
-        # 1. 浮层卡片区域
+        # 1. 浮层卡片区域：480x280，圆角 20px
         card_rect = QRectF(10.0, 10.0, float(self.width() - 20), float(self.height() - 20))
         radius = 20.0
 
-        # 2. 阴影层（克制柔和分层）
-        shadow_base = QColor(pal.get('SHADOW') or 'rgba(0, 0, 0, 24)')
-        if shadow_base.alpha() > 40:
-            shadow_base.setAlpha(36)
+        # 2. 柔和阴影层
+        shadow_base = QColor(pal.get('SHADOW') or 'rgba(38, 36, 56, 45)')
         painter.setPen(Qt.PenStyle.NoPen)
         for i in (3, 2, 1):
             s_color = QColor(shadow_base)
@@ -257,62 +266,92 @@ class StartupSplash(QWidget):
         painter.setPen(QPen(border_color, 1.0))
         painter.drawRoundedRect(card_rect, radius, radius)
 
-        # 4. 品牌 Logo
-        logo_w = self._logo.width()
-        logo_h = self._logo.height()
-        logo_x = (self.width() - logo_w) // 2
-        logo_y = 36
+        # 4. 品牌 Logo：64x64，精确位于 (208, 48)
+        logo_x = 208
+        logo_y = 48
+        logo_w = 64
+        logo_h = 64
         painter.drawPixmap(logo_x, logo_y, self._logo)
 
-        # 5. 主标题
+        now = time.monotonic()
+        elapsed = now - self._start_time if self._start_time > 0 else 0.0
+        motion_on = self._is_motion_enabled()
+
+        # 4.1 品牌外圈：900ms 周期线性旋转细弧（两段对称细弧，半径 42px）
+        cx = float(logo_x + logo_w / 2.0)  # 240.0
+        cy = float(logo_y + logo_h / 2.0)  # 80.0
+        ring_r = 42.0
+        ring_rect = QRectF(cx - ring_r, cy - ring_r, ring_r * 2.0, ring_r * 2.0)
+
+        # 900ms 周期线性旋转
+        angle_deg = (elapsed / 0.9 * 360.0) % 360.0 if motion_on else 0.0
+        arc_pen = QPen(primary_color, 1.6)
+        arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(arc_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # 绘制两段对称的 65 度弧线
+        painter.drawArc(ring_rect, int((angle_deg) * 16), int(65 * 16))
+        painter.drawArc(ring_rect, int((angle_deg + 180) * 16), int(65 * 16))
+
+        # 5. 主标题：居中 y=132，高 28px
         painter.setPen(text_strong)
         title_font = QFont('Microsoft YaHei UI', 14)
         title_font.setBold(True)
         painter.setFont(title_font)
         painter.drawText(
-            QRect(0, 102, self.width(), 28),
+            QRect(0, 132, self.width(), 28),
             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             self._title,
         )
 
-        # 6. 副文案
+        # 6. 副文案：居中 y=172，高 20px
         painter.setPen(text_muted)
         sub_font = QFont('Microsoft YaHei UI', 9)
         painter.setFont(sub_font)
         painter.drawText(
-            QRect(0, 132, self.width(), 20),
+            QRect(0, 172, self.width(), 20),
             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             self._subtitle,
         )
 
-        # 7. Loading 动效条 (220px track, 60px active indicator)
-        track_w = 220.0
-        track_h = 3.0
-        track_x = (self.width() - track_w) / 2.0
-        track_y = 176.0
+        # 7. 进度轨道：精确坐标 (48, 216, 384, 4)
+        track_x = 48.0
+        track_y = 216.0
+        track_w = 384.0
+        track_h = 4.0
         track_rect = QRectF(track_x, track_y, track_w, track_h)
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(track_color))
-        painter.drawRoundedRect(track_rect, 1.5, 1.5)
+        painter.drawRoundedRect(track_rect, 2.0, 2.0)
 
-        # 平滑往复缓动计算
-        indicator_w = 64.0
-        max_travel = track_w - indicator_w
-        # sine-eased back and forth
-        ease = (math.sin(self._anim_progress * 2.0 * math.pi - math.pi / 2.0) + 1.0) / 2.0
-        indicator_x = track_x + ease * max_travel
+        # 7.1 往返活动光带：片段宽 96px，1.6s 周期水平往返
+        indicator_w = 96.0
+        max_travel = track_w - indicator_w  # 288.0
+
+        if motion_on:
+            ease = (math.sin((elapsed / 1.6) * 2.0 * math.pi - math.pi / 2.0) + 1.0) / 2.0
+            indicator_x = track_x + ease * max_travel
+        else:
+            indicator_x = track_x + max_travel * 0.5
+
         indicator_rect = QRectF(indicator_x, track_y, indicator_w, track_h)
 
+        # 限制在轨道圆角范围内绘制
+        path = QPainterPath()
+        path.addRoundedRect(track_rect, 2.0, 2.0)
+        painter.save()
+        painter.setClipPath(path)
         painter.setBrush(QBrush(primary_color))
-        painter.drawRoundedRect(indicator_rect, 1.5, 1.5)
+        painter.drawRoundedRect(indicator_rect, 2.0, 2.0)
+        painter.restore()
 
-        # 8. 状态文本
+        # 8. 状态文本：y=228，高 20px，展示真实启动步骤文字，不显示“100%”直到完成
         painter.setPen(text_muted)
-        status_font = QFont('Microsoft YaHei UI', 9)
+        status_font = QFont('Microsoft YaHei UI', 8)
         painter.setFont(status_font)
         painter.drawText(
-            QRect(20, 196, self.width() - 40, 24),
+            QRect(20, 226, self.width() - 40, 20),
             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             self._message,
         )

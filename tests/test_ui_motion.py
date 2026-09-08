@@ -232,9 +232,18 @@ class IndicatorLifecycleTests(unittest.TestCase):
 class DashboardKeyboardContractTests(unittest.TestCase):
     def test_dashboard_keyboard_and_demo_row_contract(self):
         vue_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue')
+        tasks_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'MonthlyTasks.vue')
+        stats_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'StatsGrid.vue')
         self.assertTrue(os.path.exists(vue_path))
+        content = ''
         with open(vue_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+            content += f.read()
+        if os.path.exists(tasks_path):
+            with open(tasks_path, 'r', encoding='utf-8') as f:
+                content += '\n' + f.read()
+        if os.path.exists(stats_path):
+            with open(stats_path, 'r', encoding='utf-8') as f:
+                content += '\n' + f.read()
 
         # 1. 验证所有 role="button" 的可交互非原生元素均具备 space.prevent 契约
         # 匹配所有包含 role="button" 的标签块
