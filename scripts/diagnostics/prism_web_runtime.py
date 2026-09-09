@@ -16,7 +16,14 @@ def main():
     parser.add_argument('--height', type=int, default=740)
     parser.add_argument('--sample', action='store_true')
     parser.add_argument('--motion', action='store_true')
+    parser.add_argument('--shell', action='store_true')
+    parser.add_argument('--nav', type=int, default=0)
+    parser.add_argument('--collapsed', action='store_true')
     args = parser.parse_args()
+    if args.shell:
+        from prism_shell_preview import main as preview_shell
+        preview_shell(args)
+        return
     debug_port = None
     if args.motion:
         import socket
