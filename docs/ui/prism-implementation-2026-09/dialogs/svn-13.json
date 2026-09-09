@@ -1,0 +1,13 @@
+{
+  "dialog": "svn",
+  "font": 13,
+  "size": [
+    720,
+    380
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

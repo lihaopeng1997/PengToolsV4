@@ -1,0 +1,13 @@
+{
+  "dialog": "month",
+  "font": 13,
+  "size": [
+    380,
+    220
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

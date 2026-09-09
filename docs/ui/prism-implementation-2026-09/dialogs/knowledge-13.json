@@ -1,0 +1,13 @@
+{
+  "dialog": "knowledge",
+  "font": 13,
+  "size": [
+    640,
+    520
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

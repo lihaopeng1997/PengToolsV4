@@ -1,0 +1,13 @@
+{
+  "dialog": "objects",
+  "font": 16,
+  "size": [
+    860,
+    592
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>晴空棱镜 · 子窗口检查图集</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f3fa;color:#262438;font:14px/1.6 "Microsoft YaHei UI",sans-serif}header{padding:32px max(24px,calc((100vw - 1280px)/2));background:#fdfdff;border-bottom:1px solid #e6e2f0}h1{font-size:26px;margin:0 0 8px}p{color:#615d73;margin:8px 0}select,a{font:inherit;color:#503dbe}select{padding:8px 16px;background:#eee9ff;border:1px solid #e6e2f0;border-radius:8px}main{max-width:1328px;margin:auto;padding:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}article{background:#fdfdff;border:1px solid #e6e2f0;border-radius:16px;overflow:hidden}h2{font-size:16px;margin:0;padding:16px 20px;border-bottom:1px solid #e6e2f0}article a{display:block;padding:12px}img{display:block;width:100%;height:450px;object-fit:contain;object-position:top;background:#f4f3fa}footer{padding:16px 24px 40px;text-align:center;color:#615d73}@media(max-width:800px){main{grid-template-columns:1fr}img{height:auto}}
+</style>
+<header><h1>晴空棱镜 · 子窗口检查图集</h1><p>真实 Qt 控件截图 · 临时配置与演示内容 · 模拟可用屏幕 960 × 640</p>
+<label>全局字体设置 <select id="font"><option value="13">13 像素</option><option value="16" selected>16 像素</option></select></label>
+<p>点击图片查看原尺寸。截图证明展示状态，不替代保存、提交、连接及权限交互验收。<a href="../STATUS.md">实施与验证记录</a></p></header>
+<main id="gallery"></main><footer>2026-09-10 · 系统边框不在客户区截图内；字体设置变化不等于已完成真实屏幕 DPI 验证。</footer>
+<script>
+const items=[['connection','数据库连接'],['requirement','需求编辑'],['attachment','需求附件'],['test-points','测试点'],['ticket','一键提签'],['ticket-config','提签配置'],['server','服务器编辑'],['servers','服务器管理'],['category','服务器分类'],['log-settings','日志设置'],['history','命令历史'],['command','自定义命令'],['knowledge','学习内容编辑'],['paste','粘贴整理'],['skills','技能管理'],['objects','对象选择'],['month','月份选择'],['svn','SVN 检出'],['help','使用说明'],['confirm','确认操作'],['notice','通知'],['next','后续操作'],['close','关闭选择'],['https','HTTPS 证书说明']];
+items.push(['confirm-long','确认操作 · 长文本'],['notice-long','通知 · 长文本'],['next-long','后续操作 · 长文本']);
+function render(){const font=document.querySelector('#font').value;const host=document.querySelector('#gallery');host.replaceChildren();for(const [id,title] of items){const article=document.createElement('article');const heading=document.createElement('h2');heading.textContent=title;const link=document.createElement('a');link.href=`${id}-${font}.png`;link.target='_blank';const img=document.createElement('img');img.src=link.href;img.alt=`${title}，${font} 像素字体`;img.loading='lazy';link.append(img);article.append(heading,link);host.append(article)}}document.querySelector('#font').addEventListener('change',render);render();
+</script></html>

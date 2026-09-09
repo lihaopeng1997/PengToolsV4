@@ -13,13 +13,32 @@ ask_close_action → (action, dont_ask) 或 None。
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QScrollArea,
 )
 import random
 
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry, size_dialog_button
 from ui.icons import make_badge_label, apply_icon
+
+
+def _add_scrollable_message(root, message):
+    """Keep long notices readable without pushing modal actions off screen."""
+    label = QLabel(message)
+    label.setObjectName('confirm-message')
+    label.setWordWrap(True)
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setWidget(label)
+    root.addWidget(scroll, 1)
+    label.ensurePolished()
+    text_height = max(label.fontMetrics().height(), label.heightForWidth(388))
+    label.setMinimumHeight(text_height)
+    scroll.setMinimumHeight(min(80, text_height))
+    return scroll, text_height
 
 
 class ConfirmActionDialog(QDialog):
@@ -61,7 +80,12 @@ class ConfirmActionDialog(QDialog):
         message_label.setWordWrap(True)
         message_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         card_layout.addWidget(message_label)
-        root.addWidget(card)
+        self.message_scroll = QScrollArea()
+        self.message_scroll.setWidgetResizable(True)
+        self.message_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.message_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.message_scroll.setWidget(card)
+        root.addWidget(self.message_scroll, 1)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
@@ -93,6 +117,16 @@ class ConfirmActionDialog(QDialog):
         buttons.addWidget(self.confirm_button)
         root.addLayout(buttons)
         self.cancel_button.setFocus()
+        # Measure the actual styled text after layout exists. The earlier empty
+        # dialog sizeHint cannot size a wrapped confirmation message correctly.
+        self.ensurePolished()
+        text_width = max(80, self.width() - 48 - 32 - 4)
+        text_height = max(message_label.fontMetrics().height(), message_label.heightForWidth(text_width))
+        message_label.setMinimumHeight(text_height)
+        card.setMinimumHeight(text_height + 30)
+        self.message_scroll.setMinimumHeight(min(80, text_height + 30))
+        natural_height = 48 + 28 + max(40, header.sizeHint().height()) + text_height + 30 + buttons.sizeHint().height()
+        clamp_dialog_geometry(self, 440, natural_height, min_width=440, min_height=180)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -282,15 +316,13 @@ class AppNoticeDialog(QDialog):
         title_wrap.setSpacing(4)
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
+        title_label.setWordWrap(True)
         title_wrap.addWidget(title_label)
-        if message:
-            message_label = QLabel(message)
-            message_label.setObjectName('confirm-message')
-            message_label.setWordWrap(True)
-            message_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            title_wrap.addWidget(message_label)
         header.addLayout(title_wrap, 1)
         root.addLayout(header)
+        text_height = 0
+        if message:
+            self.message_scroll, text_height = _add_scrollable_message(root, message)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
@@ -303,6 +335,9 @@ class AppNoticeDialog(QDialog):
         buttons.addWidget(self.ok_button)
         root.addLayout(buttons)
         self.ok_button.setFocus()
+        self.ensurePolished()
+        clamp_dialog_geometry(self, 440, 48 + 28 + max(40, header.sizeHint().height()) + text_height + buttons.sizeHint().height(),
+                              min_width=440, min_height=180)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -363,14 +398,12 @@ class NextStepDialog(QDialog):
 
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
+        title_label.setWordWrap(True)
         root.addWidget(title_label)
 
+        text_height = 0
         if message:
-            message_label = QLabel(message)
-            message_label.setObjectName('confirm-message')
-            message_label.setWordWrap(True)
-            message_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            root.addWidget(message_label)
+            self.message_scroll, text_height = _add_scrollable_message(root, message)
 
         button_row = QHBoxLayout()
         button_row.setSpacing(8)
@@ -402,6 +435,9 @@ class NextStepDialog(QDialog):
         if not any(action_id == recommended or is_primary for action_id, _label, is_primary in actions):
             later.setDefault(True)
             later.setFocus()
+        self.ensurePolished()
+        clamp_dialog_geometry(self, 440, 48 + 28 + title_label.heightForWidth(392) + text_height + button_row.sizeHint().height(),
+                              min_width=440, min_height=180)
 
     def showEvent(self, event):
         super().showEvent(event)

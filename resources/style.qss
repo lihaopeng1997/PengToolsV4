@@ -982,6 +982,26 @@ QSplitter::handle:horizontal {
 QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
+QListWidget[prismDialogList="true"] {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 8px;
+    outline: none;
+}
+QListWidget[prismDialogList="true"]::item {
+    min-height: 36px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: __TEXT__;
+}
+QListWidget[prismDialogList="true"]::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QListWidget[prismDialogList="true"]::item:hover {
+    background: __SURFACE_SOFT__;
+}
 QSplitter[prismGutter="true"]::handle:horizontal {
     width: 2px;
     margin: 0 7px;
@@ -1670,8 +1690,8 @@ QLabel#confirm-message {
 }
 QPushButton#confirm-cancel {
     min-width: 60px;
-    min-height: 28px;
-    max-height: 30px;
+    min-height: 22px;
+    max-height: 22px;
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 6px;
@@ -1685,8 +1705,8 @@ QDialog#confirm-dialog QPushButton#primary-btn,
 QDialog#confirm-dialog QPushButton#ops-delete-custom,
 QDialog#confirm-dialog QPushButton#btn-danger {
     min-width: 60px;
-    min-height: 28px;
-    max-height: 30px;
+    min-height: 22px;
+    max-height: 22px;
     border-radius: 6px;
     padding: 4px 12px;
 }
@@ -1716,8 +1736,8 @@ QMessageBox QLabel {
 QDialogButtonBox QPushButton,
 QMessageBox QPushButton {
     min-width: 60px;
-    min-height: 28px;
-    max-height: 30px;
+    min-height: 22px;
+    max-height: 22px;
     border-radius: 6px;
     padding: 4px 12px;
 }

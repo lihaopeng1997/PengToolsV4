@@ -262,11 +262,13 @@ class ObjectPickDialog(QDialog):
         self.search.textChanged.connect(self._fill_objects)
         left.addWidget(self.search)
         self.obj_list = QListWidget()
+        self.obj_list.setProperty('prismDialogList', True)
         self.obj_list.currentItemChanged.connect(self._on_object)
         left.addWidget(self.obj_list, 1)
         cols.addLayout(left, 1)
         self.field_search = QLineEdit()
         self.field_list = QListWidget()
+        self.field_list.setProperty('prismDialogList', True)
         self.field_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.field_list.itemSelectionChanged.connect(self._refresh_ok)
         if mode == 'field':

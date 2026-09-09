@@ -148,6 +148,7 @@ class CategoryManageDialog(QDialog):
         hint.setWordWrap(True)
         layout.addWidget(hint)
         self.list = QListWidget()
+        self.list.setProperty('prismDialogList', True)
         layout.addWidget(self.list, 1)
         row = QHBoxLayout()
         self.add_btn = QPushButton('新增分类' if zh else 'Add')

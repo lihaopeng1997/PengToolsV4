@@ -1,0 +1,13 @@
+{
+  "dialog": "https",
+  "font": 13,
+  "size": [
+    560,
+    316
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

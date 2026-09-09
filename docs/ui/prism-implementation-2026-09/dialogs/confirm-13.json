@@ -1,0 +1,13 @@
+{
+  "dialog": "confirm",
+  "font": 13,
+  "size": [
+    440,
+    197
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

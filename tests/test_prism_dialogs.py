@@ -94,6 +94,44 @@ class PrismDialogContractTests(unittest.TestCase):
         finally:
             dlg_min.close()
 
+    def test_confirmation_message_readable_with_long_text_and_large_font(self):
+        from PyQt6.QtCore import QRect, QPoint, Qt
+        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtTest import QTest
+        from types import SimpleNamespace
+        from ui.confirm_dialog import ConfirmActionDialog
+        from ui.dialog_buttons import clamp_dialog_geometry
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
+        screen = SimpleNamespace(availableGeometry=lambda: QRect(0, 0, 960, 640))
+        try:
+            for message in ('请确认此操作的对象和后果。', '示例说明：逐项核对操作对象和后果。\n' * 50,
+                            '这是一段连续的长说明，需要自动折行并完整显示所有内容。' * 100):
+                dialog = ConfirmActionDialog('确认操作', message)
+                try:
+                    clamp_dialog_geometry(dialog, 440, dialog.height(), screen=screen)
+                    dialog.show()
+                    QTest.qWait(30)
+                    label = dialog.findChild(QLabel, 'confirm-message')
+                    self.assertEqual(label.text(), message)
+                    self.assertGreaterEqual(label.height(), label.heightForWidth(label.width()))
+                    self.assertLessEqual(dialog.height(), 592)
+                    for button in (dialog.cancel_button, dialog.confirm_button):
+                        self.assertTrue(dialog.rect().contains(QRect(button.mapTo(dialog, QPoint()), button.size())))
+                    self.assertTrue(dialog.cancel_button.isDefault())
+                    if len(message) > 100:
+                        bar = dialog.message_scroll.verticalScrollBar()
+                        self.assertGreater(bar.maximum(), 0)
+                        bar.setValue(bar.maximum())
+                        self.assertEqual(bar.value(), bar.maximum())
+                    QTest.keyClick(dialog, Qt.Key.Key_Escape)
+                    self.assertEqual(dialog.result(), 0)
+                finally:
+                    dialog.close()
+                    dialog.deleteLater()
+        finally:
+            ThemeManager.instance().apply(self.app, 'calm', font_size=13)
+
     def test_app_notice_and_next_step_dialogs(self):
         """AppNoticeDialog 与 NextStepDialog 宽度 440，按钮角色与 gap 8px。"""
         from ui.confirm_dialog import AppNoticeDialog, NextStepDialog
@@ -115,6 +153,41 @@ class PrismDialogContractTests(unittest.TestCase):
             self.assertEqual(len(next_step._action_buttons), 2)
         finally:
             next_step.close()
+
+    def test_long_notice_and_next_step_keep_text_scroll_and_result(self):
+        from PyQt6.QtCore import QRect, QPoint
+        from PyQt6.QtWidgets import QLabel, QPushButton
+        from PyQt6.QtTest import QTest
+        from types import SimpleNamespace
+        from ui.confirm_dialog import AppNoticeDialog, NextStepDialog
+        from ui.dialog_buttons import clamp_dialog_geometry
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
+        message = '保留详细结果和原始原因，不丢失连续长文本的自动换行正文。' * 100
+        screen = SimpleNamespace(availableGeometry=lambda: QRect(0, 0, 960, 640))
+        for dialog in (AppNoticeDialog('结果说明', message),
+                       NextStepDialog('下一步', message, [('view', '查看详情', True)])):
+            try:
+                clamp_dialog_geometry(dialog, 440, dialog.height(), screen=screen)
+                dialog.show()
+                QTest.qWait(30)
+                label = dialog.findChild(QLabel, 'confirm-message')
+                self.assertEqual(label.text(), message)
+                self.assertGreaterEqual(label.height(), label.heightForWidth(label.width()))
+                self.assertGreater(dialog.message_scroll.verticalScrollBar().maximum(), 0)
+                self.assertLessEqual(dialog.height(), 592)
+                for button in dialog.findChildren(QPushButton):
+                    self.assertTrue(dialog.rect().contains(QRect(button.mapTo(dialog, QPoint()), button.size())))
+                if isinstance(dialog, NextStepDialog):
+                    dialog._action_buttons[0].click()
+                    self.assertEqual(dialog.selected_action(), 'view')
+                else:
+                    dialog.ok_button.click()
+                self.assertEqual(dialog.result(), 1)
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+        ThemeManager.instance().apply(self.app, 'calm', font_size=13)
 
     def test_https_cert_consent_dialog(self):
         """HttpsCertConsentDialog 宽度 >= 560，cancel 为 default 按钮。"""

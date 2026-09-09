@@ -1,0 +1,13 @@
+{
+  "dialog": "test-points",
+  "font": 13,
+  "size": [
+    640,
+    592
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

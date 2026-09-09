@@ -941,6 +941,7 @@ class _SkillManagerDialog(QDialog):
         root.setSpacing(10)
 
         self.list_widget = QListWidget()
+        self.list_widget.setProperty('prismDialogList', True)
         self.list_widget.currentItemChanged.connect(self._on_selection_changed)
         root.addWidget(self.list_widget, 1)
 

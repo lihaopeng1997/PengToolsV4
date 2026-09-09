@@ -1,0 +1,13 @@
+{
+  "dialog": "log-settings",
+  "font": 16,
+  "size": [
+    560,
+    420
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

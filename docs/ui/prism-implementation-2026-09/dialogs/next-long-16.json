@@ -1,0 +1,13 @@
+{
+  "dialog": "next-long",
+  "font": 16,
+  "size": [
+    440,
+    592
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

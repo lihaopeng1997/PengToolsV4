@@ -1,0 +1,13 @@
+{
+  "dialog": "history",
+  "font": 13,
+  "size": [
+    860,
+    560
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

@@ -1,0 +1,13 @@
+{
+  "dialog": "paste",
+  "font": 13,
+  "size": [
+    640,
+    500
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

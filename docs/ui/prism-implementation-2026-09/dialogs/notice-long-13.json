@@ -1,0 +1,13 @@
+{
+  "dialog": "notice-long",
+  "font": 13,
+  "size": [
+    440,
+    592
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}
