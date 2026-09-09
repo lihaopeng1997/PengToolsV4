@@ -198,6 +198,8 @@ class ModelChatPanel(QWidget):
 
         self.chat_vsplit = QSplitter(Qt.Orientation.Vertical)
         self.chat_vsplit.setChildrenCollapsible(False)
+        self.chat_vsplit.setHandleWidth(16)
+        self.chat_vsplit.setProperty('prismGutter', True)
 
         top_chat_widget = QWidget()
         top_chat_l = QVBoxLayout(top_chat_widget)
@@ -592,6 +594,12 @@ class ModelChatPanel(QWidget):
     def _scroll_thread_to_bottom(self):
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import set_subtitle_visible
+        set_subtitle_visible(self.page_subtitle, low_height)
+        # Preserve the 120px composer; let the scrollable transcript shrink in low windows.
+        self.chat_vsplit.widget(0).setMinimumHeight(100 if low_height else 200)
 
     def _bubble_max_width(self) -> int:
         return chat_bubble_max_width(self.scroll.viewport().width() or self.scroll.width())

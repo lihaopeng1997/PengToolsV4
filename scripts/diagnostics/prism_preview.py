@@ -36,6 +36,7 @@ PAGES = {
     'logs': ('ops_log_panel', 'OpsLogPanel'),
     'agent': ('agent_workbench_panel', 'AgentWorkbenchPanel'),
     'learning': ('personal_panel', 'PersonalPanel'),
+    'daily': ('personal_panel', 'PersonalPanel'),
     'oracle': ('ai_workbench_panel', 'AiWorkbenchPanel'),
     'mysql': ('ai_workbench_panel', 'AiWorkbenchPanel'),
     'oceanbase': ('ai_workbench_panel', 'AiWorkbenchPanel'),
@@ -112,7 +113,9 @@ def main():
             widget = cls('zh', dialect=args.page)
         else:
             widget = cls('zh')
-        if args.page == 'settings':
+        if args.page == 'daily':
+            widget.open_daily_report()
+        elif args.page == 'settings':
             widget.section_nav.setCurrentRow(args.tab)
         elif args.page == 'logs':
             widget._set_work_mode('export' if args.tab == 1 else 'session')
@@ -128,15 +131,30 @@ def main():
             widget.resize(args.width, args.height)
         if hasattr(widget, 'apply_layout_mode'):
             widget.apply_layout_mode('standard' if args.width >= 1000 else 'narrow', args.height < 640)
+            # Reapply the viewport after mode-specific minimum sizes settle, as the
+            # containing main-window layout does for a real child page.
+            widget.resize(args.width, args.height)
         widget.show()
         for _ in range(4):
             app.processEvents()
+        if args.page != 'floating':
+            widget.resize(args.width, args.height)
         from PyQt6.QtCore import QCoreApplication, QEvent
         from PyQt6.QtTest import QTest
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         QTest.qWait(20)
         if args.inspect_layout:
             from PyQt6.QtWidgets import QWidget
+            if widget.height() > args.height:
+                from PyQt6.QtWidgets import QSplitter
+                from PyQt6.QtCore import Qt
+                candidates = [widget] + widget.findChildren(QSplitter)
+                for container in candidates:
+                    for child in [container] + container.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+                        if child.isVisible():
+                            print(json.dumps({'height_diagnostic': child.objectName(), 'class': type(child).__name__,
+                                'height': child.height(), 'minimum': child.minimumHeight(),
+                                'hint': child.minimumSizeHint().height()}))
             for child in widget.findChildren(QWidget):
                 parent = child.parentWidget()
                 if child.isVisible() and parent and child.width() > parent.width():

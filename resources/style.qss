@@ -983,6 +983,7 @@ QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
 QSplitter[prismGutter="true"]::handle:horizontal {
+    width: 2px;
     margin: 0 7px;
     background: __BORDER__;
 }
@@ -1006,6 +1007,19 @@ QSplitter::handle:vertical {
 }
 QSplitter::handle:vertical:hover, QSplitter::handle:vertical:pressed {
     background: __PRIMARY__;
+}
+QSplitter[prismGutter="true"]::handle:vertical {
+    height: 16px;
+    margin: 0;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.4374 transparent, stop:0.4375 __BORDER__,
+        stop:0.5625 __BORDER__, stop:0.5626 transparent, stop:1 transparent);
+}
+QSplitter[prismGutter="true"]::handle:vertical:hover,
+QSplitter[prismGutter="true"]::handle:vertical:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.4374 transparent, stop:0.4375 __PRIMARY__,
+        stop:0.5625 __PRIMARY__, stop:0.5626 transparent, stop:1 transparent);
 }
 /* 需求摘要紧凑卡：内容定高，文件库占满剩余（无垂直把手） */
 QTreeWidget#requirement-tree {

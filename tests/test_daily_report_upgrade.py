@@ -190,8 +190,8 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertEqual(issues_stretch, tomorrow_stretch)
             self.assertEqual(issues_stretch, notes_stretch)
             self.assertGreaterEqual(tab.completed.minimumHeight(), 180)
-            self.assertLessEqual(tab.issues.minimumHeight(), 72)
-            self.assertLessEqual(tab.tomorrow.minimumHeight(), 72)
+            self.assertGreaterEqual(tab.issues.minimumHeight(), 120)
+            self.assertGreaterEqual(tab.tomorrow.minimumHeight(), 120)
             self.assertLessEqual(tab.notes.minimumHeight(), 64)
             self.assertGreater(tab.completed.sizeHint().height(), tab.issues.sizeHint().height())
             self.assertGreater(tab.completed.sizeHint().height(), tab.notes.sizeHint().height())
@@ -229,7 +229,7 @@ class DailyReportUiSmokeTests(unittest.TestCase):
             self.assertNotIn('2026-08-13', tab._drafts)
             tab.close()
 
-    def test_action_buttons_share_date_row(self):
+    def test_actions_remain_visible_and_draft_survives_layout_changes(self):
         from unittest.mock import patch
         from panels.personal_panel import DailyReportTab
 
@@ -243,20 +243,32 @@ class DailyReportUiSmokeTests(unittest.TestCase):
                     'history_expand_pinned': True,
                 }):
             tab = DailyReportTab()
-            date_row = tab.date_edit.parentWidget().layout().itemAt(0).layout()
-            widgets = []
-            for index in range(date_row.count()):
-                item = date_row.itemAt(index)
-                widget = item.widget() if item else None
-                if widget is not None:
-                    widgets.append(widget)
-            self.assertIn(tab.date_edit, widgets)
-            self.assertIn(tab.delete_btn, widgets)
-            self.assertIn(tab.copy_btn, widgets)
-            self.assertIn(tab.save_btn, widgets)
-            self.assertIn(tab.import_yesterday_btn, widgets)
-            self.assertEqual(tab.import_yesterday_btn.text(), '带入昨日计划')
-            tab.close()
+            from PyQt6.QtCore import QPoint
+            from PyQt6.QtTest import QTest
+            from ui.theme_manager import ThemeManager
+            ThemeManager.instance().apply(self.app, 'calm')
+            try:
+                tab.completed.setPlainText('演示：调整窗口后仍保留的日报草稿')
+                for width, height, mode in ((1144, 660, 'standard'), (864, 440, 'narrow'),
+                                             (1144, 660, 'standard')):
+                    tab.apply_layout_mode(mode, height < 640)
+                    tab.resize(width, height)
+                    tab.show()
+                    QTest.qWait(30)
+                    self.assertEqual((tab.width(), tab.height()), (width, height))
+                    self.assertIn('仍保留', tab.completed.toPlainText())
+                    for button in (tab.save_btn, tab.copy_btn, tab.delete_btn):
+                        self.assertTrue(button.isVisible())
+                        self.assertTrue(tab.rect().contains(button.mapTo(tab, QPoint(0, 0))))
+                        self.assertTrue(tab.rect().contains(button.mapTo(tab, button.rect().bottomRight())))
+                with patch('panels.personal_panel.save_reports') as save, \
+                        patch('panels.personal_panel.show_success'):
+                    tab.save_btn.click()
+                    save.assert_called_once()
+                    report = save.call_args.args[0][tab._date_key()]
+                    self.assertIn('仍保留', report['completed'])
+            finally:
+                tab.close()
 
     def test_import_yesterday_plan_fills_today_completed(self):
         from unittest.mock import patch

@@ -355,7 +355,8 @@ class AiWorkbenchPanel(QWidget):
             self.conn_target_hint.hide()
 
         columns = QSplitter(Qt.Orientation.Horizontal)
-        columns.setHandleWidth(8)
+        columns.setHandleWidth(16)
+        columns.setProperty('prismGutter', True)
 
         self.narrow_chrome = QFrame()
         self.narrow_chrome.setObjectName('page-narrow-chrome')
@@ -632,7 +633,8 @@ class AiWorkbenchPanel(QWidget):
         # 上下垂直分割：上=SQL编辑器，下=执行结果/消息/历史
         body = QSplitter(Qt.Orientation.Vertical)
         body.setObjectName('sql-body-splitter')
-        body.setHandleWidth(8)
+        body.setHandleWidth(16)
+        body.setProperty('prismGutter', True)
         body.addWidget(self._middle_pane)
         body.addWidget(bottom)
         body.setStretchFactor(0, 3)

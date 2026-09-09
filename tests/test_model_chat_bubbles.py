@@ -53,6 +53,43 @@ class ModelChatBubbleLayoutTests(unittest.TestCase):
         self.assertNotIn('addWidget(frame, 4)', src)
         self.assertNotIn('addWidget(frame, 19)', src)
 
+    def test_long_message_and_draft_survive_low_window_resize(self):
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QPushButton
+        from tools.model_chat_store import append_message, create_session
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm')
+        panel = ModelChatPanel('zh')
+        content = '\n'.join(f'{i}. 示例长消息：检查原文换行和复制是否完整。' for i in range(25))
+        try:
+            session = create_session(model='演示模型')
+            panel._session = append_message(session['id'], 'assistant', content)
+            panel._render_messages()
+            panel.input.setPlainText('保留未发送草稿')
+            panel.show()
+            for width, height, mode in ((1144, 740, 'standard'), (864, 520, 'narrow')):
+                panel.apply_layout_mode(mode, height < 640)
+                QTest.qWait(30)
+                panel.resize(width, height)
+                QTest.qWait(30)
+                self.assertEqual((panel.width(), panel.height()), (width, height))
+                self.assertEqual(panel.input.toPlainText(), '保留未发送草稿')
+                self.assertGreaterEqual(panel.input.height(), 120)
+                self.assertEqual(panel.chat_vsplit.handle(1).height(), 16)
+                self.assertTrue(panel.rect().contains(panel.send_btn.mapTo(panel, panel.send_btn.rect().bottomRight())))
+                row = panel.thread_layout.itemAt(0).widget()
+                body = row.findChild(QLabel, 'chat-bubble-body')
+                self.assertEqual(body.text(), content)
+                self.assertGreaterEqual(body.height(), body.heightForWidth(body.width()))
+                self.assertGreater(panel.scroll.verticalScrollBar().maximum(), 0)
+            with patch.object(panel, '_copy') as copy:
+                row.findChild(QPushButton, 'chat-copy-btn').click()
+                copy.assert_called_once_with(content)
+        finally:
+            panel.close()
+            panel.deleteLater()
+
     def test_user_right_assistant_left_and_short_hint(self):
         from tools.model_chat_store import append_message, create_session
         panel = ModelChatPanel(language='zh')
@@ -236,7 +273,9 @@ class ModelChatBubbleLayoutTests(unittest.TestCase):
 
             tm.apply(None, 'black')
             acc, txt = thinking_colors()
-            self.assertEqual(acc.name().upper(), black_pal['PRIMARY'].upper())
-            self.assertEqual(txt.name().upper(), black_pal['TEXT_MUTED'].upper())
+            # V2.1: legacy stored themes normalize to the approved single calm theme.
+            self.assertEqual(tm.theme_id, 'calm')
+            self.assertEqual(acc.name().upper(), calm_pal['PRIMARY'].upper())
+            self.assertEqual(txt.name().upper(), calm_pal['TEXT_MUTED'].upper())
         finally:
             tm.apply(None, old_theme)

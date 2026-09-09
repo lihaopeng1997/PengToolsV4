@@ -1,6 +1,25 @@
 # 晴空棱镜代码实施检查点
 
-更新：2026-09-09。这是进行中的实施记录，不是完整验收结论。
+更新：2026-09-10。这是进行中的实施记录，不是完整验收结论。
+
+## 2026-09-10 学习、日报和聊天续修
+
+本批基于已推送的 `edc0c50647d39f49e61f6c63ba92d44485ba6718`。以下证据补充并更新下方历史表中的对应待查项，不代替其余模块的完整验收。
+
+| 页面/组件 | 实际修复与证据 | 当前图 |
+|---|---|---|
+| 日报 | 原日期行按钮超出视口；日期、辅助操作分行，保存/复制/删除固定底部。低高度下历史与编辑区不再把共享页面撑高。问题与计划编辑区最小120，保留今日完成优先伸展。窗口切换保留草稿，点击保存仍调用原保存方法；昨日计划、富文本和图片回归通过 | [864×520](daily-verified-864.png) |
+| 学习 | 检索与分类移入260资料栏；16分隔；保留实际既有左右布局。搜索防抖、选择结果和拖拽分栏在布局变化后保留，搜索测试使用隔离样例 | [1144×740](learning-verified-1144.png) |
+| 聊天 | 低高度时收缩可滚动消息区，输入框仍至少120；原风险提示不隐藏。25行样例的完整文本、内容高度、滚动和复制、未发送草稿、发送按钮可达均通过 | [864×520](chat-verified-864.png) |
+| SQL/通用分隔 | 四SQL工作台上下/左右改16分隔；带prismGutter的垂直分隔改为16命中区域中的细线，避免原粗横条。实际控件测量横向宽16、垂直高16；日志/发版/数据库布局回归通过 | [Oracle 1440×740](oracle-verified-1440.png) |
+
+最终代码下定向验证共51项通过：`tests.test_daily_report_upgrade` 12、`tests.test_p09a_delivery_panels` 6、`tests.test_p09b_database_panels` 5、`tests.test_splitter_prefs` 14、`tests.test_model_chat_bubbles` 10、`tests.test_prism_learning_layout` 1、`tests.test_prism_release_layout` 1、`tests.test_prism_log_layout` 1、`tests.test_prism_database_layout` 1。分别使用 `PYTHONUTF8=1 python scripts/diagnostics/prism_web_runtime.py --test-module <模块>` 在临时配置下运行，均退出0。
+
+两个旧测试预期已按批准规格更新：日报不再要求所有按钮挤在同一行，改为可达性及真实保存回调验证；旧black主题在ThemeManager中必须归一到calm，不恢复双主题。纯调色函数的显式色板输入测试仍保留。
+
+四张当前截图实际渲染尺寸均等于请求尺寸，未报告可见控件横向溢出。截图使用原生控件、临时配置和演示内容，无数据库/模型连接。`*-audit-before.png` 是故障对照。其余阶段图不因本次修复自动成为最新证据。
+
+仍需完成：其他页面的原动作/长内容/状态矩阵、全部子窗口、整窗集成及DPI/性能要求。以上进展不代表整个UI目标完成。
 
 当前基础提交：`80861f0bccba22eb1d36a3e09a497d8949ba3ebf`，分支 `ui/prism-v1`。用户已明确要求将本轮修复和交接材料提交并推送，故本次作为可读取的实施检查点交付。包含本记录的提交才是本次交付，完整 SHA 以 `git log -1 --format=%H -- docs/ui/prism-implementation-2026-09/STATUS.md` 为准；上述基础 SHA 不包含本次新增改动。此次发布不代表全套 UI 已通过最终视觉验收。
 

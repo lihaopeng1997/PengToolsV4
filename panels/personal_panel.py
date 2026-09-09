@@ -163,7 +163,7 @@ class KnowledgeTab(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setSpacing(16)
         actions = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName('ops-search')
@@ -187,13 +187,15 @@ class KnowledgeTab(QWidget):
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(220)
         self._search_debounce.timeout.connect(self._do_search)
-        actions.addWidget(self.search_edit, 1)
+        self.search_edit.setMinimumWidth(0)
+        self.search_edit.setFixedHeight(28)
         self.category_combo = QComboBox()
         size_combo(self.category_combo, 'md')
         for key, label in CATEGORIES.items():
             self.category_combo.addItem(label, key)
         self.category_combo.currentIndexChanged.connect(self._on_category_changed)
-        actions.addWidget(self.category_combo)
+        self.category_combo.setMinimumWidth(0)
+        actions.addStretch(1)
         self.paste_btn = QPushButton('直接粘贴整理')
         self.paste_btn.setObjectName('btn-secondary')
         self.paste_btn.clicked.connect(self._paste_content)
@@ -213,11 +215,17 @@ class KnowledgeTab(QWidget):
         root.addWidget(self.note)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(6)
+        splitter.setHandleWidth(16)
+        splitter.setProperty('prismGutter', True)
+        self.learn_splitter = splitter
         splitter.setChildrenCollapsible(False)
         left = QFrame()
         left.setObjectName('ops-list-card')
         left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(8)
+        left_layout.addWidget(self.search_edit)
+        left_layout.addWidget(self.category_combo)
         count_row = QHBoxLayout()
         self.list_title = QLabel('资料库')
         self.list_title.setObjectName('zone-title')
@@ -237,7 +245,8 @@ class KnowledgeTab(QWidget):
 
         right = QWidget()
         detail = QVBoxLayout(right)
-        detail.setContentsMargins(10, 2, 2, 2)
+        detail.setContentsMargins(0, 0, 0, 0)
+        detail.setSpacing(16)
         title_row = QHBoxLayout()
         self.title_label = QLabel('请选择内容')
         self.title_label.setObjectName('ops-title')
@@ -344,10 +353,12 @@ class KnowledgeTab(QWidget):
         action_row.addWidget(self.copy_btn)
         detail.addLayout(action_row)
         splitter.addWidget(right)
-        splitter.setSizes([360, 680])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         install_splitter_prefs(
             splitter,
-            defaults=[360, 680],
+            defaults=[260, 780],
+            defaults_for_extent=lambda extent: [260, max(360, extent - 260)],
             page_id='personal-knowledge',
             tab_id='list-detail',
             min_sizes=[220, 360],
@@ -356,17 +367,10 @@ class KnowledgeTab(QWidget):
         root.addWidget(splitter, 1)
 
     def apply_layout_mode(self, mode, low_height=False):
-        from ui.responsive import set_subtitle_visible, apply_splitter_orientation, editor_min_height
+        from ui.responsive import set_subtitle_visible
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
-        for name in ('splitter', 'main_splitter', 'content_splitter', 'learn_splitter'):
-            sp = getattr(self, name, None)
-            if sp is not None:
-                apply_splitter_orientation(sp, mode, min_editor=editor_min_height())
-                sp.setChildrenCollapsible(False)
-        for name in ('content_edit', 'editor', 'report_edit', 'private_content'):
-            ed = getattr(self, name, None)
-            if ed is not None and hasattr(ed, 'setMinimumHeight'):
-                ed.setMinimumHeight(editor_min_height())
+        # The existing learning workspace stays side by side at supported widths.
+        # Keep the user's dragged rail and the active document intact on resize.
 
     def set_language(self, language):
         self.language = language
@@ -1136,7 +1140,8 @@ class DailyReportTab(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName('daily-report-splitter')
-        splitter.setHandleWidth(8)
+        splitter.setHandleWidth(16)
+        splitter.setProperty('prismGutter', True)
         splitter.setChildrenCollapsible(False)
         self.splitter = splitter
         left = QFrame()
@@ -1240,18 +1245,33 @@ class DailyReportTab(QWidget):
         size_compact_button(self.save_btn)
         self.save_btn.clicked.connect(self._save_report)
         date_row.addWidget(self.save_btn)
+        # Keep date selection, draft helpers and save actions reachable independently.
+        helpers = QHBoxLayout()
+        helpers.setSpacing(8)
+        for button in (self.import_yesterday_btn, self.copy_as_today_btn, self.insert_image_btn):
+            date_row.removeWidget(button)
+            helpers.addWidget(button)
+        helpers.addStretch(1)
+        footer = QHBoxLayout()
+        footer.setSpacing(8)
+        date_row.removeWidget(self.unsaved_label)
+        footer.addWidget(self.unsaved_label, 1)
+        for button in (self.delete_btn, self.copy_btn, self.save_btn):
+            date_row.removeWidget(button)
+            footer.addWidget(button)
         form_layout.addLayout(date_row)
+        form_layout.addLayout(helpers)
         self.completed = self._report_editor(
             form_layout, '今日完成', '完成的需求、问题处理、沟通结果……可粘贴或拖入图片',
             height=240, preferred=280, stretch=6,
         )
         self.issues = self._report_editor(
             form_layout, '问题与风险', '阻塞、风险、需要协助的事项；没有可留空……',
-            height=64, preferred=120, stretch=1,
+            height=120, preferred=120, stretch=1,
         )
         self.tomorrow = self._report_editor(
             form_layout, '明日计划', '下一步准备完成的事项……',
-            height=64, preferred=120, stretch=1,
+            height=120, preferred=120, stretch=1,
         )
         self.notes = self._report_editor(
             form_layout, '备注', '补充信息、链接、截图……',
@@ -1264,12 +1284,14 @@ class DailyReportTab(QWidget):
             ed.assets_changed.connect(self._on_editor_changed)
         scroll.setWidget(editor)
         splitter.addWidget(scroll)
-        splitter.setSizes([264, 780])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         try:
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 splitter,
                 defaults=[264, 780],
+                defaults_for_extent=lambda extent: [264, max(520, extent - 264)],
                 page_id='daily-report',
                 tab_id='history-editor',
                 bucket=layout_bucket('standard'),
@@ -1279,6 +1301,7 @@ class DailyReportTab(QWidget):
         except Exception:
             pass
         root.addWidget(splitter, 1)
+        root.addLayout(footer)
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import apply_splitter_orientation, editor_min_height, page_spacing_for_mode
@@ -1292,10 +1315,10 @@ class DailyReportTab(QWidget):
             if mode in ('compact', 'narrow'):
                 if left is not None:
                     left.setMinimumWidth(0)
-                    left.setMinimumHeight(160)
+                    left.setMinimumHeight(120 if low_height else 160)
                 if right is not None:
                     right.setMinimumWidth(0)
-                    right.setMinimumHeight(editor_min_height())
+                    right.setMinimumHeight(180 if low_height else editor_min_height())
             else:
                 if left is not None:
                     left.setMinimumWidth(264)

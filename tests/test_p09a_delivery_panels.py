@@ -147,8 +147,8 @@ class TestP09ADeliveryPanels(unittest.TestCase):
 
             # 编辑器尺寸下界与伸缩保护
             self.assertGreaterEqual(tab.completed.minimumHeight(), 180)
-            self.assertLessEqual(tab.issues.minimumHeight(), 72)
-            self.assertLessEqual(tab.tomorrow.minimumHeight(), 72)
+            self.assertGreaterEqual(tab.issues.minimumHeight(), 120)
+            self.assertGreaterEqual(tab.tomorrow.minimumHeight(), 120)
             self.assertLessEqual(tab.notes.minimumHeight(), 64)
 
             # 精准契约断言：今日完成 preferred 280，问题与风险 120，明日计划 120，备注 72
