@@ -30,11 +30,13 @@ def main(args):
         window = MainWindow()
         window.resize(args.width, args.height)
         window.show()
-        window._show_panel(args.nav)
         window._layout_controller.force(args.width, args.height)
         probe = QTimer()
         probe.setInterval(100)
         def capture():
+            # Navigate after both WebChannel pages are ready, as a real click
+            # would; otherwise the initial chrome payload still selects home.
+            window._show_panel(args.nav)
             window.resize(args.width, args.height)
             window._layout_controller.force(args.width, args.height)
             QTimer.singleShot(300, finish)

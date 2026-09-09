@@ -11,7 +11,7 @@ from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
-    QPushButton, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QPushButton, QScrollArea, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -42,9 +42,10 @@ from ui.confirm_dialog import confirm_action, show_error, show_info, show_warnin
 from ui.connection_dialog import ConnectionDialog as _ConnectionDialog
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_secret_field
-from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
+from ui.page_chrome import make_empty_state, make_page_header
 from ui.splitter_prefs import install_splitter_prefs
 from ui.sql_editor import SqlEditor
+from ui.wrap_layout import WrapLayout
 
 
 def sql_splitter_tab_id(kind: str, dialect: str | None = None) -> str:
@@ -304,12 +305,19 @@ class AiWorkbenchPanel(QWidget):
         )
         root.addWidget(header)
 
-        toolbar, tool_l = make_page_toolbar(divided=True)
+        toolbar = QFrame()
+        toolbar.setObjectName('page-toolbar')
+        toolbar.setProperty('divided', True)
+        tool_l = WrapLayout(toolbar)
+        tool_l.setContentsMargins(0, 4, 0, 8)
+        self.connection_toolbar = toolbar
         self.conn_combo = QComboBox()
         size_pick_combo(self.conn_combo)
         self.conn_combo.currentIndexChanged.connect(self._on_connection_changed)
         self.conn_target_hint = QLabel()
         self.conn_target_hint.setObjectName('field-hint')
+        self.conn_target_hint.setWordWrap(True)
+        self.conn_target_hint.setMaximumWidth(300)
         self.conn_new_btn = QPushButton()
         apply_button(self.conn_new_btn, 'secondary', compact=True)
         self.conn_new_btn.clicked.connect(lambda: self._edit_connection(new=True))
@@ -346,7 +354,6 @@ class AiWorkbenchPanel(QWidget):
             self.test_btn, self.scan_btn, self.scan_cancel_btn, self.save_draft_btn, self.model_btn,
         ):
             tool_l.addWidget(widget)
-        tool_l.addStretch(1)
         root.addWidget(toolbar)
         # 绑定连接模式：隐藏连接下拉框和新建按钮
         if self._connection_id:
@@ -667,7 +674,12 @@ class AiWorkbenchPanel(QWidget):
             min_sizes=[200, 420, 240],
             accessible_name='SQL 控制台列分隔',
         )
-        root.addWidget(columns, 1)
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setObjectName('sql-workspace-scroll')
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setWidget(columns)
+        root.addWidget(self.workspace_scroll, 1)
         self._layout_mode = 'wide'
         self._narrow_show_objects = False
         self._narrow_show_ai = False

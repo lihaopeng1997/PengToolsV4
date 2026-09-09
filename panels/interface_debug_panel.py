@@ -1039,7 +1039,12 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter.splitterMoved.connect(
             lambda *_: QTimer.singleShot(0, _safe_update_responsive)
         )
-        root.addWidget(self.mid_splitter, 1)
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setObjectName('iface-workspace-scroll')
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setWidget(self.mid_splitter)
+        root.addWidget(self.workspace_scroll, 1)
 
         self.loading = AuroraProgress(self)
         self._refresh_browsers()
@@ -4628,6 +4633,17 @@ class InterfaceDebugPanel(QWidget):
         self.test_listen_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
             edit.setMinimumHeight(240 if mode in ('compact', 'narrow') else editor_min_height())
+        # The stacked workspace must scroll instead of squeezing its child
+        # layouts below their real minimum (which paints hints over detail tabs).
+        if self.mid_splitter.orientation() == Qt.Orientation.Vertical:
+            needed = self.mid_splitter.handleWidth()
+            for index in range(self.mid_splitter.count()):
+                child = self.mid_splitter.widget(index)
+                child.ensurePolished()
+                needed += max(child.minimumHeight(), child.minimumSizeHint().height())
+            self.mid_splitter.setMinimumHeight(needed)
+        else:
+            self.mid_splitter.setMinimumHeight(0)
         # 窄屏：请求验证两行上下文全宽，细节区最小高度守住
         if hasattr(self, 'request_verify_context'):
             self.request_verify_context.setMinimumHeight(0)
