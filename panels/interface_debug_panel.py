@@ -484,7 +484,8 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.mid_splitter.setObjectName('iface-mid-splitter')
         self.mid_splitter.setChildrenCollapsible(False)
-        self.mid_splitter.setHandleWidth(6)
+        self.mid_splitter.setHandleWidth(16)
+        self.mid_splitter.setProperty('prismGutter', True)
         self.mid_splitter.setOpaqueResize(True)
 
         left = QWidget()
@@ -670,7 +671,15 @@ class InterfaceDebugPanel(QWidget):
         self.draft_page = QWidget()
         self.draft_page.setAcceptDrops(True)
         self.draft_page.installEventFilter(self)
-        dl = QVBoxLayout(self.draft_page)
+        draft_outer = QVBoxLayout(self.draft_page)
+        draft_outer.setContentsMargins(0, 0, 0, 0)
+        self.draft_scroll = QScrollArea()
+        self.draft_scroll.setWidgetResizable(True)
+        self.draft_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        draft_host = QWidget()
+        self.draft_scroll.setWidget(draft_host)
+        draft_outer.addWidget(self.draft_scroll)
+        dl = QVBoxLayout(draft_host)
         dl.setContentsMargins(0, 8, 0, 0)
         dl.setSpacing(8)
         self.draft_badge = QLabel()
@@ -1011,10 +1020,10 @@ class InterfaceDebugPanel(QWidget):
         self.session_list_reveal_btn.clicked.connect(self._toggle_session_list)
         self.session_list_reveal_btn.hide()
         rl.addWidget(self.session_list_reveal_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [420, 580]
+        sizes = (self._prefs.get('splitter_sizes') or {}).get('standard') or [520, 480]
         install_splitter_prefs(
             self.mid_splitter,
-            defaults=[420, 580],
+            defaults=[520, 480],
             saved=sizes,
             page_id='interface-debug',
             tab_id='session-detail',
@@ -4584,10 +4593,10 @@ class InterfaceDebugPanel(QWidget):
         self.mid_splitter.setOpaqueResize(True)
         if self.mid_splitter.orientation() == Qt.Orientation.Horizontal:
             self.mid_splitter.setStretchFactor(0, 1)
-            self.mid_splitter.setStretchFactor(1, 2)
+            self.mid_splitter.setStretchFactor(1, 1)
             # prefs 夹紧用 240/480；宽屏下再把详情区硬下限提到 520（小窗不强塞）
             mins = [240, 480]
-            defaults = [420, 580]
+            defaults = [520, 480]
             right = self.mid_splitter.widget(1)
             if right is not None:
                 right.setMinimumWidth(520 if mode in ('wide', 'standard') else 420)

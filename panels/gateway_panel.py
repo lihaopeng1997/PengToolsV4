@@ -53,7 +53,7 @@ class GatewayDecodePanel(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(16)
 
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('dashboard-local-status')
@@ -242,17 +242,24 @@ class GatewayDecodePanel(QWidget):
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 45)
-        splitter.setStretchFactor(1, 55)
+        splitter.setHandleWidth(16)
+        splitter.setProperty('prismGutter', True)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
         install_splitter_prefs(
             splitter,
-            defaults=[450, 550],
+            defaults=[500, 500],
             page_id='gateway',
             tab_id='main',
             min_sizes=[240, 240],
             accessible_name='加解密左右分隔',
         )
-        work_layout.addWidget(splitter, 1)
+        from PyQt6.QtWidgets import QScrollArea
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidget(splitter)
+        work_layout.addWidget(self.workspace_scroll, 1)
         layout.addWidget(work_zone, 1)
 
         self.work_tabs = None

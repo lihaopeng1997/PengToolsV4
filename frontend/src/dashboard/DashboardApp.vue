@@ -161,6 +161,23 @@ function onRetry(): void {
   </div>
 </template>
 
+<style>
+html, body, #app {
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+}
+body {
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--app-bg);
+}
+button, input, select, textarea { font: inherit; }
+*, *::before, *::after { box-sizing: border-box; }
+</style>
+
 <style scoped>
 :root {
   --r-lg: 16px;
@@ -345,16 +362,16 @@ kbd {
   }
 }
 
-:global(body.motion-disabled) .dashboard-root,
-:global(body.motion-disabled) .dashboard-root *,
-:global([data-motion="disabled"]) .dashboard-root,
-:global([data-motion="disabled"]) .dashboard-root * {
+:global(body.motion-disabled .dashboard-root),
+:global(body.motion-disabled .dashboard-root *),
+:global([data-motion="disabled"] .dashboard-root),
+:global([data-motion="disabled"] .dashboard-root *){
   animation: none !important;
   transition: none !important;
 }
 
-:global(body.page-hidden) .dashboard-root,
-:global(body.page-hidden) .dashboard-root * {
+:global(body.page-hidden .dashboard-root),
+:global(body.page-hidden .dashboard-root *){
   animation-play-state: paused !important;
 }
 </style>

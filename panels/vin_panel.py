@@ -30,9 +30,15 @@ class VinPanel(QWidget):
         self._pending_fill = True
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        content = QWidget()
+        content.setMaximumWidth(1180)
+        outer.addWidget(content, 1)
+        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(16)
         self.generate_btn = QPushButton()
         apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)
@@ -73,6 +79,19 @@ class VinPanel(QWidget):
         row.addWidget(self.qty_label)
         self.qty = CompactStepper(1, 200, 10)
         row.addWidget(self.qty)
+        row.addStretch(1)
+        # Two field pairs per row keep every filter available at the minimum window width.
+        from PyQt6.QtWidgets import QGridLayout
+        filters = QGridLayout()
+        filters.setHorizontalSpacing(8)
+        filters.setVerticalSpacing(8)
+        while row.count():
+            row.takeAt(0)
+        for index, widget in enumerate((self.mode_label, self.mode_combo,
+                self.year_label, self.year_combo, self.wmi_label, self.wmi_combo,
+                self.qty_label, self.qty)):
+            filters.addWidget(widget, index // 4, index % 4)
+        row.addLayout(filters)
         row.addStretch(1)
         layout.addWidget(toolbar)
 
@@ -122,6 +141,17 @@ class VinPanel(QWidget):
             self.plate_combo.addItem(item, item)
         size_enum_combo(self.plate_combo)
         custom.addWidget(self.plate_combo)
+        custom.addStretch(1)
+        custom_filters = QGridLayout()
+        custom_filters.setHorizontalSpacing(8)
+        custom_filters.setVerticalSpacing(8)
+        while custom.count():
+            custom.takeAt(0)
+        for index, widget in enumerate((self.energy_label, self.energy_combo,
+                self.category_label, self.category_combo, self.kind_label, self.kind_combo,
+                self.plate_label, self.plate_combo)):
+            custom_filters.addWidget(widget, index // 4, index % 4)
+        custom.addLayout(custom_filters)
         custom.addStretch(1)
         self.custom.hide()
         settings_l.addWidget(self.custom)
@@ -174,6 +204,7 @@ class VinPanel(QWidget):
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
+        self.table.setMinimumHeight(140 if low_height else 280)
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         set_subtitle_visible(getattr(self, 'subtitle', None), low_height)
 

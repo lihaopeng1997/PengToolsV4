@@ -80,11 +80,12 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 
 .quick-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .quick-btn {
+  min-width: 0;
   height: 64px;
   min-height: 64px;
   display: flex;
@@ -160,12 +161,12 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   }
 }
 
-:global(body.motion-disabled) .quick-btn,
-:global([data-motion="disabled"]) .quick-btn {
+:global(body.motion-disabled .quick-btn),
+:global([data-motion="disabled"] .quick-btn){
   transition: none !important;
 }
-:global(body.motion-disabled) .quick-btn:hover,
-:global([data-motion="disabled"]) .quick-btn:hover {
+:global(body.motion-disabled .quick-btn:hover),
+:global([data-motion="disabled"] .quick-btn:hover){
   transform: none !important;
 }
 </style>

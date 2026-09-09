@@ -15,7 +15,7 @@ from PyQt6.QtCore import QFileInfo, QSize, Qt, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFileIconProvider, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
+    QFileIconProvider, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QToolButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -1794,7 +1794,8 @@ class OpsLogPanel(QWidget):
         self.main_split = QSplitter(Qt.Orientation.Horizontal)
         self.main_split.setObjectName('ops-main-split')
         self.main_split.setChildrenCollapsible(False)
-        self.main_split.setHandleWidth(6)
+        self.main_split.setHandleWidth(16)
+        self.main_split.setProperty('prismGutter', True)
         root.addWidget(self.main_split, 1)
 
         # ========== LEFT（可拖动变宽；内部可横向滚动避免截断）==========
@@ -1805,12 +1806,12 @@ class OpsLogPanel(QWidget):
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        left_scroll.setMinimumWidth(300)
+        left_scroll.setMinimumWidth(260)
         # 不设 MaximumWidth，交给 splitter 左右拖
         left_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_scroll_host = QWidget()
         left_scroll_host.setObjectName('ops-left-panel')
-        left_scroll_host.setMinimumWidth(300)
+        left_scroll_host.setMinimumWidth(0)
         left_root = QVBoxLayout(left_scroll_host)
         left_root.setContentsMargins(4, 0, 8, 0)
         left_root.setSpacing(8)
@@ -1847,7 +1848,7 @@ class OpsLogPanel(QWidget):
         self.server_combo = QComboBox()
         size_pick_combo(self.server_combo)
         self.server_combo.currentIndexChanged.connect(self._on_server_combo_changed)
-        pick_row.addWidget(self.server_combo)
+        self.server_combo.setMinimumWidth(0)
         pick_row.addStretch(1)
         self.server_toggle_btn = QPushButton()  # 兼容旧名：现为「管理」弹框
         apply_button(self.server_toggle_btn, 'secondary', compact=True)
@@ -1855,6 +1856,7 @@ class OpsLogPanel(QWidget):
         self.server_toggle_btn.clicked.connect(self._open_server_manage_dialog)
         pick_row.addWidget(self.server_toggle_btn)
         left_l.addLayout(pick_row)
+        left_l.addWidget(self.server_combo)
         self.session_status = QLabel()
         self.session_status.setObjectName('status-pill')
         self.session_status.setWordWrap(False)
@@ -1889,6 +1891,7 @@ class OpsLogPanel(QWidget):
         form = QFormLayout()
         apply_form(form)
         form.setContentsMargins(0, 0, 0, 0)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         self.service_combo = QComboBox()
         size_pick_combo(self.service_combo)
         self.service_combo.currentIndexChanged.connect(self._on_service_combo_changed)
@@ -1899,6 +1902,7 @@ class OpsLogPanel(QWidget):
         path_l.setSpacing(4)
         self.log_path_edit = QLineEdit()
         size_line(self.log_path_edit, 'std')
+        self.log_path_edit.setMinimumWidth(0)
         self.log_path_edit.editingFinished.connect(self._on_log_path_edited)
         self.refresh_logs_btn = QPushButton()
         apply_button(self.refresh_logs_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
@@ -1936,7 +1940,7 @@ class OpsLogPanel(QWidget):
             self._form_labels[key] = lab
             form.addRow(lab, w)
         sess_l.addLayout(form)
-        qbtn = QHBoxLayout()
+        qbtn = QGridLayout()
         self.tail_btn = QPushButton()
         apply_button(self.tail_btn, 'secondary', compact=True)
         self.tail_btn.clicked.connect(self._run_tail_on_session)
@@ -1949,11 +1953,10 @@ class OpsLogPanel(QWidget):
         self.session_export_btn = QPushButton()
         apply_button(self.session_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.session_export_btn.clicked.connect(self._export_current_session)
-        qbtn.addWidget(self.tail_btn)
-        qbtn.addWidget(self.run_grep_btn)
-        qbtn.addWidget(self.session_export_btn)
-        qbtn.addWidget(self.preview_btn)
-        qbtn.addStretch(1)
+        qbtn.addWidget(self.tail_btn, 0, 0)
+        qbtn.addWidget(self.run_grep_btn, 0, 1)
+        qbtn.addWidget(self.session_export_btn, 1, 0)
+        qbtn.addWidget(self.preview_btn, 1, 1)
         sess_l.addLayout(qbtn)
         self.stream_note = QLabel()
         self.stream_note.setObjectName('field-hint')
@@ -1990,7 +1993,7 @@ class OpsLogPanel(QWidget):
         self.path_edit.setPlaceholderText('当前目录路径')
         self.path_edit.returnPressed.connect(self._remote_goto_path)
         rb.addWidget(self.path_edit)
-        path_row = QHBoxLayout()
+        path_row = QGridLayout()
         path_row.setSpacing(4)
         self.path_up_btn = QPushButton()
         apply_button(self.path_up_btn, 'ghost', compact=True)
@@ -2004,8 +2007,8 @@ class OpsLogPanel(QWidget):
         self.use_path_btn = QPushButton()
         apply_button(self.use_path_btn, 'secondary', compact=True)
         self.use_path_btn.clicked.connect(self._use_selected_as_log_path)
-        for b in (self.path_up_btn, self.path_go_btn, self.path_refresh_btn, self.use_path_btn):
-            path_row.addWidget(b)
+        for index, b in enumerate((self.path_up_btn, self.path_go_btn, self.path_refresh_btn, self.use_path_btn)):
+            path_row.addWidget(b, index // 2, index % 2)
         rb.addLayout(path_row)
         self.remote_tree = QTreeWidget()
         self.remote_tree.setObjectName('ops-remote-tree')
@@ -2060,20 +2063,19 @@ class OpsLogPanel(QWidget):
         self.export_server_title = QLabel()
         self.export_server_title.setObjectName('section-title')
         el_l.addWidget(self.export_server_title)
-        erow = QHBoxLayout()
+        erow = QGridLayout()
         self.select_all_btn = QPushButton()
         apply_button(self.select_all_btn, 'ghost', compact=True)
         self.select_all_btn.clicked.connect(lambda: self._set_all_checked(True))
         self.select_none_btn = QPushButton()
         apply_button(self.select_none_btn, 'ghost', compact=True)
         self.select_none_btn.clicked.connect(lambda: self._set_all_checked(False))
-        erow.addWidget(self.select_all_btn)
-        erow.addWidget(self.select_none_btn)
-        erow.addStretch(1)
+        erow.addWidget(self.select_all_btn, 0, 0)
+        erow.addWidget(self.select_none_btn, 0, 1)
         self.export_btn = QPushButton()
         apply_button(self.export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.export_btn.clicked.connect(self._start_export)
-        erow.addWidget(self.export_btn)
+        erow.addWidget(self.export_btn, 1, 0, 1, 2)
         el_l.addLayout(erow)
         self.export_server_list = QTreeWidget()
         self.export_server_list.setObjectName('ops-export-tree')
@@ -2122,6 +2124,7 @@ class OpsLogPanel(QWidget):
         em_l.addWidget(self.export_rule_title)
         eform = QFormLayout()
         apply_form(eform)
+        eform.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         self.export_keyword = QLineEdit()
         size_line(self.export_keyword, 'std')
         self.export_extra = QPlainTextEdit()
@@ -2131,10 +2134,12 @@ class OpsLogPanel(QWidget):
         self.export_log_path.hide()
         self.export_dir_edit = QLineEdit()
         size_line(self.export_dir_edit, 'std')
+        self.export_dir_edit.setMinimumWidth(0)
         browse = QPushButton()
         apply_button(browse, 'ghost', compact=True, icon='folder-open', icon_size=16)
         browse.clicked.connect(self._browse_export_dir)
         dir_row = QHBoxLayout()
+        dir_row.setContentsMargins(0, 0, 0, 0)
         dir_row.addWidget(self.export_dir_edit, 1)
         dir_row.addWidget(browse)
         dir_host = QWidget()
@@ -2294,6 +2299,7 @@ class OpsLogPanel(QWidget):
         er_l.addLayout(rtop)
         self.result_table = QTableWidget(0, 6)
         apply_table(self.result_table)
+        self.result_table.setMinimumHeight(120)
         self.result_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         try:
@@ -2331,10 +2337,11 @@ class OpsLogPanel(QWidget):
         self.main_split.setStretchFactor(1, 1)
         install_splitter_prefs(
             self.main_split,
-            defaults=[460, 860],
+            defaults=[260, 884],
+            defaults_for_extent=lambda extent: [260, max(480, extent - 260)],
             page_id='ops-log',
             tab_id='main',
-            min_sizes=[360, 480],
+            min_sizes=[260, 480],
             accessible_name='日志排查主分隔',
         )
         # 允许把左侧拖宽看全路径/表单
@@ -2756,25 +2763,27 @@ class OpsLogPanel(QWidget):
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(280 if i == 0 else 400)
+                    w.setMinimumWidth(260 if i == 0 else 400)
                     w.setMinimumHeight(0)
         else:
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(360 if i == 0 else 480)
+                    w.setMinimumWidth(260 if i == 0 else 480)
                     w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
-            defaults=[460, 860] if mode != 'narrow' else [240, 420],
+            defaults=[260, 884] if mode != 'narrow' else [240, 420],
+            defaults_for_extent=(lambda extent: [260, max(400, extent - 260)])
+                if mode != 'narrow' else None,
             page_id='ops-log',
             tab_id='main',
             bucket=layout_bucket(mode),
             min_sizes=(
                 [200, 220] if mode == 'narrow'
-                else [280, 400] if mode == 'compact'
-                else [360, 480]
+                else [260, 400] if mode == 'compact'
+                else [260, 480]
             ),
             accessible_name='日志排查主分隔',
         )

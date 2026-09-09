@@ -467,7 +467,8 @@ class FormatToolsPanel(QWidget):
         # XML 工作区 splitter
         xml = getattr(self, 'xml_workspace', None)
         if xml is not None and hasattr(xml, 'splitter'):
-            apply_splitter_orientation(xml.splitter, mode, min_editor=min_h)
+            apply_splitter_orientation(xml.splitter, mode,
+                                       min_editor=120 if mode in ('compact', 'narrow') or low_height else min_h)
         jv = getattr(self, 'json_viewer', None)
         if jv is not None and hasattr(jv, 'text_edit') and jv.text_edit is not None:
             jv.text_edit.setMinimumHeight(min_h)
@@ -475,7 +476,7 @@ class FormatToolsPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(16)
         header, self.page_title, self.page_subtitle = make_page_header(
             '格式工具',
             '离线整理，不落盘',
@@ -506,7 +507,12 @@ class FormatToolsPanel(QWidget):
         self.text_tab = _TextDevHelpersTab(self.language)
         self.tabs.addTab(self.text_tab, '文本与开发辅助')
 
-        root.addWidget(self.tabs, 1)
+        from PyQt6.QtWidgets import QScrollArea
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidget(self.tabs)
+        root.addWidget(self.workspace_scroll, 1)
         self.refresh_theme()
 
     def refresh_theme(self):

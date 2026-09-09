@@ -696,7 +696,27 @@ class SqlToolPanel(QWidget):
         self.path_note.setWordWrap(True)
         self.path_note.hide()
         delivery.addWidget(self.path_note)
-        input_outer.addWidget(self.delivery_group)
+        # A fixed initial context rail leaves the right column for SQL and preview.
+        for row in (first, second):
+            while row.count():
+                row.takeAt(0)
+        first.addWidget(self.work_system_label)
+        first.addWidget(self.work_system_combo, 1)
+        second.addWidget(self.env_label)
+        second.addWidget(self.env_combo, 1)
+        date_row = QHBoxLayout()
+        date_row.setSpacing(8)
+        date_row.addWidget(self.date_label)
+        date_row.addWidget(self.date_edit, 1)
+        delivery.addLayout(date_row)
+        delivery.addWidget(self.work_system_empty)
+        delivery.addWidget(self.root_label)
+        self.output_root.setMinimumWidth(0)
+        delivery.addWidget(self.output_root)
+        delivery.addWidget(self.root_btn)
+        delivery.addStretch(1)
+        self.delivery_group.setMinimumWidth(0)
+        delivery.setContentsMargins(16, 16, 16, 16)
 
         self.input_sql = QPlainTextEdit()
         self.input_sql.setObjectName('sql-input-editor')
@@ -707,7 +727,32 @@ class SqlToolPanel(QWidget):
         self.input_sql.textChanged.connect(self._refresh_path_note_visibility)
         self.output_root.textChanged.connect(self._refresh_path_note_visibility)
         input_outer.addWidget(self.input_sql, 1)
-        layout.addWidget(input_zone, 1)
+        self.processing_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.processing_splitter.setHandleWidth(16)
+        self.processing_splitter.setProperty('prismGutter', True)
+        self.processing_splitter.addWidget(self.delivery_group)
+        processing_right = QWidget()
+        self.processing_right_layout = QVBoxLayout(processing_right)
+        self.processing_right_layout.setContentsMargins(0, 0, 0, 0)
+        self.processing_right_layout.setSpacing(16)
+        self.processing_right_layout.addWidget(input_zone, 1)
+        self.processing_splitter.addWidget(processing_right)
+        self.processing_splitter.setStretchFactor(0, 0)
+        self.processing_splitter.setStretchFactor(1, 1)
+        from ui.splitter_prefs import install_splitter_prefs
+        install_splitter_prefs(self.processing_splitter, defaults=[320, 824],
+            defaults_for_extent=lambda extent: [320, max(420, extent - 320)],
+            min_sizes=[240, 420], page_id='release-sql', tab_id='context-editor',
+            accessible_name='SQL交付上下文与编辑预览分隔')
+        self.processing_scroll = QScrollArea()
+        self.processing_scroll.setWidgetResizable(True)
+        self.processing_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        processing_host = QWidget()
+        processing_host_layout = QVBoxLayout(processing_host)
+        processing_host_layout.setContentsMargins(0, 0, 0, 0)
+        processing_host_layout.addWidget(self.processing_splitter)
+        self.processing_scroll.setWidget(processing_host)
+        layout.addWidget(self.processing_scroll, 1)
 
         # —— 预览 ——
         preview_zone = QFrame()
@@ -727,7 +772,7 @@ class SqlToolPanel(QWidget):
         self.preview_tabs.addTab(self.rollback_preview, '')
         self.preview_tabs.addTab(self.validation_preview, '')
         preview_outer.addWidget(self.preview_tabs, 1)
-        layout.addWidget(preview_zone, 1)
+        self.processing_right_layout.addWidget(preview_zone, 1)
 
         # —— 导出 ——
         action_zone = QFrame()
@@ -782,7 +827,7 @@ class SqlToolPanel(QWidget):
         editor = QPlainTextEdit()
         editor.setReadOnly(True)
         editor.setFont(QFont('Consolas', 9))
-        editor.setMinimumHeight(editor_min_height())
+        editor.setMinimumHeight(120)
         return editor
 
     def _create_config_tab(self):
@@ -893,39 +938,31 @@ class SqlToolPanel(QWidget):
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height or mode == 'narrow')
         if hasattr(self, 'release_steps'):
             self.release_steps.setVisible(mode not in ('narrow', 'compact'))
-        # 次要：清空、检查、生成预览 进更多隐藏；主：导出、导入、粘贴
-        secondary = []
-        for name in ('clear_btn', 'analyze_btn', 'preview_btn'):
-            w = getattr(self, name, None)
-            if w is not None:
-                secondary.append(w)
-        primary_keep = []
-        for name in ('load_btn', 'paste_btn', 'draft_btn', 'optimize_btn', 'export_btn', 'env_combo', 'release_date', 'work_system_combo'):
-            w = getattr(self, name, None)
-            if w is not None:
-                primary_keep.append(w)
-        if mode == 'narrow':
-            for w in secondary:
-                w.hide()
-            for w in primary_keep:
-                w.show()
-            if hasattr(self, 'release_context_toggle'):
-                self.release_context_toggle.hide()
-        elif mode == 'compact':
-            for w in secondary:
-                # 清空进更多（隐藏），检查可藏
-                w.setVisible(w is getattr(self, 'analyze_btn', None))
-            for w in primary_keep:
-                w.show()
-            if hasattr(self, 'clear_btn'):
-                self.clear_btn.hide()
-            if hasattr(self, 'release_context_toggle'):
-                self.release_context_toggle.show()
-        else:
-            for w in secondary + primary_keep:
-                w.show()
-            if hasattr(self, 'release_context_toggle'):
-                self.release_context_toggle.show()
+        if hasattr(self, 'processing_splitter'):
+            from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+            narrow = mode in ('narrow', 'compact')
+            self.processing_splitter.setOrientation(
+                Qt.Orientation.Vertical if narrow else Qt.Orientation.Horizontal)
+            for index in range(self.processing_splitter.count()):
+                pane = self.processing_splitter.widget(index)
+                pane.setMinimumWidth(0)
+                pane.setMinimumHeight(0)
+            install_splitter_prefs(
+                self.processing_splitter,
+                defaults=[280, 520] if narrow else [320, 824],
+                defaults_for_extent=None if narrow else lambda extent: [320, max(420, extent - 320)],
+                min_sizes=[200, 420] if narrow else [240, 420],
+                page_id='release-sql', tab_id='context-editor', bucket=layout_bucket(mode),
+                accessible_name='SQL交付上下文与编辑预览分隔',
+            )
+        # The scrollable SQL workspace keeps all original actions reachable.
+        for name in ('clear_btn', 'analyze_btn', 'preview_btn', 'load_btn',
+                     'paste_btn', 'draft_btn', 'optimize_btn', 'export_btn'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.show()
+        if hasattr(self, 'release_context_toggle'):
+            self.release_context_toggle.setVisible(mode != 'narrow')
         min_h = editor_min_height()
         for editor_name in (
             'input_edit', 'sql_editor', 'editor', 'input_sql',
@@ -933,7 +970,7 @@ class SqlToolPanel(QWidget):
         ):
             ed = getattr(self, editor_name, None)
             if ed is not None and hasattr(ed, 'setMinimumHeight'):
-                ed.setMinimumHeight(min_h)
+                ed.setMinimumHeight(min_h if editor_name == 'input_sql' else 120)
 
     def set_language(self, language):
         self.language = language

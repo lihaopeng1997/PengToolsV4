@@ -122,7 +122,7 @@ class DocxUpdatePanel(QWidget):
         self.doc_list.customContextMenuRequested.connect(self._show_doc_list_menu)
         self.doc_list_label = QLabel()
         apply_caption(self.doc_list_label)
-        form.addRow(self.doc_list_label, self.doc_list)
+        # The document list belongs in the left browser column, not the form.
 
         self.docx_path = QLineEdit()
         size_line(self.docx_path, 'path')
@@ -208,7 +208,8 @@ class DocxUpdatePanel(QWidget):
 
         mid = QSplitter(Qt.Orientation.Horizontal)
         mid.setObjectName('docx-main-splitter')
-        mid.setHandleWidth(8)
+        mid.setHandleWidth(16)
+        mid.setProperty('prismGutter', True)
         mid.setChildrenCollapsible(False)
         self.main_splitter = mid
 
@@ -229,6 +230,9 @@ class DocxUpdatePanel(QWidget):
         self.browser_open_folder.setProperty('compactAction', True)
         self.browser_open_folder.clicked.connect(lambda: self._open_path(self._browser_root()))
         browser_top.addWidget(self.browser_open_folder)
+        browser_layout.addWidget(self.doc_list_label)
+        self.doc_list.setMaximumHeight(16777215)
+        browser_layout.addWidget(self.doc_list, 1)
         browser_layout.addLayout(browser_top)
         self.output_browser = QTreeWidget()
         self.output_browser.setObjectName('docx-output-browser')
@@ -326,6 +330,7 @@ class DocxUpdatePanel(QWidget):
             install_splitter_prefs(
                 mid,
                 defaults=[280, 720],
+                defaults_for_extent=lambda extent: [280, max(520, extent - 280)],
                 page_id='docx-update',
                 tab_id='browser-work',
                 bucket=layout_bucket('standard'),
@@ -343,7 +348,12 @@ class DocxUpdatePanel(QWidget):
             )
         except Exception:
             pass
-        layout.addWidget(mid, 1)
+        from PyQt6.QtWidgets import QScrollArea
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidget(mid)
+        layout.addWidget(self.workspace_scroll, 1)
 
         bottom = QHBoxLayout()
         self.hint = QLabel()
@@ -457,7 +467,7 @@ class DocxUpdatePanel(QWidget):
         self.browser_open_folder.setText('打开目录' if zh else 'Open dir')
         self.update_date.setToolTip('写入版本历史的日期' if zh else 'Date written into revision history')
         self.folder_path.setPlaceholderText('含接口文档的文件夹' if zh else 'Folder with interface docs')
-        self.docx_path.setPlaceholderText('点上方列表即可' if zh else 'Click a document above')
+        self.docx_path.setPlaceholderText('点左侧列表选择文档' if zh else 'Select a document from the list on the left')
         self.output_dir.setPlaceholderText('不填则输出到原文档同目录' if zh else 'Default: same folder as source')
         self.output_path.setPlaceholderText('自动生成' if zh else 'Auto')
         self.svn_url.setPlaceholderText('可选：svn://... 拉取到输出目录' if zh else 'Optional svn://... into output dir')

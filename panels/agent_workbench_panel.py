@@ -154,7 +154,7 @@ class AgentWorkbenchPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(16)
         header, self.page_title, self.page_subtitle = make_page_header(
             'Agent 工作台',
             '绑定项目目录，运行受控任务（只读写工作文件夹内文件）',
@@ -202,7 +202,8 @@ class AgentWorkbenchPanel(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setObjectName('agent-workbench-splitter')
         split.setChildrenCollapsible(False)
-        split.setHandleWidth(8)
+        split.setHandleWidth(16)
+        split.setProperty('prismGutter', True)
 
         # 左栏：空间 / 对话管理树（支持右键管理）
         left_card = QFrame()
@@ -388,7 +389,8 @@ class AgentWorkbenchPanel(QWidget):
         split.setStretchFactor(2, 0)
         install_splitter_prefs(
             split,
-            defaults=[220, 680, 280],
+            defaults=[240, 680, 280],
+            defaults_for_extent=lambda extent: [240, max(360, extent - 520), 280],
             page_id='agent-workbench',
             tab_id='main_v2',
             min_sizes=[140, 360, 180],

@@ -204,7 +204,6 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             for i in range(12)
         ]
         board = {"completed_requirement_keys": [], "ui_prefs": {"completed_section_collapsed": True}}
-        floor = 8 * TaskRow.ROW_HEIGHT + 7 * TaskRow.LIST_SPACING
         with patch("panels.dashboard_panel.load_release_board", return_value=board):
             with patch("panels.dashboard_panel.load_requirements", return_value=one):
                 panel = DashboardPanel("zh")
@@ -213,19 +212,14 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
                 self.app.processEvents()
                 panel.refresh()
                 self.app.processEvents()
-                self.assertGreaterEqual(panel.release_scroll.minimumHeight(), floor)
+                self.assertLessEqual(panel.height(), 800)
+                self.assertLess(panel.release_scroll.minimumHeight(), 200)
                 self.assertEqual(
                     panel.release_scroll.sizePolicy().verticalPolicy(),
                     QSizePolicy.Policy.Expanding,
                 )
-                self.assertEqual(panel.recent_card.height(), panel.release_card.height())
-                task_stretch = None
-                for i in range(panel._root.count()):
-                    item = panel._root.itemAt(i)
-                    if item is not None and item.layout() is panel.tasks_row:
-                        task_stretch = panel._root.stretch(i)
-                        break
-                self.assertEqual(task_stretch, 1)
+                self.assertTrue(panel.recent_card.isHidden())
+                self.assertTrue(panel.release_card.isVisible())
                 panel.close()
 
             with patch("panels.dashboard_panel.load_requirements", return_value=many):
@@ -235,9 +229,12 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
                 self.app.processEvents()
                 panel.refresh()
                 self.app.processEvents()
-                self.assertGreaterEqual(panel.release_scroll.height(), floor)
+                self.assertLessEqual(panel.height(), 800)
+                from PyQt6.QtTest import QTest
+                QTest.qWait(20)
+                self.assertGreater(panel.release_scroll.verticalScrollBar().maximum(), 0)
                 self.assertGreater(panel._count_task_rows(panel.release_list), 8)
-                self.assertEqual(panel.recent_card.height(), panel.release_card.height())
+                self.assertTrue(panel.recent_card.isHidden())
                 panel.close()
 
     def test_narrow_mode_independent_card_heights(self):
@@ -254,7 +251,7 @@ class MonthlyReleaseBoardUiTests(unittest.TestCase):
             panel.apply_layout_mode("narrow", low_height=False)
             panel.show()
             self.app.processEvents()
-            self.assertEqual(panel.tasks_row.direction().name, "TopToBottom")
+            self.assertEqual(panel.home_columns.direction().name, "TopToBottom")
             # 窄屏不强制两卡同高
             panel.recent_card.setMinimumHeight(0)
             panel.release_card.setMinimumHeight(0)

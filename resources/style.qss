@@ -982,6 +982,13 @@ QSplitter::handle:horizontal {
 QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
+QSplitter[prismGutter="true"]::handle:horizontal {
+    margin: 0 7px;
+    background: __BORDER__;
+}
+QSplitter[prismGutter="true"]::handle:horizontal:hover {
+    background: __PRIMARY__;
+}
 QSplitter#requirement-splitter::handle:horizontal {
     margin: 0 3px;
     background: __BORDER_STRONG__;
@@ -2947,6 +2954,71 @@ QGroupBox#settings-ai-card::title {
 QWidget#settings-action-bar {
     background: transparent;
     padding-top: 8px;
+}
+QLabel#dashboard-stat-chip {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 16px;
+    color: __TEXT_STRONG__;
+    font-size: 14px;
+}
+QFrame#dashboard-overview-card {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 16px;
+}
+QLabel#dashboard-overview-value { font-size: 32px; color: __PRIMARY__; font-weight: 600; }
+QPushButton#dashboard-quick-tool {
+    min-height: 48px;
+    max-height: 48px;
+    padding: 8px;
+    border-radius: 10px;
+}
+
+/* Prism settings: persistent category rail and independently scrolling editors. */
+QListWidget#settings-section-nav {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 8px;
+    outline: none;
+}
+QListWidget#settings-section-nav::item {
+    min-height: 40px;
+    padding: 0 10px;
+    margin-bottom: 4px;
+    border-radius: 8px;
+    color: __TEXT_MUTED__;
+}
+QListWidget#settings-section-nav::item:hover {
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+}
+QListWidget#settings-section-nav::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+    font-weight: 600;
+}
+QFrame#settings-brand-showcase {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+        stop:0 __PRIMARY_SOFT__, stop:1 __SURFACE__);
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QFrame#settings-brand-showcase QLabel { background: transparent; }
+QLabel#settings-brand-title { font-size: 20px; font-weight: 600; }
+QListWidget#chat-session-list { background: transparent; border: none; outline: none; }
+QListWidget#chat-session-list::item {
+    min-height: 48px;
+    padding: 8px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    color: __TEXT_MUTED__;
+}
+QListWidget#chat-session-list::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
 }
 
 /* ── Global workbench contract: density, focus, page chrome and status ── */

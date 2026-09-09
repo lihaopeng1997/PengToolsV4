@@ -116,7 +116,7 @@ class ModelChatPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(16)
         header, self.page_title, self.page_subtitle = make_page_header(
             '模型对话',
             '连续对话并验证内网模型配置',
@@ -160,9 +160,11 @@ class ModelChatPanel(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
         left.setObjectName('chat-session-card')
+        split.setHandleWidth(16)
+        split.setProperty('prismGutter', True)
         self.session_card = left
         left_l = QVBoxLayout(left)
-        left_l.setContentsMargins(10, 10, 10, 10)
+        left_l.setContentsMargins(12, 12, 12, 12)
         search_row = QHBoxLayout()
         self.search = QLineEdit()
         size_line(self.search, 'std')
@@ -171,9 +173,10 @@ class ModelChatPanel(QWidget):
         apply_button(self.new_btn, 'secondary', compact=True)
         self.new_btn.clicked.connect(self._new_session)
         search_row.addWidget(self.search, 1)
-        search_row.addWidget(self.new_btn)
+        left_l.addWidget(self.new_btn)
         left_l.addLayout(search_row)
         self.session_list = QListWidget()
+        self.session_list.setObjectName('chat-session-list')
         self.session_list.currentItemChanged.connect(self._on_session_changed)
         left_l.addWidget(self.session_list, 1)
         sess_btns = QHBoxLayout()
@@ -236,7 +239,7 @@ class ModelChatPanel(QWidget):
 
         self.input = QPlainTextEdit()
         self.input.setObjectName('chat-composer-input')
-        self.input.setMinimumHeight(100)
+        self.input.setMinimumHeight(120)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
         composer_l.addWidget(self.input, 1)
@@ -285,12 +288,13 @@ class ModelChatPanel(QWidget):
 
         right_l.addWidget(self.chat_vsplit, 1)
         split.addWidget(right)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 3)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
         self.chat_splitter = split
         install_splitter_prefs(
             split,
-            defaults=[260, 780],
+            defaults=[240, 900],
+            defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
             page_id='model-chat',
             tab_id='main',
             min_sizes=[180, 360],

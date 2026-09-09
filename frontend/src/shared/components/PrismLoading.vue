@@ -333,18 +333,18 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
   opacity: 0.7 !important;
 }
 
-:global(body.motion-disabled) .spinner-svg,
-:global(body.motion-disabled) .diamond-dot,
-:global(body.motion-disabled) .bar-shimmer,
-:global([data-motion="disabled"]) .spinner-svg,
-:global([data-motion="disabled"]) .diamond-dot,
-:global([data-motion="disabled"]) .bar-shimmer {
+:global(body.motion-disabled .spinner-svg),
+:global(body.motion-disabled .diamond-dot),
+:global(body.motion-disabled .bar-shimmer),
+:global([data-motion="disabled"] .spinner-svg),
+:global([data-motion="disabled"] .diamond-dot),
+:global([data-motion="disabled"] .bar-shimmer){
   animation: none !important;
 }
 
-:global(body.page-hidden) .spinner-svg,
-:global(body.page-hidden) .diamond-dot,
-:global(body.page-hidden) .bar-shimmer {
+:global(body.page-hidden .spinner-svg),
+:global(body.page-hidden .diamond-dot),
+:global(body.page-hidden .bar-shimmer){
   animation-play-state: paused !important;
 }
 </style>

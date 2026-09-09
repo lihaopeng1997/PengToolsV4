@@ -9,6 +9,7 @@ toolbar 异常瓜分整屏高度、Key 树/详情/命令行不可见（大面积
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,7 +31,15 @@ class RedisPanelLayoutGeometryTest(unittest.TestCase):
 
     def _make_panel(self):
         from panels.db_redis_panel import RedisWorkbenchPanel
-        return RedisWorkbenchPanel('zh')
+        with patch.object(RedisWorkbenchPanel, '_reload_connections'):
+            return RedisWorkbenchPanel('zh')
+
+    def setUp(self):
+        for target, result in [('config.load_layout_splitter', None),
+                               ('config.save_layout_splitter', None)]:
+            mock = patch(target, return_value=result)
+            mock.start()
+            self.addCleanup(mock.stop)
 
     def test_workbench_geometry_at_typical_size(self):
         """1600x900 下 toolbar/主分隔/Key 树/详情页签/命令输出全部真实可见且符合层次架构。"""
@@ -50,8 +59,8 @@ class RedisPanelLayoutGeometryTest(unittest.TestCase):
             self.assertEqual(panel._bottom_split.indexOf(panel.side_tabs), 0, '右侧上半部分必须是详情 side_tabs')
             self.assertEqual(panel._bottom_split.indexOf(panel.bottom_frame), 1, '右侧下半部分必须是控制台 bottom_frame')
 
-            # 3. 尺寸断言：左侧容器宽度在 1600x900 下必须达到至少 360px
-            self.assertGreaterEqual(left_container.width(), 360, f'左侧浏览器宽度偏窄: {left_container.width()} < 360')
+            # Prism uses a 240px initial rail; the remaining width belongs to results.
+            self.assertAlmostEqual(left_container.width(), 240, delta=2)
 
             # 4. 左侧内部高度断言：Key 树与 Key 列表均有充足高度
             self.assertGreaterEqual(panel.key_tree.height(), 100, f'Key 树高度塌陷: {panel.key_tree.height()}')

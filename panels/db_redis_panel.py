@@ -317,6 +317,7 @@ class RedisWorkbenchPanel(QWidget):
         self.nodes_table = QTableWidget()
         self.nodes_table.setColumnCount(7)
         apply_table(self.nodes_table, alternating=True)
+        self.nodes_table.setMinimumHeight(96)
         self.nodes_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.nodes_table.setMaximumHeight(180)
         ov_l.addWidget(self.nodes_table)
@@ -333,6 +334,7 @@ class RedisWorkbenchPanel(QWidget):
         self.info_table = QTableWidget()
         self.info_table.setColumnCount(2)
         apply_table(self.info_table, alternating=True)
+        self.info_table.setMinimumHeight(120)
         self.info_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.info_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         ov_l.addWidget(self.info_table, 1)
@@ -395,18 +397,21 @@ class RedisWorkbenchPanel(QWidget):
         self.hash_table.setColumnCount(2)
         self.hash_table.setHorizontalHeaderLabels(['field', 'value'])
         apply_table(self.hash_table, alternating=True)
+        self.hash_table.setMinimumHeight(120)
         self.hash_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.value_tabs.addTab(self.hash_table, 'Hash')
         self.list_table = QTableWidget()
         self.list_table.setColumnCount(2)
         self.list_table.setHorizontalHeaderLabels(['index', 'value'])
         apply_table(self.list_table, alternating=True)
+        self.list_table.setMinimumHeight(120)
         self.list_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.value_tabs.addTab(self.list_table, 'List/Set')
         self.zset_table = QTableWidget()
         self.zset_table.setColumnCount(2)
         self.zset_table.setHorizontalHeaderLabels(['member', 'score'])
         apply_table(self.zset_table, alternating=True)
+        self.zset_table.setMinimumHeight(120)
         self.zset_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.value_tabs.addTab(self.zset_table, 'ZSet')
         det_l.addWidget(self.value_tabs, 1)
@@ -497,13 +502,16 @@ class RedisWorkbenchPanel(QWidget):
 
         # 全局主水平 Splitter：左全高 Key 树与列表 | 右侧上下工作台与控制台
         self.main_split = QSplitter(Qt.Orientation.Horizontal)
+        self.main_split.setHandleWidth(16)
+        self.main_split.setProperty('prismGutter', True)
         self.main_split.addWidget(left)
         self.main_split.addWidget(self._bottom_split)
-        self.main_split.setStretchFactor(0, 2)
-        self.main_split.setStretchFactor(1, 5)
+        self.main_split.setStretchFactor(0, 0)
+        self.main_split.setStretchFactor(1, 1)
         root.addWidget(self.main_split, 1)
         install_splitter_prefs(
             self.main_split, defaults=[240, 960], page_id='redis-workbench', tab_id='main_split',
+            defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
             min_sizes=[240, 480], accessible_name='Redis 左右主分隔',
         )
 
@@ -577,6 +585,7 @@ class RedisWorkbenchPanel(QWidget):
             install_splitter_prefs(
                 self.main_split,
                 defaults=col_defs,
+                defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
                 page_id='redis-workbench',
                 tab_id='main_split',
                 bucket=layout_bucket(mode),

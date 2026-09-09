@@ -29,6 +29,50 @@ class SplitterPrefsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_template_rail_uses_laid_out_extent_and_does_not_override_saved_sizes(self):
+        from unittest.mock import Mock
+        for saved in (None, [400, 700]):
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+            splitter.setHandleWidth(16)
+            splitter.addWidget(QLabel('left'))
+            splitter.addWidget(QLabel('right'))
+            template = Mock(side_effect=lambda extent: [240, extent - 240])
+            install_splitter_prefs(
+                splitter, defaults=[240, 900], saved=saved, min_sizes=[180, 360],
+                persist=False, defaults_for_extent=template,
+            )
+            splitter.resize(1144, 200)
+            splitter.show()
+            self.app.processEvents()
+            if saved is None:
+                self.assertAlmostEqual(splitter.sizes()[0], 240, delta=2)
+                self.assertEqual(template.call_args.args[0], 1128)
+            else:
+                template.assert_not_called()
+            splitter.setSizes([320, 808])
+            self.app.processEvents()
+            self.assertAlmostEqual(splitter.sizes()[0], 320, delta=2)
+            splitter.close()
+            splitter.deleteLater()
+            self.app.processEvents()
+
+    def test_saved_ratio_is_not_distorted_by_constructor_minimums(self):
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(16)
+        splitter.addWidget(QLabel('sessions'))
+        splitter.addWidget(QLabel('details'))
+        splitter.resize(100, 200)
+        install_splitter_prefs(splitter, defaults=[520, 480], saved=[520, 480],
+                               min_sizes=[240, 480], persist=False)
+        splitter.resize(1144, 740)
+        splitter.show()
+        self.app.processEvents()
+        sizes = splitter.sizes()
+        self.assertAlmostEqual(sizes[0] / sum(sizes), .52, delta=.002)
+        splitter.close()
+        splitter.deleteLater()
+        self.app.processEvents()
+
     def test_double_click_handle_restores_defaults(self):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(QLabel('left'))

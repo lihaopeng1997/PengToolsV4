@@ -231,24 +231,16 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertEqual(panel.save_btn.objectName(), 'primary-btn')
         self.assertEqual(panel.restore_btn.objectName(), 'btn-secondary')
 
-        # 4. Wide 响应式：两列布局，外观和 AI 跨两列
+        # The approved template has a category rail, not a wall of two-column forms.
         panel.apply_layout_mode('wide')
-        pos = lambda w: panel.sections_grid.getItemPosition(panel.sections_grid.indexOf(w))
-        self.assertEqual(pos(panel.appearance_group), (0, 0, 1, 2))
-        self.assertEqual(pos(panel.float_group), (1, 0, 1, 1))
-        self.assertEqual(pos(panel.shortcuts_group), (1, 1, 1, 1))
-        self.assertEqual(pos(panel.reminder_group), (2, 0, 1, 1))
-        self.assertEqual(pos(panel.behavior_group), (2, 1, 1, 1))
-        self.assertEqual(pos(panel.security_group), (3, 0, 1, 1))
-        self.assertEqual(pos(panel.oracle_group), (3, 1, 1, 1))
-        self.assertEqual(pos(panel.ai_group), (4, 0, 1, 2))
-
-        # 5. Compact 响应式：单列布局
+        self.assertFalse(panel.section_nav.isHidden())
+        self.assertTrue(panel.section_picker.isHidden())
+        panel.section_nav.setCurrentRow(5)
+        self.assertEqual(panel.sections_stack.currentIndex(), 5)
         panel.apply_layout_mode('compact')
-        for grp in cards.values():
-            _r, col, _rs, cs = pos(grp)
-            self.assertEqual(col, 0)
-            self.assertEqual(cs, 1)
+        self.assertTrue(panel.section_nav.isHidden())
+        self.assertFalse(panel.section_picker.isHidden())
+        self.assertEqual(panel.section_picker.currentIndex(), 5)
 
     # ── 5. Redis Workbench Surfaces & Badges ──────────────────────────────
 

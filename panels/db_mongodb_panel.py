@@ -197,8 +197,7 @@ class MongoDBWorkbenchPanel(QWidget):
         docs_l.setContentsMargins(10, 10, 10, 10)
         self.query_input = QPlainTextEdit()
         self.query_input.setObjectName('mongo-query-edit')
-        self.query_input.setMinimumHeight(96)
-        self.query_input.setMaximumHeight(160)
+        self.query_input.setFixedHeight(96)
         self.query_input.setPlaceholderText('Filter: {"字段":"值"} 或 db.coll.find({...})')
         docs_l.addWidget(self.query_input)
         qrow = QHBoxLayout()
@@ -219,6 +218,7 @@ class MongoDBWorkbenchPanel(QWidget):
 
         self.doc_table = QTableWidget()
         apply_table(self.doc_table, alternating=True)
+        self.doc_table.setMinimumHeight(120)
         self.doc_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.doc_table.horizontalHeader().setStretchLastSection(True)
         docs_l.addWidget(self.doc_table, 1)
@@ -288,16 +288,19 @@ class MongoDBWorkbenchPanel(QWidget):
 
         right_l.addWidget(self.side_tabs)
         body.addWidget(right)
-        body.setStretchFactor(0, 1)
-        body.setStretchFactor(1, 3)
+        body.setHandleWidth(16)
+        body.setProperty('prismGutter', True)
+        body.setStretchFactor(0, 0)
+        body.setStretchFactor(1, 1)
         self.body_splitter = body
         install_splitter_prefs(
             body, defaults=[240, 720], page_id='mongodb-workbench', tab_id='main',
+            defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
             min_sizes=[180, 400], accessible_name='MongoDB 左右分隔',
         )
         root.addWidget(body, 1)
 
-        # 底部 Shell
+        # Keep the existing Shell controls inside the workspace tabs.
         bottom = QFrame()
         bottom.setObjectName('dashboard-task-card')
         bottom_l = QVBoxLayout(bottom)
@@ -319,7 +322,7 @@ class MongoDBWorkbenchPanel(QWidget):
         self.cmd_output.setReadOnly(True)
         self.cmd_output.setMinimumHeight(160)
         bottom_l.addWidget(self.cmd_output, 1)
-        root.addWidget(bottom, 0)
+        self.side_tabs.addTab(bottom, 'Shell')
         self._root_layout = root
 
     def set_language(self, language):
@@ -370,6 +373,7 @@ class MongoDBWorkbenchPanel(QWidget):
             install_splitter_prefs(
                 self.body_splitter,
                 defaults=col_defs,
+                defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
                 page_id='mongodb-workbench',
                 tab_id='main',
                 bucket=layout_bucket(mode),

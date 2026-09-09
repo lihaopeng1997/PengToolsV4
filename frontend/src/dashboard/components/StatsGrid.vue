@@ -220,12 +220,12 @@ const completedTotalText = computed(() => {
   }
 }
 
-:global(body.motion-disabled) .stat-icon-wrap,
-:global([data-motion="disabled"]) .stat-icon-wrap {
+:global(body.motion-disabled .stat-icon-wrap),
+:global([data-motion="disabled"] .stat-icon-wrap){
   animation: none !important;
 }
 
-:global(body.page-hidden) .stat-icon-wrap {
+:global(body.page-hidden .stat-icon-wrap){
   animation-play-state: paused !important;
 }
 </style>

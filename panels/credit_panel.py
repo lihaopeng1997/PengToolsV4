@@ -59,9 +59,15 @@ class CreditCodePanel(QWidget):
         self.set_language('zh')
 
     def _setup_ui(self):
-        root = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        content = QWidget()
+        content.setMaximumWidth(1180)
+        outer.addWidget(content, 1)
+        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        root = QVBoxLayout(content)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setSpacing(16)
 
         header, self.title, self.subtitle = make_page_header(
             '证件类型',
@@ -620,6 +626,7 @@ class CreditCodePanel(QWidget):
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
+        self.table.setMinimumHeight(180 if low_height else 280)
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         set_subtitle_visible(getattr(self, 'subtitle', None), low_height)
 

@@ -4,7 +4,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSlider,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
@@ -200,19 +200,16 @@ class SettingsPanel(QWidget):
         self.set_language(language)
 
     def _setup_ui(self):
-        outer = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
-        self.scroll_area.setWidget(content)
-        outer.addWidget(self.scroll_area)
-
+        content.setObjectName('settings-workspace')
+        content.setMaximumWidth(1040)
+        outer.addWidget(content, 1)
+        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         root = QVBoxLayout(content)
-        root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-        root.setContentsMargins(16, 10, 16, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(16)
         from ui.page_chrome import make_page_header
         header, self.title, self.subtitle = make_page_header(
             '设置',
@@ -222,17 +219,54 @@ class SettingsPanel(QWidget):
         root.addWidget(header)
         self.title.installEventFilter(self)
 
-        self.sections_grid = QGridLayout()
-        self.sections_grid.setHorizontalSpacing(14)
-        self.sections_grid.setVerticalSpacing(14)
-        self.sections_grid.setContentsMargins(0, 0, 0, 0)
-        root.addLayout(self.sections_grid)
+        self.section_picker = QComboBox()
+        self.section_picker.setObjectName('settings-section-picker')
+        self.section_picker.setAccessibleName('设置分类')
+        self.section_picker.hide()
+        root.addWidget(self.section_picker)
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(24)
+        self.section_nav = QListWidget()
+        self.section_nav.setObjectName('settings-section-nav')
+        self.section_nav.setFixedWidth(180)
+        self.section_nav.setAccessibleName('设置分类')
+        body.addWidget(self.section_nav)
+        self.sections_stack = QStackedWidget()
+        self.sections_stack.setObjectName('settings-section-stack')
+        self.sections_stack.setMinimumWidth(0)
+        body.addWidget(self.sections_stack, 1)
+        root.addLayout(body, 1)
+        self.section_nav.currentRowChanged.connect(self._select_section)
+        self.section_picker.currentIndexChanged.connect(self._select_section)
 
         self.appearance_group = QGroupBox()
         self.appearance_group.setObjectName('settings-appearance-card')
         self.appearance_group.setProperty('settingsSectionCard', True)
         appearance_outer = QVBoxLayout(self.appearance_group)
         appearance_outer.setSpacing(12)
+        brand = QFrame()
+        brand.setObjectName('settings-brand-showcase')
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(18, 18, 18, 18)
+        brand_row.setSpacing(16)
+        from ui.icons import brand_pixmap
+        from ui.theme_manager import ThemeManager
+        brand_icon = QLabel()
+        brand_icon.setPixmap(brand_pixmap('app_mark', 40, ThemeManager.instance().token('PRIMARY')))
+        brand_icon.setFixedSize(48, 48)
+        brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_row.addWidget(brand_icon)
+        brand_text = QVBoxLayout()
+        self.brand_title = QLabel('晴空棱镜 / Prism')
+        self.brand_title.setObjectName('settings-brand-title')
+        self.brand_description = QLabel('淡紫磨砂 · 冰白工作区 · 清晰的信息层级')
+        self.brand_description.setObjectName('field-hint')
+        self.brand_description.setWordWrap(True)
+        brand_text.addWidget(self.brand_title)
+        brand_text.addWidget(self.brand_description)
+        brand_row.addLayout(brand_text, 1)
+        appearance_outer.addWidget(brand)
 
         # 说明收进分组 tooltip，避免标题下再叠一行提示
         self.theme_hint = QLabel()
@@ -586,7 +620,6 @@ class SettingsPanel(QWidget):
         self.save_btn.clicked.connect(self._save)
         buttons.addWidget(self.save_btn)
         root.addWidget(self.action_bar)
-        root.addStretch()
 
     def values(self):
         return normalize_settings({
@@ -631,50 +664,69 @@ class SettingsPanel(QWidget):
         pass
 
     def _layout_sections(self, is_compact: bool):
-        for w in (
-            self.appearance_group, self.float_group, self.shortcuts_group,
-            self.reminder_group, self.behavior_group, self.security_group,
-            self.oracle_group, self.ai_group, self.keep_awake_group,
-        ):
-            self.sections_grid.removeWidget(w)
+        # Existing editors remain alive when switching presentation categories.
+        if self.sections_stack.count() == 0:
+            categories = (
+                (self.appearance_group,),
+                (self.float_group, self.shortcuts_group),
+                (self.reminder_group, self.behavior_group, self.keep_awake_group),
+                (self.security_group,),
+                (self.oracle_group,),
+                (self.ai_group,),
+            )
+            for groups in categories:
+                scroll = QScrollArea()
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QFrame.Shape.NoFrame)
+                host = QWidget()
+                column = QVBoxLayout(host)
+                column.setContentsMargins(0, 0, 8, 8)
+                column.setSpacing(24)
+                for group in groups:
+                    group.setMinimumWidth(0)
+                    column.addWidget(group)
+                column.addStretch(1)
+                scroll.setWidget(host)
+                self.sections_stack.addWidget(scroll)
+            self.scroll_area = self.sections_stack.widget(0)
+        self.section_nav.setVisible(not is_compact)
+        self.section_picker.setVisible(is_compact)
 
-        if is_compact:
-            self.sections_grid.setColumnStretch(0, 1)
-            self.sections_grid.setColumnStretch(1, 0)
-            row = 0
-            for w in (
-                self.appearance_group, self.float_group, self.shortcuts_group,
-                self.reminder_group, self.behavior_group, self.security_group,
-                self.oracle_group, self.ai_group, self.keep_awake_group,
-            ):
-                self.sections_grid.addWidget(w, row, 0, 1, 1)
-                row += 1
-        else:
-            self.sections_grid.setColumnStretch(0, 1)
-            self.sections_grid.setColumnStretch(1, 1)
-            self.sections_grid.addWidget(self.appearance_group, 0, 0, 1, 2)
-            self.sections_grid.addWidget(self.float_group, 1, 0, 1, 1)
-            self.sections_grid.addWidget(self.shortcuts_group, 1, 1, 1, 1)
-            self.sections_grid.addWidget(self.reminder_group, 2, 0, 1, 1)
-            self.sections_grid.addWidget(self.behavior_group, 2, 1, 1, 1)
-            self.sections_grid.addWidget(self.security_group, 3, 0, 1, 1)
-            self.sections_grid.addWidget(self.oracle_group, 3, 1, 1, 1)
-            self.sections_grid.addWidget(self.ai_group, 4, 0, 1, 2)
-            self.sections_grid.addWidget(self.keep_awake_group, 5, 0, 1, 2)
+    def _select_section(self, index):
+        if not 0 <= index < self.sections_stack.count():
+            return
+        self.sections_stack.setCurrentIndex(index)
+        self.scroll_area = self.sections_stack.currentWidget()
+        self.section_nav.blockSignals(True)
+        self.section_picker.blockSignals(True)
+        self.section_nav.setCurrentRow(index)
+        self.section_picker.setCurrentIndex(index)
+        self.section_nav.blockSignals(False)
+        self.section_picker.blockSignals(False)
+
+    def _translate_section_navigation(self):
+        labels = (
+            ('外观', 'Appearance'), ('悬浮工具栏', 'Floating toolbar'),
+            ('提醒与关闭', 'Reminders and closing'), ('安全与安测', 'Security'),
+            ('Oracle 客户端', 'Oracle client'), ('内网模型', 'Intranet models'),
+        )
+        index = max(0, self.sections_stack.currentIndex())
+        self.section_nav.blockSignals(True)
+        self.section_picker.blockSignals(True)
+        self.section_nav.clear()
+        self.section_picker.clear()
+        for zh, en in labels:
+            text = zh if self.language == 'zh' else en
+            self.section_nav.addItem(text)
+            self.section_picker.addItem(text)
+        self.section_nav.blockSignals(False)
+        self.section_picker.blockSignals(False)
+        self._select_section(index)
 
     def apply_layout_mode(self, mode, low_height=False):
-        """主题卡与分组自适应：Wide/Standard 两列，Compact/Narrow 一列。"""
         from ui.responsive import set_subtitle_visible
         set_subtitle_visible(self.subtitle, low_height)
-        is_compact = mode in ('compact', 'narrow')
-        cols = 1 if is_compact else 2
-        # 重新排布 theme_grid
-        for i, theme_mode_key in enumerate(THEME_MODES):
-            card = self._theme_cards.get(theme_mode_key)
-            if card is None:
-                continue
-            self.theme_grid.addWidget(card, i // cols, i % cols)
-        self._layout_sections(is_compact=is_compact)
+        self._layout_sections(is_compact=mode in ('compact', 'narrow'))
 
     def load_values(self, settings):
         settings = normalize_settings(settings)
@@ -1240,6 +1292,7 @@ class SettingsPanel(QWidget):
 
     def set_language(self, language):
         self.language = language
+        self._translate_section_navigation()
         zh = language == 'zh'
         self.title.setText('设置' if zh else 'Settings')
         self.subtitle.setText('外观与本机偏好' if zh else 'Appearance and local preferences')
@@ -1257,6 +1310,8 @@ class SettingsPanel(QWidget):
         if hasattr(self, 'theme_label'):
             self.theme_label.setText('外观主题' if zh else 'Theme')
             self.theme_display.setText('晴空棱镜 (Sky Prism)' if zh else 'Sky Prism')
+        self.brand_title.setText('晴空棱镜 / Prism' if zh else 'Sky Prism')
+        self.brand_description.setText('淡紫磨砂 · 冰白工作区 · 清晰的信息层级' if zh else 'Soft lilac glass · Ice-white surfaces · Clear hierarchy')
         self.font_label.setText('全局字体大小' if zh else 'Global font size')
         self.density_label.setText('信息密度' if zh else 'Information density')
         self.density_combo.setItemText(0, '紧凑' if zh else 'Compact')

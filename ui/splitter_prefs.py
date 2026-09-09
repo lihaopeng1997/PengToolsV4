@@ -281,6 +281,7 @@ def install_splitter_prefs(
     accessible_name: str = '',
     persist: bool = True,
     double_click_reset: bool = True,
+    defaults_for_extent=None,
 ) -> None:
     """安装默认比例、键盘调整、双击复位、夹紧与可选持久化。"""
     if splitter is None:
@@ -336,7 +337,7 @@ def install_splitter_prefs(
             loaded,
             defaults=defaults,
             min_sizes=mins,
-            current_total=total if total > 40 else None,
+            current_total=None,
         )
 
         def _apply_initial_sizes():
@@ -345,7 +346,21 @@ def install_splitter_prefs(
             if splitter.count() != len(target):
                 return
             t = splitter.width() if splitter.orientation() == Qt.Orientation.Horizontal else splitter.height()
-            splitter.setSizes(clamp_splitter_sizes(target, mins, t if t > 40 else None))
+            extent = max(1, t - splitter.handleWidth() * (count - 1))
+            # Recompute from the original preference after layout. Constructor-size
+            # minimum clamping must not become the saved proportion for the real view.
+            initial = normalize_splitter_sizes(
+                loaded, defaults=defaults, min_sizes=mins, current_total=extent,
+            )
+            # Page templates may reserve a fixed initial rail at the *laid-out* width.
+            # Saved user sizes still take precedence; subsequent resizes stay with Qt.
+            if defaults_for_extent is not None and (
+                not isinstance(loaded, (list, tuple))
+                or len(loaded) != count
+                or has_extreme_splitter_sizes(loaded, mins)
+            ):
+                initial = defaults_for_extent(extent)
+            splitter.setSizes(clamp_splitter_sizes(initial, mins, t if t > 40 else None))
 
         _apply_initial_sizes()
         QTimer.singleShot(0, _apply_initial_sizes)

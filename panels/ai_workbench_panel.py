@@ -9,7 +9,7 @@ import time
 from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+    QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
     QPushButton, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -468,7 +468,7 @@ class AiWorkbenchPanel(QWidget):
         self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
         self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
         ai_page_l.addWidget(self.nl_input, 1)
-        ai_btns = QHBoxLayout()
+        ai_btns = QGridLayout()
         ai_btns.setSpacing(6)
         self.ai_gen_btn = QPushButton('生成 SQL' if self.language == 'zh' else 'Generate SQL')
         apply_button(self.ai_gen_btn, 'primary', compact=True)
@@ -503,9 +503,9 @@ class AiWorkbenchPanel(QWidget):
         more_menu.addAction('复制拦截详情', self._copy_block_detail)
         self.agent_more.setMenu(more_menu)
         self._agent_more_menu = more_menu
-        for btn in (self.ai_gen_btn, self.ai_pick_btn, self.ai_snap_btn, self.agent_more, self.agent_cancel_btn):
-            ai_btns.addWidget(btn)
-        ai_btns.addStretch(1)
+        for index, btn in enumerate((self.ai_gen_btn, self.ai_pick_btn, self.ai_snap_btn, self.agent_more)):
+            ai_btns.addWidget(btn, index // 2, index % 2)
+        ai_btns.addWidget(self.agent_cancel_btn, 2, 0, 1, 2)
         ai_page_l.addLayout(ai_btns, 0)
         self.ai_chips = QLabel()
         self.ai_chips.setObjectName('field-hint')
@@ -563,6 +563,7 @@ class AiWorkbenchPanel(QWidget):
         det_l.addWidget(self.field_filter)
         self.field_table = QTableWidget()
         apply_table(self.field_table, alternating=True)
+        self.field_table.setMinimumHeight(120)
         try:
             self.field_table.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
         except Exception:
@@ -594,6 +595,7 @@ class AiWorkbenchPanel(QWidget):
         bottom.setObjectName('sql-result-tabs')
         self.result = QTableWidget()
         apply_table(self.result, alternating=True)
+        self.result.setMinimumHeight(120)
         try:
             self.result.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
         except Exception:

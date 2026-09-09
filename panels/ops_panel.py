@@ -126,7 +126,7 @@ class OpsPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setSpacing(16)
 
         try:
             from ui.page_chrome import make_page_header
@@ -303,10 +303,14 @@ class OpsPanel(QWidget):
         actions.addWidget(self.copy_btn)
         right_container_layout.addLayout(actions)
         splitter.addWidget(right_container)
-        splitter.setSizes([350, 650])
+        splitter.setHandleWidth(16)
+        splitter.setProperty('prismGutter', True)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         install_splitter_prefs(
             splitter,
-            defaults=[350, 650],
+            defaults=[280, 864],
+            defaults_for_extent=lambda extent: [280, max(360, extent - 280)],
             page_id='ops-commands',
             tab_id='list-detail',
             min_sizes=[220, 360],

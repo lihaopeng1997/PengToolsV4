@@ -311,6 +311,7 @@ class MainWindow(QMainWindow):
             return self.dashboard_panel
         from panels.dashboard_panel import DashboardPanel
         panel = DashboardPanel(self.language)
+        panel.navigate_requested.connect(self._show_panel)
         panel.open_credit.connect(lambda: self._show_panel(1))
         panel.open_sql.connect(lambda: self._show_panel(2))
         panel.open_docx.connect(lambda: self._show_panel(3))

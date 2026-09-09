@@ -3,17 +3,17 @@
 
 from __future__ import annotations
 
-from ui.navigation_model import get_dashboard_quick_tools
+from ui.navigation_model import get_dashboard_quick_tools, get_nav_item
 
 import datetime
 import json
 import os
 
-from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QComboBox, QFrame, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
-    QHBoxLayout, QBoxLayout, QScrollArea,
+    QHBoxLayout, QBoxLayout, QScrollArea, QGridLayout, QProgressBar,
 )
 
 from config import DASHBOARD_RELEASE_ITEMS_FILE, REQUIREMENTS_FILE
@@ -322,10 +322,17 @@ class PrismOrbWidget(QWidget):
         painter.setBrush(QBrush(grad))
         painter.setPen(QPen(QColor(255, 255, 255, 230), 1.2))
         painter.drawRoundedRect(-28, -28, 56, 56, 16, 16)
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QPolygonF
+        painter.setPen(QPen(QColor(140, 116, 199), 1.8))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPolygon(QPolygonF([QPointF(0, -13), QPointF(4, -4), QPointF(13, 0),
+            QPointF(4, 4), QPointF(0, 13), QPointF(-4, 4), QPointF(-13, 0), QPointF(-4, -4)]))
         painter.end()
 
 
 class DashboardPanel(QWidget):
+    navigate_requested = pyqtSignal(int)
     open_credit = pyqtSignal()
     open_sql = pyqtSignal()
     open_docx = pyqtSignal()
@@ -399,7 +406,9 @@ class DashboardPanel(QWidget):
 
         self.quote_text_lbl = QLabel()
         self.quote_text_lbl.setObjectName('quote-text-label')
-        daily_row.addWidget(self.quote_text_lbl)
+        self.quote_text_lbl.setWordWrap(True)
+        self.quote_text_lbl.setMinimumWidth(0)
+        daily_row.addWidget(self.quote_text_lbl, 1)
 
         self.quote_refresh_btn = QToolButton()
         self.quote_refresh_btn.setObjectName('quote-refresh-btn')
@@ -408,7 +417,6 @@ class DashboardPanel(QWidget):
         self.quote_refresh_btn.setToolTip('换一句经典诗文')
         self.quote_refresh_btn.clicked.connect(self.next_quote)
         daily_row.addWidget(self.quote_refresh_btn)
-        daily_row.addStretch(1)
 
         left_hero.addLayout(daily_row)
 
@@ -420,6 +428,10 @@ class DashboardPanel(QWidget):
         apply_button(self.hero_create_req, 'primary', compact=True, icon='add')
         self.hero_create_req.clicked.connect(self.create_requirement.emit)
         hero_acts.addWidget(self.hero_create_req)
+        self.hero_daily = QPushButton('写日报')
+        apply_button(self.hero_daily, 'ghost', compact=True, icon='daily-report')
+        self.hero_daily.clicked.connect(lambda: self.navigate_requested.emit(9))
+        hero_acts.addWidget(self.hero_daily)
         hero_acts.addStretch(1)
         left_hero.addLayout(hero_acts)
 
@@ -597,41 +609,129 @@ class DashboardPanel(QWidget):
         self.req_card = self.recent_card
         self.sql = self.release_card
 
+        self._assemble_prism_layout(header)
+
         # set_language 末尾会 refresh 一次；勿再重复 rebuild
         self.set_language(language)
+
+    def _assemble_prism_layout(self, header):
+        # Reparent existing editors/actions; task data, signals and persistence stay intact.
+        while self._root.count():
+            self._root.takeAt(0)
+        for button in self._tool_buttons:
+            button.hide()
+        self.tools_more.hide()
+        self.recent_card.hide()
+        self.home_scroll = QScrollArea()
+        self.home_scroll.setWidgetResizable(True)
+        self.home_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.home_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        host = QWidget()
+        body = QVBoxLayout(host)
+        body.setContentsMargins(0, 0, 0, 8)
+        body.setSpacing(16)
+        body.addWidget(header)
+        self.home_columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.home_columns.setSpacing(16)
+        body.addLayout(self.home_columns)
+        self.home_left = QWidget()
+        left = QVBoxLayout(self.home_left)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(16)
+        left.addWidget(self.hero_card)
+        self.stat_grid = QGridLayout()
+        self.stat_grid.setSpacing(12)
+        left.addLayout(self.stat_grid)
+        left.addWidget(self.release_card)
+        left.addStretch(1)
+        self.home_columns.addWidget(self.home_left, 1)
+        self.home_right = QWidget()
+        right = QVBoxLayout(self.home_right)
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(16)
+        overview = QFrame()
+        overview.setObjectName('dashboard-overview-card')
+        overview.setMinimumHeight(300)
+        overview_layout = QVBoxLayout(overview)
+        overview_layout.setContentsMargins(20, 20, 20, 20)
+        overview_layout.setSpacing(16)
+        self.overview_title = QLabel('上线总览')
+        self.overview_title.setObjectName('zone-title')
+        self.overview_date = QLabel()
+        self.overview_date.setWordWrap(True)
+        self.overview_value = QLabel()
+        self.overview_value.setObjectName('dashboard-overview-value')
+        self.overview_progress = QProgressBar()
+        self.overview_progress.setRange(0, 100)
+        self.overview_progress.setTextVisible(False)
+        self.overview_progress.setFixedHeight(6)
+        self.overview_note = QLabel()
+        self.overview_note.setWordWrap(True)
+        for widget in (self.overview_title, self.overview_date, self.overview_value,
+                       self.overview_progress, self.overview_note):
+            overview_layout.addWidget(widget)
+        overview_layout.addStretch(1)
+        right.addWidget(overview)
+        tools_card = QFrame()
+        tools_card.setObjectName('dashboard-overview-card')
+        tools_layout = QVBoxLayout(tools_card)
+        tools_layout.setContentsMargins(16, 16, 16, 16)
+        tools_layout.setSpacing(12)
+        tools_layout.addWidget(self.tools_label)
+        tools_grid = QGridLayout()
+        tools_grid.setSpacing(8)
+        self.prism_tool_buttons = []
+        for index, item in enumerate(get_dashboard_quick_tools()):
+            btn = QPushButton(item['zh'])
+            btn.setToolTip(item['ds'])
+            apply_button(btn, 'secondary', icon=item['icon'], icon_size=18)
+            btn.setObjectName('dashboard-quick-tool')
+            btn.setMinimumHeight(64)
+            btn.setMinimumWidth(0)
+            btn.clicked.connect(lambda checked=False, nav=item['i']: self.navigate_requested.emit(nav))
+            tools_grid.addWidget(btn, index // 2, index % 2)
+            self.prism_tool_buttons.append(btn)
+        tools_layout.addLayout(tools_grid)
+        right.addWidget(tools_card)
+        right.addStretch(1)
+        self.home_columns.addWidget(self.home_right)
+        body.addStretch(1)
+        self.home_scroll.setWidget(host)
+        self.home_scroll.viewport().installEventFilter(self)
+        self._root.addWidget(self.home_scroll)
+        self._layout_prism_columns()
+
+    def _layout_prism_columns(self):
+        if not hasattr(self, 'home_columns'):
+            return
+        width = self.home_scroll.viewport().width()
+        stacked = width < 1020
+        self.home_columns.setDirection(QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight)
+        self.home_right.setMinimumWidth(0 if stacked else (330 if width >= 1200 else 300))
+        self.home_right.setMaximumWidth(16777215 if stacked else (330 if width >= 1200 else 300))
+        left_width = width if stacked else width - self.home_right.minimumWidth() - 16
+        columns = 2 if left_width < 700 else 4
+        for i, label in enumerate((self.stat_todo, self.stat_daily, self.stat_countdown, self.stat_release)):
+            self.stat_grid.addWidget(label, i // columns, i % columns)
+            label.setMinimumHeight(108)
+            label.setMinimumWidth(0)
+        for i in range(4):
+            self.stat_grid.setColumnStretch(i, 1 if i < columns else 0)
+
+    def eventFilter(self, watched, event):
+        if hasattr(self, 'home_scroll') and watched is self.home_scroll.viewport() and event.type() == QEvent.Type.Resize:
+            self._layout_prism_columns()
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_prism_columns()
 
     def apply_layout_mode(self, mode, low_height=False):
         self._mode = mode
         set_subtitle_visible(self.subtitle, low_height)
-        # Compact/Narrow：任务卡纵向
-        if mode in ('compact', 'narrow'):
-            self.tasks_row.setDirection(QBoxLayout.Direction.TopToBottom)
-            self.tasks_row.setSpacing(10 if low_height else 12)
-        else:
-            self.tasks_row.setDirection(QBoxLayout.Direction.LeftToRight)
-            self.tasks_row.setSpacing(10 if low_height else 14)
-        self._root.setSpacing(10 if low_height else 14)
-        # 常用工具：Narrow 仅前 4 项，其余进更多
-        self._tools_menu.clear()
-        zh = self.language == 'zh'
-        self.tools_more.setText('更多工具' if zh else 'More tools')
-        if mode == 'narrow':
-            for i, btn in enumerate(self._tool_buttons):
-                if i < 4:
-                    btn.show()
-                    if btn.text():
-                        btn.setToolTip(btn.text())
-                else:
-                    btn.hide()
-                    act = QAction(btn.text() or btn.toolTip() or 'Tool', self)
-                    act.triggered.connect(btn.click)
-                    self._tools_menu.addAction(act)
-            self.tools_more.setVisible(bool(self._tools_menu.actions()))
-        else:
-            for btn in self._tool_buttons:
-                btn.show()
-            self.tools_more.hide()
-        # 布局模式只影响可视行数/方向；列表数据无需重读盘 rebuild
+        self._root.setSpacing(16)
+        self._layout_prism_columns()
         self._apply_list_geometry()
 
     def _list_limit(self) -> int:
@@ -659,11 +759,12 @@ class DashboardPanel(QWidget):
         return total
 
     def _apply_list_geometry(self):
-        """双卡等高撑满中间区域，条目在卡片内滚动；底栏常用工具固定。"""
-        floor = self._scroll_height_for_count(self._list_limit())
-        for scroll in (self.recent_scroll, self.release_scroll):
+        """Show short task lists naturally; long lists scroll within the card."""
+        for scroll, rows in ((self.recent_scroll, self.recent_list),
+                             (self.release_scroll, self.release_list)):
+            floor = max(96, min(280, self._scroll_height_for_count(self._count_task_rows(rows))))
             scroll.setMinimumHeight(floor)
-            scroll.setMaximumHeight(16777215)
+            scroll.setMaximumHeight(440)
             scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for card in (self.recent_card, self.release_card):
             card.setMinimumHeight(0)
@@ -1071,6 +1172,20 @@ class DashboardPanel(QWidget):
         self.stat_release.setText(
             f"{'发版清单' if zh else 'Release'}\n{rel.get('total') or 0}\n{'已完成' if zh else 'Done'} {rel.get('done') or 0}"
         )
+        from html import escape
+        for label in (self.stat_todo, self.stat_daily, self.stat_countdown, self.stat_release):
+            plain = label.text()
+            lines = plain.split('\n')
+            label.setAccessibleName(plain)
+            label.setText('<span style="font-size:12px">' + escape(lines[0]) + '</span><br>'
+                + '<span style="font-size:30px;font-weight:600">' + escape(lines[1]) + '</span>'
+                + ('<br><span style="font-size:12px">' + escape(' '.join(lines[2:])) + '</span>' if len(lines) > 2 else ''))
+        total = int(rel.get('total') or 0)
+        done = int(rel.get('done') or 0)
+        self.overview_date.setText(rel.get('date_text') or '')
+        self.overview_value.setText(f'{done} / {total}')
+        self.overview_progress.setValue(round(done * 100 / total) if total else 0)
+        self.overview_note.setText(('已完成 / 本月任务' if zh else 'Completed / Monthly tasks'))
         target = rel.get('target_date') or ''
         self.release_target_edit.setText(
             (f'发版日 {target}' if target else '发版日：自动（按本月实际上线日期）') if zh
@@ -1091,6 +1206,12 @@ class DashboardPanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
+        self.overview_title.setText('上线总览' if zh else 'Release overview')
+        self.hero_daily.setText('写日报' if zh else 'Write daily')
+        for button, tool in zip(self.prism_tool_buttons, get_dashboard_quick_tools()):
+            nav = get_nav_item(tool['i'])
+            button.setText(tool['zh'] if zh else nav.name_en)
+            button.setToolTip(tool['ds'] if zh else nav.tooltip_en)
         today = datetime.date.today()
         if zh:
             self.title.setText('工作台')

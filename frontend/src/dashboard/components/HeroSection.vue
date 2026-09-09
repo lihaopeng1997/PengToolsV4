@@ -101,7 +101,7 @@ const quoteTitle = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(110deg, var(--aurora-start), var(--aurora-mid) 60%, var(--aurora-end));
+  background: linear-gradient(110deg, var(--primary-soft), var(--surface-soft) 60%, var(--surface));
   border: 1px solid var(--border);
   box-shadow: 0 4px 14px var(--shadow-l2);
   overflow: hidden;
@@ -165,7 +165,7 @@ const quoteTitle = computed(() => {
   color: var(--text-muted);
   margin: 4px 0 14px 0;
   line-height: 1.5;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .date-part {
@@ -177,8 +177,13 @@ const quoteTitle = computed(() => {
 .quote-part {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
   max-width: 460px;
+  min-width: 0;
 }
 
 .quote-next {
@@ -207,6 +212,7 @@ const quoteTitle = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .btn {
@@ -319,12 +325,12 @@ const quoteTitle = computed(() => {
   }
 }
 
-:global(body.motion-disabled) .orb-inner,
-:global([data-motion="disabled"]) .orb-inner {
+:global(body.motion-disabled .orb-inner),
+:global([data-motion="disabled"] .orb-inner){
   animation: none !important;
 }
 
-:global(body.page-hidden) .orb-inner {
+:global(body.page-hidden .orb-inner){
   animation-play-state: paused !important;
 }
 </style>
