@@ -722,7 +722,12 @@ class ReleaseUiTests(unittest.TestCase):
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
         self.assertGreaterEqual(panel.release_date.minimumWidth(), 150)
         # SQL 加载按钮属于“SQL 脚本整理”页内部，不再作为顶部全局工具条
-        self.assertIs(panel.load_btn.parent().parent(), panel.tabs.widget(1))
+        self.assertTrue(panel.tabs.widget(1).isAncestorOf(panel.load_btn))
+        self.assertTrue(panel.processing_scroll.widget().isAncestorOf(panel.load_btn))
+        # The same import button still reaches the original file picker.
+        with patch('panels.sql_panel.QFileDialog.getOpenFileNames', return_value=([], '')) as picker:
+            panel.load_btn.click()
+            picker.assert_called_once()
         self.assertEqual(panel.refresh_release_btn.text(), '刷新候选')
         # 打开后会自动按当前日期加载（兼容旧方法名）
         self.app.processEvents()
@@ -961,6 +966,7 @@ class ReleaseUiTests(unittest.TestCase):
         old_exe = r'D:\PengToolsPrivate\PengToolsHub_Private_V4.24.exe'
         new_exe = r'D:\PengToolsPrivate\PengToolsHub.exe'
         self.assertEqual(local_data_dir(old_exe, True), local_data_dir(new_exe, True))
+        self.assertNotEqual(local_data_dir(new_exe, True), local_data_dir(r'D:\OtherInstall\PengToolsHub.exe', True))
 
         legacy = {
             'id': 'legacy', 'record_kind': '需求', 'code': 'REQ-OLD', 'title': '旧版需求',

@@ -184,7 +184,15 @@ if __name__ == '__main__':
     import config
     with tempfile.TemporaryDirectory(prefix='prism-web-runtime-') as temporary:
         original = Path(config.CONFIG_DIR).resolve()
-        config.local_data_dir = lambda: temporary
+        real_local_data_dir = config.local_data_dir
+        def isolated_local_data_dir(executable=None, frozen=None):
+            # Default application IO stays in the temporary directory. Explicit
+            # executable arguments exercise the original pure path calculation
+            # (it does not create or read any directory).
+            if executable is not None:
+                return real_local_data_dir(executable, frozen)
+            return temporary
+        config.local_data_dir = isolated_local_data_dir
         for key, value in list(vars(config).items()):
             if key.isupper() and isinstance(value, str):
                 try:
