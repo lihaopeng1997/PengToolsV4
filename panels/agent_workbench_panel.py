@@ -250,7 +250,8 @@ class AgentWorkbenchPanel(QWidget):
         # 中栏：消息流 + 输入框
         self.center_split = QSplitter(Qt.Orientation.Vertical)
         self.center_split.setChildrenCollapsible(False)
-        self.center_split.setHandleWidth(8)
+        self.center_split.setHandleWidth(16)
+        self.center_split.setProperty('prismGutter', True)
 
         thread_container = QFrame()
         thread_container.setObjectName('agent-thread-card')
@@ -286,7 +287,7 @@ class AgentWorkbenchPanel(QWidget):
 
         self.input = QPlainTextEdit()
         self.input.setObjectName('agent-composer-input')
-        self.input.setMinimumHeight(100)
+        self.input.setMinimumHeight(120)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
         composer_l.addWidget(self.input, 1)
@@ -342,6 +343,8 @@ class AgentWorkbenchPanel(QWidget):
 
         self.context_split = QSplitter(Qt.Orientation.Vertical)
         self.context_split.setChildrenCollapsible(False)
+        self.context_split.setHandleWidth(16)
+        self.context_split.setProperty('prismGutter', True)
 
         # 项目文件树
         tree_box = QWidget()

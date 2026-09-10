@@ -302,7 +302,7 @@ class MainWindow(QMainWindow):
                 pass
         if hasattr(panel, 'apply_layout_mode'):
             try:
-                panel.apply_layout_mode(self._layout_mode, False)
+                panel.apply_layout_mode(self._layout_mode, self._layout_controller.low_height)
             except Exception:
                 pass
 
@@ -1196,7 +1196,7 @@ class MainWindow(QMainWindow):
             apply_icon(self._collapse_btn, 'collapse', size=14)
             self._collapse_btn.setToolTip('收起导航栏' if zh else 'Collapse sidebar')
         self._sidebar.setProperty('collapsed', self._nav_collapsed)
-        self._on_layout_mode(self._layout_mode, False)
+        self._on_layout_mode(self._layout_mode, self._layout_controller.low_height)
         if persist:
             from config import save_settings
             self._settings['sidebar_collapsed'] = self._nav_collapsed

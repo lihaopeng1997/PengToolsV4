@@ -126,6 +126,26 @@ class MainWindowClientShellTests(unittest.TestCase):
     def setUpClass(cls):
         cls.win = _get_window()
 
+    def test_low_height_survives_new_panel_and_sidebar_toggle(self):
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        panel = AgentWorkbenchPanel()
+        old_collapsed = self.win._nav_collapsed
+        try:
+            self.win._layout_controller.force(960, 640)
+            self.win._apply_panel_chrome(panel)
+            self.assertTrue(panel.page_subtitle.isHidden())
+            self.win._set_nav_collapsed(not old_collapsed, persist=False)
+            self.assertTrue(self.win._layout_controller.low_height)
+            self.win._apply_panel_chrome(panel)
+            self.assertTrue(panel.page_subtitle.isHidden())
+            self.win._layout_controller.force(1440, 900)
+            self.win._apply_panel_chrome(panel)
+            self.assertFalse(panel.page_subtitle.isHidden())
+        finally:
+            self.win._set_nav_collapsed(old_collapsed, persist=False)
+            self.win._on_layout_mode('standard', False)
+            panel.deleteLater()
+
     def test_client_shell_geometry_and_hierarchy(self):
         # 1. content_area: margins 0, spacing 0
         content_margins = self.win._content_layout.contentsMargins()

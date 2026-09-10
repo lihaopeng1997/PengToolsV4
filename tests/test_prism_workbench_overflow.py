@@ -86,6 +86,82 @@ class WorkbenchOverflowTests(unittest.TestCase):
             # No listener is started by this geometry test.
             self.dispose(panel)
 
+    def test_agent_composer_and_context_toggle_keep_draft(self):
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=13)
+        panel = AgentWorkbenchPanel()
+        try:
+            panel.input.setPlainText('Preview draft; do not execute')
+            for width, height, mode in ((1144, 740, 'standard'), (856, 528, 'narrow')):
+                panel.apply_layout_mode(mode, height < 640)
+                panel.resize(width, height)
+                panel.show()
+                self.settle()
+                panel.resize(width, height)
+                self.settle()
+                self.assertEqual((panel.width(), panel.height()), (width, height))
+                self.assertGreaterEqual(panel.input.height(), 120)
+                for splitter in (panel.center_split, panel.context_split):
+                    self.assertEqual(splitter.handle(1).height(), 16)
+                for _ in range(2):
+                    was_hidden = panel.context_panel.isHidden()
+                    panel.context_toggle_btn.click()
+                    self.settle()
+                    self.assertNotEqual(panel.context_panel.isHidden(), was_hidden)
+                    self.assertEqual(panel.input.toPlainText(), 'Preview draft; do not execute')
+                self.assertTrue(panel.composer_card.rect().contains(QRect(panel.send_btn.mapTo(panel.composer_card, QPoint()), panel.send_btn.size())))
+        finally:
+            self.dispose(panel)
+
+    def test_requirement_tree_actions_fit_and_still_expand(self):
+        from panels.requirement_panel import RequirementPanel
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=13)
+        with patch('panels.requirement_panel.load_requirements', return_value=[]):
+            panel = RequirementPanel()
+        try:
+            panel.apply_layout_mode('narrow', True)
+            panel.resize(856, 528)
+            panel.show()
+            self.settle()
+            panel.resize(856, 528)
+            self.settle()
+            self.assertEqual((panel.width(), panel.height()), (856, 528))
+            rail = panel.detail_splitter.widget(0)
+            rects = []
+            for widget in (panel.select_all_check, panel.batch_delete_btn, panel.ticket_btn, panel.expand_tree_btn, panel.collapse_tree_btn):
+                rect = QRect(widget.mapTo(rail, QPoint()), widget.size())
+                self.assertTrue(rail.rect().contains(rect))
+                for other in rects:
+                    self.assertFalse(rect.intersects(other))
+                rects.append(rect)
+            group = QTreeWidgetItem(panel.requirement_list, ['Preview group'])
+            QTreeWidgetItem(group, ['Preview task'])
+            panel.expand_tree_btn.click()
+            self.assertTrue(group.isExpanded())
+            panel.collapse_tree_btn.click()
+            self.assertFalse(group.isExpanded())
+        finally:
+            self.dispose(panel)
+
+    def test_commands_preview_keeps_copy_action_reachable(self):
+        from panels.ops_panel import OpsPanel
+        panel = OpsPanel()
+        try:
+            panel.apply_layout_mode('narrow', True)
+            panel.resize(856, 528)
+            panel.show()
+            self.settle()
+            panel.generate_btn.click()
+            self.assertGreaterEqual(panel.preview.height(), 240)
+            self.assertTrue(panel.rect().contains(QRect(panel.copy_btn.mapTo(panel, QPoint()), panel.copy_btn.size())))
+            self.assertTrue(panel.preview.isReadOnly())
+            self.assertTrue(panel.preview.toPlainText())
+        finally:
+            self.dispose(panel)
+
 
 if __name__ == '__main__':
     unittest.main()

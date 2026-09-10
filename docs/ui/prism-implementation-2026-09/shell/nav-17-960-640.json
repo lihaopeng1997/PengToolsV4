@@ -1,0 +1,21 @@
+{
+  "nav": 17,
+  "requested": [
+    960,
+    640
+  ],
+  "window": [
+    960,
+    640
+  ],
+  "page": [
+    856,
+    528
+  ],
+  "chrome": "web",
+  "dashboard": "web",
+  "actual_nav": 17,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": false
+}

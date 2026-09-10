@@ -1011,8 +1011,9 @@ QSplitter[prismGutter="true"]::handle:horizontal:hover {
     background: __PRIMARY__;
 }
 QSplitter#requirement-splitter::handle:horizontal {
-    margin: 0 3px;
-    background: __BORDER_STRONG__;
+    width: 2px;
+    margin: 0 7px;
+    background: __BORDER__;
     border: none;
     border-radius: 1px;
 }

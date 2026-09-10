@@ -1560,7 +1560,8 @@ class RequirementPanel(QWidget):
 
         self.detail_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.detail_splitter.setObjectName('requirement-splitter')
-        self.detail_splitter.setHandleWidth(8)
+        self.detail_splitter.setHandleWidth(16)
+        self.detail_splitter.setProperty('prismGutter', True)
         self.detail_splitter.setChildrenCollapsible(False)
         self.detail_splitter.setOpaqueResize(True)
         left = QFrame(); left.setObjectName('req-tree-card'); left_layout = QVBoxLayout(left)
@@ -1577,8 +1578,9 @@ class RequirementPanel(QWidget):
         tree_head.addWidget(self.tree_count_label)
         tree_head.addStretch(1)
         left_layout.addLayout(tree_head)
-        # 单行工具栏：全选 | 删除 | stretch | 展开 | 折叠（设计文档硬性要求，禁止拆两行）
-        tree_tools = QHBoxLayout()
+        # Keep every existing action reachable when the tree rail is narrow.
+        from ui.wrap_layout import WrapLayout
+        tree_tools = WrapLayout()
         tree_tools.setContentsMargins(0, 0, 0, 0)
         tree_tools.setSpacing(8)
         self.select_all_check = QCheckBox('全选')
@@ -1620,7 +1622,6 @@ class RequirementPanel(QWidget):
         except Exception:
             pass
         tree_tools.addWidget(self.ticket_btn)
-        tree_tools.addStretch(1)
         tree_tools.addWidget(self.expand_tree_btn)
         tree_tools.addWidget(self.collapse_tree_btn)
         left_layout.addLayout(tree_tools)
@@ -2089,7 +2090,12 @@ class RequirementPanel(QWidget):
             self.detail_splitter.splitterMoved.connect(
                 lambda _position, _index: self._splitter_save_timer.start()
             )
-        root.addWidget(self.detail_splitter, 1)
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setObjectName('requirement-workspace-scroll')
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setWidget(self.detail_splitter)
+        root.addWidget(self.workspace_scroll, 1)
         self._clamp_file_library_action_heights()
 
     def _content_stack_sizes(self):

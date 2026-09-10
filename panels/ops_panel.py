@@ -268,7 +268,7 @@ class OpsPanel(QWidget):
         self.preview = QPlainTextEdit()
         self.preview.setObjectName('ops-preview')
         self.preview.setReadOnly(True)
-        self.preview.setMinimumHeight(125)
+        self.preview.setMinimumHeight(240)
         detail.addWidget(self.preview)
         self.output_title = QLabel()
         self.output_title.setObjectName('zone-title')
