@@ -26,6 +26,7 @@ ICON_FILES = {
     'app_legacy_ico': ('resources', 'app.ico'),
     'app_legacy_png': ('resources', 'app-icon.png'),
     'dropdown': ('resources', 'chevron_down.svg'),
+    'chevron-up': ('resources', 'icons', 'chevron-up.svg'),
     'chevron-right': ('resources', 'icons', 'chevron-right.svg'),
     'chevron-down-tree': ('resources', 'icons', 'chevron-down-tree.svg'),
     'check': ('resources', 'check_white.svg'),

@@ -19,6 +19,8 @@ def main():
                         and row.get('bridge_ready_pages') == ['chrome', 'dashboard'])
         size = ' × '.join(map(str, row['window']))
         variant = f" · 页签 {row['tab'] + 1}" if 'tab' in row else ''
+        if row.get('sample'):
+            variant += ' · 示例数据'
         if row.get('collapsed'):
             variant += ' · 侧栏折叠偏好'
         status = '已记录网页就绪与选中状态' if verified else '旧采样：未核对网页就绪'

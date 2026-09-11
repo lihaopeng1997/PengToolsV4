@@ -396,12 +396,15 @@ class ThemeManager:
             from ui.icons import icon_url, tinted_icon_url
             dropdown_tint = palette.get('TEXT_MUTED') or palette.get('PRIMARY_ACTIVE') or '#8A8A90'
             arrow = tinted_icon_url('dropdown', dropdown_tint) or icon_url('dropdown')
+            up_arrow = tinted_icon_url('chevron-up', dropdown_tint) or icon_url('chevron-up')
             check = icon_url('check')
         except Exception:
             resource_dir = os.path.dirname(self._template_path) if self._template_path else ''
             arrow = os.path.join(resource_dir, 'chevron_down.svg').replace('\\', '/')
+            up_arrow = os.path.join(resource_dir, 'icons', 'chevron-up.svg').replace('\\', '/')
             check = os.path.join(resource_dir, 'check_white.svg').replace('\\', '/')
         qss = qss.replace('__DROPDOWN_ARROW__', arrow).replace('__CHECKMARK__', check)
+        qss = qss.replace('__SPIN_UP_ARROW__', up_arrow)
         try:
             from ui.icons import tinted_icon_url
             branch_tint = palette.get('PRIMARY_ACTIVE') or palette.get('TEXT_STRONG') or '#6C58D9'

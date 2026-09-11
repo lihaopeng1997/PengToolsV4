@@ -37,14 +37,19 @@ def main(args):
             # Navigate after both WebChannel pages are ready, as a real click
             # would; otherwise the initial chrome payload still selects home.
             window._show_panel(args.nav)
+            panel = window.stack.currentWidget()
             if args.tab is not None:
-                panel = window.stack.currentWidget()
                 if args.nav == 7:
                     panel.section_picker.setCurrentIndex(args.tab)
                 elif hasattr(panel, 'tabs'):
                     panel.tabs.setCurrentIndex(args.tab)
                 else:
                     raise ValueError('This preview page has no supported tab selector')
+            if args.sample and args.nav == 7:
+                panel._refresh_ai_list({'active_model_id': 'preview-a', 'items': [
+                    {'id': 'preview-a', 'name': '示例 · 日常助手', 'model': 'demo-chat', 'enabled': False},
+                    {'id': 'preview-b', 'name': '示例 · 文档校对', 'model': 'demo-review', 'enabled': False},
+                ]})
             window.resize(args.width, args.height)
             window._layout_controller.force(args.width, args.height)
             QTimer.singleShot(1000, inspect_chrome)
@@ -78,6 +83,9 @@ def main(args):
             name = f'nav-{args.nav}-{args.width}-{args.height}' + ('-collapsed' if args.collapsed else '')
             if args.tab is not None:
                 name += f'-tab-{args.tab}'
+            if args.sample and args.nav == 7:
+                name += '-sample'
+                result['sample'] = True
             window.grab().save(str(folder / (name + '.png')))
             (folder / (name + '.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(result, ensure_ascii=False), flush=True)

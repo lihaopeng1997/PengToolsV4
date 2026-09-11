@@ -982,26 +982,67 @@ QSplitter::handle:horizontal {
 QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
-QListWidget[prismDialogList="true"] {
+QListWidget[prismDialogList="true"], QListWidget#settings-model-list {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
     padding: 8px;
     outline: none;
 }
-QListWidget[prismDialogList="true"]::item {
+QListWidget[prismDialogList="true"]::item, QListWidget#settings-model-list::item {
     min-height: 36px;
     padding: 4px 8px;
     border-radius: 8px;
     color: __TEXT__;
 }
-QListWidget[prismDialogList="true"]::item:selected {
+QListWidget[prismDialogList="true"]::item:selected, QListWidget#settings-model-list::item:selected {
     background: __PRIMARY_SOFT__;
     color: __PRIMARY_ACTIVE__;
 }
-QListWidget[prismDialogList="true"]::item:hover {
+QListWidget[prismDialogList="true"]::item:hover, QListWidget#settings-model-list::item:hover {
     background: __SURFACE_SOFT__;
 }
+QListWidget#settings-model-list::item:selected:hover {
+    background: __PRIMARY_SOFT__;
+}
+QListWidget#settings-model-list:disabled {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_MUTED__;
+}
+QTimeEdit#settings-reminder-time QLineEdit {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+}
+QTimeEdit#settings-reminder-time::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 28px;
+    border-left: 1px solid __BORDER__;
+    border-bottom: 1px solid __BORDER__;
+    border-top-right-radius: 12px;
+    background: __SURFACE_SOFT__;
+}
+QTimeEdit#settings-reminder-time::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 28px;
+    border-left: 1px solid __BORDER__;
+    border-bottom-right-radius: 12px;
+    background: __SURFACE_SOFT__;
+}
+QTimeEdit#settings-reminder-time::up-button:hover,
+QTimeEdit#settings-reminder-time::down-button:hover {
+    background: __PRIMARY_SOFT__;
+}
+QTimeEdit#settings-reminder-time::up-arrow,
+QTimeEdit#settings-reminder-time::down-arrow {
+    width: 9px;
+    height: 9px;
+}
+QTimeEdit#settings-reminder-time::up-arrow { image: url("__SPIN_UP_ARROW__"); }
+QTimeEdit#settings-reminder-time::down-arrow { image: url("__DROPDOWN_ARROW__"); }
 QSplitter[prismGutter="true"]::handle:horizontal {
     width: 2px;
     margin: 0 7px;

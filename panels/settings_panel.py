@@ -383,6 +383,7 @@ class SettingsPanel(QWidget):
             from PyQt6.QtWidgets import QTimeEdit
             from PyQt6.QtCore import QTime
             self.reminder_time = QTimeEdit()
+            self.reminder_time.setObjectName('settings-reminder-time')
             self.reminder_time.setDisplayFormat('HH:mm')
             size_field_height(self.reminder_time)
             self._reminder_uses_timeedit = True
@@ -505,6 +506,7 @@ class SettingsPanel(QWidget):
         self.ai_group.setProperty('settingsSectionCard', True)
         ai_outer = QVBoxLayout(self.ai_group)
         self.ai_list = QListWidget()
+        self.ai_list.setObjectName('settings-model-list')
         self.ai_list.setMaximumHeight(110)
         self.ai_list.currentItemChanged.connect(self._on_ai_item_changed)
         ai_outer.addWidget(self.ai_list)
@@ -878,6 +880,7 @@ class SettingsPanel(QWidget):
             mark = '★ ' if item.get('id') == data.get('active_model_id') else ''
             label = f"{mark}{item.get('name') or ''} · {item.get('model') or ''}"
             row = QListWidgetItem(label)
+            row.setToolTip(label)
             row.setData(Qt.ItemDataRole.UserRole, item)
             self.ai_list.addItem(row)
             if item.get('id') == current:
