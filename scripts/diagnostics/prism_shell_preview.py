@@ -47,7 +47,19 @@ def main(args):
                     raise ValueError('This preview page has no supported tab selector')
             window.resize(args.width, args.height)
             window._layout_controller.force(args.width, args.height)
-            QTimer.singleShot(1000, finish)
+            QTimer.singleShot(1000, inspect_chrome)
+        def inspect_chrome():
+            window._chrome_web.web_page.runJavaScript(
+                "({sidebar:!!document.querySelector('.sidebar'),"
+                "active:[...document.querySelectorAll('.nav-item.active .nav-text')].map(e=>e.textContent.trim()),"
+                "width:innerWidth,scrollWidth:document.documentElement.scrollWidth})",
+                chrome_inspected)
+        def chrome_inspected(dom):
+            result['chrome_dom'] = dom
+            result['expected_active_label'] = window._context_header.name_label.text()
+            result['loaded_pages'] = sorted(window._web_health.loaded_pages)
+            result['bridge_ready_pages'] = sorted(window._web_health.bridge_ready_pages)
+            finish()
         def finish():
             page = window.stack.currentWidget()
             result.update(nav=args.nav, requested=[args.width, args.height],
@@ -74,7 +86,7 @@ def main(args):
             window.deleteLater()
             QTimer.singleShot(100, app.quit)
         def ready():
-            if window.main_shell_renderer == 'web' and window.dashboard_renderer == 'web':
+            if window._web_health.is_ready() and window.main_shell_renderer == 'web' and window.dashboard_renderer == 'web':
                 probe.stop()
                 QTimer.singleShot(1000, capture)
         probe.timeout.connect(ready)
@@ -90,3 +102,8 @@ def main(args):
             raise SystemExit(4)
         if args.tab is not None and result['actual_tab'] != args.tab:
             raise SystemExit(5)
+        dom = result.get('chrome_dom') or {}
+        if not dom.get('sidebar') or dom.get('active') != [result['expected_active_label']]:
+            raise SystemExit(6)
+        if dom['scrollWidth'] > dom['width']:
+            raise SystemExit(7)

@@ -1,13 +1,13 @@
 {
   "chrome_dom": {
     "active": [
-      "设置"
+      "证件类型"
     ],
     "scrollWidth": 72,
     "sidebar": true,
     "width": 72
   },
-  "expected_active_label": "设置",
+  "expected_active_label": "证件类型",
   "loaded_pages": [
     "chrome",
     "dashboard"
@@ -16,7 +16,7 @@
     "chrome",
     "dashboard"
   ],
-  "nav": 7,
+  "nav": 1,
   "requested": [
     960,
     640
@@ -31,7 +31,7 @@
   ],
   "chrome": "web",
   "dashboard": "web",
-  "actual_nav": 7,
+  "actual_nav": 1,
   "context_height": 52,
   "status_height": 28,
   "collapsed": false

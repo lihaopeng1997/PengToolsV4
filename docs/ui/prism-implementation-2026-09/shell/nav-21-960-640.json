@@ -1,13 +1,13 @@
 {
   "chrome_dom": {
     "active": [
-      "设置"
+      "达梦"
     ],
     "scrollWidth": 72,
     "sidebar": true,
     "width": 72
   },
-  "expected_active_label": "设置",
+  "expected_active_label": "达梦",
   "loaded_pages": [
     "chrome",
     "dashboard"
@@ -16,7 +16,7 @@
     "chrome",
     "dashboard"
   ],
-  "nav": 7,
+  "nav": 21,
   "requested": [
     960,
     640
@@ -31,7 +31,7 @@
   ],
   "chrome": "web",
   "dashboard": "web",
-  "actual_nav": 7,
+  "actual_nav": 21,
   "context_height": 52,
   "status_height": 28,
   "collapsed": false

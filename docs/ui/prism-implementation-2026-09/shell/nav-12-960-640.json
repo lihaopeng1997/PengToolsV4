@@ -1,4 +1,21 @@
 {
+  "chrome_dom": {
+    "active": [
+      "接口排查"
+    ],
+    "scrollWidth": 72,
+    "sidebar": true,
+    "width": 72
+  },
+  "expected_active_label": "接口排查",
+  "loaded_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "bridge_ready_pages": [
+    "chrome",
+    "dashboard"
+  ],
   "nav": 12,
   "requested": [
     960,

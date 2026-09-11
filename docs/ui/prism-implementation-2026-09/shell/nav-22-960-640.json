@@ -1,13 +1,13 @@
 {
   "chrome_dom": {
     "active": [
-      "设置"
+      "Redis"
     ],
     "scrollWidth": 72,
     "sidebar": true,
     "width": 72
   },
-  "expected_active_label": "设置",
+  "expected_active_label": "Redis",
   "loaded_pages": [
     "chrome",
     "dashboard"
@@ -16,7 +16,7 @@
     "chrome",
     "dashboard"
   ],
-  "nav": 7,
+  "nav": 22,
   "requested": [
     960,
     640
@@ -31,7 +31,7 @@
   ],
   "chrome": "web",
   "dashboard": "web",
-  "actual_nav": 7,
+  "actual_nav": 22,
   "context_height": 52,
   "status_height": 28,
   "collapsed": false
