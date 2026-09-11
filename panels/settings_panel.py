@@ -472,7 +472,7 @@ class SettingsPanel(QWidget):
         self.oracle_mode.addItem('', 'auto')
         self.oracle_mode.addItem('Thin', 'thin')
         self.oracle_mode.addItem('Thick', 'thick')
-        size_enum_combo(self.oracle_mode)
+        size_enum_combo(self.oracle_mode, min_w=200, max_w=280)
         self.oracle_mode_label = QLabel()
         oracle_form.addRow(self.oracle_mode_label, self.oracle_mode)
         self.oracle_home = QLineEdit()

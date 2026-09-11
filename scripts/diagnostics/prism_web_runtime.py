@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--motion', action='store_true')
     parser.add_argument('--shell', action='store_true')
     parser.add_argument('--nav', type=int, default=0)
+    parser.add_argument('--tab', type=int, default=None)
     parser.add_argument('--collapsed', action='store_true')
     args = parser.parse_args()
     if args.shell:

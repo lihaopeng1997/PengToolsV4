@@ -162,6 +162,75 @@ class WorkbenchOverflowTests(unittest.TestCase):
         finally:
             self.dispose(panel)
 
+    def test_format_tabs_keep_text_and_run_original_conversion(self):
+        from panels.format_panel import FormatToolsPanel
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=13)
+        panel = FormatToolsPanel()
+        try:
+            sample = '晴空 Prism / ' * 100
+            panel.text_tab.input.setPlainText(sample)
+            panel.sql_tab.editor.setPlainText('select 42 from dual;')
+            for width, height, mode in ((1144, 740, 'standard'), (856, 528, 'narrow')):
+                panel.apply_layout_mode(mode, height < 640)
+                panel.resize(width, height)
+                panel.show()
+                for index in range(panel.tabs.count()):
+                    panel.tabs.setCurrentIndex(index)
+                    self.settle()
+                    self.assertEqual((panel.width(), panel.height()), (width, height))
+                    self.assertEqual(panel.text_tab.input.toPlainText(), sample)
+                    self.assertEqual(panel.sql_tab.editor.toPlainText(), 'select 42 from dual;')
+                    if index in (1, 2):
+                        button = (panel.xml_workspace if index == 1 else panel.sql_tab).format_btn
+                        toolbar = button.parentWidget()
+                        rects = []
+                        for action in toolbar.findChildren(QPushButton):
+                            if not action.isVisible():
+                                continue
+                            rect = QRect(action.mapTo(toolbar, QPoint()), action.size())
+                            self.assertTrue(toolbar.rect().contains(rect))
+                            self.assertGreaterEqual(action.width(), action.sizeHint().width())
+                            for other in rects:
+                                self.assertFalse(rect.intersects(other))
+                            rects.append(rect)
+            self.assertEqual(panel.text_tab.vsplit.handle(1).height(), 16)
+            self.assertEqual(panel.xml_workspace.splitter.handle(1).height(), 16)
+            panel.xml_workspace.input_edit.setPlainText('<root><name>晴空</name></root>')
+            panel.xml_workspace.format_btn.click()
+            self.assertIn('<name>晴空</name>', panel.xml_workspace.output_edit.toPlainText())
+            panel.text_tab.encode_btn.click()
+            encoded = panel.text_tab.output.toPlainText()
+            self.assertTrue(encoded)
+            panel.text_tab.input.setPlainText(encoded)
+            panel.text_tab.decode_btn.click()
+            self.assertEqual(panel.text_tab.output.toPlainText(), sample)
+        finally:
+            self.dispose(panel)
+
+    def test_document_editor_keeps_sql_and_import_callback(self):
+        from panels.docx_panel import DocxUpdatePanel
+        panel = DocxUpdatePanel()
+        try:
+            panel.sql_editor.setPlainText('alter table preview add sample varchar(20);')
+            panel.author.setText('Preview author')
+            for width, height, mode in ((1144, 740, 'standard'), (856, 528, 'narrow')):
+                panel.apply_layout_mode(mode, height < 640)
+                panel.resize(width, height)
+                panel.show()
+                self.settle()
+                panel.resize(width, height)
+                self.settle()
+                self.assertEqual((panel.width(), panel.height()), (width, height))
+                self.assertEqual(panel.editor_splitter.handle(1).height(), 16)
+                self.assertEqual(panel.author.text(), 'Preview author')
+                self.assertEqual(panel.sql_editor.toPlainText(), 'alter table preview add sample varchar(20);')
+            with patch('panels.docx_panel.QFileDialog.getOpenFileNames', return_value=([], '')) as picker:
+                panel.load_sql_btn.click()
+                picker.assert_called_once()
+        finally:
+            self.dispose(panel)
+
 
 if __name__ == '__main__':
     unittest.main()

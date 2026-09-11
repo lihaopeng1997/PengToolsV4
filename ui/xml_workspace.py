@@ -57,7 +57,8 @@ class XmlWorkspace(QWidget):
         toolbar = QFrame()
         apply_surface(toolbar, 'zone')
         toolbar.setObjectName('xml-toolbar')
-        tools = QHBoxLayout(toolbar)
+        from ui.wrap_layout import WrapLayout
+        tools = WrapLayout(toolbar)
         tools.setContentsMargins(10, 8, 10, 8)
         tools.setSpacing(8)
 
@@ -80,8 +81,6 @@ class XmlWorkspace(QWidget):
         apply_button(self.format_btn, 'secondary', compact=True, icon='xml', icon_size=16)
         self.format_btn.clicked.connect(self._format)
         tools.addWidget(self.format_btn)
-
-        tools.addStretch(1)
 
         self.wrap_check = QCheckBox()
         self.wrap_check.setObjectName('xml-wrap-check')
@@ -149,6 +148,8 @@ class XmlWorkspace(QWidget):
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setObjectName('xml-splitter')
+        self.splitter.setHandleWidth(16)
+        self.splitter.setProperty('prismGutter', True)
         self.splitter.setChildrenCollapsible(False)
 
         left = QWidget()

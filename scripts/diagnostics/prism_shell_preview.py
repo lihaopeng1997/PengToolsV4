@@ -37,9 +37,17 @@ def main(args):
             # Navigate after both WebChannel pages are ready, as a real click
             # would; otherwise the initial chrome payload still selects home.
             window._show_panel(args.nav)
+            if args.tab is not None:
+                panel = window.stack.currentWidget()
+                if args.nav == 7:
+                    panel.section_picker.setCurrentIndex(args.tab)
+                elif hasattr(panel, 'tabs'):
+                    panel.tabs.setCurrentIndex(args.tab)
+                else:
+                    raise ValueError('This preview page has no supported tab selector')
             window.resize(args.width, args.height)
             window._layout_controller.force(args.width, args.height)
-            QTimer.singleShot(300, finish)
+            QTimer.singleShot(1000, finish)
         def finish():
             page = window.stack.currentWidget()
             result.update(nav=args.nav, requested=[args.width, args.height],
@@ -49,9 +57,15 @@ def main(args):
                           actual_nav=window._current_nav_index,
                           context_height=window._context_header.height(),
                           status_height=window.statusBar().height(), collapsed=args.collapsed)
+            if args.tab is not None:
+                actual_tab = (page.sections_stack.currentIndex() if args.nav == 7
+                              else page.tabs.currentIndex())
+                result.update(tab=args.tab, actual_tab=actual_tab)
             folder = root / 'docs/ui/prism-implementation-2026-09/shell'
             folder.mkdir(parents=True, exist_ok=True)
             name = f'nav-{args.nav}-{args.width}-{args.height}' + ('-collapsed' if args.collapsed else '')
+            if args.tab is not None:
+                name += f'-tab-{args.tab}'
             window.grab().save(str(folder / (name + '.png')))
             (folder / (name + '.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(result, ensure_ascii=False), flush=True)
@@ -74,3 +88,5 @@ def main(args):
             raise SystemExit(code or 3)
         if result['window'] != result['requested'] or result['actual_nav'] != args.nav:
             raise SystemExit(4)
+        if args.tab is not None and result['actual_tab'] != args.tab:
+            raise SystemExit(5)

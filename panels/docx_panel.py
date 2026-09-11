@@ -268,7 +268,8 @@ class DocxUpdatePanel(QWidget):
         work_layout.setContentsMargins(0, 0, 0, 0)
         work_split = QSplitter(Qt.Orientation.Vertical)
         work_split.setObjectName('docx-editor-splitter')
-        work_split.setHandleWidth(8)
+        work_split.setHandleWidth(16)
+        work_split.setProperty('prismGutter', True)
         work_split.setChildrenCollapsible(False)
         self.editor_splitter = work_split
         input_box = QWidget()

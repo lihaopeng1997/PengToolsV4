@@ -63,7 +63,8 @@ class _SqlFormatTab(QWidget):
         root.setContentsMargins(0, 8, 0, 0)
         root.setSpacing(8)
 
-        tools = QHBoxLayout()
+        from ui.wrap_layout import WrapLayout
+        tools = WrapLayout()
         tools.setSpacing(8)
         self.paste_btn = QPushButton()
         apply_button(self.paste_btn, 'secondary', compact=True, icon='edit', icon_size=16)
@@ -89,7 +90,6 @@ class _SqlFormatTab(QWidget):
         apply_button(self.validate_btn, 'ghost', compact=True, icon='info', icon_size=16)
         self.validate_btn.clicked.connect(self._validate)
         tools.addWidget(self.validate_btn)
-        tools.addStretch(1)
         self.copy_btn = QPushButton()
         apply_button(self.copy_btn, 'secondary', compact=True, icon='copy', icon_size=16)
         self.copy_btn.clicked.connect(self._copy)
@@ -311,7 +311,8 @@ class _TextDevHelpersTab(QWidget):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.vsplit = QSplitter(Qt.Orientation.Vertical)
         self.vsplit.setChildrenCollapsible(False)
-        self.vsplit.setHandleWidth(6)
+        self.vsplit.setHandleWidth(16)
+        self.vsplit.setProperty('prismGutter', True)
         self.input = QPlainTextEdit()
         self.input.setObjectName('text-helper-input')
         self.input.setFont(mono)
