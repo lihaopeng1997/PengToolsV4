@@ -22,6 +22,8 @@ def main(args):
     settings = dict(config.DEFAULT_SETTINGS)
     settings.update(ui_web_shell=True, floating_enabled=False, private_unlocked=True,
                     sidebar_collapsed=args.collapsed, home_username='演示用户')
+    if args.font is not None:
+        settings['font_size'] = args.font
     result = {}
     root = Path(__file__).resolve().parents[2]
     with patch('main_window.load_settings', return_value=settings), \
@@ -86,7 +88,18 @@ def main(args):
             if args.sample and args.nav == 7:
                 name += '-sample'
                 result['sample'] = True
-            window.grab().save(str(folder / (name + '.png')))
+            if args.expected_dpr is not None:
+                name += f'-dpr-{round(args.expected_dpr * 100)}'
+            if args.font is not None:
+                name += f'-font-{args.font}'
+            pixmap = window.grab()
+            result['window_dpr'] = window.devicePixelRatioF()
+            result['image_pixels'] = [pixmap.width(), pixmap.height()]
+            result['font_size'] = settings['font_size']
+            if args.expected_dpr is not None:
+                result['expected_dpr'] = args.expected_dpr
+                result['qt_scale_factor'] = os.environ.get('QT_SCALE_FACTOR')
+            pixmap.save(str(folder / (name + '.png')))
             (folder / (name + '.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(result, ensure_ascii=False), flush=True)
             window._force_exit = True
@@ -115,3 +128,9 @@ def main(args):
             raise SystemExit(6)
         if dom['scrollWidth'] > dom['width']:
             raise SystemExit(7)
+        if args.expected_dpr is not None and abs(result['window_dpr'] - args.expected_dpr) > 0.02:
+            raise SystemExit(8)
+        if args.expected_dpr is not None:
+            expected_pixels = [round(value * args.expected_dpr) for value in result['requested']]
+            if result['image_pixels'] != expected_pixels:
+                raise SystemExit(9)

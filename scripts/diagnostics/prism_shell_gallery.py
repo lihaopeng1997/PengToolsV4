@@ -21,6 +21,8 @@ def main():
         variant = f" · 页签 {row['tab'] + 1}" if 'tab' in row else ''
         if row.get('sample'):
             variant += ' · 示例数据'
+        if row.get('expected_dpr') is not None:
+            variant += f" · DPR {row['window_dpr']:g} · {row['font_size']}px字体"
         if row.get('collapsed'):
             variant += ' · 侧栏折叠偏好'
         status = '已记录网页就绪与选中状态' if verified else '旧采样：未核对网页就绪'

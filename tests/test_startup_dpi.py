@@ -64,8 +64,14 @@ class LargeFontNarrowLayoutTests(unittest.TestCase):
 
         self.assertEqual(panel.font_size.value(), 18)
         self.assertGreaterEqual(panel.font_size.height(), panel.fontMetrics().height())
-        self.assertGreater(panel.theme_grid.minimumSize().height(), 0)
-        self.assertTrue(panel.theme_grid.itemAtPosition(0, 0) is not None)
+        # V2.1 keeps one Prism theme; validate the actual presentation instead
+        # of the intentionally empty legacy Light/Dark card grid.
+        self.assertTrue(panel.theme_display.isVisible())
+        self.assertIn('Prism', panel.theme_display.text())
+        self.assertEqual(panel.values()['ui_theme'], 'calm')
+        self.assertEqual((panel.width(), panel.height()), (960, 720))
+        from PyQt6.QtCore import QPoint, QRect
+        self.assertTrue(panel.rect().contains(QRect(panel.save_btn.mapTo(panel, QPoint()), panel.save_btn.size())))
         panel.close()
 
 

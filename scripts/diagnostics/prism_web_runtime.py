@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--nav', type=int, default=0)
     parser.add_argument('--tab', type=int, default=None)
     parser.add_argument('--collapsed', action='store_true')
+    parser.add_argument('--font', type=int, default=None)
+    parser.add_argument('--expected-dpr', type=float, default=None)
     args = parser.parse_args()
     if args.shell:
         from prism_shell_preview import main as preview_shell
