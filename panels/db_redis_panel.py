@@ -12,7 +12,7 @@ import time
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter,
+    QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
 )
@@ -228,6 +228,8 @@ class RedisWorkbenchPanel(QWidget):
 
         # 内部垂直 Splitter：上方 Prefix 树，下方 Key 列表
         self.left_split = QSplitter(Qt.Orientation.Vertical)
+        self.left_split.setHandleWidth(16)
+        self.left_split.setProperty('prismGutter', True)
 
         # 上半部分：Prefix 树
         tree_container = QWidget()
@@ -270,6 +272,7 @@ class RedisWorkbenchPanel(QWidget):
         list_l.addLayout(breadcrumb_bar)
 
         self.key_list = QListWidget()
+        self.key_list.setObjectName('redis-key-list')
         self.key_list.itemClicked.connect(self._on_key_list_clicked)
         list_l.addWidget(self.key_list, 1)
         self.load_more_btn = QPushButton()
@@ -293,6 +296,12 @@ class RedisWorkbenchPanel(QWidget):
 
         # ── 右侧区域 ───────────────────────────────────────────────────────
         self.side_tabs = QTabWidget()
+        def add_scrollable_tab(content, title):
+            scroll = QScrollArea()
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(content)
+            self.side_tabs.addTab(scroll, title)
 
         overview = QWidget()
         ov_l = QVBoxLayout(overview)
@@ -338,7 +347,7 @@ class RedisWorkbenchPanel(QWidget):
         self.info_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.info_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         ov_l.addWidget(self.info_table, 1)
-        self.side_tabs.addTab(overview, 'Overview')
+        add_scrollable_tab(overview, 'Overview')
 
         # Tab 1：Key 详情
         detail = QWidget()
@@ -439,7 +448,7 @@ class RedisWorkbenchPanel(QWidget):
             actions.addWidget(w)
         actions.addStretch(1)
         det_l.addLayout(actions)
-        self.side_tabs.addTab(detail, 'Key 详情')
+        add_scrollable_tab(detail, 'Key 详情')
 
         # Tab 2：AI 助手
         ai_page = QWidget()
@@ -463,7 +472,7 @@ class RedisWorkbenchPanel(QWidget):
         ai_send.addStretch(1)
         ai_send.addWidget(self.ai_send_btn)
         ai_l.addLayout(ai_send)
-        self.side_tabs.addTab(ai_page, 'AI 助手')
+        add_scrollable_tab(ai_page, 'AI 助手')
 
         # 底部命令行（Console 只放右侧下方）
         bottom = QFrame()
@@ -491,6 +500,8 @@ class RedisWorkbenchPanel(QWidget):
 
         # 右侧上下垂直 Splitter：上面是详情页签，下面是控制台
         self._bottom_split = QSplitter(Qt.Orientation.Vertical)
+        self._bottom_split.setHandleWidth(16)
+        self._bottom_split.setProperty('prismGutter', True)
         self._bottom_split.addWidget(self.side_tabs)
         self._bottom_split.addWidget(bottom)
         self._bottom_split.setStretchFactor(0, 3)

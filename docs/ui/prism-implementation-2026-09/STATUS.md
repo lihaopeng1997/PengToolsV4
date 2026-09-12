@@ -2,6 +2,16 @@
 
 更新：2026-09-12。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-12 Redis详情滚动与MongoDB Shell复核
+
+本批基于 `e216da7db8227de17981a12a8d3cf89c3b0cd6b7`。960×640的Redis详情页复现值区与底部操作重叠：值页签要求最小280，但右侧上半区更矮，父布局强行压缩后按钮绘入值区。现在Overview、Key详情和AI内容各自在原页签内滚动，保留原页签顺序与右下控制台；值区仍至少280，操作可通过滚动到达。左右两条垂直分隔统一16细线，Key列表接入圆角/选中样式。所有原按钮信号、编码切换、TTL与命令规则保持。
+
+隔离测试：`tests.test_prism_database_layout` 2项通过，新增50行示例值、值区高度、按钮与值区不重叠、滚动后复制按钮完全进入视口、AI/详情切换后命令和文本保留；原测试覆盖Redis与MongoDB的页签和输入保留。`tests.test_redis_panel_layout` 2项通过，确认右下控制台及主分栏层级保留；`tests.test_redis_overview` 12项通过；`tests.test_nosql_command_guard` 2项通过。共18项通过，均退出0，不连接真实数据库。
+
+最新图：[Redis总览](shell/nav-22-960-640.png)、[空详情](shell/nav-22-960-640-tab-1.png)、[示例值](shell/nav-22-960-640-tab-1-sample.png)、[MongoDB Shell](shell/nav-23-960-640-tab-2.png)。示例值和Shell已查看，主窗口大小、实际侧栏选中和目标页签记录通过；示例数据只用于隔离诊断。详情操作在内容底部，需要向下滚动，已由实际控件回归证明可达。
+
+MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的历史检查，不能代表新详情滚动布局的DPI验收。完整目标中的其他数据类型、长内容/错误/执行取消、实际跨屏及性能检查继续保留。`resources/build_info.json`及五份原阶段报告未纳入本批。
+
 ## 2026-09-12 四档DPR模拟检查
 
 本批基于 `37edb53005ea3f6ba5a22da3c8cd5bb3dedaa2a9`，仅增加诊断、测试适配和截图，不改正式启动或显示策略。新增 `scripts/diagnostics/prism_dpi_matrix.py`：先在子进程测量本机原始DPR（本次1.5），再按目标/原始比例设置仅该子进程的 `QT_SCALE_FACTOR`。Qt文档说明该变量适合测试，其结果会乘上原生DPR，因此不能简单把变量值当作最终缩放比例。[Qt High DPI测试说明](https://doc.qt.io/qt-6/highdpi.html#testing)

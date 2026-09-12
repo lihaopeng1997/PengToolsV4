@@ -45,6 +45,8 @@ def main(args):
                     panel.section_picker.setCurrentIndex(args.tab)
                 elif hasattr(panel, 'tabs'):
                     panel.tabs.setCurrentIndex(args.tab)
+                elif hasattr(panel, 'side_tabs'):
+                    panel.side_tabs.setCurrentIndex(args.tab)
                 else:
                     raise ValueError('This preview page has no supported tab selector')
             if args.sample and args.nav == 7:
@@ -52,6 +54,10 @@ def main(args):
                     {'id': 'preview-a', 'name': '示例 · 日常助手', 'model': 'demo-chat', 'enabled': False},
                     {'id': 'preview-b', 'name': '示例 · 文档校对', 'model': 'demo-review', 'enabled': False},
                 ]})
+            if args.sample and args.nav == 22:
+                panel.key_name.setText('示例 · preview:settings')
+                panel.key_meta.setText('仅供界面检查的示例值，不连接 Redis')
+                panel._render_value('string', '{"theme":"calm","preview":true}')
             window.resize(args.width, args.height)
             window._layout_controller.force(args.width, args.height)
             QTimer.singleShot(1000, inspect_chrome)
@@ -78,14 +84,14 @@ def main(args):
                           status_height=window.statusBar().height(), collapsed=args.collapsed)
             if args.tab is not None:
                 actual_tab = (page.sections_stack.currentIndex() if args.nav == 7
-                              else page.tabs.currentIndex())
+                              else (page.tabs if hasattr(page, 'tabs') else page.side_tabs).currentIndex())
                 result.update(tab=args.tab, actual_tab=actual_tab)
             folder = root / 'docs/ui/prism-implementation-2026-09/shell'
             folder.mkdir(parents=True, exist_ok=True)
             name = f'nav-{args.nav}-{args.width}-{args.height}' + ('-collapsed' if args.collapsed else '')
             if args.tab is not None:
                 name += f'-tab-{args.tab}'
-            if args.sample and args.nav == 7:
+            if args.sample and args.nav in (7, 22):
                 name += '-sample'
                 result['sample'] = True
             if args.expected_dpr is not None:

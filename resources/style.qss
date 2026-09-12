@@ -982,7 +982,7 @@ QSplitter::handle:horizontal {
 QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {
     background: __PRIMARY__;
 }
-QListWidget[prismDialogList="true"], QListWidget#settings-model-list {
+QListWidget[prismDialogList="true"], QListWidget#settings-model-list, QListWidget#redis-key-list {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
@@ -995,12 +995,18 @@ QListWidget[prismDialogList="true"]::item, QListWidget#settings-model-list::item
     border-radius: 8px;
     color: __TEXT__;
 }
-QListWidget[prismDialogList="true"]::item:selected, QListWidget#settings-model-list::item:selected {
+QListWidget[prismDialogList="true"]::item:selected, QListWidget#settings-model-list::item:selected, QListWidget#redis-key-list::item:selected {
     background: __PRIMARY_SOFT__;
     color: __PRIMARY_ACTIVE__;
 }
-QListWidget[prismDialogList="true"]::item:hover, QListWidget#settings-model-list::item:hover {
+QListWidget[prismDialogList="true"]::item:hover, QListWidget#settings-model-list::item:hover, QListWidget#redis-key-list::item:hover {
     background: __SURFACE_SOFT__;
+}
+QListWidget#redis-key-list::item {
+    min-height: 24px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: __TEXT__;
 }
 QListWidget#settings-model-list::item:selected:hover {
     background: __PRIMARY_SOFT__;

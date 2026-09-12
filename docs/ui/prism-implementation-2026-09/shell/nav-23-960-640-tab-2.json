@@ -1,13 +1,13 @@
 {
   "chrome_dom": {
     "active": [
-      "Redis"
+      "MongoDB"
     ],
     "scrollWidth": 72,
     "sidebar": true,
     "width": 72
   },
-  "expected_active_label": "Redis",
+  "expected_active_label": "MongoDB",
   "loaded_pages": [
     "chrome",
     "dashboard"
@@ -16,7 +16,7 @@
     "chrome",
     "dashboard"
   ],
-  "nav": 22,
+  "nav": 23,
   "requested": [
     960,
     640
@@ -31,10 +31,12 @@
   ],
   "chrome": "web",
   "dashboard": "web",
-  "actual_nav": 22,
+  "actual_nav": 23,
   "context_height": 52,
   "status_height": 28,
   "collapsed": false,
+  "tab": 2,
+  "actual_tab": 2,
   "window_dpr": 1.5,
   "image_pixels": [
     1440,
