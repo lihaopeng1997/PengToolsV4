@@ -49,6 +49,39 @@ class DatabaseLayoutTests(unittest.TestCase):
                     panel.deleteLater()
                     self.app.processEvents()
 
+    def test_mongo_compact_documents_keep_pagination_below_results(self):
+        from PyQt6.QtCore import QPoint, QRect
+        from panels.db_mongodb_panel import MongoDBWorkbenchPanel
+        with patch.object(MongoDBWorkbenchPanel, '_reload_connections'):
+            panel = MongoDBWorkbenchPanel('zh')
+        try:
+            panel.resize(856, 528)
+            panel.apply_layout_mode('narrow', True)
+            panel.show()
+            panel.query_input.setPlainText('{"preview":true}')
+            panel._render_docs([{'preview': True, 'text': 'DEMO ' * 100}], 1, 50)
+            for _ in range(5):
+                self.app.processEvents()
+            self.assertGreater(panel.prev_btn.y(), panel.doc_table.geometry().bottom())
+            for _ in range(2):
+                panel.view_mode_btn.click()
+                self.app.processEvents()
+                result = panel.doc_json if panel.doc_json.isVisible() else panel.doc_table
+                self.assertGreaterEqual(result.height(), 120)
+                self.assertGreater(panel.prev_btn.y(), result.geometry().bottom())
+                self.assertEqual(panel.query_input.toPlainText(), '{"preview":true}')
+            scroll = panel.side_tabs.widget(0)
+            scroll.ensureWidgetVisible(panel.copy_btn)
+            self.app.processEvents()
+            rect = QRect(panel.copy_btn.mapTo(scroll.viewport(), QPoint()), panel.copy_btn.size())
+            self.assertTrue(scroll.viewport().rect().contains(rect))
+            self.assertIn('DEMO', panel.doc_json.toPlainText())
+            self.assertEqual((panel.width(), panel.height()), (856, 528))
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
     def test_redis_low_detail_scroll_keeps_value_actions_and_command(self):
         from PyQt6.QtCore import QPoint, QRect
         from panels.db_redis_panel import RedisWorkbenchPanel

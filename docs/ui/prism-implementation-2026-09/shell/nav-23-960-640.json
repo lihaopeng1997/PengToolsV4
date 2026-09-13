@@ -34,5 +34,11 @@
   "actual_nav": 23,
   "context_height": 52,
   "status_height": 28,
-  "collapsed": false
+  "collapsed": false,
+  "window_dpr": 1.5,
+  "image_pixels": [
+    1440,
+    960
+  ],
+  "font_size": 12
 }

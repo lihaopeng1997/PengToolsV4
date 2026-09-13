@@ -11,7 +11,7 @@ import json
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -225,6 +225,7 @@ class MongoDBWorkbenchPanel(QWidget):
         self.doc_json = QPlainTextEdit()
         self.doc_json.setObjectName('mongo-doc-edit')
         self.doc_json.setReadOnly(True)
+        self.doc_json.setMinimumHeight(120)
         self.doc_json.hide()
         docs_l.addWidget(self.doc_json, 1)
 
@@ -256,7 +257,11 @@ class MongoDBWorkbenchPanel(QWidget):
             doc_actions.addWidget(w)
         doc_actions.addStretch(1)
         docs_l.addLayout(doc_actions)
-        self.side_tabs.addTab(docs_page, '文档视图')
+        docs_scroll = QScrollArea()
+        docs_scroll.setWidgetResizable(True)
+        docs_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        docs_scroll.setWidget(docs_page)
+        self.side_tabs.addTab(docs_scroll, '文档视图')
 
         # AI 助手
         ai_page = QWidget()
