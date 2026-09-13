@@ -138,6 +138,8 @@ def main():
         widget.show()
         if args.page == 'floating' and args.tab == 3:
             widget._open_learning_search()
+        elif args.page == 'floating' and args.tab in (4, 5):
+            widget._open_result_preview(1 if args.tab == 4 else 4)
         for _ in range(4):
             app.processEvents()
         if args.page != 'floating':

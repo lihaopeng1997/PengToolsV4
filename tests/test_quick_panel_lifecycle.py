@@ -241,3 +241,38 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         editor.show()
         editor.close()
         editor.deleteLater()
+
+    def test_result_preview_title_and_actions_fit(self):
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        try:
+            panel.show_panel()
+            for index in (1, 4):
+                panel._open_result_preview(index)
+                self.app.processEvents()
+                self.assertTrue(panel.tools.rect().contains(panel.preview.geometry()))
+                self.assertGreaterEqual(panel.preview_title.width(), panel.preview_title.sizeHint().width())
+                for button in (panel.preview_back, panel.preview_gen_personal,
+                               panel.preview_gen_unit, panel.preview_gen_vin):
+                    if button.isVisible():
+                        self.assertGreaterEqual(button.width(), button.sizeHint().width())
+                        rect = QRect(button.mapTo(panel.preview, QPoint()), button.size())
+                        self.assertTrue(panel.preview.rect().contains(rect), button.text())
+                with patch.object(panel, '_generate_from_preview') as generate:
+                    if index == 1:
+                        panel.preview_gen_personal.click()
+                        generate.assert_called_with('personal')
+                        panel.preview_gen_unit.click()
+                        generate.assert_called_with('unit')
+                    else:
+                        panel.preview_gen_vin.click()
+                        generate.assert_called_once_with('vin')
+                panel.preview_back.click()
+                self.app.processEvents()
+                self.assertFalse(panel.preview.isVisible())
+                self.assertTrue(panel.grid_host.isVisible())
+        finally:
+            panel.shutdown()
+            owner.deleteLater()
