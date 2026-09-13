@@ -139,6 +139,9 @@ def main():
         if args.page == 'floating' and args.tab == 6:
             widget.chat_history.setPlainText('DEMO · 等待状态预览，不发送模型请求。')
             widget._sync_chat_running_state(True)
+        elif args.page == 'floating' and args.tab == 7:
+            widget._sync_chat_running_state(True)
+            widget.toggle_expanded()
         if args.page == 'floating' and args.tab == 3:
             widget._open_learning_search()
         elif args.page == 'floating' and args.tab in (4, 5):

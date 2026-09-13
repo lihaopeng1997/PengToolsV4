@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from ui.design_system import apply_button
 from ui.field_metrics import size_line
 from ui.thinking_indicator import ThinkingIndicator
+from ui.brand_wait_ring import BrandWaitRing
 from ui.icons import apply_icon, brand_pixmap, icon_pixmap, qicon
 from ui.navigation_model import (
     DEFAULT_FLOATING_SHORTCUTS,
@@ -112,6 +113,9 @@ class QuickPanel(QWidget):
         self.toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.toggle_btn.clicked.connect(self._on_toggle_clicked)
         self._apply_toggle_icon()
+
+        self.compact_wait_ring = BrandWaitRing(self.toggle_btn)
+        self.compact_wait_ring.move(6, 6)
 
         self.tools = QWidget(self)
         self.tools.setObjectName('floating-tools')
@@ -488,6 +492,7 @@ class QuickPanel(QWidget):
 
     def _sync_chat_running_state(self, running: bool):
         zh = self.language == 'zh'
+        self.compact_wait_ring.set_running(running)
         self.chat_thinking.set_text('正在等待回复…' if zh else 'Waiting for reply…')
         if running:
             self.chat_thinking.start()
@@ -1170,6 +1175,7 @@ class QuickPanel(QWidget):
         menu.exec(global_position)
 
     def close_toolbar(self):
+        self.compact_wait_ring.set_running(False)
         self.chat_thinking.stop()
         self.chat_thinking.hide()
         if self._chat_worker is not None and self._chat_worker.isRunning():

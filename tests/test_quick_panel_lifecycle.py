@@ -290,13 +290,18 @@ class QuickPanelLifecycleTests(unittest.TestCase):
             panel.toggle_expanded()
             self.app.processEvents()
             self.assertFalse(panel.chat_thinking._timer.isActive())
+            self.assertTrue(panel.compact_wait_ring.isVisible())
+            self.assertTrue(panel.compact_wait_ring._timer.isActive())
+            self.assertEqual(panel.compact_wait_ring.geometry(), QRect(6, 6, 32, 32))
             panel.toggle_expanded()
             self.app.processEvents()
             self.assertTrue(panel.chat_thinking._timer.isActive())
+            self.assertFalse(panel.compact_wait_ring._timer.isActive())
             panel._on_chat_completed('DEMO reply')
             self.assertFalse(panel.chat_thinking.isVisible())
             self.assertFalse(panel.chat_thinking._timer.isActive())
             self.assertIn('DEMO reply', panel.chat_history.toPlainText())
+            self.assertFalse(panel.compact_wait_ring._running)
             panel._sync_chat_running_state(True)
             panel._on_chat_failed('DEMO error')
             self.assertFalse(panel.chat_thinking._timer.isActive())
@@ -314,5 +319,37 @@ class QuickPanelLifecycleTests(unittest.TestCase):
             self.assertTrue(panel.chat_thinking.is_running())
             self.assertFalse(panel.chat_thinking._timer.isActive())
         finally:
+            panel.shutdown()
+            owner.deleteLater()
+
+    def test_compact_wait_ring_frames_and_reduced_motion(self):
+        from ui.motion import set_motion_enabled_for_test
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        try:
+            set_motion_enabled_for_test(True)
+            panel.show_panel()
+            panel.toggle_expanded()
+            panel._sync_chat_running_state(True)
+            self.app.processEvents()
+            ring = panel.compact_wait_ring
+            self.assertTrue(ring.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+            with patch('ui.brand_wait_ring.time.monotonic', return_value=ring._started + .1):
+                first = ring.grab().toImage()
+            with patch('ui.brand_wait_ring.time.monotonic', return_value=ring._started + .4):
+                second = ring.grab().toImage()
+            self.assertNotEqual(first, second)
+            set_motion_enabled_for_test(False)
+            ring._tick()
+            self.assertFalse(ring._timer.isActive())
+            with patch('ui.brand_wait_ring.time.monotonic', return_value=ring._started + .1):
+                first = ring.grab().toImage()
+            with patch('ui.brand_wait_ring.time.monotonic', return_value=ring._started + .4):
+                second = ring.grab().toImage()
+            self.assertEqual(first, second)
+            self.assertFalse(panel.expanded)
+            self.assertEqual(panel.size().width(), 52)
+        finally:
+            set_motion_enabled_for_test(None)
             panel.shutdown()
             owner.deleteLater()
