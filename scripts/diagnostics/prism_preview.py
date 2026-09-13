@@ -104,7 +104,7 @@ def main():
             widget = cls(None, 'zh')
             if args.tab:
                 widget.toggle_expanded()
-                if args.tab == 2:
+                if args.tab in (2, 6):
                     widget._set_mode('chat')
         elif args.page == 'settings':
             widget = cls(dict(config.DEFAULT_SETTINGS))
@@ -136,6 +136,9 @@ def main():
             # containing main-window layout does for a real child page.
             widget.resize(args.width, args.height)
         widget.show()
+        if args.page == 'floating' and args.tab == 6:
+            widget.chat_history.setPlainText('DEMO · 等待状态预览，不发送模型请求。')
+            widget._sync_chat_running_state(True)
         if args.page == 'floating' and args.tab == 3:
             widget._open_learning_search()
         elif args.page == 'floating' and args.tab in (4, 5):

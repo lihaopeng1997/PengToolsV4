@@ -77,8 +77,9 @@ class ThinkingIndicator(QWidget):
         if not self._is_running:
             self._is_running = True
             self._start_time = time.monotonic()
-            self._timer.start()
             self.show()
+            if self.isVisible():
+                self._timer.start()
             self.update()
 
     def stop(self):

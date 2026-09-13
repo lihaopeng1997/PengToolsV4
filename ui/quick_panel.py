@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from ui.design_system import apply_button
 from ui.field_metrics import size_line
+from ui.thinking_indicator import ThinkingIndicator
 from ui.icons import apply_icon, brand_pixmap, icon_pixmap, qicon
 from ui.navigation_model import (
     DEFAULT_FLOATING_SHORTCUTS,
@@ -305,6 +306,9 @@ class QuickPanel(QWidget):
         self.chat_history.setReadOnly(True)
         self.chat_history.setPlaceholderText('发送消息开始轻量多轮对话…')
         chat_l.addWidget(self.chat_history, 1)
+        self.chat_thinking = ThinkingIndicator(text='正在等待回复…')
+        self.chat_thinking.hide()
+        chat_l.addWidget(self.chat_thinking)
 
         chat_input_row = QHBoxLayout()
         chat_input_row.setSpacing(6)
@@ -484,6 +488,12 @@ class QuickPanel(QWidget):
 
     def _sync_chat_running_state(self, running: bool):
         zh = self.language == 'zh'
+        self.chat_thinking.set_text('正在等待回复…' if zh else 'Waiting for reply…')
+        if running:
+            self.chat_thinking.start()
+        else:
+            self.chat_thinking.stop()
+            self.chat_thinking.hide()
         if running:
             self.chat_send_btn.setText('停止' if zh else 'Stop')
             apply_button(self.chat_send_btn, 'secondary', compact=True)
@@ -1160,6 +1170,8 @@ class QuickPanel(QWidget):
         menu.exec(global_position)
 
     def close_toolbar(self):
+        self.chat_thinking.stop()
+        self.chat_thinking.hide()
         if self._chat_worker is not None and self._chat_worker.isRunning():
             self._chat_worker.cancelled = True
             self._chat_worker = None

@@ -276,3 +276,43 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         finally:
             panel.shutdown()
             owner.deleteLater()
+
+    def test_chat_waiting_animation_follows_original_completion_and_visibility(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        try:
+            panel.show_panel()
+            panel._set_mode('chat')
+            panel._sync_chat_running_state(True)
+            self.app.processEvents()
+            self.assertTrue(panel.chat_thinking.isVisible())
+            self.assertTrue(panel.chat_thinking._timer.isActive())
+            panel.toggle_expanded()
+            self.app.processEvents()
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+            panel.toggle_expanded()
+            self.app.processEvents()
+            self.assertTrue(panel.chat_thinking._timer.isActive())
+            panel._on_chat_completed('DEMO reply')
+            self.assertFalse(panel.chat_thinking.isVisible())
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+            self.assertIn('DEMO reply', panel.chat_history.toPlainText())
+            panel._sync_chat_running_state(True)
+            panel._on_chat_failed('DEMO error')
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+            panel._sync_chat_running_state(True)
+            worker = Mock()
+            worker.isRunning.return_value = True
+            panel._chat_worker = worker
+            panel.chat_send_btn.click()
+            self.assertTrue(worker.cancelled)
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+            panel._sync_chat_running_state(True)
+            panel.close_toolbar()
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+            panel._sync_chat_running_state(True)
+            self.assertTrue(panel.chat_thinking.is_running())
+            self.assertFalse(panel.chat_thinking._timer.isActive())
+        finally:
+            panel.shutdown()
+            owner.deleteLater()
