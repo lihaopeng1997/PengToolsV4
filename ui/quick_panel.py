@@ -115,11 +115,14 @@ class QuickPanel(QWidget):
         self.tools = QWidget(self)
         self.tools.setObjectName('floating-tools')
         tools_layout = QVBoxLayout(self.tools)
-        tools_layout.setContentsMargins(12, 10, 12, 10)
+        tools_layout.setContentsMargins(self.PANEL_PAD, self.PANEL_PAD, self.PANEL_PAD, self.PANEL_PAD)
         tools_layout.setSpacing(8)
 
         # 顶部：Logo + 模式切换（快捷工具 / AI 对话） + 编辑 + 收起
-        header = QHBoxLayout()
+        self.header_bar = QWidget()
+        self.header_bar.setFixedHeight(self.HEADER_HEIGHT)
+        header = QHBoxLayout(self.header_bar)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(6)
         self.header_logo = QLabel()
         self.header_logo.setFixedSize(22, 22)
@@ -161,7 +164,7 @@ class QuickPanel(QWidget):
         self.collapse_btn.clicked.connect(self.hide_panel)
         apply_icon(self.collapse_btn, 'collapse', size=16)
         header.addWidget(self.collapse_btn)
-        tools_layout.addLayout(header)
+        tools_layout.addWidget(self.header_bar)
 
         # 中间：两列卡片网格
         self.grid_host = QWidget()
@@ -328,7 +331,10 @@ class QuickPanel(QWidget):
         tools_layout.addWidget(self.chat_container, 1)
 
         # 底部：打开完整工作台 + 设置快捷入口
-        footer = QHBoxLayout()
+        self.footer_bar = QWidget()
+        self.footer_bar.setFixedHeight(self.FOOTER_HEIGHT)
+        footer = QHBoxLayout(self.footer_bar)
+        footer.setContentsMargins(0, 0, 0, 0)
         footer.setSpacing(8)
         self.home_btn = QPushButton()
         self.home_btn.setObjectName('floating-home')
@@ -345,7 +351,7 @@ class QuickPanel(QWidget):
         self.footer_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.footer_edit_btn.clicked.connect(self.open_editor)
         footer.addWidget(self.footer_edit_btn)
-        tools_layout.addLayout(footer)
+        tools_layout.addWidget(self.footer_bar)
 
         for widget in (self.toggle_btn, self.title, self.shell, self.header_logo):
             widget.installEventFilter(self)
@@ -397,6 +403,7 @@ class QuickPanel(QWidget):
     def _set_mode(self, mode: str):
         self._mode = mode
         is_tools = (mode == 'tools')
+        self.footer_bar.setVisible(is_tools)
         self.mode_tools_btn.setChecked(is_tools)
         self.mode_chat_btn.setChecked(not is_tools)
         self.edit_btn.setVisible(is_tools)
@@ -565,7 +572,7 @@ class QuickPanel(QWidget):
             + body
             + self.FOOTER_HEIGHT
             + self.PANEL_PAD * 2
-            + 8
+            + self.GRID_GAP * 2 + 8  # two layout gaps and grid vertical margins
         )
 
     def _expanded_size(self) -> tuple[int, int]:

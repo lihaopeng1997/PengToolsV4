@@ -185,11 +185,15 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         # 1. Shell and content container widths
         self.assertEqual(panel.shell.width(), 300)
         self.assertEqual(panel.tools.width(), 300)
+        self.assertEqual(panel.header_bar.height(), 48)
+        self.assertEqual(panel.footer_bar.height(), 40)
 
         # 2. Content padding
         layout_margins = panel.tools.layout().contentsMargins()
         self.assertEqual(layout_margins.left(), 12)
         self.assertEqual(layout_margins.right(), 12)
+        self.assertEqual(layout_margins.top(), 12)
+        self.assertEqual(layout_margins.bottom(), 12)
         self.assertEqual(panel.grid_host.width(), 300 - 12 - 12)  # 276
 
         # 3. Card dimensions: 134px width, 58px height, 8px gap
@@ -211,6 +215,7 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(panel.shell.width(), 340)
         self.assertEqual(panel.tools.width(), 340)
+        self.assertFalse(panel.footer_bar.isVisible())
 
         # Learn mode expanded size
         panel._set_mode('tools')

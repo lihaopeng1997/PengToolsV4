@@ -53,6 +53,7 @@ def main():
     parser.add_argument('--output', required=True)
     parser.add_argument('--tab', type=int, default=0)
     parser.add_argument('--sample', action='store_true')
+    parser.add_argument('--font', type=int, default=None)
     parser.add_argument('--inspect-layout', action='store_true')
     args = parser.parse_args()
     import config
@@ -79,7 +80,7 @@ def main():
         for key, value in paths.items():
             setattr(config, key, value)
         from ui.theme_manager import ThemeManager
-        ThemeManager.instance().apply(app, 'calm')
+        ThemeManager.instance().apply(app, 'calm', font_size=args.font)
         if args.sample and args.page in ('home', 'requirements'):
             import datetime
             month = datetime.date.today().strftime('%Y-%m')
@@ -135,6 +136,8 @@ def main():
             # containing main-window layout does for a real child page.
             widget.resize(args.width, args.height)
         widget.show()
+        if args.page == 'floating' and args.tab == 3:
+            widget._open_learning_search()
         for _ in range(4):
             app.processEvents()
         if args.page != 'floating':
