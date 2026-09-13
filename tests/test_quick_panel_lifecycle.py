@@ -6,13 +6,14 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QWidget
 from ui.quick_panel import QuickPanel
 
@@ -89,6 +90,54 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         self.assertFalse(bool(flags & Qt.WindowType.WindowMaximizeButtonHint))
         panel.shutdown()
         owner.deleteLater()
+
+    def test_expanded_modes_fit_simulated_screen_corners(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        try:
+            for area in (QRect(0, 0, 960, 640), QRect(-1280, -200, 1280, 800)):
+                screen = Mock()
+                screen.availableGeometry.return_value = area
+                with patch.object(QApplication, 'screenAt', return_value=screen):
+                    for anchor in (area.topLeft(), QPoint(area.right() - 51, area.top()),
+                                   QPoint(area.left(), area.bottom() - 51),
+                                   QPoint(area.right() - 51, area.bottom() - 51)):
+                        for mode in ('tools', 'chat'):
+                            panel._set_mode(mode)
+                            panel.setGeometry(anchor.x(), anchor.y(), 52, 52)
+                            panel.toggle_expanded()
+                            self.assertTrue(area.contains(panel.geometry()), (area, mode, panel.geometry()))
+                            panel.toggle_expanded()
+                            self.assertEqual(panel.geometry(), QRect(anchor.x(), anchor.y(), 52, 52))
+        finally:
+            panel.shutdown()
+            owner.deleteLater()
+
+    def test_one_hundred_expansions_reuse_window_and_timers(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        try:
+            panel.show_panel()
+            self.app.processEvents()
+            panel.toggle_expanded()
+            window_id = int(panel.winId())
+            timers = panel.findChildren(QTimer)
+            timer_ids = {id(timer) for timer in timers}
+            anchor = QPoint(panel.pos())
+            panel.chat_input.setText('DEMO unsent draft')
+            for _ in range(100):
+                panel.toggle_expanded()
+                self.app.processEvents()
+                panel.toggle_expanded()
+                self.app.processEvents()
+                self.assertEqual(int(panel.winId()), window_id)
+                self.assertEqual(panel.pos(), anchor)
+                self.assertEqual({id(timer) for timer in panel.findChildren(QTimer)}, timer_ids)
+            self.assertEqual(panel.chat_input.text(), 'DEMO unsent draft')
+            self.assertFalse(panel._learn_search_debounce.isActive())
+        finally:
+            panel.shutdown()
+            owner.deleteLater()
 
     def test_position_clamp_uses_available_geometry(self):
         owner = _Stub()
