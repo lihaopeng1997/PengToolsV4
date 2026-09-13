@@ -49,6 +49,48 @@ class DatabaseLayoutTests(unittest.TestCase):
                     panel.deleteLater()
                     self.app.processEvents()
 
+    def test_redis_detail_actions_fit_large_font_without_horizontal_scroll(self):
+        from PyQt6.QtCore import QPoint, QRect
+        from panels.db_redis_panel import RedisWorkbenchPanel
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
+        with patch.object(RedisWorkbenchPanel, '_reload_connections'):
+            panel = RedisWorkbenchPanel('en')
+        try:
+            panel.resize(856, 528)
+            panel.apply_layout_mode('narrow', True)
+            panel.show()
+            panel.side_tabs.setCurrentIndex(1)
+            for _ in range(5):
+                self.app.processEvents()
+            scroll = panel.side_tabs.widget(1)
+            self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+            samples = (
+                ('hash', {'DEMO field': 'DEMO value'}, panel.hash_table, 1),
+                ('list', ['DEMO value'], panel.list_table, 2),
+                ('set', {'DEMO value'}, panel.list_table, 2),
+                ('zset', [{'member': 'DEMO value', 'score': 42}], panel.zset_table, 3),
+            )
+            for kind, value, table, index in samples:
+                panel._render_value(kind, value)
+                self.app.processEvents()
+                self.assertEqual(panel.value_tabs.currentIndex(), index)
+                self.assertEqual(table.rowCount(), 1)
+                self.assertGreaterEqual(panel.value_tabs.height(), 280)
+                self.assertTrue(any('DEMO' in table.item(0, col).text()
+                                    for col in range(table.columnCount())))
+            for button in (panel.refresh_val_btn, panel.copy_val_btn, panel.copy_key_btn,
+                           panel.del_btn, panel.rename_btn, panel.expire_btn):
+                self.assertGreaterEqual(button.width(), button.sizeHint().width())
+                scroll.ensureWidgetVisible(button)
+                self.app.processEvents()
+                rect = QRect(button.mapTo(scroll.viewport(), QPoint()), button.size())
+                self.assertTrue(scroll.viewport().rect().contains(rect), button.text())
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
     def test_mongo_compact_documents_keep_pagination_below_results(self):
         from PyQt6.QtCore import QPoint, QRect
         from panels.db_mongodb_panel import MongoDBWorkbenchPanel

@@ -34,6 +34,7 @@ from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_page_toolbar
 from ui.icons import apply_icon, qicon
 from ui.splitter_prefs import install_splitter_prefs
+from ui.wrap_layout import WrapLayout
 
 
 def format_key_ttl_value(ttl: int, language: str = 'zh') -> str:
@@ -424,7 +425,7 @@ class RedisWorkbenchPanel(QWidget):
         self.zset_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.value_tabs.addTab(self.zset_table, 'ZSet')
         det_l.addWidget(self.value_tabs, 1)
-        actions = QHBoxLayout()
+        actions = WrapLayout()
         self.refresh_val_btn = QPushButton()
         apply_button(self.refresh_val_btn, 'secondary', compact=True)
         self.refresh_val_btn.clicked.connect(self._load_key_value)
@@ -446,7 +447,6 @@ class RedisWorkbenchPanel(QWidget):
         for w in (self.refresh_val_btn, self.copy_val_btn, self.copy_key_btn,
                   self.del_btn, self.rename_btn, self.expire_btn):
             actions.addWidget(w)
-        actions.addStretch(1)
         det_l.addLayout(actions)
         add_scrollable_tab(detail, 'Key 详情')
 
