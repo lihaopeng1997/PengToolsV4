@@ -278,6 +278,9 @@ class QuickPanelLifecycleTests(unittest.TestCase):
             owner.deleteLater()
 
     def test_chat_waiting_animation_follows_original_completion_and_visibility(self):
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(True)
+        self.addCleanup(set_motion_enabled_for_test, None)
         owner = _Stub()
         panel = QuickPanel(owner, 'zh')
         try:
@@ -355,6 +358,8 @@ class QuickPanelLifecycleTests(unittest.TestCase):
             owner.deleteLater()
 
     def test_three_footer_actions_fit_with_ticket_configuration(self):
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
         owner = _Stub()
         owner.open_ticket_submit = Mock()
         with patch('tools.ticket_submit.configured_ticket_profiles', return_value=[{'name': 'DEMO'}]):

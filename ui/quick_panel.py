@@ -377,10 +377,10 @@ class QuickPanel(QWidget):
         zh = language == 'zh'
         self.mode_tools_btn.setText('快捷工具' if zh else 'Tools')
         self.mode_chat_btn.setText('AI 对话' if zh else 'AI Chat')
-        self.home_btn.setText('工作台' if zh else 'Workspace')
+        self.home_btn.setText('工作台' if zh else 'Home')
         self.home_btn.setToolTip('打开完整工作台' if zh else 'Open workspace')
         self.ticket_btn.setText('一键提签' if zh else 'Ticket')
-        self.footer_edit_btn.setText('快捷入口' if zh else 'Shortcuts')
+        self.footer_edit_btn.setText('快捷入口' if zh else 'Edit')
         self.footer_edit_btn.setToolTip('设置快捷入口' if zh else 'Edit shortcuts')
         self.open_full_chat_btn.setText('打开完整模型聊天' if zh else 'Open Full Model Chat')
         self.chat_input.setPlaceholderText('输入消息，按 Enter 发送…' if zh else 'Type message, press Enter…')
