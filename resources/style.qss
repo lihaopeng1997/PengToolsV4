@@ -2705,10 +2705,24 @@ QToolButton#responsive-more-btn, QToolButton#agent-attachment-btn {
     padding: 6px 10px;
     font-weight: 600;
 }
-QToolButton#responsive-more-btn:hover, QToolButton#agent-attachment-btn:hover {
+QToolButton#responsive-more-btn:hover:enabled, QToolButton#agent-attachment-btn:hover:enabled {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
     color: __PRIMARY_ACTIVE__;
+}
+QToolButton#responsive-more-btn:pressed:enabled, QToolButton#agent-attachment-btn:pressed:enabled {
+    background: __TABLE_SELECT__;
+    border-color: __PRIMARY__;
+    color: __TEXT_STRONG__;
+}
+QToolButton#responsive-more-btn:focus:enabled, QToolButton#agent-attachment-btn:focus:enabled {
+    border: 2px solid __FOCUS_RING__;
+    padding: 5px 9px;
+}
+QToolButton#responsive-more-btn:disabled, QToolButton#agent-attachment-btn:disabled {
+    color: __DISABLED_TEXT__;
+    background: __DISABLED_BG__;
+    border-color: __BORDER__;
 }
 QWidget[responsiveHidden="true"] { max-width: 0; max-height: 0; margin: 0; padding: 0; }
 /* code surfaces */

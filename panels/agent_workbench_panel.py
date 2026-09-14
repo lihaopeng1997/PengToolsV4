@@ -302,6 +302,7 @@ class AgentWorkbenchPanel(QWidget):
         self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         apply_button(self.add_attachment_btn, 'ghost', compact=True)
         self.add_attachment_btn.setObjectName('agent-attachment-btn')
+        self.add_attachment_btn.setAccessibleName('对话与附件菜单')
         attach_menu = QMenu(self.add_attachment_btn)
         self.new_conv_action = attach_menu.addAction('新建对话', self._new_conversation)
         self.add_file_ref_action = attach_menu.addAction('添加工作区内文件引用', self._pick_workspace_file_ref)
