@@ -1,0 +1,13 @@
+{
+  "dialog": "image-preview",
+  "font": 16,
+  "size": [
+    864,
+    550
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

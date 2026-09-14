@@ -61,6 +61,7 @@ ICON_FILES = {
     'export': ('resources', 'icons', 'export.svg'),
     'refresh': ('resources', 'icons', 'refresh.svg'),
     'more': ('resources', 'icons', 'more.svg'),
+    'drag': ('resources', 'icons', 'drag.svg'),
     'calendar': ('resources', 'icons', 'calendar.svg'),
     'filter': ('resources', 'icons', 'filter.svg'),
     'sort': ('resources', 'icons', 'sort.svg'),

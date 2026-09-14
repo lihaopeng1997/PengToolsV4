@@ -8,6 +8,7 @@
 2. 本文件、`docs/project/README.md`、`PRODUCT_AND_SOURCE.md`、`DEVELOPMENT_AND_AI.md`。
 3. `docs/ui/concepts-2026-09/prism-suite/` 整个目录，包括 V2.1 规格、HTML、CSS、JavaScript。只发一张截图不能说明页签、菜单、动效和响应式行为。
 4. 用户本次要求、当前软件截图或可复现步骤、开发 AI 提供的测试与运行材料。截图只能证明拍摄时的状态；动态效果需要录屏或运行证据。
+5. [开发 AI 完整提示词](AI_DEVELOPMENT_PROMPT.md)、[本轮验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)与[实施记录](../ui/prism-implementation-2026-09/STATUS.md)。清单包含历史证据和未核验项，不可当作全部通过。
 
 只读 Git 的 AI 看不到本机未提交代码。未发布材料必须标为缺失，不能声称读过。
 
@@ -52,6 +53,8 @@ UI 数值引用 V2.1 的当前条款，不另建一套互相矛盾的数值。�
 ### 三、输出给开发 AI 的实施任务
 
 需求确认到足以开发后，提供一份完整任务正文，包含：任务编号；基准分支/SHA；问题与目标；可改文件；不变合同；具体实施步骤；逐项验收；最小有效测试；交付材料。不要只让开发 AI “参考聊天记录”。若多个缺陷来自同一根因，应修复根因并验证受影响面。
+
+把 [AI_DEVELOPMENT_PROMPT.md](AI_DEVELOPMENT_PROMPT.md) 与任务正文一并交付。要求开发 AI 返回完整提交、逐条验收证据和未覆盖项，你再从该提交独立复核；当前全UI改造遗留项不得被改名为未来新增需求。
 
 要求开发 AI：
 

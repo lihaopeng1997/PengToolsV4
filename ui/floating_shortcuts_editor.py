@@ -142,9 +142,12 @@ class FloatingShortcutsEditor(QDialog):
             layout.setContentsMargins(8, 4, 8, 4)
             layout.setSpacing(10)
 
-            grip = QLabel('⋮⋮')
+            grip = QLabel()
             grip.setObjectName('drag-handle')
             grip.setFixedWidth(18)
+            grip.setPixmap(qicon('drag', size=18).pixmap(18, 18))
+            grip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grip.setToolTip('拖动排序' if zh else 'Drag to reorder')
             layout.addWidget(grip)
 
             icon_label = QLabel()
@@ -171,7 +174,7 @@ class FloatingShortcutsEditor(QDialog):
 
             list_item = QListWidgetItem()
             list_item.setData(Qt.ItemDataRole.UserRole, index)
-            list_item.setSizeHint(QSize(480, 48))
+            list_item.setSizeHint(QSize(0, 48))
             self.list.addItem(list_item)
             self.list.setItemWidget(list_item, row)
 

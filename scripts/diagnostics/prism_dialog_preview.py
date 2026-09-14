@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,6 +40,8 @@ DIALOGS = {
     'next': ('ui.confirm_dialog', 'NextStepDialog', ['后续操作', '本地演示', [('view', '查看详情', True)]]),
     'close': ('ui.confirm_dialog', 'CloseActionDialog', []),
     'https': ('ui.confirm_dialog', 'HttpsCertConsentDialog', []),
+    'floating-shortcuts': ('ui.floating_shortcuts_editor', 'FloatingShortcutsEditor', [{}]),
+    'image-preview': ('ui.daily_rich_edit', 'ImagePreviewDialog', []),
 }
 for _kind in ('confirm', 'notice', 'next'):
     _module, _name, _arguments = DIALOGS[_kind]
@@ -84,7 +87,20 @@ def main():
             return original_clamp(dialog, *positional, **kwargs)
         with patch.object(dialog_buttons, 'clamp_dialog_geometry', side_effect=clamp):
             module, name, positional = DIALOGS[args.dialog]
-            dialog = getattr(importlib.import_module(module), name)(*positional)
+            dialog_type = getattr(importlib.import_module(module), name)
+            if args.dialog == 'image-preview':
+                from PyQt6.QtGui import QColor, QImage, QPainter
+                sample_image = QImage(1600, 900, QImage.Format.Format_RGB32)
+                sample_image.fill(QColor('#ECE7FA'))
+                painter = QPainter(sample_image)
+                painter.setPen(QColor('#6C58D9'))
+                painter.drawRect(40, 40, 1518, 818)
+                painter.drawText(80, 100, 'DEMO - local image preview')
+                painter.end()
+                positional = [sample_image, 'DEMO 图片预览']
+            with (patch.object(dialog_type, 'screen', return_value=screen)
+                  if args.dialog == 'image-preview' else nullcontext()):
+                dialog = dialog_type(*positional)
             dialog.show()
             QTest.qWait(80)
             outside = []

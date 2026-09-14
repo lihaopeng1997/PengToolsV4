@@ -13,7 +13,7 @@
 
 历史架构、旧交接、旧阶段报告供查证，不再作为默认接手入口。不要仅根据文件名里的“最终”“完整”“唯一”判断有效性。
 
-后续微调、新功能与缺陷处理可复制 [需求 AI 完整接手提示词](AI_REQUIREMENTS_PROMPT.md)，包含给开发 AI 发任务和交付后读取代码复核的完整流程。原型应与其资源目录一起交接。
+后续微调、新功能与缺陷处理可复制 [需求 AI 完整接手提示词](AI_REQUIREMENTS_PROMPT.md)和[开发 AI 完整接手提示词](AI_DEVELOPMENT_PROMPT.md)，配合[开发与复核规范](DEVELOPMENT_AND_AI.md)执行“需求定义 → 开发实现 → 需求 AI 读代码复核 → 返工或接受”。原型应与其资源目录一起交接。当前续修先读[验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)，不要把仍未验收的本轮UI改造算作已完成。
 
 2026-09-09 实施检查点见 [UI 修复与验证记录](../ui/prism-implementation-2026-09/STATUS.md)，内含已改展示面、测试结果、样例图及待验收项。此检查点按用户要求提交供 Git 读取，不等于整套 UI 最终验收通过。
 

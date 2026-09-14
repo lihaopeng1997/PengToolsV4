@@ -3536,6 +3536,15 @@ QFrame#release-filter-zone {
 }
 
 
+/* 悬浮快捷入口编辑 */
+QListWidget#floating-shortcut-list {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 4px;
+}
+QListWidget#floating-shortcut-list::item:selected { background: __PRIMARY_SOFT__; }
+QWidget#floating-shortcut-row, QLabel#drag-handle { background: transparent; }
 /* 首页 Hero 卡片与每日经典句 */
 #dashboard-prism-orb { background: transparent; border: none; }
 #dashboard-hero-card {

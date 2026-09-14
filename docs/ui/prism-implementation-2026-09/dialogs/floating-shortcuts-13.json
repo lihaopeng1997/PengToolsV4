@@ -1,0 +1,13 @@
+{
+  "dialog": "floating-shortcuts",
+  "font": 13,
+  "size": [
+    520,
+    480
+  ],
+  "screen": [
+    960,
+    640
+  ],
+  "outside_fixed_buttons": []
+}

@@ -242,6 +242,33 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         editor.close()
         editor.deleteLater()
 
+    def test_floating_shortcut_rows_fit_small_dialog_in_both_languages(self):
+        from PyQt6.QtWidgets import QCheckBox
+        from ui.floating_shortcuts_editor import FloatingShortcutsEditor
+        from ui.theme_manager import ThemeManager
+        ThemeManager.instance().apply(self.app, 'calm', font_size=16)
+        for language in ('zh', 'en'):
+            editor = FloatingShortcutsEditor({'floating_shortcuts': [1, 2, 3, 4]}, language=language)
+            try:
+                session = list(editor._session)
+                editor.show()
+                for width, height in ((520, 480), (440, 360)):
+                    editor.resize(width, height)
+                    self.app.processEvents()
+                    self.assertEqual(editor.list.horizontalScrollBar().maximum(), 0)
+                    for index in range(editor.list.count()):
+                        item = editor.list.item(index)
+                        editor.list.scrollToItem(item)
+                        self.app.processEvents()
+                        row = editor.list.itemWidget(item)
+                        check = row.findChild(QCheckBox)
+                        box = QRect(check.mapTo(editor.list.viewport(), QPoint()), check.size())
+                        self.assertTrue(editor.list.viewport().rect().contains(box), (language, width, index, box))
+                    self.assertEqual(editor._session, session)
+            finally:
+                editor.close()
+                editor.deleteLater()
+
     def test_result_preview_title_and_actions_fit(self):
         from ui.theme_manager import ThemeManager
         ThemeManager.instance().apply(self.app, 'calm', font_size=16)

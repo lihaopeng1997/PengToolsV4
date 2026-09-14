@@ -31,6 +31,8 @@
 
 ## 3. 每项任务的开始步骤
 
+可复制的双向接手正文：[需求 AI 提示词](AI_REQUIREMENTS_PROMPT.md)、[开发 AI 提示词](AI_DEVELOPMENT_PROMPT.md)。当前 UI 续修同时读取[验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)和[实施记录](../ui/prism-implementation-2026-09/STATUS.md)，以实际交付 SHA 核对证据，不能用历史截图数量代替验收。
+
 1. 报告仓库、分支、HEAD SHA、远端比较结果及工作区已有改动。不要为“统一环境”自动切 main、拉取合并、清理或重置。
 2. 读 AGENTS、项目入口、当前模块需求；按模块地图定位实现。只读与本任务相关的源码。
 3. 记录完整最短调用链：入口控件/动作 → 槽或回调 → 工具函数/服务 → 保存或结果 → UI 刷新。异步任务另列开始、成功、失败、取消、销毁。

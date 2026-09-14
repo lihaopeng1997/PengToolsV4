@@ -11,5 +11,6 @@
 <script>
 const items=[['connection','数据库连接'],['requirement','需求编辑'],['attachment','需求附件'],['test-points','测试点'],['ticket','一键提签'],['ticket-config','提签配置'],['server','服务器编辑'],['servers','服务器管理'],['category','服务器分类'],['log-settings','日志设置'],['history','命令历史'],['command','自定义命令'],['knowledge','学习内容编辑'],['paste','粘贴整理'],['skills','技能管理'],['objects','对象选择'],['month','月份选择'],['svn','SVN 检出'],['help','使用说明'],['confirm','确认操作'],['notice','通知'],['next','后续操作'],['close','关闭选择'],['https','HTTPS 证书说明']];
 items.push(['confirm-long','确认操作 · 长文本'],['notice-long','通知 · 长文本'],['next-long','后续操作 · 长文本']);
+items.push(['floating-shortcuts','悬浮快捷入口编辑'],['image-preview','日报图片预览']);
 function render(){const font=document.querySelector('#font').value;const host=document.querySelector('#gallery');host.replaceChildren();for(const [id,title] of items){const article=document.createElement('article');const heading=document.createElement('h2');heading.textContent=title;const link=document.createElement('a');link.href=`${id}-${font}.png`;link.target='_blank';const img=document.createElement('img');img.src=link.href;img.alt=`${title}，${font} 像素字体`;img.loading='lazy';link.append(img);article.append(heading,link);host.append(article)}}document.querySelector('#font').addEventListener('change',render);render();
 </script></html>
