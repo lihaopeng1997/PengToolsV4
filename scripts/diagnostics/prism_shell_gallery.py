@@ -17,8 +17,15 @@ def main():
         verified = bool(dom.get('sidebar') and dom.get('active') == [label]
                         and row.get('loaded_pages') == ['chrome', 'dashboard']
                         and row.get('bridge_ready_pages') == ['chrome', 'dashboard'])
+        native = row.get('chrome') == 'native' and row.get('dashboard') == 'native'
+        if native:
+            sidebar = row.get('native_sidebar') or {}
+            verified = bool(sidebar.get('visible') and sidebar.get('checked_nav') == [row['nav']]
+                            and row.get('actual_nav') == row['nav'] and row.get('window') == row.get('requested'))
         size = ' × '.join(map(str, row['window']))
         variant = f" · 页签 {row['tab'] + 1}" if 'tab' in row else ''
+        if native:
+            variant += ' · 原生回退（模拟网页不可用）'
         if row.get('sample'):
             variant += ' · 示例数据'
         if row.get('expected_dpr') is not None:
@@ -26,6 +33,8 @@ def main():
         if row.get('collapsed'):
             variant += ' · 侧栏折叠偏好'
         status = '已记录网页就绪与选中状态' if verified else '旧采样：未核对网页就绪'
+        if native:
+            status = '已记录原生显示与选中状态' if verified else '未核对原生显示与选中状态'
         source = row.get('source_head')
         source_label = f"源码基准 {source[:12]}" if source else '未记录源码版本'
         if row.get('ui_source_changes'):
@@ -47,9 +56,9 @@ article{background:#fff;border:1px solid #e4dff1;border-radius:18px;overflow:hid
 img{display:block;width:100%;height:350px;object-fit:contain;background:#f9f8fc}.caption{padding:16px 20px}h2{font-size:17px;margin:0}p{margin:7px 0}a{color:#7354dc}
 article[hidden]{display:none}@media(max-width:800px){main{grid-template-columns:1fr}label{margin:12px 0}img{height:auto}}
 </style><header><h1>晴空棱镜 · 实际窗口检查图集</h1>
-<p>截图来自隔离配置中的真实软件窗口。点击图片查看原图。每张图只表示当时的页面和滚动位置；网页就绪检查不等于所有功能、视觉、DPI及性能验收通过。旧采样可能有空白侧栏，默认隐藏。</p>
+<p>截图来自隔离配置中的真实软件窗口。点击图片查看原图。每张图只表示当时的页面和滚动位置；显示与选中检查不等于所有功能、视觉、DPI及性能验收通过。原生图通过模拟网页不可用进入原有回退分支，未模拟运行中崩溃。旧采样可能有空白侧栏，默认隐藏。</p>
 <p><a href="../STATUS.md">实施与验证记录</a> · <a href="../dialogs/index.html">子窗口图集</a></p>
-<input id="query" placeholder="筛选模块或页签" aria-label="筛选模块或页签"><label><input id="checked" type="checkbox" checked>仅看网页状态已核对的截图</label>
+<input id="query" placeholder="筛选模块或页签" aria-label="筛选模块或页签"><label><input id="checked" type="checkbox" checked>仅看显示与选中状态已核对的截图</label>
 <p id="count" aria-live="polite"></p></header><main>''' + '\n'.join(cards) + '''</main>
 <script>
 const query=document.querySelector('#query'),checked=document.querySelector('#checked'),cards=[...document.querySelectorAll('article')];

@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--sample', action='store_true')
     parser.add_argument('--motion', action='store_true')
     parser.add_argument('--shell', action='store_true')
+    parser.add_argument('--native', action='store_true', help='Shell preview: simulate unavailable WebEngine')
     parser.add_argument('--nav', type=int, default=0)
     parser.add_argument('--tab', type=int, default=None)
     parser.add_argument('--collapsed', action='store_true')

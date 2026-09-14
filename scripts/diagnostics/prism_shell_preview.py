@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,10 +39,12 @@ def main(args):
     if args.font is not None:
         settings['font_size'] = args.font
     result = {}
+    native = getattr(args, 'native', False)
     root = Path(__file__).resolve().parents[2]
     with patch('main_window.load_settings', return_value=settings), \
             patch.object(MainWindow, '_ensure_services'), \
-            patch('socket.socket.connect', side_effect=RuntimeError('Shell preview forbids external connections')):
+            patch('socket.socket.connect', side_effect=RuntimeError('Shell preview forbids external connections')), \
+            (patch.object(web_shell, 'runtime_web_shell_available', return_value=False) if native else nullcontext()):
         window = MainWindow()
         window.resize(args.width, args.height)
         window.show()
@@ -75,6 +78,17 @@ def main(args):
             window._layout_controller.force(args.width, args.height)
             QTimer.singleShot(1000, inspect_chrome)
         def inspect_chrome():
+            if native:
+                result['expected_active_label'] = window._context_header.name_label.text()
+                result['native_sidebar'] = {
+                    'visible': window._sidebar.isVisible(),
+                    'width': window._sidebar.width(),
+                    'checked_nav': [index for index, button in enumerate(window.nav_buttons)
+                                    if button is not None and button.isChecked() and index not in (14, 15)],
+                }
+                result['runtime_unavailable_simulated'] = True
+                finish()
+                return
             window._chrome_web.web_page.runJavaScript(
                 "({sidebar:!!document.querySelector('.sidebar'),"
                 "active:[...document.querySelectorAll('.nav-item.active .nav-text')].map(e=>e.textContent.trim()),"
@@ -102,6 +116,8 @@ def main(args):
             folder = root / 'docs/ui/prism-implementation-2026-09/shell'
             folder.mkdir(parents=True, exist_ok=True)
             name = f'nav-{args.nav}-{args.width}-{args.height}' + ('-collapsed' if args.collapsed else '')
+            if native:
+                name += '-native'
             if args.tab is not None:
                 name += f'-tab-{args.tab}'
             if args.sample and args.nav in (7, 22):
@@ -127,7 +143,9 @@ def main(args):
             window.deleteLater()
             QTimer.singleShot(100, app.quit)
         def ready():
-            if window._web_health.is_ready() and window.main_shell_renderer == 'web' and window.dashboard_renderer == 'web':
+            native_ready = native and window.main_shell_renderer == 'native' and window.dashboard_renderer == 'native'
+            web_ready = not native and window._web_health.is_ready() and window.main_shell_renderer == 'web' and window.dashboard_renderer == 'web'
+            if native_ready or web_ready:
                 probe.stop()
                 QTimer.singleShot(1000, capture)
         probe.timeout.connect(ready)
@@ -143,11 +161,18 @@ def main(args):
             raise SystemExit(4)
         if args.tab is not None and result['actual_tab'] != args.tab:
             raise SystemExit(5)
-        dom = result.get('chrome_dom') or {}
-        if not dom.get('sidebar') or dom.get('active') != [result['expected_active_label']]:
-            raise SystemExit(6)
-        if dom['scrollWidth'] > dom['width']:
-            raise SystemExit(7)
+        if native:
+            sidebar = result['native_sidebar']
+            if not sidebar['visible'] or sidebar['checked_nav'] != [args.nav]:
+                raise SystemExit(6)
+            if result['chrome'] != 'native' or result['dashboard'] != 'native':
+                raise SystemExit(7)
+        else:
+            dom = result.get('chrome_dom') or {}
+            if not dom.get('sidebar') or dom.get('active') != [result['expected_active_label']]:
+                raise SystemExit(6)
+            if dom['scrollWidth'] > dom['width']:
+                raise SystemExit(7)
         if args.expected_dpr is not None and abs(result['window_dpr'] - args.expected_dpr) > 0.02:
             raise SystemExit(8)
         if args.expected_dpr is not None:

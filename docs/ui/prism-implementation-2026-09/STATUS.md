@@ -2,6 +2,16 @@
 
 更新：2026-09-14。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-14 原生回退侧栏实窗修复
+
+本批基于本地 `325cced95965e877e854bafeb06a63b8f2d3f9b2`。诊断增加 `--shell --native`，仅在隔离进程中将runtime_web_shell_available模拟为False，保留ui_web_shell=True，走原有启动回退分支，不改生产WebEngine可用性策略。记录原生侧栏可见性、宽度、选中索引及两个renderer；图集区分原生与网页证据。此模拟不证明运行中WebEngine崩溃恢复。
+
+实际截图发现两处问题并修复：原生导航选中图标仍用普通激活紫，现仅对nav-btn/nav-btn-settings/nav-sub-item的On状态使用NAV_ACTIVE_TEXT，Normal/Active/Selected三种mode一致，Off图标不变；72/84宽图标侧栏仍保留子组20px缩进、底部横排挤压，现在收起时取消组缩进、外边距改8、底部设置与用户菜单纵排，展开恢复原布局。原按钮、菜单、导航索引和回调未替换，不改保存偏好。
+
+Windows隔离定向验证：`tests.test_prism_icons_brand` 17项、`tests.test_prism_native_sidebar_geometry` 1项、`tests.test_prism_main_shell` 19项，共37项通过。两个新增回归分别在修复前复现选中像素颜色错误和960窗首页按钮44宽但viewport仅38宽；修复后检查全部可见导航项逐个滚动可达、44×44命中区、设置/用户菜单不重叠、四种窗口/折叠组合下对象保持及展开后缩进恢复。
+
+重新生成并查看四张真实原生窗口：[1440首页](shell/nav-0-1440-900-native.png)、[1280手动折叠首页](shell/nav-0-1280-800-collapsed-native.png)、[1100 Agent](shell/nav-17-1100-720-native.png)、[960首页/字号16](shell/nav-0-960-640-native-font-16.png)，四次隔离运行退出0。该批实际DPR1.0，按运行记录报告，不以历史截图DPR推断；窄窗仍使用原有纵向滚动，单张截图不代表所有下方内容同时可见。页面空数据来自临时配置。完整UI状态矩阵、实际多屏、性能及NoSQL等待线程范围仍未完成。
+
 ## 2026-09-14 工具菜单按钮状态
 
 本批基于本地 `e688ebdf42e51f48f51343b6ecbcba2904f78ceb`。附件菜单与响应式“更多”按钮补充按下、禁用和2px焦点边框，焦点时padding各减1以维持内容位置及尺寸；hover/pressed/focus限定enabled，原业务启用规则不变。附件按钮增加可访问名称，菜单与回调未替换。规格14.4残留“主题2种”改为已批准的calm单主题及旧配置兼容归一。

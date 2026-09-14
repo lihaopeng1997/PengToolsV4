@@ -1,0 +1,41 @@
+{
+  "expected_active_label": "首页",
+  "native_sidebar": {
+    "visible": true,
+    "width": 248,
+    "checked_nav": [
+      0
+    ]
+  },
+  "runtime_unavailable_simulated": true,
+  "nav": 0,
+  "requested": [
+    1440,
+    900
+  ],
+  "window": [
+    1440,
+    900
+  ],
+  "page": [
+    1144,
+    772
+  ],
+  "chrome": "native",
+  "dashboard": "native",
+  "actual_nav": 0,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": false,
+  "window_dpr": 1.0,
+  "image_pixels": [
+    1440,
+    900
+  ],
+  "font_size": 12,
+  "source_head": "325cced95965e877e854bafeb06a63b8f2d3f9b2",
+  "ui_source_changes": [
+    " M main_window.py",
+    " M ui/icons.py"
+  ]
+}

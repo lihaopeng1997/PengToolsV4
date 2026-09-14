@@ -272,6 +272,25 @@ class PrismRuntimeRenderAndCacheTests(unittest.TestCase):
         self.assertEqual(btn.iconSize().width(), 18)
         self.assertEqual(btn.iconSize().height(), 18)
 
+    def test_native_navigation_checked_icons_match_selected_text(self):
+        from PyQt6.QtGui import QColor
+        palette = ThemeManager.instance().palette()
+        expected = QColor(palette['NAV_ACTIVE_TEXT']).rgb()
+        for name in ('nav-btn', 'nav-btn-settings', 'nav-sub-item'):
+            button = QPushButton()
+            button.setObjectName(name)
+            button.setCheckable(True)
+            apply_icon(button, 'home', size=20)
+            for mode in (QIcon.Mode.Normal, QIcon.Mode.Active, QIcon.Mode.Selected):
+                image = button.icon().pixmap(20, 20, mode, QIcon.State.On).toImage()
+                pixels = [image.pixelColor(x, y) for x in range(image.width())
+                          for y in range(image.height()) if image.pixelColor(x, y).alpha() > 200]
+                self.assertTrue(pixels)
+                self.assertTrue(all(color.rgb() == expected for color in pixels), (name, mode))
+            self.assertEqual(button.icon().pixmap(20, 20, QIcon.Mode.Normal, QIcon.State.Off).toImage(),
+                             qicon('home', size=20).pixmap(20, 20, QIcon.Mode.Normal, QIcon.State.Off).toImage())
+            button.deleteLater()
+
     def test_clear_icon_cache_purges_both_caches(self):
         """clear_icon_cache() 正确清空 icon_pixmap 和 brand_pixmap 的 lru_cache。"""
         # 填充缓存

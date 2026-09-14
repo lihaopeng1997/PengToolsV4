@@ -4,7 +4,7 @@ import os
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
+    QApplication, QBoxLayout, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
     QInputDialog, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
@@ -784,6 +784,7 @@ class MainWindow(QMainWindow):
 
         # 底部：设置 + 用户芯片
         footer = QHBoxLayout()
+        self._sidebar_footer_layout = footer
         footer.setContentsMargins(0, 8, 0, 0)
         footer.setSpacing(8)
         self.settings_button = QPushButton()
@@ -1133,6 +1134,20 @@ class MainWindow(QMainWindow):
         if getattr(self, '_sidebar_stack', None) is not None:
             self._sidebar_stack.setFixedWidth(target_width)
         self._nav_icon_only = icon_only
+        self._sidebar.layout().setContentsMargins(8 if icon_only else 12, 14,
+                                                 8 if icon_only else 12, 12)
+        for sub_layout in (self._sql_subnav_layout, self._ai_subnav_layout):
+            sub_layout.setContentsMargins(0 if icon_only else 20, 2,
+                                          0 if icon_only else 8, 4)
+        for parent_index in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+            self.nav_buttons[parent_index].parentWidget().layout().setContentsMargins(
+                0, 0, 0 if icon_only else 8, 0)
+        self._sidebar_footer_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if icon_only else QBoxLayout.Direction.LeftToRight)
+        self._sidebar_footer_layout.setAlignment(
+            self.settings_button, Qt.AlignmentFlag.AlignHCenter if icon_only else Qt.AlignmentFlag(0))
+        self._sidebar_footer_layout.setAlignment(
+            self.user_chip, Qt.AlignmentFlag.AlignHCenter if icon_only else Qt.AlignmentFlag.AlignBottom)
         margin = content_margin_for_mode(mode)
         if hasattr(self, '_page_body_layout') and self._page_body_layout is not None:
             self._page_body_layout.setContentsMargins(margin, margin, margin, margin)

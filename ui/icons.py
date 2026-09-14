@@ -246,6 +246,13 @@ def apply_icon(button, role: str, size: int = 18, *, normal: str | None = None, 
     icon = qicon(role, size=size, normal=normal, active=active)
     if icon.isNull():
         return
+    if button.objectName() in ('nav-btn', 'nav-btn-settings', 'nav-sub-item'):
+        # Checked navigation uses a solid selection surface, including on hover.
+        from ui.theme_manager import ThemeManager
+        checked_pix = icon_pixmap(role, size, ThemeManager.instance().token('NAV_ACTIVE_TEXT'))
+        if not checked_pix.isNull():
+            for mode in (QIcon.Mode.Normal, QIcon.Mode.Active, QIcon.Mode.Selected):
+                icon.addPixmap(checked_pix, mode, QIcon.State.On)
     button.setIcon(icon)
     button.setIconSize(QSize(size, size))
 

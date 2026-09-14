@@ -10,13 +10,17 @@ article{background:#fff;border:1px solid #e4dff1;border-radius:18px;overflow:hid
 img{display:block;width:100%;height:350px;object-fit:contain;background:#f9f8fc}.caption{padding:16px 20px}h2{font-size:17px;margin:0}p{margin:7px 0}a{color:#7354dc}
 article[hidden]{display:none}@media(max-width:800px){main{grid-template-columns:1fr}label{margin:12px 0}img{height:auto}}
 </style><header><h1>晴空棱镜 · 实际窗口检查图集</h1>
-<p>截图来自隔离配置中的真实软件窗口。点击图片查看原图。每张图只表示当时的页面和滚动位置；网页就绪检查不等于所有功能、视觉、DPI及性能验收通过。旧采样可能有空白侧栏，默认隐藏。</p>
+<p>截图来自隔离配置中的真实软件窗口。点击图片查看原图。每张图只表示当时的页面和滚动位置；显示与选中检查不等于所有功能、视觉、DPI及性能验收通过。原生图通过模拟网页不可用进入原有回退分支，未模拟运行中崩溃。旧采样可能有空白侧栏，默认隐藏。</p>
 <p><a href="../STATUS.md">实施与验证记录</a> · <a href="../dialogs/index.html">子窗口图集</a></p>
-<input id="query" placeholder="筛选模块或页签" aria-label="筛选模块或页签"><label><input id="checked" type="checkbox" checked>仅看网页状态已核对的截图</label>
+<input id="query" placeholder="筛选模块或页签" aria-label="筛选模块或页签"><label><input id="checked" type="checkbox" checked>仅看显示与选中状态已核对的截图</label>
 <p id="count" aria-live="polite"></p></header><main><article data-label="模块 0" data-checked="false">
 <a href="nav-0-1100-720.png" target="_blank"><img src="nav-0-1100-720.png" loading="lazy" alt="模块 0 1100 × 720"></a>
 <div class="caption"><h2>模块 0</h2><p>1100 × 720 · 旧采样：未核对网页就绪</p><p>未记录源码版本</p>
 <a href="nav-0-1100-720.json" target="_blank">查看运行记录</a></div></article>
+<article data-label="首页 · 原生回退（模拟网页不可用） · 侧栏折叠偏好" data-checked="true">
+<a href="nav-0-1280-800-collapsed-native.png" target="_blank"><img src="nav-0-1280-800-collapsed-native.png" loading="lazy" alt="首页 · 原生回退（模拟网页不可用） · 侧栏折叠偏好 1280 × 800"></a>
+<div class="caption"><h2>首页 · 原生回退（模拟网页不可用） · 侧栏折叠偏好</h2><p>1280 × 800 · 已记录原生显示与选中状态</p><p>源码基准 325cced95965 · 含未提交UI文件，详见记录</p>
+<a href="nav-0-1280-800-collapsed-native.json" target="_blank">查看运行记录</a></div></article>
 <article data-label="模块 0" data-checked="false">
 <a href="nav-0-1280-800.png" target="_blank"><img src="nav-0-1280-800.png" loading="lazy" alt="模块 0 1280 × 800"></a>
 <div class="caption"><h2>模块 0</h2><p>1280 × 800 · 旧采样：未核对网页就绪</p><p>未记录源码版本</p>
@@ -25,6 +29,10 @@ article[hidden]{display:none}@media(max-width:800px){main{grid-template-columns:
 <a href="nav-0-1440-900-collapsed.png" target="_blank"><img src="nav-0-1440-900-collapsed.png" loading="lazy" alt="模块 0 · 侧栏折叠偏好 1440 × 900"></a>
 <div class="caption"><h2>模块 0 · 侧栏折叠偏好</h2><p>1440 × 900 · 旧采样：未核对网页就绪</p><p>未记录源码版本</p>
 <a href="nav-0-1440-900-collapsed.json" target="_blank">查看运行记录</a></div></article>
+<article data-label="首页 · 原生回退（模拟网页不可用）" data-checked="true">
+<a href="nav-0-1440-900-native.png" target="_blank"><img src="nav-0-1440-900-native.png" loading="lazy" alt="首页 · 原生回退（模拟网页不可用） 1440 × 900"></a>
+<div class="caption"><h2>首页 · 原生回退（模拟网页不可用）</h2><p>1440 × 900 · 已记录原生显示与选中状态</p><p>源码基准 325cced95965 · 含未提交UI文件，详见记录</p>
+<a href="nav-0-1440-900-native.json" target="_blank">查看运行记录</a></div></article>
 <article data-label="首页" data-checked="true">
 <a href="nav-0-1440-900.png" target="_blank"><img src="nav-0-1440-900.png" loading="lazy" alt="首页 1440 × 900"></a>
 <div class="caption"><h2>首页</h2><p>1440 × 900 · 已记录网页就绪与选中状态</p><p>源码基准 1527ce4dc363</p>
@@ -45,6 +53,10 @@ article[hidden]{display:none}@media(max-width:800px){main{grid-template-columns:
 <a href="nav-0-960-640-dpr-200-font-16.png" target="_blank"><img src="nav-0-960-640-dpr-200-font-16.png" loading="lazy" alt="首页 · DPR 2 · 16px字体 960 × 640"></a>
 <div class="caption"><h2>首页 · DPR 2 · 16px字体</h2><p>960 × 640 · 已记录网页就绪与选中状态</p><p>未记录源码版本</p>
 <a href="nav-0-960-640-dpr-200-font-16.json" target="_blank">查看运行记录</a></div></article>
+<article data-label="首页 · 原生回退（模拟网页不可用）" data-checked="true">
+<a href="nav-0-960-640-native-font-16.png" target="_blank"><img src="nav-0-960-640-native-font-16.png" loading="lazy" alt="首页 · 原生回退（模拟网页不可用） 960 × 640"></a>
+<div class="caption"><h2>首页 · 原生回退（模拟网页不可用）</h2><p>960 × 640 · 已记录原生显示与选中状态</p><p>源码基准 325cced95965 · 含未提交UI文件，详见记录</p>
+<a href="nav-0-960-640-native-font-16.json" target="_blank">查看运行记录</a></div></article>
 <article data-label="首页" data-checked="true">
 <a href="nav-0-960-640.png" target="_blank"><img src="nav-0-960-640.png" loading="lazy" alt="首页 960 × 640"></a>
 <div class="caption"><h2>首页</h2><p>960 × 640 · 已记录网页就绪与选中状态</p><p>未记录源码版本</p>
@@ -89,6 +101,10 @@ article[hidden]{display:none}@media(max-width:800px){main{grid-template-columns:
 <a href="nav-16-960-640.png" target="_blank"><img src="nav-16-960-640.png" loading="lazy" alt="聊天 960 × 640"></a>
 <div class="caption"><h2>聊天</h2><p>960 × 640 · 已记录网页就绪与选中状态</p><p>未记录源码版本</p>
 <a href="nav-16-960-640.json" target="_blank">查看运行记录</a></div></article>
+<article data-label="工作 · 原生回退（模拟网页不可用）" data-checked="true">
+<a href="nav-17-1100-720-native.png" target="_blank"><img src="nav-17-1100-720-native.png" loading="lazy" alt="工作 · 原生回退（模拟网页不可用） 1100 × 720"></a>
+<div class="caption"><h2>工作 · 原生回退（模拟网页不可用）</h2><p>1100 × 720 · 已记录原生显示与选中状态</p><p>源码基准 325cced95965 · 含未提交UI文件，详见记录</p>
+<a href="nav-17-1100-720-native.json" target="_blank">查看运行记录</a></div></article>
 <article data-label="工作" data-checked="true">
 <a href="nav-17-1440-900.png" target="_blank"><img src="nav-17-1440-900.png" loading="lazy" alt="工作 1440 × 900"></a>
 <div class="caption"><h2>工作</h2><p>1440 × 900 · 已记录网页就绪与选中状态</p><p>源码基准 3082188fb31a · 含未提交UI文件，详见记录</p>

@@ -1,0 +1,41 @@
+{
+  "expected_active_label": "工作",
+  "native_sidebar": {
+    "visible": true,
+    "width": 84,
+    "checked_nav": [
+      17
+    ]
+  },
+  "runtime_unavailable_simulated": true,
+  "nav": 17,
+  "requested": [
+    1100,
+    720
+  ],
+  "window": [
+    1100,
+    720
+  ],
+  "page": [
+    984,
+    608
+  ],
+  "chrome": "native",
+  "dashboard": "native",
+  "actual_nav": 17,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": false,
+  "window_dpr": 1.0,
+  "image_pixels": [
+    1100,
+    720
+  ],
+  "font_size": 12,
+  "source_head": "325cced95965e877e854bafeb06a63b8f2d3f9b2",
+  "ui_source_changes": [
+    " M main_window.py",
+    " M ui/icons.py"
+  ]
+}
