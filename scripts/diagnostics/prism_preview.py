@@ -142,6 +142,9 @@ def main():
         elif args.page == 'floating' and args.tab == 7:
             widget._sync_chat_running_state(True)
             widget.toggle_expanded()
+        elif args.page == 'floating' and args.tab == 8:
+            with patch('tools.ticket_submit.configured_ticket_profiles', return_value=[{'name': 'DEMO'}]):
+                widget._refresh_ticket_button()
         if args.page == 'floating' and args.tab == 3:
             widget._open_learning_search()
         elif args.page == 'floating' and args.tab in (4, 5):

@@ -353,3 +353,24 @@ class QuickPanelLifecycleTests(unittest.TestCase):
             set_motion_enabled_for_test(None)
             panel.shutdown()
             owner.deleteLater()
+
+    def test_three_footer_actions_fit_with_ticket_configuration(self):
+        owner = _Stub()
+        owner.open_ticket_submit = Mock()
+        with patch('tools.ticket_submit.configured_ticket_profiles', return_value=[{'name': 'DEMO'}]):
+            panel = QuickPanel(owner, 'zh')
+            try:
+                panel.show_panel()
+                for language in ('zh', 'en'):
+                    panel.set_language(language)
+                    self.app.processEvents()
+                    self.assertTrue(panel.ticket_btn.isVisible())
+                    for button in (panel.home_btn, panel.ticket_btn, panel.footer_edit_btn):
+                        self.assertGreaterEqual(button.width(), button.sizeHint().width(), (language, button.text()))
+                        self.assertTrue(panel.footer_bar.rect().contains(button.geometry()))
+                    self.assertEqual(panel.footer_bar.height(), 40)
+                panel.ticket_btn.click()
+                owner.open_ticket_submit.assert_called_once_with(compact=True)
+            finally:
+                panel.shutdown()
+                owner.deleteLater()

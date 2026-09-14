@@ -2,6 +2,12 @@
 
 更新：2026-09-14。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-14 提签启用后的悬浮底栏
+
+本批基于 `3497ec0289bd216100c2d7cb371d0d655215907c`。模拟已有提签配置时，底部三个入口同时出现，原“打开完整工作台”被压缩至96而sizeHint为106。改为“工作台 / 一键提签 / 快捷入口”，英文Workspace / Ticket / Shortcuts，完整说明保留在tooltip；固定40底栏与原按钮、回调和可见规则不变。
+
+Windows隔离 `tests.test_quick_panel_lifecycle` 16项通过。新用例先复现中文压缩，再校验中英文全部按钮宽度/边界及40高度；实际点击提签仍调用原owner.open_ticket_submit(compact=True)，执行端为Mock，不提交任何内容。初次英文Submit ticket仍差1像素，缩短为Ticket后通过。生成并查看[三个底部入口](floating/mode-8-font-16.png)，offscreen退出0；旧mode1～7图片保留为历史状态，其底部文字已由本批更新。没有真实配置、网络请求或提签操作，完整验收仍未结束。
+
 ## 2026-09-14 减弱动效停止菱点刷新
 
 本批基于 `132788fef25e76de97f681956e094d9c2da71dee`。新增检查复现ThinkingIndicator在减弱动效下画面静止但40ms计时器仍运行。现在start/show仅在允许动效时启动；运行中的tick发现动效关闭则停止计时器并绘制静态状态。is_running仍表示原任务等待状态，不取消任务、不改调用方契约。
