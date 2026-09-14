@@ -1,0 +1,44 @@
+{
+  "chrome_dom": {
+    "active": [
+      "Redis"
+    ],
+    "scrollWidth": 248,
+    "sidebar": true,
+    "width": 248
+  },
+  "expected_active_label": "Redis",
+  "loaded_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "bridge_ready_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "nav": 22,
+  "requested": [
+    1440,
+    900
+  ],
+  "window": [
+    1440,
+    900
+  ],
+  "page": [
+    1144,
+    772
+  ],
+  "chrome": "web",
+  "dashboard": "web",
+  "actual_nav": 22,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": false,
+  "window_dpr": 1.5,
+  "image_pixels": [
+    2160,
+    1350
+  ],
+  "font_size": 12
+}

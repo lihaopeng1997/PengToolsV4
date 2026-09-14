@@ -1,0 +1,44 @@
+{
+  "chrome_dom": {
+    "active": [
+      "MongoDB"
+    ],
+    "scrollWidth": 84,
+    "sidebar": true,
+    "width": 84
+  },
+  "expected_active_label": "MongoDB",
+  "loaded_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "bridge_ready_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "nav": 23,
+  "requested": [
+    1280,
+    800
+  ],
+  "window": [
+    1280,
+    800
+  ],
+  "page": [
+    1156,
+    680
+  ],
+  "chrome": "web",
+  "dashboard": "web",
+  "actual_nav": 23,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": true,
+  "window_dpr": 1.5,
+  "image_pixels": [
+    1920,
+    1200
+  ],
+  "font_size": 12
+}

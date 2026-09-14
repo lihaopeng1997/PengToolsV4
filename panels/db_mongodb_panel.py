@@ -397,8 +397,10 @@ class MongoDBWorkbenchPanel(QWidget):
         rows = [item for item in load_connections() if str(item.get('dialect') or '').lower() == 'mongodb']
         if not rows:
             self.conn_combo.addItem(
-                '无 MongoDB 连接，点击“新建”创建' if self.language == 'zh' else 'No MongoDB connection', None
+                '无 MongoDB 连接' if self.language == 'zh' else 'No MongoDB connection', None
             )
+            self.conn_combo.setItemData(0, '点击“新建连接”创建' if self.language == 'zh'
+                                       else 'Use New connection to create one', Qt.ItemDataRole.ToolTipRole)
         for item in rows:
             self.conn_combo.addItem(str(item.get('name') or item.get('id')), item)
             if select_id and item.get('id') == select_id:

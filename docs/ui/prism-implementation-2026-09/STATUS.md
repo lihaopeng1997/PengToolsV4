@@ -2,6 +2,14 @@
 
 更新：2026-09-14。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-14 NoSQL宽窗口与连接空态
+
+本批基于 `5ebb493fa3b1e5a2f244cf109e24618a56fb997f`。实际检查Redis/MongoDB各1440×900展开侧栏、1280×800折叠侧栏，四次通过网页加载/bridge就绪、实际侧栏选中、目标窗口尺寸核验。初始四图均查看，未发现结果区与分页/控制台新增重叠；RedisOverview保留内部滚动。发现无连接占位文字在下拉框截断，简化为“无 Redis 连接 / 无 MongoDB 连接”，创建说明置于该项ToolTipRole。占位UserRole仍None，连接列表及回调不变。
+
+修改后重新运行上述四种实际窗口，均退出0，最新MongoDB折叠图已再次查看，空态文字完整。`tests.test_prism_database_layout` 4项通过。图集更新至64张：[Redis宽窗](shell/nav-22-1440-900.png)、[MongoDB宽窗](shell/nav-23-1440-900.png)、[Redis折叠](shell/nav-22-1280-800-collapsed.png)、[MongoDB折叠](shell/nav-23-1280-800-collapsed.png)。所有诊断使用临时配置、无网络连接，实际DPR为1.5。
+
+这是两个入口的初始空态与两种窗口组合证据，不是完整尺寸矩阵、数据库业务或AI等待动效验收。NoSQL线程调整仍待用户对已准备需求的确认，没有将自动继续消息当作批准。其余不依赖线程决策的UI工作继续进行。
+
 ## 2026-09-14 启动卡片玻璃色解析
 
 本批基于 `02fbd195b3faa9fcaabc758f8cfa3452d029777b`。检查发现StartupSplash直接使用QColor解析GLASS_BORDER与SHADOW的rgba字符串；实际执行QColor('rgba(38, 36, 56, 45)').isValid()为False。现在这两处绘制调用已有theme_manager.parse_color，保留边框(230,226,240,200)和阴影(38,36,56,45)的完整RGBA。未更改启动时序、延迟、窗口归属或动画策略。
