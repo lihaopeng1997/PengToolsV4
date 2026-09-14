@@ -146,6 +146,8 @@ class StartupSplash(QWidget):
             return True
 
     def _on_anim_tick(self):
+        if not self._is_motion_enabled():
+            self._anim_timer.stop()
         if self._is_visible and self.isVisible():
             self.update()
 
@@ -171,7 +173,8 @@ class StartupSplash(QWidget):
                 self._show_timer.stop()
             self.show()
             self.raise_()
-            self._anim_timer.start()
+            if self._is_motion_enabled():
+                self._anim_timer.start()
             app = QApplication.instance()
             if app is not None:
                 app.processEvents()
@@ -237,7 +240,7 @@ class StartupSplash(QWidget):
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
-        if not self._is_finished and not self._anim_timer.isActive():
+        if not self._is_finished and self._is_motion_enabled() and not self._anim_timer.isActive():
             self._anim_timer.start()
 
     def paintEvent(self, event):  # noqa: N802

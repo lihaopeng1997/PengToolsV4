@@ -211,6 +211,28 @@ class PrismLoadingContractTests(unittest.TestCase):
         self.assertEqual(border.getRgb(), (230, 226, 240, 200))
         self.assertEqual(shadow.getRgb(), (38, 36, 56, 45))
 
+    def test_splash_reduced_motion_keeps_status_without_animation_timer(self):
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(False)
+        splash = StartupSplash(self.app, delay_ms=0, min_visible_ms=0)
+        try:
+            splash.show_status('DEMO loading')
+            self.assertTrue(splash.is_visible_to_user)
+            self.assertFalse(splash._anim_timer.isActive())
+            self.assertEqual(splash._message, 'DEMO loading')
+            splash.hide()
+            set_motion_enabled_for_test(True)
+            splash.show()
+            self.assertTrue(splash._anim_timer.isActive())
+            set_motion_enabled_for_test(False)
+            splash._on_anim_tick()
+            self.assertFalse(splash._anim_timer.isActive())
+            splash.show_status('DEMO next stage')
+            self.assertEqual(splash._message, 'DEMO next stage')
+        finally:
+            splash._do_finish()
+            set_motion_enabled_for_test(None)
+
     def test_ld_t10_reduced_motion_renders_statically(self):
         """LD-T10: 减弱动效下渲染静态环与静态点，无死循环。"""
         from ui.motion import set_motion_enabled_for_test
