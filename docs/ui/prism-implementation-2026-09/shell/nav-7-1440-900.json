@@ -1,0 +1,46 @@
+{
+  "chrome_dom": {
+    "active": [
+      "设置"
+    ],
+    "scrollWidth": 248,
+    "sidebar": true,
+    "width": 248
+  },
+  "expected_active_label": "设置",
+  "loaded_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "bridge_ready_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "nav": 7,
+  "requested": [
+    1440,
+    900
+  ],
+  "window": [
+    1440,
+    900
+  ],
+  "page": [
+    1144,
+    772
+  ],
+  "chrome": "web",
+  "dashboard": "web",
+  "actual_nav": 7,
+  "context_height": 52,
+  "status_height": 28,
+  "collapsed": false,
+  "window_dpr": 1.5,
+  "image_pixels": [
+    2160,
+    1350
+  ],
+  "font_size": 12,
+  "source_head": "3082188fb31aa28b38a12b9ec59b876708ce90cc",
+  "ui_source_changes": []
+}

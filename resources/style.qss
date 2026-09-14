@@ -2697,7 +2697,7 @@ QTextEdit#ai-prompt-edit:focus {
     border: 2px solid __FOCUS_RING__;
     outline: none;
 }
-QToolButton#responsive-more-btn {
+QToolButton#responsive-more-btn, QToolButton#agent-attachment-btn {
     background: __SURFACE__;
     color: __TEXT__;
     border: 1px solid __BORDER__;
@@ -2705,7 +2705,7 @@ QToolButton#responsive-more-btn {
     padding: 6px 10px;
     font-weight: 600;
 }
-QToolButton#responsive-more-btn:hover {
+QToolButton#responsive-more-btn:hover, QToolButton#agent-attachment-btn:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
     color: __PRIMARY_ACTIVE__;
