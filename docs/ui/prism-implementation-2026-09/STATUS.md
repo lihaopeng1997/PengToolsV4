@@ -2,6 +2,12 @@
 
 更新：2026-09-14。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-14 启动卡片玻璃色解析
+
+本批基于 `02fbd195b3faa9fcaabc758f8cfa3452d029777b`。检查发现StartupSplash直接使用QColor解析GLASS_BORDER与SHADOW的rgba字符串；实际执行QColor('rgba(38, 36, 56, 45)').isValid()为False。现在这两处绘制调用已有theme_manager.parse_color，保留边框(230,226,240,200)和阴影(38,36,56,45)的完整RGBA。未更改启动时序、延迟、窗口归属或动画策略。
+
+Windows隔离 `tests.test_prism_loading` 18项通过，新检查核对calm边框/阴影透明度。隔离原生预览增加splash入口，生成并查看[480×280启动卡片](splash-glass.png)，offscreen运行退出0，DEMO状态仅用于画面检查。图片是静态离屏渲染，不证明Windows桌面合成与真实启动耗时。完整验收继续保留。
+
 ## 2026-09-14 NoSQL AI等待调用链审计
 
 本批基于 `9649fd44d6efe159a6d4ddfba6ad217b130e26e6`。源码确认Redis/MongoDB的_ai_send直接同步调用chat_completions，模型方法同步等待_request；单纯加入定时绘图不能解决网络等待占用界面线程。未连接模型、不改请求或线程，实际阻塞时长未测。

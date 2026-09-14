@@ -203,6 +203,14 @@ class PrismLoadingContractTests(unittest.TestCase):
         self.assertEqual(img.height(), round(280 * img.devicePixelRatio()))
         splash._do_finish()
 
+    def test_splash_glass_colors_preserve_theme_alpha(self):
+        from ui.startup_splash import _palette_color, _resolve_palette
+        palette = _resolve_palette()
+        border = _palette_color(palette, 'GLASS_BORDER', '#E6E2F0')
+        shadow = _palette_color(palette, 'SHADOW', '#2D262438')
+        self.assertEqual(border.getRgb(), (230, 226, 240, 200))
+        self.assertEqual(shadow.getRgb(), (38, 36, 56, 45))
+
     def test_ld_t10_reduced_motion_renders_statically(self):
         """LD-T10: 减弱动效下渲染静态环与静态点，无死循环。"""
         from ui.motion import set_motion_enabled_for_test

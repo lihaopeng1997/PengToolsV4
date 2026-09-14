@@ -70,6 +70,12 @@ def _resolve_palette() -> dict:
     }
 
 
+def _palette_color(palette: dict, key: str, fallback: str) -> QColor:
+    from ui.theme_manager import parse_color
+    rgba = parse_color(palette.get(key) or fallback)
+    return QColor(*rgba) if rgba else QColor(fallback)
+
+
 class StartupSplash(QWidget):
     """现代圆角品牌启动卡片 (LD-01 晴空棱镜规范)。"""
 
@@ -244,7 +250,7 @@ class StartupSplash(QWidget):
         card_bg = QColor(pal.get('ELEVATED_SURFACE') or pal.get('SURFACE') or '#FFFFFF')
         text_strong = QColor(pal.get('TEXT_STRONG') or '#262438')
         text_muted = QColor(pal.get('TEXT_MUTED') or '#615D73')
-        border_color = QColor(pal.get('GLASS_BORDER') or pal.get('BORDER') or '#E6E2F0')
+        border_color = _palette_color(pal, 'GLASS_BORDER', pal.get('BORDER') or '#E6E2F0')
         primary_color = QColor(pal.get('PRIMARY') or '#6C58D9')
         track_color = QColor(pal.get('LOADING_TRACK') or pal.get('SURFACE_TECH') or '#E6EBF5')
 
@@ -253,7 +259,7 @@ class StartupSplash(QWidget):
         radius = 20.0
 
         # 2. 柔和阴影层
-        shadow_base = QColor(pal.get('SHADOW') or 'rgba(38, 36, 56, 45)')
+        shadow_base = _palette_color(pal, 'SHADOW', '#2D262438')
         painter.setPen(Qt.PenStyle.NoPen)
         for i in (3, 2, 1):
             s_color = QColor(shadow_base)

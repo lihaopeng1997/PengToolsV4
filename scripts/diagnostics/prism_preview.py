@@ -20,6 +20,7 @@ os.environ['PENGTOOLS_DISABLE_MOTION'] = '1'
 
 
 PAGES = {
+    'splash': ('startup_splash', 'StartupSplash'),
     'floating': ('quick_panel', 'QuickPanel'),
     'settings': ('settings_panel', 'SettingsPanel'),
     'chat': ('model_chat_panel', 'ModelChatPanel'),
@@ -98,9 +99,12 @@ def main():
             append_message(session['id'], 'user', '请帮我梳理查询页面需要关注的测试点。')
             append_message(session['id'], 'assistant', '可以从三个方向检查：\n\n1. 正常数据、空数据与长文本的展示。\n2. 加载、失败和重试时是否保留输入。\n3. 键盘操作与窄窗口下按钮是否可达。\n\n以上仅为本地演示内容。')
         module_name, class_name = PAGES[args.page]
-        namespace = 'ui.' if args.page == 'floating' else 'panels.'
+        namespace = 'ui.' if args.page in ('floating', 'splash') else 'panels.'
         cls = getattr(importlib.import_module(namespace + module_name), class_name)
-        if args.page == 'floating':
+        if args.page == 'splash':
+            widget = cls(app, delay_ms=0, min_visible_ms=0)
+            widget.show_status('DEMO · 正在加载界面…')
+        elif args.page == 'floating':
             widget = cls(None, 'zh')
             if args.tab:
                 widget.toggle_expanded()
@@ -128,7 +132,7 @@ def main():
             widget.side_tabs.setCurrentIndex(args.tab)
         if args.sample and args.page == 'chat':
             widget.session_list.setCurrentRow(0)
-        if args.page != 'floating':
+        if args.page not in ('floating', 'splash'):
             widget.resize(args.width, args.height)
         if hasattr(widget, 'apply_layout_mode'):
             widget.apply_layout_mode('standard' if args.width >= 1000 else 'narrow', args.height < 640)
@@ -151,7 +155,7 @@ def main():
             widget._open_result_preview(1 if args.tab == 4 else 4)
         for _ in range(4):
             app.processEvents()
-        if args.page != 'floating':
+        if args.page not in ('floating', 'splash'):
             widget.resize(args.width, args.height)
         from PyQt6.QtCore import QCoreApplication, QEvent
         from PyQt6.QtTest import QTest
