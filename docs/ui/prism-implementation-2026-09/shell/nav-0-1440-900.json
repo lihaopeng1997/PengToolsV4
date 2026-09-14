@@ -1,4 +1,21 @@
 {
+  "chrome_dom": {
+    "active": [
+      "首页"
+    ],
+    "scrollWidth": 248,
+    "sidebar": true,
+    "width": 248
+  },
+  "expected_active_label": "首页",
+  "loaded_pages": [
+    "chrome",
+    "dashboard"
+  ],
+  "bridge_ready_pages": [
+    "chrome",
+    "dashboard"
+  ],
   "nav": 0,
   "requested": [
     1440,
@@ -17,5 +34,13 @@
   "actual_nav": 0,
   "context_height": 52,
   "status_height": 28,
-  "collapsed": false
+  "collapsed": false,
+  "window_dpr": 1.5,
+  "image_pixels": [
+    2160,
+    1350
+  ],
+  "font_size": 12,
+  "source_head": "1527ce4dc363590d4e1bda013e82db990ea08c4b",
+  "ui_source_changes": []
 }

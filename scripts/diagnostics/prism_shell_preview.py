@@ -1,11 +1,24 @@
 """Called by prism_web_runtime after it redirects all eager config paths."""
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 
 def main(args):
+    repo = Path(__file__).resolve().parents[2]
+    try:
+        source_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo,
+                                             text=True, stderr=subprocess.DEVNULL, timeout=10).strip()
+        source_changes = subprocess.check_output(
+            ['git', 'status', '--porcelain', '--untracked-files=all', '--',
+             'run.py', 'main_window.py', 'panels', 'ui', 'frontend', 'resources/style.qss',
+             'resources/webui', 'resources/icons'], cwd=repo, text=True,
+            stderr=subprocess.DEVNULL, timeout=10).splitlines()
+        source_record = {'source_head': source_head, 'ui_source_changes': source_changes}
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        source_record = {'source_head': None, 'ui_source_changes': None}
     os.environ['PENGTOOLS_SYNC_BOOT'] = '1'
     from ui import web_shell
     from PyQt6.QtCore import QTimer
@@ -106,6 +119,7 @@ def main(args):
                 result['expected_dpr'] = args.expected_dpr
                 result['qt_scale_factor'] = os.environ.get('QT_SCALE_FACTOR')
             pixmap.save(str(folder / (name + '.png')))
+            result.update(source_record)
             (folder / (name + '.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(result, ensure_ascii=False), flush=True)
             window._force_exit = True

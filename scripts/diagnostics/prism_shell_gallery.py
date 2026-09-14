@@ -26,10 +26,14 @@ def main():
         if row.get('collapsed'):
             variant += ' · 侧栏折叠偏好'
         status = '已记录网页就绪与选中状态' if verified else '旧采样：未核对网页就绪'
+        source = row.get('source_head')
+        source_label = f"源码基准 {source[:12]}" if source else '未记录源码版本'
+        if row.get('ui_source_changes'):
+            source_label += ' · 含未提交UI文件，详见记录'
         title = html.escape(label + variant)
         cards.append(f'''<article data-label="{title}" data-checked="{str(verified).lower()}">
 <a href="{picture.name}" target="_blank"><img src="{picture.name}" loading="lazy" alt="{title} {size}"></a>
-<div class="caption"><h2>{title}</h2><p>{size} · {status}</p>
+<div class="caption"><h2>{title}</h2><p>{size} · {status}</p><p>{html.escape(source_label)}</p>
 <a href="{path.name}" target="_blank">查看运行记录</a></div></article>''')
     page = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>晴空棱镜 · 实际窗口检查图集</title>
