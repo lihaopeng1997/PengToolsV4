@@ -78,7 +78,7 @@ class ThinkingIndicator(QWidget):
             self._is_running = True
             self._start_time = time.monotonic()
             self.show()
-            if self.isVisible():
+            if self.isVisible() and self._is_motion_enabled():
                 self._timer.start()
             self.update()
 
@@ -89,6 +89,8 @@ class ThinkingIndicator(QWidget):
             self.update()
 
     def _on_tick(self):
+        if not self._is_motion_enabled():
+            self._timer.stop()
         self.update()
 
     def hideEvent(self, event):
@@ -97,7 +99,7 @@ class ThinkingIndicator(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._is_running:
+        if self._is_running and self._is_motion_enabled():
             if not self._timer.isActive():
                 self._timer.start()
 

@@ -2,6 +2,12 @@
 
 更新：2026-09-14。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-14 减弱动效停止菱点刷新
+
+本批基于 `132788fef25e76de97f681956e094d9c2da71dee`。新增检查复现ThinkingIndicator在减弱动效下画面静止但40ms计时器仍运行。现在start/show仅在允许动效时启动；运行中的tick发现动效关闭则停止计时器并绘制静态状态。is_running仍表示原任务等待状态，不取消任务、不改调用方契约。
+
+Windows隔离验证：`tests.test_prism_loading` 17项和 `tests.test_quick_panel_lifecycle` 15项通过。新增减弱动效断言修复前失败、修复后通过，并检查隐藏后重显仍无计时器。要求正常动画启动的两项用例显式开启测试动效，避免依赖平台默认值；随后offscreen加载17项也通过。没有用这些计时器检查声称实际CPU改善多少，完整性能验收仍未完成。静态绘制外观没有变化，未重复生成图片。
+
 ## 2026-09-14 加载组件像素断言修正
 
 本批基于 `528fe14a39a7b47dfb64ecb375b249fedd263d5f`。上一批Windows DPR1.5下的两项失败来自测试把QImage/QPixmap物理宽高直接等同逻辑尺寸。现在ThinkingIndicator仍断言控件高28，截图按28×实际DPR核对；StartupSplash保持480×280控件尺寸，Logo按deviceIndependentSize核对64×64，截图按逻辑尺寸×实际DPR核对。未修改正式UI、启动或显示策略。

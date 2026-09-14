@@ -151,6 +151,9 @@ class PrismLoadingContractTests(unittest.TestCase):
 
     def test_ld_t07_thinking_indicator_geometry_and_text(self):
         """LD-T07: ThinkingIndicator 高 28，min 宽 140，文字起于 x=48。"""
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(True)
+        self.addCleanup(set_motion_enabled_for_test, None)
         ti = ThinkingIndicator(None, text='正在分析语义…')
         self.assertEqual(ti.height(), 28)
         self.assertGreaterEqual(ti.minimumWidth(), 140)
@@ -219,6 +222,12 @@ class PrismLoadingContractTests(unittest.TestCase):
             self.app.processEvents()
             img_ti = ti.grab().toImage()
             self.assertFalse(img_ti.isNull())
+            self.assertTrue(ti.is_running())
+            self.assertFalse(ti._timer.isActive())
+            ti.hide()
+            ti.show()
+            self.app.processEvents()
+            self.assertFalse(ti._timer.isActive())
             ti.stop()
             ti.deleteLater()
         finally:
@@ -304,6 +313,9 @@ class PrismLoadingContractTests(unittest.TestCase):
 
     def test_ld_t16_thinking_indicator_hide_preserves_is_running_and_show_resumes(self):
         """LD-T16: ThinkingIndicator 在 hide 时仅暂停绘制定时器，保持 is_running，show 后恢复。"""
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(True)
+        self.addCleanup(set_motion_enabled_for_test, None)
         from PyQt6.QtGui import QHideEvent, QShowEvent
         ti = ThinkingIndicator(None, text='思考中…')
         ti.start()
