@@ -33,9 +33,9 @@
     900
   ],
   "font_size": 12,
-  "source_head": "325cced95965e877e854bafeb06a63b8f2d3f9b2",
+  "source_head": "e4429a2747d3dc9755f0a8240333c4e1446ce3c0",
   "ui_source_changes": [
-    " M main_window.py",
-    " M ui/icons.py"
+    " M panels/dashboard_panel.py",
+    " M resources/style.qss"
   ]
 }

@@ -254,6 +254,7 @@ class PrismOrbWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName('dashboard-prism-orb')
         self.setFixedSize(120, 120)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._offset_y = 0.0
@@ -272,7 +273,8 @@ class PrismOrbWidget(QWidget):
         self._anim.setLoopCount(-1)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self._anim.valueChanged.connect(self._on_anim_value)
-        self._anim.start()
+        if self.isVisible() and motion_enabled():
+            self._anim.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -290,6 +292,10 @@ class PrismOrbWidget(QWidget):
                 self._anim.start()
 
     def _on_anim_value(self, val: float):
+        if not self.isVisible() or not motion_enabled():
+            if self._anim is not None and self._anim.state() == self._anim.State.Running:
+                self._anim.pause()
+            return
         import math
         rad = val * 2.0 * math.pi
         self._offset_y = -2.5 * (1.0 - math.cos(rad))
