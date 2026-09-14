@@ -2,6 +2,19 @@
 
 更新：2026-09-15。这是进行中的实施记录，不是完整验收结论。
 
+## 2026-09-15 UI 体验包与实际启动
+
+用户明确要求打包并运行。本次应用源码基于 `ui/prism-v1` 的 `4a65422389cd6552bbaf1276bcf8e80d6487edee`，另补打包清单中的 `resources/ui`（首页每日语句）；不修改业务行为。构建在独立 Git 快照中执行，保留原工作区 build_info 修改及五份阶段报告。隔离副本取消旧产物清理与安全环境变量清除，运行时裁剪前校验目标在独立 `_internal` 内；源打包流水线其余行为保持。没有覆盖原程序或复制原用户 data。
+
+- 本机包：`D:/PengTools/build/prism-preview-20260915-064701/source/PengToolsHub_Prism_UI_Preview_20260915.zip`，203,610,839 字节（约 194 MiB）。
+- SHA256：`341a74560d75bd4dc3991ed63ae101df0b8e2a87c6116ec486e60dbb25b53651`。
+- 运行入口：同一 source 下 `dist/PengToolsHub/PengToolsHub.exe`。已实际启动，PID 38548，窗口标题 PengToolsHub，有主窗口句柄且 Responding=True；保留运行供用户查看。此证据只证明启动和窗口响应，不代表逐页面视觉通过。
+- Python 3.12 / PyInstaller 6.22.2 构建退出 0；37 项 `tests.test_release_packaging`、`tests.test_release_secrets` 通过，其中打包脚本检查主要为静态合同检查。
+- 前端 typecheck、verify:embedded 通过；ZIP 的 2,084 个条目 CRC 检查通过，关键 Vue 入口、拖动 SVG、每日语句、Qt WebEngine 文件存在，应用用户 data 目录未入包。包创建后才启动 dist 中的程序。
+- 本机证据：上述 build 目录中的 `manifest.json`、`build.log`、`package-verification.json`、`launched.pid`；这些本机产物不在 Git 中，Git-only AI 不得声称已读取。
+
+本包定位为 UI 体验版。后续需求与开发继续使用[需求 AI 提示词](../../project/AI_REQUIREMENTS_PROMPT.md)、[开发 AI 提示词](../../project/AI_DEVELOPMENT_PROMPT.md)和[验收缺口清单](ACCEPTANCE_MATRIX.md)。临时对话框、完整加载状态、多屏/DPI及发布性能门槛仍待补齐，用户视觉接受尚待反馈；不能将本次打包成功记为整套 UI 完成。
+
 ## 2026-09-15 子窗口遗漏与快捷入口编辑修复
 
 网络恢复后已将此前四个本地提交推送至ui/prism-v1，核对远程为 `59a120530a2faf13c09a036a09a2cc5f13ad4c9d`。本批以此为基准，新增[验收缺口清单](ACCEPTANCE_MATRIX.md)：按22导航入口列录制尺寸，按源码扫描列26个直接QDialog子类及7处临时QDialog创建点。旧截图是历史证据，不将文件存在视为当前最终验收。

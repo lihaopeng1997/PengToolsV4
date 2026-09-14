@@ -294,6 +294,7 @@ $list
         '--add-data', ((Join-Path $ProjectDir 'resources\app-icon.png') + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\brand') + ';resources\brand'),
         '--add-data', ((Join-Path $ProjectDir 'resources\webui') + ';resources\webui'),
+        '--add-data', ((Join-Path $ProjectDir 'resources\ui') + ';resources\ui'),
         '--add-data', ((Join-Path $ProjectDir 'resources\build_info.json') + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\private_knowledge_seed.txt') + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\private_knowledge_seed_workbooks.json') + ';resources'),
