@@ -175,7 +175,8 @@ class PrismLoadingContractTests(unittest.TestCase):
         # paintEvent 抓取并在不同时间戳渲染，验证不抛异常且尺寸恒定
         img1 = ti.grab().toImage()
         self.assertFalse(img1.isNull())
-        self.assertEqual(img1.height(), 28)
+        self.assertEqual(ti.height(), 28)
+        self.assertEqual(img1.height(), round(28 * img1.devicePixelRatio()))
 
         ti.stop()
         ti.deleteLater()
@@ -185,8 +186,8 @@ class PrismLoadingContractTests(unittest.TestCase):
         splash = StartupSplash(self.app, delay_ms=0, min_visible_ms=0)
         self.assertEqual(splash.width(), 480)
         self.assertEqual(splash.height(), 280)
-        self.assertEqual(splash._logo.width(), 64)
-        self.assertEqual(splash._logo.height(), 64)
+        self.assertEqual(splash._logo.deviceIndependentSize().width(), 64)
+        self.assertEqual(splash._logo.deviceIndependentSize().height(), 64)
         self.assertEqual(splash._title, 'PengToolsHub')
         self.assertEqual(splash._subtitle, 'Developer & Ops Workbench')
 
@@ -195,8 +196,8 @@ class PrismLoadingContractTests(unittest.TestCase):
         self.app.processEvents()
         img = splash.grab().toImage()
         self.assertFalse(img.isNull())
-        self.assertEqual(img.width(), 480)
-        self.assertEqual(img.height(), 280)
+        self.assertEqual(img.width(), round(480 * img.devicePixelRatio()))
+        self.assertEqual(img.height(), round(280 * img.devicePixelRatio()))
         splash._do_finish()
 
     def test_ld_t10_reduced_motion_renders_statically(self):
