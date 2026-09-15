@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import inspect
+import threading
 from typing import Any, Protocol
 
 from .contracts import CancellationToken, RunContext, ToolCall, ToolResult
@@ -20,6 +21,10 @@ from .policy import (
     REDIS_READ_OPERATIONS,
     TOOL_NAMES,
 )
+from .result_projection import ProjectionBudget, ResultProjector
+
+
+_MAX_PROJECTION_RUNS = 128
 
 
 class ToolExecutor(Protocol):
@@ -141,6 +146,13 @@ class DataCenterToolRegistry:
         self._executor = executor
         self._policy = policy or DataCenterPolicy()
         self._projector = projector
+        # ``AgentRunner`` sends the value returned by ``execute`` straight
+        # back to the model.  Keep a model-safe query projector separate from
+        # the optional legacy ``execute_for_model`` projector, and share one
+        # byte budget for all queries in a run.
+        self._query_projector = projector or ResultProjector()
+        self._projection_budgets: dict[tuple[str, str], ProjectionBudget] = {}
+        self._projection_lock = threading.RLock()
 
     @property
     def policy(self) -> DataCenterPolicy:
@@ -188,17 +200,16 @@ class DataCenterToolRegistry:
         if not isinstance(name, str) or not isinstance(call_id, str) or not isinstance(arguments, Mapping):
             return _failure("ARGUMENT_INVALID", "策略未返回完整工具调用")
 
-        # DC-01 intentionally has no SQL AST, engine-specific read-only
-        # session, or real database executor.  A non-empty SQL string is
-        # accepted by policy as a shape check only; fail closed here so a
-        # DELETE/UPDATE/DDL (or even a SELECT) can never reach a host executor
-        # before DC-02 installs the real read guard.
-        if name == "query_readonly":
-            return _failure("READ_GUARD_NOT_READY", "只读 SQL 门禁尚未就绪，查询未执行")
-
         handler = self._resolve_handler(name)
         if handler is None:
             return _failure("CAPABILITY_UNAVAILABLE", "数据中心工具执行器未配置")
+
+        # SQL remains closed for the generic DC-01 executor boundary.  The
+        # later query adapter is opened only when the resolved host handler
+        # carries both explicit read-only markers.  Model arguments can never
+        # set these markers because they are read from the injected object.
+        if name == "query_readonly" and not _is_verified_readonly_handler(handler):
+            return _failure("READ_GUARD_NOT_READY", "只读 SQL 门禁尚未就绪，查询未执行")
 
         try:
             value = _invoke_handler(handler, name, dict(arguments), call_id, context, cancellation)
@@ -225,6 +236,8 @@ class DataCenterToolRegistry:
                     limits=result.limits,
                     elapsed_ms=result.elapsed_ms,
                 )
+        if name == "query_readonly":
+            return self._project_query_result(result, context)
         return result
 
     def execute_for_model(
@@ -239,10 +252,54 @@ class DataCenterToolRegistry:
         """Execute and, when configured, project the result for model input."""
 
         result = self.execute(call, context=context, cancellation=cancellation)
+        if _call_name(call) == "query_readonly":
+            # ``execute`` already returns the model-safe query view because
+            # AgentRunner uses that method directly.  Do not project it a
+            # second time when an older host still calls this helper.
+            return result
         if self._projector is None:
             return result
         project = getattr(self._projector, "project", self._projector)
         return project(result, budget=budget, **projection_options)
+
+    def release_run(self, context: RunContext | str, tab_id: str | None = None) -> None:
+        """Release a run's shared projection budget after its terminal event."""
+
+        key = _projection_key(context, tab_id)
+        with self._projection_lock:
+            self._projection_budgets.pop(key, None)
+
+    def _project_query_result(self, result: ToolResult, context: RunContext) -> ToolResult:
+        """Project one verified query result before the runner sees it."""
+
+        project = getattr(self._query_projector, "project", self._query_projector)
+        if not callable(project):
+            return _failure("CAPABILITY_UNAVAILABLE", "查询结果投影器未配置")
+        key = _projection_key(context)
+        with self._projection_lock:
+            budget = self._projection_budgets.get(key)
+            if budget is None:
+                if len(self._projection_budgets) >= _MAX_PROJECTION_RUNS:
+                    oldest = next(iter(self._projection_budgets))
+                    self._projection_budgets.pop(oldest, None)
+                max_bytes = getattr(self._query_projector, "max_cumulative_bytes", None)
+                if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+                    max_bytes = ProjectionBudget().max_bytes
+                budget = ProjectionBudget(max_bytes=max_bytes)
+                self._projection_budgets[key] = budget
+            try:
+                projected = project(result, budget=budget)
+            except Exception:
+                # Projection is part of the model boundary.  A broken host
+                # projector must not make native result data escape it.
+                return _failure("QUERY_FAILED", "查询结果投影失败")
+
+        if isinstance(projected, ToolResult):
+            return projected
+        as_dict = getattr(projected, "as_dict", None)
+        if callable(as_dict):
+            projected = as_dict()
+        return ToolResult.from_value(projected)
 
     def _resolve_handler(self, name: str) -> Callable[..., Any] | None:
         executor = self._executor
@@ -251,6 +308,16 @@ class DataCenterToolRegistry:
         if isinstance(executor, Mapping):
             handler = executor.get(name)
             return handler if callable(handler) else None
+        # A host may inject one callable per tool, or inject the concrete
+        # AgentQueryTool itself.  Prefer a named query handler when present,
+        # then preserve a marked callable object so its host markers remain
+        # visible to the read-only gate below.
+        if name == "query_readonly":
+            named_handler = getattr(executor, name, None)
+            if callable(named_handler):
+                return named_handler
+            if callable(executor) and _is_verified_readonly_handler(executor):
+                return executor
         for attribute in ("execute_tool", "execute"):
             handler = getattr(executor, attribute, None)
             if callable(handler):
@@ -258,6 +325,41 @@ class DataCenterToolRegistry:
         if callable(executor):
             return executor
         return None
+
+
+def _is_verified_readonly_handler(handler: Any) -> bool:
+    """Return whether a handler is explicitly owned by a read-only host.
+
+    ``AgentQueryTool`` is callable, while integrations may inject its bound
+    ``execute`` method.  In the latter case the markers live on ``__self__``;
+    inspect both objects without accepting truthy or model-supplied values.
+    """
+
+    candidates = (handler, getattr(handler, "__self__", None))
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            if getattr(candidate, "host_only", False) is True and getattr(candidate, "verified_readonly", False) is True:
+                return True
+        except Exception:
+            # A hostile descriptor must fail closed at this boundary.
+            continue
+    return False
+
+
+def _call_name(call: ToolCall | Mapping[str, Any]) -> str:
+    if isinstance(call, ToolCall):
+        return str(call.name or "")
+    if isinstance(call, Mapping):
+        return str(call.get("name", "") or "")
+    return ""
+
+
+def _projection_key(context: RunContext | str, tab_id: str | None = None) -> tuple[str, str]:
+    if isinstance(context, RunContext):
+        return str(context.run_id or ""), str(context.tab_id or "")
+    return str(context or ""), str(tab_id or "")
 
 
 def _invoke_handler(

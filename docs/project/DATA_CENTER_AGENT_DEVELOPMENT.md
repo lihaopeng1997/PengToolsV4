@@ -1,6 +1,6 @@
 # 数据中心 Agent：Luna 开发与主代理复核交接
 
-日期：2026-09-15。状态：DC-01 纯 Python Agent 核心已实现并通过内存模拟验证；真实模型、数据库与界面接线仍待 DC-02/DC-03。唯一需求正文是[数据中心重构 V1](DATA_CENTER_AGENT_REQUIREMENTS.md)。先读根AGENTS和项目README；最新用户决定优先于历史UI-only、AI不执行和系统标题栏限制。
+日期：2026-09-16。状态：DC-01 纯 Python Agent 核心已实现；DC-02 只读执行底座已实现并通过注入式假模型/假驱动验证。真实数据库、真实内网模型、Qt 工作台与发布包仍未验收。唯一需求正文是[数据中心重构 V1](DATA_CENTER_AGENT_REQUIREMENTS.md)。先读根 AGENTS 和项目 README；最新用户决定优先于历史 UI-only、AI 不执行和系统标题栏限制。
 
 ## 1. 本轮不可误解的范围
 
@@ -52,11 +52,11 @@
 5. Stop后不再发模型请求或新工具，已跑executor返回的晚到结果不更新已关闭run；达到预算返回部分证据并明确未完成。
 6. 相同call_id重复帧只执行一次；同ID不同参数报错。模型无tools能力进入明确兼容或草稿模式，不能假称查库。
 
-DC-01不得声称只读数据库已验证：SQL AST、厂商只读会话、超时/取消和真实驱动在DC-02/DC-03完成后才开放真实执行入口。
+DC-01回执不得声称只读数据库已验证。DC-02 现在已经补上 SQL AST、会话代际、worker、投影和注入式只读边界，但厂商只读会话、真实驱动、真实取消能力和内网模型仍需 DC-03 验收后才能开放真实执行入口。
 
 ## 3. 后续接线顺序
 
-DC-02实现只读executor与SessionManager，新增sqlglot依赖须先通过指定方言案例和包体检查；不要把SQLGlot解析通过当安全保证。现有编程Agent文件工具不注册，现有run_console_statement自动commit路径不用于Agent。
+DC-02 已在当前工作区实现只读 executor、SessionManager、SQL AST 门禁、六类引擎能力适配、结果投影和 AgentQueryTool/注册表接线；`sqlglot==30.18.0` 已加入 `requirements.txt`，但真实驱动与打包验证仍待完成。不要把 SQLGlot 解析通过当安全保证。现有编程 Agent 文件工具不注册，现有 `run_console_statement` 自动 commit 路径不用于 Agent。
 
 DC-03先在专门测试库和已选内网模型验证真实工具能力；生成/查询意图区分、结构歧义、只读拒绝和有限结果回传全部通过后接Qt事件界面。SSE UI至少检查发送即时反馈、真实增量、思考/正文分区和停止。
 
@@ -95,3 +95,75 @@ DC-04至DC-06按需求正文实施工作台、手动事务、SSH及迁移。若�
 - 运行器支持工具结果按 `tool_call_id` 回填、多轮继续、同 ID 同参数复用、同 ID 不同参数拒绝、预算终止、取消及迟到事件抑制。
 - 模型投影保留 NULL、空串、数值、日期和 bytes 的类型区别，对敏感列脱敏，并限制行数、单元格、单结果和单轮累计字节。
 - 本阶段证据仅来自注入式假模型、假执行器和内存字节流；未连接真实内网模型或数据库，未完成 Qt 界面和视觉验收。
+
+## 7. DC-02 实施回执（2026-09-16）
+
+本阶段只增加数据中心 Agent 的执行底座，没有改动旧手动 SQL、旧内网模型函数、主窗口或现有 UI 路由。源码仍位于无 QWidget 的 `tools/data_center/`，运行时依赖由宿主显式注入；导入这些模块不会连接数据库、访问模型网关或加载 Qt。
+
+### 7.1 已实现的执行链
+
+当前纯 Python 已形成可测试的纵向链路；模型和数据库端仍由宿主注入假实现，真实适配器要在 DC-03 接入：
+
+```text
+模型 tool_call
+  → DataCenterPolicy（闭集参数与目标校验）
+  → DataCenterToolRegistry（宿主只读能力门禁）
+  → AgentQueryTool（绑定当前 tab 的 Session）
+  → QueryExecutor（SQLDecision、方言、SQL 一致性、worker、超时/取消）
+  → 注入式 read-only driver / hook
+  → 原始类型 QueryResult
+  → ResultProjector（行、单元格、结果和本轮累计字节上限，敏感字段脱敏）
+  → ToolResult role=tool / tool_call_id
+  → AgentRunner 下一轮模型请求
+```
+
+`DataCenterToolRegistry.execute()` 是 `AgentRunner` 当前使用的入口。对于 `query_readonly`，注册表会在返回前调用 `ResultProjector`，所以真实 Agent 路径不会把 worker 的原始 `QueryResult` 直接放回模型上下文；`execute_for_model()` 仍保留给显式调用方。结果投影预算按 `(run_id, tab_id)` 维护，新 run 使用新的累计预算。默认模型投影最多 50 行，硬上限 100 行，单元格最多 512 字符，单结果最多 12 KiB UTF-8，本轮累计最多 48 KiB；明显凭据字段按列名脱敏，NULL、空串、数值、日期和 bytes 的类型信息保持区分。表格 UI 将来需要消费原始类型结果时，必须继续与模型投影分开。
+
+### 7.2 SQL AST 门禁
+
+`SQLPolicy` 使用 `sqlglot==30.18.0` 解析，并返回结构化 `SQLDecision`。DC-02 只允许单条 AST 根为 `SELECT` 的查询和无写入子树的只读 `WITH`；MySQL/OceanBase MySQL 使用 MySQL 方言，Oracle/OceanBase Oracle 使用 Oracle 方言，达梦当前走受限的 Oracle 兼容子集。多语句、解析失败、DML/DDL、事务和会话控制、锁、`SELECT INTO`、序列 `NEXTVAL`、MySQL 变量赋值、文件/外部访问、阻塞和已知副作用函数都会拒绝。Oracle `UTL_*` / `DBMS_*` 包命名空间整体拒绝，不能靠新增一个函数名绕过有限 deny-list。
+
+解析结果不是安全证明。`QueryExecutor` 只接受与本次请求 SQL 和会话方言严格一致、且 `allowed is True` 的 `SQLDecision`；普通 bool、陈旧决策、SQL 或方言不一致都会在驱动前拒绝。没有结构化决策或没有显式只读驱动入口时返回 `READ_GUARD_NOT_READY`，不会把通用 `execute` 或 `cursor.execute` 当成只读能力。
+
+### 7.3 会话、worker 与取消边界
+
+`SessionManager` 只保存不可变的 `session_id / connection_id / generation / dialect` 和宿主工厂引用，不持有数据库连接。复用标签或连接时 generation 单调递增；`QueryExecutor` 在 `ThreadPoolExecutor` worker 中创建和关闭驱动，并为每次调用固定 `query_id、session_id、generation、deadline、row_limit`。默认查询时限为 15 秒，AgentQueryTool 将模型请求的行数限制在 1–100；旧 generation、关闭标签或目标连接不再接收结果和回调。
+
+停止和超时是协作式的：宿主 token 会阻止新的模型轮次/工具，worker 在执行前后检查 token 和 deadline，排队中的 Future 可取消，晚到结果会被丢弃。同步调用会在 deadline 到达时先返回 `TIMEOUT`；若驱动忽略取消，原 worker 仍负责等待并关闭自己的 driver，且任务清理前不能复用同一 `query_id`。Python 层不能保证正在运行的数据库语句立即停止，也不能使用 `QThread.terminate`、强杀线程或关闭其他标签连接伪装成成功停止；此时应保留 worker 引用并向 UI 表示“正在等待停止/结果未知”。引擎能力表中的 `supports_cancel` 是适配能力元数据，不等于真实驱动已经通过取消验收；当前 Redis/Mongo 标记为不支持，关系库也尚未完成真实驱动验证。
+
+### 7.4 引擎能力矩阵与边界
+
+|引擎模式|解析/操作入口|DC-02 当前状态|能力元数据|真实能力状态|
+|---|---|---|---|---|
+|Oracle|Oracle 方言，`query_readonly`|SQLDecision + worker 只读入口|支持事务/取消（仅元数据）|未接真实驱动|
+|MySQL|MySQL 方言，`query_readonly`|SQLDecision + worker 只读入口|支持事务/取消（仅元数据）|未接真实驱动|
+|OceanBase Oracle|Oracle 方言，`query_readonly`|独立模式标识，不与 MySQL 模式混用|支持事务/取消（仅元数据）|未接真实驱动|
+|OceanBase MySQL|MySQL 方言，`query_readonly`|独立模式标识，不与 Oracle 模式混用|支持事务/取消（仅元数据）|未接真实驱动|
+|达梦|受限 Oracle 兼容方言，`query_readonly`|明确标记受限兼容子集|支持事务/取消（仅元数据）|未接真实驱动|
+|Redis|结构化 `SCAN/TYPE/TTL/PTTL/GET/STRLEN/HGET/HSCAN/LLEN/LRANGE/SCARD/SSCAN/ZCARD/ZRANGE/ZSCAN/XLEN/XRANGE`|不接受 command 字符串；拒绝写、脚本、管理、订阅和阻塞操作|不提供事务/取消能力|未接真实单机/集群客户端|
+|MongoDB|结构化 `find/count/aggregate`|递归拒绝 `$out/$merge/$where/$function/$accumulator`、未知表达式和未登记阶段；集合范围由宿主提供|不提供事务/取消能力|未接真实单机/副本集客户端|
+
+关系库适配器只调用宿主注入的只读 hook，不调用 `connect/commit/rollback` 或旧控制台执行函数；Redis/Mongo 适配器只接结构化白名单请求。能力矩阵可以供后续 UI/模型 schema 使用，但它不代表对应驱动已经具备只读、取消、TLS 或集群验收证据。
+
+### 7.5 当前测试与证据
+
+DC-02 的行为测试覆盖 SQL AST 拒绝、方言映射、只读决策一致性、worker 线程创建/关闭、generation 隔离、超时/取消/迟到回调、关系库/Redis/Mongo 能力矩阵、递归 NoSQL 门禁、AgentQueryTool 的 tab/连接绑定、注册表真实 AgentRunner 闭环、模型侧结果脱敏/截断/累计预算，以及包导入不加载 Qt/数据库驱动/旧模型配置。DC-01 的契约、运行器、流式解析和策略测试也已纳入联合验证。
+
+当前联合验证命令为：
+
+```text
+.venv-build\Scripts\python.exe -m unittest tests.test_data_center_agent_contracts tests.test_data_center_agent_runner tests.test_data_center_streaming tests.test_data_center_agent_policy tests.test_data_center_sql_policy tests.test_data_center_session_manager tests.test_data_center_engine_adapters tests.test_data_center_readonly_integration tests.test_data_center_package_surface tests.test_architecture_boundaries -v
+```
+
+截至本回执生成时共 86 项通过，退出状态为 0。该数量包含假模型、假 driver 和包导入 smoke test；它不包含真实数据库、真实内网模型或 UI 运行证据。
+
+当前证据全部来自内存字节流、假模型、假 driver 和导入 smoke test。尚无真实 Oracle、MySQL、OceanBase 两种模式、达梦、Redis 单机/集群、Mongo 单机/副本集或真实内网模型 tools 能力证据，不能据此宣称生产只读安全或模型兼容。
+
+### 7.6 DC-03 之后的待办
+
+- 把现有连接配置和 secure_store 适配为独立的 Agent 只读 lease，逐个引擎验证只读会话、取消、超时、TLS、行/字节边界和 query_id 证据；缺能力的组合只提供草稿。
+- 把现有内网模型配置接入 `StreamingModelAdapter`，验证真实 SSE/tool_calls/usage 字段和错误策略。思考区只能展示供应商明确返回的 `reasoning_content` / `reasoning_summary` 增量；模型没有此字段时展示“模型未提供思考摘要”，不从隐藏思维链或普通文本推断思考过程。
+- 通过 Qt 队列把 `AgentEvent`、工具进度、查询证据、正文增量和可展示推理摘要接入晴空棱镜数据中心 UI；当前没有数据中心 Qt 面板、真实菜单/Tab/标题栏接线或视觉验收。
+- 继续实现需求正文中的连接树、内部 Tab、手动事务、结果表格、编辑 ChangeSet、历史收藏、导入导出、独立 SSH 隧道、兼容路由、迁移和发布包；这些不属于 DC-02 已完成范围。
+
+本回执不能替代最终交付回执。提交前必须由主代理复核实际分支/SHA、仅暂存本任务文件、运行联合测试和 `git diff --check`，并把真实/模拟/视觉证据分开记录。
