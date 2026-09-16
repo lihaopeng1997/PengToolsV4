@@ -189,3 +189,11 @@ DC-02 的行为测试覆盖 SQL AST 拒绝、方言映射、只读决策一致�
 `panels/settings_panel.py` 已提供显式能力选择、可展示推理字段输入和上述限制设置。字段名按明确列表保存，不支持通配符或任意对象；默认不根据正文猜测思考过程。这里声明模型协议能力，不代表该模型或真实数据库已通过兼容验收；`strict_json` 当前仍不产生可执行工具调用。
 
 本检查点定向运行配置、设置页、数据中心模型配置/宿主适配和模型→只读查询模拟链共 38 项，通过；另运行架构边界与包导入安全 6 项，通过。设置页测试使用离屏 Qt 与内存配置，验证表单往返及既有分类/尺寸行为；未读取或写入真实用户配置，未访问模型/数据库，未做实际窗口视觉验收。关系库及 NoSQL 的新连接宿主工厂另处于主代理复核阶段，不纳入本检查点的已交付范围。
+
+### 7.9 连接宿主适配检查点（2026-09-16）
+
+基线 `aa02912974af48ad9743f52eecc67c6159fa5bb3`。新增 `host_relational.py` 与 `host_nosql.py`，按当前配置内容计算版本，地址、凭据或拓扑变化会使旧目标失效。加载、解密及建连均经宿主注入边界；不复用手动会话。删除本轮多余兼容别名，模块从各自路径导入，未扩张包根公共导出。
+
+关系库默认旧连接器返回 `CONNECTOR_UNAVAILABLE`，原因是旧接口不能在连接建立前落实 timeout 契约；需要专用连接器后才能接真实执行。NoSQL 默认工厂显式配置 timeout，保留集群/副本集/SRV 身份，未知组合拒绝；失败关闭独立 owner，回传 scope 固定为目标并脱敏。
+
+主代理运行 `python -m unittest tests.test_data_center_host_nosql tests.test_data_center_host_relational tests.test_data_center_nosql_clients tests.test_data_center_nosql_integration tests.test_data_center_host_integration tests.test_architecture_boundaries tests.test_data_center_package_surface -q`：60 项通过。Luna 两组的 11 项关系库与 17 项 NoSQL 定向测试、编译检查通过。所有数据库客户端均为假实现，没有真实驱动、网络、用户配置或视觉证据。此阶段仍是宿主组件交付，完整应用入口、元数据工具、Qt 事件面板与真实联调尚未完成。续接记录见 [本轮检查点](DATA_CENTER_AGENT_CHECKPOINT_2026-09-16.md)。
