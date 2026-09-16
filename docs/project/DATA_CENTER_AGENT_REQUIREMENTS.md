@@ -78,6 +78,8 @@ DC-02 已落地 `sql_policy.py`、`session_manager.py`、`query_executor.py`、`
 
 当前工作区已补上 DC-03 的纯 Python 宿主边界：`model_config.py` 与 `host_model_adapter.py` 按选定 ID 懒加载内网模型配置，只向事件/UI暴露不含端点和凭据的快照；`readonly_driver_adapters.py` 与 `readonly_lease.py` 提供固定目标、线程内创建和关闭的关系库只读 lease；`nosql_codec.py` 与 `readonly_nosql_clients.py` 提供有界编码以及宿主注入的 Redis/Mongo 结构化只读 facade。包根只导出这些宿主需要的稳定类型，导入仍不加载真实配置、驱动或 Qt。以上均以注入式假实现验证，尚未证明真实模型、真实六类引擎或事件面板可用。
 
+现有内网模型配置保存链与设置页现已保留显式 Agent 能力、可展示推理字段、单次 deadline 和缓冲上限。旧配置默认 `unknown`，模型列表探测不能自动提升为原生工具；旧聊天调用仍返回字符串并使用原请求协议。设置能力只是协议声明，真实模型 tools/SSE 和真实数据库只读保护仍须分别验收后才开放执行入口。
+
 ## 4. Agent 的实际运行协议
 
 ```mermaid

@@ -536,6 +536,44 @@ class SettingsPanel(QWidget):
         self.ai_enabled = QCheckBox()
         self.ai_enabled_label = QLabel()
         ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
+        self.ai_agent_capability = QComboBox()
+        self.ai_agent_capability.addItem('未声明（安全默认）', 'unknown')
+        self.ai_agent_capability.addItem('原生工具调用', 'native_tools')
+        self.ai_agent_capability.addItem('严格 JSON 协议', 'strict_json')
+        self.ai_agent_capability.addItem('仅文本 / 草稿', 'text_only')
+        size_enum_combo(self.ai_agent_capability, min_w=200, max_w=300)
+        self.ai_agent_capability_label = QLabel()
+        ai_form.addRow(self.ai_agent_capability_label, self.ai_agent_capability)
+        self.ai_agent_reasoning_fields = QLineEdit()
+        self.ai_agent_reasoning_fields.setPlaceholderText('reasoning_content, reasoning_summary')
+        size_line(self.ai_agent_reasoning_fields, 'std')
+        self.ai_agent_reasoning_fields_label = QLabel()
+        ai_form.addRow(self.ai_agent_reasoning_fields_label, self.ai_agent_reasoning_fields)
+        self.ai_agent_deadline_seconds = CompactStepper(1, 60, 60, suffix=' s')
+        self.ai_agent_deadline_seconds_label = QLabel()
+        ai_form.addRow(self.ai_agent_deadline_seconds_label, self.ai_agent_deadline_seconds)
+        self.ai_agent_max_reasoning_bytes = QComboBox()
+        self.ai_agent_max_text_bytes = QComboBox()
+        self.ai_agent_max_tool_argument_bytes = QComboBox()
+        self.ai_agent_max_raw_buffer_bytes = QComboBox()
+        agent_buffer_options = (
+            (self.ai_agent_max_reasoning_bytes, (64, 128, 256, 512, 1024)),
+            (self.ai_agent_max_text_bytes, (128, 256, 512, 1024, 2048)),
+            (self.ai_agent_max_tool_argument_bytes, (32, 64, 128, 256, 512)),
+            (self.ai_agent_max_raw_buffer_bytes, (512, 1024, 2048, 4096, 8192)),
+        )
+        for combo, sizes in agent_buffer_options:
+            for kib in sizes:
+                combo.addItem(f'{kib} KiB', kib * 1024)
+            size_enum_combo(combo, min_w=120, max_w=180)
+        self.ai_agent_max_reasoning_bytes_label = QLabel()
+        self.ai_agent_max_text_bytes_label = QLabel()
+        self.ai_agent_max_tool_argument_bytes_label = QLabel()
+        self.ai_agent_max_raw_buffer_bytes_label = QLabel()
+        ai_form.addRow(self.ai_agent_max_reasoning_bytes_label, self.ai_agent_max_reasoning_bytes)
+        ai_form.addRow(self.ai_agent_max_text_bytes_label, self.ai_agent_max_text_bytes)
+        ai_form.addRow(self.ai_agent_max_tool_argument_bytes_label, self.ai_agent_max_tool_argument_bytes)
+        ai_form.addRow(self.ai_agent_max_raw_buffer_bytes_label, self.ai_agent_max_raw_buffer_bytes)
         self.ai_project = QComboBox()
         size_pick_combo(self.ai_project)
         self.ai_project_label = QLabel()
@@ -896,11 +934,56 @@ class SettingsPanel(QWidget):
             self._fill_ai_form(get_active_item(data))
 
     def _fill_ai_form(self, cfg):
-        from tools.intranet_llm import decrypt_token
+        from tools.intranet_llm import (
+            DEFAULT_AGENT_DEADLINE_SECONDS,
+            DEFAULT_AGENT_MAX_RAW_BUFFER_BYTES,
+            DEFAULT_AGENT_MAX_REASONING_BYTES,
+            DEFAULT_AGENT_MAX_TEXT_BYTES,
+            DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES,
+            decrypt_token,
+            normalize_agent_capability,
+            normalize_agent_reasoning_fields,
+            normalize_ai_local,
+        )
         cfg = cfg if isinstance(cfg, dict) else {}
+        cfg = normalize_ai_local(cfg)
         self._ai_editing_id = str(cfg.get('id') or '')
         self.ai_name.setText(str(cfg.get('name') or ''))
         self.ai_enabled.setChecked(bool(cfg.get('enabled')))
+        capability = normalize_agent_capability(
+            cfg.get('agent_capability', cfg.get('capability', cfg.get('agent_mode')))
+        )
+        capability_index = self.ai_agent_capability.findData(capability)
+        self.ai_agent_capability.setCurrentIndex(capability_index if capability_index >= 0 else 0)
+        reasoning_fields = normalize_agent_reasoning_fields(
+            cfg.get('agent_reasoning_fields', cfg.get('reasoning_fields', ()))
+        )
+        self.ai_agent_reasoning_fields.setText(', '.join(reasoning_fields))
+        try:
+            deadline = max(1, min(60, round(float(cfg.get('agent_deadline_seconds', DEFAULT_AGENT_DEADLINE_SECONDS)))))
+        except (TypeError, ValueError, OverflowError):
+            deadline = DEFAULT_AGENT_DEADLINE_SECONDS
+        self.ai_agent_deadline_seconds.setValue(deadline)
+        buffer_defaults = (
+            (self.ai_agent_max_reasoning_bytes, cfg.get('agent_max_reasoning_bytes', DEFAULT_AGENT_MAX_REASONING_BYTES)),
+            (self.ai_agent_max_text_bytes, cfg.get('agent_max_text_bytes', DEFAULT_AGENT_MAX_TEXT_BYTES)),
+            (self.ai_agent_max_tool_argument_bytes, cfg.get('agent_max_tool_argument_bytes', DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES)),
+            (self.ai_agent_max_raw_buffer_bytes, cfg.get('agent_max_raw_buffer_bytes', DEFAULT_AGENT_MAX_RAW_BUFFER_BYTES)),
+        )
+        for combo, value in buffer_defaults:
+            index = combo.findData(value)
+            if index < 0:
+                try:
+                    numeric = int(value)
+                except (TypeError, ValueError):
+                    numeric = int(combo.itemData(0) or 0)
+                # A hand-edited legacy value may sit between the visible
+                # presets; keep it visible without inventing a capability.
+                if numeric > 0:
+                    label = f'{numeric // 1024} KiB' if numeric % 1024 == 0 else f'{numeric} B'
+                    combo.insertItem(0, label, numeric)
+                    index = 0
+            combo.setCurrentIndex(index if index >= 0 else 0)
         self.ai_base_url.setText(str(cfg.get('base_url') or ''))
         self.ai_model.blockSignals(True)
         self.ai_model.clear()
@@ -931,12 +1014,26 @@ class SettingsPanel(QWidget):
         self._fill_ai_form(data)
 
     def _ai_cfg_from_ui(self):
-        from tools.intranet_llm import encrypt_token, normalize_model_item
+        from tools.intranet_llm import (
+            encrypt_token,
+            normalize_agent_capability,
+            normalize_agent_reasoning_fields,
+            normalize_model_item,
+        )
         token_plain = self.ai_token.text()
         payload = {
             'id': self._ai_editing_id,
             'name': self.ai_name.text().strip() or '未命名配置',
             'enabled': self.ai_enabled.isChecked(),
+            'agent_capability': normalize_agent_capability(self.ai_agent_capability.currentData()),
+            'agent_reasoning_fields': normalize_agent_reasoning_fields(
+                self.ai_agent_reasoning_fields.text().split(',')
+            ),
+            'agent_deadline_seconds': self.ai_agent_deadline_seconds.value(),
+            'agent_max_reasoning_bytes': self.ai_agent_max_reasoning_bytes.currentData(),
+            'agent_max_text_bytes': self.ai_agent_max_text_bytes.currentData(),
+            'agent_max_tool_argument_bytes': self.ai_agent_max_tool_argument_bytes.currentData(),
+            'agent_max_raw_buffer_bytes': self.ai_agent_max_raw_buffer_bytes.currentData(),
             'base_url': self.ai_base_url.text().strip(),
             'model': self.ai_model.currentText().strip(),
             'timeout_seconds': self.ai_timeout.value(),
@@ -1107,6 +1204,8 @@ class SettingsPanel(QWidget):
             )
             try:
                 from tools.intranet_llm import upsert_model_item
+                # /models only supplies model names.  It must never infer or
+                # elevate the separately declared Agent capability.
                 cfg = self._ai_cfg_from_ui()
                 cfg['enabled'] = True
                 cfg['available_models'] = names
@@ -1409,6 +1508,36 @@ class SettingsPanel(QWidget):
         self.ai_default_btn.setText('设为默认' if zh else 'Set default')
         self.ai_enabled_label.setText('启用' if zh else 'Enable')
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
+        capability_labels = (
+            ('未声明（安全默认）', 'Undeclared (safe default)'),
+            ('原生工具调用', 'Native tool calls'),
+            ('严格 JSON 协议', 'Strict JSON protocol'),
+            ('仅文本 / 草稿', 'Text only / draft'),
+        )
+        for index, (zh_text, en_text) in enumerate(capability_labels):
+            self.ai_agent_capability.setItemText(index, zh_text if zh else en_text)
+        self.ai_agent_capability_label.setText('Agent 能力声明' if zh else 'Agent capability')
+        self.ai_agent_capability.setToolTip(
+            '仅按此处的明确声明选择请求协议；探测不会自动改变能力。unknown 不会启用工具调用。'
+            if zh else
+            'Only this explicit declaration selects the request protocol; probing never changes it. unknown keeps tools off.'
+        )
+        self.ai_agent_reasoning_fields_label.setText('可展示推理字段' if zh else 'Displayable reasoning fields')
+        self.ai_agent_reasoning_fields.setToolTip(
+            '仅填写网关文档明确返回的字段名，多个字段用英文逗号分隔；不会从正文猜测。'
+            if zh else
+            'Enter only field names documented by the gateway, separated by commas; prose is never guessed as reasoning.'
+        )
+        self.ai_agent_reasoning_fields.setPlaceholderText(
+            'reasoning_content, reasoning_summary' if zh else
+            'reasoning_content, reasoning_summary'
+        )
+        self.ai_agent_deadline_seconds_label.setText('Agent 单次截止时间' if zh else 'Agent turn deadline')
+        self.ai_agent_deadline_seconds.setSuffix(' 秒' if zh else ' s')
+        self.ai_agent_max_reasoning_bytes_label.setText('推理摘要缓冲上限' if zh else 'Reasoning buffer limit')
+        self.ai_agent_max_text_bytes_label.setText('正文缓冲上限' if zh else 'Text buffer limit')
+        self.ai_agent_max_tool_argument_bytes_label.setText('工具参数上限' if zh else 'Tool argument limit')
+        self.ai_agent_max_raw_buffer_bytes_label.setText('原始响应缓冲上限' if zh else 'Raw response buffer limit')
         self.ai_project_label.setText('项目包' if zh else 'Project pack')
         self.ai_skill_btn.setText('安装技能' if zh else 'Install skill')
         self.ai_scan_btn.setText('从 MyBatis XML 提取业务表名（可选）' if zh else 'Extract table names from MyBatis XML')
@@ -1432,8 +1561,9 @@ class SettingsPanel(QWidget):
         self.ai_save_btn.setText('保存' if zh else 'Save')
         self.ai_note.setText(
             '聊天记录以明文保存在本机 data 目录，请勿输入密码、Token、客户隐私或生产敏感数据。'
-            'SQL 控制台使用默认配置；模型对话可切换任一启用配置。'
+            'SQL 控制台使用默认配置；模型对话可切换任一启用配置。Agent 能力和推理字段只按本页明确选择保存，unknown 不会自动变成原生工具。'
             if zh else
             'Chats are stored as plain JSON in local data/. Do not paste secrets. '
-            'SQL Console uses the default config; Model Chat can switch any enabled config.'
+            'SQL Console uses the default config; Model Chat can switch any enabled config. '
+            'Agent capability and reasoning fields are saved only from this form; unknown never becomes native tools automatically.'
         )

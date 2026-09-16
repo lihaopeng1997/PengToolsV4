@@ -102,6 +102,48 @@ class SettingsNavigationTests(unittest.TestCase):
             panel.deleteLater()
             self.app.processEvents()
 
+    def test_agent_model_fields_are_explicit_and_roundtrip_through_form(self):
+        from config import DEFAULT_SETTINGS
+        from panels.settings_panel import SettingsPanel
+
+        with patch.object(SettingsPanel, '_load_ai_local_values'), \
+                patch.object(SettingsPanel, '_load_reminder_values'), \
+                patch.object(SettingsPanel, '_refresh_oracle_status'):
+            panel = SettingsPanel(dict(DEFAULT_SETTINGS))
+        try:
+            panel._reload_harness_projects = lambda _current='prpcar': None
+            panel._fill_ai_form({
+                'id': 'cfg-agent',
+                'name': 'Agent model',
+                'model': 'qwen-agent',
+                'agent_capability': 'unknown',
+                'agent_reasoning_fields': ['reasoning_summary'],
+                'agent_deadline_seconds': 45,
+                'agent_max_reasoning_bytes': 128 * 1024,
+                'agent_max_text_bytes': 256 * 1024,
+                'agent_max_tool_argument_bytes': 64 * 1024,
+                'agent_max_raw_buffer_bytes': 1024 * 1024,
+            })
+            self.assertEqual(panel.ai_agent_capability.currentData(), 'unknown')
+            self.assertEqual(panel.ai_agent_reasoning_fields.text(), 'reasoning_summary')
+            self.assertEqual(panel.ai_agent_deadline_seconds.value(), 45)
+            panel.ai_agent_capability.setCurrentIndex(
+                panel.ai_agent_capability.findData('native_tools')
+            )
+            panel.ai_agent_reasoning_fields.setText(
+                'reasoning_content, vendor.summary, *, reasoning_content'
+            )
+            cfg = panel._ai_cfg_from_ui()
+            self.assertEqual(cfg['agent_capability'], 'native_tools')
+            self.assertEqual(
+                cfg['agent_reasoning_fields'], ['reasoning_content', 'vendor.summary']
+            )
+            self.assertEqual(cfg['agent_max_raw_buffer_bytes'], 1024 * 1024)
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

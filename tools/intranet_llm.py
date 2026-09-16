@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import socket
 import ssl
@@ -33,7 +34,55 @@ DEFAULT_AI_LOCAL = {
     'max_tokens': 8192,
     'project_id': 'prpcar',
     'supports_vision': False,
+    # Data-center Agent declarations are opt-in.  These fields are metadata
+    # for the Agent host; the legacy chat_completions path ignores them.
+    'agent_capability': 'unknown',
+    'agent_reasoning_fields': [],
+    'agent_deadline_seconds': 60.0,
+    'agent_max_reasoning_bytes': 64 * 1024,
+    'agent_max_text_bytes': 128 * 1024,
+    'agent_max_tool_argument_bytes': 32 * 1024,
+    'agent_max_raw_buffer_bytes': 2 * 1024 * 1024,
 }
+
+AGENT_CAPABILITIES = ('unknown', 'native_tools', 'strict_json', 'text_only')
+DEFAULT_AGENT_CAPABILITY = 'unknown'
+DEFAULT_AGENT_REASONING_FIELDS = ()
+DEFAULT_AGENT_DEADLINE_SECONDS = 60.0
+DEFAULT_AGENT_MAX_REASONING_BYTES = 64 * 1024
+DEFAULT_AGENT_MAX_TEXT_BYTES = 128 * 1024
+DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES = 32 * 1024
+DEFAULT_AGENT_MAX_RAW_BUFFER_BYTES = 2 * 1024 * 1024
+
+_AGENT_CAPABILITY_ALIASES = {
+    'native': 'native_tools',
+    'tools': 'native_tools',
+    'function_calling': 'native_tools',
+    'function-calling': 'native_tools',
+    'json': 'strict_json',
+    'strict': 'strict_json',
+    'text': 'text_only',
+    'draft': 'text_only',
+}
+
+_AGENT_DEADLINE_ALIASES = ('agent_deadline_seconds', 'deadline_seconds', 'model_timeout_seconds')
+_AGENT_REASONING_ALIASES = ('agent_reasoning_fields', 'reasoning_fields')
+_AGENT_REASONING_MAX_ALIASES = (
+    'agent_max_reasoning_bytes', 'max_reasoning_bytes',
+    'reasoning_max_bytes', 'max_reasoning_buffer_bytes',
+)
+_AGENT_TEXT_MAX_ALIASES = (
+    'agent_max_text_bytes', 'max_text_bytes',
+    'text_max_bytes', 'max_text_buffer_bytes',
+)
+_AGENT_TOOL_MAX_ALIASES = (
+    'agent_max_tool_argument_bytes', 'max_tool_argument_bytes',
+    'tool_argument_max_bytes', 'max_tool_args_bytes',
+)
+_AGENT_RAW_MAX_ALIASES = (
+    'agent_max_raw_buffer_bytes', 'max_raw_buffer_bytes',
+    'raw_buffer_max_bytes', 'max_raw_bytes',
+)
 
 CATALOG_VERSION = 2
 
@@ -69,8 +118,71 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
+def normalize_agent_capability(value) -> str:
+    """Keep the persisted Agent request mode explicit and closed."""
+    text = str(value or '').strip().lower()
+    if text in AGENT_CAPABILITIES:
+        return text
+    return _AGENT_CAPABILITY_ALIASES.get(text, DEFAULT_AGENT_CAPABILITY)
+
+
+def normalize_agent_reasoning_fields(value) -> list[str]:
+    """Return only explicitly named, non-empty reasoning fields.
+
+    A scalar string is accepted as a one-field legacy form; comma-separated
+    strings are treated as a small compatibility list.  Arbitrary objects,
+    wildcards and malformed names are ignored instead of becoming a request
+    hint.  Dotted names are allowed because the Agent stream parser supports
+    explicit nested mappings.
+    """
+    if isinstance(value, str):
+        values = value.split(',')
+    elif isinstance(value, (list, tuple)):
+        values = value
+    else:
+        return []
+    fields = []
+    for item in values:
+        if not isinstance(item, str):
+            continue
+        field_name = item.strip()
+        if not field_name or len(field_name) > 128:
+            continue
+        if not all(char.isalnum() or char in '._-' for char in field_name):
+            continue
+        if field_name not in fields:
+            fields.append(field_name)
+    return fields
+
+
+def _first_config_value(raw: dict, keys: tuple[str, ...], default):
+    for key in keys:
+        if key in raw:
+            return raw.get(key)
+    return default
+
+
+def _normalize_agent_float(value, *, default: float, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        parsed = default
+    if not math.isfinite(parsed):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _normalize_agent_int(value, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
 def normalize_ai_local(raw) -> dict:
     result = dict(DEFAULT_AI_LOCAL)
+    result['agent_reasoning_fields'] = list(DEFAULT_AGENT_REASONING_FIELDS)
     if isinstance(raw, dict):
         result['enabled'] = bool(raw.get('enabled', False))
         result['base_url'] = str(raw.get('base_url') or '').strip()
@@ -80,6 +192,48 @@ def normalize_ai_local(raw) -> dict:
         result['app_tag'] = str(raw.get('app_tag') or '').strip()
         result['project_id'] = str(raw.get('project_id') or 'prpcar').strip() or 'prpcar'
         result['supports_vision'] = bool(raw.get('supports_vision', False))
+        capability = _first_config_value(
+            raw,
+            ('agent_capability', 'capability', 'agent_mode'),
+            DEFAULT_AGENT_CAPABILITY,
+        )
+        result['agent_capability'] = normalize_agent_capability(capability)
+        reasoning_fields = _first_config_value(
+            raw,
+            _AGENT_REASONING_ALIASES,
+            DEFAULT_AGENT_REASONING_FIELDS,
+        )
+        result['agent_reasoning_fields'] = normalize_agent_reasoning_fields(reasoning_fields)
+        result['agent_deadline_seconds'] = _normalize_agent_float(
+            _first_config_value(raw, _AGENT_DEADLINE_ALIASES, DEFAULT_AGENT_DEADLINE_SECONDS),
+            default=DEFAULT_AGENT_DEADLINE_SECONDS,
+            minimum=0.01,
+            maximum=60.0,
+        )
+        result['agent_max_reasoning_bytes'] = _normalize_agent_int(
+            _first_config_value(raw, _AGENT_REASONING_MAX_ALIASES, DEFAULT_AGENT_MAX_REASONING_BYTES),
+            default=DEFAULT_AGENT_MAX_REASONING_BYTES,
+            minimum=1,
+            maximum=4 * 1024 * 1024,
+        )
+        result['agent_max_text_bytes'] = _normalize_agent_int(
+            _first_config_value(raw, _AGENT_TEXT_MAX_ALIASES, DEFAULT_AGENT_MAX_TEXT_BYTES),
+            default=DEFAULT_AGENT_MAX_TEXT_BYTES,
+            minimum=1,
+            maximum=4 * 1024 * 1024,
+        )
+        result['agent_max_tool_argument_bytes'] = _normalize_agent_int(
+            _first_config_value(raw, _AGENT_TOOL_MAX_ALIASES, DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES),
+            default=DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES,
+            minimum=1,
+            maximum=4 * 1024 * 1024,
+        )
+        result['agent_max_raw_buffer_bytes'] = _normalize_agent_int(
+            _first_config_value(raw, _AGENT_RAW_MAX_ALIASES, DEFAULT_AGENT_MAX_RAW_BUFFER_BYTES),
+            default=DEFAULT_AGENT_MAX_RAW_BUFFER_BYTES,
+            minimum=1,
+            maximum=8 * 1024 * 1024,
+        )
         try:
             result['max_tokens'] = max(16, min(8192, int(raw.get('max_tokens') or 8192)))
         except (TypeError, ValueError):
@@ -278,7 +432,9 @@ def set_active_model(model_id: str) -> dict:
 def load_ai_local() -> dict:
     catalog = load_model_catalog()
     if not catalog.get('items'):
-        return dict(DEFAULT_AI_LOCAL)
+        # Return a fresh list for the new metadata field; callers may edit the
+        # loaded mapping before saving it.
+        return normalize_ai_local({})
     return normalize_ai_local(get_active_item(catalog))
 
 
