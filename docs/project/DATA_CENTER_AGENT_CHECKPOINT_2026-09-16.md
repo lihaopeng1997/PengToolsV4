@@ -12,7 +12,7 @@
 
 ## 已发布提交
 
-分支：`ui/prism-v1`。2026-09-16 已核对远端为 `aa02912974af48ad9743f52eecc67c6159fa5bb3`。
+分支：`ui/prism-v1`。2026-09-16 已发布宿主工厂提交 `03fc20e9b84489761d1a9f8c3d51e382eebbca3a`。分支核对与网页端接手方式见 [Git 核对记录](GIT_WEB_HANDOFF_2026-09-16.md)；不要把历史 SHA 当成实时 HEAD。
 
 |提交|交付行为|
 |---|---|
@@ -35,8 +35,8 @@
 |`D:/PengTools/tools/data_center/nosql_codec.py`|增量编码、不透明游标状态和递归敏感字段脱敏|
 |`D:/PengTools/tools/intranet_llm.py`|Agent 元数据配置归一化/迁移/保存；旧聊天请求 API 保持原行为|
 |`D:/PengTools/panels/settings_panel.py`|显式 Agent 能力、推理字段、deadline 与缓冲限制表单|
-|`D:/PengTools/tools/data_center/host_relational.py`|未发布宿主工厂；已复核内容 revision 与默认连接器 fail closed|
-|`D:/PengTools/tests/test_data_center_host_relational.py`|未发布，11 项内存假驱动行为测试通过|
+|`D:/PengTools/tools/data_center/host_relational.py`|已随 `03fc20e` 发布宿主工厂；已复核内容 revision 与默认连接器 fail closed|
+|`D:/PengTools/tests/test_data_center_host_relational.py`|已随 `03fc20e` 发布，11 项内存假驱动行为测试通过|
 |`D:/PengTools/tools/data_center/host_nosql.py`|宿主工厂/lease/router 已通过本轮复核，真实驱动待验收|
 |`D:/PengTools/tests/test_data_center_host_nosql.py`|17 项假 client 定向测试通过|
 
