@@ -1,8 +1,8 @@
 # 数据中心重构 V1：只读 Agent 驱动的数据库工作台
 
-日期：2026-09-16。状态：用户方向与关键权限已确认；DC-01 隔离 Agent 核心已实现，DC-02 只读执行底座已实现并通过注入式假模型/假驱动验证。真实模型、数据库、Qt 接线及完整工作台仍未验收。
+日期：2026-09-16。状态：用户方向与关键权限已确认；DC-01 隔离 Agent 核心、DC-02 只读执行底座，以及 DC-03 的纯 Python 宿主适配组件已实现并通过注入式假模型/假驱动验证。真实模型、数据库、Qt 接线及完整工作台仍未验收。
 
-源码审查基线：`ui/prism-v1`，`1545e0c7459f3d79eea302bdcee6b513bd12ee41`。本文提交后的 SHA 以 Git 为准，不把基线当成交付 SHA。工作区原有 build_info、五份阶段报告和其他 UI 审计材料不属于本需求的实现。
+源码审查基线：`ui/prism-v1`，`f1fcdf80f0cec34dd44fc77b3d063d6338a79d51`。本文提交后的 SHA 以 Git 为准，不把基线当成交付 SHA。工作区原有 build_info、五份阶段报告和其他 UI 审计材料不属于本需求的实现。
 
 ## 1. 决定与优先级
 
@@ -75,6 +75,8 @@ MySQL 与 OceanBase MySQL 使用 MySQL 解析方言；Oracle 与 OceanBase Oracl
 `tools/data_center/` 放无 QWidget 的服务和类型；`ui/data_center/` 放模型、视图、Qt 调度适配；`panels/data_center_panel.py` 组合。tools 不导入 ui/panels。主窗口是唯一软件壳集成点。
 
 DC-02 已落地 `sql_policy.py`、`session_manager.py`、`query_executor.py`、`engine_adapters.py`、`nosql_policy.py`、`agent_query_tool.py`，并把 `AgentQueryTool` 接入 `DataCenterToolRegistry`。这些模块只接受宿主注入的工厂、hook 或 driver，不在导入或构造时访问网络、数据库、Qt 或旧模型配置；真实连接和 Qt 适配仍按 DC-03/DC-04 接入。
+
+当前工作区已补上 DC-03 的纯 Python 宿主边界：`model_config.py` 与 `host_model_adapter.py` 按选定 ID 懒加载内网模型配置，只向事件/UI暴露不含端点和凭据的快照；`readonly_driver_adapters.py` 与 `readonly_lease.py` 提供固定目标、线程内创建和关闭的关系库只读 lease；`nosql_codec.py` 与 `readonly_nosql_clients.py` 提供有界编码以及宿主注入的 Redis/Mongo 结构化只读 facade。包根只导出这些宿主需要的稳定类型，导入仍不加载真实配置、驱动或 Qt。以上均以注入式假实现验证，尚未证明真实模型、真实六类引擎或事件面板可用。
 
 ## 4. Agent 的实际运行协议
 
@@ -252,7 +254,7 @@ SSH用现有Paramiko新增独立SshTunnelManager。私钥只保存路径，口�
 |DC-00 基线|现有动作/驱动/导航/数据格式清单，脱敏测试夹具|没有遗漏六类能力；不复制真实配置|已完成审查与需求固化|
 |DC-01 Agent契约|类型、工具schema、模型适配、纯内存假模型/假数据库循环|两次工具调用→结果回传→基于证据回答；禁止工具零执行|已实现；仅注入式模拟证据|
 |DC-02 执行底座|SessionManager、只读 policy、AST、预算/脱敏/取消、SQL/NoSQL adapter、AgentQueryTool 与注册表接线|读写隔离、AST拒绝、原始数据类型、迟到结果测试；投影必须进入真实 Agent 路径|已实现；假模型/假 driver 通过，真实驱动待验收|
-|DC-03 只读闭环|接内网模型配置、六类只读工具、事件面板|沙箱库端到端；真实结果必须有query_id；不支持模型明确降级|待办|
+|DC-03 只读闭环|接内网模型配置、六类只读工具、事件面板|沙箱库端到端；真实结果必须有query_id；不支持模型明确降级|部分实现；纯 Python 宿主适配与注入式验证已完成，真实模型/数据库联调和 Qt 事件面板待验收|
 |DC-04 统一工作台|连接树、标签、结果模型、原生Prism原型与实现|SQL/Redis/Mongo三场景先评图，再核对实际窗口，非只查源码|待办|
 |DC-05 手动业务|事务、表格编辑、导入导出、历史收藏、SSH|提交/回滚/冲突/断线/恢复及hostkey测试|待办|
 |DC-06 迁移发布|兼容路由、旧数据迁移、打包资源、需求与开发回执|六类集成证据、回退说明、发布包启动与用户验收|待办|
@@ -273,10 +275,10 @@ SSH用现有Paramiko新增独立SshTunnelManager。私钥只保存路径，口�
 
 假模型/假driver测试不能代替真实引擎。真实集成至少覆盖Oracle、MySQL、OceanBase两个模式、达梦、Redis单机/集群、Mongo单机/副本集，使用专门测试库；缺环境标待验收，不用生产库补证据。内网模型真实tools能力尚未测试；不能宣称已兼容。驱动只读/取消能力未通过的组合不得开放Agent执行。
 
-当前 DC-01/DC-02 联合测试覆盖契约、运行器、流式解析、策略、SQL AST、会话/worker、引擎适配、AgentQueryTool/注册表闭环、结果投影、包导入安全和架构边界；最近一次联合运行共 86 项通过。该证据来自内存字节流、假模型、假 driver 和导入 smoke test，只能证明隔离底座行为，不能替代真实引擎、真实内网模型或 Qt 界面验收。
+当前联合测试覆盖契约、运行器、流式解析、策略、SQL AST、会话/worker、引擎适配、AgentQueryTool/注册表闭环、结果投影、模型配置/宿主模型适配、只读 lease/关系库驱动边界、Redis/Mongo facade、有界编码、包导入安全、旧内网模型兼容和架构边界。最近一次运行包含 147 项数据中心用例及 14 项兼容/架构用例，共 161 项通过。新增对抗范围包括直接 lease 的多语句/文件读取/未知 UDF/可执行注释零驱动 I/O、完整 profile 快照匹配、模型单次总 deadline 与缓冲硬上限、取消后的结果未知语义、NoSQL 增量边界以及驼峰式敏感字段脱敏。上述证据来自内存字节流、假模型、假 driver 和导入 smoke test，只能证明隔离边界行为，不能替代真实引擎、真实内网模型或 Qt 界面验收。
 
 ### 9.3 回执要求
 
 交付需求映射、实际分支/SHA、源码/生成资源清单、接口说明、已跑命令结果、模拟/真实证据、未验收项与回退步骤。新增依赖、接口和能力矩阵同步开发文档。不得把仍未实现的本次需求改名为未来增强来提前结项。
 
-当前已完成：本地与 DBX 源码审查、用户范围确认、本需求与交接设计、DC-01 Agent 核心、DC-02 只读执行底座、`sqlglot==30.18.0` 依赖接入、假模型/假 driver 行为测试，以及包导入不加载 Qt/数据库/旧模型配置的 smoke test。当前未完成：真实 Oracle/MySQL/OceanBase 两种模式/达梦/Redis/Mongo 联调、真实内网模型 tools 能力验证、Qt 数据中心界面和晴空棱镜视觉验收、手动工作台/事务/SSH/迁移、正式发布包与用户验收。思考显示只允许供应商明确返回的 reasoning summary/reasoning delta；不能声称可以看到或输出隐藏思维链。阶段实现不等于整项需求完成，交付仍须由主代理按真实、模拟和视觉证据分别复核。
+当前已完成：本地与 DBX 源码审查、用户范围确认、本需求与交接设计、DC-01 Agent 核心、DC-02 只读执行底座、DC-03 纯 Python 宿主模型配置/流式适配与六类只读边界组件、`sqlglot==30.18.0` 依赖接入、假模型/假 driver 行为测试，以及包导入不加载 Qt/数据库/旧模型配置的 smoke test。当前未完成：真实 Oracle/MySQL/OceanBase 两种模式/达梦/Redis/Mongo 联调、真实内网模型 tools 能力验证、Qt 数据中心界面和晴空棱镜视觉验收、手动工作台/事务/SSH/迁移、正式发布包与用户验收。DC-03 的真实联调和事件面板仍待验收；思考显示只允许供应商明确返回的 reasoning summary/reasoning delta，不能声称可以看到或输出隐藏思维链。阶段实现不等于整项需求完成，交付仍须由主代理按真实、模拟和视觉证据分别复核。

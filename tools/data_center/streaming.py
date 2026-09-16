@@ -36,6 +36,31 @@ class ToolArgumentsError(StreamingError):
     """Raised when a completed tool call does not contain JSON object arguments."""
 
 
+class StreamingLimitError(StreamingError):
+    """Raised when a display or tool-argument stream budget is exceeded."""
+
+
+DEFAULT_MAX_REASONING_BYTES = 64 * 1024
+DEFAULT_MAX_TEXT_BYTES = 128 * 1024
+DEFAULT_MAX_TOOL_ARGUMENT_BYTES = 32 * 1024
+
+
+def _utf8_size(value: str) -> int:
+    return len(str(value).encode("utf-8"))
+
+
+def _positive_limit(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class SSEEvent:
     """One dispatched SSE event.
@@ -75,14 +100,22 @@ class IncrementalSSEDecoder:
     final event when a peer closed the response without a trailing blank line.
     """
 
-    def __init__(self, *, max_event_chars: int = 2 * 1024 * 1024) -> None:
-        if max_event_chars <= 0:
-            raise ValueError("max_event_chars must be positive")
-        self.max_event_chars = int(max_event_chars)
+    def __init__(
+        self,
+        *,
+        max_event_chars: int = 2 * 1024 * 1024,
+        max_event_bytes: int | None = None,
+    ) -> None:
+        self.max_event_chars = _positive_limit("max_event_chars", max_event_chars)
+        self.max_event_bytes = (
+            None if max_event_bytes is None else _positive_limit("max_event_bytes", max_event_bytes)
+        )
         self._decoder = getincrementaldecoder("utf-8")(errors="replace")
         self._line = ""
         self._skip_lf = False
         self._data: list[str] = []
+        self._data_chars = 0
+        self._data_bytes = 0
         self._event_name = ""
         self._event_id: str | None = None
         self._retry: int | None = None
@@ -135,6 +168,8 @@ class IncrementalSSEDecoder:
             # checked on the line itself as well as on the accumulated event.
             if len(self._line) > self.max_event_chars:
                 raise SSEProtocolError("SSE line exceeds the configured limit")
+            if self.max_event_bytes is not None and _utf8_size(self._line) > self.max_event_bytes:
+                raise StreamingLimitError("SSE line exceeds the configured byte limit")
         return events
 
     def _finish_line(self) -> list[SSEEvent]:
@@ -159,8 +194,14 @@ class IncrementalSSEDecoder:
 
         if field == "data":
             self._data.append(value)
-            if sum(len(item) for item in self._data) + max(0, len(self._data) - 1) > self.max_event_chars:
+            self._data_chars += len(value)
+            self._data_bytes += _utf8_size(value)
+            if self._data_chars + max(0, len(self._data) - 1) > self.max_event_chars:
                 raise SSEProtocolError("SSE event exceeds the configured limit")
+            if self.max_event_bytes is not None:
+                separator_bytes = max(0, len(self._data) - 1)
+                if self._data_bytes + separator_bytes > self.max_event_bytes:
+                    raise StreamingLimitError("SSE event exceeds the configured byte limit")
         elif field == "event":
             self._event_name = value
         elif field == "id":
@@ -194,6 +235,8 @@ class IncrementalSSEDecoder:
             retry=self._retry,
         )
         self._data = []
+        self._data_chars = 0
+        self._data_bytes = 0
         self._event_name = ""
         self._event_id = None
         self._retry = None
@@ -259,26 +302,52 @@ def _text_content(value: Any) -> str:
     return ""
 
 
-def _reasoning_content(delta: Mapping[str, Any]) -> str:
-    """Read only fields that gateways document as reasoning channels."""
+_DEFAULT_REASONING_FIELDS = ("reasoning_content", "reasoning_summary")
 
-    for key in ("reasoning_content", "reasoning_summary"):
-        value = delta.get(key)
-        text = _text_content(value)
-        if text:
-            return text
-    # A few OpenAI-compatible gateways nest the same explicit field under a
-    # reasoning object.  Arbitrary ``thinking``/``thought`` text is purposely
-    # not treated as a reasoning channel.
-    nested = delta.get("reasoning")
-    if isinstance(nested, Mapping):
+
+def _reasoning_value(value: Any) -> str:
+    """Extract a configured reasoning value without guessing its meaning."""
+
+    text = _text_content(value)
+    if text:
+        return text
+    if isinstance(value, Mapping):
+        # A configured field may be an object whose documented display value
+        # is one of these explicit members.  The object itself is never
+        # rendered as reasoning merely because it is named ``reasoning``.
+        parts: list[str] = []
         for key in ("content", "summary", "reasoning_content", "reasoning_summary"):
-            text = _text_content(nested.get(key))
-            if text:
-                return text
-    elif isinstance(nested, str):
-        return nested
+            nested = _text_content(value.get(key))
+            if nested:
+                parts.append(nested)
+        return "".join(parts)
     return ""
+
+
+def _mapping_value(mapping: Mapping[str, Any], field_name: str) -> Any:
+    """Look up a top-level or explicitly dotted configured field."""
+
+    current: Any = mapping
+    for part in field_name.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _reasoning_content(delta: Mapping[str, Any], reasoning_fields: tuple[str, ...]) -> str:
+    """Read explicit reasoning fields plus the host-configured whitelist."""
+
+    parts: list[str] = []
+    seen: set[str] = set()
+    for key in (*_DEFAULT_REASONING_FIELDS, *reasoning_fields):
+        if key in seen:
+            continue
+        seen.add(key)
+        text = _reasoning_value(_mapping_value(delta, key))
+        if text:
+            parts.append(text)
+    return "".join(parts)
 
 
 class ModelStreamParser:
@@ -291,8 +360,31 @@ class ModelStreamParser:
     complete call.
     """
 
-    def __init__(self, *, max_event_chars: int = 2 * 1024 * 1024) -> None:
-        self.sse = IncrementalSSEDecoder(max_event_chars=max_event_chars)
+    def __init__(
+        self,
+        *,
+        max_event_chars: int = 2 * 1024 * 1024,
+        max_event_bytes: int | None = None,
+        reasoning_fields: Iterable[str] | None = (),
+        max_reasoning_bytes: int = DEFAULT_MAX_REASONING_BYTES,
+        max_text_bytes: int = DEFAULT_MAX_TEXT_BYTES,
+        max_tool_argument_bytes: int = DEFAULT_MAX_TOOL_ARGUMENT_BYTES,
+    ) -> None:
+        self.max_reasoning_bytes = _positive_limit("max_reasoning_bytes", max_reasoning_bytes)
+        self.max_text_bytes = _positive_limit("max_text_bytes", max_text_bytes)
+        self.max_tool_argument_bytes = _positive_limit(
+            "max_tool_argument_bytes", max_tool_argument_bytes
+        )
+        configured_fields: list[str] = []
+        for value in reasoning_fields or ():
+            field_name = str(value or "").strip()
+            if field_name and field_name not in configured_fields:
+                configured_fields.append(field_name)
+        self.reasoning_fields = tuple(configured_fields)
+        self.sse = IncrementalSSEDecoder(
+            max_event_chars=max_event_chars,
+            max_event_bytes=max_event_bytes,
+        )
         self._tools: dict[int, _ToolAccumulator] = {}
         self._next_order = 0
         self._usage: dict[str, Any] = {}
@@ -300,6 +392,8 @@ class ModelStreamParser:
         self._model_id = ""
         self._done = False
         self._finished = False
+        self._reasoning_bytes = 0
+        self._text_bytes = 0
 
     @property
     def usage(self) -> dict[str, Any]:
@@ -387,12 +481,18 @@ class ModelStreamParser:
             if not isinstance(delta, Mapping):
                 continue
 
-            reasoning = _reasoning_content(delta)
+            reasoning = _reasoning_content(delta, self.reasoning_fields)
             if reasoning:
+                self._reasoning_bytes += _utf8_size(reasoning)
+                if self._reasoning_bytes > self.max_reasoning_bytes:
+                    raise StreamingLimitError("reasoning stream exceeds the configured byte limit")
                 result.append({"kind": "reasoning_delta", "text": reasoning})
 
             text = _text_content(delta.get("content"))
             if text:
+                self._text_bytes += _utf8_size(text)
+                if self._text_bytes > self.max_text_bytes:
+                    raise StreamingLimitError("text stream exceeds the configured byte limit")
                 result.append({"kind": "text_delta", "text": text})
 
             calls = delta.get("tool_calls")
@@ -459,6 +559,9 @@ class ModelStreamParser:
                 existing = None
             if isinstance(existing, Mapping) and fragment.strip() == state.arguments.strip():
                 fragment = ""
+        argument_bytes = _utf8_size(state.arguments) + _utf8_size(fragment)
+        if argument_bytes > self.max_tool_argument_bytes:
+            raise StreamingLimitError("tool arguments exceed the configured byte limit")
         state.arguments += fragment
         return [{
             "kind": "tool_call_delta",
@@ -543,7 +646,11 @@ __all__ = [
     "SSEParser",
     "SSEProtocolError",
     "SseParser",
+    "StreamingLimitError",
     "StreamingError",
     "ToolArgumentsError",
+    "DEFAULT_MAX_REASONING_BYTES",
+    "DEFAULT_MAX_TEXT_BYTES",
+    "DEFAULT_MAX_TOOL_ARGUMENT_BYTES",
     "iter_sse_events",
 ]

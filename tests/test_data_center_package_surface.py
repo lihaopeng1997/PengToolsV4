@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class DataCenterPackageSurfaceTests(unittest.TestCase):
     def test_package_import_smoke_does_not_load_runtime_integrations(self) -> None:
-        """Importing the package must not resolve Qt, drivers, or model config."""
+        """Importing the package must not resolve Qt, drivers, or live config."""
 
         probe = textwrap.dedent(
             """
@@ -107,6 +107,39 @@ class DataCenterPackageSurfaceTests(unittest.TestCase):
         self.assertIs(package.ReadOnlyRequest, engine_adapters.ReadOnlyRequest)
         self.assertIs(package.ReadOnlyQuery, query_executor.ReadOnlyQuery)
         self.assertIs(package.ExecutorReadOnlyQuery, query_executor.ReadOnlyQuery)
+
+    def test_dc03_public_exports_keep_their_module_identity(self) -> None:
+        import tools.data_center as package
+        from tools.data_center import (
+            host_model_adapter,
+            model_config,
+            readonly_driver_adapters,
+            readonly_lease,
+            readonly_nosql_clients,
+        )
+
+        exported = {
+            "AgentModelCapability": model_config.AgentModelCapability,
+            "AgentModelConfigError": model_config.AgentModelConfigError,
+            "AgentModelHostAdapter": host_model_adapter.AgentModelHostAdapter,
+            "AgentModelSnapshot": model_config.AgentModelSnapshot,
+            "MongoReadOnlyFacade": readonly_nosql_clients.MongoReadOnlyFacade,
+            "OpaqueCursorCodec": readonly_nosql_clients.OpaqueCursorCodec,
+            "ReadOnlyDriverCapabilities": readonly_driver_adapters.ReadOnlyDriverCapabilities,
+            "ReadOnlyInitializationError": readonly_driver_adapters.ReadOnlyInitializationError,
+            "ReadOnlyLease": readonly_lease.ReadOnlyLease,
+            "ReadOnlyLeaseError": readonly_lease.ReadOnlyLeaseError,
+            "ReadOnlyLeaseFactory": readonly_lease.ReadOnlyLeaseFactory,
+            "ReadOnlyProfileError": readonly_lease.ReadOnlyProfileError,
+            "ReadOnlyScopeError": readonly_lease.ReadOnlyScopeError,
+            "ReadOnlySecretError": readonly_lease.ReadOnlySecretError,
+            "ReadOnlyTarget": readonly_lease.ReadOnlyTarget,
+            "RedisReadOnlyFacade": readonly_nosql_clients.RedisReadOnlyFacade,
+            "load_agent_model_snapshot": model_config.load_agent_model_snapshot,
+        }
+        for name, value in exported.items():
+            self.assertIn(name, package.__all__)
+            self.assertIs(getattr(package, name), value)
 
     def test_all_public_names_are_bound(self) -> None:
         import tools.data_center as package

@@ -1,9 +1,9 @@
 """Public, UI-independent API for the data-center Agent workbench.
 
 The package surface keeps protocols from :mod:`contracts` distinct from the
-injected implementations used by the DC-02 execution layer. Importing this
-module only loads definitions; network, database, and Qt work remains behind
-explicitly invoked host adapters.
+injected implementations used by the DC-02/DC-03 execution layers. Importing
+this module only loads definitions; network, database, and Qt work remains
+behind explicitly invoked host adapters.
 """
 
 from .contracts import (
@@ -75,6 +75,8 @@ from .model_adapter import (
     StreamingTransport,
     UrlLibStreamingTransport,
 )
+from .host_model_adapter import AgentModelHostAdapter
+from .model_config import AgentModelCapability, AgentModelConfigError, AgentModelSnapshot, load_agent_model_snapshot
 from .nosql_policy import (
     POLICY_VERSION as NOSQL_POLICY_VERSION,
     MONGO_FORBIDDEN_OPERATORS,
@@ -98,6 +100,17 @@ from .nosql_policy import (
     validate_redis_read,
     validate_redis_request,
 )
+from .readonly_driver_adapters import ReadOnlyDriverCapabilities, ReadOnlyInitializationError
+from .readonly_lease import (
+    ReadOnlyLease,
+    ReadOnlyLeaseError,
+    ReadOnlyLeaseFactory,
+    ReadOnlyProfileError,
+    ReadOnlyScopeError,
+    ReadOnlySecretError,
+    ReadOnlyTarget,
+)
+from .readonly_nosql_clients import MongoReadOnlyFacade, OpaqueCursorCodec, RedisReadOnlyFacade
 from .policy import (
     POLICY_VERSION as AGENT_POLICY_VERSION,
     HOST_OVERRIDE_ARGUMENTS,
@@ -153,6 +166,10 @@ __all__ = [
     "AGENT_POLICY_VERSION",
     "Agent",
     "AgentBudget",
+    "AgentModelCapability",
+    "AgentModelConfigError",
+    "AgentModelHostAdapter",
+    "AgentModelSnapshot",
     "AgentEvent",
     "AgentEventEmitter",
     "AgentEventType",
@@ -210,11 +227,13 @@ __all__ = [
     "MongoAdapter",
     "MongoEngineAdapter",
     "MongoReadPolicy",
+    "MongoReadOnlyFacade",
     "NOSQL_ENGINES",
     "NOSQL_POLICY_VERSION",
     "NoSQLDecision",
     "NoSQLPolicy",
     "NoSQLPolicyError",
+    "OpaqueCursorCodec",
     "OpenAIStreamParser",
     "PolicyDecision",
     "ProjectedResult",
@@ -230,8 +249,18 @@ __all__ = [
     "ReadOnlyHook",
     "ReadOnlyQuery",
     "ReadOnlyRequest",
+    "ReadOnlyDriverCapabilities",
+    "ReadOnlyInitializationError",
+    "ReadOnlyLease",
+    "ReadOnlyLeaseError",
+    "ReadOnlyLeaseFactory",
+    "ReadOnlyProfileError",
+    "ReadOnlyScopeError",
+    "ReadOnlySecretError",
+    "ReadOnlyTarget",
     "RedisAdapter",
     "RedisEngineAdapter",
+    "RedisReadOnlyFacade",
     "RedisReadPolicy",
     "RelationalAdapter",
     "RelationalEngineAdapter",
@@ -272,6 +301,7 @@ __all__ = [
     "is_mongo_read_allowed",
     "is_redis_read_allowed",
     "iter_sse_events",
+    "load_agent_model_snapshot",
     "normalize_engine",
     "project_query_result",
     "project_result",

@@ -8,16 +8,25 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import unittest
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Protocol
 
 from tools.data_center.contracts import AgentTurnRequest, CancellationToken, ModelDelta, RunContext
-from tools.data_center.model_adapter import ModelAdapter, ModelCancelled, ModelTransportError
+from tools.data_center.model_adapter import (
+    ModelAdapter,
+    ModelCancelled,
+    ModelDeadlineExceeded,
+    ModelLimitExceeded,
+    ModelTransportError,
+)
 from tools.data_center.streaming import (
     ModelStreamParser,
     SSEEvent,
     SSEParser,
+    StreamingLimitError,
     ToolArgumentsError,
 )
 
@@ -258,6 +267,37 @@ class DataCenterStreamingFixtureTests(unittest.TestCase):
         self.assertEqual(parser.usage["total_tokens"], 9)
         self.assertEqual(events[-1]["kind"], "turn_done")
 
+    def test_plain_reasoning_string_is_not_a_display_channel_by_default(self) -> None:
+        parser = ModelStreamParser()
+        events = parser.feed_json({
+            "choices": [{"delta": {"reasoning": "内部字段，不应默认展示", "content": "正文"}}],
+        })
+
+        self.assertEqual([event["kind"] for event in events], ["text_delta"])
+        self.assertEqual(events[0]["text"], "正文")
+
+    def test_configured_reasoning_whitelist_is_forwarded(self) -> None:
+        parser = ModelStreamParser(reasoning_fields=("reasoning",))
+        events = parser.feed_json({"choices": [{"delta": {"reasoning": "可展示摘要"}}]})
+
+        self.assertEqual(events, [{"kind": "reasoning_delta", "text": "可展示摘要"}])
+
+    def test_display_and_tool_argument_byte_budgets_fail_closed(self) -> None:
+        with self.assertRaises(StreamingLimitError):
+            ModelStreamParser(max_text_bytes=3).feed_json({
+                "choices": [{"delta": {"content": "中文"}}],
+            })
+
+        parser = ModelStreamParser(max_tool_argument_bytes=5)
+        with self.assertRaises(StreamingLimitError):
+            parser.feed_json({
+                "choices": [{"delta": {"tool_calls": [{
+                    "index": 0,
+                    "id": "call-1",
+                    "function": {"name": "query_readonly", "arguments": '{"sql":"SELECT 1"}'},
+                }]}}],
+            })
+
 
 def _request() -> AgentTurnRequest:
     return AgentTurnRequest(
@@ -356,12 +396,41 @@ class _FlakyTransport:
         return iter(self.response)
 
 
+class _BlockedSource:
+    def __init__(self) -> None:
+        self.released = threading.Event()
+        self.started = threading.Event()
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.started.set()
+        self.released.wait(2.0)
+        raise StopIteration
+
+    def close(self) -> None:
+        self.closed = True
+        self.released.set()
+
+
+class _BlockedTransport:
+    def __init__(self) -> None:
+        self.source = _BlockedSource()
+        self.calls = 0
+
+    def stream(self, body: dict, *, cancellation: CancellationToken):
+        self.calls += 1
+        return self.source
+
+
 class DataCenterModelAdapterTests(unittest.TestCase):
     def test_adapter_delivers_real_deltas_and_builds_contract_turn(self) -> None:
         fixture = make_stream_fixtures()[0]
         transport = _MemoryTransport(fixture.chunks)
         deltas: list[ModelDelta] = []
-        turn = ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+        turn = ModelAdapter({"model": "demo-model", "agent_capability": "native_tools"}, transport=transport).complete_turn(
             _request(), cancellation=CancellationToken(), on_delta=deltas.append,
         )
         self.assertEqual(transport.calls, 1)
@@ -401,7 +470,7 @@ class DataCenterModelAdapterTests(unittest.TestCase):
         first = _frame(json.dumps(first_payload, ensure_ascii=False))
         second = _frame(json.dumps(second_payload, ensure_ascii=False)) + _frame("[DONE]")
         transport = _MemoryTransport(_split_at(first + second, (9, 23, 41, 67, 101)))
-        turn = ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+        turn = ModelAdapter({"model": "demo-model", "agent_capability": "native_tools"}, transport=transport).complete_turn(
             _request(), cancellation=CancellationToken(), on_delta=lambda _delta: None,
         )
         self.assertEqual(len(turn.tool_calls), 1)
@@ -415,7 +484,7 @@ class DataCenterModelAdapterTests(unittest.TestCase):
             "usage": {"total_tokens": 3},
         }
         deltas: list[ModelDelta] = []
-        turn = ModelAdapter({"model": "demo-model"}, transport=_MemoryTransport((response,))).complete_turn(
+        turn = ModelAdapter({"model": "demo-model", "agent_capability": "text_only"}, transport=_MemoryTransport((response,))).complete_turn(
             _request(), cancellation=CancellationToken(), on_delta=deltas.append,
         )
         self.assertEqual(turn.text, "直接返回")
@@ -435,7 +504,7 @@ class DataCenterModelAdapterTests(unittest.TestCase):
                 cancellation.cancel("user_stop")
 
         with self.assertRaises(ModelCancelled) as caught:
-            ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+            ModelAdapter({"model": "demo-model", "agent_capability": "text_only"}, transport=transport).complete_turn(
                 _request(), cancellation=cancellation, on_delta=receive,
             )
         self.assertEqual(transport.calls, 1)
@@ -457,7 +526,7 @@ class DataCenterModelAdapterTests(unittest.TestCase):
             if delta.kind == "text_delta":
                 transport.delta_seen = True
 
-        turn = ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+        turn = ModelAdapter({"model": "demo-model", "agent_capability": "text_only"}, transport=transport).complete_turn(
             _request(), cancellation=CancellationToken(), on_delta=receive,
         )
         assert transport.response is not None
@@ -473,7 +542,7 @@ class DataCenterModelAdapterTests(unittest.TestCase):
             _frame("[DONE]"),
         )
         transport = _FlakyTransport(response, failures=2)
-        turn = ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+        turn = ModelAdapter({"model": "demo-model", "agent_capability": "text_only"}, transport=transport).complete_turn(
             _request(), cancellation=CancellationToken(), on_delta=lambda _delta: None,
         )
         self.assertEqual(transport.calls, 3)
@@ -495,10 +564,71 @@ class DataCenterModelAdapterTests(unittest.TestCase):
 
         transport = PartialFailure()
         with self.assertRaises(ModelTransportError):
-            ModelAdapter({"model": "demo-model"}, transport=transport).complete_turn(
+            ModelAdapter({"model": "demo-model", "agent_capability": "text_only"}, transport=transport).complete_turn(
                 _request(), cancellation=CancellationToken(), on_delta=lambda _delta: None,
             )
         self.assertEqual(transport.calls, 1)
+
+    def test_blocking_read_cannot_outlive_the_single_total_deadline(self) -> None:
+        transport = _BlockedTransport()
+        started = time.monotonic()
+
+        with self.assertRaises(ModelDeadlineExceeded):
+            ModelAdapter(
+                {"model": "demo-model", "agent_capability": "text_only", "timeout_seconds": 0.05},
+                transport=transport,
+            ).complete_turn(
+                _request(), cancellation=CancellationToken(), on_delta=lambda _delta: None,
+            )
+
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(transport.calls, 1)
+        self.assertTrue(transport.source.closed)
+
+    def test_raw_buffer_limit_stops_plain_json_without_a_tool_turn(self) -> None:
+        transport = _MemoryTransport((b"{123", b"4567", b"8"))
+
+        with self.assertRaises(ModelLimitExceeded):
+            ModelAdapter(
+                {
+                    "model": "demo-model",
+                    "agent_capability": "native_tools",
+                    "max_raw_buffer_bytes": 8,
+                },
+                transport=transport,
+            ).complete_turn(
+                _request(), cancellation=CancellationToken(), on_delta=lambda _delta: None,
+            )
+
+        self.assertEqual(transport.calls, 1)
+
+    def test_tool_argument_limit_fails_before_a_complete_turn_is_returned(self) -> None:
+        payload = {
+            "choices": [{"delta": {"tool_calls": [{
+                "index": 0,
+                "id": "call-1",
+                "function": {
+                    "name": "query_readonly",
+                    "arguments": '{"sql":"SELECT 1"}',
+                },
+            }]}}],
+        }
+        transport = _MemoryTransport((_frame(json.dumps(payload)), _frame("[DONE]")))
+        deltas: list[ModelDelta] = []
+
+        with self.assertRaises(ModelLimitExceeded):
+            ModelAdapter(
+                {
+                    "model": "demo-model",
+                    "agent_capability": "native_tools",
+                    "max_tool_argument_bytes": 5,
+                },
+                transport=transport,
+            ).complete_turn(
+                _request(), cancellation=CancellationToken(), on_delta=deltas.append,
+            )
+
+        self.assertFalse(any(delta.kind == "tool_call" for delta in deltas))
 
 
 if __name__ == "__main__":

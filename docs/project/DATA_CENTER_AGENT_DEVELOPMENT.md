@@ -1,6 +1,6 @@
 # 数据中心 Agent：Luna 开发与主代理复核交接
 
-日期：2026-09-16。状态：DC-01 纯 Python Agent 核心已实现；DC-02 只读执行底座已实现并通过注入式假模型/假驱动验证。真实数据库、真实内网模型、Qt 工作台与发布包仍未验收。唯一需求正文是[数据中心重构 V1](DATA_CENTER_AGENT_REQUIREMENTS.md)。先读根 AGENTS 和项目 README；最新用户决定优先于历史 UI-only、AI 不执行和系统标题栏限制。
+日期：2026-09-16。状态：DC-01 纯 Python Agent 核心、DC-02 只读执行底座及 DC-03 纯 Python 宿主适配组件已实现，并通过注入式假模型/假驱动验证。真实数据库、真实内网模型、Qt 工作台与发布包仍未验收。唯一需求正文是[数据中心重构 V1](DATA_CENTER_AGENT_REQUIREMENTS.md)。先读根 AGENTS 和项目 README；最新用户决定优先于历史 UI-only、AI 不执行和系统标题栏限制。
 
 ## 1. 本轮不可误解的范围
 
@@ -58,7 +58,9 @@ DC-01回执不得声称只读数据库已验证。DC-02 现在已经补上 SQL A
 
 DC-02 已在当前工作区实现只读 executor、SessionManager、SQL AST 门禁、六类引擎能力适配、结果投影和 AgentQueryTool/注册表接线；`sqlglot==30.18.0` 已加入 `requirements.txt`，但真实驱动与打包验证仍待完成。不要把 SQLGlot 解析通过当安全保证。现有编程 Agent 文件工具不注册，现有 `run_console_statement` 自动 commit 路径不用于 Agent。
 
-DC-03先在专门测试库和已选内网模型验证真实工具能力；生成/查询意图区分、结构歧义、只读拒绝和有限结果回传全部通过后接Qt事件界面。SSE UI至少检查发送即时反馈、真实增量、思考/正文分区和停止。
+DC-03 当前工作区已提供 `model_config.py` / `host_model_adapter.py` 的选定模型配置与流式宿主边界、`readonly_driver_adapters.py` / `readonly_lease.py` 的关系库只读 lease、以及 `nosql_codec.py` / `readonly_nosql_clients.py` 的 Redis/Mongo 有界只读 facade。它们只接受宿主注入的 loader、transport、连接或 client；包根仅导出宿主需要的稳定类型，导入不访问真实配置、数据库或 Qt。对应验证使用假模型、假 driver 和内存数据，不能当作真实兼容证明。
+
+DC-03 仍需在专门测试库和已选内网模型验证真实工具能力；生成/查询意图区分、结构歧义、只读拒绝和有限结果回传全部通过后再接 Qt 事件界面。SSE UI 至少检查发送即时反馈、真实增量、思考/正文分区和停止。
 
 DC-04至DC-06按需求正文实施工作台、手动事务、SSH及迁移。若缺驱动或测试环境，记录具体组合不可验收，不靠源码检查把状态标绿。原始数据目录和正在运行的体验包保持不动。
 
@@ -129,21 +131,21 @@ DC-04至DC-06按需求正文实施工作台、手动事务、SSH及迁移。若�
 
 `SessionManager` 只保存不可变的 `session_id / connection_id / generation / dialect` 和宿主工厂引用，不持有数据库连接。复用标签或连接时 generation 单调递增；`QueryExecutor` 在 `ThreadPoolExecutor` worker 中创建和关闭驱动，并为每次调用固定 `query_id、session_id、generation、deadline、row_limit`。默认查询时限为 15 秒，AgentQueryTool 将模型请求的行数限制在 1–100；旧 generation、关闭标签或目标连接不再接收结果和回调。
 
-停止和超时是协作式的：宿主 token 会阻止新的模型轮次/工具，worker 在执行前后检查 token 和 deadline，排队中的 Future 可取消，晚到结果会被丢弃。同步调用会在 deadline 到达时先返回 `TIMEOUT`；若驱动忽略取消，原 worker 仍负责等待并关闭自己的 driver，且任务清理前不能复用同一 `query_id`。Python 层不能保证正在运行的数据库语句立即停止，也不能使用 `QThread.terminate`、强杀线程或关闭其他标签连接伪装成成功停止；此时应保留 worker 引用并向 UI 表示“正在等待停止/结果未知”。引擎能力表中的 `supports_cancel` 是适配能力元数据，不等于真实驱动已经通过取消验收；当前 Redis/Mongo 标记为不支持，关系库也尚未完成真实驱动验证。
+停止和超时是协作式的：宿主 token 会阻止新的模型轮次/工具，worker 在执行前后检查 token 和 deadline，排队中的 Future 可取消，晚到结果会被丢弃。同步调用会在 deadline 到达时先返回 `TIMEOUT`；若驱动忽略取消，原 worker 仍负责等待并关闭自己的 driver，且任务清理前不能复用同一 `query_id`。Python 层不能保证正在运行的数据库语句立即停止，也不能使用 `QThread.terminate`、强杀线程或关闭其他标签连接伪装成成功停止；此时应保留 worker 引用并向 UI 表示“正在等待停止/结果未知”。当前所有关系库 lease、Redis 和 Mongo facade 都不会宣称已具备驱动级取消；关系库 `supports_cancel=False`，只有未来形成 owner worker 内的真实取消通道并完成对应驱动验证后才能打开。
 
 ### 7.4 引擎能力矩阵与边界
 
 |引擎模式|解析/操作入口|DC-02 当前状态|能力元数据|真实能力状态|
 |---|---|---|---|---|
-|Oracle|Oracle 方言，`query_readonly`|SQLDecision + worker 只读入口|支持事务/取消（仅元数据）|未接真实驱动|
-|MySQL|MySQL 方言，`query_readonly`|SQLDecision + worker 只读入口|支持事务/取消（仅元数据）|未接真实驱动|
-|OceanBase Oracle|Oracle 方言，`query_readonly`|独立模式标识，不与 MySQL 模式混用|支持事务/取消（仅元数据）|未接真实驱动|
-|OceanBase MySQL|MySQL 方言，`query_readonly`|独立模式标识，不与 Oracle 模式混用|支持事务/取消（仅元数据）|未接真实驱动|
-|达梦|受限 Oracle 兼容方言，`query_readonly`|明确标记受限兼容子集|支持事务/取消（仅元数据）|未接真实驱动|
+|Oracle|Oracle 方言，`query_readonly`|SQLDecision + worker 只读入口|只读事务；驱动取消未开放|未接真实驱动|
+|MySQL|MySQL 方言，`query_readonly`|SQLDecision + worker 只读入口|只读事务；驱动取消未开放|未接真实驱动|
+|OceanBase Oracle|Oracle 方言，`query_readonly`|独立模式标识，不与 MySQL 模式混用|只读事务；驱动取消未开放|未接真实驱动|
+|OceanBase MySQL|MySQL 方言，`query_readonly`|独立模式标识，不与 Oracle 模式混用|只读事务；驱动取消未开放|未接真实驱动|
+|达梦|受限 Oracle 兼容方言，`query_readonly`|明确标记受限兼容子集|只读事务；驱动取消未开放|未接真实驱动|
 |Redis|结构化 `SCAN/TYPE/TTL/PTTL/GET/STRLEN/HGET/HSCAN/LLEN/LRANGE/SCARD/SSCAN/ZCARD/ZRANGE/ZSCAN/XLEN/XRANGE`|不接受 command 字符串；拒绝写、脚本、管理、订阅和阻塞操作|不提供事务/取消能力|未接真实单机/集群客户端|
 |MongoDB|结构化 `find/count/aggregate`|递归拒绝 `$out/$merge/$where/$function/$accumulator`、未知表达式和未登记阶段；集合范围由宿主提供|不提供事务/取消能力|未接真实单机/副本集客户端|
 
-关系库适配器只调用宿主注入的只读 hook，不调用 `connect/commit/rollback` 或旧控制台执行函数；Redis/Mongo 适配器只接结构化白名单请求。能力矩阵可以供后续 UI/模型 schema 使用，但它不代表对应驱动已经具备只读、取消、TLS 或集群验收证据。
+关系库 lease 只使用宿主注入的 profile/secret loader 与 connector，在 worker 内建立专用连接；驱动邻接层再次执行同一 `SQLPolicy/SQLDecision` 校验，直接调用也不能绕过 AST 门禁，并且永不 commit。Redis/Mongo 适配器只接结构化白名单请求。能力矩阵可以供后续 UI/模型 schema 使用，但它不代表对应驱动已经具备只读、取消、TLS 或集群验收证据。
 
 ### 7.5 当前测试与证据
 
@@ -152,17 +154,29 @@ DC-02 的行为测试覆盖 SQL AST 拒绝、方言映射、只读决策一致�
 当前联合验证命令为：
 
 ```text
-.venv-build\Scripts\python.exe -m unittest tests.test_data_center_agent_contracts tests.test_data_center_agent_runner tests.test_data_center_streaming tests.test_data_center_agent_policy tests.test_data_center_sql_policy tests.test_data_center_session_manager tests.test_data_center_engine_adapters tests.test_data_center_readonly_integration tests.test_data_center_package_surface tests.test_architecture_boundaries -v
+.venv-build\Scripts\python.exe -m unittest discover -s tests -p "test_data_center*.py" -v
+.venv-build\Scripts\python.exe -m unittest tests.test_intranet_llm tests.test_architecture_boundaries -v
 ```
 
-截至本回执生成时共 86 项通过，退出状态为 0。该数量包含假模型、假 driver 和包导入 smoke test；它不包含真实数据库、真实内网模型或 UI 运行证据。
+截至本回执更新时，第一条命令的 147 项数据中心用例与第二条命令的 14 项兼容/架构用例全部通过，共 161 项，退出状态均为 0。范围包含 DC-01/DC-02 的既有联合用例、本轮 DC-03 宿主端到端模拟、直接驱动边界攻击、模型 deadline/缓冲限制、NoSQL 取消/截止时间/增量边界以及旧内网模型兼容检查。所有这些用例都使用假模型、假 driver、内存 client 或导入 smoke test，不包含真实数据库、真实内网模型或 UI 运行证据。
 
 当前证据全部来自内存字节流、假模型、假 driver 和导入 smoke test。尚无真实 Oracle、MySQL、OceanBase 两种模式、达梦、Redis 单机/集群、Mongo 单机/副本集或真实内网模型 tools 能力证据，不能据此宣称生产只读安全或模型兼容。
 
-### 7.6 DC-03 之后的待办
+### 7.6 DC-03 当前工作区实施范围（部分实现）
 
-- 把现有连接配置和 secure_store 适配为独立的 Agent 只读 lease，逐个引擎验证只读会话、取消、超时、TLS、行/字节边界和 query_id 证据；缺能力的组合只提供草稿。
-- 把现有内网模型配置接入 `StreamingModelAdapter`，验证真实 SSE/tool_calls/usage 字段和错误策略。思考区只能展示供应商明确返回的 `reasoning_content` / `reasoning_summary` 增量；模型没有此字段时展示“模型未提供思考摘要”，不从隐藏思维链或普通文本推断思考过程。
+本阶段新增组件均位于无 QWidget 的 `tools/data_center/`，与旧手动 SQL、旧内网模型函数、主窗口和既有 UI 路由隔离：
+
+- 模型边界：`model_config.py` 按选定配置 ID 懒加载并生成不含端点/凭据的 `AgentModelSnapshot`；`host_model_adapter.py` 将快照绑定到流式模型适配器，按 `native_tools`、`strict_json`、`text_only` 或未知能力决定请求形状。单次模型调用使用一个总 deadline，SSE 心跳和 socket timeout 不续期；推理摘要、正文、工具参数和原始流都有硬上限。默认只接收 `reasoning_content` / `reasoning_summary` 及配置明确登记的字段，普通 `reasoning` 字符串不作为可展示思考。私有 transport 配置只留在宿主适配器内。
+- 关系库边界：`readonly_driver_adapters.py` 提供 Oracle、MySQL、OceanBase 两种模式和达梦的只读策略及 DB-API 适配边界；`readonly_lease.py` 固定连接 ID、profile revision、provider、mode 与 dialect，在 worker 内创建/初始化/关闭 lease。驱动邻接层复用正式 SQL 策略，拒绝不完整 profile 和目标覆盖；真实取消通道未验证前明确返回不支持。
+- Redis/Mongo 边界：`nosql_codec.py` 对文本、二进制、日期、数值和 BSON 类型做增量有界编码，并递归脱敏下划线及驼峰式敏感字段；`readonly_nosql_clients.py` 仅接受结构化 Redis 白名单或宿主授权集合的 Mongo `find/count/aggregate`，分页游标由宿主持有，拒绝脚本、写入和扩大范围的操作。所有 driver 边界返回后再次检查取消/deadline；结果无法确认时关闭 owner/cursor 并返回稳定的未知状态，不伪报成功。
+- 公共入口：`tools.data_center` 只导出模型快照/能力、宿主模型适配器、只读 lease 及必要错误/能力类型、Redis/Mongo facade 和不透明游标编码器；未把底层 driver adapter、矩阵别名或 codec helper 提升为包根 API。
+
+本轮定向验证覆盖上述组件和包根导入安全；全部证据来自内存 transport、假模型、假 driver、假 Redis/Mongo client 和导入 smoke test。当前没有真实模型或真实数据库联调，也没有 `ui/data_center`、`panels/data_center_panel.py`、主窗口菜单/Tab 接线或视觉验收。
+
+### 7.7 DC-03 之后的待办
+
+- 用现有连接配置和 secure_store 驱动 `ReadOnlyLeaseFactory`，逐个引擎验证只读会话、取消、超时、TLS、行/字节边界和 `query_id` 证据；缺能力的组合只提供草稿。
+- 用真实选定内网模型验证 `AgentModelHostAdapter` 的 SSE/tool_calls/usage 字段和错误策略。思考区只能展示供应商明确返回的 `reasoning_content` / `reasoning_summary` 增量；模型没有此字段时展示“模型未提供思考摘要”，不从隐藏思维链或普通文本推断思考过程。
 - 通过 Qt 队列把 `AgentEvent`、工具进度、查询证据、正文增量和可展示推理摘要接入晴空棱镜数据中心 UI；当前没有数据中心 Qt 面板、真实菜单/Tab/标题栏接线或视觉验收。
 - 继续实现需求正文中的连接树、内部 Tab、手动事务、结果表格、编辑 ChangeSet、历史收藏、导入导出、独立 SSH 隧道、兼容路由、迁移和发布包；这些不属于 DC-02 已完成范围。
 
