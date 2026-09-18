@@ -172,7 +172,7 @@ class PrismSidebar(QWidget):
         self._brand_mark.setObjectName('sidebar-brand-icon')
         self._brand_mark.setFixedSize(36, 36)
         brand_layout.addWidget(self._brand_mark)
-        self._brand_text = QLabel('PengToolsHub', brand)
+        self._brand_text = QLabel(self._workspace_label(), brand)
         self._brand_text.setObjectName('sidebar_title')
         brand_layout.addWidget(self._brand_text, 1)
         outer.addWidget(brand)
@@ -225,7 +225,11 @@ class PrismSidebar(QWidget):
         if language not in {'zh', 'en'}:
             return
         self._language = language
+        self._brand_text.setText(self._workspace_label())
         self._rebuild()
+
+    def _workspace_label(self) -> str:
+        return '个人工作空间' if self._language == 'zh' else 'Personal workspace'
 
     def set_icon_only(self, icon_only: bool) -> None:
         self._icon_only = bool(icon_only)

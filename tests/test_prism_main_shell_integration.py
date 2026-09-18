@@ -105,6 +105,18 @@ class PrismMainShellIntegrationTests(unittest.TestCase):
         self.assertEqual(self.host.module_tabs.current_nav_index, 1)
         self.assertEqual(self.host.module_tabs.tab_bar.currentIndex(), 1)
 
+    def test_open_tabs_follow_context_header_inside_workspace(self):
+        content = self.host._content_frame
+        layout = self.host._content_layout
+
+        self.assertIs(self.host.module_tabs.parentWidget(), content)
+        self.assertIsNot(self.host.module_tabs.parentWidget(), self.host.centralWidget())
+        self.assertLess(layout.indexOf(self.host._context_header), layout.indexOf(self.host.module_tabs))
+        self.assertLess(layout.indexOf(self.host.module_tabs), layout.indexOf(self.host._page_body))
+        self.assertEqual(layout.indexOf(self.host._context_header), 0)
+        self.assertEqual(layout.indexOf(self.host.module_tabs), 1)
+        self.assertEqual(layout.indexOf(self.host._page_body), 2)
+
     def test_failed_close_fallback_keeps_the_requested_tab(self):
         self.assertTrue(self.host._show_panel(1))
         self.assertTrue(self.host._show_panel(2))

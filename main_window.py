@@ -142,12 +142,6 @@ class MainWindow(QMainWindow):
         self._shell_menus = {}
         root_layout.addWidget(self._prism_title_bar, 0)
 
-        self._module_tabs = ModuleTabs(language=self.language, parent=central)
-        self.module_tabs = self._module_tabs
-        self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
-        self._module_tabs.close_requested.connect(self._on_module_tab_close)
-        root_layout.addWidget(self._module_tabs, 0)
-
         shell_body = QWidget(central)
         shell_body.setObjectName('prism-shell-body')
         layout = QHBoxLayout(shell_body)
@@ -241,6 +235,16 @@ class MainWindow(QMainWindow):
         self._context_header = ContextHeader(self._content_frame)
         self._context_header.quick_panel_requested.connect(lambda: self._open_quick_panel())
         self._content_layout.addWidget(self._context_header, 0)
+
+        # The open-module strip belongs to the workspace column.  Keeping it
+        # beside the context header makes the shell follow the approved
+        # globalbar -> open-tabs -> canvas composition instead of spanning
+        # across the navigation rail.
+        self._module_tabs = ModuleTabs(language=self.language, parent=content)
+        self.module_tabs = self._module_tabs
+        self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
+        self._module_tabs.close_requested.connect(self._on_module_tab_close)
+        self._content_layout.addWidget(self._module_tabs, 0)
 
         self._page_body = QFrame(self._content_frame)
         self._page_body.setObjectName('page-body')

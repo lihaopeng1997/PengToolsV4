@@ -156,6 +156,12 @@ class NativeFallbackPrismTests(unittest.TestCase):
         # 0. 确保非折叠状态以测试纯响应式宽度切换
         self.win._set_nav_collapsed(False, persist=False)
 
+        # 展开轨道使用个人工作空间标识，避免重复显示标题栏产品名。
+        self.assertEqual(self.win.sidebar_title.text(), '个人工作空间')
+        self.win._prism_sidebar.set_language('en')
+        self.assertEqual(self.win.sidebar_title.text(), 'Personal workspace')
+        self.win._prism_sidebar.set_language('zh')
+
         # 1. 初始 wide / standard
         self.win._on_layout_mode('wide', False)
         self.assertEqual(self.win._sidebar.width(), NAV_WIDE)

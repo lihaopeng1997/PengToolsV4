@@ -94,7 +94,7 @@ watch(() => props.model, () => closeGroup(false), { deep: true })
   <div v-if="model" class="sidebar">
     <div class="brand">
       <div class="logo" aria-hidden="true"><svg class="ic-logo" style="width:36px;height:36px"><use href="#i-logo" /></svg></div>
-      <div class="brand-name">PengToolsHub</div>
+      <div class="brand-name">个人工作空间</div>
     </div>
 
     <nav class="nav" aria-label="主导航">
