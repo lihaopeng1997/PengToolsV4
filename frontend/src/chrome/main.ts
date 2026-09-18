@@ -26,7 +26,8 @@ async function bootstrapChrome(): Promise<void> {
   bridge.onThemeChanged(applyThemePayload)
   const model = parseNavModel(navRaw)
   const active = reactive({ current: model.current ?? 0 })
-  const app = createApp(ChromeApp, { model, active, bridge })
+  const nativePopupAvailable = await (bridge.nativePopupAvailable?.() ?? Promise.resolve(false))
+  const app = createApp(ChromeApp, { model, active, bridge, nativePopupAvailable })
   app.mount('#app')
   bridge.onActiveChanged((index: number) => {
     active.current = index

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import datetime
+import json
+import math
 import os
 
-from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QBoxLayout, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
     QInputDialog, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
@@ -23,6 +25,9 @@ from ui import web_shell as _web_shell
 WEB_SHELL_AVAILABLE = _web_shell.WEB_SHELL_AVAILABLE
 from ui.layout_metrics import STATUS_H
 from ui.page_chrome import ContextHeader
+from ui.module_tabs import ModuleTabs
+from ui.prism_title_bar import PrismTitleBar
+from ui.prism_window_frame import PrismWindowFrame
 from ui.web_diagnostics import log_web_event
 from ui.responsive import LayoutModeController, NAV_ICON, content_margin_for_mode, is_icon_nav, nav_width_for_mode
 from config import (
@@ -66,6 +71,9 @@ class MainWindow(QMainWindow):
         self._layout_mode = 'standard'
         self._nav_icon_only = False
         self._nav_collapsed = bool(self._settings.get('sidebar_collapsed', False))
+        # Pin is a temporary window flag.  It is intentionally not part of
+        # settings.json and never changes the floating-toolbar preference.
+        self._window_pinned = False
         self.setWindowTitle(APP_NAME)  # V2：标题不再带版本/版本文案
         self.setMinimumSize(960, 640)
         self.resize(1440, 900)
@@ -117,11 +125,47 @@ class MainWindow(QMainWindow):
     def _setup_ui_shell(self):
         """仅壳：侧栏 + Stack 占位 + 状态栏。重面板延后构造。"""
         central = QWidget()
+        central.setObjectName('prism-client-root')
         central.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCentralWidget(central)
-        layout = QHBoxLayout(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self._prism_title_bar = PrismTitleBar(APP_NAME, language=self.language, parent=central)
+        self.title_bar = self._prism_title_bar
+        self._prism_title_bar.pin_toggled.connect(self._set_window_pinned)
+        self._prism_title_bar.minimize_requested.connect(self.showMinimized)
+        self._prism_title_bar.maximize_requested.connect(self._toggle_window_maximize)
+        self._prism_title_bar.close_requested.connect(self.close)
+        self._prism_title_bar.drag_double_clicked.connect(self._toggle_window_maximize)
+        self._shell_menus = {}
+        root_layout.addWidget(self._prism_title_bar, 0)
+
+        self._module_tabs = ModuleTabs(language=self.language, parent=central)
+        self.module_tabs = self._module_tabs
+        self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
+        self._module_tabs.close_requested.connect(self._on_module_tab_close)
+        root_layout.addWidget(self._module_tabs, 0)
+
+        shell_body = QWidget(central)
+        shell_body.setObjectName('prism-shell-body')
+        layout = QHBoxLayout(shell_body)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        root_layout.addWidget(shell_body, 1)
+
+        # Apply the approved client-area frame before the window is shown.
+        # The helper only owns native hit testing; closeEvent remains on this
+        # MainWindow and keeps the existing confirmation/tray lifecycle.
+        self._window_frame = PrismWindowFrame(
+            self,
+            self._prism_title_bar,
+            minimum_size=QSize(960, 640),
+        )
+        self._window_frame.set_frameless(True)
+        self._rebuild_shell_menus()
+        self._create_shell_host_controls()
         # ── V2 Web 铬层：可用且未禁用时启用（侧栏双页栈：0=原生保底 1=Web）──
         ui_web_setting = bool(self._settings.get('ui_web_shell', True))
         runtime_web_available = _web_shell.runtime_web_shell_available()
@@ -158,15 +202,20 @@ class MainWindow(QMainWindow):
             self._chrome_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._chrome_bridge.navigateRequested.connect(self._show_panel)
             self._chrome_bridge.paletteRequested.connect(self._open_quick_panel)
+            # The native popup slot is connected before QWebEngineView is
+            # created, so the page bootstrap can observe a truthful capability.
+            self._chrome_bridge.navGroupRequested.connect(self._on_web_nav_group_requested)
             self._chrome_bridge.set_summary_provider(self._dashboard_summary_payload)
             self._chrome_bridge.pageReadyReceived.connect(self._on_web_page_ready)
+            native_sidebar = self._create_prism_sidebar()
+            self._chrome_bridge.set_native_popup_available(True)
             self._chrome_web = _web_shell.create_chrome_widget(self._chrome_bridge)
             self._chrome_web.web_view.loadFinished.connect(
                 lambda ok: self._on_web_load_finished('chrome', ok))
             self._chrome_web.web_page.renderProcessTerminated.connect(
                 lambda status, code: self._on_web_render_terminated('chrome', status, code))
             side_stack = QStackedWidget()
-            side_stack.addWidget(self._create_legacy_sidebar())
+            side_stack.addWidget(native_sidebar)
             side_stack.addWidget(self._chrome_web)
             side_stack.setCurrentIndex(1)
             self._sidebar_stack = side_stack
@@ -179,7 +228,7 @@ class MainWindow(QMainWindow):
                 else 'runtime_web_shell_unavailable'
             )
             log_web_event('web_shell_disabled_startup', reason=reason)
-            layout.addWidget(self._create_legacy_sidebar())
+            layout.addWidget(self._create_prism_sidebar())
 
         content = QFrame()
         content.setObjectName('content_area')
@@ -251,6 +300,195 @@ class MainWindow(QMainWindow):
         from ui.aurora_progress import AuroraProgress
         self._startup_loading = AuroraProgress(self.centralWidget())
         self._startup_loading.hide()
+
+    def _create_shell_host_controls(self) -> None:
+        """Create common shell controls outside the Web/native sidebar stack."""
+        controls = QWidget(self._prism_title_bar)
+        controls.setObjectName('prism-shell-host-controls')
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(0, 0, 4, 0)
+        controls_layout.setSpacing(4)
+        self._shell_controls_layout = controls_layout
+        self._sidebar_footer_layout = controls_layout
+
+        self._collapse_btn = QPushButton(controls)
+        self._collapse_btn.setObjectName('sidebar-collapse-btn')
+        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setFixedSize(26, 26)
+        apply_icon(self._collapse_btn, 'collapse', size=14)
+        self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
+        controls_layout.addWidget(self._collapse_btn)
+
+        self.version_label = QLabel('作者：Lihp', controls)
+        self.version_label.setObjectName('sidebar_version')
+        self.version_label.setToolTip(
+            f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋'
+        )
+        controls_layout.addWidget(self.version_label)
+
+        self.user_chip = QToolButton(controls)
+        self.user_chip.setObjectName('user-chip')
+        self.user_chip.setText('LH')
+        self.user_chip.setToolTip('账户与偏好 · Ctrl+Shift+P 悬浮栏')
+        self.user_chip.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.user_chip.setFixedSize(32, 32)
+        self._user_menu = QMenu(self)
+        self.user_chip.setMenu(self._user_menu)
+        controls_layout.addWidget(self.user_chip)
+        self._prism_title_bar.add_host_widget(controls)
+
+    def _rebuild_shell_menus(self):
+        """Attach only existing MainWindow actions to the Prism title bar."""
+        if not hasattr(self, '_prism_title_bar'):
+            return
+        self._shell_maximize_action = None
+        zh = self.language == 'zh'
+        file_menu = QMenu('文件' if zh else 'File', self)
+        new_requirement = file_menu.addAction('新建需求' if zh else 'New requirement')
+        new_requirement.triggered.connect(self._on_web_create_requirement)
+        daily = file_menu.addAction('日报' if zh else 'Daily report')
+        daily.triggered.connect(lambda: self._show_panel(9))
+        file_menu.addSeparator()
+        close_action = file_menu.addAction('关闭窗口' if zh else 'Close window')
+        close_action.triggered.connect(self.close)
+
+        view_menu = QMenu('视图' if zh else 'View', self)
+        collapse = view_menu.addAction('收起导航栏' if zh else 'Collapse navigation')
+        collapse.triggered.connect(self._toggle_nav_collapse)
+        floating = view_menu.addAction('悬浮工具栏' if zh else 'Floating toolbar')
+        floating.triggered.connect(self.toggle_quick_panel)
+        view_menu.addSeparator()
+        maximize = view_menu.addAction('还原窗口' if zh else 'Restore window')
+        maximize.triggered.connect(self._toggle_window_maximize)
+        self._shell_maximize_action = maximize
+
+        help_menu = QMenu('帮助' if zh else 'Help', self)
+        guide = help_menu.addAction('使用说明' if zh else 'User guide')
+        guide.triggered.connect(self._show_user_guide)
+        about = help_menu.addAction('关于' if zh else 'About')
+        about.triggered.connect(self._show_about)
+        self._shell_menus = {
+            '文件' if zh else 'File': file_menu,
+            '视图' if zh else 'View': view_menu,
+            '帮助' if zh else 'Help': help_menu,
+        }
+        self._prism_title_bar.set_menus(self._shell_menus)
+        self._refresh_shell_window_action_text()
+
+    def _refresh_shell_window_action_text(self) -> None:
+        action = getattr(self, '_shell_maximize_action', None)
+        if action is None:
+            return
+        zh = self.language == 'zh'
+        action.setText(
+            ('还原窗口' if zh else 'Restore window')
+            if self.isMaximized()
+            else ('最大化窗口' if zh else 'Maximize window')
+        )
+
+    def _set_window_pinned(self, pinned: bool) -> None:
+        """Apply a temporary top-level pin without touching persisted settings."""
+        wanted = bool(pinned)
+        if wanted == self._window_pinned:
+            self._prism_title_bar.set_pinned(wanted)
+            return
+        was_visible = self.isVisible()
+        state = self.windowState()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, wanted)
+        self._window_pinned = wanted
+        self._prism_title_bar.set_pinned(wanted)
+        # Qt may hide/recreate the native handle while changing window flags;
+        # restore only the state that was already visible to the user.
+        if was_visible:
+            if state & Qt.WindowState.WindowMaximized:
+                self.showMaximized()
+            elif state & Qt.WindowState.WindowMinimized:
+                self.showMinimized()
+            else:
+                self.show()
+
+    def _toggle_window_maximize(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        self._prism_title_bar.set_maximized(self.isMaximized())
+        self._refresh_shell_window_action_text()
+
+    def _on_module_tab_activate(self, nav_index: int) -> None:
+        self._show_panel(int(nav_index))
+
+    def _on_module_tab_close(self, nav_index: int) -> None:
+        """Close only the global navigation entry, preserving its panel cache."""
+        index = int(nav_index)
+        if index == 0 or index not in self._module_tabs.open_nav_indices:
+            return
+        # The tab strip is the authoritative visible selection.  _show_panel
+        # updates the legacy current index before panel creation, so consult
+        # the tab model and restore the old selection if fallback creation
+        # fails; otherwise a second close could remove the still-visible tab.
+        current_tab = self._module_tabs.current_nav_index
+        if index == current_tab:
+            fallback = self._module_tabs.neighbor_nav(index)
+            old_stack_index = self.stack.currentIndex()
+            if not self._show_panel(fallback):
+                self._current_nav_index = current_tab
+                if self.stack.currentIndex() != old_stack_index:
+                    self.stack.setCurrentIndex(old_stack_index)
+                self._module_tabs.set_current_nav(current_tab)
+                sidebar = getattr(self, '_prism_sidebar', None)
+                if sidebar is not None:
+                    sidebar.set_current(current_tab)
+                return
+        self._module_tabs.remove_nav(index)
+
+    def _on_web_nav_group_requested(self, group_key: str, anchor_rect_json: str) -> None:
+        """Validate a WebView-local anchor and open the native Prism menu."""
+        sidebar = getattr(self, '_prism_sidebar', None)
+        chrome = getattr(self, '_chrome_web', None)
+        if sidebar is None or chrome is None:
+            return
+        key = str(group_key or '')
+        if len(key) > 128 or not any(
+            str(group.get('key', '')) == key
+            for group in getattr(sidebar, 'nav_model', {}).get('groups', [])
+        ):
+            return
+        required = ('left', 'top', 'right', 'bottom', 'width', 'height')
+        try:
+            raw = json.loads(str(anchor_rect_json or ''))
+            if not isinstance(raw, dict) or any(field not in raw for field in required):
+                return
+            values = {field: float(raw[field]) for field in required}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not all(math.isfinite(value) for value in values.values()):
+            return
+        if (
+            values['left'] < 0
+            or values['top'] < 0
+            or values['right'] < values['left']
+            or values['bottom'] < values['top']
+            or values['width'] < 0
+            or values['height'] < 0
+        ):
+            return
+        view = getattr(chrome, 'web_view', None)
+        if view is None:
+            return
+        try:
+            origin = view.mapToGlobal(QPoint(0, 0))
+        except (RuntimeError, TypeError):
+            return
+        mapped = {
+            'left': origin.x() + values['left'],
+            'top': origin.y() + values['top'],
+            'right': origin.x() + values['right'],
+            'bottom': origin.y() + values['bottom'],
+            'width': values['width'],
+            'height': values['height'],
+        }
+        sidebar.show_group_menu_at(key, mapped)
 
     def _show_startup_loading(self, message: str):
         if not hasattr(self, '_startup_loading') or self._startup_loading is None:
@@ -662,6 +900,101 @@ class MainWindow(QMainWindow):
         self._become_interactive()
         self._apply_language_to_created_panels()
 
+    def _create_prism_sidebar(self):
+        """Create the native fallback rail from the authoritative nav DTO.
+
+        The PrismSidebar owns navigation presentation and native group menus;
+        this small host wrapper keeps the existing visible author unlock,
+        user menu and collapse affordances reachable without keeping a hidden
+        legacy widget alive.
+        """
+        from ui.prism_sidebar import PrismSidebar
+
+        shell = QFrame()
+        shell.setObjectName('sidebar')
+        shell.setFixedWidth(248)
+        outer = QVBoxLayout(shell)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        prism = PrismSidebar(
+            self._build_web_nav_model(),
+            language=self.language,
+            parent=shell,
+        )
+        prism.setObjectName('prism-sidebar')
+        prism.navigate_requested.connect(self._show_panel)
+        prism.palette_requested.connect(self._open_quick_panel)
+        self._prism_sidebar = prism
+        outer.addWidget(prism, 1)
+
+        self._sidebar = shell
+        self._brand_block = prism.findChild(QFrame, 'sidebar-brand')
+        self.brand_icon = getattr(prism, '_brand_mark', prism)
+        self.sidebar_title = getattr(prism, '_brand_text', None)
+        self._refresh_brand_icon()
+        # The common controls live in the title bar so they remain reachable
+        # when the Web sidebar occupies the visible stack page.
+        self.author_label = self.version_label
+        self.language_label = QLabel()
+        self.language_label.hide()
+        self.language_combo = QComboBox()
+        self.language_combo.hide()
+        size_combo(self.language_combo, 'sm')
+        self.language_combo.addItems(['中文', 'English'])
+        self.language_combo.currentIndexChanged.connect(self._set_language)
+        self.float_hint = QLabel('Ctrl + Shift + P')
+        self.float_hint.hide()
+        self.build_date_label = QLabel(f'更新 {APP_BUILD_DATE}')
+        self.build_date_label.hide()
+
+        self._sql_console_expanded = bool(self._settings.get('sidebar_expanded_sql', True))
+        self._ai_expanded = bool(self._settings.get('sidebar_expanded_ai', True))
+        self._sql_subnav_container = None
+        self._ai_subnav_container = None
+        self._sql_subnav_layout = None
+        self._ai_subnav_layout = None
+        self._sql_expand_btn = None
+        self._ai_expand_btn = None
+        self._db_subnav_indices = []
+        self._sql_subnav_buttons = {}
+        self._ai_subnav_buttons = {}
+        self._group_labels = {}
+        self._nav_order = []
+        self.nav_buttons = [None] * 48
+        self._sync_prism_sidebar_index()
+        self._rebuild_user_menu()
+        return shell
+
+    def _sync_prism_sidebar_index(self) -> None:
+        """Expose PrismSidebar buttons through the established MainWindow names."""
+        sidebar = getattr(self, '_prism_sidebar', None)
+        if sidebar is None:
+            return
+        self.nav_buttons = [None] * 48
+        self._nav_order = []
+        for index, button in getattr(sidebar, '_buttons', {}).items():
+            if 0 <= int(index) < len(self.nav_buttons):
+                self.nav_buttons[int(index)] = button
+                self._nav_order.append(int(index))
+        for group in sidebar.nav_model.get('groups', []):
+            key = str(group.get('key', ''))
+            parent_index = None
+            if ':' in key:
+                try:
+                    parent_index = int(key.rsplit(':', 1)[1])
+                except ValueError:
+                    parent_index = None
+            if parent_index in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+                button = getattr(sidebar, '_group_buttons', {}).get(key)
+                if button is not None:
+                    self.nav_buttons[parent_index] = button
+                    self._nav_order.append(parent_index)
+        settings_button = getattr(sidebar, '_settings_button', None)
+        if settings_button is not None:
+            self.nav_buttons[7] = settings_button
+        self.settings_button = settings_button
+
     def _create_legacy_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName('sidebar')
@@ -927,6 +1260,11 @@ class MainWindow(QMainWindow):
 
     def _toggle_sql_console(self):
         """展开/折叠 SQL 控制台数据库子菜单。"""
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._sql_console_expanded = not self._sql_console_expanded
+            self._persist_sidebar_expand()
+            self._show_prism_group_menu(SQL_CONSOLE_NAV)
+            return
         self._sql_console_expanded = not self._sql_console_expanded
         if self._sql_subnav_container:
             self._sql_subnav_container.setVisible(self._sql_console_expanded)
@@ -942,6 +1280,11 @@ class MainWindow(QMainWindow):
 
     def _toggle_ai_group(self):
         """展开/折叠模型子菜单（聊天/工作）。"""
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._ai_expanded = not self._ai_expanded
+            self._persist_sidebar_expand()
+            self._show_prism_group_menu(AI_PARENT_NAV)
+            return
         self._ai_expanded = not self._ai_expanded
         if self._ai_subnav_container:
             self._ai_subnav_container.setVisible(self._ai_expanded)
@@ -954,6 +1297,16 @@ class MainWindow(QMainWindow):
             'Collapse AI menu' if self._ai_expanded else 'Expand AI menu'
         )
         self._persist_sidebar_expand()
+
+    def _show_prism_group_menu(self, parent_index: int) -> None:
+        sidebar = getattr(self, '_prism_sidebar', None)
+        if sidebar is None:
+            return
+        for group in sidebar.nav_model.get('groups', []):
+            key = str(group.get('key', ''))
+            if key.endswith(f':{int(parent_index)}'):
+                sidebar.show_group_menu(key)
+                return
 
     def _persist_sidebar_expand(self):
         """持久化 SQL 控制台 / 模型两组折叠状态。"""
@@ -1117,6 +1470,25 @@ class MainWindow(QMainWindow):
             '已打开使用说明' if self.language == 'zh' else 'User guide opened', 3000
         )
 
+    def nativeEvent(self, event_type, message):  # noqa: N802
+        """Delegate only frame hit testing; Qt keeps close/system commands."""
+        frame = getattr(self, '_window_frame', None)
+        if frame is not None:
+            handled, result = frame.native_event(event_type, message)
+            if handled:
+                return handled, result
+        # PyQt6's QMainWindow.nativeEvent super-call can dereference a
+        # platform pointer after a frameless flag change on Windows.  A false
+        # result is the documented Qt hand-off for every message we do not
+        # claim, and leaves WM_CLOSE/WM_SYSCOMMAND/Alt+F4 to the OS/Qt path.
+        return False, 0
+
+    def changeEvent(self, event):  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and hasattr(self, '_prism_title_bar'):
+            self._prism_title_bar.set_maximized(self.isMaximized())
+            self._refresh_shell_window_action_text()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._layout_controller.observe(self.width(), self.height())
@@ -1134,8 +1506,30 @@ class MainWindow(QMainWindow):
         if getattr(self, '_sidebar_stack', None) is not None:
             self._sidebar_stack.setFixedWidth(target_width)
         self._nav_icon_only = icon_only
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._prism_sidebar.setFixedWidth(target_width)
+            self._prism_sidebar.set_icon_only(icon_only)
+            self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
+            self.version_label.setVisible(not icon_only and not low_height)
+            self._collapse_btn.setToolTip(
+                '展开导航栏' if self._nav_collapsed and self.language == 'zh' else
+                'Expand navigation' if self._nav_collapsed else
+                '收起导航栏' if self.language == 'zh' else 'Collapse navigation'
+            )
+            if icon_only:
+                self._collapse_btn.setToolTip(
+                    '展开导航栏' if self.language == 'zh' else 'Expand navigation'
+                )
+            margin = content_margin_for_mode(mode)
+            if hasattr(self, '_page_body_layout') and self._page_body_layout is not None:
+                self._page_body_layout.setContentsMargins(margin, margin, margin, margin)
+            if hasattr(self, '_context_header') and self._context_header is not None:
+                self._context_header.set_horizontal_padding(margin)
+                self._context_header.set_compact(is_icon_nav(mode))
+            self.layout_mode_changed.emit(mode, low_height)
+            return
         self._sidebar.layout().setContentsMargins(8 if icon_only else 12, 14,
-                                                 8 if icon_only else 12, 12)
+                                                  8 if icon_only else 12, 12)
         for sub_layout in (self._sql_subnav_layout, self._ai_subnav_layout):
             sub_layout.setContentsMargins(0 if icon_only else 20, 2,
                                           0 if icon_only else 8, 4)
@@ -1256,6 +1650,20 @@ class MainWindow(QMainWindow):
 
     def _apply_nav_texts(self):
         zh = self.language == 'zh'
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._prism_sidebar.set_language(self.language)
+            self._prism_sidebar.set_nav_model(self._build_web_nav_model())
+            self._sync_prism_sidebar_index()
+            self._prism_sidebar.set_current(self._current_nav_index)
+            if getattr(self, '_prism_title_bar', None) is not None:
+                self._prism_title_bar.set_language(self.language)
+            if getattr(self, '_module_tabs', None) is not None:
+                self._module_tabs.set_language(self.language)
+            for bridge_name in ('_chrome_bridge', '_dash_bridge'):
+                bridge = getattr(self, bridge_name, None)
+                if bridge is not None:
+                    bridge.set_nav_model(self._build_web_nav_model())
+            return
         for group_key, items in NAV_MODEL:
             label = self._group_labels.get(group_key)
             if label is not None:
@@ -1543,14 +1951,14 @@ class MainWindow(QMainWindow):
 
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
-            return
+            return False
         # 父级导航（SQL 控制台 / 模型）：不切换页面，仅展开/折叠子菜单
         if is_parent_nav(index):
             if index == SQL_CONSOLE_NAV:
                 self._toggle_sql_console()
             elif index == AI_PARENT_NAV:
                 self._toggle_ai_group()
-            return
+            return False
         prev = getattr(self, '_current_nav_index', None)
         if prev is not None and prev != index:
             # 离开旧页面：调用 on_panel_deactivated 清理 loading / 定时器 / 代理
@@ -1583,7 +1991,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._hide_startup_loading()
             self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)
-            return
+            return False
         if creating:
             self._hide_startup_loading()
         if index == 12:
@@ -1606,18 +2014,23 @@ class MainWindow(QMainWindow):
         elif index == 10 and self.requirement_panel is not None:
             self.requirement_panel.refresh_systems()
         self.stack.setCurrentIndex(stack_index)
+        if getattr(self, '_module_tabs', None) is not None:
+            self._module_tabs.open_nav(index, activate=True)
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._prism_sidebar.set_current(index)
         if self._web_shell_enabled:
             if self._chrome_bridge is not None:
                 self._chrome_bridge.push_active(index)
         # 按钮选中状态：DB 子菜单索引只点亮对应的子项，普通导航点亮对应按钮
-        is_db = nav_is_db_slot(index)
-        for position, button in enumerate(self.nav_buttons):
-            if button is None:
-                continue
-            # 父级 header 不参与选中态（SQL 控制台 header 保持未选中）
-            if position in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
-                continue
-            button.setChecked(position == index)
+        if getattr(self, '_prism_sidebar', None) is None:
+            is_db = nav_is_db_slot(index)
+            for position, button in enumerate(self.nav_buttons):
+                if button is None:
+                    continue
+                # 父级 header 不参与选中态（SQL 控制台 header 保持未选中）
+                if position in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+                    continue
+                button.setChecked(position == index)
         statuses_zh = {
             0: '离线工作台已就绪', 1: '个人与单位证件模拟生成', 2: 'SQL 脚本整理、回滚与验证',
             3: 'SQL 驱动接口文档更新', 4: '中国车辆 VIN 测试数据', 5: '网关国密解密 · JSON 结果',
@@ -1658,6 +2071,7 @@ class MainWindow(QMainWindow):
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
         self._refresh_context_header()
+        return True
 
     def _open_format_xml(self, text: str):
         self._show_panel(11)
@@ -1727,6 +2141,7 @@ class MainWindow(QMainWindow):
             self.language_combo.blockSignals(False)
         self._apply_nav_texts()
         self._rebuild_user_menu()
+        self._rebuild_shell_menus()
         for panel in self._iter_created_panels():
             if hasattr(panel, 'set_language'):
                 panel.set_language(self.language)
@@ -1743,8 +2158,37 @@ class MainWindow(QMainWindow):
         self._show_panel(self._current_nav_index)
 
     def _apply_settings(self, settings, *, persist: bool = True):
+        """Apply settings and convert post-save application errors into a receipt."""
+        self._settings_apply_persisted = False
+        try:
+            return self._apply_settings_impl(settings, persist=persist)
+        except Exception as exc:
+            panel = self.settings_panel
+            if self._settings_apply_persisted and persist:
+                message = (
+                    f'设置已写入，但界面应用失败：{exc}' if self.language == 'zh' else
+                    f'Settings were written, but the UI could not apply them: {exc}'
+                )
+            else:
+                message = (
+                    f'设置未应用：{exc}' if self.language == 'zh' else
+                    f'Settings were not applied: {exc}'
+                )
+            if panel is not None and getattr(panel, '_settings_save_in_progress', False):
+                panel._set_settings_save_result(False, message)
+            self.status_bar.showMessage(
+                message,
+                5000,
+            )
+            return False
+
+    def _apply_settings_impl(self, settings, *, persist: bool = True):
         """先完整应用主题，再原子保存并分发设置，避免视觉与持久化状态分裂。"""
         candidate = normalize_settings(settings)
+        settings_save_request = bool(
+            self.settings_panel is not None
+            and getattr(self.settings_panel, '_settings_save_in_progress', False)
+        )
         # 设置保存不得覆盖已解锁彩蛋；两边取真
         if bool(candidate.get('private_unlocked', False)) or self._private_unlocked:
             candidate['private_unlocked'] = True
@@ -1777,10 +2221,17 @@ class MainWindow(QMainWindow):
                 f'设置未应用：{exc}' if self.language == 'zh' else f'Settings were not applied: {exc}',
                 5000,
             )
+            if settings_save_request and self.settings_panel is not None:
+                self.settings_panel._set_settings_save_result(False, str(exc))
             return False
         self._settings = saved
+        self._settings_apply_persisted = bool(persist)
         if self.settings_panel is not None:
-            self.settings_panel.load_values(self._settings)
+            # The page owns two independent stores (daily reminders and the
+            # intranet model catalog). Re-reading those stores here would
+            # replace drafts that are being edited while general preferences
+            # are applied. Their explicit save actions remain authoritative.
+            self.settings_panel.load_values(self._settings, reload_external=False)
         if self._settings.get('private_unlocked'):
             self._private_unlocked = True
             self._apply_private_unlocked_ui(persist=False, navigate=False, status_message=False)
@@ -1829,6 +2280,12 @@ class MainWindow(QMainWindow):
         wanted_index = 0 if self._settings['default_language'] == 'zh' else 1
         if self._language_index != wanted_index:
             self._set_language(wanted_index)
+        if settings_save_request and self.settings_panel is not None:
+            self.settings_panel._set_settings_save_result(True)
+            self.status_bar.showMessage(
+                '设置已保存' if self.language == 'zh' else 'Settings saved',
+                3000,
+            )
         self.status_bar.showMessage('设置已应用并保存' if self.language == 'zh' else 'Settings applied and saved', 3000)
         return True
 
@@ -1950,11 +2407,19 @@ class MainWindow(QMainWindow):
         """展示自我学习导航；可选写入 data 持久化，升级重开后仍可见。"""
         self._private_unlocked = True
         self._settings['private_unlocked'] = True
-        if self.nav_buttons[8] is not None:
+        if getattr(self, '_prism_sidebar', None) is not None:
+            self._prism_sidebar.set_nav_model(self._build_web_nav_model())
+            self._sync_prism_sidebar_index()
+            self._prism_sidebar.set_current(self._current_nav_index)
+        elif self.nav_buttons[8] is not None:
             self.nav_buttons[8].show()
         personal_label = self._group_labels.get('personal')
         if personal_label is not None and not self._nav_icon_only:
             personal_label.show()
+        for bridge_name in ('_chrome_bridge', '_dash_bridge'):
+            bridge = getattr(self, bridge_name, None)
+            if bridge is not None:
+                bridge.set_nav_model(self._build_web_nav_model())
         if hasattr(self, 'quick_panel') and self.quick_panel is not None:
             self.quick_panel.set_private_unlocked(True)
         if persist:

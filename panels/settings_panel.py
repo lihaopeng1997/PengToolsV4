@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from PyQt6.QtCore import QEvent, QRectF, QThread, Qt, pyqtSignal
+from copy import deepcopy
+
+from PyQt6.QtCore import QEvent, QRectF, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
@@ -12,6 +14,7 @@ from ui.field_metrics import (
     CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo,
     size_field_height, size_line, size_pick_combo, wrap_path_field, wrap_secret_field,
 )
+from ui.aurora_progress import AuroraProgress
 from ui.theme_manager import (
     THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_mode,
 )
@@ -195,6 +198,14 @@ class SettingsPanel(QWidget):
         self._secret_clicks = 0
         self._secret_unlocked = False
         self._ui_theme = 'calm'
+        self._settings_save_in_progress = False
+        self._settings_save_result = None
+        self._ai_save_in_progress = False
+        self._save_feedback_source = None
+        self._save_button_states = None
+        self._pending_settings_save_values = None
+        self._pending_reminder_save = None
+        self._pending_ai_cfg = None
         self._setup_ui()
         self.load_values(settings)
         self.set_language(language)
@@ -236,6 +247,7 @@ class SettingsPanel(QWidget):
         self.sections_stack.setObjectName('settings-section-stack')
         self.sections_stack.setMinimumWidth(0)
         body.addWidget(self.sections_stack, 1)
+        self._settings_body_layout = body
         root.addLayout(body, 1)
         self.section_nav.currentRowChanged.connect(self._select_section)
         self.section_picker.currentIndexChanged.connect(self._select_section)
@@ -638,6 +650,11 @@ class SettingsPanel(QWidget):
         self.ai_note.setWordWrap(True)
         ai_form.addRow(self.ai_note)
         ai_outer.addLayout(ai_form)
+        self._settings_forms = (
+            appearance, floating, shortcuts_form, reminder_form, behavior,
+            keep_awake, security, oracle_form, ai_form,
+        )
+        self._apply_settings_row_minimums(self._settings_forms)
         self._ai_probe_worker = None
         self._ai_editing_id = ''
         self._ai_loading = False
@@ -660,6 +677,79 @@ class SettingsPanel(QWidget):
         self.save_btn.clicked.connect(self._save)
         buttons.addWidget(self.save_btn)
         root.addWidget(self.action_bar)
+        self._save_loading = AuroraProgress(self)
+        self._save_loading.setObjectName('settings-save-loading')
+
+    @staticmethod
+    def _apply_settings_row_minimums(forms, minimum_height: int = 72):
+        """Give each settings form row the V2.1 reading target without stretching controls."""
+        for form in forms:
+            if form is None:
+                continue
+            for row in range(form.rowCount() - 1, -1, -1):
+                field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                field = field_item.widget() if field_item is not None else None
+                if field is None:
+                    continue
+                label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                label = label_item.widget() if label_item is not None else None
+                # takeRow removes layout items while keeping the underlying
+                # widgets alive; removeRow would delete them in Qt.
+                taken = form.takeRow(row)
+                field_item = taken.fieldItem
+                label_item = taken.labelItem
+                field = field_item.widget() if field_item is not None else field
+                label = label_item.widget() if label_item is not None else label
+                host = QWidget()
+                host.setObjectName('settings-form-row')
+                host.setMinimumHeight(int(minimum_height))
+                host.setStyleSheet('background-color: transparent;')
+                host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                row_layout = QHBoxLayout(host)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                has_stepper = (
+                    field.objectName() == 'compact-stepper'
+                    or bool(field.findChildren(QWidget, 'compact-stepper'))
+                )
+                expands = (
+                    not has_stepper
+                    and (
+                        isinstance(field, (QLineEdit, QLabel))
+                        or bool(field.findChildren(QLineEdit))
+                        or bool(field.findChildren(QSlider))
+                    )
+                )
+                if expands:
+                    row_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignVCenter)
+                else:
+                    row_layout.addStretch(1)
+                    row_layout.addWidget(
+                        field,
+                        0,
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                    )
+                if label is None:
+                    form.insertRow(row, host)
+                else:
+                    # QFormLayout's default label role is top-aligned. Keep
+                    # the existing label widget and place it in an equal-height
+                    # host so its baseline stays centered against the control.
+                    label_host = QWidget()
+                    label_host.setObjectName('settings-form-label')
+                    label_host.setMinimumHeight(int(minimum_height))
+                    label_host.setStyleSheet('background-color: transparent;')
+                    label_host.setSizePolicy(
+                        QSizePolicy.Policy.Preferred,
+                        QSizePolicy.Policy.Minimum,
+                    )
+                    label_layout = QHBoxLayout(label_host)
+                    label_layout.setContentsMargins(0, 0, 12, 0)
+                    label_layout.addWidget(
+                        label,
+                        1,
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    )
+                    form.insertRow(row, label_host, host)
 
     def values(self):
         return normalize_settings({
@@ -691,6 +781,25 @@ class SettingsPanel(QWidget):
             'oracle_client_lib_dir': self.oracle_home.text().strip(),
         })
 
+    def _disable_save_actions(self):
+        """Keep the three persistence domains mutually exclusive while writing."""
+        if self._save_button_states is None:
+            self._save_button_states = {
+                button: button.isEnabled()
+                for button in (self.save_btn, self.restore_btn,
+                               self.ai_save_btn, self.reminder_save_btn)
+            }
+        for button in self._save_button_states:
+            button.setEnabled(False)
+
+    def _restore_save_actions(self):
+        states = self._save_button_states
+        self._save_button_states = None
+        if states is None:
+            return
+        for button, enabled in states.items():
+            button.setEnabled(bool(enabled))
+
     def _preview_opacity(self, value):
         self.opacity_value.setText(f'{value}%')
         self.floating_opacity_preview.emit(value)
@@ -705,6 +814,13 @@ class SettingsPanel(QWidget):
 
     def _layout_sections(self, is_compact: bool):
         # Existing editors remain alive when switching presentation categories.
+        wrap_policy = (
+            QFormLayout.RowWrapPolicy.WrapLongRows
+            if is_compact else
+            QFormLayout.RowWrapPolicy.DontWrapRows
+        )
+        for form in getattr(self, '_settings_forms', ()):
+            form.setRowWrapPolicy(wrap_policy)
         if self.sections_stack.count() == 0:
             categories = (
                 (self.appearance_group,),
@@ -768,7 +884,7 @@ class SettingsPanel(QWidget):
         set_subtitle_visible(self.subtitle, low_height)
         self._layout_sections(is_compact=mode in ('compact', 'narrow'))
 
-    def load_values(self, settings):
+    def load_values(self, settings, *, reload_external: bool = True):
         settings = normalize_settings(settings)
         self._private_unlocked = bool(settings.get('private_unlocked', False))
         self.font_size.setValue(settings['font_size'])
@@ -807,8 +923,9 @@ class SettingsPanel(QWidget):
             or []
         )
         self._load_oracle_values(settings)
-        self._load_reminder_values()
-        self._load_ai_local_values()
+        if reload_external:
+            self._load_reminder_values()
+            self._load_ai_local_values()
         self._refresh_close_behavior_hint()
 
     def _load_oracle_values(self, settings):
@@ -1102,11 +1219,36 @@ class SettingsPanel(QWidget):
             show_error(self, 'PTools Harness', str(exc))
 
     def _save_intranet_model(self):
+        from ui.confirm_dialog import show_error
+        zh = self.language == 'zh'
+        if self._ai_save_in_progress or self._settings_save_in_progress:
+            return
+        try:
+            pending_cfg = self._ai_cfg_from_ui()
+        except Exception as exc:
+            self.ai_status.setText(str(exc))
+            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+            return
+        self._ai_save_in_progress = True
+        self._disable_save_actions()
+        self._save_feedback_source = 'ai'
+        self._pending_ai_cfg = deepcopy(pending_cfg)
+        self._save_loading.start_busy(
+            '正在保存内网模型…' if zh else 'Saving intranet model…',
+            immediate=True,
+        )
+        # Let the busy chip receive a paint event before doing the synchronous
+        # local file write. No artificial delay or nested processEvents is used.
+        QTimer.singleShot(0, self._commit_intranet_model_save)
+
+    def _commit_intranet_model_save(self):
         from ui.confirm_dialog import show_error, show_success
         zh = self.language == 'zh'
+        if not self._ai_save_in_progress:
+            return
         try:
             from tools.intranet_llm import canonical_base_url, upsert_model_item, validate_base_url
-            cfg = self._ai_cfg_from_ui()
+            cfg = dict(self._pending_ai_cfg or self._ai_cfg_from_ui())
             if cfg.get('enabled'):
                 cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
             elif cfg.get('base_url'):
@@ -1117,9 +1259,19 @@ class SettingsPanel(QWidget):
                 self.ai_base_url.setText(saved['base_url'])
             self._refresh_ai_list()
             self.ai_status.setText('已保存' if zh else 'Saved')
+            self._ai_save_in_progress = False
+            self._restore_save_actions()
+            self._save_feedback_source = None
+            self._pending_ai_cfg = None
+            self._save_loading.finish('模型已保存' if zh else 'Model saved')
             show_success(self, '内网模型' if zh else 'Intranet model', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
         except Exception as exc:
             self.ai_status.setText(str(exc))
+            self._ai_save_in_progress = False
+            self._restore_save_actions()
+            self._save_feedback_source = None
+            self._pending_ai_cfg = None
+            self._save_loading.fail(str(exc))
             show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
 
     def _new_model_config(self):
@@ -1239,14 +1391,24 @@ class SettingsPanel(QWidget):
             hour = int(str(DEFAULT_REMINDER.get('time') or '17:30').split(':', 1)[0])
         return f'{max(0, min(23, hour)):02d}:00'
 
-    def _persist_reminder_settings(self, *, notify_ui: bool = True, show_toast: bool = True):
+    def _persist_reminder_settings(
+        self,
+        *,
+        notify_ui: bool = True,
+        show_toast: bool = True,
+        draft: dict | None = None,
+    ):
         """写入日报提醒并通知日报页；返回规范化后的设置。"""
         from tools.daily_reports import load_reminder_settings, save_reminder_settings
         current = load_reminder_settings()
-        time_text = self._current_reminder_time_text()
+        draft = draft if isinstance(draft, dict) else {}
+        time_text = str(draft.get('time') or self._current_reminder_time_text())
         previous_time = current.get('time')
         previous_enabled = bool(current.get('enabled'))
-        current['enabled'] = self.reminder_enabled.isChecked()
+        current['enabled'] = (
+            bool(draft['enabled']) if 'enabled' in draft
+            else self.reminder_enabled.isChecked()
+        )
         current['time'] = time_text
         # 改时间或重新开启时允许当天再提醒一次
         if previous_time != time_text or (not previous_enabled and current['enabled']):
@@ -1265,6 +1427,8 @@ class SettingsPanel(QWidget):
         return normalized
 
     def _save_reminder_settings(self):
+        if self._settings_save_in_progress or self._ai_save_in_progress:
+            return
         try:
             self._persist_reminder_settings(notify_ui=True, show_toast=True)
         except Exception as exc:
@@ -1318,17 +1482,77 @@ class SettingsPanel(QWidget):
             else:
                 self.safety_note.hide()
 
+    def _set_settings_save_result(self, success: bool, message: str = ''):
+        """Receive the production apply result from MainWindow._apply_settings."""
+        if not self._settings_save_in_progress:
+            return
+        self._settings_save_result = bool(success)
+        self._settings_save_in_progress = False
+        self._restore_save_actions()
+        self._save_feedback_source = None
+        zh = self.language == 'zh'
+        if success:
+            self._save_loading.finish('设置已保存' if zh else 'Settings saved')
+        else:
+            self._save_loading.fail(
+                message or ('设置保存失败' if zh else 'Settings save failed')
+            )
+
     def _save(self):
-        """提交设置值；持久化与主题应用由主窗口统一完成。"""
-        self.settings_changed.emit(self.values())
-        # 总保存时一并落盘日报提醒，避免只改了提醒却忘点「保存提醒」
+        """Commit general preferences and the current reminder draft as one user action."""
+        if self._settings_save_in_progress or self._ai_save_in_progress:
+            return
+        zh = self.language == 'zh'
+        self._settings_save_result = None
+        self._settings_save_in_progress = True
+        self._save_feedback_source = 'settings'
+        self._pending_settings_save_values = deepcopy(self.values())
+        self._pending_reminder_save = {
+            'enabled': self.reminder_enabled.isChecked(),
+            'time': self._current_reminder_time_text(),
+        }
+        self._disable_save_actions()
+        self._save_loading.start_busy(
+            '正在保存设置…' if zh else 'Saving settings…',
+            immediate=True,
+        )
+        # Give the loading surface a normal Qt paint turn before the local
+        # persistence/apply callback runs. This keeps feedback real without
+        # re-entering the event loop or inventing a progress duration.
+        QTimer.singleShot(0, self._commit_settings_save)
+
+    def _commit_settings_save(self):
+        zh = self.language == 'zh'
+        if not self._settings_save_in_progress:
+            return
+        # Persist the reminder draft before the main-window callback. The
+        # callback intentionally reloads only general settings, so this value
+        # cannot be replaced by an older on-disk snapshot during the same click.
         try:
-            self._persist_reminder_settings(notify_ui=True, show_toast=False)
-        except Exception:
-            pass
+            pending_reminder = dict(self._pending_reminder_save or {})
+            pending_settings = dict(self._pending_settings_save_values or self.values())
+            self._persist_reminder_settings(
+                notify_ui=True,
+                show_toast=False,
+                draft=pending_reminder,
+            )
+            self.settings_changed.emit(pending_settings)
+        except Exception as exc:
+            self._set_settings_save_result(False, str(exc))
+        else:
+            # A panel can be used without MainWindow in isolated tests/previews.
+            # In production MainWindow reports success or failure synchronously.
+            if self._settings_save_result is None:
+                self._set_settings_save_result(
+                    False,
+                    '未收到主窗口保存回执' if zh else 'No main-window save receipt',
+                )
+        finally:
+            self._pending_settings_save_values = None
+            self._pending_reminder_save = None
 
     def _restore_defaults(self):
-        self.load_values(DEFAULT_SETTINGS)
+        self.load_values(DEFAULT_SETTINGS, reload_external=False)
         self._save()
 
     def _reset_layout_prefs(self):
@@ -1499,7 +1723,12 @@ class SettingsPanel(QWidget):
             self.ai_token_reveal.setText('查看' if zh else 'Show')
         self._refresh_oracle_status()
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
-        self.save_btn.setText('应用并保存' if zh else 'Apply and save')
+        self.save_btn.setText('应用并保存偏好' if zh else 'Apply preferences')
+        self.save_btn.setToolTip(
+            '保存一般偏好与日报提醒；模型和响应设置请使用内网模型区的独立按钮。'
+            if zh else
+            'Saves general preferences and the daily reminder; use the intranet-model button for model and response settings.'
+        )
         self.ai_group.setTitle('内网模型' if zh else 'Intranet model')
         self.ai_name_label.setText('配置名称' if zh else 'Config name')
         self.ai_new_btn.setText('新建' if zh else 'New')
@@ -1558,12 +1787,19 @@ class SettingsPanel(QWidget):
         self.ai_supports_vision.setText('支持图片输入（多模态）' if zh else 'Supports image input (multimodal)')
         self.ai_supports_vision.setToolTip('勾选后允许在模型对话中添加图片附件' if zh else 'Allow image attachments in Model Chat')
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
-        self.ai_save_btn.setText('保存' if zh else 'Save')
+        self.ai_save_btn.setText('保存模型与响应设置' if zh else 'Save model and response')
+        self.ai_save_btn.setToolTip(
+            '只保存当前选中的内网模型及响应设置，不应用一般偏好。'
+            if zh else
+            'Saves the selected intranet model and response settings only; general preferences are applied separately.'
+        )
         self.ai_note.setText(
             '聊天记录以明文保存在本机 data 目录，请勿输入密码、Token、客户隐私或生产敏感数据。'
             'SQL 控制台使用默认配置；模型对话可切换任一启用配置。Agent 能力和推理字段只按本页明确选择保存，unknown 不会自动变成原生工具。'
+            '本区“保存”独立写入模型和响应设置；底部“应用并保存”只保存一般偏好与日报提醒，不会覆盖正在编辑的模型草稿。'
             if zh else
             'Chats are stored as plain JSON in local data/. Do not paste secrets. '
             'SQL Console uses the default config; Model Chat can switch any enabled config. '
-            'Agent capability and reasoning fields are saved only from this form; unknown never becomes native tools automatically.'
+            'Agent capability and reasoning fields are saved only from this form; unknown never becomes native tools automatically. '
+            'This section saves model and response settings independently; the bottom Apply and save action covers general preferences and reminders without replacing an active model draft.'
         )

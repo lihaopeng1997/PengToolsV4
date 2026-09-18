@@ -79,6 +79,8 @@ if WEB_SHELL_AVAILABLE:
 
         navigateRequested = pyqtSignal(int)
         paletteRequested = pyqtSignal()
+        # 收起侧栏时 WebView 只有 72/84px 宽，交给原生 popup 承载完整菜单。
+        navGroupRequested = pyqtSignal(str, str)
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
         summaryChanged = pyqtSignal(str)
@@ -91,6 +93,7 @@ if WEB_SHELL_AVAILABLE:
             self._username = 'Lihp'
             self._summary_provider = None
             self._theme_json = '{}'
+            self._native_popup_available = False
 
         # ---- 注入点（main_window 调用）----
         def set_nav_model(self, data):
@@ -105,6 +108,10 @@ if WEB_SHELL_AVAILABLE:
         def set_theme_payload(self, data: dict):
             self._theme_json = json.dumps(data, ensure_ascii=False)
             self.themeChanged.emit(self._theme_json)
+
+        def set_native_popup_available(self, enabled: bool) -> None:
+            """Set only after the host has connected navGroupRequested."""
+            self._native_popup_available = bool(enabled)
 
         def push_active(self, nav_index: int):
             self.activeChanged.emit(int(nav_index))
@@ -134,6 +141,14 @@ if WEB_SHELL_AVAILABLE:
         @pyqtSlot()
         def openPalette(self):
             self.paletteRequested.emit()
+
+        @pyqtSlot(str, str)
+        def openNavGroup(self, group_key, anchor_rect_json):
+            self.navGroupRequested.emit(str(group_key or ''), str(anchor_rect_json or '{}'))
+
+        @pyqtSlot(result=bool)
+        def nativePopupAvailable(self):
+            return bool(self._native_popup_available)
 
         @pyqtSlot(result=str)
         def navModel(self):
@@ -170,6 +185,7 @@ else:  # pragma: no cover - 依赖缺失环境
     class HomeBridge(QObject):  # 类型占位，保持 import 不炸
         navigateRequested = pyqtSignal(int)
         paletteRequested = pyqtSignal()
+        navGroupRequested = pyqtSignal(str, str)
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
         summaryChanged = pyqtSignal(str)
@@ -188,6 +204,9 @@ else:  # pragma: no cover - 依赖缺失环境
 
         def set_theme_payload(self, data: dict):
             pass
+
+        def set_native_popup_available(self, enabled: bool) -> None:
+            self._native_popup_available = bool(enabled)
 
         def navigate(self, nav_index):
             self.navigateRequested.emit(int(nav_index))
@@ -212,6 +231,12 @@ else:  # pragma: no cover - 依赖缺失环境
 
         def openPalette(self):
             self.paletteRequested.emit()
+
+        def openNavGroup(self, group_key, anchor_rect_json):
+            self.navGroupRequested.emit(str(group_key or ''), str(anchor_rect_json or '{}'))
+
+        def nativePopupAvailable(self):
+            return bool(getattr(self, '_native_popup_available', False))
 
         def navModel(self):
             return '{"groups":[]}'

@@ -95,8 +95,10 @@ class SoftThemeP1Tests(unittest.TestCase):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')
         received = []
         panel.settings_changed.connect(received.append)
-        with patch('panels.settings_panel.save_settings', side_effect=AssertionError('settings panel must not write directly')):
+        with patch('panels.settings_panel.save_settings', side_effect=AssertionError('settings panel must not write directly')), \
+                patch.object(panel, '_persist_reminder_settings', return_value={}):
             panel._save()
+            self.app.processEvents()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]['ui_theme'], 'calm')
 

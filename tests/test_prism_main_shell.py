@@ -11,7 +11,7 @@
 7. 语言切换双语同步（ZH / EN）；
 8. 快速面板按钮点击信号触发 MainWindow._open_quick_panel 恰好一次；
 9. 主题切换刷新 Header 图标且不重建 ContextHeader 控件实例；
-10. Windows 原生系统边框保留（无 FramelessWindowHint）；
+10. Prism 自绘客户区与窗口框架接线（frameless + native hit-test adapter）；
 11. ContextHeader 独立控件单元测试与 API 契约。
 """
 
@@ -336,13 +336,17 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.win._apply_settings(light_settings, persist=False)
         self.assertEqual(id(self.win._context_header), header_id)
 
-    def test_system_frame_preserved(self):
-        # Windows 原生非客户区外框保留，禁止设置 FramelessWindowHint
+    def test_prism_frame_is_integrated_and_owns_native_hit_testing(self):
+        # The approved Prism shell uses a frameless client area with an
+        # explicit frame controller.  Close/Alt+F4 behavior remains on
+        # MainWindow.closeEvent; this assertion protects the actual wiring
+        # instead of preserving the retired system-frame contract.
         flags = self.win.windowFlags()
-        self.assertFalse(
-            bool(flags & Qt.WindowType.FramelessWindowHint),
-            'MainWindow 不得设置 FramelessWindowHint，必须保留操作系统原生窗口外边框',
-        )
+        self.assertTrue(bool(flags & Qt.WindowType.FramelessWindowHint))
+        self.assertIsNotNone(getattr(self.win, '_window_frame', None))
+        self.assertTrue(self.win._window_frame.is_frameless())
+        self.assertEqual(self.win._window_frame.minimum_size().width(), 960)
+        self.assertEqual(self.win._window_frame.minimum_size().height(), 640)
 
 
 if __name__ == '__main__':

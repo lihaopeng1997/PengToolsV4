@@ -42,15 +42,21 @@ class NativeSidebarGeometryTests(unittest.TestCase):
                         self.assertTrue(viewport.rect().contains(box), (width, index, box, viewport.rect()))
                         if window._nav_icon_only:
                             self.assertEqual((button.width(), button.height()), (44, 44))
-                    footer_boxes = [QRect(button.mapTo(window._sidebar, QPoint()), button.size())
-                                    for button in (window.settings_button, window.user_chip)]
-                    for box in footer_boxes:
-                        self.assertTrue(window._sidebar.rect().contains(box), (width, box))
-                    self.assertFalse(footer_boxes[0].intersects(footer_boxes[1]), (width, footer_boxes))
+                    settings_box = QRect(window.settings_button.mapTo(window._sidebar, QPoint()),
+                                         window.settings_button.size())
+                    self.assertTrue(window._sidebar.rect().contains(settings_box), (width, settings_box))
+                    # The author unlock and real user menu are common title-bar
+                    # controls, so they remain reachable while Web/native
+                    # sidebar pages swap in the stack.
+                    self.assertTrue(window.user_chip.isVisible())
+                    self.assertTrue(window.version_label.isVisible() or window._nav_icon_only)
                     self.assertEqual(window.nav_buttons, original_buttons)
                     self.assertIs(window.user_chip.menu(), original_menu)
-                self.assertEqual(window._sql_subnav_layout.contentsMargins().left(), 20)
-                self.assertEqual(window._ai_subnav_layout.contentsMargins().left(), 20)
+                # Prism native fallback uses the same escaped group popup as
+                # the Web rail; it no longer maintains a hidden inline child
+                # list with a second layout contract.
+                self.assertIsNotNone(window._prism_sidebar._group_buttons.get('workspace:14'))
+                self.assertIsNotNone(window._prism_sidebar._group_buttons.get('ai:15'))
             finally:
                 window._force_exit = True
                 window.close()

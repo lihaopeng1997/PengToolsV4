@@ -15,6 +15,9 @@ export type PageName = 'chrome' | 'dashboard'
 export interface BridgeApi {
   navigate(index: number): void
   openPalette(): void
+  /** Native popup escape hatch for the 72/84px sidebar rail. */
+  openNavGroup?(groupKey: string, anchorRectJson: string): void
+  nativePopupAvailable?(): Promise<boolean>
   createRequirement?(): void
   openRequirement?(reqId: string): void
   navModel(): Promise<string>
@@ -44,6 +47,8 @@ interface QWebChannelSignal<T = any> {
 interface RawHomeBridge {
   navigate(index: number): void
   openPalette(): void
+  openNavGroup?(groupKey: string, anchorRectJson: string): void
+  nativePopupAvailable?(): Promise<boolean>
   createRequirement?(): void
   openRequirement?(reqId: string): void
   navModel(): Promise<string>
@@ -111,6 +116,13 @@ function toPromiseString(value: unknown, slot: string): Promise<string> {
   })
 }
 
+function toPromiseBool(value: unknown): Promise<boolean> {
+  if (value instanceof Promise) {
+    return value.then((resolved) => Boolean(resolved))
+  }
+  return Promise.resolve(Boolean(value))
+}
+
 export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
   return new Promise<BridgeApi>((resolve, reject) => {
     if (typeof QWebChannel !== 'function' || !window.qt?.webChannelTransport) {
@@ -136,6 +148,16 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
       resolve({
         navigate: (index: number) => raw.navigate(index),
         openPalette: () => raw.openPalette(),
+        openNavGroup: (groupKey: string, anchorRectJson: string) => {
+          if (typeof raw.openNavGroup === 'function') {
+            raw.openNavGroup(groupKey, anchorRectJson)
+          }
+        },
+        nativePopupAvailable: () => (
+          typeof raw.nativePopupAvailable === 'function'
+            ? toPromiseBool(raw.nativePopupAvailable())
+            : Promise.resolve(false)
+        ),
         createRequirement: () => {
           if (typeof raw.createRequirement === 'function') {
             raw.createRequirement()
