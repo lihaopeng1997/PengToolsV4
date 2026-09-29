@@ -1,0 +1,2321 @@
+# -*- coding: utf-8 -*-
+"""SQL 控制台：Navicat 风格多标签编辑 + 结构快照 + AI 草案（绝不自动执行）。"""
+
+from __future__ import annotations
+
+from datetime import datetime
+import time
+
+from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
+    QPushButton, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+)
+
+from config import SQL_DRAFTS_DIR
+from panels.ai_token_edit import AiPromptEdit, ObjectPickDialog
+from tools.ai_object_context import (
+    add_field, add_object, context_matches_snapshot, field_qualified,
+    selected_field_names, selected_table_names,
+)
+from tools.db_connect import (
+    DIALECTS, DEFAULT_PORTS, PAGE_SIZE, FETCH_CHUNK, RESULT_BYTE_LIMIT, DbError,
+    delete_connection, fetch_query_chunks, load_connections, open_connection,
+    close_connection, run_console_statement, upsert_connection,
+)
+from tools.db_contracts import normalize_oceanbase_mode
+from tools.intranet_llm import is_enabled, load_ai_local
+from tools.tameng_agent import format_evidence_bar, prepare_request, validate_generated_sql
+from tools.schema_search import (
+    build_schema_search_index, get_matched_table_identities, search_schema_index,
+)
+from tools.schema_snapshot import (
+    clip_snapshot_for_prompt, connection_fingerprint, delete_snapshot, format_object_label,
+    load_snapshot, save_snapshot, scan_schema, search_fields, snapshot_status,
+)
+from ui.aurora_progress import AuroraProgress
+from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
+from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
+from ui.connection_dialog import ConnectionDialog as _ConnectionDialog
+from ui.design_system import apply_button, apply_surface, apply_table
+from ui.field_metrics import size_enum_combo, size_line, size_pick_combo, wrap_secret_field
+from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
+from ui.splitter_prefs import install_splitter_prefs
+from ui.sql_editor import SqlEditor
+
+
+def sql_splitter_tab_id(kind: str, dialect: str | None = None) -> str:
+    d = (dialect or '').strip().lower()
+    return f'{kind}-{d}' if d else kind
+
+
+def _format_workbench_title(dialect_label: str, zh: bool = True) -> str:
+    if not zh:
+        return f'{dialect_label} Workbench'
+    if str(dialect_label or '').strip() == '达梦':
+        return '达梦工作台'
+    return f'{dialect_label} 工作台'
+
+
+class _SchemaSearchPopup(QFrame):
+    """IDE 风格统一数据库对象搜索下拉建议框。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName('schema-search-popup')
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+
+        self.list_widget = QListWidget(self)
+        self.list_widget.setObjectName('schema-search-list')
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self.list_widget)
+
+    def set_results(self, results: list[dict]):
+        self.list_widget.clear()
+        for res in results:
+            kind = str(res.get('kind') or '').upper()
+            title = str(res.get('title') or '')
+            subtitle = str(res.get('subtitle') or '')
+            tag = f'[{kind}]'
+            text = f'{tag}  {title}'
+            if subtitle:
+                text += f'\n     {subtitle}'
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, res)
+            self.list_widget.addItem(item)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def select_next(self):
+        count = self.list_widget.count()
+        if count == 0:
+            return
+        row = (self.list_widget.currentRow() + 1) % count
+        self.list_widget.setCurrentRow(row)
+
+    def select_prev(self):
+        count = self.list_widget.count()
+        if count == 0:
+            return
+        row = (self.list_widget.currentRow() - 1 + count) % count
+        self.list_widget.setCurrentRow(row)
+
+    def current_item(self) -> dict | None:
+        item = self.list_widget.currentItem()
+        if item is not None:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                return data
+        return None
+
+
+def compose_nl_query(table: str, columns=None, language='zh') -> str:
+    """把所选表/字段编成自然语言问句，便于插入输入框。"""
+    name = str(table or '').strip()
+    cols = [str(item).strip() for item in (columns or []) if str(item).strip()]
+    zh = language == 'zh'
+    if name and cols:
+        joined = '、'.join(cols) if zh else ', '.join(cols)
+        return f'帮我查询表 {name} 的字段 {joined}' if zh else f'query table {name} columns {joined}'
+    if name:
+        return f'帮我查询表 {name} 的数据' if zh else f'query table {name}'
+    if cols:
+        joined = '、'.join(cols) if zh else ', '.join(cols)
+        return f'帮我查询字段 {joined}' if zh else f'query columns {joined}'
+    return ''
+
+
+class _DbWorker(QThread):
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+    progress = pyqtSignal(object)
+
+    def __init__(self, kind: str, item: dict, **kwargs):
+        super().__init__()
+        self.kind = kind
+        self.item = item
+        self.kwargs = kwargs
+        self.cancelled = False
+
+    def run(self):
+        conn = None
+        try:
+            conn = open_connection(self.item)
+            dialect = str(self.item.get('dialect') or 'oracle')
+            if self.kind == 'test':
+                self.completed.emit({'ok': True})
+            elif self.kind == 'scan':
+                payload = scan_schema(conn, self.item, cancel=lambda: self.cancelled)
+                if self.cancelled:
+                    payload['status'] = 'failed'
+                    payload['warning'] = '扫描已取消'
+                    self.completed.emit(payload)
+                    return
+                save_snapshot(payload)
+                self.completed.emit(payload)
+            elif self.kind == 'query':
+                raw_offset = self.kwargs.get('offset')
+                if isinstance(raw_offset, dict):
+                    offset_val = dict(raw_offset)
+                else:
+                    offset_val = int(raw_offset or 0)
+                result = run_console_statement(
+                    conn, dialect, self.kwargs.get('sql') or '',
+                    offset=offset_val,
+                    limit=int(self.kwargs.get('limit') or PAGE_SIZE),
+                )
+                self.completed.emit(result)
+            elif self.kind == 'fetch_all':
+                raw_offset = self.kwargs.get('offset')
+                if isinstance(raw_offset, dict):
+                    raise DbError('Redis Cluster SCAN 不支持「获取全部」，请使用「下一页」分页扫描')
+                result = fetch_query_chunks(
+                    conn, dialect, self.kwargs.get('sql') or '',
+                    offset=int(raw_offset or 0),
+                    chunk_size=int(self.kwargs.get('chunk_size') or FETCH_CHUNK),
+                    byte_limit=int(self.kwargs.get('byte_limit') or RESULT_BYTE_LIMIT),
+                    cancel=lambda: self.cancelled,
+                    progress=lambda payload: self.progress.emit(payload),
+                )
+                self.completed.emit(result)
+            else:
+                raise DbError(f'未知任务：{self.kind}')
+        except Exception as exc:
+            self.failed.emit(redact_error(str(exc)))
+        finally:
+            close_connection(conn)
+
+
+class _AiWorker(QThread):
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, kwargs: dict):
+        super().__init__()
+        self.kwargs = kwargs
+        self.cancelled = False
+
+    def run(self):
+        try:
+            from tools.ai_sql_draft import generate_sql_draft
+            draft = generate_sql_draft(**self.kwargs)
+            if self.cancelled:
+                return
+            self.completed.emit(draft)
+        except Exception as exc:
+            if self.cancelled:
+                return
+            self.failed.emit(redact_error(str(exc)))
+
+
+class _SqlTab(QWidget):
+    def __init__(self, title: str, conn_item=None, parent=None):
+        super().__init__(parent)
+        self.base_title = title
+        self.dirty = False
+        self.conn_item = dict(conn_item) if isinstance(conn_item, dict) else None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.editor = SqlEditor()
+        self.editor.setMinimumHeight(120)
+        self.editor.textChanged.connect(self._mark_dirty)
+        layout.addWidget(self.editor)
+
+    def _mark_dirty(self):
+        self.dirty = True
+
+
+class SqlConsolePanel(QWidget):
+    """数据中心 SQL 控制台：Navicat 风格多标签编辑 + 结构快照 + AI 草案（绝不自动执行）。
+
+    Phase 0 命名冻结：原名 AiWorkbenchPanel 名不副实（它并非 AI 工作台/Harness），
+    现改为与其真实职责相符的 SqlConsolePanel。
+    """
+    def __init__(self, language='zh', connection_id='', dialect=''):
+        super().__init__()
+        self.language = language
+        self._connection_id = str(connection_id or '')
+        self._dialect = str(dialect or '').strip().lower()  # 六面板模式：锁定方言
+        self._bound_conn_item = None  # 如果是绑定连接，缓存完整连接 dict
+        self._worker = None
+        self._ai_worker = None
+        self._snapshot = None
+        self._search_index = None
+        self._search_popup = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(120)
+        self._search_timer.timeout.connect(self._on_search_timer)
+        self._offset = 0
+        self._has_more = False
+        self._redis_scan_partial = False
+        self._redis_scan_failed_nodes = []
+        self._last_sql = ''
+        self._query_status = 'IDLE'
+        self._result_bytes = 0
+        self._history = []
+        self._tab_seq = 1
+        self._agent_busy = False
+        self._agent_started = 0.0
+        self._pending_evidence = None
+        self._last_block = ''
+        self._agent_timer = QTimer(self)
+        self._agent_timer.setInterval(200)
+        self._agent_timer.timeout.connect(self._tick_agent_stage)
+        self._setup_ui()
+        self.set_language(language)
+        if self._connection_id:
+            self._reload_bound_connection()
+        else:
+            self._reload_connections()
+        self._new_sql_tab()
+        self._refresh_header()
+
+    def _setup_ui(self):
+        from ui.layout_metrics import SPACING_PAGE, TABLE_ROW_H
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(SPACING_PAGE)
+        self._page_root_layout = root
+        self.run_btn = QPushButton()
+        apply_button(self.run_btn, 'primary', compact=True)
+        self.run_btn.clicked.connect(lambda: self._run_sql(reset=True))
+        self.new_tab_btn = QPushButton()
+        apply_button(self.new_tab_btn, 'secondary', compact=True)
+        self.new_tab_btn.clicked.connect(self._new_sql_tab)
+        self.conn_meta = QLabel()
+        self.conn_meta.setObjectName('status-pill')
+        header_trail = QWidget()
+        trail_l = QHBoxLayout(header_trail)
+        trail_l.setContentsMargins(0, 0, 0, 0)
+        trail_l.setSpacing(8)
+        trail_l.addWidget(self.conn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
+        dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper()) if self._dialect else 'SQL'
+        title_text = _format_workbench_title(dialect_label, zh=True) if self._dialect else 'SQL 控制台'
+        header, self.page_title, self.page_subtitle = make_page_header(
+            title_text,
+            '多标签编辑 · 结构快照 · AI 助手生成不执行',
+            'database',
+            trailing=header_trail,
+        )
+        root.addWidget(header)
+
+        toolbar, tool_l = make_page_toolbar(divided=True)
+        self.conn_combo = QComboBox()
+        size_pick_combo(self.conn_combo)
+        self.conn_combo.currentIndexChanged.connect(self._on_connection_changed)
+        self.conn_target_hint = QLabel()
+        self.conn_target_hint.setObjectName('field-hint')
+        self.conn_new_btn = QPushButton()
+        apply_button(self.conn_new_btn, 'secondary', compact=True)
+        self.conn_new_btn.clicked.connect(lambda: self._edit_connection(new=True))
+        self.conn_edit_btn = QPushButton()
+        apply_button(self.conn_edit_btn, 'ghost', compact=True)
+        self.conn_edit_btn.clicked.connect(lambda: self._edit_connection(new=False))
+        self.conn_del_btn = QPushButton()
+        apply_button(self.conn_del_btn, 'ghost', compact=True)
+        self.conn_del_btn.clicked.connect(self._delete_connection)
+        self.test_btn = QPushButton()
+        apply_button(self.test_btn, 'secondary', compact=True)
+        self.test_btn.clicked.connect(lambda: self._start_db('test'))
+        self.scan_btn = QPushButton()
+        apply_button(self.scan_btn, 'secondary', compact=True)
+        self.scan_btn.clicked.connect(lambda: self._start_db('scan'))
+        self.scan_cancel_btn = QPushButton()
+        apply_button(self.scan_cancel_btn, 'ghost', compact=True)
+        self.scan_cancel_btn.clicked.connect(self._cancel_scan)
+        self.scan_cancel_btn.setEnabled(False)
+        self.save_draft_btn = QPushButton()
+        apply_button(self.save_draft_btn, 'secondary', compact=True)
+        self.save_draft_btn.clicked.connect(self._save_draft)
+        self.view_snap_btn = QPushButton()
+        apply_button(self.view_snap_btn, 'ghost', compact=True)
+        self.view_snap_btn.clicked.connect(self._view_snapshot)
+        self.del_snap_btn = QPushButton()
+        apply_button(self.del_snap_btn, 'ghost', compact=True)
+        self.del_snap_btn.clicked.connect(self._delete_snapshot)
+        self.model_btn = QPushButton()
+        apply_button(self.model_btn, 'ghost', compact=True)
+        self.model_btn.clicked.connect(self._open_settings)
+        for widget in (
+            self.conn_combo, self.conn_target_hint, self.conn_new_btn, self.conn_edit_btn, self.conn_del_btn,
+            self.test_btn, self.scan_btn, self.scan_cancel_btn, self.save_draft_btn, self.model_btn,
+        ):
+            tool_l.addWidget(widget)
+        tool_l.addStretch(1)
+        root.addWidget(toolbar)
+        # 绑定连接模式：隐藏连接下拉框和新建按钮
+        if self._connection_id:
+            self.conn_combo.hide()
+            self.conn_new_btn.hide()
+            self.conn_target_hint.hide()
+
+        columns = QSplitter(Qt.Orientation.Horizontal)
+        columns.setHandleWidth(8)
+
+        self.narrow_chrome = QFrame()
+        self.narrow_chrome.setObjectName('page-narrow-chrome')
+        narrow_l = QHBoxLayout(self.narrow_chrome)
+        narrow_l.setContentsMargins(0, 0, 0, 4)
+        narrow_l.setSpacing(8)
+        self.show_objects_btn = QPushButton()
+        apply_button(self.show_objects_btn, 'ghost', compact=True)
+        self.show_objects_btn.setCheckable(True)
+        self.show_objects_btn.toggled.connect(self._toggle_narrow_objects)
+        self.show_ai_side_btn = QPushButton()
+        apply_button(self.show_ai_side_btn, 'ghost', compact=True)
+        self.show_ai_side_btn.setCheckable(True)
+        self.show_ai_side_btn.toggled.connect(self._toggle_narrow_ai)
+        narrow_l.addWidget(self.show_objects_btn)
+        narrow_l.addWidget(self.show_ai_side_btn)
+        narrow_l.addStretch(1)
+        self.narrow_chrome.hide()
+        root.addWidget(self.narrow_chrome)
+
+        left = QFrame()
+        left.setObjectName('sql-object-pane')
+        self.left_pane = left
+        left_l = QVBoxLayout(left)
+        left_l.setContentsMargins(10, 10, 10, 10)
+        self.tree_title = QLabel()
+        self.tree_title.setObjectName('section-title')
+        left_l.addWidget(self.tree_title)
+        self.object_filter = QLineEdit()
+        size_line(self.object_filter, 'std')
+        self.object_filter.installEventFilter(self)
+        self.object_filter.textChanged.connect(self._on_object_filter_text_changed)
+        left_l.addWidget(self.object_filter)
+        self.object_tree = QTreeWidget()
+        self.object_tree.setHeaderHidden(True)
+        self.object_tree.itemSelectionChanged.connect(self._on_tree_selected)
+        self.object_tree.itemDoubleClicked.connect(self._on_tree_double)
+        self.object_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.object_tree.customContextMenuRequested.connect(self._tree_menu)
+        left_l.addWidget(self.object_tree, 1)
+        self.tree_empty = make_empty_state('尚未扫描结构', '点击工具栏「扫描结构」加载当前账号可见对象')
+        self.tree_empty.hide()
+        left_l.addWidget(self.tree_empty)
+        left_bottom = QHBoxLayout()
+        left_bottom.setContentsMargins(0, 4, 0, 0)
+        left_bottom.setSpacing(8)
+        left_bottom.addWidget(self.view_snap_btn)
+        left_bottom.addWidget(self.del_snap_btn)
+        left_bottom.addStretch(1)
+        left_l.addLayout(left_bottom)
+        columns.addWidget(left)
+
+        middle = QWidget()
+        mid_l = QVBoxLayout(middle)
+        mid_l.setContentsMargins(0, 0, 0, 0)
+        mid_l.setSpacing(8)
+        editor_row = QHBoxLayout()
+        self.format_btn = QPushButton()
+        apply_button(self.format_btn, 'ghost', compact=True)
+        self.format_btn.clicked.connect(self._format_sql)
+        self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True)
+        self.clear_btn.clicked.connect(self._clear_editor)
+        self.risk_chip = QLabel()
+        self.risk_chip.setObjectName('status-pill')
+        editor_row.addWidget(self.run_btn)
+        editor_row.addWidget(self.new_tab_btn)
+        editor_row.addWidget(self.format_btn)
+        editor_row.addWidget(self.clear_btn)
+        editor_row.addStretch(1)
+        editor_row.addWidget(self.risk_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        mid_l.addLayout(editor_row)
+        self.sql_tabs = QTabWidget()
+        self.sql_tabs.setObjectName('sql-editor-tabs')
+        self.sql_tabs.setTabsClosable(True)
+        self.sql_tabs.tabCloseRequested.connect(self._close_sql_tab)
+        self.sql_tabs.currentChanged.connect(self._on_sql_tab_changed)
+        mid_l.addWidget(self.sql_tabs, 1)
+        self._middle_pane = middle
+
+        self.side_tabs = QTabWidget()
+        self.side_tabs.setObjectName('sql-side-tabs')
+        ai_page = QWidget()
+        ai_page.setObjectName('sql-ai-pane')
+        ai_page_l = QVBoxLayout(ai_page)
+        ai_page_l.setContentsMargins(10, 10, 10, 10)
+        ai_page_l.setSpacing(6)
+
+        self.ai_title = QLabel()
+        self.ai_title.setObjectName('section-title')
+        ai_page_l.addWidget(self.ai_title)
+        self.agent_status = QLabel()
+        self.agent_status.setObjectName('page-context')
+        self.agent_status.setWordWrap(True)
+        ai_page_l.addWidget(self.agent_status)
+        self.model_status = QLabel()
+        self.model_status.setObjectName('ops-safety-note')
+        self.model_status.setWordWrap(True)
+        self.model_status.hide()
+        ai_page_l.addWidget(self.model_status)
+        self.ai_hint = QLabel()
+        self.ai_hint.setObjectName('ops-safety-note')
+        self.ai_hint.setWordWrap(True)
+        self.ai_hint.hide()
+        ai_page_l.addWidget(self.ai_hint)
+        self.nl_input = AiPromptEdit()
+        self.nl_input.setMinimumHeight(120)
+        self.nl_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.nl_input.add_table_requested.connect(lambda pos: self._pick_ai_object('table', pos))
+        self.nl_input.add_field_requested.connect(lambda pos: self._pick_ai_object('field', pos))
+        self.nl_input.tokens_changed.connect(self._refresh_ai_chips)
+        ai_page_l.addWidget(self.nl_input, 1)
+        ai_btns = QHBoxLayout()
+        ai_btns.setSpacing(6)
+        self.ai_gen_btn = QPushButton('生成 SQL' if self.language == 'zh' else 'Generate SQL')
+        apply_button(self.ai_gen_btn, 'primary', compact=True)
+        self.ai_gen_btn.setToolTip('生成 SQL 草案' if self.language == 'zh' else 'Generate SQL draft')
+        self.ai_gen_btn.clicked.connect(lambda: self._run_ai('generate'))
+        self.ai_pick_btn = QPushButton()
+        apply_button(self.ai_pick_btn, 'secondary', compact=True)
+        self.ai_pick_btn.clicked.connect(lambda: self._pick_ai_object('field', self.nl_input.textCursor().position()))
+        self.ai_snap_btn = QPushButton()
+        apply_button(self.ai_snap_btn, 'ghost', compact=True)
+        self.ai_snap_btn.clicked.connect(self._view_snapshot)
+        self.agent_cancel_btn = QPushButton()
+        apply_button(self.agent_cancel_btn, 'ghost', compact=True)
+        self.agent_cancel_btn.clicked.connect(self._cancel_agent)
+        self.agent_cancel_btn.hide()
+        self.ai_explain_btn = QPushButton()
+        apply_button(self.ai_explain_btn, 'ghost', compact=True)
+        self.ai_explain_btn.clicked.connect(lambda: self._run_ai('explain'))
+        self.ai_opt_btn = QPushButton()
+        apply_button(self.ai_opt_btn, 'ghost', compact=True)
+        self.ai_opt_btn.clicked.connect(lambda: self._run_ai('optimize'))
+        self.ai_fix_btn = QPushButton()
+        apply_button(self.ai_fix_btn, 'ghost', compact=True)
+        self.ai_fix_btn.clicked.connect(lambda: self._run_ai('fix'))
+        self.agent_more = QToolButton()
+        self.agent_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        apply_button(self.agent_more, 'ghost', compact=True)
+        more_menu = QMenu(self.agent_more)
+        more_menu.addAction(self.ai_explain_btn.text() or '解释当前 SQL', lambda: self._run_ai('explain'))
+        more_menu.addAction('优化当前 SQL', lambda: self._run_ai('optimize'))
+        more_menu.addAction('修复报错', lambda: self._run_ai('fix'))
+        more_menu.addAction('复制拦截详情', self._copy_block_detail)
+        self.agent_more.setMenu(more_menu)
+        self._agent_more_menu = more_menu
+        for btn in (self.ai_gen_btn, self.ai_pick_btn, self.ai_snap_btn, self.agent_more, self.agent_cancel_btn):
+            ai_btns.addWidget(btn)
+        ai_btns.addStretch(1)
+        ai_page_l.addLayout(ai_btns, 0)
+        self.ai_chips = QLabel()
+        self.ai_chips.setObjectName('field-hint')
+        self.ai_chips.setWordWrap(True)
+        ai_page_l.addWidget(self.ai_chips)
+        self.agent_evidence = QLabel()
+        self.agent_evidence.setObjectName('field-hint')
+        self.agent_evidence.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.agent_evidence.setWordWrap(True)
+        self.agent_evidence.hide()
+        ai_page_l.addWidget(self.agent_evidence)
+        self.agent_candidates = QListWidget()
+        self.agent_candidates.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.agent_candidates.setMaximumHeight(150)
+        self.agent_candidates.hide()
+        ai_page_l.addWidget(self.agent_candidates)
+        self.agent_confirm_btn = QPushButton()
+        apply_button(self.agent_confirm_btn, 'secondary', compact=True)
+        self.agent_confirm_btn.clicked.connect(self._confirm_agent_fields)
+        self.agent_confirm_btn.hide()
+        ai_page_l.addWidget(self.agent_confirm_btn)
+        self.agent_stage = QLabel()
+        self.agent_stage.setObjectName('field-hint')
+        self.agent_stage.setWordWrap(True)
+        self.agent_stage.hide()
+        ai_page_l.addWidget(self.agent_stage)
+        self.ai_explain_btn.hide()
+        self.ai_opt_btn.hide()
+        self.ai_fix_btn.hide()
+
+        self.ai_explain = QTextEdit()
+        self.ai_explain.setReadOnly(True)
+        self.ai_explain.setObjectName('ai-explain')
+        self.ai_explain.setMinimumHeight(120)
+        self.ai_explain.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.ai_explain.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.ai_explain.customContextMenuRequested.connect(self._ai_output_menu)
+        ai_page_l.addWidget(self.ai_explain, 1)
+
+        self.side_tabs.addTab(ai_page, 'AI 助手')
+
+        detail = QWidget()
+        detail.setObjectName('sql-detail-pane')
+        det_l = QVBoxLayout(detail)
+        det_l.setContentsMargins(10, 10, 10, 10)
+        self.detail_title = QLabel()
+        self.detail_title.setObjectName('section-title')
+        det_l.addWidget(self.detail_title)
+        self.detail_meta = QLabel()
+        self.detail_meta.setObjectName('field-hint')
+        self.detail_meta.setWordWrap(True)
+        det_l.addWidget(self.detail_meta)
+        self.field_filter = QLineEdit()
+        self.field_filter.textChanged.connect(self._fill_detail_fields)
+        det_l.addWidget(self.field_filter)
+        self.field_table = QTableWidget()
+        apply_table(self.field_table, alternating=True)
+        try:
+            self.field_table.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
+        except Exception:
+            pass
+        det_l.addWidget(self.field_table, 1)
+        field_btns = QHBoxLayout()
+        self.insert_fields_btn = QPushButton()
+        apply_button(self.insert_fields_btn, 'secondary', compact=True)
+        self.insert_fields_btn.clicked.connect(self._insert_detail_fields)
+        self.send_ai_btn = QPushButton()
+        apply_button(self.send_ai_btn, 'ghost', compact=True)
+        self.send_ai_btn.clicked.connect(self._send_detail_to_ai)
+        self.field_prev_btn = QPushButton()
+        apply_button(self.field_prev_btn, 'ghost', compact=True)
+        self.field_prev_btn.clicked.connect(lambda: self._shift_field_page(-1))
+        self.field_next_btn = QPushButton()
+        apply_button(self.field_next_btn, 'ghost', compact=True)
+        self.field_next_btn.clicked.connect(lambda: self._shift_field_page(1))
+        field_btns.addWidget(self.insert_fields_btn)
+        field_btns.addWidget(self.send_ai_btn)
+        field_btns.addStretch(1)
+        field_btns.addWidget(self.field_prev_btn)
+        field_btns.addWidget(self.field_next_btn)
+        det_l.addLayout(field_btns)
+        self._detail_object = None
+        self._field_page = 0
+        self.side_tabs.addTab(detail, '对象详情')
+        bottom = QTabWidget()
+        bottom.setObjectName('sql-result-tabs')
+        self.result = QTableWidget()
+        apply_table(self.result, alternating=True)
+        try:
+            self.result.verticalHeader().setDefaultSectionSize(TABLE_ROW_H)
+        except Exception:
+            pass
+        result_page = QWidget()
+        result_page.setObjectName('sql-result-page')
+        result_l = QVBoxLayout(result_page)
+        result_l.setContentsMargins(0, 8, 0, 0)
+        page_row = QHBoxLayout()
+        self.next_btn = QPushButton()
+        apply_button(self.next_btn, 'secondary', compact=True)
+        self.next_btn.clicked.connect(self._fetch_next)
+        self.next_btn.setEnabled(False)
+        self.all_btn = QPushButton()
+        apply_button(self.all_btn, 'ghost', compact=True)
+        self.all_btn.clicked.connect(self._on_all_or_cancel)
+        self.all_btn.setEnabled(False)
+        self.result_status = QLabel()
+        self.result_status.setObjectName('field-hint')
+        page_row.addWidget(self.next_btn)
+        page_row.addWidget(self.all_btn)
+        page_row.addWidget(self.result_status, 1)
+        result_l.addLayout(page_row)
+        result_l.addWidget(self.result, 1)
+        self.msg_view = QPlainTextEdit()
+        self.msg_view.setReadOnly(True)
+        self.hist_view = QPlainTextEdit()
+        self.hist_view.setReadOnly(True)
+        bottom.addTab(result_page, '结果')
+        bottom.addTab(self.msg_view, '消息')
+        bottom.addTab(self.hist_view, '历史')
+        self.result_tabs = bottom
+
+        # 上下垂直分割：上=SQL编辑器，下=执行结果/消息/历史
+        body = QSplitter(Qt.Orientation.Vertical)
+        body.setObjectName('sql-body-splitter')
+        body.setHandleWidth(8)
+        body.addWidget(self._middle_pane)
+        body.addWidget(bottom)
+        body.setStretchFactor(0, 3)
+        body.setStretchFactor(1, 2)
+        body.setChildrenCollapsible(False)
+        self.body_splitter = body
+
+        # 左右列级水平分割：左=对象目录，中=编辑器及结果上下分栏，右=AI助手及详情（全高贯通）
+        columns.addWidget(body)
+        columns.addWidget(self.side_tabs)
+        columns.setStretchFactor(0, 2)
+        columns.setStretchFactor(1, 6)
+        columns.setStretchFactor(2, 3)
+        columns.setChildrenCollapsible(False)
+        self.columns_splitter = columns
+
+        install_splitter_prefs(
+            body,
+            defaults=[450, 280],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('body', self._dialect),
+            min_sizes=[280, 180],
+            accessible_name='SQL 控制台上下分隔',
+        )
+        install_splitter_prefs(
+            columns,
+            defaults=[260, 680, 380],
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('columns', self._dialect),
+            min_sizes=[200, 400, 320],
+            accessible_name='SQL 控制台列分隔',
+        )
+        root.addWidget(columns, 1)
+        self._layout_mode = 'wide'
+        self._narrow_show_objects = False
+        self._narrow_show_ai = False
+
+        QShortcut(QKeySequence('Ctrl+N'), self, activated=self._new_sql_tab)
+        QShortcut(QKeySequence('Ctrl+W'), self, activated=self._close_current_tab)
+        QShortcut(QKeySequence('Ctrl+Return'), self, activated=lambda: self._run_sql(reset=True))
+        QShortcut(QKeySequence('F5'), self, activated=lambda: self._run_sql(reset=True))
+        self.loading = AuroraProgress(self)
+
+    def set_language(self, language):
+        self.language = language
+        zh = language == 'zh'
+        if self._dialect:
+            dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper())
+            self.page_title.setText(_format_workbench_title(dialect_label, zh))
+        else:
+            self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
+        self.page_subtitle.setText(
+            '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
+            'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+        )
+        self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
+        self.new_tab_btn.setToolTip('新建一个 SQL 查询编辑器标签页' if zh else 'Create a new SQL editor tab')
+        self.conn_new_btn.setText('新建数据库连接' if zh else 'New connection')
+        self.conn_new_btn.setToolTip('新建数据库连接' if zh else 'New connection')
+        self.conn_edit_btn.setText('编辑' if zh else 'Edit')
+        self.conn_edit_btn.setToolTip('编辑当前连接配置' if zh else 'Edit connection')
+        self.conn_del_btn.setText('删除' if zh else 'Delete')
+        self.conn_del_btn.setToolTip('删除当前连接配置' if zh else 'Delete connection')
+        self.test_btn.setText('测试连接' if zh else 'Test')
+        self.test_btn.setToolTip('测试与当前数据库的连通性' if zh else 'Test connection')
+        self.scan_btn.setText('扫描结构' if zh else 'Scan schema')
+        self.scan_btn.setToolTip('扫描加载数据库表与字段结构' if zh else 'Scan schema')
+        self.scan_cancel_btn.setText('取消扫描' if zh else 'Cancel scan')
+        self.scan_cancel_btn.setToolTip('取消正在进行的结构扫描' if zh else 'Cancel scan')
+        self.view_snap_btn.setText('查看结构快照' if zh else 'View schema snapshot')
+        self.view_snap_btn.setToolTip('查看当前数据库本地保存的结构快照' if zh else 'View schema snapshot')
+        self.del_snap_btn.setText('删除本地结构快照' if zh else 'Delete local schema snapshot')
+        self.del_snap_btn.setToolTip('删除本地保存的结构快照文件' if zh else 'Delete local schema snapshot')
+        self.model_btn.setText('模型配置' if zh else 'Model settings')
+        self.model_btn.setToolTip('配置 AI 助手使用的内网或云端模型' if zh else 'Model settings')
+        self.object_filter.setPlaceholderText('搜索表 / 字段 / 注释' if zh else 'Search table / field / comment')
+        self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
+        self.format_btn.setText('格式化' if zh else 'Format')
+        self.clear_btn.setText('清空' if zh else 'Clear')
+        self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
+        self.save_draft_btn.setToolTip('保存当前 SQL 编辑草稿' if zh else 'Save draft')
+        self.ai_title.setText('AI 助手' if zh else 'AI assistant')
+        self.ai_hint.setText(
+            '右键输入框可添加结构提示。AI 助手仅生成草案，绝不自动执行。'
+            if zh else
+            'Right-click to add structure hints. AI drafts only — never executes automatically.'
+        )
+        self.nl_input.setPlaceholderText(
+            '用自然语言描述要生成的 SQL，例如：帮我查下 prpcmain 中 riskcode 等于 0525 的数据有多少条'
+            if zh else
+            'Describe the SQL; schema context is retrieved automatically'
+        )
+        self.side_tabs.setTabText(0, 'AI 助手' if zh else 'AI assistant')
+        self.ai_pick_btn.setText('添加结构提示' if zh else 'Add structure hints')
+        self.ai_pick_btn.setToolTip('在光标处添加表或字段结构提示' if zh else 'Add schema hints at cursor')
+        self.ai_snap_btn.setText('查看快照' if zh else 'View snapshot')
+        self.ai_snap_btn.setToolTip('查看当前 Schema 结构快照' if zh else 'View current schema snapshot')
+        self.agent_more.setText('更多操作' if zh else 'More')
+        self.agent_more.setToolTip('更多 AI 操作（解释、优化、修复报错）' if zh else 'More AI actions (explain, optimize, fix)')
+        self.agent_cancel_btn.setText('取消' if zh else 'Cancel')
+        self.agent_confirm_btn.setText('使用选中字段生成' if zh else 'Generate with selected fields')
+        self.show_objects_btn.setText('显示对象目录' if zh else 'Show objects')
+        self.show_ai_side_btn.setText('显示 AI 助手' if zh else 'Show AI assistant')
+        self._refresh_agent_more_menu()
+        self.side_tabs.setTabText(1, '对象详情' if zh else 'Object details')
+        self.detail_title.setText('对象详情' if zh else 'Object details')
+        self.field_filter.setPlaceholderText('搜索字段' if zh else 'Filter fields')
+        self.insert_fields_btn.setText('插入选中字段' if zh else 'Insert fields')
+        self.send_ai_btn.setText('发送给 AI' if zh else 'Send to AI')
+        self.field_prev_btn.setText('上一页' if zh else 'Prev')
+        self.field_next_btn.setText('下一页' if zh else 'Next')
+        self.ai_gen_btn.setText('生成 SQL' if zh else 'Generate SQL')
+        self.ai_gen_btn.setToolTip('生成 SQL 草案' if zh else 'Generate SQL draft')
+        self.ai_explain_btn.setText('解释当前 SQL' if zh else 'Explain current SQL')
+        self.ai_opt_btn.setText('优化当前 SQL' if zh else 'Optimize current SQL')
+        self.ai_fix_btn.setText('修复报错' if zh else 'Fix error')
+        self.next_btn.setText('下一页' if zh else 'Next')
+        self.all_btn.setText('获取全部' if zh else 'Fetch all')
+        self.result_tabs.setTabText(0, '结果' if zh else 'Result')
+        self.result_tabs.setTabText(1, '消息' if zh else 'Messages')
+        self.result_tabs.setTabText(2, '历史' if zh else 'History')
+        self._refresh_model_status()
+        self._refresh_header()
+
+    def _toggle_narrow_objects(self, checked: bool):
+        self._narrow_show_objects = bool(checked)
+        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'left_pane'):
+            self.left_pane.setVisible(self._narrow_show_objects)
+
+    def _toggle_narrow_ai(self, checked: bool):
+        self._narrow_show_ai = bool(checked)
+        if getattr(self, '_layout_mode', '') == 'narrow' and hasattr(self, 'side_tabs'):
+            self.side_tabs.setVisible(self._narrow_show_ai)
+
+    def apply_layout_mode(self, mode, low_height=False):
+        from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
+        from ui.splitter_prefs import layout_bucket
+        self._layout_mode = mode
+        if hasattr(self, '_page_root_layout') and self._page_root_layout is not None:
+            self._page_root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
+        set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
+        if hasattr(self, 'narrow_chrome'):
+            self.narrow_chrome.setVisible(mode == 'narrow')
+        min_h = editor_min_height()
+        tabs = getattr(self, 'sql_tabs', None)
+        if tabs is not None:
+            for index in range(tabs.count()):
+                tab = tabs.widget(index)
+                editor = getattr(tab, 'editor', None) if tab is not None else None
+                if editor is not None and hasattr(editor, 'setMinimumHeight'):
+                    editor.setMinimumHeight(min_h)
+        if not hasattr(self, 'columns_splitter'):
+            return
+        prev_mode = getattr(self, '_prev_applied_mode', None)
+        mode_changed = prev_mode != mode
+        self._prev_applied_mode = mode
+
+        if mode == 'narrow':
+            # 显式紧凑：默认单主区（编辑器），目录/助手按需打开，禁止常驻三栏
+            narrow_vis_changed = (
+                self.left_pane.isVisible() != self._narrow_show_objects or
+                self.side_tabs.isVisible() != self._narrow_show_ai
+            )
+            self.left_pane.setVisible(self._narrow_show_objects)
+            self.side_tabs.setVisible(self._narrow_show_ai)
+            self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
+            if mode_changed or narrow_vis_changed:
+                left_w = 240 if self._narrow_show_objects else 0
+                right_w = 280 if self._narrow_show_ai else 0
+                mid_w = max(360, 900 - left_w - right_w)
+                self.columns_splitter.setSizes([left_w, mid_w, right_w])
+            for i, w in enumerate((self.left_pane, self.columns_splitter.widget(1), self.side_tabs)):
+                if w is None:
+                    continue
+                if i == 1:
+                    w.setMinimumWidth(360)
+                elif w.isVisible():
+                    w.setMinimumWidth(200)
+            col_mins = [
+                200 if self._narrow_show_objects else 0,
+                360,
+                200 if self._narrow_show_ai else 0,
+            ]
+            col_defs = [200, 480, 200]
+        elif mode == 'compact':
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.left_pane.setMinimumWidth(240)
+            self.side_tabs.setMinimumWidth(200)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(360)
+            col_mins = [240, 420, 240]
+            col_defs = [240, 560, 260]
+        else:
+            self.left_pane.setVisible(True)
+            self.side_tabs.setVisible(True)
+            self.left_pane.setMinimumWidth(240)
+            self.side_tabs.setMinimumWidth(240)
+            mid = self.columns_splitter.widget(1)
+            if mid is not None:
+                mid.setMinimumWidth(520)
+            col_mins = [260, 480, 300]
+            col_defs = [300, 700, 340]
+        install_splitter_prefs(
+            self.columns_splitter,
+            defaults=col_defs,
+            page_id='sql-console',
+            tab_id=sql_splitter_tab_id('columns', self._dialect),
+            bucket=layout_bucket(mode),
+            min_sizes=col_mins,
+            accessible_name='SQL 控制台列分隔',
+        )
+
+    def _title(self) -> str:
+        return 'SQL 控制台' if self.language == 'zh' else 'SQL Console'
+
+    def _current_conn(self) -> dict | None:
+        tab = self._current_tab()
+        if tab is not None and isinstance(tab.conn_item, dict):
+            return dict(tab.conn_item)
+        if self._connection_id:
+            return dict(self._bound_conn_item) if self._bound_conn_item else None
+        data = self.conn_combo.currentData()
+        return dict(data) if isinstance(data, dict) else None
+
+    def _browse_conn(self) -> dict | None:
+        if self._connection_id:
+            return dict(self._bound_conn_item) if self._bound_conn_item else None
+        data = self.conn_combo.currentData()
+        return dict(data) if isinstance(data, dict) else None
+
+    def _current_tab(self) -> _SqlTab | None:
+        widget = self.sql_tabs.currentWidget()
+        return widget if isinstance(widget, _SqlTab) else None
+
+    def _current_editor(self) -> SqlEditor | None:
+        tab = self._current_tab()
+        return tab.editor if tab is not None else None
+
+    def _reload_bound_connection(self):
+        """从 connections.json 中加载指定 ID 的连接（绑定模式）。"""
+        rows = load_connections()
+        for item in rows:
+            if str(item.get('id') or '') == self._connection_id:
+                self._bound_conn_item = dict(item)
+                break
+        if self._bound_conn_item is None and rows:
+            # fallback：若当前 ID 不存在，取第一个连接
+            for item in rows:
+                self._bound_conn_item = dict(item)
+                self._connection_id = str(item.get('id') or '')
+                break
+        if self._bound_conn_item:
+            self._snapshot = load_snapshot(str(self._bound_conn_item.get('id') or ''))
+            self.nl_input.bind_snapshot(self._snapshot)
+            self._bind_editors_schema()
+        # 通知主窗口刷新侧栏（绑定模式不依赖下拉框）
+        window = self.window()
+        if window and hasattr(window, '_rebuild_sql_console_subnav'):
+            window._rebuild_sql_console_subnav()
+
+    def _reload_connections(self, select_id: str = ''):
+        if self._connection_id:
+            # 绑定模式下不操作下拉框，直接重新加载绑定连接
+            self._reload_bound_connection()
+            self._rebuild_tree()
+            self._refresh_header()
+            self._refresh_model_status()
+            self._refresh_ai_pick_state()
+            self._refresh_agent_status()
+            return
+        self.conn_combo.blockSignals(True)
+        self.conn_combo.clear()
+        rows = load_connections()
+        # 六面板模式：只显示锁定方言的连接
+        if self._dialect:
+            rows = [item for item in rows if str(item.get('dialect') or '').lower() == self._dialect]
+        if not rows:
+            zh = self.language == 'zh'
+            if self._dialect:
+                label = dict(DIALECTS).get(self._dialect, self._dialect)
+                self.conn_combo.addItem(f'无 {label} 连接，点击“新建”创建' if zh else f'No {label} connection', None)
+            else:
+                self.conn_combo.addItem('未配置数据库连接' if zh else 'No database connection', None)
+        for item in rows:
+            self.conn_combo.addItem(str(item.get('name') or item.get('id')), item)
+            if select_id and item.get('id') == select_id:
+                self.conn_combo.setCurrentIndex(self.conn_combo.count() - 1)
+        self.conn_combo.blockSignals(False)
+        self._on_connection_changed()
+
+    def _on_connection_changed(self):
+        item = self._browse_conn()
+        # 下拉框切换连接后，同步当前 Tab 的绑定连接，保证删除/测试/扫描/保存草稿作用于所选连接
+        tab = self._current_tab()
+        if tab is not None:
+            tab.conn_item = dict(item) if isinstance(item, dict) else None
+        self._snapshot = load_snapshot(str(item.get('id') or '')) if item else None
+        self._redis_scan_partial = False
+        self._redis_scan_failed_nodes = []
+        self.nl_input.bind_snapshot(self._snapshot)
+        self._rebuild_tree()
+        self._refresh_header()
+        self._refresh_model_status()
+        self._refresh_ai_pick_state()
+        self._refresh_agent_status()
+
+    def _snapshot_scanned(self, item=None) -> bool:
+        data = item if isinstance(item, dict) else self._browse_conn()
+        if not data or not self._snapshot:
+            return False
+        status = snapshot_status(data, self._snapshot)
+        return status.get('status') != 'missing'
+
+    def _refresh_tree_title(self):
+        zh = self.language == 'zh'
+        scanned = self._snapshot_scanned()
+        mark = ('已扫描' if scanned else '未扫描') if zh else ('scanned' if scanned else 'not scanned')
+        self.tree_title.setText(('对象目录 · ' if zh else 'Objects · ') + mark)
+
+    def _refresh_header(self):
+        zh = self.language == 'zh'
+        item = self._browse_conn()
+        dialect_label = dict(DIALECTS).get(self._dialect, self._dialect.upper()) if self._dialect else ''
+        if not item:
+            self.conn_meta.setText('未选择连接' if zh else 'No connection')
+            if hasattr(self, 'conn_target_hint'):
+                self.conn_target_hint.setText('目标连接：—' if zh else 'Target: —')
+            if self._dialect:
+                self.page_title.setText(_format_workbench_title(dialect_label, zh))
+            elif not self._connection_id:
+                self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
+            self.page_subtitle.setText(
+                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
+                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            )
+            self._refresh_tree_title()
+            self._refresh_risk_chip()
+            return
+        dialect = str(item.get('dialect') or '')
+        label = dict(DIALECTS).get(dialect, dialect)
+        alias = str(item.get('name') or '')
+        scanned = self._snapshot_scanned(item)
+        snap_mark = ('快照已扫描' if scanned else '快照未扫描') if zh else (
+            'snapshot scanned' if scanned else 'snapshot not scanned'
+        )
+        self.conn_meta.setText(f'{alias} · {snap_mark}'.strip(' ·'))
+        if hasattr(self, 'conn_target_hint'):
+            self.conn_target_hint.setText(
+                (f'目标连接：{alias} · {label}' if zh else f'Target: {alias} · {label}').strip()
+            )
+        if self._dialect:
+            self.page_title.setText(_format_workbench_title(dialect_label, zh))
+            self.page_subtitle.setText(
+                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
+                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            )
+        elif self._connection_id:
+            self.page_title.setText(f'{alias}（SQL 控制台）' if zh else f'{alias} (SQL Console)')
+            self.page_subtitle.setText(f'{dialect.upper()} · {snap_mark}' if zh else f'{dialect.upper()} · {snap_mark}')
+        self._refresh_tree_title()
+        self._refresh_risk_chip()
+
+    def _on_sql_tab_changed(self, index=0):
+        # 切换 Tab 时，让连接下拉框跟随该 Tab 绑定的连接，避免下拉框与操作目标不一致
+        tab = self._current_tab()
+        if tab is not None and isinstance(tab.conn_item, dict):
+            cid = str(tab.conn_item.get('id') or '')
+            if cid:
+                idx = -1
+                for i in range(self.conn_combo.count()):
+                    d = self.conn_combo.itemData(i)
+                    if isinstance(d, dict) and str(d.get('id') or '') == cid:
+                        idx = i
+                        break
+                if idx >= 0:
+                    self.conn_combo.blockSignals(True)
+                    self.conn_combo.setCurrentIndex(idx)
+                    self.conn_combo.blockSignals(False)
+        self._refresh_tab_titles(index)
+        self._refresh_risk_chip()
+
+    def _refresh_risk_chip(self):
+        if not hasattr(self, 'risk_chip'):
+            return
+        zh = self.language == 'zh'
+        editor = self._current_editor()
+        sql = editor.toPlainText() if editor is not None else ''
+        item = self._current_conn() or {}
+        dialect = str(item.get('dialect') or 'oracle')
+        info = classify_statement(sql, dialect)
+        if info.get('empty'):
+            text = '空语句' if zh else 'Empty'
+        elif info.get('is_read'):
+            text = '只读查询' if zh else 'Read-only query'
+        elif info.get('needs_confirm'):
+            text = '需确认写操作' if zh else 'Write — confirm required'
+        else:
+            text = '需确认写操作' if zh else 'Confirm required'
+        self.risk_chip.setText(text)
+
+    def _refresh_model_status(self):
+        zh = self.language == 'zh'
+        ready = False
+        try:
+            ready = is_enabled()
+        except Exception:
+            ready = False
+        for btn in (self.ai_gen_btn, self.ai_explain_btn, self.ai_opt_btn, self.ai_fix_btn):
+            btn.setEnabled(ready)
+        stale = False
+        item = self._current_conn()
+        if item:
+            stale = snapshot_status(item, self._snapshot).get('stale') or snapshot_status(item, self._snapshot).get('status') == 'missing'
+        extra = ''
+        if stale and zh:
+            extra = ' 结构快照过期或未扫描，生成前请先扫描。'
+        elif stale:
+            extra = ' Snapshot missing/stale; scan before generating.'
+        self.model_status.setText(
+            ('AI 助手仅依据当前有效 Schema 快照生成草案；不会执行。' if ready and zh else
+             'AI drafts from the current schema snapshot only; never executes.' if ready else
+             '未配置内网模型，可手写 SQL。' if zh else
+             'Configure an intranet model in Settings.')
+            + extra
+        )
+        self._refresh_agent_status()
+
+    def _edit_connection(self, new=False):
+        current = None if new else self._current_conn()
+        before = connection_fingerprint(current or {})
+        dialog = _ConnectionDialog(self.language, current, self, locked_dialect=self._dialect)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        item, password = dialog.payload()
+        saved = upsert_connection(item, password if password else None)
+        if current and connection_fingerprint(saved) != before and current.get('id') == saved.get('id'):
+            snap = load_snapshot(saved.get('id'))
+            if snap:
+                snap['status'] = 'stale'
+                snap['fingerprint'] = before
+                save_snapshot(snap)
+        self._reload_connections(saved.get('id'))
+        # 通知主窗口刷新侧栏数据库子菜单
+        self._notify_main_sidebar_refresh()
+
+    def _notify_main_sidebar_refresh(self):
+        """通知主窗口重建 SQL 控制台侧栏子菜单。"""
+        window = self.window()
+        if window and hasattr(window, '_rebuild_sql_console_subnav'):
+            window._rebuild_sql_console_subnav()
+
+    def _delete_connection(self):
+        item = self._current_conn()
+        if not item:
+            return
+        zh = self.language == 'zh'
+        detail = (
+            f"删除连接「{item.get('name') or ''}」及其本机结构快照？不会删除数据库中的对象。"
+            if zh else
+            f"Delete connection '{item.get('name') or ''}' and its local snapshot? Database objects are not dropped."
+        )
+        if not confirm_action(self, self._title(), detail, confirm_text='删除连接和快照' if zh else 'Delete connection and snapshot', danger=True):
+            return
+        delete_snapshot(item.get('id'))
+        delete_connection(item.get('id'))
+        self._reload_connections()
+        self._notify_main_sidebar_refresh()
+
+    def _delete_snapshot(self):
+        item = self._current_conn()
+        if not item:
+            return
+        zh = self.language == 'zh'
+        detail = (
+            f"删除「{item.get('name') or ''}」的本机结构快照？重新扫描后才能恢复对象目录和 AI 助手上下文。"
+            if zh else
+            f"Delete the local snapshot for '{item.get('name') or ''}'? Scan again to restore objects and AI assistant context."
+        )
+        if not confirm_action(self, self._title(), detail, confirm_text='删除' if zh else 'Delete', danger=True):
+            return
+        delete_snapshot(item.get('id'))
+        self._snapshot = None
+        self._rebuild_tree()
+        self._refresh_header()
+
+    def _view_snapshot(self):
+        zh = self.language == 'zh'
+        if not self._snapshot:
+            show_warning(self, self._title(), '还没有快照' if zh else 'No snapshot')
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle('结构快照' if zh else 'Schema snapshot')
+        dialog.resize(640, 480)
+        layout = QVBoxLayout(dialog)
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setFont(QFont('Consolas', 10))
+        view.setPlainText(clip_snapshot_for_prompt(self._snapshot, max_chars=20000) or '')
+        layout.addWidget(view)
+        dialog.exec()
+
+    def on_panel_deactivated(self):
+        """离开 SQL 工作台时重置 loading，防止悬挂状态。"""
+        self._shutdown_db_worker()
+        if hasattr(self, 'loading') and self.loading is not None:
+            self.loading.hide_now()
+
+    def closeEvent(self, event):
+        self._shutdown_db_worker()
+        super().closeEvent(event)
+
+    def _bind_editors_schema(self):
+        if not hasattr(self, 'sql_tabs'):
+            return
+        for i in range(self.sql_tabs.count()):
+            tab = self.sql_tabs.widget(i)
+            if isinstance(tab, _SqlTab):
+                tab.editor.bind_schema(self._snapshot)
+
+    def _shutdown_db_worker(self, timeout_ms: int = 1500):
+        worker = self._worker
+        if worker is None:
+            return
+        worker.cancelled = True
+        try:
+            worker.progress.disconnect()
+        except Exception:
+            pass
+        try:
+            worker.completed.disconnect()
+        except Exception:
+            pass
+        try:
+            worker.failed.disconnect()
+        except Exception:
+            pass
+        if worker.isRunning():
+            worker.wait(max(1, int(timeout_ms)))
+        self._worker = None
+        if self._query_status in ('RUNNING', 'FETCH_ALL'):
+            self._query_status = 'CANCELLED'
+
+    def _open_settings(self):
+        window = self.window()
+        if hasattr(window, '_show_panel'):
+            window._show_panel(7)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'loading'):
+            self.loading.place_overlay(self)
+
+    def _busy(self, on: bool, message: str = '', *, fetch_all: bool = False) -> int:
+        zh = self.language == 'zh'
+        for btn in (
+            self.test_btn, self.scan_btn, self.run_btn,
+            self.ai_gen_btn, self.ai_explain_btn, self.ai_opt_btn, self.ai_fix_btn,
+            self.next_btn,
+        ):
+            btn.setEnabled(not on)
+        if fetch_all:
+            self.all_btn.setEnabled(True)
+            self.all_btn.setText('取消' if zh else 'Cancel')
+        elif on:
+            self.all_btn.setEnabled(False)
+        if on and not fetch_all:
+            return self.loading.start_busy(message or ('处理中…' if zh else 'Working…'))
+        if on and fetch_all:
+            self.result_status.setText(message or ('正在获取全部数据…' if zh else 'Fetching all…'))
+            return int(getattr(self, '_db_token', 0) or 0) + 1
+        self._refresh_model_status()
+        self._sync_fetch_buttons()
+        return self.loading.current_token
+
+    def _sync_fetch_buttons(self):
+        zh = self.language == 'zh'
+        fetching = self._query_status == 'FETCH_ALL'
+        if fetching:
+            self.all_btn.setEnabled(True)
+            self.all_btn.setText('取消' if zh else 'Cancel')
+            self.next_btn.setEnabled(False)
+            return
+        self.all_btn.setText('获取全部' if zh else 'Fetch all')
+        self.next_btn.setEnabled(self._has_more)
+        if isinstance(self._offset, dict):
+            self.all_btn.setEnabled(False)
+        else:
+            self.all_btn.setEnabled(self._has_more)
+
+    def _start_db(self, kind: str, **kwargs):
+        item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
+        zh = self.language == 'zh'
+        if not item:
+            show_warning(self, self._title(), '请先新建并选择连接' if zh else 'Create a connection first')
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+        labels = {
+            'test': '正在测试连接…' if zh else 'Testing connection…',
+            'scan': '正在扫描结构…' if zh else 'Scanning schema…',
+            'query': '正在执行查询…' if zh else 'Running query…',
+            'fetch_all': '正在获取全部数据…' if zh else 'Fetching all…',
+        }
+        fetch_all = kind == 'fetch_all'
+        self._query_status = 'FETCH_ALL' if fetch_all else ('RUNNING' if kind == 'query' else self._query_status)
+        token = self._busy(True, labels.get(kind, '处理中…' if zh else 'Working…'), fetch_all=fetch_all)
+        self._db_token = token
+        if kind == 'scan':
+            self.scan_cancel_btn.setEnabled(True)
+        self.result_status.setText(labels.get(kind, '正在连接…' if zh else 'Working…'))
+        self._worker = _DbWorker(kind, item, **kwargs)
+        self._worker.token = token
+        self._worker.completed.connect(lambda payload, t=token: self._on_db_ok(kind, payload, kwargs, token=t))
+        self._worker.failed.connect(lambda msg, t=token: self._on_db_fail(msg, token=t))
+        self._worker.progress.connect(self._on_fetch_progress)
+        self._worker.finished.connect(lambda: (self.scan_cancel_btn.setEnabled(False), self._busy(False)))
+        self._worker.start()
+
+    def _cancel_scan(self):
+        if self._worker is not None:
+            self._worker.cancelled = True
+        self.loading.fail('扫描已取消' if self.language == 'zh' else 'Scan cancelled', token=getattr(self, '_db_token', None))
+
+    def _on_db_ok(self, kind: str, payload: dict, kwargs: dict, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_db_token', None):
+            return
+        zh = self.language == 'zh'
+        if kind == 'test':
+            self.loading.finish('连接成功' if zh else 'Connected', token=token)
+            show_info(self, self._title(), '连接成功' if zh else 'Connected')
+            self._log_msg('连接测试成功' if zh else 'Connection ok')
+            return
+        if kind == 'scan':
+            self._snapshot = payload
+            self.nl_input.bind_snapshot(self._snapshot)
+            self._bind_editors_schema()
+            self._rebuild_tree()
+            self._refresh_header()
+            self._refresh_ai_pick_state()
+            count = len((payload or {}).get('objects') or [])
+            warning = str((payload or {}).get('warning') or '')
+            if str((payload or {}).get('status') or '') == 'failed':
+                self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'), token=token)
+                show_error(self, self._title(), warning or ('扫描失败' if zh else 'Scan failed'))
+                self._log_msg(f'扫描失败: {warning}')
+                return
+            self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)', token=token)
+            show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
+            self._log_msg(f'扫描完成，对象 {count}')
+            return
+        if kind in ('query', 'fetch_all'):
+            append = bool(kwargs.get('append'))
+            self._last_sql = str(payload.get('sql') or self._last_sql)
+            raw_offset = payload.get('offset')
+            if isinstance(raw_offset, dict):
+                self._offset = dict(raw_offset)
+            else:
+                self._offset = int(raw_offset or 0)
+            self._has_more = bool(payload.get('has_more'))
+
+            # Sticky Redis Cluster scan partial state:
+            if payload.get('partial') or payload.get('failed_nodes'):
+                self._redis_scan_partial = True
+                for node in (payload.get('failed_nodes') or []):
+                    if node not in self._redis_scan_failed_nodes:
+                        self._redis_scan_failed_nodes.append(node)
+
+            self._fill_result(payload, append=append)
+            shown = self.result.rowCount()
+            elapsed = payload.get('elapsed_ms')
+            rowcount = payload.get('rowcount', shown)
+            tx = payload.get('tx') or ''
+            extra = ''
+            if self._redis_scan_partial:
+                failed_str = ', '.join(self._redis_scan_failed_nodes)
+                warn_text = (
+                    f'部分节点扫描失败，Key 列表可能不完整（失败节点: {failed_str}）'
+                    if zh else
+                    f'Partial scan failure, key list may be incomplete (failed nodes: {failed_str})'
+                )
+                extra += f'，警告：{warn_text}' if zh else f', Warning: {warn_text}'
+            elif payload.get('warning'):
+                extra += f'，警告：{payload.get("warning")}' if zh else f', Warning: {payload.get("warning")}'
+            if tx == 'committed':
+                extra = '，已提交' if zh else ', committed'
+            elif tx == 'implicit':
+                extra = '，DDL 按库自身提交语义' if zh else ', DDL implicit commit'
+            status = str(payload.get('status') or 'DONE')
+            nbytes = int(payload.get('bytes') or 0)
+            if status == 'LIMIT_REACHED':
+                self._query_status = 'LIMIT_REACHED'
+                self._has_more = False
+                self.result_status.setText(
+                    f'已读取 {shown} 行，结果数据达到 50 MB 安全上限，已停止继续读取。'
+                    if zh else
+                    f'Read {shown} row(s); stopped at the 50 MB safety limit.'
+                )
+            elif status == 'CANCELLED':
+                self._query_status = 'CANCELLED'
+                self.result_status.setText(
+                    f'已取消，保留已读取 {shown} 行' if zh else f'Cancelled; kept {shown} row(s)'
+                )
+            elif status == 'ERROR':
+                self._query_status = 'ERROR'
+                err = str(payload.get('error') or '')
+                self.result_status.setText(
+                    f'读取在第 {shown} 行后失败：{err}'
+                    if zh else
+                    f'Read failed after {shown} row(s): {err}'
+                )
+            else:
+                self._query_status = 'DONE'
+                mb = f' · {nbytes / (1024 * 1024):.1f} MB' if nbytes else ''
+                self.result_status.setText(
+                    f'行 {shown} · 影响 {rowcount} · {elapsed} ms{extra}{mb}'
+                    if zh else
+                    f'{shown} row(s) · affected {rowcount} · {elapsed} ms{extra}{mb}'
+                )
+            self._log_msg(self.result_status.text())
+            self._history.append({
+                'time': datetime.now().strftime('%H:%M:%S'),
+                'sql': self._last_sql[:300],
+                'status': self.result_status.text(),
+            })
+            self._hist_refresh()
+            self._sync_fetch_buttons()
+            if kind == 'query':
+                self.loading.finish(self.result_status.text() or ('查询完成' if zh else 'Done'), token=token)
+
+    def _on_db_fail(self, message: str, *, token: int | None = None):
+        if token is not None and token != getattr(self, '_db_token', None):
+            return
+        text = redact_error(str(message or ''))
+        shown = self.result.rowCount() if hasattr(self, 'result') else 0
+        self._query_status = 'ERROR'
+        self.loading.fail(text or ('失败' if self.language == 'zh' else 'Failed'), token=token)
+        if shown:
+            self.result_status.setText(
+                f'读取在第 {shown} 行后失败：{text}'
+                if self.language == 'zh' else
+                f'Read failed after {shown} row(s): {text}'
+            )
+        else:
+            show_error(self, self._title(), text)
+            self.result_status.setText('失败' if self.language == 'zh' else 'Failed')
+        self._log_msg(text)
+        self._sync_fetch_buttons()
+
+    def _log_msg(self, text: str):
+        stamp = datetime.now().strftime('%H:%M:%S')
+        self.msg_view.appendPlainText(f'[{stamp}] {text}')
+
+    def _hist_refresh(self):
+        lines = [f"{row['time']}  {row['status']}\n{row['sql']}" for row in self._history[-50:]]
+        self.hist_view.setPlainText('\n\n'.join(reversed(lines)))
+
+    def _on_fetch_progress(self, payload: dict):
+        if not isinstance(payload, dict):
+            return
+        rows = int(payload.get('rows') or 0)
+        nbytes = int(payload.get('bytes') or 0)
+        mb = nbytes / (1024 * 1024)
+        zh = self.language == 'zh'
+        self.result_status.setText(
+            f'正在获取全部数据… 已读取 {rows:,} 行 · {mb:.1f} MB'
+            if zh else
+            f'Fetching all… {rows:,} row(s) · {mb:.1f} MB'
+        )
+
+    def _fill_result(self, payload: dict, *, append: bool = False):
+        columns = list(payload.get('columns') or [])
+        rows = list(payload.get('rows') or [])
+        table = self.result
+        was = table.updatesEnabled()
+        table.setUpdatesEnabled(False)
+        try:
+            if not append:
+                table.clear()
+                table.setColumnCount(len(columns))
+                table.setHorizontalHeaderLabels(columns)
+                table.setRowCount(0)
+            start = table.rowCount()
+            table.setRowCount(start + len(rows))
+            for r, row in enumerate(rows):
+                for c, value in enumerate(row):
+                    if c >= table.columnCount():
+                        table.setColumnCount(c + 1)
+                    table.setItem(start + r, c, QTableWidgetItem(str(value)))
+        finally:
+            table.setUpdatesEnabled(was)
+        header = table.horizontalHeader()
+        if header is not None and not append:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+
+    def _editor_sql(self) -> str:
+        editor = self._current_editor()
+        if editor is None:
+            return ''
+        selected, pos = editor.selected_or_all()
+        if selected:
+            return selected
+        return statement_at_cursor(editor.toPlainText(), pos)
+
+    def _run_sql(self, *, reset: bool = True):
+        item = self._current_conn()
+        zh = self.language == 'zh'
+        if not item:
+            show_warning(self, self._title(), '请先选择连接' if zh else 'Select a connection')
+            return
+        sql = self._editor_sql().strip()
+        if not sql:
+            show_warning(self, self._title(), '没有可执行的语句' if zh else 'Nothing to run')
+            return
+        info = classify_statement(sql, str(item.get('dialect') or 'oracle'))
+        if info.get('needs_confirm'):
+            detail = (
+                f"连接：{item.get('name')}\n类型：{item.get('dialect')}\n类别：{info.get('label')}\n\n{sql}"
+                if zh else
+                f"Connection: {item.get('name')}\nType: {item.get('dialect')}\nKind: {info.get('label')}\n\n{sql}"
+            )
+            if not confirm_action(
+                self, self._title(), detail,
+                confirm_text='执行' if zh else 'Run',
+                danger=True,
+            ):
+                return
+        if reset:
+            self._offset = 0
+            self._last_sql = sql
+            self._redis_scan_partial = False
+            self._redis_scan_failed_nodes = []
+            self.result.setRowCount(0)
+        self._start_db('query', sql=sql, offset=self._offset if not reset else 0, limit=PAGE_SIZE, append=not reset)
+
+    def _fetch_next(self):
+        if not self._last_sql or not self._has_more:
+            return
+        self._start_db('query', sql=self._last_sql, offset=self._offset, limit=PAGE_SIZE, append=True)
+
+    def _on_all_or_cancel(self):
+        if self._query_status == 'FETCH_ALL':
+            self._cancel_fetch_all()
+            return
+        self._fetch_all()
+
+    def _cancel_fetch_all(self):
+        if self._worker is not None:
+            self._worker.cancelled = True
+        zh = self.language == 'zh'
+        self.result_status.setText('正在取消…' if zh else 'Cancelling…')
+
+    def _fetch_all(self):
+        if not self._last_sql or not self._has_more:
+            return
+        if isinstance(self._offset, dict):
+            zh = self.language == 'zh'
+            self.result_status.setText(
+                'Redis Cluster SCAN 请使用「下一页」继续扫描'
+                if zh else
+                'Redis Cluster SCAN: please use "Next" to continue scanning'
+            )
+            return
+        self._start_db(
+            'fetch_all',
+            sql=self._last_sql,
+            offset=self._offset,
+            chunk_size=FETCH_CHUNK,
+            byte_limit=RESULT_BYTE_LIMIT,
+            append=True,
+        )
+
+    def _ai_output_menu(self, pos):
+        zh = self.language == 'zh'
+        menu = QMenu(self.ai_explain)
+        cursor = self.ai_explain.textCursor()
+        if cursor.hasSelection():
+            copy = QAction('复制' if zh else 'Copy', self.ai_explain)
+            copy.triggered.connect(self.ai_explain.copy)
+            menu.addAction(copy)
+        if self.ai_explain.toPlainText():
+            select = QAction('全选' if zh else 'Select all', self.ai_explain)
+            select.triggered.connect(self.ai_explain.selectAll)
+            menu.addAction(select)
+        if menu.actions():
+            menu.exec(self.ai_explain.mapToGlobal(pos))
+
+    def _new_sql_tab(self, text: str = '', title: str = ''):
+        zh = self.language == 'zh'
+        name = title or (f'未命名查询 {self._tab_seq}' if zh else f'Untitled query {self._tab_seq}')
+        self._tab_seq += 1
+        tab = _SqlTab(name, self._browse_conn())
+        tab.editor.bind_schema(self._snapshot)
+        tab.editor.textChanged.connect(self._refresh_risk_chip)
+        if text:
+            tab.editor.setPlainText(text)
+            tab.dirty = False
+        index = self.sql_tabs.addTab(tab, name)
+        self.sql_tabs.setCurrentIndex(index)
+        self._refresh_risk_chip()
+        return tab
+
+    def _close_sql_tab(self, index: int):
+        if self.sql_tabs.count() <= 1:
+            editor = self._current_editor()
+            if editor is not None:
+                editor.clear()
+            return
+        self.sql_tabs.removeTab(index)
+
+    def _close_current_tab(self):
+        self._close_sql_tab(self.sql_tabs.currentIndex())
+
+    def _refresh_tab_titles(self, _index=0):
+        for i in range(self.sql_tabs.count()):
+            tab = self.sql_tabs.widget(i)
+            if isinstance(tab, _SqlTab):
+                mark = '*' if tab.dirty else ''
+                self.sql_tabs.setTabText(i, mark + tab.base_title)
+
+    def _format_sql(self):
+        editor = self._current_editor()
+        if editor is None:
+            return
+        from tools.sql_tool import format_sql
+        cursor = editor.textCursor()
+        if cursor.hasSelection():
+            selected_text = cursor.selectedText().replace('\u2029', '\n')
+            if selected_text.strip():
+                formatted = format_sql(selected_text)
+                cursor.insertText(formatted)
+        else:
+            text = editor.toPlainText()
+            if text.strip():
+                formatted = format_sql(text)
+                editor.setPlainText(formatted)
+
+    def _clear_editor(self):
+        editor = self._current_editor()
+        if editor is not None:
+            editor.clear()
+
+    def _save_draft(self):
+        editor = self._current_editor()
+        zh = self.language == 'zh'
+        if editor is None:
+            return
+        import os
+        os.makedirs(SQL_DRAFTS_DIR, exist_ok=True)
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('sql_draft', SQL_DRAFTS_DIR)
+        path, _filter = QFileDialog.getSaveFileName(
+            self, '保存 SQL 草稿' if zh else 'Save SQL draft', start, 'SQL (*.sql)'
+        )
+        if not path:
+            return
+        remember_dialog_path('sql_draft', path)
+        with open(path, 'w', encoding='utf-8') as stream:
+            stream.write(editor.toPlainText())
+        show_info(self, self._title(), '草稿已保存（请勿写入密码或生产数据）' if zh else 'Draft saved')
+
+    def _rebuild_tree(self):
+        self._search_index = build_schema_search_index(self._snapshot)
+        self.object_tree.clear()
+        snap = self._snapshot or {}
+        objects = list(snap.get('objects') or [])
+        empty = not objects
+        self.tree_empty.setVisible(empty)
+        self.object_tree.setVisible(not empty)
+        self._refresh_tree_title()
+        if empty:
+            return
+        item = self._browse_conn() or {}
+        dialect = str(item.get('dialect') or 'oracle').lower()
+        root = QTreeWidgetItem([str(item.get('name') or 'connection')])
+        root.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'conn'})
+        if dialect in ('redis', 'mongodb'):
+            # Redis/MongoDB 无 schema 层级，key/collection 直接平铺在连接根下
+            for obj in objects:
+                node = QTreeWidgetItem([format_object_label(obj)])
+                node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
+                root.addChild(node)
+        else:
+            groups = {}
+            for obj in objects:
+                owner = str(obj.get('owner') or obj.get('object_type') or 'default')
+                groups.setdefault(owner, []).append(obj)
+            for owner, rows in groups.items():
+                schema = QTreeWidgetItem([owner])
+                schema.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'schema', 'name': owner})
+                for obj in rows:
+                    node = QTreeWidgetItem([format_object_label(obj)])
+                    node.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'table', 'object': obj})
+                    schema.addChild(node)
+                root.addChild(schema)
+        self.object_tree.addTopLevelItem(root)
+        root.setExpanded(True)
+        if root.childCount() == 1:
+            root.child(0).setExpanded(True)
+        self._filter_tree(self.object_filter.text())
+
+    def _filter_tree(self, text=''):
+        needle = str(text or '').strip().lower()
+        if not needle:
+            def show_all(item: QTreeWidgetItem):
+                item.setHidden(False)
+                for i in range(item.childCount()):
+                    show_all(item.child(i))
+
+            for i in range(self.object_tree.topLevelItemCount()):
+                show_all(self.object_tree.topLevelItem(i))
+            return
+
+        matched_tables = get_matched_table_identities(self._search_index, needle)
+
+        def apply_item(item: QTreeWidgetItem) -> bool:
+            visible = False
+            for i in range(item.childCount()):
+                if apply_item(item.child(i)):
+                    visible = True
+
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            kind = data.get('kind')
+            own = False
+            if kind == 'table':
+                obj = data.get('object') or {}
+                owner = str(obj.get('owner') or '').lower()
+                name = str(obj.get('name') or '').lower()
+                own = (owner, name) in matched_tables or needle in item.text(0).lower()
+            elif kind == 'schema':
+                schema_name = str(data.get('name') or '').lower()
+                own = needle in schema_name or needle in item.text(0).lower()
+            else:
+                own = needle in item.text(0).lower()
+
+            show = own or visible
+            item.setHidden(not show)
+            if show and (visible or kind == 'schema'):
+                item.setExpanded(True)
+            return show
+
+        for i in range(self.object_tree.topLevelItemCount()):
+            apply_item(self.object_tree.topLevelItem(i))
+
+    def _on_object_filter_text_changed(self, text: str):
+        if not text.strip():
+            self._search_timer.stop()
+            self._filter_tree('')
+            if self._search_popup:
+                self._search_popup.hide()
+        else:
+            self._search_timer.start()
+
+    def _on_search_timer(self):
+        query = self.object_filter.text()
+        self._filter_tree(query)
+        if query.strip() and self._search_index:
+            results = search_schema_index(self._search_index, query, limit=30)
+            self._show_search_popup(results)
+        else:
+            if self._search_popup:
+                self._search_popup.hide()
+
+    def _show_search_popup(self, results: list[dict]):
+        if not results or not self.object_filter.hasFocus():
+            if self._search_popup:
+                self._search_popup.hide()
+            return
+        if self._search_popup is None:
+            self._search_popup = _SchemaSearchPopup(self)
+            self._search_popup.list_widget.itemClicked.connect(self._on_search_popup_item_clicked)
+        self._search_popup.set_results(results)
+        pos = self.object_filter.mapToGlobal(QPoint(0, self.object_filter.height() + 2))
+        w = max(280, self.object_filter.width())
+        row_count = min(len(results), 7)
+        h = min(320, row_count * 46 + 10)
+        self._search_popup.setGeometry(pos.x(), pos.y(), w, h)
+        self._search_popup.show()
+
+    def _on_search_popup_item_clicked(self, list_item: QListWidgetItem):
+        if list_item is None:
+            return
+        data = list_item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, dict):
+            self._activate_search_result(data)
+
+    def _activate_search_result(self, data: dict):
+        if self._search_popup:
+            self._search_popup.hide()
+        kind = data.get('kind')
+        owner = str(data.get('owner') or '')
+        table_name = str(data.get('table_name') or '')
+        field_name = str(data.get('field_name') or '')
+
+        if kind == 'field' and table_name and field_name:
+            self._locate_field(owner, table_name, field_name)
+        elif kind == 'table' and table_name:
+            self._locate_table(owner, table_name)
+        elif kind == 'schema' and owner:
+            self._locate_schema(owner)
+
+    def _locate_table(self, owner: str, table_name: str):
+        target_owner = str(owner or '').strip().lower()
+        target_name = str(table_name or '').strip().lower()
+        if not target_name:
+            return
+
+        def find_in_item(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            kind = data.get('kind')
+            if kind == 'table':
+                obj = data.get('object') or {}
+                o = str(obj.get('owner') or '').strip().lower()
+                n = str(obj.get('name') or '').strip().lower()
+                if n == target_name and (not target_owner or o == target_owner):
+                    return item
+            for i in range(item.childCount()):
+                res = find_in_item(item.child(i))
+                if res is not None:
+                    return res
+            return None
+
+        found_item = None
+        for i in range(self.object_tree.topLevelItemCount()):
+            found_item = find_in_item(self.object_tree.topLevelItem(i))
+            if found_item is not None:
+                break
+
+        if found_item is not None:
+            p = found_item
+            while p is not None:
+                p.setHidden(False)
+                p.setExpanded(True)
+                p = p.parent()
+            self.object_tree.setCurrentItem(found_item)
+            self.object_tree.scrollToItem(found_item)
+            self._on_tree_selected()
+
+    def _locate_field(self, owner: str, table_name: str, field_name: str):
+        self._locate_table(owner, table_name)
+        target_field = str(field_name or '').strip().lower()
+        if not target_field or not self._detail_object:
+            return
+
+        cols = self._detail_object.get('columns') or []
+        col_idx = -1
+        for idx, col in enumerate(cols):
+            if str(col.get('name') or '').strip().lower() == target_field:
+                col_idx = idx
+                break
+
+        if col_idx >= 0:
+            page_size = 100
+            self._field_page = col_idx // page_size
+            if hasattr(self, 'field_filter'):
+                self.field_filter.blockSignals(True)
+                self.field_filter.clear()
+                self.field_filter.blockSignals(False)
+            self._fill_detail_fields()
+
+            for row in range(self.field_table.rowCount()):
+                item = self.field_table.item(row, 0)
+                if item and item.text().strip().lower() == target_field:
+                    self.field_table.selectRow(row)
+                    self.field_table.scrollToItem(item)
+                    break
+
+    def _locate_schema(self, owner: str):
+        target_owner = str(owner or '').strip().lower()
+        if not target_owner:
+            return
+        for i in range(self.object_tree.topLevelItemCount()):
+            root = self.object_tree.topLevelItem(i)
+            root.setHidden(False)
+            root.setExpanded(True)
+            for j in range(root.childCount()):
+                child = root.child(j)
+                data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+                if data.get('kind') == 'schema' and str(data.get('name') or '').strip().lower() == target_owner:
+                    child.setHidden(False)
+                    child.setExpanded(True)
+                    self.object_tree.setCurrentItem(child)
+                    self.object_tree.scrollToItem(child)
+                    return
+
+    def eventFilter(self, watched, event):
+        if watched is getattr(self, 'object_filter', None):
+            event_type = event.type()
+            if event_type == QEvent.Type.KeyPress:
+                key = event.key()
+                if self._search_popup and self._search_popup.isVisible():
+                    if key == Qt.Key.Key_Down:
+                        self._search_popup.select_next()
+                        return True
+                    elif key == Qt.Key.Key_Up:
+                        self._search_popup.select_prev()
+                        return True
+                    elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                        item_data = self._search_popup.current_item()
+                        if item_data:
+                            self._activate_search_result(item_data)
+                            return True
+                    elif key == Qt.Key.Key_Escape:
+                        self._search_popup.hide()
+                        return True
+            elif event_type == QEvent.Type.FocusOut:
+                if self._search_popup and self._search_popup.isVisible():
+                    QTimer.singleShot(150, lambda: self._search_popup.hide() if self._search_popup and not self.object_filter.hasFocus() else None)
+        return super().eventFilter(watched, event)
+
+    def hideEvent(self, event):
+        if getattr(self, '_search_popup', None):
+            self._search_popup.hide()
+        super().hideEvent(event)
+
+    def _selected_object(self) -> dict | None:
+        items = self.object_tree.selectedItems()
+        if not items:
+            return None
+        data = items[0].data(0, Qt.ItemDataRole.UserRole) or {}
+        return data if isinstance(data, dict) else None
+
+    def _on_tree_selected(self):
+        data = self._selected_object() or {}
+        obj = data.get('object') if isinstance(data.get('object'), dict) else None
+        self._detail_object = obj
+        self._field_page = 0
+        self._fill_detail_fields()
+
+    def _qualified(self, obj: dict) -> str:
+        dialect = str((self._current_conn() or {}).get('dialect') or 'oracle')
+        name = str(obj.get('name') or '')
+        owner = str(obj.get('owner') or '')
+        if dialect == 'mysql':
+            return f'`{owner}`.`{name}`' if owner else f'`{name}`'
+        if owner and dialect not in ('redis', 'mongodb'):
+            return f'{owner}.{name}'
+        return name
+
+    def _insert_text(self, piece: str):
+        editor = self._current_editor()
+        if editor is None or not piece:
+            return
+        editor.insertPlainText(piece)
+
+    def _on_tree_double(self, item: QTreeWidgetItem, _column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+        if data.get('kind') == 'table' and isinstance(data.get('object'), dict):
+            self._insert_text(self._qualified(data['object']))
+
+    def _tree_menu(self, pos):
+        item = self.object_tree.itemAt(pos)
+        if item is None:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+        obj = data.get('object') if isinstance(data.get('object'), dict) else None
+        if data.get('kind') != 'table' or not obj:
+            return
+        zh = self.language == 'zh'
+        menu = QMenu(self)
+        act_select = menu.addAction('生成 SELECT *' if zh else 'Generate SELECT *')
+        act_copy = menu.addAction('复制限定名' if zh else 'Copy qualified name')
+        chosen = menu.exec(self.object_tree.viewport().mapToGlobal(pos))
+        name = self._qualified(obj)
+        if chosen == act_select:
+            dialect = str((self._browse_conn() or {}).get('dialect') or 'oracle')
+            if dialect == 'redis':
+                sql = f'SCAN 0 MATCH {obj.get("name")} COUNT 20'
+            elif dialect == 'mongodb':
+                sql = '{"collection":"%s","filter":{}}' % str(obj.get('name') or '').replace('"', '')
+            else:
+                sql = f'SELECT * FROM {name}'
+            self._insert_text(sql)
+        elif chosen == act_copy:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.clipboard().setText(name)
+
+    def _run_ai(self, action: str, *, confirmed=None):
+        zh = self.language == 'zh'
+        if self._agent_busy:
+            show_warning(self, self._title(), '当前草案任务仍在运行' if zh else 'A draft task is still running')
+            return
+        if not is_enabled():
+            show_warning(self, self._title(), '请先在设置中启用内网模型' if zh else 'Enable the intranet model first')
+            return
+        question = self.nl_input.plain_question()
+        editor = self._current_editor()
+        current_sql = editor.toPlainText() if editor is not None else ''
+        if action in ('explain', 'optimize') and not current_sql.strip():
+            show_warning(self, self._title(), '当前 Tab 没有 SQL' if zh else 'Current tab is empty')
+            return
+        if action == 'generate' and not question:
+            show_warning(self, self._title(), '请输入要生成的内容' if zh else 'Enter a prompt')
+            return
+        item = self._browse_conn()
+        evidence = None
+        if action == 'generate':
+            self.agent_stage.setText('正在理解问题与检索 Schema…' if zh else 'Understanding query and retrieving schema…')
+            self.agent_stage.show()
+            prepared = prepare_request(
+                question, self._snapshot, item,
+                tokens=self.nl_input.context,
+                current_table=self._detail_object,
+                current_fields=self._selected_detail_fields(),
+                confirmed=confirmed,
+            )
+            if prepared.get('state') == 'NEEDS_SELECTION':
+                self.agent_stage.hide()
+                self._show_agent_candidates(prepared)
+                return
+            if not prepared.get('ok'):
+                self.agent_stage.hide()
+                self._block_agent(prepared.get('reason') or '', prepared.get('next_action') or '')
+                return
+            evidence = prepared.get('evidence')
+            self._pending_evidence = evidence
+            self.agent_evidence.setText(format_evidence_bar(evidence) or '')
+            self.agent_evidence.show()
+            self._hide_agent_candidates()
+            self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
+        conn_dialect = str((item or {}).get('dialect') or 'oracle')
+        ob_mode = normalize_oceanbase_mode((item or {}).get('mode')) if conn_dialect.lower() == 'oceanbase' else ''
+        database = str((item or {}).get('database') or (item or {}).get('service_name') or '')
+        schema_name = str((item or {}).get('schema') or '')
+
+        self._start_agent_task({
+            'question': question or current_sql,
+            'action': action,
+            'dialect': conn_dialect,
+            'alias': str((item or {}).get('name') or ''),
+            'snapshot': self._snapshot if action != 'generate' else None,
+            'selected_tables': selected_table_names(self.nl_input.context),
+            'selected_fields': selected_field_names(self.nl_input.context),
+            'current_sql': current_sql,
+            'error_text': question if action == 'fix' else '',
+            'stale': False,
+            'evidence': evidence,
+            'database': database,
+            'schema_name': schema_name,
+            'oceanbase_mode': ob_mode,
+            'cfg': load_ai_local(),
+        }, action)
+
+    def _on_ai_ok(self, draft: dict):
+        from tools.ai_sql_draft import format_explanation
+        zh = self.language == 'zh'
+        if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
+            self._finish_agent_task(cancelled=True)
+            return
+        sql = str((draft or {}).get('sql') or '')
+        conn = self._browse_conn() or {}
+        dialect = str(conn.get('dialect') or 'oracle')
+        ob_mode = normalize_oceanbase_mode(conn.get('mode')) if dialect.lower() == 'oceanbase' else ''
+        evidence = self._pending_evidence
+        if evidence is not None:
+            self.agent_stage.setText('正在校验 SQL…' if zh else 'Validating SQL…')
+            self.agent_stage.show()
+            checked = validate_generated_sql(sql, evidence, dialect, oceanbase_mode=ob_mode)
+            if not checked.get('allowed'):
+                self._block_agent(checked.get('reason') or '草案被拦截', '选择字段后重试')
+                self.ai_explain.setPlainText(format_explanation(draft or {}) + '\n' + str(checked.get('reason') or ''))
+                self._finish_agent_task()
+                return
+            bar = format_evidence_bar(evidence)
+            self.agent_evidence.setText(bar)
+            explain = format_explanation(draft or {})
+            extra = [
+                f"快照：{evidence.get('snapshot_id') or ''} · {evidence.get('scanned_at') or ''}",
+                f"字段证据：{bar}" if bar else '',
+                '状态：未执行',
+            ]
+            self.ai_explain.setPlainText(explain + '\n' + '\n'.join(item for item in extra if item))
+            title = 'SQL 草案 · 未执行'
+            tab = self._new_sql_tab(sql, title)
+            tab.base_title = title
+            self._refresh_tab_titles()
+            self.result_status.setText(title)
+            self._log_msg(title)
+            self._finish_agent_task()
+            return
+        self.ai_explain.setPlainText(format_explanation(draft or {}))
+        safety = ai_draft_safety(sql, dialect)
+        title = 'SQL 草案 · 未执行'
+        if safety.get('fail_closed'):
+            self.ai_explain.append('\n' + str(safety.get('reason') or ''))
+            self.result_status.setText(title)
+            self._finish_agent_task()
+            return
+        if sql:
+            tab = self._new_sql_tab(sql, title)
+            tab.base_title = title
+            self._refresh_tab_titles()
+        self.result_status.setText(title)
+        self._log_msg(title)
+        self._finish_agent_task()
+
+    def _refresh_agent_status(self):
+        zh = self.language == 'zh'
+        item = self._browse_conn()
+        if not item:
+            self.agent_status.setText('未选择连接' if zh else 'No connection')
+            return
+        dialect = str(item.get('dialect') or '')
+        label = dict(DIALECTS).get(dialect, dialect)
+        status = snapshot_status(item, self._snapshot)
+        scanned = str((self._snapshot or {}).get('scanned_at') or '')
+        ready = False
+        try:
+            ready = is_enabled()
+        except Exception:
+            ready = False
+        model = ('模型已配置' if ready else '未配置模型') if zh else ('model ready' if ready else 'no model')
+        objs = (self._snapshot or {}).get('objects') or []
+        obj_count = len(objs)
+        field_count = sum(len(o.get('columns') or []) for o in objs if isinstance(o, dict))
+        scan_part = f" · 结构已扫描：{obj_count} 个对象 · {field_count} 个字段" if obj_count > 0 else ""
+        self.agent_status.setText(
+            f"{item.get('name') or ''} · {label} · {status.get('label') or ''}{scan_part} · {model} · 仅草案".strip(' ·')
+        )
+        self.agent_status.setToolTip(
+            (self.model_status.text() if hasattr(self, 'model_status') else '') +
+            (f'\n{scanned}' if scanned else '')
+        )
+
+    def _refresh_agent_more_menu(self):
+        zh = self.language == 'zh'
+        menu = getattr(self, '_agent_more_menu', None)
+        if menu is None:
+            return
+        menu.clear()
+        menu.addAction('解释当前 SQL' if zh else 'Explain current SQL', lambda: self._run_ai('explain'))
+        menu.addAction('优化当前 SQL' if zh else 'Optimize current SQL', lambda: self._run_ai('optimize'))
+        menu.addAction('修复报错' if zh else 'Fix error', lambda: self._run_ai('fix'))
+        menu.addAction('复制拦截详情' if zh else 'Copy block details', self._copy_block_detail)
+        menu.addAction('查看快照' if zh else 'View snapshot', self._view_snapshot)
+
+    def _show_agent_candidates(self, prepared: dict):
+        zh = self.language == 'zh'
+        self.agent_candidates.clear()
+        fields = ((prepared.get('resolution') or {}).get('fields') or [])
+        for item in fields:
+            obj = item.get('object') or {}
+            col = item.get('column') or {}
+            text = (
+                f"{obj.get('name')}.{col.get('name')}  {col.get('data_type') or ''}  "
+                f"{col.get('comment') or ''}  [{item.get('reason') or ''}]"
+            )
+            row = QListWidgetItem(text.strip())
+            row.setData(Qt.ItemDataRole.UserRole, field_qualified(obj, col))
+            self.agent_candidates.addItem(row)
+        self.agent_candidates.show()
+        self.agent_confirm_btn.show()
+        self.ai_explain.setPlainText(prepared.get('reason') or ('找到多个“创建日期”候选，请选择要使用的字段。' if zh else 'Pick a field'))
+        self._last_block = prepared.get('reason') or ''
+
+    def _hide_agent_candidates(self):
+        self.agent_candidates.hide()
+        self.agent_confirm_btn.hide()
+
+    def _confirm_agent_fields(self):
+        chosen = []
+        for item in self.agent_candidates.selectedItems():
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                chosen.append(str(data))
+        if not chosen:
+            show_warning(self, self._title(), '请选择要使用的字段' if self.language == 'zh' else 'Select fields')
+            return
+        self._hide_agent_candidates()
+        self._run_ai('generate', confirmed=chosen)
+
+    def _block_agent(self, reason: str, next_action: str = ''):
+        zh = self.language == 'zh'
+        text = str(reason or '')
+        if next_action:
+            text = f'{text}\n下一步：{next_action}' if zh else f'{text}\nNext: {next_action}'
+        self._last_block = text
+        self.ai_explain.setPlainText('草案被拦截\n' + text)
+        show_warning(self, self._title(), text)
+
+    def _copy_block_detail(self):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._last_block or self.ai_explain.toPlainText())
+
+    def _start_agent_task(self, kwargs: dict, action: str):
+        zh = self.language == 'zh'
+        self._agent_busy = True
+        self._agent_started = time.monotonic()
+        self._agent_action = action
+        self.ai_gen_btn.setEnabled(False)
+        self.agent_cancel_btn.show()
+        self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
+        self.agent_stage.show()
+        self._agent_timer.start()
+        self._ai_worker = _AiWorker(kwargs)
+        self._ai_worker.completed.connect(self._on_ai_ok)
+        self._ai_worker.failed.connect(self._on_agent_fail)
+        self._ai_worker.finished.connect(lambda: None)
+        self._ai_worker.start()
+
+    def _tick_agent_stage(self):
+        if not self._agent_busy:
+            self._agent_timer.stop()
+            return
+        elapsed = time.monotonic() - self._agent_started
+        zh = self.language == 'zh'
+        if elapsed < 0.4:
+            return
+        self.agent_stage.show()
+        if elapsed < 2:
+            self.agent_stage.setText('正在生成 SQL 草案…' if zh else 'Generating SQL draft…')
+            return
+        seconds = int(elapsed)
+        self.agent_stage.setText(
+            f'检索 Schema → 生成草案 → 校验 SQL · 已耗时 {seconds}s'
+            if zh else
+            f'retrieve schema → draft → validate · {seconds}s'
+        )
+
+    def _cancel_agent(self):
+        zh = self.language == 'zh'
+        if not self._agent_busy:
+            return
+        self.agent_stage.show()
+        self.agent_stage.setText('正在取消…' if zh else 'Cancelling…')
+        if self._ai_worker is not None:
+            self._ai_worker.cancelled = True
+
+    def _finish_agent_task(self, *, cancelled: bool = False):
+        self._agent_busy = False
+        self._agent_timer.stop()
+        self.agent_cancel_btn.hide()
+        if cancelled:
+            self.agent_stage.setText('已取消' if self.language == 'zh' else 'Cancelled')
+        else:
+            self.agent_stage.hide()
+        self._refresh_model_status()
+
+    def _on_agent_fail(self, message: str):
+        if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
+            self._finish_agent_task(cancelled=True)
+            return
+        text = redact_error(str(message or ''))
+        self._last_block = text
+        self.ai_explain.setPlainText(text)
+        show_error(self, self._title(), text)
+        self._finish_agent_task()
+
+    def _refresh_ai_chips(self):
+        zh = self.language == 'zh'
+        ctx = self.nl_input.context
+        objs = [str(item.get('qualified_name') or item.get('name')) for item in ctx.get('selected_objects') or []]
+        fields = [str(item.get('name') or '') for item in ctx.get('selected_fields') or []]
+        if not objs and not fields:
+            self.ai_chips.setText('未限定表/字段 · Agent 将从已扫描结构自动检索' if zh else 'No table/field limits · Agent will retrieve from scanned schema')
+            return
+        self.ai_chips.setText(
+            ('结构提示：' if zh else 'Structure hints: ') +
+            '；'.join((['表 ' + ', '.join(objs)] if objs else []) + (['字段 ' + ', '.join(fields)] if fields else []))
+        )
+
+    def _refresh_ai_pick_state(self):
+        item = self._browse_conn()
+        ok, reason = context_matches_snapshot({}, self._snapshot, item)
+        self.nl_input.setEnabled(True)
+        if not ok:
+            self.model_status.setText((self.model_status.text() + ' ' + reason).strip())
+
+    def _pick_ai_object(self, mode: str, position: int):
+        zh = self.language == 'zh'
+        item = self._browse_conn()
+        ok, reason = context_matches_snapshot({}, self._snapshot, item)
+        if not ok:
+            show_warning(self, self._title(), reason + '\n请先扫描/更新结构。' if zh else reason)
+            return
+        redis = str((item or {}).get('dialect') or '') == 'redis'
+        if mode == 'field' and redis:
+            show_warning(self, self._title(), 'Redis 不提供关系型字段选择' if zh else 'Redis has no table fields')
+            return
+        dialog = ObjectPickDialog(self.language, self._snapshot, mode=mode, parent=self, redis=redis)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        obj = dialog.chosen_object()
+        if not obj:
+            return
+        self.nl_input.bind_snapshot(self._snapshot)
+        if mode == 'table':
+            token = add_object(self.nl_input.context, obj)
+            self.nl_input.insert_token('object', token, position)
+        else:
+            fields = dialog.chosen_fields()
+            if not fields:
+                show_warning(self, self._title(), '请先选择表再勾选字段' if zh else 'Pick a table then fields')
+                return
+            for field in fields:
+                token = add_field(self.nl_input.context, obj, field)
+                self.nl_input.insert_token('field', token, position)
+                position = self.nl_input.textCursor().position()
+
+    def _fill_detail_fields(self, _text=''):
+        obj = self._detail_object
+        zh = self.language == 'zh'
+        self.field_table.clear()
+        self.field_table.setColumnCount(5)
+        self.field_table.setHorizontalHeaderLabels(
+            ['字段名', '类型', '可空', '键', '注释'] if zh else ['Name', 'Type', 'Null', 'Key', 'Comment']
+        )
+        if not obj:
+            self.detail_title.setText('对象详情' if zh else 'Object details')
+            self.detail_meta.setText('在左侧选择一个对象' if zh else 'Select an object')
+            self.field_table.setRowCount(0)
+            return
+        qn = self._qualified(obj)
+        cols = search_fields(obj, self.field_filter.text())
+        page_size = 100
+        pages = max(1, (len(cols) + page_size - 1) // page_size)
+        self._field_page = max(0, min(self._field_page, pages - 1))
+        start = self._field_page * page_size
+        view = cols[start:start + page_size]
+        comment = str(obj.get('comment') or '').strip()
+        title = f"{qn}  [{obj.get('object_type') or 'TABLE'}]"
+        if comment:
+            title = f'{title}  {comment}'
+        self.detail_title.setText(title)
+        extra = ' · 推断字段' if obj.get('inferred') and zh else ''
+        self.detail_meta.setText(
+            f"{qn} · {len(cols)} 个字段 · 第 {self._field_page + 1}/{pages} 页{extra}"
+            if zh else
+            f'{qn} · {len(cols)} field(s) · page {self._field_page + 1}/{pages}{extra}'
+        )
+        self.field_table.setRowCount(len(view))
+        for i, col in enumerate(view):
+            key = 'PK' if col.get('primary_key') else ('IDX' if col.get('indexed') else '')
+            values = [
+                str(col.get('name') or ''),
+                str(col.get('data_type') or ''),
+                ('否' if not col.get('nullable') else '是') if zh else ('NO' if not col.get('nullable') else 'YES'),
+                key,
+                str(col.get('comment') or ''),
+            ]
+            for c, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, col if c == 0 else None)
+                self.field_table.setItem(i, c, item)
+        self.field_table.setSelectionBehavior(self.field_table.SelectionBehavior.SelectRows)
+        self.field_prev_btn.setEnabled(self._field_page > 0)
+        self.field_next_btn.setEnabled(self._field_page + 1 < pages)
+
+    def _shift_field_page(self, delta: int):
+        self._field_page += int(delta)
+        self._fill_detail_fields()
+
+    def _selected_detail_fields(self) -> list:
+        rows = []
+        for index in self.field_table.selectionModel().selectedRows() if self.field_table.selectionModel() else []:
+            item = self.field_table.item(index.row(), 0)
+            data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if isinstance(data, dict):
+                rows.append(data)
+        return rows
+
+    def _insert_detail_fields(self):
+        names = [str(col.get('name') or '') for col in self._selected_detail_fields()]
+        self._insert_text(', '.join(names))
+
+    def _send_detail_to_ai(self):
+        if not self._detail_object:
+            return
+        self._send_object_to_ai(self._detail_object, self._selected_detail_fields())
+
+    def _send_object_to_ai(self, obj: dict, fields: list):
+        self.nl_input.bind_snapshot(self._snapshot)
+        pos = self.nl_input.textCursor().position()
+        token = add_object(self.nl_input.context, obj)
+        self.nl_input.insert_token('object', token, pos)
+        pos = self.nl_input.textCursor().position()
+        for field in fields or []:
+            token = add_field(self.nl_input.context, obj, field)
+            self.nl_input.insert_token('field', token, pos)
+            pos = self.nl_input.textCursor().position()
+        self.side_tabs.setCurrentIndex(0)
