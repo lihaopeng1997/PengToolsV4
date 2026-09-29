@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import re
 
 from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeyEvent, QTextOption
@@ -21,13 +22,20 @@ from PyQt6.QtWidgets import (
 
 from config import load_settings, save_settings
 from tools import harness_project
-from tools.intranet_llm import list_enabled_items, ping_model
+from tools.ai_sql_draft import format_explanation, run_chat_evidence_chain
+from tools.chat_intent import detect_take_data_intent
+from tools.db_connect import load_connections
+from tools.intranet_llm import is_enabled as intranet_llm_enabled
+from tools.intranet_llm import list_enabled_items, load_ai_local, ping_model
+from tools.linux_guard import extract_command_candidates, inspect_commands
 from tools.model_chat_store import (
     append_message, create_session, delete_session, load_index,
     load_session, rename_session, search_sessions, trim_messages_for_request,
     update_message,
 )
+from tools.schema_snapshot import load_snapshot, snapshot_status
 from tools.sql_guard import redact_error
+from tools.tameng_agent import format_evidence_bar
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import size_line, size_pick_combo
@@ -92,12 +100,49 @@ class _PingWorker(QThread):
         self.completed.emit(ping_model(self.cfg))
 
 
+# _send 把附件正文包成 [附件: name]\n```\n...\n``` 存进会话；意图识别与命令门禁
+# 只看用户 typed 文本，不能把附件 dump 当成命令来审（否则日志/SQL 附件必误杀）
+_ATTACHMENT_DUMP_RE = re.compile(r'\[附件: [^\]\n]*\]\n```\n.*?```\s*', re.DOTALL)
+
+
+def strip_attachment_dumps(text: str) -> str:
+    return _ATTACHMENT_DUMP_RE.sub('', str(text or '')).strip()
+
+
+class _SqlDraftWorker(QThread):
+    """取数意图的证据链：在后台线程跑 证据检索→草稿→校验，绝不执行 SQL。"""
+
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, question, conn, snapshot, cfg):
+        super().__init__()
+        self.question = question
+        self.conn = dict(conn or {})
+        self.snapshot = snapshot
+        self.cfg = dict(cfg or {})
+        self.cancelled = False
+
+    def run(self):
+        try:
+            result = run_chat_evidence_chain(self.question, self.conn, self.snapshot, self.cfg)
+            if self.cancelled:
+                return
+            self.completed.emit(result)
+        except Exception as exc:
+            if self.cancelled:
+                return
+            self.failed.emit(redact_error(str(exc)))
+
+
 class ModelChatPanel(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
         self._worker = None
         self._ping_worker = None
+        self._draft_worker = None
+        self._last_intent = 'none'
         self._session = None
         self._pending_id = ''
         self._is_running = False
@@ -108,8 +153,13 @@ class ModelChatPanel(QWidget):
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
+        self._reload_sql_connections()
         self._reload_sessions()
         self._maybe_show_banner()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._reload_sql_connections()
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -145,12 +195,23 @@ class ModelChatPanel(QWidget):
         self.skill_btn = QPushButton()
         apply_button(self.skill_btn, 'ghost', compact=True)
         self.skill_btn.clicked.connect(self._open_skill_manager)
+        self.sql_conn_label = QLabel()
+        self.sql_conn_label.setObjectName('field-hint')
+        self.sql_conn_combo = QComboBox()
+        size_pick_combo(self.sql_conn_combo)
+        self.sql_conn_combo.currentIndexChanged.connect(self._on_sql_conn_changed)
+        self.sql_conn_hint = QLabel()
+        self.sql_conn_hint.setObjectName('field-hint')
+        self.sql_conn_hint.setWordWrap(True)
         self.ping_status = QLabel()
         self.ping_status.setObjectName('field-hint')
         self.ping_status.setWordWrap(True)
         top.addWidget(self.model_combo)
         top.addWidget(self.ping_btn)
         top.addWidget(self.skill_btn)
+        top.addWidget(self.sql_conn_label)
+        top.addWidget(self.sql_conn_combo)
+        top.addWidget(self.sql_conn_hint)
         top.addWidget(self.ping_status, 1)
         root.addWidget(toolbar)
 
@@ -334,6 +395,8 @@ class ModelChatPanel(QWidget):
         self.add_file_action.setText('添加文本文件' if zh else 'Add text file')
         self.add_img_action.setText('添加图片' if zh else 'Add image')
         self.clear_attach_action.setText('清空附件' if zh else 'Clear attachments')
+        self.sql_conn_label.setText('取数连接' if zh else 'SQL connection')
+        self._refresh_sql_conn_hint()
         self._sync_running_state()
 
     def _sync_running_state(self):
@@ -483,6 +546,58 @@ class ModelChatPanel(QWidget):
             settings['model_chat_last_model_id'] = str(model.get('id') or '')
             save_settings(settings)
         self._sync_send_enabled()
+
+    def _reload_sql_connections(self):
+        """取数连接下拉：仅关系型连接；保留上次选择。"""
+        zh = self.language == 'zh'
+        keep = ''
+        data = self.sql_conn_combo.currentData()
+        if isinstance(data, dict):
+            keep = str(data.get('id') or '')
+        self.sql_conn_combo.blockSignals(True)
+        self.sql_conn_combo.clear()
+        rows = []
+        try:
+            rows = load_connections()
+        except Exception:
+            rows = []
+        rows = [
+            item for item in rows
+            if isinstance(item, dict)
+            and str(item.get('dialect') or '').lower() not in ('redis', 'mongo', 'mongodb')
+        ]
+        if not rows:
+            self.sql_conn_combo.addItem('无可用关系型连接' if zh else 'No relational connection', None)
+        else:
+            self.sql_conn_combo.addItem('不指定' if zh else 'None', None)
+            for item in rows:
+                self.sql_conn_combo.addItem(str(item.get('name') or item.get('id')), dict(item))
+                if keep and str(item.get('id') or '') == keep:
+                    self.sql_conn_combo.setCurrentIndex(self.sql_conn_combo.count() - 1)
+        self.sql_conn_combo.blockSignals(False)
+        self._refresh_sql_conn_hint()
+
+    def _on_sql_conn_changed(self, _index):
+        self._refresh_sql_conn_hint()
+
+    def _sql_conn_item(self) -> dict | None:
+        data = self.sql_conn_combo.currentData()
+        return dict(data) if isinstance(data, dict) else None
+
+    def _refresh_sql_conn_hint(self):
+        zh = self.language == 'zh'
+        item = self._sql_conn_item()
+        if item is None:
+            self.sql_conn_hint.setText('取数问题需先选择连接' if zh else 'Pick a connection for data questions')
+            return
+        snap = load_snapshot(str(item.get('id') or ''))
+        status = snapshot_status(item, snap)
+        if status.get('stale'):
+            self.sql_conn_hint.setText('结构快照已过期：请先到数据库工作台重新扫描' if zh else 'Snapshot stale: rescan in DB workbench')
+        elif status.get('status') == 'missing' or not (snap or {}).get('objects'):
+            self.sql_conn_hint.setText('无结构快照：不会猜测表名' if zh else 'No schema snapshot')
+        else:
+            self.sql_conn_hint.setText('结构快照就绪' if zh else 'Snapshot ready')
 
     def _sync_send_enabled(self):
         has_model = self._current_model() is not None
@@ -763,6 +878,24 @@ class ModelChatPanel(QWidget):
         )
         self._session = pending
         self._pending_id = str((pending.get('messages') or [{}])[-1].get('id') or '')
+
+        # 意图分流：取数类走证据链，运维命令类走只读门禁，其余直连模型
+        intent = detect_take_data_intent(text)
+        self._last_intent = intent
+        if intent == 'sql':
+            self._render_messages()
+            self._reload_sessions()
+            self._start_sql_draft(text)
+            return
+        if intent == 'linux':
+            # 只审用户 typed 文本：附件 dump 里可能是日志/SQL 正文，不能当命令审
+            _allowed, rejected = inspect_commands(extract_command_candidates(text))
+            if rejected:
+                self._render_messages()
+                self._reload_sessions()
+                self._reply_local(self._linux_blocked_text(rejected))
+                return
+
         payload, trimmed = trim_messages_for_request(self._session.get('messages') or [])
         self.trim_hint.setVisible(trimmed)
         self.trim_hint.setText(
@@ -804,6 +937,11 @@ class ModelChatPanel(QWidget):
     def _on_chat_ok(self, text: str):
         if self._stop_requested:
             return
+        if self._last_intent == 'linux':
+            # 运维命令类意图：对模型回复中的命令做只读门禁后检查
+            note = self._linux_gate_note(extract_command_candidates(text))
+            if note:
+                text = text + '\n\n---\n' + note
         if self._session and self._pending_id:
             self._session = update_message(self._session.get('id'), self._pending_id, content=text, status='complete')
             self._render_messages()
@@ -825,11 +963,144 @@ class ModelChatPanel(QWidget):
         self._sync_running_state()
         self._worker = None
 
+    def _reply_local(self, text: str):
+        """不经过模型，直接把本地生成的 fail-closed/门禁回复写入待定消息。"""
+        if self._session and self._pending_id:
+            self._session = update_message(
+                self._session.get('id'), self._pending_id, content=text, status='complete',
+            )
+            self._render_messages()
+            self._reload_sessions()
+
+    def _linux_blocked_text(self, rejected) -> str:
+        zh = self.language == 'zh'
+        lines = [
+            '检测到运维命令意图，但以下命令未通过只读门禁，已拒绝（不会执行）：'
+            if zh else
+            'Linux command intent detected, but the following commands were rejected by the read-only gate:'
+        ]
+        for cmd, reason in rejected:
+            lines.append(f'- {cmd} → {reason}')
+        lines.append(
+            '只允许只读查看类命令（如 tail/grep/ps/df/free）；删除、改系统、重定向、管道到解释器的命令一律拒绝。'
+            if zh else
+            'Only read-only inspection commands (e.g. tail/grep/ps/df/free) are allowed.'
+        )
+        return '\n'.join(lines)
+
+    def _linux_gate_note(self, candidates) -> str | None:
+        if not candidates:
+            return None
+        zh = self.language == 'zh'
+        allowed, rejected = inspect_commands(candidates)
+        lines = ['【只读门禁检查】' if zh else '[Read-only gate check]']
+        if allowed:
+            lines.append(('通过白名单：' if zh else 'Allowed: ') + '；'.join(allowed))
+        for cmd, reason in rejected:
+            lines.append(('未通过（请勿执行）：' if zh else 'Rejected (do not run): ') + f'{cmd} → {reason}')
+        return '\n'.join(lines)
+
+    def _sql_fail_closed_text(self, reason: str, next_action: str = '') -> str:
+        zh = self.language == 'zh'
+        lines = [
+            '检测到取数意图，已走「证据检索→草稿→校验」链路，但已 fail-closed。'
+            if zh else
+            'Data-query intent detected; the evidence chain was attempted but failed closed.',
+            f"{'原因' if zh else 'Reason'}：{reason or ('证据不足' if zh else 'insufficient evidence')}",
+            '不知道/查不到——为避免编造表名或数据，我不会猜测。'
+            if zh else
+            'Unknown/unverifiable — I will not fabricate table names or data.',
+        ]
+        if next_action:
+            lines.append(f"{'下一步' if zh else 'Next'}：{next_action}")
+        return '\n'.join(lines)
+
+    def _start_sql_draft(self, question: str):
+        """取数意图入口：连接/快照缺失直接 fail-closed，否则起后台证据链。"""
+        zh = self.language == 'zh'
+        conn = self._sql_conn_item()
+        if conn is None:
+            self._reply_local(self._sql_fail_closed_text(
+                '未选择取数连接，不知道该查哪个库' if zh else 'no data connection selected',
+                '请在上方工具栏选择一个关系型数据库连接（需先在数据库工作台扫描结构）'
+                if zh else 'pick a relational connection above (scan its schema in the DB workbench first)',
+            ))
+            return
+        snap = load_snapshot(str(conn.get('id') or ''))
+        status = snapshot_status(conn, snap)
+        if status.get('stale'):
+            self._reply_local(self._sql_fail_closed_text(
+                '该连接的结构快照已过期' if zh else 'schema snapshot is stale',
+                '请到数据库工作台重新扫描结构后再问' if zh else 'rescan the schema in the DB workbench first',
+            ))
+            return
+        if status.get('status') == 'missing' or not (snap or {}).get('objects'):
+            self._reply_local(self._sql_fail_closed_text(
+                '该连接尚未扫描结构快照，不会猜测表或字段' if zh else 'no schema snapshot scanned',
+                '请先到数据库工作台扫描该连接的结构' if zh else 'scan this connection schema in the DB workbench first',
+            ))
+            return
+        cfg = load_ai_local()
+        if not intranet_llm_enabled(cfg):
+            self._reply_local(self._sql_fail_closed_text(
+                '内网模型未启用，无法生成 SQL 草案' if zh else 'intranet model not enabled',
+                '请先在设置中配置并启用内网模型' if zh else 'enable the intranet model in settings first',
+            ))
+            return
+        self._is_running = True
+        self._stop_requested = False
+        self._sync_running_state()
+        self._draft_worker = _SqlDraftWorker(question, conn, snap, cfg)
+        self._draft_worker.completed.connect(self._on_sql_draft_ok)
+        self._draft_worker.failed.connect(self._on_sql_draft_fail)
+        self._draft_worker.finished.connect(self._on_sql_draft_done)
+        self._draft_worker.start()
+
+    def _on_sql_draft_ok(self, result: object):
+        if self._stop_requested:
+            return
+        zh = self.language == 'zh'
+        data = result if isinstance(result, dict) else {}
+        if not data.get('ok'):
+            self._reply_local(self._sql_fail_closed_text(
+                str(data.get('reason') or ''), str(data.get('next_action') or ''),
+            ))
+            return
+        draft = data.get('draft') if isinstance(data.get('draft'), dict) else {}
+        evidence = data.get('evidence') if isinstance(data.get('evidence'), dict) else {}
+        lines = ['【SQL 草案 · 未执行】' if zh else '[SQL draft · not executed]']
+        lines.append(format_explanation(draft))
+        bar = format_evidence_bar(evidence)
+        if bar:
+            lines.append(('字段证据：' if zh else 'Field evidence: ') + bar)
+        lines.append(
+            '状态：草案未执行，需人工确认后才可执行。'
+            if zh else 'Status: draft only, not executed; human confirmation required.'
+        )
+        self._reply_local('\n'.join(lines))
+
+    def _on_sql_draft_fail(self, message: str):
+        if self._stop_requested:
+            return
+        zh = self.language == 'zh'
+        self._reply_local(self._sql_fail_closed_text(
+            ('证据链执行失败：' if zh else 'evidence chain failed: ') + redact_error(message),
+        ))
+        self.ping_status.setText(redact_error(message))
+
+    def _on_sql_draft_done(self):
+        self._is_running = False
+        self._stop_requested = False
+        self._sync_running_state()
+        self._draft_worker = None
+
     def _stop(self):
         zh = self.language == 'zh'
         self._stop_requested = True
         if self._worker is not None:
             self._worker.cancelled = True
+        if self._draft_worker is not None:
+            self._draft_worker.cancelled = True
         if self._session and self._pending_id:
             current = ''
             for msg in self._session.get('messages') or []:
@@ -867,6 +1138,21 @@ class ModelChatPanel(QWidget):
         )
         self._session = pending
         self._pending_id = str((pending.get('messages') or [{}])[-1].get('id') or '')
+        plain_user = strip_attachment_dumps(last_user)
+        intent = detect_take_data_intent(plain_user)
+        self._last_intent = intent
+        if intent == 'sql':
+            self.trim_hint.hide()
+            self._render_messages()
+            self._start_sql_draft(plain_user or last_user)
+            return
+        if intent == 'linux':
+            _allowed, rejected = inspect_commands(extract_command_candidates(plain_user))
+            if rejected:
+                self.trim_hint.hide()
+                self._render_messages()
+                self._reply_local(self._linux_blocked_text(rejected))
+                return
         payload, trimmed = trim_messages_for_request(self._session.get('messages') or [])
         self.trim_hint.setVisible(trimmed)
         self._render_messages()

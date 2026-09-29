@@ -237,7 +237,7 @@ class DashboardPanel(QWidget):
     open_vin = pyqtSignal()
     open_gateway = pyqtSignal()
     open_ops = pyqtSignal()
-    open_ai_workbench = pyqtSignal()
+    open_sql_console = pyqtSignal()  # Phase 0 命名冻结：原 open_ai_workbench（实为 SQL 控制台入口）
     open_requirements = pyqtSignal()
     open_requirement = pyqtSignal(object)  # 具体需求 dict 或 id
     requirements_updated = pyqtSignal()  # 工作台改了需求台账（标记上线/恢复待办）
@@ -392,10 +392,10 @@ class DashboardPanel(QWidget):
         self.docx = QPushButton()
         self.vin = QPushButton()
         self.ops = QPushButton()
-        self.ai_workbench = QPushButton()
+        self.sql_console = QPushButton()
         self._tool_buttons = []
         for btn, icon, signal in (
-            (self.ai_workbench, 'database', self.open_ai_workbench),
+            (self.sql_console, 'database', self.open_sql_console),
             (self.gateway, 'shield-key', self.open_gateway),
             (self.credit, 'document-id', self.open_credit),
             (self.docx, 'doc-update', self.open_docx),
@@ -918,8 +918,8 @@ class DashboardPanel(QWidget):
             self.credit.setText('证件类型')
             self.docx.setText('接口文档')
             self.vin.setText('车辆 VIN')
-            self.ops.setText('运维工作台')
-            self.ai_workbench.setText('SQL 控制台')
+            self.ops.setText('运维工具')
+            self.sql_console.setText('SQL 控制台')
         else:
             self.title.setText('Workbench')
             self.subtitle.setText(f'{today.strftime("%Y-%m-%d")} · Focus on nearby delivery work')
@@ -941,6 +941,6 @@ class DashboardPanel(QWidget):
             self.credit.setText('Documents')
             self.docx.setText('Interface Docs')
             self.vin.setText('Vehicle VIN')
-            self.ops.setText('Ops Workbench')
-            self.ai_workbench.setText('SQL Console')
+            self.ops.setText('Ops Tools')
+            self.sql_console.setText('SQL Console')
         self.refresh()
