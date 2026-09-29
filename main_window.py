@@ -14,8 +14,8 @@ from ui.confirm_dialog import ask_close_action
 from ui.field_metrics import size_combo
 from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
 from ui.navigation_model import (
-    GROUP_LABELS, NAV_MODEL, SQL_CONSOLE_NAV, AI_PARENT_NAV, AI_CHAT_NAV, AI_WORKBENCH_NAV,
-    SQL_DB_NAV_START, SQL_DB_NAV_MAX, FIXED_DB_PAGES,
+    GROUP_LABELS, NAV_MODEL, SQL_CONSOLE_NAV, TOOLBOX_NAV,
+    SQL_DB_NAV_START, SQL_DB_NAV_MAX, FIXED_DB_PAGES, TOOLBOX_CHILDREN,
     dialect_for_nav, display_name, icon_role_for, is_parent_nav,
     nav_is_db_slot, resolve_db_slot_index,
 )
@@ -300,8 +300,8 @@ class MainWindow(QMainWindow):
         panel.open_vin.connect(lambda: self._show_panel(4))
         panel.open_gateway.connect(lambda: self._show_panel(5))
         panel.open_ops.connect(lambda: self._show_panel(13))
-        if hasattr(panel, 'open_ai_workbench'):
-            panel.open_ai_workbench.connect(lambda: self._show_panel(SQL_DB_NAV_START))
+        if hasattr(panel, 'open_sql_console'):
+            panel.open_sql_console.connect(lambda: self._show_panel(SQL_DB_NAV_START))
         if hasattr(panel, 'open_requirements'):
             panel.open_requirements.connect(lambda: self._show_panel(10))
         if hasattr(panel, 'open_requirement'):
@@ -694,7 +694,7 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–13 历史 + 14 SQL 控制台（可展开组）+ 15 模型（可展开组）
+        # 0–13 历史面板 + 14 数据中心（可展开组）+ 24 工具箱（可展开组）
         self.nav_buttons = [None] * 48
         self._group_labels = {}
         self._nav_order = []
@@ -702,23 +702,26 @@ class MainWindow(QMainWindow):
         self._sql_subnav_buttons = {}
         self._sql_console_expanded = bool(self._settings.get('sidebar_expanded_sql', True))
         self._db_subnav_indices = []
-        self._ai_subnav_container = None
-        self._ai_subnav_buttons = {}
-        self._ai_expanded = bool(self._settings.get('sidebar_expanded_ai', True))
+        self._toolbox_subnav_container = None
+        self._toolbox_subnav_layout = None
+        self._toolbox_subnav_buttons = {}
+        self._toolbox_expanded = bool(self._settings.get('sidebar_expanded_toolbox', True))
 
         for group_key, items in NAV_MODEL:
-            section = QLabel()
-            section.setObjectName('sidebar-section')
-            self._group_labels[group_key] = section
-            self._nav_layout.addWidget(section)
+            # Phase 0：单条目分组不渲染分组标题（一级即按钮/父级头本身，避免标题与按钮文案重复）
+            if len(items) > 1:
+                section = QLabel()
+                section.setObjectName('sidebar-section')
+                self._group_labels[group_key] = section
+                self._nav_layout.addWidget(section)
             for nav_index, _zh, _en, icon_role in items:
-                if nav_index == 14:
-                    # SQL 控制台 → 可折叠组（header + 6 数据库子项）
+                if nav_index == SQL_CONSOLE_NAV:
+                    # 数据中心 → 可折叠组（header + 6 数据库子项）
                     self._render_sql_console_group()
                     continue
-                if nav_index == 15:
-                    # 模型 → 可折叠组（header + 聊天/工作子项）
-                    self._render_ai_group()
+                if nav_index == TOOLBOX_NAV:
+                    # 工具箱 → 可折叠组（header + 二级工具子项）
+                    self._render_toolbox_group()
                     continue
                 button = QPushButton()
                 button.setObjectName('nav-btn')
@@ -730,10 +733,6 @@ class MainWindow(QMainWindow):
                 self._nav_layout.addWidget(button)
                 self.nav_buttons[nav_index] = button
                 self._nav_order.append(nav_index)
-                # 自我学习：仅未解锁时隐藏；已持久化解锁则保持展示
-                if nav_index == 8 and not self._private_unlocked:
-                    button.hide()
-                    section.hide()
 
         self._nav_layout.addStretch(1)
         scroll.setWidget(nav_host)
@@ -858,50 +857,55 @@ class MainWindow(QMainWindow):
         self._nav_layout.addWidget(self._sql_subnav_container)
         self._rebuild_sql_console_subnav()
 
-    def _render_ai_group(self):
-        """渲染"模型"为可折叠导航组（header + 聊天/工作子项）。"""
+    def _render_toolbox_group(self):
+        """渲染工具箱为可折叠导航组（header + 二级工具子项）。Phase 0：二级收纳。"""
         zh = self.language == 'zh'
         header = QPushButton()
         header.setObjectName('nav-btn')
         header.setCheckable(False)
         header.setCursor(Qt.CursorShape.PointingHandCursor)
-        header.setProperty('navIndex', 15)
-        header.setProperty('aiHeader', True)
-        apply_icon(header, 'chat', size=20)
-        header.clicked.connect(lambda: self._toggle_ai_group())
-        self.nav_buttons[15] = header
-        self._nav_order.append(15)
+        header.setProperty('navIndex', TOOLBOX_NAV)
+        header.setProperty('toolboxHeader', True)
+        # 工具箱 header 不设图标：无既合语义、原生/Web 双端又都认识的图标角色；
+        # 空角色时 apply_icon 为 no-op，header 以文字 + 右侧折叠箭头呈现。
+        header.clicked.connect(lambda: self._toggle_toolbox())
+        self.nav_buttons[TOOLBOX_NAV] = header
+        self._nav_order.append(TOOLBOX_NAV)
 
-        self._ai_expand_btn = QToolButton()
-        self._ai_expand_btn.setObjectName('nav-sub-expand')
-        self._ai_expand_btn.setCheckable(True)
-        self._ai_expand_btn.setChecked(self._ai_expanded)
-        self._ai_expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._ai_expand_btn.setFixedSize(18, 18)
-        apply_icon(self._ai_expand_btn, 'collapse' if self._ai_expanded else 'expand', size=10)
-        self._ai_expand_btn.setToolTip('收起模型子菜单' if zh else 'Collapse AI menu')
-        self._ai_expand_btn.clicked.connect(self._toggle_ai_group)
+        self._toolbox_expand_btn = QToolButton()
+        self._toolbox_expand_btn.setObjectName('nav-sub-expand')
+        self._toolbox_expand_btn.setCheckable(True)
+        self._toolbox_expand_btn.setChecked(self._toolbox_expanded)
+        self._toolbox_expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toolbox_expand_btn.setFixedSize(18, 18)
+        apply_icon(self._toolbox_expand_btn, 'collapse' if self._toolbox_expanded else 'expand', size=10)
+        self._toolbox_expand_btn.setToolTip(
+            '收起工具箱' if zh and self._toolbox_expanded else
+            '展开工具箱' if zh else
+            'Collapse toolbox' if self._toolbox_expanded else 'Expand toolbox'
+        )
+        self._toolbox_expand_btn.clicked.connect(self._toggle_toolbox)
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 8, 0)
         row.setSpacing(4)
         row.addWidget(header, 1)
-        row.addWidget(self._ai_expand_btn, 0)
+        row.addWidget(self._toolbox_expand_btn, 0)
         wrapper = QWidget()
-        wrapper.setObjectName('ai-header-row')
+        wrapper.setObjectName('toolbox-header-row')
         wrapper.setLayout(row)
         self._nav_layout.addWidget(wrapper)
 
-        self._ai_subnav_container = QFrame()
-        self._ai_subnav_container.setObjectName('sql-subnav')
-        self._ai_subnav_container.setVisible(self._ai_expanded)
-        sub_l = QVBoxLayout(self._ai_subnav_container)
+        self._toolbox_subnav_container = QFrame()
+        self._toolbox_subnav_container.setObjectName('toolbox-subnav')
+        self._toolbox_subnav_container.setVisible(self._toolbox_expanded)
+        sub_l = QVBoxLayout(self._toolbox_subnav_container)
         sub_l.setContentsMargins(20, 2, 8, 4)
         sub_l.setSpacing(1)
-        self._ai_subnav_layout = sub_l
-        self._nav_layout.addWidget(self._ai_subnav_container)
-        # 子项：聊天(16)、工作(17)
-        for nav_index, icon_role in ((AI_CHAT_NAV, 'chat'), (AI_WORKBENCH_NAV, 'workbench')):
+        self._toolbox_subnav_layout = sub_l
+        self._nav_layout.addWidget(self._toolbox_subnav_container)
+        self._toolbox_subnav_buttons = {}
+        for nav_index, name_zh, name_en, icon_role in TOOLBOX_CHILDREN:
             btn = QPushButton()
             btn.setObjectName('nav-sub-item')
             btn.setCheckable(True)
@@ -909,9 +913,23 @@ class MainWindow(QMainWindow):
             btn.setProperty('navIndex', nav_index)
             apply_icon(btn, icon_role, size=16)
             btn.clicked.connect(lambda checked=False, ni=nav_index: self._show_panel(ni))
-            self._ai_subnav_layout.addWidget(btn)
+            self._toolbox_subnav_layout.addWidget(btn)
             self.nav_buttons[nav_index] = btn
-            self._ai_subnav_buttons[nav_index] = btn
+            self._toolbox_subnav_buttons[nav_index] = btn
+            # 自我学习：彩蛋未解锁时仅隐藏按钮（保留 nav_buttons 注册，解锁后直接 show）
+            if nav_index == 8 and not self._private_unlocked:
+                btn.hide()
+        self._refresh_toolbox_texts()
+
+    def _refresh_toolbox_texts(self):
+        """刷新工具箱子菜单文案（语言切换时）。"""
+        if self._nav_icon_only:
+            return
+        zh = self.language == 'zh'
+        for nav_index, name_zh, name_en, icon_role in TOOLBOX_CHILDREN:
+            btn = self._toolbox_subnav_buttons.get(nav_index)
+            if btn is not None:
+                btn.setText(name_zh if zh else name_en)
 
     def _toggle_sql_console(self):
         """展开/折叠 SQL 控制台数据库子菜单。"""
@@ -928,26 +946,26 @@ class MainWindow(QMainWindow):
         )
         self._persist_sidebar_expand()
 
-    def _toggle_ai_group(self):
-        """展开/折叠模型子菜单（聊天/工作）。"""
-        self._ai_expanded = not self._ai_expanded
-        if self._ai_subnav_container:
-            self._ai_subnav_container.setVisible(self._ai_expanded)
-        self._ai_expand_btn.setChecked(self._ai_expanded)
+    def _toggle_toolbox(self):
+        """展开/折叠工具箱二级子菜单。"""
+        self._toolbox_expanded = not self._toolbox_expanded
+        if self._toolbox_subnav_container:
+            self._toolbox_subnav_container.setVisible(self._toolbox_expanded)
+        self._toolbox_expand_btn.setChecked(self._toolbox_expanded)
         zh = self.language == 'zh'
-        apply_icon(self._ai_expand_btn, 'collapse' if self._ai_expanded else 'expand', size=10)
-        self._ai_expand_btn.setToolTip(
-            '收起模型子菜单' if zh and self._ai_expanded else
-            '展开模型子菜单' if zh else
-            'Collapse AI menu' if self._ai_expanded else 'Expand AI menu'
+        apply_icon(self._toolbox_expand_btn, 'collapse' if self._toolbox_expanded else 'expand', size=10)
+        self._toolbox_expand_btn.setToolTip(
+            '收起工具箱' if zh and self._toolbox_expanded else
+            '展开工具箱' if zh else
+            'Collapse toolbox' if self._toolbox_expanded else 'Expand toolbox'
         )
         self._persist_sidebar_expand()
 
     def _persist_sidebar_expand(self):
-        """持久化 SQL 控制台 / 模型两组折叠状态。"""
+        """持久化数据中心 / 工具箱两组折叠状态。"""
         try:
             self._settings['sidebar_expanded_sql'] = bool(self._sql_console_expanded)
-            self._settings['sidebar_expanded_ai'] = bool(self._ai_expanded)
+            self._settings['sidebar_expanded_toolbox'] = bool(self._toolbox_expanded)
             from config import save_settings
             self._settings = save_settings(self._settings)
         except Exception:
@@ -980,22 +998,16 @@ class MainWindow(QMainWindow):
         self._refresh_nav_texts_db()
 
     def _refresh_nav_texts_db(self):
-        """刷新侧栏 DB 子菜单的文案和图标（语言切换时）。"""
+        """刷新侧栏 DB 子菜单的文案和图标（语言切换时）。
+
+        16=智能对话、17=AI 工作台现为 NAV_MODEL 一级按钮，文案由 _apply_nav_texts 统一刷新。
+        """
         if self._nav_icon_only:
             return
-        zh = self.language == 'zh'
         for name_zh, dialect, nav_index, icon_role in FIXED_DB_PAGES:
             btn = self._sql_subnav_buttons.get(nav_index)
             if btn is not None:
                 btn.setText(name_zh)
-        # 模型子菜单文案
-        if hasattr(self, '_ai_subnav_buttons'):
-            chat_btn = self._ai_subnav_buttons.get(AI_CHAT_NAV)
-            if chat_btn is not None:
-                chat_btn.setText('聊天' if zh else 'Chat')
-            work_btn = self._ai_subnav_buttons.get(AI_WORKBENCH_NAV)
-            if work_btn is not None:
-                work_btn.setText('工作' if zh else 'Work')
 
     def _active_db_context(self) -> dict | None:
         """返回当前活跃的数据库连接上下文（供模型对话面板感知）。"""
@@ -1011,7 +1023,7 @@ class MainWindow(QMainWindow):
         return None
 
     def _ensure_db_panel(self, nav_index: int):
-        """确保六数据库面板按 dialect 创建（Oracle/MySQL/OceanBase/达梦复用 AiWorkbenchPanel）。"""
+        """确保六数据库面板按 dialect 创建（Oracle/MySQL/OceanBase/达梦复用 SqlConsolePanel）。"""
         slot = resolve_db_slot_index(nav_index)
         stack_index = STACK_DB_START + slot
         if stack_index >= len(_STACK_PANEL_ATTRS):
@@ -1022,8 +1034,8 @@ class MainWindow(QMainWindow):
             return panel
         dialect = dialect_for_nav(nav_index)
         if dialect in ('oracle', 'mysql', 'oceanbase', 'dameng'):
-            from panels.ai_workbench_panel import AiWorkbenchPanel
-            panel = AiWorkbenchPanel(self.language, dialect=dialect)
+            from panels.sql_console_panel import SqlConsolePanel
+            panel = SqlConsolePanel(self.language, dialect=dialect)
         elif dialect == 'redis':
             from panels.db_redis_panel import RedisWorkbenchPanel
             panel = RedisWorkbenchPanel(self.language)
@@ -1123,10 +1135,7 @@ class MainWindow(QMainWindow):
         self._content_layout.setContentsMargins(margin, margin - 4, margin, 12)
         # 分组标题 / 导航文字
         for key, label in self._group_labels.items():
-            if key == 'personal' and not self._private_unlocked:
-                label.setVisible(False)
-            else:
-                label.setVisible(not icon_only)
+            label.setVisible(not icon_only)
         for index, button in enumerate(self.nav_buttons):
             if button is None:
                 continue
@@ -1231,6 +1240,8 @@ class MainWindow(QMainWindow):
             self.theme_cycle_button.setToolTip(self._theme_cycle_tooltip())
         # 刷新 DB 子菜单文案（语言切换时）
         self._refresh_nav_texts_db()
+        # 刷新工具箱子菜单文案（语言切换时）
+        self._refresh_toolbox_texts()
 
     def _iter_created_panels(self):
         """已实例化面板（懒加载未创建的跳过）。"""
@@ -1306,11 +1317,11 @@ class MainWindow(QMainWindow):
     def _stack_index_for_nav(index: int) -> int:
         """nav index → stack index。
 
-        v3.0：0–13 历史含义不变；16=聊天→13；17=工作→14；18–23 六数据库面板→15–20。
-        14(SQL控制台)/15(模型) 为父级，不映射 stack。
+        Phase 0：0–13 历史含义不变；16=智能对话→13；17=AI 工作台→14；18–23 六数据库面板→15–20。
+        14(数据中心)/24(工具箱) 为父级，不映射 stack。
         """
         if index in (8, 9):
-            return 8  # personal
+            return 8  # 自我学习/日报（stack 槽位复用）
         if index == 10:
             return 9  # requirement
         if index == 11:
@@ -1320,9 +1331,9 @@ class MainWindow(QMainWindow):
         if index == 13:
             return 12  # ops log inspect
         if index == 16:
-            return 13  # model chat (聊天)
+            return 13  # 智能对话（原"聊天"）
         if index == 17:
-            return 14  # agent workbench (工作)
+            return 14  # AI 工作台（原"工作"，真 Harness）
         if nav_is_db_slot(index):
             return STACK_DB_START + resolve_db_slot_index(index)
         return index
@@ -1431,7 +1442,8 @@ class MainWindow(QMainWindow):
     def _build_web_nav_model(self):
         """侧栏 Web 渲染数据：唯一权威 ui/navigation_model.py，JS 端不硬编码。"""
         from ui.navigation_model import (
-            NAV_MODEL, GROUP_LABELS, NAV_ITEMS, FIXED_DB_PAGES, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+            NAV_MODEL, GROUP_LABELS, NAV_ITEMS, FIXED_DB_PAGES,
+            SQL_CONSOLE_NAV, TOOLBOX_NAV, TOOLBOX_CHILDREN,
         )
         dia_short = {'oracle': 'ORA', 'mysql': 'MY', 'oceanbase': 'OB',
                      'dameng': 'DM', 'redis': 'KV', 'mongodb': 'DOC'}
@@ -1439,24 +1451,30 @@ class MainWindow(QMainWindow):
         for key, entries in NAV_MODEL:
             items = []
             for nav_index, name_zh, name_en, icon_role in entries:
-                if nav_index == 8 and not self._private_unlocked:
-                    continue
                 info = NAV_ITEMS[nav_index]
                 entry = {'i': nav_index, 'zh': name_zh, 'en': name_en,
                          'icon': icon_role, 'tip': info.tooltip_zh}
-                if nav_index == 14:
+                if nav_index == SQL_CONSOLE_NAV:
                     entry['children'] = [
                         {'i': i, 'zh': zh, 'en': zh, 'icon': icon,
                          'dia': dia_short.get(dialect, dialect[:2].upper())}
                         for zh, dialect, i, icon in FIXED_DB_PAGES
                     ]
-                elif nav_index == 15:
-                    entry['children'] = [
-                        {'i': AI_CHAT_NAV, 'zh': '聊天', 'en': 'CHAT', 'icon': 'chat'},
-                        {'i': AI_WORKBENCH_NAV, 'zh': '工作', 'en': 'AGENT', 'icon': 'spark'},
-                    ]
+                elif nav_index == TOOLBOX_NAV:
+                    children = []
+                    for c_index, c_zh, c_en, c_icon in TOOLBOX_CHILDREN:
+                        if c_index == 8 and not self._private_unlocked:
+                            continue
+                        c_info = NAV_ITEMS[c_index]
+                        children.append({'i': c_index, 'zh': c_zh, 'en': c_en,
+                                         'icon': c_icon, 'tip': c_info.tooltip_zh})
+                    entry['children'] = children
                 items.append(entry)
-            zh_label, en_label = GROUP_LABELS[key]
+            # Phase 0：单条目分组标题留空（Web 侧栏渲染为细分隔线，与原生侧栏跳过标题一致）
+            if len(entries) == 1:
+                zh_label, en_label = '', ''
+            else:
+                zh_label, en_label = GROUP_LABELS[key]
             groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
         return {'groups': groups,
                 'settings': {'i': 7, 'zh': '设置', 'en': 'SET', 'icon': 'gear'},
@@ -1517,12 +1535,12 @@ class MainWindow(QMainWindow):
     def _show_panel(self, index):
         if index == 8 and not self._private_unlocked:
             return
-        # 父级导航（SQL 控制台 / 模型）：不切换页面，仅展开/折叠子菜单
+        # 父级导航（数据中心 / 工具箱）：不切换页面，仅展开/折叠子菜单
         if is_parent_nav(index):
             if index == SQL_CONSOLE_NAV:
                 self._toggle_sql_console()
-            elif index == AI_PARENT_NAV:
-                self._toggle_ai_group()
+            elif index == TOOLBOX_NAV:
+                self._toggle_toolbox()
             return
         prev = getattr(self, '_current_nav_index', None)
         if prev is not None and prev != index:
@@ -1587,8 +1605,8 @@ class MainWindow(QMainWindow):
         for position, button in enumerate(self.nav_buttons):
             if button is None:
                 continue
-            # 父级 header 不参与选中态（SQL 控制台 header 保持未选中）
-            if position in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+            # 父级 header 不参与选中态（数据中心 / 工具箱 header 保持未选中）
+            if position in (SQL_CONSOLE_NAV, TOOLBOX_NAV):
                 continue
             button.setChecked(position == index)
         statuses_zh = {
@@ -1599,8 +1617,8 @@ class MainWindow(QMainWindow):
             11: 'JSON / XML / SQL / 文本辅助离线格式化',
             12: '接口排查 · 抓包中会占用系统代理，离开本页自动暂停代理',
             13: '日志排查 · SSH 会话 / 多机日志导出',
-            16: '模型聊天 · 内网多模型连续对话',
-            17: 'Agent 工作台 · 绑定项目目录执行受控任务',
+            16: '智能对话 · 内网多模型连续对话',
+            17: 'AI 工作台 · 绑定项目目录执行受控任务',
             18: 'Oracle 工作台 · SQL 编辑、对象树与结构快照',
             19: 'MySQL 工作台 · 库表浏览与 SQL 编辑',
             20: 'OceanBase 工作台 · SQL 编辑与分区表浏览',
@@ -1955,9 +1973,9 @@ class MainWindow(QMainWindow):
         self._settings['private_unlocked'] = True
         if self.nav_buttons[8] is not None:
             self.nav_buttons[8].show()
-        personal_label = self._group_labels.get('personal')
-        if personal_label is not None and not self._nav_icon_only:
-            personal_label.show()
+        # 自我学习现为工具箱二级子项：解锁时确保工具箱展开，否则按钮仍不可见
+        if not self._toolbox_expanded:
+            self._toggle_toolbox()
         if hasattr(self, 'quick_panel') and self.quick_panel is not None:
             self.quick_panel.set_private_unlocked(True)
         if persist:
