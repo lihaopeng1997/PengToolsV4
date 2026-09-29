@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from panels.ai_workbench_panel import compose_nl_query
+from panels.sql_console_panel import compose_nl_query
 from tools.db_redis_ops import build_key_tree, filter_keys_by_pattern
 from tools.sql_guard import classify_statement, is_read_query, redact_error, reject_reason, split_sql_statements, statement_at_cursor
 from ui.navigation_model import NAV_ITEMS, display_name
@@ -46,16 +46,19 @@ class SqlGuardTests(unittest.TestCase):
         )
 
     def test_nav_14_is_data_center(self):
+        from ui.navigation_model import TOOLBOX_NAV
         self.assertEqual(display_name(14, 'zh'), '数据中心')
         self.assertIn(14, NAV_ITEMS)
-        # v3.0：15 为"模型"父级，16=聊天，17=工作，18–23 六数据库面板
-        self.assertEqual(display_name(15, 'zh'), '模型')
-        self.assertIn(15, NAV_ITEMS)
-        self.assertEqual(display_name(16, 'zh'), '聊天')
-        self.assertEqual(display_name(17, 'zh'), '工作')
+        # Phase 0：15"模型"父级已解散，16=智能对话、17=AI 工作台升为一级入口
+        self.assertNotIn(15, NAV_ITEMS)
+        self.assertEqual(display_name(16, 'zh'), '智能对话')
+        self.assertEqual(display_name(17, 'zh'), 'AI 工作台')
         self.assertEqual(display_name(18, 'zh'), 'Oracle')
         self.assertEqual(display_name(22, 'zh'), 'Redis')
         self.assertEqual(display_name(23, 'zh'), 'MongoDB')
+        # 24=工具箱父级
+        self.assertEqual(display_name(TOOLBOX_NAV, 'zh'), '工具箱')
+        self.assertIn(TOOLBOX_NAV, NAV_ITEMS)
 
     def test_split_ignores_semicolon_in_strings_and_comments(self):
         parts = split_sql_statements("SELECT 'a;b' FROM dual; -- x;y\nSELECT 2 FROM dual")

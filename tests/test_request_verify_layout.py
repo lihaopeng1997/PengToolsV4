@@ -82,8 +82,8 @@ class RequestVerifyLayoutTests(unittest.TestCase):
         panel.close()
 
     def test_sql_console_narrow_shows_side_toggles(self):
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel('zh')
+        from panels.sql_console_panel import SqlConsolePanel
+        panel = SqlConsolePanel('zh')
         panel.apply_layout_mode('narrow', False)
         self.assertFalse(panel.narrow_chrome.isHidden())
         self.assertTrue(panel.left_pane.isHidden())

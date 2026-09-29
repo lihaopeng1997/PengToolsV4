@@ -115,3 +115,34 @@ def inspect_commands(commands) -> tuple[list[str], list[tuple[str, str]]]:
         else:
             rejected.append((cmd, reason))
     return allowed, rejected
+
+
+_FENCE_RE = re.compile(r'```(?:bash|sh|shell|console|text|plain)?[ \t]*\r?\n(.*?)```', re.DOTALL)
+
+
+def extract_command_candidates(text: str) -> list[str]:
+    """从文本中提取候选运维命令：fenced 代码块内的行 + '$ ' 前缀行。
+
+    供模型对话等入口在调用模型前后做只读门禁检查；只做提取，不做执行。
+    """
+    candidates: list[str] = []
+    for match in _FENCE_RE.finditer(str(text or '')):
+        for line in match.group(1).splitlines():
+            line = line.strip()
+            if line.startswith('$'):
+                line = line[1:].strip()
+            if line and not line.startswith('#'):
+                candidates.append(line)
+    for line in str(text or '').splitlines():
+        stripped = line.strip()
+        if stripped.startswith('$ ') or stripped == '$':
+            cmd = stripped[1:].strip()
+            if cmd and not cmd.startswith('#'):
+                candidates.append(cmd)
+    seen = set()
+    result = []
+    for cmd in candidates:
+        if cmd not in seen:
+            seen.add(cmd)
+            result.append(cmd)
+    return result

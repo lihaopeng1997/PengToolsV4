@@ -13,6 +13,7 @@ import re
 from tools.ai_harness import strip_markdown_fence
 from tools.harness_project import (
     active_project_id,
+    find_task,
     list_tasks,
     load_project,
     load_skill_text,
@@ -72,10 +73,18 @@ def _extract_json_object(text: str) -> dict:
 
 
 def run_task(task: str, user_text: str, *, context: str = '', cfg=None):
-    """执行一个 PTools 任务。sql.* 返回 str，linux.query 返回 dict。"""
+    """执行一个 PTools 任务。sql.* 返回 str，linux.query 返回 dict。
+
+    停用拦截的统一 choke point：所有入口（SQL 面板快捷入口、运维面板快捷
+    入口、ai_harness 兼容层）都经由本函数执行；已停用的 task 在此直接拒绝，
+    不再触及 skill 文本与内网模型。
+    """
     name = str(task or '').strip()
-    if resolve_task_file(name) is None:
+    entry = find_task(name)
+    if entry is None:
         raise IntranetLlmError(f'未知任务：{task}')
+    if not entry.get('enabled', True):
+        raise IntranetLlmError(f'任务已停用：{task}')
     prompt = str(user_text or '').strip()
     extra = str(context or '').strip()
     if extra:

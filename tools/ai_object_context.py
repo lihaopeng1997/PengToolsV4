@@ -20,6 +20,31 @@ def empty_context(snapshot=None) -> dict:
     }
 
 
+def context_scope(context: dict) -> tuple[str, str]:
+    """上下文的 token 作用域：(snapshot_id, connection_fingerprint)。"""
+    ctx = context if isinstance(context, dict) else {}
+    return (str(ctx.get('snapshot_id') or ''), str(ctx.get('connection_fingerprint') or ''))
+
+
+def bind_context_to_snapshot(context: dict, snapshot: dict | None) -> bool:
+    """把 token 上下文绑定到新的快照作用域。
+
+    若新快照的 (snapshot_id, connection_fingerprint) 与当前绑定不一致，
+    说明连接或快照已切换：作废旧 token（清空 selected_objects/selected_fields），
+    使旧会话持有的 token 引用失效，绝不能串用到新连接/快照上。
+    返回 True 表示作用域发生变化（旧 token 已作废），False 表示无变化。
+    """
+    ctx = context if isinstance(context, dict) else {}
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    new_scope = (str(snap.get('snapshot_id') or ''), str(snap.get('fingerprint') or ''))
+    changed = context_scope(ctx) != new_scope
+    if changed:
+        ctx['selected_objects'] = []
+        ctx['selected_fields'] = []
+    ctx['snapshot_id'], ctx['connection_fingerprint'] = new_scope
+    return changed
+
+
 def qualified_name(obj: dict) -> str:
     owner = str((obj or {}).get('owner') or '').strip()
     name = str((obj or {}).get('name') or '').strip()

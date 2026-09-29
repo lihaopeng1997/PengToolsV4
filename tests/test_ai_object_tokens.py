@@ -69,9 +69,9 @@ class SqlConsoleUiTests(unittest.TestCase):
 
     def test_tree_has_no_field_children_and_tokens_insert(self):
         from PyQt6.QtWidgets import QTreeWidgetItem
-        from panels.ai_workbench_panel import AiWorkbenchPanel, compose_nl_query
+        from panels.sql_console_panel import SqlConsolePanel, compose_nl_query
         from tools.ai_object_context import add_object
-        panel = AiWorkbenchPanel('zh')
+        panel = SqlConsolePanel('zh')
         panel._snapshot = {
             'snapshot_id': 'sid',
             'fingerprint': 'oracle|h|1521|orcl|u',
@@ -97,7 +97,7 @@ class SqlConsoleUiTests(unittest.TestCase):
         panel.nl_input.insert_token('object', token, 0)
         self.assertIn('表：PRPCMAIN', panel.nl_input.toPlainText())
         self.assertEqual(compose_nl_query('PRPCMAIN', ['POLICYNO']), '帮我查询表 PRPCMAIN 的字段 POLICYNO')
-        with open(os.path.join(ROOT, 'panels', 'ai_workbench_panel.py'), encoding='utf-8') as stream:
+        with open(os.path.join(ROOT, 'panels', 'sql_console_panel.py'), encoding='utf-8') as stream:
             source = stream.read()
         self.assertNotRegex(source, r'def _on_ai_ok[\s\S]*?self\._run_sql')
         self.assertIn('_on_ai_ok', source)
@@ -121,12 +121,12 @@ class SqlConsoleUiTests(unittest.TestCase):
 
     def test_generate_without_snapshot_does_not_start_worker(self):
         from unittest.mock import patch
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel('zh')
+        from panels.sql_console_panel import SqlConsolePanel
+        panel = SqlConsolePanel('zh')
         panel._snapshot = None
         panel.nl_input.setPlainText('查询 prpcmain 中创建日期倒序')
-        with patch('panels.ai_workbench_panel.is_enabled', return_value=True):
-            with patch('panels.ai_workbench_panel.show_warning') as warned:
+        with patch('panels.sql_console_panel.is_enabled', return_value=True):
+            with patch('panels.sql_console_panel.show_warning') as warned:
                 panel._run_ai('generate')
         self.assertTrue(warned.called)
         self.assertFalse(panel._agent_busy)

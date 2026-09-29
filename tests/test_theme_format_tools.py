@@ -86,6 +86,7 @@ class BadgeContrastTests(unittest.TestCase):
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 missing')
 class FormatToolsNavTests(unittest.TestCase):
     def test_format_tools_nav_index_is_stable_eleven(self):
+        from ui.navigation_model import TOOLBOX_CHILDREN
         item = NAV_ITEMS.get(11)
         self.assertIsNotNone(item)
         self.assertEqual(item.name_zh, '格式工具')
@@ -94,9 +95,9 @@ class FormatToolsNavTests(unittest.TestCase):
         # 0–10 历史含义保持
         self.assertEqual(display_name(5, 'zh'), '加解密')
         self.assertEqual(display_name(10, 'zh'), '需求管理')
-        # 出现在 devtools 分组
-        dev = dict(NAV_MODEL)['devtools']
-        indexes = [row[0] for row in dev]
+        # Phase 0：格式工具出现在工具箱二级（原 devtools 分组已解散）
+        self.assertNotIn('devtools', dict(NAV_MODEL))
+        indexes = [row[0] for row in TOOLBOX_CHILDREN]
         self.assertIn(11, indexes)
 
     def test_floating_shortcuts_accept_format_tools(self):

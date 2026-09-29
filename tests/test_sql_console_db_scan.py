@@ -1,0 +1,164 @@
+# -*- coding: utf-8 -*-
+"""Deterministic tests for AI Workbench DB structure scan, qualified naming, and vertical resizing."""
+
+import os
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QSplitter
+from panels.sql_console_panel import SqlConsolePanel
+
+
+class AiWorkbenchDbScanTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def setUp(self):
+        self.mock_connections = [
+            {
+                'id': 'conn_mysql',
+                'name': 'MySQL Test',
+                'dialect': 'mysql',
+                'host': '127.0.0.1',
+                'port': 3306,
+                'database': '',
+                'username': 'root',
+            },
+            {
+                'id': 'conn_oracle',
+                'name': 'Oracle Test',
+                'dialect': 'oracle',
+                'host': '127.0.0.1',
+                'port': 1521,
+                'database': 'orcl',
+                'username': 'scott',
+            },
+        ]
+
+    def test_mysql_qualified_identifier_uses_owner_when_present(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections):
+            panel = SqlConsolePanel(language='zh')
+            panel._browse_conn = MagicMock(return_value=self.mock_connections[0])
+
+            # 1. 跨库扫描（owner 为 app_db）
+            obj_with_owner = {'name': 'users', 'owner': 'app_db'}
+            self.assertEqual(panel._qualified(obj_with_owner), '`app_db`.`users`')
+
+            # 2. 单库无 owner
+            obj_no_owner = {'name': 'orders', 'owner': ''}
+            self.assertEqual(panel._qualified(obj_no_owner), '`orders`')
+
+            panel.deleteLater()
+
+    def test_oracle_qualified_identifier_uses_owner(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections):
+            panel = SqlConsolePanel(language='zh')
+            panel._browse_conn = MagicMock(return_value=self.mock_connections[1])
+            if panel._current_tab() is not None:
+                panel._current_tab().conn_item = self.mock_connections[1]
+
+            obj = {'name': 'EMP', 'owner': 'SCOTT'}
+            self.assertEqual(panel._qualified(obj), 'SCOTT.EMP')
+
+            panel.deleteLater()
+
+    def test_scan_failure_shows_error_and_does_not_show_success_info(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections), \
+             patch('panels.sql_console_panel.show_error') as mock_err, \
+             patch('panels.sql_console_panel.show_info') as mock_info:
+            panel = SqlConsolePanel(language='zh')
+            fail_payload = {
+                'status': 'failed',
+                'warning': 'Access denied for user root@localhost',
+                'objects': [],
+            }
+            panel._on_db_ok('scan', fail_payload, {})
+
+            mock_err.assert_called_once()
+            mock_info.assert_not_called()
+            self.assertEqual(panel.loading._state, 'fail')
+
+            panel.deleteLater()
+
+    def test_scan_success_shows_info(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections), \
+             patch('panels.sql_console_panel.show_error') as mock_err, \
+             patch('panels.sql_console_panel.show_info') as mock_info:
+            panel = SqlConsolePanel(language='zh')
+            ok_payload = {
+                'status': 'ok',
+                'warning': '',
+                'objects': [{'name': 'users', 'owner': 'app_db'}],
+            }
+            panel._on_db_ok('scan', ok_payload, {})
+
+            mock_info.assert_called_once()
+            mock_err.assert_not_called()
+
+            panel.deleteLater()
+
+    def test_vertical_body_splitter_allows_resizing_and_respects_mins(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections):
+            panel = SqlConsolePanel(language='zh')
+            panel.resize(1200, 800)
+            panel.show()
+            self.app.processEvents()
+
+            body = panel.body_splitter
+            self.assertIsInstance(body, QSplitter)
+            self.assertEqual(body.orientation(), Qt.Orientation.Vertical)
+            self.assertFalse(body.childrenCollapsible())
+
+            # 调整垂直高度（例如将结果区调大）
+            body.setSizes([300, 500])
+            self.app.processEvents()
+            sizes = body.sizes()
+            self.assertGreaterEqual(sizes[0], 100)
+            self.assertGreaterEqual(sizes[1], 100)
+
+            panel.hide()
+            panel.deleteLater()
+
+    def test_sql_console_db_worker_token_isolation(self):
+        with patch('panels.sql_console_panel.load_connections', return_value=self.mock_connections), \
+             patch('panels.sql_console_panel.show_info'):
+            panel = SqlConsolePanel(language='zh')
+            panel._browse_conn = MagicMock(return_value=self.mock_connections[0])
+
+            # 启动任务 A
+            token_a = panel._busy(True, '正在扫描 A…')
+            panel._db_token = token_a
+
+            # 启动任务 B
+            token_b = panel._busy(True, '正在扫描 B…')
+            panel._db_token = token_b
+            self.assertGreater(token_b, token_a)
+            self.assertEqual(panel.loading._label, '正在扫描 B…')
+            self.assertEqual(panel.loading._state, 'pending_busy')
+
+            # 任务 A 晚到完成回调
+            ok_payload = {'status': 'ok', 'warning': '', 'objects': []}
+            panel._on_db_ok('scan', ok_payload, {}, token=token_a)
+
+            # 状态依然保持为任务 B 的 pending_busy，未被 A 提前取消或关闭
+            self.assertEqual(panel.loading._label, '正在扫描 B…')
+            self.assertEqual(panel.loading._state, 'pending_busy')
+
+            # 任务 B 超过延迟实际展示后完成
+            panel.loading._show_overlay_now()
+            panel._on_db_ok('scan', ok_payload, {}, token=token_b)
+            self.assertEqual(panel.loading._state, 'finish')
+
+            panel.deleteLater()
+
+
+if __name__ == '__main__':
+    unittest.main()
