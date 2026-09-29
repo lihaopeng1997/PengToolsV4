@@ -166,7 +166,7 @@ class PaginationAndFetchTests(unittest.TestCase):
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import QApplication, QMenu
 from panels.ai_token_edit import AiPromptEdit
-from panels.ai_workbench_panel import AiWorkbenchPanel
+from panels.sql_console_panel import SqlConsolePanel
 from ui.sql_editor import SqlEditor
 from ui.splitter_prefs import SPLITTER_HANDLE_WIDTH
 
@@ -251,8 +251,8 @@ class AiLayoutMenuTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def _panel(self):
-        with patch('panels.ai_workbench_panel.load_connections', return_value=[]):
-            return AiWorkbenchPanel(language='zh')
+        with patch('panels.sql_console_panel.load_connections', return_value=[]):
+            return SqlConsolePanel(language='zh')
 
     def test_ai_assistant_layout_contract(self):
         """验证 AI 助手生产布局（Round 4-V2F 稳定 1:1 工作区契约）：
@@ -333,7 +333,7 @@ class RedisClusterGuiContractTests(unittest.TestCase):
 
     def test_db_worker_run_redis_dict_offset_not_int(self):
         """D. Real GUI worker path: _DbWorker.run() with Redis query + dict offset 不得 int(dict)，验证收到 cursor state"""
-        from panels.ai_workbench_panel import _DbWorker
+        from panels.sql_console_panel import _DbWorker
 
         worker = _DbWorker(
             kind='query',
@@ -346,9 +346,9 @@ class RedisClusterGuiContractTests(unittest.TestCase):
         completed_results = []
         worker.completed.connect(lambda res: completed_results.append(res))
 
-        with patch('panels.ai_workbench_panel.open_connection', return_value=fake_conn), \
-             patch('panels.ai_workbench_panel.close_connection'), \
-             patch('panels.ai_workbench_panel.run_console_statement') as mock_stmt:
+        with patch('panels.sql_console_panel.open_connection', return_value=fake_conn), \
+             patch('panels.sql_console_panel.close_connection'), \
+             patch('panels.sql_console_panel.run_console_statement') as mock_stmt:
             mock_stmt.return_value = {'rows': [['k1']], 'offset': {'node-a': 50, 'node-b': 0}, 'has_more': True}
             worker.run()
             self.assertEqual(len(completed_results), 1)
@@ -360,7 +360,7 @@ class RedisClusterGuiContractTests(unittest.TestCase):
 
     def test_panel_query_result_preserves_dict_offset_and_fetch_next(self):
         """E. Real Panel result path: 接收 payload['offset'] = dict 不抛 TypeError，_offset 为 dict，_fetch_next 正确传递"""
-        panel = AiWorkbenchPanel(language='zh')
+        panel = SqlConsolePanel(language='zh')
         try:
             panel._query_status = 'query'
             payload = {
@@ -392,7 +392,7 @@ class RedisClusterGuiContractTests(unittest.TestCase):
 
     def test_fetch_all_guard_when_offset_is_dict(self):
         """F. Fetch All guard: 当 _offset 为 dict 且 has_more=True 时，next_btn enabled, all_btn disabled；调用 _fetch_all 不启动 worker 不 int(dict)"""
-        panel = AiWorkbenchPanel(language='zh')
+        panel = SqlConsolePanel(language='zh')
         try:
             panel._offset = {'node-a': 100, 'node-b': 0}
             panel._has_more = True
@@ -411,7 +411,7 @@ class RedisClusterGuiContractTests(unittest.TestCase):
 
     def test_redis_scan_partial_sticky_across_pages_and_resets(self):
         """7 & 8. Partial warning must survive pagination and reset cleanly on new query."""
-        panel = AiWorkbenchPanel(language='zh')
+        panel = SqlConsolePanel(language='zh')
         try:
             panel._query_status = 'query'
 

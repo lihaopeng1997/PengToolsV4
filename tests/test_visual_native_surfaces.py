@@ -54,8 +54,8 @@ class TestVisualNativeSurfaces(unittest.TestCase):
 
     def test_sql_surface_object_names(self):
         """SQL Workbench 核心表面 objectName 存在且符合语义分层。"""
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = self.track(AiWorkbenchPanel('zh'))
+        from panels.sql_console_panel import SqlConsolePanel
+        panel = self.track(SqlConsolePanel('zh'))
 
         object_names = {
             'sql-object-pane',
@@ -76,7 +76,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
 
     def test_schema_search_popup_qss_migration(self):
         """_SchemaSearchPopup 移除行内 styleSheet，依赖全局 QSS。"""
-        from panels.ai_workbench_panel import _SchemaSearchPopup
+        from panels.sql_console_panel import _SchemaSearchPopup
         from ui.theme_manager import ThemeManager
 
         popup = self.track(_SchemaSearchPopup())
@@ -402,10 +402,10 @@ class TestVisualNativeSurfaces(unittest.TestCase):
     def test_database_ai_assistant_geometry_and_buttons(self):
         """四数据库工作台（Oracle/MySQL/OceanBase/达梦）AI 助手稳定 1:1 输入/输出比例与非空按钮契约。"""
         from PyQt6.QtWidgets import QSizePolicy
-        from panels.ai_workbench_panel import AiWorkbenchPanel
+        from panels.sql_console_panel import SqlConsolePanel
 
         for dialect in ('oracle', 'mysql', 'oceanbase', 'dameng'):
-            panel = AiWorkbenchPanel('zh', dialect=dialect)
+            panel = SqlConsolePanel('zh', dialect=dialect)
             try:
                 # 1. input and output widgets exist
                 self.assertIsNotNone(panel.nl_input, f'{dialect} nl_input 必须存在')
@@ -504,7 +504,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
 
     def test_database_workbench_header_and_toolbar_contract(self):
         """四数据库工作台标题/副标题、连接芯片与工具栏按钮 tooltip 契约完整。"""
-        from panels.ai_workbench_panel import AiWorkbenchPanel, sql_splitter_tab_id
+        from panels.sql_console_panel import SqlConsolePanel, sql_splitter_tab_id
 
         # Regression: splitter tab id 保持原有语义，不迁移旧 key
         self.assertEqual(sql_splitter_tab_id('body', 'dm'), 'body-dm')
@@ -519,7 +519,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             'dameng': '达梦工作台',
         }
         for dialect, expected_title in expected_titles.items():
-            panel = AiWorkbenchPanel('zh', dialect=dialect)
+            panel = SqlConsolePanel('zh', dialect=dialect)
             try:
                 self.assertEqual(panel.page_title.text(), expected_title)
                 self.assertEqual(panel.page_subtitle.text(), '多标签编辑 · 结构快照 · AI 助手生成不执行')

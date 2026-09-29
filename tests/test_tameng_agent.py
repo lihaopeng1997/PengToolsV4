@@ -487,7 +487,7 @@ class TamengAgentTests(unittest.TestCase):
     def test_generate_sql_draft_full_worker_kwargs_penetration(self):
         import json
         from tools.ai_sql_draft import generate_sql_draft
-        from panels.ai_workbench_panel import _AiWorker
+        from panels.sql_console_panel import _AiWorker
 
         captured_messages = []
 
@@ -513,7 +513,7 @@ class TamengAgentTests(unittest.TestCase):
             'scanned_at': '2026-09-01',
         }
 
-        # Construct exact kwargs passed by panels/ai_workbench_panel.py
+        # Construct exact kwargs passed by panels/sql_console_panel.py
         kwargs = {
             'question': '查保单号',
             'action': 'generate',

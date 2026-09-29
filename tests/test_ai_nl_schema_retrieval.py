@@ -367,10 +367,10 @@ class AiNlSchemaRetrievalTests(unittest.TestCase):
         self.assertNotIn(huge_val, safe_ctx)
 
     def test_panel_no_token_true_e2e(self):
-        """Item 6: 真实实例化 AiWorkbenchPanel 跑无 Token 自然语言生成 E2E，验证绝不自动执行。"""
+        """Item 6: 真实实例化 SqlConsolePanel 跑无 Token 自然语言生成 E2E，验证绝不自动执行。"""
         app = QApplication.instance() or QApplication([])
-        from panels.ai_workbench_panel import AiWorkbenchPanel
-        panel = AiWorkbenchPanel()
+        from panels.sql_console_panel import SqlConsolePanel
+        panel = SqlConsolePanel()
         snap = _make_prod_snap()
         conn = _make_conn()
 
@@ -390,7 +390,7 @@ class AiNlSchemaRetrievalTests(unittest.TestCase):
         panel._run_sql = MagicMock()
         panel.run_console_statement = MagicMock()
 
-        with patch('panels.ai_workbench_panel.is_enabled', return_value=True):
+        with patch('panels.sql_console_panel.is_enabled', return_value=True):
             panel._run_ai('generate')
 
         # 验证：未限定 token 高置信直接进 task，不弹候选，不拦截
