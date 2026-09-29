@@ -62,9 +62,9 @@ class ConnectionDialogTests(unittest.TestCase):
 
     def test_sql_workbench_action_order_prioritizes_run_before_format(self):
         """SQL 工作台执行主操作位于格式化之前并靠近编辑器。"""
-        from panels.ai_workbench_panel import AiWorkbenchPanel
+        from panels.sql_console_panel import SqlConsolePanel
 
-        panel = AiWorkbenchPanel()
+        panel = SqlConsolePanel()
         try:
             self.assertTrue(hasattr(panel, "run_btn"))
             self.assertTrue(hasattr(panel, "format_btn"))

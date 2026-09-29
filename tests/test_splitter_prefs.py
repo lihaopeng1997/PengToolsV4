@@ -213,7 +213,7 @@ class SplitterPrefsTests(unittest.TestCase):
         self.assertEqual(list(splitter.sizes()), dragged)
 
     def test_s6_s7_s8_s9_sql_workbench_splitters(self):
-        from panels.ai_workbench_panel import sql_splitter_tab_id
+        from panels.sql_console_panel import sql_splitter_tab_id
         # S8: Dialect key consistency
         self.assertEqual(sql_splitter_tab_id('columns', 'Oracle'), 'columns-oracle')
         self.assertEqual(sql_splitter_tab_id('body', 'MySQL'), 'body-mysql')
@@ -294,10 +294,10 @@ class SplitterPrefsTests(unittest.TestCase):
         self.assertAlmostEqual(restored[2], saved_sizes[2], delta=10)
 
     def test_s10_sql_real_panel_apply_layout_mode_preserves_drag(self):
-        """S10: 真实 AiWorkbenchPanel 在同 bucket apply_layout_mode 时绝不重置用户拖拽尺寸。"""
-        from panels.ai_workbench_panel import AiWorkbenchPanel
+        """S10: 真实 SqlConsolePanel 在同 bucket apply_layout_mode 时绝不重置用户拖拽尺寸。"""
+        from panels.sql_console_panel import SqlConsolePanel
 
-        panel = AiWorkbenchPanel(dialect='oracle')
+        panel = SqlConsolePanel(dialect='oracle')
         panel.resize(1600, 900)
         panel.show()
         panel.apply_layout_mode('wide')

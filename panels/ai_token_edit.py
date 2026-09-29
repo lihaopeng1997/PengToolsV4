@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QMenu, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from tools.ai_object_context import empty_context, keep_tokens, remove_token
+from tools.ai_object_context import bind_context_to_snapshot, empty_context, keep_tokens, remove_token
 from tools.schema_snapshot import format_field_label, format_object_label, search_fields, search_objects
 from ui.design_system import apply_button
 
@@ -52,9 +52,11 @@ class AiPromptEdit(QTextEdit):
         self.textChanged.connect(self._sync_tokens_from_document)
 
     def bind_snapshot(self, snapshot: dict | None):
-        snap = snapshot if isinstance(snapshot, dict) else {}
-        self.context['snapshot_id'] = str(snap.get('snapshot_id') or '')
-        self.context['connection_fingerprint'] = str(snap.get('fingerprint') or '')
+        """绑定快照作用域：连接/快照切换时作废旧 token，禁止串用。"""
+        if bind_context_to_snapshot(self.context, snapshot):
+            # 作用域变化：旧 token 引用已作废，同步移除文档中的可视 token 片段
+            self._remove_token_spans()
+            self.tokens_changed.emit()
 
     def plain_question(self) -> str:
         return self.toPlainText().strip()

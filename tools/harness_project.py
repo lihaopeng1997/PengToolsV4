@@ -208,14 +208,28 @@ def list_tasks() -> list[dict]:
     return [merged[key] for key in sorted(merged)]
 
 
-def resolve_task_file(task: str) -> str | None:
-    """返回 task 对应的 skill 文件名；未知返回 None。"""
+def find_task(task: str) -> dict | None:
+    """返回 task 在合并清单中的条目（含 enabled 标记）；未知 task 返回 None。"""
     wanted = str(task or '').strip()
     for item in list_tasks():
         if item.get('task') == wanted:
-            file = str(item.get('file') or '').strip()
-            return file or None
+            return item
     return None
+
+
+def is_task_enabled(task: str) -> bool:
+    """task 是否启用；未知 task 视为停用（返回 False）。"""
+    entry = find_task(task)
+    return bool(entry) and bool(entry.get('enabled', True))
+
+
+def resolve_task_file(task: str) -> str | None:
+    """返回 task 对应的 skill 文件名；未知返回 None。"""
+    entry = find_task(task)
+    if entry is None:
+        return None
+    file = str(entry.get('file') or '').strip()
+    return file or None
 
 
 def _write_skills_manifest(tasks: list[dict]) -> None:

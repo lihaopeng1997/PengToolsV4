@@ -10,7 +10,12 @@ from tools.ai_harness import strip_markdown_fence
 from tools.intranet_llm import IntranetLlmError, chat_completions, is_enabled, load_ai_local
 from tools.schema_snapshot import clip_snapshot_for_prompt
 from tools.sql_guard import ai_draft_safety, classify_statement
-from tools.tameng_agent import evidence_prompt_text, format_condition_hint
+from tools.tameng_agent import (
+    evidence_prompt_text,
+    format_condition_hint,
+    prepare_request,
+    validate_generated_sql,
+)
 
 _SQL_KEYWORDS = frozenset({
     'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as',
@@ -304,3 +309,50 @@ def generate_sql_draft(
         parsed['sql'] = strip_markdown_fence(content)
     effective_dialect = get_effective_sql_dialect(dialect, oceanbase_mode)
     return validate_draft(parsed, selected_tables, selected_fields, effective_dialect)
+
+
+def run_chat_evidence_chain(question: str, conn: dict | None, snapshot: dict | None, cfg=None) -> dict:
+    """模型对话取数意图的证据链：证据检索 → 草稿 → 校验。复用现有链路，绝不执行 SQL。
+
+    返回 {'ok': bool, 'draft'?, 'evidence'?, 'reason'?, 'next_action'?}。
+    证据缺失或校验不通过时 ok=False（fail-closed），调用方应如实告知用户
+    “不知道/查不到”，不得编造表名或数据。
+    """
+    connection = dict(conn or {})
+    prepared = prepare_request(
+        str(question or ''), snapshot, connection,
+        tokens=None, current_table=None, current_fields=None, confirmed=None,
+    )
+    if not prepared.get('ok'):
+        return {
+            'ok': False,
+            'reason': str(prepared.get('reason') or '无法检索到可用的表/字段证据'),
+            'next_action': str(prepared.get('next_action') or ''),
+        }
+    evidence = prepared.get('evidence') or {}
+    conn_dialect = str(connection.get('dialect') or 'oracle')
+    ob_mode = ''
+    if conn_dialect.lower() == 'oceanbase':
+        from tools.db_contracts import normalize_oceanbase_mode
+        ob_mode = normalize_oceanbase_mode(connection.get('mode'))
+    draft = generate_sql_draft(
+        str(question or ''),
+        action='generate',
+        dialect=conn_dialect,
+        alias=str(connection.get('name') or ''),
+        evidence=evidence,
+        database=str(connection.get('database') or connection.get('service_name') or ''),
+        schema_name=str(connection.get('schema') or ''),
+        oceanbase_mode=ob_mode,
+        cfg=cfg,
+    )
+    checked = validate_generated_sql(
+        str(draft.get('sql') or ''), evidence, conn_dialect, oceanbase_mode=ob_mode,
+    )
+    if not checked.get('allowed'):
+        return {
+            'ok': False,
+            'reason': str(checked.get('reason') or '草案未通过校验'),
+            'next_action': '选择字段后重试',
+        }
+    return {'ok': True, 'draft': draft, 'evidence': evidence}

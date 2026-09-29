@@ -20,9 +20,13 @@ from ui.navigation_model import GROUP_LABELS, get_nav_item
 
 class OpsSshTests(unittest.TestCase):
     def test_nav_ops_group(self):
-        self.assertIn('ops', GROUP_LABELS)
+        # Phase 0：运维条目并入工具箱二级（'ops' 分组已解散，避免与支柱③"AI 工作台"撞名）
+        self.assertIn('toolbox', GROUP_LABELS)
+        self.assertNotIn('ops', GROUP_LABELS)
         self.assertEqual(get_nav_item(13).name_zh, '日志排查')
         self.assertEqual(get_nav_item(6).name_zh, '命令库')
+        self.assertEqual(get_nav_item(13).group_key, 'toolbox')
+        self.assertEqual(get_nav_item(6).group_key, 'toolbox')
 
     def test_build_remote_grep_and(self):
         cmd = build_remote_grep_command(
