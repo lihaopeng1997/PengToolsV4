@@ -1,0 +1,1605 @@
+{
+  "commit": "b5ee4aa66c15bd09418d7a24b4c33a3fe743dfba",
+  "parent": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+  "branch": "dev/2026-09-23",
+  "files": [
+    {
+      "status": "M",
+      "path": ".gitignore"
+    },
+    {
+      "status": "M",
+      "path": "README.md"
+    },
+    {
+      "status": "M",
+      "path": "config.py"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/AI_CONTEXT_WORKFLOW.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/project/DATA_CENTER_AGENT_CHECKPOINT_2026-09-16.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/DATA_CENTER_AGENT_CHECKPOINT_2026-09-17.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/project/DATA_CENTER_AGENT_DEVELOPMENT.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/project/DEVELOPMENT_AND_AI.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/project/GIT_WEB_HANDOFF_2026-09-16.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/MUSEBUILD_REVIEW_2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/PROJECT_CLEANUP_2026-10-19.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/project/README.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/SESSION_HANDOFF_2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/handoffs/2026-10-19/cleanup.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/handoffs/2026-10-19/targeted-ui-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/handoffs/2026-10-19/verification.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/ACCEPTANCE.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/CONTROL.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/CURRENT_STATE.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/PREVIEW_R8.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/REDIS_VALUE_EDIT_NEXT.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/REMAINING_REQUIREMENTS_2026-10-16.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/agent-model-live-20261007.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/agent-ui.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/changeset-dialects.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/changeset.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/connection-store-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/connection-store.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/context-mechanism-20261008.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/context-memory-20261008.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/context-ui-20261008.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/context-ui-final-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/core.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dameng-manual-plan-20261007.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dameng-provider-plan.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/data-center.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dc-context-stage-b-acceptance-20261012.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dc-nosql-physical-owner-acceptance-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dc-physical-owner-acceptance-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/dc-planner-stage-a-acceptance-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/deepseek-profile-integration-20261007.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/completion-oct15-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/mongo-edit-oct16-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/mongo-paging-oct15-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/mongo-transfer-oct16-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/nosql-native-sdk.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/package-r8.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/real-ssh-result.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/redis-export-oct16-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/redis-value-legacy-loading-before.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/redis-value-oct16-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/result.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/workbench-performance-result.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/evidence/dc-ssh-mysql-finish-20261014/workspace-oct15-tests.txt"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/final-request-gate-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/final-request-gate-acceptance-20261009.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/history-metadata.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/history-product-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/history-product-plan-20261006.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/import-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/import-preview.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/import-session.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/import-ui.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/joint-shutdown.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-lifecycle.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-providers.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-result-export.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-session.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/manual-table-scope.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/nosql-history-plan-20261007.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/nosql-history-product-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/nosql-workspace-codec.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/object-tree-composition.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/object-tree-controller.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/object-tree-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/object-tree.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/query-history-ui.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/qwen-context-20261008.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/result-export-ui.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/result-export.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/table-editor-integration.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/table-source.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/workbench-cleanup.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/workbench.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/workspace-store.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/agent-refactor-2026-10-01/workspace.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/musebuild-2026-09-30/CHAT_REVIEW.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/musebuild-2026-09-30/INTEGRATION_REVIEW.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/CONTROL.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/dashboard-live.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/lazy-page-home-locale.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/modules.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/nosql-loading.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/shell-dialogs.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/sidebar-retirement.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/ui4-package.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-completeness-2026-09-30/ui5-runtime.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/adaptive-menu-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/close-dialog-size-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/flat-menu-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/home-actions-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/native-settings-icon-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/requirement-management-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/ui3-package-audit-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-fixes-2026-09-30/ui3-runtime-acceptance-2026-09-30.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/CONTROL.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/close-dialog-2026-10-01.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/close-dialog-2026-10-02.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/close-dialog-ui10-2026-10-04.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/close-dialog-ui9-2026-10-02.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/dashboard.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/navigation-failure.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/scan.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/ui6-package.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/project/reviews/ui-user-regressions-2026-09-30/ui6-runtime-2026-10-01.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/ui/prism-implementation-2026-09-15/LUNA_TABS_GAP.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/ui/prism-implementation-2026-09/LUNA_MENU_GAP.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/ui/prism-implementation-2026-09/LUNA_TOPBAR_GAP.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/ui/prism-implementation-2026-09/UI_SETTINGS_MENU_REPAIR_2026-09-17.md"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/chrome/ChromeApp.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/chrome/NavGroupMenu.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/chrome/main.ts"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/chrome/nav.ts"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/DashboardApp.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/components/MonthlyTasks.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/components/QuickTools.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/components/ReleaseOverview.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/components/StatsGrid.vue"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/dashboard/main.ts"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/shared/bridge.ts"
+    },
+    {
+      "status": "M",
+      "path": "main_window.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/agent_workbench_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/ai_workbench_panel.py"
+    },
+    {
+      "status": "A",
+      "path": "panels/data_center_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/db_mongodb_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/db_redis_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/docx_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/gateway_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/ops_log_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/requirement_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "panels/settings_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "resources/build_info.json"
+    },
+    {
+      "status": "A",
+      "path": "resources/webui/vue/assets/bridge-CrodoWfO.js"
+    },
+    {
+      "status": "D",
+      "path": "resources/webui/vue/assets/bridge-CzPwy7YX.js"
+    },
+    {
+      "status": "D",
+      "path": "resources/webui/vue/assets/chrome-B-CGW-ky.js"
+    },
+    {
+      "status": "A",
+      "path": "resources/webui/vue/assets/chrome-Cf4-DOq6.js"
+    },
+    {
+      "status": "D",
+      "path": "resources/webui/vue/assets/chrome-Craa5oYw.css"
+    },
+    {
+      "status": "A",
+      "path": "resources/webui/vue/assets/chrome-PNpxiWgO.css"
+    },
+    {
+      "status": "A",
+      "path": "resources/webui/vue/assets/dashboard-B10URHUD.js"
+    },
+    {
+      "status": "D",
+      "path": "resources/webui/vue/assets/dashboard-BEyO2cOW.js"
+    },
+    {
+      "status": "A",
+      "path": "resources/webui/vue/assets/dashboard-CfUnhxeu.css"
+    },
+    {
+      "status": "D",
+      "path": "resources/webui/vue/assets/dashboard-DaZQ6F1C.css"
+    },
+    {
+      "status": "M",
+      "path": "resources/webui/vue/chrome.html"
+    },
+    {
+      "status": "M",
+      "path": "resources/webui/vue/dashboard.html"
+    },
+    {
+      "status": "M",
+      "path": "scripts/README.md"
+    },
+    {
+      "status": "D",
+      "path": "scripts/diagnostics/_btn_height_repro.py"
+    },
+    {
+      "status": "D",
+      "path": "scripts/diagnostics/_btn_height_repro2.py"
+    },
+    {
+      "status": "A",
+      "path": "scripts/diagnostics/data_center_agent_preview.py"
+    },
+    {
+      "status": "A",
+      "path": "scripts/diagnostics/prism_controls_settings_acceptance.py"
+    },
+    {
+      "status": "A",
+      "path": "scripts/diagnostics/prism_interface_dialog_preview.py"
+    },
+    {
+      "status": "A",
+      "path": "scripts/diagnostics/prism_module_completeness.py"
+    },
+    {
+      "status": "A",
+      "path": "scripts/diagnostics/prism_visual_acceptance.py"
+    },
+    {
+      "status": "D",
+      "path": "scripts/diagnostics/ui-refactor/_check_file_btns.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_application_shutdown.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_context_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_context_memory.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_context_planner.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_core_contracts.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_final_request_gate.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_final_request_measurement.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_memory_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_memory_private_continuation.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_agent_runtime.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_agent_store.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_tool_commit_hook.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_agent_workbench_layout.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_agent_workbench_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_ai_workbench_history_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_button_busy_ring.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_dashboard_requirement_actions.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_dashboard_requirement_live_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_dashboard_requirement_navigation_failure.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_agent_controller.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_agent_evidence.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_agent_layout.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_agent_panel.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_data_center_agent_runner.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_application_shutdown.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_changeset.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_changeset_dialects.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_completion.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_completion_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_connection_store.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_connection_store_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_connection_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_context_evidence.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_context_evidence_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_context_planner.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_history_shutdown.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_data_center_host_nosql.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_data_center_host_relational.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_import_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_import_preview.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_import_session.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_import_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_joint_shutdown.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_lob_values.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_relational_providers.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_result_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_script.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_script_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_session.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_setup_cleanup.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_manual_table_scope.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_metadata_driver_boundary.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_metadata_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_navigation.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_data_center_nosql_clients.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_nosql_history_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_nosql_physical_owner.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_nosql_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_nosql_workspace.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_object_tree.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_object_tree_composition.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_object_tree_controller.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_object_tree_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_oracle_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_physical_query_owner.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_procedural.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_procedural_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_profile_host.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_projection_defaults.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_query_history_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_query_page_size.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_readonly_relational_connectors.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_result_columns.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_result_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_result_export_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_result_find.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_sql_target.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_ssh_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_table_editor_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_table_query.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_table_query_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_table_shutdown.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_table_source.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_transport_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_value_inspector.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workbench_cleanup.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workbench_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workspace.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workspace_snapshot.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workspace_snapshot_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_data_center_workspace_store.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_deepseek_private_reasoning.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_deepseek_profile_policy.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_deepseek_settings_profile.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_lazy_panel_home_locale.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_loading_cancel_feedback.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_mongo_document_edit.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_mongo_query_driver_api.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_mongo_transfer.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_nosql_loading_feedback.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_page_skeleton.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_dialogs.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_prism_embedded_action_geometry.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_module_tabs.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_native_menu_runtime.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_native_sidebar_geometry.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_prism_shell_contract.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_sidebar_chrome.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_prism_sidebar_expansion.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_sidebar_menu.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_prism_sidebar_retirement.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_titlebar.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_prism_window_frame.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_programming_agent_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_query_status_band.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_redis_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_redis_value_page.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_requirement_focus_section.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_requirement_save_failures.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_requirement_scan_folders.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_requirement_scan_live_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_requirement_worker_lifecycle.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_settings_save_repair.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_sql_guard.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_theme_responsive.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_web_dashboard_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/__init__.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/budget.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/context.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/contracts.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/history.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/host_model_adapter.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/memory.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/memory_context.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/model_adapter.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/model_config.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/request_budget.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/runner.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/agent_core/streaming.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/agent_runtime.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/agent_store.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/agent.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/agent_query_tool.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/budget.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/changeset.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/changeset_dialects.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/completion_cache.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/connection_store.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/connection_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/context_evidence.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/contracts.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/host_metadata.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/host_nosql.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/host_relational.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/host_runtime.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/import_preview.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/import_session.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/lob_values.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/manual_driver.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/manual_relational_providers.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/manual_result_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/manual_session.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/model_adapter.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/model_config.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/mongo_document.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/mongo_transfer.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/nosql_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/nosql_workspace.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/object_tree.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/object_tree_composition.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/profile_host.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/query_executor.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/readonly_driver_adapters.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/readonly_lease.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/readonly_nosql_clients.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/readonly_relational_connectors.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/redis_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/redis_value.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/result_export.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/sql_completion.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/sql_script.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/ssh_tunnel.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/streaming.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/table_source.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/data_center/tool_registry.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/workspace_catalog.py"
+    },
+    {
+      "status": "A",
+      "path": "tools/data_center/workspace_store.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/db_connect.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/db_mongo_ops.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/db_redis_ops.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/intranet_llm.py"
+    },
+    {
+      "status": "M",
+      "path": "tools/svn_workspace.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/aurora_progress.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/button_busy_ring.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/confirm_dialog.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/__init__.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/agent_controller.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/agent_panel.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/connection_transport.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/import_controller.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/import_dialog.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/import_host.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/integration.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/manual_query.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/mongo_document_edit.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/mongo_transfer.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/nosql_query_history.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/object_tree_controller.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/object_tree_workspace.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/query_history.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/query_history_service.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/redis_export.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/result_export.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/result_find.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/result_model.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/result_view.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/table_editor.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/table_query_dialog.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/value_format.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/value_inspector.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/workspace_snapshot.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/data_center/workspace_tree.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/module_tabs.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/navigation_model.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/page_chrome.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/prism_sidebar.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/prism_title_bar.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/prism_window_frame.py"
+    },
+    {
+      "status": "A",
+      "path": "ui/query_status_band.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/responsive.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/sql_editor.py"
+    },
+    {
+      "status": "M",
+      "path": "ui/web_shell.py"
+    }
+  ],
+  "counts": {
+    "M": 87,
+    "A": 303,
+    "D": 8
+  },
+  "note": "398 path operations without rename detection; git commit diffstat reports 397 changed files with rename detection."
+}

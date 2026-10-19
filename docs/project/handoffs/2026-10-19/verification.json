@@ -28,5 +28,10 @@
     "verify:embedded": 0,
     "warning": "Vite reports future native config loader compatibility; current build succeeds."
   },
-  "boundary": "No real server, user-window GUI, full suite, package rebuild or push."
+  "boundary": "No real server, user-window GUI, full suite, package rebuild or push.",
+  "source_checkpoint": "b5ee4aa66c15bd09418d7a24b4c33a3fe743dfba",
+  "python_ast_files": 250,
+  "staged_diff_check": "passed after fixing 6 flagged whitespace files",
+  "strong_secret_pattern_hits": 0,
+  "pattern_scan_limit": "40 password/URI hits in candidates reviewed as test fixtures or authentication mode identifiers; no universal secret certification."
 }
