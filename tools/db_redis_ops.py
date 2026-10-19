@@ -775,6 +775,15 @@ def redis_scan_page(
     match = pattern or '*'
     collected: list[str] = []
     seen: set[str] = set()
+    raw_keys: dict[str, set[bytes]] = {}
+
+    def remember(key):
+        label = _b(key)
+        raw = key if type(key) is bytes else key.encode('utf-8')
+        raw_keys.setdefault(label, set()).add(raw)
+        if label not in seen:
+            seen.add(label)
+            collected.append(label)
     batch_size = max(16, int(count or SCAN_PAGE_COUNT))
     cap = max(1, int(limit or SCAN_PAGE_LIMIT))
 
@@ -794,10 +803,7 @@ def redis_scan_page(
                 except Exception as exc:
                     raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
                 for key in batch or []:
-                    k = _b(key)
-                    if k not in seen:
-                        seen.add(k)
-                        collected.append(k)
+                    remember(key)
                 cur = int(nxt or 0) if not isinstance(nxt, dict) else 0
                 if cur == 0:
                     finished = True
@@ -808,6 +814,7 @@ def redis_scan_page(
             raise DbError(f'SCAN 失败：{redact_error(str(exc))}') from exc
         return {
             'keys': collected,
+            'raw_keys': {label: tuple(sorted(values)) for label, values in raw_keys.items()},
             'cursor': cur,
             'finished': finished,
             'incomplete': not finished,
@@ -842,10 +849,7 @@ def redis_scan_page(
                 else:
                     cursors_map = {'default': int(init_cursors or 0)}
                 for key in init_batch or []:
-                    k = _b(key)
-                    if k not in seen:
-                        seen.add(k)
-                        collected.append(k)
+                    remember(key)
             elif isinstance(raw_res, dict):
                 cursors_map = {str(k): int(v or 0) for k, v in raw_res.items()}
 
@@ -887,10 +891,7 @@ def redis_scan_page(
                     )
                     # 必须完整消费该 batch，不得推进 cursor 后丢弃 batch 尾部
                     for key in batch or []:
-                        k = _b(key)
-                        if k not in seen:
-                            seen.add(k)
-                            collected.append(k)
+                        remember(key)
                     if isinstance(cur_res, dict):
                         new_cur = cur_res.get(name, 0)
                     else:
@@ -921,6 +922,7 @@ def redis_scan_page(
     incomplete = (not finished) or is_partial
     return {
         'keys': collected,
+        'raw_keys': {label: tuple(sorted(values)) for label, values in raw_keys.items()},
         'cursor': cursors_map,
         'finished': finished,
         'incomplete': incomplete,

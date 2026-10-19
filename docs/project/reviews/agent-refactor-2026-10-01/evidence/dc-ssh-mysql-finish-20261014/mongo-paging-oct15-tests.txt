@@ -1,0 +1,12 @@
+test_projection_sort_and_lookahead_use_actual_pymongo_cursor_api (tests.test_mongo_query_driver_api.MongoQueryDriverApiTests.test_projection_sort_and_lookahead_use_actual_pymongo_cursor_api) ... ok
+test_mongo_lookahead_caps_page_zero_and_bson_rendering_without_count (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_lookahead_caps_page_zero_and_bson_rendering_without_count) ... ok
+test_mongo_failed_next_retains_page_and_waits_for_owner_before_same_offset_retry (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_failed_next_retains_page_and_waits_for_owner_before_same_offset_retry) ... ok
+test_mongo_run_and_paging_capture_the_same_collection_and_full_query_spec (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_run_and_paging_capture_the_same_collection_and_full_query_spec) ... ok
+test_mongo_exact_page_count_type_and_unstarted_history_sink_detach (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_exact_page_count_type_and_unstarted_history_sink_detach) ... ok
+test_typed_history_restore_replays_captured_bson_arguments_through_real_worker (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_typed_history_restore_replays_captured_bson_arguments_through_real_worker) ... ok
+test_mongo_busy_second_draft_does_not_receive_first_query (tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_busy_second_draft_does_not_receive_first_query) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.630s
+
+OK

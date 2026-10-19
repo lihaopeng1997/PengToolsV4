@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Focused tests for the isolated Prism native-frame adapter."""
+"""Focused tests for the isolated Prism native-frame adapter.
+
+QTest widget clicks prove Qt signal wiring, not Win32 mouse routing.
+Native click verification on a real framed host is pending.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
@@ -40,6 +45,11 @@ from ui.prism_window_frame import (
 
 _APP = QApplication.instance() or QApplication([])
 
+# Win32 nonclient button messages.  The frame adapter must not consume them;
+# QTest widget clicks do not prove this OS path.
+WM_NCLBUTTONDOWN = 0x00A1
+WM_NCLBUTTONUP = 0x00A2
+
 
 class _FakeNativeMessage:
     def __init__(self, message: int):
@@ -47,6 +57,49 @@ class _FakeNativeMessage:
         self.message = message
         self.wParam = 0
         self.lParam = 0
+
+
+class _SafeFakeHost(QWidget):
+    """Host stand-in that records window actions without touching user data."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("frame-test-fake-host")
+        self.resize(1000, 700)
+        self.allow_close = True
+        self.minimize_calls = 0
+        self.maximize_calls: list[str] = []
+        self.close_requests = 0
+        self.close_events = 0
+        self._host_maximized = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.title = PrismTitleBar(parent=self)
+        layout.addWidget(self.title)
+        layout.addWidget(QWidget(self), 1)
+        self.title.minimize_requested.connect(self._on_minimize)
+        self.title.maximize_requested.connect(self._on_maximize)
+        self.title.close_requested.connect(self._on_close_requested)
+
+    def _on_minimize(self) -> None:
+        self.minimize_calls += 1
+
+    def _on_maximize(self) -> None:
+        self._host_maximized = not self._host_maximized
+        self.title.set_maximized(self._host_maximized)
+        self.maximize_calls.append("maximize" if self._host_maximized else "restore")
+
+    def _on_close_requested(self) -> None:
+        self.close_requests += 1
+        self.close()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self.close_events += 1
+        if self.allow_close:
+            event.accept()
+        else:
+            event.ignore()
 
 
 class PrismWindowFrameTests(unittest.TestCase):
@@ -107,22 +160,26 @@ class PrismWindowFrameTests(unittest.TestCase):
         self.assertFalse(self.frame.is_frameless())
         self.assertTrue(self.host.isVisible())
 
-    def test_blank_titlebar_is_caption_but_window_buttons_are_native_codes(self):
+    def _hit(self, widget) -> int:
+        return self.frame.hit_test(
+            widget.mapToGlobal(widget.rect().center()),
+            window_rect=self.host.frameGeometry(),
+        )
+
+    def test_blank_titlebar_is_caption_but_window_buttons_stay_client(self):
         rect = self.host.frameGeometry()
         blank = self.title.mapToGlobal(QPoint(self.title.width() // 2, self.title.height() // 2))
         self.assertEqual(self.frame.hit_test(blank, window_rect=rect), HTCAPTION)
-        self.assertEqual(
-            self.frame.hit_test(self.title.minimize_button.mapToGlobal(self.title.minimize_button.rect().center()), window_rect=rect),
-            HTMINBUTTON,
-        )
-        self.assertEqual(
-            self.frame.hit_test(self.title.maximize_button.mapToGlobal(self.title.maximize_button.rect().center()), window_rect=rect),
-            HTMAXBUTTON,
-        )
-        self.assertEqual(
-            self.frame.hit_test(self.title.close_button.mapToGlobal(self.title.close_button.rect().center()), window_rect=rect),
-            HTCLOSE,
-        )
+        stolen = (HTMINBUTTON, HTMAXBUTTON, HTCLOSE)
+        for button in (
+            self.title.pin_button,
+            self.title.minimize_button,
+            self.title.maximize_button,
+            self.title.close_button,
+        ):
+            code = self._hit(button)
+            self.assertEqual(code, HTCLIENT, button.objectName())
+            self.assertNotIn(code, stolen, button.objectName())
 
     def test_maximized_window_disables_edge_resize_but_keeps_controls(self):
         rect = QRect(-100, -80, 1000, 700)
@@ -130,7 +187,7 @@ class PrismWindowFrameTests(unittest.TestCase):
             self.assertEqual(self.frame.edge_for_position(QPoint(rect.left(), rect.top()), window_rect=rect), Qt.Edge(0))
             self.assertFalse(self.frame.request_system_resize(Qt.Edge.LeftEdge))
             close_pos = self.title.close_button.mapToGlobal(self.title.close_button.rect().center())
-            self.assertEqual(self.frame.hit_test(close_pos, window_rect=self.host.frameGeometry()), HTCLOSE)
+            self.assertEqual(self.frame.hit_test(close_pos, window_rect=self.host.frameGeometry()), HTCLIENT)
 
     def test_titlebar_double_click_does_not_bubble_from_window_buttons(self):
         doubled = []
@@ -150,12 +207,32 @@ class PrismWindowFrameTests(unittest.TestCase):
             self.frame.native_event(b"windows_generic_MSG", _FakeNativeMessage(WM_SYSCOMMAND)),
             (False, 0),
         )
+        self.assertEqual(
+            self.frame.native_event(b"windows_generic_MSG", _FakeNativeMessage(WM_NCLBUTTONDOWN)),
+            (False, 0),
+        )
+        self.assertEqual(
+            self.frame.native_event(b"windows_generic_MSG", _FakeNativeMessage(WM_NCLBUTTONUP)),
+            (False, 0),
+        )
         self.assertEqual(self.frame.native_event(b"windows_generic_MSG", 1), (False, 0))
         self.frame.set_native_enabled(False)
         self.assertEqual(
             self.frame.native_event(b"windows_generic_MSG", _FakeNativeMessage(WM_NCHITTEST)),
             (False, 0),
         )
+
+    def test_caption_drag_and_corner_resize_are_retained(self):
+        rect = self.host.frameGeometry()
+        blank = self.title.mapToGlobal(QPoint(self.title.width() // 2, self.title.height() // 2))
+        self.assertEqual(self.frame.hit_test(blank, window_rect=rect), HTCAPTION)
+        self.assertEqual(
+            self.frame.hit_test(QPoint(rect.left(), rect.top()), window_rect=rect),
+            HTTOPLEFT,
+        )
+        close_code = self._hit(self.title.close_button)
+        self.assertEqual(close_code, HTCLIENT)
+        self.assertNotEqual(close_code, HTCAPTION)
 
     def test_lparam_decoding_preserves_negative_monitor_coordinates(self):
         # x=-16, y=-2 in signed 16-bit LOWORD/HIWORD form.
@@ -166,6 +243,74 @@ class PrismWindowFrameTests(unittest.TestCase):
         work = work_area_at(QPoint(-100, -100))
         self.assertIsNotNone(work)
         self.assertTrue(work.isValid())
+
+
+class PrismWindowButtonDispatchTests(unittest.TestCase):
+    """Host-owned button actions. QTest clicks do not prove native OS routing."""
+
+    def setUp(self):
+        self.host = _SafeFakeHost()
+        self.host.show()
+        _APP.processEvents()
+        self.title = self.host.title
+        self.frame = PrismWindowFrame(self.host, self.title)
+
+    def tearDown(self):
+        self.host.allow_close = True
+        self.host.close()
+        self.host.deleteLater()
+        _APP.processEvents()
+
+    def test_hit_test_gives_qt_dispatch_ownership_of_window_buttons(self):
+        rect = self.host.frameGeometry()
+        stolen = (HTMINBUTTON, HTMAXBUTTON, HTCLOSE)
+        for button in (self.title.minimize_button, self.title.maximize_button, self.title.close_button):
+            code = self.frame.hit_test(
+                button.mapToGlobal(button.rect().center()),
+                window_rect=rect,
+            )
+            self.assertEqual(code, HTCLIENT, button.objectName())
+            self.assertNotIn(code, stolen, button.objectName())
+        blank = self.title.mapToGlobal(QPoint(self.title.width() // 2, self.title.height() // 2))
+        self.assertEqual(self.frame.hit_test(blank, window_rect=rect), HTCAPTION)
+
+    def test_window_button_actions_fire_exactly_once_and_max_restores(self):
+        QTest.mouseClick(self.title.minimize_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(self.host.minimize_calls, 1)
+        self.assertEqual(self.host.maximize_calls, [])
+        self.assertEqual(self.host.close_requests, 0)
+        self.assertEqual(self.host.close_events, 0)
+
+        QTest.mouseClick(self.title.maximize_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(self.host.minimize_calls, 1)
+        self.assertEqual(self.host.maximize_calls, ["maximize"])
+        self.assertTrue(self.title.is_maximized())
+        self.assertEqual(self.host.close_requests, 0)
+
+        QTest.mouseClick(self.title.maximize_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(self.host.maximize_calls, ["maximize", "restore"])
+        self.assertFalse(self.title.is_maximized())
+        self.assertEqual(self.host.minimize_calls, 1)
+        self.assertEqual(self.host.close_requests, 0)
+
+    def test_close_cancellation_keeps_host_and_still_dispatches_once(self):
+        self.host.allow_close = False
+        QTest.mouseClick(self.title.close_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(self.host.close_requests, 1)
+        self.assertEqual(self.host.close_events, 1)
+        self.assertTrue(self.host.isVisible())
+        self.assertEqual(self.host.minimize_calls, 0)
+        self.assertEqual(self.host.maximize_calls, [])
+
+        QTest.mouseClick(self.title.close_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(self.host.close_requests, 2)
+        self.assertEqual(self.host.close_events, 2)
+        self.assertTrue(self.host.isVisible())
 
 
 if __name__ == "__main__":

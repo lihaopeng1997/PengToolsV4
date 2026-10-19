@@ -33,14 +33,16 @@ export interface NavGroup {
 }
 
 export interface NavModel {
+  quick_tool_indices?: number[]
   current?: number
   settings?: NavItem
   groups: NavGroup[]
+  language?: 'zh' | 'en'
 }
 
 /**
  * 侧栏的展示分组。业务索引、文案和权限仍来自 NavModel；这个类型只描述
- * 原型侧栏需要的布局组织（首页独立、其余入口以组菜单展示）。
+ * 原型侧栏需要的布局组织（首页独立、其余真实页面平铺在标题下）。
  */
 export interface DisplayNavGroup {
   key: string
@@ -144,6 +146,9 @@ export function parseNavModel(modelJson: string): NavModel {
   if (data['settings'] !== undefined) {
     model.settings = validateItem(data['settings'], 'settings', false)
   }
+  if (data['language'] === 'en' || data['language'] === 'zh') {
+    model.language = data['language']
+  }
   return model
 }
 
@@ -178,7 +183,7 @@ function groupIcon(group: NavGroup, parent: NavItem | undefined): string {
 /**
  * 由唯一的 navModel 派生 Prism 侧栏展示组。
  *
- * 这里不维护页面索引或权限清单：父项 children、叶子项和 settings 都只引用
+ * 这里不维护页面索引或权限清单：兼容的 children、叶子项和 settings 都只引用
  * Python 提供的数据。原型的“设计展板”因此不会凭空出现在生产侧栏。
  */
 export function deriveDisplayNav(model: NavModel | null): {

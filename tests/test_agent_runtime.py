@@ -13,63 +13,88 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from tools import agent_runtime as ar
+from tools.agent_core import AgentTurn, CancellationToken, ToolCall
+
+
+class ScriptedModelAdapter:
+    """Offline native-tool adapter for exercising the production runner seam."""
+
+    def __init__(self, turns):
+        self.turns = list(turns)
+        self.requests = []
+
+    def complete_turn(self, request, *, cancellation, on_delta):
+        self.requests.append(request)
+        value = self.turns.pop(0)
+        if isinstance(value, tuple):
+            turn, deltas = value
+            for delta in deltas:
+                on_delta(delta)
+            return turn
+        return value
+
+
+def _tool_turn(call_id, name, **arguments):
+    return AgentTurn(
+        tool_calls=(ToolCall(call_id, name, arguments),),
+        finish_reason='tool_calls',
+    )
 
 
 class ModelCallTests(unittest.TestCase):
-    """核心：模型调用参数必须匹配 intranet_llm.chat_completions(messages, cfg, model_config_id)。"""
+    """The production loop consumes the shared ModelAdapter protocol."""
 
-    def test_run_agent_loop_calls_chat_with_cfg_not_kwargs(self):
-        """确保用 cfg=model_cfg 调用，而非原先的 model/base_url/api_key/stream 关键字。
-        旧代码会抛 TypeError；此处断言调用参数名不含被移除的关键字。
-        """
-        captured = {}
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            captured['cfg'] = cfg
-            return '任务完成'  # 直接给最终答案，不触发工具
-
+    def test_run_agent_loop_uses_injected_shared_adapter(self):
+        adapter = ScriptedModelAdapter([AgentTurn(text='任务完成')])
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                model_cfg = {'model': 'qwen3.6', 'base_url': 'http://10.0.0.1/v1', 'enabled': True}
-                final, _, _ = ar.run_agent_loop('请你读下 a.py', tmp, model_cfg, [], [])
+            model_cfg = {'id': 'selected-test-model', 'model': 'synthetic'}
+            final, messages, calls = ar.run_agent_loop(
+                '请你读下 a.py', tmp, model_cfg, [], [], model_adapter=adapter,
+            )
 
         self.assertEqual(final, '任务完成')
-        self.assertIs(captured.get('cfg'), model_cfg)
+        self.assertEqual(adapter.requests[0].context.model_config_id, 'selected-test-model')
+        self.assertEqual(len(adapter.requests), 1)
+        self.assertEqual(calls, [])
+        self.assertEqual([item['content'] for item in messages if item.get('role') == 'assistant'], ['任务完成'])
 
     def test_model_failure_returns_real_error_not_round_limit(self):
-        """模型抛异常时，应返回真实错误信息，而不被「最大工具调用轮次」覆盖。"""
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            raise RuntimeError('boom connection refused')
+        """Adapter details are not exposed in the user-visible safe failure."""
+        class FailingAdapter:
+            def complete_turn(self, request, *, cancellation, on_delta):
+                raise RuntimeError('boom connection refused')
 
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final, msgs, _ = ar.run_agent_loop('任务', tmp, {}, [], [])
+            final, msgs, _ = ar.run_agent_loop(
+                '任务', tmp, {}, [], [], model_adapter=FailingAdapter(),
+            )
 
-        self.assertIn('模型调用失败', final)
-        self.assertIn('boom', final)
+        self.assertIn('执行失败', final)
+        self.assertNotIn('boom', final)
+        self.assertNotIn('connection refused', final)
         self.assertNotIn('已达到最大工具调用轮次', final)
 
     def test_tool_execution_roundtrip(self):
-        """模型返回 read_file 工具调用，应执行成功并写回 tool 消息。"""
-        responses = iter([
-            '{"tool": "read_file", "args": {"path": "a.py"}}',
-            '搞定，看完了',
+        """Native tool calls execute once and receive a matching tool result."""
+        adapter = ScriptedModelAdapter([
+            _tool_turn('read-1', 'read_file', path='a.py'),
+            AgentTurn(text='搞定，看完了'),
         ])
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return next(responses)
-
         with path_workspace() as tmp:
             with open(os.path.join(tmp, 'a.py'), 'w', encoding='utf-8') as stream:
                 stream.write('print(1)')
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final, msgs, tcs = ar.run_agent_loop('读 a.py', tmp, {}, [], [])
+            final, msgs, tcs = ar.run_agent_loop(
+                '读 a.py', tmp, {}, [], [], model_adapter=adapter,
+            )
 
         self.assertEqual(final, '搞定，看完了')
         self.assertEqual(len(tcs), 1)
         self.assertEqual(tcs[0]['tool'], 'read_file')
-        # result 是脱敏后的 JSON 字符串
         self.assertEqual(json.loads(tcs[0]['result'])['ok'], True)
+        tool_message = next(item for item in msgs if item.get('role') == 'tool')
+        self.assertEqual(tool_message['tool_call_id'], 'read-1')
+        assistant_call = next(item for item in msgs if item.get('tool_calls'))
+        self.assertEqual(assistant_call['tool_calls'][0]['id'], tool_message['tool_call_id'])
 
 
 class ToolDispatchTests(unittest.TestCase):
@@ -81,13 +106,26 @@ class ToolDispatchTests(unittest.TestCase):
             confirmed.append(title)
             return False  # 拒绝
 
+        commands = []
+
+        def fake_svn(args, **_kwargs):
+            commands.append(args)
+            return type('Completed', (), {
+                'returncode': 0,
+                'stdout': 'synthetic full diff\n',
+                'stderr': '',
+            })()
+
         with path_workspace() as tmp:
-            r = ar.execute_tool('run_svn',
-                                {'operation': 'commit', 'message': 'm', 'paths': ''},
-                                tmp, confirm_cb=confirm_cb)
+            with patch.object(ar.subprocess, 'run', side_effect=fake_svn):
+                r = ar.execute_tool('run_svn',
+                                    {'operation': 'commit', 'message': 'm', 'paths': ''},
+                                    tmp, confirm_cb=confirm_cb)
         self.assertTrue(confirmed, 'SVN commit 未触发确认回调')
         self.assertFalse(r['ok'])
         self.assertIn('取消', r.get('error', ''))
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][:2], ['svn', 'diff'])
 
     def test_svn_readonly_does_not_require_confirm(self):
         """SVN status/diff 为只读，不应触发确认回调。"""
@@ -128,38 +166,43 @@ class ToolDispatchTests(unittest.TestCase):
 class PlanConfirmTests(unittest.TestCase):
     def test_plan_confirm_reject_aborts_tool_execution(self):
         """plan_confirm=True 且用户拒绝计划时，应终止且不执行任何工具。"""
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return '{"tool": "write_file", "args": {"path": "x.txt", "content": "hi"}}'
+        adapter = ScriptedModelAdapter([
+            _tool_turn('write-x', 'write_file', path='x.txt', content='hi'),
+        ])
 
         def confirm_cb(title, content):
             return False  # 拒绝计划
 
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final, _, tcs = ar.run_agent_loop('创建 x.txt', tmp, {},
-                                                  [], [], plan_confirm=True, confirm_cb=confirm_cb)
+            final, _, tcs = ar.run_agent_loop(
+                '创建 x.txt', tmp, {}, [], [], plan_confirm=True,
+                confirm_cb=confirm_cb, model_adapter=adapter,
+            )
             self.assertIn('取消执行计划', final)
             self.assertEqual(len(tcs), 0)
             self.assertFalse(os.path.exists(os.path.join(tmp, 'x.txt')))
 
     def test_plan_confirm_accept_proceeds(self):
         """plan_confirm=True 且用户接受计划时，继续执行工具。"""
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return '{"tool": "write_file", "args": {"path": "y.txt", "content": "hi"}}'
+        adapter = ScriptedModelAdapter([
+            _tool_turn('write-y', 'write_file', path='y.txt', content='hi'),
+            AgentTurn(text='文件已创建。'),
+        ])
+        confirmations = []
 
         def confirm_cb(title, content):
+            confirmations.append((title, content))
             return True  # 接受计划
 
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                # 第二轮模型仍返回同一调用 → 解析出工具并执行；此处只看首轮计划确认通过后工具已写盘
-                ar.MAX_TOOL_ROUNDS = 1
-                final, _, tcs = ar.run_agent_loop('创建 y.txt', tmp, {},
-                                                  [], [], plan_confirm=True, confirm_cb=confirm_cb)
+            final, _, tcs = ar.run_agent_loop(
+                '创建 y.txt', tmp, {}, [], [], plan_confirm=True,
+                confirm_cb=confirm_cb, model_adapter=adapter,
+            )
             self.assertEqual(len(tcs), 1)
             self.assertTrue(os.path.exists(os.path.join(tmp, 'y.txt')))
+        self.assertEqual(final, '文件已创建。')
+        self.assertEqual([title for title, _ in confirmations], ['确认执行计划', '确认写入文件: y.txt'])
 
 
 class ToolCallNormalizeTests(unittest.TestCase):
@@ -205,13 +248,10 @@ class ToolCallNormalizeTests(unittest.TestCase):
 
 class BoundProjectAndLoopTests(unittest.TestCase):
     def test_incident_name_parameters_executes_list_dir(self):
-        responses = iter([
-            '{"name": "list_dir", "parameters": {"path": ""}}',
-            '目录已看完',
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            AgentTurn(text='目录已看完'),
         ])
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return next(responses)
 
         with path_workspace() as tmp:
             with open(os.path.join(tmp, 'main.py'), 'w', encoding='utf-8') as stream:
@@ -219,8 +259,9 @@ class BoundProjectAndLoopTests(unittest.TestCase):
             os.makedirs(os.path.join(tmp, 'src'), exist_ok=True)
             with open(os.path.join(tmp, 'src', 'demo.py'), 'w', encoding='utf-8') as stream:
                 stream.write('demo = 1\n')
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final, msgs, tcs = ar.run_agent_loop('看看有哪些 Python 文件', tmp, {}, [], [])
+            final, msgs, tcs = ar.run_agent_loop(
+                '看看有哪些 Python 文件', tmp, {}, [], [], model_adapter=adapter,
+            )
         self.assertEqual(final, '目录已看完')
         self.assertEqual(tcs[0]['tool'], 'list_dir')
         payload = json.loads(tcs[0]['result'])
@@ -229,25 +270,22 @@ class BoundProjectAndLoopTests(unittest.TestCase):
         names = [e['name'] for e in payload['data']]
         self.assertIn('main.py', names)
         self.assertIn('src', names)
-        assistant_json = [m for m in msgs if m.get('role') == 'assistant' and '"name": "list_dir"' in (m.get('content') or '')]
-        self.assertEqual(assistant_json, [])
+        assistant_calls = [m for m in msgs if m.get('role') == 'assistant' and m.get('tool_calls')]
+        self.assertEqual(assistant_calls[0]['tool_calls'][0]['id'], 'list-1')
 
     def test_multi_round_list_dir_then_read_file(self):
         executed = []
         orig = ar.execute_tool
 
-        def wrapped(tool, args, workspace_dir, confirm_cb=None):
+        def wrapped(tool, args, workspace_dir, confirm_cb=None, cancel_cb=None):
             executed.append(tool)
-            return orig(tool, args, workspace_dir, confirm_cb=confirm_cb)
+            return orig(tool, args, workspace_dir, confirm_cb=confirm_cb, cancel_cb=cancel_cb)
 
-        responses = iter([
-            '{"name": "list_dir", "parameters": {"path": ""}}',
-            '{"name": "read_file", "parameters": {"path": "main.py"}}',
-            '我已经读取 main.py，项目入口……',
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            _tool_turn('read-2', 'read_file', path='main.py'),
+            AgentTurn(text='我已经读取 main.py，项目入口……'),
         ])
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return next(responses)
 
         with path_workspace() as tmp:
             with open(os.path.join(tmp, 'main.py'), 'w', encoding='utf-8') as stream:
@@ -256,13 +294,16 @@ class BoundProjectAndLoopTests(unittest.TestCase):
             with open(os.path.join(tmp, 'src', 'demo.py'), 'w', encoding='utf-8') as stream:
                 stream.write('demo = True\n')
             with patch.object(ar, 'execute_tool', new=wrapped):
-                with patch.object(ar, 'chat_completions', new=fake_chat):
-                    final, _, tcs = ar.run_agent_loop('分析项目', tmp, {}, [], [])
+                final, _, tcs = ar.run_agent_loop(
+                    '分析项目', tmp, {}, [], [], model_adapter=adapter,
+                )
         self.assertEqual(executed, ['list_dir', 'read_file'])
         self.assertEqual([c['tool'] for c in tcs], ['list_dir', 'read_file'])
         self.assertIn('main.py', final)
         read_payload = json.loads(tcs[1]['result'])
         self.assertIn('print("entry")', read_payload['data'])
+        self.assertEqual(adapter.requests[1].messages[-2]['role'], 'assistant')
+        self.assertEqual(adapter.requests[1].messages[-1]['tool_call_id'], 'list-1')
 
     def test_bound_project_list_read_search(self):
         with path_workspace() as tmp:
@@ -305,18 +346,15 @@ class BoundProjectAndLoopTests(unittest.TestCase):
 
 
 class AgentIncidentAndReActLoopTests(unittest.TestCase):
-    """测试 Round 4-B Agent 工具解析 incident 格式、ReAct 观察回路、熔断与取消。"""
+    """Legacy parser helpers plus shared native-tool loop behavior."""
 
     def test_a1_a2_flat_incident_tool_format_normalized(self):
-        """A1, A2. 支持扁平 incident 格式 {"name":"list_dir","path":""} 及 read_file。"""
-        # A1. list_dir
         raw1 = '{"name":"list_dir","path":""}'
         calls1 = ar.parse_tool_calls(raw1)
         self.assertEqual(len(calls1), 1)
         self.assertEqual(calls1[0]['tool'], 'list_dir')
         self.assertEqual(calls1[0]['args'], {'path': ''})
 
-        # A2. read_file with extra parameters filtered by schema properties
         raw2 = '{"name":"read_file","path":"src/main/java/App.java","comment":"ignore this"}'
         calls2 = ar.parse_tool_calls(raw2)
         self.assertEqual(len(calls2), 1)
@@ -324,141 +362,92 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
         self.assertEqual(calls2[0]['args'], {'path': 'src/main/java/App.java'})
 
     def test_a3_arbitrary_json_not_misidentified_as_tool_call(self):
-        """A3. 普通 JSON 结构如 {"name":"Alice","path":""} 绝不当成工具调用。"""
-        raw = '{"name":"Alice","path":""}'
-        calls = ar.parse_tool_calls(raw)
-        self.assertEqual(calls, [])
+        self.assertEqual(ar.parse_tool_calls('{"name":"Alice","path":""}'), [])
 
     def test_a4_a5_a6_a7_java_project_multi_round_react_loop(self):
-        """A4, A5, A6, A7. 模拟 Java 项目完整 ReAct 回路：
-        MODEL -> list_dir -> OBSERVATION -> MODEL -> read_file -> OBSERVATION -> MODEL -> final answer。
-        断言：
-        - 工具执行结果真实进入下一轮 messages (role=tool)
-        - 原始工具 JSON 绝不作为最终 assistant 回复
-        - UI/finished 最终回答恰好 1 次
-        """
-        captured_messages = []
         progress_events = []
-
-        fake_responses = iter([
-            '{"name":"list_dir","path":""}',
-            '{"name":"list_dir","path":"src/main/java"}',
-            '{"name":"read_file","path":"src/main/java/com/acme/App.java"}',
-            '我已经读取项目，入口类为 App.java，主方法已就绪。',
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            _tool_turn('list-2', 'list_dir', path='src/main/java'),
+            _tool_turn('read-3', 'read_file', path='src/main/java/com/acme/App.java'),
+            AgentTurn(text='我已经读取项目，入口类为 App.java，主方法已就绪。'),
         ])
 
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            captured_messages.append(list(messages))
-            return next(fake_responses)
-
-        def progress_cb(role, content):
-            progress_events.append((role, content))
-
         with path_workspace() as tmp:
-            # 建立 Java 工程目录树
             os.makedirs(os.path.join(tmp, 'src', 'main', 'java', 'com', 'acme'), exist_ok=True)
-            with open(os.path.join(tmp, 'pom.xml'), 'w', encoding='utf-8') as f:
-                f.write('<project></project>')
-            with open(os.path.join(tmp, 'src', 'main', 'java', 'com', 'acme', 'App.java'), 'w', encoding='utf-8') as f:
-                f.write('package com.acme;\npublic class App { public static void main(String[] args) {} }\n')
+            with open(os.path.join(tmp, 'pom.xml'), 'w', encoding='utf-8') as stream:
+                stream.write('<project></project>')
+            with open(os.path.join(tmp, 'src', 'main', 'java', 'com', 'acme', 'App.java'), 'w', encoding='utf-8') as stream:
+                stream.write('package com.acme;\npublic class App { public static void main(String[] args) {} }\n')
 
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final_answer, msgs, tcs = ar.run_agent_loop(
-                    user_message='帮我读取下项目代码',
-                    workspace_dir=tmp,
-                    model_cfg={'enabled': True},
-                    messages=[],
-                    tool_calls=[],
-                    progress_cb=progress_cb,
-                )
+            final, messages, calls = ar.run_agent_loop(
+                '帮我读取下项目代码', tmp, {'id': 'synthetic-model'}, [], [],
+                progress_cb=lambda kind, body: progress_events.append((kind, body)),
+                model_adapter=adapter,
+            )
 
-        # 验证最终回答内容与唯一性
-        self.assertIn('入口类为 App.java', final_answer)
-        self.assertEqual(len(tcs), 3)
-
-        # A5. 验证工具结果真实进入后续模型的上下文 (role='tool')
-        self.assertEqual(len(captured_messages), 4)
-        # Round 2 调用的 messages 应包含 Round 1 的 tool observation
-        round2_msgs = captured_messages[1]
-        tool_in_r2 = [m for m in round2_msgs if m.get('role') == 'tool']
-        self.assertEqual(len(tool_in_r2), 1)
-        self.assertIn('pom.xml', tool_in_r2[0]['content'])
-
-        # Round 4 调用的 messages 应包含全部 3 次 tool observations
-        round4_msgs = captured_messages[3]
-        tool_in_r4 = [m for m in round4_msgs if m.get('role') == 'tool']
-        self.assertEqual(len(tool_in_r4), 3)
-        self.assertIn('public class App', tool_in_r4[2]['content'])
-
-        # A6. 原始工具 JSON 绝不作为 assistant final 回复
-        self.assertNotIn('{"name":"list_dir"', final_answer)
-
-        # A7. 进度回调中不包含 assistant 最终回答（杜绝与 _on_agent_done 双写）
-        assistant_progress = [content for role, content in progress_events if role == 'assistant']
-        self.assertEqual(assistant_progress, [])
+        self.assertIn('入口类为 App.java', final)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(adapter.requests), 4)
+        round2_tools = [item for item in adapter.requests[1].messages if item.get('role') == 'tool']
+        self.assertEqual(len(round2_tools), 1)
+        self.assertIn('pom.xml', round2_tools[0]['content'])
+        round4_tools = [item for item in adapter.requests[3].messages if item.get('role') == 'tool']
+        self.assertEqual(len(round4_tools), 3)
+        self.assertIn('public class App', round4_tools[2]['content'])
+        self.assertEqual([item['tool_call_id'] for item in round4_tools], ['list-1', 'list-2', 'read-3'])
+        self.assertEqual(
+            [item.get('content') for item in messages if item.get('role') == 'assistant' and item.get('content')],
+            ['我已经读取项目，入口类为 App.java，主方法已就绪。'],
+        )
+        self.assertTrue(any(kind == 'assistant_delta' and '入口类为 App.java' in body
+                            for kind, body in progress_events))
+        self.assertEqual(
+            [body for kind, body in progress_events if kind == 'status' and body.startswith('turn_started:')],
+            ['turn_started:0', 'turn_started:1', 'turn_started:2', 'turn_started:3'],
+        )
 
     def test_a12_repeated_identical_tool_loop_broken(self):
-        """A12. 模型连续重复调用相同只读工具（如连续 3 次 list_dir path=""）必须被熔断停止。"""
-        fake_responses = iter([
-            '{"name":"list_dir","path":""}',
-            '{"name":"list_dir","path":""}',
-            '{"name":"list_dir","path":""}',
-            '{"name":"list_dir","path":""}',
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            _tool_turn('list-2', 'list_dir', path=''),
+            _tool_turn('list-3', 'list_dir', path=''),
         ])
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return next(fake_responses)
-
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                final_answer, msgs, tcs = ar.run_agent_loop(
-                    user_message='测试重复工具',
-                    workspace_dir=tmp,
-                    model_cfg={'enabled': True},
-                    messages=[],
-                    tool_calls=[],
-                )
-
-        self.assertIn('模型重复请求相同工具调用', final_answer)
-        self.assertIn('已停止以避免无效循环', final_answer)
-        self.assertLessEqual(len(tcs), 3)
+            final, _messages, calls = ar.run_agent_loop(
+                '测试重复工具', tmp, {'id': 'synthetic-model'}, [], [],
+                model_adapter=adapter,
+            )
+        self.assertIn('模型重复请求相同工具调用', final)
+        self.assertIn('已停止以避免无效循环', final)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(adapter.requests), 3)
 
     def test_a13_cancel_stops_subsequent_tool_execution(self):
-        """A13. cancel_cb 触发后，立即中断循环，后续工具绝不被执行。"""
         execution_count = 0
-
-        def fake_chat(messages, cfg=None, model_config_id=None):
-            return '{"name":"list_dir","path":""}'
-
-        is_cancelled = False
-
-        def cancel_gate():
-            return is_cancelled
-
+        token = CancellationToken()
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            _tool_turn('list-2', 'list_dir', path=''),
+        ])
         original_exec = ar.execute_tool
 
         def tracking_exec(*args, **kwargs):
-            nonlocal execution_count, is_cancelled
+            nonlocal execution_count
             execution_count += 1
-            # 首次执行后取消
-            is_cancelled = True
-            return original_exec(*args, **kwargs)
+            result = original_exec(*args, **kwargs)
+            token.cancel('ui stop')
+            return result
 
         with path_workspace() as tmp:
-            with patch.object(ar, 'chat_completions', new=fake_chat):
-                with patch.object(ar, 'execute_tool', new=tracking_exec):
-                    final_answer, msgs, tcs = ar.run_agent_loop(
-                        user_message='测试取消',
-                        workspace_dir=tmp,
-                        model_cfg={'enabled': True},
-                        messages=[],
-                        tool_calls=[],
-                        cancel_cb=cancel_gate,
-                    )
-
-        self.assertIn('已由用户手动停止', final_answer)
+            with patch.object(ar, 'execute_tool', new=tracking_exec):
+                final, _messages, _calls = ar.run_agent_loop(
+                    '测试取消', tmp, {'id': 'synthetic-model'}, [], [],
+                    model_adapter=adapter, cancellation=token,
+                )
+        self.assertIn('已由用户手动停止', final)
         self.assertEqual(execution_count, 1)
-
+        self.assertEqual(len(adapter.requests), 1)
 
 def path_workspace():
 

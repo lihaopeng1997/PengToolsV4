@@ -369,68 +369,148 @@ def scan_working_copies(root):
     base = os.path.abspath(root)
     if not os.path.isdir(base):
         raise ValueError('选择的需求根目录不存在。')
-    root_year_match = re.search(r'(20\d{2})', os.path.basename(base))
+    ignored = {'.git', '__pycache__', 'node_modules', 'build', 'dist', '.svn'}
+    base_name = os.path.basename(base)
+    if base_name in ignored or base_name.lower() in ignored:
+        return []
+
+    root_year_match = re.search(r'(20\d{2})', base_name)
     default_year = int(root_year_match.group(1)) if root_year_match else datetime.date.today().year
     copies = []
     svn_paths = set()
-    ignored = {'.git', '__pycache__', 'node_modules', 'build', 'dist'}
+
     for current, directories, _files in os.walk(base):
+        norm_current = os.path.normcase(os.path.abspath(current))
+        if any(norm_current == sp or norm_current.startswith(sp + os.sep) for sp in svn_paths):
+            directories[:] = []
+            continue
         if '.svn' in directories:
-            svn_paths.add(os.path.normcase(os.path.abspath(current)))
+            svn_paths.add(norm_current)
+            directories[:] = []
             file_count, modified_at = folder_file_snapshot(current, ignored)
+            relative = os.path.relpath(current, base)
+            if relative in ('.', ''):
+                relative = os.path.basename(current.rstrip(os.sep))
             try:
                 info = working_copy_info(current)
                 status = svn_status(current)
-                relative = os.path.relpath(current, base)
                 info.update({
                     'relative_path': relative,
-                    'online_month': infer_online_month(relative, default_year),
+                    'online_month': infer_online_month(relative, default_year) or infer_online_month(current, default_year),
                     'record_kind': infer_record_kind(relative),
                     'svn_status': status['text'],
                     'changed_count': len(status['changes']),
                     'workspace_kind': 'svn',
-                    'file_count': file_count, 'source_modified_at': modified_at,
+                    'file_count': file_count,
+                    'source_modified_at': modified_at,
                 })
                 copies.append(info)
             except SvnError as exc:
                 copies.append({
-                    'local_path': current, 'relative_path': os.path.relpath(current, base),
-                    'svn_url': '', 'svn_revision': '', 'online_month': infer_online_month(current, default_year),
-                    'record_kind': infer_record_kind(current), 'svn_status': str(exc),
-                    'changed_count': 0, 'error': str(exc), 'workspace_kind': 'svn',
-                    'file_count': file_count, 'source_modified_at': modified_at,
+                    'local_path': current,
+                    'relative_path': relative,
+                    'svn_url': '',
+                    'svn_revision': '',
+                    'online_month': infer_online_month(relative, default_year) or infer_online_month(current, default_year),
+                    'record_kind': infer_record_kind(relative),
+                    'svn_status': str(exc),
+                    'changed_count': 0,
+                    'error': str(exc),
+                    'workspace_kind': 'svn',
+                    'file_count': file_count,
+                    'source_modified_at': modified_at,
                 })
-        directories[:] = [name for name in directories if name not in ignored and name != '.svn']
+            continue
+        directories[:] = [name for name in directories if name not in ignored]
 
-    for month_entry in os.scandir(base):
-        if not month_entry.is_dir() or month_entry.name in ignored:
+    # 普通目录候选规则
+    # 先扫描直接子项：子目录与直接非临时文件
+    subdirs = []
+    month_dirs = []
+    has_direct_files = False
+    try:
+        with os.scandir(base) as it:
+            for entry in it:
+                if entry.name in ignored:
+                    continue
+                if entry.is_dir():
+                    subdirs.append(entry)
+                    m = infer_online_month(entry.name, default_year)
+                    if m:
+                        month_dirs.append((entry, m))
+                elif entry.is_file() and not entry.name.startswith('~$'):
+                    has_direct_files = True
+    except OSError:
+        pass
+
+    folder_candidates = []
+    base_month = infer_online_month(base_name, default_year)
+
+    if month_dirs:
+        # 1. 已有 root/月份/REQ 布局必须优先保留，即使 root 有 README/索引文件也不能当成单个需求
+        for month_entry, month in month_dirs:
+            try:
+                child_dirs = [
+                    e for e in os.scandir(month_entry.path)
+                    if e.is_dir() and e.name not in ignored
+                ]
+            except OSError:
+                child_dirs = []
+            if not child_dirs:
+                folder_candidates.append((month_entry.path, month))
+            else:
+                for cand in child_dirs:
+                    folder_candidates.append((cand.path, month))
+    elif base_month and any(folder_file_snapshot(s.path, ignored)[0] > 0 for s in subdirs):
+        # 2. 直接选月份目录，若含索引文件和多个 REQ 子目录，优先保留多个 REQ 子目录
+        for cand in subdirs:
+            cand_month = infer_online_month(cand.name, default_year) or base_month
+            folder_candidates.append((cand.path, cand_month))
+    elif has_direct_files:
+        # 3. 单 REQ 含附件+直接文件仍只导入自己 1 条（月份层优先于普通 direct-file）
+        folder_candidates.append((base, base_month or infer_online_month(base, default_year)))
+    else:
+        # 4. 普通无月份 root 多个需求子目录，或月份目录无子目录仅有文件
+        if subdirs:
+            for cand in subdirs:
+                cand_month = infer_online_month(cand.name, default_year) or base_month
+                folder_candidates.append((cand.path, cand_month))
+        elif base_month:
+            folder_candidates.append((base, base_month))
+
+    seen_candidates = set()
+    for candidate_path, month in folder_candidates:
+        candidate_path = os.path.abspath(candidate_path)
+        normalized = os.path.normcase(candidate_path)
+        if normalized in seen_candidates:
             continue
-        month = infer_online_month(month_entry.name, default_year)
-        if not month:
+        seen_candidates.add(normalized)
+
+        if any(
+            normalized == svn_path or normalized.startswith(svn_path + os.sep) or svn_path.startswith(normalized + os.sep)
+            for svn_path in svn_paths
+        ):
             continue
-        candidates = [entry for entry in os.scandir(month_entry.path) if entry.is_dir() and entry.name not in ignored]
-        if not candidates:
-            candidates = [month_entry]
-        for candidate in candidates:
-            candidate_path = os.path.abspath(candidate.path)
-            normalized = os.path.normcase(candidate_path)
-            if any(
-                normalized == svn_path or normalized.startswith(svn_path + os.sep) or svn_path.startswith(normalized + os.sep)
-                for svn_path in svn_paths
-            ):
-                continue
-            file_count, modified_at = folder_file_snapshot(candidate_path, ignored)
-            if not file_count:
-                continue
-            relative = os.path.relpath(candidate_path, base)
-            copies.append({
-                'local_path': candidate_path, 'relative_path': relative,
-                'svn_url': '', 'svn_revision': '', 'online_month': month,
-                'record_kind': infer_record_kind(relative),
-                'svn_status': '本地需求文件夹（未关联 SVN）',
-                'changed_count': 0, 'workspace_kind': 'folder', 'file_count': file_count,
-                'source_modified_at': modified_at,
-            })
+        file_count, modified_at = folder_file_snapshot(candidate_path, ignored)
+        if not file_count:
+            continue
+        relative = os.path.relpath(candidate_path, base)
+        if relative in ('.', ''):
+            relative = os.path.basename(candidate_path.rstrip(os.sep))
+        copies.append({
+            'local_path': candidate_path,
+            'relative_path': relative,
+            'svn_url': '',
+            'svn_revision': '',
+            'online_month': month,
+            'record_kind': infer_record_kind(relative),
+            'svn_status': '本地需求文件夹（未关联 SVN）',
+            'changed_count': 0,
+            'workspace_kind': 'folder',
+            'file_count': file_count,
+            'source_modified_at': modified_at,
+        })
+
     return sorted(
         copies,
         key=lambda item: (item.get('online_month', ''), item.get('source_modified_at', ''), item.get('relative_path', '')),

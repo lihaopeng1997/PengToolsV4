@@ -5,7 +5,7 @@
 密钥仅内存，不落盘、不写日志。
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
@@ -46,6 +46,9 @@ class GatewayDecodePanel(QWidget):
         super().__init__()
         self.language = language
         self._key_visible = True
+        self._viewer_width_sync_timer = QTimer(self)
+        self._viewer_width_sync_timer.setSingleShot(True)
+        self._viewer_width_sync_timer.timeout.connect(self._sync_embedded_viewer_width_floor)
         self._setup_ui()
         self.set_language(language)
         self._refresh_param_visibility()
@@ -239,6 +242,7 @@ class GatewayDecodePanel(QWidget):
         plain_head.addWidget(self.to_format_xml_btn)
         right_layout.addLayout(plain_head)
         self.json_viewer = JsonViewer(self.language)
+        self.json_viewer.installEventFilter(self)
         self.plain_text = self.json_viewer.text_edit
         right_layout.addWidget(self.json_viewer)
         splitter.addWidget(right)
@@ -306,6 +310,16 @@ class GatewayDecodePanel(QWidget):
         from ui.responsive import apply_splitter_orientation, set_subtitle_visible
         set_subtitle_visible(getattr(self, 'page_subtitle', None), low_height)
         apply_splitter_orientation(self.splitter, mode, min_editor=180)
+        self._sync_embedded_viewer_width_floor()
+        if self.splitter.orientation() == Qt.Orientation.Vertical and self.splitter.count() > 1:
+            result_pane = self.splitter.widget(1)
+            result_layout = result_pane.layout() if result_pane is not None else None
+            if result_layout is not None:
+                # The vertical editor floor is 180 DIP, but the result controls need
+                # the actual minimum computed by their layout to remain fully usable.
+                result_pane.setMinimumHeight(
+                    max(result_pane.minimumHeight(), result_layout.minimumSize().height())
+                )
         # 窄屏：参数区在报文上方（已在 VBox 中）；宽屏保持并列报文区
         self.config_group.show()
         self.key_cipher.setMinimumHeight(52 if mode in ('compact', 'narrow') else 56)
@@ -414,6 +428,65 @@ class GatewayDecodePanel(QWidget):
         self.json_viewer.set_language(language)
         self._refresh_param_visibility()
         self._toggle_key_visibility(self.key_reveal_cb.isChecked())
+        self._sync_embedded_viewer_width_floor()
+
+    def _sync_embedded_viewer_width_floor(self):
+        """Keep the embedded viewer's path/action row at its intrinsic width in wide mode."""
+        if not hasattr(self, 'splitter') or self.splitter.count() < 2:
+            return
+        result_pane = self.splitter.widget(1)
+        if result_pane is None:
+            return
+        if self.splitter.orientation() == Qt.Orientation.Horizontal:
+            viewer_layout = self.json_viewer.layout()
+            action_row = self._layout_containing_widget(viewer_layout, self.json_viewer.path_value)
+            if action_row is None:
+                width_floor = 120
+            else:
+                viewer_margins = viewer_layout.contentsMargins()
+                result_layout = result_pane.layout()
+                result_margins = result_layout.contentsMargins() if result_layout is not None else None
+                containing_margins = viewer_margins.left() + viewer_margins.right()
+                if result_margins is not None:
+                    containing_margins += result_margins.left() + result_margins.right()
+                width_floor = max(
+                    120,
+                    int(action_row.sizeHint().width()) + int(containing_margins),
+                )
+        else:
+            # The vertical responsive mode gives the result pane the full scroll viewport width.
+            # Clear the wide-mode floor so it does not create horizontal scrolling on narrow screens.
+            width_floor = 0
+        if result_pane.minimumWidth() != width_floor:
+            result_pane.setMinimumWidth(width_floor)
+
+    @staticmethod
+    def _layout_containing_widget(layout, target):
+        if layout is None:
+            return None
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item.widget() is target:
+                return layout
+            nested = item.layout()
+            if nested is not None:
+                found = GatewayDecodePanel._layout_containing_widget(nested, target)
+                if found is not None:
+                    return found
+        return None
+
+    def eventFilter(self, watched, event):
+        if watched is getattr(self, 'json_viewer', None) and event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._viewer_width_sync_timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._viewer_width_sync_timer.start(0)
 
     def set_cipher_text(self, text: str):
         """从接口排查等模块带入密文/正文，不自动解密，不覆盖 Key/IV/环境。"""

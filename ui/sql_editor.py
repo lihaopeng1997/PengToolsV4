@@ -7,6 +7,8 @@ from PyQt6.QtCore import QRect, QSize, QStringListModel, Qt
 from PyQt6.QtGui import QAction, QColor, QFont, QKeyEvent, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PyQt6.QtWidgets import QCompleter, QMenu, QPlainTextEdit, QWidget
 
+from tools.data_center.sql_completion import completion_candidates, current_token
+
 SQL_KEYWORDS = (
     'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
     'GROUP BY', 'ORDER BY', 'HAVING', 'INSERT', 'UPDATE', 'DELETE', 'MERGE',
@@ -110,6 +112,8 @@ class SqlEditor(QPlainTextEdit):
 
     def bind_schema(self, snapshot: dict | None):
         self._snapshot = snapshot if isinstance(snapshot, dict) else {}
+        self._model.setStringList([])
+        self._completer.popup().hide()
 
     def _apply_selection_style(self):
         primary = self._token('PRIMARY', '#2F6FED')
@@ -182,80 +186,25 @@ class SqlEditor(QPlainTextEdit):
     def selected_or_all(self) -> tuple[str, int]:
         cursor = self.textCursor()
         selected = cursor.selectedText().replace('\u2029', '\n').strip()
-        return selected, cursor.position()
+        prefix = QTextCursor(cursor)
+        prefix.clearSelection()
+        prefix.setPosition(0, QTextCursor.MoveMode.KeepAnchor)
+        return selected, len(prefix.selectedText())
 
     def _current_token(self) -> tuple[str, int, int]:
-        cursor = self.textCursor()
-        pos = cursor.position()
-        text = self.toPlainText()
-        start = pos
-        while start > 0 and (text[start - 1].isalnum() or text[start - 1] in '._'):
-            start -= 1
-        end = pos
-        while end < len(text) and (text[end].isalnum() or text[end] == '_'):
-            end += 1
-        return text[start:pos], start, pos
-
-    def _schema_names(self) -> tuple[list[str], dict[str, list[str]]]:
-        tables = []
-        columns: dict[str, list[str]] = {}
-        for obj in (self._snapshot.get('objects') or []):
-            name = str(obj.get('name') or '')
-            owner = str(obj.get('owner') or '')
-            if not name:
-                continue
-            tables.append(name)
-            if owner:
-                tables.append(f'{owner}.{name}')
-            cols = [str(c.get('name') or '') for c in (obj.get('columns') or []) if c.get('name')]
-            columns[name.upper()] = cols
-            if owner:
-                columns[f'{owner}.{name}'.upper()] = cols
-        return tables, columns
+        _selection, position = self.selected_or_all()
+        return current_token(self.toPlainText(), position)
 
     def _completion_candidates(self, prefix: str) -> list[str]:
-        prefix_raw = prefix
-        tables, columns = self._schema_names()
-        if '.' in prefix_raw:
-            table, _, col_prefix = prefix_raw.rpartition('.')
-            hits = []
-            for col in columns.get(table.upper(), []):
-                if col.upper().startswith(col_prefix.upper()) or not col_prefix:
-                    hits.append(f'{table}.{col}' if table else col)
-            return hits
-        low = prefix_raw.lower()
-        hits = [kw for kw in SQL_KEYWORDS if kw.lower().startswith(low)]
-
-        def _name_hit(name: str) -> bool:
-            folded = name.lower()
-            if folded.startswith(low):
-                return True
-            compact = folded.replace('_', '')
-            needle = low.replace('_', '')
-            if compact.startswith(needle):
-                return True
-            if len(needle) >= 3:
-                it = iter(folded)
-                return all(ch in it for ch in needle)
-            return False
-
-        hits.extend(name for name in tables if _name_hit(name))
-        # 去重保序
-        seen = set()
-        out = []
-        for item in hits:
-            key = item.upper()
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(item)
-        return out
+        _selection, position = self.selected_or_all()
+        return completion_candidates(self._snapshot, self.toPlainText(), position, prefix, SQL_KEYWORDS)
 
     def _insert_completion(self, text: str):
-        token, start, pos = self._current_token()
+        _token, start, pos = self._current_token()
+        source = self.toPlainText()
         cursor = self.textCursor()
-        cursor.setPosition(start)
-        cursor.setPosition(pos, QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(len(source[:start].encode('utf-16-le', 'surrogatepass')) // 2)
+        cursor.setPosition(len(source[:pos].encode('utf-16-le', 'surrogatepass')) // 2, QTextCursor.MoveMode.KeepAnchor)
         cursor.insertText(text)
         self.setTextCursor(cursor)
 
@@ -268,14 +217,18 @@ class SqlEditor(QPlainTextEdit):
             ):
                 event.ignore()
                 return
-        super().keyPressEvent(event)
+        explicit = event.key() == Qt.Key.Key_Space and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if not explicit:
+            super().keyPressEvent(event)
         token, _start, _pos = self._current_token()
-        if event.text() and (event.text().isalnum() or event.text() in '._'):
-            if token or token.endswith('.'):
+        if explicit or event.text() and (event.text().isalnum() or event.text() in '._$#"`'):
+            if explicit or token:
                 cands = self._completion_candidates(token)
                 self._model.setStringList(cands)
                 if cands:
-                    self._completer.setCompletionPrefix(token)
+                    # Candidates already match raw/quoted/fuzzy names. Applying
+                    # another startsWith filter hides valid quoted suggestions.
+                    self._completer.setCompletionPrefix('')
                     cr = self.cursorRect()
                     cr.setWidth(self._completer.popup().sizeHintForColumn(0) + 24)
                     self._completer.complete(cr)

@@ -19,6 +19,7 @@ import hashlib
 import inspect
 import json
 import math
+import re
 import threading
 from typing import Any, Callable
 
@@ -348,17 +349,12 @@ def _decrypt_profile_secret(profile: Mapping[str, Any], *, decryptor: Callable[[
     return secret
 
 
-def _legacy_connector(provider: str, profile: Mapping[str, Any], secret: Any, **options: Any) -> Any:
-    """Reject the legacy connector until a dedicated timeout-aware hook exists.
+def _dedicated_connector(provider: str, profile: Mapping[str, Any], secret: Any, **options: Any) -> Any:
+    """Resolve the timeout-aware connector only inside the owner worker."""
 
-    The legacy connection helper does not accept a connection timeout.  A
-    timeout attribute assigned after it returns cannot bound the establishment
-    phase, so silently using that helper would overstate the host boundary.
-    Hosts must inject a connector whose connection-timeout contract is known.
-    """
+    from .readonly_relational_connectors import connect_relational
 
-    del provider, profile, secret, options
-    raise RelationalHostError(code="CONNECTOR_UNAVAILABLE")
+    return connect_relational(provider, profile, secret, **options)
 
 
 def _canonical_profile(
@@ -576,7 +572,7 @@ class RelationalReadOnlyHost:
             self._connections_source = lambda: connections
         self._secret_loader = secret_loader
         self._decryptor = _default_decryptor if decryptor is None else decryptor
-        self._connector = _legacy_connector if connector is None else connector
+        self._connector = _dedicated_connector if connector is None else connector
         bound_id = None if connection_id is None else _required_text(connection_id, "connection_id")
         if bound_id is None and isinstance(profile, Mapping):
             direct_id = profile.get("connection_id", profile.get("id", ""))
@@ -608,6 +604,61 @@ class RelationalReadOnlyHost:
             target.mode,
             target.dialect,
         )
+
+    def capture_oracle_tree_service(
+        self,
+        connection_id: str,
+        expected_revision: str,
+        *,
+        provider: str,
+        mode: str,
+        dialect: str,
+    ) -> str:
+        """Capture the exact Oracle service used by the direct connector.
+
+        This local tree-scope helper re-reads and revision-checks the
+        authoritative connection profile. It does not resolve credentials or
+        create a connection, and it deliberately follows the direct
+        connector's first-present ``database`` then ``schema`` precedence.
+        """
+
+        selected_id = _required_text(connection_id, "connection_id")
+        revision = _required_text(expected_revision, "profile_revision")
+        try:
+            profile = self._load_profile(selected_id, revision)
+            _normalized, target = _canonical_profile(
+                profile,
+                selected_id,
+                expected_revision=revision,
+                expected_provider=provider,
+                expected_mode=mode,
+                expected_dialect=dialect,
+            )
+        except RelationalHostError:
+            raise
+        except Exception:
+            raise RelationalProfileError(code="PROFILE_UNAVAILABLE") from None
+
+        if target.provider not in {"oracle", "oceanbase_oracle"}:
+            raise RelationalScopeError(code="PROFILE_MISMATCH")
+
+        # ``_common_profile`` in readonly_relational_connectors uses
+        # _profile_value(profile, "database", "schema") followed by _text.
+        # Mirror that first-present rule exactly: an existing empty database
+        # field is not allowed to fall through to schema.
+        raw_service = None
+        if "database" in profile:
+            raw_service = profile.get("database")
+        elif "schema" in profile:
+            raw_service = profile.get("schema")
+        service = str(raw_service or "").strip()
+        if not service or "\x00" in service:
+            raise RelationalProfileError(code="PROFILE_INCOMPLETE")
+        if target.provider == "oracle" and not re.fullmatch(r"[A-Za-z0-9_.+$-]+", service):
+            # Match _connect_oracle's structured service-name contract before
+            # a tree target can sign an unrepresentable directory scope.
+            raise RelationalScopeError(code="PROFILE_MISMATCH")
+        return service
 
     def create_factory(
         self,
@@ -786,9 +837,9 @@ class RelationalReadOnlyHost:
             except Exception:
                 raise RelationalSecretError(code="SECRET_UNAVAILABLE") from None
 
-        # These are host-hook values for an explicitly injected connector.
-        # The disabled legacy connector never receives them, and no driver
-        # attribute is guessed or changed after connection establishment.
+        # These fixed values are passed to the dedicated connector before it
+        # opens the worker-owned connection.  No model/profile field can
+        # override the host's timeout or read-only policy.
         fixed_options = {
             "connect_timeout": self._connection_timeout_seconds,
             "read_timeout": self._read_timeout_seconds,

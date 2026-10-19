@@ -4,7 +4,7 @@
 MainWindow 侧栏、QuickPanel 悬浮快捷与设置页编辑器必须从本模块读取，
 避免三套模块名与图标映射分叉。
 
-v3.0 导航索引分配：
+导航索引分配（侧栏仅展示真实页面，分组标题不可点击）：
     0   首页        (DashboardPanel)
     1   证件类型     (CreditCodePanel)
     2   发版联动     (SqlToolPanel)
@@ -20,11 +20,10 @@ v3.0 导航索引分配：
     12  接口排查     (InterfaceDebugPanel)
     13  日志排查     (OpsLogPanel)
 
-    ── 以下为 v3.0 重构区域 ──
-    14  数据中心     (父级，仅折叠/展开，不打开页面)
-    15  模型         (父级，仅折叠/展开，不打开页面)
-    16  聊天         (ModelChatPanel)
-    17  工作         (AgentWorkbenchPanel)
+    14  数据中心     (唯一统一工作区)
+    15  模型         (兼容旧父级索引，不在侧栏展示)
+    16  模型聊天     (ModelChatPanel)
+    17  Agent 工作台 (AgentWorkbenchPanel)
     18  Oracle       (OracleWorkbenchPanel)
     19  MySQL        (MySQLWorkbenchPanel)
     20  OceanBase    (OceanBaseWorkbenchPanel)
@@ -41,16 +40,28 @@ from dataclasses import dataclass
 DEFAULT_FLOATING_SHORTCUTS = [10, 2, 9, 5]
 MAX_FLOATING_SHORTCUTS = 6
 
+# 六类旧入口映射：(name_zh, dialect, nav_index, icon_role)，仅用于兼容路由。
+FIXED_DB_PAGES = [
+    ('Oracle', 'oracle', 18, 'database'),
+    ('MySQL', 'mysql', 19, 'database'),
+    ('OceanBase', 'oceanbase', 20, 'database'),
+    ('达梦', 'dameng', 21, 'database'),
+    ('Redis', 'redis', 22, 'database'),
+    ('MongoDB', 'mongodb', 23, 'database'),
+]
+
 # 视觉导航顺序（stack_index 仍按历史映射，不依赖数组下标当导航顺序）
 # (group_key, [(nav_index, name_zh, name_en, icon_role), ...])
-# 14 = 数据中心父级，15 = 模型父级（子项由 MainWindow 侧栏折叠组渲染）
 NAV_MODEL = [
     ('workspace', [
         (0, '首页', 'Home', 'home'),
+    ]),
+    ('datacenter', [
         (14, '数据中心', 'Data Center', 'database'),
     ]),
     ('ai', [
-        (15, '模型', 'AI', 'chat'),
+        (16, '模型聊天', 'Model Chat', 'chat'),
+        (17, 'Agent 工作台', 'Agent Workbench', 'workbench'),
     ]),
     ('delivery', [
         (10, '需求管理', 'Requirements', 'requirements'),
@@ -76,6 +87,7 @@ NAV_MODEL = [
 
 GROUP_LABELS = {
     'workspace': ('工作台', 'WORKSPACE'),
+    'datacenter': ('数据中心', 'DATA CENTER'),
     'ai': ('智能助手', 'AI ASSISTANT'),
     'delivery': ('交付管理', 'DELIVERY'),
     'ops': ('运维工作台', 'OPERATIONS'),
@@ -84,25 +96,16 @@ GROUP_LABELS = {
 }
 
 # ---------------------------------------------------------------------------
-# v3.0 导航索引常量（数据中心 / 模型 两组可折叠子菜单）
+# 兼容旧父级索引；它们不在 NAV_MODEL 中，不对应真实页面。
 # ---------------------------------------------------------------------------
-SQL_CONSOLE_NAV = 14          # 数据中心父级（仅折叠/展开）
-AI_PARENT_NAV = 15            # 模型父级（仅折叠/展开）
-AI_CHAT_NAV = 16              # 聊天
-AI_WORKBENCH_NAV = 17         # 工作
+DATA_CENTER_NAV = 14          # 统一数据中心页面
+SQL_CONSOLE_NAV = DATA_CENTER_NAV  # 兼容旧常量名；不再是父级
+AI_PARENT_NAV = 15            # 模型旧父级
+AI_CHAT_NAV = 16              # 模型聊天
+AI_WORKBENCH_NAV = 17         # Agent 工作台
 
 SQL_DB_NAV_START = 18         # 第一个数据库面板索引（Oracle）
 SQL_DB_NAV_MAX = 24           # MongoDB + 1
-
-# 六数据库面板固定定义：(name_zh, dialect, nav_index, icon_role)
-FIXED_DB_PAGES = [
-    ('Oracle', 'oracle', 18, 'database'),
-    ('MySQL', 'mysql', 19, 'database'),
-    ('OceanBase', 'oceanbase', 20, 'database'),
-    ('达梦', 'dameng', 21, 'database'),
-    ('Redis', 'redis', 22, 'database'),
-    ('MongoDB', 'mongodb', 23, 'database'),
-]
 
 # dialect → nav index（供运行时按方言定位面板）
 DIALECT_NAV_INDEX = {page[1]: page[2] for page in FIXED_DB_PAGES}
@@ -153,8 +156,7 @@ def _build_items() -> dict[int, NavItem]:
         22: ('Redis 工作台：Key 树浏览、TTL 管理与命令行', 'Redis workbench: key tree, TTL and CLI'),
         23: ('MongoDB 工作台：集合树、文档浏览器与 Shell', 'MongoDB workbench: collections, documents and shell'),
     }
-    # 首页固定为底部入口；设置不进悬浮快捷位
-    # 16=聊天、17=工作 可进悬浮；父级 14/15 不进
+    # 首页、数据中心和模型父级不进悬浮快捷位。
     floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 17}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
@@ -170,27 +172,29 @@ def _build_items() -> dict[int, NavItem]:
                 requires_easter_egg=(nav_index == 8),
                 tooltip_zh=tip[0],
                 tooltip_en=tip[1],
+                dashboard_label=(
+                    '模型对话' if nav_index == AI_CHAT_NAV else
+                    '数据中心' if nav_index == DATA_CENTER_NAV else ''
+                ),
             )
-    # 聊天 / 工作 两个子项（挂在"模型"父级下）
-    items[16] = NavItem(
-        index=16, name_zh='聊天', name_en='Chat', icon_role='chat',
-        group_key='ai', floating_eligible=True, requires_easter_egg=False,
-        tooltip_zh=tooltips[16][0], tooltip_en=tooltips[16][1],
-        dashboard_label='模型对话',
-    )
-    items[17] = NavItem(
-        index=17, name_zh='工作', name_en='Work', icon_role='workbench',
-        group_key='ai', floating_eligible=True, requires_easter_egg=False,
-        tooltip_zh=tooltips[17][0], tooltip_en=tooltips[17][1],
-    )
-    # 六数据库面板
-    for name_zh, dialect, nav_index, icon_role in FIXED_DB_PAGES:
+    # Legacy database entry IDs remain addressable without appearing in NAV_MODEL.
+    for name_zh, _dialect, nav_index, icon_role in FIXED_DB_PAGES:
+        tip = tooltips[nav_index]
         items[nav_index] = NavItem(
             index=nav_index, name_zh=name_zh, name_en=name_zh,
-            icon_role=icon_role, group_key='sql_console_db',
+            icon_role=icon_role, group_key='datacenter-compat',
+            floating_eligible=False, requires_easter_egg=False,
+            tooltip_zh=tip[0], tooltip_en=tip[1],
+        )
+    # The AI group ID remains non-page metadata for the legacy sidebar.
+    for nav_index, name_zh, name_en, icon_role, group_key in (
+        (AI_PARENT_NAV, '模型', 'AI', 'chat', 'ai'),
+    ):
+        items[nav_index] = NavItem(
+            index=nav_index, name_zh=name_zh, name_en=name_en,
+            icon_role=icon_role, group_key=group_key,
             floating_eligible=False, requires_easter_egg=False,
             tooltip_zh=tooltips[nav_index][0], tooltip_en=tooltips[nav_index][1],
-            dashboard_label='数据中心' if nav_index == 18 else '',
         )
     # 设置在侧栏底部，不进 NAV_MODEL 分组列表，但导航索引仍有效
     items[7] = NavItem(
@@ -247,8 +251,17 @@ def nav_for_dialect(dialect: str) -> int:
 
 
 def is_parent_nav(index: int) -> bool:
-    """判断是否为父级折叠组索引（SQL 控制台 / 模型）。"""
-    return index in (SQL_CONSOLE_NAV, AI_PARENT_NAV)
+    """判断是否为父级折叠组索引（仅模型组仍是父级）。"""
+    return index == AI_PARENT_NAV
+
+
+def canonical_nav_index(index: int) -> int:
+    """Map legacy database entry IDs to the single Data Center page ID."""
+    try:
+        value = int(index)
+    except (TypeError, ValueError):
+        return -1
+    return DATA_CENTER_NAV if nav_is_db_slot(value) else value
 
 
 def get_nav_item(index: int) -> NavItem | None:
@@ -325,7 +338,7 @@ def normalize_floating_shortcuts(
     return result
 
 
-DASHBOARD_QUICK_TOOL_INDICES = (18, 16, 12, 13, 5, 11)
+DASHBOARD_QUICK_TOOL_INDICES = (DATA_CENTER_NAV, 16, 12, 13, 5, 11)
 
 
 def get_dashboard_quick_tools() -> list[dict]:
@@ -344,12 +357,8 @@ def get_dashboard_quick_tools() -> list[dict]:
     return tools
 
 
-def build_web_nav_model_data(*, private_unlocked: bool = False, current: int = 0) -> dict:
+def build_web_nav_model_data(*, private_unlocked: bool = False, current: int = 0, language: str = 'zh') -> dict:
     """侧栏与首页 Web 渲染共享数据：唯一权威 ui/navigation_model.py。"""
-    dia_short = {
-        'oracle': 'ORA', 'mysql': 'MY', 'oceanbase': 'OB',
-        'dameng': 'DM', 'redis': 'KV', 'mongodb': 'DOC',
-    }
     groups = []
     for key, entries in NAV_MODEL:
         items = []
@@ -365,40 +374,14 @@ def build_web_nav_model_data(*, private_unlocked: bool = False, current: int = 0
                 'icon': icon_role,
                 'tip': info.tooltip_zh,
             }
-            if nav_index == 14:
-                entry['children'] = [
-                    {
-                        'i': i,
-                        'zh': zh,
-                        'en': zh,
-                        'dash_zh': NAV_ITEMS[i].dashboard_label or zh,
-                        'icon': icon,
-                        'dia': dia_short.get(dialect, dialect[:2].upper()),
-                    }
-                    for zh, dialect, i, icon in FIXED_DB_PAGES
-                ]
-            elif nav_index == 15:
-                entry['children'] = [
-                    {
-                        'i': AI_CHAT_NAV,
-                        'zh': '聊天',
-                        'en': 'CHAT',
-                        'dash_zh': NAV_ITEMS[AI_CHAT_NAV].dashboard_label or '聊天',
-                        'icon': 'chat',
-                    },
-                    {
-                        'i': AI_WORKBENCH_NAV,
-                        'zh': '工作',
-                        'en': 'AGENT',
-                        'dash_zh': NAV_ITEMS[AI_WORKBENCH_NAV].dashboard_label or '工作',
-                        'icon': 'spark',
-                    },
-                ]
             items.append(entry)
-        zh_label, en_label = GROUP_LABELS[key]
-        groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
+        if items:
+            zh_label, en_label = GROUP_LABELS[key]
+            groups.append({'key': key, 'zh': zh_label, 'en': en_label, 'items': items})
     return {
         'groups': groups,
+        'quick_tool_indices': list(DASHBOARD_QUICK_TOOL_INDICES),
         'settings': {'i': 7, 'zh': '设置', 'en': 'SET', 'dash_zh': '设置', 'icon': 'gear'},
         'current': int(current or 0),
+        'language': 'en' if str(language or '').strip().lower() == 'en' else 'zh',
     }

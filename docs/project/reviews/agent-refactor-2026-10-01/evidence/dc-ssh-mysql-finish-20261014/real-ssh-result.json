@@ -1,0 +1,13 @@
+{
+  "real_paramiko": true,
+  "real_redis_sdk": true,
+  "database_service": "local RESP fixture",
+  "external_connections": 0,
+  "authentication_after_confirmation": true,
+  "default_agent_factories": 2,
+  "query_reads": 3,
+  "shared_authentication_count": 1,
+  "last_lease_cleanup": true,
+  "current_user_config_touched": false,
+  "fixture_threads_drained": true
+}

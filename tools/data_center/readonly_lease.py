@@ -305,6 +305,25 @@ class ReadOnlyLease:
     query_readonly = execute_readonly
     query_read_only = execute_readonly
 
+    def execute_metadata(
+        self,
+        template_id: str,
+        parameters: Any = None,
+        row_limit: int = 100,
+        deadline: float | None = None,
+        cancellation: Any = None,
+        cancel_token: Any = None,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return self._adapter.execute_metadata(
+            template_id,
+            parameters,
+            row_limit,
+            deadline,
+            cancellation,
+            cancel_token,
+        )
+
     def cancel(self) -> CancellationStatus:
         return self._adapter.cancel()
 

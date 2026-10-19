@@ -1,0 +1,26 @@
+test_real_panel_actions_follow_fake_worker_lifecycle_without_network (loading_before.NoSqlLoadingFeedbackProcessTest.test_real_panel_actions_follow_fake_worker_lifecycle_without_network) ... FAIL
+
+======================================================================
+FAIL: test_real_panel_actions_follow_fake_worker_lifecycle_without_network (loading_before.NoSqlLoadingFeedbackProcessTest.test_real_panel_actions_follow_fake_worker_lifecycle_without_network)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\PengTools\tests\test_nosql_loading_feedback.py", line 546, in test_real_panel_actions_follow_fake_worker_lifecycle_without_network
+    self.assertEqual(completed.returncode, 0, transcript)
+AssertionError: 1 != 0 : Traceback (most recent call last):
+  File "<string>", line 500, in <module>
+  File "<string>", line 291, in run_checks
+  File "<string>", line 103, in dispatch_once
+  File "<string>", line 97, in check
+AssertionError: command action should dispatch exactly one worker; got 0
+Traceback (most recent call last):
+  File "<string>", line 500, in <module>
+  File "<string>", line 291, in run_checks
+  File "<string>", line 103, in dispatch_once
+  File "<string>", line 97, in check
+AssertionError: command action should dispatch exactly one worker; got 0
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.833s
+
+FAILED (failures=1)

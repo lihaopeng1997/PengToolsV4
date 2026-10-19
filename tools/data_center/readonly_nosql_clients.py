@@ -19,6 +19,7 @@ import math
 import secrets
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .contracts import ToolResult
@@ -36,6 +37,71 @@ DEFAULT_MAX_CURSOR_STATE_BYTES = 32 * 1024
 DEFAULT_MAX_CURSOR_STATE_ITEMS = 512
 DEFAULT_MAX_CURSOR_STATE_DEPTH = 8
 DEFAULT_MAX_CURSOR_TOKEN_CHARS = 256
+MAX_DIRECTORY_PAGE = 50
+MAX_DIRECTORY_KEY_IDENTITY_BYTES = 4096
+MAX_DIRECTORY_CURSOR_ENTRIES = 64
+
+
+@dataclass(frozen=True, slots=True)
+class NoSQLDirectoryEntry:
+    """Private host-side directory row; identity never enters Agent results."""
+
+    name: str
+    kind: str
+    identity: bytes | str | None
+    notice: str = ""
+
+    def __repr__(self) -> str:
+        size = len(self.identity) if isinstance(self.identity, (bytes, str)) else 0
+        return f"NoSQLDirectoryEntry(name={self.name!r}, kind={self.kind!r}, identity=<opaque:{size} bytes>)"
+
+
+@dataclass(frozen=True, slots=True)
+class NoSQLDirectoryPage:
+    entries: tuple[NoSQLDirectoryEntry, ...]
+    next_cursor: str | None = None
+    notices: tuple[str, ...] = ()
+
+
+def _directory_key(value: Any) -> tuple[bytes | None, str, str]:
+    """Return a bounded identity and display-only preview for a Redis key."""
+
+    if isinstance(value, bytes):
+        raw = value
+    elif isinstance(value, bytearray):
+        raw = bytes(value)
+    elif isinstance(value, memoryview):
+        raw = value.tobytes()
+    elif isinstance(value, str):
+        try:
+            raw = value.encode("utf-8", "strict")
+        except UnicodeError:
+            return None, "[unrepresentable Redis key]", "redis_key_identity_unrepresentable"
+    else:
+        return None, "[unsupported Redis key]", "redis_key_identity_unavailable"
+
+    if len(raw) > MAX_DIRECTORY_KEY_IDENTITY_BYTES:
+        if _looks_utf8(raw):
+            shown = raw[:96].decode("utf-8", "replace")
+        else:
+            shown = "base64:" + base64.b64encode(raw[:48]).decode("ascii")
+        return None, f"{shown}… ({len(raw)} bytes)", "redis_key_identity_over_budget"
+    try:
+        decoded = raw.decode("utf-8", "strict")
+    except UnicodeError:
+        decoded = "base64:" + base64.b64encode(raw[:48]).decode("ascii")
+        if len(raw) > 48:
+            decoded += "…"
+    decoded = "".join(ch for ch in decoded if ch not in {"\x00", "\r", "\n"})
+    return raw, decoded[:256], ""
+
+
+def _looks_utf8(value: bytes) -> bool:
+    try:
+        value.decode("utf-8", "strict")
+        return True
+    except UnicodeError:
+        return False
 
 
 class ReadOnlyClientError(ValueError):
@@ -367,6 +433,12 @@ def _close_quietly(value: Any) -> None:
             close()
         except Exception:
             pass
+
+
+def _close_owned(value: Any) -> None:
+    close = getattr(value, "close", None)
+    if callable(close) and close() is False:
+        raise ReadOnlyClientError("CLEANUP_PENDING", "只读客户端仍在清理")
 
 
 def _method(driver: Any, name: str) -> Callable[..., Any] | None:
@@ -888,6 +960,7 @@ class RedisReadOnlyFacade:
         deadline: float | None = None,
         timeout_ms: int | None = None,
         socket_timeout_ms: int | None = None,
+        _directory_metadata: bool = False,
     ) -> None:
         if client is None:
             raise ValueError("client is required")
@@ -927,10 +1000,12 @@ class RedisReadOnlyFacade:
         self._fixed_deadline = _normalize_deadline(deadline)
         self._fixed_timeout_ms = int(timeout_ms) if timeout_ms is not None else None
         self._socket_timeout_ms = socket_timeout_ms
+        self._directory_metadata = bool(_directory_metadata)
         self._socket_timeout_configured, self._socket_timeout_value = _read_socket_timeout(
             client, socket_timeout_ms
         )
         self._closed = False
+        self._cleanup_complete = False
         self._scope = {"connection_id": self.connection_id, "engine": "redis", "mode": self.mode}
 
     @property
@@ -938,10 +1013,11 @@ class RedisReadOnlyFacade:
         return self._closed
 
     def close(self) -> None:
-        if self._closed:
+        if self._cleanup_complete:
             return
         self._closed = True
-        _close_quietly(self._client)
+        _close_owned(self._client)
+        self._cleanup_complete = True
 
     def execute(
         self,
@@ -967,6 +1043,8 @@ class RedisReadOnlyFacade:
         )
         if self._closed:
             return _failure("SESSION_NOT_FOUND", "只读连接已关闭", query_id=query_id, scope=self._scope)
+        if self._directory_metadata:
+            return _failure("POLICY_DENIED", "目录租约不接受 Agent 操作", query_id=query_id, scope=self._scope)
         if _cancelled(cancellation):
             return _failure("CANCELLED", "本轮已停止，未启动工具", query_id=query_id, scope=self._scope)
         gate = _timeout_gate(
@@ -1252,6 +1330,82 @@ class RedisReadOnlyFacade:
         else:
             values = self._standalone_scan_page(state, limit, args.get("pattern"), cancellation, query_id, deadline)
         return self._scan_result(values, state, limit, query_id, deadline)
+
+    def _directory_children(
+        self,
+        parent_kind: str,
+        *,
+        prefix: str = "",
+        cursor: str | None = None,
+        limit: int = 50,
+        cancellation: Any = None,
+        deadline: float | None = None,
+    ) -> NoSQLDirectoryPage:
+        """Enumerate raw keys for the host tree without using Agent SCAN output."""
+
+        if not self._directory_metadata:
+            raise ReadOnlyClientError("POLICY_DENIED", "Redis directory capability is not enabled")
+        if parent_kind != "redis_root":
+            raise ReadOnlyClientError("SCOPE_DENIED", "Redis key is a leaf")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_DIRECTORY_PAGE:
+            raise ReadOnlyClientError("ARGUMENT_INVALID", "目录页大小无效")
+        if not isinstance(prefix, str) or len(prefix) > 512 or "\x00" in prefix:
+            raise ReadOnlyClientError("ARGUMENT_INVALID", "Redis key prefix is invalid")
+        try:
+            prefix_bytes = prefix.encode("utf-8", "strict")
+        except UnicodeError:
+            raise ReadOnlyClientError("ARGUMENT_INVALID", "Redis key prefix is invalid") from None
+        pattern = _redis_literal_pattern(prefix) + "*"
+        failure = self._check(cancellation, "tree-directory", deadline)
+        if failure is not None:
+            raise ReadOnlyClientError(failure.code, str(failure.data.get("message", "目录扫描已停止")))
+        state = self._scan_state(
+            {"pattern": pattern, "cursor": cursor} if cursor else {"pattern": pattern},
+            kind="tree_redis_scan",
+        )
+        if self.mode == "cluster":
+            values = self._cluster_scan_page(state, limit, pattern, cancellation, "tree-directory", deadline)
+        else:
+            values = self._standalone_scan_page(state, limit, pattern, cancellation, "tree-directory", deadline)
+        entries: list[NoSQLDirectoryEntry] = []
+        notices: set[str] = set()
+        for value in values[:limit]:
+            raw, display, notice = _directory_key(value)
+            if notice:
+                notices.add(notice)
+            if raw is not None and not raw.startswith(prefix_bytes):
+                # Redis glob patterns are not a byte-prefix proof.  Keep the
+                # authorization check explicit before issuing a usable row.
+                notices.add("redis_key_outside_prefix_omitted")
+                continue
+            entries.append(NoSQLDirectoryEntry(display, "redis_key", raw, notice))
+        has_next = bool(state.get("pending")) or not bool(state.get("finished")) or bool(state.get("partial"))
+        next_cursor = self._new_token(state) if has_next else None
+        return NoSQLDirectoryPage(tuple(entries), next_cursor, tuple(sorted(notices)))
+
+    def _directory_inspect_key(
+        self,
+        identity: bytes,
+        *,
+        cancellation: Any = None,
+        deadline: float | None = None,
+    ) -> Mapping[str, Any]:
+        """Read TYPE/TTL only after ObjectTree has validated its issued node ref."""
+
+        if not self._directory_metadata or not isinstance(identity, bytes):
+            raise ReadOnlyClientError("SCOPE_DENIED", "Redis key identity is not valid")
+        if len(identity) > MAX_DIRECTORY_KEY_IDENTITY_BYTES:
+            raise ReadOnlyClientError("CAPABILITY_UNAVAILABLE", "Redis key identity exceeds the tree budget")
+        failure = self._check(cancellation, "tree-directory", deadline)
+        if failure is not None:
+            raise ReadOnlyClientError(failure.code, str(failure.data.get("message", "目录读取已停止")))
+        kind = self._call("type", {"name": identity}, cancellation=cancellation, deadline=deadline)
+        ttl = self._call("ttl", {"name": identity}, cancellation=cancellation, deadline=deadline)
+        if isinstance(kind, bytes):
+            kind = kind.decode("ascii", "replace")
+        if isinstance(ttl, bool) or not isinstance(ttl, int):
+            raise ReadOnlyClientError("QUERY_FAILED", "Redis TTL metadata is invalid")
+        return {"value_type": str(kind)[:64], "ttl_seconds": int(ttl)}
 
     def _standalone_scan_page(
         self,
@@ -1556,11 +1710,13 @@ class MongoReadOnlyFacade:
         deadline: float | None = None,
         timeout_ms: int | None = None,
         socket_timeout_ms: int | None = None,
+        _directory_metadata: bool = False,
     ) -> None:
         if not str(connection_id or "").strip() or not str(database_name or "").strip():
             raise ValueError("connection_id and database_name are required")
         allowed = {str(item).strip().casefold() for item in (allowed_collection_ids or ()) if str(item).strip()}
-        if not allowed:
+        self._directory_metadata = bool(_directory_metadata)
+        if not allowed and not self._directory_metadata:
             raise ValueError("Mongo collection allowlist must not be empty")
         if collections is None and database is None:
             raise ValueError("database or collections is required")
@@ -1603,24 +1759,210 @@ class MongoReadOnlyFacade:
             self._owner_client, socket_timeout_ms
         )
         self._closed = False
+        self._cleanup_complete = False
         self._active_cursors: list[Any] = []
         self._scope = {"connection_id": self.connection_id, "engine": "mongodb", "database": self.database_name}
-        self.policy = MongoReadPolicy(tuple(allowed))
+        self.policy = MongoReadPolicy(tuple(allowed)) if allowed else None
+        self._directory_cursors: dict[str, dict[str, Any]] = {}
 
     @property
     def closed(self) -> bool:
         return self._closed
 
     def close(self) -> None:
-        if self._closed:
+        if self._cleanup_complete:
             return
         self._closed = True
         for cursor in list(self._active_cursors):
             _close_quietly(cursor)
         self._active_cursors.clear()
+        for state in list(self._directory_cursors.values()):
+            _close_quietly(state.get("cursor"))
+        self._directory_cursors.clear()
         # Only a client explicitly owned by this lease is closed.  A database
         # facade alone may be backed by the manual workbench's client.
-        _close_quietly(self._owner_client if self._owner_client is not None else self._client)
+        _close_owned(self._owner_client if self._owner_client is not None else self._client)
+        self._cleanup_complete = True
+
+    def _directory_children(
+        self,
+        parent_kind: str,
+        *,
+        database: str = "",
+        cursor: str | None = None,
+        limit: int = 50,
+        cancellation: Any = None,
+        deadline: float | None = None,
+    ) -> NoSQLDirectoryPage:
+        """Enumerate Mongo database/collection names through a host-only route."""
+
+        if not self._directory_metadata:
+            raise ReadOnlyClientError("POLICY_DENIED", "Mongo directory capability is not enabled")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_DIRECTORY_PAGE:
+            raise ReadOnlyClientError("ARGUMENT_INVALID", "目录页大小无效")
+        if not isinstance(database, str) or len(database) > 512 or "\x00" in database:
+            raise ReadOnlyClientError("ARGUMENT_INVALID", "Mongo database scope is invalid")
+        if parent_kind not in {"mongo_root", "mongo_database"}:
+            raise ReadOnlyClientError("SCOPE_DENIED", "Mongo collection is a leaf")
+        if parent_kind == "mongo_database" and not database:
+            raise ReadOnlyClientError("SCOPE_DENIED", "Mongo collection listing requires a database node")
+        if self._closed:
+            raise ReadOnlyClientError("SESSION_NOT_FOUND", "Mongo directory lease is closed")
+        if _cancelled(cancellation):
+            raise ReadOnlyClientError("CANCELLED", "Mongo directory request was cancelled")
+        if _deadline_expired(deadline):
+            raise ReadOnlyClientError("TIMEOUT", "Mongo directory deadline expired")
+
+        expected_parent = (parent_kind, database)
+        token = str(cursor or "")
+        if token:
+            state = self._directory_cursors.get(token)
+            if state is None:
+                raise ReadOnlyClientError("STALE_CURSOR", "Mongo directory cursor is expired")
+            if state.get("parent") != expected_parent:
+                raise ReadOnlyClientError("SCOPE_DENIED", "Mongo directory cursor scope does not match")
+            if time.monotonic() - float(state.get("created", 0.0)) > 15 * 60:
+                _close_quietly(state.get("cursor"))
+                self._directory_cursors.pop(token, None)
+                raise ReadOnlyClientError("STALE_CURSOR", "Mongo directory cursor is expired")
+        else:
+            state = self._open_directory_cursor(parent_kind, database, expected_parent, limit, cancellation, deadline)
+
+        iterator = state["iterator"]
+        rows: list[Any] = []
+        pending = state.pop("pending", None)
+        if pending is not None:
+            rows.append(pending)
+        try:
+            while len(rows) < limit + 1:
+                failure = self._check(cancellation, "tree-directory", deadline)
+                if failure is not None:
+                    raise ReadOnlyClientError(failure.code, str(failure.data.get("message", "Mongo directory request stopped")))
+                try:
+                    rows.append(
+                        _checked_call(
+                            lambda: next(iterator),
+                            cancellation=cancellation,
+                            deadline=deadline,
+                            owner=self,
+                            cursor=state.get("cursor"),
+                        )
+                    )
+                except StopIteration:
+                    break
+        except Exception:
+            _close_quietly(state.get("cursor"))
+            self._directory_cursors.pop(token, None)
+            raise
+
+        has_more = len(rows) > limit
+        if has_more:
+            state["pending"] = rows.pop()
+            state["created"] = time.monotonic()
+            if not token:
+                token = self._new_directory_cursor(state)
+            if token not in self._directory_cursors:
+                self._directory_cursors[token] = state
+        else:
+            _close_quietly(state.get("cursor"))
+            if token:
+                self._directory_cursors.pop(token, None)
+
+        entries: list[NoSQLDirectoryEntry] = []
+        notices: set[str] = set()
+        for row in rows[:limit]:
+            raw_name = row.get("name") if isinstance(row, Mapping) else row
+            if not isinstance(raw_name, str) or not raw_name or "\x00" in raw_name:
+                notices.add("mongo_directory_name_invalid_omitted")
+                continue
+            try:
+                raw_size = len(raw_name.encode("utf-8", "strict"))
+            except UnicodeError:
+                notices.add("mongo_directory_name_invalid_omitted")
+                continue
+            identity: str | None = raw_name if raw_size <= MAX_DIRECTORY_KEY_IDENTITY_BYTES else None
+            notice = "" if identity is not None else "mongo_directory_identity_over_budget"
+            if notice:
+                notices.add(notice)
+            kind = "mongo_database" if parent_kind == "mongo_root" else "mongo_collection"
+            entries.append(NoSQLDirectoryEntry(raw_name[:256], kind, identity, notice))
+        return NoSQLDirectoryPage(tuple(entries), token or None if has_more else None, tuple(sorted(notices)))
+
+    def _open_directory_cursor(
+        self,
+        parent_kind: str,
+        database: str,
+        parent: tuple[str, str],
+        limit: int,
+        cancellation: Any,
+        deadline: float | None,
+    ) -> dict[str, Any]:
+        if parent_kind == "mongo_root":
+            method = _method(self._client, "list_databases")
+            if method is None:
+                raise ReadOnlyClientError("CAPABILITY_UNAVAILABLE", "Mongo database listing is unavailable")
+            raw = _checked_call(
+                lambda: _driver_call(method, {"nameOnly": True, "authorizedDatabases": True, "batchSize": limit + 1}),
+                cancellation=cancellation,
+                deadline=deadline,
+                owner=self,
+            )
+        else:
+            database_object = self._directory_database(database, cancellation, deadline)
+            method = _method(database_object, "list_collections")
+            if method is not None:
+                raw = _checked_call(
+                    lambda: _driver_call(method, {"nameOnly": True, "batchSize": limit + 1}),
+                    cancellation=cancellation,
+                    deadline=deadline,
+                    owner=self,
+                )
+            else:
+                fallback = _method(database_object, "list_collection_names")
+                if fallback is None:
+                    raise ReadOnlyClientError("CAPABILITY_UNAVAILABLE", "Mongo collection listing is unavailable")
+                raw = _checked_call(
+                    lambda: _driver_call(fallback, {}),
+                    cancellation=cancellation,
+                    deadline=deadline,
+                    owner=self,
+                )
+        if isinstance(raw, Mapping) and isinstance(raw.get("databases"), Sequence):
+            raw = raw["databases"]
+        if isinstance(raw, (str, bytes, bytearray)) or raw is None:
+            raise ReadOnlyClientError("QUERY_FAILED", "Mongo directory response is invalid")
+        try:
+            iterator = iter(raw)
+        except TypeError:
+            raise ReadOnlyClientError("QUERY_FAILED", "Mongo directory response is invalid") from None
+        return {"parent": parent, "cursor": raw, "iterator": iterator, "created": time.monotonic()}
+
+    def _directory_database(self, database: str, cancellation: Any, deadline: float | None) -> Any:
+        getter = getattr(self._client, "get_database", None)
+        if callable(getter):
+            return _checked_call(
+                lambda: _driver_call(getter, {"name": database}),
+                cancellation=cancellation,
+                deadline=deadline,
+                owner=self,
+            )
+        try:
+            return self._client[database]
+        except Exception:
+            raise ReadOnlyClientError("CAPABILITY_UNAVAILABLE", "Mongo database scope is unavailable") from None
+
+    def _new_directory_cursor(self, state: dict[str, Any]) -> str:
+        now = time.monotonic()
+        for old_token, old_state in list(self._directory_cursors.items()):
+            if now - float(old_state.get("created", 0.0)) > 15 * 60:
+                _close_quietly(old_state.get("cursor"))
+                self._directory_cursors.pop(old_token, None)
+        while len(self._directory_cursors) >= MAX_DIRECTORY_CURSOR_ENTRIES:
+            old_token = next(iter(self._directory_cursors))
+            _close_quietly(self._directory_cursors.pop(old_token).get("cursor"))
+        token = secrets.token_urlsafe(24)
+        self._directory_cursors[token] = state
+        return token
 
     def execute(
         self,
@@ -1646,6 +1988,11 @@ class MongoReadOnlyFacade:
         )
         if self._closed:
             return _with_elapsed(_failure("SESSION_NOT_FOUND", "只读连接已关闭", query_id=query_id, scope=self._scope), _elapsed(started))
+        if self._directory_metadata:
+            return _with_elapsed(
+                _failure("POLICY_DENIED", "目录租约不接受 Agent 操作", query_id=query_id, scope=self._scope),
+                _elapsed(started),
+            )
         if _cancelled(cancellation):
             return _with_elapsed(_failure("CANCELLED", "本轮已停止，未启动工具", query_id=query_id, scope=self._scope), _elapsed(started))
         gate = _timeout_gate(
@@ -2036,6 +2383,12 @@ def _parse_scan_response(response: Any) -> tuple[int, Sequence[Any]]:
     return int(cursor or 0), values or []
 
 
+def _redis_literal_pattern(prefix: str) -> str:
+    """Escape Redis glob metacharacters so the supplied prefix stays literal."""
+
+    return "".join("\\" + character if character in "\\*?[]" else character for character in prefix)
+
+
 def _parse_cluster_scan_response(response: Any) -> tuple[dict[str, int], Sequence[Any]]:
     if not isinstance(response, tuple) or len(response) != 2:
         raise TypeError("Redis cluster scan response is invalid")
@@ -2136,6 +2489,8 @@ def _with_elapsed(result: ToolResult, elapsed_ms: int) -> ToolResult:
 __all__ = [
     "CursorCodec",
     "MongoReadOnlyFacade",
+    "NoSQLDirectoryEntry",
+    "NoSQLDirectoryPage",
     "OpaqueCursorCodec",
     "ReadOnlyClientError",
     "RedisReadOnlyFacade",

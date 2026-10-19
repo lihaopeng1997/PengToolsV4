@@ -197,3 +197,21 @@ DC-02 的行为测试覆盖 SQL AST 拒绝、方言映射、只读决策一致�
 关系库默认旧连接器返回 `CONNECTOR_UNAVAILABLE`，原因是旧接口不能在连接建立前落实 timeout 契约；需要专用连接器后才能接真实执行。NoSQL 默认工厂显式配置 timeout，保留集群/副本集/SRV 身份，未知组合拒绝；失败关闭独立 owner，回传 scope 固定为目标并脱敏。
 
 主代理运行 `python -m unittest tests.test_data_center_host_nosql tests.test_data_center_host_relational tests.test_data_center_nosql_clients tests.test_data_center_nosql_integration tests.test_data_center_host_integration tests.test_architecture_boundaries tests.test_data_center_package_surface -q`：60 项通过。Luna 两组的 11 项关系库与 17 项 NoSQL 定向测试、编译检查通过。所有数据库客户端均为假实现，没有真实驱动、网络、用户配置或视觉证据。此阶段仍是宿主组件交付，完整应用入口、元数据工具、Qt 事件面板与真实联调尚未完成。续接记录见 [本轮检查点](DATA_CENTER_AGENT_CHECKPOINT_2026-09-16.md)。
+
+### 7.10 专用关系库连接器续接（2026-09-17，模拟验证通过，未发布）
+
+基线 `ui/prism-v1` / `ce01d8166ed94f411bbd4d917cff938dc887fbc8`，本轮成功 fetch 后与 `origin/ui/prism-v1` 相同，提交差异 `0/0`。用户要求保留原有 13 个未提交文件，处理方式待确认；本轮内容哈希复核未变。
+
+Luna Max 中断后按用户要求恢复实施，已修复 Oracle 初始化前读取超时、ODBC 密码空格/驱动歧义及默认测试网络隔离等问题。Oracle 使用结构化目标、TCP 超时及零重试，初始化前核验 call_timeout；MySQL/OceanBase MySQL 显式设置 connect/read/write_timeout；OceanBase Oracle 设置 ODBC 登录及初始化前查询超时。专用连接器在联网前拒绝非法或超过 86400 秒的时限以及受限非空 TLS/SSH/原始连接串选项；不承诺整个登录或查询的硬总时限，不开放驱动 cancel。
+
+Luna 定向联合测试 45 项通过；主代理独立运行关系库宿主、lease/矩阵、连接器、只读集成/模型宿主闭环、包导入及架构边界共 55 项通过，diff 检查通过。全部使用假驱动、内存配置和模拟模型；真实数据库、真实模型、UI 和发布包仍待验收。代码/测试共 5 个文件，本轮没有提交或推送，原有 13 个遗留文件内容哈希未变。
+
+实现清单、审查项、驱动文档依据、遗留文件清单和下一步见 [2026-09-17 检查点](DATA_CENTER_AGENT_CHECKPOINT_2026-09-17.md)。达梦有官方超时 API，但服务配置可以覆盖 API 参数，默认连接器仍保持不可用，不能误写为“达梦没有超时参数”。
+
+### 7.11 元数据宿主闭环及界面准备（2026-09-17，模拟验收通过，未发布）
+
+Luna Max 新增固定目标元数据服务和纯 Python `DataCenterAgentRuntime`，组合模型、关系库查询及 NoSQL 路由。关系库目录仅通过宿主模板 ID 和绑定参数执行；对象、分页与缓存绑定目标及连接版本。草稿意图不创建数据库资源；SQL 物理表需显式允许的 Schema，结构歧义交回澄清；元数据/采样共享数据预算，成功数据查询才能证明最终回答已验证。主代理审查后补齐独立 worker 所有权、剩余运行预算传播、目标更新及结果脱敏边界。
+
+独立 Qt 原型提供阶段、正文、思考摘要、证据、停止及 SQL 转交信号，使用队列与 run/Tab/代际过滤；未接入主窗口或旧工作台。主代理检查了模拟预览及实际 340 像素窄栏图片，用户视觉接受仍待确认。用户暂无专门测试库和内网模型配置，未开展真实兼容验证。
+
+主代理独立联合运行元数据/宿主、驱动模板、证据、运行器/策略、关系库/NoSQL、Qt 面板、包导入及架构边界测试：147 项通过，退出码 0。详细命令、文件范围、模拟与视觉证据限制见 [本轮检查点](DATA_CENTER_AGENT_CHECKPOINT_2026-09-17.md)。所有改动保留本地审查，没有暂存、提交或推送；原有 13 个遗留文件保持原样。

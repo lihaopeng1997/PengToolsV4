@@ -24,7 +24,11 @@ import threading
 from typing import Any
 
 from .contracts import ToolResult
-from .readonly_nosql_clients import MongoReadOnlyFacade, RedisReadOnlyFacade
+from .readonly_nosql_clients import (
+    MongoReadOnlyFacade,
+    NoSQLDirectoryPage,
+    RedisReadOnlyFacade,
+)
 
 
 DEFAULT_TIMEOUT_MS = 15_000
@@ -66,6 +70,7 @@ _SAFE_ERROR_CODES = frozenset(
         "SCOPE_DENIED",
         "SECRET_UNAVAILABLE",
         "CLIENT_CREATE_FAILED",
+        "CLEANUP_PENDING",
         "CAPABILITY_UNAVAILABLE",
         "UNSUPPORTED_PROVIDER",
         "UNSUPPORTED_COMBINATION",
@@ -753,6 +758,7 @@ class NoSQLTarget:
     mode: str = "standalone"
     database_name: str = ""
     allowed_collection_ids: tuple[str, ...] = ()
+    directory_metadata: bool = False
 
     def __post_init__(self) -> None:
         connection_id = _public_text(self.connection_id, "connection_id", required=True)
@@ -761,7 +767,8 @@ class NoSQLTarget:
         mode = _canonical_mode(self.mode, provider)
         database_name = _public_text(self.database_name, "database_name")
         ids = tuple(dict.fromkeys(_text(item).casefold() for item in (self.allowed_collection_ids or ()) if _text(item)))
-        if provider == "mongodb" and not ids:
+        directory_metadata = bool(self.directory_metadata)
+        if provider == "mongodb" and not ids and not directory_metadata:
             raise ValueError("Mongo allowed_collection_ids must not be empty")
         if provider == "mongodb" and not database_name:
             raise ValueError("Mongo database_name is required")
@@ -771,6 +778,7 @@ class NoSQLTarget:
         object.__setattr__(self, "mode", mode)
         object.__setattr__(self, "database_name", database_name)
         object.__setattr__(self, "allowed_collection_ids", ids)
+        object.__setattr__(self, "directory_metadata", directory_metadata)
 
     @property
     def scope(self) -> dict[str, Any]:
@@ -823,13 +831,18 @@ class HostNoSQLLease:
         client: Any,
         *,
         facade_owns_owner: bool = False,
+        directory_metadata: bool = False,
     ) -> None:
         self.target = target
         self._facade = facade
         self._owner = owner
         self._client = client
         self._facade_owns_owner = bool(facade_owns_owner)
+        self._directory_metadata = bool(directory_metadata)
         self._closed = False
+        self._cleanup_complete = False
+        self._facade_cleanup_complete = False
+        self._cleanup_lock = threading.Lock()
         self._lock = threading.Lock()
 
     @property
@@ -869,6 +882,8 @@ class HostNoSQLLease:
         return self._closed
 
     def execute(self, request: Mapping[str, Any], **kwargs: Any) -> ToolResult:
+        if self._directory_metadata:
+            return _safe_result_failure("POLICY_DENIED", "目录租约不接受 Agent 操作", scope=self.target.scope, query_id=kwargs.get("query_id"))
         with self._lock:
             if self._closed:
                 return _safe_result_failure("SESSION_NOT_FOUND", "只读连接已关闭", scope=self.target.scope, query_id=kwargs.get("query_id"))
@@ -900,20 +915,60 @@ class HostNoSQLLease:
             elapsed_ms=_safe_elapsed_ms(result.elapsed_ms),
         )
 
-    def close(self) -> None:
+    def _directory_children(self, parent_kind: str, **kwargs: Any) -> NoSQLDirectoryPage:
+        if not self._directory_metadata:
+            raise NoSQLCapabilityError(code="CAPABILITY_UNAVAILABLE")
         with self._lock:
             if self._closed:
-                return
+                raise NoSQLHostError(code="SESSION_NOT_FOUND")
+        method = getattr(self._facade, "_directory_children", None)
+        if not callable(method):
+            raise NoSQLCapabilityError(code="CAPABILITY_UNAVAILABLE")
+        page = method(parent_kind, **kwargs)
+        if not isinstance(page, NoSQLDirectoryPage):
+            raise NoSQLClientError(code="QUERY_FAILED")
+        return page
+
+    def _directory_inspect_key(self, identity: bytes, **kwargs: Any) -> Mapping[str, Any]:
+        if not self._directory_metadata or self.target.provider != "redis":
+            raise NoSQLCapabilityError(code="CAPABILITY_UNAVAILABLE")
+        with self._lock:
+            if self._closed:
+                raise NoSQLHostError(code="SESSION_NOT_FOUND")
+        method = getattr(self._facade, "_directory_inspect_key", None)
+        if not callable(method):
+            raise NoSQLCapabilityError(code="CAPABILITY_UNAVAILABLE")
+        result = method(identity, **kwargs)
+        if not isinstance(result, Mapping):
+            raise NoSQLClientError(code="QUERY_FAILED")
+        return dict(result)
+
+    def close(self) -> None:
+        with self._lock:
             self._closed = True
-        _close_quietly(self._facade)
-        if self._facade_owns_owner:
-            _close_distinct(
-                self._client
-                if self._client is not self._owner and self._client is not self._facade
-                else None
-            )
-        elif self._owner is not self._facade and self._owner is not self._client:
-            _close_quietly(self._owner)
+        with self._cleanup_lock:
+            if self._cleanup_complete:
+                return
+            try:
+                if not self._facade_cleanup_complete:
+                    closer = getattr(self._facade, "close", None)
+                    if callable(closer) and closer() is False:
+                        raise RuntimeError()
+                    self._facade_cleanup_complete = True
+                owner = None
+                if self._facade_owns_owner:
+                    if self._client is not self._owner and self._client is not self._facade:
+                        owner = self._client
+                elif self._owner is not self._facade and self._owner is not self._client:
+                    owner = self._owner
+                closer = getattr(owner, "close", None)
+                if callable(closer) and closer() is False:
+                    raise RuntimeError()
+            except Exception:
+                # Logical close forbids more reads, but cleanup remains
+                # retryable and cannot complete the owning Future successfully.
+                raise NoSQLHostError(code="CLEANUP_PENDING") from None
+            self._cleanup_complete = True
 
     def __enter__(self) -> "HostNoSQLLease":
         return self
@@ -949,6 +1004,7 @@ class HostNoSQLFactory:
         socket_timeout_ms: int | None = None,
         server_selection_timeout_ms: int | None = None,
         facade_options: Mapping[str, Any] | None = None,
+        _directory_metadata: bool = False,
     ) -> None:
         if profile is not None and (profile_loader is not None or loader is not None):
             raise ValueError("choose profile or profile_loader, not both")
@@ -993,6 +1049,7 @@ class HostNoSQLFactory:
             canonical_mode,
             selected_database,
             ids,
+            bool(_directory_metadata),
         )
         self._profile = dict(profile) if isinstance(profile, Mapping) else profile
         self._profile_loader = selected_loader
@@ -1026,6 +1083,7 @@ class HostNoSQLFactory:
             "socket_timeout_ms",
             "timeout_ms",
             "deadline",
+            "_directory_metadata",
         }
         self._facade_options = {
             key: value
@@ -1110,14 +1168,18 @@ class HostNoSQLFactory:
                     if _timeout_flags((owner, client))[0]
                     else None,
                     **self._facade_options,
+                    _directory_metadata=self.target.directory_metadata,
                 )
             else:
                 database = database if database is not None else _resolve_database(client, self.target.database_name)
-                collections = _resolve_collections(
-                    database,
-                    collections,
-                    self.target.allowed_collection_ids,
-                )
+                if self.target.directory_metadata:
+                    collections = {}
+                else:
+                    collections = _resolve_collections(
+                        database,
+                        collections,
+                        self.target.allowed_collection_ids,
+                    )
                 facade = MongoReadOnlyFacade(
                     database=database,
                     collections=collections,
@@ -1129,6 +1191,7 @@ class HostNoSQLFactory:
                     if _timeout_flags((owner, client))[0]
                     else None,
                     **self._facade_options,
+                    _directory_metadata=self.target.directory_metadata,
                 )
                 # MongoReadOnlyFacade closes the explicit owner client.  Keep
                 # that ownership in one place so a distinct bundle owner is
@@ -1140,6 +1203,7 @@ class HostNoSQLFactory:
                 owner if owner is not None else client,
                 client,
                 facade_owns_owner=facade_owns_owner,
+                directory_metadata=self.target.directory_metadata,
             )
             with self._lock:
                 if self._closed:
@@ -1665,6 +1729,36 @@ class NoSQLReadOnlyHost:
             allowed_collection_ids=ids,
         )
 
+    def create_directory_factory(
+        self,
+        connection_id: str,
+        *,
+        profile_revision: str,
+        provider: str,
+        mode: str,
+        database_name: str = "",
+    ) -> HostNoSQLFactory:
+        """Create the non-Agent metadata-only factory used by ObjectTreeService."""
+
+        selected = _text(connection_id)
+        revision = _text(profile_revision)
+        if not selected or not revision:
+            raise ValueError("directory target identity is required")
+        canonical_provider = _canonical_provider(provider)
+        if canonical_provider not in {"redis", "mongodb"}:
+            raise NoSQLCapabilityError(code="UNSUPPORTED_PROVIDER")
+        canonical_mode = _canonical_mode(mode, canonical_provider)
+        target = NoSQLTarget(
+            selected,
+            revision,
+            canonical_provider,
+            canonical_mode,
+            _text(database_name),
+            (),
+            True,
+        )
+        return self._build_factory(target)
+
     def __call__(self, connection_id: str, **kwargs: Any) -> HostNoSQLFactory | LazyNoSQLFactory | HostNoSQLLease:
         session_id = kwargs.pop("session_id", None)
         generation = kwargs.pop("generation", None)
@@ -1755,6 +1849,7 @@ class NoSQLReadOnlyHost:
             socket_timeout_ms=self._socket_timeout_ms,
             server_selection_timeout_ms=self._server_selection_timeout_ms,
             facade_options=self._facade_options,
+            _directory_metadata=target.directory_metadata,
         )
 
 
@@ -1775,7 +1870,7 @@ def _unpack_client(value: Any) -> tuple[Any, Any, Any, Mapping[str, Any] | None]
             owner = getattr(value, "client")
         except Exception:
             owner = None
-        if owner is not None:
+        if owner is not None and not callable(owner):
             return owner, owner, value, None
     return value, value, None, None
 
@@ -1813,6 +1908,11 @@ def _resolve_collections(
 
 def _default_redis_client_factory(profile: Any, secret: Any, **kwargs: Any) -> Any:
     """Create a Redis client lazily using all configured cluster seeds."""
+
+    from .connection_transport import DataCenterConnectionTransport
+    if DataCenterConnectionTransport.from_profile(profile, "redis", profile.get("mode")) is not None:
+        from .nosql_transport import connect_nosql
+        return connect_nosql("redis", profile, secret, **kwargs)
 
     import redis
 
@@ -1880,6 +1980,11 @@ def _default_redis_client_factory(profile: Any, secret: Any, **kwargs: Any) -> A
 
 def _default_mongo_client_factory(profile: Any, secret: Any, **kwargs: Any) -> Any:
     """Create a Mongo client lazily, preserving URI/topology identity."""
+
+    from .connection_transport import DataCenterConnectionTransport
+    if DataCenterConnectionTransport.from_profile(profile, "mongodb", profile.get("mode")) is not None:
+        from .nosql_transport import connect_nosql
+        return connect_nosql("mongodb", profile, secret, **kwargs)
 
     from pymongo import MongoClient
 

@@ -6,14 +6,16 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QSplitter
+from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6.QtGui import QFont, QFontMetrics, QImage, QPainter
+from PyQt6.QtWidgets import QApplication, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget
 
 
 class AgentWorkbenchLayoutTests(unittest.TestCase):
@@ -23,9 +25,49 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp(prefix='agent_wb_test_')
+        agent_data = os.path.join(self.tmp_dir, 'agent-data')
+        os.makedirs(agent_data, exist_ok=True)
+        self._network_guard_hits = 0
+        self._catalog_guard_hits = 0
+
+        def deny_network(*_args, **_kwargs):
+            self._network_guard_hits += 1
+            raise AssertionError('Network access is disabled in this targeted test.')
+
+        def deny_catalog(*_args, **_kwargs):
+            self._catalog_guard_hits += 1
+            raise AssertionError('The real model catalog reader is disabled in this targeted test.')
+
+        self._patchers = [
+            patch('tools.agent_store.AGENT_DIR', agent_data),
+            patch('tools.agent_store.AGENT_WORKSPACES_DIR', os.path.join(agent_data, 'workspaces')),
+            patch('tools.agent_store.AGENT_INDEX_FILE', os.path.join(agent_data, 'index.json')),
+            patch('tools.agent_store.ensure_config_dir', lambda: None),
+            patch('config.load_settings', return_value={}),
+            patch('config.save_settings', return_value={}),
+            patch('config.load_layout_splitter', return_value=None),
+            patch('config.save_layout_splitter', return_value=None),
+            patch('panels.agent_workbench_panel.load_settings', return_value={}),
+            patch('panels.agent_workbench_panel.list_enabled_items', return_value=[]),
+            patch('tools.intranet_llm.list_enabled_items', side_effect=deny_catalog),
+            patch('panels.model_chat_panel.list_enabled_items', return_value=[]),
+            patch('socket.create_connection', side_effect=deny_network),
+            patch('http.client.HTTPConnection.connect', side_effect=deny_network),
+            patch('http.client.HTTPSConnection.connect', side_effect=deny_network),
+        ]
+        for patcher in self._patchers:
+            patcher.start()
 
     def tearDown(self):
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        for patcher in reversed(self._patchers):
+            patcher.stop()
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
+        self.assertEqual(self._catalog_guard_hits, 0, 'A real catalog reader was reached.')
+        self.assertEqual(self._network_guard_hits, 0, 'A network connection was attempted.')
 
     def test_agent_layout_architecture(self):
         """测试 Agent 工作台信息架构：主区对话居中、左栏仅空间列表、右侧为可折叠 Context 面板。"""
@@ -278,6 +320,286 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
         finally:
             panel.deleteLater()
 
+    def test_bound_workspace_path_does_not_force_wide_panel(self):
+        """A long bound path and large bilingual controls fit the narrow panel bounds."""
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from tools.agent_store import empty_workspace, save_workspace
+
+        project_name = 'long-project-name-' * 5
+        workspace_dir = os.path.join(self.tmp_dir, project_name)
+        os.makedirs(workspace_dir, exist_ok=True)
+        prior_font = self.app.font()
+        large_font = QFont(prior_font)
+        large_font.setPointSize(13)
+        self.app.setFont(large_font)
+        panel = AgentWorkbenchPanel('en')
+        workspace = empty_workspace(title='Narrow layout', workspace_dir=workspace_dir)
+        save_workspace(workspace)
+        try:
+            panel._select_workspace(workspace['id'])
+            panel.resize(960, 720)
+            panel.show()
+            self.app.processEvents()
+
+            self.assertTrue(panel.dir_label.wordWrap())
+            self.assertLessEqual(panel.dir_label.maximumWidth(), 240)
+            self.assertEqual(panel.dir_label.toolTip(), f'Bound: {os.path.normpath(workspace_dir)}')
+            self.assertIn('…', panel.dir_label.text())
+            self.assertNotIn(workspace_dir, panel.dir_label.text())
+            self.assertTrue(panel.dir_label.text().endswith(project_name[-14:]))
+            if self.app.platformName() == 'windows':
+                self.assertLessEqual(panel.width(), 960)
+            for language in ('zh', 'en'):
+                panel.set_language(language)
+                self.app.processEvents()
+                mode_text_width = max(
+                    QFontMetrics(panel.exec_mode_combo.font()).horizontalAdvance(
+                        panel.exec_mode_combo.itemText(index)
+                    )
+                    for index in range(panel.exec_mode_combo.count())
+                )
+                self.assertGreaterEqual(
+                    panel.exec_mode_combo.width(), mode_text_width + 44,
+                    f'{language} execution mode option is clipped',
+                )
+                if language == 'zh':
+                    self.assertEqual(
+                        panel.dir_label.toolTip(), f'已绑定：{os.path.normpath(workspace_dir)}',
+                    )
+                else:
+                    self.assertEqual(
+                        panel.dir_label.toolTip(), f'Bound: {os.path.normpath(workspace_dir)}',
+                    )
+                self.assertLessEqual(
+                    panel.input.geometry().bottom(), panel.send_hint.geometry().top(),
+                    f'{language} composer hint overlaps the input area',
+                )
+                for button in (panel.bind_dir_btn, panel.new_btn, panel.context_toggle_btn,
+                               panel.add_attachment_btn, panel.send_btn):
+                    self.assertGreaterEqual(
+                        button.width(), button.sizeHint().width(),
+                        f'{language} button text is clipped: {button.text()}',
+                    )
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+            self.app.setFont(prior_font)
+
+    def test_context_and_conflict_viewers_fit_embedded_sizes_and_remain_read_only(self):
+        from PyQt6.QtCore import QRect
+        from tools.agent_store import empty_workspace, save_workspace
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+
+        evidence_dir = os.environ.get('AGENT_CONTEXT_UI_EVIDENCE_DIR')
+        screenshot_saved = False
+        prior_font = QFont(self.app.font())
+        project_dir = os.path.join(self.tmp_dir, 'context-ui-project')
+        os.makedirs(project_dir, exist_ok=True)
+        long_history = '\n'.join(f'Archive line {index} ' + ('read only history ' * 8) for index in range(500))
+        budget_state = {
+            'schema': 1,
+            'status': 'ready',
+            'estimate_kind': 'heuristic_utf8_bytes',
+            'input_estimate': 42_000,
+            'context_window_known': False,
+            'output_reserve': 4096,
+            'messages_kept': 12,
+            'messages_dropped': 4,
+            'reason': 'trimmed_to_application_budget_window_unknown',
+        }
+
+        try:
+            for font_px in (17, 21):
+                font = QFont(prior_font)
+                font.setPixelSize(font_px)
+                self.app.setFont(font)
+                for width, height in ((960, 640), (1320, 860)):
+                    for language in ('zh', 'en'):
+                        container = QWidget()
+                        container.resize(width, height)
+                        outer = QVBoxLayout(container)
+                        outer.setContentsMargins(0, 0, 0, 0)
+                        panel = AgentWorkbenchPanel(language)
+                        outer.addWidget(panel)
+                        workspace = empty_workspace(
+                            title=f'UI evidence {font_px}-{width}-{language}',
+                            workspace_dir=project_dir,
+                        )
+                        workspace['conflicted_runs'] = [{
+                            'messages': [
+                                {'role': 'assistant', 'content': long_history},
+                                {'role': 'assistant', 'reasoning_content': 'private field must not render',
+                                 'content': 'not shown'},
+                            ],
+                            'tool_calls': [{'name': 'never replay', 'arguments': {'secret': 'hidden'}}],
+                        }]
+                        save_workspace(workspace)
+                        try:
+                            panel._select_workspace(workspace['id'])
+                            panel._show_context_budget_state(budget_state)
+                            container.show()
+                            panel.show()
+                            self.app.processEvents()
+                            self.assertEqual(panel.conflicts_btn.isEnabled(), True)
+                            self.assertTrue(
+                                panel.conflicts_btn.text().startswith('冲突 ' if language == 'zh' else 'Conflicts ')
+                            )
+                            self.assertIn('启发式' if language == 'zh' else 'local approximate plan',
+                                          panel.context_budget_label.toolTip())
+                            self.assertLessEqual(panel.context_budget_label.height(),
+                                                 panel.context_budget_label.sizeHint().height() + 2)
+
+                            viewer = panel._open_conflict_viewer()
+                            self.app.processEvents()
+                            self.assertFalse(viewer.isModal())
+                            text_widget = viewer.findChild(QPlainTextEdit, 'agent-conflict-viewer-text')
+                            self.assertTrue(text_widget.isReadOnly())
+                            self.assertGreater(text_widget.verticalScrollBar().maximum(), 0)
+                            self.assertTrue('Archive line 499' in text_widget.toPlainText())
+                            self.assertNotIn('private field must not render', text_widget.toPlainText())
+                            self.assertNotIn('never replay', text_widget.toPlainText())
+
+                            screen = panel.screen() or self.app.primaryScreen()
+                            parent_rect = QRect(
+                                panel.mapToGlobal(panel.contentsRect().topLeft()),
+                                panel.contentsRect().size(),
+                            )
+                            self.assertTrue(parent_rect.contains(viewer.frameGeometry()),
+                                            f'{width}x{height}, {font_px}px, {language}: outside panel')
+                            if screen is not None:
+                                self.assertTrue(screen.availableGeometry().contains(viewer.frameGeometry()),
+                                                f'{width}x{height}, {font_px}px, {language}: outside screen')
+
+                            if (not screenshot_saved and evidence_dir
+                                    and font_px == 17 and width == 960 and language == 'en'):
+                                panel_image = container.grab().toImage()
+                                dialog_image = viewer.grab().toImage()
+                                composite = QImage(
+                                    panel_image.width() + dialog_image.width() + 16,
+                                    max(panel_image.height(), dialog_image.height()),
+                                    QImage.Format.Format_ARGB32,
+                                )
+                                composite.fill(self.app.palette().window().color())
+                                painter = QPainter(composite)
+                                painter.drawImage(0, 0, panel_image)
+                                painter.drawImage(panel_image.width() + 16, 0, dialog_image)
+                                painter.end()
+                                screenshot_path = os.path.join(evidence_dir, 'synthetic-context-conflict-ui.png')
+                                self.assertTrue(composite.save(screenshot_path))
+                                screenshot_saved = True
+                        finally:
+                            if panel._conflict_viewer is not None:
+                                panel._conflict_viewer.close()
+                            container.close()
+                            container.deleteLater()
+                            self.app.processEvents()
+                            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                            self.app.processEvents()
+            if evidence_dir:
+                self.assertTrue(screenshot_saved, 'Requested evidence screenshot was not produced.')
+        finally:
+            self.app.setFont(prior_font)
+
+    def test_execution_mode_text_fits_actual_calm_edit_field_at_large_fonts(self):
+        from PyQt6.QtWidgets import QStyle, QStyleOptionComboBox
+        from panels.agent_workbench_panel import AgentWorkbenchPanel
+        from ui.theme_manager import ThemeManager
+
+        old_font = QFont(self.app.font())
+        old_stylesheet = self.app.styleSheet()
+        try:
+            for font_px in (17, 21):
+                font = QFont(old_font)
+                font.setPixelSize(font_px)
+                self.app.setFont(font)
+                self.app.setStyleSheet(ThemeManager.instance().render('calm', font_size=font_px))
+                for language in ('zh', 'en'):
+                    container = QWidget()
+                    container.resize(960, 640)
+                    outer = QVBoxLayout(container)
+                    outer.setContentsMargins(0, 0, 0, 0)
+                    panel = AgentWorkbenchPanel(language)
+                    outer.addWidget(panel)
+                    panel._set_conflict_button_count(999)
+                    try:
+                        container.show()
+                        self.app.processEvents()
+                        for target_language in (language, 'en' if language == 'zh' else 'zh'):
+                            if target_language != language:
+                                panel.set_language(target_language)
+                                self.app.processEvents()
+                            option = QStyleOptionComboBox()
+                            panel.exec_mode_combo.initStyleOption(option)
+                            text_rect = panel.exec_mode_combo.style().subControlRect(
+                                QStyle.ComplexControl.CC_ComboBox, option,
+                                QStyle.SubControl.SC_ComboBoxEditField, panel.exec_mode_combo,
+                            )
+                            for index in range(panel.exec_mode_combo.count()):
+                                text = panel.exec_mode_combo.itemText(index)
+                                self.assertLessEqual(
+                                    panel.exec_mode_combo.fontMetrics().horizontalAdvance(text),
+                                    text_rect.width(), f'{font_px}px {target_language}: {text}',
+                                )
+                            self.assertLessEqual(container.width(), 960)
+                            for button in (panel.conflicts_btn, panel.new_btn, panel.context_toggle_btn):
+                                self.assertGreaterEqual(button.width(), button.sizeHint().width())
+                    finally:
+                        container.close()
+                        container.deleteLater()
+                        for _ in range(2):
+                            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                            self.app.processEvents()
+        finally:
+            self.app.setStyleSheet(old_stylesheet)
+            self.app.setFont(old_font)
+
+    def test_conflict_history_text_reserves_truncation_marker_without_store_writes(self):
+        from panels.agent_workbench_panel import (
+            AgentWorkbenchPanel, _CONFLICT_VIEWER_MAX_CHARS,
+        )
+        from tools.agent_store import empty_workspace, list_workspaces, load_workspace, save_workspace
+
+        workspace_dir = os.path.join(self.tmp_dir, 'strict-text-cap-project')
+        os.makedirs(workspace_dir, exist_ok=True)
+        workspace = empty_workspace(title='Strict text cap', workspace_dir=workspace_dir)
+        workspace['conflicted_runs'] = [{
+            'messages': [
+                {
+                    'role': 'assistant',
+                    'reasoning_content': 'PRIVATE_REASONING_SENTINEL',
+                    'content': 'PRIVATE_MESSAGE_SENTINEL',
+                },
+                {'role': 'assistant', 'content': 'public-history ' * (_CONFLICT_VIEWER_MAX_CHARS // 15 + 100)},
+            ],
+        }]
+        save_workspace(workspace)
+        before = load_workspace(workspace['id'])
+        panel = AgentWorkbenchPanel(language='en')
+        try:
+            for language, marker in (
+                ('en', '\n\n[Content truncated]'),
+                ('zh', '\n\n[内容已截断]'),
+            ):
+                panel.language = language
+                with patch(
+                    'panels.agent_workbench_panel.save_workspace',
+                    side_effect=AssertionError('Conflict history formatting must not write the Store.'),
+                ) as save_spy:
+                    rendered = panel._conflict_history_text(list_workspaces())
+                save_spy.assert_not_called()
+                self.assertLessEqual(len(rendered), _CONFLICT_VIEWER_MAX_CHARS)
+                self.assertTrue(rendered.endswith(marker), 'The complete localized truncation marker must remain visible.')
+                self.assertNotIn('PRIVATE_REASONING_SENTINEL', rendered)
+                self.assertNotIn('PRIVATE_MESSAGE_SENTINEL', rendered)
+                self.assertEqual(load_workspace(workspace['id']), before)
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.app.processEvents()
+
     def test_composer_button_layout(self):
         """测试输入区发送按钮采用紧凑右对齐，不全行拉伸。"""
         from panels.agent_workbench_panel import AgentWorkbenchPanel
@@ -351,7 +673,9 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
                     updated_msgs = list(conv.get('messages') or []) + [
                         {'id': 'asst-1', 'role': 'assistant', 'content': final_answer}
                     ]
-                    panel._on_agent_done(final_answer, updated_msgs, [])
+                    task_id = panel._active_task['id']
+                    panel._on_agent_completed(task_id, final_answer, updated_msgs, [])
+                    panel._on_worker_thread_finished(task_id, mock_worker)
                     self.app.processEvents()
 
                     u_count, a_count = count_ui_bubbles(panel)

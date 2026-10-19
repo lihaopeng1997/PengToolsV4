@@ -52,9 +52,7 @@ def find_docs(conn, collection: str, filt: dict | None = None, sort: list | None
     """查询文档，返回文档列表（字段值保持原类型，由调用方决定渲染）。"""
     db_name = getattr(conn, 'name', '') or ''
     try:
-        cursor = conn[collection].find(filt or {})
-        if projection:
-            cursor = cursor.projection(projection)
+        cursor = conn[collection].find(filt or {}, projection=projection)
         if sort:
             cursor = cursor.sort(sort)
         docs = list(cursor.skip(int(skip)).limit(int(limit) + 1))

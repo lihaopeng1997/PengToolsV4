@@ -16,16 +16,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPen, QPixmap
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
     QSizePolicy,
-    QStyle,
     QToolButton,
     QWidget,
 )
@@ -37,8 +35,102 @@ from ui.icons import brand_pixmap
 # into main_window.py.  The integration owner can map them to layout_metrics
 # after comparing the complete shell at each supported breakpoint.
 TITLEBAR_H = 44
-WINDOW_BUTTON_SIZE = 32
-BRAND_ICON_SIZE = 22
+WINDOW_BUTTON_WIDTH = 39
+WINDOW_BUTTON_HEIGHT = 30
+WINDOW_BUTTON_SIZE = QSize(WINDOW_BUTTON_WIDTH, WINDOW_BUTTON_HEIGHT)
+BRAND_ICON_SIZE = 23
+
+
+class _PrismWindowButton(QToolButton):
+    """Window action button with keyboard-only focus decoration."""
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
+        keyboard = event.reason() in (
+            Qt.FocusReason.TabFocusReason,
+            Qt.FocusReason.BacktabFocusReason,
+            Qt.FocusReason.ShortcutFocusReason,
+        )
+        self.setProperty("keyboardFocus", keyboard)
+        self._refresh_style()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self.setProperty("keyboardFocus", False)
+        self._refresh_style()
+        super().focusOutEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self.setProperty("keyboardFocus", False)
+        self._refresh_style()
+        super().mousePressEvent(event)
+
+    def _refresh_style(self) -> None:
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+        self.update()
+
+
+def _action_pixmap(kind: str, color: str, *, size: int = 24) -> QPixmap:
+    """Render one Prism 24-grid window glyph with the prototype stroke."""
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    scale = float(size) / 24.0
+    painter.scale(scale, scale)
+    pen = QPen(QColor(color))
+    pen.setWidthF(1.6)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    path = QPainterPath()
+    if kind == "pin":
+        path.moveTo(8, 3)
+        path.lineTo(16, 3)
+        path.lineTo(15, 9)
+        path.lineTo(19, 13)
+        path.lineTo(5, 13)
+        path.lineTo(9, 9)
+        path.closeSubpath()
+        path.moveTo(12, 13)
+        path.lineTo(12, 21)
+    elif kind == "minimize":
+        path.moveTo(5, 16)
+        path.lineTo(19, 16)
+    elif kind == "restore":
+        path.moveTo(7, 3)
+        path.lineTo(21, 3)
+        path.lineTo(21, 17)
+        path.moveTo(17, 7)
+        path.lineTo(3, 7)
+        path.lineTo(3, 21)
+        path.lineTo(17, 21)
+        path.closeSubpath()
+    elif kind == "close":
+        path.moveTo(6, 6)
+        path.lineTo(18, 18)
+        path.moveTo(6, 18)
+        path.lineTo(18, 6)
+    else:  # maximize
+        path.addRect(QRectF(5, 5, 14, 14))
+    painter.drawPath(path)
+    painter.end()
+    return pixmap
+
+
+def _action_icon(kind: str, normal: str, active: str, checked: str | None = None) -> QIcon:
+    icon = QIcon()
+    checked_color = checked or active
+    icon.addPixmap(_action_pixmap(kind, normal), QIcon.Mode.Normal, QIcon.State.Off)
+    icon.addPixmap(_action_pixmap(kind, active), QIcon.Mode.Active, QIcon.State.Off)
+    icon.addPixmap(_action_pixmap(kind, checked_color), QIcon.Mode.Normal, QIcon.State.On)
+    icon.addPixmap(_action_pixmap(kind, checked_color), QIcon.Mode.Active, QIcon.State.On)
+    return icon
 
 
 def _window_handle(target: Any):
@@ -140,16 +232,16 @@ class PrismTitleBar(QFrame):
         self._menu_buttons: dict[str, QToolButton] = {}
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 0, 8, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(17, 0, 7, 0)
+        layout.setSpacing(18)
         self._layout = layout
 
         self.brand = QWidget(self)
         self.brand.setObjectName("prism-brand")
         self.brand.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         brand_layout = QHBoxLayout(self.brand)
-        brand_layout.setContentsMargins(0, 0, 6, 0)
-        brand_layout.setSpacing(7)
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(8)
         self.brand_icon = QLabel(self.brand)
         self.brand_icon.setObjectName("prism-brand-icon")
         self.brand_icon.setFixedSize(BRAND_ICON_SIZE, BRAND_ICON_SIZE)
@@ -375,12 +467,13 @@ class PrismTitleBar(QFrame):
         super().mouseDoubleClickEvent(event)
 
     def _make_action_button(self, object_name: str, tooltip: str, *, text: str = "") -> QToolButton:
-        button = QToolButton(self.window_actions)
+        button = _PrismWindowButton(self.window_actions)
         button.setObjectName(object_name)
-        button.setFixedSize(WINDOW_BUTTON_SIZE, WINDOW_BUTTON_SIZE)
+        button.setFixedSize(WINDOW_BUTTON_SIZE)
         button.setText(text)
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        button.setProperty("keyboardFocus", False)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setToolTip(tooltip)
         button.setAccessibleName(tooltip)
@@ -403,43 +496,26 @@ class PrismTitleBar(QFrame):
         self.pin_button.setText("")
 
     def _refresh_standard_icons(self) -> None:
-        style = self.style() or QApplication.style()
-        if style is None:
-            return
-        self._refresh_pin_icon()
-        self.minimize_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_TitleBarMinButton))
-        max_kind = (
-            QStyle.StandardPixmap.SP_TitleBarNormalButton
-            if self._maximized
-            else QStyle.StandardPixmap.SP_TitleBarMaxButton
+        tokens = self._tokens()
+        normal = tokens.get("WINDOW_CONTROL", "#778199")
+        active = tokens.get("WINDOW_CONTROL_HOVER", normal)
+        primary = tokens.get("PRIMARY", "#6C58D9")
+        self.pin_button.setIcon(_action_icon("pin", normal, active, primary))
+        self.minimize_button.setIcon(_action_icon("minimize", normal, active))
+        self.maximize_button.setIcon(
+            _action_icon("restore" if self._maximized else "maximize", normal, active)
         )
-        self.maximize_button.setIcon(style.standardIcon(max_kind))
-        self.close_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_TitleBarCloseButton))
-        for button in (self.minimize_button, self.maximize_button, self.close_button):
-            button.setIconSize(QSize(15, 15))
+        self.close_button.setIcon(_action_icon("close", normal, "#FFFFFF"))
+        for button in (self.pin_button, self.minimize_button, self.maximize_button, self.close_button):
+            button.setIconSize(QSize(13, 13))
 
     def _refresh_pin_icon(self) -> None:
         tokens = self._tokens()
-        tint = tokens.get("PRIMARY", "#6C58D9") if self.pin_button.isChecked() else tokens.get("TEXT_MUTED", "#615D73")
-        pixmap = QPixmap(18, 18)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor(tint))
-        pen.setWidthF(1.6)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen)
-        painter.drawLine(QPointF(5.0, 3.5), QPointF(13.0, 3.5))
-        painter.drawLine(QPointF(6.0, 3.5), QPointF(6.8, 9.0))
-        painter.drawLine(QPointF(12.0, 3.5), QPointF(11.2, 9.0))
-        painter.drawLine(QPointF(6.8, 9.0), QPointF(11.2, 9.0))
-        painter.drawLine(QPointF(9.0, 9.0), QPointF(9.0, 14.0))
-        painter.drawLine(QPointF(9.0, 14.0), QPointF(6.2, 16.5))
-        painter.drawLine(QPointF(9.0, 14.0), QPointF(11.8, 16.5))
-        painter.end()
-        self.pin_button.setIcon(QIcon(pixmap))
-        self.pin_button.setIconSize(QSize(17, 17))
+        normal = tokens.get("WINDOW_CONTROL", "#778199")
+        active = tokens.get("WINDOW_CONTROL_HOVER", normal)
+        primary = tokens.get("PRIMARY", "#6C58D9")
+        self.pin_button.setIcon(_action_icon("pin", normal, active, primary))
+        self.pin_button.setIconSize(QSize(13, 13))
 
     def _refresh_brand_icon(self) -> None:
         try:
@@ -508,7 +584,9 @@ class PrismTitleBar(QFrame):
         muted = tokens.get("TEXT_MUTED", text)
         primary = tokens.get("PRIMARY", "#6C58D9")
         primary_soft = tokens.get("PRIMARY_SOFT", "#EEE9FF")
-        danger = tokens.get("DANGER", "#C45371")
+        window_control = tokens.get("WINDOW_CONTROL", "#778199")
+        window_hover = tokens.get("WINDOW_CONTROL_HOVER_BG", "#E9E7F2")
+        danger = tokens.get("WINDOW_CLOSE_HOVER", "#DF647E")
         on_primary = tokens.get("ON_PRIMARY", "#FFFFFF")
         self.setStyleSheet(
             """
@@ -518,7 +596,7 @@ class PrismTitleBar(QFrame):
             }
             QLabel#prism-brand-name {
                 color: %(strong)s;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 600;
             }
             QToolButton#prism-menu-file,
@@ -527,9 +605,10 @@ class PrismTitleBar(QFrame):
             QToolButton[class="prism-menu"] {
                 color: %(muted)s;
                 border: 0;
-                border-radius: 6px;
-                padding: 4px 8px;
+                border-radius: 5px;
+                padding: 6px 9px;
                 background: transparent;
+                font-size: 10px;
             }
             QToolButton#prism-menu-file:hover,
             QToolButton#prism-menu-view:hover,
@@ -542,7 +621,7 @@ class PrismTitleBar(QFrame):
             QToolButton#prism-window-min-btn,
             QToolButton#prism-window-max-btn,
             QToolButton#prism-window-close-btn {
-                color: %(muted)s;
+                color: %(window_control)s;
                 border: 0;
                 border-radius: 6px;
                 background: transparent;
@@ -552,8 +631,8 @@ class PrismTitleBar(QFrame):
             QToolButton#prism-window-pin-btn:hover,
             QToolButton#prism-window-min-btn:hover,
             QToolButton#prism-window-max-btn:hover {
-                color: %(primary)s;
-                background: %(primary_soft)s;
+                color: %(window_control)s;
+                background: %(window_hover)s;
             }
             QToolButton#prism-window-pin-btn:checked {
                 color: %(primary)s;
@@ -563,11 +642,11 @@ class PrismTitleBar(QFrame):
                 color: %(on_primary)s;
                 background: %(danger)s;
             }
-            QToolButton#prism-window-pin-btn:focus,
-            QToolButton#prism-window-min-btn:focus,
-            QToolButton#prism-window-max-btn:focus,
-            QToolButton#prism-window-close-btn:focus {
-                border: 1px solid %(primary)s;
+            QToolButton#prism-window-pin-btn[keyboardFocus="true"]:focus,
+            QToolButton#prism-window-min-btn[keyboardFocus="true"]:focus,
+            QToolButton#prism-window-max-btn[keyboardFocus="true"]:focus,
+            QToolButton#prism-window-close-btn[keyboardFocus="true"]:focus {
+                border: 2px solid %(primary)s;
             }
             """
             % {
@@ -578,6 +657,8 @@ class PrismTitleBar(QFrame):
                 "muted": muted,
                 "primary": primary,
                 "primary_soft": primary_soft,
+                "window_control": window_control,
+                "window_hover": window_hover,
                 "danger": danger,
                 "on_primary": on_primary,
             }
@@ -592,6 +673,8 @@ __all__ = [
     "PrismTitleBar",
     "TITLEBAR_H",
     "WINDOW_BUTTON_SIZE",
+    "WINDOW_BUTTON_HEIGHT",
+    "WINDOW_BUTTON_WIDTH",
     "start_system_move",
     "start_system_resize",
 ]

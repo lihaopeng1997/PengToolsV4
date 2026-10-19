@@ -62,6 +62,8 @@ DAILY_ASSETS_DIR = os.path.join(CONFIG_DIR, 'daily_assets')
 REQUIREMENTS_FILE = os.path.join(CONFIG_DIR, 'requirements.json')
 REQUIREMENT_UI_FILE = os.path.join(CONFIG_DIR, 'requirement_ui.json')
 LAYOUT_SPLITTERS_FILE = os.path.join(CONFIG_DIR, 'layout_splitters.json')
+DATA_CENTER_WORKSPACE_FILE = os.path.join(CONFIG_DIR, 'data_center_workspace.sqlite3')
+DATA_CENTER_SSH_KNOWN_HOSTS_FILE = os.path.join(CONFIG_DIR, 'data_center_ssh_known_hosts.json')
 TICKET_SUBMIT_FILE = os.path.join(CONFIG_DIR, 'ticket_submit.json')
 LAST_CHOICES_FILE = os.path.join(CONFIG_DIR, 'last_choices.json')
 # 工作台待升级事项：手工条目与需求看板隐藏项，独立于需求台账。

@@ -276,6 +276,151 @@ class SettingsSaveRepairTests(unittest.TestCase):
             panel.deleteLater()
             self.app.processEvents()
 
+    def test_model_connection_fields_precede_advanced_and_save_stays_reachable(self):
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QScrollArea
+
+        panel = self._panel()
+        try:
+            panel.resize(1040, 740)
+            panel.apply_layout_mode('standard', False)
+            panel.show()
+            panel.section_nav.setCurrentRow(5)
+            self.app.processEvents()
+
+            self.assertFalse(panel.ai_advanced_host.isVisible())
+            self.assertEqual(panel.ai_list.height(), 72)
+            self.assertEqual(panel.save_btn.text(), '保存一般偏好')
+
+            def mid_y(widget):
+                return widget.mapTo(panel, widget.rect().center()).y()
+
+            self.assertLess(mid_y(panel.ai_name), mid_y(panel.ai_enabled))
+            self.assertLess(mid_y(panel.ai_enabled), mid_y(panel.ai_base_url))
+            self.assertLess(mid_y(panel.ai_base_url), mid_y(panel.ai_model))
+            self.assertLess(mid_y(panel.ai_model), mid_y(panel.ai_token))
+            self.assertLess(mid_y(panel.ai_token), mid_y(panel.ai_save_btn))
+            panel.ai_advanced_toggle.setChecked(True)
+            self.app.processEvents()
+            self.assertTrue(panel.ai_advanced_host.isVisible())
+            self.assertLess(mid_y(panel.ai_save_btn), mid_y(panel.ai_agent_capability))
+            self.assertLess(
+                mid_y(panel.ai_agent_capability),
+                mid_y(panel.ai_agent_max_reasoning_bytes),
+            )
+            self.assertLess(
+                mid_y(panel.ai_save_btn) - mid_y(panel.ai_name),
+                mid_y(panel.ai_agent_max_raw_buffer_bytes) - mid_y(panel.ai_name),
+            )
+
+            scroll = panel.sections_stack.currentWidget()
+            self.assertIsInstance(scroll, QScrollArea)
+            save_in_view = panel.ai_save_btn.mapTo(scroll.viewport(), QPoint(0, 0))
+            self.assertGreaterEqual(save_in_view.y(), -8)
+            self.assertLess(
+                save_in_view.y(),
+                scroll.viewport().height() + 24,
+            )
+            self.assertEqual(panel.ai_action_row.objectName(), 'settings-model-actions')
+            self.assertIs(panel.ai_save_btn.parentWidget(), panel.ai_action_row)
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
+    def test_settings_form_editors_align_left_in_shared_field_column(self):
+        from PyQt6.QtCore import QPoint
+
+        panel = self._panel()
+        try:
+            panel.resize(1040, 740)
+            panel.apply_layout_mode('standard', False)
+            panel.show()
+            self.app.processEvents()
+
+            def left_x(widget):
+                return widget.mapTo(panel, widget.rect().topLeft()).x()
+
+            def form_row(widget):
+                host = widget
+                while host is not None and host.objectName() != 'settings-form-row':
+                    host = host.parentWidget()
+                return host
+
+            font_x = left_x(panel.font_size)
+            self.assertLessEqual(abs(left_x(panel.density_combo) - font_x), 8)
+            self.assertLessEqual(abs(left_x(panel.sidebar_collapsed_check) - font_x), 8)
+            combo_row = form_row(panel.density_combo)
+            self.assertIsNotNone(combo_row)
+            combo_left_gap = left_x(panel.density_combo) - combo_row.mapTo(panel, QPoint(0, 0)).x()
+            combo_right_gap = (
+                combo_row.mapTo(panel, combo_row.rect().topRight()).x()
+                - (left_x(panel.density_combo) + panel.density_combo.width())
+            )
+            self.assertLessEqual(combo_left_gap, 4)
+            self.assertGreater(combo_right_gap, combo_left_gap)
+
+            for label, field in (
+                (panel.font_label, panel.font_size),
+                (panel.density_label, panel.density_combo),
+                (panel.sidebar_collapsed_label, panel.sidebar_collapsed_check),
+            ):
+                label_y = label.mapTo(panel, label.rect().center()).y()
+                field_y = field.mapTo(panel, field.rect().center()).y()
+                self.assertLessEqual(abs(label_y - field_y), 4)
+
+            panel.section_nav.setCurrentRow(5)
+            self.app.processEvents()
+            name_x = left_x(panel.ai_name)
+            for widget in (
+                panel.ai_enabled,
+                panel.ai_base_url,
+                panel.ai_model,
+                panel.ai_token,
+            ):
+                self.assertLessEqual(abs(left_x(widget) - name_x), 12)
+
+            panel.ai_advanced_toggle.setChecked(True)
+            self.app.processEvents()
+            self.assertTrue(panel.ai_agent_capability.isVisible())
+            self.assertIs(panel.ai_agent_capability.window(), panel.window())
+
+            # The action row spans label and editor columns, unlike labelled
+            # fields. Its controls should start at that row's own left edge.
+            self.assertLessEqual(abs(left_x(panel.ai_probe_btn) - left_x(panel.ai_action_row)), 4)
+
+            name_row = form_row(panel.ai_name)
+            self.assertIsNotNone(name_row)
+            self.assertGreaterEqual(panel.ai_name.width(), name_row.width() - 16)
+            model_row = form_row(panel.ai_model)
+            self.assertIsNotNone(model_row)
+            self.assertLess(panel.ai_model.width(), model_row.width() * 0.7)
+            model_left_gap = left_x(panel.ai_model) - model_row.mapTo(panel, QPoint(0, 0)).x()
+            self.assertLessEqual(model_left_gap, 4)
+
+            for label, field in (
+                (panel.ai_name_label, panel.ai_name),
+                (panel.ai_enabled_label, panel.ai_enabled),
+                (panel.ai_model_label, panel.ai_model),
+                (panel.ai_agent_capability_label, panel.ai_agent_capability),
+            ):
+                label_y = label.mapTo(panel, label.rect().center()).y()
+                field_y = field.mapTo(panel, field.rect().center()).y()
+                self.assertLessEqual(abs(label_y - field_y), 4)
+
+            panel.resize(856, 458)
+            panel.apply_layout_mode('narrow', False)
+            panel.section_picker.setCurrentIndex(5)
+            self.app.processEvents()
+            self.assertTrue(panel.section_picker.isVisible())
+            model_right = panel.ai_model.mapTo(panel, panel.ai_model.rect().topRight()).x()
+            self.assertLessEqual(model_right, panel.width())
+            self.assertGreaterEqual(form_row(panel.ai_name).minimumHeight(), 72)
+        finally:
+            panel.close()
+            panel.deleteLater()
+            self.app.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

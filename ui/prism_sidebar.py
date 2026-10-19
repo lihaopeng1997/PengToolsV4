@@ -72,7 +72,7 @@ def _group_icon(source: Mapping[str, Any], parent: Mapping[str, Any] | None) -> 
 
 
 def derive_prism_groups(nav_model: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Derive the prototype rail shape from the injected navModel.
+    """Derive flat rail sections from the injected navModel.
 
     The function intentionally has no application-specific index table. Parent
     ``children`` and direct group items remain the only source of menu leaves;
@@ -129,7 +129,7 @@ def derive_prism_groups(nav_model: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 class PrismSidebar(QWidget):
-    """Native Prism rail with menus that can escape the narrow sidebar.
+    """Native Prism rail with scrollable direct page entries.
 
     ``navigate_requested`` is the only business-facing signal. The caller owns
     ``_show_panel`` and panel lifecycle; this widget never constructs a panel.
@@ -232,35 +232,15 @@ class PrismSidebar(QWidget):
         return '个人工作空间' if self._language == 'zh' else 'Personal workspace'
 
     def set_icon_only(self, icon_only: bool) -> None:
-        self._icon_only = bool(icon_only)
+        icon_only = bool(icon_only)
+        if icon_only == self._icon_only:
+            return
+        self._close_group_menu()
+        self._icon_only = icon_only
         side_margin = 0 if self._icon_only else 12
         self._outer_layout.setContentsMargins(side_margin, 14, side_margin, 12)
         self._brand_text.setVisible(not self._icon_only)
-        for index, button in self._buttons.items():
-            item = self._item_for_index(index)
-            self._apply_button_mode(
-                button,
-                str(item.get('zh', '')),
-                str(item.get('en', '')),
-            )
-        for key, button in self._group_buttons.items():
-            group = self._group_for_key(key)
-            self._apply_button_mode(
-                button,
-                str((group or {}).get('zh', '')),
-                str((group or {}).get('en', '')),
-            )
-        if self._settings_button is not None:
-            settings = self._model.get('settings') or {}
-            self._apply_button_mode(
-                self._settings_button,
-                str(settings.get('zh', '设置')),
-                str(settings.get('en', 'Settings')),
-            )
-        if self._palette_button is not None:
-            self._apply_button_mode(self._palette_button, '主题', 'Theme')
-        for label in self._nav_host.findChildren(QLabel, 'sidebar-section'):
-            label.setVisible(not self._icon_only)
+        self._rebuild()
 
     def _item_for_index(self, nav_index: int) -> Mapping[str, Any]:
         home = self._model.get('home')
@@ -435,11 +415,15 @@ class PrismSidebar(QWidget):
         while self._nav_layout.count():
             entry = self._nav_layout.takeAt(0)
             if entry.widget() is not None:
-                entry.widget().deleteLater()
+                widget = entry.widget()
+                widget.hide()
+                widget.deleteLater()
         while self._footer_layout.count():
             entry = self._footer_layout.takeAt(0)
             if entry.widget() is not None:
-                entry.widget().deleteLater()
+                widget = entry.widget()
+                widget.hide()
+                widget.deleteLater()
         self._buttons.clear()
         self._group_buttons.clear()
         self._settings_button = None
@@ -450,29 +434,18 @@ class PrismSidebar(QWidget):
         home = self._model.get('home')
         if home:
             self._nav_layout.addWidget(self._make_leaf_button(home))
-        self._add_separator()
-        for group in self._model.get('groups', []):
-            if group.get('divider_before'):
+            self._add_separator()
+        for idx, group in enumerate(self._model.get('groups', [])):
+            if group.get('divider_before') and (idx > 0 or not home):
                 self._add_separator()
-            section = QLabel(f"{group['zh']} · {group['en']}", self._nav_host)
+            if self._icon_only:
+                self._nav_layout.addWidget(self._make_group_button(group))
+                continue
+            section = QLabel(group['en'] if self._language == 'en' else group['zh'], self._nav_host)
             section.setObjectName('sidebar-section')
-            # The prototype puts the group name on the rail button; retain the
-            # semantic label for inspection/tooling without duplicating it in
-            # the visible rail.
-            section.hide()
-            section.setMinimumSize(0, 0)
-            section.setMaximumSize(0, 0)
             self._nav_layout.addWidget(section)
-            button = QPushButton(self._nav_host)
-            button.setObjectName('nav-btn')
-            button.setCheckable(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            apply_icon(button, group.get('icon', 'workbench'), size=20)
-            button.setProperty('groupKey', group['key'])
-            button.clicked.connect(lambda checked=False, key=group['key'], b=button: self.show_group_menu(key, b))
-            self._group_buttons[group['key']] = button
-            self._nav_layout.addWidget(button)
-            self._apply_button_mode(button, group['zh'], group['en'])
+            for item in group.get('items', []):
+                self._nav_layout.addWidget(self._make_leaf_button(item))
 
         self._nav_layout.addStretch(1)
 
@@ -486,6 +459,7 @@ class PrismSidebar(QWidget):
         apply_icon(self._palette_button, 'workbench', size=20)
         self._palette_button.clicked.connect(self.palette_requested.emit)
         self._footer_layout.addWidget(self._palette_button)
+        self._apply_button_mode(self._palette_button, '悬浮工具栏', 'Floating toolbar')
         self.set_current(self._current)
         self.set_icon_only(self._icon_only)
 
@@ -501,11 +475,29 @@ class PrismSidebar(QWidget):
         button.setCheckable(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         index = int(item['i'])
-        apply_icon(button, str(item.get('icon', '')), size=20)
+        icon_role = str(item.get('icon', ''))
+        if settings and icon_role == 'gear':
+            icon_role = 'settings'
+        apply_icon(button, icon_role, size=20)
         button.setProperty('navIndex', index)
         button.clicked.connect(lambda checked=False, value=index: self._emit_navigation(value))
         self._buttons[index] = button
         self._apply_button_mode(button, str(item.get('zh', '')), str(item.get('en', '')))
+        return button
+
+    def _make_group_button(self, group: Mapping[str, Any]) -> QPushButton:
+        button = QPushButton(self._nav_host)
+        button.setObjectName('nav-btn')
+        button.setCheckable(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        group_key = str(group.get('key', ''))
+        apply_icon(button, str(group.get('icon', '')), size=20)
+        button.setProperty('groupKey', group_key)
+        button.clicked.connect(
+            lambda checked=False, key=group_key, source=button: self.show_group_menu(key, source)
+        )
+        self._group_buttons[group_key] = button
+        self._apply_button_mode(button, str(group.get('zh', '')), str(group.get('en', '')))
         return button
 
     def _apply_button_mode(self, button: QPushButton, zh: str = '', en: str = '') -> None:

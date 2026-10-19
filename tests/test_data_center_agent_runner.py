@@ -6,6 +6,7 @@ no network, database, Qt, or user configuration is touched.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import unittest
@@ -164,6 +165,30 @@ class DataCenterAgentRunnerTests(unittest.TestCase):
         self.assertEqual(len(reused), 1)
         self.assertEqual(len(result.tool_results), 1)
 
+    def test_duplicate_call_ids_in_one_batch_get_one_pair_each(self) -> None:
+        call = ToolCall("same-id", "search_objects", {"keyword": "orders"})
+
+        class Model:
+            def __init__(self):
+                self.requests = []
+
+            def complete_turn(self, request, *, cancellation, on_delta):  # noqa: ARG002
+                self.requests.append(request)
+                if len(self.requests) == 1:
+                    return AgentTurn(tool_calls=(call, call), finish_reason="tool_calls")
+                return AgentTurn(text="done", finish_reason="stop")
+
+        registry = _FakeRegistry({"search_objects": ToolResult(ok=True, data=[{"id": "orders"}])})
+        result = AgentRunner(Model(), registry).run(_context(), "search")
+
+        self.assertEqual(result.status, AgentStatus.COMPLETED)
+        self.assertEqual(len(registry.calls), 1)
+        assistant = next(message for message in result.messages if message.get("tool_calls"))
+        paired = [message for message in result.messages if message.get("role") == "tool"]
+        self.assertEqual([call_item["id"] for call_item in assistant["tool_calls"]], ["same-id", "same-id"])
+        self.assertEqual([item["tool_call_id"] for item in paired], ["same-id", "same-id"])
+        self.assertEqual(len(result.tool_results), 1)
+
     def test_same_call_id_with_different_arguments_is_protocol_failure(self) -> None:
         def script(index, request, cancellation, on_delta):  # noqa: ARG001
             if index == 0:
@@ -295,6 +320,133 @@ class DataCenterAgentRunnerTests(unittest.TestCase):
         self.assertEqual(len(model.requests), 1)
         self.assertFalse(any(event.event_type == AgentEventType.TOOL_RESULT.value for event in result.events))
         self.assertEqual(result.tool_results, ())
+        assistant = next(message for message in result.messages if message.get("tool_calls"))
+        paired = [message for message in result.messages if message.get("role") == "tool"]
+        self.assertEqual(len(paired), 1)
+        self.assertEqual(paired[0]["tool_call_id"], assistant["tool_calls"][0]["id"])
+        self.assertIn('"code":"CANCELLED"', paired[0]["content"])
+        self.assertNotIn('"count":1', paired[0]["content"])
+
+    def test_cancelled_timeout_pair_preserves_result_query_id_including_none(self) -> None:
+        cases = (
+            ("query_readonly", "reported-query-id"),
+            ("read_file", None),
+        )
+        for tool_name, returned_query_id in cases:
+            with self.subTest(tool_name=tool_name, returned_query_id=returned_query_id):
+                class TimeoutRegistry(_FakeRegistry):
+                    def definitions(self):
+                        return super().definitions() + ({"name": "read_file", "description": "test"},)
+
+                registry = TimeoutRegistry({
+                    tool_name: ToolResult(ok=False, code="TIMEOUT", query_id=returned_query_id),
+                })
+                registry.wait_for_release = True
+                model = _ScriptedModel(lambda index, request, cancellation, on_delta: AgentTurn(
+                    tool_calls=(ToolCall("call-timeout", tool_name, {"path": "synthetic"}),),
+                    finish_reason="tool_calls",
+                ))
+                token = CancellationToken()
+                holder = {}
+
+                def run() -> None:
+                    holder["result"] = AgentRunner(model, registry).run(
+                        _context(), "exercise a synthetic timeout", cancellation=token,
+                    )
+
+                worker = threading.Thread(target=run)
+                worker.start()
+                self.assertTrue(registry.started.wait(1.0))
+                token.cancel("timeout")
+                registry.release.set()
+                worker.join(2.0)
+
+                result = holder["result"]
+                self.assertEqual(result.status, AgentStatus.TIMEOUT)
+                self.assertEqual(len(result.tool_results), 1)
+                self.assertEqual(result.tool_results[0].query_id, returned_query_id)
+                paired = [message for message in result.messages if message.get("role") == "tool"]
+                self.assertEqual(len(paired), 1)
+                self.assertEqual(paired[0]["tool_call_id"], "call-timeout")
+                self.assertEqual(json.loads(paired[0]["content"])["query_id"], returned_query_id)
+                self.assertFalse(any(event.event_type == AgentEventType.TOOL_RESULT.value for event in result.events))
+
+    def test_early_tool_budget_exit_pairs_unstarted_calls_without_dispatch(self) -> None:
+        class TwoCallModel:
+            def __init__(self):
+                self.requests = []
+
+            def complete_turn(self, request, *, cancellation, on_delta):  # noqa: ARG002
+                self.requests.append(request)
+                return AgentTurn(
+                    tool_calls=(
+                        ToolCall("first", "search_objects", {"keyword": "orders"}),
+                        ToolCall("second", "search_objects", {"keyword": "customers"}),
+                    ),
+                    finish_reason="tool_calls",
+                )
+
+        registry = _FakeRegistry({"search_objects": ToolResult(ok=True, data=[{"id": "orders"}])})
+        budget = Budget(BudgetLimits(
+            max_model_turns=2,
+            max_tool_calls=1,
+            max_queries=1,
+            max_duration_s=None,
+            max_bytes=None,
+            max_input_chars=None,
+            max_output_tokens=None,
+        ))
+        result = AgentRunner(TwoCallModel(), registry, budget=budget).run(_context(), "search")
+
+        self.assertEqual(result.status, AgentStatus.BUDGET_EXHAUSTED)
+        self.assertEqual([call.call_id for call in registry.calls], ["first"])
+        assistant = next(message for message in result.messages if message.get("tool_calls"))
+        paired = [message for message in result.messages if message.get("role") == "tool"]
+        self.assertEqual([message["tool_call_id"] for message in paired], ["first", "second"])
+        self.assertIn('"code":"NOT_STARTED"', paired[1]["content"])
+        self.assertEqual(len(result.tool_results), 1)
+
+    def test_pending_query_owner_blocks_next_tool_and_planner_request(self) -> None:
+        class PendingRegistry(_FakeRegistry):
+            pending = False
+
+            def execute(self, call, *, context, cancellation):
+                result = super().execute(call, context=context, cancellation=cancellation)
+                self.pending = True
+                return result
+
+            def query_owner_state(self, context):  # noqa: ARG002
+                return "pending" if self.pending else "idle"
+
+        class TwoQueryModel:
+            def __init__(self):
+                self.requests = []
+
+            def complete_turn(self, request, *, cancellation, on_delta):  # noqa: ARG002
+                self.requests.append(request)
+                return AgentTurn(
+                    tool_calls=(
+                        ToolCall("q1", "query_readonly", {"sql": "select 1"}),
+                        ToolCall("q2", "query_readonly", {"sql": "select 2"}),
+                    ),
+                    finish_reason="tool_calls",
+                )
+
+        registry = PendingRegistry({
+            "query_readonly": ToolResult(ok=True, data={"rows": [[1]]}, query_id="q1"),
+        })
+        model = TwoQueryModel()
+        result = AgentRunner(model, registry).run(_context(), "query")
+
+        self.assertEqual(result.status, AgentStatus.BUDGET_EXHAUSTED)
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual([call.call_id for call in registry.calls], ["q1"])
+        tool_messages = [message for message in result.messages if message.get("role") == "tool"]
+        self.assertEqual([message["tool_call_id"] for message in tool_messages], ["q1", "q2"])
+        self.assertIn('"code":"NOT_STARTED"', tool_messages[1]["content"])
+        deferred = [event for event in result.events if event.payload.get("context_status") == "deferred"]
+        self.assertTrue(deferred)
+        self.assertTrue(deferred[-1].payload["query_worker_pending"])
 
     def test_late_model_delta_after_completed_run_is_ignored(self) -> None:
         callbacks = []

@@ -8,6 +8,7 @@ const props = defineProps<{
   open: boolean
   anchor: HTMLElement | null
   current: number
+  language?: 'zh' | 'en'
 }>()
 
 const emit = defineEmits<{
@@ -149,11 +150,11 @@ onBeforeUnmount(() => {
         type="button"
         role="menuitem"
         :aria-current="current === item.i ? 'page' : undefined"
-        :title="item.tip || item.zh"
+        :title="item.tip || (language === 'en' ? (item.en || item.zh) : item.zh)"
         @click="onSelect(item)"
       >
         <NavIcon :name="item.icon" />
-        <span>{{ item.zh }}</span>
+        <span>{{ language === 'en' ? (item.en || item.zh) : item.zh }}</span>
         <small v-if="item.dia">{{ item.dia }}</small>
         <span v-if="current === item.i" class="group-menu-check" aria-hidden="true">✓</span>
       </button>

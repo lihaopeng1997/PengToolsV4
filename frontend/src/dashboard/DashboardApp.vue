@@ -77,6 +77,22 @@ function onOpenRequirement(reqId?: string | null, fallbackNav = 10): void {
   }
 }
 
+function onOpenRequirementSection(reqId?: string | null, section?: string | null): void {
+  if (!reqId) {
+    return
+  }
+  const idStr = String(reqId).trim()
+  if (isDemoMode.value || !idStr || idStr.toLowerCase().startsWith('demo-')) {
+    return
+  }
+  if (section !== 'completion' && section !== 'test_points') {
+    return
+  }
+  if (props.state.bridge?.openRequirementSection) {
+    props.state.bridge.openRequirementSection(idStr, section)
+  }
+}
+
 function onWriteDaily(): void {
   onNavClick(9)
 }
@@ -120,6 +136,7 @@ function onRetry(): void {
           :recent="summary.recent"
           :is-demo="isDemoMode"
           @open-requirement="onOpenRequirement"
+          @open-requirement-section="onOpenRequirementSection"
           @navigate="onNavClick"
         />
       </div>
@@ -169,7 +186,7 @@ html, body, #app {
 }
 body {
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   background: var(--app-bg);
@@ -285,14 +302,14 @@ button, input, select, textarea { font: inherit; }
 }
 
 .tip-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   margin: 0;
 }
 
 .tip-desc {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   line-height: 1.8;
   margin: 0;

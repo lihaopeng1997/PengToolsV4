@@ -34,6 +34,7 @@ from tools.ops_ssh import (
     parse_keywords, save_server_store, save_servers, server_services, split_extra_keywords, test_connection,
 )
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
+from ui.button_busy_ring import set_button_busy
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.dialog_buttons import clamp_dialog_geometry
@@ -534,7 +535,7 @@ class ServerEditorDialog(QDialog):
             show_warning(self, 'PengTools', '请先输入或粘贴密码（或使用已保存密码）' if zh else 'Password required')
             return
         self.test_btn.setEnabled(False)
-        self.test_btn.setText('测试中…' if zh else 'Testing…')
+        set_button_busy(self.test_btn, True)
         worker = _SshTestWorker(
             self._draft_server(for_persist=False),
             password_override=self._password_for_use(),
@@ -549,7 +550,7 @@ class ServerEditorDialog(QDialog):
 
     def _restore_test_btn(self):
         self.test_btn.setEnabled(True)
-        self.test_btn.setText('测试连接' if self.language == 'zh' else 'Test')
+        set_button_busy(self.test_btn, False)
 
     def _on_test_ok(self, result: dict):
         show_success(self, 'PengTools', format_connection_ok(result, self.language))
@@ -3133,9 +3134,8 @@ class OpsLogPanel(QWidget):
             return
         name = server.get('name') or server.get('host')
         self.session_status.setText(f'正在测试 SSH：{name} …' if zh else f'Testing SSH: {name} …')
-        if hasattr(self, 'test_btn'):
-            self.test_btn.setEnabled(False)
-            self.test_btn.setText('测试中…' if zh else 'Testing…')
+        # The list test already uses the status line. Do not also retitle the
+        # hidden test button or add a second ring beside that label.
         timeout = 15
         if hasattr(self, 'timeout_spin'):
             try:
@@ -3150,9 +3150,7 @@ class OpsLogPanel(QWidget):
         worker.start()
 
     def _on_list_ssh_test_done(self):
-        if hasattr(self, 'test_btn'):
-            self.test_btn.setEnabled(True)
-            self.test_btn.setText('测试连接' if self.language == 'zh' else 'Test SSH')
+        return
 
     def _on_list_ssh_test_ok(self, result: dict):
         text = format_connection_ok(result, self.language)

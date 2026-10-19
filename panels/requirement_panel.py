@@ -4,7 +4,7 @@ import copy
 import os
 import re
 
-from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QRect, QSize, QThread, QTimer, QUrl, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QRect, QSignalBlocker, QSize, QThread, QTimer, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFontMetrics, QKeySequence, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
@@ -34,6 +34,11 @@ def _is_alive(obj) -> bool:
         except Exception:
             return False
     return True
+
+
+# Running QThreads must outlive a RequirementPanel that is removed or deleted.
+# The worker drops itself from this registry after it finishes naturally.
+_ACTIVE_SVN_WORKERS = set()
 
 
 class _ElideTextDelegate(QStyledItemDelegate):
@@ -649,6 +654,13 @@ class SvnWorker(QThread):
             self.result_ready.emit(self.function(*self.arguments))
         except Exception as exc:
             self.failed.emit(str(exc))
+
+    def release_later(self):
+        self.function = None
+        self.arguments = ()
+        self.success_callback = None
+        _ACTIVE_SVN_WORKERS.discard(self)
+        self.deleteLater()
 
 
 class SvnCheckoutDialog(QDialog):
@@ -1292,7 +1304,6 @@ class RequirementDialog(QDialog):
             'needs_peripheral_upgrade': self.peripheral.isChecked(),
             'temporary_upgrade': self.temporary.isChecked(),
             'needs_interface_update': self.interface_update.isChecked(),
-            'online_month': self.online_month.text(),
             'category': self.category_combo.currentText(),
         }
         inferred = apply_auto_inference(seed, systems=load_systems(), only_empty=True)
@@ -1301,8 +1312,6 @@ class RequirementDialog(QDialog):
         )))
         if not self.selected_systems() and requirement_systems(inferred):
             self.set_selected_systems(requirement_systems(inferred))
-        if not self.online_month.text().strip() and inferred.get('online_month'):
-            self.online_month.edit.setText(inferred['online_month'])
         if inferred.get('has_sql') or self._sql_parts:
             self.has_sql.setChecked(True)
         if inferred.get('needs_peripheral_upgrade'):
@@ -1448,6 +1457,8 @@ class RequirementPanel(QWidget):
         self._current = None
         self._active_worker = None
         self._pending_file_refresh = False
+        self._pending_scan_folder = None
+        self._pending_scan_dispatch_scheduled = False
         self._task_failed = False
         self._task_shows_loading = False
         self._file_entries_cache = []
@@ -2365,6 +2376,181 @@ class RequirementPanel(QWidget):
         self._refresh()
         return self._current is not None
 
+    def focus_requirement_section(self, req_id: str, section: str) -> bool:
+        """定位指定需求并聚焦到指定模块（仅 completion / test_points）。"""
+        if not isinstance(req_id, str) or not isinstance(section, str):
+            return False
+        target_id = req_id.strip()
+        if not target_id or target_id.lower().startswith('demo-'):
+            return False
+        if section not in ('completion', 'test_points'):
+            return False
+
+        # 精确ID先在内存查，找不到可load_requirements一次但只有找到才替换
+        target = next((item for item in self._requirements if isinstance(item, dict) and item.get('id') == target_id), None)
+        if target is None:
+            reloaded = load_requirements()
+            found = next((item for item in reloaded if isinstance(item, dict) and item.get('id') == target_id), None)
+            if found is not None:
+                self._requirements = reloaded
+                target = found
+
+        if target is None:
+            return False
+
+        # 有效ID导航时阻断信号清空search和system/kind/status过滤
+        if hasattr(self, 'search_edit') and self.search_edit is not None:
+            was = self.search_edit.signalsBlocked() if hasattr(self.search_edit, 'signalsBlocked') else False
+            self.search_edit.blockSignals(True)
+            try:
+                self.search_edit.clear()
+            finally:
+                self.search_edit.blockSignals(was)
+        if hasattr(self, '_req_search_timer') and self._req_search_timer.isActive():
+            self._req_search_timer.stop()
+
+        if hasattr(self, 'system_filter') and self.system_filter is not None:
+            was = self.system_filter.signalsBlocked() if hasattr(self.system_filter, 'signalsBlocked') else False
+            self.system_filter.blockSignals(True)
+            try:
+                if self.system_filter.count() > 0:
+                    self.system_filter.setCurrentIndex(0)
+            finally:
+                self.system_filter.blockSignals(was)
+
+        if hasattr(self, 'kind_filter') and self.kind_filter is not None:
+            was = self.kind_filter.signalsBlocked() if hasattr(self.kind_filter, 'signalsBlocked') else False
+            self.kind_filter.blockSignals(True)
+            try:
+                if self.kind_filter.count() > 0:
+                    self.kind_filter.setCurrentIndex(0)
+            finally:
+                self.kind_filter.blockSignals(was)
+
+        if hasattr(self, 'status_filter') and self.status_filter is not None:
+            was = self.status_filter.signalsBlocked() if hasattr(self.status_filter, 'signalsBlocked') else False
+            self.status_filter.blockSignals(True)
+            try:
+                if self.status_filter.count() > 0:
+                    self.status_filter.setCurrentIndex(0)
+            finally:
+                self.status_filter.blockSignals(was)
+
+        # 设置_current→_refresh并校验树 currentItem 实际ID，不能被旧search/filters覆盖
+        self._current = target
+        self._refresh()
+
+        cur_item = self.requirement_list.currentItem() if hasattr(self, 'requirement_list') else None
+        cur_data = cur_item.data(0, Qt.ItemDataRole.UserRole) if (cur_item and self._tree_item_alive(cur_item)) else None
+        if not isinstance(cur_data, dict) or cur_data.get('id') != target_id:
+            def _find_item(root_item):
+                for i in range(root_item.childCount()):
+                    child = root_item.child(i)
+                    if not self._tree_item_alive(child):
+                        continue
+                    d = child.data(0, Qt.ItemDataRole.UserRole)
+                    if isinstance(d, dict) and d.get('id') == target_id:
+                        return child
+                    sub = _find_item(child)
+                    if sub is not None:
+                        return sub
+                return None
+
+            found_item = None
+            if hasattr(self, 'requirement_list'):
+                for i in range(self.requirement_list.topLevelItemCount()):
+                    top = self.requirement_list.topLevelItem(i)
+                    if not self._tree_item_alive(top):
+                        continue
+                    d = top.data(0, Qt.ItemDataRole.UserRole)
+                    if isinstance(d, dict) and d.get('id') == target_id:
+                        found_item = top
+                        break
+                    found_item = _find_item(top)
+                    if found_item is not None:
+                        break
+
+            if found_item and self._tree_item_alive(found_item):
+                was = self.requirement_list.signalsBlocked() if hasattr(self.requirement_list, 'signalsBlocked') else False
+                self.requirement_list.blockSignals(True)
+                try:
+                    from ui.search_highlight import focus_tree_item
+                    focus_tree_item(self.requirement_list, found_item)
+                finally:
+                    self.requirement_list.blockSignals(was)
+                self._show_requirement(found_item, refresh_files=True)
+            else:
+                return False
+
+        final_item = self.requirement_list.currentItem() if hasattr(self, 'requirement_list') else None
+        final_data = final_item.data(0, Qt.ItemDataRole.UserRole) if (final_item and self._tree_item_alive(final_item)) else None
+        if not isinstance(final_data, dict) or final_data.get('id') != target_id:
+            return False
+
+        # 代际标识更新，防止迟到的旧 timer 弹窗
+        self._focus_request_token = getattr(self, '_focus_request_token', 0) + 1
+        request_token = self._focus_request_token
+
+        if section == 'completion':
+            def _open_completion_dialog():
+                if not _is_alive(self):
+                    return
+                if not self.isVisible():
+                    return
+                if getattr(self, '_focus_request_token', None) != request_token:
+                    return
+                if not isinstance(self._current, dict) or self._current.get('id') != target_id:
+                    return
+                self._save_dialog(self._current, offer_next=False, focus_section='completion')
+
+            QTimer.singleShot(0, _open_completion_dialog)
+            return True
+
+        elif section == 'test_points':
+            if hasattr(self, 'detail_tabs'):
+                for idx in range(self.detail_tabs.count()):
+                    tab_w = self.detail_tabs.widget(idx)
+                    if '测试' in self.detail_tabs.tabText(idx) or (
+                        hasattr(self, 'test_points_editor')
+                        and self.test_points_editor is not None
+                        and tab_w is not None
+                        and tab_w.isAncestorOf(self.test_points_editor)
+                    ):
+                        self.detail_tabs.setCurrentIndex(idx)
+                        break
+            if hasattr(self, 'test_points_editor') and _is_alive(self.test_points_editor):
+                if hasattr(self.test_points_editor, 'add_edit') and _is_alive(self.test_points_editor.add_edit):
+                    self.test_points_editor.add_edit.setFocus()
+
+            def _refocus_test_points():
+                if not _is_alive(self):
+                    return
+                if not self.isVisible():
+                    return
+                if getattr(self, '_focus_request_token', None) != request_token:
+                    return
+                if not isinstance(self._current, dict) or self._current.get('id') != target_id:
+                    return
+                if hasattr(self, 'detail_tabs'):
+                    for idx in range(self.detail_tabs.count()):
+                        tab_w = self.detail_tabs.widget(idx)
+                        if '测试' in self.detail_tabs.tabText(idx) or (
+                            hasattr(self, 'test_points_editor')
+                            and self.test_points_editor is not None
+                            and tab_w is not None
+                            and tab_w.isAncestorOf(self.test_points_editor)
+                        ):
+                            self.detail_tabs.setCurrentIndex(idx)
+                            break
+                if hasattr(self, 'test_points_editor') and _is_alive(self.test_points_editor):
+                    if hasattr(self.test_points_editor, 'add_edit') and _is_alive(self.test_points_editor.add_edit):
+                        self.test_points_editor.add_edit.setFocus()
+
+            QTimer.singleShot(0, _refocus_test_points)
+            return True
+
+        return False
+
     def reload_requirements(self):
         """外部（如工作台标记上线）写过台账后，重新加载并刷新树。"""
         current_id = self._current.get('id') if isinstance(self._current, dict) else None
@@ -2790,53 +2976,125 @@ class RequirementPanel(QWidget):
             return
         self._toggle_flag_done(self._current, flag_key)
 
+    def _save_requirements_candidate(self, candidate, error_title='保存失败', error_message='无法写入 requirements.json') -> bool:
+        """尝试保存需求候选列表；成功时提交 self._requirements，失败时弹窗报错并保留原状态。"""
+        try:
+            save_requirements(candidate)
+        except Exception as exc:
+            show_error(self, error_title, f'{error_message}：\n{exc}')
+            return False
+        self._requirements = candidate
+        return True
+
     def _persist_test_points(self, points):
         if not isinstance(self._current, dict):
-            return
-        target = next(
-            (item for item in self._requirements if item.get('id') == self._current.get('id')),
-            self._current,
+            return False
+        req_id = self._current.get('id')
+        if not req_id:
+            return False
+        orig_target = next(
+            (item for item in self._requirements if isinstance(item, dict) and item.get('id') == req_id),
+            None,
         )
+        if orig_target is None:
+            return False
+        orig_points = copy.deepcopy(orig_target.get('test_points'))
+        orig_desc = orig_target.get('description') or ''
+
+        candidate = copy.deepcopy(self._requirements)
+        target = next(
+            (item for item in candidate if isinstance(item, dict) and item.get('id') == req_id),
+            None,
+        )
+        if target is None:
+            return False
         target['test_points'] = normalize_test_points(points)
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-        try:
-            save_requirements(self._requirements)
-        except OSError as exc:
-            show_error(self, '保存失败', f'无法写入测试点：\n{exc}')
-            return
+        if not self._save_requirements_candidate(candidate, error_message='无法写入测试点'):
+            if hasattr(self, 'test_points_editor') and _is_alive(self.test_points_editor):
+                editor = self.test_points_editor
+                blocker = None
+                was_blocked = editor.signalsBlocked() if hasattr(editor, 'signalsBlocked') else False
+                try:
+                    blocker = QSignalBlocker(editor)
+                except Exception:
+                    blocker = None
+                    if hasattr(editor, 'blockSignals'):
+                        editor.blockSignals(True)
+                try:
+                    editor.set_source(
+                        points=orig_points,
+                        description=orig_desc,
+                        pending_seed=False,
+                    )
+                finally:
+                    if blocker is not None:
+                        del blocker
+                    elif hasattr(editor, 'blockSignals'):
+                        try:
+                            editor.blockSignals(was_blocked)
+                        except Exception:
+                            pass
+            return False
+
         self._current = target
         self.requirements_changed.emit()
+        return True
 
     def _toggle_flag_done(self, requirement, flag_key, force_done=None):
         if not isinstance(requirement, dict):
-            return
-        target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
+            return False
+        req_id = requirement.get('id')
+        if not req_id:
+            return False
+        candidate = copy.deepcopy(self._requirements)
+        target = next(
+            (item for item in candidate if isinstance(item, dict) and item.get('id') == req_id),
+            None,
+        )
+        if target is None:
+            return False
         if not flag_is_active(target, flag_key):
-            return
+            return False
         done = normalize_flag_done(target)
         done[flag_key] = (not bool(done.get(flag_key))) if force_done is None else bool(force_done)
         target['flag_done'] = done
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-        save_requirements(self._requirements)
+        if not self._save_requirements_candidate(candidate, error_message='无法写入完成标记'):
+            return False
         self._current = target
         # 轻量刷新：只改标记与左侧徽章，避免整树 clear 导致点击闪退
         self._apply_flag_ui(target)
         self._patch_requirement_tree_item(target)
         # 通知工作台刷新最近需求（不重建树；月份选择由 dashboard 自行保留）
         self.requirements_changed.emit()
+        return True
 
     def _set_all_flags_done(self, requirement, done_value):
-        target = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
+        if not isinstance(requirement, dict):
+            return False
+        req_id = requirement.get('id')
+        if not req_id:
+            return False
+        candidate = copy.deepcopy(self._requirements)
+        target = next(
+            (item for item in candidate if isinstance(item, dict) and item.get('id') == req_id),
+            None,
+        )
+        if target is None:
+            return False
         done = normalize_flag_done(target)
         for key, _short, _full in active_flags(target):
             done[key] = bool(done_value)
         target['flag_done'] = done
         target['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-        save_requirements(self._requirements)
+        if not self._save_requirements_candidate(candidate, error_message='无法写入完成标记'):
+            return False
         self._current = target
         self._apply_flag_ui(target)
         self._patch_requirement_tree_item(target)
         self.requirements_changed.emit()
+        return True
 
     def _apply_flag_ui(self, requirement):
         """同步右侧完成标记按钮状态（不重建树）。"""
@@ -3112,8 +3370,8 @@ class RequirementPanel(QWidget):
             self.svn_activity.setText('')
             self.svn_activity.hide()
         widgets = (
-            self.scan_btn, self.checkout_btn, self.update_all_btn, self.system_config_btn,
-            self.bug_btn, self.import_btn, self.add_btn, self.search_edit, self.system_filter,
+            self.scan_btn, self.update_all_btn,
+            self.bug_btn, self.add_btn, self.search_edit, self.system_filter,
             self.kind_filter, self.status_filter, self.requirement_list, self.select_all_check,
             self.batch_delete_btn, self.ticket_btn, self.expand_tree_btn, self.collapse_tree_btn, self.file_tree,
             self.open_folder_btn, self.refresh_svn_btn,
@@ -3123,6 +3381,10 @@ class RequirementPanel(QWidget):
         )
         for widget in widgets:
             widget.setEnabled(not busy)
+        for action_name in ('_action_checkout', '_action_import', '_action_syscfg'):
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(not busy)
         if not busy:
             self._update_batch_delete_button()
         if busy:
@@ -3138,6 +3400,7 @@ class RequirementPanel(QWidget):
 
     def on_panel_deactivated(self):
         """离开需求管理面板时清理 loading 浮层。"""
+        self._focus_request_token = getattr(self, '_focus_request_token', 0) + 1
         if hasattr(self, 'loading') and self.loading is not None:
             self.loading.hide_now()
 
@@ -3213,12 +3476,15 @@ class RequirementPanel(QWidget):
             # 静默任务只短暂显示状态，不锁整页、不弹 Loading
             self.svn_activity.setText(message)
             self.svn_activity.setVisible(bool(message))
-        worker = SvnWorker(function, *arguments, parent=self)
+        worker = SvnWorker(function, *arguments)
         worker.token = token
+        worker.success_callback = success
         self._active_worker = worker
-        worker.result_ready.connect(lambda result, t=token: self._task_succeeded(result, success, token=t))
-        worker.failed.connect(lambda err, t=token: self._task_failed_with_error(err, token=t))
-        worker.finished.connect(lambda: self._task_finished(worker))
+        _ACTIVE_SVN_WORKERS.add(worker)
+        worker.result_ready.connect(self._task_succeeded)
+        worker.failed.connect(self._task_failed_with_error)
+        worker.finished.connect(self._task_finished)
+        worker.finished.connect(worker.release_later)
         worker.start()
 
     @staticmethod
@@ -3245,14 +3511,37 @@ class RequirementPanel(QWidget):
                 return label
         return '处理完成'
 
-    def _task_succeeded(self, result, success, *, token: int | None = None):
+    def _task_succeeded(self, result, success=None, *, token: int | None = None):
+        if not _is_alive(self):
+            return
+        worker = self.sender()
+        if isinstance(worker, SvnWorker):
+            success = success or getattr(worker, 'success_callback', None)
+            token = getattr(worker, 'token', token)
         if token is not None and token != getattr(self, '_task_token', None):
             return
-        if self._task_shows_loading:
-            self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成', token=token)
-        success(result)
+        try:
+            cb_result = None
+            if success is not None:
+                cb_result = success(result)
+            if cb_result is False:
+                self._task_failed = True
+                if self._task_shows_loading:
+                    self.loading.fail('处理失败', token=token)
+                self.svn_activity.setText('操作失败；本地台账未变更。')
+                self.svn_activity.show()
+                return
+            if self._task_shows_loading:
+                self.loading.finish(getattr(self, '_task_finish_label', None) or '处理完成', token=token)
+        except Exception as exc:
+            self._task_failed_with_error(str(exc), token=token)
 
     def _task_failed_with_error(self, error, *, token: int | None = None):
+        if not _is_alive(self):
+            return
+        worker = self.sender()
+        if isinstance(worker, SvnWorker):
+            token = getattr(worker, 'token', token)
         if token is not None and token != getattr(self, '_task_token', None):
             return
         self._task_failed = True
@@ -3262,11 +3551,14 @@ class RequirementPanel(QWidget):
             self.loading.fail('处理失败：' + error[:120], token=token)
         show_warning(self, 'SVN 操作失败', error)
 
-    def _task_finished(self, worker):
+    def _task_finished(self, worker=None):
+        worker = worker or self.sender()
+        if not _is_alive(self):
+            return
         if worker is not self._active_worker:
-            worker.deleteLater()
             return
         self._active_worker = None
+        explicit_failure = self.svn_activity.text() if (getattr(self, '_task_failed', False) and hasattr(self, 'svn_activity')) else ''
         if self._task_shows_loading:
             self._set_busy('')
         elif not self._task_failed:
@@ -3278,16 +3570,57 @@ class RequirementPanel(QWidget):
                         self.svn_activity.hide()
             QTimer.singleShot(2500, _safe_hide_activity)
         if self._task_failed:
-            self.svn_activity.setText('SVN 操作失败；本地台账未丢失。')
+            self.svn_activity.setText(explicit_failure or 'SVN 操作失败；本地台账未丢失。')
             self.svn_activity.show()
-        if worker:
-            worker.deleteLater()
+        if self._pending_scan_folder:
+            self._schedule_pending_scan_dispatch()
+            return
         if self._pending_file_refresh:
-            self._pending_file_refresh = False
-            def _safe_refresh_tree():
-                if _is_alive(self):
-                    self._refresh_file_tree()
-            QTimer.singleShot(0, _safe_refresh_tree)
+            self._schedule_pending_file_refresh()
+
+    def _schedule_pending_scan_dispatch(self):
+        if self._pending_scan_dispatch_scheduled or not self._pending_scan_folder:
+            return
+        self._pending_scan_dispatch_scheduled = True
+        QTimer.singleShot(0, self._dispatch_pending_scan)
+
+    def _dispatch_pending_scan(self):
+        self._pending_scan_dispatch_scheduled = False
+        if not _is_alive(self):
+            return
+        if self._active_worker is not None:
+            return
+        folder = self._pending_scan_folder
+        if not folder:
+            return
+        if not os.path.isdir(folder):
+            self._pending_scan_folder = None
+            show_error(self, '需求文件夹扫描', f'等待扫描的目录已不存在：\n{folder}')
+            self._schedule_pending_file_refresh()
+            return
+        self._pending_scan_folder = None
+        self._start_task(
+            '正在扫描本地需求文件夹和 SVN 工作副本……',
+            scan_working_copies,
+            (folder,),
+            self._scan_finished,
+        )
+
+    def _schedule_pending_file_refresh(self):
+        if not self._pending_file_refresh:
+            return
+        self._pending_file_refresh = False
+
+        def _safe_refresh_tree():
+            if _is_alive(self):
+                self._refresh_file_tree()
+
+        QTimer.singleShot(0, _safe_refresh_tree)
+
+    def closeEvent(self, event):
+        self._pending_scan_folder = None
+        self._pending_scan_dispatch_scheduled = False
+        super().closeEvent(event)
 
     def _scan_folder(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
@@ -3295,28 +3628,120 @@ class RequirementPanel(QWidget):
         folder = QFileDialog.getExistingDirectory(self, '选择按月份整理的需求根目录', start)
         if folder:
             remember_dialog_path('requirement_month_root', folder, is_directory=True)
+            if self._active_worker is not None and self._task_shows_loading:
+                show_info(self, '需求文件夹扫描', '当前操作正在处理，所选目录未加入扫描队列；请稍后重试。')
+                return
+            if self._active_worker is not None or self._pending_scan_folder:
+                replaced = bool(self._pending_scan_folder)
+                self._pending_scan_folder = folder
+                self._schedule_pending_scan_dispatch()
+                message = (
+                    '已用最新选择替换等待扫描的目录；当前后台读取完成后会自动开始扫描。'
+                    if replaced else
+                    '所选目录已加入扫描队列；当前后台读取完成后会自动开始扫描。'
+                )
+                show_info(self, '需求文件夹扫描已排队', message)
+                return
             self._start_task('正在扫描本地需求文件夹和 SVN 工作副本……', scan_working_copies, (folder,), self._scan_finished)
 
+    def _focus_scanned_requirement(self, copies):
+        target = None
+        for copy_info in copies:
+            path = str(copy_info.get('local_path') or '').strip()
+            if path:
+                path_key = os.path.normcase(os.path.abspath(path))
+                target = next(
+                    (item for item in self._requirements
+                     if item.get('local_path')
+                     and os.path.normcase(os.path.abspath(item.get('local_path'))) == path_key),
+                    None,
+                )
+            if target is None and copy_info.get('svn_url'):
+                target = next(
+                    (item for item in self._requirements if item.get('svn_url') == copy_info.get('svn_url')),
+                    None,
+                )
+            if target is not None:
+                break
+        if target is None:
+            return False
+
+        if hasattr(self, 'search_edit') and self.search_edit is not None:
+            blocked = self.search_edit.signalsBlocked()
+            self.search_edit.blockSignals(True)
+            try:
+                self.search_edit.clear()
+            finally:
+                self.search_edit.blockSignals(blocked)
+        if hasattr(self, '_req_search_timer') and self._req_search_timer.isActive():
+            self._req_search_timer.stop()
+
+        for control, default_index in (
+            (getattr(self, 'system_filter', None), 0),
+            (getattr(self, 'kind_filter', None), 0),
+            (getattr(self, 'status_filter', None), 0),
+        ):
+            if control is None or control.count() <= 0:
+                continue
+            blocked = control.signalsBlocked()
+            control.blockSignals(True)
+            try:
+                control.setCurrentIndex(default_index)
+            finally:
+                control.blockSignals(blocked)
+        try:
+            update_last_choices(requirement_filters={
+                'system': self.system_filter.currentData() or '',
+                'kind': self.kind_filter.currentText(),
+                'status': self.status_filter.currentText(),
+            })
+        except Exception:
+            pass
+        return self.focus_requirement(target.get('id'))
+
     def _scan_finished(self, copies):
-        self._requirements, added, updated = merge_working_copies(self._requirements, copies)
+        if not isinstance(copies, list):
+            show_error(self, '需求文件夹扫描', '扫描结果格式无效，必须为列表。')
+            return False
+        if len(copies) == 0:
+            show_info(self, '需求文件夹扫描', '未识别到任何需求或工作副本目录。')
+            return False
+        for item in copies:
+            if not isinstance(item, dict) or not item or not str(item.get('local_path') or '').strip():
+                show_error(self, '需求文件夹扫描', '扫描结果包含无效目录项，必须为包含有效路径的字典。')
+                return False
+        candidate = copy.deepcopy(self._requirements)
+        candidate, added, updated = merge_working_copies(candidate, copies)
         # 扫描新增条目补全系统/月份等空字段（只填空，不覆盖已有）
-        self._requirements = [
+        candidate = [
             apply_auto_inference(item, systems=self._systems, only_empty=True)
-            for item in self._requirements
+            for item in candidate
         ]
-        save_requirements(self._requirements)
-        self._refresh()
+        if not self._save_requirements_candidate(candidate, error_message='无法写入 requirements.json'):
+            return False
+        if not self._focus_scanned_requirement(copies):
+            if isinstance(self._current, dict) and self._current.get('id'):
+                cur_id = self._current.get('id')
+                self._current = next(
+                    (item for item in self._requirements if item.get('id') == cur_id),
+                    self._current,
+                )
+            self._refresh()
         self.requirements_changed.emit()
         missing = sum(not item.get('online_month') for item in copies)
         errors = sum(bool(item.get('error')) for item in copies)
         message = f'识别到 {len(copies)} 个需求目录；新增 {added} 条，更新 {updated} 条。\n已按月份分组，同月按文件最新修改时间排序。'
         if missing: message += f'\n{missing} 条未从目录名识别出月份，可在“编辑”中补充。'
         if errors: message += f'\n{errors} 条 SVN 信息读取失败，已保留本地路径和错误信息。'
-        show_success(self, '需求文件夹扫描完成', message)
+        if errors:
+            show_warning(self, '需求文件夹扫描部分失败', message)
+        else:
+            show_success(self, '需求文件夹扫描完成', message)
         if added or updated:
             focus = self._current or (self._requirements[0] if self._requirements else None)
             if focus:
                 self._offer_next_steps(focus, context='scan')
+        return True
 
     def _checkout_svn(self):
         dialog = SvnCheckoutDialog(self)
@@ -4096,11 +4521,17 @@ class RequirementPanel(QWidget):
         count = result.get('count') or len(result.get('paths') or [])
         show_success(self, '回滚完成', result.get('output') or f'已回滚 {count} 项。')
 
-    def _save_dialog(self, requirement=None, offer_next=True, is_new=False, offer_daily=None):
+    def _save_dialog(self, requirement=None, offer_next=True, is_new=False, offer_daily=None, focus_section=None):
         # offer_daily 为旧参数别名：True/False 映射到是否弹出下一步建议
         if offer_daily is not None:
             offer_next = bool(offer_daily)
         dialog = RequirementDialog(requirement, self)
+        if focus_section == 'completion' and hasattr(dialog, 'status_combo') and dialog.status_combo is not None:
+            dialog.status_combo.setFocus()
+            def _focus_status_after_show():
+                if _is_alive(dialog) and dialog.isVisible() and _is_alive(dialog.status_combo):
+                    dialog.status_combo.setFocus()
+            QTimer.singleShot(0, _focus_status_after_show)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         now = datetime.datetime.now().isoformat(timespec='seconds')
@@ -4117,14 +4548,15 @@ class RequirementPanel(QWidget):
             req_id = requirement_from_text('', '', systems=self._systems).get('id')
             is_new = True
 
-        index = next((i for i, item in enumerate(self._requirements) if item.get('id') == req_id), -1)
+        candidate = copy.deepcopy(self._requirements)
+        index = next((i for i, item in enumerate(candidate) if isinstance(item, dict) and item.get('id') == req_id), -1)
         if index < 0:
             target = {'id': req_id, 'created_at': now}
-            self._requirements.append(target)
-            index = len(self._requirements) - 1
+            candidate.append(target)
+            index = len(candidate) - 1
             is_new = True
         else:
-            target = self._requirements[index]
+            target = candidate[index]
 
         old_done = dict(target.get('flag_done') or {})
         # 原地更新，保持列表引用稳定
@@ -4152,12 +4584,9 @@ class RequirementPanel(QWidget):
         normalized = apply_auto_inference(normalize_requirement(target), systems=self._systems, only_empty=True)
         target.clear()
         target.update(normalized)
-        self._requirements[index] = target
+        candidate[index] = target
 
-        try:
-            save_requirements(self._requirements)
-        except OSError as exc:
-            show_error(self, '保存失败', f'无法写入 requirements.json：\n{exc}')
+        if not self._save_requirements_candidate(candidate, error_message='无法写入 requirements.json'):
             return None
 
         self._current = target

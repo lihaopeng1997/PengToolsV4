@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import time
+import uuid
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
@@ -37,6 +38,7 @@ from tools.schema_snapshot import (
     load_snapshot, save_snapshot, scan_schema, search_fields, snapshot_status,
 )
 from ui.aurora_progress import AuroraProgress
+from ui.query_status_band import QueryStatusBand
 from tools.sql_guard import ai_draft_safety, classify_statement, redact_error, statement_at_cursor
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_warning
 from ui.connection_dialog import ConnectionDialog as _ConnectionDialog
@@ -46,6 +48,13 @@ from ui.page_chrome import make_empty_state, make_page_header
 from ui.splitter_prefs import install_splitter_prefs
 from ui.sql_editor import SqlEditor
 from ui.wrap_layout import WrapLayout
+
+
+_ACTIVE_WORKBENCH_WORKERS = set()
+
+
+def _release_active_workbench_worker(worker):
+    _ACTIVE_WORKBENCH_WORKERS.discard(worker)
 
 
 def sql_splitter_tab_id(kind: str, dialect: str | None = None) -> str:
@@ -151,18 +160,19 @@ class _DbWorker(QThread):
         conn = None
         try:
             conn = open_connection(self.item)
+            if self.cancelled:
+                return
             dialect = str(self.item.get('dialect') or 'oracle')
             if self.kind == 'test':
-                self.completed.emit({'ok': True})
+                if not self.cancelled:
+                    self.completed.emit({'ok': True})
             elif self.kind == 'scan':
                 payload = scan_schema(conn, self.item, cancel=lambda: self.cancelled)
                 if self.cancelled:
-                    payload['status'] = 'failed'
-                    payload['warning'] = '扫描已取消'
-                    self.completed.emit(payload)
                     return
                 save_snapshot(payload)
-                self.completed.emit(payload)
+                if not self.cancelled:
+                    self.completed.emit(payload)
             elif self.kind == 'query':
                 raw_offset = self.kwargs.get('offset')
                 if isinstance(raw_offset, dict):
@@ -174,7 +184,8 @@ class _DbWorker(QThread):
                     offset=offset_val,
                     limit=int(self.kwargs.get('limit') or PAGE_SIZE),
                 )
-                self.completed.emit(result)
+                if not self.cancelled:
+                    self.completed.emit(result)
             elif self.kind == 'fetch_all':
                 raw_offset = self.kwargs.get('offset')
                 if isinstance(raw_offset, dict):
@@ -185,13 +196,15 @@ class _DbWorker(QThread):
                     chunk_size=int(self.kwargs.get('chunk_size') or FETCH_CHUNK),
                     byte_limit=int(self.kwargs.get('byte_limit') or RESULT_BYTE_LIMIT),
                     cancel=lambda: self.cancelled,
-                    progress=lambda payload: self.progress.emit(payload),
+                    progress=lambda payload: self.progress.emit(payload) if not self.cancelled else None,
                 )
-                self.completed.emit(result)
+                if not self.cancelled:
+                    self.completed.emit(result)
             else:
                 raise DbError(f'未知任务：{self.kind}')
         except Exception as exc:
-            self.failed.emit(redact_error(str(exc)))
+            if not self.cancelled:
+                self.failed.emit(redact_error(str(exc)))
         finally:
             close_connection(conn)
 
@@ -236,7 +249,7 @@ class _SqlTab(QWidget):
 
 
 class AiWorkbenchPanel(QWidget):
-    def __init__(self, language='zh', connection_id='', dialect=''):
+    def __init__(self, language='zh', connection_id='', dialect='', *, data_center_agent_options=None, manual_query_options=None):
         super().__init__()
         self.language = language
         self._connection_id = str(connection_id or '')
@@ -244,6 +257,12 @@ class AiWorkbenchPanel(QWidget):
         self._bound_conn_item = None  # 如果是绑定连接，缓存完整连接 dict
         self._worker = None
         self._ai_worker = None
+        self._legacy_workers = set()
+        self._workbench_shutdown_requested = False
+        self._manual_shutdown_gated = False
+        self._manual_shutdown_saved_controls = None
+        self._embedded_compact_mode = False
+        self._embedded_sidebar_visible = True
         self._snapshot = None
         self._search_index = None
         self._search_popup = None
@@ -259,6 +278,8 @@ class AiWorkbenchPanel(QWidget):
         self._query_status = 'IDLE'
         self._result_bytes = 0
         self._history = []
+        self._result_history_capture = None
+        self._query_history_service = None
         self._tab_seq = 1
         self._agent_busy = False
         self._agent_started = 0.0
@@ -275,6 +296,24 @@ class AiWorkbenchPanel(QWidget):
             self._reload_connections()
         self._new_sql_tab()
         self._refresh_header()
+        from ui.data_center.integration import DataCenterWorkbenchAgent
+        self.data_center_agent = DataCenterWorkbenchAgent(
+            selection_provider=self._data_center_agent_selection,
+            put_sql=self._put_data_center_agent_sql,
+            language=language,
+            **dict(data_center_agent_options or {}),
+            parent=self,
+        )
+        self.side_tabs.addTab(self.data_center_agent, '只读 Agent' if language == 'zh' else 'Read-only Agent')
+        self.conn_combo.currentIndexChanged.connect(self.data_center_agent.target_changed)
+        self.sql_tabs.currentChanged.connect(self._on_agent_sql_tab_changed)
+        # The unified data-center workspaces are fixed to one connection and
+        # must use a persistent explicit-transaction session per SQL tab.  The
+        # standalone legacy SQL console keeps its existing manual workflow.
+        if self._connection_id:
+            from ui.data_center.manual_query import ManualQueryHost
+
+            self.manual_query_host = ManualQueryHost.install(self, **dict(manual_query_options or {}))
 
     def _setup_ui(self):
         from ui.layout_metrics import SPACING_PAGE, TABLE_ROW_H
@@ -288,6 +327,9 @@ class AiWorkbenchPanel(QWidget):
         self.new_tab_btn = QPushButton()
         apply_button(self.new_tab_btn, 'secondary', compact=True)
         self.new_tab_btn.clicked.connect(self._new_sql_tab)
+        self.history_btn = QPushButton()
+        apply_button(self.history_btn, 'ghost', compact=True)
+        self.history_btn.clicked.connect(self._open_query_history)
         self.conn_meta = QLabel()
         self.conn_meta.setObjectName('status-pill')
         header_trail = QWidget()
@@ -303,6 +345,7 @@ class AiWorkbenchPanel(QWidget):
             'database',
             trailing=header_trail,
         )
+        self.page_header = header
         root.addWidget(header)
 
         toolbar = QFrame()
@@ -427,16 +470,34 @@ class AiWorkbenchPanel(QWidget):
         self.clear_btn = QPushButton()
         apply_button(self.clear_btn, 'ghost', compact=True)
         self.clear_btn.clicked.connect(self._clear_editor)
+        self.editor_more_btn = QToolButton()
+        self.editor_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.editor_more_menu = QMenu(self.editor_more_btn)
+        self.editor_format_action = self.editor_more_menu.addAction('格式化')
+        self.editor_clear_action = self.editor_more_menu.addAction('清空')
+        self.editor_format_action.triggered.connect(self._format_sql)
+        self.editor_clear_action.triggered.connect(self._clear_editor)
+        self.editor_more_menu.addSeparator()
+        self.editor_history_action = self.editor_more_menu.addAction('查询历史与收藏…')
+        self.editor_history_action.triggered.connect(self._open_query_history)
+        self.editor_legacy_panels_action = self.editor_more_menu.addAction('显示 SQL 草稿与对象详情')
+        self.editor_legacy_panels_action.setCheckable(True)
+        self.editor_legacy_panels_action.setChecked(True)
+        self.editor_legacy_panels_action.toggled.connect(self._set_compact_legacy_panels_visible)
+        self.editor_more_btn.setMenu(self.editor_more_menu)
         self.risk_chip = QLabel()
         self.risk_chip.setObjectName('status-pill')
         editor_row.addWidget(self.run_btn)
         editor_row.addWidget(self.new_tab_btn)
+        editor_row.addWidget(self.history_btn)
         editor_row.addWidget(self.format_btn)
         editor_row.addWidget(self.clear_btn)
+        editor_row.addWidget(self.editor_more_btn)
         editor_row.addStretch(1)
         editor_row.addWidget(self.risk_chip, 0, Qt.AlignmentFlag.AlignVCenter)
         mid_l.addLayout(editor_row)
         self.sql_tabs = QTabWidget()
+        self.sql_tabs.setMovable(True)
         self.sql_tabs.setObjectName('sql-editor-tabs')
         self.sql_tabs.setTabsClosable(True)
         self.sql_tabs.tabCloseRequested.connect(self._close_sql_tab)
@@ -621,8 +682,7 @@ class AiWorkbenchPanel(QWidget):
         apply_button(self.all_btn, 'ghost', compact=True)
         self.all_btn.clicked.connect(self._on_all_or_cancel)
         self.all_btn.setEnabled(False)
-        self.result_status = QLabel()
-        self.result_status.setObjectName('field-hint')
+        self.result_status = QueryStatusBand()
         page_row.addWidget(self.next_btn)
         page_row.addWidget(self.all_btn)
         page_row.addWidget(self.result_status, 1)
@@ -699,11 +759,13 @@ class AiWorkbenchPanel(QWidget):
         else:
             self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
         self.page_subtitle.setText(
-            '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
-            'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+            '多标签 SQL · 结构快照 · 只读 Agent' if zh else
+            'Multi-tab SQL · schema snapshot · read-only Agent'
         )
         self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
         self.new_tab_btn.setToolTip('新建一个 SQL 查询编辑器标签页' if zh else 'Create a new SQL editor tab')
+        self.history_btn.setText('历史' if zh else 'History')
+        self.history_btn.setToolTip('打开查询历史与收藏' if zh else 'Open query history and favorites')
         self.conn_new_btn.setText('新建数据库连接' if zh else 'New connection')
         self.conn_new_btn.setToolTip('新建数据库连接' if zh else 'New connection')
         self.conn_edit_btn.setText('编辑' if zh else 'Edit')
@@ -726,6 +788,9 @@ class AiWorkbenchPanel(QWidget):
         self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
         self.format_btn.setText('格式化' if zh else 'Format')
         self.clear_btn.setText('清空' if zh else 'Clear')
+        self.editor_format_action.setText('格式化' if zh else 'Format')
+        self.editor_clear_action.setText('清空' if zh else 'Clear')
+        self._sync_compact_panels_action_text()
         self.save_draft_btn.setText('保存草稿' if zh else 'Save draft')
         self.save_draft_btn.setToolTip('保存当前 SQL 编辑草稿' if zh else 'Save draft')
         self.ai_title.setText('AI 助手' if zh else 'AI assistant')
@@ -752,6 +817,9 @@ class AiWorkbenchPanel(QWidget):
         self.show_ai_side_btn.setText('显示 AI 助手' if zh else 'Show AI assistant')
         self._refresh_agent_more_menu()
         self.side_tabs.setTabText(1, '对象详情' if zh else 'Object details')
+        if hasattr(self, 'data_center_agent'):
+            self.side_tabs.setTabText(2, '只读 Agent' if zh else 'Read-only Agent')
+            self.data_center_agent.set_language(language)
         self.detail_title.setText('对象详情' if zh else 'Object details')
         self.field_filter.setPlaceholderText('搜索字段' if zh else 'Filter fields')
         self.insert_fields_btn.setText('插入选中字段' if zh else 'Insert fields')
@@ -770,7 +838,49 @@ class AiWorkbenchPanel(QWidget):
         self.result_tabs.setTabText(2, '历史' if zh else 'History')
         self._refresh_model_status()
         self._refresh_header()
+        self._sync_editor_toolbar()
+        manual_host = getattr(self, 'manual_query_host', None)
+        if manual_host is not None:
+            manual_host.refresh_language()
+        self._refresh_tab_titles()
+        current_tab = self._current_tab()
+        if current_tab is not None and getattr(current_tab, '_history_target_locked', False):
+            self._set_history_draft_status(current_tab)
         self._initial_init_done = True
+
+    def set_embedded_compact_mode(self, enabled=True):
+        """Hide duplicate page chrome when a workspace supplies its own controls.
+
+        The standalone SQL console keeps its full header and connection actions.
+        Embedded owners may call this only when their outer workspace provides
+        the connection and narrow-pane controls. Scan, draft, snapshot, and
+        model-settings actions remain available from the manual host's More menu.
+        """
+        compact = bool(enabled)
+        self._embedded_compact_mode = compact
+        self._embedded_sidebar_visible = not compact
+        self._sync_editor_toolbar()
+        if hasattr(self, 'side_tabs'):
+            self._set_compact_legacy_panels_visible(self._embedded_sidebar_visible if compact else True)
+        self.editor_legacy_panels_action.setChecked(self._embedded_sidebar_visible)
+        if hasattr(self, 'page_header'):
+            self.page_header.setVisible(not compact)
+        if hasattr(self, 'connection_toolbar'):
+            self.connection_toolbar.setVisible(not compact)
+        if hasattr(self, 'narrow_chrome'):
+            self.narrow_chrome.setVisible(not compact and self.width() < 1200)
+        if hasattr(self, 'columns_splitter'):
+            self.columns_splitter.setMinimumHeight(0)
+            self.columns_splitter.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Ignored if compact else QSizePolicy.Policy.Expanding,
+            )
+        fixed_connection = bool(self._connection_id)
+        self.conn_combo.setVisible(not compact and not fixed_connection)
+        self.conn_target_hint.setVisible(not compact and not fixed_connection)
+        self.conn_new_btn.setVisible(not compact and not fixed_connection)
+        for button in (self.conn_edit_btn, self.conn_del_btn, self.test_btn):
+            button.setVisible(not compact)
 
     def _toggle_narrow_objects(self, checked: bool):
         self._narrow_show_objects = bool(checked)
@@ -805,7 +915,9 @@ class AiWorkbenchPanel(QWidget):
         is_wide_c = c >= 1200
 
         if hasattr(self, 'narrow_chrome'):
-            self.narrow_chrome.setVisible(not is_wide_c)
+            self.narrow_chrome.setVisible(
+                not is_wide_c and not bool(getattr(self, '_embedded_compact_mode', False))
+            )
 
         if is_wide_c:
             # C >= 1200: 树 220，主 C-522，辅助 270，gap 16
@@ -852,6 +964,10 @@ class AiWorkbenchPanel(QWidget):
             )
         finally:
             self._in_sync_layout = False
+        if bool(getattr(self, '_embedded_compact_mode', False)):
+            self._set_compact_legacy_panels_visible(
+                bool(getattr(self, '_embedded_sidebar_visible', False))
+            )
 
     def apply_layout_mode(self, mode, low_height=False, content_width: int | None = None):
         from ui.responsive import editor_min_height, page_spacing_for_mode, set_subtitle_visible
@@ -874,12 +990,17 @@ class AiWorkbenchPanel(QWidget):
         if c <= 40:
             c = 1308 if mode == 'wide' else 1000
         self._sync_c_threshold_layout(c, mode)
+        manual_host = getattr(self, 'manual_query_host', None)
+        if manual_host is not None:
+            manual_host.apply_layout_mode(mode, low_height=low_height)
 
     def _title(self) -> str:
         return 'SQL 控制台' if self.language == 'zh' else 'SQL Console'
 
     def _current_conn(self) -> dict | None:
         tab = self._current_tab()
+        if tab is not None and getattr(tab, '_history_target_locked', False):
+            return None
         if tab is not None and isinstance(tab.conn_item, dict):
             return dict(tab.conn_item)
         if self._connection_id:
@@ -901,41 +1022,153 @@ class AiWorkbenchPanel(QWidget):
         tab = self._current_tab()
         return tab.editor if tab is not None else None
 
+    def _data_center_agent_selection(self):
+        item = self._current_conn()
+        if not item:
+            return {'reason': '未选择目标连接'}
+        status = snapshot_status(item, self._snapshot)
+        if status.get('status') != 'ok' or status.get('stale'):
+            return {
+                'profile': item,
+                'schema_allowlist': (),
+                'reason': '需要当前连接的成功 schema 扫描；不可扩大查询范围',
+            }
+        owners = []
+        for entry in (self._snapshot or {}).get('objects') or ():
+            if not isinstance(entry, dict):
+                continue
+            owner = str(entry.get('owner') or '').strip()
+            if owner and owner.casefold() not in {value.casefold() for value in owners}:
+                owners.append(owner)
+        return {'profile': item, 'schema_allowlist': tuple(owners)}
+
+    def _put_data_center_agent_sql(self, sql: str):
+        editor = self._current_editor()
+        text = str(sql or '').strip()
+        if editor is None or not text:
+            return
+        editor.insertPlainText(text)
+        editor.setFocus()
+
+    def agent_shutdown_cleanup(self) -> bool:
+        host = getattr(self, 'data_center_agent', None)
+        return True if host is None else bool(host.agent_shutdown_cleanup())
+
+    def manual_shutdown_cleanup(self, disposition=None):
+        """Nonblocking explicit-transaction shutdown seam for the host owner."""
+        host = getattr(self, 'manual_query_host', None)
+        if host is None:
+            from ui.data_center.manual_query import ManualShutdownStatus
+            return ManualShutdownStatus.READY
+        return host.manual_shutdown_cleanup(disposition)
+
+    def manual_shutdown_snapshot(self):
+        """Expose only safe per-tab state for global shutdown preflight."""
+        host = getattr(self, 'manual_query_host', None)
+        if host is None:
+            from ui.data_center.manual_query import ManualShutdownSnapshot
+            return ManualShutdownSnapshot((), True)
+        return host.manual_shutdown_snapshot()
+
+    def manual_shutdown_gate(self, enabled: bool) -> bool:
+        """Block new work at shutdown while leaving Stop/commit/rollback available."""
+        self._manual_shutdown_gated = bool(enabled)
+        host = getattr(self, 'manual_query_host', None)
+        if host is not None:
+            host.manual_shutdown_gate(self._manual_shutdown_gated)
+        else:
+            self.run_btn.setEnabled(not self._manual_shutdown_gated)
+            self.new_tab_btn.setEnabled(not self._manual_shutdown_gated)
+            self.conn_combo.setEnabled(not self._manual_shutdown_gated)
+        guarded_controls = (self.scan_btn, self.test_btn, self.next_btn, self.all_btn)
+        if self._manual_shutdown_gated:
+            if self._manual_shutdown_saved_controls is None:
+                self._manual_shutdown_saved_controls = tuple(
+                    (control, control.isEnabled()) for control in guarded_controls if control is not None
+                )
+            for control, _was_enabled in self._manual_shutdown_saved_controls:
+                control.setEnabled(False)
+        elif self._manual_shutdown_saved_controls is not None:
+            for control, was_enabled in self._manual_shutdown_saved_controls:
+                control.setEnabled(was_enabled)
+            self._manual_shutdown_saved_controls = None
+        if self._manual_shutdown_gated and self._worker is not None and self._worker.isRunning():
+            self._worker.cancelled = True
+        return True
+
+    def manual_dirty_close(self, disposition, index=None):
+        host = getattr(self, 'manual_query_host', None)
+        return False if host is None else bool(host.manual_dirty_close(disposition, index=index))
+
     def _reload_bound_connection(self):
         """从 connections.json 中加载指定 ID 的连接（绑定模式）。"""
-        rows = load_connections()
-        for item in rows:
-            if str(item.get('id') or '') == self._connection_id:
-                self._bound_conn_item = dict(item)
-                break
-        if self._bound_conn_item is None and rows:
-            # fallback：若当前 ID 不存在，取第一个连接
-            for item in rows:
-                self._bound_conn_item = dict(item)
-                self._connection_id = str(item.get('id') or '')
-                break
-        if self._bound_conn_item:
-            self._snapshot = load_snapshot(str(self._bound_conn_item.get('id') or ''))
-            self.nl_input.bind_snapshot(self._snapshot)
+        try:
+            rows = load_connections()
+        except Exception:
+            zh = self.language == 'zh'
+            show_error(
+                self, self._title(),
+                '固定连接读取失败；当前连接 ID 保持不变。' if zh else
+                'Could not load the fixed connection; its connection ID is unchanged.',
+            )
+            return False
+        wanted_id = str(self._connection_id or '')
+        profile = next((
+            item for item in rows
+            if isinstance(item, dict) and str(item.get('id') or '') == wanted_id
+        ), None)
+        if profile is None:
+            self._bound_conn_item = None
+            self._snapshot = None
+            self.nl_input.bind_snapshot(None)
             self._bind_editors_schema()
+            host = getattr(self, 'data_center_agent', None)
+            if host is not None:
+                host.target_changed()
+            zh = self.language == 'zh'
+            show_error(
+                self, self._title(),
+                '固定连接不可用；请求的连接 ID 保持不变。' if zh else
+                'The fixed connection is unavailable; the requested connection ID is unchanged.',
+            )
+            return False
+
+        self._bound_conn_item = dict(profile)
+        self._snapshot = load_snapshot(wanted_id)
+        self.nl_input.bind_snapshot(self._snapshot)
+        self._bind_editors_schema()
+        host = getattr(self, 'data_center_agent', None)
+        if host is not None:
+            host.target_changed()
         # 通知主窗口刷新侧栏（绑定模式不依赖下拉框）
         window = self.window()
         if window and hasattr(window, '_rebuild_sql_console_subnav'):
             window._rebuild_sql_console_subnav()
+        return True
 
     def _reload_connections(self, select_id: str = ''):
         if self._connection_id:
             # 绑定模式下不操作下拉框，直接重新加载绑定连接
-            self._reload_bound_connection()
+            if self._reload_bound_connection() is False:
+                return
             self._rebuild_tree()
             self._refresh_header()
             self._refresh_model_status()
             self._refresh_ai_pick_state()
             self._refresh_agent_status()
             return
+        try:
+            rows = load_connections()
+        except Exception:
+            zh = self.language == 'zh'
+            show_error(
+                self, self._title(),
+                '连接配置读取失败；当前选择保持不变。' if zh else
+                'Could not load connection settings; the current selection is unchanged.',
+            )
+            return
         self.conn_combo.blockSignals(True)
         self.conn_combo.clear()
-        rows = load_connections()
         # 六面板模式：只显示锁定方言的连接
         if self._dialect:
             rows = [item for item in rows if str(item.get('dialect') or '').lower() == self._dialect]
@@ -954,6 +1187,21 @@ class AiWorkbenchPanel(QWidget):
         self._on_connection_changed()
 
     def _on_connection_changed(self):
+        tab = self._current_tab()
+        if tab is not None and getattr(tab, '_history_target_locked', False):
+            self._set_history_draft_status(tab)
+            return
+        if self._manual_shutdown_gated:
+            bound = getattr(tab, 'conn_item', None) if tab is not None else None
+            bound_id = str((bound or {}).get('id') or '') if isinstance(bound, dict) else ''
+            for index in range(self.conn_combo.count()):
+                item = self.conn_combo.itemData(index)
+                if isinstance(item, dict) and str(item.get('id') or '') == bound_id:
+                    previous = self.conn_combo.blockSignals(True)
+                    self.conn_combo.setCurrentIndex(index)
+                    self.conn_combo.blockSignals(previous)
+                    break
+            return
         item = self._browse_conn()
         # 下拉框切换连接后，同步当前 Tab 的绑定连接，保证删除/测试/扫描/保存草稿作用于所选连接
         tab = self._current_tab()
@@ -968,6 +1216,9 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_model_status()
         self._refresh_ai_pick_state()
         self._refresh_agent_status()
+        host = getattr(self, 'data_center_agent', None)
+        if host is not None:
+            host.target_changed()
 
     def _snapshot_scanned(self, item=None) -> bool:
         data = item if isinstance(item, dict) else self._browse_conn()
@@ -995,8 +1246,8 @@ class AiWorkbenchPanel(QWidget):
             elif not self._connection_id:
                 self.page_title.setText('SQL 控制台' if zh else 'SQL Console')
             self.page_subtitle.setText(
-                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
-                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+                '多标签 SQL · 结构快照 · 只读 Agent' if zh else
+                'Multi-tab SQL · schema snapshot · read-only Agent'
             )
             self._refresh_tree_title()
             self._refresh_risk_chip()
@@ -1016,8 +1267,8 @@ class AiWorkbenchPanel(QWidget):
         if self._dialect:
             self.page_title.setText(_format_workbench_title(dialect_label, zh))
             self.page_subtitle.setText(
-                '多标签编辑 · 结构快照 · AI 助手生成不执行' if zh else
-                'Multi-tab SQL · schema snapshot · AI drafts never auto-run'
+                '多标签 SQL · 结构快照 · 只读 Agent' if zh else
+                'Multi-tab SQL · schema snapshot · read-only Agent'
             )
         elif self._connection_id:
             self.page_title.setText(f'{alias}（SQL 控制台）' if zh else f'{alias} (SQL Console)')
@@ -1041,8 +1292,21 @@ class AiWorkbenchPanel(QWidget):
                     self.conn_combo.blockSignals(True)
                     self.conn_combo.setCurrentIndex(idx)
                     self.conn_combo.blockSignals(False)
+            if cid:
+                self._snapshot = load_snapshot(cid)
+                self.nl_input.bind_snapshot(self._snapshot)
+                if getattr(self, 'manual_query_host', None) is None:
+                    tab.editor.bind_schema(self._snapshot)
         self._refresh_tab_titles(index)
         self._refresh_risk_chip()
+        if tab is not None and getattr(tab, '_history_target_locked', False):
+            self._set_history_draft_status(tab)
+
+    def _on_agent_sql_tab_changed(self, _index=0):
+        """A visible-tab change follows the new target without cancelling a run."""
+        host = getattr(self, 'data_center_agent', None)
+        if host is not None:
+            host.sql_tab_visibility_changed()
 
     def _refresh_risk_chip(self):
         if not hasattr(self, 'risk_chip'):
@@ -1050,18 +1314,97 @@ class AiWorkbenchPanel(QWidget):
         zh = self.language == 'zh'
         editor = self._current_editor()
         sql = editor.toPlainText() if editor is not None else ''
-        item = self._current_conn() or {}
+        tab = self._current_tab()
+        item = {} if tab is not None and getattr(tab, '_history_target_locked', False) else (self._current_conn() or {})
         dialect = str(item.get('dialect') or 'oracle')
         info = classify_statement(sql, dialect)
         if info.get('empty'):
             text = '空语句' if zh else 'Empty'
+            compact_text = '空' if zh else 'Empty'
         elif info.get('is_read'):
             text = '只读查询' if zh else 'Read-only query'
+            compact_text = '只读' if zh else 'Read-only'
         elif info.get('needs_confirm'):
             text = '需确认写操作' if zh else 'Write — confirm required'
+            compact_text = '写入确认' if zh else 'Write?'
         else:
             text = '需确认写操作' if zh else 'Confirm required'
-        self.risk_chip.setText(text)
+            compact_text = '写入确认' if zh else 'Write?'
+        self.risk_chip.setToolTip(text)
+        self.risk_chip.setText(compact_text if self._compact_editor_toolbar() else text)
+        if self._compact_editor_toolbar():
+            self.risk_chip.setMinimumWidth(self.risk_chip.sizeHint().width())
+        else:
+            self.risk_chip.setMinimumWidth(0)
+
+    def _compact_editor_toolbar(self) -> bool:
+        embedded = bool(getattr(self, '_embedded_compact_mode', False))
+        middle = getattr(self, '_middle_pane', None)
+        return embedded or bool(middle is not None and middle.width() < 520)
+
+    def _set_compact_legacy_panels_visible(self, visible: bool) -> None:
+        self._embedded_sidebar_visible = bool(visible)
+        side_tabs = getattr(self, 'side_tabs', None)
+        if side_tabs is not None:
+            side_tabs.setMaximumHeight(16777215 if self._embedded_sidebar_visible else 0)
+            side_tabs.setVisible(self._embedded_sidebar_visible)
+        self._sync_compact_panels_action_text()
+
+    def _sync_compact_panels_action_text(self) -> None:
+        action = getattr(self, 'editor_legacy_panels_action', None)
+        if action is None:
+            return
+        zh = self.language == 'zh'
+        visible = bool(getattr(self, '_embedded_sidebar_visible', False))
+        action.setText(
+            ('隐藏 SQL 草稿与对象详情' if visible else '显示 SQL 草稿与对象详情')
+            if zh else
+            ('Hide SQL drafts / object details' if visible else 'Show SQL drafts / object details')
+        )
+
+    def _sync_editor_toolbar(self) -> None:
+        if not hasattr(self, 'editor_more_btn'):
+            return
+        zh = self.language == 'zh'
+        compact = self._compact_editor_toolbar()
+        self.editor_history_action.setText(
+            '查询历史与收藏…' if zh else 'Query history and favorites…'
+        )
+        if compact:
+            self.run_btn.setText('执行 SQL' if zh else 'Run SQL')
+            self.run_btn.setToolTip('执行当前 SQL' if zh else 'Run current SQL')
+            self.new_tab_btn.setText('新建 Tab' if zh else 'New tab')
+            self.new_tab_btn.setToolTip('新建一个 SQL 查询编辑器标签页' if zh else 'Create a new SQL editor tab')
+            self.format_btn.hide()
+            self.clear_btn.hide()
+            self.editor_more_btn.setText('⋯')
+            self.editor_more_btn.setToolTip('更多 SQL 编辑操作' if zh else 'More SQL editor actions')
+            self.editor_more_btn.show()
+            embedded = bool(getattr(self, '_embedded_compact_mode', False))
+            self.editor_legacy_panels_action.setVisible(embedded)
+            if embedded:
+                self.editor_legacy_panels_action.setChecked(
+                    bool(getattr(self, '_embedded_sidebar_visible', False))
+                )
+            self.risk_chip.setMaximumWidth(16777215)
+            self.run_btn.setMinimumWidth(self.run_btn.sizeHint().width())
+            self.new_tab_btn.setMinimumWidth(self.new_tab_btn.sizeHint().width())
+            self.editor_more_btn.setMinimumWidth(self.editor_more_btn.sizeHint().width())
+        else:
+            self.run_btn.setText('执行当前 SQL' if zh else 'Run current SQL')
+            self.run_btn.setToolTip('执行当前 SQL' if zh else 'Run current SQL')
+            self.new_tab_btn.setText('新建 SQL 标签页' if zh else 'New SQL tab')
+            self.new_tab_btn.setToolTip('新建一个 SQL 查询编辑器标签页' if zh else 'Create a new SQL editor tab')
+            self.format_btn.show()
+            self.clear_btn.show()
+            self.editor_more_btn.hide()
+            self.editor_legacy_panels_action.setVisible(False)
+            self.run_btn.setMinimumWidth(0)
+            self.new_tab_btn.setMinimumWidth(0)
+            self.editor_more_btn.setMinimumWidth(0)
+            self.risk_chip.setMaximumWidth(16777215)
+        self.risk_chip.setMinimumWidth(0)
+        self._refresh_risk_chip()
 
     def _refresh_model_status(self):
         zh = self.language == 'zh'
@@ -1097,7 +1440,16 @@ class AiWorkbenchPanel(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         item, password = dialog.payload()
-        saved = upsert_connection(item, password if password else None)
+        try:
+            saved = upsert_connection(item, password if password else None)
+        except Exception:
+            zh = self.language == 'zh'
+            show_error(
+                self, self._title(),
+                '连接配置保存状态未确认；请重新加载后再操作。' if zh else
+                'Could not confirm the connection save; reload before retrying.',
+            )
+            return
         if current and connection_fingerprint(saved) != before and current.get('id') == saved.get('id'):
             snap = load_snapshot(saved.get('id'))
             if snap:
@@ -1126,8 +1478,16 @@ class AiWorkbenchPanel(QWidget):
         )
         if not confirm_action(self, self._title(), detail, confirm_text='删除连接和快照' if zh else 'Delete connection and snapshot', danger=True):
             return
+        try:
+            delete_connection(item.get('id'))
+        except Exception:
+            show_error(
+                self, self._title(),
+                '连接删除状态未确认；本机快照未修改，请重新加载后处理。' if zh else
+                'Could not confirm the connection deletion; the local snapshot was left untouched. Reload before retrying.',
+            )
+            return
         delete_snapshot(item.get('id'))
-        delete_connection(item.get('id'))
         self._reload_connections()
         self._notify_main_sidebar_refresh()
 
@@ -1171,37 +1531,81 @@ class AiWorkbenchPanel(QWidget):
             self.loading.hide_now()
 
     def closeEvent(self, event):
-        self._shutdown_db_worker()
+        self.workbench_shutdown_cleanup()
         super().closeEvent(event)
 
     def _bind_editors_schema(self):
         if not hasattr(self, 'sql_tabs'):
+            return
+        manual_host = getattr(self, 'manual_query_host', None)
+        if manual_host is not None:
+            manual_host.refresh_completion_bindings()
             return
         for i in range(self.sql_tabs.count()):
             tab = self.sql_tabs.widget(i)
             if isinstance(tab, _SqlTab):
                 tab.editor.bind_schema(self._snapshot)
 
+    def _track_legacy_worker(self, worker):
+        self._legacy_workers.add(worker)
+        _ACTIVE_WORKBENCH_WORKERS.add(worker)
+        worker.finished.connect(lambda w=worker: _release_active_workbench_worker(w))
+        worker.finished.connect(self._on_legacy_worker_finished)
+
+    def _disconnect_legacy_worker_ui(self, worker):
+        if isinstance(worker, _DbWorker):
+            for signal, slot in (
+                (worker.completed, self._on_db_worker_completed),
+                (worker.failed, self._on_db_worker_failed),
+                (worker.progress, self._on_fetch_progress),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+        elif isinstance(worker, _AiWorker):
+            for signal, slot in (
+                (worker.completed, self._on_ai_ok),
+                (worker.failed, self._on_agent_fail),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+
+    def _on_legacy_worker_finished(self):
+        worker = self.sender()
+        if worker is None:
+            return
+        self._legacy_workers.discard(worker)
+        _release_active_workbench_worker(worker)
+        if self._worker is worker:
+            self._worker = None
+            if not self._workbench_shutdown_requested:
+                self.scan_cancel_btn.setEnabled(False)
+                self._busy(False)
+        if self._ai_worker is worker:
+            self._ai_worker = None
+            if self._agent_busy and not self._workbench_shutdown_requested:
+                self._finish_agent_task(cancelled=bool(getattr(worker, 'cancelled', False)))
+
+    def workbench_shutdown_cleanup(self) -> bool:
+        """Request legacy DB/AI worker cancellation without blocking the UI thread."""
+        self._workbench_shutdown_requested = True
+        self._agent_timer.stop()
+        for worker in tuple(self._legacy_workers):
+            worker.cancelled = True
+            self._disconnect_legacy_worker_ui(worker)
+        # Only _on_legacy_worker_finished releases panel references. isRunning()
+        # may turn false before the queued finished callback has run.
+        return not self._legacy_workers
+
     def _shutdown_db_worker(self, timeout_ms: int = 1500):
         worker = self._worker
         if worker is None:
             return
         worker.cancelled = True
-        try:
-            worker.progress.disconnect()
-        except Exception:
-            pass
-        try:
-            worker.completed.disconnect()
-        except Exception:
-            pass
-        try:
-            worker.failed.disconnect()
-        except Exception:
-            pass
-        if worker.isRunning():
-            worker.wait(max(1, int(timeout_ms)))
-        self._worker = None
+        self._disconnect_legacy_worker_ui(worker)
         if self._query_status in ('RUNNING', 'FETCH_ALL'):
             self._query_status = 'CANCELLED'
 
@@ -1219,6 +1623,8 @@ class AiWorkbenchPanel(QWidget):
             prev_c = getattr(self, '_prev_applied_c', None)
             if prev_c is None or (prev_c >= 1200) != (c >= 1200):
                 self._sync_c_threshold_layout(c)
+        if hasattr(self, 'editor_more_btn'):
+            QTimer.singleShot(0, self._sync_editor_toolbar)
 
     def _busy(self, on: bool, message: str = '', *, fetch_all: bool = False) -> int:
         zh = self.language == 'zh'
@@ -1257,8 +1663,13 @@ class AiWorkbenchPanel(QWidget):
         else:
             self.all_btn.setEnabled(self._has_more)
 
-    def _start_db(self, kind: str, **kwargs):
-        item = self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
+    def _start_db(self, kind: str, *, connection_item=None, **kwargs):
+        if self._manual_shutdown_gated or self._workbench_shutdown_requested:
+            return
+        item = (
+            dict(connection_item) if isinstance(connection_item, dict) else
+            self._browse_conn() if kind in ('test', 'scan') else self._current_conn()
+        )
         zh = self.language == 'zh'
         if not item:
             show_warning(self, self._title(), '请先新建并选择连接' if zh else 'Create a connection first')
@@ -1277,19 +1688,81 @@ class AiWorkbenchPanel(QWidget):
         self._db_token = token
         if kind == 'scan':
             self.scan_cancel_btn.setEnabled(True)
-        self.result_status.setText(labels.get(kind, '正在连接…' if zh else 'Working…'))
+        self.result_status.setText(
+            labels.get(kind, '正在连接…' if zh else 'Working…'),
+            querying=fetch_all,
+        )
         self._worker = _DbWorker(kind, item, **kwargs)
         self._worker.token = token
-        self._worker.completed.connect(lambda payload, t=token: self._on_db_ok(kind, payload, kwargs, token=t))
-        self._worker.failed.connect(lambda msg, t=token: self._on_db_fail(msg, token=t))
+        self._worker.kwargs = kwargs
+        self._worker.kind = kind
+        self._track_legacy_worker(self._worker)
+        if kind in ('query', 'fetch_all'):
+            sql = kwargs.get('sql')
+            capture = None
+            if (
+                kwargs.get('append')
+                and self._result_history_capture is not None
+                and self._result_history_capture.text == sql
+            ):
+                capture = self._result_history_capture
+            else:
+                capture = self._capture_legacy_history(item, sql)
+                self._result_history_capture = capture
+            if capture is not None:
+                try:
+                    self._ensure_query_history_service().attach_legacy_worker(self._worker, capture)
+                except Exception:
+                    # History is best-effort and must never change query dispatch.
+                    self._result_status_for_history_failure('STORE_FAILED')
+        self._worker.completed.connect(self._on_db_worker_completed)
+        self._worker.failed.connect(self._on_db_worker_failed)
         self._worker.progress.connect(self._on_fetch_progress)
-        self._worker.finished.connect(lambda: (self.scan_cancel_btn.setEnabled(False), self._busy(False)))
         self._worker.start()
+
+    def _capture_legacy_history(self, item, sql):
+        tab = self._current_tab()
+        if tab is None or not isinstance(item, dict):
+            return None
+        runtime_tab_id = str(getattr(tab, '_history_runtime_tab_id', '') or '')
+        if not runtime_tab_id:
+            runtime_tab_id = uuid.uuid4().hex
+            setattr(tab, '_history_runtime_tab_id', runtime_tab_id)
+        try:
+            generation = int(getattr(tab, '_manual_generation', 1) or 1)
+        except (TypeError, ValueError):
+            generation = 0
+        try:
+            from ui.data_center.query_history_service import capture_legacy_relational_history
+
+            return capture_legacy_relational_history(
+                sql,
+                item,
+                runtime_tab_id=runtime_tab_id,
+                generation=generation,
+                profile_host=getattr(getattr(self, 'data_center_agent', None), '_profile_host', None),
+            )
+        except Exception:
+            return None
+
+    def _on_db_worker_completed(self, payload):
+        worker = self.sender()
+        if (self._workbench_shutdown_requested or worker is None or worker is not self._worker
+                or getattr(worker, 'cancelled', False)):
+            return
+        self._on_db_ok(worker.kind, payload, worker.kwargs, token=worker.token)
+
+    def _on_db_worker_failed(self, message):
+        worker = self.sender()
+        if (self._workbench_shutdown_requested or worker is None or worker is not self._worker
+                or getattr(worker, 'cancelled', False)):
+            return
+        self._on_db_fail(message, token=worker.token)
 
     def _cancel_scan(self):
         if self._worker is not None:
             self._worker.cancelled = True
-        self.loading.fail('扫描已取消' if self.language == 'zh' else 'Scan cancelled', token=getattr(self, '_db_token', None))
+        self.loading.cancel('扫描已取消' if self.language == 'zh' else 'Scan cancelled', token=getattr(self, '_db_token', None))
 
     def _on_db_ok(self, kind: str, payload: dict, kwargs: dict, *, token: int | None = None):
         if token is not None and token != getattr(self, '_db_token', None):
@@ -1304,6 +1777,9 @@ class AiWorkbenchPanel(QWidget):
             self._snapshot = payload
             self.nl_input.bind_snapshot(self._snapshot)
             self._bind_editors_schema()
+            host = getattr(self, 'data_center_agent', None)
+            if host is not None:
+                host.target_changed()
             self._rebuild_tree()
             self._refresh_header()
             self._refresh_ai_pick_state()
@@ -1425,6 +1901,9 @@ class AiWorkbenchPanel(QWidget):
         self.hist_view.setPlainText('\n\n'.join(reversed(lines)))
 
     def _on_fetch_progress(self, payload: dict):
+        worker = self.sender()
+        if worker is not None and (self._workbench_shutdown_requested or worker is not self._worker):
+            return
         if not isinstance(payload, dict):
             return
         rows = int(payload.get('rows') or 0)
@@ -1473,7 +1952,23 @@ class AiWorkbenchPanel(QWidget):
         return editor.toPlainText().strip()
 
     def _run_sql(self, *, reset: bool = True):
-        item = self._current_conn()
+        if self._manual_shutdown_gated:
+            return
+        tab = self._current_tab()
+        if tab is not None and getattr(tab, '_history_target_locked', False):
+            item, code = self._legacy_profile_for_history_target(
+                getattr(tab, '_history_target_record', None)
+            )
+            if item is None:
+                tab._history_target_valid = False
+                tab._history_target_validation_code = code
+                self._set_history_draft_status(tab)
+                self.run_btn.setEnabled(False)
+                return
+            tab._history_target_valid = True
+            tab._history_target_validation_code = ''
+        else:
+            item = self._current_conn()
         zh = self.language == 'zh'
         if not item:
             show_warning(self, self._title(), '请先选择连接' if zh else 'Select a connection')
@@ -1501,7 +1996,14 @@ class AiWorkbenchPanel(QWidget):
             self._redis_scan_partial = False
             self._redis_scan_failed_nodes = []
             self.result.setRowCount(0)
-        self._start_db('query', sql=sql, offset=self._offset if not reset else 0, limit=PAGE_SIZE, append=not reset)
+        self._start_db(
+            'query',
+            connection_item=item if tab is not None and getattr(tab, '_history_target_locked', False) else None,
+            sql=sql,
+            offset=self._offset if not reset else 0,
+            limit=PAGE_SIZE,
+            append=not reset,
+        )
 
     def _fetch_next(self):
         if not self._last_sql or not self._has_more:
@@ -1555,12 +2057,204 @@ class AiWorkbenchPanel(QWidget):
         if menu.actions():
             menu.exec(self.ai_explain.mapToGlobal(pos))
 
-    def _new_sql_tab(self, text: str = '', title: str = ''):
+    def _ensure_query_history_service(self):
+        from ui.data_center.query_history_service import get_application_history_service
+
+        service = get_application_history_service()
+        if self._query_history_service is not service:
+            service.save_failed.connect(self._on_history_save_failed)
+            self._query_history_service = service
+        return service
+
+    def _on_history_save_failed(self, code: str):
+        self._result_status_for_history_failure(code)
+
+    def _result_status_for_history_failure(self, code: str):
+        safe_code = str(code or 'STORE_FAILED')
+        if safe_code not in {
+            'CREDENTIAL_TEXT_REJECTED', 'QUEUE_FULL', 'STORE_CLOSED',
+            'CONTROLLER_CLOSED', 'HISTORY_LIMIT_REACHED', 'STORE_SIZE_LIMIT',
+            'SCHEMA_MALFORMED', 'INVALID_RECORD', 'STORE_FAILED',
+        }:
+            safe_code = 'STORE_FAILED'
+        if getattr(self, 'language', 'zh') == 'zh':
+            messages = {
+                'CREDENTIAL_TEXT_REJECTED': '查询历史未保存：文本被安全检查拒绝。',
+                'QUEUE_FULL': '查询历史暂未保存：存储队列繁忙。',
+                'STORE_CLOSED': '查询历史未保存：应用正在关闭。',
+                'CONTROLLER_CLOSED': '查询历史未保存：历史记录器已关闭。',
+            }
+            message = messages.get(safe_code, f'查询历史未保存（{safe_code}）。')
+        else:
+            messages = {
+                'CREDENTIAL_TEXT_REJECTED': 'Query history was not saved: the text failed a safety check.',
+                'QUEUE_FULL': 'Query history was not saved: the storage queue is busy.',
+                'STORE_CLOSED': 'Query history was not saved: the application is closing.',
+                'CONTROLLER_CLOSED': 'Query history was not saved: the history recorder is closed.',
+            }
+            message = messages.get(safe_code, f'Query history was not saved ({safe_code}).')
+        status = getattr(self, 'result_status', None)
+        if status is not None:
+            status.setText(message)
+
+    @staticmethod
+    def _history_target_identity(record) -> str:
+        target = getattr(record, 'target', None)
+        return (
+            f"history={getattr(record, 'history_id', '')}; "
+            f"connection={getattr(target, 'connection_id', '')}; "
+            f"revision={getattr(target, 'profile_revision', '')}; "
+            f"database/service={getattr(target, 'database', '')}; "
+            f"schema/owner={getattr(target, 'schema', '')}"
+        )
+
+    def _legacy_profile_for_history_target(self, record):
+        target = getattr(record, 'target', None)
+        text_kind = getattr(getattr(record, 'text_kind', None), 'value', getattr(record, 'text_kind', None))
+        tab_kind = getattr(getattr(target, 'tab_kind', None), 'value', getattr(target, 'tab_kind', None))
+        if text_kind != 'sql' or tab_kind != 'sql':
+            return None, 'MANUAL_PROVIDER_UNSUPPORTED'
+        connection_id = str(getattr(target, 'connection_id', '') or '')
+        revision = str(getattr(target, 'profile_revision', '') or '')
+        if not connection_id or not revision:
+            return None, 'PROFILE_UNAVAILABLE'
+        try:
+            from tools.data_center.manual_driver import profile_schema_for_provider
+            from tools.data_center.profile_host import DataCenterProfileHost, ProfileHostError
+
+            profile_host = getattr(
+                getattr(self, 'data_center_agent', None), '_profile_host', None
+            ) or DataCenterProfileHost()
+            profile = profile_host.load_connection_profile(connection_id, revision)
+            choice = profile_host.capture_connection(profile, database=str(
+                getattr(target, 'database', '') or ''
+            ))
+        except ProfileHostError as error:
+            code = error.code if error.code in {'PROFILE_UNAVAILABLE', 'PROFILE_MISMATCH'} else 'PROFILE_UNAVAILABLE'
+            return None, code
+        except Exception:
+            return None, 'PROFILE_UNAVAILABLE'
+        if choice.connection_id != connection_id:
+            return None, 'PROFILE_UNAVAILABLE'
+        if choice.revision != revision:
+            return None, 'PROFILE_MISMATCH'
+        if choice.provider in {'redis', 'mongodb', 'mongo', 'mongo_db', 'redis_cluster'}:
+            return None, 'MANUAL_PROVIDER_UNSUPPORTED'
+        schema = profile_schema_for_provider(profile, choice.provider)
+        if choice.database != str(getattr(target, 'database', '') or '') or schema != str(
+            getattr(target, 'schema', '') or ''
+        ):
+            return None, 'PROFILE_MISMATCH'
+        return profile, ''
+
+    def _set_history_draft_status(self, tab):
+        record = getattr(tab, '_history_target_record', None)
+        code = str(getattr(tab, '_history_target_validation_code', '') or '')
+        history_id = str(getattr(record, 'history_id', '') or '')
+        short_id = history_id[:10]
+        if self.language == 'zh':
+            reason = {
+                'PROFILE_UNAVAILABLE': '配置不可用，已禁用运行',
+                'PROFILE_MISMATCH': '版本变化，运行已禁用',
+                'MANUAL_PROVIDER_UNSUPPORTED': '数据库类型不支持，运行已禁用',
+            }.get(code)
+            if reason:
+                text = f'{reason} · #{short_id}'
+            elif code:
+                text = f'目标不可用，已禁用运行 · #{short_id}'
+            else:
+                text = f'历史 #{short_id} · 使用已捕获连接运行'
+        else:
+            reason = {
+                'PROFILE_UNAVAILABLE': 'Profile missing; Run disabled',
+                'PROFILE_MISMATCH': 'Revision changed; Run disabled',
+                'MANUAL_PROVIDER_UNSUPPORTED': 'Provider unsupported; Run disabled',
+            }.get(code)
+            if reason:
+                text = f'{reason} · #{short_id}'
+            elif code:
+                text = f'Target unavailable; Run disabled · #{short_id}'
+            else:
+                text = f'History #{short_id} · Run uses captured profile'
+        identity = self._history_target_identity(record)
+        details = f'{identity}; validation={code or "VALID"}'
+        status = self.result_status
+        status.setText(text)
+        status.setToolTip(details)
+        status.setAccessibleName(text)
+        status.setAccessibleDescription(details)
+        label = getattr(status, '_label', None)
+        if label is not None:
+            label.setToolTip(details)
+            label.setAccessibleName(text)
+            label.setAccessibleDescription(details)
+
+    def _restore_history_record(self, record):
+        from tools.data_center.workspace_store import HistoryRecord
+
+        if type(record) is not HistoryRecord:
+            return
+        manual_host = getattr(self, 'manual_query_host', None)
+        if manual_host is not None:
+            code = manual_host.validate_history_record(record)
+        else:
+            _profile, code = self._legacy_profile_for_history_target(record)
+        history_id = str(record.history_id)
+        title = f"{'历史' if self.language == 'zh' else 'History'} · {history_id[:10]}"
+        self._new_sql_tab(
+            record.text,
+            title,
+            history_record=record,
+            history_validation_code=code,
+        )
+
+    def _open_query_history(self):
+        try:
+            service = self._ensure_query_history_service()
+            controller = service.new_controller()
+            from ui.data_center.query_history import QueryHistoryDialog
+
+            dialog = QueryHistoryDialog(controller, language=self.language, parent=self)
+
+            def restore(record):
+                self._restore_history_record(record)
+                dialog.accept()
+
+            dialog.browser.open_as_new_draft_requested.connect(restore)
+            dialog.finished.connect(lambda _result: service.retire_controller(controller))
+            dialog.exec()
+        except Exception:
+            self._result_status_for_history_failure('STORE_FAILED')
+
+    def _new_sql_tab(
+        self,
+        text: str = '',
+        title: str = '',
+        *,
+        history_record=None,
+        history_validation_code: str = '',
+    ):
+        if self._manual_shutdown_gated:
+            return None
         zh = self.language == 'zh'
         name = title or (f'未命名查询 {self._tab_seq}' if zh else f'Untitled query {self._tab_seq}')
         self._tab_seq += 1
-        tab = _SqlTab(name, self._browse_conn())
-        tab.editor.bind_schema(self._snapshot)
+        tab = _SqlTab(name, None if history_record is not None else self._browse_conn())
+        if history_record is not None:
+            # The ManualQueryHost can receive currentChanged from addTab(); lock
+            # this target before the tab is visible to any observer.
+            tab._history_target_record = history_record
+            tab._history_target_locked = True
+            tab._history_target_validation_code = str(history_validation_code or '')
+            tab._history_target_valid = not bool(history_validation_code)
+            tab._history_runtime_tab_id = uuid.uuid4().hex
+            tab._manual_generation = 1
+            localized_title = '历史' if zh else 'History'
+            tab.setToolTip(
+                f'{localized_title} · {history_record.history_id[:10]}; '
+                f'{self._history_target_identity(history_record)}'
+            )
+        tab.editor.bind_schema(None if history_record is not None or getattr(self, 'manual_query_host', None) is not None else self._snapshot)
         tab.editor.textChanged.connect(self._refresh_risk_chip)
         if text:
             tab.editor.setPlainText(text)
@@ -1568,9 +2262,19 @@ class AiWorkbenchPanel(QWidget):
         index = self.sql_tabs.addTab(tab, name)
         self.sql_tabs.setCurrentIndex(index)
         self._refresh_risk_chip()
+        if history_record is not None:
+            self._set_history_draft_status(tab)
+            manual_host = getattr(self, 'manual_query_host', None)
+            if manual_host is None:
+                self.run_btn.setEnabled(bool(tab._history_target_valid))
+            else:
+                manual_host.history_draft_changed(tab)
         return tab
 
     def _close_sql_tab(self, index: int):
+        manual_host = getattr(self, 'manual_query_host', None)
+        if manual_host is not None and manual_host.request_tab_close(index):
+            return
         if self.sql_tabs.count() <= 1:
             editor = self._current_editor()
             if editor is not None:
@@ -1585,6 +2289,14 @@ class AiWorkbenchPanel(QWidget):
         for i in range(self.sql_tabs.count()):
             tab = self.sql_tabs.widget(i)
             if isinstance(tab, _SqlTab):
+                record = getattr(tab, '_history_target_record', None)
+                if record is not None:
+                    localized_title = '历史' if self.language == 'zh' else 'History'
+                    tab.base_title = f'{localized_title} · {record.history_id[:10]}'
+                    tab.setToolTip(
+                        f'{localized_title} · {record.history_id[:10]}; '
+                        f'{self._history_target_identity(record)}'
+                    )
                 mark = '*' if tab.dirty else ''
                 self.sql_tabs.setTabText(i, mark + tab.base_title)
 
@@ -1947,6 +2659,8 @@ class AiWorkbenchPanel(QWidget):
 
     def _run_ai(self, action: str, *, confirmed=None):
         zh = self.language == 'zh'
+        if self._workbench_shutdown_requested:
+            return
         if self._agent_busy:
             show_warning(self, self._title(), '当前草案任务仍在运行' if zh else 'A draft task is still running')
             return
@@ -2014,6 +2728,10 @@ class AiWorkbenchPanel(QWidget):
     def _on_ai_ok(self, draft: dict):
         from tools.ai_sql_draft import format_explanation
         zh = self.language == 'zh'
+        worker = self.sender()
+        if (self._workbench_shutdown_requested or
+                (worker is not None and worker is not self._ai_worker)):
+            return
         if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
             self._finish_agent_task(cancelled=True)
             return
@@ -2153,6 +2871,8 @@ class AiWorkbenchPanel(QWidget):
         QApplication.clipboard().setText(self._last_block or self.ai_explain.toPlainText())
 
     def _start_agent_task(self, kwargs: dict, action: str):
+        if self._workbench_shutdown_requested:
+            return
         zh = self.language == 'zh'
         self._agent_busy = True
         self._agent_started = time.monotonic()
@@ -2163,13 +2883,13 @@ class AiWorkbenchPanel(QWidget):
         self.agent_stage.show()
         self._agent_timer.start()
         self._ai_worker = _AiWorker(kwargs)
+        self._track_legacy_worker(self._ai_worker)
         self._ai_worker.completed.connect(self._on_ai_ok)
         self._ai_worker.failed.connect(self._on_agent_fail)
-        self._ai_worker.finished.connect(lambda: None)
         self._ai_worker.start()
 
     def _tick_agent_stage(self):
-        if not self._agent_busy:
+        if self._workbench_shutdown_requested or not self._agent_busy:
             self._agent_timer.stop()
             return
         elapsed = time.monotonic() - self._agent_started
@@ -2207,6 +2927,10 @@ class AiWorkbenchPanel(QWidget):
         self._refresh_model_status()
 
     def _on_agent_fail(self, message: str):
+        worker = self.sender()
+        if (self._workbench_shutdown_requested or
+                (worker is not None and worker is not self._ai_worker)):
+            return
         if self._ai_worker is not None and getattr(self._ai_worker, 'cancelled', False):
             self._finish_agent_task(cancelled=True)
             return

@@ -48,11 +48,11 @@ class SqlGuardTests(unittest.TestCase):
     def test_nav_14_is_data_center(self):
         self.assertEqual(display_name(14, 'zh'), '数据中心')
         self.assertIn(14, NAV_ITEMS)
-        # v3.0：15 为"模型"父级，16=聊天，17=工作，18–23 六数据库面板
+        # 14/15 保留兼容元数据；真实页面 16/17 和六数据库直接显示。
         self.assertEqual(display_name(15, 'zh'), '模型')
         self.assertIn(15, NAV_ITEMS)
-        self.assertEqual(display_name(16, 'zh'), '聊天')
-        self.assertEqual(display_name(17, 'zh'), '工作')
+        self.assertEqual(display_name(16, 'zh'), '模型聊天')
+        self.assertEqual(display_name(17, 'zh'), 'Agent 工作台')
         self.assertEqual(display_name(18, 'zh'), 'Oracle')
         self.assertEqual(display_name(22, 'zh'), 'Redis')
         self.assertEqual(display_name(23, 'zh'), 'MongoDB')

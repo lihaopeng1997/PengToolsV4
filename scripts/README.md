@@ -32,9 +32,15 @@
 
 产物：
 
-- `dist/PengToolsHub.exe`（嵌入高对比任务栏图标 `resources\brand\pengtools-taskbar-hc.ico`）
+- `dist/PengToolsHub/PengToolsHub.exe`（嵌入高对比任务栏图标 `resources\brand\pengtools-taskbar-hc.ico`）；必须保留同目录 `_internal/`。
 - `PengToolsHub_Offline_Setup.zip`
-- `Installer/PengToolsHub.exe` + `setup.cmd`
+- `Installer/PengToolsHub/PengToolsHub.exe` + `_internal/` + 顶层 `setup.cmd`
+
+## 诊断脚本与生成文件
+
+`diagnostics/*.py` 为可重用的界面/生命周期诊断入口；日常修改优先运行对应 `tests/test_<area>.py`。诊断生成的截图、日志和临时报告放到已忽略的 `outputs/_<task>/` 或 `build/<task>/`，不要写回脚本目录。
+
+2026-10-19 已移除三个无调用方的一次性定位脚本：`_btn_height_repro.py`、`_btn_height_repro2.py`、`ui-refactor/_check_file_btns.py`。历史版本仍可从 Git 查看。阶段材料与构建快照的归档位置见 [清理记录](../docs/project/PROJECT_CLEANUP_2026-10-19.md)。
 
 已废弃：
 

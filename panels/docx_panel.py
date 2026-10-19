@@ -4,13 +4,13 @@ import io
 import os
 import tempfile
 
-from PyQt6.QtCore import QDate, QFileInfo, QThread, QUrl, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, QFileInfo, QEvent, QThread, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QDateEdit, QFileDialog, QFileIconProvider,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
 )
 
 from tools.docx_updater import (
@@ -25,7 +25,7 @@ from tools.svn_workspace import (
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
-from ui.field_metrics import apply_caption, apply_form, size_compact_button, size_date, size_field_height, size_line
+from ui.field_metrics import CAPTION_W, apply_caption, apply_form, size_compact_button, size_date, size_field_height, size_line
 from ui.page_chrome import make_page_header
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
@@ -57,6 +57,40 @@ class DocxUpdateWorker(QThread):
         finally:
             if os.path.exists(self.sql_path):
                 os.unlink(self.sql_path)
+
+
+class _DocxCaption(QLabel):
+    """Keep the shared caption width unless this label needs a wider word token."""
+
+    def __init__(self):
+        super().__init__()
+        apply_caption(self)
+        self.setWordWrap(True)
+        policy = self.sizePolicy()
+        policy.setVerticalPolicy(QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+        self._fit_unbroken_text()
+
+    def setText(self, text):
+        super().setText(text)
+        self._fit_unbroken_text()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._fit_unbroken_text()
+
+    def _fit_unbroken_text(self):
+        tokens = self.text().split()
+        if not tokens:
+            required_width = CAPTION_W
+        else:
+            longest_token = max(self.fontMetrics().horizontalAdvance(token) for token in tokens)
+            required_width = max(CAPTION_W, longest_token + 4)
+        if self.width() != required_width:
+            self.setFixedWidth(required_width)
+        self.setMinimumHeight(max(0, self.heightForWidth(self.width())))
 
 
 class DocxUpdatePanel(QWidget):
@@ -105,8 +139,7 @@ class DocxUpdatePanel(QWidget):
         self.folder_open = QPushButton()
         size_compact_button(self.folder_open)
         self.folder_open.clicked.connect(lambda: self._open_path(self.folder_path.text().strip()))
-        self.folder_row_label = QLabel()
-        apply_caption(self.folder_row_label)
+        self.folder_row_label = _DocxCaption()
         form.addRow(self.folder_row_label, self._multi_button_row(
             self.folder_path, self.folder_browse, self.folder_refresh, self.folder_open
         ))
@@ -120,8 +153,7 @@ class DocxUpdatePanel(QWidget):
         self.doc_list.itemDoubleClicked.connect(self._open_list_item)
         self.doc_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.doc_list.customContextMenuRequested.connect(self._show_doc_list_menu)
-        self.doc_list_label = QLabel()
-        apply_caption(self.doc_list_label)
+        self.doc_list_label = _DocxCaption()
         # The document list belongs in the left browser column, not the form.
 
         self.docx_path = QLineEdit()
@@ -130,15 +162,13 @@ class DocxUpdatePanel(QWidget):
         size_compact_button(self.docx_browse)
         self.docx_browse.clicked.connect(self._choose_docx)
         self.docx_path.textChanged.connect(self._on_docx_path_changed)
-        self.docx_row_label = QLabel()
-        apply_caption(self.docx_row_label)
+        self.docx_row_label = _DocxCaption()
         form.addRow(self.docx_row_label, self._path_row(self.docx_path, self.docx_browse))
 
         self.template_status = QLabel()
         self.template_status.setWordWrap(True)
         self.template_status.setObjectName('docx-template-status')
-        self.template_row_label = QLabel()
-        apply_caption(self.template_row_label)
+        self.template_row_label = _DocxCaption()
         form.addRow(self.template_row_label, self.template_status)
 
         self.svn_url = QLineEdit()
@@ -146,8 +176,7 @@ class DocxUpdatePanel(QWidget):
         self.svn_pull_btn = QPushButton()
         size_compact_button(self.svn_pull_btn)
         self.svn_pull_btn.clicked.connect(self._pull_svn_docs)
-        self.svn_row_label = QLabel()
-        apply_caption(self.svn_row_label)
+        self.svn_row_label = _DocxCaption()
         form.addRow(self.svn_row_label, self._path_row(self.svn_url, self.svn_pull_btn))
 
         self.output_dir = QLineEdit()
@@ -159,8 +188,7 @@ class DocxUpdatePanel(QWidget):
         size_compact_button(self.output_dir_open)
         self.output_dir_open.clicked.connect(lambda: self._open_path(self.output_dir.text().strip()))
         self.output_dir.textChanged.connect(self._sync_output_path)
-        self.output_dir_label = QLabel()
-        apply_caption(self.output_dir_label)
+        self.output_dir_label = _DocxCaption()
         form.addRow(self.output_dir_label, self._multi_button_row(
             self.output_dir, self.output_dir_browse, self.output_dir_open
         ))
@@ -168,8 +196,7 @@ class DocxUpdatePanel(QWidget):
         self.output_path = QLineEdit()
         size_line(self.output_path, 'path')
         self.output_path.setReadOnly(True)
-        self.output_row_label = QLabel()
-        apply_caption(self.output_row_label)
+        self.output_row_label = _DocxCaption()
         form.addRow(self.output_row_label, self.output_path)
 
         self.update_date = QDateEdit(QDate.currentDate())
@@ -190,16 +217,14 @@ class DocxUpdatePanel(QWidget):
         date_l.setSpacing(8)
         date_l.addWidget(self.update_date)
         date_l.addWidget(self.today_btn)
-        self.author_row_label = QLabel()
-        apply_caption(self.author_row_label)
+        self.author_row_label = _DocxCaption()
         date_l.addWidget(self.author_row_label)
         self.author = QLineEdit('System')
         size_field_height(self.author)
         self.author.setFixedWidth(160)
         date_l.addWidget(self.author)
         date_l.addStretch(1)
-        self.date_row_label = QLabel()
-        apply_caption(self.date_row_label)
+        self.date_row_label = _DocxCaption()
         form.addRow(self.date_row_label, date_field)
         self.date_card = date_field
         self.date_badge = QLabel()
@@ -373,6 +398,7 @@ class DocxUpdatePanel(QWidget):
         row.setSpacing(8)
         row.addWidget(line_edit, 1)
         row.addWidget(button)
+        widget.setMinimumHeight(row.minimumSize().height())
         return widget
 
     @staticmethod
@@ -385,6 +411,7 @@ class DocxUpdatePanel(QWidget):
         for button in buttons:
             button.setProperty('compactAction', True)
             row.addWidget(button)
+        widget.setMinimumHeight(row.minimumSize().height())
         return widget
 
     def resizeEvent(self, event):

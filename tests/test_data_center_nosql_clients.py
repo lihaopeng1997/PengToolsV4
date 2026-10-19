@@ -8,6 +8,7 @@ from bson.code import Code
 from tools.data_center.nosql_codec import CodecError, decode_extended_json, encode_bounded
 from tools.data_center.readonly_nosql_clients import (
     MongoReadOnlyFacade,
+    NoSQLDirectoryPage,
     OpaqueCursorCodec,
     RedisReadOnlyFacade,
 )
@@ -205,6 +206,59 @@ class RedisReadOnlyFacadeTests(unittest.TestCase):
         self.assertEqual(result.code, "CANCELLED")
         self.assertEqual(fake.calls, [])
 
+    def test_directory_scan_keeps_binary_identity_private_and_checks_literal_prefix(self) -> None:
+        first_key = b"tenant[1]/" + b"\xff" + b"x" * 52 + b"1"
+        second_key = b"tenant[1]/" + b"\xff" + b"x" * 52 + b"2"
+        oversized = b"tenant[1]/" + b"y" * 5000
+
+        class DirectoryRedis(_RedisFake):
+            def scan(self, cursor=0, match=None, count=None, target_nodes=None):
+                self.calls.append(("scan", {"cursor": cursor, "match": match, "count": count, "target_nodes": target_nodes}))
+                return 0, [first_key, second_key, b"tenant1/outside", oversized]
+
+        fake = DirectoryRedis()
+        facade = RedisReadOnlyFacade(
+            fake,
+            connection_id="redis-tree",
+            profile_revision="revision-1",
+            _directory_metadata=True,
+        )
+        page = facade._directory_children("redis_root", prefix="tenant[1]/", limit=10)
+
+        self.assertIsInstance(page, NoSQLDirectoryPage)
+        self.assertEqual(len(page.entries), 3)
+        self.assertEqual(page.entries[0].name, page.entries[1].name)
+        self.assertNotEqual(page.entries[0].identity, page.entries[1].identity)
+        self.assertIsNone(page.entries[2].identity)
+        self.assertEqual(page.entries[2].notice, "redis_key_identity_over_budget")
+        self.assertIn("redis_key_outside_prefix_omitted", page.notices)
+        self.assertEqual(fake.calls[0][1]["match"], r"tenant\[1\]/*")
+
+        details = facade._directory_inspect_key(first_key)
+        self.assertEqual(details, {"value_type": "string", "ttl_seconds": -1})
+        self.assertIn(("type", {"name": first_key}), fake.calls)
+        self.assertIn(("ttl", {"name": first_key}), fake.calls)
+
+        blocked = facade.execute({"operation": "SCAN", "pattern": "tenant[1]/*"})
+        self.assertFalse(blocked.ok)
+        self.assertEqual(blocked.code, "POLICY_DENIED")
+
+    def test_default_agent_scan_keeps_256_byte_preview_without_tree_identity(self) -> None:
+        key = b"x" * 400
+
+        class PreviewRedis(_RedisFake):
+            def scan(self, cursor=0, match=None, count=None, target_nodes=None):
+                self.calls.append(("scan", {"cursor": cursor, "match": match, "count": count, "target_nodes": target_nodes}))
+                return 0, [key]
+
+        facade = RedisReadOnlyFacade(PreviewRedis(), connection_id="redis-agent", profile_revision="r1")
+        result = facade.execute({"operation": "SCAN", "limit": 1})
+        self.assertTrue(result.ok)
+        row = result.data["keys"][0]
+        self.assertEqual(row["size"], len(key))
+        self.assertEqual(len(row["preview_base64"]), 344)
+        self.assertNotIn("identity", row)
+
 
 class _MongoCursor:
     def __init__(self, values):
@@ -246,6 +300,84 @@ class _MongoCollection:
     def delete_many(self, *args, **kwargs):  # pragma: no cover - must never be called
         self.dangerous_calls.append((args, kwargs))
         raise AssertionError("write method reached")
+
+
+class _MongoTreeDatabase:
+    def __init__(self, names) -> None:
+        self.names = list(names)
+        self.cursors = []
+
+    def list_collections(self, **kwargs):
+        cursor = _MongoCursor({"name": name} for name in self.names)
+        self.cursors.append((kwargs, cursor))
+        return cursor
+
+
+class _MongoTreeClient:
+    socket_timeout = 1.0
+
+    def __init__(self) -> None:
+        self.closed = 0
+        self.calls = []
+        self.database_names = ["admin", "app", "logs"]
+        self.database = _MongoTreeDatabase(["users", "orders", "secrets"])
+
+    def list_databases(self, **kwargs):
+        self.calls.append(("list_databases", kwargs))
+        return _MongoCursor({"name": name} for name in self.database_names)
+
+    def get_database(self, name):
+        self.calls.append(("get_database", name))
+        return self.database
+
+    def close(self):
+        self.closed += 1
+
+
+class MongoDirectoryFacadeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = _MongoTreeClient()
+        self.facade = MongoReadOnlyFacade(
+            database=self.client.database,
+            client=self.client,
+            connection_id="mongo-tree",
+            database_name="configured",
+            allowed_collection_ids=(),
+            _directory_metadata=True,
+        )
+
+    def test_directory_database_collection_pages_are_bounded_and_agent_execute_is_closed(self) -> None:
+        first = self.facade._directory_children("mongo_root", limit=1)
+        self.assertEqual([entry.identity for entry in first.entries], ["admin"])
+        self.assertTrue(first.next_cursor)
+        second = self.facade._directory_children("mongo_root", cursor=first.next_cursor, limit=1)
+        self.assertEqual([entry.identity for entry in second.entries], ["app"])
+        self.assertTrue(second.next_cursor)
+
+        collections = self.facade._directory_children("mongo_database", database="app", limit=2)
+        self.assertEqual([entry.identity for entry in collections.entries], ["users", "orders"])
+        self.assertTrue(collections.next_cursor)
+        tail = self.facade._directory_children("mongo_database", database="app", cursor=collections.next_cursor, limit=2)
+        self.assertEqual([entry.identity for entry in tail.entries], ["secrets"])
+        self.assertIsNone(tail.next_cursor)
+        self.assertEqual(
+            self.client.calls[0],
+            ("list_databases", {"nameOnly": True, "authorizedDatabases": True, "batchSize": 2}),
+        )
+        self.assertEqual(self.client.database.cursors[0][0], {"nameOnly": True, "batchSize": 3})
+
+        blocked = self.facade.execute({"operation": "find", "collection_id": "users"})
+        self.assertFalse(blocked.ok)
+        self.assertEqual(blocked.code, "POLICY_DENIED")
+
+    def test_mongo_cursor_cannot_cross_parent_and_bad_database_scope_is_rejected(self) -> None:
+        first = self.facade._directory_children("mongo_root", limit=1)
+        with self.assertRaises(Exception) as raised:
+            self.facade._directory_children("mongo_database", database="admin", cursor=first.next_cursor, limit=1)
+        self.assertEqual(getattr(raised.exception, "code", None), "SCOPE_DENIED")
+        with self.assertRaises(Exception) as raised:
+            self.facade._directory_children("mongo_database", database="a\x00b")
+        self.assertEqual(getattr(raised.exception, "code", None), "ARGUMENT_INVALID")
 
 
 class MongoReadOnlyFacadeTests(unittest.TestCase):

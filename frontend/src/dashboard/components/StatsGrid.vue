@@ -113,8 +113,8 @@ const completedTotalText = computed(() => {
 
 .stat {
   position: relative;
-  height: 108px;
-  min-height: 108px;
+  height: auto;
+  min-height: 116px;
   padding: 16px 18px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -143,7 +143,7 @@ const completedTotalText = computed(() => {
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -199,13 +199,13 @@ const completedTotalText = computed(() => {
 }
 
 .stat-val small {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-muted);
   font-weight: 400;
 }
 
 .stat-tip {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;

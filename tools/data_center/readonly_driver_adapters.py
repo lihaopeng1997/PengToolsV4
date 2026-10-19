@@ -154,7 +154,10 @@ READONLY_DRIVER_MATRIX: Mapping[str, ReadOnlyDriverStrategy] = MappingProxyType(
             init_statements=("START TRANSACTION READ ONLY",),
             autocommit_attributes=("autocommit",),
             connector_options=_options(read_only=True, autocommit=False),
-            timeout_attributes=("read_timeout",),
+            # PyMySQL applies read_timeout to the socket before connect; its
+            # public Connection object does not expose a verified mutable
+            # read_timeout attribute for later deadline updates.
+            timeout_attributes=(),
         ),
         "oceanbase_oracle": ReadOnlyDriverStrategy(
             provider="oceanbase_oracle",
@@ -162,10 +165,12 @@ READONLY_DRIVER_MATRIX: Mapping[str, ReadOnlyDriverStrategy] = MappingProxyType(
             init_statements=("SET TRANSACTION READ ONLY",),
             autocommit_attributes=("autocommit",),
             connector_options=_options(read_only=True, autocommit=False),
-            # ODBC SQLCancel is not declared until a host has separately
-            # verified its driver.  The default adapter therefore fails
-            # closed instead of guessing from a method name.
-            timeout_attributes=("timeout",),
+            # The host sets the integer per-statement timeout on the raw ODBC
+            # connection before this adapter creates its initialization
+            # cursor.  pyodbc's login timeout and statement timeout are
+            # distinct; there is no verified owner-safe post-connect setter
+            # here, so do not probe or mutate ``timeout`` later.
+            timeout_attributes=(),
         ),
         "oceanbase_mysql": ReadOnlyDriverStrategy(
             provider="oceanbase_mysql",
@@ -173,7 +178,7 @@ READONLY_DRIVER_MATRIX: Mapping[str, ReadOnlyDriverStrategy] = MappingProxyType(
             init_statements=("START TRANSACTION READ ONLY",),
             autocommit_attributes=("autocommit",),
             connector_options=_options(read_only=True, autocommit=False),
-            timeout_attributes=("read_timeout",),
+            timeout_attributes=(),
         ),
         "dameng": ReadOnlyDriverStrategy(
             provider="dameng",
@@ -441,6 +446,90 @@ class DBAPIReadOnlyAdapter:
             if sent_to_server:
                 raise ReadOnlyQueryError(code="READONLY_QUERY_FAILED") from None
             raise ReadOnlyQueryError(code="READONLY_QUERY_FAILED") from None
+        finally:
+            self._close_cursor(cursor)
+
+    def execute_metadata(
+        self,
+        template_id: str,
+        parameters: Any = None,
+        row_limit: int = MAX_ROW_LIMIT,
+        deadline: float | None = None,
+        cancellation: Any = None,
+        cancel_token: Any = None,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        """Execute one host-selected catalog template.
+
+        The template identifier is resolved against the closed catalog table
+        owned by ``host_metadata``.  Callers cannot supply SQL text here, so
+        the numeric Oracle-family binds remain an internal adapter detail and
+        do not create a second model SQL execution path.
+        """
+
+        self._assert_ready()
+        try:
+            from .host_metadata import CATALOG_TEMPLATES, DIRECTORY_TEMPLATES
+
+            key = str(template_id or "").strip().casefold()
+            provider_key, _, operation = key.partition(":")
+            if operation in {"search", "describe"}:
+                template = CATALOG_TEMPLATES.get(provider_key)
+                sql = getattr(template, f"{operation}_sql", "") if template is not None else ""
+            elif operation in {"directory_databases", "directory_schemas", "directory_objects"}:
+                template = DIRECTORY_TEMPLATES.get(provider_key)
+                directory_operation = operation[len("directory_"):]
+                sql = getattr(template, f"{directory_operation}_sql", "") if template is not None else ""
+            else:
+                sql = ""
+            if not sql or provider_key != self.provider:
+                raise ReadOnlyQueryError(code="METADATA_TEMPLATE_UNAVAILABLE")
+        except ReadOnlyDriverError:
+            raise
+        except Exception:
+            raise ReadOnlyQueryError(code="METADATA_TEMPLATE_UNAVAILABLE") from None
+        if parameters is None:
+            parameters = ()
+        if not isinstance(parameters, Mapping) and not isinstance(parameters, Sequence):
+            raise ReadOnlyQueryError(code="PARAMETERS_INVALID")
+        if isinstance(row_limit, bool) or not isinstance(row_limit, int) or not 1 <= row_limit <= self._max_row_limit:
+            raise ReadOnlyQueryError(code="ROW_LIMIT_INVALID")
+        token = cancellation if cancellation is not None else cancel_token
+        if _is_cancelled(token):
+            raise ReadOnlyCancelled(code="CANCELLED", result_unknown=False)
+        remaining = _remaining(deadline)
+        if remaining is not None and remaining <= 0:
+            raise ReadOnlyTimeout(code="TIMEOUT", result_unknown=False)
+        self._apply_timeout(remaining)
+        cursor = None
+        sent_to_server = False
+        try:
+            cursor_factory = getattr(self._connection, "cursor", None)
+            if not callable(cursor_factory):
+                raise ReadOnlyQueryError(code="CURSOR_UNAVAILABLE")
+            cursor = _safe_call(cursor_factory)
+            execute = getattr(cursor, "execute", None)
+            if not callable(execute):
+                raise ReadOnlyQueryError(code="CURSOR_EXECUTE_UNAVAILABLE")
+            if parameters:
+                _safe_call(execute, sql, parameters)
+            else:
+                _safe_call(execute, sql)
+            sent_to_server = True
+            if _is_cancelled(token):
+                raise ReadOnlyCancelled(code="CANCELLED")
+            rows, truncated = self._fetch_rows(cursor, row_limit, token, deadline)
+            return {
+                "columns": tuple(getattr(cursor, "description", ()) or ()),
+                "rows": tuple(rows),
+                "truncated": bool(truncated),
+            }
+        except ReadOnlyDriverError:
+            raise
+        except TimeoutError:
+            raise ReadOnlyTimeout(code="TIMEOUT", result_unknown=sent_to_server) from None
+        except Exception:
+            raise ReadOnlyQueryError(code="READONLY_QUERY_FAILED", result_unknown=sent_to_server) from None
         finally:
             self._close_cursor(cursor)
 

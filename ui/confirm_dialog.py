@@ -52,12 +52,16 @@ class ConfirmActionDialog(QDialog):
         clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(14)
+        root.setSpacing(0)
 
-        header = QHBoxLayout()
+        header_band = QFrame(self)
+        header_band.setObjectName('dialog-header')
+        header_band.setMinimumHeight(56)
+        header = QHBoxLayout(header_band)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(12)
         badge = make_badge_label('danger' if danger else 'info', size=40, icon_size=22)
-        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
         title_wrap = QVBoxLayout()
         title_wrap.setSpacing(4)
         title_label = QLabel(title)
@@ -69,7 +73,7 @@ class ConfirmActionDialog(QDialog):
             role_hint.setObjectName('field-hint')
             title_wrap.addWidget(role_hint)
         header.addLayout(title_wrap, 1)
-        root.addLayout(header)
+        root.addWidget(header_band)
 
         card = QFrame()
         card.setObjectName('confirm-card')
@@ -87,7 +91,11 @@ class ConfirmActionDialog(QDialog):
         self.message_scroll.setWidget(card)
         root.addWidget(self.message_scroll, 1)
 
-        buttons = QHBoxLayout()
+        footer = QFrame(self)
+        footer.setObjectName('dialog-footer')
+        footer.setFixedHeight(60)
+        buttons = QHBoxLayout(footer)
+        buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
         buttons.addStretch()
         self.cancel_button = QPushButton('取消')
@@ -115,7 +123,7 @@ class ConfirmActionDialog(QDialog):
         self.confirm_button.setDefault(False)
         self.confirm_button.clicked.connect(self.accept)
         buttons.addWidget(self.confirm_button)
-        root.addLayout(buttons)
+        root.addWidget(footer)
         self.cancel_button.setFocus()
         # Measure the actual styled text after layout exists. The earlier empty
         # dialog sizeHint cannot size a wrapped confirmation message correctly.
@@ -125,7 +133,7 @@ class ConfirmActionDialog(QDialog):
         message_label.setMinimumHeight(text_height)
         card.setMinimumHeight(text_height + 30)
         self.message_scroll.setMinimumHeight(min(80, text_height + 30))
-        natural_height = 48 + 28 + max(40, header.sizeHint().height()) + text_height + 30 + buttons.sizeHint().height()
+        natural_height = 48 + max(56, header_band.sizeHint().height()) + text_height + 30 + 60
         clamp_dialog_geometry(self, 440, natural_height, min_width=440, min_height=180)
 
     def showEvent(self, event):
@@ -220,15 +228,9 @@ class CloseActionDialog(QDialog):
             APP_NAME = 'PengToolsHub'
         self.setWindowTitle(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
         self.setModal(True)
-        clamp_dialog_geometry(self, max(560, self.sizeHint().width()), min_width=560)
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(14)
-
-        # —— 决策标题 ——
-        title = QLabel(f'关闭 {APP_NAME}？' if zh else f'Close {APP_NAME}?')
-        title.setObjectName('confirm-title')
-        root.addWidget(title)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(6)
 
         # —— 幽默提示语（随机一条）——
         lines = self._FUNNY_LINES_ZH if zh else self._FUNNY_LINES_EN
@@ -237,38 +239,49 @@ class CloseActionDialog(QDialog):
         funny.setWordWrap(True)
         root.addWidget(funny)
 
-        # —— 两个按钮同一行 ——
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        self.minimize_button = QPushButton('隐藏' if zh else 'Hide')
-        size_dialog_button(self.minimize_button, 'secondary')
-        self.minimize_button.setObjectName('confirm-cancel')
-        self.minimize_button.clicked.connect(lambda: self._choose('minimize'))
-        btn_row.addWidget(self.minimize_button, 1)
-
-        self.exit_button = QPushButton('退出软件' if zh else 'Exit')
-        size_dialog_button(self.exit_button, 'danger')
-        self.exit_button.setObjectName('btn-danger')
-        self.exit_button.clicked.connect(lambda: self._choose('exit'))
-        btn_row.addWidget(self.exit_button, 1)
-        root.addLayout(btn_row)
-
-        # —— 底部：勾选框 + 取消，同一行 ——
-        footer = QHBoxLayout()
-        footer.setSpacing(8)
         self.dont_ask_check = QCheckBox(
             '关闭时不再提示' if zh else "Don't ask again"
         )
         self.dont_ask_check.setObjectName('close-dont-ask')
-        footer.addWidget(self.dont_ask_check, 1)
+        root.addWidget(self.dont_ask_check)
+
+        # —— 三个操作在同一行，按内容宽度排列 ——
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+        btn_row.addStretch()
 
         self.cancel_button = QPushButton('取消' if zh else 'Cancel')
         size_dialog_button(self.cancel_button, 'ghost')
+        self._compact_close_button(self.cancel_button)
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setAutoDefault(False)
         self.cancel_button.clicked.connect(self.reject)
-        footer.addWidget(self.cancel_button)
-        root.addLayout(footer)
+        btn_row.addWidget(self.cancel_button)
+
+        self.minimize_button = QPushButton('隐藏' if zh else 'Hide')
+        size_dialog_button(self.minimize_button, 'secondary')
+        self._compact_close_button(self.minimize_button)
+        self.minimize_button.setObjectName('confirm-cancel')
+        self.minimize_button.clicked.connect(lambda: self._choose('minimize'))
+        btn_row.addWidget(self.minimize_button)
+
+        self.exit_button = QPushButton('退出软件' if zh else 'Exit')
+        size_dialog_button(self.exit_button, 'danger')
+        self._compact_close_button(self.exit_button)
+        self.exit_button.setObjectName('btn-danger')
+        self.exit_button.clicked.connect(lambda: self._choose('exit'))
+        btn_row.addWidget(self.exit_button)
+        root.addLayout(btn_row)
+
+        # Keep the usual dialog compact, expanding only when the real minimum
+        # content width at a larger font requires it. The layout's height-for-
+        # width includes any wrapping in the selected message.
+        self.ensurePolished()
+        target_width = min(440, max(280, self.minimumSizeHint().width()))
+        width, _ = clamp_dialog_geometry(self, target_width, min_width=280)
+        root.activate()
+        height = max(self.minimumSizeHint().height(), root.totalHeightForWidth(width))
+        clamp_dialog_geometry(self, width, height, min_width=280)
 
         # 默认焦点落在安全控件：隐藏；若默认动作为退出，则落在取消
         if default_action == 'exit':
@@ -282,6 +295,12 @@ class CloseActionDialog(QDialog):
         super().showEvent(event)
         from ui.motion import play_dialog_enter
         play_dialog_enter(self)
+
+    @staticmethod
+    def _compact_close_button(button):
+        """Trim horizontal padding for this dialog without changing shared buttons."""
+        button.setMinimumWidth(0)
+        button.setStyleSheet('QPushButton { padding-left: 4px; padding-right: 4px; }')
 
     def _choose(self, action):
         self._result = action
@@ -305,12 +324,16 @@ class AppNoticeDialog(QDialog):
         clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(14)
+        root.setSpacing(0)
 
-        header = QHBoxLayout()
+        header_band = QFrame(self)
+        header_band.setObjectName('dialog-header')
+        header_band.setMinimumHeight(56)
+        header = QHBoxLayout(header_band)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(12)
         badge = make_badge_label(kind if kind in ('info', 'success', 'warning', 'error') else 'info', size=40, icon_size=22)
-        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         title_wrap = QVBoxLayout()
         title_wrap.setSpacing(4)
@@ -319,12 +342,16 @@ class AppNoticeDialog(QDialog):
         title_label.setWordWrap(True)
         title_wrap.addWidget(title_label)
         header.addLayout(title_wrap, 1)
-        root.addLayout(header)
+        root.addWidget(header_band)
         text_height = 0
         if message:
             self.message_scroll, text_height = _add_scrollable_message(root, message)
 
-        buttons = QHBoxLayout()
+        footer = QFrame(self)
+        footer.setObjectName('dialog-footer')
+        footer.setFixedHeight(60)
+        buttons = QHBoxLayout(footer)
+        buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
         buttons.addStretch()
         self.ok_button = QPushButton(button_text)
@@ -333,10 +360,10 @@ class AppNoticeDialog(QDialog):
         self.ok_button.setDefault(True)
         self.ok_button.clicked.connect(self.accept)
         buttons.addWidget(self.ok_button)
-        root.addLayout(buttons)
+        root.addWidget(footer)
         self.ok_button.setFocus()
         self.ensurePolished()
-        clamp_dialog_geometry(self, 440, 48 + 28 + max(40, header.sizeHint().height()) + text_height + buttons.sizeHint().height(),
+        clamp_dialog_geometry(self, 440, 48 + max(56, header_band.sizeHint().height()) + text_height + 60,
                               min_width=440, min_height=180)
 
     def showEvent(self, event):
@@ -394,18 +421,28 @@ class NextStepDialog(QDialog):
         clamp_dialog_geometry(self, 440, min_width=440, min_height=180)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(14)
+        root.setSpacing(0)
 
+        header_band = QFrame(self)
+        header_band.setObjectName('dialog-header')
+        header_band.setMinimumHeight(56)
+        header_layout = QVBoxLayout(header_band)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel(title)
         title_label.setObjectName('confirm-title')
         title_label.setWordWrap(True)
-        root.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        root.addWidget(header_band)
 
         text_height = 0
         if message:
             self.message_scroll, text_height = _add_scrollable_message(root, message)
 
-        button_row = QHBoxLayout()
+        footer = QFrame(self)
+        footer.setObjectName('dialog-footer')
+        footer.setFixedHeight(60)
+        button_row = QHBoxLayout(footer)
+        button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(8)
         button_row.addStretch()
         later = QPushButton('稍后')
@@ -431,12 +468,12 @@ class NextStepDialog(QDialog):
             if action_id == recommended or is_primary:
                 button.setDefault(True)
                 button.setFocus()
-        root.addLayout(button_row)
+        root.addWidget(footer)
         if not any(action_id == recommended or is_primary for action_id, _label, is_primary in actions):
             later.setDefault(True)
             later.setFocus()
         self.ensurePolished()
-        clamp_dialog_geometry(self, 440, 48 + 28 + title_label.heightForWidth(392) + text_height + button_row.sizeHint().height(),
+        clamp_dialog_geometry(self, 440, 48 + max(56, header_band.sizeHint().height()) + text_height + 60,
                               min_width=440, min_height=180)
 
     def showEvent(self, event):

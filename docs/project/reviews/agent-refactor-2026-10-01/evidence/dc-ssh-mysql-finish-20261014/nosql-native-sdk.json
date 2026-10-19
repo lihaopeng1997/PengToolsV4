@@ -1,0 +1,17 @@
+[
+  {
+    "provider": "redis",
+    "version": "8.1.0",
+    "native_constructor": true,
+    "network_calls": 0,
+    "closed": true
+  },
+  {
+    "provider": "mongodb",
+    "version": "4.17.0",
+    "native_constructor": true,
+    "network_calls": 0,
+    "direct_connection": true,
+    "closed": true
+  }
+]

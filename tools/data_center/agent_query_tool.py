@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import inspect
+import math
 from typing import Any, Callable
 
 from .contracts import QueryRequest, QueryResult, RunContext, ToolCall, ToolResult
@@ -36,13 +37,14 @@ class AgentQueryTool:
     host_only = True
     verified_readonly = True
 
-    def __init__(self, session_manager: SessionManager, query_executor: Any) -> None:
+    def __init__(self, session_manager: SessionManager, query_executor: Any, *, owner_tracker: Any = None) -> None:
         if session_manager is None or not callable(getattr(session_manager, "get_session", None)):
             raise TypeError("session_manager must provide get_session")
         if query_executor is None:
             raise TypeError("query_executor is required")
         self.session_manager = session_manager
         self.query_executor = query_executor
+        self.owner_tracker = owner_tracker
 
     def __call__(
         self,
@@ -96,10 +98,40 @@ class AgentQueryTool:
             generation=session.generation,
             sql=sql.strip(),
             parameters=parameters,
-            limits={"row_limit": row_limit},
+            limits={"row_limit": row_limit, **_deadline_limit(cancellation)},
         )
         try:
-            raw_result = _invoke_executor(self.query_executor, request, cancellation)
+            tracked_method = getattr(self.query_executor, "execute_tracked", None)
+            if callable(tracked_method):
+                execution = _invoke_executor(self.query_executor, request, cancellation, prefer_tracked=True)
+                raw_result = getattr(execution, "result", None)
+                future = getattr(execution, "future", None)
+                if raw_result is None or not callable(getattr(future, "done", None)):
+                    tracker = self.owner_tracker
+                    mark_failed = getattr(tracker, "fail_query_owner", None) if tracker is not None else None
+                    if callable(mark_failed):
+                        mark_failed(context, call_id)
+                    return _failure("QUERY_FAILED", "只读查询状态无法核实", query_id=call_id)
+                tracker = self.owner_tracker
+                if tracker is not None:
+                    register = getattr(tracker, "register_query_owner", None)
+                    if not callable(register) or register(
+                        context,
+                        call_id,
+                        session_id=session.session_id,
+                        generation=session.generation,
+                        future=future,
+                    ) is not True:
+                        mark_failed = getattr(tracker, "fail_query_owner", None)
+                        if callable(mark_failed):
+                            mark_failed(context, call_id)
+                        return _failure("QUERY_FAILED", "只读查询状态无法核实", query_id=call_id)
+            else:
+                raw_result = _invoke_executor(self.query_executor, request, cancellation)
+                tracker = self.owner_tracker
+                mark_failed = getattr(tracker, "fail_query_owner", None) if tracker is not None else None
+                if callable(mark_failed):
+                    mark_failed(context, call_id)
         except TimeoutError:
             return _failure("TIMEOUT", "查询超时", query_id=call_id)
         except Exception:
@@ -124,9 +156,16 @@ def _normalize_call(call: ToolCall | Mapping[str, Any]) -> tuple[str, str, Mappi
     return str(call_id or "").strip(), str(name or "").strip(), arguments
 
 
-def _invoke_executor(executor: Any, request: QueryRequest, cancellation: Any) -> Any:
+def _invoke_executor(
+    executor: Any,
+    request: QueryRequest,
+    cancellation: Any,
+    *,
+    prefer_tracked: bool = False,
+) -> Any:
     method: Callable[..., Any] | None = None
-    for name in ("execute", "run", "query", "execute_query"):
+    names = ("execute_tracked",) if prefer_tracked else ("execute", "run", "query", "execute_query")
+    for name in names:
         candidate = getattr(executor, name, None)
         if callable(candidate):
             method = candidate
@@ -219,6 +258,20 @@ def _as_tool_result(value: Any, query_id: str) -> ToolResult:
 
 def _failure(code: str, message: str, *, query_id: str | None = None) -> ToolResult:
     return ToolResult(ok=False, code=code, data={"message": message}, query_id=query_id)
+
+
+def _deadline_limit(cancellation: Any) -> dict[str, float]:
+    for name in ("deadline", "deadline_monotonic", "expires_at"):
+        value = getattr(cancellation, name, None)
+        if isinstance(value, bool):
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed):
+            return {"deadline": parsed}
+    return {}
 
 
 __all__ = ["AgentQueryTool"]

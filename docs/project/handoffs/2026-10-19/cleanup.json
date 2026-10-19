@@ -1,0 +1,222 @@
+{
+  "date": "2026-10-19",
+  "workspace": "D:\\PengTools",
+  "archive": "D:\\PengTools-archive\\cleanup-2026-10-19\\local-diagnostics.zip",
+  "archive_sha256": "9f3a17a4b51366a5b2dbaf5016e0b7459030fa2a4448072009d617091087703e",
+  "diagnostics_files": 2453,
+  "diagnostics_bytes": 84289914,
+  "removed_generated": [
+    {
+      "path": "build_new_20260930_UI4",
+      "files": 4385,
+      "bytes": 1174859670
+    },
+    {
+      "path": "build\\local-package-20260920-153536",
+      "files": 5025,
+      "bytes": 1194696517
+    },
+    {
+      "path": "build\\PengToolsHub",
+      "files": 16,
+      "bytes": 54859177
+    },
+    {
+      "path": "dist\\ui-agent-20261014-r2",
+      "files": 2319,
+      "bytes": 647008973
+    },
+    {
+      "path": "dist\\ui-agent-20261014-r4",
+      "files": 2319,
+      "bytes": 647009502
+    },
+    {
+      "path": "dist\\ui-agent-20261014-r5",
+      "files": 2319,
+      "bytes": 647009650
+    },
+    {
+      "path": "dist\\ui-agent-20261014-r6",
+      "files": 2319,
+      "bytes": 647019015
+    },
+    {
+      "path": ".pytest_cache",
+      "files": 5,
+      "bytes": 128488
+    },
+    {
+      "path": "__pycache__",
+      "files": 3,
+      "bytes": 231986
+    }
+  ],
+  "retained_generated": [
+    {
+      "path": "build_new_20260930_UI",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20260930_UI2",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20260930_UI3",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20260930_UI4_Final",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20260930_UI5",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20260930_UI6",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20261001_UI7",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20261002_UI8",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20261002_UI9",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build_new_20261004_UI10",
+      "reason": "contains application data or reparse point"
+    },
+    {
+      "path": "build\\prism-preview-20260915-064701",
+      "reason": "contains application data or reparse point"
+    }
+  ],
+  "moved_packages": [
+    "PengToolsHub_Offline_Setup.zip",
+    "PengToolsHub_RC_CorrectionRound2.zip"
+  ],
+  "boundary": "No user data, real configuration, environment, current R8 package or Git history removed.",
+  "snapshot_archive": "D:\\PengTools-archive\\cleanup-2026-10-19\\historical-build-sources.zip",
+  "snapshot_archive_sha256": "e7f615f8e301dbb349154afe1a0b357216acb7760635f3e95bd8e24d52b8c5d8",
+  "archived_snapshot_files": 3576,
+  "removed_snapshot_generated": [
+    {
+      "path": "build_new_20260930_UI\\source\\build",
+      "files": 17,
+      "bytes": 54913566
+    },
+    {
+      "path": "build_new_20260930_UI\\source\\Installer",
+      "files": 2069,
+      "bytes": 455249186
+    },
+    {
+      "path": "build_new_20260930_UI2\\source\\build",
+      "files": 17,
+      "bytes": 54929344
+    },
+    {
+      "path": "build_new_20260930_UI2\\source\\Installer",
+      "files": 2053,
+      "bytes": 455169838
+    },
+    {
+      "path": "build_new_20260930_UI3\\source\\build",
+      "files": 17,
+      "bytes": 54929320
+    },
+    {
+      "path": "build_new_20260930_UI3\\source\\Installer",
+      "files": 2053,
+      "bytes": 455179882
+    },
+    {
+      "path": "build_new_20260930_UI4_Final\\source\\build",
+      "files": 17,
+      "bytes": 54952314
+    },
+    {
+      "path": "build_new_20260930_UI4_Final\\source\\Installer",
+      "files": 2053,
+      "bytes": 455186124
+    },
+    {
+      "path": "build_new_20260930_UI5\\source\\build",
+      "files": 17,
+      "bytes": 54953538
+    },
+    {
+      "path": "build_new_20260930_UI5\\source\\Installer",
+      "files": 2053,
+      "bytes": 455187860
+    },
+    {
+      "path": "build_new_20260930_UI6\\source\\build",
+      "files": 17,
+      "bytes": 54960909
+    },
+    {
+      "path": "build_new_20260930_UI6\\source\\Installer",
+      "files": 2053,
+      "bytes": 455191588
+    },
+    {
+      "path": "build_new_20261001_UI7\\source\\build",
+      "files": 17,
+      "bytes": 54961164
+    },
+    {
+      "path": "build_new_20261001_UI7\\source\\Installer",
+      "files": 2053,
+      "bytes": 455191673
+    },
+    {
+      "path": "build_new_20261002_UI8\\source\\build",
+      "files": 17,
+      "bytes": 54961404
+    },
+    {
+      "path": "build_new_20261002_UI8\\source\\Installer",
+      "files": 2053,
+      "bytes": 455191753
+    },
+    {
+      "path": "build_new_20261002_UI9\\source\\build",
+      "files": 17,
+      "bytes": 54961422
+    },
+    {
+      "path": "build_new_20261002_UI9\\source\\Installer",
+      "files": 2053,
+      "bytes": 455191759
+    },
+    {
+      "path": "build_new_20261004_UI10\\source\\build",
+      "files": 17,
+      "bytes": 54962722
+    },
+    {
+      "path": "build_new_20261004_UI10\\source\\Installer",
+      "files": 2053,
+      "bytes": 455191958
+    },
+    {
+      "path": "build\\prism-preview-20260915-064701\\source\\build",
+      "files": 17,
+      "bytes": 54659966
+    },
+    {
+      "path": "build\\prism-preview-20260915-064701\\source\\Installer",
+      "files": 2069,
+      "bytes": 455154704
+    }
+  ],
+  "moved_snapshot_packages": 12
+}

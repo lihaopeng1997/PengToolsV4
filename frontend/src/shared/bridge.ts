@@ -20,6 +20,7 @@ export interface BridgeApi {
   nativePopupAvailable?(): Promise<boolean>
   createRequirement?(): void
   openRequirement?(reqId: string): void
+  openRequirementSection?(reqId: string, section: 'completion' | 'test_points'): void
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -28,6 +29,7 @@ export interface BridgeApi {
   onActiveChanged(handler: (index: number) => void): void
   onThemeChanged(handler: (payloadJson: string) => void): void
   onSummaryChanged?(handler: (summaryJson: string) => void): void
+  onNavModelChanged?(handler: (modelJson: string) => void): void
 }
 
 export class BridgeUnavailableError extends Error {
@@ -51,6 +53,7 @@ interface RawHomeBridge {
   nativePopupAvailable?(): Promise<boolean>
   createRequirement?(): void
   openRequirement?(reqId: string): void
+  openRequirementSection?(reqId: string, section: string): void
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -59,6 +62,7 @@ interface RawHomeBridge {
   activeChanged?: QWebChannelSignal<number>
   themeChanged?: QWebChannelSignal<string>
   summaryChanged?: QWebChannelSignal<string>
+  navModelChanged?: QWebChannelSignal<string>
 }
 
 export function normalizeCssTokenValue(value: string): string {
@@ -172,6 +176,11 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
             raw.navigate(10)
           }
         },
+        openRequirementSection: (reqId: string, section: 'completion' | 'test_points') => {
+          if (typeof raw.openRequirementSection === 'function') {
+            raw.openRequirementSection(reqId, section)
+          }
+        },
         navModel: () => toPromiseString(raw.navModel(), 'navModel'),
         homeUsername: () => toPromiseString(raw.homeUsername(), 'homeUsername'),
         dashboardSummary: () => toPromiseString(raw.dashboardSummary(), 'dashboardSummary'),
@@ -191,6 +200,11 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
         onSummaryChanged: (handler: (summaryJson: string) => void) => {
           if (raw.summaryChanged && typeof raw.summaryChanged.connect === 'function') {
             raw.summaryChanged.connect(handler)
+          }
+        },
+        onNavModelChanged: (handler: (modelJson: string) => void) => {
+          if (raw.navModelChanged && typeof raw.navModelChanged.connect === 'function') {
+            raw.navModelChanged.connect(handler)
           }
         },
       })

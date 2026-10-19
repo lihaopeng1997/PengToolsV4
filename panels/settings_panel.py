@@ -6,7 +6,8 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSlider,
-    QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionComboBox,
+    QVBoxLayout, QWidget,
 )
 
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
@@ -519,7 +520,7 @@ class SettingsPanel(QWidget):
         ai_outer = QVBoxLayout(self.ai_group)
         self.ai_list = QListWidget()
         self.ai_list.setObjectName('settings-model-list')
-        self.ai_list.setMaximumHeight(110)
+        self.ai_list.setFixedHeight(72)
         self.ai_list.currentItemChanged.connect(self._on_ai_item_changed)
         ai_outer.addWidget(self.ai_list)
         ai_crud = QHBoxLayout()
@@ -541,13 +542,18 @@ class SettingsPanel(QWidget):
         ai_outer.addLayout(ai_crud)
         ai_form = QFormLayout()
         apply_form(ai_form)
+        ai_advanced_form = QFormLayout()
+        apply_form(ai_advanced_form)
         self.ai_name = QLineEdit()
         size_line(self.ai_name, 'path')
         self.ai_name_label = QLabel()
-        ai_form.addRow(self.ai_name_label, self.ai_name)
+        self.ai_provider = QComboBox()
+        self.ai_provider.addItem('内网兼容服务', 'intranet')
+        self.ai_provider.addItem('DeepSeek', 'deepseek')
+        size_enum_combo(self.ai_provider, min_w=160, max_w=16777215)
+        self.ai_provider_label = QLabel()
         self.ai_enabled = QCheckBox()
         self.ai_enabled_label = QLabel()
-        ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
         self.ai_agent_capability = QComboBox()
         self.ai_agent_capability.addItem('未声明（安全默认）', 'unknown')
         self.ai_agent_capability.addItem('原生工具调用', 'native_tools')
@@ -555,15 +561,12 @@ class SettingsPanel(QWidget):
         self.ai_agent_capability.addItem('仅文本 / 草稿', 'text_only')
         size_enum_combo(self.ai_agent_capability, min_w=200, max_w=300)
         self.ai_agent_capability_label = QLabel()
-        ai_form.addRow(self.ai_agent_capability_label, self.ai_agent_capability)
         self.ai_agent_reasoning_fields = QLineEdit()
         self.ai_agent_reasoning_fields.setPlaceholderText('reasoning_content, reasoning_summary')
         size_line(self.ai_agent_reasoning_fields, 'std')
         self.ai_agent_reasoning_fields_label = QLabel()
-        ai_form.addRow(self.ai_agent_reasoning_fields_label, self.ai_agent_reasoning_fields)
         self.ai_agent_deadline_seconds = CompactStepper(1, 60, 60, suffix=' s')
         self.ai_agent_deadline_seconds_label = QLabel()
-        ai_form.addRow(self.ai_agent_deadline_seconds_label, self.ai_agent_deadline_seconds)
         self.ai_agent_max_reasoning_bytes = QComboBox()
         self.ai_agent_max_text_bytes = QComboBox()
         self.ai_agent_max_tool_argument_bytes = QComboBox()
@@ -582,45 +585,35 @@ class SettingsPanel(QWidget):
         self.ai_agent_max_text_bytes_label = QLabel()
         self.ai_agent_max_tool_argument_bytes_label = QLabel()
         self.ai_agent_max_raw_buffer_bytes_label = QLabel()
-        ai_form.addRow(self.ai_agent_max_reasoning_bytes_label, self.ai_agent_max_reasoning_bytes)
-        ai_form.addRow(self.ai_agent_max_text_bytes_label, self.ai_agent_max_text_bytes)
-        ai_form.addRow(self.ai_agent_max_tool_argument_bytes_label, self.ai_agent_max_tool_argument_bytes)
-        ai_form.addRow(self.ai_agent_max_raw_buffer_bytes_label, self.ai_agent_max_raw_buffer_bytes)
         self.ai_project = QComboBox()
         size_pick_combo(self.ai_project)
         self.ai_project_label = QLabel()
-        ai_form.addRow(self.ai_project_label, self.ai_project)
         self.ai_base_url = QLineEdit()
         self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
         self.ai_base_url_label = QLabel()
-        ai_form.addRow(self.ai_base_url_label, wrap_path_field(self.ai_base_url))
+        self.ai_base_url_row = wrap_path_field(self.ai_base_url)
         self.ai_model = QComboBox()
         self.ai_model.setEditable(True)
         size_pick_combo(self.ai_model)
         if self.ai_model.lineEdit() is not None:
             self.ai_model.lineEdit().setPlaceholderText('qwen3.6')
         self.ai_model_label = QLabel()
-        ai_form.addRow(self.ai_model_label, self.ai_model)
         self.ai_token = QLineEdit()
         self.ai_token_row, self.ai_token_reveal = wrap_secret_field(self.ai_token)
         self.ai_token_label = QLabel()
-        ai_form.addRow(self.ai_token_label, self.ai_token_row)
         self.ai_app_tag = QLineEdit()
         self.ai_app_tag.setPlaceholderText('一般不用填')
         size_line(self.ai_app_tag, 'std')
         self.ai_app_tag_label = QLabel()
-        ai_form.addRow(self.ai_app_tag_label, self.ai_app_tag)
         self.ai_timeout = CompactStepper(5, 300, 120, suffix=' s')
         self.ai_timeout_label = QLabel()
-        ai_form.addRow(self.ai_timeout_label, self.ai_timeout)
         self.ai_ssl_verify = QCheckBox()
         self.ai_ssl_label = QLabel()
-        ai_form.addRow(self.ai_ssl_label, self.ai_ssl_verify)
         self.ai_supports_vision = QCheckBox()
         self.ai_supports_vision_label = QLabel()
-        ai_form.addRow(self.ai_supports_vision_label, self.ai_supports_vision)
-        probe_row = QWidget()
-        probe_layout = QHBoxLayout(probe_row)
+        self.ai_action_row = QWidget()
+        self.ai_action_row.setObjectName('settings-model-actions')
+        probe_layout = QHBoxLayout(self.ai_action_row)
         probe_layout.setContentsMargins(0, 0, 0, 0)
         probe_layout.setSpacing(8)
         self.ai_probe_btn = QPushButton()
@@ -640,24 +633,66 @@ class SettingsPanel(QWidget):
         self.ai_scan_btn.clicked.connect(self._scan_project_tables)
         probe_layout.addWidget(self.ai_scan_btn)
         probe_layout.addStretch(1)
-        ai_form.addRow(probe_row)
         self.ai_status = QLabel()
         self.ai_status.setObjectName('field-hint')
         self.ai_status.setWordWrap(True)
-        ai_form.addRow(self.ai_status)
         self.ai_note = QLabel()
         self.ai_note.setObjectName('ops-safety-note')
         self.ai_note.setWordWrap(True)
-        ai_form.addRow(self.ai_note)
+        # Keep the connection identity and its dedicated save action in the
+        # first viewport. Advanced response/Agent tuning remains available in
+        # an explicit, non-persistent disclosure below it.
+        ai_form.addRow(self.ai_name_label, self.ai_name)
+        ai_form.addRow(self.ai_provider_label, self.ai_provider)
+        ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
+        ai_form.addRow(self.ai_base_url_label, self.ai_base_url_row)
+        ai_form.addRow(self.ai_model_label, self.ai_model)
+        ai_form.addRow(self.ai_token_label, self.ai_token_row)
+        ai_form.addRow(self.ai_action_row)
+        ai_form.addRow(self.ai_status)
         ai_outer.addLayout(ai_form)
+
+        self.ai_advanced_toggle = QPushButton()
+        self.ai_advanced_toggle.setObjectName('settings-advanced-toggle')
+        self.ai_advanced_toggle.setCheckable(True)
+        self.ai_advanced_toggle.setChecked(False)
+        self.ai_advanced_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ai_advanced_toggle.toggled.connect(self._set_ai_advanced_visible)
+        ai_outer.addWidget(self.ai_advanced_toggle)
+        self.ai_advanced_host = QWidget()
+        self.ai_advanced_host.setObjectName('settings-advanced-host')
+        advanced_outer = QVBoxLayout(self.ai_advanced_host)
+        advanced_outer.setContentsMargins(0, 0, 0, 0)
+        advanced_outer.addLayout(ai_advanced_form)
+        ai_advanced_form.addRow(self.ai_agent_capability_label, self.ai_agent_capability)
+        ai_advanced_form.addRow(self.ai_agent_reasoning_fields_label, self.ai_agent_reasoning_fields)
+        ai_advanced_form.addRow(self.ai_agent_deadline_seconds_label, self.ai_agent_deadline_seconds)
+        ai_advanced_form.addRow(self.ai_agent_max_reasoning_bytes_label, self.ai_agent_max_reasoning_bytes)
+        ai_advanced_form.addRow(self.ai_agent_max_text_bytes_label, self.ai_agent_max_text_bytes)
+        ai_advanced_form.addRow(self.ai_agent_max_tool_argument_bytes_label, self.ai_agent_max_tool_argument_bytes)
+        ai_advanced_form.addRow(self.ai_agent_max_raw_buffer_bytes_label, self.ai_agent_max_raw_buffer_bytes)
+        ai_advanced_form.addRow(self.ai_project_label, self.ai_project)
+        ai_advanced_form.addRow(self.ai_app_tag_label, self.ai_app_tag)
+        ai_advanced_form.addRow(self.ai_timeout_label, self.ai_timeout)
+        ai_advanced_form.addRow(self.ai_ssl_label, self.ai_ssl_verify)
+        ai_advanced_form.addRow(self.ai_supports_vision_label, self.ai_supports_vision)
+        self.ai_advanced_host.hide()
+        ai_outer.addWidget(self.ai_advanced_host)
+        ai_outer.addWidget(self.ai_note)
         self._settings_forms = (
             appearance, floating, shortcuts_form, reminder_form, behavior,
-            keep_awake, security, oracle_form, ai_form,
+            keep_awake, security, oracle_form, ai_form, ai_advanced_form,
         )
         self._apply_settings_row_minimums(self._settings_forms)
         self._ai_probe_worker = None
         self._ai_editing_id = ''
         self._ai_loading = False
+        self._ai_token_was_edited = False
+        self._ai_original_provider = 'intranet'
+        self._ai_display_provider = 'intranet'
+        self._ai_probe_persist_enabled = None
+        self.ai_provider.currentIndexChanged.connect(self._on_ai_provider_changed)
+        self.ai_token.textEdited.connect(self._on_ai_token_edited)
 
         self._layout_sections(is_compact=False)
 
@@ -679,6 +714,24 @@ class SettingsPanel(QWidget):
         root.addWidget(self.action_bar)
         self._save_loading = AuroraProgress(self)
         self._save_loading.setObjectName('settings-save-loading')
+
+    @staticmethod
+    def _settings_field_expands(field) -> bool:
+        """Fill the shared field column for text/path/secret/slider; keep pickers intrinsic-width."""
+        if field is None:
+            return False
+        if (
+            field.objectName() == 'compact-stepper'
+            or bool(field.findChildren(QWidget, 'compact-stepper'))
+        ):
+            return False
+        if isinstance(field, (QComboBox, QCheckBox, QPushButton)):
+            return False
+        if isinstance(field, (QLineEdit, QSlider, QLabel)):
+            return True
+        if field.findChildren(QSlider) or field.findChildren(QLineEdit):
+            return True
+        return False
 
     @staticmethod
     def _apply_settings_row_minimums(forms, minimum_height: int = 72):
@@ -707,27 +760,16 @@ class SettingsPanel(QWidget):
                 host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
                 row_layout = QHBoxLayout(host)
                 row_layout.setContentsMargins(0, 0, 0, 0)
-                has_stepper = (
-                    field.objectName() == 'compact-stepper'
-                    or bool(field.findChildren(QWidget, 'compact-stepper'))
-                )
-                expands = (
-                    not has_stepper
-                    and (
-                        isinstance(field, (QLineEdit, QLabel))
-                        or bool(field.findChildren(QLineEdit))
-                        or bool(field.findChildren(QSlider))
-                    )
-                )
+                expands = SettingsPanel._settings_field_expands(field)
                 if expands:
                     row_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignVCenter)
                 else:
-                    row_layout.addStretch(1)
                     row_layout.addWidget(
                         field,
                         0,
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                     )
+                    row_layout.addStretch(1)
                 if label is None:
                     form.insertRow(row, host)
                 else:
@@ -848,6 +890,96 @@ class SettingsPanel(QWidget):
         self.section_nav.setVisible(not is_compact)
         self.section_picker.setVisible(is_compact)
 
+    def _fit_ai_provider_controls(self):
+        """Fit provider and API-key action text within this responsive form row."""
+        if not hasattr(self, 'ai_provider') or not hasattr(self, 'ai_token_reveal'):
+            return
+
+        provider = self.ai_provider
+        provider.ensurePolished()
+        provider_width = max(160, int(provider.sizeHint().width()) + 16)
+        provider_host = provider.parentWidget()
+        provider_available = provider_host.contentsRect().width() if provider_host else 0
+        if provider_available <= 0:
+            provider_available = self.ai_group.contentsRect().width()
+        if provider_available > 0:
+            provider_width = min(provider_width, provider_available)
+        provider.setFixedWidth(max(1, provider_width))
+
+        reveal = self.ai_token_reveal
+        reveal.ensurePolished()
+        current_text = reveal.text()
+        candidates = ('查看', '隐藏') if self.language == 'zh' else ('Show', 'Hide')
+        reveal_width = reveal.width()
+        for text in candidates:
+            reveal.setText(text)
+            reveal_width = max(reveal_width, int(reveal.sizeHint().width()))
+        reveal.setText(current_text)
+
+        reveal_host = reveal.parentWidget()
+        reveal_available = reveal_host.contentsRect().width() if reveal_host else 0
+        if reveal_available > 0:
+            spacing = reveal_host.layout().spacing() if reveal_host.layout() else 0
+            edit_minimum = self.ai_token.minimumWidth()
+            reveal_width = min(reveal_width, max(1, reveal_available - edit_minimum - spacing))
+        reveal.setFixedWidth(max(28, reveal_width))
+
+    def _fit_ai_model_selector(self):
+        """Keep known model IDs visible in the editable selector when space allows."""
+        if not hasattr(self, 'ai_model') or self.ai_model.lineEdit() is None:
+            return
+
+        combo = self.ai_model
+        combo.ensurePolished()
+        line_edit = combo.lineEdit()
+        labels = [combo.itemText(index) for index in range(combo.count())]
+        labels.append(combo.currentText())
+        text_width = max(
+            (line_edit.fontMetrics().horizontalAdvance(text) for text in labels),
+            default=0,
+        )
+
+        option = QStyleOptionComboBox()
+        option.initFrom(combo)
+        option.currentText = combo.currentText()
+        option.editable = combo.isEditable()
+        option.frame = combo.hasFrame()
+        edit_rect = combo.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            option,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            combo,
+        )
+        combo_chrome_width = max(0, combo.width() - edit_rect.width())
+        requested_width = max(200, text_width + combo_chrome_width + 16)
+
+        row_host = combo.parentWidget()
+        available_width = row_host.contentsRect().width() if row_host else 0
+        if available_width <= 0:
+            available_width = self.ai_group.contentsRect().width()
+        if available_width > 0:
+            requested_width = min(requested_width, available_width)
+        combo.setFixedWidth(max(1, requested_width))
+
+    def _schedule_ai_provider_control_fit(self):
+        if hasattr(self, 'ai_provider'):
+            QTimer.singleShot(0, self._fit_ai_provider_controls)
+        if hasattr(self, 'ai_model'):
+            QTimer.singleShot(0, self._fit_ai_model_selector)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_ai_provider_control_fit()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.ApplicationFontChange,
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._schedule_ai_provider_control_fit()
+
     def _select_section(self, index):
         if not 0 <= index < self.sections_stack.count():
             return
@@ -859,12 +991,33 @@ class SettingsPanel(QWidget):
         self.section_picker.setCurrentIndex(index)
         self.section_nav.blockSignals(False)
         self.section_picker.blockSignals(False)
+        self._refresh_general_save_scope_text()
+
+    def _refresh_general_save_scope_text(self):
+        if not hasattr(self, 'save_btn'):
+            return
+        zh = self.language == 'zh'
+        model_section = self.sections_stack.currentIndex() == 5
+        if model_section:
+            self.save_btn.setText('保存一般偏好' if zh else 'Apply general preferences')
+        else:
+            self.save_btn.setText('应用并保存偏好' if zh else 'Apply preferences')
+
+    def _set_ai_advanced_visible(self, visible):
+        self.ai_advanced_host.setVisible(bool(visible))
+        zh = self.language == 'zh'
+        self.ai_advanced_toggle.setText(
+            ('收起 Agent 与响应高级设置' if visible else '展开 Agent 与响应高级设置')
+            if zh else
+            ('Hide advanced Agent and response settings' if visible else
+             'Show advanced Agent and response settings')
+        )
 
     def _translate_section_navigation(self):
         labels = (
             ('外观', 'Appearance'), ('悬浮工具栏', 'Floating toolbar'),
             ('提醒与关闭', 'Reminders and closing'), ('安全与安测', 'Security'),
-            ('Oracle 客户端', 'Oracle client'), ('内网模型', 'Intranet models'),
+            ('Oracle 客户端', 'Oracle client'), ('模型服务', 'Model services'),
         )
         index = max(0, self.sections_stack.currentIndex())
         self.section_nav.blockSignals(True)
@@ -883,6 +1036,7 @@ class SettingsPanel(QWidget):
         from ui.responsive import set_subtitle_visible
         set_subtitle_visible(self.subtitle, low_height)
         self._layout_sections(is_compact=mode in ('compact', 'narrow'))
+        self._schedule_ai_provider_control_fit()
 
     def load_values(self, settings, *, reload_external: bool = True):
         settings = normalize_settings(settings)
@@ -1043,6 +1197,9 @@ class SettingsPanel(QWidget):
         if self.ai_list.count() and self.ai_list.currentItem() is None:
             self.ai_list.setCurrentRow(0)
         self.ai_list.blockSignals(False)
+        # One empty/single-row selector should not dominate the first viewport;
+        # multiple configurations retain a bounded, scrollable list.
+        self.ai_list.setFixedHeight(72 if self.ai_list.count() <= 1 else 110)
         self._ai_loading = False
         row = self.ai_list.currentItem()
         if row is not None:
@@ -1064,9 +1221,26 @@ class SettingsPanel(QWidget):
         )
         cfg = cfg if isinstance(cfg, dict) else {}
         cfg = normalize_ai_local(cfg)
+        provider = cfg.get('provider', 'intranet')
+        self._ai_original_provider = provider
+        self._ai_display_provider = provider
         self._ai_editing_id = str(cfg.get('id') or '')
         self.ai_name.setText(str(cfg.get('name') or ''))
         self.ai_enabled.setChecked(bool(cfg.get('enabled')))
+        self.ai_provider.blockSignals(True)
+        self.ai_provider.clear()
+        self.ai_provider.addItem('内网兼容服务' if self.language == 'zh' else 'Intranet-compatible service', 'intranet')
+        self.ai_provider.addItem('DeepSeek', 'deepseek')
+        provider_index = self.ai_provider.findData(provider)
+        if provider_index < 0:
+            self.ai_provider.addItem(
+                f'不支持的服务商：{provider}' if self.language == 'zh' else f'Unsupported provider: {provider}',
+                provider,
+            )
+            provider_index = self.ai_provider.count() - 1
+        self.ai_provider.setCurrentIndex(provider_index)
+        self.ai_provider.blockSignals(False)
+        self._schedule_ai_provider_control_fit()
         capability = normalize_agent_capability(
             cfg.get('agent_capability', cfg.get('capability', cfg.get('agent_mode')))
         )
@@ -1112,17 +1286,104 @@ class SettingsPanel(QWidget):
                 self.ai_model.addItem(model)
             self.ai_model.setCurrentText(model)
         self.ai_model.blockSignals(False)
-        self.ai_token.setText(decrypt_token(cfg.get('token') or ''))
+        self._schedule_ai_provider_control_fit()
+        # Unknown providers must fail before touching stored credentials. A
+        # DeepSeek profile with TLS disabled is also displayed as blocked and
+        # never decrypts its key into the form.
+        can_show_token = provider in ('intranet', 'deepseek') and (
+            provider != 'deepseek' or type(cfg.get('ssl_verify', True)) is bool and cfg.get('ssl_verify', True) is True
+        )
+        self.ai_token.setText(decrypt_token(cfg.get('token') or '') if can_show_token else '')
+        self._ai_token_was_edited = False
         self.ai_app_tag.setText(str(cfg.get('app_tag') or ''))
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
-        self.ai_ssl_verify.setChecked(bool(cfg.get('ssl_verify', True)))
+        ssl_value = cfg.get('ssl_verify', True)
+        self.ai_ssl_verify.setChecked(
+            ssl_value is True if provider == 'deepseek' else bool(ssl_value)
+        )
         self.ai_supports_vision.setChecked(bool(cfg.get('supports_vision', False)))
         self._reload_harness_projects(cfg.get('project_id') or 'prpcar')
+        self._refresh_ai_provider_surface()
         zh = self.language == 'zh'
-        if cfg.get('enabled') and cfg.get('base_url'):
+        if provider not in ('intranet', 'deepseek'):
+            self.ai_status.setText('该模型服务商无法识别。请先修正配置后再保存。' if zh else 'Unknown provider. Correct this profile before saving.')
+        elif provider == 'deepseek' and (
+            type(ssl_value) is not bool or ssl_value is not True
+        ):
+            self.ai_status.setText('DeepSeek 必须启用 TLS 证书校验。请明确勾选后再保存或探测。' if zh else 'DeepSeek requires TLS certificate verification. Check it explicitly before saving or probing.')
+        elif cfg.get('enabled') and cfg.get('base_url'):
             self.ai_status.setText('已保存，可点探测检查连通' if zh else 'Saved. Probe to verify.')
         else:
-            self.ai_status.setText('默认关闭。启用后填写内网 URL 再探测。' if zh else 'Off by default.')
+            self.ai_status.setText(
+                '默认关闭。启用后填写内网 URL 再探测。' if zh and provider == 'intranet' else
+                '默认关闭。API Key 只会在本机手动输入；启用前确认目标。' if zh else
+                'Off by default. Enter the intranet URL before probing.' if provider == 'intranet' else
+                'Off by default. Enter the API key locally and review the endpoint before enabling.'
+            )
+
+    def _on_ai_token_edited(self, _text=None):
+        if not self._ai_loading:
+            self._ai_token_was_edited = True
+
+    def _on_ai_provider_changed(self, _index=None):
+        if self._ai_loading:
+            return
+        selected_provider = self.ai_provider.currentData()
+        if selected_provider == self._ai_display_provider:
+            self._refresh_ai_provider_surface()
+            return
+        previous_provider = self._ai_display_provider
+        # A provider change starts a credential-isolated draft. The backend
+        # repeats this rule so non-UI callers cannot copy an old token across.
+        self.ai_token.clear()
+        self._ai_token_was_edited = False
+        self.ai_enabled.setChecked(False)
+        self.ai_agent_capability.setCurrentIndex(max(0, self.ai_agent_capability.findData('unknown')))
+        self.ai_app_tag.clear()
+        if selected_provider == 'deepseek':
+            self.ai_base_url.setText('https://api.deepseek.com')
+            self.ai_ssl_verify.setChecked(True)
+        elif selected_provider == 'intranet':
+            self.ai_base_url.clear()
+        if selected_provider in ('intranet', 'deepseek'):
+            # Model IDs and probed model lists belong to one provider. Start a
+            # provider switch with its documented suggestion, never a stale ID.
+            default_model = 'deepseek-flash' if selected_provider == 'deepseek' else 'qwen3.6'
+            self.ai_model.blockSignals(True)
+            self.ai_model.clear()
+            self.ai_model.addItem(default_model)
+            self.ai_model.setCurrentText(default_model)
+            self.ai_model.blockSignals(False)
+            self._schedule_ai_provider_control_fit()
+        self._ai_display_provider = selected_provider
+        self._refresh_ai_provider_surface()
+
+    def _refresh_ai_provider_surface(self):
+        provider = self.ai_provider.currentData() if hasattr(self, 'ai_provider') else 'intranet'
+        zh = self.language == 'zh'
+        deepseek = provider == 'deepseek'
+        self.ai_base_url.setPlaceholderText(
+            'https://api.deepseek.com 或 /v1' if deepseek else 'http://10.128.25.142:18002/v1'
+        )
+        if self.ai_model.lineEdit() is not None:
+            self.ai_model.lineEdit().setPlaceholderText('deepseek-flash' if deepseek else 'qwen3.6')
+        self.ai_enabled.setText(
+            ('允许访问 DeepSeek 官方 API' if zh else 'Allow requests to the official DeepSeek API')
+            if deepseek else
+            ('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
+        )
+        self.ai_ssl_verify.setText(
+            ('必需：始终验证证书' if zh else 'Required: always verify certificates')
+            if deepseek else
+            ('校验（内网自签可关）' if zh else 'Verify (off for self-signed)')
+        )
+        self.ai_ssl_verify.setEnabled(True)
+        self.ai_ssl_verify.setToolTip(
+            'DeepSeek 必须保持勾选；取消后保存和请求都会被拒绝。' if zh else
+            'DeepSeek requires this to stay checked; saving and requests are blocked if it is off.'
+        )
+        self.ai_app_tag.setEnabled(not deepseek)
+        self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
 
     def _on_ai_item_changed(self, current, _previous=None):
         if self._ai_loading or current is None:
@@ -1141,6 +1402,7 @@ class SettingsPanel(QWidget):
         payload = {
             'id': self._ai_editing_id,
             'name': self.ai_name.text().strip() or '未命名配置',
+            'provider': self.ai_provider.currentData() or 'intranet',
             'enabled': self.ai_enabled.isChecked(),
             'agent_capability': normalize_agent_capability(self.ai_agent_capability.currentData()),
             'agent_reasoning_fields': normalize_agent_reasoning_fields(
@@ -1153,6 +1415,7 @@ class SettingsPanel(QWidget):
             'agent_max_raw_buffer_bytes': self.ai_agent_max_raw_buffer_bytes.currentData(),
             'base_url': self.ai_base_url.text().strip(),
             'model': self.ai_model.currentText().strip(),
+            'available_models': [self.ai_model.itemText(i) for i in range(self.ai_model.count())],
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'supports_vision': self.ai_supports_vision.isChecked(),
@@ -1161,6 +1424,16 @@ class SettingsPanel(QWidget):
             'project_id': self.ai_project.currentData() or 'prpcar',
         }
         return normalize_model_item(payload)
+
+    def _ai_token_action(self, *, new_profile: bool = False) -> str:
+        """Return explicit credential intent; never infer replacement from copied text."""
+        if new_profile:
+            return 'replace' if self._ai_token_was_edited and self.ai_token.text() else 'clear'
+        if self._ai_token_was_edited:
+            return 'replace' if self.ai_token.text() else 'clear'
+        if self.ai_provider.currentData() != self._ai_original_provider:
+            return 'clear'
+        return 'preserve'
 
     def _reload_harness_projects(self, current: str = 'prpcar'):
         from tools.harness_project import list_projects
@@ -1227,7 +1500,7 @@ class SettingsPanel(QWidget):
             pending_cfg = self._ai_cfg_from_ui()
         except Exception as exc:
             self.ai_status.setText(str(exc))
-            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+            show_error(self, '模型服务' if zh else 'Model service', str(exc))
             return
         self._ai_save_in_progress = True
         self._disable_save_actions()
@@ -1247,14 +1520,24 @@ class SettingsPanel(QWidget):
         if not self._ai_save_in_progress:
             return
         try:
-            from tools.intranet_llm import canonical_base_url, upsert_model_item, validate_base_url
+            from tools.intranet_llm import (
+                canonical_base_url,
+                provider_for_config,
+                upsert_model_item,
+                validate_profile_base_url,
+            )
             cfg = dict(self._pending_ai_cfg or self._ai_cfg_from_ui())
-            if cfg.get('enabled'):
-                cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
-            elif cfg.get('base_url'):
-                validate_base_url(cfg.get('base_url') or '')
-            saved = upsert_model_item(cfg)
+            provider = provider_for_config(cfg)
+            if cfg.get('enabled') or cfg.get('base_url'):
+                cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '', provider=provider)
+            elif provider == 'deepseek':
+                # A saved-but-disabled DeepSeek profile still gets the exact
+                # official endpoint so the user can see what will be probed.
+                cfg['base_url'] = validate_profile_base_url('https://api.deepseek.com', provider)
+            saved = upsert_model_item(cfg, token_action=self._ai_token_action())
             self._ai_editing_id = saved.get('id')
+            self._ai_original_provider = saved.get('provider', 'intranet')
+            self._ai_token_was_edited = False
             if saved.get('base_url'):
                 self.ai_base_url.setText(saved['base_url'])
             self._refresh_ai_list()
@@ -1264,7 +1547,7 @@ class SettingsPanel(QWidget):
             self._save_feedback_source = None
             self._pending_ai_cfg = None
             self._save_loading.finish('模型已保存' if zh else 'Model saved')
-            show_success(self, '内网模型' if zh else 'Intranet model', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
+            show_success(self, '模型服务' if zh else 'Model service', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
         except Exception as exc:
             self.ai_status.setText(str(exc))
             self._ai_save_in_progress = False
@@ -1272,7 +1555,7 @@ class SettingsPanel(QWidget):
             self._save_feedback_source = None
             self._pending_ai_cfg = None
             self._save_loading.fail(str(exc))
-            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+            show_error(self, '模型服务' if zh else 'Model service', str(exc))
 
     def _new_model_config(self):
         from tools.intranet_llm import upsert_model_item
@@ -1286,7 +1569,7 @@ class SettingsPanel(QWidget):
         cfg = self._ai_cfg_from_ui()
         cfg['id'] = ''
         cfg['name'] = (cfg.get('name') or '配置') + ' 副本'
-        saved = upsert_model_item(cfg)
+        saved = upsert_model_item(cfg, token_action=self._ai_token_action(new_profile=True))
         self._ai_editing_id = saved.get('id')
         self._refresh_ai_list()
 
@@ -1296,7 +1579,7 @@ class SettingsPanel(QWidget):
         zh = self.language == 'zh'
         if not self._ai_editing_id:
             return
-        if not confirm_action(self, '内网模型' if zh else 'Intranet model', '删除该模型配置？' if zh else 'Delete this model config?', confirm_text='删除' if zh else 'Delete', danger=True):
+        if not confirm_action(self, '模型服务' if zh else 'Model service', '删除该模型配置？' if zh else 'Delete this model config?', confirm_text='删除' if zh else 'Delete', danger=True):
             return
         delete_model_item(self._ai_editing_id)
         self._ai_editing_id = ''
@@ -1312,18 +1595,29 @@ class SettingsPanel(QWidget):
         from ui.confirm_dialog import show_error
         zh = self.language == 'zh'
         try:
-            from tools.intranet_llm import canonical_base_url
+            from tools.intranet_llm import (
+                DEEPSEEK_DEFAULT_MODEL,
+                canonical_base_url,
+                provider_for_config,
+            )
             cfg = self._ai_cfg_from_ui()
+            provider = provider_for_config(cfg)
+            if provider == 'deepseek' and (
+                type(cfg.get('ssl_verify')) is not bool or cfg.get('ssl_verify') is not True
+            ):
+                raise ValueError('DeepSeek requires TLS certificate verification to be enabled.')
+            self._ai_probe_persist_enabled = self.ai_enabled.isChecked()
             cfg['enabled'] = True
-            cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '')
+            cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '', provider=provider)
             if not cfg.get('model'):
-                cfg['model'] = 'qwen3.6'
-                self.ai_model.setCurrentText('qwen3.6')
+                cfg['model'] = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else 'qwen3.6'
+                self.ai_model.setCurrentText(cfg['model'])
             self.ai_base_url.setText(cfg['base_url'])
-            self.ai_enabled.setChecked(True)
+            if provider == 'intranet':
+                self.ai_enabled.setChecked(True)
         except Exception as exc:
             self.ai_status.setText(str(exc))
-            show_error(self, '内网模型' if zh else 'Intranet model', str(exc))
+            show_error(self, '模型服务' if zh else 'Model service', str(exc))
             return
         self.ai_probe_btn.setEnabled(False)
         self.ai_status.setText('正在探测…' if zh else 'Probing…')
@@ -1350,6 +1644,7 @@ class SettingsPanel(QWidget):
         elif names:
             self.ai_model.setCurrentIndex(0)
         self.ai_model.blockSignals(False)
+        self._schedule_ai_provider_control_fit()
         if names:
             self.ai_status.setText(
                 f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
@@ -1359,16 +1654,22 @@ class SettingsPanel(QWidget):
                 # /models only supplies model names.  It must never infer or
                 # elevate the separately declared Agent capability.
                 cfg = self._ai_cfg_from_ui()
-                cfg['enabled'] = True
+                provider = cfg.get('provider', 'intranet')
+                cfg['enabled'] = (
+                    True if provider == 'intranet'
+                    else bool(self._ai_probe_persist_enabled)
+                )
                 cfg['available_models'] = names
                 if not cfg.get('model') and names:
                     cfg['model'] = names[0]
                     self.ai_model.setCurrentText(names[0])
-                saved = upsert_model_item(cfg)
+                saved = upsert_model_item(cfg, token_action=self._ai_token_action())
                 self._ai_editing_id = saved.get('id')
+                self._ai_original_provider = saved.get('provider', 'intranet')
+                self._ai_token_was_edited = False
                 self._refresh_ai_list()
-            except Exception:
-                pass
+            except Exception as exc:
+                self.ai_status.setText(str(exc))
         else:
             self.ai_status.setText(
                 '已连通，但 /v1/models 列表为空，请手填模型名' if zh else
@@ -1378,7 +1679,7 @@ class SettingsPanel(QWidget):
     def _on_ai_probe_fail(self, message):
         self.ai_status.setText(str(message or ''))
         from ui.confirm_dialog import show_error
-        show_error(self, '内网模型' if self.language == 'zh' else 'Intranet model', str(message or ''))
+        show_error(self, '模型服务' if self.language == 'zh' else 'Model service', str(message or ''))
 
     def _current_reminder_time_text(self) -> str:
         from tools.daily_reports import DEFAULT_REMINDER
@@ -1723,14 +2024,29 @@ class SettingsPanel(QWidget):
             self.ai_token_reveal.setText('查看' if zh else 'Show')
         self._refresh_oracle_status()
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
-        self.save_btn.setText('应用并保存偏好' if zh else 'Apply preferences')
+        self._refresh_general_save_scope_text()
         self.save_btn.setToolTip(
-            '保存一般偏好与日报提醒；模型和响应设置请使用内网模型区的独立按钮。'
+            '保存一般偏好与日报提醒；模型和响应设置请使用模型服务区的独立按钮。'
             if zh else
-            'Saves general preferences and the daily reminder; use the intranet-model button for model and response settings.'
+            'Saves general preferences and the daily reminder; use the model-service button for model and response settings.'
         )
-        self.ai_group.setTitle('内网模型' if zh else 'Intranet model')
+        self.ai_group.setTitle('模型服务' if zh else 'Model service')
         self.ai_name_label.setText('配置名称' if zh else 'Config name')
+        self.ai_provider_label.setText('服务商' if zh else 'Provider')
+        provider = self.ai_provider.currentData()
+        self.ai_provider.setItemText(
+            self.ai_provider.findData('intranet'),
+            '内网兼容服务' if zh else 'Intranet-compatible service',
+        )
+        deepseek_index = self.ai_provider.findData('deepseek')
+        if deepseek_index >= 0:
+            self.ai_provider.setItemText(deepseek_index, 'DeepSeek')
+        unsupported_index = self.ai_provider.findData(provider)
+        if provider not in ('intranet', 'deepseek') and unsupported_index >= 0:
+            self.ai_provider.setItemText(
+                unsupported_index,
+                f'不支持的服务商：{provider}' if zh else f'Unsupported provider: {provider}',
+            )
         self.ai_new_btn.setText('新建' if zh else 'New')
         self.ai_copy_btn.setText('复制' if zh else 'Copy')
         self.ai_del_btn.setText('删除' if zh else 'Delete')
@@ -1789,17 +2105,21 @@ class SettingsPanel(QWidget):
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
         self.ai_save_btn.setText('保存模型与响应设置' if zh else 'Save model and response')
         self.ai_save_btn.setToolTip(
-            '只保存当前选中的内网模型及响应设置，不应用一般偏好。'
+            '只保存当前选中的模型服务商及响应设置，不应用一般偏好。'
             if zh else
-            'Saves the selected intranet model and response settings only; general preferences are applied separately.'
+            'Saves the selected model provider and response settings only; general preferences are applied separately.'
         )
+        self.ai_save_btn.setText('保存模型与响应设置' if zh else 'Save model and response')
+        self._set_ai_advanced_visible(self.ai_advanced_toggle.isChecked())
+        self._refresh_ai_provider_surface()
+        self._schedule_ai_provider_control_fit()
         self.ai_note.setText(
             '聊天记录以明文保存在本机 data 目录，请勿输入密码、Token、客户隐私或生产敏感数据。'
             'SQL 控制台使用默认配置；模型对话可切换任一启用配置。Agent 能力和推理字段只按本页明确选择保存，unknown 不会自动变成原生工具。'
-            '本区“保存”独立写入模型和响应设置；底部“应用并保存”只保存一般偏好与日报提醒，不会覆盖正在编辑的模型草稿。'
+            '本区“保存”独立写入模型和响应设置；底部“保存一般偏好”只保存一般偏好与日报提醒，不会覆盖正在编辑的模型草稿。'
             if zh else
             'Chats are stored as plain JSON in local data/. Do not paste secrets. '
             'SQL Console uses the default config; Model Chat can switch any enabled config. '
             'Agent capability and reasoning fields are saved only from this form; unknown never becomes native tools automatically. '
-            'This section saves model and response settings independently; the bottom Apply and save action covers general preferences and reminders without replacing an active model draft.'
+            'This section saves model and response settings independently; the bottom general-preferences action covers preferences and reminders without replacing an active model draft.'
         )

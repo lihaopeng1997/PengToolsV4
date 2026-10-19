@@ -257,6 +257,31 @@ class PageHeaderDividerTests(unittest.TestCase):
         self.assertIsInstance(title, QLabel)
         self.assertIsInstance(subtitle, QLabel)
         self.assertEqual(frame.objectName(), 'page-header')
+        from ui.layout_metrics import PAGE_HEADER_H, PAGE_HEADER_H_COMPACT
+        from ui.responsive import set_subtitle_visible
+        self.assertEqual((PAGE_HEADER_H, PAGE_HEADER_H_COMPACT), (72, 60))
+        self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H)
+        text_layout = next(
+            frame.layout().itemAt(index).layout()
+            for index in range(frame.layout().count())
+            if frame.layout().itemAt(index).layout() is not None
+            and frame.layout().itemAt(index).layout().indexOf(title) >= 0
+        )
+        self.assertEqual(text_layout.spacing(), 4)
+        set_subtitle_visible(subtitle, True)
+        self.assertTrue(subtitle.isHidden())
+        self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H_COMPACT)
+        set_subtitle_visible(subtitle, False)
+        self.assertFalse(subtitle.isHidden())
+        self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H)
+        from panels.dashboard_panel import DashboardPanel
+        panel = DashboardPanel('zh')
+        header = panel.findChild(QFrame, 'page-header')
+        self.assertEqual(header.minimumHeight(), PAGE_HEADER_H)
+        panel.apply_layout_mode('narrow', True)
+        self.assertTrue(panel.subtitle.isHidden())
+        self.assertEqual(header.minimumHeight(), PAGE_HEADER_H_COMPACT)
+        panel.deleteLater()
         # 验证分割线标记与无 timer
         self.assertTrue(getattr(frame, '_has_bottom_divider', False) or hasattr(frame, 'has_bottom_divider'))
         self.assertEqual(len(frame.findChildren(QTimer)), 0)

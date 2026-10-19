@@ -4,6 +4,8 @@ Windows 离线桌面工具台（Python 3.12 + PyQt6）。界面显示名 **PengT
 
 当前晴空棱镜改造采用 **单主题 calm + Vue/PyQt 混合界面**，保持现有业务行为。需求 AI 和开发 AI 从 [项目交接入口](docs/project/README.md) 开始；原型不能替代生产功能契约。
 
+当前进度、待办和验证边界见 [2026-10-19 详细交接](docs/project/SESSION_HANDOFF_2026-10-19.md)，目录清理和本地归档见 [清理记录](docs/project/PROJECT_CLEANUP_2026-10-19.md)。源码已实现的能力与旧预览包有差异，接手先读交接。
+
 ## 仓库结构（与架构分层一致）
 
 ```

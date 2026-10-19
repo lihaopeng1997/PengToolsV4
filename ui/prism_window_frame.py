@@ -8,6 +8,13 @@ delegate ``nativeEvent()`` to this object after opting into
 delegates move/resize to Qt's ``QWindow.startSystemMove/Resize`` APIs.  It does
 not intercept ``WM_CLOSE``, ``WM_SYSCOMMAND``, Alt+F4, or application shutdown.
 
+Custom minimize/maximize/close buttons stay ``HTCLIENT`` so Windows delivers
+the press to Qt and the title-bar ``clicked`` signals fire once into the host.
+Returning ``HTMINBUTTON`` / ``HTMAXBUTTON`` / ``HTCLOSE`` would convert the
+click into a nonclient message this adapter does not handle, so the buttons
+would appear dead.  Client routing does not expose Windows 11 Snap hover on
+the maximize control.
+
 Coordinate handling is explicit: hit-test helpers accept a screen point and a
 window rectangle in the same coordinate space.  The Windows native path uses
 physical ``GetWindowRect`` coordinates and scales title-bar child geometry by
@@ -497,14 +504,8 @@ class PrismWindowFrame(QObject):
             child = self._title_bar_child_at(global_pos, dpr)
             if child is None:
                 return HTCAPTION
-            action = str(child.property("windowAction") or "")
-            if action == "minimize":
-                return HTMINBUTTON
-            if action == "maximize":
-                return HTMAXBUTTON
-            if action == "close":
-                return HTCLOSE
-            # Pin, menus, and any injected host controls remain client-handled.
+            # Pin, menus, window buttons, and any injected host controls remain
+            # client-handled.  Native caption-button codes would steal the Qt click.
             return HTCLIENT
 
         if self._title_bar is None:
@@ -514,7 +515,11 @@ class PrismWindowFrame(QObject):
         return HTCLIENT
 
     def native_event(self, event_type: Any, message: Any) -> tuple[bool, int]:
-        """Handle only Windows ``WM_NCHITTEST`` after giving DWM first refusal."""
+        """Handle only Windows ``WM_NCHITTEST`` after giving DWM first refusal.
+
+        Nonclient button messages are not dispatched here.  Window actions are
+        owned by the Qt title-bar buttons once hit-testing returns ``HTCLIENT``.
+        """
 
         if not IS_WINDOWS or not self._native_enabled or not self.is_frameless():
             return False, 0
@@ -581,15 +586,11 @@ class PrismWindowFrame(QObject):
         child = self._title_bar_child_at(native_pos, dpr)
         if child is None:
             return None
-        action = str(child.property("windowAction") or "")
-        if action == "minimize":
-            return HTMINBUTTON
-        if action == "maximize":
-            return HTMAXBUTTON
-        if action == "close":
-            return HTCLOSE
-        # A pin/menu button remains a regular client control.  Returning None
-        # would incorrectly turn its area into a draggable caption.
+        # Interactive title-bar children (window buttons, pin, menus, host
+        # controls) stay client-owned so Qt delivers clicked() to the host.
+        # HTMINBUTTON/HTMAXBUTTON/HTCLOSE would become WM_NCLBUTTON* messages;
+        # this adapter only answers WM_NCHITTEST, so those clicks would vanish.
+        # Returning None would incorrectly turn the area into a caption drag.
         return HTCLIENT
 
 

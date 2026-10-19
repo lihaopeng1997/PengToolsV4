@@ -24,6 +24,7 @@ from urllib.parse import urljoin, urlparse
 from config import AI_LOCAL_FILE, ensure_config_dir
 
 DEFAULT_AI_LOCAL = {
+    'provider': 'intranet',
     'enabled': False,
     'base_url': '',
     'model': '',
@@ -85,6 +86,9 @@ _AGENT_RAW_MAX_ALIASES = (
 )
 
 CATALOG_VERSION = 2
+MODEL_PROVIDERS = ('intranet', 'deepseek')
+DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+DEEPSEEK_DEFAULT_MODEL = 'deepseek-flash'
 
 # 粘贴完整 Chat Completions URL 时剥掉的后缀
 _CHAT_SUFFIXES = (
@@ -184,10 +188,20 @@ def normalize_ai_local(raw) -> dict:
     result = dict(DEFAULT_AI_LOCAL)
     result['agent_reasoning_fields'] = list(DEFAULT_AGENT_REASONING_FIELDS)
     if isinstance(raw, dict):
+        provider = raw.get('provider', 'intranet')
+        # Preserve an explicit unknown provider so it cannot silently become
+        # the private-network route.  The call boundary validates it before
+        # opening a socket or decrypting a token.
+        result['provider'] = provider.strip().lower() if isinstance(provider, str) else provider
         result['enabled'] = bool(raw.get('enabled', False))
         result['base_url'] = str(raw.get('base_url') or '').strip()
         result['model'] = str(raw.get('model') or '').strip()
-        result['ssl_verify'] = bool(raw.get('ssl_verify', True))
+        if result['provider'] == 'deepseek':
+            # DeepSeek never inherits the permissive intranet bool coercion;
+            # preserve invalid values for a visible settings error.
+            result['ssl_verify'] = raw.get('ssl_verify', True)
+        else:
+            result['ssl_verify'] = bool(raw.get('ssl_verify', True))
         result['token'] = str(raw.get('token') or '')
         result['app_tag'] = str(raw.get('app_tag') or '').strip()
         result['project_id'] = str(raw.get('project_id') or 'prpcar').strip() or 'prpcar'
@@ -258,6 +272,71 @@ def normalize_ai_local(raw) -> dict:
 
 def normalize_model_item(raw) -> dict:
     return _normalize_item(raw)
+
+
+def normalize_provider(value) -> str:
+    if not isinstance(value, str):
+        raise IntranetLlmError('Model provider is invalid; choose Intranet or DeepSeek.')
+    provider = value.strip().lower()
+    if provider not in MODEL_PROVIDERS:
+        raise IntranetLlmError('Unsupported model provider; choose Intranet or DeepSeek.')
+    return provider
+
+
+def provider_for_config(cfg) -> str:
+    if not isinstance(cfg, dict):
+        raise IntranetLlmError('Model configuration is invalid.')
+    # Only a missing field on a legacy profile receives the intranet default.
+    value = cfg['provider'] if 'provider' in cfg else 'intranet'
+    return normalize_provider(value)
+
+
+def validate_profile_config(cfg, *, require_base_url: bool = False) -> str:
+    """Validate provider-specific routing before credentials or network use."""
+
+    provider = provider_for_config(cfg)
+    if provider == 'deepseek':
+        verify = cfg['ssl_verify'] if 'ssl_verify' in cfg else True
+        if type(verify) is not bool or verify is not True:
+            raise IntranetLlmError('DeepSeek requires TLS certificate verification to be enabled.')
+        base_url = str(cfg.get('base_url') or '').strip()
+        if require_base_url or base_url:
+            validate_profile_base_url(base_url, provider)
+    elif require_base_url and not str(cfg.get('base_url') or '').strip():
+        raise IntranetLlmError('Enter the model Base URL.')
+    return provider
+
+
+def validate_profile_base_url(url: str, provider='intranet') -> str:
+    provider = normalize_provider(provider)
+    if provider == 'intranet':
+        return validate_base_url(url)
+    text = str(url or '').strip()
+    if not text:
+        raise IntranetLlmError('Enter the DeepSeek Base URL.')
+    try:
+        parsed = urlparse(text)
+        port = parsed.port
+    except ValueError as exc:
+        raise IntranetLlmError('DeepSeek Base URL must use https://api.deepseek.com.') from exc
+    path = parsed.path or ''
+    if (
+        parsed.scheme.lower() != 'https'
+        or (parsed.hostname or '').lower() != 'api.deepseek.com'
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or path not in ('', '/', '/v1', '/v1/')
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or '?' in text
+        or '#' in text
+    ):
+        raise IntranetLlmError(
+            'DeepSeek only allows https://api.deepseek.com or https://api.deepseek.com/v1.'
+        )
+    return text.rstrip('/')
 
 
 def _normalize_item(raw) -> dict:
@@ -377,9 +456,21 @@ def list_enabled_items(catalog=None) -> list[dict]:
     return result
 
 
-def upsert_model_item(item: dict, *, make_active: bool = False) -> dict:
+def upsert_model_item(
+    item: dict,
+    *,
+    make_active: bool = False,
+    token_action: str = 'preserve',
+) -> dict:
+    if token_action not in ('preserve', 'replace', 'clear'):
+        raise IntranetLlmError('Token update action must be preserve, replace, or clear.')
     catalog = load_model_catalog()
     data = _normalize_item(item)
+    provider = provider_for_config(data)
+    data['provider'] = provider
+    validate_profile_config(data, require_base_url=bool(data.get('enabled')))
+    if provider == 'deepseek':
+        data['app_tag'] = ''
     data['updated_at'] = _now()
     names = {
         str(row.get('name') or '')
@@ -392,14 +483,28 @@ def upsert_model_item(item: dict, *, make_active: bool = False) -> dict:
     rows = list(catalog.get('items') or [])
     for index, row in enumerate(rows):
         if row.get('id') == data['id']:
-            if not data.get('token') and row.get('token'):
-                data['token'] = row.get('token')
+            try:
+                previous_provider = provider_for_config(row)
+            except IntranetLlmError:
+                previous_provider = None
+            if token_action == 'replace':
+                data['token'] = str(data.get('token') or '')
+            elif token_action == 'clear':
+                data['token'] = ''
+            else:
+                data['token'] = (
+                    str(row.get('token') or '')
+                    if previous_provider == provider
+                    else ''
+                )
             if not data.get('created_at'):
                 data['created_at'] = row.get('created_at') or _now()
             rows[index] = data
             found = True
             break
     if not found:
+        if token_action != 'replace':
+            data['token'] = ''
         data['created_at'] = data.get('created_at') or _now()
         rows.append(data)
     catalog['items'] = rows
@@ -441,12 +546,26 @@ def load_ai_local() -> dict:
 def save_ai_local(settings) -> dict:
     raw = settings if isinstance(settings, dict) else {}
     if _is_catalog(raw):
-        catalog = save_model_catalog(raw)
+        incoming = normalize_catalog(raw)
+        existing = load_model_catalog()
+        old_by_id = {str(row.get('id') or ''): row for row in existing.get('items') or []}
+        for row in incoming.get('items') or []:
+            provider = provider_for_config(row)
+            validate_profile_config(row, require_base_url=bool(row.get('enabled')))
+            previous = old_by_id.get(str(row.get('id') or ''))
+            if previous is not None and provider_for_config(previous) != provider:
+                raise IntranetLlmError(
+                    'Changing a model provider requires an explicit per-profile save; '
+                    'the bulk legacy catalog path cannot transfer credentials.'
+                )
+        catalog = save_model_catalog(incoming)
         return normalize_ai_local(get_active_item(catalog))
     item = _normalize_item(raw)
     if raw.get('base_url'):
         try:
-            item['base_url'] = canonical_base_url(item['base_url'])
+            item['base_url'] = canonical_base_url(
+                item['base_url'], provider=provider_for_config(item)
+            )
         except IntranetLlmError:
             pass
     catalog = load_model_catalog()
@@ -458,9 +577,19 @@ def save_ai_local(settings) -> dict:
         if not raw.get('token') and current.get('token'):
             item['token'] = current.get('token')
         item['created_at'] = current.get('created_at') or item.get('created_at')
-        saved = upsert_model_item(item, make_active=True)
+        same_provider = False
+        try:
+            same_provider = provider_for_config(current) == provider_for_config(item)
+        except IntranetLlmError:
+            pass
+        token_action = 'replace' if raw.get('token') and same_provider else 'preserve'
+        saved = upsert_model_item(item, make_active=True, token_action=token_action)
         return normalize_ai_local(saved)
-    saved = upsert_model_item(item, make_active=True)
+    saved = upsert_model_item(
+        item,
+        make_active=True,
+        token_action='replace' if raw.get('token') else 'preserve',
+    )
     return normalize_ai_local(saved)
 
 
@@ -561,9 +690,12 @@ def validate_base_url(url: str) -> str:
     return text.rstrip('/')
 
 
-def canonical_base_url(url: str) -> str:
+def canonical_base_url(url: str, provider='intranet') -> str:
     """完整 Chat Completions URL 归约到 /v1，便于再拼 /chat/completions。"""
-    text = validate_base_url(url)
+    provider = normalize_provider(provider)
+    if provider == 'deepseek':
+        return validate_profile_base_url(url, provider)
+    text = validate_profile_base_url(url, provider)
     parsed = urlparse(text)
     path = (parsed.path or '').rstrip('/')
     lower = path.lower()
@@ -589,21 +721,42 @@ def _direct_opener(verify_ssl: bool):
     )
 
 
-def _join(base_url: str, suffix: str) -> str:
-    base = canonical_base_url(base_url) + '/'
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def opener_for_profile(cfg: dict):
+    provider = provider_for_config(cfg)
+    validate_profile_config(cfg, require_base_url=(provider == 'deepseek'))
+    if provider == 'deepseek':
+        return urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            _NoRedirectHandler(),
+        )
+    return _direct_opener(bool(cfg.get('ssl_verify', True)))
+
+
+def _join(base_url: str, suffix: str, provider='intranet') -> str:
+    base = canonical_base_url(base_url, provider=provider) + '/'
     return urljoin(base, suffix.lstrip('/'))
 
 
 def build_headers(cfg: dict) -> dict:
     """OpenAI 兼容：Bearer；应用标签仅在用户填写时带上。"""
+    provider = provider_for_config(cfg)
+    validate_profile_config(cfg, require_base_url=(provider == 'deepseek'))
     headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
     }
     token = decrypt_token(cfg.get('token') or '')
+    if provider == 'deepseek' and not token:
+        raise IntranetLlmError('DeepSeek API key is required before making a request.')
     if token:
         headers['Authorization'] = f'Bearer {token}'
-    tag = str(cfg.get('app_tag') or '').strip()
+    tag = '' if provider == 'deepseek' else str(cfg.get('app_tag') or '').strip()
     if tag:
         headers['X-LLM-Application-Tag'] = tag
     return headers
@@ -660,11 +813,13 @@ def _decode_body(raw: str, status: int) -> dict:
 
 
 def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
+    provider = provider_for_config(cfg)
     if not cfg.get('enabled'):
-        raise IntranetLlmError('未启用内网模型')
-    url = _join(cfg.get('base_url') or '', suffix)
-    host = _hostname(url)
-    resolve_private_host(host)
+        raise IntranetLlmError('模型服务配置未启用')
+    validate_profile_config(cfg, require_base_url=True)
+    url = _join(cfg.get('base_url') or '', suffix, provider=provider)
+    if provider == 'intranet':
+        resolve_private_host(_hostname(url))
     timeout = int(cfg.get('timeout_seconds') or 120)
     payload = None
     headers = build_headers(cfg)
@@ -672,7 +827,7 @@ def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
         payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
     request = urllib.request.Request(url, data=payload, headers=headers, method=method)
     try:
-        opener = _direct_opener(bool(cfg.get('ssl_verify', True)))
+        opener = opener_for_profile(cfg)
         with opener.open(request, timeout=timeout) as resp:
             raw = resp.read().decode('utf-8', errors='replace')
             status = getattr(resp, 'status', 200)
@@ -726,7 +881,8 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
         names = []
     if names:
         return names
-    model = str(cfg.get('model') or 'qwen3.6').strip() or 'qwen3.6'
+    fallback_model = DEEPSEEK_DEFAULT_MODEL if provider_for_config(cfg) == 'deepseek' else 'qwen3.6'
+    model = str(cfg.get('model') or fallback_model).strip() or fallback_model
     ping = dict(cfg)
     ping['model'] = model
     ping['max_tokens'] = 16
@@ -736,7 +892,9 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
 
 def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None = None) -> str:
     cfg = _cfg_for_call(cfg, model_config_id)
-    model = str(cfg.get('model') or '').strip() or 'qwen3.6'
+    provider = provider_for_config(cfg)
+    default_model = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else 'qwen3.6'
+    model = str(cfg.get('model') or '').strip() or default_model
     body = {
         'model': model,
         'messages': messages,
@@ -744,6 +902,8 @@ def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None
         'max_tokens': int(cfg.get('max_tokens') or 8192),
         'stream': True,
     }
+    if provider == 'deepseek':
+        body['thinking'] = {'type': 'enabled'}
     try:
         data = _request(cfg, 'POST', 'chat/completions', body)
     except IntranetLlmError:
@@ -781,7 +941,7 @@ def ping_model(cfg=None, model_config_id: str | None = None) -> dict:
     probe['max_tokens'] = 16
     probe['timeout_seconds'] = min(8, int(target.get('timeout_seconds') or 120))
     try:
-        canonical_base_url(probe.get('base_url') or '')
+        canonical_base_url(probe.get('base_url') or '', provider=provider_for_config(probe))
         chat_completions([{'role': 'user', 'content': 'ping'}], cfg=probe)
         return {
             'ok': True,

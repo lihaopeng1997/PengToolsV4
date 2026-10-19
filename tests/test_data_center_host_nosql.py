@@ -31,6 +31,14 @@ class _RedisClient:
         self.calls.append(("type", name))
         return b"string"
 
+    def scan(self, cursor=0, match=None, count=None, target_nodes=None):
+        self.calls.append(("scan", {"cursor": cursor, "match": match, "count": count, "target_nodes": target_nodes}))
+        return 0, [b"tenant/alpha"]
+
+    def ttl(self, name):
+        self.calls.append(("ttl", name))
+        return 12
+
     def close(self) -> None:
         self.closed += 1
 
@@ -155,6 +163,37 @@ def _mongo_profile(**changes):
 
 
 class HostNoSQLFactoryTests(unittest.TestCase):
+    def test_metadata_directory_factory_is_separate_from_agent_execute(self) -> None:
+        client = _RedisClient()
+        host = NoSQLReadOnlyHost(
+            _redis_profile(),
+            secret_loader=lambda _profile: "private-secret",
+            redis_client_factory=lambda profile, secret, options: client,
+        )
+        snapshot = host.profile_snapshot("redis-1")
+        factory = host.create_directory_factory(
+            "redis-1",
+            profile_revision=snapshot.profile_revision,
+            provider=snapshot.provider,
+            mode=snapshot.mode,
+        )
+        self.assertEqual(client.calls, [])
+        lease = factory("redis-1")
+        self.assertEqual(client.calls, [])
+
+        page = lease._directory_children("redis_root", prefix="tenant/")
+        self.assertEqual(page.entries[0].identity, b"tenant/alpha")
+        self.assertEqual(page.entries[0].name, "tenant/alpha")
+        call_count = len(client.calls)
+        result = lease.execute({"operation": "SCAN", "pattern": "*"})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.code, "POLICY_DENIED")
+        self.assertEqual(len(client.calls), call_count)
+
+        details = lease._directory_inspect_key(b"tenant/alpha")
+        self.assertEqual(details, {"value_type": "string", "ttl_seconds": 12})
+        lease.close()
+
     def test_host_resolves_legacy_profile_lazily_and_computes_revision(self) -> None:
         profile = _redis_profile()
         profile.pop("profile_revision")

@@ -2,6 +2,8 @@
 
 本文件用于长会话续接。它保留本轮决定、文件轨迹、验证边界与下一步；需求正文仍是 [DATA_CENTER_AGENT_REQUIREMENTS.md](DATA_CENTER_AGENT_REQUIREMENTS.md)，开发接口与回执见 [DATA_CENTER_AGENT_DEVELOPMENT.md](DATA_CENTER_AGENT_DEVELOPMENT.md)。接手先核对实际 Git 分支、HEAD、远端与工作树，不能把本文记录当实时状态。
 
+2026-09-17 续接现状见 [专用关系库连接器检查点](DATA_CENTER_AGENT_CHECKPOINT_2026-09-17.md)：Luna Max 恢复续修后，主代理通过代码复核及 55 项模拟验证；尚未提交，达梦及真实环境仍待验收。以下为历史已发布阶段记录，不代表最新工作树或真实环境验收。
+
 ## 任务与固定边界
 
 - 用户要求 Luna 最高推理级别舰队实施，主代理负责需求、边界、代码审查和联合验证。

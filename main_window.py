@@ -7,7 +7,7 @@ import os
 from PyQt6.QtCore import QPoint, QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QBoxLayout, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
-    QInputDialog, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
+    QInputDialog, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -18,13 +18,12 @@ from ui.icons import NAV_ICON_BY_INDEX, apply_icon, brand_pixmap, qicon
 from ui.navigation_model import (
     GROUP_LABELS, NAV_MODEL, SQL_CONSOLE_NAV, AI_PARENT_NAV, AI_CHAT_NAV, AI_WORKBENCH_NAV,
     SQL_DB_NAV_START, SQL_DB_NAV_MAX, FIXED_DB_PAGES,
-    dialect_for_nav, display_name, icon_role_for, is_parent_nav,
+    canonical_nav_index, dialect_for_nav, display_name, icon_role_for, is_parent_nav,
     nav_is_db_slot, resolve_db_slot_index,
 )
 from ui import web_shell as _web_shell
 WEB_SHELL_AVAILABLE = _web_shell.WEB_SHELL_AVAILABLE
 from ui.layout_metrics import STATUS_H
-from ui.page_chrome import ContextHeader
 from ui.module_tabs import ModuleTabs
 from ui.prism_title_bar import PrismTitleBar
 from ui.prism_window_frame import PrismWindowFrame
@@ -36,7 +35,7 @@ from config import (
 )
 
 # stack index → 属性名（与 _stack_index_for_nav 一致）
-# 0–12 历史内置面板；13=模型聊天；14=Agent 工作台；15–20=六数据库面板
+# 0–12 历史内置面板；13=模型聊天；14=Agent 工作台；15–46=旧数据库槽位；47=统一数据中心
 _BUILTIN_ATTRS = (
     'dashboard_panel', 'credit_panel', 'sql_panel', 'docx_panel',
     'vin_panel', 'gateway_panel', 'ops_panel', 'settings_panel',
@@ -45,8 +44,10 @@ _BUILTIN_ATTRS = (
     'agent_workbench_panel',
 )
 DB_ATTRS = tuple(f'db_panel_{i}' for i in range(32))
-_STACK_PANEL_ATTRS = _BUILTIN_ATTRS + DB_ATTRS
+_DATA_CENTER_ATTR = 'data_center_panel'
+_STACK_PANEL_ATTRS = _BUILTIN_ATTRS + DB_ATTRS + (_DATA_CENTER_ATTR,)
 STACK_DB_START = 15  # stack index 15 → nav 18 (SQL_DB_NAV_START) Oracle 面板
+STACK_DATA_CENTER = len(_BUILTIN_ATTRS) + len(DB_ATTRS)
 
 
 class MainWindow(QMainWindow):
@@ -62,6 +63,24 @@ class MainWindow(QMainWindow):
         self.quick_panel = None
         self._force_exit = False
         self._shutting_down = False
+        self._manual_shutdown_pending = False
+        self._manual_shutdown_done = False
+        self._manual_shutdown_timer_scheduled = False
+        self._manual_shutdown_stage = ''
+        self._manual_shutdown_action = ''
+        self._manual_shutdown_baseline = None
+        self._manual_shutdown_gate_active = False
+        self._manual_gated_panels = []
+        self._manual_shutdown_error = ''
+        self._workbench_shutdown_pending = False
+        self._workbench_shutdown_done = False
+        self._workbench_shutdown_timer_scheduled = False
+        self._workbench_shutdown_error = ''
+        self._agent_shutdown_pending = False
+        self._agent_cleanup_done = False
+        self._agent_shutdown_timer_scheduled = False
+        self._shutdown_finalized = False
+        self._agent_shutdown_error = ''
         self._startup_ready = False
         self._boot_step = 0
         self._user_navigated = False
@@ -71,6 +90,7 @@ class MainWindow(QMainWindow):
         self._layout_mode = 'standard'
         self._nav_icon_only = False
         self._nav_collapsed = bool(self._settings.get('sidebar_collapsed', False))
+        self._nav_force_expanded = False
         # Pin is a temporary window flag.  It is intentionally not part of
         # settings.json and never changes the floating-toolbar preference.
         self._window_pinned = False
@@ -232,14 +252,9 @@ class MainWindow(QMainWindow):
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(0)
 
-        self._context_header = ContextHeader(self._content_frame)
-        self._context_header.quick_panel_requested.connect(lambda: self._open_quick_panel())
-        self._content_layout.addWidget(self._context_header, 0)
+        self._context_header = None
 
-        # The open-module strip belongs to the workspace column.  Keeping it
-        # beside the context header makes the shell follow the approved
-        # globalbar -> open-tabs -> canvas composition instead of spanning
-        # across the navigation rail.
+        # Tabs identify the current module; keep the workspace directly below them.
         self._module_tabs = ModuleTabs(language=self.language, parent=content)
         self.module_tabs = self._module_tabs
         self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
@@ -280,6 +295,7 @@ class MainWindow(QMainWindow):
             self._dash_bridge.navigateRequested.connect(self._show_panel)
             self._dash_bridge.createRequirementRequested.connect(self._on_web_create_requirement)
             self._dash_bridge.openRequirementRequested.connect(self._on_web_open_requirement)
+            self._dash_bridge.openRequirementSectionRequested.connect(self._on_web_open_requirement_section)
             self._dash_web = _web_shell.create_dashboard_widget(self._dash_bridge)
             self._dash_web.web_view.loadFinished.connect(
                 lambda ok: self._on_web_load_finished('dashboard', ok))
@@ -315,10 +331,20 @@ class MainWindow(QMainWindow):
         self._shell_controls_layout = controls_layout
         self._sidebar_footer_layout = controls_layout
 
+        self._quick_panel_btn = QPushButton(controls)
+        self._quick_panel_btn.setObjectName('context-quick-btn')
+        self._quick_panel_btn.setProperty('actionRole', 'ghost')
+        self._quick_panel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._quick_panel_btn.setFixedHeight(30)
+        apply_icon(self._quick_panel_btn, 'search', size=16)
+        self._quick_panel_btn.clicked.connect(self._open_quick_panel)
+        controls_layout.addWidget(self._quick_panel_btn)
+
         self._collapse_btn = QPushButton(controls)
         self._collapse_btn.setObjectName('sidebar-collapse-btn')
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setFixedSize(26, 26)
+        self._collapse_btn.setFixedHeight(30)
+        self._collapse_btn.setMinimumWidth(110)
         apply_icon(self._collapse_btn, 'collapse', size=14)
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
         controls_layout.addWidget(self._collapse_btn)
@@ -542,6 +568,11 @@ class MainWindow(QMainWindow):
                 panel.set_language(self.language)
             except Exception:
                 pass
+        home_text = '返回首页' if self.language == 'zh' else 'Home'
+        home_tooltip = '返回首页' if self.language == 'zh' else 'Return to Home'
+        for button in panel.findChildren(QPushButton, 'header-home-btn'):
+            button.setText(home_text)
+            button.setToolTip(home_tooltip)
         if hasattr(panel, 'apply_layout_mode'):
             try:
                 panel.apply_layout_mode(self._layout_mode, self._layout_controller.low_height)
@@ -753,6 +784,7 @@ class MainWindow(QMainWindow):
             self._setup_hotkeys()
 
     def _panel_needs_create(self, nav_index: int) -> bool:
+        nav_index = canonical_nav_index(nav_index)
         # 父级导航（SQL 控制台 / 模型）不创建面板
         if is_parent_nav(nav_index):
             return False
@@ -770,8 +802,11 @@ class MainWindow(QMainWindow):
 
     def _ensure_panel_for_nav(self, nav_index: int):
         """按导航进入时确保对应面板已创建。父级不创建面板。"""
+        nav_index = canonical_nav_index(nav_index)
         if is_parent_nav(nav_index):
             return None
+        if nav_index == 14:
+            return self._ensure_data_center_panel()
         if nav_is_db_slot(nav_index):
             return self._ensure_db_panel(nav_index)
         stack = self._stack_index_for_nav(nav_index)
@@ -1053,7 +1088,7 @@ class MainWindow(QMainWindow):
         self._nav_layout.setContentsMargins(0, 10, 0, 0)
         self._nav_layout.setSpacing(2)
 
-        # 0–13 历史 + 14 SQL 控制台（可展开组）+ 15 模型（可展开组）
+        # 14 Data Center is a direct page; 15 remains the AI group header.
         self.nav_buttons = [None] * 48
         self._group_labels = {}
         self._nav_order = []
@@ -1071,10 +1106,6 @@ class MainWindow(QMainWindow):
             self._group_labels[group_key] = section
             self._nav_layout.addWidget(section)
             for nav_index, _zh, _en, icon_role in items:
-                if nav_index == 14:
-                    # SQL 控制台 → 可折叠组（header + 6 数据库子项）
-                    self._render_sql_console_group()
-                    continue
                 if nav_index == 15:
                     # 模型 → 可折叠组（header + 聊天/工作子项）
                     self._render_ai_group()
@@ -1369,6 +1400,14 @@ class MainWindow(QMainWindow):
     def _active_db_context(self) -> dict | None:
         """返回当前活跃的数据库连接上下文（供模型对话面板感知）。"""
         current = getattr(self, '_current_nav_index', None)
+        if current == 14:
+            panel = getattr(self, _DATA_CENTER_ATTR, None)
+            if panel is not None and hasattr(panel, 'active_connection_profile'):
+                try:
+                    ctx = panel.active_connection_profile()
+                    return dict(ctx) if isinstance(ctx, dict) else None
+                except Exception:
+                    return None
         if current is not None and nav_is_db_slot(current):
             panel = self._ensure_db_panel(current)
             if panel is not None and hasattr(panel, '_current_conn'):
@@ -1504,15 +1543,23 @@ class MainWindow(QMainWindow):
             icon_only = True
             target_width = NAV_ICON
         else:
-            icon_only = is_icon_nav(mode)
-            target_width = nav_width_for_mode(mode)
+            force_expanded = bool(getattr(self, '_nav_force_expanded', False))
+            icon_only = is_icon_nav(mode) and not force_expanded
+            target_width = nav_width_for_mode('standard' if force_expanded and is_icon_nav(mode) else mode)
         self._sidebar.setFixedWidth(target_width)
         if getattr(self, '_sidebar_stack', None) is not None:
             self._sidebar_stack.setFixedWidth(target_width)
         self._nav_icon_only = icon_only
+        if getattr(self, '_prism_title_bar', None) is not None:
+            self._collapse_btn.setText(
+                ('展开全部菜单' if icon_only else '收起菜单') if self.language == 'zh'
+                else ('Expand all menus' if icon_only else 'Collapse menus')
+            )
+            self._collapse_btn.setMinimumWidth(110 if self.language == 'zh' else 160)
         if getattr(self, '_prism_sidebar', None) is not None:
             self._prism_sidebar.setFixedWidth(target_width)
             self._prism_sidebar.set_icon_only(icon_only)
+            self._sync_prism_sidebar_index()
             self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
             self.version_label.setVisible(not icon_only and not low_height)
             self._collapse_btn.setToolTip(
@@ -1535,9 +1582,10 @@ class MainWindow(QMainWindow):
         self._sidebar.layout().setContentsMargins(8 if icon_only else 12, 14,
                                                   8 if icon_only else 12, 12)
         for sub_layout in (self._sql_subnav_layout, self._ai_subnav_layout):
-            sub_layout.setContentsMargins(0 if icon_only else 20, 2,
-                                          0 if icon_only else 8, 4)
-        for parent_index in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+            if sub_layout is not None:
+                sub_layout.setContentsMargins(0 if icon_only else 20, 2,
+                                              0 if icon_only else 8, 4)
+        for parent_index in (AI_PARENT_NAV,):
             self.nav_buttons[parent_index].parentWidget().layout().setContentsMargins(
                 0, 0, 0 if icon_only else 8, 0)
         self._sidebar_footer_layout.setDirection(
@@ -1598,10 +1646,11 @@ class MainWindow(QMainWindow):
         if not icon_only:
             self._apply_nav_texts()
 
-    def _set_nav_collapsed(self, collapsed: bool, *, persist: bool = False) -> None:
+    def _set_nav_collapsed(self, collapsed: bool, *, persist: bool = False, force_expanded: bool = False) -> None:
         """应用侧栏折叠状态，不改变导航数组或面板映射。"""
         zh = self.language == 'zh'
         self._nav_collapsed = bool(collapsed)
+        self._nav_force_expanded = bool(force_expanded and not collapsed)
         if self._nav_collapsed:
             apply_icon(self._collapse_btn, 'expand', size=14)
             self._collapse_btn.setToolTip('展开导航栏' if zh else 'Expand sidebar')
@@ -1617,7 +1666,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_nav_collapse(self):
         """手动折叠/展开侧边栏导航。"""
-        self._set_nav_collapsed(not self._nav_collapsed, persist=True)
+        self._set_nav_collapsed(not self._nav_icon_only, persist=True, force_expanded=True)
 
     def _apply_density_preferences(self, settings, *, apply_startup_sidebar: bool = False) -> None:
         """将纯视觉偏好注入窗口，不重建任何业务面板。"""
@@ -1654,6 +1703,9 @@ class MainWindow(QMainWindow):
 
     def _apply_nav_texts(self):
         zh = self.language == 'zh'
+        if getattr(self, '_quick_panel_btn', None) is not None:
+            self._quick_panel_btn.setText('快速面板' if zh else 'Quick Panel')
+            self._quick_panel_btn.setToolTip('Ctrl+Shift+P')
         if getattr(self, '_prism_sidebar', None) is not None:
             self._prism_sidebar.set_language(self.language)
             self._prism_sidebar.set_nav_model(self._build_web_nav_model())
@@ -1706,6 +1758,9 @@ class MainWindow(QMainWindow):
         ):
             if panel is not None:
                 yield panel
+        data_center = getattr(self, _DATA_CENTER_ATTR, None)
+        if data_center is not None:
+            yield data_center
         # 已创建的 DB 面板
         for attr in DB_ATTRS:
             panel = getattr(self, attr, None)
@@ -1757,6 +1812,17 @@ class MainWindow(QMainWindow):
         self._apply_panel_chrome(panel)
         return panel
 
+    def _ensure_data_center_panel(self):
+        panel = getattr(self, _DATA_CENTER_ATTR, None)
+        if panel is not None:
+            return panel
+        from panels.data_center_panel import DataCenterPanel
+        panel = DataCenterPanel(self.language)
+        self._mount_panel(STACK_DATA_CENTER, panel)
+        setattr(self, _DATA_CENTER_ATTR, panel)
+        self._apply_panel_chrome(panel)
+        return panel
+
     def _broadcast_layout_mode(self, mode: str, low_height: bool):
         for panel in self._iter_created_panels():
             if hasattr(panel, 'apply_layout_mode'):
@@ -1769,9 +1835,11 @@ class MainWindow(QMainWindow):
     def _stack_index_for_nav(index: int) -> int:
         """nav index → stack index。
 
-        v3.0：0–13 历史含义不变；16=聊天→13；17=工作→14；18–23 六数据库面板→15–20。
-        14(SQL控制台)/15(模型) 为父级，不映射 stack。
+        0–13 历史含义不变；16=聊天→13；17=Agent→14；18–23 aliases→47 Data Center。
         """
+        index = canonical_nav_index(index)
+        if index == 14:
+            return STACK_DATA_CENTER
         if index in (8, 9):
             return 8  # personal
         if index == 10:
@@ -1897,6 +1965,7 @@ class MainWindow(QMainWindow):
         return build_web_nav_model_data(
             private_unlocked=bool(getattr(self, '_private_unlocked', False)),
             current=int(getattr(self, '_current_nav_index', 0) or 0),
+            language=self.language,
         )
 
     def _dashboard_summary_payload(self):
@@ -1941,19 +2010,54 @@ class MainWindow(QMainWindow):
 
     def _on_web_create_requirement(self):
         """Web 首页点击 '+ 新建需求'：切换到需求管理并直接弹出新增对话框。"""
-        self._show_panel(10)
-        panel = self._ensure_requirement_panel()
+        if not self._show_panel(10):
+            return
+        panel = self.requirement_panel
         if panel is not None:
             panel._add_requirement()
 
     def _on_web_open_requirement(self, req_id: str):
         """Web 首页点击需求行或查看：切换到需求管理并定位选中该需求。"""
-        self._show_panel(10)
-        panel = self._ensure_requirement_panel()
+        if not self._show_panel(10):
+            return
+        panel = self.requirement_panel
         if panel is not None and req_id:
             panel.focus_requirement(str(req_id))
 
+    def _on_web_open_requirement_section(self, req_id: str, section: str) -> bool:
+        """首页状态/测试点入口：校验并精确定位需求，成功后切换页面。"""
+        target = _web_shell.validate_requirement_section_target(req_id, section)
+        if target is None:
+            return False
+        valid_id, valid_section = target
+        try:
+            panel = self._ensure_requirement_panel()
+        except Exception as exc:
+            self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)
+            return False
+        if panel is None:
+            return False
+        focus_fn = getattr(panel, 'focus_requirement_section', None)
+        if not callable(focus_fn):
+            return False
+        try:
+            ok = bool(focus_fn(valid_id, valid_section))
+        except Exception:
+            ok = False
+        if not ok:
+            return False
+        return bool(self._show_panel(10))
+
     def _show_panel(self, index):
+        try:
+            requested_index = int(index)
+        except (TypeError, ValueError):
+            return False
+        index = canonical_nav_index(requested_index)
+        if index < 0:
+            return False
+        if getattr(self, '_shutting_down', False) or getattr(self, '_shutdown_finalized', False):
+            return False
         if index == 8 and not self._private_unlocked:
             return False
         # 父级导航（SQL 控制台 / 模型）：不切换页面，仅展开/折叠子菜单
@@ -1992,6 +2096,10 @@ class MainWindow(QMainWindow):
             self._show_startup_loading(f'{prefix}{name}…' if self.language == 'zh' else f'{prefix}{name}…')
         try:
             self._ensure_panel_for_nav(index)
+            if index == 14 and requested_index != 14:
+                panel = getattr(self, _DATA_CENTER_ATTR, None)
+                if panel is not None:
+                    panel.focus_legacy_nav(requested_index)
         except Exception as exc:
             self._hide_startup_loading()
             self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)
@@ -2032,7 +2140,7 @@ class MainWindow(QMainWindow):
                 if button is None:
                     continue
                 # 父级 header 不参与选中态（SQL 控制台 header 保持未选中）
-                if position in (SQL_CONSOLE_NAV, AI_PARENT_NAV):
+                if position == AI_PARENT_NAV:
                     continue
                 button.setChecked(position == index)
         statuses_zh = {
@@ -2043,14 +2151,9 @@ class MainWindow(QMainWindow):
             11: 'JSON / XML / SQL / 文本辅助离线格式化',
             12: '接口排查 · 抓包中会占用系统代理，离开本页自动暂停代理',
             13: '日志排查 · SSH 会话 / 多机日志导出',
+            14: '数据中心 · 连接目录与连接绑定工作区',
             16: '模型聊天 · 内网多模型连续对话',
             17: 'Agent 工作台 · 绑定项目目录执行受控任务',
-            18: 'Oracle 工作台 · SQL 编辑、对象树与结构快照',
-            19: 'MySQL 工作台 · 库表浏览与 SQL 编辑',
-            20: 'OceanBase 工作台 · SQL 编辑与分区表浏览',
-            21: '达梦工作台 · 模式浏览与 SQL 编辑',
-            22: 'Redis 工作台 · Key 树、TTL 管理与命令行',
-            23: 'MongoDB 工作台 · 集合树、文档浏览器与 Shell',
         }
         statuses_en = {
             0: 'Offline workspace ready', 1: 'Personal and unit document test data',
@@ -2063,14 +2166,9 @@ class MainWindow(QMainWindow):
             11: 'Offline JSON / XML / SQL / text helpers',
             12: 'API debug · system proxy paused when you leave this page',
             13: 'Log inspect · SSH session / multi-host export',
+            14: 'Data Center · connection catalog and fixed-target workspaces',
             16: 'Model chat · intranet multi-model conversation',
             17: 'Agent workbench · bind project dir and run controlled tasks',
-            18: 'Oracle workbench · SQL editor, object tree, snapshot',
-            19: 'MySQL workbench · schema tree and SQL editor',
-            20: 'OceanBase workbench · SQL editor and partition view',
-            21: 'Dameng workbench · schema tree and SQL editor',
-            22: 'Redis workbench · key tree, TTL and CLI',
-            23: 'MongoDB workbench · collections, documents and shell',
         }
         table = statuses_zh if self.language == 'zh' else statuses_en
         self.status_bar.showMessage(table.get(index, ''))
@@ -2503,6 +2601,9 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def closeEvent(self, event):
+        if self._shutting_down or self._manual_shutdown_pending or self._agent_shutdown_pending:
+            self._shutdown(event)
+            return
         action = 'exit' if self._force_exit else self._settings['close_default_action']
         if not self._force_exit and self._settings['close_ask_each_time']:
             result = self._ask_close_action()
@@ -2535,10 +2636,51 @@ class MainWindow(QMainWindow):
         self.close()
 
     def _shutdown(self, event):
-        if self._shutting_down:
+        if self._shutdown_finalized:
             event.accept()
             return
         self._shutting_down = True
+        if not self._manual_shutdown_done:
+            outcome = self._advance_manual_shutdown()
+            if outcome != 'ready':
+                event.ignore()
+                if outcome == 'pending':
+                    self._show_manual_shutdown_wait_status()
+                    self._schedule_manual_shutdown_poll()
+                return
+            self._manual_shutdown_done = True
+        if not self._workbench_shutdown_done and not self._request_workbench_panel_cleanup():
+            self._workbench_shutdown_pending = True
+            event.ignore()
+            status_bar = getattr(self, 'status_bar', None)
+            if status_bar is not None:
+                status_bar.showMessage(
+                    '正在等待数据库工作台任务安全结束…'
+                    if getattr(self, 'language', 'zh') == 'zh' else
+                    'Waiting for database workbench tasks to finish safely…'
+                )
+            self._schedule_workbench_shutdown_poll()
+            return
+        self._workbench_shutdown_done = True
+        self._workbench_shutdown_pending = False
+        if not self._agent_cleanup_done and not self._request_agent_panel_cleanup():
+            self._agent_shutdown_pending = True
+            event.ignore()
+            status_bar = getattr(self, 'status_bar', None)
+            if status_bar is not None:
+                message = (
+                    ('停止 Agent 时遇到问题，正在重试…' if getattr(self, 'language', 'zh') == 'zh'
+                     else 'Agent stop encountered an issue; retrying…')
+                    if self._agent_shutdown_error else
+                    ('正在安全停止 Agent 任务…' if getattr(self, 'language', 'zh') == 'zh'
+                     else 'Waiting for Agent tasks to stop safely…')
+                )
+                status_bar.showMessage(message)
+            self._schedule_agent_shutdown_poll()
+            return
+        self._agent_cleanup_done = True
+        self._agent_shutdown_pending = False
+        self._shutdown_finalized = True
         if self.hotkey_service:
             self.hotkey_service.unregister()
         keep_awake_service = getattr(self, 'keep_awake_service', None)
@@ -2568,3 +2710,605 @@ class MainWindow(QMainWindow):
             self.tray_service.hide()
         event.accept()
         QApplication.instance().quit()
+
+    @staticmethod
+    def _manual_status_value(status):
+        value = getattr(status, 'value', status)
+        return str(value or '').strip().casefold()
+
+    def _manual_panel_refs(self):
+        """Return only already-created manual-session owners, without ensuring panels."""
+        panels = []
+        seen = set()
+        for attr in ('sql_panel',) + DB_ATTRS + (_DATA_CENTER_ATTR,):
+            panel = getattr(self, attr, None)
+            if panel is None or id(panel) in seen:
+                continue
+            if not callable(getattr(panel, 'manual_shutdown_cleanup', None)) and not callable(
+                getattr(panel, 'manual_shutdown_snapshot', None)
+            ):
+                continue
+            seen.add(id(panel))
+            panels.append((attr, panel))
+        return panels
+
+    def _workbench_panel_refs(self):
+        panels = []
+        seen = set()
+        for attr in ('sql_panel',) + DB_ATTRS + (_DATA_CENTER_ATTR,):
+            panel = getattr(self, attr, None)
+            if panel is None or id(panel) in seen:
+                continue
+            has_cleanup = callable(getattr(panel, 'workbench_shutdown_cleanup', None))
+            has_legacy_worker = any(getattr(panel, name, None) is not None for name in (
+                '_worker', '_bg_worker', '_ai_worker',
+            ))
+            if not has_cleanup and not has_legacy_worker:
+                continue
+            seen.add(id(panel))
+            panels.append((attr, panel))
+        return panels
+
+    def _has_live_workbench_worker(self, panel):
+        """Poll legacy owner references without waiting or terminating them."""
+        for name in ('_worker', '_bg_worker', '_ai_worker'):
+            worker = getattr(panel, name, None)
+            is_running = getattr(worker, 'isRunning', None) if worker is not None else None
+            if not callable(is_running):
+                continue
+            try:
+                if is_running():
+                    return True
+            except Exception:
+                return True
+        return False
+
+    def _request_workbench_panel_cleanup(self):
+        complete = True
+        first_error = ''
+        for attr, panel in self._workbench_panel_refs():
+            cleanup = getattr(panel, 'workbench_shutdown_cleanup', None)
+            try:
+                current = bool(cleanup()) if callable(cleanup) else True
+                current = current and not self._has_live_workbench_worker(panel)
+                complete = current and complete
+            except Exception as exc:
+                complete = False
+                if not first_error:
+                    first_error = f'{attr}: {exc.__class__.__name__}'
+        if complete:
+            try:
+                from ui.data_center.query_history_service import (
+                    application_history_cleanup_error_code,
+                    drain_existing_application_history_service,
+                )
+
+                complete = bool(drain_existing_application_history_service())
+                if not complete and not first_error:
+                    code = application_history_cleanup_error_code()
+                    if code:
+                        first_error = f'history: {code}'
+            except Exception as exc:
+                complete = False
+                if not first_error:
+                    first_error = f'history: {exc.__class__.__name__}'
+        self._workbench_shutdown_error = first_error
+        return complete
+
+    def _schedule_workbench_shutdown_poll(self):
+        if self._workbench_shutdown_timer_scheduled or self._shutdown_finalized:
+            return
+        self._workbench_shutdown_timer_scheduled = True
+        QTimer.singleShot(100, self._poll_workbench_panel_cleanup)
+
+    def _poll_workbench_panel_cleanup(self):
+        self._workbench_shutdown_timer_scheduled = False
+        if not self._workbench_shutdown_pending or self._shutdown_finalized:
+            return
+        if self._request_workbench_panel_cleanup():
+            self._workbench_shutdown_done = True
+            self._workbench_shutdown_pending = False
+            status_bar = getattr(self, 'status_bar', None)
+            if status_bar is not None:
+                status_bar.clearMessage()
+            QTimer.singleShot(0, self.close)
+            return
+        self._schedule_workbench_shutdown_poll()
+
+    def _collect_manual_shutdown_state(self):
+        entries = []
+        try:
+            for attr, panel in self._manual_panel_refs():
+                snapshot_method = getattr(panel, 'manual_shutdown_snapshot', None)
+                snapshot = snapshot_method() if callable(snapshot_method) else None
+                cleanup = getattr(panel, 'manual_shutdown_cleanup', None)
+                status = cleanup(None) if callable(cleanup) else 'ready'
+                entries.append((attr, panel, snapshot, status))
+        except Exception as exc:
+            self._manual_shutdown_error = f'{attr}: {exc.__class__.__name__}'
+            return entries, 'error'
+        return entries, self._aggregate_manual_status(entries)
+
+    @classmethod
+    def _aggregate_manual_status(cls, entries):
+        values = [cls._manual_status_value(entry[3]) for entry in entries]
+        if not values:
+            return 'ready'
+        if any(value == 'pending' for value in values):
+            return 'pending'
+        if any(value == 'decision_required' for value in values):
+            return 'decision_required'
+        if any(value == 'cancelled' for value in values):
+            return 'cancelled'
+        if all(value == 'ready' for value in values):
+            return 'ready'
+        if any(value == 'ready_to_close' for value in values) and all(
+            value in {'ready', 'ready_to_close'} for value in values
+        ):
+            return 'ready_to_close'
+        return 'error'
+
+    @classmethod
+    def _manual_snapshot_signature(cls, entries):
+        result = []
+        for attr, _panel, snapshot, _status in entries:
+            if snapshot is None:
+                result.append((attr, None))
+                continue
+            sessions = []
+            for session in tuple(getattr(snapshot, 'sessions', ()) or ()):
+                state = getattr(session, 'state', '')
+                state = getattr(state, 'value', state)
+                sessions.append((
+                    str(getattr(session, 'tab_id', '')),
+                    int(getattr(session, 'generation', 0) or 0),
+                    str(state or '').casefold(),
+                    bool(getattr(session, 'busy', False)),
+                    bool(getattr(session, 'cleanup_complete', False)),
+                    max(0, int(getattr(session, 'pending_local_changes', 0) or 0)),
+                    str(getattr(session, 'owner_kind', 'manual') or 'manual').casefold(),
+                    str(getattr(session, 'parent_sql_tab_id', '') or ''),
+                    int(getattr(session, 'parent_sql_generation', 0) or 0),
+                ))
+            result.append((attr, tuple(sorted(sessions)), bool(getattr(snapshot, 'can_commit', False))))
+        return tuple(result)
+
+    @classmethod
+    def _manual_can_commit(cls, entries):
+        for _attr, _panel, snapshot, status in entries:
+            status_value = cls._manual_status_value(status)
+            if snapshot is None:
+                if status_value == 'decision_required':
+                    return False
+                continue
+            if not bool(getattr(snapshot, 'can_commit', False)):
+                return False
+        return True
+
+    @classmethod
+    def _manual_summary(cls, entries, language):
+        counts = {'dirty': 0, 'unknown': 0, 'unknown_import': 0, 'busy': 0, 'local': 0}
+        for _attr, _panel, snapshot, _status in entries:
+            if snapshot is None:
+                continue
+            for session in tuple(getattr(snapshot, 'sessions', ()) or ()):
+                if bool(getattr(session, 'cleanup_complete', False)):
+                    continue
+                state = getattr(session, 'state', '')
+                state = str(getattr(state, 'value', state) or '').casefold()
+                if state == 'dirty':
+                    counts['dirty'] += 1
+                elif state == 'unknown':
+                    counts['unknown'] += 1
+                    if str(getattr(session, 'owner_kind', 'manual') or 'manual').casefold() == 'import':
+                        counts['unknown_import'] += 1
+                if bool(getattr(session, 'busy', False)):
+                    counts['busy'] += 1
+                counts['local'] += max(0, int(getattr(session, 'pending_local_changes', 0) or 0))
+        zh = str(language or 'zh').casefold().startswith('zh')
+        if zh:
+            summary = f"{counts['dirty']} 个未提交会话，{counts['unknown']} 个结果未知，{counts['busy']} 个仍在执行。"
+            if counts['local']:
+                summary += f"\n另有 {counts['local']} 项表格编辑仅在本地，尚未写入数据库；不会自动应用，因此不能提交。"
+            caution = (
+                '导入结果未知时只能确认未知并释放连接；这不会发送新的回滚请求，也不证明写入已撤销。'
+                if counts['unknown_import'] else '未知结果的回滚或释放不证明写入已撤销。'
+            )
+        else:
+            summary = f"{counts['dirty']} uncommitted session(s), {counts['unknown']} unknown outcome(s), {counts['busy']} still busy."
+            if counts['local']:
+                summary += f"\n{counts['local']} table edit(s) are local and unsaved; they will not be applied automatically and block commit."
+            caution = (
+                'An UNKNOWN import is acknowledged and released; this sends no additional rollback and does not prove the write was undone.'
+                if counts['unknown_import'] else 'Rollback or release does not prove that an unknown write was undone.'
+            )
+        if counts['dirty'] == counts['unknown'] == counts['busy'] == counts['local'] == 0:
+            summary = (
+                '手动会话状态需要重新检查。' if zh else
+                'Manual session state needs another review.'
+            )
+        return f'{summary}\n{caution}'
+
+    def _ask_manual_shutdown_decision(self, entries):
+        zh = str(getattr(self, 'language', 'zh')).casefold().startswith('zh')
+        dialog = QDialog(self)
+        dialog.setObjectName('manual-shutdown-decision-dialog')
+        dialog.setWindowTitle('关闭手动会话' if zh else 'Close manual sessions')
+        dialog.setModal(True)
+        dialog.setMinimumWidth(390)
+        dialog.setMaximumWidth(460)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(12)
+        label = QLabel(self._manual_summary(entries, self.language), dialog)
+        label.setObjectName('manual-shutdown-decision-summary')
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        button_stack = QVBoxLayout()
+        button_stack.setSpacing(8)
+        decision_buttons = QVBoxLayout()
+        decision_buttons.setSpacing(8)
+        cancel_buttons = QHBoxLayout()
+        commit_text = '提交并退出' if zh else 'Commit and exit'
+        unknown_import = any(
+            str(getattr(session, 'state', '') or '').casefold() == 'unknown'
+            and str(getattr(session, 'owner_kind', 'manual') or 'manual').casefold() == 'import'
+            and not bool(getattr(session, 'cleanup_complete', False))
+            for _attr, _panel, snapshot, _status in entries
+            for session in tuple(getattr(snapshot, 'sessions', ()) or ())
+        )
+        rollback_text = (
+            ('回滚／确认未知' if zh else 'Roll back / acknowledge')
+            if unknown_import else ('回滚并退出' if zh else 'Roll back and exit')
+        )
+        cancel_text = '取消退出' if zh else 'Cancel exit'
+        commit = QPushButton(commit_text, dialog)
+        rollback = QPushButton(rollback_text, dialog)
+        cancel = QPushButton(cancel_text, dialog)
+        commit.setObjectName('manual-shutdown-commit')
+        rollback.setObjectName('manual-shutdown-rollback')
+        cancel.setObjectName('manual-shutdown-cancel')
+        if unknown_import:
+            rollback.setToolTip(
+                '对可回滚会话请求回滚；对结果未知的导入只确认未知并释放连接，不会再发送回滚，也不证明写入已撤销。'
+                if zh else
+                'Rollback applies to reversible sessions. An UNKNOWN import is only acknowledged and released; no additional rollback is sent and the write is not confirmed undone.'
+            )
+        commit.setEnabled(self._manual_can_commit(entries))
+        cancel.setDefault(True)
+        cancel.setAutoDefault(True)
+        cancel.setToolTip(
+            '取消并保留当前会话；按 Esc 也会取消。' if zh else
+            'Cancel and keep the current sessions; Esc also cancels.'
+        )
+        decision = {'action': None}
+        commit.clicked.connect(lambda: (decision.__setitem__('action', 'commit'), dialog.accept()))
+        rollback.clicked.connect(lambda: (decision.__setitem__('action', 'rollback'), dialog.accept()))
+        cancel.clicked.connect(dialog.reject)
+        decision_buttons.addWidget(commit)
+        decision_buttons.addWidget(rollback)
+        cancel_buttons.addStretch(1)
+        cancel_buttons.addWidget(cancel)
+        button_stack.addLayout(decision_buttons)
+        button_stack.addLayout(cancel_buttons)
+        layout.addLayout(button_stack)
+        dialog.adjustSize()
+        cancel.setFocus(Qt.FocusReason.OtherFocusReason)
+        dialog.exec()
+        return decision['action']
+
+    def _set_manual_shutdown_gate(self, panels, enabled):
+        changed = []
+        try:
+            for attr, panel in panels:
+                gate = getattr(panel, 'manual_shutdown_gate', None)
+                if not callable(gate):
+                    if enabled:
+                        raise RuntimeError(f'{attr} does not expose manual shutdown gate')
+                    continue
+                if gate(bool(enabled)) is False:
+                    raise RuntimeError(f'{attr} rejected manual shutdown gate')
+                if enabled:
+                    changed.append((attr, panel))
+        except Exception as exc:
+            self._manual_shutdown_error = f'{attr}: {exc.__class__.__name__}'
+            for _name, panel in reversed(changed):
+                try:
+                    panel.manual_shutdown_gate(False)
+                except Exception:
+                    pass
+            return False
+        self._manual_gated_panels = changed if enabled else []
+        self._manual_shutdown_gate_active = bool(enabled and changed)
+        return True
+
+    def _release_manual_shutdown_gate(self):
+        panels = tuple(getattr(self, '_manual_gated_panels', ()))
+        self._manual_gated_panels = []
+        self._manual_shutdown_gate_active = False
+        for _attr, panel in reversed(panels):
+            try:
+                gate = getattr(panel, 'manual_shutdown_gate', None)
+                if callable(gate):
+                    gate(False)
+            except Exception as exc:
+                self._manual_shutdown_error = f'manual_shutdown_gate: {exc.__class__.__name__}'
+
+    def _reset_manual_shutdown_attempt(self, message=''):
+        self._release_manual_shutdown_gate()
+        self._manual_shutdown_pending = False
+        self._manual_shutdown_done = False
+        self._manual_shutdown_timer_scheduled = False
+        self._manual_shutdown_stage = ''
+        self._manual_shutdown_action = ''
+        self._manual_shutdown_baseline = None
+        self._shutting_down = False
+        self._force_exit = False
+        self._agent_shutdown_pending = False
+        self._agent_cleanup_done = False
+        self._workbench_shutdown_pending = False
+        self._workbench_shutdown_done = False
+        self._workbench_shutdown_timer_scheduled = False
+        status_bar = getattr(self, 'status_bar', None)
+        if status_bar is not None:
+            if message:
+                status_bar.showMessage(message, 8000)
+            else:
+                status_bar.clearMessage()
+
+    def _advance_manual_shutdown(self):
+        stage = getattr(self, '_manual_shutdown_stage', '')
+        if stage == 'action':
+            entries, outcome = self._collect_manual_shutdown_state()
+            if outcome == 'ready':
+                self._manual_shutdown_pending = False
+                self._manual_shutdown_stage = ''
+                self._manual_shutdown_action = ''
+                self._manual_shutdown_baseline = None
+                return 'ready'
+            if outcome == 'pending':
+                self._manual_shutdown_pending = True
+                return 'pending'
+            message = (
+                '手动会话关闭未能完成；会话仍保留，请检查状态后重试。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual sessions could not be closed; they remain available. Review their state and retry.'
+            )
+            self._reset_manual_shutdown_attempt(message)
+            return 'aborted'
+
+        entries, outcome = self._collect_manual_shutdown_state()
+        if outcome == 'error':
+            message = (
+                '无法检查手动会话；未开始关闭。请检查状态后重试。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual sessions could not be checked; no close action was started. Review and retry.'
+            )
+            self._reset_manual_shutdown_attempt(message)
+            return 'aborted'
+        if outcome == 'pending':
+            self._manual_shutdown_pending = True
+            self._manual_shutdown_stage = 'preflight'
+            return 'pending'
+        if outcome == 'cancelled':
+            self._reset_manual_shutdown_attempt()
+            return 'aborted'
+        if outcome == 'ready':
+            sealed = self._seal_manual_shutdown_state(entries)
+            if sealed != 'ready':
+                return sealed
+            self._manual_shutdown_pending = False
+            self._manual_shutdown_stage = ''
+            return 'ready'
+
+        action = 'close'
+        if outcome == 'decision_required':
+            action = self._ask_manual_shutdown_decision(entries)
+            if action is None:
+                self._reset_manual_shutdown_attempt(
+                    '已取消退出；手动会话与 Agent 保持打开。'
+                    if getattr(self, 'language', 'zh') == 'zh' else
+                    'Exit cancelled; manual sessions and Agents remain open.'
+                )
+                return 'aborted'
+        return self._start_manual_shutdown_action(action, entries)
+
+    def _seal_manual_shutdown_state(self, entries):
+        """Gate future manual work even when no owner currently needs closing."""
+        panels = [(entry[0], entry[1]) for entry in entries]
+        baseline = self._manual_snapshot_signature(entries)
+        if not panels:
+            return 'ready'
+        if not self._set_manual_shutdown_gate(panels, True):
+            self._reset_manual_shutdown_attempt(
+                '无法暂停新建手动会话；退出已取消。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Could not pause new manual sessions; exit cancelled.'
+            )
+            return 'aborted'
+        fresh, outcome = self._collect_manual_shutdown_state()
+        if outcome != 'ready' or self._manual_snapshot_signature(fresh) != baseline:
+            self._reset_manual_shutdown_attempt(
+                '手动会话状态已变化；退出已取消，请重新检查。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual session state changed; exit cancelled. Review and retry.'
+            )
+            return 'aborted'
+        return 'ready'
+
+    def _start_manual_shutdown_action(self, action, baseline_entries):
+        panels = [(entry[0], entry[1]) for entry in baseline_entries]
+        baseline = self._manual_snapshot_signature(baseline_entries)
+        if not self._set_manual_shutdown_gate(panels, True):
+            self._reset_manual_shutdown_attempt(
+                '无法暂停新建手动会话；退出已取消。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Could not pause new manual sessions; exit cancelled.'
+            )
+            return 'aborted'
+        entries, outcome = self._collect_manual_shutdown_state()
+        changed = self._manual_snapshot_signature(entries) != baseline
+        if outcome in {'error', 'pending', 'cancelled'} or changed:
+            self._reset_manual_shutdown_attempt(
+                '手动会话状态已变化；未开始关闭，请重新退出并确认。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual session state changed; no close action started. Review and retry exit.'
+            )
+            return 'aborted'
+        if action == 'commit' and not self._manual_can_commit(entries):
+            self._reset_manual_shutdown_attempt(
+                '至少一个会话结果未知或仍在执行，已阻止提交。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Commit was blocked because at least one session is UNKNOWN or busy.'
+            )
+            return 'aborted'
+        if action == 'close' and outcome == 'decision_required':
+            self._reset_manual_shutdown_attempt(
+                '发现未解决事务；未开始关闭，请重新退出并选择操作。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'An unresolved transaction was found; no close action started. Review and retry exit.'
+            )
+            return 'aborted'
+        if action == 'close' and outcome != 'ready_to_close':
+            self._reset_manual_shutdown_attempt(
+                '手动会话状态已变化；退出已取消，请重新检查。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual session state changed; exit cancelled. Review and retry.'
+            )
+            return 'aborted'
+        if action in {'commit', 'rollback'} and outcome != 'decision_required':
+            self._reset_manual_shutdown_attempt(
+                '事务状态已变化；未开始提交或回滚，请重新检查。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Transaction state changed; no commit or rollback started. Review and retry.'
+            )
+            return 'aborted'
+        if action not in {'close', 'commit', 'rollback'}:
+            self._reset_manual_shutdown_attempt()
+            return 'aborted'
+
+        self._manual_shutdown_action = action
+        self._manual_shutdown_baseline = baseline
+        self._manual_shutdown_stage = 'action'
+        self._manual_shutdown_pending = True
+        action_statuses = []
+        action_error = False
+        try:
+            for _attr, panel in panels:
+                cleanup = getattr(panel, 'manual_shutdown_cleanup', None)
+                if callable(cleanup):
+                    action_statuses.append(
+                        self._manual_status_value(cleanup(action))
+                    )
+        except Exception as exc:
+            self._manual_shutdown_error = f'{_attr}: {exc.__class__.__name__}'
+            action_error = True
+
+        accepted_statuses = {'ready', 'ready_to_close', 'pending'}
+        invalid_status = next(
+            (status for status in action_statuses if status not in accepted_statuses),
+            None,
+        )
+        if invalid_status is not None:
+            self._manual_shutdown_error = 'manual shutdown action returned an invalid status'
+            self._reset_manual_shutdown_attempt(
+                '手动会话状态发生变化；退出已取消，请检查仍打开的会话。'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Manual session state changed; exit cancelled. Review sessions that remain open.'
+            )
+            return 'aborted'
+        if not action_error and all(status == 'ready' for status in action_statuses):
+            self._manual_shutdown_pending = False
+            self._manual_shutdown_stage = ''
+            self._manual_shutdown_action = ''
+            self._manual_shutdown_baseline = None
+            return 'ready'
+        if action_error or any(status in {'pending', 'ready_to_close'} for status in action_statuses):
+            return 'pending'
+        self._reset_manual_shutdown_attempt(
+            '手动会话状态发生变化；退出已取消，请检查仍打开的会话。'
+            if getattr(self, 'language', 'zh') == 'zh' else
+            'Manual session state changed; exit cancelled. Review sessions that remain open.'
+        )
+        return 'aborted'
+
+    def _show_manual_shutdown_wait_status(self):
+        status_bar = getattr(self, 'status_bar', None)
+        if status_bar is None:
+            return
+        message = (
+            '正在等待手动会话完成安全关闭…' if getattr(self, 'language', 'zh') == 'zh' else
+            'Waiting for manual sessions to close safely…'
+        )
+        status_bar.showMessage(message)
+
+    def _schedule_manual_shutdown_poll(self):
+        if getattr(self, '_manual_shutdown_timer_scheduled', False) or getattr(self, '_shutdown_finalized', False):
+            return
+        self._manual_shutdown_timer_scheduled = True
+        QTimer.singleShot(100, self._poll_manual_shutdown_cleanup)
+
+    def _poll_manual_shutdown_cleanup(self):
+        self._manual_shutdown_timer_scheduled = False
+        if not getattr(self, '_manual_shutdown_pending', False) or getattr(self, '_shutdown_finalized', False):
+            return
+        outcome = self._advance_manual_shutdown()
+        if outcome == 'ready':
+            self._manual_shutdown_pending = False
+            self._manual_shutdown_done = True
+            status_bar = getattr(self, 'status_bar', None)
+            if status_bar is not None:
+                status_bar.clearMessage()
+            QTimer.singleShot(0, self.close)
+            return
+        if outcome == 'pending':
+            self._show_manual_shutdown_wait_status()
+            self._schedule_manual_shutdown_poll()
+
+    def _request_agent_panel_cleanup(self) -> bool:
+        """Cancel agents on already-created panels and report whether every thread ended."""
+        complete = True
+        first_error = ''
+        for attr in ('agent_workbench_panel', _DATA_CENTER_ATTR) + DB_ATTRS:
+            panel = getattr(self, attr, None)
+            if panel is None:
+                continue
+            cleanup = getattr(panel, 'agent_shutdown_cleanup', None)
+            if not callable(cleanup):
+                continue
+            try:
+                complete = bool(cleanup()) and complete
+            except Exception as exc:
+                complete = False
+                if not first_error:
+                    first_error = f'{attr}: {exc.__class__.__name__}'
+        self._agent_shutdown_error = first_error
+        return complete
+
+    def _schedule_agent_shutdown_poll(self):
+        if self._agent_shutdown_timer_scheduled or self._shutdown_finalized:
+            return
+        self._agent_shutdown_timer_scheduled = True
+        QTimer.singleShot(100, self._poll_agent_panel_cleanup)
+
+    def _poll_agent_panel_cleanup(self):
+        self._agent_shutdown_timer_scheduled = False
+        if not self._agent_shutdown_pending or self._shutdown_finalized:
+            return
+        if self._request_agent_panel_cleanup():
+            self._agent_cleanup_done = True
+            self._agent_shutdown_pending = False
+            self._agent_shutdown_error = ''
+            status_bar = getattr(self, 'status_bar', None)
+            if status_bar is not None:
+                status_bar.clearMessage()
+            QTimer.singleShot(0, self.close)
+            return
+        status_bar = getattr(self, 'status_bar', None)
+        if status_bar is not None and self._agent_shutdown_error:
+            status_bar.showMessage(
+                '停止 Agent 时遇到问题，正在重试…'
+                if getattr(self, 'language', 'zh') == 'zh' else
+                'Agent stop encountered an issue; retrying…'
+            )
+        self._schedule_agent_shutdown_poll()

@@ -118,6 +118,14 @@ class _Task:
     timer: threading.Timer | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TrackedQueryExecution:
+    """Synchronous query outcome paired with the exact worker Future."""
+
+    result: QueryResult
+    future: Future[QueryResult]
+
+
 class QueryExecutor:
     """Run approved SQL in a worker-owned, read-only driver connection.
 
@@ -266,6 +274,36 @@ class QueryExecutor:
             deadline=deadline,
             row_limit=row_limit,
         )
+        return self._wait_for_result(future, request, wait_timeout)
+
+    def execute_tracked(
+        self,
+        request: QueryRequest | QuerySpec | Mapping[str, Any] | Any,
+        *,
+        cancellation: Any = None,
+        cancel_token: Any = None,
+        decision: SQLDecision | None = None,
+        policy_decision: SQLDecision | None = None,
+        timeout: float | None = None,
+        deadline: float | None = None,
+        row_limit: int | None = None,
+        wait_timeout: float | None = None,
+    ) -> TrackedQueryExecution:
+        """Wait like :meth:`execute` while retaining the exact submitted Future."""
+
+        future = self.submit(
+            request,
+            cancellation=cancellation,
+            cancel_token=cancel_token,
+            decision=decision,
+            policy_decision=policy_decision,
+            timeout=timeout,
+            deadline=deadline,
+            row_limit=row_limit,
+        )
+        return TrackedQueryExecution(self._wait_for_result(future, request, wait_timeout), future)
+
+    def _wait_for_result(self, future: Future[QueryResult], request: Any, wait_timeout: float | None) -> QueryResult:
         # A synchronous caller must honour the query's own deadline even when
         # it did not supply a separate ``wait_timeout``. ``Future.result``
         # otherwise waits for an uncooperative driver to finish, which makes a
@@ -857,6 +895,7 @@ __all__ = [
     "DEFAULT_QUERY_TIMEOUT",
     "DEFAULT_ROW_LIMIT",
     "QueryExecutor",
+    "TrackedQueryExecution",
     "QuerySpec",
     "ReadOnlyQuery",
 ]

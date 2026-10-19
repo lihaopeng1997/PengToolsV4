@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tools.data_center.host_relational import (
     LazyRelationalLeaseFactory,
@@ -267,14 +269,27 @@ class RelationalHostTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "PROFILE_UNAVAILABLE")
         self.assertEqual(secret_calls, [])
 
-    def test_default_legacy_connector_fails_closed(self) -> None:
-        host = RelationalReadOnlyHost(
-            connections={"c1": _profile()},
-            secret_loader=lambda _profile: "pw-hidden",
+    def test_default_connector_uses_isolated_fake_driver_without_network(self) -> None:
+        connection = _Connection()
+        calls: list[dict] = []
+
+        fake_pymysql = SimpleNamespace(
+            cursors=SimpleNamespace(Cursor=object),
+            connect=lambda **kwargs: (calls.append(kwargs) or connection),
         )
-        with self.assertRaises(ReadOnlyLeaseError) as raised:
-            host.create_factory("c1")("c1", session_id="tab", generation=1)
-        self.assertEqual(raised.exception.code, "CONNECT_FAILED")
+        host = RelationalReadOnlyHost(
+            connections={"c1": _profile(dialect="mysql", mode="mysql", port=3306)},
+            decryptor=lambda _token: "pw-hidden",
+        )
+        with patch.dict("sys.modules", {"pymysql": fake_pymysql}), patch(
+            "socket.create_connection",
+            side_effect=AssertionError("default connector must use the fake driver"),
+        ):
+            lease = host.create_factory("c1")("c1", session_id="tab", generation=1)
+        self.assertEqual(calls[0]["connect_timeout"], 8.0)
+        self.assertEqual(calls[0]["read_timeout"], 15.0)
+        lease.close()
+        self.assertTrue(connection.closed)
 
     def test_secret_stays_out_of_errors_representations_and_query_events(self) -> None:
         secret = "super-secret-value"

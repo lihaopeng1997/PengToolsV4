@@ -1,15 +1,18 @@
 # PengToolsHub：项目与 AI 协作入口
 
-更新日期：2026-09-08。适用仓库 `lihaopeng1997/PengToolsV4`。本轮核对分支为 `ui/prism-v1`，审计起点 `a3a3a4a`；不要据此自动切换分支。需求 AI 与开发 AI 必须先说明自己实际读到的分支和完整提交 SHA。
+更新日期：2026-10-19。适用仓库 `lihaopeng1997/PengToolsV4`。当前工作分支为 `dev/2026-09-23`；提交和进度以 [最新详细交接](SESSION_HANDOFF_2026-10-19.md) 及实际 Git 状态为准。旧审计的 `ui/prism-v1` / `a3a3a4a` 仅为历史基线，不要据此自动切换分支。
+
+本次入口：**[详细交接与下一步](SESSION_HANDOFF_2026-10-19.md)** · [目录清理与归档](PROJECT_CLEANUP_2026-10-19.md) · [原始需求剩余核对](reviews/agent-refactor-2026-10-01/REMAINING_REQUIREMENTS_2026-10-16.md)。详细交接优先说明当前状态，以下旧阶段记录仅用于追溯。
 
 ## 接手时按这个顺序读
 
 1. 根目录 [AGENTS.md](../../AGENTS.md)：工程边界和交付规则。
 2. [产品与代码地图](PRODUCT_AND_SOURCE.md)：软件解决什么问题、模块在哪里、哪些行为不能动。
 3. [后续开发与双 AI 协作规范](DEVELOPMENT_AND_AI.md)：从需求到验收的具体流程、交接模板、验证标准。
-4. [本轮审计](DRIFT_AUDIT_2026-09-08.md)：已发现问题、已批准变更、修复和未验证项。
-5. [晴空棱镜 UI 规格 V2.1](../ui/concepts-2026-09/prism-suite/UI优化需求_晴空棱镜_Agent实施规范.md)：当前 UI 目标、组件尺寸、动效、模块改造与验收矩阵。
-6. [原型入口](../ui/concepts-2026-09/prism-suite/index.html)：与同目录所有资源一起阅读。Git 文件浏览可以读源码，但不能替代实际浏览器预览。
+4. [AI 上下文与工作区规范](AI_CONTEXT_WORKFLOW.md)：固定 Project、长会话交接、重型上下文外置与 Worktree 使用边界。
+5. [本轮审计](DRIFT_AUDIT_2026-09-08.md)：已发现问题、已批准变更、修复和未验证项。
+6. [晴空棱镜 UI 规格 V2.1](../ui/concepts-2026-09/prism-suite/UI优化需求_晴空棱镜_Agent实施规范.md)：当前 UI 目标、组件尺寸、动效、模块改造与验收矩阵。
+7. [原型入口](../ui/concepts-2026-09/prism-suite/index.html)：与同目录所有资源一起阅读。Git 文件浏览可以读源码，但不能替代实际浏览器预览。
 
 历史架构、旧交接、旧阶段报告供查证，不再作为默认接手入口。不要仅根据文件名里的“最终”“完整”“唯一”判断有效性。
 
@@ -19,7 +22,7 @@
 
 ## 当前必须知道的决定
 
-2026-09-15 数据中心新增授权：用户明确选择全面重构、统一六类数据库工作区、默认手动事务和专用SSH隧道；最新允许Agent自主只读查询，使用现有内网模型并回传有限脱敏结果，要求思考摘要/正文真正流式显示。此范围覆盖数据中心此前的UI-only和AI不执行限制；详见[数据中心Agent需求](DATA_CENTER_AGENT_REQUIREMENTS.md)及[Luna开发交接](DATA_CENTER_AGENT_DEVELOPMENT.md)。这些是已记录需求，尚未实现或验收；不得据此改变其他模块业务。自绘标题栏的另行确认见[窗口续修决定](../ui/prism-implementation-2026-09/PRISM_SHELL_REVISION_2026-09-15.md)。
+2026-09-15 数据中心新增授权：用户明确选择全面重构、统一六类数据库工作区、默认手动事务和专用SSH隧道；最新允许Agent自主只读查询，使用现有内网模型并回传有限脱敏结果，要求思考摘要/正文真正流式显示。此范围覆盖数据中心此前的UI-only和AI不执行限制；详见[数据中心Agent需求](DATA_CENTER_AGENT_REQUIREMENTS.md)及[Luna开发交接](DATA_CENTER_AGENT_DEVELOPMENT.md)。相关源码已逐步接入，尚有明确功能缺口和真实环境验收，达梦按用户决定延后；当前进度以最新交接为准。不得据此改变其他模块业务。自绘标题栏的另行确认见[窗口续修决定](../ui/prism-implementation-2026-09/PRISM_SHELL_REVISION_2026-09-15.md)。
 
 | 决定 | 当前要求 | 不得误解为 |
 |---|---|---|

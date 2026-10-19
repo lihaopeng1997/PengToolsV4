@@ -1,0 +1,32 @@
+{
+  "tests": [
+    "tests.test_agent_workbench_layout.AgentWorkbenchLayoutTests.test_agent_layout_architecture",
+    "tests.test_data_center_workspace_snapshot_ui.WorkspaceSnapshotUiTests.test_actual_menu_roundtrip_restores_sql_order_nosql_bson_and_preserves_current_edits",
+    "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_redis_value_binary_identity_chunk_navigation_and_ttl_zero",
+    "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_redis_value_failed_next_keeps_page_and_close_blocks_controls_until_physical_finish",
+    "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_redis_value_latest_selection_waits_for_old_owner_and_discards_old_result",
+    "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_redis_value_hash_cursor_previous_and_profile_change_do_not_retarget",
+    "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_redis_value_delete_uses_frozen_binary_key_and_cannot_clear_another_draft"
+  ],
+  "exit_code": 0,
+  "log": "targeted-ui-tests.txt",
+  "date": "2026-10-19",
+  "business_tests": {
+    "modules": [
+      "tests.test_redis_value_page",
+      "tests.test_mongo_document_edit",
+      "tests.test_mongo_transfer",
+      "tests.test_redis_export"
+    ],
+    "count": 20,
+    "exit_code": 0,
+    "seconds": 0.521
+  },
+  "frontend": {
+    "typecheck": 0,
+    "build:embedded": 0,
+    "verify:embedded": 0,
+    "warning": "Vite reports future native config loader compatibility; current build succeeds."
+  },
+  "boundary": "No real server, user-window GUI, full suite, package rebuild or push."
+}

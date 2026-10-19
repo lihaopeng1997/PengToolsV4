@@ -69,7 +69,7 @@ class AuroraProgress(QWidget):
         self._finish_timestamp = 0.0
         self._value = -1
         self._label = ''
-        self._state = 'idle'  # idle, pending_busy, busy, progress, finish, fail
+        self._state = 'idle'  # idle, pending_busy, busy, progress, finish, fail, cancelled
 
         self._delay_timer: QTimer | None = None
         self._linger_timer: QTimer | None = None
@@ -102,6 +102,10 @@ class AuroraProgress(QWidget):
             return motion_enabled()
         except Exception:
             return True
+
+    def _cancel_chip_label(self) -> str:
+        language = str(getattr(self.parentWidget(), 'language', 'zh') or 'zh').lower()
+        return 'Cancelled' if language.startswith('en') else '已取消'
 
     def eventFilter(self, watched, event):
         if watched == self.parentWidget():
@@ -207,7 +211,7 @@ class AuroraProgress(QWidget):
         self.place_overlay()
         self.show()
         self.raise_()
-        if self._state != 'fail':
+        if self._state not in ('fail', 'cancelled'):
             if not self._anim_timer.isActive():
                 self._anim_timer.start(DEFAULT_ANIM_TICK_MS)
         else:
@@ -290,6 +294,26 @@ class AuroraProgress(QWidget):
         self._linger_timer = timer
         timer.start(self._fail_linger_ms)
 
+    def cancel(self, label='', *, token: int | None = None):
+        """Show a neutral, static cancellation terminal state without changing task ownership."""
+        if token is not None and token != self._generation:
+            return
+        self._generation += 1
+        gen = self._generation
+        self._cancel_timers()
+
+        self._state = 'cancelled'
+        self._value = -1
+        self._label = label or self._label or '已取消'
+        self._show_overlay_now()
+        self._anim_timer.stop()
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda g=gen: self._on_linger_hide(g))
+        self._linger_timer = timer
+        timer.start(self._fail_linger_ms)
+
     def _on_linger_hide(self, gen: int | None = None):
         if gen is not None and gen != self._generation:
             return
@@ -356,7 +380,8 @@ class AuroraProgress(QWidget):
 
         is_fail = self._state == 'fail'
         is_finish = self._state == 'finish'
-        has_progress = self._value >= 0 and not is_fail and not is_finish
+        is_cancelled = self._state == 'cancelled'
+        has_progress = self._value >= 0 and not is_fail and not is_finish and not is_cancelled
         motion_on = self._is_motion_enabled() and (self._anim_timer.isActive() or is_finish)
 
         now = time.monotonic()
@@ -392,6 +417,13 @@ class AuroraProgress(QWidget):
             # 叉号两条线: (cx-4.5, cy-4.5) <-> (cx+4.5, cy+4.5)
             painter.drawLine(QPointF(center_x - 4.5, center_y - 4.5), QPointF(center_x + 4.5, center_y + 4.5))
             painter.drawLine(QPointF(center_x + 4.5, center_y - 4.5), QPointF(center_x - 4.5, center_y + 4.5))
+
+        elif is_cancelled:
+            # LD-08: static neutral stop mark; cancellation is not presented as failure.
+            neutral = _qc(pal, 'TEXT_MUTED', '#615D73')
+            painter.setPen(QPen(neutral, 2.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(ind_rect.adjusted(7.0, 7.0, -7.0, -7.0), 1.5, 1.5)
 
         else:
             # LD-02: 24x24 棱镜环，描边 2，前景 90 度圆弧；900ms 循环；中心单菱形静置
@@ -437,6 +469,13 @@ class AuroraProgress(QWidget):
             painter.setPen(QPen(success_border, 1.0))
             chip_fg = success
             chip_text = '完成'
+        elif is_cancelled:
+            neutral = _qc(pal, 'TEXT_MUTED', '#615D73')
+            neutral_bg = _qc(pal, 'SURFACE', '#F7F7FA')
+            painter.setBrush(neutral_bg)
+            painter.setPen(QPen(border, 1.0))
+            chip_fg = neutral
+            chip_text = self._cancel_chip_label()
         elif has_progress:
             painter.setBrush(primary_soft)
             painter.setPen(QPen(border, 1.0))

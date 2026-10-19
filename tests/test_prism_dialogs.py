@@ -4,7 +4,7 @@
 覆盖：
 1. clamp_dialog_geometry 屏幕边界夹取与高DPI/多屏安全
 2. ConfirmActionDialog / AppNoticeDialog / NextStepDialog 440px 几何与焦点契约
-3. CloseActionDialog / HttpsCertConsentDialog 560px 几何与安全默认按钮契约
+3. CloseActionDialog 紧凑几何、HttpsCertConsentDialog 560px 与安全默认按钮契约
 4. ConnectionDialog 720px 几何、80px标签与底栏固定契约
 5. TicketSubmitDialog 860px 双列表单与固定底栏
 6. TestPointsDialog 640px 几何与 TestPointRow 44px/28px 命中区
@@ -52,6 +52,7 @@ class PrismDialogContractTests(unittest.TestCase):
 
     def test_confirm_dialog_geometry_and_safety(self):
         """ConfirmActionDialog 440px，padding 24px，gap 8px，cancel 默认且获焦点。"""
+        from PyQt6.QtWidgets import QFrame
         from ui.confirm_dialog import ConfirmActionDialog
 
         dlg = ConfirmActionDialog(
@@ -61,9 +62,20 @@ class PrismDialogContractTests(unittest.TestCase):
             danger=True,
         )
         try:
-            # 几何约束：宽度 440
+            dlg.show()
+            self.app.processEvents()
+            # 几何约束：宽度 440，页眉至少 56，页脚 60，内边距 24，按钮间距 8
             self.assertEqual(dlg.width(), min(440, dlg.maximumWidth()))
             self.assertGreaterEqual(dlg.minimumWidth(), 320)
+            header = dlg.findChild(QFrame, 'dialog-header')
+            footer = dlg.findChild(QFrame, 'dialog-footer')
+            self.assertIsNotNone(header)
+            self.assertGreaterEqual(header.minimumHeight(), 56)
+            self.assertIsNotNone(footer)
+            self.assertEqual(footer.height(), 60)
+            self.assertEqual(dlg.layout().contentsMargins().left(), 24)
+            self.assertEqual(footer.layout().spacing(), 8)
+            self.assertLess(footer.layout().indexOf(dlg.cancel_button), footer.layout().indexOf(dlg.confirm_button))
 
             # 安全契约：cancel 按钮是 default
             self.assertTrue(dlg.cancel_button.isDefault())
@@ -81,7 +93,7 @@ class PrismDialogContractTests(unittest.TestCase):
         # 情况 1: 默认动作是 exit -> Cancel 为 default
         dlg_exit = CloseActionDialog(language="zh", default_action="exit")
         try:
-            self.assertGreaterEqual(dlg_exit.width(), min(560, dlg_exit.maximumWidth()))
+            self.assertEqual(dlg_exit.width(), max(280, dlg_exit.minimumSizeHint().width()))
             self.assertFalse(dlg_exit.exit_button.isDefault())
             self.assertTrue(dlg_exit.cancel_button.isDefault())
         finally:
@@ -93,6 +105,124 @@ class PrismDialogContractTests(unittest.TestCase):
             self.assertFalse(dlg_min.exit_button.isDefault())
         finally:
             dlg_min.close()
+
+    def test_close_action_buttons_keep_natural_width_and_action_results(self):
+        from PyQt6.QtWidgets import QDialog
+        from ui.confirm_dialog import CloseActionDialog
+        from ui.theme_manager import ThemeManager
+
+        theme = ThemeManager.instance()
+        try:
+            for language in ("zh", "en"):
+                for font_size in (13, 16):
+                    with self.subTest(language=language, font_size=font_size):
+                        theme.apply(self.app, "calm", font_size=font_size)
+                        dlg = CloseActionDialog(language=language)
+                        try:
+                            dlg.show()
+                            self.app.processEvents()
+                            self.assertEqual(dlg.width(), max(280, dlg.minimumSizeHint().width()))
+                            self.assertLessEqual(dlg.width(), 440)
+                            for button in (
+                                dlg.minimize_button,
+                                dlg.exit_button,
+                                dlg.cancel_button,
+                            ):
+                                self.assertEqual(button.width(), button.sizeHint().width())
+                                self.assertGreater(button.width(), 0)
+                                self.assertLessEqual(button.width(), 120)
+                                self.assertEqual(button.height(), 32)
+                                self.assertLessEqual(
+                                    button.fontMetrics().horizontalAdvance(button.text()),
+                                    button.width(),
+                                )
+                        finally:
+                            dlg.close()
+                            dlg.deleteLater()
+            for button_name, action in (("minimize_button", "minimize"), ("exit_button", "exit")):
+                with self.subTest(action=action):
+                    dlg = CloseActionDialog(language="zh")
+                    try:
+                        dlg.dont_ask_check.setChecked(True)
+                        getattr(dlg, button_name).click()
+                        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
+                        self.assertEqual(dlg.selected_action(), action)
+                        self.assertTrue(dlg.dont_ask_again())
+                    finally:
+                        dlg.close()
+                        dlg.deleteLater()
+
+            dlg_cancel = CloseActionDialog(language="zh", default_action="exit")
+            try:
+                dlg_cancel.dont_ask_check.setChecked(True)
+                dlg_cancel.cancel_button.click()
+                self.assertEqual(dlg_cancel.result(), QDialog.DialogCode.Rejected)
+                self.assertIsNone(dlg_cancel.selected_action())
+                self.assertTrue(dlg_cancel.dont_ask_again())
+            finally:
+                dlg_cancel.close()
+                dlg_cancel.deleteLater()
+        finally:
+            theme.apply(self.app, "calm", font_size=13)
+
+    def test_close_action_dialog_compact_with_all_messages_and_large_font(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QPoint, QRect
+        from PyQt6.QtWidgets import QLabel
+        from config import APP_NAME
+        from ui.confirm_dialog import CloseActionDialog
+        from ui.theme_manager import ThemeManager
+
+        theme = ThemeManager.instance()
+        try:
+            for language, messages in (
+                ('zh', CloseActionDialog._FUNNY_LINES_ZH),
+                ('en', CloseActionDialog._FUNNY_LINES_EN),
+            ):
+                for font_size in (13, 16):
+                    theme.apply(self.app, 'calm', font_size=font_size)
+                    for message in messages:
+                        with self.subTest(language=language, font_size=font_size, message=message):
+                            with patch('ui.confirm_dialog.random.choice', return_value=message):
+                                dialog = CloseActionDialog(language=language)
+                            try:
+                                dialog.show()
+                                self.app.processEvents()
+                                self.assertEqual(
+                                    dialog.width(),
+                                    max(280, dialog.minimumSizeHint().width()),
+                                )
+                                self.assertLessEqual(dialog.width(), 440)
+                                self.assertLessEqual(dialog.height(), 200)
+                                self.assertEqual(
+                                    dialog.windowTitle(),
+                                    f'关闭 {APP_NAME}？' if language == 'zh' else f'Close {APP_NAME}?',
+                                )
+                                self.assertIsNone(dialog.findChild(QLabel, 'confirm-title'))
+                                self.assertEqual(dialog.layout().contentsMargins().left(), 10)
+                                label = dialog.findChild(QLabel, 'confirm-message')
+                                self.assertEqual(label.text(), message)
+                                self.assertGreaterEqual(label.height(), label.heightForWidth(label.width()))
+                                buttons = (dialog.cancel_button, dialog.minimize_button, dialog.exit_button)
+                                self.assertEqual(len({button.y() for button in buttons}), 1)
+                                self.assertTrue(all(button.width() == button.sizeHint().width() for button in buttons))
+                                self.assertTrue(all(button.height() == 32 for button in buttons))
+                                self.assertTrue(all(button.width() <= 120 for button in buttons))
+                                row_left = min(button.x() for button in buttons)
+                                row_right = max(button.x() + button.width() for button in buttons)
+                                self.assertLessEqual(row_right - row_left, dialog.width() - 20)
+                                self.assertEqual(
+                                    [button.text() for button in buttons],
+                                    ['取消', '隐藏', '退出软件'] if language == 'zh' else ['Cancel', 'Hide', 'Exit'],
+                                )
+                                for widget in (*buttons, label, dialog.dont_ask_check):
+                                    self.assertTrue(dialog.rect().contains(QRect(widget.mapTo(dialog, QPoint()), widget.size())))
+                                self.assertFalse(dialog.exit_button.isDefault())
+                            finally:
+                                dialog.close()
+                                dialog.deleteLater()
+        finally:
+            theme.apply(self.app, 'calm', font_size=13)
 
     def test_confirmation_message_readable_with_long_text_and_large_font(self):
         from PyQt6.QtCore import QRect, QPoint, Qt
@@ -134,11 +264,16 @@ class PrismDialogContractTests(unittest.TestCase):
 
     def test_app_notice_and_next_step_dialogs(self):
         """AppNoticeDialog 与 NextStepDialog 宽度 440，按钮角色与 gap 8px。"""
+        from PyQt6.QtWidgets import QFrame
         from ui.confirm_dialog import AppNoticeDialog, NextStepDialog
 
         notice = AppNoticeDialog("系统提示", "操作已顺利完成", kind="info")
         try:
+            notice.show()
+            self.app.processEvents()
             self.assertEqual(notice.width(), min(440, notice.maximumWidth()))
+            self.assertEqual(notice.findChild(QFrame, 'dialog-header').minimumHeight(), 56)
+            self.assertEqual(notice.findChild(QFrame, 'dialog-footer').height(), 60)
             self.assertTrue(notice.ok_button.isDefault())
         finally:
             notice.close()
@@ -149,7 +284,10 @@ class PrismDialogContractTests(unittest.TestCase):
             [("查看详情", "view", True), ("导出报告", "export", False)],
         )
         try:
+            next_step.show()
+            self.app.processEvents()
             self.assertEqual(next_step.width(), min(440, next_step.maximumWidth()))
+            self.assertEqual(next_step.findChild(QFrame, 'dialog-footer').height(), 60)
             self.assertEqual(len(next_step._action_buttons), 2)
         finally:
             next_step.close()

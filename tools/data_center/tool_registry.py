@@ -10,6 +10,8 @@ with normalized tool arguments.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from concurrent.futures import Future
+from dataclasses import dataclass
 import inspect
 import threading
 from typing import Any, Protocol
@@ -22,9 +24,293 @@ from .policy import (
     TOOL_NAMES,
 )
 from .result_projection import ProjectionBudget, ResultProjector
+from .context_evidence import EvidenceCommitRecord, EvidenceEpoch, EvidenceLedger, EvidenceSnapshot
 
 
 _MAX_PROJECTION_RUNS = 128
+_TRUSTED_FUTURE_DONE = Future.done
+_TRUSTED_FUTURE_ADD_DONE_CALLBACK = Future.add_done_callback
+_NOSQL_OWNER_NAMES = frozenset({"redis_read", "mongo_read"})
+
+
+@dataclass(slots=True)
+class _QueryOwner:
+    context_key: tuple[Any, ...]
+    query_id: str
+    state: str = "expected"
+    future: Any = None
+    session_id: str = ""
+    generation: int | None = None
+    released: bool = False
+    callback_registered: bool = False
+
+
+class QueryOwnerTracker:
+    """Retain exact unfinished query Futures across logical run release."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._owners: dict[tuple[tuple[Any, ...], str], _QueryOwner] = {}
+
+    @staticmethod
+    def _context_key(context: RunContext) -> tuple[Any, ...]:
+        return (
+            str(context.run_id), str(context.tab_id), str(context.model_config_id),
+            str(context.connection_id), str(context.database), tuple(context.schema_allowlist),
+            str(context.profile_revision), str(context.intent), str(context.policy_version),
+        )
+
+    def expect_query(self, context: RunContext, query_id: str) -> bool:
+        key = (self._context_key(context), str(query_id or ""))
+        with self._lock:
+            existing = self._owners.get(key)
+            if existing is None:
+                self._owners[key] = _QueryOwner(key[0], key[1])
+                return True
+            else:
+                existing.state = "failed"
+                return False
+
+    def register_query_owner(
+        self,
+        context: RunContext,
+        query_id: str,
+        *,
+        session_id: str,
+        generation: int,
+        future: Any,
+    ) -> bool:
+        key = (self._context_key(context), str(query_id or ""))
+        is_future = type(future) is Future
+        future_methods_ok = _has_standard_future_methods(future) if is_future else False
+        callback = getattr(future, "add_done_callback", None) if is_future else None
+        callback_ok = future_methods_ok and callable(callback)
+        try:
+            is_done = _read_future_done(future) if future_methods_ok else False
+        except Exception:
+            is_done = False
+            future_methods_ok = False
+            callback_ok = False
+
+        future_query_id = getattr(future, "query_id", None) if is_future else None
+        future_session = getattr(future, "session_id", None) if is_future else None
+        future_generation = getattr(future, "generation", None) if is_future else None
+        metadata_matches = (
+            type(query_id) is str
+            and bool(query_id)
+            and type(session_id) is str
+            and bool(session_id)
+            and type(context.tab_id) is str
+            and session_id == context.tab_id
+            and type(generation) is int
+            and generation > 0
+            and type(future_query_id) is str
+            and future_query_id == query_id
+            and type(future_session) is str
+            and future_session == session_id
+            and type(future_generation) is int
+            and future_generation > 0
+            and future_generation == generation
+        )
+        valid_owner = is_future and future_methods_ok and callback_ok and metadata_matches
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is None:
+                owner = _QueryOwner(key[0], key[1])
+                self._owners[key] = owner
+            elif owner.state != "expected":
+                # Reusing a query id in the same run is an ownership conflict.
+                # Keep any previously held Future intact and fail closed.
+                owner.state = "failed"
+                return False
+            owner.session_id = session_id if type(session_id) is str else ""
+            owner.generation = generation if type(generation) is int else None
+            # A real Future remains strongly held even if its owner metadata or
+            # completion protocol is invalid. Unsupported duck objects are not
+            # accepted as physical owners.
+            owner.future = future if is_future else None
+            owner.callback_registered = False
+            owner.state = "failed" if not valid_owner else ("completed" if is_done else "pending")
+            if callback_ok:
+                # Future invokes a callback immediately when already complete;
+                # mark the registration attempt before attaching it to handle
+                # that synchronous case.
+                owner.callback_registered = True
+        if valid_owner:
+            try:
+                self._register_future_callback(
+                    future,
+                    lambda completed, owner_key=key: self._future_done(owner_key, completed),
+                )
+            except Exception:
+                with self._lock:
+                    owner = self._owners.get(key)
+                    if owner is not None and owner.future is future:
+                        owner.state = "failed"
+                        owner.callback_registered = False
+                self._attach_cleanup_callback(key, future)
+                return False
+            return True
+        if is_future:
+            # Rejected owners may still represent a real worker. Attach a
+            # cleanup-only callback through the captured standard-library
+            # operation; this cannot validate the owner or unblock its run.
+            self._attach_cleanup_callback(key, future)
+        return False
+
+    @staticmethod
+    def _register_future_callback(future: Future[Any], callback: Callable[[Future[Any]], None]) -> None:
+        future.add_done_callback(callback)
+
+    def fail_query_owner(self, context: RunContext, query_id: str) -> None:
+        key = (self._context_key(context), str(query_id or ""))
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is None:
+                owner = _QueryOwner(key[0], key[1])
+                self._owners[key] = owner
+            owner.state = "failed"
+
+    def finish_expectation(self, context: RunContext, query_id: str) -> None:
+        key = (self._context_key(context), str(query_id or ""))
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is not None and owner.state == "expected":
+                owner.state = "failed"
+
+    def state(self, context: RunContext) -> str:
+        context_key = self._context_key(context)
+        result = "idle"
+        with self._lock:
+            for key, owner in tuple(self._owners.items()):
+                if owner.context_key != context_key:
+                    continue
+                if owner.state == "failed":
+                    result = "failed"
+                    continue
+                if owner.state == "expected":
+                    return "failed"
+                if owner.state == "pending":
+                    try:
+                        if not owner.callback_registered:
+                            raise TypeError
+                        is_done = _read_future_done(owner.future)
+                    except Exception:
+                        owner.state = "failed"
+                        return "failed"
+                    if not is_done:
+                        result = "pending"
+                    else:
+                        owner.state = "completed"
+                        owner.future = None
+            return result
+
+    def release_run(self, context: RunContext) -> None:
+        context_key = self._context_key(context)
+        with self._lock:
+            for key, owner in tuple(self._owners.items()):
+                if owner.context_key != context_key:
+                    continue
+                if owner.future is not None:
+                    try:
+                        if not _read_future_done(owner.future):
+                            owner.released = True
+                            continue
+                    except Exception:
+                        owner.released = True
+                        owner.state = "failed"
+                        continue
+                self._owners.pop(key, None)
+
+    def _future_done(self, key: tuple[tuple[Any, ...], str], future: Future[Any]) -> None:
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is None or owner.future is not future:
+                return
+            try:
+                if not _has_standard_future_methods(future) or _read_future_done(future) is not True:
+                    raise TypeError
+            except Exception:
+                owner.state = "failed"
+                return
+            if owner.released:
+                self._owners.pop(key, None)
+            elif owner.state in {"pending", "completed"}:
+                owner.state = "completed"
+                owner.future = None
+            elif owner.state == "failed":
+                owner.future = None
+
+    def _attach_cleanup_callback(
+        self,
+        key: tuple[tuple[Any, ...], str],
+        future: Future[Any],
+    ) -> bool:
+        try:
+            _TRUSTED_FUTURE_ADD_DONE_CALLBACK(
+                future,
+                lambda completed, owner_key=key, owner_future=future: self._cleanup_future_done(
+                    owner_key,
+                    owner_future,
+                    completed,
+                ),
+            )
+        except Exception:
+            return False
+        return True
+
+    def _cleanup_future_done(
+        self,
+        key: tuple[tuple[Any, ...], str],
+        expected_future: Future[Any],
+        completed: Future[Any],
+    ) -> None:
+        """Retire only a rejected owner's identical, physically done Future."""
+
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is None or owner.future is not expected_future or completed is not expected_future:
+                return
+            try:
+                done = _TRUSTED_FUTURE_DONE(expected_future)
+            except Exception:
+                owner.state = "failed"
+                return
+            if type(done) is not bool or not done:
+                owner.state = "failed"
+                return
+            if owner.released:
+                self._owners.pop(key, None)
+            else:
+                # Completion is safe to forget, but rejected provenance stays
+                # failed for the rest of the active logical run.
+                owner.state = "failed"
+                owner.future = None
+                owner.callback_registered = False
+
+
+def _has_standard_future_methods(future: Any) -> bool:
+    if type(future) is not Future:
+        return False
+    done = getattr(future, "done", None)
+    callback = getattr(future, "add_done_callback", None)
+    return (
+        callable(done)
+        and getattr(done, "__self__", None) is future
+        and getattr(done, "__func__", None) is _TRUSTED_FUTURE_DONE
+        and callable(callback)
+        and getattr(callback, "__self__", None) is future
+        and getattr(callback, "__func__", None) is _TRUSTED_FUTURE_ADD_DONE_CALLBACK
+    )
+
+
+def _read_future_done(future: Any) -> bool:
+    if not _has_standard_future_methods(future):
+        raise TypeError("unsupported Future completion protocol")
+    done = future.done()
+    if type(done) is not bool:
+        raise TypeError("Future.done() must return bool")
+    return done
 
 
 class ToolExecutor(Protocol):
@@ -142,6 +428,7 @@ class DataCenterToolRegistry:
         *,
         policy: DataCenterPolicy | None = None,
         projector: Any | None = None,
+        query_owner_tracker: QueryOwnerTracker | None = None,
     ) -> None:
         self._executor = executor
         self._policy = policy or DataCenterPolicy()
@@ -153,6 +440,91 @@ class DataCenterToolRegistry:
         self._query_projector = projector or ResultProjector()
         self._projection_budgets: dict[tuple[str, str], ProjectionBudget] = {}
         self._projection_lock = threading.RLock()
+        self._query_owner_tracker = query_owner_tracker
+        self._evidence_lock = threading.RLock()
+        self._evidence_ledger = EvidenceLedger()
+        self._evidence_local = threading.local()
+
+    def activate_evidence_run(self, context: RunContext, *, provider: str, mode: str) -> EvidenceEpoch:
+        """Start an exact, run-local evidence epoch for the built-in host."""
+        with self._evidence_lock:
+            epoch = self._evidence_ledger.activate(context, provider, mode)
+            self._evidence_local.epoch = epoch
+        return epoch
+
+    def begin_tool_commit(self, context: RunContext) -> Any:
+        """Capture a commit closure bound to this Runner.run's epoch."""
+        epoch = getattr(self._evidence_local, "epoch", None)
+        if not self._evidence_ledger.is_epoch(epoch):
+            return None
+
+        def commit(records: Any) -> bool:
+            return self.commit_tool_batch(context, epoch, records)
+
+        def disable_bound() -> None:
+            self.disable_evidence(context, epoch)
+
+        # The Runner uses this bound operation if the optional hook throws,
+        # so a stale run cannot disable a replacement epoch by context alone.
+        commit.disable_evidence = disable_bound
+        return commit
+
+    def commit_tool_batch(
+        self,
+        context: RunContext,
+        epoch: EvidenceEpoch,
+        records: Any,
+    ) -> bool:
+        with self._evidence_lock:
+            tracker = self._query_owner_tracker
+            if not isinstance(tracker, QueryOwnerTracker):
+                return False
+            try:
+                state = tracker.state(context)
+            except Exception:
+                return False
+            if type(state) is not str or state != "idle":
+                return False
+            return self._evidence_ledger.commit(epoch, context, records)
+
+    def snapshot_evidence(self, context: RunContext, epoch: EvidenceEpoch) -> EvidenceSnapshot | None:
+        with self._evidence_lock:
+            tracker = self._query_owner_tracker
+            if not isinstance(tracker, QueryOwnerTracker):
+                return None
+            try:
+                state = tracker.state(context)
+            except Exception:
+                return None
+            if type(state) is not str or state != "idle":
+                return None
+            return self._evidence_ledger.snapshot(epoch, context)
+
+    def record_evidence_omissions(
+        self,
+        context: RunContext,
+        epoch: EvidenceEpoch,
+        uncertified_groups: int,
+    ) -> bool:
+        with self._evidence_lock:
+            tracker = self._query_owner_tracker
+            if not isinstance(tracker, QueryOwnerTracker):
+                return False
+            try:
+                state = tracker.state(context)
+            except Exception:
+                return False
+            if type(state) is not str or state != "idle":
+                return False
+            return self._evidence_ledger.record_uncertified(epoch, context, uncertified_groups)
+
+    def disable_evidence(self, context: RunContext, epoch: EvidenceEpoch | None = None) -> None:
+        with self._evidence_lock:
+            selected = epoch or getattr(self._evidence_local, "epoch", None)
+            if self._evidence_ledger.is_epoch(selected):
+                self._evidence_ledger.disable(selected, context)
+            else:
+                self._evidence_ledger.release(context)
 
     @property
     def policy(self) -> DataCenterPolicy:
@@ -211,6 +583,16 @@ class DataCenterToolRegistry:
         if name == "query_readonly" and not _is_verified_readonly_handler(handler):
             return _failure("READ_GUARD_NOT_READY", "只读 SQL 门禁尚未就绪，查询未执行")
 
+        owner_tracker = self._query_owner_tracker
+        tracks_physical_owner = name == "query_readonly" or name in _NOSQL_OWNER_NAMES
+        if tracks_physical_owner and owner_tracker is not None:
+            accepted_expectation = owner_tracker.expect_query(context, call_id)
+            if name in _NOSQL_OWNER_NAMES and accepted_expectation is not True:
+                # Unlike the established SQL path, NoSQL can reject before it
+                # submits a worker Future. Keep a reused cross-tool call ID
+                # from creating an untracked physical operation.
+                return _failure("TOOL_FAILED", "工具调用标识已被本轮使用")
+
         try:
             value = _invoke_handler(handler, name, dict(arguments), call_id, context, cancellation)
         except TimeoutError:
@@ -220,6 +602,9 @@ class DataCenterToolRegistry:
             # model instruction or expose a credential.  The detailed error
             # remains the host's responsibility outside this boundary.
             return _failure("QUERY_FAILED" if name == "query_readonly" else "TOOL_FAILED", "工具执行失败")
+        finally:
+            if tracks_physical_owner and owner_tracker is not None:
+                owner_tracker.finish_expectation(context, call_id)
 
         result = ToolResult.from_value(value)
         if result.query_id is None and name == "query_readonly" and isinstance(value, Mapping):
@@ -265,9 +650,28 @@ class DataCenterToolRegistry:
     def release_run(self, context: RunContext | str, tab_id: str | None = None) -> None:
         """Release a run's shared projection budget after its terminal event."""
 
+        if isinstance(context, RunContext):
+            with self._evidence_lock:
+                self._evidence_ledger.release(context)
+                try:
+                    del self._evidence_local.epoch
+                except AttributeError:
+                    pass
         key = _projection_key(context, tab_id)
         with self._projection_lock:
             self._projection_budgets.pop(key, None)
+        if isinstance(context, RunContext) and self._query_owner_tracker is not None:
+            self._query_owner_tracker.release_run(context)
+
+    def query_owner_state(self, context: RunContext) -> str:
+        tracker = self._query_owner_tracker
+        if tracker is None:
+            return "idle"
+        try:
+            state = tracker.state(context)
+        except Exception:
+            return "failed"
+        return state if state in {"idle", "pending", "failed"} else "failed"
 
     def _project_query_result(self, result: ToolResult, context: RunContext) -> ToolResult:
         """Project one verified query result before the runner sees it."""
@@ -434,6 +838,7 @@ ToolRegistry = DataCenterToolRegistry
 
 __all__ = [
     "DataCenterToolRegistry",
+    "QueryOwnerTracker",
     "ToolExecutor",
     "ToolRegistry",
     "default_tool_definitions",

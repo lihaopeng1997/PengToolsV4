@@ -1,0 +1,1406 @@
+{
+  "branch": "dev/2026-09-23",
+  "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+  "source_state": "dirty, preserved, not committed",
+  "owner": "root, explicitly requested by user",
+  "scope": "MySQL and OceanBase MySQL Data Center SSH/TLS",
+  "repairs": [
+    "Strict SSLContext preserves hostname checks with default/system CA roots",
+    "Application cleanup waits for connection-test workers and physical QThread completion"
+  ],
+  "verification": {
+    "initial_new_modules": {
+      "tests": 10,
+      "exit_code": 0
+    },
+    "tls_after_repair": {
+      "tests": 6,
+      "exit_code": 0,
+      "skip": 0
+    },
+    "ui_lifecycle_after_repair": {
+      "tests": 3,
+      "exit_code": 0,
+      "skip": 0
+    },
+    "native_driver_regression_failed_before_fix": true,
+    "application_cleanup_regression_failed_before_fix": true,
+    "unchanged_ssh_cases_reused": 3,
+    "whole_repository_test_run": false,
+    "syntax_check_modules": 3,
+    "visual": {
+      "platform": "windows",
+      "hidden_synthetic_only": true,
+      "dialog": "610x620",
+      "cases": [
+        "zh 17px",
+        "en 21px"
+      ],
+      "reviewed": true
+    }
+  },
+  "limitations": [
+    "SSH forwarding smoke used fake Paramiko with real loopback TCP/threads",
+    "No real SSH server or database exercised",
+    "Current application window and installed package were not updated",
+    "Original author's six temp before copies are unavailable; current behavior reviewed directly",
+    "Oracle, OceanBase Oracle, Redis and Mongo SSH product integration remain pending",
+    "Dameng deferred by user"
+  ],
+  "followup_root_oct14": {
+    "scope": "Oracle, OceanBase Oracle, Redis, MongoDB single-target Data Center SSH product integration",
+    "source_files": [
+      "tools/data_center/connection_transport.py",
+      "tools/data_center/nosql_transport.py",
+      "tools/data_center/readonly_relational_connectors.py",
+      "tools/data_center/host_nosql.py",
+      "panels/data_center_panel.py",
+      "panels/db_redis_panel.py",
+      "panels/db_mongodb_panel.py",
+      "ui/data_center/connection_transport.py",
+      "tests/test_data_center_nosql_transport.py",
+      "tests/test_data_center_oracle_transport.py"
+    ],
+    "verification": {
+      "new_transport_tests": 10,
+      "exit_code": 0,
+      "skips": 0,
+      "affected_legacy_cases": 4,
+      "legacy_exit_code": 0,
+      "syntax_modules": 10,
+      "native_nosql_constructors_offline": 2,
+      "real_connection_settings_qthreads": 2,
+      "embedded_assets_verification_exit_code": 0
+    },
+    "constraints": [
+      "NoSQL SSH + TLS rejected before driver or tunnel",
+      "Oracle TLS rejected until original-host verification is supported",
+      "Mongo SSH forces directConnection; multi-host/SRV/replica-set transport rejected",
+      "Failed database close owners retained for actual shutdown cleanup retry"
+    ],
+    "package": {
+      "path": "D:/PengTools/dist/ui-agent-20261014/PengToolsHub/PengToolsHub.exe",
+      "build_exit_code": 0,
+      "module_archive_check": 14,
+      "odbc_pyd_check": true,
+      "qt_runtime_resources_check": 5,
+      "embedded_package_assets_exit_code": 0,
+      "resource_secret_scan_exit_code": 0,
+      "exe_launched": false,
+      "current_app_modified": false
+    },
+    "limitations": [
+      "No real SSH/database integration verified",
+      "Current app/visual acceptance not exercised; computer control remains stopped",
+      "Dameng remains deferred"
+    ],
+    "source_sha256": {
+      "tools/data_center/connection_transport.py": "84e207ce917303657bd37476426a96ed65da14fd5609c6370ca6be22ad618f8e",
+      "tools/data_center/nosql_transport.py": "5cd0d768fde1bfd84f954eeae60fe133dbab121079619df3084f821a6d607655",
+      "tools/data_center/readonly_relational_connectors.py": "f17ad9ec11d6ec80322d71ecedbae15f0d40fc9f30a7f09af9e289dc5aa06adb",
+      "tools/data_center/host_nosql.py": "96514f4fd4d92904f7a71b8f5db3ca6466903c3c993a0274f9602df29c9fc271",
+      "panels/data_center_panel.py": "5318907fda091a870a025b43695b36ea688a9095ca11e15b8dc3fb8df6b7059d",
+      "panels/db_redis_panel.py": "654100b19553982c45949181e376b7d37de16944117f3422075e1f99e3b58fef",
+      "panels/db_mongodb_panel.py": "568f352eb51e3431a8a6f2b1e280c5d85e98041d4cd8d8af1e3a97b9648ca464",
+      "ui/data_center/connection_transport.py": "641ddfcbef38570a2fa426da848dc3a308243473ce28c7da130ff2c41ed545c2",
+      "tests/test_data_center_nosql_transport.py": "6a24f05fadc422358289adbe9febff5c52a7abea857ede69d61e738307d9f568",
+      "tests/test_data_center_oracle_transport.py": "0fd8f8e22ce67be9fab9495765bd519eec94899fa411ab4a5efa4d7309a1502c"
+    },
+    "package_warnings": [
+      "Optional tzdata hidden import absent",
+      "Unused Qt3D/plugin and Windows driver dependency warnings; no executable runtime acceptance claimed"
+    ]
+  },
+  "current_state": "R2 source and isolated package verified; first package starts and compact exit prompt visually checked. User restored GUI permission, then minimized the window; manual restore requested before remaining workbench checks. Real external databases remain unverified.",
+  "native_nosql_followup": {
+    "actual_regression": "native Redis.client() misclassified as Mongo owner; real SSH read failed CAPABILITY_UNAVAILABLE before fix",
+    "changes": [
+      "Callable .client is a Redis command method, not Mongo owner",
+      "Facades and host lease propagate pending physical close and allow cleanup retry while logically closed"
+    ],
+    "targeted_new_cases": 2,
+    "affected_existing_close_cases": 3,
+    "tests_exit_code": 0,
+    "real_ssh_probe": "real-ssh-result.json",
+    "package": "package-r2.json",
+    "source_sha256": {
+      "tools/data_center/host_nosql.py": "c22e8e8cb021c92619d4da8f01292a9c7d1eea29e50570dc22c18074e2c8193c",
+      "tools/data_center/readonly_nosql_clients.py": "e7b28f1eefee15b3580b0f83ad263a8e0d4b36fcd059aceaebde2e00e9b959d2",
+      "tests/test_data_center_nosql_transport.py": "212b35db9321b2599b8391f35dba288d2e0558a825db1239919c882ffee0dd66"
+    }
+  },
+  "ui_readability_oct14": {
+    "scope": "User marked dashboard captions/status/actions/quick tools; flatten sidebar; remove duplicate context row",
+    "repairs": [
+      "Small dashboard copy/buttons/status increased to 12-14px with card height adapted",
+      "Quick tool descriptions wrap over two lines",
+      "New profiles default expanded; explicit Expand all menus overrides compact rail",
+      "Remove 52px duplicate module context row; preserve quick panel in title bar",
+      "Missing fresh connection file remains an empty catalog until an actual file is read",
+      "Default Agent result projection now follows existing 12KiB/result,48KiB/run constants"
+    ],
+    "checks": {
+      "frontend_typecheck_build_embedded_verify": "PASS, no repeated frontend run after native-only edits",
+      "sidebar_actual_callback_cases": 2,
+      "projection_regressions": 2,
+      "projection_affected_existing_cases": 2,
+      "fresh_catalog_new_regression_failed_before_fixed_after": true,
+      "fresh_catalog_cases_after_fix": 2,
+      "actual_native_shell_header_tabs_palette_contract_cases": 1,
+      "whole_repository_run": false,
+      "scoped_diff_check": "PASS"
+    },
+    "runtime": {
+      "r1_normally_exited": true,
+      "r3_started_pid": 43616,
+      "r3_home_fonts_reviewed": true,
+      "r3_viewports": [
+        "1440x900",
+        "1920x1032 maximized"
+      ],
+      "r3_menu_collapse_expand_reviewed": true,
+      "r3_data_center_and_agent_empty_pages_reviewed": true,
+      "r3_fresh_catalog_missing_file_error_observed": true,
+      "r5_source_and_package_fixed": true,
+      "r5_launched": false,
+      "physical_escape_stopped_computer_use_after_new_header_request": true,
+      "app_inputs_after_escape": 0,
+      "user_visual_acceptance": "pending"
+    },
+    "latest_package": {
+      "path": "D:\\PengTools\\dist\\ui-agent-20261014-r5\\PengToolsHub\\PengToolsHub.exe",
+      "build_exit_code": 0,
+      "sha256": "98f759c535c7ecfc742d767f0383bb6543fb99570cb9ef365d0fe7dbb76f6e4c",
+      "required_modules": 15,
+      "odbc_extension": true,
+      "qt_resources": 5,
+      "redis_unpack_and_physical_cleanup_fixes_in_archive": true,
+      "default_projection_limits_in_archive": {
+        "per_result_bytes": 12288,
+        "per_run_bytes": 49152
+      },
+      "embedded_assets_match_source": true,
+      "resource_secret_scan_exit_code": 0,
+      "user_data_packaged": false,
+      "fresh_catalog_refresh_fix_in_archive": true,
+      "duplicate_context_header_removed_in_archive": true,
+      "gui": {
+        "launched": false,
+        "user_acceptance": "pending"
+      }
+    },
+    "synthetic_performance": {
+      "scope": "synthetic Qt table model and 100 actual ManualSession owners; not full UI tabs or real DBs",
+      "rows": 20000,
+      "columns": 20,
+      "pages": 100,
+      "per_cell_widgets": 0,
+      "view_child_widgets": 18,
+      "model_load_ms": 309.607,
+      "heartbeat_p95_extra_ms": 51.462,
+      "heartbeat_max_extra_ms": 58.525,
+      "200_cell_lookup_median_ms": 6.946,
+      "python_peak_mib": 16.467,
+      "manual_sessions": 100,
+      "session_churn_ms": 26.627,
+      "residual_owner_threads": 0,
+      "all_connections_closed_on_owner_thread": true,
+      "user_data_or_network_used": false,
+      "platform": "Windows, Qt offscreen",
+      "full_window_performance_pending": true
+    },
+    "source_sha256": {
+      "main_window.py": "bae46ac5a75aabb366f452b147ea035723e4c72a31f725327c00dc8515579f05",
+      "config.py": "e4350922c8b2d0c5c55349a1435dd6a712d0119958f84e575f584949013c77cd",
+      "panels/settings_panel.py": "76ef712b64d87996649e76bd5dfbf0968fec5660799622c2bf3f8b33e3b4c5c8",
+      "frontend/src/chrome/ChromeApp.vue": "c3dfb9a6e349d37337eaed38ec30ee4a3b16bfbd421c65b5f66fd8417389a63b",
+      "frontend/src/dashboard/DashboardApp.vue": "d05fa4b9ea119949895d5a309a6b2a47ff9aa2a09795b9edf5b96bc342e761b3",
+      "frontend/src/dashboard/components/StatsGrid.vue": "2cbdf776b24d0632ab141d0cbb85fb7fd6104a040165b29a05666ee474376cce",
+      "frontend/src/dashboard/components/QuickTools.vue": "7f228cc54404f7df9de36dddb964de759146a826445c167fbfc2d7867e96426c",
+      "frontend/src/dashboard/components/MonthlyTasks.vue": "9249fae3804a3bace558ea8bfa1fb9ce731096b4c6063d84747f4a9475f61c89",
+      "frontend/src/dashboard/components/ReleaseOverview.vue": "d370e280e0254cca255181066eef0a715542ba3daf74f4db5e5612be552a3e1a",
+      "tools/data_center/host_runtime.py": "53064eb9bded89b37e5d435a4149a5f432a5f0858bec115be991ee68bf311f1a",
+      "tools/data_center/workspace_catalog.py": "bbde8ac809ca10fd27b3c17221adb0473e0ab972408833c295164f68ea7ca08d",
+      "tests/test_prism_sidebar_expansion.py": "3f58678990b158dcab527092085bb7010aa41c397bdcaba2d8d35f3bc9a6bd5f",
+      "tests/test_prism_shell_contract.py": "41e3c83e9b6dc02239cdc6d97ca613605392ba025d297d489787829ab96ce245",
+      "tests/test_data_center_projection_defaults.py": "6bc824fa06d389a661003abdea1b17bcc9e245d219c32c93bc5e7cfb46bcd1f1",
+      "tests/test_data_center_workspace.py": "e6df1c0fe6fbc5fcedd7e69f13c168ebc22e3df924ce83050c15488e7af6f7da"
+    },
+    "remaining": [
+      "R5 actual window and user acceptance after user restores computer-use authorization",
+      "Actual service/model environment and full-window performance still pending",
+      "Result-table first-column freezing requirement identified for scoped continuation",
+      "Dameng remains explicitly deferred",
+      "Full goal remains active; no commit, push, data/config/session migration"
+    ]
+  },
+  "menu_tools_and_result_columns_oct14": {
+    "scope": "User screenshot: sidebar group headings and incorrect dashboard quick-tool navigation; continue result-table requirement 7.2",
+    "root_cause": "Frontend hard-coded old 18 route overrode Python unified data center 14, yielding missing tool label and wrong destination.",
+    "repairs": [
+      "Nav DTO exports quick_tool_indices from existing authoritative Python constant; frontend resolves names/icons/targets from same DTO",
+      "Group headings use current language only at 13px; redundant expanded dividers removed; bilingual tooltip retained",
+      "Shared typed-model result view supports hiding columns, resizing, frozen first column, synchronized selection/scroll, keyboard and detail/context forwarding",
+      "Column controls reachable from header menu and existing More menu; at least one column remains visible",
+      "More menu releases superseded column submenus; observed before growth 1,2,3,4,5 now one retained after deferred deletes"
+    ],
+    "verification": {
+      "frontend_typecheck_build_embedded_verify": "PASS",
+      "nav_authority_python_case": {
+        "passed": 1,
+        "exit": 0
+      },
+      "actual_qwebengine_dashboard_authority_case": {
+        "passed": 1,
+        "exit": 0,
+        "platform": "Windows hidden test widget",
+        "dom_click_routes": [
+          14,
+          16,
+          12,
+          13,
+          5,
+          11
+        ],
+        "summary_refresh_guard": true,
+        "source": "tests.test_web_dashboard_runtime.WebDashboardProductionRuntimeTest.test_dashboard_real_qwebengine_nav_model_authority_over_summary"
+      },
+      "result_column_widget_cases": {
+        "passed": 5,
+        "exit": 0
+      },
+      "long_value_editor_affected_case": {
+        "passed": 1,
+        "exit": 0
+      },
+      "manual_select_dml_commit_affected_case": {
+        "passed": 1,
+        "exit": 0,
+        "platform": "Windows hidden test widgets"
+      },
+      "environment_limitations": [
+        "Co-loading navigation Qt app before WebEngine caused import-order skip; separate fresh Windows WebEngine case passed",
+        "Offscreen WebEngine GPU/context creation failed; Windows hidden QWidget target passed",
+        "Offscreen manual integration assertions passed but process aborted at teardown (0xC0000409); same exact case also aborted with preserved pre-change manual_query/table_editor modules. Existing platform failure, not repaired. Windows hidden case exit0."
+      ],
+      "whole_repository_test_run": false,
+      "scoped_diff_check": "PASS"
+    },
+    "package": {
+      "path": "D:\\PengTools\\dist\\ui-agent-20261014-r7\\PengToolsHub\\PengToolsHub.exe",
+      "build_exit_code": 0,
+      "sha256": "26791192a48d5b128cc0b5d561d4c7162cce918b38e08412e9549bbd6fc69ff3",
+      "required_modules": 16,
+      "odbc_extension": true,
+      "qt_resources": 5,
+      "redis_unpack_and_physical_cleanup_fixes_in_archive": true,
+      "default_projection_limits_in_archive": {
+        "per_result_bytes": 12288,
+        "per_run_bytes": 49152
+      },
+      "embedded_assets_match_source": true,
+      "resource_secret_scan_exit_code": 0,
+      "user_data_packaged": false,
+      "fresh_catalog_refresh_fix_in_archive": true,
+      "duplicate_context_header_removed_in_archive": true,
+      "quick_routes_from_authoritative_model": true,
+      "column_hide_and_freeze_integrated": true,
+      "gui": {
+        "launched": false,
+        "user_acceptance": "pending"
+      }
+    },
+    "source_sha256": {
+      "ui/navigation_model.py": "56586740b0621444b76045dca999b96c3907a45624460a5f63a2fa85e65fe723",
+      "frontend/src/dashboard/main.ts": "c8f59cd613f002d61444a959cbfa9e98ff90f1c92d04ac9400ec3b2733604968",
+      "frontend/src/chrome/ChromeApp.vue": "a05089d683bbad6ba36b46e21b116adda8ec7c8872f0bd43306710fb59453e40",
+      "frontend/src/chrome/nav.ts": "c1cd89812ddba02845bb7f08056eb8f7582fa0d282a72628b41bef16b1197bf3",
+      "tests/test_data_center_navigation.py": "ebd5cda6008bba70a566e07ba8502453a3d0bee84839712d138bed72d2a04857",
+      "tests/test_web_dashboard_runtime.py": "cb4d2db4d133fde06aca199ec830395b790ff02d47a61b9d634754ddfaccba2f",
+      "ui/data_center/result_view.py": "8b6242daf55d7e82d53ae11840ed3ba43ee0a868a73066c759eef04b26512a9e",
+      "ui/data_center/manual_query.py": "5ed4a3c50750dbfb7d2a2233963c54be1792e27c820d7bba7ee7d48fc9a1e62a",
+      "ui/data_center/table_editor.py": "d22d3d058c659b7a707270c93e623174f793d81667d1e7715637a4aef7471d3c",
+      "tests/test_data_center_result_columns.py": "c93b26d799ddec3343f2c8ba7016d11c8872308630379f3e1b967148ed814794"
+    },
+    "gui": {
+      "current_user_app_not_changed": true,
+      "r7_launched": false,
+      "computer_use_still_stopped_after_physical_escape": true,
+      "visual_acceptance": "pending"
+    },
+    "goal": {
+      "status": "active",
+      "dameng": "deferred",
+      "real_services_and_deployed_qwen_capacity": "pending",
+      "full_window_performance_and_user_acceptance": "pending"
+    }
+  },
+  "result_find_details_oct15": {
+    "scope": "Requirement 7.2: loaded SQL result search and typed long-value details",
+    "repairs": [
+      "Ctrl+F scoped to result table and existing More menu opens modeless local find",
+      "3ms Qt timer slices, 150ms debounce, chunked Unicode/hex matching and explicit 10000-match navigation limit",
+      "Stable original model/pages/row indexes; previous/next/Enter reveal and select actual match, including hidden/frozen columns",
+      "Replacement/append restarts; view hiding and dialog closing stop timers and release scan iterator",
+      "Read-only details shared by plain SQL result and table editor; NULL/empty/bytes distinct, 1M-character display bound explicit, raw export values unchanged",
+      "Driver-backed unknown values are marked not loaded instead of invoking __str__; local oracledb LOB.__str__ confirmed to call read()"
+    ],
+    "verification": {
+      "focused_cases_passed": 9,
+      "focused_exit_code": 0,
+      "enter_navigation_after_button_default_adjustment": {
+        "passed": 1,
+        "exit_code": 0
+      },
+      "more_menu_affected_case": {
+        "passed": 1,
+        "exit_code": 0
+      },
+      "driver_backed_ui_read_calls": 0,
+      "whole_repository_run": false,
+      "native_owner_probe": [
+        {
+          "probe": "check_value_details_before_windows.py",
+          "exit_code": 3221226505,
+          "unittest_reported_ok": true
+        },
+        {
+          "probe": "check_result_columns_windows.py",
+          "exit_code": 3221226505,
+          "unittest_reported_ok": true
+        }
+      ],
+      "native_owner_probe_classification": "EXISTING_FAILURE: assertions passed but same 0xC0000409 process exit before and after with exact R7 before modules; not treated as successful process smoke.",
+      "scoped_diff_check": "PASS"
+    },
+    "source_sha256": {
+      "ui/data_center/value_format.py": "c6e1fc4db134607bb9c5bf7b0b13f0b80f46dc0ae3d4f232e680d8328e352494",
+      "ui/data_center/value_inspector.py": "28432112eeb390d89632291d5ca18a07370457423b0066f1590ac530bf99fcd7",
+      "ui/data_center/result_find.py": "c446f6817734e738cbe7810dbb77d38a871e6c8afdf5dfe17e4a5ac3d7868049",
+      "ui/data_center/result_model.py": "03fd504bbe6296c98796d7765d4238ad1359af58c1a9df66815083120bbd324f",
+      "ui/data_center/manual_query.py": "5dc1eb53cabb3c3a9025d71a77d1fa5fa9982f696ad0d62a21f25bbfe1f82337",
+      "ui/data_center/table_editor.py": "3dff9e7d32c3e616bc55312c4a91ee874a3eb69f343148cb64c744b0534bf8b1",
+      "tests/test_data_center_value_inspector.py": "8fecb237bf6020937478dc7e88fe99e8f32eddfd935947daa75dad89e0b17fca",
+      "tests/test_data_center_result_find.py": "c470b9d3b8c73f2746e44d61541ac9b0f155a1cfc19fed7b8cc3ab930f5b64f8"
+    },
+    "delivery": {
+      "source_only": true,
+      "last_package": "r7, does not contain this source increment",
+      "new_package_generated": false,
+      "user_app_controlled": false,
+      "commit_push": false
+    },
+    "remaining": [
+      "Owner-thread bounded materialization of actual Oracle LOBs before UI/export needs separate work; current UI explicitly marks unloaded values",
+      "Native test-process teardown failure is reproduced before/after; cause not diagnosed or repaired",
+      "Current-window visual acceptance, actual database/Qwen environment and full-window performance still pending",
+      "Dameng deferred; full goal active"
+    ]
+  },
+  "lob_owner_oct15": {
+    "scope": "Manual Oracle/OB Oracle CLOB/NCLOB/BLOB materialization before UI/export",
+    "owner": "root personally, no delegation",
+    "source_sha256": {
+      "tools/data_center/lob_values.py": "12d073eac95757221248b1bd34ecdb69b51a29725ececc4abd95b8c6a262f5de",
+      "tools/data_center/manual_driver.py": "407360875a16049fa20474f158da2020609771dc3e2af032ab6273cf96d8accb",
+      "tools/data_center/manual_session.py": "64b54a26208efb41fab02f26ae594cf5637a7879ad678272a784cc1b064aa8cd",
+      "tests/test_data_center_lob_values.py": "ffff03d96a801006d7c24ffaa7da9d0817b61ac091c79f6d0fc4b4fdf11490c8"
+    },
+    "new_cases": [
+      "test_sdk_clob_supplementary_boundary_and_blob_are_detached_exactly",
+      "test_oversize_blob_is_rejected_before_read_and_unknown_readable_objects_are_untouched",
+      "test_actual_manual_owner_returns_detached_pages_and_closes_on_same_thread",
+      "test_cancelled_blocked_read_stays_pending_until_owner_finishes",
+      "test_full_export_consumes_same_cursor_with_detached_lobs",
+      "test_full_export_cancellation_waits_for_blocked_lob_read_and_is_not_fetch_error",
+      "test_server_read_failure_is_not_retried",
+      "test_manual_result_reports_value_limit_without_reading_or_exporting_partial_data"
+    ],
+    "new_cases_passed": 8,
+    "affected_old_cases_passed": [
+      "tests.test_data_center_manual_session.ManualSessionTests.test_query_preserves_typed_rows_and_bounded_lookahead_pagination",
+      "tests.test_data_center_manual_session.ManualSessionTests.test_cancel_during_blocked_driver_call_keeps_owner_and_connection",
+      "tests.test_data_center_manual_result_export.ManualResultExportTests.test_three_page_json_export_continues_same_cursor_once",
+      "tests.test_data_center_manual_relational_providers.ManualRelationalProviderTests.test_oracle_owner_thread_select_dml_explicit_commit_and_close",
+      "tests.test_data_center_manual_result_export.ManualResultExportTests.test_running_export_requires_cooperative_cancellation"
+    ],
+    "evidence": {
+      "sdk_objects": "actual oracledb.LOB with synthetic in-memory _impl, no database server",
+      "reads": "size/read/paging/close recorded on one actual ManualSession owner thread",
+      "unicode": "UCS-2 offsets with supplementary character boundary; bounded decoding retry only",
+      "large_blob": "reported 1TB rejected before read; arbitrary readable object untouched",
+      "export_rows": 73,
+      "export_execute_count": 1,
+      "cancel": "future/owner pending while read blocked; cancel returned only after release; no completed export file",
+      "server_error_retry_count": 0,
+      "import_smoke": {
+        "oracledb_imported": false,
+        "qt_imported": false
+      },
+      "syntax_modules": 4,
+      "trailing_whitespace_lines": 0
+    },
+    "limitations": [
+      "Actual Oracle/OceanBase service and thick-driver supplementary boundary behavior unverified",
+      "Cursor fetches one native row at a time; real service throughput/performance unverified",
+      "Values/rows beyond existing 50MiB materialization bound fail explicitly; not an unlimited single-LOB export implementation",
+      "BFILE/unsupported native LOB type rejected; UI does not automatically read arbitrary lazy objects",
+      "Existing native test-process teardown 0xC0000409 remains separate; no new GUI control"
+    ],
+    "delivery": {
+      "source_only": true,
+      "latest_package": "r7, does not contain this increment",
+      "commit_push": false,
+      "full_goal": "active"
+    },
+    "compact_handoff": "D:\\PengTools\\docs\\project\\reviews\\agent-refactor-2026-10-01\\CURRENT_STATE.md"
+  },
+  "query_page_size_oct15": {
+    "scope": "Requirement 7.2: plain-SQL result page-size selector; 50/200/500, default 200",
+    "implementation": [
+      "Reuse existing native result pager row, translated visible row-count labels, per-runtime-tab choice",
+      "New, table-backed SQL, and restored-history states inherit host default; table editor keeps its existing selector",
+      "Pass selected size to query, submit and fetch_next_page; choosing a size never executes SQL",
+      "Disable while busy/shutdown/no active session; background completion cannot reset the visible choice",
+      "Handle empty-tab shutdown paging without dereferencing a missing state"
+    ],
+    "verification": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B -m unittest tests.test_data_center_query_page_size -v",
+      "cases": 3,
+      "exit_code": 0,
+      "evidence": "Isolated Qt callbacks plus real ManualSession owners and synthetic driver; pages contain consecutive 50+200+500 rows, one SELECT execution, one connection factory, one owner, DIRTY retained and zero commit/rollback before cleanup",
+      "ast_parse_and_whitespace": "PASS for changed source and new test",
+      "full_suite": false,
+      "gui_acceptance": "pending; user app not controlled",
+      "real_database": false
+    },
+    "source_sha256": {
+      "ui/data_center/manual_query.py": "3151c0b1ceb8a8a52dbd174b2b5f2b195721bd3162ea63da77f1f1f88da6554b",
+      "tests/test_data_center_query_page_size.py": "054d3d94c3ace6e504ee4c4974d7cc02fbc9c50c05ac88d9ca4c6dd67bdc15db"
+    },
+    "before": "query-page-size-before/manual_query.py",
+    "package": "Source only; R7 does not contain this increment",
+    "remaining": "Explicit server-side table conditions/sort UI confirmed absent; current table view has loaded-row local search and default primary-key order only. Full goal remains active; Dameng deferred."
+  },
+  "server_table_query_oct15": {
+    "scope": "Requirement 7.2: explicit server-side relational table filters and ordering on the existing signed owner session",
+    "implementation": [
+      "Existing two-row table controls gain Filter / sort button; no extra permanent toolbar row",
+      "Screen-bounded native dialog, up to 32 AND predicates and 8 ordered keys, explicit Query/Cancel/Clear, typed numeric and ISO date/time values, NULL separate from empty text",
+      "Frozen bounded query DTO; verified metadata column whitelist, fixed operator list, driver bind policies; contains/starts-with escape literal !/%/_ using ESCAPE",
+      "Non-comparable large-object columns allow NULL predicates only and cannot be sort keys; unselected primary-key columns are appended as tie-breakers",
+      "Owner revalidates signed scope and live catalog before compiling and executing; same connection/transaction/cursor paging, no added commit/rollback/replay",
+      "Successful delivery alone updates per-tab query/counts; tab switching and refresh restore the applied spec; busy/shutdown/staged changes block new queries without discarding changes"
+    ],
+    "verification": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B -m unittest tests.test_data_center_table_query tests.test_data_center_table_query_ui tests.test_data_center_table_source.TableSourceTests.test_signed_table_opens_in_manual_owner_and_reuses_dirty_typed_page_cursor tests.test_data_center_table_source.TableSourceTests.test_oracle_service_and_owner_stay_separate_and_ordered_composite_key_is_used tests.test_data_center_table_editor_integration.TableEditorModelTests.test_search_is_labeled_and_only_filters_loaded_rows -v",
+      "new_cases": 8,
+      "affected_existing_cases": 3,
+      "exit_code": 0,
+      "elapsed_test_seconds": 0.055,
+      "boundaries": [
+        "Vendor SQL/bind generation and signed catalog/owner use synthetic MySQL, Oracle and both OceanBase modes; not real services",
+        "Compiled portable Qmark SQL executed against temporary in-memory SQLite: filtering applies beyond the first 50 rows, literal wildcard matching and stable multi-key ordering are correct",
+        "Actual ManualSession owner retains DIRTY state and same cursor through next-page fetch; zero commit/rollback before fixture cleanup",
+        "Isolated Qt production button -> host -> session seam, value-validation dialog, busy/shutdown/local-overlay guards, actual delivery/tab switch/refresh query retention"
+      ],
+      "ast_and_whitespace": "PASS for seven scoped files",
+      "full_suite": false,
+      "user_app_control": false,
+      "visual_acceptance": "pending",
+      "package_build": false
+    },
+    "source_sha256": {
+      "tools/data_center/table_source.py": "549d15ec9ccc59dd54fa7a788785d09498c2ad7d65e6aa1fea62e441472349ff",
+      "tools/data_center/manual_session.py": "39936e7479dafbd78a5c30e2d9ec456d544ea34d0d8b9228033f14265465d21f",
+      "ui/data_center/manual_query.py": "7bf041c83601966e9cb7f21860bafdd6a1e7a2b667791228b932ceea75f2e89b",
+      "ui/data_center/table_editor.py": "d6ebe09468b58098dea914495c7283c4bc19bf71f922da7f4b44fa587ec335b1",
+      "ui/data_center/table_query_dialog.py": "894f8aad84d4d22a9908788acd784a4078246f0e0a46cb071437668e73082d8b",
+      "tests/test_data_center_table_query.py": "f968019bbc08e3b3b0880639a27d260aad83dc2d0c0fba9b8ecf64d741ad0ceb",
+      "tests/test_data_center_table_query_ui.py": "22a99771bb623d9f28dba375d5bd21336289627b6f659e79cd109efea52cb06d"
+    },
+    "before": "server-query-before/",
+    "limitations": [
+      "R7 does not contain Oct15 source increments",
+      "Actual target-engine SQL/type/collation/performance and full-window visual acceptance remain pending",
+      "Conditions are conjunctive; no arbitrary SQL filter text or automatic rewrite of arbitrary user SQL",
+      "No genuine model/database service acceptance or whole-goal completion claimed; Dameng deferred"
+    ],
+    "goal_status": "active"
+  },
+  "sql_target_oct15": {
+    "scope": "Requirement 7.2 current-statement/selection execution audit and correction; execute-all remains an explicit gap",
+    "root_causes_from_source": [
+      "QTextCursor uses UTF-16 positions while Python string slicing/search uses code points; multiple supplementary characters can move a legacy current-statement lookup into a later statement",
+      "Legacy shared split_sql_statements does not recognize MySQL backtick semicolons or Oracle alternative quote boundaries",
+      "Whole-editor procedural prefix check rejected an explicitly selected independent SELECT outside a procedure draft"
+    ],
+    "implementation": [
+      "SqlEditor selected_or_all returns Python-index position using a copied prefix cursor; original cursor/selection is preserved",
+      "Scoped Qt-free manual lexer provides original spans and code masks for native host and vendor classifiers; no changes to generic tools.sql_guard or read-only Agent policy",
+      "Supports ordinary/doubled single/double/backtick quotes, Oracle q/nq delimiters, comments, MySQL # and -- whitespace rules, cursor whitespace boundaries",
+      "Rejects incomplete quotes/comments, ambiguous MySQL escaped quotes and executable comments before owner I/O",
+      "Transaction guard uses the same quote mask, preserving literal COMMIT/ROLLBACK data while blocking actual controls; malformed masks fail closed",
+      "Unselected procedural scripts, including WITH FUNCTION, cannot dispatch an internal body statement; explicit independent selection is checked on its own"
+    ],
+    "verification": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B -m unittest tests.test_data_center_sql_target tests.test_data_center_manual_session.ManualSessionTests.test_transaction_control_sql_cannot_bypass_state_machine tests.test_data_center_manual_session.ManualSessionTests.test_ddl_and_dcl_need_authorization_and_clean_transaction tests.test_data_center_manual_relational_providers.ManualRelationalProviderTests.test_vendor_classification_covers_transaction_effect_edges tests.test_data_center_manual_relational_providers.ManualRelationalProviderTests.test_oracle_owner_thread_select_dml_explicit_commit_and_close -v",
+      "new_cases": 7,
+      "affected_existing_cases": 4,
+      "exit_code": 0,
+      "followup_command": "python -B -m unittest tests.test_data_center_sql_target.SqlBoundaryTests.test_procedure_body_is_not_mistaken_for_a_standalone_statement -v",
+      "followup_exit_code": 0,
+      "boundary": "Actual native editor cursor -> production host run callback -> real ManualSession owner with synthetic driver; vendor/type/transaction tests use injected fixtures, not real services",
+      "ast_whitespace_and_scoped_diff": "PASS",
+      "full_suite": false,
+      "user_app_control": false,
+      "new_package": false,
+      "visual_acceptance": "pending"
+    },
+    "source_sha256": {
+      "ui/sql_editor.py": "7be688912c03858c062cb12d3e49e7b6dd7b2369797d6f3c8c68b8c6cce507e4",
+      "ui/data_center/manual_query.py": "5683d05a15f1aa453217d1e719646c6c76413ddd81c1263f36d5ec1ec4a688ca",
+      "tools/data_center/manual_driver.py": "efddeeb2ecc3e861c003e5a94720cdffc82f09517f28105ab96639dd9b86e3b3",
+      "tools/data_center/manual_session.py": "02a7dbb0ca234d7c1228300ae6f01f8aa7cdf01807b622fe9d9967f434d17eee",
+      "tools/data_center/sql_script.py": "c1e54102d5c57d219e6b6a5508feaa89add1c66177b80160d275ec86b861a132",
+      "tests/test_data_center_sql_target.py": "fb00402b9bf815db0c08ecd621eb87c4924aee6c6ca9d7a486d0b4dcd4c7607d"
+    },
+    "before": "sql-target-before/",
+    "requirement_gaps": [
+      "No explicit execute-all button, statement-count review or manual mixed-SQL script run API. Existing run_savepoint_batch is a DML ChangeSet mechanism and is not evidence for this requirement.",
+      "Full selected procedure/anonymous-block execution is still refused by the host/session; the requirement is not satisfied by refusal alone.",
+      "MySQL backslash quote mode remains unknown, so ambiguous input is explicitly refused; no guessed server sql_mode.",
+      "Metadata completion and remaining workspace/history/import/export requirements still need bounded source/evidence audit before completion.",
+      "R7 lacks all Oct15 increments; target engines/Qwen deployment/full-window acceptance remain pending, Dameng deferred."
+    ],
+    "goal_status": "active",
+    "turn_classification": "progress"
+  },
+  "manual_script_run_oct15": {
+    "scope": "Requirement 7.2 explicit execute-all, count review, sequential owner execution, stop-on-error and per-statement results",
+    "implementation": [
+      "Actual native Run all button in existing transaction row; count/target/type review, captured immutable script and explicit execution confirmation",
+      "One ManualSession owner job runs recognized query/DML/DDL/DCL statements sequentially; stop on first failure/cancellation with explicit SKIPPED entries",
+      "No added commit/rollback/savepoint/replay; DDL/DCL authorization and CLEAN checks remain; prior DML is retained on later failure",
+      "Bounded 256 statements / existing workspace MAX_TEXT_BYTES (256 KiB), allowing the same whole-script text to be saved in history",
+      "Shared configured retained-result byte budget across first result pages and subsequent final-cursor paging; this is not a whole-process peak-memory claim",
+      "Existing pager row hosts script-result selector; per-statement success/failure/cancel/skipped and affected rows, cached first pages and per-tab selection",
+      "Only matching live cursor can fetch/export the entire query; replaced earlier cursors retain loaded results and are never silently re-executed",
+      "Background completion/tab restoration and dormant history Run all supported; history reducer records whole-script completed/failed/cancelled status"
+    ],
+    "verification": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B -m unittest tests.test_data_center_manual_script tests.test_data_center_manual_script_ui tests.test_data_center_manual_session.ManualSessionTests.test_query_preserves_typed_rows_and_bounded_lookahead_pagination tests.test_data_center_manual_session.ManualSessionTests.test_transaction_control_sql_cannot_bypass_state_machine tests.test_data_center_manual_result_export.ManualResultExportTests.test_three_page_json_export_continues_same_cursor_once tests.test_data_center_table_query_ui.TableQueryUiTests.test_success_delivery_tab_switch_and_refresh_keep_applied_query -v",
+      "new_cases": 12,
+      "affected_existing_cases": 4,
+      "exit_code": 0,
+      "final_limit_followup": "Two affected cases exit0 after aligning script byte limit with existing history MAX_TEXT_BYTES; preflight oversized input and actual Run all button/result selection",
+      "evidence": [
+        "Actual temporary SQLite executes INSERT/SELECT/failing INSERT; earlier row stays visible in the transaction, later statement skipped, explicit rollback removes it",
+        "Actual ManualSession owners with injected drivers verify one owner/connection, blocked cancel pending until release, DIRTY retained, no hidden transaction actions, cumulative retained result budget",
+        "Production transaction-action installer/Run all button/pager selector/host delivery and real sessions on isolated widgets; result switching does not execute, final next-page same cursor, earlier full export disabled",
+        "Background failure result recovery, valid dormant history affordance/no auto-connect, actual queued history reducer emits correct whole-script status"
+      ],
+      "ast_and_whitespace": "PASS on five scoped source/test files",
+      "full_repository_suite": false,
+      "user_app_control": false,
+      "real_target_vendor_service": false,
+      "new_package": false,
+      "visual_acceptance": "pending"
+    },
+    "source_sha256": {
+      "tools/data_center/manual_session.py": "140189b6f63562159d28b4a3f1191c32dec01c6998311ca2e3c5f807bd9f9750",
+      "ui/data_center/manual_query.py": "c91cf5ebf71c75b71ac4f7b390b49531a7d7260e9a8c972d6d6ecb4ca0c595be",
+      "ui/data_center/query_history_service.py": "796c8ba88ae2e32506b778f5ad0d1d0fda80cf7ddcbae730e7ed2f19158df166",
+      "tests/test_data_center_manual_script.py": "e57f8eebc56c6a19e54f1590ec0e6e004cc816ee226cd306f3bbd8ccd030fdf6",
+      "tests/test_data_center_manual_script_ui.py": "b5292d676d6b54a541e5be868170eee67bf1455103375c8a4d45001f3a91cfd7"
+    },
+    "before": "script-run-before/",
+    "limitations": [
+      "Full selected vendor procedural/anonymous blocks remain unsupported and explicitly pending; no claim that refusal completes that requirement",
+      "Earlier script cursors are physically replaced by later statements; only retained pages can be viewed/exported for those entries, with no automatic replay",
+      "No genuine Oracle/MySQL/OB server script, sql_mode, native peak-memory/performance or full-window visual acceptance",
+      "R7 lacks Oct15 source increments; source uncommitted, full goal active, Dameng deferred"
+    ],
+    "turn_classification": "progress",
+    "goal_status": "active"
+  },
+  "selected_procedural_oct15": {
+    "scope": "Requirement 7.2: explicitly selected complete anonymous blocks/routine definitions submitted once on native manual owner",
+    "implementation": [
+      "Run/Ctrl+Enter recognizes explicit complete-block selection; confirmation binds captured target/text, only CLEAN or disconnected sessions permitted",
+      "Normalize outer Oracle slash and MySQL DELIMITER wrappers only; body never split; ordinary SQL and unselected procedural-body guards remain",
+      "Driver validates provider/scope and MySQL CLIENT.MULTI_STATEMENTS disabled before submitting one complete statement; no automatic replay/commit/rollback",
+      "Oracle SDK transaction_in_progress, MySQL server status and verified autocommit control determine current transaction; ODBC Oracle-family tries fixed read-only LOCAL_TRANSACTION_ID query, failure remains UNKNOWN",
+      "Execution error remains UNKNOWN; cancellation waits for vendor and cursor drain, then preserves known driver transaction state rather than promising undo",
+      "ManualOperationFuture carries captured session identity on terminal errors; history checks connection/revision/database/schema plus tab/generation before recording FAILED/CANCELLED; mismatched identity stays UNKNOWN"
+    ],
+    "references": {
+      "oracle_transaction_id": "https://docs.oracle.com/en/database/oracle/oracle-database/21/arpls/DBMS_TRANSACTION.html",
+      "oracle_semantics": "LOCAL_TRANSACTION_ID returns NULL with no current transaction; create_transaction default FALSE. This is not proof of OceanBase support.",
+      "local_sdk_source": [
+        ".venv-build/Lib/site-packages/oracledb/connection.py:transaction_in_progress",
+        ".venv-build/Lib/site-packages/pymysql/connections.py",
+        ".venv-build/Lib/site-packages/pymysql/constants/CLIENT.py",
+        ".venv-build/Lib/site-packages/pymysql/constants/SERVER_STATUS.py"
+      ],
+      "installed_mysql_constants": {
+        "CLIENT_MULTI_STATEMENTS": 65536,
+        "SERVER_STATUS_IN_TRANS": 1
+      }
+    },
+    "verification": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B -m unittest tests.test_data_center_procedural tests.test_data_center_procedural_ui tests.test_data_center_sql_target.SqlTargetQtTests tests.test_data_center_manual_script.ManualScriptTests.test_cancellation_waits_for_blocked_owner_and_skips_remaining_statements tests.test_data_center_manual_relational_providers.ManualRelationalProviderTests.test_oracle_owner_thread_select_dml_explicit_commit_and_close -v",
+      "new_cases": 9,
+      "affected_existing_cases": 5,
+      "exit_code": 0,
+      "followup": "History identity case exit0 after adding full connection/revision/database/schema matching, including wrong-connection same-tab/generation fixture",
+      "boundary": "Actual ManualSession owner and production ManualRelationalDriver with synthetic DBAPI, four provider IDs and CLEAN/DIRTY/UNKNOWN reports; isolated native Run/selection/confirmation/delivery and queued history reducer",
+      "ast_whitespace": "PASS for seven scoped files",
+      "history_before_hash_recovered": true,
+      "real_vendor_service": false,
+      "full_suite": false,
+      "user_app_control": false,
+      "new_package": false,
+      "visual_acceptance": "pending"
+    },
+    "source_sha256": {
+      "tools/data_center/sql_script.py": "48c3ba9304f2c8ad0f61fb7cff7d48b125e4e162c557798bbce5e754dd7da6c5",
+      "tools/data_center/manual_driver.py": "b7c0f9faacd0c20cdcefbd7f130a9f5f591b7f01179f3ed07b13813281041c8c",
+      "tools/data_center/manual_session.py": "06f7880cc1ce96da276068d53b95ae32cad77db8554d809e99a69de0de764aa3",
+      "ui/data_center/manual_query.py": "39984bcdaa35723d1a5b7ab9532f69d3efdb358e0ed978d90c895cc4cae4f96c",
+      "ui/data_center/query_history_service.py": "a06bf5eb12fb7964c67f2523325323d4da37dee93ab6cde24a7b0d08f00ca5d4",
+      "tests/test_data_center_procedural.py": "55050dfd24aedba80b06f3d545eecfda658cfb34b89a885d6617d57fb72f280f",
+      "tests/test_data_center_procedural_ui.py": "ab00b7633c2aac3a2d6eb787eeb72dbcc888c6d9ebdbafc87209667c72e0eeca"
+    },
+    "before": "procedural-before/",
+    "limitations": [
+      "Actual Oracle/MySQL/OB parsing, transaction-reporting and cancellation behavior remain to be accepted on target services",
+      "ODBC/OB transaction function availability is not assumed; unavailable detection returns UNKNOWN and never enables false commit",
+      "This is a non-rowset block path: WITH-local-routine result queries, output bind variables and DBMS_OUTPUT presentation remain unsupported/pending; do not report full vendor-language coverage",
+      "No new built package; R7 lacks Oct15 increments. Dameng deferred and overall goal remains active"
+    ],
+    "goal_status": "active",
+    "turn_classification": "progress"
+  },
+  "preview_r8_oct15": {
+    "scope": "One accumulated preview package for Oct15 source increments; no new product edits or repeated feature suites",
+    "package": {
+      "path": "D:\\PengTools\\dist\\ui-agent-20261015-r8\\PengToolsHub\\PengToolsHub.exe",
+      "sha256": "d17298669e1de33588499758e1a356e36f37de0aca5d8838a5990a23af358847",
+      "branch": "dev/2026-09-23",
+      "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+      "build_exit_code": 0,
+      "audit": "Static archive/content/source comparison only",
+      "required_project_modules": 61,
+      "matched_frozen_source_modules": 215,
+      "matched_modules": [
+        "run",
+        "main_window",
+        "config",
+        "ui",
+        "ui.aurora_progress",
+        "ui.brand_wait_ring",
+        "ui.button_busy_ring",
+        "ui.code_glance",
+        "ui.confirm_dialog",
+        "ui.connection_dialog",
+        "ui.daily_rich_edit",
+        "ui.data_center",
+        "ui.data_center.agent_controller",
+        "ui.data_center.agent_panel",
+        "ui.data_center.connection_transport",
+        "ui.data_center.import_controller",
+        "ui.data_center.import_dialog",
+        "ui.data_center.import_host",
+        "ui.data_center.integration",
+        "ui.data_center.manual_query",
+        "ui.data_center.nosql_query_history",
+        "ui.data_center.object_tree_controller",
+        "ui.data_center.object_tree_workspace",
+        "ui.data_center.query_history",
+        "ui.data_center.query_history_service",
+        "ui.data_center.result_export",
+        "ui.data_center.result_find",
+        "ui.data_center.result_model",
+        "ui.data_center.result_view",
+        "ui.data_center.table_editor",
+        "ui.data_center.table_query_dialog",
+        "ui.data_center.value_format",
+        "ui.data_center.value_inspector",
+        "ui.data_center.workspace_tree",
+        "ui.design_system",
+        "ui.dialog_buttons",
+        "ui.field_metrics",
+        "ui.floating_shortcuts_editor",
+        "ui.foldable_text_edit",
+        "ui.help_dialog",
+        "ui.hotkey_service",
+        "ui.icons",
+        "ui.json_viewer",
+        "ui.keep_awake_service",
+        "ui.key_value_editor",
+        "ui.layout_metrics",
+        "ui.module_tabs",
+        "ui.motion",
+        "ui.navigation_model",
+        "ui.page_chrome",
+        "ui.prism_sidebar",
+        "ui.prism_title_bar",
+        "ui.prism_window_frame",
+        "ui.query_status_band",
+        "ui.quick_panel",
+        "ui.responsive",
+        "ui.search_highlight",
+        "ui.section_toggle",
+        "ui.selection_delegate",
+        "ui.single_instance",
+        "ui.splitter_prefs",
+        "ui.sql_editor",
+        "ui.ssh_terminal",
+        "ui.startup_splash",
+        "ui.theme_manager",
+        "ui.thinking_indicator",
+        "ui.tray_service",
+        "ui.web_diagnostics",
+        "ui.web_shell",
+        "ui.wrap_layout",
+        "ui.xml_workspace",
+        "panels",
+        "panels.agent_workbench_panel",
+        "panels.ai_token_edit",
+        "panels.ai_workbench_panel",
+        "panels.credit_panel",
+        "panels.dashboard_panel",
+        "panels.data_center_panel",
+        "panels.db_mongodb_panel",
+        "panels.db_redis_panel",
+        "panels.docx_panel",
+        "panels.format_panel",
+        "panels.gateway_panel",
+        "panels.interface_debug_panel",
+        "panels.model_chat_panel",
+        "panels.ops_log_panel",
+        "panels.ops_panel",
+        "panels.personal_panel",
+        "panels.requirement_panel",
+        "panels.settings_panel",
+        "panels.sql_panel",
+        "panels.test_points_editor",
+        "panels.ticket_submit_dialog",
+        "panels.vin_panel",
+        "tools",
+        "tools.agent_core",
+        "tools.agent_core.budget",
+        "tools.agent_core.context",
+        "tools.agent_core.contracts",
+        "tools.agent_core.history",
+        "tools.agent_core.host_model_adapter",
+        "tools.agent_core.memory",
+        "tools.agent_core.memory_context",
+        "tools.agent_core.model_adapter",
+        "tools.agent_core.model_config",
+        "tools.agent_core.request_budget",
+        "tools.agent_core.runner",
+        "tools.agent_core.streaming",
+        "tools.agent_runtime",
+        "tools.agent_store",
+        "tools.ai_harness",
+        "tools.ai_object_context",
+        "tools.ai_sql_draft",
+        "tools.browser_debug",
+        "tools.capture_lifecycle",
+        "tools.china_regions",
+        "tools.code_folding",
+        "tools.credit_code",
+        "tools.daily_reports",
+        "tools.dashboard_release_items",
+        "tools.dashboard_summary",
+        "tools.data_center",
+        "tools.data_center.agent",
+        "tools.data_center.agent_query_tool",
+        "tools.data_center.budget",
+        "tools.data_center.changeset",
+        "tools.data_center.changeset_dialects",
+        "tools.data_center.connection_store",
+        "tools.data_center.connection_transport",
+        "tools.data_center.context_evidence",
+        "tools.data_center.contracts",
+        "tools.data_center.engine_adapters",
+        "tools.data_center.host_metadata",
+        "tools.data_center.host_model_adapter",
+        "tools.data_center.host_nosql",
+        "tools.data_center.host_relational",
+        "tools.data_center.host_runtime",
+        "tools.data_center.import_preview",
+        "tools.data_center.import_session",
+        "tools.data_center.lob_values",
+        "tools.data_center.manual_driver",
+        "tools.data_center.manual_relational_providers",
+        "tools.data_center.manual_result_export",
+        "tools.data_center.manual_session",
+        "tools.data_center.model_adapter",
+        "tools.data_center.model_config",
+        "tools.data_center.nosql_codec",
+        "tools.data_center.nosql_policy",
+        "tools.data_center.nosql_transport",
+        "tools.data_center.nosql_workspace",
+        "tools.data_center.object_tree",
+        "tools.data_center.object_tree_composition",
+        "tools.data_center.policy",
+        "tools.data_center.profile_host",
+        "tools.data_center.query_executor",
+        "tools.data_center.readonly_driver_adapters",
+        "tools.data_center.readonly_lease",
+        "tools.data_center.readonly_nosql_clients",
+        "tools.data_center.readonly_relational_connectors",
+        "tools.data_center.result_export",
+        "tools.data_center.result_projection",
+        "tools.data_center.session_manager",
+        "tools.data_center.sql_policy",
+        "tools.data_center.sql_script",
+        "tools.data_center.ssh_tunnel",
+        "tools.data_center.streaming",
+        "tools.data_center.table_source",
+        "tools.data_center.tool_registry",
+        "tools.data_center.workspace_catalog",
+        "tools.data_center.workspace_store",
+        "tools.db_connect",
+        "tools.db_contracts",
+        "tools.db_mongo_ops",
+        "tools.db_redis_ops",
+        "tools.dialog_paths",
+        "tools.docx_template_registry",
+        "tools.docx_updater",
+        "tools.gateway_crypto",
+        "tools.harness_project",
+        "tools.http_capture",
+        "tools.id_documents",
+        "tools.ie_proxy",
+        "tools.iface_request_library",
+        "tools.iface_request_test",
+        "tools.interface_debug_store",
+        "tools.interface_drafts",
+        "tools.interface_session_view",
+        "tools.intranet_llm",
+        "tools.json_viewer",
+        "tools.linux_guard",
+        "tools.list_pin",
+        "tools.model_chat_store",
+        "tools.ops_cmd_history",
+        "tools.ops_commands",
+        "tools.ops_ssh",
+        "tools.ops_ssh_shell",
+        "tools.oracle_runtime",
+        "tools.personal_knowledge",
+        "tools.pinyin_search",
+        "tools.ptools_harness",
+        "tools.release_prep",
+        "tools.requirements",
+        "tools.schema_search",
+        "tools.schema_snapshot",
+        "tools.secure_store",
+        "tools.sql_guard",
+        "tools.sql_tool",
+        "tools.svn_workspace",
+        "tools.tameng_agent",
+        "tools.terminal_emulator",
+        "tools.text_dev_helpers",
+        "tools.text_file_codec",
+        "tools.ticket_submit",
+        "tools.vin_generator",
+        "tools.xml_formatter"
+      ],
+      "source_modules_not_in_archive": [
+        "tools/chat_intent.py"
+      ],
+      "snapshot_source_files": 216,
+      "embedded_web_files": 7,
+      "native_driver_dependencies": [
+        "oracledb",
+        "pymysql",
+        "redis",
+        "pymongo",
+        "paramiko",
+        "pyodbc"
+      ],
+      "qt_resource_files": 5,
+      "file_count": 2319,
+      "bytes": 647070685,
+      "forbidden_application_state_files_checked": [
+        ".env",
+        "ai_local.json",
+        "daily_report_drafts.json",
+        "daily_report_settings.json",
+        "daily_reports.json",
+        "dashboard_release_items.json",
+        "data_center_ssh_known_hosts.json",
+        "data_center_workspace.sqlite3",
+        "id_ed25519",
+        "id_rsa",
+        "known_hosts",
+        "last_choices.json",
+        "layout_splitters.json",
+        "ops_custom_commands.json",
+        "ops_log_settings.json",
+        "ops_servers.json",
+        "private_knowledge.json",
+        "requirement_ui.json",
+        "requirements.json",
+        "settings.json",
+        "systems.json",
+        "ticket_submit.json"
+      ],
+      "unexpected_state_files": [],
+      "frozen_resource_secret_scan_exit": 0,
+      "source_pattern_review": {
+        "broad_regex_exit": 1,
+        "hits": 55,
+        "review": "All 55 hits inspected as AST/token metadata: input fields, dynamic arguments, password dictionary key, type annotations, conditions, defaults, interpolated ODBC value and comments. No matched values stored or printed. Release resource scan remains a separate gate."
+      },
+      "build_date": "2026-10-15",
+      "gui": {
+        "launched": false,
+        "visual_acceptance": "pending"
+      },
+      "runtime_smoke": "Not run; user-app control remains stopped after physical Esc",
+      "goal_status": "active",
+      "dameng": "deferred"
+    },
+    "included_increments": [
+      "result_find_details_oct15",
+      "lob_owner_oct15",
+      "query_page_size_oct15",
+      "server_table_query_oct15",
+      "sql_target_oct15",
+      "manual_script_run_oct15",
+      "selected_procedural_oct15"
+    ],
+    "build": {
+      "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/PengTools/build/ui-finish-20261014/build_preview_r8.ps1",
+      "exit_code": 0,
+      "elapsed_build_log_ms": 136996,
+      "log": "D:/PengTools/build/ui-finish-20261015-r8/pyinstaller.log"
+    },
+    "static_audit": {
+      "command": "D:/PengTools/.venv-build/Scripts/python.exe -B D:/PengTools/build/ui-finish-20261014/audit_r8.py",
+      "exit_code": 0,
+      "source_snapshot": "D:/PengTools/build/ui-finish-20261014/source-manifest-r8.json",
+      "matched": "215 frozen Python code objects canonically equal current compiled source; filenames normalized only; all 216 source hashes and 7 embedded web hashes unchanged from prebuild snapshot",
+      "unbundled_source": "tools/chat_intent.py; repository runtime search found no module references; old helper was not force-added"
+    },
+    "boundaries": {
+      "no_user_data_migration": true,
+      "no_current_app_control": true,
+      "no_gui_launch": true,
+      "no_service_calls": true,
+      "no_whole_repository_test_run": true,
+      "static_audit_is_not_runtime_acceptance": true,
+      "no_commit_or_push": true
+    },
+    "remaining": "User-app control remains stopped after physical Esc. Target database/Qwen environment, native performance/visual acceptance and remaining requirement coverage (WITH-local-routine rowsets, output bindings/completion audit etc.) not completed. Dameng deferred. Full goal remains active.",
+    "turn_classification": "progress",
+    "goal_status": "active"
+  },
+  "scoped_completion_oct15": {
+    "recorded_at": "2026-10-15T15:04:13.938370+08:00",
+    "goal_turn": "progress",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "scope": "Requirement 7.2: current connection cache, object/column/ordinary alias completion; Unicode insertion offsets",
+    "before": "completion-before/source.json",
+    "repairs": [
+      "Share accepted directory raw identities through in-memory signed resolver; learn only already fetched table columns",
+      "Isolate revision/provider/database/schema; invalidate refresh/close/old results/popups and locked history; block old snapshot overwrite",
+      "Bound retained text at 2 MiB, 2000 tables, 1024 columns per table; no added database calls on keystrokes",
+      "Ordinary FROM/JOIN/UPDATE/INTO aliases at cursor depth, qualified objects and columns, vendor quoted insertion",
+      "Python codepoint token / Qt UTF16 insertion, emoji undo, explicit Ctrl+Space and quoted/fuzzy popup filtering"
+    ],
+    "verification": {
+      "command": "python -B -m unittest tests.test_data_center_completion tests.test_data_center_completion_ui tests.test_data_center_sql_target.SqlTargetQtTests.test_emoji_before_boundary_executes_the_actual_current_statement tests.test_data_center_query_page_size.QueryPageSizeTests.test_per_tab_selection_busy_shutdown_and_table_mode tests.test_data_center_object_tree_integration.DataCenterObjectTreeIntegrationTests.test_actual_panel_first_expand_pages_filters_and_rebuilds_without_extra_io tests.test_data_center_object_tree_integration.DataCenterObjectTreeIntegrationTests.test_refresh_capture_discards_old_page_until_new_snapshot_completes -v",
+      "new_cases": 8,
+      "affected_cases": 4,
+      "passed": 12,
+      "exit": 0,
+      "seconds": 8.208,
+      "log": "completion-oct15-tests.txt",
+      "runtime": "Isolated offscreen Qt production editor/host/panel callbacks, real signed ObjectTreeService and synthetic directory responses; no live target DB",
+      "ast_and_whitespace": "PASS: eight touched Python files",
+      "whole_suite": false,
+      "user_app_control": false,
+      "new_database_reads_on_completion": false,
+      "scoped_diff_check_exit": 0,
+      "legacy_unknown_mode_followup": {
+        "command": "python -B -m unittest tests.test_data_center_completion.CompletionTests.test_quoted_identifiers_schema_objects_and_ambiguous_names tests.test_data_center_completion_ui.CompletionUiTests.test_emoji_and_quoted_prefix_insert_without_corrupting_neighbouring_sql -v",
+        "passed": 2,
+        "exit": 0,
+        "seconds": 0.047,
+        "reason": "Preserve bare identifiers for legacy snapshots lacking an exact provider/mode; known-provider names remain quoted"
+      }
+    },
+    "source_sha256": {
+      "tools/data_center/completion_cache.py": "15b3fbdcc19862746db376fb58e6b0641b00140f787bef944fe9dbc417abc47a",
+      "tools/data_center/sql_completion.py": "ca6fdfc32419a5b83d369011c9b7d9cc6d04f86be67c6f34681eb33a21beeeec",
+      "ui/sql_editor.py": "a2933f04c2a3e7afb298c3d8a1d84e4a941a0d7f951eebe6cb43830746c4f9ef",
+      "ui/data_center/manual_query.py": "4d6cda41ddcc5760314350a64d72e487ecabf31b17a3d2500dd8938a957c3b2e",
+      "panels/data_center_panel.py": "7585e8cb68dee83aba1e1c798f1524ddec19bdbe1ecab17a2342adabe3ee4523",
+      "panels/ai_workbench_panel.py": "8a5bacf10862b9b9f0a9e5acfe9b01530df07296a29d01025dcb201d6dd89191",
+      "tests/test_data_center_completion.py": "1338e9900ce09b65fce7ca6ea72bfa81c93408799c3b2eee49cd8bc24dbf5668",
+      "tests/test_data_center_completion_ui.py": "a362c2580d2d1415709e19b4a907c8935046debe0ffc162e329435dc6b1599f2"
+    },
+    "packaged": false,
+    "r8_unchanged": true,
+    "committed": false,
+    "pushed": false,
+    "remaining_limits": [
+      "No real target service / user full-window visual/performance acceptance",
+      "CTE/set-operation alias semantic inference not implemented; direct object hints remain",
+      "Overall Agent/data-center goal pending remaining requirement/evidence audit; Dameng deferred"
+    ]
+  },
+  "workspace_snapshot_oct15": {
+    "recorded_at": "2026-10-15T15:34:11.164111+08:00",
+    "goal_turn": "progress",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "scope": "Requirement 7.4: explicit native Workspace save/restore product route; only text, typed NoSQL context, tab order and active target",
+    "before": "workspace-before/source.json",
+    "repairs": [
+      "Immutable snapshot reuses existing schema and budgets; atomic draft-slot/layout replacement and consistent read transaction",
+      "Unrelated drafts/history/favorites retained; preflight known credential/text/target gates before SQLite creation, including Mongo positional auth calls",
+      "Production Workspace menu; SQL/Redis/Mongo raw editors and matching BSON snapshot; visual connection/query/NoSQL tab order and active target",
+      "Dormant restore without queries, providers, transactions or ChangeSets; repeated restore preserves current edits/sessions",
+      "Changed profile version locked; missing/type-changed targets have modeless copyable text preview while stored text stays intact",
+      "Reuse app-owned serial store controller, physical-owner retention across widget destruction; one-tab-per-QTimer restoration and shutdown gating"
+    ],
+    "verification": {
+      "command": "python -B -m unittest tests.test_data_center_workspace_snapshot tests.test_data_center_workspace_snapshot_ui tests.test_data_center_workspace_store.WorkspaceStoreTests.test_temp_sqlite_draft_roundtrip_restores_only_text_and_context tests.test_data_center_workspace_store.WorkspaceStoreTests.test_nosql_history_and_layout_restore_only_order_and_nonsecret_context tests.test_data_center_workspace_store.WorkspaceStoreTests.test_failed_write_transaction_preserves_previous_successful_draft tests.test_data_center_workspace_store.WorkspaceStoreTests.test_credential_text_is_rejected_before_database_or_wal_creation tests.test_data_center_history_shutdown.DataCenterHistoryShutdownTests.test_two_borrowed_controllers_share_store_and_retirement_waits_for_qthread_finished tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_independent_draft_tabs_keep_their_editor_text_and_do_not_connect tests.test_data_center_completion_ui.CompletionUiTests.test_real_signed_directory_to_editor_and_table_delivery_without_extra_io -v",
+      "new_cases": 7,
+      "affected_cases": 7,
+      "passed": 14,
+      "exit": 0,
+      "seconds": 0.709,
+      "log": "workspace-oct15-tests.txt",
+      "connection_order_strengthening_followup": {
+        "case": "tests.test_data_center_workspace_snapshot_ui.WorkspaceSnapshotUiTests.test_actual_menu_roundtrip_restores_sql_order_nosql_bson_and_preserves_current_edits",
+        "passed": 1,
+        "exit": 0,
+        "seconds": 0.136
+      },
+      "runtime": "Temporary SQLite and isolated production native menu/controller/SqlTab creation/ManualHost/NoSqlDraftTabs/codec interfaces; injected host factory, not a full production-window acceptance",
+      "asserted": "Failed replacement rollback; retained history/favorites/unrelated draft; pre-file credentials rejection; partial input and raw whitespace; SQL/Redis visual order; connection tab order; BSON ObjectId/Decimal128; fixed targets/missing copyable text; no connector call; UI ticks while owner blocked; parent destruction waits for real store thread exit",
+      "ast_whitespace_files": 9,
+      "scoped_diff_check_exit": 0,
+      "whole_suite": false,
+      "real_database_service": false,
+      "user_app_control": false,
+      "model_http_calls": false
+    },
+    "source_sha256": {
+      "tools/data_center/workspace_store.py": "1b3597937c7f64a712b4897d7b2be5b2997447eb0393ecf9b9bf597b79bd36e0",
+      "ui/data_center/query_history.py": "1132b29b4c1ffa22b7f1e79e4e6bb8043dc9b70409da9172ce1c986c30da10a1",
+      "ui/data_center/manual_query.py": "a8551aadf8ab5b8fdf4e9ebf2939e7f0bf561c0a486236434bcba59f6de2ea31",
+      "ui/data_center/nosql_query_history.py": "ccc53e0140d0616515195c8b5db5d7b3be168947052658669933cb333d5171b7",
+      "panels/data_center_panel.py": "3188f473e014b2bc7ca1f426a65bb1d7e6068c7be83c11abae74e6b942377a11",
+      "panels/ai_workbench_panel.py": "cbd66abd36cec3dac0dc27229a06284a34a6ea03ea926940a7bec0ffff50373c",
+      "ui/data_center/workspace_snapshot.py": "3191d30a8d118086702e26330c1a5206819e801f447d4544af2ef5059d519453",
+      "tests/test_data_center_workspace_snapshot.py": "59e4de79e81d3b7e3dcae22b787c57707acfcbf5c710c6c94282b52a9986eead",
+      "tests/test_data_center_workspace_snapshot_ui.py": "5232b452f606da6dcf6ac8ff2d91a04bfd15c6e91a6af9b5e36648c5a89c7e7a"
+    },
+    "packaged": false,
+    "r8_unchanged": true,
+    "committed": false,
+    "pushed": false,
+    "limits": [
+      "Explicit manual save/restore; no automatic save or crash/clean-exit detection",
+      "No original transaction/session/ChangeSet recovery; custom query titles and legacy splitter-size settings are not included",
+      "Known credential patterns only, not universal secret detection",
+      "Full-window visual/performance and real targets remain unverified"
+    ],
+    "next_confirmed_gaps": [
+      "MongoWorker query always calls count_docs -> count_documents, contrary to requirement 7.3; inspect paging/history unknown-count reducer before changing",
+      "Redis selected-key JSON/Base64 export and Mongo Extended JSON file import/export have no product route"
+    ],
+    "dameng": "deferred"
+  },
+  "mongo_paging_oct15": {
+    "recorded_at": "2026-10-15T16:02:08.539949+08:00",
+    "goal_turn": "progress",
+    "previous_goal_turn": "progress: workspace snapshot product wiring",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "scope": "Requirement 7.3: no default full collection count; correct bounded manual Mongo paging/render/history",
+    "before": "mongo-paging-before/source.json",
+    "repairs": [
+      "Remove count_docs/count_documents from ordinary Documents queries; trim limit+1 lookahead and emit exact returned-page row_count/has_more/skip",
+      "History uses returned-page row_count with exact nonnegative-int gate, preserving zero and rejecting bool; stored old counts not migrated",
+      "Visible offset/snapshot only advance after matching success; stale result/read time retained on failure; same-offset retry waits for physical owner finish",
+      "Pager handles first/last/empty/next/prev/reset and language/tab switch; reset discards prior compiled query snapshot",
+      "Fix unsupported Cursor.projection invocation by passing projection to Collection.find",
+      "Nested BSON Extended JSON display supports ObjectId/Decimal128/UUID without changing raw _docs; display UUID representation is standard"
+    ],
+    "verification": {
+      "command": "python -B -m unittest tests.test_mongo_query_driver_api tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_lookahead_caps_page_zero_and_bson_rendering_without_count tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_failed_next_retains_page_and_waits_for_owner_before_same_offset_retry tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_run_and_paging_capture_the_same_collection_and_full_query_spec tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_exact_page_count_type_and_unstarted_history_sink_detach tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_typed_history_restore_replays_captured_bson_arguments_through_real_worker tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_busy_second_draft_does_not_receive_first_query -v",
+      "new_cases": 3,
+      "affected_cases": 4,
+      "passed": 7,
+      "exit": 0,
+      "seconds": 0.63,
+      "log": "mongo-paging-oct15-tests.txt",
+      "uuid_display_followup": {
+        "case": "tests.test_data_center_nosql_history_integration.NoSqlHistoryIntegrationTests.test_mongo_lookahead_caps_page_zero_and_bson_rendering_without_count",
+        "passed": 1,
+        "exit": 0,
+        "seconds": 0.337
+      },
+      "runtime": "Isolated real Mongo panel/worker/history with synthetic collection data; actual PyMongo Cursor constructed/configured offline with synthetic iteration and topology unopened",
+      "installed_pymongo": "4.17.0",
+      "cursor_projection_method_present": false,
+      "official_api_reference": "https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find",
+      "reference_version_note": "Fetched stable docs label 4.19.0; local installed version remains 4.17.0; no dependency upgrade",
+      "ast_whitespace_files": 5,
+      "scoped_diff_check_exit": 0,
+      "whole_suite": false,
+      "real_database_service": false,
+      "model_http_calls": false,
+      "user_app_control": false
+    },
+    "source_sha256": {
+      "panels/db_mongodb_panel.py": "76859fedf8b3913a9d09957ba3339fc1d7dcb4acc963db98b497170085af1afd",
+      "tools/db_mongo_ops.py": "33163d4982e936f0c60c0ae2aadca75c5c5cfbbe4f00ce504a0feab89c19dc5f",
+      "ui/data_center/query_history_service.py": "444bb06ba93ed69366f4763502c8942ceafdebd813c98f76519523d3e0d63c99",
+      "tests/test_data_center_nosql_history_integration.py": "bf6367b312c43008fca5e4d2005ddd0cf9db4adde4311ac4b62636c42d37f47d",
+      "tests/test_mongo_query_driver_api.py": "f51a491e7d8c9a812dd2541e86e80fc29b2f00f3cb6c1885435eb720a53d87b4"
+    },
+    "packaged": false,
+    "r8_unchanged": true,
+    "committed": false,
+    "pushed": false,
+    "limits": [
+      "No actual Mongo service/performance/full-window visual acceptance",
+      "BSON display is not canonical file export or server roundtrip proof",
+      "Whole goal pending; internal qwen3.6 deployment/context and other real target acceptance remain unverified"
+    ],
+    "next_confirmed_gaps": [
+      "Redis selected-key JSON/Base64 export",
+      "Mongo Extended JSON file import/export",
+      "Controlled Mongo update by _id absent from native panel/worker and db_mongo_ops"
+    ],
+    "dameng": "deferred"
+  },
+  "mongo_document_edit_oct16": {
+    "date": "2026-10-16",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "before": "mongo-edit-before",
+    "verification": {
+      "tests": 12,
+      "exit_code": 0,
+      "seconds": 0.872,
+      "log": "mongo-edit-oct16-tests.txt",
+      "ast": "pass",
+      "git_diff_check": "pass"
+    },
+    "coverage": [
+      "literal _id full document reload despite projection and sorted table",
+      "canonical BSON types including UUID codecs",
+      "pure worker preview and explicit one-shot replacement",
+      "profile change blocks write",
+      "worker start failure can retry and close",
+      "cancel after write start retains owner and acknowledged effect",
+      "captured database with background tab and original profile/transport owner cleanup",
+      "affected paging, BSON rendering, other-draft delivery"
+    ],
+    "limits": [
+      "synthetic driver and isolated native widgets, no real Mongo server",
+      "whole-document replacement can overwrite concurrent edits; omission deletes fields, shown in UI",
+      "no SQL transaction rollback or automatic retry",
+      "source increment not present in R8; user window and visual acceptance pending"
+    ],
+    "source_sha256": {
+      "tools/data_center/mongo_document.py": "4abfaf6d1bcaa46a6222945ee4e731095278dc22c07f56a3623b9718b760afd5",
+      "ui/data_center/mongo_document_edit.py": "40ec7d73386b3a4cd3139ec6f8ee754357adfa0c8b74d79bcda59f76c41da5e4",
+      "panels/db_mongodb_panel.py": "04972117d2dd0af6cbcc497192d4197c2c15dcd73328127dfd39f3242a3b7f2a",
+      "tests/test_mongo_document_edit.py": "65afcb35677953b072c9abf7f257bc3e1d6c1c716b2003f570dca747bed892f7",
+      "tests/test_data_center_nosql_history_integration.py": "0488df7e43c799c293d121845b1d205b5a3f5ed38716249d7ed44e0f8e5e8ef4"
+    }
+  },
+  "mongo_transfer_oct16": {
+    "date": "2026-10-16",
+    "goal_turn": "progress",
+    "previous_goal_turn": "progress",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "scope": "Native Mongo Extended JSON import/export product wiring, retaining BSON and captured target",
+    "before": "mongo-transfer-before",
+    "before_note": "SDK test before bytes reconstructed by removing only current additions; SHA256 exactly matches prior mongo_paging_oct15 receipt.",
+    "features": [
+      "UTF8 JSON array/single document/JSON Lines import; immutable preview captures file once",
+      "explicit one-shot insert confirmation with no overwrite/upsert/retry; generated id count and every-item outcomes",
+      "stop at first failure/cancel; prior acknowledged inserts remain and skipped rows explicit",
+      "selected/current-page typed snapshots without DB connection; entire filtered query streams fresh data from offset0 with projection/sort and no page limit/count",
+      "canonical Extended JSON Lines output; temp-file/fsync/atomic publication, cancel/limit/failure retain old destination",
+      "fixed connection revision/database/collection independent of changed editor or active tab; original physical owner retained until thread finishes",
+      "modeless native bounded transfer dialog; background job progress throttled and controls wait for physical finish"
+    ],
+    "verification": {
+      "tests": 12,
+      "new_tests": 10,
+      "affected_tests": 2,
+      "exit_code": 0,
+      "seconds": 1.039,
+      "log": "mongo-transfer-oct16-tests.txt",
+      "scope": "five pure file/BSON cases, real offline PyMongo Cursor case, four isolated native production transfer cases, two affected Mongo edit/paging cases",
+      "real_network_opened": false,
+      "ast_files": 6,
+      "ast": "pass",
+      "new_and_tracked_whitespace": "pass",
+      "git_diff_check": "pass",
+      "dirty_before_diff": "mongo-transfer-oct16.diff"
+    },
+    "limits": [
+      "no real Mongo service or user window control/visual acceptance",
+      "import bounded64MiB/10000 documents; export512MiB; BSON limits retained",
+      "query export is a live streaming view, not a consistent database snapshot",
+      "whole-query export explicitly starts0 and ignores page size/skip; current/selected scopes use last successful captured page",
+      "no multi-document transaction rollback; duplicate stops later inserts, unknown result requires requery",
+      "unpackaged source, R8 unchanged; full goal not complete"
+    ],
+    "next": [
+      "Redis explicit selected-Key JSON/Base64 viewing export",
+      "remaining requirement audit and real-environment/internal-model/visual/package acceptance; Dameng deferred"
+    ],
+    "source_sha256": {
+      "tools/data_center/mongo_transfer.py": "2b06e46a05c1be83b4d309d28f8b084dd17b7444752c6b99b106867b7bc1519e",
+      "ui/data_center/mongo_transfer.py": "e244a177d2fb9a0141af76f3a533cde7d0fc0c3a44aba0e4fd563394779d2acb",
+      "panels/db_mongodb_panel.py": "1e5cb0489df6f20fe9574ee742ef24d78788f365de0b654e35117fc53648fc38",
+      "tests/test_mongo_transfer.py": "0a45563c4201b63d36615c96594232dbb8bcd8591ba1884133a07c058712a9ed",
+      "tests/test_data_center_nosql_history_integration.py": "668fdf6734f9a785edf7cf9c90cdf8614b00c7497cd2952f29eb2987f3de5d1a",
+      "tests/test_mongo_query_driver_api.py": "6bf8ca040d9d5d5b11c3f6eac82730404c14c42d3f2d48cd08c41fd073de3ffb"
+    },
+    "packaged": false,
+    "committed": false,
+    "pushed": false
+  },
+  "redis_selected_key_export_oct16": {
+    "date": "2026-10-16",
+    "goal_turn": "progress",
+    "previous_goal_turn": "progress",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "before": "redis-export-before",
+    "scope": "Explicit one-key JSON/Base64 viewing export through the native Redis workbench",
+    "features": [
+      "String GETRANGE64KiB chunks; List pages16; Hash/Set/ZSet incremental scans; Stream incremental XRANGE",
+      "raw byte key identities retained across standalone/cluster scan, same-display-name ambiguity requires explicit selection",
+      "captured connection revision/database/mode and raw key remain fixed after tab changes; profile revalidated before read",
+      "TTL0/-1/-2 semantics and raw binary fields/values preserved; view-only/live-read/scan-duplicate metadata",
+      "atomic private temp-file publication, cancellation/failure/races never publish incomplete data or overwrite late destinations",
+      "one-shot success; retry after startup failure; modeless progress dialog retains physical worker and transport owner until finish"
+    ],
+    "verification": {
+      "tests": 13,
+      "new_tests": 8,
+      "affected_tests": 5,
+      "exit_code": 0,
+      "seconds": 0.352,
+      "log": "redis-export-oct16-tests.txt",
+      "coverage": "five business/SDK/file cases including six types; three production isolated native workflows; four affected scan/partial/generation cases and one other-draft command case",
+      "followup": "64KiB key-name preflight added, affected ambiguous-key/background-target case passed in0.227s",
+      "ast_files": 6,
+      "ast": "pass",
+      "new_and_tracked_whitespace": "pass",
+      "git_diff_check": "pass",
+      "dirty_before_diff": "redis-export-oct16.diff",
+      "real_server": false,
+      "user_window": false
+    },
+    "source_sha256": {
+      "tools/data_center/redis_export.py": "c2554ca9adf12c00eefa1ba53b05189fdefe49f6f92abe362bdfd6bd3f6bc579",
+      "ui/data_center/redis_export.py": "ce636e64261a76f0794b078228071cd6772d45e5fd5f567ceeeceb96eddf333c",
+      "tools/db_redis_ops.py": "32cb38b1ead9f4b8131b98d6e1056196ed3f66fee966d87d81a83ce2f5011d81",
+      "panels/db_redis_panel.py": "4fcebffe4f31cea2ac904a88fbf9c82420034a15ecb60d1137d5368cd4d693c8",
+      "tests/test_redis_export.py": "bffc878da412ba64f3c88460902ab3ac9c815ea02b7472a83ee8d06ac4a44373",
+      "tests/test_data_center_nosql_history_integration.py": "a1ec81e5bba5615f7a3576edc9efa30ceb4d32fbc5e661caff0013c266119639"
+    },
+    "limits": [
+      "view-only data, no backup/import/restore/consistent snapshot",
+      "512MiB output,4MiB collection item,64KiB key-name caps; scan iterations bounded",
+      "collection single-value byte cap is checked after SDK response; no claim of server response-byte cap/real peak-memory proof",
+      "real Redis standalone/cluster and human visual acceptance pending",
+      "unpackaged source, R8 unchanged",
+      "full goal incomplete: controlled Redis value editing and bounded browser loading remain explicit source gaps"
+    ],
+    "packaged": false,
+    "committed": false,
+    "pushed": false,
+    "next": [
+      "implement required Redis controlled value edits with fixed raw key and preview/confirmation",
+      "replace unbounded Redis browser value reads with bounded paging/chunks",
+      "remaining full-goal service/model/GUI/package acceptance; Dameng deferred"
+    ]
+  },
+  "redis_bounded_value_browser_oct16": {
+    "date": "2026-10-16",
+    "goal_turn": "progress",
+    "previous_goal_turn": "progress",
+    "goal_status": "active",
+    "branch": "dev/2026-09-23",
+    "head": "818fba72bf437de9bd49fcd5b198fb1270096a53",
+    "before": "redis-value-before",
+    "scope": "Replace whole-value default browser reads with captured raw-key pages/chunks and native pager",
+    "features": [
+      "immutable RedisKeyContext and RedisValuePage; signed workspace/raw bytes/selection identity",
+      "String64KiB GETRANGE chunks; List200 items; Hash/Set/ZSet cursor pages; Stream lookahead with inclusive-id boundary for Redis5 compatibility",
+      "max1000 received items/8MiB page/4MiB item; oversized received batches fail rather than discard cursor tails or pretend complete",
+      "native explicit Base64 choice for colliding display names, previous/next/refresh; current-chunk offsets and unknown SCAN totals explicit",
+      "only latest queued selection starts after old physical owner closes; old key or other-draft results cannot paint current view",
+      "failed reads retain old typed data/index, stale marker survives language changes; profile revalidated before each read",
+      "legacy delete/rename/TTL use frozen raw key and DB/profile rather than current display name; late mutation completion cannot clear another draft",
+      "no browsing values/history payload persisted; page/cursor metadata only in memory"
+    ],
+    "verification": {
+      "tests": 12,
+      "new_tests": 10,
+      "affected_tests": 2,
+      "exit_code": 0,
+      "seconds": 0.598,
+      "log": "redis-value-oct16-tests.txt",
+      "scope": "five pure paging/BSON-byte budget/actual offline SDK cases, five production isolated native workflows, selected-Key export and other-draft command regressions",
+      "followup": "language/stale/latest queued owner refinements:2 passed0.288s; final language/chunk case1 passed0.236s",
+      "ast_files": 4,
+      "ast": "pass",
+      "new_and_tracked_whitespace": "pass",
+      "git_diff_check": "pass",
+      "dirty_before_diff": "redis-value-oct16.diff",
+      "user_window": false,
+      "real_server": false
+    },
+    "existing_failure": {
+      "case": "tests.test_nosql_loading_feedback.NoSqlLoadingFeedbackProcessTest.test_real_panel_actions_follow_fake_worker_lifecycle_without_network",
+      "baseline": "Exact saved dirty-before Redis panel plus original probe fail: command action should dispatch exactly one worker; got0. Probe builds empty profile catalog and invalid draft.",
+      "baseline_log": "redis-value-legacy-loading-before.txt",
+      "new_contract": "The old probe manually sets only a display key, without a valid raw-key context; this cannot dispatch the new fixed-target read. New native tests exercise actual scan and valid draft/context.",
+      "fixture": "Original tests/test_nosql_loading_feedback.py left byte-identical to saved before; no unrelated command/Mongo fixture repair and not counted as green."
+    },
+    "source_sha256": {
+      "tools/data_center/redis_value.py": "c9094202f30b545072d38a5ad99a138c19876689cb92aed096b4efef8487297c",
+      "panels/db_redis_panel.py": "8900d46b46355698e8c0242fc64e16008e26050cfa599c5aec516fd90ac3d6a7",
+      "tests/test_redis_value_page.py": "7c82c3f4599b2fa1c924b021954ddf872a72f6df3861ce7248b76d9b876fc49f",
+      "tests/test_data_center_nosql_history_integration.py": "6154ea641fd4391eeaa988686a7dfae15e8988b20f1875e0088928cb3ada4667"
+    },
+    "limits": [
+      "real Redis/Cluster behavior, response size/peak memory, performance and visual acceptance not established",
+      "SCAN count is a hint; received batch caps are checked after SDK response, not server-side hard limits",
+      "pages are live reads, not consistent multi-page snapshots; SCAN may repeat under mutation",
+      "explicit manual Redis commands retain their existing behavior; global legacy helper retained for other callers",
+      "Redis controlled value editing still missing; prepare/confirm/expected-value guarded write remains next original7.3 requirement",
+      "unpackaged source; R8 unchanged; no full suite/commit/push"
+    ],
+    "next": "Implement typed Redis value edit UI on the immutable page/raw context, with pure preview, explicit confirm, fresh profile verification, old-value comparison/WATCH and single no-replay write."
+  }
+}

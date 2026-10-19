@@ -335,8 +335,18 @@ class ResponsiveActionBar(QWidget):
 
 
 def set_subtitle_visible(subtitle_widget, low_height: bool):
-    if subtitle_widget is not None:
-        subtitle_widget.setVisible(not low_height)
+    """Hide the page description on short windows and follow the 72/60 header rule."""
+    if subtitle_widget is None:
+        return
+    subtitle_widget.setVisible(not low_height)
+    from ui.layout_metrics import PAGE_HEADER_H, PAGE_HEADER_H_COMPACT
+    node = subtitle_widget.parent()
+    while node is not None:
+        name = node.objectName() if hasattr(node, 'objectName') else ''
+        if name in ('page-header', 'page-chrome'):
+            node.setMinimumHeight(PAGE_HEADER_H_COMPACT if low_height else PAGE_HEADER_H)
+            return
+        node = node.parent() if hasattr(node, 'parent') else None
 
 
 def apply_splitter_orientation(splitter, mode: str, *, min_editor: int = 240):

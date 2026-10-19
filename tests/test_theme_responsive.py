@@ -462,7 +462,7 @@ class PanelLayoutModeTests(unittest.TestCase):
     def test_settings_exposes_density_preference(self):
         panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_density': 'comfortable'}, 'zh')
         self.assertEqual(panel.density_combo.currentData(), 'comfortable')
-        self.assertFalse(panel.sidebar_collapsed_check.isChecked())
+        self.assertTrue(panel.sidebar_collapsed_check.isChecked())
 
     def test_settings_values_preserve_layout_preferences(self):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')

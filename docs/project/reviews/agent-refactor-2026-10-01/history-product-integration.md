@@ -1,0 +1,41 @@
+# Query history product integration
+
+This phase wires relational SQL execution into the accepted workspace history store. It covers the standalone legacy workbench route and the Data Center ManualQuery route. Redis and Mongo history dispatch remain follow-on work; this phase does not claim that all six provider histories are integrated.
+
+## Ownership and persistence
+
+`DataCenterHistoryService` is application-owned and constructed without opening the workspace database. The first history search or saved execution reaches the existing serial `QueryHistoryController` worker. Dialog and panel owners borrow controllers; retiring a borrower never closes the shared store. `config.DATA_CENTER_WORKSPACE_FILE` is an additive path constant for `data_center_workspace.sqlite3`.
+
+Execution capture is frozen at dispatch from structured target/profile evidence: SQL text, profile ID and revision, database/service, owner/schema, tab ID/generation, history ID, and dispatch time. Oracle service and schema stay separate. Evidence is limited to accepted structured fields; ordinary SQL produces an empty evidence tuple. Result values, raw errors, credentials, and model reasoning are not captured.
+
+Legacy worker terminal signals are connected directly to the application service, independent of panel UI signal delivery. A matching terminal event is persisted once; if the worker actually finishes without a terminal event, history records `UNKNOWN`. ManualQuery registers each operation Future at dispatch and hands its reduced completion DTO to a service-owned queued Qt sink. The sink enqueues persistence before releasing the drain barrier, even when the UI bridge is disconnected or its tab is stale. Pagination keeps the original history ID and records only an exact matching query ID and exact count.
+
+Application drain waits for legacy workers, pending ManualQuery deliveries, borrowed-controller cleanup Futures, and actual `QThread.finished`/`isFinished` proof. A failed controller shutdown request retains the controller and store and can be retried; the store closes only after every created controller has successful finished-backed cleanup. MainWindow invokes the existing workbench cleanup seam after other workbench owners quiesce. Startup and quit ownership are unchanged.
+
+## Product entry and restore
+
+The relational workbench has a visible History button in normal SQL mode and retains a History action in the existing More menu for compact layouts. The button opens the existing `QueryHistoryDialog`. A real restore creates a new tab and locks the saved target before tab-change initialization can select the current connection. Restore is dormant: it creates no provider/session, connection, execution, or transaction. It shows the original history ID and profile revision. An explicit later Run revalidates that exact profile and opens the session only when the revision and provider are supported. Missing profiles, changed revisions, and unsupported providers remain readable with Run disabled.
+
+The integration test creates the relational workbench with the same `set_embedded_compact_mode(True)` initialization used by `DataCenterPanel._default_host_factory`; this keeps the screenshot geometry representative of the production embedding seam. In table-focus mode, the SQL editor collapses while the History entry and existing transaction toolbar remain visible.
+
+## Verification
+
+Windows Qt (`QT_QPA_PLATFORM=windows`) ran the two new integration/shutdown unittest modules: 7 tests passed, 0 skipped. The six targeted existing lifecycle/manual checks also passed with a TEMP workspace path and TEMP layout spies. The MainWindow exit check ran first because its older test expects its one-poll close path to complete in the first timer pass; if it runs after a history controller has been created, the new finished-backed drain can require another poll. The existing test was not changed. The independent root acceptance runner remains the final acceptance step.
+
+The Windows capture matrix uses the real History button and real history dialog/restore route. It records `normal_sql_{zh,en}_{17,21}px`, `compact_table_focus_{zh,en}_{17,21}px`, `actual_history_dialog_en_{17,21}px`, and `stale_target_{zh,en}_{17,21}px`. Panel screenshots are 960×640 logical pixels at device-pixel ratio 1.5 (1440×960 image pixels) on a 1707×1019 available screen. The actual history dialog is 936×646 logical pixels (1404×969 image pixels). The compact/table-focus captures show the History button, editor More control, and transaction controls within the 960-pixel workbench.
+
+The capture manifest records each visible child widget's bounds, `QFont`/`QFontInfo`, and matching style-sheet font-size rules. The 17px and 21px values describe the sizes exercised by the capture test; they are not a claim that every product control uses those sizes. The history dialog's title has an explicit 16px style-sheet rule, which is recorded separately from its `QFont` value. Screenshots and the full capture manifest are preserved in the accompanying final evidence bundle.
+
+## 2026-10-07 UI rework
+
+The first UI review found that a dormant restored tab could display the previous tab's shared result model, stale-profile details could push the disabled reason out of view, language changes left old status/title text behind, and the English compact read-only badge clipped at large fonts. The follow-up fixes clear the shared visible result when switching to a tab without a ManualQuery state while retaining each executed tab's own pages. Switching back restores that tab's results. Restoring stale or missing targets stays dormant and keeps Run disabled; its short localized reason and history ID lead the visible status, while the full original history/connection/revision/database/service/schema identity remains available through tooltip and accessibility text.
+
+`set_language` now refreshes disconnected and locked-target status text plus restored history tab titles. The read-only badge sizes to its current localized text instead of a 96-pixel cap. The More menu, History entry, and transaction controls remain reachable in compact table-focus mode.
+
+The rework's focused native Windows run passed both tests in `tests.test_ai_workbench_history_integration` with zero skips. It drove the visible Run button, the actual history dialog restore route, explicit valid Run, and stale/missing target switching. The fixture verified zero ManualSession construction for dormant restore and invalid Run, no extra provider connection, an empty result view on stale/missing tabs, and restoration of the executed tab's own 42 / 19.25 result rows when switched back. The real normal SQL and compact table-focus modes each remained 960×640 logical pixels; the History and More controls and transaction toolbar were visible.
+
+The new native `QT_QPA_PLATFORM=windows` capture matrix contains 14 images: normal SQL, compact table-focus, actual history dialog, and stale-target views in Chinese and English at 17px and 21px. The monitor's available bounds were 1707×1019 logical pixels with device-pixel ratio 1.5; workbench captures are 1440×960 image pixels and the history dialog capture is 1404×969. The visible child font records resolve to Microsoft YaHei UI at the requested sizes; the history dialog's explicit 16px style rule remains separately recorded. The English read-only badge fits at 83×22 pixels at 17px and 103×27 at 21px. Stale status visibly begins with `Revision changed; Run disabled` or `版本变化，运行已禁用`, followed by the short history ID. The old d747 evidence bundle and the first-pass root acceptance artifacts remain preserved; the new bundle contains the prior eight-file manifest, four rework before copies, final copies, narrow diff, test log, and fresh captures. Root's independent reacceptance of this follow-up is pending.
+
+## Limits
+
+Only relational legacy SQL and ManualQuery are connected in this product phase. Redis and Mongo history dispatch and a live database session were not exercised here. The normal model list had no enabled configuration, so it made zero requests; the real model editing path remains unverified. All database/profile/provider behavior in these tests is injected and TEMP-backed.

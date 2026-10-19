@@ -24,13 +24,20 @@ async function bootstrapChrome(): Promise<void> {
   ])
   applyThemePayload(themeRaw)
   bridge.onThemeChanged(applyThemePayload)
-  const model = parseNavModel(navRaw)
+  const model = reactive(parseNavModel(navRaw))
   const active = reactive({ current: model.current ?? 0 })
   const nativePopupAvailable = await (bridge.nativePopupAvailable?.() ?? Promise.resolve(false))
   const app = createApp(ChromeApp, { model, active, bridge, nativePopupAvailable })
   app.mount('#app')
   bridge.onActiveChanged((index: number) => {
     active.current = index
+  })
+  bridge.onNavModelChanged?.((raw: string) => {
+    const next = parseNavModel(raw)
+    model.groups.splice(0, model.groups.length, ...next.groups)
+    model.settings = next.settings
+    model.current = next.current
+    model.language = next.language
   })
   await nextTick()   // 首屏 DOM 已渲染完成
   bridge.pageReady('chrome')

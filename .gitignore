@@ -38,6 +38,12 @@ outputs/_*/
 .codex_work/
 .mimosa/
 __pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.spec
 **/__pycache__/
 *.pyc
 *.pyo

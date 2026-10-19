@@ -46,6 +46,32 @@ def is_allowed_navigation(url) -> bool:
     return scheme in ('file', 'qrc', 'about', 'data') or scheme == ''
 
 
+REQUIREMENT_SECTION_WHITELIST = ('completion', 'test_points')
+
+
+def validate_requirement_section_target(
+    requirement_id: str | None,
+    section: str | None,
+) -> tuple[str, str] | None:
+    """纯函数校验与规范化需求详情子区域目标（供桥接与宿主复用）。
+
+    规则：
+    - ID 经 strip 后非空；
+    - 不区分大小写拒绝 'demo-' 开头的示例 ID；
+    - section 必须在精确白名单 ('completion', 'test_points') 内。
+    成功返回 (trimmed_id, section)，失败返回 None。
+    """
+    if requirement_id is None or section is None:
+        return None
+    req_id = str(requirement_id).strip()
+    if not req_id or req_id.lower().startswith('demo-'):
+        return None
+    sec = str(section)
+    if sec not in REQUIREMENT_SECTION_WHITELIST:
+        return None
+    return req_id, sec
+
+
 if WEB_SHELL_AVAILABLE:
 
     class WebLocalPage(QWebEnginePage):
@@ -84,8 +110,10 @@ if WEB_SHELL_AVAILABLE:
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
         summaryChanged = pyqtSignal(str)
+        navModelChanged = pyqtSignal(str)
         createRequirementRequested = pyqtSignal()
         openRequirementRequested = pyqtSignal(str)
+        openRequirementSectionRequested = pyqtSignal(str, str)
 
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -98,6 +126,7 @@ if WEB_SHELL_AVAILABLE:
         # ---- 注入点（main_window 调用）----
         def set_nav_model(self, data):
             self._nav_json = json.dumps(data, ensure_ascii=False)
+            self.navModelChanged.emit(self._nav_json)
 
         def set_username(self, value):
             self._username = str(value or 'Lihp')
@@ -137,6 +166,12 @@ if WEB_SHELL_AVAILABLE:
         @pyqtSlot(str)
         def openRequirement(self, requirement_id):
             self.openRequirementRequested.emit(str(requirement_id or ''))
+
+        @pyqtSlot(str, str)
+        def openRequirementSection(self, requirement_id, section):
+            target = validate_requirement_section_target(requirement_id, section)
+            if target is not None:
+                self.openRequirementSectionRequested.emit(target[0], target[1])
 
         @pyqtSlot()
         def openPalette(self):
@@ -189,12 +224,15 @@ else:  # pragma: no cover - 依赖缺失环境
         activeChanged = pyqtSignal(int)
         themeChanged = pyqtSignal(str)
         summaryChanged = pyqtSignal(str)
+        navModelChanged = pyqtSignal(str)
         createRequirementRequested = pyqtSignal()
         openRequirementRequested = pyqtSignal(str)
+        openRequirementSectionRequested = pyqtSignal(str, str)
         pageReadyReceived = pyqtSignal(str)
 
         def set_nav_model(self, data):
-            pass
+            self._nav_json = json.dumps(data, ensure_ascii=False)
+            self.navModelChanged.emit(self._nav_json)
 
         def set_username(self, value):
             pass
@@ -216,6 +254,11 @@ else:  # pragma: no cover - 依赖缺失环境
 
         def openRequirement(self, requirement_id):
             self.openRequirementRequested.emit(str(requirement_id or ''))
+
+        def openRequirementSection(self, requirement_id, section):
+            target = validate_requirement_section_target(requirement_id, section)
+            if target is not None:
+                self.openRequirementSectionRequested.emit(target[0], target[1])
 
         def push_active(self, nav_index):
             self.activeChanged.emit(int(nav_index))
@@ -239,7 +282,7 @@ else:  # pragma: no cover - 依赖缺失环境
             return bool(getattr(self, '_native_popup_available', False))
 
         def navModel(self):
-            return '{"groups":[]}'
+            return getattr(self, '_nav_json', '{"groups":[]}')
 
         def homeUsername(self):
             return 'Lihp'
@@ -251,7 +294,11 @@ else:  # pragma: no cover - 依赖缺失环境
             self.pageReadyReceived.emit(str(page_name or ''))
 
         def dashboardSummary(self):
-            return '{}'
+            try:
+                data = self._summary_provider() if getattr(self, '_summary_provider', None) else {}
+            except Exception:
+                data = {}
+            return json.dumps(data, ensure_ascii=False)
 
 def enum_value(value):
     """Qt 枚举 → 原生值（日志序列化绝不抛异常）。"""

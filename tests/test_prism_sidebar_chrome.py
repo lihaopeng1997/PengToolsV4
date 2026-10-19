@@ -2,11 +2,11 @@
 """PRISM-UI-P04: Prism Sidebar Chrome Web + Native 契约与专项测试。
 
 验证范围：
-1. 导航模型与索引完整性：24 个导航载荷索引，22 个叶子节点，2 个父级折叠节点；
+1. 导航模型与索引完整性：16 个真实叶子节点，15 保留兼容父级元数据；
 2. Web Chrome 源码契约：40px 项高、10px 圆角、20px 图标、64px 品牌行、Prism 变量消费、
    零旧 V2 颜色遗留、禁用品牌旋转、具备 prefers-reduced-motion、无假功能 UI；
 3. Native Fallback 侧栏契约：几何模式 248 / 220 / 84 / 72、品牌区 64px、44x44 icon-only
-   命中区、父级展开/折叠回调不触发导航、用户手动折叠偏好优先。
+   命中区、用户手动折叠偏好优先。
 """
 import json
 import os
@@ -21,7 +21,9 @@ if ROOT not in sys.path:
 
 from PyQt6.QtWidgets import QApplication
 from ui.navigation_model import (
-    NAV_MODEL, is_parent_nav, FIXED_DB_PAGES, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+    NAV_MODEL, NAV_ITEMS, display_name, is_parent_nav,
+    FIXED_DB_PAGES, AI_CHAT_NAV, AI_WORKBENCH_NAV,
+    build_web_nav_model_data,
 )
 from ui.layout_metrics import NAV_WIDE, NAV_STANDARD, NAV_ICON, NAV_NARROW
 
@@ -29,55 +31,42 @@ _app = QApplication.instance() or QApplication([])
 
 
 class NavigationModelPrismContractTests(unittest.TestCase):
-    """验证导航模型：24 个导航索引（22 叶子 + 2 父级）。"""
+    """验证导航模型：16 个页面叶子，数据中心仅有索引14。"""
 
     def test_navigation_model_counts_and_types(self):
-        all_indices = []
-        parents = []
-        leaves = []
-        for group_key, items in NAV_MODEL:
-            for item in items:
-                idx = item[0]
-                all_indices.append(idx)
-                if is_parent_nav(idx):
-                    parents.append(idx)
-                else:
-                    leaves.append(idx)
-
-        # 加上可展开组包含的子项 + 独立设置叶子项（nav 7）
-        db_children = [p[0] for p in FIXED_DB_PAGES]
-        ai_children = [AI_CHAT_NAV, AI_WORKBENCH_NAV]
-        settings_leaf = [7]
-        total_leaves = leaves + db_children + ai_children + settings_leaf
-
-        self.assertEqual(len(parents), 2, f'必须恰好有 2 个父级折叠项: {parents}')
-        self.assertIn(14, parents, '14 必须是数据中心父节点')
-        self.assertIn(15, parents, '15 必须是模型父节点')
-        self.assertEqual(len(total_leaves), 22, f'必须恰好有 22 个叶子节点: {len(total_leaves)}')
-        self.assertEqual(len(parents) + len(total_leaves), 24, '全量导航项总数必须为 24')
+        indices = [item[0] for _group, items in NAV_MODEL for item in items]
+        self.assertEqual(len(indices), 16)
+        self.assertEqual(len(indices), len(set(indices)))
+        self.assertFalse(any(is_parent_nav(index) for index in indices))
+        self.assertEqual([item[0] for item in NAV_MODEL[1][1]], [14])
+        self.assertNotIn(14, [p[2] for p in FIXED_DB_PAGES])
+        self.assertEqual([item[0] for item in NAV_MODEL[2][1]], [AI_CHAT_NAV, AI_WORKBENCH_NAV])
+        self.assertEqual(len(indices + [7]), 17)
 
     def test_web_nav_model_structure(self):
-        from main_window import MainWindow
-        win = MainWindow()
-        model_dict = win._build_web_nav_model()
+        model_dict = build_web_nav_model_data(private_unlocked=True)
 
         self.assertIn('groups', model_dict)
         self.assertIn('settings', model_dict)
         self.assertEqual(model_dict['settings']['i'], 7)
 
-        parent_14 = None
-        parent_15 = None
-        for g in model_dict['groups']:
-            for it in g['items']:
-                if it['i'] == 14:
-                    parent_14 = it
-                elif it['i'] == 15:
-                    parent_15 = it
-
-        self.assertIsNotNone(parent_14, 'Web nav model 必须包含 14 数据库父节点')
-        self.assertIsNotNone(parent_15, 'Web nav model 必须包含 15 模型父节点')
-        self.assertTrue(len(parent_14.get('children', [])) >= 6, '14 必须包含至少 6 个数据库子项')
-        self.assertTrue(len(parent_15.get('children', [])) == 2, '15 必须包含 2 个 AI 子项')
+        indices = [item['i'] for group in model_dict['groups'] for item in group['items']]
+        self.assertEqual(len(indices), 16)
+        self.assertIn(14, indices)
+        self.assertNotIn(15, indices)
+        self.assertFalse(any('children' in item for group in model_dict['groups'] for item in group['items']))
+        self.assertEqual([item['i'] for item in model_dict['groups'][1]['items']], [14])
+        self.assertEqual([item['i'] for item in model_dict['groups'][2]['items']], [16, 17])
+        projected = {item['i']: item for group in model_dict['groups'] for item in group['items']}
+        for _group_key, entries in NAV_MODEL:
+            for index, zh, en, icon in entries:
+                self.assertEqual(display_name(index, 'zh'), zh)
+                self.assertEqual(NAV_ITEMS[index].name_en, en)
+                self.assertEqual(NAV_ITEMS[index].icon_role, icon)
+                self.assertEqual(projected[index]['zh'], zh)
+                self.assertEqual(projected[index]['icon'], icon)
+        locked = build_web_nav_model_data(private_unlocked=False)
+        self.assertNotIn(8, [item['i'] for group in locked['groups'] for item in group['items']])
 
 
 class WebChromeSourceContractTests(unittest.TestCase):
@@ -143,6 +132,12 @@ class WebChromeSourceContractTests(unittest.TestCase):
     def test_no_fake_ui_elements(self):
         for forbidden in ['fake', 'notification-badge', 'cloud-sync', 'search-box', 'tab-bar']:
             self.assertNotIn(forbidden, self.vue_src.lower())
+
+    def test_expanded_workspace_label_follows_language(self):
+        self.assertIn("language.value === 'en' ? 'Personal workspace' : '个人工作空间'", self.vue_src)
+        self.assertIn('workspaceLabel', self.vue_src)
+        self.assertNotIn('notification-center', self.vue_src)
+        self.assertNotIn('export-preview', self.vue_src)
 
 
 class NativeFallbackPrismTests(unittest.TestCase):

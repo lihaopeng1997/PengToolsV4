@@ -6,13 +6,11 @@ Oracle 瘦模式依赖 cryptography 的 pbkdf2 等子模块；打包时必须显
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import uuid
 from typing import Any
 
-from config import HARNESS_CONNECTIONS_FILE, ensure_config_dir
+from config import HARNESS_CONNECTIONS_FILE
 from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 
 # PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
@@ -439,65 +437,110 @@ def _decrypt(token: str) -> str:
     return decrypt_secret(token)
 
 
-def load_connections() -> list[dict]:
-    ensure_config_dir()
+_CONNECTION_STORE_REVISION_UNSPECIFIED = object()
+
+
+def _connection_store_call(operation):
+    """Run one persistence operation and expose only its stable error code."""
+    from tools.data_center.connection_store import ConnectionStore, ConnectionStoreError
+
     try:
-        with open(HARNESS_CONNECTIONS_FILE, 'r', encoding='utf-8') as stream:
-            raw = json.load(stream)
-    except (OSError, ValueError, TypeError):
-        return []
-    items = raw.get('items') if isinstance(raw, dict) else raw
-    if not isinstance(items, list):
-        return []
-    result = []
-    for item in items:
-        if isinstance(item, dict) and item.get('id'):
-            result.append(dict(item))
-    return result
+        return operation(ConnectionStore(HARNESS_CONNECTIONS_FILE))
+    except ConnectionStoreError as exc:
+        raise DbError(f'CONNECTION_STORE_{exc.code}') from None
 
 
-def save_connections(items: list[dict]) -> list[dict]:
-    ensure_config_dir()
-    os.makedirs(os.path.dirname(HARNESS_CONNECTIONS_FILE), exist_ok=True)
-    payload = {'items': list(items)}
-    with open(HARNESS_CONNECTIONS_FILE, 'w', encoding='utf-8') as stream:
-        json.dump(payload, stream, indent=2, ensure_ascii=False)
+def load_connections() -> list[dict]:
+    snapshot = _connection_store_call(lambda store: store.load())
+    return [dict(item) for item in snapshot.items]
+
+
+def save_connections(
+    items: list[dict],
+    *,
+    expected_revision: str | None | object = _CONNECTION_STORE_REVISION_UNSPECIFIED,
+) -> list[dict]:
+    """Save an authoritative full list; callers with a snapshot should pass its revision."""
+    if expected_revision is _CONNECTION_STORE_REVISION_UNSPECIFIED:
+        expected_revision = _connection_store_call(lambda store: store.load().revision)
+    _connection_store_call(
+        lambda store: store.save(items, expected_revision=expected_revision)
+    )
     return items
 
 
-def upsert_connection(item: dict, plain_password: str | None = None) -> dict:
-    rows = load_connections()
+def _normalize_connection_patch(data: dict, existing: dict | None, connection_id: str) -> dict:
+    """Apply legacy defaults to new rows but never synthesize fields on a patch."""
+    patch = dict(data)
+    patch['id'] = connection_id
+    is_new = existing is None
+
+    if 'name' in patch or is_new:
+        patch['name'] = str(patch.get('name') or '未命名连接').strip() or '未命名连接'
+    if 'dialect' in patch or is_new:
+        patch['dialect'] = str(patch.get('dialect') or 'oracle').strip().lower()
+    dialect = str(patch.get('dialect') or (existing or {}).get('dialect') or 'oracle').strip().lower()
+    if 'host' in patch or is_new:
+        patch['host'] = str(patch.get('host') or '').strip()
+    if 'port' in patch or is_new:
+        try:
+            patch['port'] = int(patch.get('port') or DEFAULT_PORTS.get(dialect, 1521))
+        except (TypeError, ValueError):
+            patch['port'] = DEFAULT_PORTS.get(dialect, 1521)
+    if 'database' in patch or is_new:
+        patch['database'] = str(patch.get('database') or '').strip()
+    if 'username' in patch or is_new:
+        patch['username'] = str(patch.get('username') or '').strip()
+    return patch
+
+
+def upsert_connection(
+    item: dict,
+    plain_password: str | None = None,
+    *,
+    expected_revision: str | None | object = _CONNECTION_STORE_REVISION_UNSPECIFIED,
+) -> dict:
     data = dict(item)
-    data['id'] = str(data.get('id') or uuid.uuid4().hex)
-    data['name'] = str(data.get('name') or '未命名连接').strip() or '未命名连接'
-    data['dialect'] = str(data.get('dialect') or 'oracle').strip().lower()
-    data['host'] = str(data.get('host') or '').strip()
-    try:
-        data['port'] = int(data.get('port') or DEFAULT_PORTS.get(data['dialect'], 1521))
-    except (TypeError, ValueError):
-        data['port'] = DEFAULT_PORTS.get(data['dialect'], 1521)
-    data['database'] = str(data.get('database') or '').strip()
-    data['username'] = str(data.get('username') or '').strip()
-    if plain_password is not None:
-        data['password'] = _encrypt(plain_password)
-    elif 'password' not in data:
-        data['password'] = ''
-    found = False
-    for index, row in enumerate(rows):
-        if row.get('id') == data['id']:
-            if not data.get('password') and row.get('password'):
-                data['password'] = row.get('password')
-            rows[index] = data
-            found = True
-            break
-    if not found:
-        rows.append(data)
-    save_connections(rows)
-    return data
+    connection_id = str(data.get('id') or uuid.uuid4().hex)
+    snapshot = _connection_store_call(lambda store: store.load())
+    existing = next(
+        (row for row in snapshot.items if str(row.get('id') or '') == connection_id),
+        None,
+    )
+    patch = _normalize_connection_patch(data, existing, connection_id)
+
+    if plain_password is not None and str(plain_password):
+        try:
+            patch['password'] = _encrypt(plain_password)
+        except Exception:
+            raise DbError('CONNECTION_CREDENTIAL_SAVE_FAILED') from None
+    elif existing is not None:
+        if patch.get('password') in (None, ''):
+            patch.pop('password', None)
+    elif 'password' not in patch:
+        patch['password'] = ''
+
+    if expected_revision is _CONNECTION_STORE_REVISION_UNSPECIFIED:
+        expected_revision = snapshot.revision
+    saved = _connection_store_call(
+        lambda store: store.upsert(patch, expected_revision=expected_revision)
+    )
+    return next(
+        dict(row) for row in saved.items
+        if str(row.get('id') or '') == connection_id
+    )
 
 
-def delete_connection(conn_id: str) -> None:
-    save_connections([row for row in load_connections() if row.get('id') != conn_id])
+def delete_connection(
+    conn_id: str,
+    *,
+    expected_revision: str | None | object = _CONNECTION_STORE_REVISION_UNSPECIFIED,
+) -> None:
+    if expected_revision is _CONNECTION_STORE_REVISION_UNSPECIFIED:
+        expected_revision = _connection_store_call(lambda store: store.load().revision)
+    _connection_store_call(
+        lambda store: store.delete(str(conn_id or ''), expected_revision=expected_revision)
+    )
 
 
 def resolve_db_provider(item: dict | None) -> str:

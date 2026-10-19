@@ -5,7 +5,7 @@
 1. test_dashboard_real_qwebengine_production_chain_and_interactions:
    - 生产 HTML + QWebChannel + HomeBridge + Vue 完整就绪
    - 单主题与旧 Black 输入兼容归一探针（tokens / 几何阴影 / 背景色）
-   - 真实 DOM 交互：点击数据中心派发 nav=18、点击新建需求派发信号、点击真实需求查看派发 ID
+   - 真实 DOM 交互：点击数据中心派发 nav=14、点击新建需求派发信号、点击真实需求查看派发 ID
    - 示例模式隔离：呈现“示例”徽标，点击示例行严防虚假 ID 派发
 
 2. test_dashboard_real_qwebengine_mainwindow_live_sync:
@@ -69,6 +69,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
         nav_events = []
         create_events = []
         open_events = []
+        section_events = []
 
         widget = None
         loop = QEventLoop()
@@ -92,6 +93,8 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
             bridge.navigateRequested.connect(nav_events.append)
             bridge.createRequirementRequested.connect(lambda: create_events.append(True))
             bridge.openRequirementRequested.connect(open_events.append)
+            bridge.openRequirementSectionRequested.connect(
+                lambda req_id, section: section_events.append((req_id, section)))
 
             with patch('tools.dashboard_summary.load_requirements', return_value=current_reqs), \
                  patch('tools.dashboard_summary.load_release_board', return_value={}), \
@@ -201,7 +204,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 self.assertEqual(black_res.get('appBg'), '#F4F3FA')
                 self.assertEqual(black_res.get('surface'), '#FDFDFF')
 
-                # C. DOM 点击“数据中心”工具 => Python 收到 nav 18
+                # C. DOM 点击“数据中心”工具 => Python 收到 nav 14
                 js_click_dc = '''(() => {
                     const tools = Array.from(document.querySelectorAll('.tool'));
                     const dc = tools.find(el => el.textContent.includes('数据中心'));
@@ -209,7 +212,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                     return false;
                 })()'''
                 self.assertTrue(run_js(js_click_dc), '页面中必须找到“数据中心”工具')
-                self.assertIn(18, nav_events, '点击数据中心必须向 Python 派发 nav 18')
+                self.assertIn(14, nav_events, '点击数据中心必须向 Python 派发 nav 14')
 
                 # D. DOM 点击“+ 新建需求”按钮
                 js_click_create = '''(() => {
@@ -229,6 +232,25 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 })()'''
                 self.assertTrue(run_js(js_click_view), '页面中必须找到真实需求行的“查看”按钮')
                 self.assertIn('REQ-PROD-99', open_events, '点击真实需求“查看”必须向 Python 派发对应 ID')
+
+                # E1. 状态和测试点入口分别派发精确目标，不附带查看或导航。
+                open_cnt = len(open_events)
+                nav_cnt = len(nav_events)
+                js_click_sections = '''(() => {
+                    const buttons = Array.from(document.querySelectorAll('.req-list .ck:not(.is-demo) .row-actions button'));
+                    const status = buttons.find(el => el.dataset.action === 'completion');
+                    const points = buttons.find(el => el.dataset.action === 'test_points');
+                    if (!status || !points) return null;
+                    const labels = [status.textContent.trim(), points.textContent.trim()];
+                    status.click();
+                    points.click();
+                    return labels;
+                })()'''
+                self.assertEqual(run_js(js_click_sections), ['编辑状态', '测试点'])
+                self.assertEqual(section_events, [
+                    ('REQ-PROD-99', 'completion'), ('REQ-PROD-99', 'test_points')])
+                self.assertEqual(len(open_events), open_cnt)
+                self.assertEqual(len(nav_events), nav_cnt)
 
                 # E2. 验证 Requirement ID Badge 存在、内容、title 与字号契约
                 js_check_id_badge = '''(() => {
@@ -308,8 +330,32 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 loop.exec()
                 self.assertEqual(len(open_events), open_cnt + 1, '聚焦“查看”按钮按 Space/激活必须且仅派发 1 次 openRequirement（不得重复触发）')
 
-                # F. 示例模式与虚假 ID 防御
+                # F. 缺 ID 行仅展示，不暴露操作或键盘导航。
+                missing_id_count = len(open_events)
+                section_count = len(section_events)
+                bridge.set_summary_provider(lambda: tools.dashboard_summary.build_dashboard_summary(
+                    requirements=[dict(real_req, id='')], today=today, board={}, reports={}))
+                bridge.push_summary()
+                timer_wait.start(250)
+                loop.exec()
+                missing_id_res = run_js('''(() => {
+                    const row = document.querySelector('.req-list .ck');
+                    if (!row) return null;
+                    row.click();
+                    row.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+                    return {
+                        buttons: row.querySelectorAll('.row-actions button').length,
+                        role: row.getAttribute('role'),
+                        tabindex: row.getAttribute('tabindex')
+                    };
+                })()''')
+                self.assertEqual(missing_id_res, {'buttons': 0, 'role': None, 'tabindex': None})
+                self.assertEqual(len(open_events), missing_id_count)
+                self.assertEqual(len(section_events), section_count)
+
+                # G. 示例模式与虚假 ID 防御
                 open_count_before = len(open_events)
+                section_count_before = len(section_events)
                 bridge.set_summary_provider(
                     lambda: tools.dashboard_summary.build_dashboard_summary(requirements=None, today=today)
                 )
@@ -334,6 +380,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                     return {
                         badgeCount: demoBadges.length,
                         hasDemoRow: !!demoRow,
+                        actionCount: document.querySelectorAll('.req-list .row-actions button').length,
                         role: role,
                         tabindex: tabindex,
                     };
@@ -341,9 +388,11 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 demo_res = run_js(js_demo_check)
                 self.assertGreaterEqual(demo_res['badgeCount'], 1, '示例模式下必须渲染示例徽章')
                 self.assertTrue(demo_res['hasDemoRow'], '示例模式下必须渲染带有 is-demo 的需求行')
+                self.assertEqual(demo_res['actionCount'], 0, '示例行不得显示状态或测试点操作')
                 self.assertIsNone(demo_res.get('role'), 'Demo 行不得暴露 role="button"')
                 self.assertTrue(demo_res.get('tabindex') is None or int(demo_res.get('tabindex')) < 0, 'Demo 行不得具备键盘可交互 tabindex')
                 self.assertEqual(len(open_events), open_count_before, '点击或键盘激活示例需求行绝对不得向 Python 派发虚假 ID')
+                self.assertEqual(len(section_events), section_count_before, '示例行不得派发状态或测试点目标')
 
         finally:
             if widget is not None:
@@ -502,7 +551,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
 
     def test_dashboard_real_qwebengine_nav_model_authority_over_summary(self):
         """测试 3：验证 navModel 是 Dashboard 常用工具的绝对生产权威（覆盖 summary 冲突与 push_summary 二次覆盖）。"""
-        from PyQt6.QtCore import QEventLoop, QTimer
+        from PyQt6.QtCore import QEventLoop, QTimer, Qt
         from PyQt6.QtWidgets import QApplication
         from ui.theme_manager import ThemeManager
         from ui.navigation_model import build_web_nav_model_data
@@ -562,6 +611,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
             })
 
             widget = web_shell.create_dashboard_widget(bridge)
+            widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
             widget.show()
 
             ready_pages = []
@@ -613,7 +663,7 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
             self.assertIn('加解密', tool_names)
             self.assertIn('格式工具', tool_names)
 
-            # 5. 测试交互：点击“数据中心”工具 => Python 必须收到 nav 18
+            # Unified data center uses its current page route, including Web shortcuts.
             js_click_dc = '''(() => {
                 const tools = Array.from(document.querySelectorAll('.tool'));
                 const dc = tools.find(el => el.textContent.includes('数据中心'));
@@ -621,7 +671,13 @@ class WebDashboardProductionRuntimeTest(unittest.TestCase):
                 return false;
             })()'''
             self.assertTrue(run_js(js_click_dc), '页面中必须找到“数据中心”工具')
-            self.assertIn(18, nav_events, '点击权威数据中心工具必须向 Python 派发 nav 18')
+            self.assertIn(14, nav_events, '点击权威数据中心工具必须向 Python 派发 nav 14')
+            nav_events.clear()
+            self.assertTrue(run_js('''(() => {
+                document.querySelectorAll('.quick-btn.tool').forEach(button => button.click());
+                return true;
+            })()'''))
+            self.assertEqual(nav_events, [14, 16, 12, 13, 5, 11])
 
             # 6. 验证二次推送：调用 bridge.push_summary 注入新一批冲突假数据，DOM 仍必须被 navModel 守卫
             second_conflicting = dict(conflicting_summary)

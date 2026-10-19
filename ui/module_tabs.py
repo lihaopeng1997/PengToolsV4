@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QPointF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QStyle,
     QSizePolicy,
     QTabBar,
     QToolButton,
@@ -23,7 +23,13 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.icons import qicon
-from ui.navigation_model import display_name, get_nav_item, icon_role_for, is_parent_nav
+from ui.navigation_model import (
+    canonical_nav_index,
+    display_name,
+    get_nav_item,
+    icon_role_for,
+    is_parent_nav,
+)
 
 
 HOME_NAV = 0
@@ -44,13 +50,13 @@ class ModuleTab:
 def module_tab_for_nav(nav_index: int, language: str = "zh") -> ModuleTab | None:
     """Build a tab record from the authoritative navigation model.
 
-    Parent entries (14/15), unknown IDs, and malformed values do not become
-    tabs.  The home entry is always valid and is marked non-closable.
+    Legacy database IDs converge on the single Data Center tab. Parent entries
+    (15), unknown IDs, and malformed values do not become tabs. The home entry
+    is always valid and is marked non-closable.
     """
 
-    try:
-        index = int(nav_index)
-    except (TypeError, ValueError):
+    index = canonical_nav_index(nav_index)
+    if index < 0:
         return None
     if get_nav_item(index) is None or is_parent_nav(index):
         return None
@@ -181,8 +187,10 @@ class ModuleTabs(QFrame):
         """Remove only the visual navigation tab; never touches a panel."""
 
         try:
-            index = int(nav_index)
+            index = canonical_nav_index(nav_index)
         except (TypeError, ValueError):
+            return False
+        if index < 0:
             return False
         if index == HOME_NAV or index not in self._open_nav:
             return False
@@ -203,8 +211,10 @@ class ModuleTabs(QFrame):
         """
 
         try:
-            index = int(nav_index)
+            index = canonical_nav_index(nav_index)
         except (TypeError, ValueError):
+            return self._current_nav
+        if index < 0:
             return self._current_nav
         if index not in self._open_nav or index != self._current_nav:
             return self._current_nav
@@ -234,8 +244,10 @@ class ModuleTabs(QFrame):
 
     def tab_index(self, nav_index: int) -> int:
         try:
-            wanted = int(nav_index)
+            wanted = canonical_nav_index(nav_index)
         except (TypeError, ValueError):
+            return -1
+        if wanted < 0:
             return -1
         for i in range(self.tab_bar.count()):
             if self.tab_bar.tabData(i) == wanted:
@@ -325,27 +337,47 @@ class ModuleTabs(QFrame):
             self._syncing = False
 
     def _set_tab_close_button(self, tab_index: int, record: ModuleTab) -> None:
-        close_button = self.tab_bar.tabButton(tab_index, QTabBar.ButtonPosition.RightSide)
         if not record.closable:
-            if close_button is not None:
-                close_button.hide()
             self.tab_bar.setTabButton(tab_index, QTabBar.ButtonPosition.RightSide, None)
             return
-        if close_button is None:
-            close_button = QToolButton(self.tab_bar)
-            self.tab_bar.setTabButton(tab_index, QTabBar.ButtonPosition.RightSide, close_button)
-        close_button.setObjectName(f"module-tab-close-{record.nav_index}")
+
+        close_button = QToolButton(self.tab_bar)
+        close_button.setObjectName("module-tab-close")
         close_button.setFixedSize(TAB_CLOSE_BUTTON_SIZE, TAB_CLOSE_BUTTON_SIZE)
-        if hasattr(close_button, "setAutoRaise"):
-            close_button.setAutoRaise(True)
+        close_button.setAutoRaise(True)
         close_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         close_button.setCursor(Qt.CursorShape.PointingHandCursor)
         close_button.setToolTip(f"关闭 {record.title}")
         close_button.setAccessibleName(f"关闭 {record.title}")
-        style = self.style() or self.tab_bar.style()
-        if style is not None:
-            close_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_TitleBarCloseButton))
-            close_button.setIconSize(close_button.size() * 0.6)
+        close_button.setIcon(self._close_icon())
+        close_button.setIconSize(QSize(12, 12))
+        close_button.clicked.connect(
+            lambda _checked=False, nav_index=record.nav_index: self._on_close_requested(
+                self.tab_index(nav_index)
+            )
+        )
+        self.tab_bar.setTabButton(tab_index, QTabBar.ButtonPosition.RightSide, close_button)
+
+    def _close_icon(self) -> QIcon:
+        tokens = self._tokens()
+        icon = QIcon()
+        for mode, color in (
+            (QIcon.Mode.Normal, tokens.get("TEXT_MUTED", "#615D73")),
+            (QIcon.Mode.Active, tokens.get("PRIMARY_ACTIVE", "#503DBE")),
+        ):
+            pixmap = QPixmap(12, 12)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor(color))
+            pen.setWidthF(1.6)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(2.5, 2.5), QPointF(9.5, 9.5))
+            painter.drawLine(QPointF(9.5, 2.5), QPointF(2.5, 9.5))
+            painter.end()
+            icon.addPixmap(pixmap, mode)
+        return icon
 
     def _theme_changed(self, _theme_id: str) -> None:
         self._apply_style()
@@ -388,9 +420,9 @@ class ModuleTabs(QFrame):
                 background: transparent;
             }
             QTabBar#module-tab-bar::tab {
-                min-height: 27px;
-                padding: 4px 9px 4px 10px;
-                margin: 4px 2px 3px 0;
+                min-height: 22px;
+                padding: 1px 9px 1px 10px;
+                margin: 2px 2px 1px 0;
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
@@ -407,16 +439,19 @@ class ModuleTabs(QFrame):
                 border-bottom: 2px solid %(primary)s;
                 font-weight: 600;
             }
-            QToolButton#module-tab-close-0,
-            QTabBar#module-tab-bar QToolButton {
+            QTabBar#module-tab-bar QToolButton#module-tab-close {
                 color: %(muted)s;
                 border: 0;
                 border-radius: 5px;
                 padding: 0;
                 background: transparent;
             }
-            QTabBar#module-tab-bar QToolButton:hover {
+            QTabBar#module-tab-bar QToolButton#module-tab-close:hover {
                 color: %(active)s;
+                background: %(primary_soft)s;
+            }
+            QTabBar#module-tab-bar QToolButton#module-tab-close:focus {
+                border: 1px solid %(primary)s;
                 background: %(primary_soft)s;
             }
             """

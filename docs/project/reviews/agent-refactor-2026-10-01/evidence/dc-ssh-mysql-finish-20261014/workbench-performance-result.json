@@ -1,0 +1,20 @@
+{
+  "scope": "synthetic Qt table model and 100 actual ManualSession owners; not full UI tabs or real DBs",
+  "rows": 20000,
+  "columns": 20,
+  "pages": 100,
+  "per_cell_widgets": 0,
+  "view_child_widgets": 18,
+  "model_load_ms": 309.607,
+  "heartbeat_p95_extra_ms": 51.462,
+  "heartbeat_max_extra_ms": 58.525,
+  "200_cell_lookup_median_ms": 6.946,
+  "python_peak_mib": 16.467,
+  "manual_sessions": 100,
+  "session_churn_ms": 26.627,
+  "residual_owner_threads": 0,
+  "all_connections_closed_on_owner_thread": true,
+  "user_data_or_network_used": false,
+  "platform": "Windows, Qt offscreen",
+  "full_window_performance_pending": true
+}

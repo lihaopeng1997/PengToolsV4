@@ -39,15 +39,16 @@ function deriveQuickToolsFromNavModel(rawNav: string): DashboardSummary['tools']
       }
     }
     if (navItemMap.size === 0) return null
-    const quickIndices = [18, 16, 12, 13, 5, 11]
-    return quickIndices.map(idx => {
+    if (!Array.isArray(navData.quick_tool_indices)) return null
+    return navData.quick_tool_indices.flatMap((idx: number) => {
       const item = navItemMap.get(idx)
-      return {
+      if (!item) return []
+      return [{
         i: idx,
-        zh: item?.dash_zh || item?.zh || `工具 ${idx}`,
-        ds: item?.tip || '',
-        icon: item?.icon || 'database',
-      }
+        zh: item.dash_zh || item.zh || '',
+        ds: item.tip || '',
+        icon: item.icon || 'database',
+      }]
     })
   } catch {
     return null

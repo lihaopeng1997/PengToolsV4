@@ -205,7 +205,7 @@ const milestoneStats = computed(() => {
 }
 
 .month-label {
-  font: 9px Consolas, monospace;
+  font: 11px Consolas, monospace;
   letter-spacing: 1px;
   color: var(--text-muted);
 }
@@ -266,7 +266,7 @@ const milestoneStats = computed(() => {
 }
 
 .info-hint {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   margin: 0 0 6px 0;
 }
@@ -275,7 +275,7 @@ const milestoneStats = computed(() => {
   display: inline-block;
   padding: 2px 7px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 13px;
   background: var(--primary-soft);
   color: var(--primary);
 }
@@ -292,7 +292,7 @@ const milestoneStats = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text);
 }
 
@@ -313,7 +313,7 @@ const milestoneStats = computed(() => {
 }
 
 .m-val {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -326,7 +326,7 @@ const milestoneStats = computed(() => {
 }
 
 .foot-hint {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -334,7 +334,7 @@ const milestoneStats = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--primary);
   background: transparent;
   border: 0;

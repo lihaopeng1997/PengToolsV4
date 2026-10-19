@@ -21,7 +21,7 @@ class PageChrome(QWidget):
 
         text_column = QVBoxLayout()
         text_column.setContentsMargins(0, 0, 0, 0)
-        text_column.setSpacing(2)
+        text_column.setSpacing(4)
         self.title_label = QLabel(title, self)
         self.title_label.setObjectName('page-title')
         text_column.addWidget(self.title_label)
@@ -40,6 +40,7 @@ class PageChrome(QWidget):
         self.primary_actions.setContentsMargins(0, 0, 0, 0)
         self.primary_actions.setSpacing(8)
         layout.addLayout(self.primary_actions)
+        self.setMinimumHeight(PAGE_HEADER_H)
 
     def add_secondary_action(self, widget: QWidget) -> None:
         self.secondary_actions.addWidget(widget)
@@ -221,10 +222,10 @@ def make_page_header(
     """创建标准页面标题区，返回 (frame, title_label, subtitle_label)。"""
     frame = _PageHeaderFrame()
     frame.setObjectName('page-header')
-    frame.setMinimumHeight(PAGE_HEADER_H - 12)
+    frame.setMinimumHeight(PAGE_HEADER_H)
     layout = QHBoxLayout(frame)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(12)
+    layout.setSpacing(8)
 
     if icon_role:
         icon_plate = QLabel()
@@ -243,7 +244,7 @@ def make_page_header(
 
     text_col = QVBoxLayout()
     text_col.setContentsMargins(0, 0, 0, 0)
-    text_col.setSpacing(2)
+    text_col.setSpacing(4)
     title_label = QLabel(title)
     title_label.setObjectName('page-title')
     text_col.addWidget(title_label)

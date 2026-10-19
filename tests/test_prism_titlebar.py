@@ -18,7 +18,10 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from ui.prism_title_bar import (
+    BRAND_ICON_SIZE,
     TITLEBAR_H,
+    WINDOW_BUTTON_HEIGHT,
+    WINDOW_BUTTON_WIDTH,
     PrismTitleBar,
     start_system_move,
     start_system_resize,
@@ -57,6 +60,34 @@ class PrismTitleBarTests(unittest.TestCase):
         ):
             self.assertEqual(button.accessibleName(), button.toolTip())
             self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.TabFocus)
+            self.assertEqual(button.width(), WINDOW_BUTTON_WIDTH)
+            self.assertEqual(button.height(), WINDOW_BUTTON_HEIGHT)
+            self.assertEqual(button.iconSize().width(), 13)
+            self.assertEqual(button.iconSize().height(), 13)
+        self.assertEqual(self.bar.brand_icon.width(), BRAND_ICON_SIZE)
+        self.assertEqual(self.bar.brand_icon.height(), BRAND_ICON_SIZE)
+
+    def test_window_glyphs_share_project_rendering_and_restore_changes_icon(self):
+        keys = [
+            self.bar.pin_button.icon().cacheKey(),
+            self.bar.minimize_button.icon().cacheKey(),
+            self.bar.maximize_button.icon().cacheKey(),
+            self.bar.close_button.icon().cacheKey(),
+        ]
+        self.assertEqual(len(set(keys)), 4)
+        maximized_key = self.bar.maximize_button.icon().cacheKey()
+        self.bar.set_maximized(True)
+        self.assertNotEqual(self.bar.maximize_button.icon().cacheKey(), maximized_key)
+        self.assertEqual(self.bar.maximize_button.iconSize().width(), 13)
+
+    def test_focus_ring_is_keyboard_only_after_mouse_click(self):
+        self.bar.minimize_button.setFocus(Qt.FocusReason.TabFocusReason)
+        _APP.processEvents()
+        self.assertTrue(self.bar.minimize_button.property("keyboardFocus"))
+
+        QTest.mouseClick(self.bar.minimize_button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertFalse(self.bar.minimize_button.property("keyboardFocus"))
 
     def test_window_requests_are_signals_and_close_is_not_direct_exit(self):
         signals = {"pin": [], "min": [], "max": [], "close": []}

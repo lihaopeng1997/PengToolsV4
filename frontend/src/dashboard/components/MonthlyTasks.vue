@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'openRequirement', id?: string | null): void
+  (e: 'openRequirementSection', id: string, section: 'completion' | 'test_points'): void
   (e: 'navigate', navIndex: number): void
 }>()
 
@@ -18,7 +19,7 @@ const isDemoMode = computed(() => Boolean(props.isDemo))
 
 const monthlyTasksCountText = computed(() => {
   const count = props.tasks?.length ?? 0
-  return `${count} 项`
+  return isDemoMode.value ? `示例预览 · ${count} 项` : `${count} 项`
 })
 
 function statusChipClass(status?: string | null): string {
@@ -27,15 +28,45 @@ function statusChipClass(status?: string | null): string {
   return 'run'
 }
 
-function isRowInteractive(item?: { is_demo?: boolean | null } | null): boolean {
-  return !isDemoMode.value && !item?.is_demo
+function isRealTask(item?: { id?: string | null; is_demo?: boolean | null } | null): boolean {
+  if (isDemoMode.value || !item || !item.id) return false
+  const idStr = String(item.id).trim()
+  if (!idStr || idStr.toLowerCase().startsWith('demo-') || item.is_demo) return false
+  return true
 }
 
-function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
-  if (isDemoMode.value || !reqId || String(reqId).startsWith('demo-')) {
+function isDemoRow(item?: { id?: string | null; is_demo?: boolean | null } | null): boolean {
+  if (isDemoMode.value || item?.is_demo) return true
+  if (item?.id && String(item.id).trim().toLowerCase().startsWith('demo-')) return true
+  return false
+}
+
+function onOpenRequirement(reqId?: string | null): void {
+  if (!reqId) return
+  const idStr = String(reqId).trim()
+  if (!idStr || idStr.toLowerCase().startsWith('demo-') || isDemoMode.value) return
+  emit('openRequirement', idStr)
+}
+
+function onOpenSection(reqId: string | null | undefined, section: 'completion' | 'test_points'): void {
+  if (!reqId) return
+  const idStr = String(reqId).trim()
+  if (!idStr || idStr.toLowerCase().startsWith('demo-') || isDemoMode.value) return
+  emit('openRequirementSection', idStr, section)
+}
+
+function onRowClick(event: MouseEvent, task: MonthlyReleaseTask): void {
+  if (!isRealTask(task)) return
+  const target = event.target as HTMLElement | null
+  if (target && target.closest('button')) {
     return
   }
-  emit('openRequirement', reqId)
+  onOpenRequirement(task.id)
+}
+
+function onRowKeydown(task: MonthlyReleaseTask): void {
+  if (!isRealTask(task)) return
+  onOpenRequirement(task.id)
 }
 </script>
 
@@ -62,18 +93,39 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
         <span class="dchip">{{ monthlyTasksCountText }}</span>
       </div>
 
+      <div
+        v-if="isDemoMode"
+        class="demo-notice"
+        role="status"
+        data-testid="demo-preview-notice"
+      >
+        <div class="demo-notice-copy">
+          <strong>当前是示例预览</strong>
+          <span>这些示例不代表你的真实任务，也不能直接编辑。请前往需求管理导入已有文件夹或新建需求；首页本月列表只显示设置了本月实际上线日期的真实需求。</span>
+        </div>
+        <button
+          class="btn btn-ghost btn-xs demo-manage-btn"
+          data-action="manage-requirements"
+          data-testid="demo-manage-requirements"
+          type="button"
+          @click="emit('navigate', 10)"
+        >
+          去管理真实需求
+        </button>
+      </div>
+
       <div class="req-list">
         <template v-if="props.tasks && props.tasks.length > 0">
           <div
             v-for="(task, idx) in props.tasks"
             :key="task.id || task.code || task.title || idx"
             class="ck task-row"
-            :class="{ 'clickable': isRowInteractive(task), 'is-demo': !isRowInteractive(task) }"
-            :tabindex="isRowInteractive(task) ? 0 : undefined"
-            :role="isRowInteractive(task) ? 'button' : undefined"
-            @click="isRowInteractive(task) && onOpenRequirement(task.id)"
-            @keydown.enter.self="isRowInteractive(task) && onOpenRequirement(task.id)"
-            @keydown.space.self.prevent="isRowInteractive(task) && onOpenRequirement(task.id)"
+            :class="{ 'clickable': isRealTask(task), 'is-demo': !isRealTask(task) }"
+            :tabindex="isRealTask(task) ? 0 : undefined"
+            :role="isRealTask(task) ? 'button' : undefined"
+            @click="onRowClick($event, task)"
+            @keydown.enter.self="onRowKeydown(task)"
+            @keydown.space.self.prevent="onRowKeydown(task)"
           >
             <span class="dot" :class="task.done ? 'ok' : statusChipClass(task.status)" />
             <span v-if="task.code" class="req-id-badge" :title="task.code">{{ task.code }}</span>
@@ -92,15 +144,33 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
               {{ task.done ? '已完成' : (task.status || '推进中') }}
             </span>
 
-            <button
-              v-if="isRowInteractive(task)"
-              class="btn btn-ghost btn-xs row-act-btn"
-              type="button"
-              @click.stop="emit('openRequirement', task.id)"
-            >
-              查看
-            </button>
-            <span v-else class="demo-badge">示例</span>
+            <div v-if="isRealTask(task)" class="row-actions">
+              <button
+                class="btn btn-ghost btn-xs row-act-btn"
+                data-action="view"
+                type="button"
+                @click.stop="onOpenRequirement(task.id)"
+              >
+                查看
+              </button>
+              <button
+                class="btn btn-ghost btn-xs row-act-btn"
+                data-action="completion"
+                type="button"
+                @click.stop="onOpenSection(task.id, 'completion')"
+              >
+                编辑状态
+              </button>
+              <button
+                class="btn btn-ghost btn-xs row-act-btn"
+                data-action="test_points"
+                type="button"
+                @click.stop="onOpenSection(task.id, 'test_points')"
+              >
+                测试点
+              </button>
+            </div>
+            <span v-else-if="isDemoRow(task)" class="demo-badge">示例</span>
           </div>
         </template>
         <div v-else class="empty-hint">本月暂无实际上线任务</div>
@@ -146,7 +216,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 }
 
 .sub {
-  font: 9px Consolas, monospace;
+  font: 11px Consolas, monospace;
   letter-spacing: 1px;
   color: var(--text-muted);
 }
@@ -179,14 +249,14 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 }
 
 .rel-info b {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   display: block;
 }
 
 .rs {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-top: 1px;
 }
@@ -194,10 +264,45 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 .dchip {
   padding: 2px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   background: var(--primary-soft);
   color: var(--primary);
+}
+
+.demo-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.demo-notice-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.demo-notice-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.demo-notice-copy span {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.demo-manage-btn {
+  flex-shrink: 0;
 }
 
 .req-list {
@@ -254,7 +359,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 
 .req-id-badge {
   font-family: Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
   padding: 2px 6px;
   border-radius: 4px;
@@ -274,7 +379,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 }
 
 .req-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text);
   overflow: hidden;
@@ -283,7 +388,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 }
 
 .meta-inline {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
@@ -293,7 +398,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
@@ -302,7 +407,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 .chip {
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 13px;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -319,9 +424,16 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
   color: var(--success);
 }
 
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .btn-xs {
   padding: 3px 8px;
-  font-size: 10px;
+  font-size: 13px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: transparent;
@@ -334,7 +446,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 }
 
 .demo-badge {
-  font-size: 9px;
+  font-size: 12px;
   padding: 2px 5px;
   border-radius: 4px;
   background: var(--surface-soft);
@@ -345,7 +457,7 @@ function onOpenRequirement(reqId?: string | null, _fallbackNav = 10): void {
 
 .empty-hint {
   padding: 18px 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   text-align: center;
 }

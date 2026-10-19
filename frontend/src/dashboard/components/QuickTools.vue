@@ -73,7 +73,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 }
 
 .card-sub {
-  font: 9px Consolas, monospace;
+  font: 11px Consolas, monospace;
   letter-spacing: 1px;
   color: var(--text-muted);
 }
@@ -86,8 +86,8 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 
 .quick-btn {
   min-width: 0;
-  height: 64px;
-  min-height: 64px;
+  height: auto;
+  min-height: 76px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -133,7 +133,7 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 }
 
 .quick-name {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text);
   white-space: nowrap;
@@ -142,9 +142,13 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 }
 
 .quick-sub {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 2px;

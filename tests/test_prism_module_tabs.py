@@ -12,8 +12,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PyQt6.QtCore import QPoint
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QTabBar, QToolButton
 
 from ui.module_tabs import HOME_NAV, ModuleTabs, module_tab_for_nav
 from ui.navigation_model import display_name
@@ -38,8 +40,10 @@ class PrismModuleTabsTests(unittest.TestCase):
         self.assertIsNotNone(home)
         self.assertFalse(home.closable)
         self.assertEqual(home.title, display_name(HOME_NAV, "zh"))
-        self.assertEqual(module_tab_for_nav(14), None)
+        self.assertEqual(module_tab_for_nav(14).nav_index, 14)
         self.assertEqual(module_tab_for_nav(15), None)
+        for legacy_index in range(18, 24):
+            self.assertEqual(module_tab_for_nav(legacy_index).nav_index, 14)
         self.assertEqual(module_tab_for_nav(999), None)
         self.assertEqual(module_tab_for_nav("bad"), None)
 
@@ -47,14 +51,15 @@ class PrismModuleTabsTests(unittest.TestCase):
         self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV,))
         self.assertTrue(self.tabs.open_nav(10))
         self.assertTrue(self.tabs.open_nav(18))
+        self.assertTrue(self.tabs.open_nav(23))
+        self.assertTrue(self.tabs.open_nav(14))
         self.assertTrue(self.tabs.open_nav(10))
-        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 18))
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 14))
         self.assertEqual(self.tabs.tab_bar.count(), 3)
         self.assertEqual(self.tabs.tab_bar.tabData(1), 10)
-        self.assertEqual(self.tabs.tab_bar.tabData(2), 18)
-        self.assertFalse(self.tabs.open_nav(14))
+        self.assertEqual(self.tabs.tab_bar.tabData(2), 14)
         self.assertFalse(self.tabs.open_nav(999))
-        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 18))
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 14))
 
     def test_tab_activation_emits_nav_request_but_programmatic_sync_is_silent(self):
         activated = []
@@ -80,23 +85,88 @@ class PrismModuleTabsTests(unittest.TestCase):
         self.assertTrue(self.tabs.remove_nav(18))
         self.assertEqual(self.tabs.current_nav_index, 10)
 
+    def test_close_button_click_requests_one_nav_and_waits_for_host(self):
+        self.tabs.open_nav(10)
+        self.tabs.open_nav(18)
+        self.assertIsNone(self.tabs.tab_bar.tabButton(0, QTabBar.ButtonPosition.RightSide))
+        button = self.tabs.tab_bar.tabButton(self.tabs.tab_index(10), QTabBar.ButtonPosition.RightSide)
+        self.assertIsInstance(button, QToolButton)
+        self.assertFalse(button.icon().isNull())
+        self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.TabFocus)
+        button.setFocus(Qt.FocusReason.TabFocusReason)
+        _APP.processEvents()
+        self.assertTrue(button.hasFocus())
+
+        closed = []
+        self.tabs.close_requested.connect(closed.append)
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        _APP.processEvents()
+        self.assertEqual(closed, [10])
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 14))
+        self.assertEqual(self.tabs.current_nav_index, 14)
+        self.assertEqual(self.tabs.tab_bar.count(), 3)
+
+    def test_large_fonts_and_scroll_keep_last_close_button_visible(self):
+        original_font = QFont(_APP.font())
+        try:
+            for point_size in (13, 16):
+                with self.subTest(point_size=point_size):
+                    font = QFont(original_font)
+                    font.setPointSize(point_size)
+                    _APP.setFont(font)
+                    tabs = ModuleTabs()
+                    try:
+                        tabs.resize(320, 38)
+                        tabs.show()
+                        tabs.replace_nav([10, 1, 2, 3, 5, 16, 17, 14])
+                        tabs.set_current_nav(14)
+                        _APP.processEvents()
+
+                        bar = tabs.tab_bar
+                        self.assertEqual(bar.font().pointSize(), point_size)
+                        self.assertEqual(tabs.height(), 38)
+                        self.assertLessEqual(bar.sizeHint().height(), bar.height())
+                        self.assertLessEqual(bar.geometry().bottom(), tabs.height() - 1)
+                        for tab_index in range(bar.count()):
+                            self.assertLessEqual(bar.tabRect(tab_index).height(), bar.height())
+
+                        last = tabs.tab_index(14)
+                        last_rect = bar.tabRect(last)
+                        button = bar.tabButton(last, QTabBar.ButtonPosition.RightSide)
+                        left_arrow = bar.findChild(QToolButton, "ScrollLeftButton")
+                        right_arrow = bar.findChild(QToolButton, "ScrollRightButton")
+                        self.assertTrue(left_arrow.isVisible())
+                        self.assertTrue(right_arrow.isVisible())
+                        self.assertTrue(bar.rect().contains(last_rect))
+                        self.assertTrue(bar.rect().contains(button.geometry()))
+                        self.assertGreaterEqual(button.geometry().left(), last_rect.left())
+                        self.assertLessEqual(button.geometry().right(), last_rect.right())
+                        self.assertLess(button.geometry().bottom(), bar.height())
+                        self.assertFalse(button.geometry().intersects(left_arrow.geometry()))
+                        self.assertFalse(button.geometry().intersects(right_arrow.geometry()))
+                    finally:
+                        tabs.close()
+                        tabs.deleteLater()
+                        _APP.processEvents()
+        finally:
+            _APP.setFont(original_font)
+
     def test_neighbor_is_read_only_and_keeps_non_active_tab_current(self):
         self.tabs.replace_nav([10, 18])
         self.tabs.set_current_nav(18)
         self.assertEqual(self.tabs.neighbor_nav(18), 10)
-        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 18))
-        self.assertEqual(self.tabs.neighbor_nav(10), 18)
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 14))
+        self.assertEqual(self.tabs.neighbor_nav(10), 14)
         self.tabs.set_current_nav(HOME_NAV)
         self.assertEqual(self.tabs.neighbor_nav(10), HOME_NAV)
 
     def test_language_and_replace_preserve_navigation_identity(self):
         self.tabs.replace_nav([18, 14, 18, 23])
-        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 18, 23))
-        self.tabs.set_current_nav(23)
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 14))
+        self.tabs.set_current_nav(18)
         self.tabs.set_language("en")
-        self.assertEqual(self.tabs.current_nav_index, 23)
-        self.assertEqual(self.tabs.tab_bar.tabText(self.tabs.tab_index(18)), display_name(18, "en"))
-        self.assertEqual(self.tabs.tab_bar.tabText(self.tabs.tab_index(23)), display_name(23, "en"))
+        self.assertEqual(self.tabs.current_nav_index, 14)
+        self.assertEqual(self.tabs.tab_bar.tabText(self.tabs.tab_index(14)), display_name(14, "en"))
 
     def test_context_request_contains_real_nav_id_and_global_position(self):
         requested = []
