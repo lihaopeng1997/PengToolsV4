@@ -28,6 +28,7 @@ CONNECTION_SUBTITLE_ROLE = int(Qt.ItemDataRole.UserRole) + 15
 ENVIRONMENT_LABEL_ROLE = int(Qt.ItemDataRole.UserRole) + 16
 CONNECTION_OPEN_ROLE = int(Qt.ItemDataRole.UserRole) + 17
 SEARCH_TEXT_ROLE = int(Qt.ItemDataRole.UserRole) + 18
+SECTION_COUNT_ROLE = int(Qt.ItemDataRole.UserRole) + 19
 
 _TREE_ITEM_LIMIT = 2048
 _TREE_PAGE_LIMIT = 50
@@ -54,8 +55,8 @@ class _RecursiveFilterProxy(QSortFilterProxyModel):
 
 # 引擎徽标：缩写 + 主题色 token（只用于展示）
 _ENGINE_BADGES = {
-    "mysql": ("My", "CYAN"),
     "oracle": ("Or", "DANGER"),
+    "mysql": ("My", "CYAN"),
     "oceanbase": ("OB", "PRIMARY"),
     "dameng": ("达", "WARNING"),
     "redis": ("Re", "DANGER"),
@@ -89,13 +90,55 @@ class _CatalogRowDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):  # noqa: N802
         size = super().sizeHint(option, index)
-        if index.data(NODE_KIND_ROLE) != "connection":
-            return size
+        kind = index.data(NODE_KIND_ROLE)
         metrics = option.fontMetrics
+        if kind == "engine":
+            return QSize(size.width(), max(size.height(), metrics.height() + 16))
+        if kind != "connection":
+            return size
         return QSize(size.width(), max(size.height(), metrics.height() * 2 + 14))
 
+    def _paint_engine_section(self, painter, option, index) -> None:
+        theme = ThemeManager.instance()
+        token = lambda name: QColor(theme.token(name))  # noqa: E731
+        rect = QRectF(option.rect).adjusted(1, 0, -2, 0)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if index.row() > 0:
+            painter.setPen(token("BORDER"))
+            painter.drawLine(int(rect.left()), int(rect.top()) + 1, int(rect.right()), int(rect.top()) + 1)
+        dialect = str(index.data(ENGINE_ROLE) or "").lower()
+        _text, badge_token = _ENGINE_BADGES.get(dialect, ("", "TEXT_MUTED"))
+        color = token(badge_token)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(QRectF(rect.left() + 2, rect.center().y() - 4, 8, 8), 2, 2)
+        font = QFont(option.font)
+        font.setBold(True)
+        metrics = QFontMetrics(font)
+        label = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        left = rect.left() + 16
+        painter.setFont(font)
+        painter.setPen(token("TEXT_STRONG"))
+        text_rect = QRectF(left, rect.top(), max(0.0, rect.width() - 16), rect.height())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
+        count = index.data(SECTION_COUNT_ROLE)
+        if count:
+            count_font = QFont(option.font)
+            painter.setFont(count_font)
+            painter.setPen(token("TEXT_MUTED"))
+            painter.drawText(
+                text_rect.adjusted(metrics.horizontalAdvance(label) + 8, 0, 0, 0),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(count),
+            )
+        painter.restore()
+
     def paint(self, painter, option, index):  # noqa: N802
-        if index.data(NODE_KIND_ROLE) != "connection":
+        kind = index.data(NODE_KIND_ROLE)
+        if kind == "engine":
+            self._paint_engine_section(painter, option, index)
+            return
+        if kind != "connection":
             super().paint(painter, option, index)
             return
         theme = ThemeManager.instance()
@@ -284,8 +327,19 @@ class WorkspaceTree(QTreeView):
         self._connection_indices.clear()
         self._connection_items.clear()
         path_nodes: dict[tuple[str, ...], QStandardItem] = {(): self.source_model.invisibleRootItem()}
+        # 同类型数据库排在一起（按引擎清单顺序，未知类型靠后），类型内保持原顺序
+        engine_order = {key: rank for rank, key in enumerate(_ENGINE_BADGES)}
+        summaries = sorted(summaries, key=lambda item: engine_order.get(item.dialect, len(engine_order)))
         for summary in summaries:
-            path: tuple[str, ...] = ()
+            path: tuple[str, ...] = (f"engine:{summary.dialect}",)
+            if path not in path_nodes:
+                section = self._folder(summary.engine_label, "engine")
+                section.setData(summary.dialect, ENGINE_ROLE)
+                section.setData(0, SECTION_COUNT_ROLE)
+                path_nodes[()].appendRow(section)
+                path_nodes[path] = section
+            section = path_nodes[path]
+            section.setData(int(section.data(SECTION_COUNT_ROLE) or 0) + 1, SECTION_COUNT_ROLE)
             for segment in summary.group_path or ():
                 path += (f"group:{segment}",)
                 if path not in path_nodes:
@@ -994,5 +1048,5 @@ __all__ = [
     "AMBIGUOUS_ID_ROLE", "TREE_TARGET_ROLE", "TREE_NODE_ROLE", "TREE_CURSOR_ROLE",
     "TREE_GENERATION_ROLE", "TREE_LOADING_ROLE", "TREE_LOADED_ROLE", "TREE_STATE_ROLE",
     "TREE_CLOSING_ROLE", "TREE_REQUESTED_DATABASE_ROLE", "CONNECTION_SUBTITLE_ROLE",
-    "ENVIRONMENT_LABEL_ROLE", "CONNECTION_OPEN_ROLE", "SEARCH_TEXT_ROLE",
+    "ENVIRONMENT_LABEL_ROLE", "CONNECTION_OPEN_ROLE", "SEARCH_TEXT_ROLE", "SECTION_COUNT_ROLE",
 ]
