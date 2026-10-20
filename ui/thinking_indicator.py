@@ -66,8 +66,13 @@ class ThinkingIndicator(QWidget):
     def text(self) -> str:
         return self._text
 
+    def sizeHint(self):  # noqa: N802 — 文字起于 48px，按文字宽度给出建议宽度，避免被截断
+        from PyQt6.QtCore import QSize
+        return QSize(max(self.minimumWidth(), 56 + self.fontMetrics().horizontalAdvance(self._text)), 28)
+
     def set_text(self, text: str):
         self._text = text or ''
+        self.updateGeometry()
         self.update()
 
     def is_running(self) -> bool:

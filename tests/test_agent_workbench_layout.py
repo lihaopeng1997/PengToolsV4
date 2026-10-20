@@ -87,12 +87,12 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
             self.assertTrue(panel.project_tree.isAncestorOf(panel.context_panel) or panel.context_panel.isAncestorOf(panel.project_tree))
             self.assertTrue(panel.preview.isAncestorOf(panel.context_panel) or panel.context_panel.isAncestorOf(panel.preview))
 
-            # 3. Context 面板可折叠切换
-            self.assertFalse(panel.context_panel.isHidden())
-            panel.context_toggle_btn.click()
+            # 3. Context 面板默认收起（对话优先），可折叠切换
             self.assertTrue(panel.context_panel.isHidden())
             panel.context_toggle_btn.click()
             self.assertFalse(panel.context_panel.isHidden())
+            panel.context_toggle_btn.click()
+            self.assertTrue(panel.context_panel.isHidden())
 
             # 4. 中央对话流和输入区为垂直 Splitter，且不可拖拽至 0
             self.assertTrue(hasattr(panel, 'center_split'))

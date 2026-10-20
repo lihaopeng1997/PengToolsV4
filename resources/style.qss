@@ -3427,21 +3427,80 @@ QFrame#chat-risk-banner {
     border-radius: 10px;
 }
 
-/* Agent Workbench */
-QFrame#agent-space-card,
-QFrame#agent-thread-card,
-QFrame#agent-composer-card,
+/* Agent Workbench（大模型桌面端风格：侧栏 + 无框对话流 + 圆角输入框） */
+QFrame#agent-space-card {
+    background: __SURFACE_SOFT__;
+    border: none;
+    border-radius: 14px;
+}
+QFrame#agent-thread-card {
+    background: transparent;
+    border: none;
+}
+QWidget#agent-thread-host, QWidget#agent-thread-column {
+    background: transparent;
+}
+QFrame#agent-composer-card {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 18px;
+}
 QFrame#agent-context-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
+QLabel#agent-thread-title {
+    color: __TEXT_STRONG__;
+    font-weight: 600;
+    padding-left: 4px;
+}
+QPushButton#agent-new-chat-btn {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+    border: 1px solid __PRIMARY_SOFT__;
+    border-radius: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: left;
+}
+QPushButton#agent-new-chat-btn:hover {
+    border-color: __PRIMARY__;
+}
+QTreeWidget#agent-space-tree {
+    background: transparent;
+    border: none;
+}
+QTreeWidget#agent-space-tree::item {
+    padding: 5px 4px;
+    border-radius: 8px;
+}
+QTreeWidget#agent-space-tree::item:selected {
+    background: __ELEVATED_SURFACE__;
+    color: __PRIMARY__;
+}
 
 QPlainTextEdit#agent-composer-input {
-    background: __SURFACE_SOFT__;
+    background: transparent;
     color: __TEXT__;
-    border: 1px solid __BORDER__;
-    border-radius: 8px;
+    border: none;
+    border-radius: 0px;
+}
+QFrame#agent-stream-card {
+    background: transparent;
+    border: none;
+}
+QPlainTextEdit#agent-reasoning-summary {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: none;
+    border-left: 2px solid __BORDER_STRONG__;
+    padding-left: 8px;
+}
+QPlainTextEdit#agent-response-stream {
+    background: transparent;
+    color: __TEXT__;
+    border: none;
 }
 
 /* MongoDB Workbench */
@@ -3720,24 +3779,24 @@ QTreeWidget#requirement-tree::item:has-children:hover {
 
 /* —— Agent 工作台：对话气泡与步骤 —— */
 QFrame#agent-user-bubble {
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __PRIMARY_SOFT__;
-    border-radius: 12px;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __SURFACE_SOFT__;
+    border-radius: 16px;
 }
 QFrame#agent-assistant-bubble {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
+    background: transparent;
+    border: none;
 }
 QLabel#agent-bubble-role {
-    color: __TEXT_MUTED__;
-    font-size: 11px;
+    color: __PRIMARY__;
+    font-size: 12px;
     font-weight: 600;
 }
 QLabel#agent-step-row {
     color: __TEXT_MUTED__;
+    background: __SURFACE_SOFT__;
     font-size: 12px;
-    padding: 2px 10px;
-    border-left: 2px solid __BORDER_STRONG__;
-    margin-left: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    margin-left: 2px;
 }

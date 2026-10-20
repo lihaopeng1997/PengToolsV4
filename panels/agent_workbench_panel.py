@@ -20,7 +20,7 @@ from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QMenu, QPlainTextEdit, QPushButton,
-    QScrollArea, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from config import load_settings
@@ -417,20 +417,23 @@ class AgentWorkbenchPanel(QWidget):
         self.dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
-        top.addWidget(self.model_combo)
 
         self.exec_mode_combo = QComboBox()
         from ui.field_metrics import size_enum_combo
         size_enum_combo(self.exec_mode_combo, min_w=100, max_w=160)
         self.exec_mode_combo.currentIndexChanged.connect(self._on_exec_mode_changed)
-        top.addWidget(self.exec_mode_combo)
 
-        top.addStretch(1)
+        # 顶部细标题条：当前对话标题；模型与执行方式在输入框底栏（大模型桌面端习惯）
+        self.thread_title = QLabel()
+        self.thread_title.setObjectName('agent-thread-title')
+        self.thread_title.setMinimumWidth(0)
+        top.addWidget(self.thread_title, 1)
 
         self.context_toggle_btn = QPushButton()
         apply_button(self.context_toggle_btn, 'ghost', compact=True)
         self.context_toggle_btn.setCheckable(True)
-        self.context_toggle_btn.setChecked(True)
+        # 项目文件面板默认收起，需要时再打开
+        self.context_toggle_btn.setChecked(False)
         self.context_toggle_btn.clicked.connect(self._toggle_context_panel)
         top.addWidget(self.context_toggle_btn)
 
@@ -442,9 +445,8 @@ class AgentWorkbenchPanel(QWidget):
         top.addWidget(self.conflicts_btn)
 
         self.new_btn = QPushButton()
-        apply_button(self.new_btn, 'secondary', compact=True)
+        apply_button(self.new_btn, 'ghost', compact=True)
         self.new_btn.clicked.connect(self._new_workspace)
-        top.addWidget(self.new_btn)
 
         root.addWidget(toolbar)
 
@@ -462,21 +464,31 @@ class AgentWorkbenchPanel(QWidget):
         left_l.setContentsMargins(8, 8, 8, 8)
         left_l.setSpacing(6)
 
-        left_head = QHBoxLayout()
-        self.space_title = QLabel()
-        self.space_title.setObjectName('section-title')
-        left_head.addWidget(self.space_title, 1)
-
-        self.new_ws_btn = QPushButton('+')
-        apply_button(self.new_ws_btn, 'ghost', compact=True)
-        self.new_ws_btn.setToolTip('新建工作空间')
-        self.new_ws_btn.clicked.connect(self._new_workspace)
-        left_head.addWidget(self.new_ws_btn)
+        # 顶部「＋ 新对话」：在当前工作区新开对话（无工作区时先建工作区）
+        self.new_ws_btn = QPushButton()
+        apply_button(self.new_ws_btn, 'secondary', compact=False)
+        self.new_ws_btn.setObjectName('agent-new-chat-btn')
+        self.new_ws_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.new_ws_btn.setMinimumWidth(0)
+        self.new_ws_btn.setSizePolicy(QSizePolicy.Policy.Ignored, self.new_ws_btn.sizePolicy().verticalPolicy())
+        self.new_ws_btn.clicked.connect(self._new_conversation)
         self.space_new_btn = self.new_ws_btn
+        left_l.addWidget(self.new_ws_btn)
+
+        left_head = QHBoxLayout()
+        left_head.setContentsMargins(2, 6, 0, 0)
+        self.space_title = QLabel()
+        self.space_title.setObjectName('field-hint')
+        self.space_title.setMinimumWidth(0)
+        self.space_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        left_head.addWidget(self.space_title, 1)
+        left_head.addWidget(self.new_btn)
         left_l.addLayout(left_head)
 
         self.space_tree = QTreeWidget()
+        self.space_tree.setObjectName('agent-space-tree')
         self.space_tree.setHeaderHidden(True)
+        self.space_tree.setIndentation(12)
         self.space_tree.setRootIsDecorated(True)
         self.space_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.space_tree.customContextMenuRequested.connect(self._on_space_tree_menu)
@@ -516,17 +528,27 @@ class AgentWorkbenchPanel(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.thread_widget = QWidget()
+        self.thread_widget.setObjectName('agent-thread-column')
+        self.thread_widget.setMaximumWidth(860)
         self.thread_layout = QVBoxLayout(self.thread_widget)
-        self.thread_layout.setContentsMargins(0, 0, 0, 0)
-        self.thread_layout.setSpacing(8)
+        self.thread_layout.setContentsMargins(4, 8, 4, 8)
+        self.thread_layout.setSpacing(14)
         self.thread_layout.addStretch(1)
-        self.scroll.setWidget(self.thread_widget)
+        thread_host = QWidget()
+        thread_host.setObjectName('agent-thread-host')
+        host_row = QHBoxLayout(thread_host)
+        host_row.setContentsMargins(0, 0, 0, 0)
+        host_row.addStretch(1)
+        host_row.addWidget(self.thread_widget, 100)
+        host_row.addStretch(1)
+        self.scroll.setWidget(thread_host)
         # 空对话时的上手引导（有消息后自动隐藏）
         from ui.page_chrome import make_empty_state
         self.thread_empty = make_empty_state(
-            '让 Agent 读代码、改文件',
-            '① 左侧「绑定目录」选项目文件夹　② 顶部选模型与执行方式　'
-            '③ 在下方描述任务，例如“读取 README 并总结模块结构”',
+            '今天想让 Agent 做什么？',
+            '左下角「绑定目录」选好项目文件夹，在下方用一句话描述任务，'
+            '例如“读取 README 并总结模块结构”。',
+            'workbench',
         )
         thread_l.addWidget(self.thread_empty, 1)
         thread_l.addWidget(self.scroll, 1)
@@ -537,7 +559,7 @@ class AgentWorkbenchPanel(QWidget):
         composer_container.setObjectName('agent-composer-card')
         self.composer_card = composer_container
         composer_l = QVBoxLayout(composer_container)
-        composer_l.setContentsMargins(8, 8, 8, 8)
+        composer_l.setContentsMargins(12, 10, 12, 10)
         composer_l.setSpacing(6)
 
         self.attachment_bar = QLabel()
@@ -590,12 +612,27 @@ class AgentWorkbenchPanel(QWidget):
         self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.hide()
 
+        # 底栏可收缩：模型名与快捷键提示让位给执行方式（执行方式文字必须完整）
+        self.model_combo.setMinimumWidth(110)
+        self.model_combo.setMinimumContentsLength(6)
+        self.send_hint.setWordWrap(False)
+        self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         send_row.addWidget(self.add_attachment_btn)
+        send_row.addWidget(self.model_combo)
+        send_row.addWidget(self.exec_mode_combo)
         send_row.addWidget(self.send_hint, 1)
         send_row.addWidget(self.send_btn)
         composer_l.addLayout(send_row)
-        self.center_split.addWidget(composer_container)
 
+        composer_host = QWidget()
+        composer_host.setObjectName('agent-composer-host')
+        composer_row = QHBoxLayout(composer_host)
+        composer_row.setContentsMargins(0, 0, 0, 0)
+        composer_row.addStretch(1)
+        composer_container.setMaximumWidth(900)
+        composer_row.addWidget(composer_container, 100)
+        composer_row.addStretch(1)
+        self.center_split.addWidget(composer_host)
         install_splitter_prefs(
             self.center_split,
             defaults=[520, 180],
@@ -673,6 +710,7 @@ class AgentWorkbenchPanel(QWidget):
         )
         root.addWidget(split, 1)
         self._split = split
+        self.context_panel.hide()
 
     def eventFilter(self, watched, event):
         if watched is self.input and event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
@@ -739,7 +777,7 @@ class AgentWorkbenchPanel(QWidget):
         self.bind_dir_btn.setMinimumWidth(self.bind_dir_btn.sizeHint().width())
         ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
         self._set_workspace_dir_label(ws_dir)
-        self.new_ws_btn.setToolTip('新建工作区' if zh else 'New workspace')
+        self.new_ws_btn.setText('＋  新对话' if zh else '＋  New chat')
         self.new_btn.setText('新建工作区' if zh else 'New workspace')
         self.space_new_btn.setToolTip('新建对话' if zh else 'New conversation')
         self.context_toggle_btn.setText('项目文件' if zh else 'Files')
@@ -1508,6 +1546,10 @@ class AgentWorkbenchPanel(QWidget):
 
     def _render_conversation(self, ws: dict, conv: dict | None):
         """把某对话的消息渲染到中栏。"""
+        if hasattr(self, 'thread_title'):
+            ws_title = str((ws or {}).get('title') or '')
+            conv_title = str((conv or {}).get('title') or '')
+            self.thread_title.setText(' / '.join(part for part in (ws_title, conv_title) if part))
         while self.thread_layout.count() > 1:
             child = self.thread_layout.takeAt(0)
             if child.widget():
@@ -1964,8 +2006,16 @@ class AgentWorkbenchPanel(QWidget):
         """显示或更新执行中的瞬态状态指示器，不持久化到消息历史。"""
         if self._closing:
             return
+        self._transient_text = str(text or '')
         if self._transient_holder is None:
+            import time
             from ui.thinking_indicator import ThinkingIndicator
+            self._transient_started = time.monotonic()
+            if getattr(self, '_transient_clock', None) is None:
+                self._transient_clock = QTimer(self)
+                self._transient_clock.setInterval(1000)
+                self._transient_clock.timeout.connect(self._tick_transient_status)
+            self._transient_clock.start()
             bubble = QFrame()
             bubble.setObjectName('detail-summary-card')
             bl = QVBoxLayout(bubble)
@@ -1989,12 +2039,23 @@ class AgentWorkbenchPanel(QWidget):
             self.thread_layout.addStretch(1)
             self._sync_thread_empty()
         else:
-            if self._transient_indicator is not None:
-                self._transient_indicator.set_text(text)
+            self._tick_transient_status()
         self._follow_scroll_if_at_bottom()
+
+    def _tick_transient_status(self):
+        """运行中指示器：当前步骤 · 已用秒数，让用户知道没有卡住。"""
+        import time
+        if self._transient_indicator is None:
+            return
+        elapsed = int(time.monotonic() - getattr(self, '_transient_started', time.monotonic()))
+        text = getattr(self, '_transient_text', '')
+        self._transient_indicator.set_text(f'{text} · {elapsed}s' if elapsed >= 1 else text)
 
     def _clear_transient_status(self):
         """清理并销毁瞬态指示器。"""
+        clock = getattr(self, '_transient_clock', None)
+        if clock is not None:
+            clock.stop()
         if self._transient_holder is not None:
             if self._transient_indicator is not None:
                 self._transient_indicator.stop()
@@ -2205,8 +2266,8 @@ class AgentWorkbenchPanel(QWidget):
         layout = QVBoxLayout(bubble)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
-        summary_title = QLabel('思考摘要' if self.language == 'zh' else 'Reasoning summary')
-        summary_title.setObjectName('section-title')
+        summary_title = QLabel('思考过程' if self.language == 'zh' else 'Thinking')
+        summary_title.setObjectName('agent-bubble-role')
         layout.addWidget(summary_title)
         self._stream_summary = QPlainTextEdit()
         self._stream_summary.setReadOnly(True)
@@ -2215,8 +2276,8 @@ class AgentWorkbenchPanel(QWidget):
         self._stream_summary.setMaximumHeight(100)
         self._stream_summary.setMinimumHeight(36)
         layout.addWidget(self._stream_summary)
-        body_title = QLabel('回复正文' if self.language == 'zh' else 'Response')
-        body_title.setObjectName('section-title')
+        body_title = QLabel('◆ Agent')
+        body_title.setObjectName('agent-bubble-role')
         layout.addWidget(body_title)
         self._stream_body = QPlainTextEdit()
         self._stream_body.setReadOnly(True)
@@ -2225,11 +2286,11 @@ class AgentWorkbenchPanel(QWidget):
         self._stream_body.setMaximumHeight(260)
         self._stream_body.setMinimumHeight(54)
         layout.addWidget(self._stream_body)
+        bubble.setObjectName('agent-stream-card')
         holder = QWidget()
         wrap = QHBoxLayout(holder)
         wrap.setContentsMargins(0, 0, 0, 0)
-        wrap.addWidget(bubble, 19)
-        wrap.addStretch(1)
+        wrap.addWidget(bubble, 1)
         self._stream_holder = holder
         self._insert_thread_widget(holder)
 
@@ -2321,10 +2382,13 @@ class AgentWorkbenchPanel(QWidget):
         bubble = QFrame()
         bubble.setObjectName('agent-user-bubble' if role == 'user' else 'agent-assistant-bubble')
         bl = QVBoxLayout(bubble)
-        bl.setContentsMargins(12, 8, 12, 8)
-        bl.setSpacing(2)
+        if role == 'user':
+            bl.setContentsMargins(14, 9, 14, 9)
+        else:
+            bl.setContentsMargins(2, 0, 2, 0)
+        bl.setSpacing(4)
         if role != 'user':
-            who = QLabel('Agent' if role == 'assistant' else '工具')
+            who = QLabel('◆ Agent' if role == 'assistant' else '工具')
             who.setObjectName('agent-bubble-role')
             bl.addWidget(who)
         lbl = QLabel()
@@ -2337,15 +2401,21 @@ class AgentWorkbenchPanel(QWidget):
         else:
             lbl.setTextFormat(Qt.TextFormat.PlainText)
         lbl.setText(text)
+        if role == 'user':
+            # 短消息一行显示完，长消息到 600px 再换行
+            longest = max((lbl.fontMetrics().horizontalAdvance(line) for line in text.splitlines() or ['']), default=0)
+            lbl.setMinimumWidth(min(longest + 24, 600))
         bl.addWidget(lbl)
 
         wrap = QHBoxLayout()
+        wrap.setContentsMargins(0, 0, 0, 0)
         if role == 'user':
+            bubble.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+            bubble.setMaximumWidth(640)
             wrap.addStretch(1)
-            wrap.addWidget(bubble, 4)
+            wrap.addWidget(bubble)
         else:
-            wrap.addWidget(bubble, 19)
-            wrap.addStretch(1)
+            wrap.addWidget(bubble, 1)
 
         holder = QWidget()
         holder.setLayout(wrap)
