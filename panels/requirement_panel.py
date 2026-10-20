@@ -1694,6 +1694,7 @@ class RequirementPanel(QWidget):
         self.stage_caption.setObjectName('field-caption')
         self.stage_caption.setTextFormat(Qt.TextFormat.RichText)
         card.addWidget(self.stage_caption)
+        self.stage_caption.hide()  # 步骤条已显示阶段名与细状态
 
         # 快捷动作：日常最常用的四个，复用既有处理函数
         quick = QHBoxLayout(); quick.setSpacing(6)
