@@ -409,9 +409,7 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
 
     def test_a12_repeated_identical_tool_loop_broken(self):
         adapter = ScriptedModelAdapter([
-            _tool_turn('list-1', 'list_dir', path=''),
-            _tool_turn('list-2', 'list_dir', path=''),
-            _tool_turn('list-3', 'list_dir', path=''),
+            _tool_turn(f'list-{index}', 'list_dir', path='') for index in range(1, 6)
         ])
         with path_workspace() as tmp:
             final, _messages, calls = ar.run_agent_loop(
@@ -420,8 +418,55 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
             )
         self.assertIn('模型重复请求相同工具调用', final)
         self.assertIn('已停止以避免无效循环', final)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(len(adapter.requests), 3)
+        # 前两次真实执行，第三、四次只回提醒，第五次停止
+        self.assertEqual(len(adapter.requests), 5)
+        reminders = [item for item in adapter.requests[3].messages if item.get('role') == 'tool']
+        self.assertIn('REPEATED_CALL', reminders[-1]['content'])
+        self.assertIn('上一条工具消息', reminders[-1]['content'])
+
+    def test_a12c_native_model_text_json_tool_call_is_executed(self):
+        adapter = ScriptedModelAdapter([
+            AgentTurn(text='```json\n[\n  {"name": "list_dir", "path": ""}\n]\n```'),
+            AgentTurn(text='已列出目录。'),
+        ])
+        adapter.capability = 'native_tools'
+        with path_workspace() as tmp:
+            final, _messages, calls = ar.run_agent_loop(
+                '读取项目', tmp, {'id': 'synthetic-model'}, [], [],
+                model_adapter=adapter,
+            )
+        self.assertEqual(final, '已列出目录。')
+        self.assertEqual(len(adapter.requests), 2)
+        tool_messages = [item for item in adapter.requests[1].messages if item.get('role') == 'tool']
+        self.assertEqual(len(tool_messages), 1)
+        self.assertIn('"tool":"list_dir"', tool_messages[0]['content'])
+
+    def test_a12d_text_with_prose_or_unknown_tool_is_not_executed(self):
+        self.assertEqual(ar.recover_text_tool_calls('先看看目录：[{"name": "list_dir", "path": ""}]'), [])
+        self.assertEqual(ar.recover_text_tool_calls('[{"name": "rm_rf", "path": "/"}]'), [])
+        self.assertEqual(ar.recover_text_tool_calls('[{"name": "list_dir", "path": ""}, {"name": "rm_rf"}]'), [])
+        self.assertEqual(
+            ar.recover_text_tool_calls('{"name": "read_file", "arguments": {"path": "a.py"}}'),
+            [{'tool': 'read_file', 'args': {'path': 'a.py'}}],
+        )
+
+    def test_a12b_repeat_reminder_lets_model_recover(self):
+        adapter = ScriptedModelAdapter([
+            _tool_turn('list-1', 'list_dir', path=''),
+            _tool_turn('list-2', 'list_dir', path=''),
+            _tool_turn('list-3', 'list_dir', path=''),
+            AgentTurn(text='项目只有一个说明文件。'),
+        ])
+        with path_workspace() as tmp:
+            final, _messages, _calls = ar.run_agent_loop(
+                '读取项目', tmp, {'id': 'synthetic-model'}, [], [],
+                model_adapter=adapter,
+            )
+        self.assertEqual(final, '项目只有一个说明文件。')
+        tool_messages = [item for item in adapter.requests[1].messages if item.get('role') == 'tool']
+        # 工具结果只带有值字段，模型能直接看到 data
+        self.assertNotIn('null', tool_messages[0]['content'])
+        self.assertIn('"tool":"list_dir"', tool_messages[0]['content'])
 
     def test_a13_cancel_stops_subsequent_tool_execution(self):
         execution_count = 0

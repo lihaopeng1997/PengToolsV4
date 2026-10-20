@@ -39,6 +39,15 @@ from .contracts import (
 from .request_budget import RequestInputLimitExceeded
 
 
+# Identical consecutive read-only calls: remind on the 3rd, stop on the 5th.
+_REPEAT_REMIND_AFTER = 2
+_REPEAT_STOP_AFTER = 4
+_REPEAT_REMINDER = (
+    "This exact call was already made and its result is in the previous tool message. "
+    "Do not repeat it; use that result and take the next step (for example read a specific file). "
+    "相同调用已执行过，结果见上一条工具消息；请直接基于已有结果继续下一步。"
+)
+
 _REASONING_KINDS = frozenset(
     {
         "reasoning",
@@ -799,11 +808,14 @@ class AgentRunner:
                     )
 
                 # Hosts may identify harmless read-only calls that can be
-                # repeated without side effects.  Three identical consecutive
-                # requests indicate a model loop; stop before executing the
-                # third request.  Other calls break the streak, and the common
-                # runner stays policy-neutral when no predicate is supplied.
+                # repeated without side effects.  The third identical
+                # consecutive request is answered with a reminder instead of
+                # being executed, which lets weaker models recover; only a
+                # persistent loop (fifth identical request) stops the run.
+                # Other calls break the streak, and the common runner stays
+                # policy-neutral when no predicate is supplied.
                 repeated_call = False
+                reminder_call_ids: set[str] = set()
                 for call in calls:
                     try:
                         repeatable = bool(self.is_repeatable_tool(call))
@@ -818,9 +830,11 @@ class AgentRunner:
                         if previous != fingerprint:
                             break
                         repeat_count += 1
-                    if repeat_count >= 2:
+                    if repeat_count >= _REPEAT_STOP_AFTER:
                         repeated_call = True
                         break
+                    if repeat_count >= _REPEAT_REMIND_AFTER:
+                        reminder_call_ids.add(call.call_id)
                     recent_repeatable_calls.append(fingerprint)
                 if repeated_call:
                     return finish(
@@ -924,6 +938,15 @@ class AgentRunner:
                         AgentEventType.TOOL_CALL,
                         {"turn_index": turn_index, "call_id": call.call_id, "name": call.name, "arguments": dict(call.arguments)},
                     )
+
+                    if call.call_id in reminder_call_ids:
+                        reminder = ToolResult(ok=False, code="REPEATED_CALL", data={"message": _REPEAT_REMINDER})
+                        append_tool_result_pair(call, reminder, call_index)
+                        emit(
+                            AgentEventType.TOOL_RESULT,
+                            {"turn_index": turn_index, "call_id": call.call_id, "name": call.name, **reminder.as_dict()},
+                        )
+                        continue
 
                     cached = call_cache.get(call.call_id)
                     if cached is not None:

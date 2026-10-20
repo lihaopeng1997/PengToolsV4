@@ -43,7 +43,7 @@ from tools.sql_guard import redact_error
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import size_pick_combo
-from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.page_chrome import make_page_header
 from ui.splitter_prefs import install_splitter_prefs
 
 
@@ -67,6 +67,49 @@ _CONTEXT_BUDGET_REASONS = {
     'context_anchors_too_large', 'estimator_inconsistent',
 }
 _CONFLICT_VIEWER_MAX_CHARS = 256 * 1024
+
+
+_ROLE_PREFIXES = ('👤', '🤖', '🔧')
+
+_STEP_LABELS = {
+    'list_dir': ('📂', '列出目录'),
+    'read_file': ('📄', '读取'),
+    'search_code': ('🔎', '搜索'),
+    'write_file': ('✏️', '写入'),
+    'edit_file': ('✏️', '修改'),
+    'delete_file': ('🗑', '删除'),
+    'run_test': ('🧪', '运行测试'),
+    'run_svn': ('🔀', 'SVN'),
+}
+
+
+def _strip_role_prefix(content) -> str:
+    text = str(content or '').lstrip()
+    while text[:1] and text[:1] in ''.join(_ROLE_PREFIXES):
+        text = text[1:].lstrip()
+    return text
+
+
+def describe_tool_step(name, arguments) -> str:
+    """把一次工具调用描述成一行人能看懂的步骤。"""
+    tool = str(name or '').strip()
+    args = arguments if isinstance(arguments, dict) else {}
+    icon, verb = _STEP_LABELS.get(tool, ('⚙️', tool or '工具'))
+    if tool == 'list_dir':
+        target = str(args.get('path') or '').strip() or '项目根目录'
+    elif tool == 'search_code':
+        pattern = str(args.get('pattern') or '').strip()
+        scope = str(args.get('file_pattern') or '').strip()
+        target = f'“{pattern}”' + (f'（{scope}）' if scope else '')
+    elif tool == 'run_test':
+        target = str(args.get('args') or '').strip()
+    elif tool == 'run_svn':
+        target = str(args.get('operation') or '').strip()
+    else:
+        target = str(args.get('path') or '').strip()
+        if tool == 'read_file' and args.get('start_offset'):
+            target += f'（从第 {args.get("start_offset")} 个字符起）'
+    return f'{icon}  {verb} {target}'.rstrip()
 
 
 class _WorkbenchBridge(QObject):
@@ -344,17 +387,26 @@ class AgentWorkbenchPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(8)
+        toolbar = QWidget()
+        top = QHBoxLayout(toolbar)
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(8)
         header, self.page_title, self.page_subtitle = make_page_header(
             'Agent 工作台',
             '绑定项目目录，运行受控任务（只读写工作文件夹内文件）',
             'workbench',
         )
+        # 模块 Tab 已显示“Agent 工作台”，页内只保留一行工具条
+        header.hide()
         root.addWidget(header)
-
-        toolbar, top = make_page_toolbar(divided=True)
         self.model_combo = QComboBox()
         size_pick_combo(self.model_combo)
+        # 窄窗口时模型名可收缩（悬停看全名），把宽度让给执行方式
+        self.model_combo.setMinimumWidth(140)
+        self.model_combo.setMaximumWidth(280)
+        self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.model_combo.setMinimumContentsLength(10)
         self.model_combo.setToolTip('任务执行使用的内网模型')
         self.dir_btn = QPushButton()
         apply_button(self.dir_btn, 'ghost', compact=True)
@@ -469,7 +521,16 @@ class AgentWorkbenchPanel(QWidget):
         self.thread_layout.setSpacing(8)
         self.thread_layout.addStretch(1)
         self.scroll.setWidget(self.thread_widget)
+        # 空对话时的上手引导（有消息后自动隐藏）
+        from ui.page_chrome import make_empty_state
+        self.thread_empty = make_empty_state(
+            '让 Agent 读代码、改文件',
+            '① 左侧「绑定目录」选项目文件夹　② 顶部选模型与执行方式　'
+            '③ 在下方描述任务，例如“读取 README 并总结模块结构”',
+        )
+        thread_l.addWidget(self.thread_empty, 1)
         thread_l.addWidget(self.scroll, 1)
+        self.scroll.hide()
         self.center_split.addWidget(thread_container)
 
         composer_container = QFrame()
@@ -705,14 +766,13 @@ class AgentWorkbenchPanel(QWidget):
         cur_val = bool(self._plan_confirm)
         self.exec_mode_combo.blockSignals(True)
         self.exec_mode_combo.clear()
-        self.exec_mode_combo.addItem('直接执行' if zh else 'Execute directly', False)
-        self.exec_mode_combo.addItem('执行前确认计划' if zh else 'Confirm plan first', True)
+        self.exec_mode_combo.addItem('直接执行' if zh else 'Run directly', False)
+        self.exec_mode_combo.addItem('执行前确认计划' if zh else 'Plan first', True)
         self.exec_mode_combo.setCurrentIndex(1 if cur_val else 0)
         self.exec_mode_combo.blockSignals(False)
         # Keep every translated option readable at narrow window sizes. The
         # generic enum metric has a 160px cap, which clips the English labels.
         from PyQt6.QtGui import QFontMetrics
-        from PyQt6.QtWidgets import QStyle, QStyleOptionComboBox
         self.exec_mode_combo.ensurePolished()
         longest_text = max(
             QFontMetrics(self.exec_mode_combo.font()).horizontalAdvance(
@@ -720,18 +780,15 @@ class AgentWorkbenchPanel(QWidget):
             )
             for index in range(self.exec_mode_combo.count())
         )
-        option = QStyleOptionComboBox()
-        self.exec_mode_combo.initStyleOption(option)
-        text_rect = self.exec_mode_combo.style().subControlRect(
-            QStyle.ComplexControl.CC_ComboBox, option,
-            QStyle.SubControl.SC_ComboBoxEditField, self.exec_mode_combo,
-        )
-        # QSS adds padding beyond the native frame and arrow. Measure the
-        # actual edit field so calm's padding is included at every font size.
-        chrome_width = max(44, self.exec_mode_combo.width() - max(0, text_rect.width()))
-        required_width = longest_text + chrome_width + 2
+        # 样式表固定占用约 83px：左内边距 + 右侧下拉区 38 + 边框/焦点环；
+        # 不用 subControlRect（未布局时按默认 640px 宽计算，会把余量算成几百像素）。
+        required_width = longest_text + 88
         self.exec_mode_combo.setMaximumWidth(max(160, required_width))
         self.exec_mode_combo.setMinimumWidth(required_width)
+        # 工具条按钮至少保留文字宽度，窄窗口时由模型下拉收缩让位
+        for button in (self.context_toggle_btn, self.conflicts_btn, self.new_btn):
+            button.ensurePolished()
+            button.setMinimumWidth(button.sizeHint().width())
         self._update_exec_mode_tooltips()
 
     def _set_workspace_dir_label(self, workspace_dir: str | None):
@@ -1058,6 +1115,7 @@ class AgentWorkbenchPanel(QWidget):
             return
         zh = self.language == 'zh'
         self.conflicts_btn.setText(f'冲突 {count}' if zh else f'Conflicts {count}')
+        self.conflicts_btn.setMinimumWidth(self.conflicts_btn.sizeHint().width())
         detail = (
             '查看因对话更新而单独保留的旧运行结果；只读，不会重放或执行。'
             if zh else
@@ -1453,7 +1511,9 @@ class AgentWorkbenchPanel(QWidget):
         while self.thread_layout.count() > 1:
             child = self.thread_layout.takeAt(0)
             if child.widget():
+                child.widget().hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
                 child.widget().deleteLater()
+        self._sync_thread_empty()
         if not conv:
             self.input.clear()
             return
@@ -1462,6 +1522,16 @@ class AgentWorkbenchPanel(QWidget):
             content = str(msg.get('content') or '')
             if role in ('user', 'assistant') and content:
                 self._append_message(role, content)
+            if role == 'assistant':
+                for call in msg.get('tool_calls') or []:
+                    function = call.get('function') if isinstance(call, dict) else None
+                    if not isinstance(function, dict):
+                        continue
+                    try:
+                        arguments = json.loads(function.get('arguments') or '{}')
+                    except (TypeError, ValueError):
+                        arguments = {}
+                    self._append_step(function.get('name'), arguments)
 
     def _on_space_tree_menu(self, pos):
         item = self.space_tree.itemAt(pos)
@@ -1917,6 +1987,7 @@ class AgentWorkbenchPanel(QWidget):
             del stretch
             self.thread_layout.addWidget(holder)
             self.thread_layout.addStretch(1)
+            self._sync_thread_empty()
         else:
             if self._transient_indicator is not None:
                 self._transient_indicator.set_text(text)
@@ -2104,6 +2175,15 @@ class AgentWorkbenchPanel(QWidget):
                 flush_deltas()
                 self._reset_stream_preview()
                 self._set_transient_status('正在生成回复…' if self.language == 'zh' else 'Generating response…')
+            elif kind == 'step':
+                flush_deltas()
+                self._reset_stream_preview()
+                try:
+                    step = json.loads(content)
+                except (TypeError, ValueError):
+                    step = None
+                if isinstance(step, dict):
+                    self._append_step(step.get('name'), step.get('arguments'))
             elif kind == 'reasoning_delta':
                 summary_parts.append(content)
             elif kind == 'assistant_delta':
@@ -2196,6 +2276,14 @@ class AgentWorkbenchPanel(QWidget):
         self._stream_body = None
         self._reset_stream_preview()
 
+    def _sync_thread_empty(self):
+        has_items = any(
+            self.thread_layout.itemAt(i).widget() is not None for i in range(self.thread_layout.count())
+        )
+        if hasattr(self, 'thread_empty'):
+            self.thread_empty.setVisible(not has_items)
+            self.scroll.setVisible(has_items)
+
     def _insert_thread_widget(self, widget: QWidget):
         at_bottom = self._is_thread_at_bottom()
         if self.thread_layout.count() and self.thread_layout.itemAt(self.thread_layout.count() - 1).spacerItem():
@@ -2203,6 +2291,7 @@ class AgentWorkbenchPanel(QWidget):
             del stretch
         self.thread_layout.addWidget(widget)
         self.thread_layout.addStretch(1)
+        self._sync_thread_empty()
         if at_bottom:
             self._scroll_to_bottom()
 
@@ -2218,22 +2307,36 @@ class AgentWorkbenchPanel(QWidget):
         if self._is_thread_at_bottom():
             self._scroll_to_bottom()
 
+    def _append_step(self, name, arguments):
+        """工具调用以一行步骤显示（如“读取 README.md”），不把原始 JSON 摆给用户。"""
+        row = QLabel(describe_tool_step(name, arguments))
+        row.setObjectName('agent-step-row')
+        row.setWordWrap(True)
+        row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._insert_thread_widget(row)
+
     def _append_message(self, role: str, content: str):
         """在工作台中栏追加一条消息气泡，滚动到底。"""
+        text = _strip_role_prefix(content)
         bubble = QFrame()
-        bubble.setObjectName('detail-summary-card' if role == 'assistant' else 'page-filter-bar')
+        bubble.setObjectName('agent-user-bubble' if role == 'user' else 'agent-assistant-bubble')
         bl = QVBoxLayout(bubble)
-        bl.setContentsMargins(10, 8, 10, 8)
+        bl.setContentsMargins(12, 8, 12, 8)
+        bl.setSpacing(2)
+        if role != 'user':
+            who = QLabel('Agent' if role == 'assistant' else '工具')
+            who.setObjectName('agent-bubble-role')
+            bl.addWidget(who)
         lbl = QLabel()
         lbl.setWordWrap(True)
-        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        if role == 'tool':
-            prefix = '🔧 '
-        elif role == 'assistant':
-            prefix = '🤖 '
+        lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        if role == 'assistant':
+            lbl.setTextFormat(Qt.TextFormat.MarkdownText)
         else:
-            prefix = '👤 '
-        lbl.setText(prefix + content)
+            lbl.setTextFormat(Qt.TextFormat.PlainText)
+        lbl.setText(text)
         bl.addWidget(lbl)
 
         wrap = QHBoxLayout()

@@ -15,7 +15,7 @@ if ROOT not in sys.path:
 
 from PyQt6.QtCore import QCoreApplication, QEvent, Qt
 from PyQt6.QtGui import QFont, QFontMetrics, QImage, QPainter
-from PyQt6.QtWidgets import QApplication, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QApplication, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget
 
 
 class AgentWorkbenchLayoutTests(unittest.TestCase):
@@ -655,12 +655,10 @@ class AgentWorkbenchLayoutTests(unittest.TestCase):
                             w = p.thread_layout.itemAt(i).widget()
                             if not w:
                                 continue
-                            lbls = w.findChildren(QLabel)
-                            for lbl in lbls:
-                                txt = lbl.text() or ''
-                                if txt.startswith('👤 '):
+                            for frame in w.findChildren(QFrame):
+                                if frame.objectName() == 'agent-user-bubble':
                                     users += 1
-                                elif txt.startswith('🤖 '):
+                                elif frame.objectName() == 'agent-assistant-bubble':
                                     assts += 1
                         return users, assts
 

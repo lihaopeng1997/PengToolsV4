@@ -98,7 +98,9 @@ class ModelChatPanelSmokeTests(unittest.TestCase):
         self.assertFalse(hasattr(panel, 'conn_combo'))
         panel.show()
         self.app.processEvents()
-        self.assertFalse(panel.banner.isHidden())
+        # 免责声明并入输入区提示行，不再单独占一条横幅
+        self.assertTrue(panel.banner.isHidden())
+        self.assertIn('仅供参考', panel.send_hint.text())
         panel.close()
 
     def test_agent_workbench_panel_controls(self):

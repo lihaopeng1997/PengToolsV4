@@ -116,12 +116,14 @@ class ModelChatPanel(QWidget):
     def _setup_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(8)
         header, self.page_title, self.page_subtitle = make_page_header(
             '模型对话',
             '连续对话并验证内网模型配置',
             'chat',
         )
+        # 模块 Tab 已显示“模型聊天”，页内不再重复标题
+        header.hide()
         root.addWidget(header)
 
         self.banner = QFrame()
@@ -136,6 +138,8 @@ class ModelChatPanel(QWidget):
         banner_l.addWidget(self.banner_text, 1)
         banner_l.addWidget(self.banner_close)
         root.addWidget(self.banner)
+        # 风险提示不再单独占一行：并入输入框下方的提示文字
+        self.banner.setProperty('mergedIntoComposer', True)
 
         toolbar, top = make_page_toolbar(divided=True)
         self.model_combo = QComboBox()
@@ -178,6 +182,9 @@ class ModelChatPanel(QWidget):
         self.session_list = QListWidget()
         self.session_list.setObjectName('chat-session-list')
         self.session_list.currentItemChanged.connect(self._on_session_changed)
+        # 重命名/删除收进右键菜单，列表下方不再常驻两个按钮
+        self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.session_list.customContextMenuRequested.connect(self._show_session_menu)
         left_l.addWidget(self.session_list, 1)
         sess_btns = QHBoxLayout()
         self.rename_btn = QPushButton()
@@ -189,6 +196,8 @@ class ModelChatPanel(QWidget):
         sess_btns.addWidget(self.rename_btn)
         sess_btns.addWidget(self.delete_btn)
         left_l.addLayout(sess_btns)
+        self.rename_btn.hide()
+        self.delete_btn.hide()
         split.addWidget(left)
 
         right = QWidget()
@@ -217,7 +226,8 @@ class ModelChatPanel(QWidget):
         top_chat_l.addWidget(self.scroll, 1)
 
         self.empty = make_empty_state('还没有对话', '新建会话后即可向已启用的内网模型发消息')
-        top_chat_l.addWidget(self.empty)
+        top_chat_l.addWidget(self.empty, 1)
+        self.scroll.hide()  # 有消息时由 _render_messages 显示
         self.trim_hint = QLabel()
         self.trim_hint.setObjectName('field-hint')
         self.trim_hint.hide()
@@ -249,6 +259,8 @@ class ModelChatPanel(QWidget):
         send_row = QHBoxLayout()
         self.send_hint = QLabel()
         self.send_hint.setObjectName('field-hint')
+        # 提示可被挤压，不撑大窄窗口的最小宽度
+        self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         # "+" 附件菜单按钮
         self.add_attachment_btn = QToolButton()
@@ -335,7 +347,10 @@ class ModelChatPanel(QWidget):
         self.search.setPlaceholderText('搜索会话标题/内容' if zh else 'Search sessions')
         self.input.setPlaceholderText('输入消息…（Enter 发送，Alt+Enter 换行）' if zh else 'Type message… (Enter to send, Alt+Enter for newline)')
         self.retry_btn.setText('重新生成' if zh else 'Regenerate')
-        self.send_hint.setText('Enter 发送 · Alt+Enter 换行' if zh else 'Enter: send · Alt+Enter: newline')
+        self.send_hint.setText(
+            'Enter 发送 · Alt+Enter 换行 · 内网模型响应仅供参考' if zh
+            else 'Enter: send · Alt+Enter: newline · Model output is for reference only'
+        )
         self.banner_text.setText('内网模型响应仅供参考，请勿用于非授权环境' if zh else 'Intranet model output is for reference only.')
         self.banner_close.setText('我知道了' if zh else 'Dismiss')
         self.empty.findChild(QLabel).setText('还没有对话' if zh else 'No conversation yet')
@@ -498,6 +513,18 @@ class ModelChatPanel(QWidget):
         if not self._is_running:
             self.send_btn.setEnabled(has_model and has_content)
 
+    def _show_session_menu(self, point):
+        item = self.session_list.itemAt(point)
+        if item is None:
+            return
+        self.session_list.setCurrentItem(item)
+        zh = self.language == 'zh'
+        menu = QMenu(self)
+        menu.addAction('重命名' if zh else 'Rename', self._rename_session)
+        menu.addSeparator()
+        menu.addAction('删除' if zh else 'Delete', self._delete_session)
+        menu.exec(self.session_list.viewport().mapToGlobal(point))
+
     def _dismiss_banner(self):
         self.banner.hide()
         settings = load_settings()
@@ -506,7 +533,7 @@ class ModelChatPanel(QWidget):
 
     def _maybe_show_banner(self):
         settings = load_settings()
-        self.banner.setVisible(not bool(settings.get('model_chat_banner_dismissed', False)))
+        self.banner.setVisible(False)  # 提示已并入输入框下方提示行
 
     def _reload_sessions(self):
         q = self.search.text().strip()
@@ -708,11 +735,15 @@ class ModelChatPanel(QWidget):
             item = self.thread_layout.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
                 w.deleteLater()
         if not self._session or not (self._session.get('messages') or []):
+            # 空状态居中占满对话区，不再缩在底部
+            self.scroll.hide()
             self.empty.show()
             return
         self.empty.hide()
+        self.scroll.show()
         for msg in self._session.get('messages') or []:
             holder = self._make_message_row(msg)
             self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
