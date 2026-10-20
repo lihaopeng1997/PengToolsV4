@@ -70,6 +70,93 @@ export interface DashboardToolItem {
   grad?: string | null
 }
 
+export interface DashboardProgressStage {
+  key: string
+  label: string
+  count: number
+}
+
+export interface DashboardProgressItem {
+  id?: string | null
+  code?: string | null
+  title?: string | null
+  system?: string | null
+  kind?: string | null
+  status?: string | null
+  group?: string | null
+  stage?: number | null
+  test_points?: string | null
+  next_action?: string | null
+  updated_at?: string | null
+  is_demo?: boolean | null
+}
+
+export interface DashboardBoardItem {
+  id: string
+  code?: string | null
+  title?: string | null
+  system?: string | null
+  status?: string | null
+  group: string
+  priority?: string | null
+  tp_done?: number | null
+  tp_total?: number | null
+  actual_release_date?: string | null
+  next_action?: string | null
+  updated_at?: string | null
+  is_demo?: boolean | null
+}
+
+export interface DashboardProgress {
+  stages?: DashboardProgressStage[] | null
+  paused?: number | null
+  active_total?: number | null
+  active?: DashboardProgressItem[] | null
+  board?: DashboardBoardItem[] | null
+  online_month?: number | null
+}
+
+export interface TestPoint {
+  id: string
+  text: string
+  done: boolean
+}
+
+export interface RequirementDetail {
+  id: string
+  code: string
+  title: string
+  status: string
+  group: string
+  group_label: string
+  stage: number
+  priority: string
+  category: string
+  kind: string
+  systems: string[]
+  system: string
+  actual_release_date: string
+  test_points: TestPoint[]
+  tp_done: number
+  tp_total: number
+  next_action: string
+  has_local_dir: boolean
+  svn_url: string
+  updated_at: string
+  description: string
+}
+
+/** 看板/光谱共用的阶段定义（与 tools/requirement_stages.py 对齐）。 */
+export const STAGE_DEFS = [
+  { key: 'analysis', label: '分析', color: 'var(--aurora-end)' },
+  { key: 'develop', label: '开发', color: 'var(--primary)' },
+  { key: 'testing', label: '测试', color: 'var(--warning)' },
+  { key: 'release', label: '待上线', color: 'var(--accent-cyan)' },
+  { key: 'online', label: '本月上线', color: 'var(--success)' },
+] as const
+
+export type StageKey = typeof STAGE_DEFS[number]['key']
+
 export interface DashboardSummary {
   username?: string | null
   greeting?: string | null
@@ -81,4 +168,5 @@ export interface DashboardSummary {
   checklist?: DashboardChecklistItem[] | null
   tools?: DashboardToolItem[] | null
   monthly_release_tasks?: MonthlyReleaseTask[] | null
+  progress?: DashboardProgress | null
 }

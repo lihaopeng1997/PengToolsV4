@@ -291,6 +291,7 @@ class MainWindow(QMainWindow):
             self._dash_bridge.set_username(str(self._settings.get('home_username') or 'Lihp'))
             self._dash_bridge.set_nav_model(self._build_web_nav_model())
             self._dash_bridge.set_summary_provider(self._dashboard_summary_payload)
+            self._dash_bridge.set_home_action_handler(self._handle_home_action)
             self._dash_bridge.pageReadyReceived.connect(self._on_web_page_ready)
             self._dash_bridge.navigateRequested.connect(self._show_panel)
             self._dash_bridge.createRequirementRequested.connect(self._on_web_create_requirement)
@@ -2005,6 +2006,32 @@ class MainWindow(QMainWindow):
         if getattr(self, '_dash_bridge', None) is not None:
             try:
                 self._dash_bridge.push_summary()
+            except Exception:
+                pass
+
+    def _handle_home_action(self, payload):
+        """首页就地操作：台账读写交给 tools.home_actions；打开目录等宿主动作在这里做。"""
+        from tools import home_actions
+        if payload.get('action') == 'open_dir':
+            folder = home_actions.local_dir_for(str(payload.get('id') or ''))
+            if not folder:
+                return {'ok': False, 'error': '还没有绑定本地开发目录'}
+            from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            return {'ok': True}
+        result = home_actions.handle(payload)
+        if result.get('changed'):
+            # 写入后异步刷新：首页 summary 与已打开的需求管理同步，不阻塞本次返回
+            QTimer.singleShot(0, self._after_home_action_change)
+        return result
+
+    def _after_home_action_change(self):
+        self._push_dashboard_summary()
+        panel = getattr(self, 'requirement_panel', None)
+        if panel is not None and hasattr(panel, 'reload_requirements'):
+            try:
+                panel.reload_requirements()
             except Exception:
                 pass
 

@@ -6,6 +6,7 @@ import { deriveDisplayNav, displayGroupContains } from './nav'
 import IconSprite from './IconSprite.vue'
 import NavIcon from './NavIcon.vue'
 import NavGroupMenu from './NavGroupMenu.vue'
+import PrismLogo from '../shared/components/PrismLogo.vue'
 
 // Prism 晴空棱镜 Web 主侧栏。
 // 导航索引、权限和叶子动作严格来自 Python navModel；这里仅派生原型分组布局。
@@ -28,9 +29,8 @@ const groupAnchor = ref<HTMLElement | null>(null)
 const openGroup = computed(() => (
   displayNav.value.groups.find((group) => group.key === openGroupKey.value) ?? null
 ))
-const workspaceLabel = computed(() => (
-  language.value === 'en' ? 'Personal workspace' : '个人工作空间'
-))
+// 品牌只在侧栏出现一次（原生标题栏不再重复显示产品名）
+const workspaceLabel = 'PengToolsHub'
 
 let collapsedMedia: MediaQueryList | null = null
 
@@ -118,7 +118,7 @@ watch(collapsed, () => closeGroup(false))
 
   <div v-if="model" class="sidebar">
     <div class="brand">
-      <div class="logo" aria-hidden="true"><svg class="ic-logo" style="width:36px;height:36px"><use href="#i-logo" /></svg></div>
+      <div class="logo" aria-hidden="true"><PrismLogo :size="36" :halo="false" /></div>
       <div class="brand-name">{{ workspaceLabel }}</div>
     </div>
 

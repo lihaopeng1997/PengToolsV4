@@ -144,6 +144,8 @@ class PrismSidebarContractTests(unittest.TestCase):
     def test_default_collapsed_type_icons_and_expanded_leaves_and_workspace_label(self):
         win = self.win
         sidebar = win._prism_sidebar
+        # 默认展开侧栏（DEFAULT_SETTINGS.sidebar_collapsed=False）；这里显式收起验证图标模式
+        win._set_nav_collapsed(True, persist=False)
         self.assertTrue(win._nav_collapsed)
         self.assertTrue(sidebar._icon_only)
         self.assertFalse(win.sidebar_title.isVisible())
@@ -153,10 +155,10 @@ class PrismSidebarContractTests(unittest.TestCase):
         self.assertNotIn(19, sidebar._buttons)
 
         win._set_nav_collapsed(False, persist=False)
-        self.assertEqual(win.sidebar_title.text(), '个人工作空间')
-        self.assertNotEqual(win.sidebar_title.text(), 'PengToolsHub')
+        self.assertEqual(win.sidebar_title.text(), 'PengToolsHub')
+        self.assertNotIn('工作空间', win.sidebar_title.text())
         sidebar.set_language('en')
-        self.assertEqual(win.sidebar_title.text(), 'Personal workspace')
+        self.assertEqual(win.sidebar_title.text(), 'PengToolsHub')
         self.assertIn('Floating toolbar', sidebar._palette_button.toolTip())
         sidebar.set_language('zh')
         self.assertIn('悬浮工具栏', sidebar._palette_button.toolTip())
@@ -165,17 +167,18 @@ class PrismSidebarContractTests(unittest.TestCase):
         model = win._build_web_nav_model()
         self.assertEqual(model['language'], 'zh')
         indexes = list(sidebar._buttons)
-        for leaf in (16, 17, 18, 19, 20, 21, 22, 23):
+        # 数据中心为统一入口 14；旧 18–23 不再作为侧栏叶子
+        for leaf in (14, 16, 17):
             self.assertIn(leaf, indexes)
-        self.assertNotIn(14, indexes)
-        self.assertNotIn(15, indexes)
+        for legacy in (15, 18, 19, 20, 21, 22, 23):
+            self.assertNotIn(legacy, indexes)
         self.assertFalse(sidebar._group_buttons)
-        sidebar.set_current(19)
-        self.assertTrue(sidebar._buttons[19].isChecked())
-        self.assertFalse(sidebar._buttons[18].isChecked())
+        sidebar.set_current(17)
+        self.assertTrue(sidebar._buttons[17].isChecked())
+        self.assertFalse(sidebar._buttons[14].isChecked())
         win._set_language(1)
         self.assertEqual(win._build_web_nav_model()['language'], 'en')
-        self.assertEqual(win.sidebar_title.text(), 'Personal workspace')
+        self.assertEqual(win.sidebar_title.text(), 'PengToolsHub')
         win._set_language(0)
 
 

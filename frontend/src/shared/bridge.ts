@@ -21,6 +21,8 @@ export interface BridgeApi {
   createRequirement?(): void
   openRequirement?(reqId: string): void
   openRequirementSection?(reqId: string, section: 'completion' | 'test_points'): void
+  /** 首页就地操作：详情 / 改状态 / 测试点 / 新建等，返回 {ok, item?, error?}。 */
+  homeAction?(payload: Record<string, unknown>): Promise<HomeActionResult>
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -30,6 +32,15 @@ export interface BridgeApi {
   onThemeChanged(handler: (payloadJson: string) => void): void
   onSummaryChanged?(handler: (summaryJson: string) => void): void
   onNavModelChanged?(handler: (modelJson: string) => void): void
+}
+
+export interface HomeActionResult {
+  ok: boolean
+  error?: string
+  changed?: boolean
+  item?: Record<string, any>
+  statuses?: string[]
+  priorities?: string[]
 }
 
 export class BridgeUnavailableError extends Error {
@@ -54,6 +65,7 @@ interface RawHomeBridge {
   createRequirement?(): void
   openRequirement?(reqId: string): void
   openRequirementSection?(reqId: string, section: string): void
+  homeAction?(payloadJson: string): Promise<string>
   navModel(): Promise<string>
   homeUsername(): Promise<string>
   dashboardSummary(): Promise<string>
@@ -180,6 +192,14 @@ export function connectBridge(timeoutMs = 4000): Promise<BridgeApi> {
           if (typeof raw.openRequirementSection === 'function') {
             raw.openRequirementSection(reqId, section)
           }
+        },
+        homeAction: (payload: Record<string, unknown>): Promise<HomeActionResult> => {
+          if (typeof raw.homeAction !== 'function') {
+            return Promise.resolve({ ok: false, error: '当前版本不支持首页操作' })
+          }
+          return toPromiseString(raw.homeAction(JSON.stringify(payload)), 'homeAction')
+            .then((text) => JSON.parse(text) as HomeActionResult)
+            .catch(() => ({ ok: false, error: '操作失败' }))
         },
         navModel: () => toPromiseString(raw.navModel(), 'navModel'),
         homeUsername: () => toPromiseString(raw.homeUsername(), 'homeUsername'),

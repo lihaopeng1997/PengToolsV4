@@ -125,7 +125,7 @@ class DashboardSummaryContractTests(unittest.TestCase):
 
         tools = get_dashboard_quick_tools()
         self.assertEqual(len(tools), 6)
-        expected_indices = [18, 16, 12, 13, 5, 11]
+        expected_indices = [14, 16, 12, 13, 5, 11]  # 数据中心统一入口为 14（旧 18 仅为兼容路由）
         self.assertEqual([t['i'] for t in tools], expected_indices)
 
         # 验证展示名完全来源于 NavItem.dashboard_label or name_zh，无任何硬编码分叉

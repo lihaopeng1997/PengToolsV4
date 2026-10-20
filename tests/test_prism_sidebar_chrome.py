@@ -134,8 +134,9 @@ class WebChromeSourceContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, self.vue_src.lower())
 
     def test_expanded_workspace_label_follows_language(self):
-        self.assertIn("language.value === 'en' ? 'Personal workspace' : '个人工作空间'", self.vue_src)
-        self.assertIn('workspaceLabel', self.vue_src)
+        # 品牌只在侧栏出现一次，中英文都显示产品名
+        self.assertIn("const workspaceLabel = 'PengToolsHub'", self.vue_src)
+        self.assertNotIn('个人工作空间', self.vue_src)
         self.assertNotIn('notification-center', self.vue_src)
         self.assertNotIn('export-preview', self.vue_src)
 
@@ -151,10 +152,10 @@ class NativeFallbackPrismTests(unittest.TestCase):
         # 0. 确保非折叠状态以测试纯响应式宽度切换
         self.win._set_nav_collapsed(False, persist=False)
 
-        # 展开轨道使用个人工作空间标识，避免重复显示标题栏产品名。
-        self.assertEqual(self.win.sidebar_title.text(), '个人工作空间')
+        # 展开轨道显示产品名（标题栏不再重复显示），中英文一致。
+        self.assertEqual(self.win.sidebar_title.text(), 'PengToolsHub')
         self.win._prism_sidebar.set_language('en')
-        self.assertEqual(self.win.sidebar_title.text(), 'Personal workspace')
+        self.assertEqual(self.win.sidebar_title.text(), 'PengToolsHub')
         self.win._prism_sidebar.set_language('zh')
 
         # 1. 初始 wide / standard

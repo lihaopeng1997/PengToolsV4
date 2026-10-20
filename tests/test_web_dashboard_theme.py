@@ -179,8 +179,9 @@ class AllDashboardComponentsThemeAuditTest(unittest.TestCase):
 
     P05_COMPONENTS = [
         'frontend/src/dashboard/DashboardApp.vue',
-        'frontend/src/dashboard/components/HeroSection.vue',
-        'frontend/src/dashboard/components/StatsGrid.vue',
+        'frontend/src/dashboard/components/HomeHero.vue',
+        'frontend/src/shared/components/PrismLogo.vue',
+        'frontend/src/dashboard/components/ProgressBoard.vue',
         'frontend/src/dashboard/components/MonthlyTasks.vue',
         'frontend/src/dashboard/components/ReleaseOverview.vue',
         'frontend/src/dashboard/components/QuickTools.vue',

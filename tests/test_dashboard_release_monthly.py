@@ -353,7 +353,9 @@ class FlagDoneWorkbenchSyncTests(unittest.TestCase):
             panel._toggle_flag_done(req, "has_sql")
             self.assertTrue(changed.called)
             tree_rebuild.assert_not_called()
-            self.assertTrue(req["flag_done"]["has_sql"])
+            # 保存采用“副本写入成功后替换”，检查面板当前数据而不是传入的旧字典
+            self.assertTrue(panel._current["flag_done"]["has_sql"])
+            self.assertTrue(panel._requirements[0]["flag_done"]["has_sql"])
             panel.close()
 
     def test_set_all_flags_done_emits_requirements_changed(self):
@@ -377,7 +379,8 @@ class FlagDoneWorkbenchSyncTests(unittest.TestCase):
             panel.requirements_changed.connect(changed)
             panel._set_all_flags_done(req, True)
             self.assertTrue(changed.called)
-            self.assertTrue(req["flag_done"]["has_sql"])
+            self.assertTrue(panel._current["flag_done"]["has_sql"])
+            self.assertTrue(panel._current["flag_done"]["needs_interface_update"])
             panel.close()
 
 

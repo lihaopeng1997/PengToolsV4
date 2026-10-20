@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import type { BridgeApi } from '../shared/bridge'
-import type { DashboardSummary } from './types'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import type { BridgeApi, HomeActionResult } from '../shared/bridge'
+import type { DashboardSummary, StageKey } from './types'
 import IconSprite from './IconSprite.vue'
 import PrismIcon from '../shared/components/PrismIcon.vue'
-import HeroSection from './components/HeroSection.vue'
-import StatsGrid from './components/StatsGrid.vue'
+import HomeHero from './components/HomeHero.vue'
+import ProgressBoard from './components/ProgressBoard.vue'
 import MonthlyTasks from './components/MonthlyTasks.vue'
 import ReleaseOverview from './components/ReleaseOverview.vue'
 import QuickTools from './components/QuickTools.vue'
-import { useDailyQuote } from './composables/useDailyQuote'
+import RequirementDrawer from './components/RequirementDrawer.vue'
 
 const props = defineProps<{
   state: {
@@ -24,8 +24,6 @@ const summary = computed(() => props.state.summary)
 const error = computed(() => props.state.error)
 
 const isDemoMode = computed(() => Boolean(summary.value?.is_demo || summary.value?.stats?.is_demo))
-
-const { dateText, quote, nextQuote } = useDailyQuote()
 
 const isHidden = ref(false)
 
@@ -58,19 +56,108 @@ function onNavClick(navIndex: number): void {
   props.state.bridge?.navigate(navIndex)
 }
 
+// ── 首页就地操作：抽屉查看/修改、看板拖动改阶段、快速新建（不跳转需求管理）──
+const canAct = computed(() => typeof props.state.bridge?.homeAction === 'function')
+const focus = ref<StageKey | null>(null)
+const drawer = ref<{ open: boolean; mode: 'detail' | 'create'; id: string | null; group: StageKey | null }>({
+  open: false,
+  mode: 'detail',
+  id: null,
+  group: null,
+})
+const busyId = ref<string | null>(null)
+const toast = ref('')
+let toastTimer = 0
+const boardRef = ref<{ $el?: HTMLElement } | null>(null)
+
+function act(payload: Record<string, unknown>): Promise<HomeActionResult> {
+  const bridge = props.state.bridge
+  if (!bridge?.homeAction) return Promise.resolve({ ok: false, error: '当前版本不支持首页操作' })
+  return bridge.homeAction(payload)
+}
+
+function showToast(text: string): void {
+  toast.value = text
+  window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => { toast.value = '' }, 2600)
+}
+
+function openDrawer(id: string): void {
+  drawer.value = { open: true, mode: 'detail', id, group: null }
+}
+
+function closeDrawer(): void {
+  drawer.value = { ...drawer.value, open: false }
+}
+
+async function onFocusStage(key: StageKey | null): Promise<void> {
+  focus.value = key
+  if (key) {
+    await nextTick()
+    boardRef.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+async function onMove(id: string, group: StageKey): Promise<void> {
+  const board = summary.value?.progress?.board
+  const row = board?.find((item) => item.id === id)
+  if (!row) return
+  const previous = row.group
+  row.group = group // 乐观更新，Python 推送新 summary 后自然校正
+  busyId.value = id
+  const result = await act({ action: 'move_group', id, group })
+  busyId.value = null
+  if (!result.ok) {
+    row.group = previous
+    showToast(result.error || '修改失败')
+  } else {
+    showToast(`已移到「${result.item?.group_label || group}」`)
+  }
+}
+
+async function onInlineCreate(group: StageKey, title: string): Promise<void> {
+  const result = await act({ action: 'create', group, title })
+  if (result.ok && result.item?.id) {
+    showToast('已新建，可以继续补充信息')
+    openDrawer(String(result.item.id))
+  } else {
+    showToast(result.error || '新建失败')
+  }
+}
+
 function onCreateRequirement(): void {
-  if (props.state.bridge?.createRequirement) {
+  if (canAct.value) {
+    const group = focus.value && focus.value !== 'online' ? focus.value : 'develop'
+    drawer.value = { open: true, mode: 'create', id: null, group }
+  } else if (props.state.bridge?.createRequirement) {
     props.state.bridge.createRequirement()
   } else {
     onNavClick(10)
   }
 }
 
+function onDrawerCreated(id: string): void {
+  showToast('需求已创建')
+  openDrawer(id)
+}
+
+function onDrawerNavigate(navIndex: number): void {
+  closeDrawer()
+  onNavClick(navIndex)
+}
+
+function onOpenInManager(id: string): void {
+  closeDrawer()
+  props.state.bridge?.openRequirement?.(id)
+}
+
 function onOpenRequirement(reqId?: string | null, fallbackNav = 10): void {
   if (!reqId || String(reqId).startsWith('demo-')) {
     return
   }
-  if (props.state.bridge?.openRequirement) {
+  if (canAct.value) {
+    openDrawer(String(reqId))
+  } else if (props.state.bridge?.openRequirement) {
     props.state.bridge.openRequirement(reqId)
   } else {
     onNavClick(fallbackNav)
@@ -110,27 +197,38 @@ function onRetry(): void {
   <IconSprite />
 
   <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden }">
-    <!-- 晴空棱镜 2 栏式网格架构 (V2.0 规范第 7.1 节) -->
+    <!-- 首页：棱镜光谱（阶段分布）→ 项目进度看板（就地查看/拖动/新建）→ 本月上线 + 上线总览/常用工具 -->
+    <HomeHero
+      class="home-hero"
+      :greeting="summary.greeting"
+      :username="summary.username"
+      :date-line="summary.date_line"
+      :stats="summary.stats"
+      :release="summary.release"
+      :progress="summary.progress"
+      :focus="focus"
+      :is-demo="isDemoMode"
+      @write-daily="onWriteDaily"
+      @create-requirement="onCreateRequirement"
+      @focus-stage="onFocusStage"
+    />
+
+    <ProgressBoard
+      ref="boardRef"
+      class="home-board"
+      :progress="summary.progress"
+      :focus="focus"
+      :busy-id="busyId"
+      :is-demo="isDemoMode"
+      @open="onOpenRequirement"
+      @move="onMove"
+      @create="onInlineCreate"
+      @focus-stage="onFocusStage"
+      @navigate="onNavClick"
+    />
+
     <div class="home-grid">
-      <!-- 左栏 home-left: Hero (176px) + 4 Stat Cards (108px) + Recent Requirements 任务台账 -->
       <div class="home-left">
-        <HeroSection
-          :greeting="summary.greeting"
-          :username="summary.username"
-          :date-text="dateText"
-          :quote="quote"
-          :is-demo="isDemoMode"
-          @change-quote="nextQuote"
-          @write-daily="onWriteDaily"
-          @create-requirement="onCreateRequirement"
-        />
-
-        <StatsGrid
-          :stats="summary.stats"
-          :is-demo="isDemoMode"
-          @navigate="onNavClick"
-        />
-
         <MonthlyTasks
           :tasks="summary.monthly_release_tasks"
           :recent="summary.recent"
@@ -141,7 +239,6 @@ function onRetry(): void {
         />
       </div>
 
-      <!-- 右栏 home-right: 上线总览 (300px) + 常用工具 (64px, 2列) + 装饰提示卡片 -->
       <aside class="home-right stack">
         <ReleaseOverview
           :release="summary.release"
@@ -155,20 +252,24 @@ function onRetry(): void {
           :tools="summary.tools"
           @navigate="onNavClick"
         />
-
-        <!-- 装饰信息卡片 -->
-        <section class="card pad tip-card">
-          <div class="tip-row">
-            <PrismIcon name="spark" :size="16" class="tip-spark" />
-            <h3 class="tip-title">留一点空间，给新思路。</h3>
-          </div>
-          <p class="tip-desc">
-            工具随手可得，工作有迹可循。<br>
-            按 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>，快速去往任意模块。
-          </p>
-        </section>
       </aside>
     </div>
+
+    <RequirementDrawer
+      :open="drawer.open"
+      :mode="drawer.mode"
+      :id="drawer.id"
+      :create-group="drawer.group"
+      :act="act"
+      @close="closeDrawer"
+      @created="onDrawerCreated"
+      @navigate="onDrawerNavigate"
+      @open-in-manager="onOpenInManager"
+    />
+
+    <Transition name="toast">
+      <div v-if="toast" class="toast" role="status">{{ toast }}</div>
+    </Transition>
   </div>
 
   <div v-else-if="error" class="error-view">
@@ -249,15 +350,68 @@ button, input, select, textarea { font: inherit; }
     grid-template-columns: 1fr 1fr;
     gap: 16px;
   }
-
-  .tip-card {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 700px) {
   .home-right {
     grid-template-columns: 1fr;
+  }
+}
+
+.home-hero {
+  margin-bottom: 16px;
+  animation: section-in 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.home-board {
+  margin-bottom: 16px;
+  scroll-margin-top: 12px;
+  animation: section-in 560ms cubic-bezier(0.2, 0.8, 0.2, 1) 80ms both;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 60;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border-radius: 12px;
+  background: var(--text-strong);
+  color: var(--surface);
+  font-size: 13px;
+  box-shadow: 0 12px 28px var(--shadow-l2);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+
+.home-left > *,
+.home-right > * {
+  animation: section-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.home-left > :nth-child(1) { animation-delay: 90ms; }
+.home-left > :nth-child(2) { animation-delay: 170ms; }
+.home-right > :nth-child(1) { animation-delay: 120ms; }
+.home-right > :nth-child(2) { animation-delay: 200ms; }
+
+@keyframes section-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -278,50 +432,6 @@ button, input, select, textarea { font: inherit; }
 .stack {
   display: flex;
   flex-direction: column;
-}
-
-/* 装饰提示卡片 */
-.tip-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px 20px;
-  box-shadow: 0 2px 8px var(--shadow-l1);
-  box-sizing: border-box;
-}
-
-.tip-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.tip-spark {
-  color: var(--primary);
-}
-
-.tip-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  margin: 0;
-}
-
-.tip-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.8;
-  margin: 0;
-}
-
-kbd {
-  font: 10px Consolas, monospace;
-  padding: 1px 4px;
-  border-radius: 3px;
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
-  color: var(--text);
 }
 
 .error-view {

@@ -143,6 +143,10 @@ class IndicatorLifecycleTests(unittest.TestCase):
         from PyQt6.QtGui import QCloseEvent, QHideEvent, QShowEvent
         from ui.thinking_indicator import ThinkingIndicator
 
+        # 离屏测试环境默认关闭动效；本用例显式打开以验证计时器生命周期
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(True)
+        self.addCleanup(set_motion_enabled_for_test, None)
         w = ThinkingIndicator(None, text='正在推理...')
         self.assertFalse(w.is_running())
         w.start()
@@ -254,7 +258,7 @@ class DashboardKeyboardContractTests(unittest.TestCase):
     def test_dashboard_keyboard_and_demo_row_contract(self):
         vue_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue')
         tasks_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'MonthlyTasks.vue')
-        stats_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'StatsGrid.vue')
+        stats_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'ProgressBoard.vue')
         self.assertTrue(os.path.exists(vue_path))
         content = ''
         with open(vue_path, 'r', encoding='utf-8') as f:
@@ -266,24 +270,23 @@ class DashboardKeyboardContractTests(unittest.TestCase):
             with open(stats_path, 'r', encoding='utf-8') as f:
                 content += '\n' + f.read()
 
-        # 1. 验证所有 role="button" 的可交互非原生元素均具备 space.prevent 契约
-        # 匹配所有包含 role="button" 的标签块
-        button_tags = re.findall(r'<[a-zA-Z0-9_-]+[^>]*?role="button"[^>]*>', content)
+        # 1. 所有以 role=button 呈现的非原生行（含按条件绑定的 :role）都具备 Enter / Space 键盘契约
+        button_tags = re.findall(r'<[a-zA-Z0-9_-]+[^>]*?role="[^"]*button[^"]*"[^>]*>', content)
         self.assertGreater(len(button_tags), 0)
         for tag in button_tags:
-            self.assertIn('@keydown.space.prevent', tag, f'Tag missing space handler: {tag}')
+            self.assertIn('@keydown.space', tag, f'Tag missing space handler: {tag}')
+            self.assertIn('.prevent', tag, f'Tag missing space prevent: {tag}')
             self.assertIn('@keydown.enter', tag, f'Tag missing enter handler: {tag}')
 
-        # 2. 验证 demo 需求行与 demo 任务行的语义绑定（仅在非 demo 且可交互时为 button/tabindex=0，demo 模式或 demo 需求行下均为 undefined）
-        self.assertIn(':tabindex="isRowInteractive(r) ? 0 : undefined"', content)
-        self.assertIn(':role="isRowInteractive(r) ? \'button\' : undefined"', content)
-        self.assertIn(':tabindex="isRowInteractive(task) ? 0 : undefined"', content)
-        self.assertIn(':role="isRowInteractive(task) ? \'button\' : undefined"', content)
-        # 验证嵌套交互行采用 .self 防止键盘冒泡重复触发
-        self.assertIn('@keydown.enter.self="isRowInteractive(r) && onOpenRequirement', content)
-        self.assertIn('@keydown.space.self.prevent="isRowInteractive(r) && onOpenRequirement', content)
-        self.assertIn('@keydown.enter.self="isRowInteractive(task) && onOpenRequirement', content)
-        self.assertIn('@keydown.space.self.prevent="isRowInteractive(task) && onOpenRequirement', content)
+        # 2. 仅真实（非 demo）行可交互：tabindex/role 按条件绑定，键盘用 .self 防止冒泡重复触发
+        self.assertIn(':tabindex="isRealTask(task) ? 0 : undefined"', content)
+        self.assertIn(":role=\"isRealTask(task) ? 'button' : undefined\"", content)
+        self.assertIn(':tabindex="isReal(item) ? 0 : undefined"', content)
+        self.assertIn(":role=\"isReal(item) ? 'button' : undefined\"", content)
+        self.assertIn('@keydown.enter.self="onRowKeydown(task)"', content)
+        self.assertIn('@keydown.space.self.prevent="onRowKeydown(task)"', content)
+        self.assertIn('@keydown.enter.self="onOpen(item)"', content)
+        self.assertIn('@keydown.space.self.prevent="onOpen(item)"', content)
 
         # 3. 验证 demo 样式不响应 hover / active
         self.assertIn('.ck:not(.is-demo):hover', content)

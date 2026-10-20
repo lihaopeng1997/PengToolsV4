@@ -205,37 +205,29 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
         header_dash, _, _ = make_page_header('工作台', '副标题', show_home=False)
         self.assertFalse(hasattr(header_dash, 'home_btn'))
 
-        # 3. Test Home button exists and works across all primary panels
+        # 3. 紧凑页头：返回首页按钮保留对象但不常驻显示；回首页走模块 Tab / 侧栏
+        self.assertTrue(header.home_btn.isHidden())
         settings = dict(DEFAULT_SETTINGS, ui_web_shell=False)
         with patch('main_window.load_settings', return_value=settings):
             win = MainWindow()
         try:
-            # Modules to test: Requirement(10), ModelChat(16), Workbench(17), InterfaceDebug(12),
-            # OpsLog(13), Gateway(5), Format(11), Credit(1), Oracle(18), Redis(22)
-            for nav_idx in (10, 16, 17, 12, 13, 5, 11, 1, 18, 22):
+            for nav_idx in (10, 16, 17, 12, 13, 5, 11, 1, 14):
                 win.navigate_to(nav_idx)
                 self.assertEqual(win._current_nav_index, nav_idx)
                 panel = win.stack.currentWidget()
-                home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
-                self.assertGreater(len(home_buttons), 0, f"Module nav={nav_idx} missing header-home-btn")
-                # Click home button
-                home_buttons[0].click()
-                self.assertEqual(win._current_nav_index, 0, f"Module nav={nav_idx} home button did not return to 0")
+                for button in panel.findChildren(QPushButton, 'header-home-btn'):
+                    self.assertTrue(button.isHidden(), f"Module nav={nav_idx} still shows header home button")
+                win.navigate_to(0)
+                self.assertEqual(win._current_nav_index, 0, f"Module nav={nav_idx} cannot return home")
 
-            # 4. Verify language toggle updates header-home-btn
-            win._set_language(1)  # Switch to English
+            # 4. 语言切换仍会更新兼容的返回首页按钮文案
+            win._set_language(1)
             self.assertEqual(win.language, 'en')
-            win.navigate_to(10)
-            panel = win.stack.currentWidget()
-            home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
-            self.assertEqual(home_buttons[0].text(), 'Home')
-
-            win._set_language(0)  # Switch to Chinese
+            win.navigate_to(16)
+            for button in win.stack.currentWidget().findChildren(QPushButton, 'header-home-btn'):
+                self.assertEqual(button.text(), 'Home')
+            win._set_language(0)
             self.assertEqual(win.language, 'zh')
-            win.navigate_to(10)
-            panel = win.stack.currentWidget()
-            home_buttons = panel.findChildren(QPushButton, 'header-home-btn')
-            self.assertEqual(home_buttons[0].text(), '返回首页')
 
             # 5. Dashboard itself has no home button
             win.navigate_to(0)
@@ -387,12 +379,10 @@ class AcceptanceCorrectionsTest(unittest.TestCase):
         finally:
             panel.deleteLater()
 
-        # Theme Manager black theme tokens contract
+        # 单主题 calm（用户已确认移除深色主题）：未知主题回落到 calm
         tm = ThemeManager.instance()
-        black_bg = tm.token('APP_BG', theme_id='black')
-        self.assertEqual(black_bg, '#09090B')
-        black_surface = tm.token('SURFACE', theme_id='black')
-        self.assertEqual(black_surface, '#161618')
+        self.assertEqual(tm.token('APP_BG', theme_id='black'), tm.token('APP_BG', theme_id='calm'))
+        self.assertEqual(tm.token('SURFACE', theme_id='black'), tm.token('SURFACE', theme_id='calm'))
 
 
 if __name__ == '__main__':

@@ -120,6 +120,7 @@ if WEB_SHELL_AVAILABLE:
             self._nav_json = '{"groups":[]}'
             self._username = 'Lihp'
             self._summary_provider = None
+            self._home_action_handler = None
             self._theme_json = '{}'
             self._native_popup_available = False
 
@@ -133,6 +134,10 @@ if WEB_SHELL_AVAILABLE:
 
         def set_summary_provider(self, provider):
             self._summary_provider = provider
+
+        def set_home_action_handler(self, handler):
+            """首页就地操作（详情/改状态/测试点/新建）的宿主处理函数：dict -> dict。"""
+            self._home_action_handler = handler
 
         def set_theme_payload(self, data: dict):
             self._theme_json = json.dumps(data, ensure_ascii=False)
@@ -215,6 +220,21 @@ if WEB_SHELL_AVAILABLE:
             except Exception:
                 data = {}
             return json.dumps(data, ensure_ascii=False)
+
+        @pyqtSlot(str, result=str)
+        def homeAction(self, payload_json):
+            """JS 传 JSON 指令，返回 JSON 结果；任何异常都转成 {ok:false}，不抛给页面。"""
+            try:
+                payload = json.loads(str(payload_json or '{}'))
+            except ValueError:
+                return json.dumps({'ok': False, 'error': '指令不是合法 JSON'}, ensure_ascii=False)
+            if not isinstance(payload, dict) or self._home_action_handler is None:
+                return json.dumps({'ok': False, 'error': '首页操作不可用'}, ensure_ascii=False)
+            try:
+                result = self._home_action_handler(payload)
+            except Exception:
+                result = {'ok': False, 'error': '操作失败'}
+            return json.dumps(result if isinstance(result, dict) else {'ok': False}, ensure_ascii=False)
 else:  # pragma: no cover - 依赖缺失环境
 
     class HomeBridge(QObject):  # 类型占位，保持 import 不炸
@@ -239,6 +259,9 @@ else:  # pragma: no cover - 依赖缺失环境
 
         def set_summary_provider(self, provider):
             self._summary_provider = provider
+
+        def set_home_action_handler(self, handler):
+            self._home_action_handler = handler
 
         def set_theme_payload(self, data: dict):
             pass

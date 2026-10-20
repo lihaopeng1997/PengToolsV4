@@ -257,9 +257,15 @@ class JsHandshakeOrderTest(unittest.TestCase):
 
         self.assertGreater(mount_idx, 0, 'Vue app 必须先 mount')
         self.assertGreater(connect_idx, mount_idx, 'connectBridge 必须在 mount 后调用')
-        self.assertGreater(summary_idx, connect_idx, 'dashboardSummary 必须在 bridge 连接后调用')
-        self.assertGreater(parse_idx, summary_idx, 'JSON.parse 必须在 summary 返回后执行')
-        self.assertGreater(next_tick_idx, parse_idx, 'nextTick 必须在 parse/state 应用之后')
+        # loadData 以函数形式定义在 bootstrap 之前：按“函数体内顺序 + 调用关系”校验时序
+        bootstrap = dash_main[dash_main.find('async function bootstrapDashboard'):]
+        self.assertLess(bootstrap.find('connectBridge()'), bootstrap.find('loadData(bridge)'),
+                        'dashboardSummary 所在的 loadData 必须在 bridge 连接后调用')
+        load_body = dash_main[dash_main.find('async function loadData'):dash_main.find('async function bootstrapDashboard')]
+        self.assertGreater(load_body.find('JSON.parse('), load_body.find('bridge.dashboardSummary()'),
+                           'JSON.parse 必须在 summary 返回后执行')
+        self.assertGreater(load_body.find("bridge.pageReady('dashboard')"), load_body.find('nextTick()'),
+                           'pageReady 必须在 nextTick（渲染）之后')
         self.assertGreater(ready_idx, next_tick_idx, 'pageReady 必须在 nextTick 渲染就绪之后')
         self.assertGreater(catch_idx, ready_idx, '异常捕获 catch 必须存在')
         # 异常分支不得调用 pageReady
@@ -438,7 +444,8 @@ class VueSidebarInfoGuardTest(unittest.TestCase):
         self.assertNotIn('class="en"', app_src, '菜单行不得再渲染英文副标签')
         self.assertNotIn('class="dia"', app_src, '菜单行不得再渲染 SQL 缩写')
         # 分组双语标题保留（分区标签不属于菜单行）
-        self.assertIn('{{ g.zh }} · {{ g.en }}', app_src, '分组双语标题必须保留')
+        # 分组标题显示当前语言，双语全文保留在 title 提示里
+        self.assertIn(':title="`${g.zh} · ${g.en}`"', app_src, '分组双语标题必须保留')
         with open(os.path.join(ROOT, 'frontend', 'src', 'chrome', 'icons.ts'),
                   encoding='utf-8') as fh:
             icons_src = fh.read()

@@ -57,12 +57,16 @@ class PrismDashboardContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.shared_surface_path = os.path.join(ROOT, 'frontend', 'src', 'shared', 'components', 'PrismSurface.vue')
         cls.shared_icon_path = os.path.join(ROOT, 'frontend', 'src', 'shared', 'components', 'PrismIcon.vue')
-        cls.hero_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'HeroSection.vue')
-        cls.stats_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'StatsGrid.vue')
+        cls.header_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'HomeHero.vue')
+        cls.progress_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'ProgressBoard.vue')
+        cls.removed_paths = [
+            os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'HeroSection.vue'),
+            os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'StatsGrid.vue'),
+            os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'composables', 'useDailyQuote.ts'),
+        ]
         cls.tasks_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'MonthlyTasks.vue')
         cls.release_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'ReleaseOverview.vue')
         cls.tools_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'components', 'QuickTools.vue')
-        cls.use_quote_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'composables', 'useDailyQuote.ts')
         cls.quotes_json_path = os.path.join(ROOT, 'resources', 'ui', 'daily-quotes.json')
 
         cls.vue_path = os.path.join(ROOT, 'frontend', 'src', 'dashboard', 'DashboardApp.vue')
@@ -74,12 +78,11 @@ class PrismDashboardContractTests(unittest.TestCase):
             with open(p, 'r', encoding='utf-8') as f:
                 return f.read()
 
-        cls.hero_src = read_file(cls.hero_path)
-        cls.stats_src = read_file(cls.stats_path)
+        cls.header_src = read_file(cls.header_path)
+        cls.progress_src = read_file(cls.progress_path)
         cls.tasks_src = read_file(cls.tasks_path)
         cls.release_src = read_file(cls.release_path)
         cls.tools_src = read_file(cls.tools_path)
-        cls.use_quote_src = read_file(cls.use_quote_path)
         cls.vue_src = read_file(cls.vue_path)
         cls.sprite_src = read_file(cls.sprite_path)
         cls.panel_src = read_file(cls.panel_path)
@@ -89,90 +92,65 @@ class PrismDashboardContractTests(unittest.TestCase):
             cls.quotes_data = json.load(f)
 
     def test_01_component_decomposition(self):
-        """1. Component decomposition: all 8 required files exist and are clean."""
-        self.assertTrue(os.path.exists(self.shared_surface_path), 'PrismSurface.vue must exist')
-        self.assertTrue(os.path.exists(self.shared_icon_path), 'PrismIcon.vue must exist')
-        self.assertTrue(os.path.exists(self.hero_path), 'HeroSection.vue must exist')
-        self.assertTrue(os.path.exists(self.stats_path), 'StatsGrid.vue must exist')
-        self.assertTrue(os.path.exists(self.tasks_path), 'MonthlyTasks.vue must exist')
-        self.assertTrue(os.path.exists(self.release_path), 'ReleaseOverview.vue must exist')
-        self.assertTrue(os.path.exists(self.tools_path), 'QuickTools.vue must exist')
-        self.assertTrue(os.path.exists(self.use_quote_path), 'useDailyQuote.ts must exist')
-        self.assertTrue(os.path.exists(self.quotes_json_path), 'daily-quotes.json must exist')
+        """1. 首页组件：问候/日报、项目进度、本月上线、上线总览、常用工具；旧 Hero/统计卡/每日一句已移除。"""
+        for path in (self.shared_surface_path, self.shared_icon_path, self.header_path, self.progress_path,
+                     self.tasks_path, self.release_path, self.tools_path, self.quotes_json_path):
+            self.assertTrue(os.path.exists(path), path)
+        for path in self.removed_paths:
+            self.assertFalse(os.path.exists(path), f'{path} should be removed')
+        for name in ('HeroSection', 'StatsGrid', 'useDailyQuote', 'tip-card', '留一点空间'):
+            self.assertNotIn(name, self.vue_src)
 
     def test_02_dashboard_layout_structure(self):
-        """2. Dashboard Layout: 2-column home-grid (home-left and home-right) and breakpoints."""
+        """2. 通栏 Hero → 通栏项目进度看板 → 两栏（本月上线 | 上线总览 + 常用工具）。"""
         self.assertIn('class="home-grid"', self.vue_src)
         self.assertIn('class="home-left"', self.vue_src)
         self.assertIn('class="home-right', self.vue_src)
-
-        # Padding 0 0 8px
         self.assertIn('padding: 0 0 8px;', self.vue_src)
-
-        # Breakpoints
         self.assertIn('330px', self.vue_src)
         self.assertIn('300px', self.vue_src)
         self.assertIn('@media (min-width: 1200px)', self.vue_src)
         self.assertIn('@media (max-width: 1019px)', self.vue_src)
+        left = self.vue_src[self.vue_src.index('class="home-left"'):self.vue_src.index('class="home-right')]
+        self.assertLess(self.vue_src.index('<HomeHero'), self.vue_src.index('<ProgressBoard'))
+        self.assertLess(self.vue_src.index('<ProgressBoard'), self.vue_src.index('class="home-grid"'))
+        self.assertNotIn('<HomeHero', left)
+        self.assertIn('<MonthlyTasks', left)
+        # 详情抽屉挂在首页根节点，点击需求就地打开
+        self.assertIn('<RequirementDrawer', self.vue_src)
 
-    def test_03_hero_structure_and_graphic(self):
-        """3. Hero: 176px minimum height, 120x120 prism-orb graphic and 4.8s animation."""
-        self.assertIn('min-height: 176px;', self.hero_src)
-        self.assertIn('height: auto;', self.hero_src)
-        self.assertIn('width: 120px;', self.hero_src)
-        self.assertIn('height: 120px;', self.hero_src)
-        self.assertIn('class="prism-orb"', self.hero_src)
-
-        # 4.8s animation contract: y: 0/-5/0, rotate: -5/5/-5deg, scale: 1/1.04/1
-        self.assertIn('4.8s ease-in-out infinite', self.hero_src)
-        self.assertIn('translateY(-5px)', self.hero_src)
-        self.assertIn('rotate(-5deg)', self.hero_src)
-        self.assertIn('scale(1.04)', self.hero_src)
+    def test_03_progress_board_edits_in_place_via_events(self):
+        """3. 项目进度看板：点击开抽屉、拖动改阶段、列内新建；组件只发事件，不直接碰 Bridge。"""
+        for event in ("'open'", "'move'", "'create'", "'focusStage'", "'navigate'"):
+            self.assertIn(event, self.progress_src)
+        self.assertNotIn('bridge', self.progress_src)
+        self.assertIn('draggable', self.progress_src)
+        self.assertIn('next_action', self.progress_src)
+        self.assertIn("startsWith('demo-')", self.progress_src)
+        # 写入统一走 DashboardApp → bridge.homeAction
+        self.assertIn("action: 'move_group'", self.vue_src)
+        self.assertIn('bridge.homeAction(payload)', self.vue_src)
 
     def test_04_motion_contract(self):
-        """4. Motion contract: 5s stat stagger, quick tool translateY(-2px) rotate(-6deg)."""
-        # Stat icons: 5s period, only 80%-100% rises 2px, stagger 0, 0.3, 0.6, 0.9s
-        self.assertIn('5s ease-in-out infinite 0s', self.stats_src)
-        self.assertIn('5s ease-in-out infinite 0.3s', self.stats_src)
-        self.assertIn('5s ease-in-out infinite 0.6s', self.stats_src)
-        self.assertIn('5s ease-in-out infinite 0.9s', self.stats_src)
-        self.assertIn('translateY(-2px)', self.stats_src)
-
-        # Quick tools: translateY -2px rotate -6deg, 200ms
+        """4. 常用工具微动效保留；减弱动态与隐藏暂停生效。"""
         self.assertIn('translateY(-2px) rotate(-6deg)', self.tools_src)
         self.assertIn('200ms', self.tools_src)
-
-        # Prefers reduced motion & visibility pause
         self.assertIn('@media (prefers-reduced-motion: reduce)', self.vue_src)
         self.assertIn('body.motion-disabled', self.vue_src)
         self.assertIn('body.page-hidden', self.vue_src)
         self.assertIn('animation-play-state: paused', self.vue_src)
 
-    def test_05_daily_classic_quote_system(self):
-        """5. Daily quote: 12 JSON items, UTC day ordinal, 28x28 button, 60s timer."""
-        # 12 items with stable id
+    def test_05_header_daily_and_create_actions(self):
+        """5. 头部：本周日报进度可点进日报，新建需求为唯一主按钮。"""
+        self.assertIn("emit('writeDaily')", self.header_src)
+        self.assertIn("emit('createRequirement')", self.header_src)
+        self.assertIn('daily_done', self.header_src)
+        self.assertEqual(self.header_src.count('class="hero-primary"'), 1)
+        # 首页主视觉为可交互的棱镜光谱（光带 = 需求阶段，点击筛选看板）
+        self.assertIn('<PrismSpectrum', self.header_src)
+        self.assertIn("emit('focusStage'", self.header_src)
+        # 原生回退页仍使用每日一句数据
         self.assertEqual(len(self.quotes_data), 12)
-        for i, q in enumerate(self.quotes_data):
-            self.assertEqual(q['id'], f'quote-{i+1:02d}')
-            self.assertTrue(len(q['text']) > 0)
-            self.assertTrue(len(q['source']) > 0)
-            self.assertTrue(len(q['author']) > 0)
-
-        # Zero toISOString().slice(0, 10)
-        self.assertNotIn('toISOString().slice(0, 10)', self.use_quote_src)
-        self.assertNotIn('toISOString().slice(0, 10)', self.vue_src)
-
-        # UTC day ordinal function
-        self.assertIn('Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000', self.use_quote_src)
-
-        # 28x28 next quote button
-        self.assertIn('width: 28px;', self.hero_src)
-        self.assertIn('height: 28px;', self.hero_src)
-        self.assertIn('class="quote-next"', self.hero_src)
-
-        # 60s timer & visibilitychange
-        self.assertIn('setInterval(checkDate, 60000)', self.use_quote_src)
-        self.assertIn('visibilitychange', self.use_quote_src)
 
     def test_06_native_fallback_consistency(self):
         """6. Native fallback reads daily-quotes.json, has hero card and 120x120 PrismOrbWidget."""

@@ -79,7 +79,7 @@ class SectionHeader(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
-        self.chevron = QLabel()
+        self.chevron = QLabel(self)
         self.chevron.setObjectName('dashboard-section-chevron')
         self.chevron.setVisible(collapsible)
         layout.addWidget(self.chevron)
@@ -158,7 +158,7 @@ class TaskRow(QFrame):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
-        self.identifier_label = QLabel(identifier)
+        self.identifier_label = QLabel(identifier, self)
         self.identifier_label.setObjectName('dashboard-task-identifier')
         self.identifier_label.setVisible(bool(identifier))
         title_row.addWidget(self.identifier_label, 0)
@@ -179,7 +179,7 @@ class TaskRow(QFrame):
         self.meta_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         body.addWidget(self.meta_label)
         layout.addLayout(body, 1)
-        self.status_label = QLabel(status)
+        self.status_label = QLabel(status, self)
         if done:
             self.status_label.setObjectName('status-pill-done')
         elif highlight:
@@ -694,9 +694,13 @@ class DashboardPanel(QWidget):
             btn.setObjectName('dashboard-quick-tool')
             btn.setMinimumHeight(64)
             btn.setMinimumWidth(0)
+            # 每格撑满所在列，避免按文字长短出现宽窄不一的磁贴
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.clicked.connect(lambda checked=False, nav=item['i']: self.navigate_requested.emit(nav))
             tools_grid.addWidget(btn, index // 2, index % 2)
             self.prism_tool_buttons.append(btn)
+        tools_grid.setColumnStretch(0, 1)
+        tools_grid.setColumnStretch(1, 1)
         tools_layout.addLayout(tools_grid)
         right.addWidget(tools_card)
         right.addStretch(1)
@@ -769,6 +773,10 @@ class DashboardPanel(QWidget):
         for scroll, rows in ((self.recent_scroll, self.recent_list),
                              (self.release_scroll, self.release_list)):
             floor = max(96, min(280, self._scroll_height_for_count(self._count_task_rows(rows))))
+            # 分组标题（如“已完成 (1)”）也占高度：按列表实际内容兜底，避免一行任务被裁掉
+            host = scroll.widget()
+            if host is not None:
+                floor = max(floor, min(440, host.sizeHint().height()))
             scroll.setMinimumHeight(floor)
             scroll.setMaximumHeight(440)
             scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -882,6 +890,7 @@ class DashboardPanel(QWidget):
             if widget in keep:
                 continue
             layout.takeAt(index)
+            widget.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
             widget.deleteLater()
 
     def _fill_recent(self, requirements):
@@ -1031,8 +1040,8 @@ class DashboardPanel(QWidget):
             self._completed_header = header
             for kind, item, planned_date in done_items:
                 row = self._build_release_row(kind, item, planned_date, month_key, completed=True)
-                row.setVisible(not self._completed_section_collapsed)
                 self.release_list.addWidget(row)
+                row.setVisible(not self._completed_section_collapsed)
                 self._completed_rows.append(row)
         self.release_list.addStretch(1)
 
@@ -1096,6 +1105,7 @@ class DashboardPanel(QWidget):
             header.set_collapsed(self._completed_section_collapsed)
         for row in self._completed_rows:
             row.setVisible(not self._completed_section_collapsed)
+        self._apply_list_geometry()
         try:
             board = load_release_board()
             prefs = board.setdefault('ui_prefs', {})

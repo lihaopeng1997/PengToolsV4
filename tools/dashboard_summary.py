@@ -12,6 +12,9 @@ from tools.dashboard_release_items import (
     release_display_state,
     valid_iso_date,
 )
+from tools.requirement_stages import (
+    ACTIVE_GROUPS, STAGES, STATUS_GROUP_LABELS, next_action, stage_index, status_group,
+)
 from tools.requirements import load_requirements, systems_display_text, test_points_progress
 
 
@@ -108,6 +111,81 @@ def monthly_release_tasks(requirements, month: str, today: datetime.date) -> lis
         })
     rows.sort(key=lambda row: (row.get('actual_release_date') or '9999-12-31', row.get('title') or ''))
     return rows
+
+
+BOARD_LIMIT_PER_GROUP = 30
+
+
+def requirement_progress(requirements, *, limit: int = 8, month: str = '') -> dict:
+    """首页“项目进度”：各阶段数量 + 仍在推进的需求（最近更新在前）+ 看板卡片。
+
+    ``board`` 按阶段列出卡片（推进中的全部 + 本月已上线），供首页就地查看/拖动改状态。
+    """
+    counts = {key: 0 for key in STATUS_GROUP_LABELS}
+    active = []
+    board = []
+    for item in requirements or []:
+        if not isinstance(item, dict):
+            continue
+        group = status_group(item.get('status'))
+        counts[group] += 1
+        done_n, total_n = test_points_progress(item.get('test_points'))
+        actual = valid_iso_date(item.get('actual_release_date')) or valid_iso_date(item.get('actual_online_date'))
+        if group in ACTIVE_GROUPS or (group == 'online' and month and actual[:7] == month):
+            board.append({
+                'id': str(item.get('id') or ''),
+                'code': str(item.get('code') or ''),
+                'title': str(item.get('title') or item.get('code') or '未命名'),
+                'system': systems_display_text(item, empty=''),
+                'status': str(item.get('status') or '待分析'),
+                'group': group,
+                'priority': str(item.get('priority') or '普通'),
+                'tp_done': done_n,
+                'tp_total': total_n,
+                'actual_release_date': actual,
+                'next_action': next_action(item),
+                'updated_at': str(item.get('updated_at') or item.get('source_modified_at') or ''),
+                'is_demo': bool(item.get('is_demo')),
+            })
+        if group not in ACTIVE_GROUPS:
+            continue
+        active.append({
+            'id': str(item.get('id') or ''),
+            'code': str(item.get('code') or ''),
+            'title': str(item.get('title') or item.get('code') or '未命名'),
+            'system': systems_display_text(item, empty='未选系统'),
+            'kind': str(item.get('record_kind') or '需求'),
+            'status': str(item.get('status') or '待分析'),
+            'group': group,
+            'stage': stage_index(item.get('status')),
+            'test_points': f'{done_n}/{total_n}' if total_n else '',
+            'next_action': next_action(item),
+            'updated_at': str(item.get('updated_at') or item.get('source_modified_at') or ''),
+            'is_demo': bool(item.get('is_demo')),
+        })
+    order = {key: index for index, key in enumerate(ACTIVE_GROUPS)}
+    active.sort(key=lambda row: row['updated_at'], reverse=True)
+    active.sort(key=lambda row: order.get(row['group'], 99))
+    stages = [
+        {'key': key, 'label': STATUS_GROUP_LABELS.get(key, label), 'count': counts.get(key, 0)}
+        for key, label, _members in STAGES
+    ]
+    board.sort(key=lambda row: row['updated_at'], reverse=True)
+    per_group: dict[str, int] = {}
+    trimmed = []
+    for row in board:
+        seen = per_group.get(row['group'], 0)
+        if seen < BOARD_LIMIT_PER_GROUP:
+            trimmed.append(row)
+        per_group[row['group']] = seen + 1
+    return {
+        'stages': stages,
+        'paused': counts.get('paused', 0),
+        'active_total': sum(counts[key] for key in ACTIVE_GROUPS),
+        'active': active[:limit],
+        'board': trimmed,
+        'online_month': sum(1 for row in board if row['group'] == 'online'),
+    }
 
 
 def build_dashboard_summary(
@@ -285,5 +363,6 @@ def build_dashboard_summary(
         ],
         'tools': tools,
         'monthly_release_tasks': display_month_tasks,
+        'progress': requirement_progress(display_items, month=month),
         'release_months': collect_release_months(display_items),
     }
