@@ -278,5 +278,20 @@ class TerminalEmulatorTests(unittest.TestCase):
         self.assertNotIn('Line 0', text)  # Oldest pruned
 
 
+    def test_narrowing_keeps_existing_text_and_widening_restores_it(self):
+        emu = TerminalEmulator(cols=60, rows=4)
+        emu.feed_text('0123456789' * 5 + '\r\n')
+        emu.resize(30, 4)
+        self.assertIn('0123456789' * 5, emu.get_plain_text())
+        emu.resize(60, 4)
+        self.assertEqual(emu.get_plain_text().splitlines()[0], '0123456789' * 5)
+
+    def test_soft_wrapped_line_is_copied_as_one_line(self):
+        emu = TerminalEmulator(cols=20, rows=6)
+        line = '{"vinNo":"HJF6RE4V62LWM0Y7L","flag":"1"}'
+        emu.feed_text(line + '\r\nnext\r\n')
+        self.assertEqual(emu.get_plain_text().splitlines()[:2], [line, 'next'])
+
+
 if __name__ == '__main__':
     unittest.main()

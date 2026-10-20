@@ -780,23 +780,29 @@ class _SshTerminalView(QAbstractScrollArea):
         if not sel:
             return
         (r1, c1), (r2, c2) = sel
+        from tools.terminal_emulator import Row, row_is_soft_wrapped, rows_to_text
+
         all_rows = self._emulator.scrollback + self._emulator.screen.grid
-        lines = []
-        for r in range(r1, min(len(all_rows), r2 + 1)):
+        pieces = []
+        last = min(len(all_rows), r2 + 1) - 1
+        for r in range(r1, last + 1):
             row = all_rows[r]
             sc = c1 if r == r1 else 0
             ec = c2 if r == r2 else len(row) - 1
-            line_cells = row[sc:ec + 1]
-            line_str = ''.join(c.char for c in line_cells if c.width != 0)
-            lines.append(line_str)
-        text = '\n'.join(lines)
+            piece = Row(row[sc:ec + 1])
+            # 自动折行的长行（如一整行 JSON 日志）复制时拼回一行
+            piece.soft_wrapped = r < last and row_is_soft_wrapped(row)
+            pieces.append(piece)
+        text = rows_to_text(pieces)
         if text:
             QApplication.clipboard().setText(text)
 
     def selectAll(self):  # noqa: N802
         total_rows = len(self._emulator.scrollback) + len(self._emulator.screen.grid)
         self._sel_start = (0, 0)
-        self._sel_end = (max(0, total_rows - 1), self._emulator.cols - 1)
+        all_rows = self._emulator.scrollback + self._emulator.screen.grid
+        last_len = len(all_rows[-1]) if all_rows else self._emulator.cols
+        self._sel_end = (max(0, total_rows - 1), max(self._emulator.cols, last_len) - 1)
         self.viewport().update()
 
     def toPlainText(self) -> str:  # noqa: N802

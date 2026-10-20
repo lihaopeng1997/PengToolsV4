@@ -66,6 +66,32 @@ ANSI_COLORS = [
 ]
 
 
+class Row(list):
+    """一行 Cell；soft_wrapped 表示此行因超宽自动折到下一行（复制时不插换行）。"""
+
+    soft_wrapped = False
+
+
+def row_is_soft_wrapped(row) -> bool:
+    return bool(getattr(row, 'soft_wrapped', False))
+
+
+def rows_to_text(rows) -> str:
+    """把若干行拼成文本：自动折行处直接相接，真实换行处换行并去掉行尾填充空格。"""
+    lines: list[str] = []
+    pending = ''
+    for row in rows:
+        text = ''.join(cell.char for cell in row if cell.width != 0)
+        if row_is_soft_wrapped(row):
+            pending += text
+            continue
+        lines.append((pending + text).rstrip())
+        pending = ''
+    if pending:
+        lines.append(pending.rstrip())
+    return '\n'.join(lines)
+
+
 class Screen:
     def __init__(self, cols: int, rows: int):
         self.cols = max(10, int(cols))
@@ -146,9 +172,20 @@ class TerminalEmulator:
         screen.scroll_bottom = new_rows - 1
 
         new_grid = []
+        keep_tail = screen is self.main_screen
         for r in range(new_rows):
             if r < len(screen.grid):
-                row = screen.grid[r][:new_cols]
+                old = screen.grid[r]
+                # 主屏拖窄时保留超出新宽度的已有内容（视图裁剪显示、拖宽后恢复、复制完整），
+                # 只去掉尾部空白；全屏程序用的备用屏仍按新宽度截断，由程序自行重绘。
+                keep = len(old)
+                if keep_tail:
+                    while keep > new_cols and old[keep - 1].char in (' ', ''):
+                        keep -= 1
+                else:
+                    keep = min(keep, new_cols)
+                row = Row(old[:max(new_cols, keep) if keep_tail else new_cols])
+                row.soft_wrapped = row_is_soft_wrapped(old)
                 while len(row) < new_cols:
                     row.append(Cell())
                 new_grid.append(row)
@@ -314,11 +351,13 @@ class TerminalEmulator:
             return
 
         if self.screen.wrap_next:
+            self._mark_soft_wrap()
             self.screen.cursor_x = 0
             self._linefeed()
             self.screen.wrap_next = False
 
         if self.screen.cursor_x + w > self.cols:
+            self._mark_soft_wrap()
             self.screen.cursor_x = 0
             self._linefeed()
 
@@ -334,6 +373,15 @@ class TerminalEmulator:
             self.screen.wrap_next = True
         else:
             self.screen.cursor_x += w
+
+    def _mark_soft_wrap(self):
+        y = self.screen.cursor_y
+        if 0 <= y < len(self.screen.grid):
+            row = self.screen.grid[y]
+            if not isinstance(row, Row):
+                row = Row(row)
+                self.screen.grid[y] = row
+            row.soft_wrapped = True
 
     def _linefeed(self):
         screen = self.screen
@@ -487,6 +535,7 @@ class TerminalEmulator:
         if mode == 0:  # Cursor to end
             for c in range(x, self.cols):
                 self.screen.grid[y][c] = Cell(' ', 1, self.current_style)
+            del self.screen.grid[y][self.cols:]
             for r in range(y + 1, self.rows):
                 self.screen.grid[r] = [Cell(' ', 1, self.current_style) for _ in range(self.cols)]
         elif mode == 1:  # Start to cursor
@@ -506,6 +555,9 @@ class TerminalEmulator:
         if mode == 0:  # Cursor to end
             for c in range(x, self.cols):
                 self.screen.grid[y][c] = Cell(' ', 1, self.current_style)
+            del self.screen.grid[y][self.cols:]
+            if isinstance(self.screen.grid[y], Row):
+                self.screen.grid[y].soft_wrapped = False
         elif mode == 1:  # Start to cursor
             for c in range(0, min(self.cols, x + 1)):
                 self.screen.grid[y][c] = Cell(' ', 1, self.current_style)
@@ -653,13 +705,7 @@ class TerminalEmulator:
 
     def get_plain_text(self) -> str:
         """Get text representation of scrollback and current screen."""
-        lines = []
-        for row in self.scrollback:
-            line_str = ''.join(cell.char for cell in row if cell.width != 0).rstrip()
-            lines.append(line_str)
-        for row in self.screen.grid:
-            line_str = ''.join(cell.char for cell in row if cell.width != 0).rstrip()
-            lines.append(line_str)
+        lines = rows_to_text(list(self.scrollback) + list(self.screen.grid)).split('\n')
         while lines and not lines[-1]:
             lines.pop()
         return '\n'.join(lines)
