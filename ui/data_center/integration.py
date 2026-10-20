@@ -191,22 +191,24 @@ class DataCenterWorkbenchAgent(QWidget):
         root.setSpacing(6)
         row = QHBoxLayout()
         self.mode_combo = QComboBox(self)
-        self.mode_combo.addItem("只读查询" if language == "zh" else "Read-only query", "query")
-        self.mode_combo.addItem("仅生成草稿" if language == "zh" else "Draft only", "draft")
+        self.mode_combo.addItem("Agent · 只读查数" if language == "zh" else "Agent · read-only", "query")
+        self.mode_combo.addItem("Ask · 只写 SQL" if language == "zh" else "Ask · SQL only", "draft")
         self.model_combo = QComboBox(self)
         # 大字号/窄工作台下模型名可收缩（悬停看全名），不把整个工作台撑出 960
         self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.model_combo.setMinimumContentsLength(6)
         self.model_combo.setMinimumWidth(120)
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.refresh_button = QPushButton("刷新模型" if language == "zh" else "Refresh models", self)
+        self.refresh_button = QPushButton("↻", self)
         apply_button(self.refresh_button, "ghost", compact=True)
+        self.refresh_button.setFixedWidth(32)
+        self.refresh_button.setToolTip("刷新模型列表" if language == "zh" else "Refresh models")
         self.refresh_button.clicked.connect(self.refresh_models)
+        # DBX 式：模式（Agent / Ask）、模型与刷新合成一行，放到输入框下方
         self._controls_row = row
         row.addWidget(self.mode_combo, 0)
         row.addWidget(self.model_combo, 1)
         row.addWidget(self.refresh_button, 0)
-        root.addLayout(row)
         self.status_label = QLabel(self)
         self.status_label.setObjectName("ops-safety-note")
         self.status_label.setWordWrap(True)
@@ -214,6 +216,7 @@ class DataCenterWorkbenchAgent(QWidget):
         self.agent_panel = DataCenterAgentPanel(self, target="尚未固定目标", model="尚未选择模型")
         self._set_production_panel_copy()
         self.agent_panel.prompt_input.setEnabled(False)
+        self.agent_panel.set_compact_rail(True)
         # 空间够时面板撑满；窗口矮时整体滚动，而不是把整个工作台撑高
         self.agent_scroll = QScrollArea(self)
         self.agent_scroll.setObjectName("data-center-agent-scroll")
@@ -222,6 +225,7 @@ class DataCenterWorkbenchAgent(QWidget):
         self.agent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.agent_scroll.setWidget(self.agent_panel)
         root.addWidget(self.agent_scroll, 1)
+        root.addLayout(row)
 
         self.mode_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_selection_changed)
@@ -233,7 +237,8 @@ class DataCenterWorkbenchAgent(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
-        narrow = self.width() < 520
+        # 这一行只剩「模型 + ↻」，侧栏常见宽度（≥240）下保持横排
+        narrow = self.width() < 240
         if self._controls_narrow != narrow and self._controls_row is not None:
             self._controls_narrow = narrow
             self._controls_row.setDirection(
@@ -243,9 +248,10 @@ class DataCenterWorkbenchAgent(QWidget):
     def set_language(self, language: str) -> None:
         self._language = str(language or "zh")
         zh = self._language == "zh"
-        self.mode_combo.setItemText(0, "只读查询" if zh else "Read-only query")
-        self.mode_combo.setItemText(1, "仅生成草稿" if zh else "Draft only")
-        self.refresh_button.setText("刷新模型" if zh else "Refresh models")
+        self.mode_combo.setItemText(0, "Agent · 只读查数" if zh else "Agent · read-only")
+        self.mode_combo.setItemText(1, "Ask · 只写 SQL" if zh else "Ask · SQL only")
+        self.refresh_button.setText("↻")
+        self.refresh_button.setToolTip("刷新模型列表" if zh else "Refresh models")
         self._set_production_panel_copy()
         self._refresh_displayed_target()
         self._refresh_display_status()

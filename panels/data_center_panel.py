@@ -10,6 +10,7 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QHBoxLayout,
     QFrame,
     QDialog,
     QDialogButtonBox,
@@ -565,8 +566,6 @@ class DataCenterPanel(QWidget):
         size_line(self.search_edit, "path")
         self.search_edit.setMinimumWidth(150)
         self.search_edit.textChanged.connect(self.tree_filter_changed)
-        row.addWidget(self.catalog_toggle_btn)
-        row.addWidget(self.search_edit)
         self.new_btn = self._button()
         self.new_btn.clicked.connect(self._new_connection)
         self.edit_btn = self._button()
@@ -604,12 +603,14 @@ class DataCenterPanel(QWidget):
             button.hide()
         self.connection_menu.aboutToShow.connect(self._sync_connection_menu)
         self.connection_menu_btn.setMenu(self.connection_menu)
-        for button in (
-            self.new_btn, self.connection_menu_btn, self.open_btn, self.new_query_btn,
-            self.agent_btn, self.workspace_btn,
-        ):
+        self.connection_menu_btn.setStyleSheet("QPushButton::menu-indicator { width: 0; image: none; }")
+        # V1.1：页面不再有独立的全局工具条（DBX 式三栏）。低频入口进「⋯」菜单，
+        # 按钮对象保留并继续承担启用状态与既有处理函数。
+        for button in (self.open_btn, self.workspace_btn):
             row.addWidget(button)
         root.addWidget(toolbar)
+        toolbar.hide()
+        self._legacy_toolbar = toolbar
         self.catalog_warning = QLabel(self)
         self.catalog_warning.setObjectName("ops-safety-note")
         self.catalog_warning.setWordWrap(True)
@@ -629,8 +630,20 @@ class DataCenterPanel(QWidget):
         self.catalog_pane = QFrame(self._body_splitter)
         self.catalog_pane.setObjectName("data-center-catalog-pane")
         catalog_layout = QVBoxLayout(self.catalog_pane)
-        catalog_layout.setContentsMargins(8, 4, 6, 8)
-        catalog_layout.setSpacing(4)
+        catalog_layout.setContentsMargins(8, 6, 6, 8)
+        catalog_layout.setSpacing(6)
+        catalog_head = QHBoxLayout()
+        catalog_head.setContentsMargins(0, 0, 0, 0)
+        catalog_head.setSpacing(4)
+        self.search_edit.setParent(self.catalog_pane)
+        self.search_edit.setMinimumWidth(80)
+        catalog_head.addWidget(self.search_edit, 1)
+        for button in (self.new_btn, self.connection_menu_btn):
+            button.setParent(self.catalog_pane)
+            apply_button(button, "ghost", compact=True)
+            button.setFixedWidth(30)
+            catalog_head.addWidget(button)
+        catalog_layout.addLayout(catalog_head)
         self.tree = WorkspaceTree(language=self.language, parent=self.catalog_pane)
         self.tree.setMinimumWidth(150)
         self.tree.setStyleSheet(f"QTreeView::item {{ min-height: {TREE_ITEM_H}px; }}")
@@ -652,6 +665,15 @@ class DataCenterPanel(QWidget):
         directory_action_row.addWidget(self.directory_refresh_btn)
         directory_action_row.addWidget(self.directory_close_btn)
         catalog_layout.addWidget(directory_actions)
+        directory_actions.hide()
+        self.connection_menu.addSeparator()
+        for button in (self.open_btn, self.new_query_btn, self.directory_refresh_btn, self.directory_close_btn):
+            action = self.connection_menu.addAction("")
+            action.triggered.connect(button.click)
+            self._connection_menu_actions.append((action, button))
+        self.connection_menu.addSeparator()
+        self.connection_menu.addAction(self.workspace_save_action)
+        self.connection_menu.addAction(self.workspace_restore_action)
         self.catalog_pane.setMinimumWidth(150)
 
         self.workspace_tabs = QTabWidget(self._body_splitter)
@@ -665,6 +687,16 @@ class DataCenterPanel(QWidget):
         self.workspace_tabs.tabBar().setTabButton(
             0, QTabBar.ButtonPosition.RightSide, None
         )
+        corner = QWidget(self.workspace_tabs)
+        corner_row = QHBoxLayout(corner)
+        corner_row.setContentsMargins(0, 0, 4, 0)
+        corner_row.setSpacing(4)
+        for button in (self.new_query_btn, self.agent_btn, self.catalog_toggle_btn):
+            button.setParent(corner)
+            apply_button(button, "ghost", compact=True)
+            corner_row.addWidget(button)
+        self.workspace_tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        self._workspace_corner = corner
         self._body_splitter.addWidget(self.catalog_pane)
         self._body_splitter.addWidget(self.workspace_tabs)
         self._body_splitter.setStretchFactor(0, 0)
@@ -1364,10 +1396,18 @@ class DataCenterPanel(QWidget):
         self._rebuild_tree()
         self.tree.select_connection(wanted)
         self.workspace_opened.emit(wanted)
+        self._sync_summary_tab()
         self._apply_host_layout(workspace.host)
         workspace.apply_layout_mode(self._layout_mode, self._low_height)
         self._sync_actions()
         return workspace
+
+    def _sync_summary_tab(self) -> None:
+        """「连接概览」只作为没有打开任何连接时的欢迎页；有工作区时隐藏其页签。"""
+        has_workspace = bool(self._workspaces)
+        self.workspace_tabs.setTabVisible(0, not has_workspace)
+        if not has_workspace:
+            self.workspace_tabs.setCurrentIndex(0)
 
     def _new_query(self) -> None:
         if self._manual_shutdown_gated:
@@ -2039,6 +2079,7 @@ class DataCenterPanel(QWidget):
         if index >= 0:
             self.workspace_tabs.removeTab(index)
         workspace.deleteLater()
+        self._sync_summary_tab()
         if connection_id not in self._tree_owners:
             self._completion_catalogs.pop(connection_id, None)
         self._rebuild_tree()
@@ -2083,13 +2124,17 @@ class DataCenterPanel(QWidget):
         self.page_subtitle.setText(
             "项目、环境、引擎与连接工作区" if zh else "Projects, environments, engines, and connection workspaces"
         )
-        self.catalog_toggle_btn.setText(
-            ("隐藏连接目录" if zh else "Hide catalog") if self.catalog_toggle_btn.isChecked() else
-            ("显示连接目录" if zh else "Show catalog")
+        self.catalog_toggle_btn.setText("«" if self.catalog_toggle_btn.isChecked() else "»")
+        self.catalog_toggle_btn.setToolTip(
+            ("收起连接目录" if zh else "Hide catalog") if self.catalog_toggle_btn.isChecked() else
+            ("展开连接目录" if zh else "Show catalog")
         )
         self.search_edit.setPlaceholderText("搜索项目、环境、引擎或连接" if zh else "Search projects, environments, engines, or connections")
-        self.new_btn.setText("新建连接" if zh else "New connection")
-        self.connection_menu_btn.setText("连接管理" if zh else "Manage")
+        self.new_btn.setText("+")
+        self.new_btn.setToolTip("新建连接" if zh else "New connection")
+        self.connection_menu_btn.setText("⋯")
+        self.connection_menu_btn.setToolTip("连接管理、工作区与目录操作" if zh else "Connections, workspace and catalog actions")
+        self.search_edit.setPlaceholderText("搜索连接、库、表…" if zh else "Search connections, schemas, tables…")
         self.edit_btn.setText("编辑" if zh else "Edit")
         self.delete_btn.setText("删除" if zh else "Delete")
         self.favorite_btn.setText("收藏" if zh else "Favorite")
@@ -2101,8 +2146,10 @@ class DataCenterPanel(QWidget):
         self.directory_refresh_btn.setText("刷新对象" if zh else "Refresh objects")
         self.directory_close_btn.setText("关闭目录" if zh else "Close directory")
         self.open_btn.setText("打开工作区" if zh else "Open workspace")
-        self.new_query_btn.setText("新建查询" if zh else "New query")
-        self.agent_btn.setText("Agent" if zh else "Agent")
+        self.new_query_btn.setText("+ 查询" if zh else "+ Query")
+        self.new_query_btn.setToolTip("在当前连接新建查询页签" if zh else "New query tab on this connection")
+        self.agent_btn.setText("AI")
+        self.agent_btn.setToolTip("打开/收起 AI 侧栏（绑定当前连接）" if zh else "Toggle the AI panel bound to this connection")
         self.workspace_tabs.setTabText(0, "连接概览" if zh else "Connections")
         self.summary_create_btn.setText("新建连接" if zh else "New connection")
         self._show_connection_summary(self.tree.selected_connection_id())

@@ -1621,9 +1621,7 @@ class TableEditorProductionRouteTests(unittest.TestCase):
                         workbench.sql_tabs,
                         workbench.sql_tabs.tabBar(),
                         host.transaction_actions,
-                        host.commit_btn,
-                        host.rollback_btn,
-                        host.stop_btn,
+                        # 提交/回滚/停止只在可用时出现，不属于常驻必备控件
                         host.workbench_more_btn,
                         editor.search,
                         editor.page_size,
@@ -1847,15 +1845,11 @@ class TableEditorProductionRouteTests(unittest.TestCase):
         self.assertFalse(table_tab.editor.isVisibleTo(host.panel))
         self.assertTrue(host.panel.sql_tabs.isVisibleTo(host.panel))
         self.assertTrue(host.panel.sql_tabs.tabBar().isVisibleTo(host.panel))
-        for control in (
-            host.panel.run_btn,
-            host.panel.new_tab_btn,
-            host.commit_btn,
-            host.rollback_btn,
-            host.stop_btn,
-            host.workbench_more_btn,
-        ):
+        for control in (host.panel.run_btn, host.panel.new_tab_btn, host.workbench_more_btn):
             self.assertTrue(control.isVisibleTo(host.panel), control.objectName() or control.text())
+        # 事务/停止按钮只在可用时出现
+        for control in (host.commit_btn, host.rollback_btn, host.stop_btn):
+            self.assertEqual(control.isVisibleTo(host.panel), control.isEnabled(), control.text())
         self.assertEqual(middle_layout.indexOf(host.transaction_actions), -1)
         self.assertGreaterEqual(toolbar_layout.indexOf(host.transaction_actions), 0)
         self.assertTrue(model.has_staged_changes)

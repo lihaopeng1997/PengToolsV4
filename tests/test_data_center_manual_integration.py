@@ -643,10 +643,10 @@ class ManualWorkbenchIntegrationTests(unittest.TestCase):
         panel.set_language("zh")
         self.assertEqual(panel.editor_legacy_panels_action.text(), "显示 SQL 草稿与对象详情")
 
-        toolbar_buttons = [
-            panel.run_btn, panel.new_tab_btn, panel.editor_more_btn,
-            self.host.commit_btn, self.host.rollback_btn, self.host.stop_btn,
-        ]
+        # 事务/停止按钮只在可用时出现（有未提交事务、执行中），其余常驻
+        for button in (self.host.commit_btn, self.host.rollback_btn, self.host.stop_btn):
+            self.assertEqual(button.isVisible(), button.isEnabled(), button.text())
+        toolbar_buttons = [panel.run_btn, panel.new_tab_btn, panel.editor_more_btn]
         for button in toolbar_buttons:
             with self.subTest(button=button.text()):
                 self.assertTrue(button.isVisible())

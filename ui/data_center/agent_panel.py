@@ -352,7 +352,7 @@ class DataCenterAgentPanel(QWidget):
         self.evidence_title.setText("工具证据" if zh else "Tool evidence")
         self.sql_caption.setText("已查 SQL" if zh else "Queried SQL")
         self.copy_sql_button.setText("复制 SQL" if zh else "Copy SQL")
-        self.put_sql_button.setText("放入手动编辑器" if zh else "Insert into editor")
+        self.put_sql_button.setText("应用到编辑器" if zh else "Apply to editor")
         self.copy_sql_button.setToolTip("复制已显示的完整 SQL" if zh else "Copy the complete displayed SQL")
         self.put_sql_button.setToolTip(
             "将已显示的完整 SQL 放入手动编辑器" if zh else
@@ -532,6 +532,8 @@ class DataCenterAgentPanel(QWidget):
         return True
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is getattr(self, "stop_button", None) and event.type() == QEvent.Type.EnabledChange:
+            self._sync_compact_rail()
         if (
             watched is getattr(self, "target_value_label", None)
             and event.type() == QEvent.Type.Resize
@@ -772,7 +774,14 @@ class DataCenterAgentPanel(QWidget):
         self.result_status_label.setObjectName("status-pill")
         self.result_status_label.setToolTip("Verification and truncation status comes from the Agent event")
         conversation_layout.addWidget(self.result_status_label, 0, Qt.AlignmentFlag.AlignLeft)
+        # 紧凑侧栏：没有任何内容时的一句上手提示（默认隐藏，独立面板不显示）
+        self.compact_hint = QLabel(body)
+        self.compact_hint.setObjectName("field-hint")
+        self.compact_hint.setWordWrap(True)
+        self.compact_hint.hide()
+        body_layout.addWidget(self.compact_hint)
         body_layout.addWidget(conversation)
+        self._conversation_card = conversation
 
         evidence = QFrame(body)
         evidence.setObjectName("agent-context-card")
@@ -803,7 +812,7 @@ class DataCenterAgentPanel(QWidget):
         apply_button(self.copy_sql_button, "secondary", compact=True)
         self.copy_sql_button.clicked.connect(self._on_copy_sql)
         sql_row.addWidget(self.copy_sql_button)
-        self.put_sql_button = QPushButton("放入手动编辑器", evidence)
+        self.put_sql_button = QPushButton("应用到编辑器", evidence)
         self.put_sql_button.setObjectName("put-sql-button")
         apply_button(self.put_sql_button, "secondary", compact=True)
         self.put_sql_button.clicked.connect(self._on_put_sql)
@@ -834,6 +843,7 @@ class DataCenterAgentPanel(QWidget):
         )
         evidence_layout.addWidget(self.result_preview_view)
         body_layout.addWidget(evidence)
+        self._evidence_card = evidence
         body_layout.addStretch(1)
 
         scroll.setWidget(body)
@@ -936,6 +946,58 @@ class DataCenterAgentPanel(QWidget):
         if label.text() != rendered:
             label.setText(rendered)
         label.setToolTip(full_text)
+
+    # ------------------------------------------------------------------
+    # 嵌入式紧凑侧栏（数据中心右栏）
+    # ------------------------------------------------------------------
+    def set_compact_rail(self, enabled: bool) -> None:
+        """DBX 式侧栏：隐藏重复的目标/模型与说明文字，各块只在有内容时出现。"""
+        self._compact_rail = bool(enabled)
+        if self._compact_rail:
+            # 侧栏宽度有限：去掉外边距，允许内容随栏宽收缩，不被右侧截断
+            self.layout().setContentsMargins(0, 4, 0, 0)
+            self.setMinimumWidth(0)
+            self.prompt_input.setMinimumWidth(0)
+        if self._compact_rail and not getattr(self, "_compact_rail_wired", False):
+            self._compact_rail_wired = True
+            for view in (self.reasoning_view, self.answer_view, self.evidence_view, self.sql_view, self.result_preview_view):
+                view.textChanged.connect(self._sync_compact_rail)
+            self.stop_button.installEventFilter(self)
+        zh = getattr(self, "_display_language", "zh") == "zh"
+        self.compact_hint.setText(
+            "在下方用中文描述要查的数据，例如“本月每天的订单数”。"
+            "Agent 会先看表结构，再只读执行并给出结论；生成的 SQL 可一键放入编辑器。"
+            if zh else
+            "Describe the data you need below. The Agent reads the schema, runs read-only SQL, "
+            "and summarizes; generated SQL can be applied to the editor."
+        )
+        self._sync_compact_rail()
+
+    def _sync_compact_rail(self, *_args) -> None:
+        if not getattr(self, "_compact_rail", False):
+            return
+        has = lambda view: bool(view.toPlainText().strip())  # noqa: E731
+        reasoning, answer = has(self.reasoning_view), has(self.answer_view)
+        sql, preview, evidence = has(self.sql_view), has(self.result_preview_view), has(self.evidence_view)
+        running = self.stop_button.isEnabled()
+        self.stop_button.setVisible(running)
+        for widget in self._context_widgets:
+            widget.setVisible(False)
+        self.phase_label.setVisible(running)
+        for caption in (self.conversation_title, self.reasoning_caption, self.answer_caption,
+                        self.evidence_title, self.query_id_label):
+            caption.setVisible(False)
+        self.reasoning_view.setVisible(reasoning)
+        self.answer_view.setVisible(answer)
+        self.result_status_label.setVisible(answer or running)
+        self._conversation_card.setVisible(reasoning or answer or running)
+        self.evidence_view.setVisible(evidence)
+        for widget in (self.sql_caption, self.copy_sql_button, self.put_sql_button, self.sql_view):
+            widget.setVisible(sql)
+        self.result_caption.setVisible(preview)
+        self.result_preview_view.setVisible(preview)
+        self._evidence_card.setVisible(sql or preview or evidence)
+        self.compact_hint.setVisible(not (reasoning or answer or running or sql or preview or evidence))
 
     @staticmethod
     def _make_readonly_view(parent: QWidget, object_name: str, *, minimum_height: int, maximum_height: int) -> QPlainTextEdit:

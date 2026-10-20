@@ -533,8 +533,9 @@ class AiWorkbenchHistoryIntegrationTests(unittest.TestCase):
         self.assertTrue(panel.history_btn.isVisible())
         self.assertTrue(panel.editor_more_btn.isVisible())
         self.assertTrue(panel.manual_query_host._transaction_actions_in_toolbar)
-        self.assertTrue(panel.manual_query_host.commit_btn.isVisible())
-        self.assertTrue(panel.manual_query_host.rollback_btn.isVisible())
+        # 事务按钮留在同一工具条，只在有未提交事务时出现
+        for button in (panel.manual_query_host.commit_btn, panel.manual_query_host.rollback_btn):
+            self.assertEqual(button.isVisible(), button.isEnabled())
         self.assertTrue(panel.editor_more_menu.actions())
         self._capture_panel_matrix(panel, "compact_table_focus")
         compact_en_snapshot = {

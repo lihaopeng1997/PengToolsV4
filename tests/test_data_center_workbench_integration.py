@@ -846,7 +846,7 @@ class DataCenterWorkbenchIntegrationTests(unittest.TestCase):
                     self.assertEqual(panel.query_input.toPlainText(), "TEMP_AGENT_DRAFT")
                 self.assertTrue(panel.agent_shutdown_cleanup())
 
-    def test_agent_selection_controls_stack_in_a_narrow_sidebar(self):
+    def test_agent_selection_controls_fit_one_row_in_the_sidebar(self):
         from ui.data_center.integration import DataCenterWorkbenchAgent
 
         host = DataCenterWorkbenchAgent(
@@ -857,12 +857,13 @@ class DataCenterWorkbenchIntegrationTests(unittest.TestCase):
         self.extra_widgets.append(host)
         self._wait(lambda: bool(host._models))
         host.show()
-        host.resize(480, 700)
-        self.app.processEvents()
-        self.assertEqual(host._controls_row.direction(), QBoxLayout.Direction.TopToBottom)
-        host.resize(560, 700)
+        # 侧栏常见宽度下「模式 + 模型 + ↻」保持一行，且都在侧栏宽度内
+        host.resize(340, 700)
         self.app.processEvents()
         self.assertEqual(host._controls_row.direction(), QBoxLayout.Direction.LeftToRight)
+        for widget in (host.mode_combo, host.model_combo, host.refresh_button):
+            right = widget.mapTo(host, widget.rect().topRight()).x()
+            self.assertLessEqual(right, host.width(), widget.objectName() or type(widget).__name__)
         self.assertTrue(host.agent_shutdown_cleanup())
 
     def test_late_model_catalog_result_cannot_replace_the_users_new_selection(self):

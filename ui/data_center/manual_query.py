@@ -2393,6 +2393,10 @@ class ManualQueryHost(QObject):
             or self._export_jobs
             or self._active_full_export_states()
         ))
+        # V1.1：事务按钮只在有未提交事务时出现，「停止」只在执行/导出中出现，工具条平时只留常用项
+        self.commit_btn.setVisible(self.commit_btn.isEnabled())
+        self.rollback_btn.setVisible(self.rollback_btn.isEnabled())
+        self.stop_btn.setVisible(self.stop_btn.isEnabled())
         run_button = getattr(self.panel, "run_btn", None)
         if run_button is not None:
             tab = self.panel._current_tab()
