@@ -22,9 +22,12 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 from config import AI_LOCAL_FILE, ensure_config_dir
+from tools import anthropic_compat
 
 DEFAULT_AI_LOCAL = {
     'provider': 'intranet',
+    # 'openai' = /v1/chat/completions；'anthropic' = /v1/messages（Claude Code 网关）
+    'api_protocol': 'openai',
     'enabled': False,
     'base_url': '',
     'model': '',
@@ -194,6 +197,7 @@ def normalize_ai_local(raw) -> dict:
         # opening a socket or decrypting a token.
         result['provider'] = provider.strip().lower() if isinstance(provider, str) else provider
         result['enabled'] = bool(raw.get('enabled', False))
+        result['api_protocol'] = anthropic_compat.protocol_for_config(raw)
         result['base_url'] = str(raw.get('base_url') or '').strip()
         result['model'] = str(raw.get('model') or '').strip()
         if result['provider'] == 'deepseek':
@@ -754,7 +758,9 @@ def build_headers(cfg: dict) -> dict:
     token = decrypt_token(cfg.get('token') or '')
     if provider == 'deepseek' and not token:
         raise IntranetLlmError('DeepSeek API key is required before making a request.')
-    if token:
+    if anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC:
+        headers.update(anthropic_compat.anthropic_headers(token))
+    elif token:
         headers['Authorization'] = f'Bearer {token}'
     tag = '' if provider == 'deepseek' else str(cfg.get('app_tag') or '').strip()
     if tag:
@@ -812,12 +818,29 @@ def _decode_body(raw: str, status: int) -> dict:
     return data
 
 
+def endpoint_url(cfg: dict, suffix: str) -> str:
+    """按配置的协议拼接口地址：OpenAI 拼 /chat/completions，Anthropic 拼 /v1/messages。"""
+    provider = provider_for_config(cfg)
+    base_url = cfg.get('base_url') or ''
+    if anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC:
+        canonical = canonical_base_url(base_url, provider=provider)
+        if suffix.strip('/') == 'models':
+            return anthropic_compat.models_url(canonical)
+        return anthropic_compat.messages_url(canonical)
+    return _join(base_url, suffix, provider=provider)
+
+
 def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
     provider = provider_for_config(cfg)
     if not cfg.get('enabled'):
         raise IntranetLlmError('模型服务配置未启用')
     validate_profile_config(cfg, require_base_url=True)
-    url = _join(cfg.get('base_url') or '', suffix, provider=provider)
+    anthropic = anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC
+    url = endpoint_url(cfg, suffix)
+    if anthropic and body is not None and suffix.strip('/') == 'chat/completions':
+        body = anthropic_compat.to_anthropic_request(
+            body, default_max_tokens=int(cfg.get('max_tokens') or anthropic_compat.DEFAULT_MAX_TOKENS),
+        )
     if provider == 'intranet':
         resolve_private_host(_hostname(url))
     timeout = int(cfg.get('timeout_seconds') or 120)
@@ -846,7 +869,35 @@ def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
         raise
     except Exception as exc:
         raise IntranetLlmError(redact_llm_error(str(exc))) from exc
+    if anthropic:
+        return _decode_anthropic_body(raw, status)
     return _decode_body(raw, status)
+
+
+def _decode_anthropic_body(raw: str, status: int) -> dict:
+    """Anthropic 响应（SSE 或 JSON）统一转成 OpenAI 形状，复用后续解析。"""
+    text = str(raw or '').strip()
+    if not text:
+        return {}
+    if text.startswith(('event:', 'data:')):
+        translated = anthropic_compat.translate_stream_text(text)
+        for line in translated.splitlines():
+            payload = line[5:].strip() if line.startswith('data:') else ''
+            if payload.startswith('{"error"'):
+                try:
+                    message = json.loads(payload)['error'].get('message')
+                except (ValueError, KeyError, AttributeError):
+                    message = ''
+                raise IntranetLlmError(redact_llm_error(str(message or '模型网关返回错误')))
+        return _decode_body(translated, status)
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise IntranetLlmError(f'响应不是 Anthropic 兼容 JSON（HTTP {status}）') from exc
+    converted = anthropic_compat.from_anthropic_response(data)
+    if not converted:
+        raise IntranetLlmError('响应格式无法识别')
+    return converted
 
 
 def _cfg_for_call(cfg=None, model_config_id: str | None = None) -> dict:

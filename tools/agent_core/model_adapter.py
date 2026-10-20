@@ -1432,7 +1432,7 @@ class UrlLibStreamingTransport:
     ) -> Iterator[bytes]:
         # Import lazily so protocol-only tests never read model configuration or
         # instantiate network helpers.
-        from tools import intranet_llm
+        from tools import anthropic_compat, intranet_llm
 
         if _is_cancelled(cancellation):
             return
@@ -1443,12 +1443,20 @@ class UrlLibStreamingTransport:
         intranet_llm.validate_profile_config(cfg, require_base_url=True)
         if not cfg.get("enabled"):
             raise ModelTransportError("model profile is disabled")
-        base_url = cfg.get("base_url") or ""
-        url = intranet_llm._join(base_url, "chat/completions", provider=provider)
+        url = intranet_llm.endpoint_url(cfg, "chat/completions")
         if provider == "intranet":
             intranet_llm.resolve_private_host(intranet_llm._hostname(url))
         headers = intranet_llm.build_headers(cfg)
         headers["Accept"] = "text/event-stream, application/json"
+        # Anthropic 网关：请求在边界转成 /v1/messages，响应流再转回 OpenAI SSE，
+        # 适配器其余部分（工具调用、预算、取消）保持不变。
+        translator = None
+        if anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC:
+            translator = anthropic_compat.AnthropicStreamTranslator()
+            body = anthropic_compat.to_anthropic_request(
+                body,
+                default_max_tokens=int(cfg.get("max_tokens") or anthropic_compat.DEFAULT_MAX_TOKENS),
+            )
         payload = encode_model_request(body)
         request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
         timeout = _finite_float(
@@ -1570,7 +1578,15 @@ class UrlLibStreamingTransport:
                         raise ModelDeadlineExceeded()
                     raise ModelTransportError("model stream read failed", retryable=True) from exc
                 if not chunk:
+                    if translator is not None:
+                        tail = translator.finish()
+                        if tail:
+                            yield tail
                     return
+                if translator is not None:
+                    chunk = translator.feed(chunk)
+                    if not chunk:
+                        continue
                 yield chunk
         except urllib.error.HTTPError as exc:
             raise ModelTransportError(f"model gateway HTTP {exc.code}", status_code=exc.code) from exc

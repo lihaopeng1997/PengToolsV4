@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 from copy import deepcopy
 
 from PyQt6.QtCore import QEvent, QRectF, QThread, QTimer, Qt, pyqtSignal
@@ -536,7 +537,10 @@ class SettingsPanel(QWidget):
         self.ai_default_btn = QPushButton()
         size_compact_button(self.ai_default_btn)
         self.ai_default_btn.clicked.connect(self._set_default_model_config)
-        for btn in (self.ai_new_btn, self.ai_copy_btn, self.ai_del_btn, self.ai_default_btn):
+        self.ai_import_btn = QPushButton()
+        size_compact_button(self.ai_import_btn)
+        self.ai_import_btn.clicked.connect(self._import_claude_code_config)
+        for btn in (self.ai_new_btn, self.ai_copy_btn, self.ai_del_btn, self.ai_default_btn, self.ai_import_btn):
             ai_crud.addWidget(btn)
         ai_crud.addStretch(1)
         ai_outer.addLayout(ai_crud)
@@ -552,6 +556,17 @@ class SettingsPanel(QWidget):
         self.ai_provider.addItem('DeepSeek', 'deepseek')
         size_enum_combo(self.ai_provider, min_w=160, max_w=16777215)
         self.ai_provider_label = QLabel()
+        # 接口协议与服务商同一行，不增加表单行数（保存按钮保持在首屏）
+        self.ai_protocol = QComboBox()
+        self.ai_protocol.addItem('OpenAI 兼容', 'openai')
+        self.ai_protocol.addItem('Anthropic · Claude Code', 'anthropic')
+        size_enum_combo(self.ai_protocol, min_w=240, max_w=16777215)
+        self.ai_provider_row = QWidget()
+        provider_row_layout = QHBoxLayout(self.ai_provider_row)
+        provider_row_layout.setContentsMargins(0, 0, 0, 0)
+        provider_row_layout.setSpacing(8)
+        provider_row_layout.addWidget(self.ai_provider, 1)
+        provider_row_layout.addWidget(self.ai_protocol, 1)
         self.ai_enabled = QCheckBox()
         self.ai_enabled_label = QLabel()
         self.ai_agent_capability = QComboBox()
@@ -643,7 +658,7 @@ class SettingsPanel(QWidget):
         # first viewport. Advanced response/Agent tuning remains available in
         # an explicit, non-persistent disclosure below it.
         ai_form.addRow(self.ai_name_label, self.ai_name)
-        ai_form.addRow(self.ai_provider_label, self.ai_provider)
+        ai_form.addRow(self.ai_provider_label, self.ai_provider_row)
         ai_form.addRow(self.ai_enabled_label, self.ai_enabled)
         ai_form.addRow(self.ai_base_url_label, self.ai_base_url_row)
         ai_form.addRow(self.ai_model_label, self.ai_model)
@@ -692,6 +707,7 @@ class SettingsPanel(QWidget):
         self._ai_display_provider = 'intranet'
         self._ai_probe_persist_enabled = None
         self.ai_provider.currentIndexChanged.connect(self._on_ai_provider_changed)
+        self.ai_protocol.currentIndexChanged.connect(lambda _i: self._refresh_ai_provider_surface())
         self.ai_token.textEdited.connect(self._on_ai_token_edited)
 
         self._layout_sections(is_compact=False)
@@ -1240,6 +1256,9 @@ class SettingsPanel(QWidget):
             provider_index = self.ai_provider.count() - 1
         self.ai_provider.setCurrentIndex(provider_index)
         self.ai_provider.blockSignals(False)
+        self.ai_protocol.blockSignals(True)
+        self.ai_protocol.setCurrentIndex(max(0, self.ai_protocol.findData(cfg.get('api_protocol') or 'openai')))
+        self.ai_protocol.blockSignals(False)
         self._schedule_ai_provider_control_fit()
         capability = normalize_agent_capability(
             cfg.get('agent_capability', cfg.get('capability', cfg.get('agent_mode')))
@@ -1343,6 +1362,7 @@ class SettingsPanel(QWidget):
         if selected_provider == 'deepseek':
             self.ai_base_url.setText('https://api.deepseek.com')
             self.ai_ssl_verify.setChecked(True)
+            self.ai_protocol.setCurrentIndex(max(0, self.ai_protocol.findData('openai')))
         elif selected_provider == 'intranet':
             self.ai_base_url.clear()
         if selected_provider in ('intranet', 'deepseek'):
@@ -1362,8 +1382,11 @@ class SettingsPanel(QWidget):
         provider = self.ai_provider.currentData() if hasattr(self, 'ai_provider') else 'intranet'
         zh = self.language == 'zh'
         deepseek = provider == 'deepseek'
+        anthropic = not deepseek and self.ai_protocol.currentData() == 'anthropic'
+        self.ai_protocol.setEnabled(not deepseek)
         self.ai_base_url.setPlaceholderText(
-            'https://api.deepseek.com 或 /v1' if deepseek else 'http://10.128.25.142:18002/v1'
+            'https://api.deepseek.com 或 /v1' if deepseek else
+            'http://10.128.25.142:13458' if anthropic else 'http://10.128.25.142:18002/v1'
         )
         if self.ai_model.lineEdit() is not None:
             self.ai_model.lineEdit().setPlaceholderText('deepseek-flash' if deepseek else 'qwen3.6')
@@ -1403,6 +1426,7 @@ class SettingsPanel(QWidget):
             'id': self._ai_editing_id,
             'name': self.ai_name.text().strip() or '未命名配置',
             'provider': self.ai_provider.currentData() or 'intranet',
+            'api_protocol': self.ai_protocol.currentData() or 'openai',
             'enabled': self.ai_enabled.isChecked(),
             'agent_capability': normalize_agent_capability(self.ai_agent_capability.currentData()),
             'agent_reasoning_fields': normalize_agent_reasoning_fields(
@@ -1424,6 +1448,82 @@ class SettingsPanel(QWidget):
             'project_id': self.ai_project.currentData() or 'prpcar',
         }
         return normalize_model_item(payload)
+
+    def _import_claude_code_config(self):
+        """读取本机 Claude Code 配置，生成/更新一条 Anthropic 协议的模型配置。"""
+        from tools.claude_code_import import (
+            ClaudeCodeImportError,
+            find_profiles,
+            profile_from_file,
+            to_model_item,
+        )
+        from tools.intranet_llm import (
+            IntranetLlmError,
+            encrypt_token,
+            load_model_catalog,
+            upsert_model_item,
+        )
+        zh = self.language == 'zh'
+        profiles = find_profiles()
+        profile = next((item for item in profiles if item.token), profiles[0] if profiles else None)
+        if profile is None:
+            path, _filter = QFileDialog.getOpenFileName(
+                self,
+                '选择 Claude Code 配置（settings.json）' if zh else 'Choose Claude Code settings.json',
+                os.environ.get('APPDATA') or os.path.expanduser('~'),
+                'JSON (*.json);;All files (*)',
+            )
+            if not path:
+                return
+            try:
+                profile = profile_from_file(path)
+            except (OSError, ClaudeCodeImportError) as exc:
+                self.ai_status.setText(str(exc))
+                return
+            if profile is None:
+                self.ai_status.setText(
+                    '该文件中没有 ANTHROPIC_BASE_URL 配置' if zh else 'No ANTHROPIC_BASE_URL in that file'
+                )
+                return
+        rows = list(load_model_catalog().get('items') or [])
+        existing = next((
+            row for row in rows
+            if row.get('api_protocol') == 'anthropic'
+            and str(row.get('base_url') or '').rstrip('/') == profile.base_url
+            and str(row.get('model') or '') == profile.model
+        ), None)
+        name = str(existing.get('name') or '') if existing else ''
+        if not name:
+            base_name = f'{profile.model or "内网模型"}（Claude Code 导入）'
+            taken = {str(row.get('name') or '') for row in rows}
+            name, n = base_name, 2
+            while name in taken:
+                name, n = f'{base_name} {n}', n + 1
+        item = to_model_item(
+            profile,
+            encrypted_token=encrypt_token(profile.token) if profile.token else '',
+            existing_id=str(existing.get('id') or '') if existing else '',
+            name=name,
+        )
+        try:
+            saved = upsert_model_item(
+                item, make_active=True, token_action='replace' if profile.token else 'preserve',
+            )
+        except IntranetLlmError as exc:
+            self.ai_status.setText(str(exc))
+            return
+        self._ai_editing_id = str(saved.get('id') or '')
+        self._refresh_ai_list()
+        if zh:
+            token_note = 'Token 已加密保存在本机' if profile.token else '配置中没有 Token，请手动填写'
+            self.ai_status.setText(
+                f'已从 {profile.source_label} 导入「{saved.get("name")}」并设为默认；{token_note}。可点探测检查连通。'
+            )
+        else:
+            token_note = 'token encrypted on this computer' if profile.token else 'no token found; enter it manually'
+            self.ai_status.setText(
+                f'Imported "{saved.get("name")}" from {profile.source_label} as default; {token_note}. Probe to verify.'
+            )
 
     def _ai_token_action(self, *, new_profile: bool = False) -> str:
         """Return explicit credential intent; never infer replacement from copied text."""
@@ -2033,6 +2133,13 @@ class SettingsPanel(QWidget):
         self.ai_group.setTitle('模型服务' if zh else 'Model service')
         self.ai_name_label.setText('配置名称' if zh else 'Config name')
         self.ai_provider_label.setText('服务商' if zh else 'Provider')
+        self.ai_protocol.setItemText(self.ai_protocol.findData('openai'), 'OpenAI 兼容' if zh else 'OpenAI-compatible')
+        self.ai_protocol.setItemText(self.ai_protocol.findData('anthropic'), 'Anthropic · Claude Code')
+        self.ai_protocol.setToolTip(
+            '接口协议：OpenAI = /v1/chat/completions；Anthropic = /v1/messages（内网 Claude Code 网关）'
+            if zh else
+            'API protocol: OpenAI = /v1/chat/completions; Anthropic = /v1/messages (Claude Code gateway)'
+        )
         provider = self.ai_provider.currentData()
         self.ai_provider.setItemText(
             self.ai_provider.findData('intranet'),
@@ -2051,6 +2158,13 @@ class SettingsPanel(QWidget):
         self.ai_copy_btn.setText('复制' if zh else 'Copy')
         self.ai_del_btn.setText('删除' if zh else 'Delete')
         self.ai_default_btn.setText('设为默认' if zh else 'Set default')
+        self.ai_import_btn.setText('从 Claude Code 导入' if zh else 'Import from Claude Code')
+        self.ai_import_btn.setToolTip(
+            '读取本机 VS Code Claude Code 插件或 ~/.claude/settings.json 的 ANTHROPIC_* 配置；'
+            'Token 加密后只保存在本机' if zh else
+            'Reads ANTHROPIC_* settings from the local VS Code Claude Code extension or ~/.claude/settings.json; '
+            'the token is encrypted and kept on this computer only'
+        )
         self.ai_enabled_label.setText('启用' if zh else 'Enable')
         self.ai_enabled.setText('允许访问已配置的内网 Base URL' if zh else 'Allow the configured intranet URL')
         capability_labels = (
