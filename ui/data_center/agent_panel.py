@@ -13,7 +13,7 @@ import json
 from typing import Any, Mapping
 import weakref
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -292,6 +292,7 @@ class DataCenterAgentPanel(QWidget):
         self._preview_subtitle.setProperty("fullCopy", subtitle)
         self._preview_subtitle.setText(subtitle)
         self._preview_subtitle.setToolTip(subtitle)
+        self.title_label.setToolTip(subtitle)
         self._apply_preview_subtitle_elision()
         self.preview_badge.setText(
             ("草稿" if draft else "只读") if zh else
@@ -530,6 +531,19 @@ class DataCenterAgentPanel(QWidget):
         self.prompt_input.clear()
         return True
 
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if (
+            watched is getattr(self, "target_value_label", None)
+            and event.type() == QEvent.Type.Resize
+            and not getattr(self, "_eliding_target", False)
+        ):
+            self._eliding_target = True
+            try:
+                self._apply_target_label_elision()
+            finally:
+                self._eliding_target = False
+        return super().eventFilter(watched, event)
+
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
         if not hasattr(self, "_heading_row"):
@@ -575,6 +589,9 @@ class DataCenterAgentPanel(QWidget):
         subtitle.setMinimumWidth(0)
         subtitle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         heading.addWidget(subtitle)
+        # 紧凑头部：装饰性眉标与说明行不常驻，说明保留在 tooltip 里
+        eyebrow.hide()
+        subtitle.hide()
         self.eyebrow_label = eyebrow
         self.title_label = title
         self._heading_row = heading_row
@@ -586,7 +603,7 @@ class DataCenterAgentPanel(QWidget):
         self.preview_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_badge.setToolTip("")
         self.preview_badge.setAccessibleName("Agent mode")
-        heading_row.addWidget(self.preview_badge, 0, Qt.AlignmentFlag.AlignTop)
+        heading_row.addWidget(self.preview_badge, 0, Qt.AlignmentFlag.AlignVCenter)
         header_layout.addLayout(heading_row)
 
         context_grid = QGridLayout()
@@ -605,6 +622,8 @@ class DataCenterAgentPanel(QWidget):
         # one predictable line and let _apply_target_label_elision() preserve
         # the full value in the tooltip.
         self.target_value_label.setWordWrap(False)
+        # 头部行内元素变化会改变标签实际宽度；宽度变了就按新宽度重新省略
+        self.target_value_label.installEventFilter(self)
         self.model_value_label.setWordWrap(True)
         self._set_value_label(self.target_value_label, target, limit=180)
         self._set_value_label(self.model_value_label, model, limit=180)
@@ -638,6 +657,7 @@ class DataCenterAgentPanel(QWidget):
         self.phase_label.setObjectName("status-pill")
         self.phase_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.phase_label.setToolTip("")
+        phase_caption.hide()
         status_row.addWidget(phase_caption)
         status_row.addWidget(self.phase_label, 1)
         self.progress_bar = QProgressBar(header)
@@ -653,9 +673,8 @@ class DataCenterAgentPanel(QWidget):
         header_layout.addLayout(status_row)
         self._status_row = status_row
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(8)
-        action_row.addStretch(1)
+        # 新建对话 / 停止并入标题行，不再单独占一行
+        action_row = heading_row
         self.new_conversation_button = QPushButton(header)
         self.new_conversation_button.setObjectName("new-conversation-button")
         apply_button(self.new_conversation_button, "ghost", compact=True)
@@ -667,7 +686,6 @@ class DataCenterAgentPanel(QWidget):
         self.stop_button.clicked.connect(self._on_stop_clicked)
         self.stop_button.setEnabled(False)
         action_row.addWidget(self.stop_button)
-        header_layout.addLayout(action_row)
         root.addWidget(header)
 
         scroll = QScrollArea(self)

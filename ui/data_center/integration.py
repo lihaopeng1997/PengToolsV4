@@ -18,9 +18,11 @@ from typing import Any, Callable
 from PyQt6.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -209,7 +211,14 @@ class DataCenterWorkbenchAgent(QWidget):
         self.agent_panel = DataCenterAgentPanel(self, target="尚未固定目标", model="尚未选择模型")
         self._set_production_panel_copy()
         self.agent_panel.prompt_input.setEnabled(False)
-        root.addWidget(self.agent_panel, 1)
+        # 空间够时面板撑满；窗口矮时整体滚动，而不是把整个工作台撑高
+        self.agent_scroll = QScrollArea(self)
+        self.agent_scroll.setObjectName("data-center-agent-scroll")
+        self.agent_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.agent_scroll.setWidgetResizable(True)
+        self.agent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.agent_scroll.setWidget(self.agent_panel)
+        root.addWidget(self.agent_scroll, 1)
 
         self.mode_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_selection_changed)

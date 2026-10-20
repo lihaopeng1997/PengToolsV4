@@ -592,7 +592,7 @@ class RedisWorkbenchPanel(QWidget):
         bottom_l.addLayout(cmd_bar)
         self.cmd_output = QPlainTextEdit()
         self.cmd_output.setReadOnly(True)
-        self.cmd_output.setMinimumHeight(120)
+        self.cmd_output.setMinimumHeight(96)
         bottom_l.addWidget(self.cmd_output, 1)
         self.bottom_frame = bottom
 

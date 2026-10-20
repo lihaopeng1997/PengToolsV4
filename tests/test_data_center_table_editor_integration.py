@@ -1831,8 +1831,9 @@ class TableEditorProductionRouteTests(unittest.TestCase):
         APP.processEvents()
         self.assertEqual(list(sql_view_requests), [[True]])
         self.assertFalse(host._table_focus_active)
-        self.assertGreaterEqual(middle_layout.indexOf(host.transaction_actions), 0)
-        self.assertEqual(toolbar_layout.indexOf(host.transaction_actions), -1)
+        # 事务按钮常驻编辑器工具条同一行，切换表格聚焦不再挪动它们
+        self.assertEqual(middle_layout.indexOf(host.transaction_actions), -1)
+        self.assertGreaterEqual(toolbar_layout.indexOf(host.transaction_actions), 0)
         self.assertTrue(table_tab.editor.isVisibleTo(host.panel))
         host.table_editor.sql_view_button.click()
         APP.processEvents()
@@ -1915,8 +1916,9 @@ class TableEditorProductionRouteTests(unittest.TestCase):
         APP.processEvents()
         self.assertEqual(list(sql_view_requests), [[True], [False], [True]])
         self.assertFalse(host._table_focus_active)
-        self.assertGreaterEqual(middle_layout.indexOf(host.transaction_actions), 0)
-        self.assertEqual(toolbar_layout.indexOf(host.transaction_actions), -1)
+        # 事务按钮常驻编辑器工具条同一行，切换表格聚焦不再挪动它们
+        self.assertEqual(middle_layout.indexOf(host.transaction_actions), -1)
+        self.assertGreaterEqual(toolbar_layout.indexOf(host.transaction_actions), 0)
         self.assertGreater(host.panel.body_splitter.sizes()[0], 0)
         self.assertTrue(table_tab.editor.isVisibleTo(host.panel))
         self.assertTrue(model.has_staged_changes)

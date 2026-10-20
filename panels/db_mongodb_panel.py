@@ -433,7 +433,12 @@ class MongoDBWorkbenchPanel(QWidget):
         ai_send.addStretch(1)
         ai_send.addWidget(self.ai_send_btn)
         ai_l.addLayout(ai_send)
-        self.side_tabs.addTab(ai_page, 'AI 助手')
+        # 与 Redis 一致：矮窗口时页内滚动，不撑高整个工作台
+        ai_scroll = QScrollArea()
+        ai_scroll.setWidgetResizable(True)
+        ai_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        ai_scroll.setWidget(ai_page)
+        self.side_tabs.addTab(ai_scroll, 'AI 助手')
 
         right_l.addWidget(self.side_tabs)
         body.addWidget(right)

@@ -39,6 +39,10 @@ class DatabaseLayoutTests(unittest.TestCase):
                         self.assertTrue(page.isVisible())
                         self.assertGreaterEqual(page.height(), 280)
                         self.assertEqual(panel.cmd_input.text(), 'preview input; never executed')
+                    if isinstance(panel, MongoDBWorkbenchPanel):
+                        # Mongo 的命令输入在 Shell 页签内（Redis 常驻底部控制台）
+                        panel.side_tabs.setCurrentIndex(panel.side_tabs.indexOf(panel.cmd_input.parentWidget()))
+                        self.app.processEvents()
                     self.assertTrue(panel.cmd_input.isVisible())
                     splitter = getattr(panel, 'main_split', None) or panel.body_splitter
                     self.assertAlmostEqual(splitter.sizes()[0], 240, delta=2)

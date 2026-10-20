@@ -125,12 +125,12 @@ class ChangeSetDialectTests(unittest.TestCase):
             if odbc else raw_connection
         )
         provider = choice.provider
-        driver = ManualRelationalDriver(connection, provider)
 
         def classify(sql):
             return classify_relational_statement(sql, provider)
 
-        session = ManualSession(target, lambda _target: driver, classify)
+        # 驱动绑定所有者线程：必须在会话线程里创建，与生产工厂一致
+        session = ManualSession(target, lambda _target: ManualRelationalDriver(connection, provider), classify)
         result = changes.apply(session, preview).result(timeout=3)
         return session, raw_connection, result
 

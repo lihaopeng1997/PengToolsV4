@@ -837,10 +837,24 @@ class MongoAndRedisRound4Tests(unittest.TestCase):
         """Mongo Worker 与 UI delete 契约：必须包含真实条数，杜绝 None。"""
         from panels.db_mongodb_panel import MongoDBWorkbenchPanel
 
+        from PyQt6.QtCore import QObject, pyqtSignal
+        from ui.data_center.nosql_query_history import NoSqlDraft
+
+        class _DoneWorker(QObject):
+            completed = pyqtSignal(str, object)
+
         panel = MongoDBWorkbenchPanel('zh')
         try:
-            with patch('panels.db_mongodb_panel.show_info') as mock_info:
-                panel._on_worker_done('delete', {'deleted': 3, 'deleted_count': 3})
+            # 结果只回填到发起它的草稿：用真实的 worker 发送者 + 当前草稿 id 走生产路径
+            draft = NoSqlDraft(draft_id='draft-delete', provider='mongo', target=None)
+            panel.nosql_draft_tabs.add_draft(draft, select=True)
+            worker = _DoneWorker()
+            worker.nosql_draft_id = draft.draft_id
+            panel._worker = worker
+            worker.completed.connect(panel._on_worker_done)
+            # 删除后会自动重查；测试面板没有连接，重查提示不弹模态框
+            with patch('panels.db_mongodb_panel.show_info') as mock_info,                     patch('panels.db_mongodb_panel.show_warning'):
+                worker.completed.emit('delete', {'deleted': 3, 'deleted_count': 3})
                 self.assertTrue(mock_info.called)
                 msg = mock_info.call_args[0][2]
                 self.assertIn('已删除 3 条', msg)

@@ -392,13 +392,13 @@ class RedisClusterScanRegressionTest(unittest.TestCase):
             'node-A': [(99, ['cluster_k1'])],
         })
 
+        # 连接打开函数在创建 worker 时注入（生产同样由面板注入），不再事后 patch 模块函数
         worker = _RedisWorker('scan', {'dialect': 'redis', 'mode': 'cluster'},
+                              connection_opener=lambda *_args, **_kwargs: fake_cluster,
                               cursor={'node-A': 99}, count=50, limit=100, generation=1)
         results = []
         worker.completed.connect(lambda kind, payload: results.append((kind, payload)))
-
-        with patch('panels.db_redis_panel.open_connection', return_value=fake_cluster):
-            worker.run()
+        worker.run()
 
         self.assertEqual(len(results), 1)
         kind, payload = results[0]

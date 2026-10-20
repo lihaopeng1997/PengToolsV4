@@ -533,6 +533,11 @@ class DataCenterPanel(QWidget):
         self._build_ui()
         self.refresh_catalog()
 
+    def _sync_connection_menu(self) -> None:
+        for action, button in getattr(self, "_connection_menu_actions", ()):
+            action.setText(button.text())
+            action.setEnabled(button.isEnabled())
+
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -541,6 +546,8 @@ class DataCenterPanel(QWidget):
             "数据中心", "项目、环境、引擎与连接工作区", "database", language=self.language
         )
         self._page_header = header
+        # 模块 Tab 已显示“数据中心”，页内不再重复标题
+        header.hide()
         root.addWidget(header)
 
         toolbar = QFrame(self)
@@ -584,9 +591,22 @@ class DataCenterPanel(QWidget):
         self.workspace_save_action.triggered.connect(self.workspace_persistence.save)
         self.workspace_restore_action.triggered.connect(self.workspace_persistence.restore)
         self.workspace_btn.setMenu(workspace_menu)
+        # 低频的编辑/删除/收藏/刷新目录收进「连接管理」菜单；按钮对象保留，
+        # 继续承担启用状态与既有处理函数，菜单项只是它们的入口。
+        self.connection_menu_btn = self._button()
+        self.connection_menu = QMenu(self.connection_menu_btn)
+        self._connection_menu_actions = []
+        for button in (self.edit_btn, self.delete_btn, self.favorite_btn, self.refresh_btn):
+            action = self.connection_menu.addAction("")
+            action.triggered.connect(button.click)
+            self._connection_menu_actions.append((action, button))
+            button.setParent(toolbar)
+            button.hide()
+        self.connection_menu.aboutToShow.connect(self._sync_connection_menu)
+        self.connection_menu_btn.setMenu(self.connection_menu)
         for button in (
-            self.new_btn, self.edit_btn, self.delete_btn, self.favorite_btn,
-            self.refresh_btn, self.open_btn, self.new_query_btn, self.agent_btn, self.workspace_btn,
+            self.new_btn, self.connection_menu_btn, self.open_btn, self.new_query_btn,
+            self.agent_btn, self.workspace_btn,
         ):
             row.addWidget(button)
         root.addWidget(toolbar)
@@ -680,7 +700,7 @@ class DataCenterPanel(QWidget):
         self.summary_hint.setWordWrap(True)
         layout.addWidget(self.summary_hint)
         self.summary_create_btn = QPushButton()
-        apply_button(self.summary_create_btn, "primary", compact=True)
+        apply_button(self.summary_create_btn, "secondary", compact=True)  # 工具条已有主操作，概览页不再抢第二个主按钮
         self.summary_create_btn.clicked.connect(self._new_connection)
         layout.addWidget(self.summary_create_btn, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addStretch(1)
@@ -2069,6 +2089,7 @@ class DataCenterPanel(QWidget):
         )
         self.search_edit.setPlaceholderText("搜索项目、环境、引擎或连接" if zh else "Search projects, environments, engines, or connections")
         self.new_btn.setText("新建连接" if zh else "New connection")
+        self.connection_menu_btn.setText("连接管理" if zh else "Manage")
         self.edit_btn.setText("编辑" if zh else "Edit")
         self.delete_btn.setText("删除" if zh else "Delete")
         self.favorite_btn.setText("收藏" if zh else "Favorite")

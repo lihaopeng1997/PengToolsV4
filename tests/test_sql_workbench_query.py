@@ -176,19 +176,28 @@ class SqlEditorUiTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    @staticmethod
+    def _typed(editor, text):
+        """补全按光标前的真实输入计算：先输入，再按当前词取候选。"""
+        from PyQt6.QtGui import QTextCursor
+        editor.setPlainText(text)
+        cursor = editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        editor.setTextCursor(cursor)
+        token, _start, _pos = editor._current_token()
+        return editor._completion_candidates(token)
+
     def test_s_prefix_select(self):
         editor = SqlEditor()
-        hits = editor._completion_candidates('s')
-        self.assertIn('SELECT', hits)
+        self.assertIn('SELECT', self._typed(editor, 's'))
         editor.deleteLater()
 
     def test_w_and_ord(self):
         editor = SqlEditor()
-        w = editor._completion_candidates('w')
-        self.assertTrue({'WHERE', 'WITH', 'WHEN'} <= set(w) or all(x in w for x in ('WHERE', 'WITH')))
+        w = self._typed(editor, 'SELECT * FROM t w')
         self.assertIn('WHERE', w)
         self.assertIn('WITH', w)
-        self.assertIn('ORDER BY', editor._completion_candidates('ord'))
+        self.assertIn('ORDER BY', self._typed(editor, 'SELECT * FROM t ord'))
         editor.deleteLater()
 
     def test_schema_table_and_column(self):
@@ -200,9 +209,9 @@ class SqlEditorUiTests(unittest.TestCase):
                 'columns': [{'name': 'ID'}, {'name': 'NAME'}],
             }],
         })
-        tables = editor._completion_candidates('USR')
+        tables = self._typed(editor, 'SELECT * FROM USR')
         self.assertTrue(any('USER_TABLE' in item for item in tables))
-        cols = editor._completion_candidates('USER_TABLE.')
+        cols = self._typed(editor, 'SELECT USER_TABLE.')
         self.assertTrue(any(item.endswith('ID') or item.endswith('NAME') for item in cols))
         editor.deleteLater()
 

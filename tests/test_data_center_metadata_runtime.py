@@ -387,9 +387,21 @@ class RuntimeTests(unittest.TestCase):
 
             def __init__(self):
                 self.calls = []
+                self.tracker = None
 
             def __call__(self, call, *, context, cancellation):  # noqa: ARG002
+                from concurrent.futures import Future
+
                 self.calls.append(call)
+                # 生产查询工具会把执行它的 Future 登记为查询所有者；这里登记一个已完成的
+                future = Future()
+                future.query_id = call.call_id
+                future.session_id = context.tab_id
+                future.generation = 1
+                future.set_result(None)
+                self.tracker.register_query_owner(
+                    context, call.call_id, session_id=context.tab_id, generation=1, future=future,
+                )
                 return ToolResult(ok=True, data={"columns": [{"name": "COUNT"}], "rows": [(12,)]}, evidence_id="query:e", query_id=call.call_id, scope=target.scope)
 
         class Model:
@@ -414,6 +426,7 @@ class RuntimeTests(unittest.TestCase):
         query = Query()
         model = Model()
         runtime = DataCenterAgentRuntime(_context(), provider="oracle", model=model, metadata_host=Metadata(), query_tool=query)
+        query.tracker = runtime.query_owner_tracker
         result = runtime.run("count users")
         final_events = [event for event in result.events if event.event_type == "final"]
         runtime.close()

@@ -683,9 +683,11 @@ class AiWorkbenchPanel(QWidget):
         self.all_btn.clicked.connect(self._on_all_or_cancel)
         self.all_btn.setEnabled(False)
         self.result_status = QueryStatusBand()
+        # 状态（含历史编号/禁用原因）独占一行，窄工作台下也不被翻页按钮挤到省略
+        result_l.addWidget(self.result_status)
         page_row.addWidget(self.next_btn)
         page_row.addWidget(self.all_btn)
-        page_row.addWidget(self.result_status, 1)
+        page_row.addStretch(1)
         result_l.addLayout(page_row)
         result_l.addWidget(self.result, 1)
         self.msg_view = QPlainTextEdit()

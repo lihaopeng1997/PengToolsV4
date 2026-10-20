@@ -300,7 +300,8 @@ class ManualQueryHost(QObject):
         self.stop_btn.clicked.connect(self.cancel_current)
         self.run_all_btn.clicked.connect(self.run_all_current)
         middle_layout = panel._middle_pane.layout()
-        if middle_layout is None or _layout_containing(middle_layout, panel.run_btn) is None:
+        editor_toolbar = _layout_containing(middle_layout, panel.run_btn) if middle_layout is not None else None
+        if editor_toolbar is None:
             raise TypeError("AiWorkbenchPanel run button is not inside the editor toolbar")
         self.transaction_actions = QWidget(panel._middle_pane)
         self.transaction_actions.setObjectName("manual-transaction-actions")
@@ -313,13 +314,22 @@ class ManualQueryHost(QObject):
             button.setParent(self.transaction_actions)
             button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             action_layout.addWidget(button)
+        # “执行全部”频率低，入口放进「更多」菜单，给同一行的常用按钮让出宽度
+        self.run_all_btn.hide()
         self.workbench_more_btn = QToolButton(self.transaction_actions)
         self.workbench_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.workbench_more_menu = QMenu(self.workbench_more_btn)
         self.workbench_more_btn.setMenu(self.workbench_more_menu)
         action_layout.addWidget(self.workbench_more_btn)
-        action_layout.addStretch(1)
-        middle_layout.insertWidget(1, self.transaction_actions)
+        # 事务按钮并入编辑器工具条同一行（放在弹性空白之前），不再单独占一行
+        insert_at = editor_toolbar.count()
+        for index in range(editor_toolbar.count()):
+            item = editor_toolbar.itemAt(index)
+            if item is not None and item.spacerItem() is not None:
+                insert_at = index
+                break
+        editor_toolbar.insertWidget(insert_at, self.transaction_actions)
+        self._transaction_actions_in_toolbar = True
         self.workbench_more_menu.aboutToShow.connect(self._refresh_workbench_actions)
         self.refresh_language()
 
@@ -577,6 +587,11 @@ class ManualQueryHost(QObject):
         self._result_columns_menu = None
         menu.clear()
         panel = self.panel
+        run_all_button = getattr(self, "run_all_btn", None)
+        if run_all_button is not None:
+            run_all_action = menu.addAction(run_all_button.text())
+            run_all_action.setEnabled(run_all_button.isEnabled())
+            run_all_action.triggered.connect(run_all_button.click)
         history_action = menu.addAction(self._message("查询历史与收藏…", "Query history and favorites…"))
         history_action.triggered.connect(getattr(panel, "_open_query_history", lambda: None))
         menu.addSeparator()
@@ -630,8 +645,8 @@ class ManualQueryHost(QObject):
         self._set_table_focus_active(table_visible and (self._low_height or self._layout_mode in {"compact", "narrow"}))
 
     def _move_transaction_actions_to_toolbar(self, compact: bool) -> None:
-        """Reuse the existing transaction buttons in the compact Run toolbar."""
-        if self._transaction_actions_in_toolbar == bool(compact):
+        """事务按钮常驻编辑器工具条同一行；任何布局下都不再挪回单独一行。"""
+        if self._transaction_actions_in_toolbar:
             return
         middle = getattr(self.panel, "_middle_pane", None)
         actions = getattr(self, "transaction_actions", None)
