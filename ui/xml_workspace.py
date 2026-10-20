@@ -206,6 +206,7 @@ class XmlWorkspace(QWidget):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.input_edit.setFont(mono)
         self.output_edit.setFont(mono)
+        self.output_edit.set_indent_guide_step(4)
 
     def set_language(self, language):
         self.language = language
@@ -338,7 +339,7 @@ class XmlWorkspace(QWidget):
     def _format(self):
         text = self.input_edit.toPlainText()
         try:
-            formatted = format_xml_text(text)
+            formatted = format_xml_text(text, indent='    ')
         except ValueError as exc:
             self._show_error(str(exc))
             return False

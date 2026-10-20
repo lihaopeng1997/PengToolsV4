@@ -54,6 +54,8 @@ class FoldablePlainTextEdit(QPlainTextEdit):
         self._updating_visibility = False
         self._glance_enabled = bool(glance)
         self._search_selections: list = []
+        # 缩进参考线：每级缩进画一条淡竖线（0 表示关闭）
+        self._indent_guide_step = 2
 
         self._fold_margin = _FoldMargin(self)
         self._fold_margin.show()
@@ -71,6 +73,49 @@ class FoldablePlainTextEdit(QPlainTextEdit):
         self._highlight_current_line()
 
     # ── public API ──────────────────────────────────────
+
+    def set_indent_guide_step(self, spaces: int):
+        """设置参考线间隔（空格数）；0 关闭参考线。"""
+        self._indent_guide_step = max(0, int(spaces))
+        self.viewport().update()
+
+    def paintEvent(self, event):  # noqa: N802 — Qt API
+        super().paintEvent(event)
+        step = self._indent_guide_step
+        if step <= 0:
+            return
+        space = self.fontMetrics().horizontalAdvance(' ')
+        if space <= 0:
+            return
+        offset = self.contentOffset()
+        base_x = offset.x() + self.document().documentMargin()
+        color = QColor(self.palette().color(self.foregroundRole()))
+        color.setAlpha(46)
+        painter = QPainter(self.viewport())
+        painter.setPen(color)
+        bottom = event.rect().bottom()
+        block = self.firstVisibleBlock()
+        tab = max(1, self.tabStopDistance() / space) if hasattr(self, 'tabStopDistance') else 4
+        while block.isValid():
+            geometry = self.blockBoundingGeometry(block).translated(offset)
+            if geometry.top() > bottom:
+                break
+            if block.isVisible():
+                text = block.text()
+                width = 0
+                for ch in text:
+                    if ch == ' ':
+                        width += 1
+                    elif ch == '\t':
+                        width += int(tab)
+                    else:
+                        break
+                if width < len(text):  # 空白行不画
+                    for level in range(1, width // step + 1):
+                        x = int(base_x + (level - 1) * step * space + space * 0.5)
+                        painter.drawLine(x, int(geometry.top()), x, int(geometry.bottom()))
+            block = block.next()
+        painter.end()
 
     def fold_margin_width(self) -> int:
         return 18
