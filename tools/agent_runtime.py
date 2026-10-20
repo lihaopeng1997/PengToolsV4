@@ -1311,10 +1311,82 @@ class _TextToolCallRecovery:
         )
 
 
+_TAGGED_TOOL_CALL_RE = re.compile(r'<tool_call>\s*(.*?)\s*</tool_call>', re.S | re.I)
+_MARKED_TOOL_CALL_RE = re.compile(
+    r'(?:调用工具|工具调用|tool[ _]?call)\s*[:：]?\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:：]?\s*',
+    re.I,
+)
+_MAX_MARKED_TOOL_CALLS = 8
+
+
+def _balanced_json_object(text: str, start: int) -> str:
+    """从 start（须为 '{'）截取配平的 JSON 对象文本；不完整时返回空串。"""
+    if start >= len(text) or text[start] != '{':
+        return ''
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        ch = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return ''
+
+
+def _recover_marked_tool_calls(raw: str) -> list[dict]:
+    """识别带明确调用标记的正文工具调用；任一调用未知/参数无效则整体放弃。"""
+    payloads: list[dict] = []
+    for match in _TAGGED_TOOL_CALL_RE.finditer(raw):
+        try:
+            payloads.extend(_flatten_tool_payloads(json.loads(match.group(1))))
+        except (TypeError, ValueError):
+            return []
+    if not payloads:
+        for match in _MARKED_TOOL_CALL_RE.finditer(raw):
+            name = match.group(1)
+            body = _balanced_json_object(raw, match.end())
+            if not body and raw[match.end():match.end() + 1] == '{':
+                return []  # 参数 JSON 不完整
+            args = {}
+            if body:
+                try:
+                    args = json.loads(body)
+                except (TypeError, ValueError):
+                    return []
+                if not isinstance(args, dict):
+                    return []
+            payloads.append({'name': name, 'arguments': args})
+    if not payloads or len(payloads) > _MAX_MARKED_TOOL_CALLS:
+        return []
+    calls = []
+    for item in payloads:
+        normalized = normalize_tool_call(item)
+        if not normalized or normalized.get('error') or normalized['tool'] not in KNOWN_TOOL_NAMES:
+            return []
+        calls.append(normalized)
+    return calls
+
+
 def recover_text_tool_calls(text: str) -> list[dict]:
-    """整段文本是工具调用 JSON 时返回 [{tool, args}]，否则返回 []。"""
+    """整段文本是工具调用 JSON，或正文带明确调用标记时返回 [{tool, args}]，否则返回 []。"""
     raw = strip_markdown_fence(str(text or '')).strip()
-    if not raw or raw[0] not in '[{':
+    if raw and raw[0] not in '[{':
+        return _recover_marked_tool_calls(raw)
+    if not raw:
         return []
     try:
         data = json.loads(raw)

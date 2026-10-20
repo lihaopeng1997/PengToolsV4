@@ -450,6 +450,21 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
             [{'tool': 'read_file', 'args': {'path': 'a.py'}}],
         )
 
+    def test_a12e_marked_text_tool_calls_are_recovered(self):
+        self.assertEqual(
+            ar.recover_text_tool_calls('我先列出工作区根目录结构：\n[调用工具 list_dir: {"path": ""}]'),
+            [{'tool': 'list_dir', 'args': {'path': ''}}],
+        )
+        self.assertEqual(
+            ar.recover_text_tool_calls(
+                '先读说明。<tool_call>\n{"name": "read_file", "arguments": {"path": "README.md"}}\n</tool_call>'
+            ),
+            [{'tool': 'read_file', 'args': {'path': 'README.md'}}],
+        )
+        # 未知工具或参数损坏：整体不执行
+        self.assertEqual(ar.recover_text_tool_calls('[调用工具 rm_rf: {"path": "/"}]'), [])
+        self.assertEqual(ar.recover_text_tool_calls('[调用工具 list_dir: {"path": ]'), [])
+
     def test_a12b_repeat_reminder_lets_model_recover(self):
         adapter = ScriptedModelAdapter([
             _tool_turn('list-1', 'list_dir', path=''),
