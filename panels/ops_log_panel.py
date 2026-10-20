@@ -31,7 +31,8 @@ from tools.ops_ssh import (
     format_connection_ok, list_remote_dir, list_remote_log_files, load_categories, load_log_settings,
     load_server_store, load_servers, make_job_key, open_ssh_client, paramiko_available,
     parent_remote_path, primary_log_path, remote_home_dir, save_log_settings,
-    parse_keywords, save_server_store, save_servers, server_services, split_extra_keywords, test_connection,
+    parse_keywords, save_server_store, save_servers, server_has_credentials, server_services,
+    split_extra_keywords, test_connection,
 )
 from tools.ops_cmd_history import append_command, command_list, load_history, save_history
 from ui.button_busy_ring import set_button_busy
@@ -321,6 +322,33 @@ class ServerEditorDialog(QDialog):
         pwd_row.addWidget(pwd_wrap_inner, 1)
         pwd_wrap = QWidget()
         pwd_wrap.setLayout(pwd_row)
+        # 登录方式：密码 / 密钥（服务器禁用密码登录时必须用密钥）
+        self.auth_combo = QComboBox()
+        self.auth_combo.addItem('密码' if zh else 'Password', 'password')
+        self.auth_combo.addItem('密钥（私钥文件 / 本机 ~/.ssh）' if zh else 'Key (file or ~/.ssh)', 'key')
+        size_combo(self.auth_combo)
+        self.auth_combo.setCurrentIndex(max(0, self.auth_combo.findData(
+            'key' if str(self._server.get('auth_method') or '') == 'key' else 'password')))
+        self.key_path_edit = QLineEdit(str(self._server.get('key_path') or ''))
+        size_line(self.key_path_edit, 'std')
+        self.key_path_edit.setPlaceholderText(
+            '留空 = 使用本机 ~/.ssh 默认密钥与 ssh-agent' if zh else 'Empty = default ~/.ssh keys and ssh-agent'
+        )
+        key_browse = QPushButton()
+        apply_button(key_browse, 'ghost', compact=True, icon='folder-open', icon_size=16)
+        key_browse.clicked.connect(self._browse_key_file)
+        key_row = QHBoxLayout()
+        key_row.setContentsMargins(0, 0, 0, 0)
+        key_row.addWidget(self.key_path_edit, 1)
+        key_row.addWidget(key_browse)
+        self.key_wrap = QWidget()
+        self.key_wrap.setLayout(key_row)
+        self.key_passphrase_edit = PasswordLineEdit()
+        size_line(self.key_passphrase_edit, 'std')
+        self.key_passphrase_edit.setPlaceholderText(
+            ('已保存口令，留空则沿用' if self._server.get('key_passphrase_token') else '私钥无口令可留空')
+            if zh else 'Optional passphrase'
+        )
         self.save_password_check = QCheckBox('保存密码到本机' if zh else 'Save password locally')
         self.save_password_check.setChecked(True)
         self.save_password_check.setToolTip(
@@ -390,8 +418,16 @@ class ServerEditorDialog(QDialog):
         form.addRow('主机' if zh else 'Host', self.host_edit)
         form.addRow('端口' if zh else 'Port', self.port_spin)
         form.addRow('用户名' if zh else 'Username', self.user_edit)
+        form.addRow('登录方式' if zh else 'Sign-in', self.auth_combo)
         form.addRow('密码' if zh else 'Password', pwd_wrap)
         form.addRow('', self.save_password_check)
+        form.addRow('私钥文件' if zh else 'Private key', self.key_wrap)
+        form.addRow('私钥口令' if zh else 'Passphrase', self.key_passphrase_edit)
+        self._auth_form = form
+        self._auth_rows = {'password': (pwd_wrap, self.save_password_check),
+                           'key': (self.key_wrap, self.key_passphrase_edit)}
+        self.auth_combo.currentIndexChanged.connect(self._sync_auth_rows)
+        self._sync_auth_rows()
         form.addRow('服务与日志' if zh else 'Services / logs', svc_wrap)
         form.addRow('分类' if zh else 'Category', cat_wrap)
         layout.addLayout(form)
@@ -516,6 +552,24 @@ class ServerEditorDialog(QDialog):
     def _on_password_changed(self, *_args):
         self._password_dirty = True
 
+    def _uses_key(self) -> bool:
+        return self.auth_combo.currentData() == 'key'
+
+    def _sync_auth_rows(self, *_args):
+        method = 'key' if self._uses_key() else 'password'
+        for name, widgets in self._auth_rows.items():
+            for widget in widgets:
+                self._auth_form.setRowVisible(widget, name == method)
+
+    def _browse_key_file(self):
+        start = os.path.expanduser('~/.ssh')
+        path, _filter = QFileDialog.getOpenFileName(
+            self, '选择私钥文件' if self.language == 'zh' else 'Choose private key',
+            start if os.path.isdir(start) else os.path.expanduser('~'), 'All files (*)',
+        )
+        if path:
+            self.key_path_edit.setText(path)
+
     def _password_for_use(self) -> str:
         from tools.ops_ssh import _clean_password
         typed = _clean_password(self.password_edit.text())
@@ -531,14 +585,14 @@ class ServerEditorDialog(QDialog):
         if not self.host_edit.text().strip() or not self.user_edit.text().strip():
             show_warning(self, 'PengTools', '请先填写主机和用户名' if zh else 'Host and username required')
             return
-        if not self._password_for_use():
+        if not self._uses_key() and not self._password_for_use():
             show_warning(self, 'PengTools', '请先输入或粘贴密码（或使用已保存密码）' if zh else 'Password required')
             return
         self.test_btn.setEnabled(False)
         set_button_busy(self.test_btn, True)
         worker = _SshTestWorker(
             self._draft_server(for_persist=False),
-            password_override=self._password_for_use(),
+            password_override=None if self._uses_key() else self._password_for_use(),
             timeout_sec=15,
             parent=self,
         )
@@ -589,7 +643,15 @@ class ServerEditorDialog(QDialog):
             'category_id': cid or UNCATEGORIZED_ID,
             'group': gname,
             'enabled': True,
+            'auth_method': 'key' if self._uses_key() else 'password',
+            'key_path': self.key_path_edit.text().strip(),
         })
+        passphrase = self.key_passphrase_edit.text()
+        if passphrase:
+            data['key_passphrase'] = passphrase
+            data.pop('key_passphrase_token', None)
+        else:
+            data['key_passphrase_token'] = str(self._server.get('key_passphrase_token') or '')
         from tools.ops_ssh import _clean_password
         typed = _clean_password(self.password_edit.text())
         save_pwd = bool(self.save_password_check.isChecked()) if hasattr(self, 'save_password_check') else True
@@ -629,11 +691,15 @@ class ServerEditorDialog(QDialog):
         if not self.host_edit.text().strip() or not self.user_edit.text().strip():
             show_warning(self, 'PengTools', '请填写主机和用户名' if zh else 'Host and username required')
             return
-        if not self._password_for_use():
+        if not self._uses_key() and not self._password_for_use():
             show_warning(
                 self, 'PengTools',
                 '请输入或粘贴密码（已保存过的可留空）' if zh else 'Enter/paste password (or leave blank if saved)',
             )
+            return
+        key_path = os.path.expandvars(os.path.expanduser(self.key_path_edit.text().strip()))
+        if self._uses_key() and key_path and not os.path.isfile(key_path):
+            show_warning(self, 'PengTools', '找不到私钥文件，请重新选择' if zh else 'Private key file not found')
             return
         self.accept()
 
@@ -1746,7 +1812,7 @@ class OpsLogPanel(QWidget):
         self.header_status = QLabel()
         self.header_status.setObjectName('page-context')
         self.cmd_send_btn = QPushButton()
-        apply_button(self.cmd_send_btn, 'primary', compact=True, icon='terminal', icon_size=16)
+        apply_button(self.cmd_send_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
         self.cmd_send_btn.clicked.connect(self._send_cmd_bar)
         self.disconnect_btn = QPushButton()
         apply_button(self.disconnect_btn, 'secondary', compact=True)
@@ -1779,6 +1845,8 @@ class OpsLogPanel(QWidget):
         self.toolbar_hint.setObjectName('field-hint')
         tool_l.addWidget(self.connect_btn)
         tool_l.addWidget(self.toolbar_export_btn)
+        # 左栏分段已能切到多机截取，工具栏不再重复放一个
+        self.toolbar_export_btn.hide()
         tool_l.addWidget(self.more_btn)
         tool_l.addStretch(1)
         tool_l.addWidget(self.toolbar_hint)
@@ -1809,6 +1877,7 @@ class OpsLogPanel(QWidget):
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         left_scroll.setMinimumWidth(260)
+        self._left_scroll = left_scroll
         # 不设 MaximumWidth，交给 splitter 左右拖
         left_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_scroll_host = QWidget()
@@ -1820,17 +1889,23 @@ class OpsLogPanel(QWidget):
         left_scroll.setWidget(left_scroll_host)
 
         mode_row = QHBoxLayout()
+        # 分段切换：多机截取 | 单机会话（选中态由 QSS :checked 表达，不再靠按钮层级区分）
+        self.mode_seg = QFrame()
+        self.mode_seg.setObjectName('ops-mode-seg')
+        seg_l = QHBoxLayout(self.mode_seg)
+        seg_l.setContentsMargins(3, 3, 3, 3)
+        seg_l.setSpacing(2)
         self.mode_session_btn = QPushButton()
         self.mode_export_btn = QPushButton()
-        self.mode_session_btn.setCheckable(True)
-        self.mode_export_btn.setCheckable(True)
+        for btn in (self.mode_export_btn, self.mode_session_btn):
+            btn.setObjectName('ops-mode-tab')
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            seg_l.addWidget(btn, 1)
         self.mode_session_btn.setChecked(True)
-        apply_button(self.mode_session_btn, 'secondary', compact=True)
-        apply_button(self.mode_export_btn, 'ghost', compact=True)
         self.mode_session_btn.clicked.connect(lambda: self._set_work_mode('session'))
         self.mode_export_btn.clicked.connect(lambda: self._set_work_mode('export'))
-        mode_row.addWidget(self.mode_session_btn)
-        mode_row.addWidget(self.mode_export_btn)
+        mode_row.addWidget(self.mode_seg, 1)
         self.settings_btn = QPushButton()
         apply_button(self.settings_btn, 'ghost', compact=True, icon='settings', icon_size=16)
         self.settings_btn.clicked.connect(self._open_log_settings)
@@ -2074,10 +2149,13 @@ class OpsLogPanel(QWidget):
         self.select_none_btn.clicked.connect(lambda: self._set_all_checked(False))
         erow.addWidget(self.select_all_btn, 0, 0)
         erow.addWidget(self.select_none_btn, 0, 1)
+        self.export_selected_label = QLabel()
+        self.export_selected_label.setObjectName('field-hint')
+        erow.addWidget(self.export_selected_label, 0, 2)
+        erow.setColumnStretch(2, 1)
         self.export_btn = QPushButton()
-        apply_button(self.export_btn, 'secondary', compact=True, icon='export', icon_size=16)
+        apply_button(self.export_btn, 'primary', compact=False, icon='export', icon_size=16)
         self.export_btn.clicked.connect(self._start_export)
-        erow.addWidget(self.export_btn, 1, 0, 1, 2)
         el_l.addLayout(erow)
         self.export_server_list = QTreeWidget()
         self.export_server_list.setObjectName('ops-export-tree')
@@ -2093,6 +2171,7 @@ class OpsLogPanel(QWidget):
         self.export_server_list.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.export_server_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.export_server_list.itemChanged.connect(self._on_export_tree_item_changed)
+        self.export_server_list.itemChanged.connect(self._refresh_export_selection)
         self.export_server_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.export_server_list.customContextMenuRequested.connect(self._on_export_tree_context_menu)
         exp_hdr = self.export_server_list.header()
@@ -2118,17 +2197,16 @@ class OpsLogPanel(QWidget):
         el_l.addWidget(self.export_server_list, 1)
         left_root.addWidget(self.export_ops, 1)
 
-        self.export_rules, em_l = self._card()
+        # 兼容旧引用：规则卡保留为隐藏空壳，控件移到右侧「截取条」
+        self.export_rules = QFrame()
         self.export_rules.setObjectName('ops-export-rules-card')
-        em_l.setSpacing(4)
+        self.export_rules.hide()
         self.export_rule_title = QLabel()
-        self.export_rule_title.setObjectName('section-title')
-        em_l.addWidget(self.export_rule_title)
-        eform = QFormLayout()
-        apply_form(eform)
-        eform.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self.export_rule_title.hide()
         self.export_keyword = QLineEdit()
         size_line(self.export_keyword, 'std')
+        self.export_keyword.setMinimumWidth(220)
+        self.export_keyword.returnPressed.connect(self._start_export)
         self.export_extra = QPlainTextEdit()
         self.export_extra.hide()
         # 已废弃「统一路径」：隐藏保留，避免旧代码引用报错
@@ -2155,26 +2233,14 @@ class OpsLogPanel(QWidget):
         self.timeout_spin.hide()
         self.export_case = QCheckBox()
         self.export_case.hide()
-        self._export_labels = {}
-        for key, w in (
-            ('keyword', self.export_keyword),
-            ('context', self.export_context),
-            ('export_dir', dir_host),
-        ):
-            lab = QLabel()
-            self._export_labels[key] = lab
-            eform.addRow(lab, w)
+        self._export_labels = {key: QLabel() for key in ('keyword', 'context', 'export_dir')}
+        for lab in self._export_labels.values():
+            lab.setObjectName('small-label')
+        self._export_dir_host = dir_host
         exp_hint = QLabel()
         exp_hint.setObjectName('field-hint')
         exp_hint.setWordWrap(True)
-        exp_hint.setText(
-            '勾选上方多台服务器/服务即可批量并行导出；'
-            '各机使用「服务与日志」里配置的路径（目录会自动取最新 .log）。'
-        )
         self.export_path_hint = exp_hint
-        em_l.addLayout(eform)
-        em_l.addWidget(exp_hint)
-        left_root.addWidget(self.export_rules)
 
         self.main_split.addWidget(left_scroll)
 
@@ -2184,6 +2250,12 @@ class OpsLogPanel(QWidget):
         right_l = QVBoxLayout(right_host)
         right_l.setContentsMargins(0, 0, 0, 0)
         right_l.setSpacing(8)
+        # 会话模式：命令栏 + 终端；多机截取模式：截取条 + 结果/预览（二选一，互不挤占）
+        self.session_workspace = QWidget()
+        self.session_workspace.setObjectName('ops-session-workspace')
+        session_l = QVBoxLayout(self.session_workspace)
+        session_l.setContentsMargins(0, 0, 0, 0)
+        session_l.setSpacing(8)
 
         top_bar = QHBoxLayout()
         self.console_title = QLabel()
@@ -2208,7 +2280,7 @@ class OpsLogPanel(QWidget):
         top_bar.addWidget(self.focus_term_btn)
         top_bar.addWidget(self.clear_console_btn)
         top_bar.addWidget(self.new_term_btn)
-        right_l.addLayout(top_bar)
+        session_l.addLayout(top_bar)
 
         cmd_row = QHBoxLayout()
         cmd_row.setSpacing(8)
@@ -2219,9 +2291,9 @@ class OpsLogPanel(QWidget):
         # 兼容旧名
         self.cmd_history_combo = QComboBox()
         self.cmd_history_combo.hide()
-        # 页头已占用唯一 primary「执行」；底部同动作必须 secondary
+        # 「执行到当前终端」只保留输入框旁这一个（页头不再重复），作为会话模式唯一主按钮
         self.cmd_send_bottom_btn = QPushButton()
-        apply_button(self.cmd_send_bottom_btn, 'secondary', compact=True)
+        apply_button(self.cmd_send_bottom_btn, 'primary', compact=True)
         self.cmd_send_bottom_btn.clicked.connect(self._send_cmd_bar)
         self.cmd_fill_terminal_btn = QPushButton()
         apply_button(self.cmd_fill_terminal_btn, 'secondary', compact=True)
@@ -2243,7 +2315,7 @@ class OpsLogPanel(QWidget):
         cmd_row.addWidget(self.cmd_fill_terminal_btn)
         cmd_row.addWidget(self.cmd_fill_btn)
         cmd_row.addWidget(self.cmd_send_bottom_btn)
-        right_l.addLayout(cmd_row)
+        session_l.addLayout(cmd_row)
 
         # SSH Terminal Island: 外壳 TERM_CHROME + TERM_BORDER
         self.term_shell = QFrame()
@@ -2273,7 +2345,7 @@ class OpsLogPanel(QWidget):
         self._last_fill_cmd = ''
         self.terminal = self._create_terminal_tab('会话 1 · 未连接')
         term_shell_l.addWidget(self.term_tabs, 1)
-        right_l.addWidget(self.term_shell, 3)
+        session_l.addWidget(self.term_shell, 1)
         self._reload_cmd_history()
         self._rebuild_more_menu()
         self._refresh_header_session_status()
@@ -2282,7 +2354,32 @@ class OpsLogPanel(QWidget):
         self.term_hint.setObjectName('field-hint')
         self.term_hint.setWordWrap(True)
         self.term_hint.hide()
-        right_l.addWidget(self.term_hint)
+        session_l.addWidget(self.term_hint)
+        right_l.addWidget(self.session_workspace, 1)
+
+        # ── 多机截取工作区 ──
+        self.capture_workspace = QWidget()
+        self.capture_workspace.setObjectName('ops-capture-workspace')
+        capture_l = QVBoxLayout(self.capture_workspace)
+        capture_l.setContentsMargins(0, 0, 0, 0)
+        capture_l.setSpacing(8)
+        bar_card, bar_l = self._card()
+        bar_card.setObjectName('ops-capture-bar')
+        bar_grid = QGridLayout()
+        bar_grid.setHorizontalSpacing(10)
+        bar_grid.setVerticalSpacing(4)
+        bar_grid.addWidget(self._export_labels['keyword'], 0, 0)
+        bar_grid.addWidget(self._export_labels['context'], 0, 1)
+        bar_grid.addWidget(self._export_labels['export_dir'], 0, 2)
+        bar_grid.addWidget(self.export_keyword, 1, 0)
+        bar_grid.addWidget(self.export_context, 1, 1)
+        bar_grid.addWidget(self._export_dir_host, 1, 2)
+        bar_grid.addWidget(self.export_btn, 1, 3)
+        bar_grid.setColumnStretch(0, 3)
+        bar_grid.setColumnStretch(2, 2)
+        bar_l.addLayout(bar_grid)
+        bar_l.addWidget(self.export_path_hint)
+        capture_l.addWidget(bar_card)
 
         result_card, er_l = self._card()
         result_card.setObjectName('ops-result-card')
@@ -2318,10 +2415,51 @@ class OpsLogPanel(QWidget):
         self.result_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.result_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
-        self.result_table.setMaximumHeight(160)
         self.result_table.doubleClicked.connect(self._open_selected_result)
-        er_l.addWidget(self.result_table, 1)
-        right_l.addWidget(result_card, 1)
+        self.result_table.currentCellChanged.connect(lambda row, *_: self._preview_result_row(row))
+        self._result_rows: dict[str, int] = {}
+        self._capture_terms: list[str] = []
+
+        preview_host = QFrame()
+        preview_host.setObjectName('ops-capture-preview-host')
+        preview_l = QVBoxLayout(preview_host)
+        preview_l.setContentsMargins(0, 0, 0, 0)
+        preview_l.setSpacing(6)
+        preview_head = QHBoxLayout()
+        self.preview_title = QLabel()
+        self.preview_title.setObjectName('small-label')
+        preview_head.addWidget(self.preview_title, 1)
+        self.preview_open_btn = QPushButton()
+        apply_button(self.preview_open_btn, 'ghost', compact=True)
+        self.preview_open_btn.clicked.connect(self._open_selected_result)
+        self.preview_copy_btn = QPushButton()
+        apply_button(self.preview_copy_btn, 'ghost', compact=True)
+        self.preview_copy_btn.clicked.connect(self._copy_preview)
+        preview_head.addWidget(self.preview_open_btn)
+        preview_head.addWidget(self.preview_copy_btn)
+        preview_l.addLayout(preview_head)
+        self.result_preview = QPlainTextEdit()
+        self.result_preview.setObjectName('ops-capture-preview')
+        self.result_preview.setReadOnly(True)
+        self.result_preview.setPlaceholderText('截取完成后，选中左侧一行在这里查看内容（关键字高亮）')
+        self.result_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        from PyQt6.QtGui import QFontDatabase
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        mono.setPointSize(max(9, self.font().pointSize()))
+        self.result_preview.setFont(mono)
+        preview_l.addWidget(self.result_preview, 1)
+
+        self.result_split = QSplitter(Qt.Orientation.Horizontal)
+        self.result_split.setObjectName('ops-capture-result-split')
+        self.result_split.setChildrenCollapsible(False)
+        self.result_split.setHandleWidth(12)
+        self.result_split.addWidget(self.result_table)
+        self.result_split.addWidget(preview_host)
+        self.result_split.setStretchFactor(0, 2)
+        self.result_split.setStretchFactor(1, 3)
+        er_l.addWidget(self.result_split, 1)
+        capture_l.addWidget(result_card, 1)
+        right_l.addWidget(self.capture_workspace, 1)
 
         self.console = self.terminal
         self.cmd_edit = QLineEdit()
@@ -2355,10 +2493,13 @@ class OpsLogPanel(QWidget):
             pass
 
         self._work_mode = 'session'
-        self._set_work_mode('session')
+        # 页头的「执行到当前终端」与命令栏重复，统一只保留命令栏旁的按钮
+        self.cmd_send_btn.hide()
+        self._set_work_mode(load_log_settings().get('work_mode') or 'export', persist=False)
+        self._refresh_export_selection()
 
-    def _set_work_mode(self, mode: str):
-        """session | export — toggle left ops panels."""
+    def _set_work_mode(self, mode: str, persist: bool = True):
+        """session（单机终端）| export（多机截取）：左右两侧整体切换工作区。"""
         mode = 'export' if mode == 'export' else 'session'
         self._work_mode = mode
         is_session = mode == 'session'
@@ -2366,20 +2507,42 @@ class OpsLogPanel(QWidget):
             self.session_ops.setVisible(is_session)
         if hasattr(self, 'remote_ops'):
             self.remote_ops.setVisible(is_session)
+        if hasattr(self, 'server_card'):
+            self.server_card.setVisible(is_session)
         if hasattr(self, 'export_ops'):
             self.export_ops.setVisible(not is_session)
-        if hasattr(self, 'export_rules'):
-            self.export_rules.setVisible(not is_session)
-        # 导出进度表只在「批量导出」模式展示，会话模式不占右侧空间
+        if hasattr(self, 'session_workspace'):
+            self.session_workspace.setVisible(is_session)
+        if hasattr(self, 'capture_workspace'):
+            self.capture_workspace.setVisible(not is_session)
         if hasattr(self, 'result_panel'):
             self.result_panel.setVisible(not is_session)
-        if hasattr(self, 'result_table'):
-            self.result_table.setMaximumHeight(260 if not is_session else 120)
+        if persist:
+            try:
+                save_log_settings({'work_mode': mode})
+            except Exception:
+                pass
         if hasattr(self, 'mode_session_btn'):
             self.mode_session_btn.setChecked(is_session)
             self.mode_export_btn.setChecked(not is_session)
-            apply_button(self.mode_session_btn, 'secondary' if is_session else 'ghost', compact=True)
-            apply_button(self.mode_export_btn, 'secondary' if not is_session else 'ghost', compact=True)
+        # 会话专属控件（连接/断开/会话状态/执行说明）只在会话模式出现
+        for name in ('connect_btn', 'disconnect_btn', 'header_status', 'toolbar_hint'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(is_session)
+        # 多机截取需要看清服务器地址与日志路径：左栏至少 380px
+        left = getattr(self, '_left_scroll', None)
+        split = getattr(self, 'main_split', None)
+        if left is not None and split is not None and split.orientation() == Qt.Orientation.Horizontal:
+            left.setMinimumWidth(self._left_min_width())
+            sizes = split.sizes()
+            if len(sizes) == 2 and 0 < sizes[0] < left.minimumWidth():
+                total = sum(sizes)
+                split.setSizes([left.minimumWidth(), max(0, total - left.minimumWidth())])
+
+    def _left_min_width(self) -> int:
+        """多机截取要看清地址与日志路径，左栏更宽；会话模式保持紧凑。"""
+        return 380 if getattr(self, '_work_mode', 'session') == 'export' else 260
 
 
     def _capture_settings(self) -> dict:
@@ -2506,16 +2669,16 @@ class OpsLogPanel(QWidget):
         self.title_label.show()
         if hasattr(self, 'mode_session_btn'):
             self.mode_session_btn.setText('会话' if zh else 'Session')
-            self.mode_export_btn.setText('批量导出' if zh else 'Batch export')
+            self.mode_export_btn.setText('多机截取' if zh else 'Multi-host capture')
         if hasattr(self, 'settings_btn'):
             self.settings_btn.setText('设置' if zh else 'Settings')
             self.settings_btn.setToolTip(
                 '上下文行数 / 并行 / 超时 / 忽略大小写等' if zh else 'Context, parallel, timeout, case…'
             )
         if hasattr(self, 'toolbar_export_btn'):
-            self.toolbar_export_btn.setText('批量导出日志' if zh else 'Batch export logs')
+            self.toolbar_export_btn.setText('多机截取' if zh else 'Multi-host capture')
             self.toolbar_export_btn.setToolTip(
-                '切换到批量导出工作区' if zh else 'Switch to batch export workspace'
+                '勾选多台服务器同时截取日志' if zh else 'Capture logs from several hosts at once'
             )
         if hasattr(self, 'toolbar_hint'):
             self.toolbar_hint.setText(
@@ -2543,9 +2706,13 @@ class OpsLogPanel(QWidget):
         self.remote_title.setText('远端目录' if zh else 'Remote files')
         self.quick_title.setText('日志截取' if zh else 'Log extract')
         self.console_title.setText('终端' if zh else 'Terminal')
-        self.export_server_title.setText('导出目标（勾选多机/服务）' if zh else 'Export targets')
+        self.export_server_title.setText('截取目标（勾选服务器 / 服务）' if zh else 'Capture targets')
         self.export_rule_title.setText('截取与导出' if zh else 'Extract & export')
-        self.result_title.setText('导出进度' if zh else 'Export status')
+        self.result_title.setText('截取结果' if zh else 'Capture results')
+        self.preview_open_btn.setText('打开文件' if zh else 'Open file')
+        self.preview_copy_btn.setText('复制' if zh else 'Copy')
+        if not self.result_preview.toPlainText():
+            self.preview_title.setText('选中左侧结果查看截取内容' if zh else 'Select a result to preview')
         self.add_btn.setText('新增' if zh else 'Add')
         self.edit_btn.setText('编辑' if zh else 'Edit')
         self.del_btn.setText('删除' if zh else 'Delete')
@@ -2593,7 +2760,7 @@ class OpsLogPanel(QWidget):
             self.new_term_btn.setToolTip('新增多标签终端（最多4个）' if zh else 'New terminal tab (max 4)')
         self.select_all_btn.setText('全选' if zh else 'All')
         self.select_none_btn.setText('全不选' if zh else 'None')
-        self.export_btn.setText('开始导出' if zh else 'Export')
+        self._refresh_export_selection()
         self.open_dir_btn.setText('打开目录' if zh else 'Open folder')
         self.case_check.setText('忽略大小写' if zh else 'Ignore case')
         self.export_case.setText('忽略大小写' if zh else 'Ignore case')
@@ -2765,14 +2932,14 @@ class OpsLogPanel(QWidget):
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(260 if i == 0 else 400)
+                    w.setMinimumWidth(self._left_min_width() if i == 0 else 400)
                     w.setMinimumHeight(0)
         else:
             self.main_split.setOrientation(Qt.Orientation.Horizontal)
             for i in range(self.main_split.count()):
                 w = self.main_split.widget(i)
                 if w is not None:
-                    w.setMinimumWidth(260 if i == 0 else 480)
+                    w.setMinimumWidth(self._left_min_width() if i == 0 else 480)
                     w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
@@ -3121,7 +3288,7 @@ class OpsLogPanel(QWidget):
         if not paramiko_available():
             show_warning(self, 'PengTools', '未安装 paramiko，无法测试 SSH' if zh else 'paramiko missing')
             return
-        if not decrypt_secret(server.get('password_token') or ''):
+        if not server_has_credentials(server):
             show_warning(
                 self, 'PengTools',
                 '该服务器未保存密码，请先「编辑」并保存密码后再测'
@@ -3239,6 +3406,10 @@ class OpsLogPanel(QWidget):
             self._add_term_tab,
         )
         self._more_menu.addAction(
+            '重置当前服务器指纹' if zh else 'Reset host fingerprint',
+            self._reset_host_fingerprint,
+        )
+        self._more_menu.addAction(
             '清空终端显示' if zh else 'Clear terminal',
             lambda: self._current_terminal() and self._current_terminal().clear(),
         )
@@ -3247,6 +3418,26 @@ class OpsLogPanel(QWidget):
             self.more_btn.setToolTip(
                 '设置、服务器管理与终端辅助操作' if zh else 'Settings, servers, terminal helpers'
             )
+
+    def _reset_host_fingerprint(self):
+        """服务器重装/换密钥后，清除记录的主机指纹，下次连接重新信任。"""
+        from tools.ops_ssh import forget_host_key
+        zh = self.language == 'zh'
+        server = self._current_server()
+        if not server:
+            show_warning(self, 'PengTools', '请先选择服务器' if zh else 'Select a server')
+            return
+        host, port = str(server.get('host') or ''), int(server.get('port') or 22)
+        if not confirm_action(
+            self, '重置主机指纹' if zh else 'Reset fingerprint',
+            (f'确认 {host}:{port} 是重装或更换了密钥？\n重置后下次连接会重新记录指纹。'
+             if zh else f'Confirm {host}:{port} was reinstalled? The next connection will trust the new key.'),
+            confirm_text='重置' if zh else 'Reset',
+        ):
+            return
+        removed = forget_host_key(host, port)
+        show_info(self, 'PengTools', ('已重置，下次连接将重新记录指纹' if removed else '该服务器还没有记录过指纹')
+                  if zh else ('Reset done' if removed else 'No fingerprint recorded yet'))
 
     def _fill_terminal_from_last_cmd(self):
         """将最近一次预览/截取/看尾部生成的命令填入命令栏（不执行）。"""
@@ -3290,7 +3481,7 @@ class OpsLogPanel(QWidget):
         if not server:
             show_warning(self, 'PengTools', '请先选择服务器' if zh else 'Select a server')
             return
-        if not decrypt_secret(server.get('password_token') or ''):
+        if not server_has_credentials(server):
             show_warning(self, 'PengTools', '密码无效，请编辑服务器重新输入' if zh else 'Password missing')
             return
         if self._worker and self._worker.isRunning():
@@ -3836,6 +4027,7 @@ class OpsLogPanel(QWidget):
             if cat_item is not None:
                 cat_item.setExpanded(True)
         tree.blockSignals(False)
+        self._refresh_export_selection()
         try:
             tree.resizeColumnToContents(0)
             name_w = tree.columnWidth(0)
@@ -3908,7 +4100,7 @@ class OpsLogPanel(QWidget):
         if not server:
             show_warning(self, 'PengTools', '未找到服务器信息' if zh else 'Server not found')
             return
-        if not decrypt_secret(server.get('password_token') or ''):
+        if not server_has_credentials(server):
             show_warning(self, 'PengTools', '请先编辑服务器并保存密码' if zh else 'Save password first')
             return
         log_path = str(data.get('log_path') or '').strip()
@@ -3998,6 +4190,7 @@ class OpsLogPanel(QWidget):
 
         walk(tree.invisibleRootItem())
         tree.blockSignals(False)
+        self._refresh_export_selection()
 
     def _selected_export_keys(self) -> set[str]:
         keys: set[str] = set()
@@ -4014,6 +4207,87 @@ class OpsLogPanel(QWidget):
 
         walk(tree.invisibleRootItem())
         return keys
+
+    def _refresh_export_selection(self, *_args):
+        """左侧已选计数 + 主按钮文案「开始截取 · N 个目标」。"""
+        if not hasattr(self, 'export_btn'):
+            return
+        zh = self.language == 'zh'
+        try:
+            count = len(self._selected_export_keys())
+        except Exception:
+            count = 0
+        if getattr(self, '_running', False):
+            self.export_btn.setText('截取中…' if zh else 'Capturing…')
+        elif count:
+            self.export_btn.setText(f'开始截取 · {count} 个目标' if zh else f'Capture · {count} targets')
+        else:
+            self.export_btn.setText('开始截取' if zh else 'Start capture')
+        if hasattr(self, 'export_selected_label'):
+            self.export_selected_label.setText(f'已选 {count}' if zh else f'{count} selected')
+
+    def _result_row_path(self, row: int) -> str:
+        item = self.result_table.item(row, 4) if row >= 0 else None
+        path = item.data(Qt.ItemDataRole.UserRole) if item is not None else ''
+        return str(path or '')
+
+    def _preview_result_row(self, row: int):
+        """右侧预览选中结果的截取内容，并高亮关键字。"""
+        zh = self.language == 'zh'
+        path = self._result_row_path(row)
+        if not path or not os.path.isfile(path):
+            self.result_preview.clear()
+            msg_item = self.result_table.item(row, 2) if row >= 0 else None
+            self.preview_title.setText(msg_item.text() if msg_item is not None else '')
+            return
+        limit = 2 * 1024 * 1024
+        try:
+            with open(path, 'rb') as stream:
+                raw = stream.read(limit + 1)
+        except OSError as exc:
+            self.result_preview.setPlainText(str(exc))
+            return
+        truncated = len(raw) > limit
+        text = raw[:limit].decode('utf-8', errors='replace')
+        self.result_preview.setPlainText(text)
+        lines = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
+        name = os.path.basename(path)
+        suffix = ('（仅显示前 2MB）' if zh else ' (first 2MB)') if truncated else ''
+        self.preview_title.setText(f'{name} · {lines} 行{suffix}' if zh else f'{name} · {lines} lines{suffix}')
+        self._highlight_preview_terms()
+
+    def _highlight_preview_terms(self):
+        from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QTextDocument
+        from PyQt6.QtWidgets import QTextEdit
+        from ui.theme_manager import ThemeManager
+        palette = ThemeManager.instance().palette()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(palette.get('SEARCH_MATCH', '#FFF0A6')))
+        fmt.setForeground(QColor(palette.get('TEXT_STRONG', '#262438')))
+        selections = []
+        doc = self.result_preview.document()
+        for term in self._capture_terms:
+            if not term:
+                continue
+            cursor = QTextCursor(doc)
+            while len(selections) < 3000:
+                cursor = doc.find(term, cursor, QTextDocument.FindFlag(0))
+                if cursor.isNull():
+                    break
+                sel = QTextEdit.ExtraSelection()
+                sel.cursor = cursor
+                sel.format = fmt
+                selections.append(sel)
+        self.result_preview.setExtraSelections(selections)
+        if selections:
+            self.result_preview.setTextCursor(QTextCursor(selections[0].cursor))
+            self.result_preview.centerCursor()
+
+    def _copy_preview(self):
+        from PyQt6.QtWidgets import QApplication
+        text = self.result_preview.textCursor().selectedText() or self.result_preview.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text.replace('\u2029', '\n'))
 
     def _selected_export_servers(self) -> list[dict]:
         keys = self._selected_export_keys()
@@ -4068,7 +4342,7 @@ class OpsLogPanel(QWidget):
         if not server:
             show_warning(self, 'PengTools', '请先选择服务器' if zh else 'Select a server')
             return
-        if not decrypt_secret(server.get('password_token') or ''):
+        if not server_has_credentials(server):
             show_warning(self, 'PengTools', '请先编辑服务器并保存密码' if zh else 'Save password first')
             return
         path = self._effective_log_path()
@@ -4202,13 +4476,32 @@ class OpsLogPanel(QWidget):
             return
         for job in jobs:
             s = job.get('server') or {}
-            if not decrypt_secret(s.get('password_token') or ''):
+            if not server_has_credentials(s):
                 show_warning(self, 'PengTools', f'「{s.get("name")}」密码无效，请先编辑保存密码')
                 return
         self._persist_settings_from_ui()
         self._running = True
         self.export_btn.setEnabled(False)
+        self._refresh_export_selection()
+        self._capture_terms = [keyword] + [k for k in extras if k]
         self.result_table.setRowCount(0)
+        self.result_preview.clear()
+        self.preview_title.setText('')
+        self._preview_has_hits = False
+        # 先为每个目标放一行「排队中」，结果回来原地更新，进度一目了然
+        self._result_rows = {}
+        for job in jobs:
+            row = self.result_table.rowCount()
+            self.result_table.insertRow(row)
+            server = job.get('server') or {}
+            for col, cell in enumerate((
+                str(server.get('name') or server.get('host') or ''),
+                str(job.get('service_name') or ''),
+                '截取中…' if zh else 'Running…',
+                '-', str(job.get('log_path') or ''), '',
+            )):
+                self.result_table.setItem(row, col, QTableWidgetItem(cell))
+            self._result_rows[str(job.get('job_key') or row)] = row
         # 导出时展示结果区
         if hasattr(self, 'result_panel'):
             self.result_panel.show()
@@ -4248,8 +4541,11 @@ class OpsLogPanel(QWidget):
         self._set_work_mode('export')
 
     def _on_result_row(self, result: dict):
-        row = self.result_table.rowCount()
-        self.result_table.insertRow(row)
+        key = str(result.get('job_key') or '')
+        row = getattr(self, '_result_rows', {}).get(key, -1)
+        if row < 0 or row >= self.result_table.rowCount():
+            row = self.result_table.rowCount()
+            self.result_table.insertRow(row)
         name = str(result.get('server_name') or result.get('host') or '')
         ok = bool(result.get('ok'))
         status = ('成功' if ok else '失败') if self.language == 'zh' else ('OK' if ok else 'Fail')
@@ -4275,8 +4571,14 @@ class OpsLogPanel(QWidget):
             if col == 4 and result.get('local_path'):
                 item.setData(Qt.ItemDataRole.UserRole, result.get('local_path'))
             self.result_table.setItem(row, col, item)
+        # 自动预览：优先第一个有命中的结果；全都 0 命中时至少展示第一个成功的
+        hits = int(result.get('line_count') or 0) if ok else 0
+        if ok and result.get('local_path'):
+            if not self.result_preview.toPlainText() or (hits and not getattr(self, '_preview_has_hits', False)):
+                self._preview_has_hits = bool(hits)
+                self.result_table.setCurrentCell(row, 0)
         # 同步到会话控制台摘要
-        self._console_append(f"[导出] {name}/{svc}: {status}")
+        self._console_append(f"[截取] {name}/{svc}: {status}")
 
     def _on_export_finished(self, results: list):
         self._running = False
@@ -4284,7 +4586,9 @@ class OpsLogPanel(QWidget):
             self.export_btn.setEnabled(True)
         if hasattr(self, 'session_export_btn'):
             self.session_export_btn.setEnabled(True)
+        self._refresh_export_selection()
         ok_n = sum(1 for r in results if r.get('ok'))
+        hits = sum(int(r.get('line_count') or 0) for r in results if r.get('ok'))
         self.status_label.setText(
             f'完成：{ok_n}/{len(results)} 成功' if self.language == 'zh' else f'Done: {ok_n}/{len(results)}'
         )
@@ -4292,11 +4596,11 @@ class OpsLogPanel(QWidget):
         if paths:
             parent = os.path.dirname(paths[0])
             self.status_label.setText(
-                (f'完成：{ok_n}/{len(results)} 成功 · 目录 {parent}'
+                (f'完成 {ok_n}/{len(results)} · 共 {hits} 行 · {parent}'
                  if self.language == 'zh' else
-                 f'Done: {ok_n}/{len(results)} · {parent}')
+                 f'Done {ok_n}/{len(results)} · {hits} lines · {parent}')
             )
-            self._offer_open_export(paths)
+            # 结果与内容已在右侧预览，不再弹窗打断
 
     def _offer_open_export(self, paths: list[str]):
         """导出成功后询问打开文件或所在文件夹。"""
@@ -4330,12 +4634,13 @@ class OpsLogPanel(QWidget):
         self._running = False
         if hasattr(self, 'export_btn'):
             self.export_btn.setEnabled(True)
+            self._refresh_export_selection()
         if hasattr(self, 'session_export_btn'):
             self.session_export_btn.setEnabled(True)
         self.status_label.setText(message)
         show_error(self, 'PengTools', message)
 
-    def _open_selected_result(self):
+    def _open_selected_result(self, *_args):
         row = self.result_table.currentRow()
         if row < 0:
             return

@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Callable
 
-from config import OPS_LOG_SETTINGS_FILE, OPS_SERVERS_FILE, ensure_config_dir
+from config import OPS_LOG_SETTINGS_FILE, OPS_SERVERS_FILE, OPS_SSH_KNOWN_HOSTS_FILE, ensure_config_dir
 from tools.secure_store import (
     decrypt_secret,
     encrypt_secret,
@@ -35,6 +35,8 @@ DEFAULT_LOG_SETTINGS = {
     'case_insensitive': True,
     'tail_lines': 100,
     'show_remote_browser': True,
+    # 日志排查默认进入「多机截取」；记住上次使用的工作区
+    'work_mode': 'export',
 }
 
 # 服务器分类（用户自定义：集成 / 模拟 / 生产 …）
@@ -222,6 +224,22 @@ def build_export_jobs(
     return jobs
 
 
+AUTH_PASSWORD = 'password'
+AUTH_KEY = 'key'
+
+
+def server_auth_method(server: dict) -> str:
+    """'key' = 私钥登录（指定文件或本机 ~/.ssh / ssh-agent）；其余按密码登录。"""
+    return AUTH_KEY if str((server or {}).get('auth_method') or '').strip().lower() == AUTH_KEY else AUTH_PASSWORD
+
+
+def server_has_credentials(server: dict) -> bool:
+    """连接前的本地检查：密钥登录不要求保存密码。"""
+    if server_auth_method(server) == AUTH_KEY:
+        return True
+    return bool(_clean_password(decrypt_secret((server or {}).get('password_token') or '')))
+
+
 def _normalize_server(item: dict, category_ids: set[str] | None = None) -> dict:
     port = item.get('port', 22)
     try:
@@ -262,6 +280,9 @@ def _normalize_server(item: dict, category_ids: set[str] | None = None) -> dict:
         'port': port,
         'username': str(item.get('username') or '').strip(),
         'password_token': password_token,
+        'auth_method': server_auth_method(item),
+        'key_path': str(item.get('key_path') or '').strip(),
+        'key_passphrase_token': _key_passphrase_token(item),
         'default_log_path': default_log_path,
         'services': services,
         'category_id': category_id,
@@ -449,6 +470,8 @@ def load_log_settings() -> dict:
         data = {}
     result = dict(DEFAULT_LOG_SETTINGS)
     result.update({k: data[k] for k in DEFAULT_LOG_SETTINGS if k in data})
+    if result.get('work_mode') not in ('export', 'session'):
+        result['work_mode'] = 'export'
     try:
         result['context_lines'] = max(0, min(200, int(result['context_lines'])))
     except (TypeError, ValueError):
@@ -651,12 +674,8 @@ def extract_log_from_server(
     if not path:
         raise OpsSshError('日志路径为空')
 
-    if password_override is not None and str(password_override) != '':
-        password = str(password_override)
-    else:
-        password = decrypt_secret(server.get('password_token') or '')
-    if not password:
-        raise OpsSshError('密码为空，请编辑服务器并重新输入密码')
+    if not password_override and not server_has_credentials(server):
+        raise OpsSshError('密码为空，请编辑服务器并重新输入密码（或改用密钥登录）')
 
     export_dir = str(export_dir or '').strip()
     if not export_dir:
@@ -671,23 +690,13 @@ def extract_log_from_server(
 
     port = int(server.get('port') or 22)
     timeout = max(5, min(300, int(timeout_sec or 30)))
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     started = datetime.now().isoformat(timespec='seconds')
     local_path = ''
+    client = None
 
     try:
-        client.connect(
-            hostname=host,
-            port=port,
-            username=username,
-            password=password,
-            timeout=timeout,
-            allow_agent=False,
-            look_for_keys=False,
-            banner_timeout=timeout,
-            auth_timeout=timeout,
-        )
+        # 与会话连接共用：密码 / keyboard-interactive / 私钥（含密码被禁用时的自动回退）
+        client = open_ssh_client(server, password_override=password_override, timeout_sec=timeout)
         # 配置里常绑目录不带 .log：连上后解析为最新日志文件
         try:
             path = resolve_remote_log_file(client, path)
@@ -801,10 +810,7 @@ def extract_log_from_server(
     except Exception as exc:
         raise OpsSshError(str(exc) or exc.__class__.__name__) from exc
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        close_ssh_client(client)
 
 
 def extract_logs_parallel(
@@ -923,11 +929,35 @@ def _resolve_password(server: dict, password_override: str | None = None) -> str
     return password
 
 
+def _key_passphrase_token(item: dict) -> str:
+    if item.get('key_passphrase') is not None and str(item.get('key_passphrase')) != '':
+        return encrypt_secret(str(item.get('key_passphrase')))
+    return str(item.get('key_passphrase_token') or '')
+
+
+def _allowed_auth_types(exc: BaseException) -> list[str]:
+    allowed = getattr(exc, 'allowed_types', None)
+    return [str(x) for x in allowed] if isinstance(allowed, (list, tuple)) else []
+
+
 def _friendly_ssh_error(exc: BaseException) -> str:
     """把 paramiko 常见英文错误转成中文可读说明。"""
     raw = str(exc) or exc.__class__.__name__
     low = raw.lower()
     name = exc.__class__.__name__
+    allowed = _allowed_auth_types(exc)
+    if name == 'BadAuthenticationType' and 'password' not in allowed and 'keyboard-interactive' not in allowed:
+        return (
+            '该服务器不允许密码登录，只接受：' + ('、'.join(allowed) or '密钥') + '。\n'
+            '请编辑服务器，把「登录方式」改为「密钥」，并选择私钥文件'
+            '（不选则使用本机 ~/.ssh 下的默认密钥 / ssh-agent）。'
+        )
+    if name in ('PasswordRequiredException',) or 'private key file is encrypted' in low:
+        return '私钥已加密：请在服务器配置里填写私钥口令。'
+    if isinstance(exc, FileNotFoundError) or 'no such file' in low:
+        return f'找不到私钥文件：{raw}'
+    if name == 'SSHException' and 'no authentication methods available' in low:
+        return '没有可用的私钥：请在服务器配置里选择私钥文件，或确认本机 ~/.ssh 下有已授权的密钥。'
     if 'authentication failed' in low or name in ('AuthenticationException', 'BadAuthenticationType'):
         return (
             '认证失败：用户名或密码不正确。\n'
@@ -962,11 +992,17 @@ def open_ssh_client(
     username = str(server.get('username') or '').strip()
     if not host or not username:
         raise OpsSshError('主机或用户名为空')
-    password = _resolve_password(server, password_override)
     timeout = max(5, min(300, int(timeout_sec or 30)))
     port = int(server.get('port') or 22)
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    if server_auth_method(server) == AUTH_KEY and not password_override:
+        try:
+            return _connect_with_key(server, host, port, username, timeout)
+        except OpsSshError:
+            raise
+        except Exception as exc:
+            raise OpsSshError(_friendly_ssh_error(exc)) from exc
+    password = _resolve_password(server, password_override)
+    client = _new_ssh_client(port)
     try:
         client.connect(
             hostname=host,
@@ -980,21 +1016,38 @@ def open_ssh_client(
             auth_timeout=timeout,
         )
         return client
+    except HostKeyChangedError:
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise
     except Exception as first_exc:
+        # 服务器禁用了密码登录、只收公钥：自动用本机 ~/.ssh 默认密钥 / ssh-agent 再试一次
+        if 'publickey' in _allowed_auth_types(first_exc) and 'password' not in _allowed_auth_types(first_exc):
+            try:
+                client.close()
+            except Exception:
+                pass
+            try:
+                return _connect_with_key(server, host, port, username, timeout)
+            except Exception:
+                raise OpsSshError(_friendly_ssh_error(first_exc)) from first_exc
         # 部分环境仅 keyboard-interactive 收密码：先建会话再 interactive
         try:
             try:
                 client.close()
             except Exception:
                 pass
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client = _new_ssh_client(port)
             # 不带 password 建连接会停在未认证状态
             sock = socket.create_connection((host, port), timeout=timeout)
             transport = paramiko.Transport(sock)
             transport.banner_timeout = timeout
             transport.auth_timeout = timeout
             transport.start_client(timeout=timeout)
+            # 直接用 Transport 不走 SSHClient 的指纹回调：这里手动校验
+            _verify_or_remember_host_key(host, port, transport.get_remote_server_key())
 
             def _handler(title, instructions, prompt_list):  # noqa: ARG001
                 # 每个 prompt 回填同一密码（常见「Password:」）
@@ -1014,6 +1067,113 @@ def open_ssh_client(
             except Exception:
                 pass
             raise OpsSshError(_friendly_ssh_error(first_exc)) from first_exc
+
+
+def _connect_with_key(server: dict, host: str, port: int, username: str, timeout: int):
+    """私钥登录：指定 key_path 时只用该文件；否则用 ssh-agent 与本机 ~/.ssh 默认密钥。"""
+    key_path = os.path.expandvars(os.path.expanduser(str(server.get('key_path') or '').strip()))
+    if key_path and not os.path.isfile(key_path):
+        raise OpsSshError(f'找不到私钥文件：{key_path}')
+    # 测试连接时口令可能尚未加密落盘（明文只在内存里）
+    passphrase = _clean_password(
+        str(server.get('key_passphrase') or '') or decrypt_secret(server.get('key_passphrase_token') or '')
+    ) or None
+    client = _new_ssh_client(port)
+    try:
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            key_filename=key_path or None,
+            passphrase=passphrase,
+            allow_agent=not key_path,
+            look_for_keys=not key_path,
+            timeout=timeout,
+            banner_timeout=timeout,
+            auth_timeout=timeout,
+        )
+        return client
+    except Exception:
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise
+
+
+# ── 主机指纹：首次连接记录，之后必须一致（防止被冒充的服务器截走密码/日志）──
+
+
+class HostKeyChangedError(OpsSshError):
+    pass
+
+
+def _host_key_name(host: str, port: int) -> str:
+    return host if int(port or 22) == 22 else f'[{host}]:{int(port)}'
+
+
+def _key_fingerprint(key) -> str:
+    import base64
+    import hashlib
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return 'SHA256:' + base64.b64encode(digest).decode('ascii').rstrip('=')
+
+
+def load_known_hosts() -> dict:
+    data = _read_json(OPS_SSH_KNOWN_HOSTS_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def forget_host_key(host: str, port: int = 22) -> bool:
+    """用户确认服务器重装后，清除记录的指纹；下次连接重新信任。"""
+    data = load_known_hosts()
+    removed = data.pop(_host_key_name(str(host or '').strip(), port), None) is not None
+    if removed:
+        _write_json(OPS_SSH_KNOWN_HOSTS_FILE, data)
+    return removed
+
+
+def _verify_or_remember_host_key(host: str, port: int, key) -> None:
+    name = _host_key_name(host, port)
+    data = load_known_hosts()
+    fingerprint = _key_fingerprint(key)
+    saved = data.get(name)
+    if isinstance(saved, dict) and saved.get('fingerprint'):
+        if saved.get('fingerprint') != fingerprint or saved.get('key_type') != key.get_name():
+            raise HostKeyChangedError(
+                f'服务器 {host}:{port} 的主机指纹和上次不一致，已拒绝连接。\n'
+                f'上次：{saved.get("key_type")} {saved.get("fingerprint")}\n'
+                f'这次：{key.get_name()} {fingerprint}\n'
+                '如果确认是服务器重装或换了密钥，请在「更多操作 → 重置当前服务器指纹」后重连；'
+                '否则可能是被冒充的服务器，请先联系运维确认。'
+            )
+        return
+    data[name] = {
+        'key_type': key.get_name(),
+        'fingerprint': fingerprint,
+        'first_seen': datetime.now().isoformat(timespec='seconds'),
+    }
+    _write_json(OPS_SSH_KNOWN_HOSTS_FILE, data)
+
+
+if paramiko is not None:
+    class _TrustOnFirstUsePolicy(paramiko.MissingHostKeyPolicy):
+        """paramiko 回调：未知主机时校验/记录我们自己的指纹库。"""
+
+        def __init__(self, port: int):
+            self._port = int(port or 22)
+
+        def missing_host_key(self, client, hostname, key):
+            host = hostname[1:].split(']:')[0] if hostname.startswith('[') else hostname
+            _verify_or_remember_host_key(host, self._port, key)
+else:  # pragma: no cover - 无 paramiko 时不会建连接
+    _TrustOnFirstUsePolicy = None
+
+
+def _new_ssh_client(port: int):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(_TrustOnFirstUsePolicy(port))
+    return client
 
 
 def close_ssh_client(client) -> None:
