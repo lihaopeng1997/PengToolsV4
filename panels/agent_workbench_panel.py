@@ -18,8 +18,8 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFileDialog, QFrame,
-    QHBoxLayout, QInputDialog, QLabel, QMenu, QPlainTextEdit, QPushButton,
+    QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
     QScrollArea, QSizePolicy, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -110,6 +110,79 @@ def describe_tool_step(name, arguments) -> str:
         if tool == 'read_file' and args.get('start_offset'):
             target += f'（从第 {args.get("start_offset")} 个字符起）'
     return f'{icon}  {verb} {target}'.rstrip()
+
+
+class _StepGroup(QFrame):
+    """一轮任务的执行过程：工具步骤 + 模型中间说明，默认折叠成一行摘要。"""
+
+    def __init__(self, *, live: bool = False, language: str = 'zh', parent=None):
+        super().__init__(parent)
+        self.setObjectName('agent-steps-card')
+        self._live = live
+        self._zh = language == 'zh'
+        self._steps = 0
+        self._notes = 0
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.toggle = QToolButton(self)
+        self.toggle.setObjectName('agent-steps-toggle')
+        self.toggle.setCheckable(True)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle.toggled.connect(self._set_expanded)
+        layout.addWidget(self.toggle, 0, Qt.AlignmentFlag.AlignLeft)
+        self.body = QWidget(self)
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(10, 0, 0, 0)
+        self.body_layout.setSpacing(4)
+        layout.addWidget(self.body)
+        self.toggle.setChecked(live)
+        self._set_expanded(live)
+
+    def add_step(self, text: str) -> None:
+        row = QLabel(str(text or ''))
+        row.setObjectName('agent-step-row')
+        row.setWordWrap(True)
+        row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.body_layout.addWidget(row)
+        self._steps += 1
+        self._refresh_title()
+
+    def add_note(self, text: str) -> None:
+        """模型在调用工具前说的话：只保留一行，悬停看全文。"""
+        full = ' '.join(str(text or '').split())
+        if not full:
+            return
+        note = QLabel(full if len(full) <= 90 else full[:88] + '…')
+        note.setObjectName('agent-step-note')
+        note.setToolTip(full[:2000])
+        note.setWordWrap(True)
+        self.body_layout.addWidget(note)
+        self._notes += 1
+        self._refresh_title()
+
+    def finish(self) -> None:
+        self._live = False
+        self.toggle.setChecked(False)
+        self._refresh_title()
+
+    def step_count(self) -> int:
+        return self._steps
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self.body.setVisible(bool(expanded))
+        self._refresh_title()
+
+    def _refresh_title(self) -> None:
+        self.toggle.setArrowType(
+            Qt.ArrowType.DownArrow if self.toggle.isChecked() else Qt.ArrowType.RightArrow
+        )
+        if self._live:
+            text = f'正在执行 · 已 {self._steps} 步' if self._zh else f'Working · {self._steps} steps'
+        else:
+            text = f'执行了 {self._steps} 步' if self._zh else f'{self._steps} steps'
+        self.toggle.setText(text)
 
 
 class _WorkbenchBridge(QObject):
@@ -383,6 +456,8 @@ class AgentWorkbenchPanel(QWidget):
         metas = list_workspaces()
         if metas:
             self._select_workspace(str(metas[0].get('id') or ''), select_last_conv=True)
+        else:
+            self._refresh_space_tree()
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -428,6 +503,14 @@ class AgentWorkbenchPanel(QWidget):
         self.thread_title.setObjectName('agent-thread-title')
         self.thread_title.setMinimumWidth(0)
         top.addWidget(self.thread_title, 1)
+
+        self.header_dir_btn = QPushButton()
+        apply_button(self.header_dir_btn, 'ghost', compact=True)
+        self.header_dir_btn.setObjectName('agent-header-dir-btn')
+        self.header_dir_btn.setMinimumWidth(72)
+        self.header_dir_btn.setMaximumWidth(260)
+        self.header_dir_btn.clicked.connect(self._bind_directory)
+        top.addWidget(self.header_dir_btn)
 
         self.context_toggle_btn = QPushButton()
         apply_button(self.context_toggle_btn, 'ghost', compact=True)
@@ -493,7 +576,19 @@ class AgentWorkbenchPanel(QWidget):
         self.space_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.space_tree.customContextMenuRequested.connect(self._on_space_tree_menu)
         self.space_tree.itemClicked.connect(self._on_space_clicked)
+        self.space_search = QLineEdit()
+        self.space_search.setObjectName('agent-space-search')
+        self.space_search.setClearButtonEnabled(True)
+        self.space_search.setMinimumWidth(0)
+        self.space_search.textChanged.connect(self._filter_space_tree)
+        left_l.addWidget(self.space_search)
         left_l.addWidget(self.space_tree, 1)
+        self.space_empty = QLabel()
+        self.space_empty.setObjectName('field-hint')
+        self.space_empty.setWordWrap(True)
+        self.space_empty.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.space_empty.hide()
+        left_l.addWidget(self.space_empty, 1)
 
         ws_manage_row = QHBoxLayout()
         self.bind_dir_btn = QPushButton()
@@ -550,6 +645,31 @@ class AgentWorkbenchPanel(QWidget):
             '例如“读取 README 并总结模块结构”。',
             'workbench',
         )
+        self.thread_empty.setObjectName('agent-empty-hero')
+        hero_layout = self.thread_empty.layout()
+        chips = QWidget(self.thread_empty)
+        chips.setObjectName('agent-suggestions')
+        chips.setMaximumWidth(720)
+        chips_grid = QGridLayout(chips)
+        chips_grid.setContentsMargins(0, 14, 0, 0)
+        chips_grid.setHorizontalSpacing(10)
+        chips_grid.setVerticalSpacing(10)
+        self.suggestion_buttons = []
+        for index in range(4):
+            button = QPushButton(chips)
+            button.setObjectName('agent-suggestion')
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, button.sizePolicy().verticalPolicy())
+            button.clicked.connect(lambda _checked=False, b=button: self._use_suggestion(b))
+            chips_grid.addWidget(button, index // 2, index % 2)
+            self.suggestion_buttons.append(button)
+        chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        chips_row = QHBoxLayout()
+        chips_row.addStretch(1)
+        chips_row.addWidget(chips, 100)
+        chips_row.addStretch(1)
+        hero_layout.insertLayout(hero_layout.count() - 1, chips_row)
         thread_l.addWidget(self.thread_empty, 1)
         thread_l.addWidget(self.scroll, 1)
         self.scroll.hide()
@@ -784,6 +904,26 @@ class AgentWorkbenchPanel(QWidget):
         self.context_toggle_btn.setToolTip('显示/隐藏项目文件与预览面板' if zh else 'Toggle project files and preview panel')
         self._set_conflict_button_count(self._conflict_count)
         self.space_title.setText('工作区' if zh else 'Workspaces')
+        self.space_search.setPlaceholderText('搜索对话…' if zh else 'Search chats…')
+        self.space_empty.setText(
+            '还没有工作区。点「新建工作区」，或直接点上方「新对话」开始。' if zh else
+            'No workspace yet. Create one, or start a new chat above.'
+        )
+        suggestions = (
+            ('读取 README，总结项目模块结构', '读取 README 并总结这个项目的模块结构和入口。'),
+            ('找入口类，讲清调用链', '找到保费计算的入口类，按调用顺序讲清楚主要调用链。'),
+            ('解释报错日志的原因', '帮我分析下面这段报错日志可能的原因和排查方向：\n'),
+            ('给指定类补单元测试', '给下面这个类补充单元测试（说明要覆盖的场景）：'),
+        ) if zh else (
+            ('Summarize the project structure', 'Read the README and summarize the modules and entry points.'),
+            ('Trace a call chain', 'Find the entry class for premium calculation and explain the call chain.'),
+            ('Explain an error log', 'Analyze the likely cause of this error log:\n'),
+            ('Add unit tests', 'Add unit tests for this class (list the cases to cover):'),
+        )
+        for button, (label, prompt) in zip(self.suggestion_buttons, suggestions):
+            button.setText(label)
+            button.setToolTip(prompt)
+            button.setProperty('prompt', prompt)
         self.project_title.setText('项目文件' if zh else 'Files')
         self.preview_title.setText('预览' if zh else 'Preview')
         self.send_hint.setText('Enter 发送 · Alt+Enter 换行' if zh else 'Enter: send · Alt+Enter: newline')
@@ -829,10 +969,44 @@ class AgentWorkbenchPanel(QWidget):
             button.setMinimumWidth(button.sizeHint().width())
         self._update_exec_mode_tooltips()
 
+    def _use_suggestion(self, button):
+        """示例任务：填入输入框并聚焦，由用户补充后再发送。"""
+        prompt = str(button.property('prompt') or button.text() or '')
+        self.input.setPlainText(prompt)
+        cursor = self.input.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.input.setTextCursor(cursor)
+        self.input.setFocus()
+
+    def _filter_space_tree(self, text: str = ''):
+        needle = str(text or '').strip().casefold()
+        for row in range(self.space_tree.topLevelItemCount()):
+            top = self.space_tree.topLevelItem(row)
+            top_match = not needle or needle in top.text(0).casefold()
+            any_child = False
+            for k in range(top.childCount()):
+                child = top.child(k)
+                match = top_match or needle in child.text(0).casefold()
+                child.setHidden(not match)
+                any_child = any_child or match
+            top.setHidden(not (top_match or any_child))
+            if needle and any_child:
+                top.setExpanded(True)
+
     def _set_workspace_dir_label(self, workspace_dir: str | None):
         """Show an explicit short suffix while keeping the complete path available."""
         path = str(workspace_dir or '').strip()
         zh = self.language == 'zh'
+        header_btn = getattr(self, 'header_dir_btn', None)
+        if header_btn is not None:
+            if path:
+                name = os.path.basename(os.path.normpath(path)) or path
+                header_btn.setText(f'📁 {name}')
+                header_btn.setToolTip(('已绑定：' if zh else 'Bound: ') + os.path.normpath(path)
+                                      + ('\n点击更换目录' if zh else '\nClick to change'))
+            else:
+                header_btn.setText('📁 绑定项目目录' if zh else '📁 Bind folder')
+                header_btn.setToolTip('选择 Agent 可读写的项目文件夹' if zh else 'Choose the project folder')
         if not path:
             visible = '（未绑定目录）' if zh else '(No folder bound)'
             self.dir_label.setText(visible)
@@ -1127,6 +1301,13 @@ class AgentWorkbenchPanel(QWidget):
                 cid = str(conv.get('id') or f'c{i}')
                 active_mark = '● ' if cid == active_conv else ''
                 ctitle = str(conv.get('title') or f'对话 {i + 1}')
+                if ctitle.startswith('对话 ') or not conv.get('title'):
+                    first = next((str(m.get('content') or '') for m in conv.get('messages') or []
+                                  if isinstance(m, dict) and m.get('role') == 'user'
+                                  and str(m.get('content') or '').strip()), '')
+                    if first:
+                        first = ' '.join(first.split())
+                        ctitle = first if len(first) <= 16 else first[:15] + '…'
                 child = QTreeWidgetItem([active_mark + ctitle])
                 child.setData(0, Qt.ItemDataRole.UserRole,
                               {'kind': 'conversation', 'ws_id': ws_id, 'conv_id': cid})
@@ -1144,6 +1325,12 @@ class AgentWorkbenchPanel(QWidget):
                 else:
                     self.space_tree.setCurrentItem(top)
         self.space_tree.blockSignals(False)
+        has_spaces = self.space_tree.topLevelItemCount() > 0
+        self.space_tree.setVisible(has_spaces)
+        self.space_search.setVisible(has_spaces)
+        self.space_empty.setVisible(not has_spaces)
+        if self.space_search.text():
+            self._filter_space_tree(self.space_search.text())
         self._set_conflict_button_count(conflict_count)
 
     def _set_conflict_button_count(self, count: int):
@@ -1549,7 +1736,11 @@ class AgentWorkbenchPanel(QWidget):
         if hasattr(self, 'thread_title'):
             ws_title = str((ws or {}).get('title') or '')
             conv_title = str((conv or {}).get('title') or '')
-            self.thread_title.setText(' / '.join(part for part in (ws_title, conv_title) if part))
+            self.thread_title.setText(
+                ' / '.join(part for part in (ws_title, conv_title) if part)
+                or ('新对话' if self.language == 'zh' else 'New chat')
+            )
+        self._live_step_group = None
         while self.thread_layout.count() > 1:
             child = self.thread_layout.takeAt(0)
             if child.widget():
@@ -1559,13 +1750,34 @@ class AgentWorkbenchPanel(QWidget):
         if not conv:
             self.input.clear()
             return
+        pending: list[tuple[str, str]] = []
+
+        def flush_steps():
+            if not pending:
+                return
+            group = _StepGroup(language=self.language)
+            for kind, text in pending:
+                if kind == 'note':
+                    group.add_note(text)
+                else:
+                    group.add_step(text)
+            group.finish()
+            self._insert_thread_widget(group)
+            pending.clear()
+
         for msg in conv.get('messages') or []:
             role = str(msg.get('role') or '')
             content = str(msg.get('content') or '')
-            if role in ('user', 'assistant') and content:
-                self._append_message(role, content)
-            if role == 'assistant':
-                for call in msg.get('tool_calls') or []:
+            calls = (msg.get('tool_calls') or []) if role == 'assistant' else []
+            if role == 'user':
+                flush_steps()
+                if content:
+                    self._append_message('user', content)
+            elif role == 'assistant' and calls:
+                # 调用工具前的中间说明只算过程，不当作回答展示
+                if content.strip():
+                    pending.append(('note', _strip_role_prefix(content)))
+                for call in calls:
                     function = call.get('function') if isinstance(call, dict) else None
                     if not isinstance(function, dict):
                         continue
@@ -1573,7 +1785,11 @@ class AgentWorkbenchPanel(QWidget):
                         arguments = json.loads(function.get('arguments') or '{}')
                     except (TypeError, ValueError):
                         arguments = {}
-                    self._append_step(function.get('name'), arguments)
+                    pending.append(('step', describe_tool_step(function.get('name'), arguments)))
+            elif role == 'assistant' and content:
+                flush_steps()
+                self._append_message('assistant', content)
+        flush_steps()
 
     def _on_space_tree_menu(self, pos):
         item = self.space_tree.itemAt(pos)
@@ -2266,15 +2482,28 @@ class AgentWorkbenchPanel(QWidget):
         layout = QVBoxLayout(bubble)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
-        summary_title = QLabel('思考过程' if self.language == 'zh' else 'Thinking')
-        summary_title.setObjectName('agent-bubble-role')
-        layout.addWidget(summary_title)
+        summary_title = QToolButton()
+        summary_title.setObjectName('agent-steps-toggle')
+        summary_title.setCheckable(True)
+        summary_title.setCursor(Qt.CursorShape.PointingHandCursor)
+        thinking = '思考过程' if self.language == 'zh' else 'Thinking'
+        summary_title.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        summary_title.setArrowType(Qt.ArrowType.RightArrow)
+        summary_title.setText(thinking)
+        layout.addWidget(summary_title, 0, Qt.AlignmentFlag.AlignLeft)
         self._stream_summary = QPlainTextEdit()
         self._stream_summary.setReadOnly(True)
         self._stream_summary.setObjectName('agent-reasoning-summary')
         self._stream_summary.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self._stream_summary.setMaximumHeight(100)
         self._stream_summary.setMinimumHeight(36)
+        self._stream_summary.hide()
+        summary_title.toggled.connect(self._stream_summary.setVisible)
+        summary_title.toggled.connect(
+            lambda on, button=summary_title: button.setArrowType(
+                Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow
+            )
+        )
         layout.addWidget(self._stream_summary)
         body_title = QLabel('◆ Agent')
         body_title.setObjectName('agent-bubble-role')
@@ -2283,7 +2512,8 @@ class AgentWorkbenchPanel(QWidget):
         self._stream_body.setReadOnly(True)
         self._stream_body.setObjectName('agent-response-stream')
         self._stream_body.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self._stream_body.setMaximumHeight(260)
+        # 流式时只露最近几行，完整回答在结束后展示
+        self._stream_body.setMaximumHeight(max(54, self._stream_body.fontMetrics().lineSpacing() * 4 + 12))
         self._stream_body.setMinimumHeight(54)
         layout.addWidget(self._stream_body)
         bubble.setObjectName('agent-stream-card')
@@ -2369,12 +2599,14 @@ class AgentWorkbenchPanel(QWidget):
             self._scroll_to_bottom()
 
     def _append_step(self, name, arguments):
-        """工具调用以一行步骤显示（如“读取 README.md”），不把原始 JSON 摆给用户。"""
-        row = QLabel(describe_tool_step(name, arguments))
-        row.setObjectName('agent-step-row')
-        row.setWordWrap(True)
-        row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._insert_thread_widget(row)
+        """工具调用以一行步骤显示（如“读取 README.md”），运行中归入同一个「正在执行」组。"""
+        group = getattr(self, '_live_step_group', None)
+        if group is None:
+            group = _StepGroup(live=True, language=self.language)
+            self._live_step_group = group
+            self._insert_thread_widget(group)
+        group.add_step(describe_tool_step(name, arguments))
+        self._follow_scroll_if_at_bottom()
 
     def _append_message(self, role: str, content: str):
         """在工作台中栏追加一条消息气泡，滚动到底。"""

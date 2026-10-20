@@ -3792,6 +3792,56 @@ QLabel#agent-bubble-role {
     font-size: 12px;
     font-weight: 600;
 }
+QFrame#agent-empty-hero {
+    background: transparent;
+    border: none;
+}
+QFrame#agent-empty-hero QLabel#empty-state-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: __TEXT_STRONG__;
+}
+QPushButton#agent-suggestion {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+    padding: 10px 14px;
+    text-align: left;
+}
+QPushButton#agent-suggestion:hover {
+    border-color: __PRIMARY__;
+    color: __PRIMARY__;
+}
+QLineEdit#agent-space-search {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 4px 8px;
+}
+QPushButton#agent-header-dir-btn {
+    text-align: left;
+}
+QFrame#agent-steps-card {
+    background: transparent;
+    border: none;
+}
+QToolButton#agent-steps-toggle {
+    color: __TEXT_MUTED__;
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    font-size: 12px;
+}
+QToolButton#agent-steps-toggle:hover {
+    color: __PRIMARY__;
+}
+QLabel#agent-step-note {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    font-style: italic;
+    padding: 0px 10px;
+}
 QLabel#agent-step-row {
     color: __TEXT_MUTED__;
     background: __SURFACE_SOFT__;
