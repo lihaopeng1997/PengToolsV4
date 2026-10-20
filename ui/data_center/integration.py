@@ -194,7 +194,10 @@ class DataCenterWorkbenchAgent(QWidget):
         self.mode_combo.addItem("只读查询" if language == "zh" else "Read-only query", "query")
         self.mode_combo.addItem("仅生成草稿" if language == "zh" else "Draft only", "draft")
         self.model_combo = QComboBox(self)
-        self.model_combo.setMinimumContentsLength(10)
+        # 大字号/窄工作台下模型名可收缩（悬停看全名），不把整个工作台撑出 960
+        self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.model_combo.setMinimumContentsLength(6)
+        self.model_combo.setMinimumWidth(120)
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.refresh_button = QPushButton("刷新模型" if language == "zh" else "Refresh models", self)
         apply_button(self.refresh_button, "ghost", compact=True)

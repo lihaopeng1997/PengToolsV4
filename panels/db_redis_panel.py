@@ -11,6 +11,7 @@ import uuid
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
+    QSizePolicy,
     QComboBox, QDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
@@ -580,8 +581,13 @@ class RedisWorkbenchPanel(QWidget):
         cmd_bar = QHBoxLayout()
         self.cmd_prompt = QLabel('127.0.0.1:6379>')
         self.cmd_prompt.setObjectName('field-hint')
+        # 提示符含主机地址，窄窗口/大字号下允许截断（悬停看全），不撑宽工作台
+        self.cmd_prompt.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.cmd_prompt.setMinimumWidth(80)
+        self.cmd_prompt.setMaximumWidth(260)
         self.cmd_input = QLineEdit()
         size_line(self.cmd_input, 'path')
+        self.cmd_input.setMinimumWidth(140)
         self.cmd_input.returnPressed.connect(self._run_command)
         self.cmd_btn = QPushButton()
         apply_button(self.cmd_btn, 'primary', compact=True)
@@ -860,6 +866,7 @@ class RedisWorkbenchPanel(QWidget):
     def _set_nosql_prompt(self, draft):
         if isinstance(draft, NoSqlDraft) and draft.target is not None:
             self.cmd_prompt.setText(f"{draft.target.connection_id}[db{draft.db_index}]>")
+            self.cmd_prompt.setToolTip(self.cmd_prompt.text())
 
     def _open_nosql_history(self):
         error = open_nosql_history_dialog(
@@ -947,6 +954,7 @@ class RedisWorkbenchPanel(QWidget):
             else:
                 self.db_badge.setText(f"{item.get('host') or ''}:{item.get('port') or 6379}")
             self.cmd_prompt.setText(f"{item.get('host') or '127.0.0.1'}:{item.get('port') or 6379}>")
+            self.cmd_prompt.setToolTip(self.cmd_prompt.text())
             self._refresh_keys()
         else:
             self.db_badge.setText('未连接' if self.language == 'zh' else 'Not connected')

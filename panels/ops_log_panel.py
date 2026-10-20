@@ -2155,6 +2155,8 @@ class OpsLogPanel(QWidget):
         erow.setColumnStretch(2, 1)
         self.export_btn = QPushButton()
         apply_button(self.export_btn, 'primary', compact=False, icon='export', icon_size=16)
+        # 截取条里按文字定宽，不被栅格拉伸
+        self.export_btn.setSizePolicy(QSizePolicy.Policy.Maximum, self.export_btn.sizePolicy().verticalPolicy())
         self.export_btn.clicked.connect(self._start_export)
         el_l.addLayout(erow)
         self.export_server_list = QTreeWidget()

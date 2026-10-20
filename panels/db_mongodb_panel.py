@@ -18,6 +18,7 @@ from tools.data_center.mongo_transfer import apply_import, export_documents, exp
 
 from PyQt6.QtCore import QDateTime, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
+    QSizePolicy,
     QComboBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -462,8 +463,13 @@ class MongoDBWorkbenchPanel(QWidget):
         cmd_bar = QHBoxLayout()
         self.cmd_prompt = QLabel('mongo>')
         self.cmd_prompt.setObjectName('field-hint')
+        # 提示符含主机地址，窄窗口/大字号下允许截断（悬停看全），不撑宽工作台
+        self.cmd_prompt.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.cmd_prompt.setMinimumWidth(80)
+        self.cmd_prompt.setMaximumWidth(260)
         self.cmd_input = QLineEdit()
         size_line(self.cmd_input, 'path')
+        self.cmd_input.setMinimumWidth(140)
         self.cmd_input.returnPressed.connect(self._run_command)
         self.cmd_btn = QPushButton()
         apply_button(self.cmd_btn, 'secondary', compact=True)
@@ -530,6 +536,9 @@ class MongoDBWorkbenchPanel(QWidget):
         if hasattr(self, '_root_layout') and self._root_layout is not None:
             self._root_layout.setSpacing(page_spacing_for_mode(mode, low_height))
         set_subtitle_visible(self.page_subtitle, low_height or mode == 'narrow')
+        if hasattr(self, 'query_input'):
+            # 矮窗口让出高度，保证结果表下方的增删按钮不用滚动就能看到
+            self.query_input.setFixedHeight(72 if low_height else 96)
         if hasattr(self, 'body_splitter') and self.body_splitter is not None:
             col_mins = [180, 360] if mode in ('narrow', 'compact') else [200, 400]
             col_defs = [240, 560] if mode in ('narrow', 'compact') else [240, 720]
@@ -667,6 +676,7 @@ class MongoDBWorkbenchPanel(QWidget):
             self._selected_db = draft.target.database
             self._selected_coll = draft.target.schema or draft.collection
             self.cmd_prompt.setText(f"{draft.target.connection_id}/{draft.target.database}>")
+            self.cmd_prompt.setToolTip(self.cmd_prompt.text())
         if draft.restored_action == "command":
             self.side_tabs.setCurrentIndex(2)
         elif draft.restored_action == "query":
@@ -764,6 +774,7 @@ class MongoDBWorkbenchPanel(QWidget):
         if item:
             self._selected_db = str(item.get('database') or '')
             self.cmd_prompt.setText(f'{self._selected_db or "mongo"}>')
+            self.cmd_prompt.setToolTip(self.cmd_prompt.text())
             self._refresh_collections()
         else:
             self.coll_tree.clear()
@@ -777,6 +788,7 @@ class MongoDBWorkbenchPanel(QWidget):
     def _set_nosql_prompt(self, draft):
         if isinstance(draft, NoSqlDraft) and draft.target is not None:
             self.cmd_prompt.setText(f"{draft.target.connection_id}/{draft.target.database}>")
+            self.cmd_prompt.setToolTip(self.cmd_prompt.text())
 
     def _edit_connection(self, new=False):
         current = None if new else self._current_conn()

@@ -139,7 +139,9 @@ class TestVisualNativeSurfaces(unittest.TestCase):
         self.assertEqual(panel.connect_btn.objectName(), 'btn-secondary')
         self.assertEqual(panel.toolbar_export_btn.objectName(), 'btn-secondary')
         self.assertEqual(panel.disconnect_btn.objectName(), 'btn-secondary')
-        self.assertEqual(panel.cmd_send_btn.objectName(), 'primary-btn')
+        # 「执行到当前终端」只保留命令栏旁这一个主按钮；页头同名按钮隐藏
+        self.assertEqual(panel.cmd_send_bottom_btn.objectName(), 'primary-btn')
+        self.assertTrue(panel.cmd_send_btn.isHidden())
 
         # 终端每 Tab 会话独立隔离契约
         self.assertEqual(panel.term_tabs.count(), 1)

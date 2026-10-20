@@ -43,7 +43,9 @@ class CompactListLayoutTests(unittest.TestCase):
             self.assertEqual(export_header.sectionResizeMode(2), QHeaderView.ResizeMode.Interactive)
             self.assertGreaterEqual(panel.export_server_list.columnCount(), 3)
             self.assertIn('日志路径', panel.export_server_list.headerItem().text(1))
-            self.assertIs(panel.export_btn.parentWidget(), panel.select_all_btn.parentWidget())
+            # 「开始截取」在右侧截取条（多机截取工作区），全选/全不选留在左侧目标卡
+            self.assertTrue(panel.capture_workspace.isAncestorOf(panel.export_btn))
+            self.assertIs(panel.select_all_btn.parentWidget(), panel.select_none_btn.parentWidget())
             self.assertEqual(
                 panel.export_btn.sizePolicy().horizontalPolicy(),
                 QSizePolicy.Policy.Maximum,
