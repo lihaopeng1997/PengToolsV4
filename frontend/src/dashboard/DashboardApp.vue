@@ -125,6 +125,20 @@ async function onInlineCreate(group: StageKey, title: string): Promise<void> {
   }
 }
 
+async function onRename(name: string): Promise<void> {
+  if (!canAct.value || !summary.value) return
+  const previous = summary.value.username
+  summary.value.username = name // 乐观更新，Python 推送新 summary 后校正
+  const result = await act({ action: 'set_username', name })
+  if (!result.ok) {
+    summary.value.username = previous
+    showToast(result.error || '修改失败')
+  } else {
+    summary.value.username = result.name || name
+    showToast('称呼已更新')
+  }
+}
+
 function onCreateRequirement(): void {
   if (canAct.value) {
     const group = focus.value && focus.value !== 'online' ? focus.value : 'develop'
@@ -211,6 +225,7 @@ function onRetry(): void {
       @write-daily="onWriteDaily"
       @create-requirement="onCreateRequirement"
       @focus-stage="onFocusStage"
+      @rename="onRename"
     />
 
     <ProgressBoard

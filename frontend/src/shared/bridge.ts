@@ -41,6 +41,7 @@ export interface HomeActionResult {
   item?: Record<string, any>
   statuses?: string[]
   priorities?: string[]
+  name?: string
 }
 
 export class BridgeUnavailableError extends Error {

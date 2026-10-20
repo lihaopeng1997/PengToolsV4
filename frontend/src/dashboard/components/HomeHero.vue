@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import type { DashboardProgress, DashboardRelease, DashboardStats, StageKey } from '../types'
 import PrismIcon from '../../shared/components/PrismIcon.vue'
 import PrismSpectrum from './PrismSpectrum.vue'
@@ -20,7 +20,32 @@ const emit = defineEmits<{
   (e: 'createRequirement'): void
   (e: 'writeDaily'): void
   (e: 'focusStage', key: StageKey | null): void
+  (e: 'rename', name: string): void
 }>()
+
+// 称呼就地修改：点名字进入编辑，回车保存、Esc 取消
+const editingName = ref(false)
+const nameDraft = ref('')
+const nameInput = ref<HTMLInputElement | null>(null)
+
+async function startRename(): Promise<void> {
+  nameDraft.value = props.username || ''
+  editingName.value = true
+  await nextTick()
+  nameInput.value?.focus()
+  nameInput.value?.select()
+}
+
+function commitRename(): void {
+  if (!editingName.value) return
+  editingName.value = false
+  const name = nameDraft.value.trim()
+  if (name && name !== (props.username || '')) emit('rename', name)
+}
+
+function cancelRename(): void {
+  editingName.value = false
+}
 
 function stageCount(key: string): number {
   return props.progress?.stages?.find((stage) => stage.key === key)?.count ?? 0
@@ -81,7 +106,26 @@ const summary = computed(() => {
         {{ props.dateLine }}
         <span v-if="props.isDemo" class="hero-demo">示例数据</span>
       </p>
-      <h1 class="hero-title">{{ props.greeting || '你好' }}，{{ props.username || 'Lihp' }}</h1>
+      <h1 class="hero-title">
+        {{ props.greeting || '你好' }}，<input
+          v-if="editingName"
+          ref="nameInput"
+          v-model="nameDraft"
+          class="hero-name-input"
+          maxlength="20"
+          aria-label="修改称呼"
+          @keydown.enter.prevent="commitRename"
+          @keydown.esc.prevent="cancelRename"
+          @blur="commitRename"
+        /><button
+          v-else
+          class="hero-name"
+          type="button"
+          title="点击修改称呼"
+          data-action="rename"
+          @click="startRename"
+        >{{ props.username || 'Lihp' }}<PrismIcon class="hero-name-pen" name="edit" :size="16" /></button>
+      </h1>
       <p class="hero-summary">{{ summary }}</p>
 
       <div class="hero-actions">
@@ -220,6 +264,49 @@ const summary = computed(() => {
   font-weight: 800;
   letter-spacing: -0.8px;
   color: var(--text-strong);
+}
+
+.hero-name {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  background: none;
+  border: none;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 10px;
+  cursor: text;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hero-name:hover {
+  background: var(--primary-soft);
+}
+
+.hero-name-pen {
+  opacity: 0;
+  color: var(--text-muted);
+  transition: opacity 0.15s ease;
+}
+
+.hero-name:hover .hero-name-pen,
+.hero-name:focus-visible .hero-name-pen {
+  opacity: 1;
+}
+
+.hero-name-input {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  width: 7em;
+  max-width: 60%;
+  padding: 0 6px;
+  border: 2px solid var(--primary);
+  border-radius: 10px;
+  background: var(--surface);
+  outline: none;
 }
 
 .hero-summary {

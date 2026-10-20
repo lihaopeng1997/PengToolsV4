@@ -104,5 +104,15 @@ class HomeBridgeActionTests(unittest.TestCase):
         self.assertEqual(json.loads(bridge.homeAction('{}')), {'ok': False, 'error': '操作失败'})
 
 
+class HomeUsernameTests(unittest.TestCase):
+    def test_normalize_username(self):
+        self.assertEqual(home_actions.normalize_username('  李 浩鹏 '), '李 浩鹏')
+        self.assertEqual(home_actions.normalize_username('Li\x00hp'), 'Lihp')
+        with self.assertRaises(home_actions.HomeActionError):
+            home_actions.normalize_username('   ')
+        with self.assertRaises(home_actions.HomeActionError):
+            home_actions.normalize_username('x' * 21)
+
+
 if __name__ == '__main__':
     unittest.main()

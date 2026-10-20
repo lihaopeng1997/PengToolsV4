@@ -92,6 +92,20 @@ def _find(requirement_id: str, path=None) -> dict | None:
     return next((item for item in load_requirements(path) if str(item.get('id') or '') == wanted), None)
 
 
+USERNAME_MAX_LENGTH = 20
+
+
+def normalize_username(value: Any) -> str:
+    """首页称呼：去掉控制字符、合并空白，1～20 个字符。"""
+    text = ''.join(ch for ch in str(value or '') if ch.isprintable())
+    text = ' '.join(text.split())
+    if not text:
+        raise HomeActionError('称呼不能为空')
+    if len(text) > USERNAME_MAX_LENGTH:
+        raise HomeActionError(f'称呼最多 {USERNAME_MAX_LENGTH} 个字')
+    return text
+
+
 def _require_id(action: Mapping[str, Any]) -> str:
     rid = str(action.get('id') or '').strip()
     if not rid or rid.startswith('demo-'):

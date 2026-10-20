@@ -31,15 +31,70 @@ const creatingIn = ref<StageKey | null>(null)
 const draftTitle = ref('')
 const draftInput = ref<HTMLInputElement[] | null>(null)
 
+const COLUMN_LIMIT = 4
+const AUTO_COMPACT_ABOVE = 12
+const PRIORITY_RANK: Record<string, number> = { 紧急: 0, 重要: 1 }
+
+function sortItems(items: DashboardBoardItem[]): DashboardBoardItem[] {
+  return [...items].sort((a, b) => {
+    const pa = PRIORITY_RANK[String(a.priority || '')] ?? 2
+    const pb = PRIORITY_RANK[String(b.priority || '')] ?? 2
+    if (pa !== pb) return pa - pb
+    const da = String(a.actual_release_date || '9999')
+    const db = String(b.actual_release_date || '9999')
+    return da.localeCompare(db)
+  })
+}
+
 const columns = computed(() => {
   const items = props.progress?.board ?? []
   return STAGE_DEFS.map((stage) => ({
     ...stage,
-    items: items.filter((item) => item.group === stage.key),
+    items: sortItems(items.filter((item) => item.group === stage.key)),
   }))
 })
 
 const totalCards = computed(() => (props.progress?.board ?? []).length)
+
+// 展开的列（显示全部卡片）；聚焦某阶段时该列自动全部展开
+const expanded = ref<Set<StageKey>>(new Set())
+
+function isExpanded(key: StageKey): boolean {
+  return props.focus === key || expanded.value.has(key)
+}
+
+function toggleExpanded(key: StageKey): void {
+  const next = new Set(expanded.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expanded.value = next
+}
+
+function visibleItems(col: { key: StageKey; items: DashboardBoardItem[] }): DashboardBoardItem[] {
+  return isExpanded(col.key) ? col.items : col.items.slice(0, COLUMN_LIMIT)
+}
+
+// 紧凑视图：记住用户选择；没选过时任务多就默认紧凑
+const COMPACT_KEY = 'pengtools.home.board.compact'
+function readCompactPref(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(COMPACT_KEY)
+    return raw === null ? null : raw === '1'
+  } catch {
+    return null
+  }
+}
+const compactPref = ref<boolean | null>(readCompactPref())
+const compact = computed(() => compactPref.value ?? totalCards.value > AUTO_COMPACT_ABOVE)
+
+function toggleCompact(): void {
+  compactPref.value = !compact.value
+  try {
+    window.localStorage.setItem(COMPACT_KEY, compactPref.value ? '1' : '0')
+  } catch {
+    /* 存不了就只在本次生效 */
+  }
+}
 const focusLabel = computed(() => STAGE_DEFS.find((s) => s.key === props.focus)?.label ?? '')
 
 function isReal(item: DashboardBoardItem): boolean {
@@ -112,6 +167,16 @@ function onOpen(item: DashboardBoardItem): void {
         <span class="head-sub">{{ totalCards ? `${totalCards} 个需求 · 拖动卡片即可改阶段` : '还没有在推进的需求' }}</span>
       </div>
       <div class="head-actions">
+        <button
+          v-if="totalCards"
+          class="chip view-toggle"
+          type="button"
+          :title="compact ? '切换为详细卡片' : '切换为一行一条的紧凑视图'"
+          data-action="toggle-compact"
+          @click="toggleCompact"
+        >
+          {{ compact ? '紧凑' : '详细' }}
+        </button>
         <button v-if="props.focus" class="chip" type="button" @click="emit('focusStage', null)">
           只看 {{ focusLabel }}
           <PrismIcon name="x" :size="12" />
@@ -120,7 +185,7 @@ function onOpen(item: DashboardBoardItem): void {
       </div>
     </header>
 
-    <div class="columns">
+    <div class="columns" :class="{ compact }">
       <div
         v-for="col in columns"
         :key="col.key"
@@ -165,7 +230,7 @@ function onOpen(item: DashboardBoardItem): void {
 
           <TransitionGroup name="card">
             <article
-              v-for="item in col.items"
+              v-for="item in visibleItems(col)"
               :key="item.id"
               class="task"
               :class="{
@@ -201,6 +266,16 @@ function onOpen(item: DashboardBoardItem): void {
               <p v-else-if="item.next_action && col.key !== 'online'" class="next">{{ item.next_action }}</p>
             </article>
           </TransitionGroup>
+
+          <button
+            v-if="col.items.length > COLUMN_LIMIT && props.focus !== col.key"
+            class="more"
+            type="button"
+            data-action="toggle-column"
+            @click="toggleExpanded(col.key)"
+          >
+            {{ isExpanded(col.key) ? '收起' : `还有 ${col.items.length - COLUMN_LIMIT} 项` }}
+          </button>
 
           <div v-if="!col.items.length && creatingIn !== col.key" class="empty">
             {{ dragId ? '放到这里' : col.key === 'online' ? '本月还没有上线' : '暂无' }}
@@ -374,6 +449,73 @@ h2 {
   min-height: 120px;
   max-height: 420px;
   overflow-y: auto;
+}
+
+.more {
+  align-self: stretch;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.view-toggle {
+  min-width: 52px;
+  justify-content: center;
+}
+
+/* 紧凑：一行一条，只留编号与标题 */
+.columns.compact .col-body {
+  gap: 4px;
+}
+
+.columns.compact .task {
+  padding: 6px 10px 6px 12px;
+  border-radius: 9px;
+}
+
+.columns.compact .task::before {
+  top: 6px;
+  bottom: 6px;
+}
+
+.columns.compact .task-top {
+  display: none;
+}
+
+.columns.compact .task-title {
+  margin: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: unset;
+  display: block;
+}
+
+.columns.compact .task-meta,
+.columns.compact .tp,
+.columns.compact .next {
+  display: none;
+}
+
+.columns.compact .task.urgent .task-title::before {
+  content: "● ";
+  color: var(--danger);
+}
+
+.columns.compact .task.important .task-title::before {
+  content: "● ";
+  color: var(--warning);
 }
 
 .task {

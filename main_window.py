@@ -50,6 +50,15 @@ STACK_DB_START = 15  # stack index 15 → nav 18 (SQL_DB_NAV_START) Oracle 面�
 STACK_DATA_CENTER = len(_BUILTIN_ATTRS) + len(DB_ATTRS)
 
 
+
+def _user_initials(name) -> str:
+    """顶栏头像字：中文取第一个字，英文取前两个字母（大写）。"""
+    text = ''.join(str(name or '').split()) or 'Lihp'
+    if any('一' <= ch <= '鿿' for ch in text):
+        return next(ch for ch in text if '一' <= ch <= '鿿')
+    letters = [ch for ch in text if ch.isalnum()]
+    return (''.join(letters[:2]) or text[:2]).upper()
+
 class MainWindow(QMainWindow):
     layout_mode_changed = pyqtSignal(str, bool)
 
@@ -361,7 +370,7 @@ class MainWindow(QMainWindow):
 
         self.user_chip = QToolButton(controls)
         self.user_chip.setObjectName('user-chip')
-        self.user_chip.setText('LH')
+        self.user_chip.setText(_user_initials(self._settings.get('home_username')))
         self.user_chip.setToolTip('账户与偏好 · Ctrl+Shift+P 悬浮栏')
         self.user_chip.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.user_chip.setFixedSize(32, 32)
@@ -1169,7 +1178,7 @@ class MainWindow(QMainWindow):
 
         self.user_chip = QToolButton()
         self.user_chip.setObjectName('user-chip')
-        self.user_chip.setText('LH')
+        self.user_chip.setText(_user_initials(self._settings.get('home_username')))
         self.user_chip.setToolTip('账户与偏好 · Ctrl+Shift+P 悬浮栏')
         self.user_chip.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.user_chip.setFixedSize(32, 32)
@@ -2023,6 +2032,23 @@ class MainWindow(QMainWindow):
     def _handle_home_action(self, payload):
         """首页就地操作：台账读写交给 tools.home_actions；打开目录等宿主动作在这里做。"""
         from tools import home_actions
+        if payload.get('action') == 'set_username':
+            try:
+                name = home_actions.normalize_username(payload.get('name'))
+            except home_actions.HomeActionError as exc:
+                return {'ok': False, 'error': str(exc)}
+            self._settings['home_username'] = name
+            try:
+                self._settings = save_settings(self._settings)
+            except OSError:
+                return {'ok': False, 'error': '保存失败，请稍后再试'}
+            for bridge in (getattr(self, '_chrome_bridge', None), getattr(self, '_dash_bridge', None)):
+                if bridge is not None and hasattr(bridge, 'set_username'):
+                    bridge.set_username(name)
+            if getattr(self, 'user_chip', None) is not None:
+                self.user_chip.setText(_user_initials(name))
+            QTimer.singleShot(0, self._push_dashboard_summary)
+            return {'ok': True, 'changed': True, 'name': name}
         if payload.get('action') == 'open_dir':
             folder = home_actions.local_dir_for(str(payload.get('id') or ''))
             if not folder:
