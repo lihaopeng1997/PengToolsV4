@@ -450,6 +450,15 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
             [{'tool': 'read_file', 'args': {'path': 'a.py'}}],
         )
 
+    def test_a12f_budget_stop_message_is_plain_language(self):
+        from types import SimpleNamespace
+
+        result = SimpleNamespace(status='budget_exhausted', error='input_chars', final_text='')
+        text = ar._safe_status_text(result)
+        self.assertNotIn('input_chars', text)
+        self.assertIn('继续', text)
+        self.assertGreaterEqual(ar.MAX_RUN_INPUT_CHARS, 1_000_000)
+
     def test_a12e_marked_text_tool_calls_are_recovered(self):
         self.assertEqual(
             ar.recover_text_tool_calls('我先列出工作区根目录结构：\n[调用工具 list_dir: {"path": ""}]'),

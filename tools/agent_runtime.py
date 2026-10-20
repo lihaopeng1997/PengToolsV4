@@ -23,6 +23,20 @@ from tools.sql_guard import redact_error
 MAX_TOOL_ROUNDS = 40  # 单次请求最多模型轮次（含 Plan 阶段）；读完一个真实工程通常要十几到几十轮
 MAX_TOOL_CALLS = 120  # 单次请求最多工具调用次数
 MAX_RUN_SECONDS = 900  # 单次请求最长运行时间；用户可随时手动停止
+# 单次请求累计发给模型的字符数（每轮都会重发历史与已读文件，按 40 轮 × 约 4 万字估算）；
+# 单轮请求大小另由上下文规划器控制。
+MAX_RUN_INPUT_CHARS = 1_600_000
+
+# 预算停止原因 → 给用户看的说明（说清楚哪里到顶、下一步怎么做）
+_BUDGET_REASON_TEXT = {
+    'input_chars': '本次任务读取和往返的内容太多（累计发给模型的文字已到上限），先停在这里。',
+    'bytes': '本次任务传输的数据量已到上限，先停在这里。',
+    'model_turns': f'本次任务已连续思考 {MAX_TOOL_ROUNDS} 轮，先停在这里。',
+    'tool_calls': f'本次任务已调用工具 {MAX_TOOL_CALLS} 次，先停在这里。',
+    'queries': '本次任务的查询次数已到上限，先停在这里。',
+    'output_tokens': '模型这次的回答长度已到上限，先停在这里。',
+}
+_BUDGET_NEXT_STEP = '已完成的步骤都保留着：发送「继续」可接着做，或把范围缩小到具体目录/文件再问。'
 MAX_FILE_SIZE = 200 * 1024  # 单文件最大读取 200KB
 MAX_READ_FILE_CHARS = 12_000  # Keep one read result below the shared input budget.
 # Application request ceiling, expressed as conservative estimated input
@@ -1439,7 +1453,8 @@ def _safe_status_text(result) -> str:
             return '上下文包含未完成或无效的工具交换，已停止本轮请求。'
         if result.error == 'final_request_input_bytes':
             return '最终模型请求超过本机 JSON 字节上限；后续模型请求未发送，此前已完成操作仍保留记录。'
-        return f'Agent 达到本轮预算上限（{result.error or "budget"}），已停止。'
+        reason = _BUDGET_REASON_TEXT.get(str(result.error or ''), '本次任务的资源用量已到上限，先停在这里。')
+        return f'{reason}{_BUDGET_NEXT_STEP}'
     if status == 'needs_clarification':
         return str(result.final_text or '需要补充信息。')
     if status == 'completed':
@@ -1783,7 +1798,7 @@ def run_agent_loop(
                 max_tool_calls=MAX_TOOL_CALLS,
                 max_duration_s=MAX_RUN_SECONDS,
                 max_bytes=16 * 1024 * 1024,
-                max_input_chars=384_000,
+                max_input_chars=MAX_RUN_INPUT_CHARS,
             ),
             cancellation=token,
             on_event=dispatch_event,
