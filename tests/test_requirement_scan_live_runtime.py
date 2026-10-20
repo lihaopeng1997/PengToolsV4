@@ -189,7 +189,7 @@ class RequirementScanLiveRuntimeTests(unittest.TestCase):
             return result
 
         with patch.object(QFileDialog, 'getExistingDirectory', new=staticmethod(get_existing_directory)):
-            panel.scan_btn.click()
+            panel._action_scan.trigger()
         self.assertTrue(state['dialog_found'], 'the real Qt QFileDialog did not appear before timeout')
         self.assertEqual(len(returned), 1)
         self.assertEqual(os.path.normcase(os.path.abspath(returned[0])), os.path.normcase(selected_folder))
@@ -372,7 +372,7 @@ class RequirementScanLiveRuntimeTests(unittest.TestCase):
             original_worker = panel._active_worker
             self.assertIsNotNone(original_worker)
             self.assertFalse(panel._task_shows_loading)
-            self.assertTrue(panel.scan_btn.isEnabled())
+            self.assertTrue(panel._action_scan.isEnabled())
             stale_callbacks.clear()
             self.assertTrue(panel.focus_requirement('seed-b'))
             self.assertEqual(panel._file_tree_path, str(first_existing))
@@ -402,7 +402,7 @@ class RequirementScanLiveRuntimeTests(unittest.TestCase):
 
             with patch.object(QFileDialog, 'getExistingDirectory',
                               new=staticmethod(lambda *args, **kwargs: str(latest_root))):
-                panel.scan_btn.click()
+                panel._action_scan.trigger()
             self.assertEqual(
                 os.path.normcase(os.path.abspath(panel._pending_scan_folder)),
                 os.path.normcase(os.path.abspath(latest_root)),
@@ -454,7 +454,7 @@ class RequirementScanLiveRuntimeTests(unittest.TestCase):
         selected_root = self._write_folder(self.root / 'cancelled-folder', {'one.txt': 'one'})
         panel = self._make_panel()
         with patch.object(QFileDialog, 'getExistingDirectory', new=staticmethod(lambda *args, **kwargs: '')):
-            panel.scan_btn.click()
+            panel._action_scan.trigger()
         self.assertIsNone(panel._pending_scan_folder)
         self.assertEqual(self._load_temp_ledger(), [])
         self.assertEqual(self.success_messages, [])
@@ -528,7 +528,7 @@ class RequirementScanLiveRuntimeTests(unittest.TestCase):
                 patch.object(QFileDialog, 'getExistingDirectory', new=staticmethod(lambda *args, **kwargs: str(close_scan_root))):
             closing_panel = self._make_panel([seed])
             self.assertTrue(entered.wait(2.0))
-            closing_panel.scan_btn.click()
+            closing_panel._action_scan.trigger()
             self.assertEqual(closing_panel._pending_scan_folder, str(close_scan_root))
             closing_panel.close()
             self.assertIsNone(closing_panel._pending_scan_folder)

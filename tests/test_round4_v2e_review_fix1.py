@@ -23,7 +23,7 @@ class TestRound4V2EReviewFix1(unittest.TestCase):
         tools = summary.get('tools', [])
         dc_tool = next((t for t in tools if t['zh'] == '数据中心'), None)
         self.assertIsNotNone(dc_tool)
-        self.assertEqual(dc_tool['i'], 18)
+        self.assertEqual(dc_tool['i'], 14)  # 数据中心统一入口
 
     def test_home_bridge_signals_and_slots(self):
         bridge = HomeBridge()
@@ -115,11 +115,12 @@ class TestRound4V2EReviewFix1(unittest.TestCase):
             self.assertIn(panel._action_import, more_actions)
             self.assertIn(panel._action_syscfg, more_actions)
 
+            self.assertIn(panel._action_bug, more_actions)
+            self.assertIn(panel._action_scan, more_actions)
             for mode in ('wide', 'standard', 'compact', 'narrow'):
                 panel.apply_layout_mode(mode)
-                self.assertFalse(panel.scan_btn.isHidden())
                 self.assertFalse(panel.update_all_btn.isHidden())
-                self.assertFalse(panel.bug_btn.isHidden())
+                self.assertFalse(panel.add_btn.isHidden())
                 self.assertFalse(panel.toolbar_more_btn.isHidden())
 
     def test_native_dashboard_save_refresh(self):

@@ -220,8 +220,8 @@ class RequirementFlagTests(unittest.TestCase):
                 for other in rects:
                     self.assertFalse(g.intersects(other), f'{g} overlaps {other}')
                 rects.append(g)
-            # 动态上线字段
-            self.assertEqual(panel._detail_captions['online'].text(), '实际上线')
+            # 上线信息并入摘要首行
+            self.assertIn('上线', panel.detail_eyebrow.text())
             panel.close()
 
     def test_dialog_uses_online_matter_labels(self):

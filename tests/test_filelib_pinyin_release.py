@@ -105,7 +105,8 @@ class ReleaseLinkNamingTests(unittest.TestCase):
         self.assertIn('文件库', texts)
         self.assertEqual(p.sql_btn.text(), '打开发版联动')
         self.assertTrue(hasattr(p, 'file_search_edit'))
-        self.assertTrue(hasattr(p, 'file_expand_btn'))
+        # 低频文件操作收进「更多」菜单，不再常驻展开/折叠按钮
+        self.assertTrue(hasattr(p, 'file_more_btn'))
         self.assertEqual(p.file_tree.columnCount(), 5)
 
 

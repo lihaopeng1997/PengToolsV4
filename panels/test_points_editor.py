@@ -267,6 +267,7 @@ class TestPointsEditor(QWidget):
                 widget = item.widget()
                 if widget is None or widget is self.empty:
                     continue
+                widget.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
                 widget.deleteLater()
             if self.empty.parent() is not self.list_host:
                 self.list_layout.addWidget(self.empty)

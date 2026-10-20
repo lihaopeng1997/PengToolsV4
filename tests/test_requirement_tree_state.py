@@ -47,6 +47,7 @@ class RequirementTreeExpandStateTests(unittest.TestCase):
                 patch("panels.requirement_panel.load_requirement_ui", return_value={}), \
                 patch("panels.requirement_panel.RequirementPanel._refresh_file_tree", lambda self: None):
             panel = RequirementPanel("zh")
+            panel._set_group_mode("month")
             july = next(
                 panel.requirement_list.topLevelItem(i)
                 for i in range(panel.requirement_list.topLevelItemCount())

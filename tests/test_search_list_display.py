@@ -78,8 +78,8 @@ class RequirementSearchDisplayTests(unittest.TestCase):
         self.assertNotIn('命中：', title_block)
         self.assertEqual(code, 'BUG-BBB')
         self.assertIn('贝塔缺陷', title_block)
-        # 行高固定，与未搜索一致（44）
-        self.assertEqual(item.sizeHint(1).height(), 44)
+        # 单行列表：行高固定，与未搜索一致
+        self.assertEqual(item.sizeHint(0).height(), 32)
         panel.close()
 
     def test_clear_search_restores_all(self):

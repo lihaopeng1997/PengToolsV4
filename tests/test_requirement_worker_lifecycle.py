@@ -185,6 +185,46 @@ class RequirementWorkerLifecycleTests(unittest.TestCase):
         )
         self.assertIn('SURVIVED', completed.stdout)
 
+    def test_overlay_clears_when_success_dialog_starts_silent_refresh(self):
+        """更新成功后弹窗期间启动的静默刷新，不能让“正在更新…”浮层一直挂着。"""
+        panel = self._panel()
+        finished_labels = []
+        real_finish = panel.loading.finish
+
+        def record_finish(label='', *, token=None):
+            finished_labels.append((label, token))
+            return real_finish(label, token=token)
+
+        panel.loading.finish = record_finish
+        silent_started = []
+
+        def success_with_modal_dialog(_result):
+            # 模拟 show_success 的模态事件循环：上一任务在此期间结束，并排队静默刷新
+            first = panel._active_worker
+            self._wait_for_worker(first)
+            for _ in range(20):
+                self.app.processEvents()
+                if panel._active_worker is None:
+                    break
+            panel._start_task('静默刷新文件库', lambda: {'files': []}, (), lambda _r: None, show_loading=False)
+            silent_started.append(panel._active_worker)
+            self.assertFalse(panel._task_shows_loading)
+
+        panel._start_task('正在更新当前 SVN 工作副本……', lambda: [{'ok': True}], (), success_with_modal_dialog)
+        update_worker = panel._active_worker
+        busy_token = panel._task_token
+        self._wait_for_worker(update_worker)
+        for _ in range(20):
+            self.app.processEvents()
+        if silent_started and silent_started[0] is not None:
+            self._wait_for_worker(silent_started[0])
+        self.app.processEvents()
+
+        self.assertEqual(len(silent_started), 1)
+        self.assertIn(('当前副本已更新', busy_token), finished_labels)
+        self.assertNotEqual(panel.loading._state, 'busy')
+        self.assertTrue(panel.update_all_btn.isEnabled())
+
 
 if __name__ == '__main__':
     unittest.main()

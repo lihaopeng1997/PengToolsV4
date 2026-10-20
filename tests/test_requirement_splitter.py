@@ -65,88 +65,53 @@ class RequirementCompactStackUiTests(unittest.TestCase):
         panel.close()
 
     def test_file_library_responsive_action_bar(self):
-        """测试文件库 9 个操作按钮在各断点下的可见性与更多菜单同步。"""
+        """文件库只常驻 4 个高频操作，低频操作在「更多」菜单且与底层状态同步。"""
         panel = self._make_panel()
         try:
-            self.assertEqual(len(panel.file_library_action_buttons), 9)
-            self.assertTrue(hasattr(panel, 'file_more_btn'))
-            self.assertTrue(hasattr(panel, 'file_more_menu'))
-
-            # Wide (>= 1440): 全部直显，更多按钮隐藏
-            panel.apply_layout_mode('wide')
-            for b in (panel.open_folder_btn, panel.refresh_svn_btn, panel.update_current_btn,
-                      panel.add_file_btn, panel.new_text_btn, panel.lock_file_btn,
-                      panel.unlock_file_btn, panel.revert_btn, panel.commit_btn):
-                self.assertFalse(b.isHidden())
-            self.assertTrue(panel.file_more_btn.isHidden())
-
-            # Standard / Compact / Narrow (< 1440): 低频操作收进更多
-            for mode in ('standard', 'compact', 'narrow'):
+            self.assertEqual(
+                panel.file_library_action_buttons,
+                (panel.open_folder_btn, panel.refresh_svn_btn, panel.update_current_btn, panel.commit_btn),
+            )
+            for mode in ('wide', 'standard', 'compact', 'narrow'):
                 panel.apply_layout_mode(mode)
-                # 常用高频操作始终可见
-                for b in (panel.open_folder_btn, panel.refresh_svn_btn, panel.update_current_btn,
-                          panel.add_file_btn, panel.commit_btn):
-                    self.assertFalse(b.isHidden())
-                # 低频操作隐藏
-                for b in (panel.new_text_btn, panel.lock_file_btn, panel.unlock_file_btn, panel.revert_btn):
-                    self.assertTrue(b.isHidden())
-                self.assertFalse(panel.file_more_btn.isHidden())
+                for b in panel.file_library_action_buttons:
+                    self.assertFalse(b.isHidden(), mode)
+                self.assertFalse(panel.file_more_btn.isHidden(), mode)
+                for b in (panel.add_file_btn, panel.new_text_btn, panel.lock_file_btn,
+                          panel.unlock_file_btn, panel.revert_btn):
+                    self.assertTrue(b.isHidden(), mode)
 
-            # 验证更多菜单中包含低频操作 Action，且 Action 状态与底层按钮同步
             action_texts = [a.text() for a in panel.file_more_menu.actions()]
-            self.assertIn('新建文本', action_texts)
-            self.assertIn('锁定', action_texts)
-            self.assertIn('解锁', action_texts)
-            self.assertIn('回滚', action_texts)
+            for text in ('添加文件…', '新建文本…', '锁定选中文件', '解锁选中文件', '回滚选中改动'):
+                self.assertIn(text, action_texts)
 
             panel.lock_file_btn.setEnabled(False)
             panel._sync_file_more_menu()
-            lock_action = next(a for a in panel.file_more_menu.actions() if a.text() == '锁定')
-            self.assertFalse(lock_action.isEnabled())
+            self.assertFalse(panel._action_lock.isEnabled())
         finally:
             panel.close()
 
     def test_file_library_search_row_responsive(self):
-        """测试文件库搜索栏展开/折叠按钮在紧凑断点下自动收纳。"""
+        """文件库搜索行只保留搜索框和计数；展开/折叠走右键菜单。"""
         panel = self._make_panel()
         try:
-            self.assertTrue(hasattr(panel, 'file_tree_more_btn'))
-
-            panel.apply_layout_mode('wide')
-            self.assertFalse(panel.file_expand_btn.isHidden())
-            self.assertFalse(panel.file_collapse_btn.isHidden())
-            self.assertTrue(panel.file_tree_more_btn.isHidden())
-
-            panel.apply_layout_mode('compact')
-            self.assertTrue(panel.file_expand_btn.isHidden())
-            self.assertTrue(panel.file_collapse_btn.isHidden())
-            self.assertFalse(panel.file_tree_more_btn.isHidden())
-
-            more_texts = [a.text() for a in panel.file_tree_more_menu.actions()]
-            self.assertIn('全部展开', more_texts)
-            self.assertIn('全部折叠', more_texts)
+            self.assertTrue(hasattr(panel, 'file_search_edit'))
+            for name in ('file_expand_btn', 'file_collapse_btn', 'file_tree_more_btn'):
+                self.assertFalse(hasattr(panel, name), name)
         finally:
             panel.close()
 
     def test_requirement_top_toolbar_responsive(self):
-        """测试需求管理顶部工具条在 1440/1280/1100/960 断点下固定 4 主入口，More 菜单始终包含次级动作。"""
+        """顶部唯一工具条：拉取最新 / 更多 / 新建需求在所有断点都可见，次级动作在更多菜单。"""
         panel = self._make_panel()
         try:
-            self.assertTrue(hasattr(panel, 'toolbar_more_btn'))
-
-            # 所有布局模式下，4 主按钮均直显，More 菜单始终可达
             for mode in ('wide', 'standard', 'compact', 'narrow'):
                 panel.apply_layout_mode(mode)
-                self.assertFalse(panel.scan_btn.isHidden())
-                self.assertFalse(panel.update_all_btn.isHidden())
-                self.assertFalse(panel.bug_btn.isHidden())
-                self.assertFalse(panel.toolbar_more_btn.isHidden())
-
-            # 验证更多菜单正常包含被收拢的次级操作
+                for b in (panel.update_all_btn, panel.toolbar_more_btn, panel.add_btn, panel.search_edit, panel.month_filter):
+                    self.assertFalse(b.isHidden(), mode)
             top_action_texts = [a.text() for a in panel.toolbar_more_menu.actions()]
-            self.assertIn('检出代码', top_action_texts)
-            self.assertIn('导入资料', top_action_texts)
-            self.assertIn('系统配置', top_action_texts)
+            for text in ('登记缺陷（粘贴 BUG）', '扫描需求目录…', '检出代码…', '导入资料…', '系统配置'):
+                self.assertIn(text, top_action_texts)
         finally:
             panel.close()
 
