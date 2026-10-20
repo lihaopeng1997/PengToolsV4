@@ -440,7 +440,7 @@ class DataCenterWorkspaceTests(unittest.TestCase):
         self.assertEqual(host.workbench_calls, 0)
         self.assertEqual(host.agent_calls, 0)
 
-    def test_narrow_toolbar_wraps_without_clipping_visible_controls(self):
+    def test_narrow_catalog_header_fits_without_clipping_visible_controls(self):
         from PyQt6.QtGui import QFont
 
         for language in ("zh", "en"):
@@ -453,19 +453,15 @@ class DataCenterWorkspaceTests(unittest.TestCase):
             panel.setFont(QFont("Microsoft YaHei UI", 13))
             panel.show()
             APP.processEvents()
-            toolbar = panel.findChild(QWidget, "data-center-toolbar")
-            controls = (
-                panel.catalog_toggle_btn, panel.search_edit, panel.new_btn,
-                panel.edit_btn, panel.delete_btn, panel.favorite_btn,
-                panel.refresh_btn, panel.open_btn,
-            )
-            visible = [control for control in controls if control.isVisible()]
-            self.assertGreaterEqual(toolbar.height(), max(control.height() for control in visible))
+            # V1.1：没有全局工具条；目录头部只有 搜索 + 新建 + ⋯
+            self.assertFalse(panel.findChild(QWidget, "data-center-toolbar").isVisible())
+            pane = panel.catalog_pane
+            visible = [panel.search_edit, panel.new_btn, panel.connection_menu_btn]
             for control in visible:
-                self.assertTrue(toolbar.rect().contains(control.geometry()), control.text())
-                self.assertGreaterEqual(control.width(), control.sizeHint().width(), control.text())
-            self.assertTrue(panel.open_btn.isVisible())
-            self.assertGreaterEqual(panel.search_edit.width(), 150)
+                self.assertTrue(control.isVisible(), control.toolTip())
+                self.assertIs(control.parentWidget(), pane)
+                self.assertTrue(pane.rect().contains(control.geometry()), control.toolTip())
+            self.assertGreaterEqual(panel.search_edit.width(), 80)
             for index, left in enumerate(visible):
                 for right in visible[index + 1:]:
                     self.assertFalse(left.geometry().intersects(right.geometry()))
@@ -489,9 +485,9 @@ class DataCenterWorkspaceTests(unittest.TestCase):
         self.assertIn("malformed project path", " ".join(catalog.record_errors))
         panel = DataCenterPanel("zh", catalog=catalog, host_factory=lambda *_args: QWidget())
         self.addCleanup(panel.deleteLater)
-        texts = self._tree_texts(panel)
-        self.assertIn("未知环境", texts)
-        self.assertNotIn("Unknown environment", texts)
+        tooltip = panel.tree.connection_source_item("bad-path").toolTip()
+        self.assertIn("未知环境", tooltip)
+        self.assertNotIn("Unknown environment", tooltip)
 
     def test_failed_loader_keeps_last_good_catalog_and_shows_local_notice(self):
         fail = {"enabled": False}
@@ -826,8 +822,12 @@ class DataCenterWorkspaceTests(unittest.TestCase):
                             manual.rollback_btn,
                             manual.stop_btn,
                         ):
-                            self.assertTrue(button.isVisible(), button.text())
-                            self.assertGreaterEqual(button.width(), button.sizeHint().width(), button.text())
+                            # 事务按钮（提交/回滚/停止）只在可用时出现
+                            self.assertEqual(button.isVisible(), button.isEnabled(), button.text())
+                            if button.isVisible():
+                                self.assertGreaterEqual(
+                                    button.width(), button.sizeHint().width(), button.text()
+                                )
                         self.assertTrue(manual.result_view.isVisible())
                         self.assertGreaterEqual(manual.result_view.height(), 120)
                         scroll = host.workspace_scroll
