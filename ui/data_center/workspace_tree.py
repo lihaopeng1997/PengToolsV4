@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRegularExpression, QSortFilterProxyModel, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import QTreeView, QWidget
+from PyQt6.QtCore import QRectF, QRegularExpression, QSize, QSortFilterProxyModel, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
+from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView, QWidget
 
 from tools.data_center.workspace_catalog import ConnectionSummary
 from ui.theme_manager import ThemeManager
@@ -24,6 +24,10 @@ TREE_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 11
 TREE_STATE_ROLE = int(Qt.ItemDataRole.UserRole) + 12
 TREE_CLOSING_ROLE = int(Qt.ItemDataRole.UserRole) + 13
 TREE_REQUESTED_DATABASE_ROLE = int(Qt.ItemDataRole.UserRole) + 14
+CONNECTION_SUBTITLE_ROLE = int(Qt.ItemDataRole.UserRole) + 15
+ENVIRONMENT_LABEL_ROLE = int(Qt.ItemDataRole.UserRole) + 16
+CONNECTION_OPEN_ROLE = int(Qt.ItemDataRole.UserRole) + 17
+SEARCH_TEXT_ROLE = int(Qt.ItemDataRole.UserRole) + 18
 
 _TREE_ITEM_LIMIT = 2048
 _TREE_PAGE_LIMIT = 50
@@ -38,18 +42,159 @@ class _RecursiveFilterProxy(QSortFilterProxyModel):
         needle = self.filterRegularExpression().pattern().casefold()
         if not needle:
             return True
-        if self.filterRegularExpression().match(
-            str(source.data(index, Qt.ItemDataRole.DisplayRole) or "")
-        ).hasMatch():
-            return True
+        expression = self.filterRegularExpression()
+        for role in (Qt.ItemDataRole.DisplayRole, SEARCH_TEXT_ROLE):
+            if expression.match(str(source.data(index, role) or "")).hasMatch():
+                return True
         for child_row in range(source.rowCount(index)):
             if self.filterAcceptsRow(child_row, index):
                 return True
         return False
 
 
+# 引擎徽标：缩写 + 主题色 token（只用于展示）
+_ENGINE_BADGES = {
+    "mysql": ("My", "CYAN"),
+    "oracle": ("Or", "DANGER"),
+    "oceanbase": ("OB", "PRIMARY"),
+    "dameng": ("达", "WARNING"),
+    "redis": ("Re", "DANGER"),
+    "mongodb": ("Mo", "SUCCESS"),
+}
+
+# 自定义环境名（如「模拟」「联调」）按关键字取色；规范环境键仍以 environment_key 为准
+_ENVIRONMENT_HINTS = (
+    (("生产", "prod", "prd", "正式"), "production"),
+    (("模拟", "预发", "准生产", "uat", "pre", "stag"), "staging"),
+    (("测试", "联调", "集成", "sit", "test", "qa"), "test"),
+    (("开发", "dev"), "development"),
+    (("本地", "local"), "local"),
+)
+
+
+def _environment_visual_key(environment_key: str, raw: str) -> str:
+    if environment_key and environment_key != "unknown":
+        return environment_key
+    lowered = str(raw or "").casefold()
+    for keywords, key in _ENVIRONMENT_HINTS:
+        if any(word in lowered for word in keywords):
+            return key
+    return "unknown"
+
+
+class _CatalogRowDelegate(QStyledItemDelegate):
+    """连接行：左侧环境色条 + 引擎徽标 + 名称/主机两行 + 右侧环境标签与已打开圆点。"""
+
+    _PAD = 6
+
+    def sizeHint(self, option, index):  # noqa: N802
+        size = super().sizeHint(option, index)
+        if index.data(NODE_KIND_ROLE) != "connection":
+            return size
+        metrics = option.fontMetrics
+        return QSize(size.width(), max(size.height(), metrics.height() * 2 + 14))
+
+    def paint(self, painter, option, index):  # noqa: N802
+        if index.data(NODE_KIND_ROLE) != "connection":
+            super().paint(painter, option, index)
+            return
+        theme = ThemeManager.instance()
+        token = lambda name: QColor(theme.token(name))  # noqa: E731
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        rect = QRectF(opt.rect).adjusted(1, 2, -2, -2)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+        enabled = bool(opt.state & QStyle.StateFlag.State_Enabled)
+        env_key = str(index.data(ENVIRONMENT_ROLE) or "unknown")
+        env_color = token(WorkspaceTree.environment_token(env_key))
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        if selected:
+            painter.setBrush(token("PRIMARY_SOFT"))
+            painter.drawRoundedRect(rect, 6, 6)
+        elif hovered:
+            painter.setBrush(token("SURFACE_SOFT"))
+            painter.drawRoundedRect(rect, 6, 6)
+        # 环境色条
+        painter.setBrush(env_color)
+        painter.drawRoundedRect(QRectF(rect.left() + 1, rect.top() + 4, 3, rect.height() - 8), 1.5, 1.5)
+
+        # 引擎徽标
+        dialect = str(index.data(ENGINE_ROLE) or "").lower()
+        badge_text, badge_token = _ENGINE_BADGES.get(dialect, ((dialect[:2] or "?").title(), "TEXT_MUTED"))
+        badge_color = token(badge_token)
+        side = min(24.0, rect.height() - 8)
+        badge = QRectF(rect.left() + 9, rect.center().y() - side / 2, side, side)
+        fill = QColor(badge_color)
+        fill.setAlpha(36)
+        painter.setBrush(fill)
+        painter.drawRoundedRect(badge, 5, 5)
+        base_size = opt.font.pointSizeF() if opt.font.pointSizeF() > 0 else 9.0
+        badge_font = QFont(opt.font)
+        badge_font.setBold(True)
+        badge_font.setPointSizeF(max(6.5, base_size * 0.78))
+        painter.setFont(badge_font)
+        painter.setPen(badge_color)
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, badge_text)
+
+        # 右侧：环境标签 + 已打开圆点
+        right = rect.right() - self._PAD
+        env_label = str(index.data(ENVIRONMENT_LABEL_ROLE) or "")
+        tag_font = QFont(opt.font)
+        tag_font.setPointSizeF(max(6.5, base_size * 0.8))
+        tag_metrics = QFontMetrics(tag_font)
+        if env_label and rect.width() > 150:
+            label = tag_metrics.elidedText(env_label, Qt.TextElideMode.ElideRight, 64)
+            width = tag_metrics.horizontalAdvance(label) + 12
+            height = tag_metrics.height() + 4
+            tag = QRectF(right - width, rect.center().y() - height / 2, width, height)
+            tag_fill = QColor(env_color)
+            tag_fill.setAlpha(30)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(tag_fill)
+            painter.drawRoundedRect(tag, height / 2, height / 2)
+            painter.setFont(tag_font)
+            painter.setPen(env_color)
+            painter.drawText(tag, Qt.AlignmentFlag.AlignCenter, label)
+            right = tag.left() - 6
+        if index.data(CONNECTION_OPEN_ROLE):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(token("SUCCESS"))
+            painter.drawEllipse(QRectF(right - 7, rect.center().y() - 3.5, 7, 7))
+            right -= 13
+
+        # 名称（粗体）+ 主机 · 库名（小字）
+        left = badge.right() + 8
+        width = max(0.0, right - left)
+        name_font = QFont(opt.font)
+        name_font.setBold(True)
+        name_metrics = QFontMetrics(name_font)
+        sub_font = QFont(opt.font)
+        sub_font.setPointSizeF(max(6.5, base_size * 0.85))
+        sub_metrics = QFontMetrics(sub_font)
+        subtitle = str(index.data(CONNECTION_SUBTITLE_ROLE) or "")
+        total = name_metrics.height() + (sub_metrics.height() if subtitle else 0)
+        top = rect.center().y() - total / 2
+        name = name_metrics.elidedText(str(opt.text or ""), Qt.TextElideMode.ElideRight, int(width))
+        painter.setFont(name_font)
+        painter.setPen(token("TEXT_STRONG" if enabled else "DISABLED_TEXT"))
+        painter.drawText(QRectF(left, top, width, name_metrics.height()),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
+        if subtitle:
+            painter.setFont(sub_font)
+            painter.setPen(token("TEXT_MUTED" if enabled else "DISABLED_TEXT"))
+            painter.drawText(
+                QRectF(left, top + name_metrics.height(), width, sub_metrics.height()),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                sub_metrics.elidedText(subtitle, Qt.TextElideMode.ElideMiddle, int(width)),
+            )
+        painter.restore()
+
+
 class WorkspaceTree(QTreeView):
-    """One tree for project, environment, engine, and connection hierarchy.
+    """One tree for project groups and connections (environment/engine shown on each row).
 
     Only display labels and connection IDs enter the Qt model. Connection
     profiles, passwords, tokens, and vendor fields remain in WorkspaceCatalog.
@@ -68,7 +213,10 @@ class WorkspaceTree(QTreeView):
         self.language = language
         self.setObjectName("data-center-connection-tree")
         self.setHeaderHidden(True)
-        self.setUniformRowHeights(True)
+        # 连接行是双行卡片，对象目录行是单行，行高不统一
+        self.setUniformRowHeights(False)
+        self.setMouseTracking(True)
+        self.setItemDelegate(_CatalogRowDelegate(self))
         self.setExpandsOnDoubleClick(False)
         self.setIndentation(14)
         self.setAnimated(False)
@@ -138,8 +286,7 @@ class WorkspaceTree(QTreeView):
         path_nodes: dict[tuple[str, ...], QStandardItem] = {(): self.source_model.invisibleRootItem()}
         for summary in summaries:
             path: tuple[str, ...] = ()
-            group_path = summary.group_path or (("未分组" if self.language == "zh" else "Ungrouped"),)
-            for segment in group_path:
+            for segment in summary.group_path or ():
                 path += (f"group:{segment}",)
                 if path not in path_nodes:
                     node = self._folder(segment, "group")
@@ -147,37 +294,32 @@ class WorkspaceTree(QTreeView):
                     path_nodes[parent_key].appendRow(node)
                     path_nodes[path] = node
 
-            env_label = self._environment_label(summary.environment_key)
-            environment_path = path + (f"environment:{summary.environment_key}",)
-            if environment_path not in path_nodes:
-                env = self._folder(env_label, "environment")
-                env.setData(summary.environment_key, ENVIRONMENT_ROLE)
-                env.setForeground(self._environment_color(summary.environment_key))
-                path_nodes[path].appendRow(env)
-                path_nodes[environment_path] = env
-
-            engine_path = environment_path + (f"engine:{summary.dialect}",)
-            if engine_path not in path_nodes:
-                engine = self._folder(summary.engine_label, "engine")
-                engine.setData(summary.dialect, ENGINE_ROLE)
-                engine.setData(summary.environment_key, ENVIRONMENT_ROLE)
-                path_nodes[environment_path].appendRow(engine)
-                path_nodes[engine_path] = engine
-
             favorite_mark = "★ " if summary.favorite else ""
-            open_mark = (
-                " · 工作区已打开" if self.language == "zh" else " · Workspace open"
-            ) if summary.connection_id in open_connection_ids else ""
-            title = f"{favorite_mark}{summary.name}{open_mark}"
-            connection = QStandardItem(title)
+            is_open = summary.connection_id in open_connection_ids
+            visual_env = _environment_visual_key(summary.environment_key, summary.environment_raw)
+            env_tag = (
+                self._environment_label(summary.environment_key)
+                if summary.environment_key != "unknown" else str(summary.environment_raw or "")
+            )
+            subtitle = " · ".join(part for part in (summary.host, summary.database) if part) or summary.engine_label
+            connection = QStandardItem(f"{favorite_mark}{summary.name}")
             connection.setEditable(False)
             connection.setData("connection", NODE_KIND_ROLE)
             connection.setData(summary.connection_id, CONNECTION_ID_ROLE)
             connection.setData(summary.dialect, ENGINE_ROLE)
-            connection.setData(summary.environment_key, ENVIRONMENT_ROLE)
-            connection.setToolTip(self._connection_tooltip(summary))
-            connection.setForeground(self._environment_color(summary.environment_key))
-            path_nodes[engine_path].appendRow(connection)
+            connection.setData(visual_env, ENVIRONMENT_ROLE)
+            connection.setData(subtitle, CONNECTION_SUBTITLE_ROLE)
+            connection.setData(env_tag, ENVIRONMENT_LABEL_ROLE)
+            connection.setData(is_open, CONNECTION_OPEN_ROLE)
+            connection.setData(
+                " ".join((summary.engine_label, env_tag, summary.host, summary.database)),
+                SEARCH_TEXT_ROLE,
+            )
+            tooltip = self._connection_tooltip(summary)
+            if is_open:
+                tooltip += " · " + ("工作区已打开" if self.language == "zh" else "Workspace open")
+            connection.setToolTip(tooltip)
+            path_nodes[path].appendRow(connection)
             self._connection_indices[summary.connection_id] = connection.index()
             self._connection_items[summary.connection_id] = connection
             prior = preserved.get(summary.connection_id)
@@ -799,18 +941,27 @@ class WorkspaceTree(QTreeView):
         return item
 
     @staticmethod
-    def _environment_color(environment_key: str) -> QColor:
-        token = {
+    def environment_token(environment_key: str) -> str:
+        return {
             "production": "DANGER",
             "staging": "WARNING",
             "test": "CYAN",
             "development": "PRIMARY",
             "local": "SUCCESS",
-        }.get(str(environment_key or ""), "TEXT_MUTED")
-        return QColor(ThemeManager.instance().token(token))
+        }.get(str(environment_key or ""), "BORDER_STRONG")
+
+    @staticmethod
+    def _environment_color(environment_key: str) -> QColor:
+        token = WorkspaceTree.environment_token(environment_key)
+        return QColor(ThemeManager.instance().token("TEXT_MUTED" if token == "BORDER_STRONG" else token))
 
     def _connection_tooltip(self, summary: ConnectionSummary) -> str:
-        fields = [summary.engine_label, self._environment_label(summary.environment_key)]
+        env_label = self._environment_label(summary.environment_key)
+        if summary.environment_key == "unknown" and summary.environment_raw:
+            env_label = f"{env_label}（{summary.environment_raw}）" if self.language == "zh" else (
+                f"{env_label} ({summary.environment_raw})"
+            )
+        fields = [summary.engine_label, env_label]
         if summary.host:
             fields.append(summary.host)
         if summary.database:
@@ -842,5 +993,6 @@ __all__ = [
     "WorkspaceTree", "NODE_KIND_ROLE", "CONNECTION_ID_ROLE", "ENGINE_ROLE", "ENVIRONMENT_ROLE",
     "AMBIGUOUS_ID_ROLE", "TREE_TARGET_ROLE", "TREE_NODE_ROLE", "TREE_CURSOR_ROLE",
     "TREE_GENERATION_ROLE", "TREE_LOADING_ROLE", "TREE_LOADED_ROLE", "TREE_STATE_ROLE",
-    "TREE_CLOSING_ROLE", "TREE_REQUESTED_DATABASE_ROLE",
+    "TREE_CLOSING_ROLE", "TREE_REQUESTED_DATABASE_ROLE", "CONNECTION_SUBTITLE_ROLE",
+    "ENVIRONMENT_LABEL_ROLE", "CONNECTION_OPEN_ROLE", "SEARCH_TEXT_ROLE",
 ]
