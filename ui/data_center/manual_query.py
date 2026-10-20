@@ -2406,15 +2406,19 @@ class ManualQueryHost(QObject):
                     current is not None and not current.busy and not self._shutdown_gated
                     and not (current.table_model is not None and current.table_model.has_staged_changes)
                 )
+        table_editor = getattr(self, "table_editor", None)
+        if table_editor is None:
+            # 安装过程中（事务按钮先于表格编辑器创建）会提前刷新一次动作状态
+            return
         if current is not None and current.table_mode_active and current.table_model is not None:
-            self.table_editor.set_operation_state(
+            table_editor.set_operation_state(
                 has_more=bool(current.last_page and current.last_page.has_more),
                 busy=current.busy,
             )
-            self.table_editor.set_shutdown_gated(self._shutdown_gated)
+            table_editor.set_shutdown_gated(self._shutdown_gated)
             self._update_import_availability(current)
         else:
-            self.table_editor.set_import_availability(False, self._message(
+            table_editor.set_import_availability(False, self._message(
                 "先打开一个已签名的表对象。", "Open a signed table object first.",
             ))
 
