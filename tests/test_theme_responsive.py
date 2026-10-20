@@ -391,11 +391,12 @@ class MainWindowDesignSystemTests(unittest.TestCase):
         self.assertEqual(MainWindow._stack_index_for_nav(11), 10)
         self.assertEqual(MainWindow._stack_index_for_nav(12), 11)
         self.assertEqual(MainWindow._stack_index_for_nav(13), 12)
-        # v3.0：16=聊天→13；17=工作→14；18–23 六数据库面板→15–20
+        # 16=聊天→13；17=工作→14；数据中心统一入口 14 与旧 18–23 兼容路由都落到统一数据中心页
         self.assertEqual(MainWindow._stack_index_for_nav(16), 13)
         self.assertEqual(MainWindow._stack_index_for_nav(17), 14)
-        self.assertEqual(MainWindow._stack_index_for_nav(18), 15)
-        self.assertEqual(MainWindow._stack_index_for_nav(23), 20)
+        data_center = MainWindow._stack_index_for_nav(14)
+        self.assertEqual(MainWindow._stack_index_for_nav(18), data_center)
+        self.assertEqual(MainWindow._stack_index_for_nav(23), data_center)
 
     def test_apply_density_sets_window_property(self):
         from main_window import MainWindow
@@ -462,7 +463,7 @@ class PanelLayoutModeTests(unittest.TestCase):
     def test_settings_exposes_density_preference(self):
         panel = SettingsPanel({**DEFAULT_SETTINGS, 'ui_density': 'comfortable'}, 'zh')
         self.assertEqual(panel.density_combo.currentData(), 'comfortable')
-        self.assertTrue(panel.sidebar_collapsed_check.isChecked())
+        self.assertEqual(panel.sidebar_collapsed_check.isChecked(), bool(DEFAULT_SETTINGS['sidebar_collapsed']))
 
     def test_settings_values_preserve_layout_preferences(self):
         panel = SettingsPanel(DEFAULT_SETTINGS, 'zh')

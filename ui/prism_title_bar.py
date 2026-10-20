@@ -253,6 +253,8 @@ class PrismTitleBar(QFrame):
         self.brand_name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         brand_layout.addWidget(self.brand_name)
         layout.addWidget(self.brand, 0, Qt.AlignmentFlag.AlignVCenter)
+        # 品牌（Logo + 产品名）由侧栏显示一次；标题栏左侧直接是菜单
+        self.brand.hide()
 
         self.menu_bar = QWidget(self)
         self.menu_bar.setObjectName("prism-menu-bar")
@@ -373,6 +375,7 @@ class PrismTitleBar(QFrame):
             item = self._menu_layout.takeAt(0)
             button = item.widget()
             if button is not None:
+                button.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
                 button.deleteLater()
         self._menu_buttons.clear()
         self._menus = {}
@@ -594,6 +597,10 @@ class PrismTitleBar(QFrame):
                 background: %(surface)s;
                 border-bottom: 1px solid %(border)s;
             }
+            QWidget#prism-menu-bar {
+                background: transparent;
+                border: 0;
+            }
             QLabel#prism-brand-name {
                 color: %(strong)s;
                 font-size: 12px;
@@ -605,10 +612,14 @@ class PrismTitleBar(QFrame):
             QToolButton[class="prism-menu"] {
                 color: %(muted)s;
                 border: 0;
-                border-radius: 5px;
-                padding: 6px 9px;
+                border-radius: 6px;
+                padding: 5px 10px;
                 background: transparent;
-                font-size: 10px;
+                font-size: 12px;
+            }
+            QToolButton[class="prism-menu"]::menu-indicator {
+                image: none;
+                width: 0;
             }
             QToolButton#prism-menu-file:hover,
             QToolButton#prism-menu-view:hover,

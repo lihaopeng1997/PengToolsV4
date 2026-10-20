@@ -139,6 +139,10 @@ class StartupSplashTests(unittest.TestCase):
 
     def test_animation_timer_stops_when_hidden(self):
         """8. animation timer 在 hidden / close 后停止。"""
+        # 离屏测试环境默认关闭动效；本用例显式打开以验证计时器生命周期
+        from ui.motion import set_motion_enabled_for_test
+        set_motion_enabled_for_test(True)
+        self.addCleanup(set_motion_enabled_for_test, None)
         splash = StartupSplash(self.app, delay_ms=0)
         splash.show_status('启动中')
         self.app.processEvents()

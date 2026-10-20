@@ -40,10 +40,10 @@ class StartupBootTests(unittest.TestCase):
             self.assertIsNotNone(window.interface_debug_panel)
             self.assertIs(window.stack.currentWidget(), window.interface_debug_panel)
             self.assertTrue(window._startup_loading.isHidden())
-            # v3.0：nav 18 = Oracle 面板（六数据库面板之一）
+            # 旧 nav 18（Oracle）是兼容路由，落到统一数据中心页
             window._show_panel(18)
-            self.assertIsNotNone(window.db_panel_0)
-            self.assertIs(window.stack.currentWidget(), window.db_panel_0)
+            self.assertIsNotNone(window.data_center_panel)
+            self.assertIs(window.stack.currentWidget(), window.data_center_panel)
         finally:
             if window.hotkey_service:
                 window.hotkey_service.unregister()

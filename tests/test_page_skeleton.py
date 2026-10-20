@@ -93,6 +93,9 @@ def _primary_buttons(panel) -> list:
     for btn in panel.findChildren(QPushButton):
         if btn.objectName() != 'primary-btn':
             continue
+        # 按工作模式整体隐藏的区域（如日志排查的会话/多机截取二选一）不会同时出现在屏幕上
+        if not btn.isVisibleTo(panel):
+            continue
         parent = btn.parentWidget()
         inside_dialog = False
         while parent is not None and parent is not panel:
@@ -259,7 +262,7 @@ class PageHeaderDividerTests(unittest.TestCase):
         self.assertEqual(frame.objectName(), 'page-header')
         from ui.layout_metrics import PAGE_HEADER_H, PAGE_HEADER_H_COMPACT
         from ui.responsive import set_subtitle_visible
-        self.assertEqual((PAGE_HEADER_H, PAGE_HEADER_H_COMPACT), (72, 60))
+        self.assertEqual((PAGE_HEADER_H, PAGE_HEADER_H_COMPACT), (40, 36))
         self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H)
         text_layout = next(
             frame.layout().itemAt(index).layout()
@@ -272,7 +275,8 @@ class PageHeaderDividerTests(unittest.TestCase):
         self.assertTrue(subtitle.isHidden())
         self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H_COMPACT)
         set_subtitle_visible(subtitle, False)
-        self.assertFalse(subtitle.isHidden())
+        # 紧凑页头：说明文字只在标题 tooltip，任何高度都不常驻
+        self.assertTrue(subtitle.isHidden())
         self.assertEqual(frame.minimumHeight(), PAGE_HEADER_H)
         from panels.dashboard_panel import DashboardPanel
         panel = DashboardPanel('zh')

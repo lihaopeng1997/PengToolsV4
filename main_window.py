@@ -344,14 +344,16 @@ class MainWindow(QMainWindow):
         self._collapse_btn = QPushButton(controls)
         self._collapse_btn.setObjectName('sidebar-collapse-btn')
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setFixedHeight(30)
-        self._collapse_btn.setMinimumWidth(110)
-        apply_icon(self._collapse_btn, 'collapse', size=14)
+        self._collapse_btn.setFixedSize(30, 30)
+        apply_icon(self._collapse_btn, 'collapse', size=16)
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
         controls_layout.addWidget(self._collapse_btn)
 
         self.version_label = QLabel('作者：Lihp', controls)
         self.version_label.setObjectName('sidebar_version')
+        # 标题栏不再常驻作者文字；版本信息与解锁入口在头像菜单里
+        self.version_label.setProperty('titlebarHidden', True)
+        self.version_label.hide()
         self.version_label.setToolTip(
             f'版本：{app_version_text()}\n更新日期：{APP_BUILD_DATE}\n双击解锁私人彩蛋'
         )
@@ -1450,7 +1452,7 @@ class MainWindow(QMainWindow):
         menu = self._user_menu
         menu.clear()
         zh = self.language == 'zh'
-        ver = menu.addAction(app_version_text())
+        ver = menu.addAction(f'{APP_NAME} {app_version_text()} · 作者 Lihp' if zh else f'{APP_NAME} {app_version_text()} · by Lihp')
         ver.setEnabled(False)
         menu.addSeparator()
         lang_menu = menu.addMenu('语言' if zh else 'Language')
@@ -1463,6 +1465,9 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         about = menu.addAction('关于' if zh else 'About')
         about.triggered.connect(self._show_about)
+        if not self._private_unlocked:
+            unlock = menu.addAction('解锁私人工具…' if zh else 'Unlock private tools…')
+            unlock.triggered.connect(self._unlock_private_tools)
         help_act = menu.addAction('使用说明' if zh else 'User Guide')
         help_act.triggered.connect(self._show_user_guide)
         menu.addSeparator()
@@ -1552,17 +1557,20 @@ class MainWindow(QMainWindow):
             self._sidebar_stack.setFixedWidth(target_width)
         self._nav_icon_only = icon_only
         if getattr(self, '_prism_title_bar', None) is not None:
-            self._collapse_btn.setText(
+            # 图标按钮：文字只放 tooltip，不占标题栏宽度
+            self._collapse_btn.setText('')
+            self._collapse_btn.setAccessibleName(
                 ('展开全部菜单' if icon_only else '收起菜单') if self.language == 'zh'
                 else ('Expand all menus' if icon_only else 'Collapse menus')
             )
-            self._collapse_btn.setMinimumWidth(110 if self.language == 'zh' else 160)
         if getattr(self, '_prism_sidebar', None) is not None:
             self._prism_sidebar.setFixedWidth(target_width)
             self._prism_sidebar.set_icon_only(icon_only)
             self._sync_prism_sidebar_index()
             self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
-            self.version_label.setVisible(not icon_only and not low_height)
+            self.version_label.setVisible(
+                not icon_only and not low_height and not self.version_label.property('titlebarHidden')
+            )
             self._collapse_btn.setToolTip(
                 '展开导航栏' if self._nav_collapsed and self.language == 'zh' else
                 'Expand navigation' if self._nav_collapsed else
@@ -1626,7 +1634,9 @@ class MainWindow(QMainWindow):
         # 品牌副标题与标题
         if hasattr(self, 'sidebar_title') and self.sidebar_title is not None:
             self.sidebar_title.setVisible(not icon_only)
-        self.version_label.setVisible(not icon_only and not low_height)
+        self.version_label.setVisible(
+            not icon_only and not low_height and not self.version_label.property('titlebarHidden')
+        )
         self.brand_icon.setVisible(True)
         if hasattr(self, '_sql_expand_btn') and self._sql_expand_btn is not None:
             self._sql_expand_btn.setVisible(not icon_only)
@@ -1705,8 +1715,9 @@ class MainWindow(QMainWindow):
     def _apply_nav_texts(self):
         zh = self.language == 'zh'
         if getattr(self, '_quick_panel_btn', None) is not None:
-            self._quick_panel_btn.setText('快速面板' if zh else 'Quick Panel')
-            self._quick_panel_btn.setToolTip('Ctrl+Shift+P')
+            self._quick_panel_btn.setText('搜索功能…   Ctrl+Shift+P' if zh else 'Search…   Ctrl+Shift+P')
+            self._quick_panel_btn.setToolTip('快速面板：搜索并跳转到任意模块' if zh else 'Quick panel: jump to any module')
+            self._quick_panel_btn.setMinimumWidth(220)
         if getattr(self, '_prism_sidebar', None) is not None:
             self._prism_sidebar.set_language(self.language)
             self._prism_sidebar.set_nav_model(self._build_web_nav_model())
@@ -2573,6 +2584,8 @@ class MainWindow(QMainWindow):
             show_warning(self, f'{APP_NAME} 彩蛋', '密钥不正确。')
             return False
         self._apply_private_unlocked_ui(persist=True, navigate=True, status_message=True)
+        if getattr(self, '_user_menu', None) is not None:
+            self._rebuild_user_menu()
         return True
 
     def _show_private_notification(self, title, message):

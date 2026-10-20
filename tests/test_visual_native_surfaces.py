@@ -466,8 +466,9 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             self.assertIsNotNone(toolbar, '必须存在 page-toolbar')
             self.assertTrue(toolbar.property('card'), 'page-toolbar 必须具备 card 属性以呈现卡片表面')
 
-            filter_bar = panel.findChild(QFrame, 'page-filter-bar')
-            self.assertIsNotNone(filter_bar, '必须存在 page-filter-bar')
+            # 搜索与筛选并入唯一工具条，不再单独一层筛选卡片
+            self.assertIsNone(panel.findChild(QFrame, 'page-filter-bar'))
+            self.assertIs(panel.search_edit.parentWidget(), toolbar)
 
             tree_card = panel.findChild(QFrame, 'req-tree-card')
             self.assertIsNotNone(tree_card, '必须存在 req-tree-card')
@@ -478,10 +479,10 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             module_tabs = panel.findChild(QTabWidget, 'module-tabs')
             self.assertIsNotNone(module_tabs, '必须存在 module-tabs')
 
-            # 2. 四按钮工具栏契约
-            self.assertEqual(panel.scan_btn.text(), '扫描需求目录')
-            self.assertEqual(panel.update_all_btn.text(), '更新全部')
-            self.assertEqual(panel.bug_btn.text(), '登记缺陷')
+            # 2. 工具条契约：拉取最新 / 更多 / 一键提签 / 新建需求
+            self.assertEqual(panel.update_all_btn.text(), '拉取最新')
+            self.assertEqual(panel.add_btn.text(), '新建需求')
+            self.assertEqual(panel.ticket_btn.text(), '一键提签')
             self.assertTrue(panel.toolbar_more_btn.text().startswith('更多'))
 
             # 3. 严格禁止恢复旧版已移除字段
@@ -515,7 +516,7 @@ class TestVisualNativeSurfaces(unittest.TestCase):
             panel = AiWorkbenchPanel('zh', dialect=dialect)
             try:
                 self.assertEqual(panel.page_title.text(), expected_title)
-                self.assertEqual(panel.page_subtitle.text(), '多标签编辑 · 结构快照 · AI 助手生成不执行')
+                self.assertEqual(panel.page_subtitle.text(), '多标签 SQL · 结构快照 · 只读 Agent')
                 self.assertEqual(panel.conn_meta.objectName(), 'status-pill')
 
                 # 工具栏按钮存在有效提示（de-noised hierarchy）
@@ -654,6 +655,9 @@ class TestVisualNativeSurfaces(unittest.TestCase):
              patch.object(MongoDBWorkbenchPanel, '_insert_doc') as mock_insert, \
              patch.object(MongoDBWorkbenchPanel, '_delete_selected') as mock_del:
             panel = self.track(MongoDBWorkbenchPanel('zh'))
+            # 没有连接时这些按钮按设计是禁用的；这里只验证回调接线
+            for button in (panel.query_btn, panel.insert_btn, panel.del_btn):
+                button.setEnabled(True)
             panel.query_btn.click()
             panel.insert_btn.click()
             panel.del_btn.click()

@@ -10,6 +10,7 @@ import unittest
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 UI_TOOL_PORTS = {
     'tools.code_folding',
+    'tools.data_center.sql_completion',  # 纯函数 SQL 补全，供 SqlEditor 使用
     'tools.credit_code',
     'tools.daily_reports',
     'tools.db_connect',

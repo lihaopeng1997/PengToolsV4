@@ -109,7 +109,7 @@ class SoftThemeP1Tests(unittest.TestCase):
                 config.SETTINGS_FILE = os.path.join(directory, 'settings.json')
                 with patch.object(config.os, 'replace', wraps=os.replace) as replace:
                     saved = config.save_settings({'ui_theme': 'night'})
-                self.assertEqual(saved['ui_theme'], 'black')
+                self.assertEqual(saved['ui_theme'], 'calm')  # 单主题：旧 night/black 统一归一到 calm
                 self.assertTrue(replace.called)
                 self.assertTrue(os.path.isfile(config.SETTINGS_FILE))
         finally:

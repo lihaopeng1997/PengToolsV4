@@ -283,7 +283,7 @@ class CompactStepper(QWidget):
         self.plus_btn.setFlat(True)
         self.plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.suffix_label = QLabel(suffix or '')
+        self.suffix_label = QLabel(suffix or '', self)  # 先挂父对象，避免 setVisible 弹出独立小窗
         self.suffix_label.setObjectName('field-hint')
         self.suffix_label.setContentsMargins(6, 0, 0, 0)
         self.suffix_label.setVisible(bool(suffix))

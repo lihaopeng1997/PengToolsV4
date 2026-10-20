@@ -111,11 +111,11 @@ class PrismMainShellIntegrationTests(unittest.TestCase):
 
         self.assertIs(self.host.module_tabs.parentWidget(), content)
         self.assertIsNot(self.host.module_tabs.parentWidget(), self.host.centralWidget())
-        self.assertLess(layout.indexOf(self.host._context_header), layout.indexOf(self.host.module_tabs))
+        # ContextHeader 已由模块 Tab 取代（b5ee4aa）：Tab 在内容区顶部，下面是页面主体
+        self.assertIsNone(self.host._context_header)
         self.assertLess(layout.indexOf(self.host.module_tabs), layout.indexOf(self.host._page_body))
-        self.assertEqual(layout.indexOf(self.host._context_header), 0)
-        self.assertEqual(layout.indexOf(self.host.module_tabs), 1)
-        self.assertEqual(layout.indexOf(self.host._page_body), 2)
+        self.assertEqual(layout.indexOf(self.host.module_tabs), 0)
+        self.assertEqual(layout.indexOf(self.host._page_body), 1)
 
     def test_failed_close_fallback_keeps_the_requested_tab(self):
         self.assertTrue(self.host._show_panel(1))

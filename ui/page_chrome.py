@@ -227,21 +227,8 @@ def make_page_header(
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
 
-    if icon_role:
-        icon_plate = QLabel()
-        icon_plate.setObjectName('page-header-icon')
-        icon_plate.setFixedSize(36, 36)
-        icon_plate.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        try:
-            from ui.theme_manager import ThemeManager
-            tint = ThemeManager.instance().token('PRIMARY_ACTIVE')
-        except Exception:
-            tint = '#4F735F'
-        pix = icon_pixmap(icon_role, 20, tint)
-        if not pix.isNull():
-            icon_plate.setPixmap(pix)
-        layout.addWidget(icon_plate, 0, Qt.AlignmentFlag.AlignTop)
-
+    # 紧凑页头：模块 Tab 已显示图标和名称，这里只留一行标题 + 页面动作；
+    # 说明文字收进标题 tooltip，不再占一整行。
     text_col = QVBoxLayout()
     text_col.setContentsMargins(0, 0, 0, 0)
     text_col.setSpacing(4)
@@ -251,15 +238,17 @@ def make_page_header(
     subtitle_label = QLabel(subtitle)
     subtitle_label.setObjectName('page-subtitle')
     subtitle_label.setWordWrap(True)
-    if not subtitle:
-        subtitle_label.hide()
+    subtitle_label.setProperty('tooltipOnly', True)
+    subtitle_label.hide()
+    if subtitle:
+        title_label.setToolTip(subtitle)
     text_col.addWidget(subtitle_label)
     layout.addLayout(text_col, 1)
 
     if trailing is not None:
-        layout.addWidget(trailing, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(trailing, 0, Qt.AlignmentFlag.AlignVCenter)
     if primary_button is not None:
-        layout.addWidget(primary_button, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(primary_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
     if show_home:
         home_btn = QPushButton('返回首页' if language == 'zh' else 'Home')
@@ -274,7 +263,9 @@ def make_page_header(
                 top_win.navigate_to(0)
         home_btn.clicked.connect(_on_home_clicked)
         frame.home_btn = home_btn
-        layout.addWidget(home_btn, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(home_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        # 顶部模块 Tab 与侧栏都能回首页；按钮保留给快捷键/兼容入口，不常驻显示
+        home_btn.hide()
 
     return frame, title_label, subtitle_label
 

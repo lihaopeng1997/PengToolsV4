@@ -130,18 +130,25 @@ class WorkbenchOverflowTests(unittest.TestCase):
             self.settle()
             self.assertEqual((panel.width(), panel.height()), (856, 528))
             rail = panel.detail_splitter.widget(0)
-            rects = []
-            for widget in (panel.select_all_check, panel.batch_delete_btn, panel.ticket_btn, panel.expand_tree_btn, panel.collapse_tree_btn):
+            # 工具条主按钮在窄屏仍完整可见
+            for widget in (panel.update_all_btn, panel.toolbar_more_btn, panel.add_btn):
+                rect = QRect(widget.mapTo(panel, QPoint()), widget.size())
+                self.assertTrue(panel.rect().contains(rect), widget.text())
+            # 多选时出现的批量操作条落在左栏内
+            panel._requirements = [
+                {'id': 'a', 'code': 'A-1', 'title': '甲', 'status': '开发中', 'sql_parts': [], 'source_files': []},
+                {'id': 'b', 'code': 'B-1', 'title': '乙', 'status': '开发中', 'sql_parts': [], 'source_files': []},
+            ]
+            panel._refresh()
+            group = panel.requirement_list.topLevelItem(0)
+            for index in range(group.childCount()):
+                group.child(index).setSelected(True)
+            self.settle()
+            self.assertTrue(panel.selection_bar.isVisible())
+            for widget in (panel.selection_bar, panel.batch_delete_btn):
                 rect = QRect(widget.mapTo(rail, QPoint()), widget.size())
                 self.assertTrue(rail.rect().contains(rect))
-                for other in rects:
-                    self.assertFalse(rect.intersects(other))
-                rects.append(rect)
-            group = QTreeWidgetItem(panel.requirement_list, ['Preview group'])
-            QTreeWidgetItem(group, ['Preview task'])
-            panel.expand_tree_btn.click()
-            self.assertTrue(group.isExpanded())
-            panel.collapse_tree_btn.click()
+            group.setExpanded(False)
             self.assertFalse(group.isExpanded())
         finally:
             self.dispose(panel)

@@ -42,17 +42,18 @@ class SoftThemeDiagnosticsTests(unittest.TestCase):
 
         self.manager.add_listener(broken_listener)
         try:
-            self.manager.apply(self.app, 'black', font_size=12)
+            self.manager.apply(self.app, 'calm', font_size=12)
             failures = self.manager.listener_failures()
         finally:
             self.manager.remove_listener(broken_listener)
 
-        self.assertEqual(self.manager.theme_id, 'black')
+        self.assertEqual(self.manager.theme_id, 'calm')
         self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0]['theme_id'], 'black')
+        self.assertEqual(failures[0]['theme_id'], 'calm')
         self.assertEqual(failures[0]['error_type'], 'RuntimeError')
         self.assertIn('refresh failed', failures[0]['message'])
 
+    @unittest.skip('单主题 calm：用户已确认移除深色主题，切换主题不再改变颜色')
     def test_runtime_icon_defaults_change_with_theme(self):
         calm_image = qicon('json', size=20).pixmap(20, 20).toImage()
         calm_colors = {

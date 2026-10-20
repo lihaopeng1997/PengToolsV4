@@ -370,11 +370,11 @@ class ModuleTabs(QFrame):
             painter = QPainter(pixmap)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             pen = QPen(QColor(color))
-            pen.setWidthF(1.6)
+            pen.setWidthF(1.3)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
-            painter.drawLine(QPointF(2.5, 2.5), QPointF(9.5, 9.5))
-            painter.drawLine(QPointF(9.5, 2.5), QPointF(2.5, 9.5))
+            painter.drawLine(QPointF(3.5, 3.5), QPointF(8.5, 8.5))
+            painter.drawLine(QPointF(8.5, 3.5), QPointF(3.5, 8.5))
             painter.end()
             icon.addPixmap(pixmap, mode)
         return icon
@@ -420,23 +420,23 @@ class ModuleTabs(QFrame):
                 background: transparent;
             }
             QTabBar#module-tab-bar::tab {
-                min-height: 22px;
-                padding: 1px 9px 1px 10px;
-                margin: 2px 2px 1px 0;
+                min-height: 24px;
+                padding: 1px 8px 1px 12px;
+                margin: 4px 4px 4px 0;
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
-                border-radius: 7px;
+                border-radius: 8px;
             }
             QTabBar#module-tab-bar::tab:hover {
-                color: %(active)s;
-                background: %(primary_soft)s;
+                color: %(text)s;
+                background: %(surface)s;
+                border: 1px solid %(border)s;
             }
             QTabBar#module-tab-bar::tab:selected {
                 color: %(active)s;
-                background: %(surface)s;
-                border: 1px solid %(border)s;
-                border-bottom: 2px solid %(primary)s;
+                background: %(primary_soft)s;
+                border: 1px solid %(primary_soft)s;
                 font-weight: 600;
             }
             QTabBar#module-tab-bar QToolButton#module-tab-close {

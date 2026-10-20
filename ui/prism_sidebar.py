@@ -229,7 +229,8 @@ class PrismSidebar(QWidget):
         self._rebuild()
 
     def _workspace_label(self) -> str:
-        return '个人工作空间' if self._language == 'zh' else 'Personal workspace'
+        # 品牌只在侧栏出现一次（标题栏不再重复）：直接显示产品名
+        return 'PengToolsHub'
 
     def set_icon_only(self, icon_only: bool) -> None:
         icon_only = bool(icon_only)

@@ -48,7 +48,9 @@ class SidebarExpansionTests(unittest.TestCase):
         try:
             host._on_layout_mode('compact',False)
             self.assertEqual(host._sidebar.width(),NAV_ICON)
-            self.assertEqual(host._collapse_btn.text(),'展开全部菜单')
+            # 图标按钮：文字不占标题栏，名称给读屏/提示用
+            self.assertEqual(host._collapse_btn.text(),'')
+            self.assertEqual(host._collapse_btn.accessibleName(),'展开全部菜单')
             with patch('config.save_settings',side_effect=lambda data:dict(data)) as save:
                 host._collapse_btn.click()
                 self.assertFalse(host._nav_icon_only)
@@ -73,13 +75,14 @@ class SidebarExpansionTests(unittest.TestCase):
             try:
                 host._on_layout_mode('wide',False)
                 self.assertFalse(host._nav_icon_only)
-                self.assertEqual(host._collapse_btn.text(),'收起菜单' if language=='zh' else 'Collapse menus')
+                self.assertEqual(host._collapse_btn.accessibleName(),'收起菜单' if language=='zh' else 'Collapse menus')
+                self.assertTrue(host._collapse_btn.toolTip())
                 host._on_layout_mode('compact',False)
                 font=host._collapse_btn.font()
                 font.setPixelSize(17)
                 host._collapse_btn.setFont(font)
-                host._collapse_btn.resize(host._collapse_btn.sizeHint().expandedTo(host._collapse_btn.minimumSizeHint()))
-                self.assertGreaterEqual(host._collapse_btn.width(),host._collapse_btn.fontMetrics().horizontalAdvance(host._collapse_btn.text()))
+                # 大字号下仍是图标按钮，不会出现被截断的文字
+                self.assertEqual(host._collapse_btn.text(),'')
             finally:
                 host.deleteLater()
                 app.processEvents()

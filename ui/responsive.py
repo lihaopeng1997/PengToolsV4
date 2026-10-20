@@ -338,7 +338,8 @@ def set_subtitle_visible(subtitle_widget, low_height: bool):
     """Hide the page description on short windows and follow the 72/60 header rule."""
     if subtitle_widget is None:
         return
-    subtitle_widget.setVisible(not low_height)
+    # 紧凑页头的说明只放在标题 tooltip 里
+    subtitle_widget.setVisible(not low_height and not subtitle_widget.property('tooltipOnly'))
     from ui.layout_metrics import PAGE_HEADER_H, PAGE_HEADER_H_COMPACT
     node = subtitle_widget.parent()
     while node is not None:

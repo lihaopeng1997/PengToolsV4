@@ -140,7 +140,9 @@ class MainWindowClientShellTests(unittest.TestCase):
             self.assertTrue(panel.page_subtitle.isHidden())
             self.win._layout_controller.force(1440, 900)
             self.win._apply_panel_chrome(panel)
-            self.assertFalse(panel.page_subtitle.isHidden())
+            # 紧凑页头：任何高度都不常驻说明行，说明文字保留在标题 tooltip
+            self.assertTrue(panel.page_subtitle.isHidden())
+            self.assertEqual(panel.page_title.toolTip(), panel.page_subtitle.text())
         finally:
             self.win._set_nav_collapsed(old_collapsed, persist=False)
             self.win._on_layout_mode('standard', False)
@@ -152,12 +154,9 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.assertEqual(content_margins, QMargins(0, 0, 0, 0))
         self.assertEqual(self.win._content_layout.spacing(), 0)
 
-        # 2. ContextHeader: 52px height, child of content_frame
-        header = getattr(self.win, '_context_header', None)
-        self.assertIsNotNone(header)
-        self.assertIsInstance(header, ContextHeader)
-        self.assertEqual(header.objectName(), 'context-header')
-        self.assertEqual(header.height(), CONTEXT_HEADER_H)
+        # 2. ContextHeader 已由模块 Tab 取代（b5ee4aa）：Tab 直接位于内容区顶部
+        self.assertIsNone(getattr(self.win, '_context_header', None))
+        self.assertEqual(self.win._content_layout.indexOf(self.win._module_tabs), 0)
 
         # 3. page-body: QFrame, contains stack, spacing 0
         body = getattr(self.win, '_page_body', None)
@@ -177,6 +176,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.assertEqual(self.win.status_bar.minimumHeight(), STATUS_H)
         self.assertEqual(self.win.status_bar.maximumHeight(), STATUS_H)
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_responsive_margins_and_compact_header(self):
         # wide: 24px margins, expanded quick btn
         self.win._on_layout_mode('wide', False)
@@ -209,6 +209,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         # restore standard
         self.win._on_layout_mode('standard', False)
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_initial_context_header_state(self):
         self.win._show_panel(0)
         self.assertEqual(self.win._current_nav_index, 0)
@@ -217,6 +218,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.assertIsNotNone(pix)
         self.assertFalse(pix.isNull())
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_leaf_navigation_updates_context_header(self):
         self.win._show_panel(1)
         self.assertEqual(self.win._context_header.name_label.text(), '证件类型')
@@ -227,6 +229,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.win._show_panel(10)
         self.assertEqual(self.win._context_header.name_label.text(), '需求管理')
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_database_leaves_update_context_header(self):
         # 18: Oracle
         self.win._show_panel(18)
@@ -240,6 +243,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.win._show_panel(23)
         self.assertEqual(self.win._context_header.name_label.text(), 'MongoDB')
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_parent_nav_does_not_update_context_header(self):
         self.win._show_panel(1)
         self.assertEqual(self.win._context_header.name_label.text(), '证件类型')
@@ -254,6 +258,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.assertEqual(self.win._current_nav_index, 1)
         self.assertEqual(self.win._context_header.name_label.text(), '证件类型')
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_locked_private_item_does_not_update_context_header(self):
         was_unlocked = self.win._private_unlocked
         try:
@@ -268,6 +273,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         finally:
             self.win._private_unlocked = was_unlocked
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_language_switch_updates_context_header(self):
         self.win._show_panel(0)
         self.win._set_language(0)  # zh
@@ -284,6 +290,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         self.win._set_language(0)
         self.assertEqual(self.win._context_header.name_label.text(), '首页')
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_failed_leaf_open_context_stability(self):
         # 1. 先停留在一个已成功页面（如 nav 1 证件类型）
         self.win._show_panel(1)
@@ -308,6 +315,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         finally:
             self.win._ensure_panel_for_nav = original_ensure
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_quick_button_click_triggers_open_quick_panel(self):
         called = []
         original = self.win._open_quick_panel
@@ -318,6 +326,7 @@ class MainWindowClientShellTests(unittest.TestCase):
         finally:
             self.win._open_quick_panel = original
 
+    @unittest.skip('ContextHeader 已由模块 Tab 取代（b5ee4aa），页头上下文条不再存在')
     def test_theme_toggle_refreshes_header_icon_without_widget_recreation(self):
         header_id = id(self.win._context_header)
         dark_settings = dict(self.win._settings)

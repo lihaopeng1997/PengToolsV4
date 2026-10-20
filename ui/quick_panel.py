@@ -558,6 +558,7 @@ class QuickPanel(QWidget):
             item = self.grid.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
                 widget.deleteLater()
         self.tool_buttons = []
         for position, index in enumerate(self._shortcuts):

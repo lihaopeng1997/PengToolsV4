@@ -33,7 +33,7 @@ class LazyUiSelfCheck(unittest.TestCase):
         self.assertEqual([panel.tabs.tabText(i) for i in range(3)], ['升级准备', '发版联动', '系统配置'])
         self.assertEqual(panel.release_date.displayFormat(), 'yyyy-MM-dd')
         self.assertEqual(panel.date_edit.displayFormat(), 'yyyy-MM-dd')
-        self.assertIs(panel.load_btn.parent().parent(), panel.tabs.widget(1))
+        self.assertTrue(panel.tabs.widget(1).isAncestorOf(panel.load_btn))  # 按钮在发版联动页内（嵌套层级可变）
         self.assertEqual(panel.preview_tabs.tabText(0), '升级 SQL')
         self.assertEqual(panel.preview_tabs.tabText(2), '验证 SQL')
         self.assertEqual(panel.tabs.elideMode(), Qt.TextElideMode.ElideNone)

@@ -512,7 +512,6 @@ QToolButton#nav-sub-expand:hover {
 QFrame#page-header {
     background: transparent;
     border: none;
-    min-height: 60px;
 }
 QLabel#page-header-icon {
     background: __PRIMARY_SOFT__;
@@ -2005,11 +2004,20 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     font-weight: 600;
 }
 #context-quick-btn {
-    min-height: 32px;
-    max-height: 32px;
+    min-height: 30px;
+    max-height: 30px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
     padding: 0 12px;
+    text-align: left;
+    color: __TEXT_MUTED__;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+}
+#context-quick-btn:hover {
+    color: __TEXT_STRONG__;
+    border-color: __PRIMARY__;
 }
 #context-quick-btn[compact="true"] {
     min-width: 32px;
@@ -2028,7 +2036,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 }
 #page-title {
     color: __TEXT_STRONG__;
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 650;
     letter-spacing: -0.3px;
 }
@@ -3583,4 +3591,153 @@ QWidget#floating-shortcut-row, QLabel#drag-handle { background: transparent; }
     background: __PRIMARY_SOFT__;
     color: __PRIMARY__;
     border-color: __PRIMARY__;
+}
+
+/* —— 需求管理 V3：单工具条、状态统计、视角切换 —— */
+QPushButton#req-role-seg {
+    background: __SURFACE__;
+    color: __TEXT_MUTED__;
+    border: 1px solid __BORDER__;
+    border-radius: 0;
+    padding: 4px 12px;
+    min-height: 26px;
+    font-weight: 600;
+}
+QPushButton#req-role-seg[segPos="first"] { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+QPushButton#req-role-seg[segPos="last"] { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
+QPushButton#req-role-seg[segPos="mid"], QPushButton#req-role-seg[segPos="last"] { border-left: none; }
+QPushButton#req-role-seg:hover { color: __TEXT_STRONG__; }
+QPushButton#req-role-seg:checked {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPushButton#req-stat-chip, QPushButton#req-group-toggle {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 2px 10px;
+    min-height: 24px;
+    font-size: 12px;
+}
+QPushButton#req-stat-chip:hover, QPushButton#req-group-toggle:hover {
+    border-color: __BORDER__;
+    color: __TEXT_STRONG__;
+}
+QPushButton#req-stat-chip:checked, QPushButton#req-group-toggle:checked {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY_SOFT__;
+    font-weight: 600;
+}
+QFrame#ops-mode-seg {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+}
+QPushButton#ops-mode-tab {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: none;
+    border-radius: 8px;
+    padding: 4px 12px;
+    min-height: 26px;
+    font-size: 13px;
+}
+QPushButton#ops-mode-tab:hover {
+    color: __TEXT_STRONG__;
+}
+QPushButton#ops-mode-tab:checked {
+    background: __SURFACE__;
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 600;
+    border: 1px solid __BORDER__;
+}
+QPlainTextEdit#ops-capture-preview {
+    background: __TERM_BG__;
+    color: __TERM_FG__;
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 10px;
+    padding: 6px;
+    selection-background-color: __TERM_SEL__;
+}
+QFrame#req-selection-bar {
+    background: __PRIMARY_SOFT__;
+    border: none;
+    border-radius: 8px;
+}
+QFrame#detail-summary-card QLabel#section-title {
+    font-size: 16px;
+}
+/* 页签内的区域不再套卡片边框，避免卡片套卡片 */
+QTabWidget#module-tabs QFrame#req-file-card,
+QTabWidget#module-tabs QFrame#req-sql-card,
+QTabWidget#module-tabs QFrame#req-test-points-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+QTreeWidget#requirement-tree::item {
+    min-height: 30px;
+    padding: 0 4px;
+}
+/* V3 列表：扁平单行，不再逐格圆角/左强调线 */
+QTreeWidget#requirement-tree {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+QTreeWidget#requirement-tree::item {
+    min-height: 30px;
+    padding: 0 6px;
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    border-radius: 0;
+    margin: 0;
+    font-weight: 400;
+}
+QTreeWidget#requirement-tree::item:has-children {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    padding: 0 4px;
+    border-bottom: none;
+}
+QTreeWidget#requirement-tree::item:selected,
+QTreeWidget#requirement-tree::item:selected:active,
+QTreeWidget#requirement-tree::item:selected:!active {
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    font-weight: 400;
+}
+QTreeWidget#requirement-tree::item:has-children:selected,
+QTreeWidget#requirement-tree::item:has-children:hover {
+    background: transparent;
+    border: none;
+}
+
+/* —— Agent 工作台：对话气泡与步骤 —— */
+QFrame#agent-user-bubble {
+    background: __PRIMARY_SOFT__;
+    border: 1px solid __PRIMARY_SOFT__;
+    border-radius: 12px;
+}
+QFrame#agent-assistant-bubble {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QLabel#agent-bubble-role {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLabel#agent-step-row {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    padding: 2px 10px;
+    border-left: 2px solid __BORDER_STRONG__;
+    margin-left: 6px;
 }

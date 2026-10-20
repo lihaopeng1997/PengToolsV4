@@ -36,6 +36,7 @@ class SoftThemeP2Tests(unittest.TestCase):
         manager.load_template(PROJECT_DIR)
         manager.apply(self.app, 'calm', font_size=12)
 
+    @unittest.skip('单主题 calm：用户已确认移除深色主题，切换主题不再改变颜色')
     def test_format_tab_icons_follow_current_theme(self):
         panel = FormatToolsPanel('zh')
         panel.refresh_theme()
@@ -57,6 +58,7 @@ class SoftThemeP2Tests(unittest.TestCase):
 
         self.assertNotEqual(calm_colors, night_colors)
 
+    @unittest.skip('单主题 calm：用户已确认移除深色主题，切换主题不再改变颜色')
     def test_interface_session_table_rebuilds_on_theme_change(self):
         panel = InterfaceDebugPanel('zh')
         panel._records = [{
@@ -74,6 +76,7 @@ class SoftThemeP2Tests(unittest.TestCase):
 
         self.assertNotEqual(calm_color, night_color)
 
+    @unittest.skip('单主题 calm：用户已确认移除深色主题，切换主题不再改变颜色')
     def test_requirement_tree_refreshes_hand_painted_state_colors(self):
         with patch('panels.requirement_panel.load_requirements', return_value=[{
             'id': 'theme-requirement', 'title': '主题需求', 'system': '系统A',
@@ -91,6 +94,7 @@ class SoftThemeP2Tests(unittest.TestCase):
         self.assertIsNotNone(night_tree)
         self.assertNotEqual(calm_color, night_tree.foreground(0).color().name())
 
+    @unittest.skip('单主题 calm：用户已确认移除深色主题，切换主题不再改变颜色')
     def test_knowledge_workbook_highlight_rebuilds_on_theme_change(self):
         with patch('panels.personal_panel.load_seed_entries', return_value=[]), \
              patch('panels.personal_panel.load_custom_entries', return_value=[]):

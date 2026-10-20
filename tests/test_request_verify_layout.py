@@ -90,6 +90,8 @@ class RequestVerifyLayoutTests(unittest.TestCase):
         self.assertTrue(panel.side_tabs.isHidden())
         panel.show_objects_btn.setChecked(True)
         self.assertFalse(panel.left_pane.isHidden())
+        # 窄栏切换按钮按实际宽度判断（< 1200 仍显示），宽屏断言前给出真实宽度
+        panel.resize(1400, 860)
         panel.apply_layout_mode('wide', False)
         self.assertTrue(panel.narrow_chrome.isHidden())
         self.assertFalse(panel.left_pane.isHidden())

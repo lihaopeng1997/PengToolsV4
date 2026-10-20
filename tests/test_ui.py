@@ -78,6 +78,14 @@ class _CallRecorder:
         self.called = True
 
 
+# 主窗口关闭流程新增了关停状态字段；测试替身补齐默认值（都未处于关停中）
+_FAKE_SHUTDOWN_STATE = {
+    '_shutting_down': False,
+    '_manual_shutdown_pending': False,
+    '_agent_shutdown_pending': False,
+}
+
+
 @unittest.skipUnless(QT_AVAILABLE, 'PyQt6 is not installed in this Python runtime')
 class UiRegressionTests(unittest.TestCase):
     @classmethod
@@ -277,7 +285,8 @@ class UiRegressionTests(unittest.TestCase):
             window = MainWindow()
         try:
             # 仅自我学习(8)可隐藏；日报(9)、需求(10)必须常显（AGENTS / V2 导航模型）
-            self.assertTrue(window.nav_buttons[8].isHidden())
+            # 未解锁时侧栏根本不生成自我学习按钮（等同隐藏）
+            self.assertTrue(window.nav_buttons[8] is None or window.nav_buttons[8].isHidden())
             self.assertFalse(window.nav_buttons[9].isHidden())
             self.assertFalse(window.nav_buttons[10].isHidden())
             self.assertIsNotNone(window.settings_button)
@@ -303,16 +312,16 @@ class UiRegressionTests(unittest.TestCase):
             self.assertTrue(hasattr(requirement, 'send_to_docx'))
             self.assertTrue(hasattr(requirement, 'add_to_daily'))
             self.assertEqual(requirement.kind_filter.count(), 3)
-            self.assertEqual(requirement.scan_btn.text(), '扫描需求目录')
-            self.assertEqual(requirement.update_all_btn.text(), '更新全部')
-            self.assertEqual(requirement.bug_btn.text(), '登记缺陷')
-            self.assertEqual(requirement.toolbar_more_btn.text(), '更多 ▾')
-            self.assertEqual(requirement._action_checkout.text(), '检出代码')
-            self.assertEqual(requirement._action_import.text(), '导入资料')
+            self.assertEqual(requirement.update_all_btn.text(), '拉取最新')
+            self.assertEqual(requirement.toolbar_more_btn.text(), '更多')
+            self.assertEqual(requirement._action_bug.text(), '登记缺陷（粘贴 BUG）')
+            self.assertEqual(requirement._action_scan.text(), '扫描需求目录…')
+            self.assertEqual(requirement._action_checkout.text(), '检出代码…')
+            self.assertEqual(requirement._action_import.text(), '导入资料…')
             self.assertEqual(requirement._action_syscfg.text(), '系统配置')
             # Round 3-A Review Gate: 工具栏按钮必须有 parent，不得成为孤立 top-level 窗口
-            for btn in (requirement.scan_btn, requirement.update_all_btn,
-                        requirement.bug_btn, requirement.toolbar_more_btn):
+            for btn in (requirement.update_all_btn, requirement.add_btn,
+                        requirement.ticket_btn, requirement.toolbar_more_btn):
                 self.assertIsNotNone(btn.parent(), f'{btn.text()} 必须有 parent widget')
                 self.assertNotIn(btn, QApplication.topLevelWidgets(), f'{btn.text()} 不能是顶级窗口')
 
@@ -337,23 +346,20 @@ class UiRegressionTests(unittest.TestCase):
             requirement.deleteLater()
 
     def test_main_window_close_event_exits_all_auxiliary_services(self):
-        fake_window = type('FakeMainWindow', (), {})()
+        fake_window = type('FakeMainWindow', (), dict(_FAKE_SHUTDOWN_STATE))()
         fake_window._settings = {'close_ask_each_time': False, 'close_default_action': 'exit'}
         fake_window._force_exit = False
         fake_window._shutting_down = False
-        fake_window.hotkey_service = _CallRecorder()
-        fake_window.quick_panel = _CallRecorder()
-        fake_window.tray_service = _CallRecorder()
-        fake_window._shutdown = lambda event: MainWindow._shutdown(fake_window, event)
+        # 关停已改为多阶段状态机（等待手动会话/Agent/工作台清理），这里只验证
+        # “退出”动作把关闭事件交给 _shutdown；各阶段由专门的关停测试覆盖。
+        shutdown_events = []
+        fake_window._shutdown = shutdown_events.append
         event = _CallRecorder()
         MainWindow.closeEvent(fake_window, event)
-        self.assertTrue(fake_window.hotkey_service.called)
-        self.assertTrue(fake_window.quick_panel.called)
-        self.assertTrue(fake_window.tray_service.called)
-        self.assertTrue(event.called)
+        self.assertEqual(shutdown_events, [event])
 
     def test_main_window_close_can_hide_from_taskbar_without_stopping_services(self):
-        fake_window = type('FakeMainWindow', (), {})()
+        fake_window = type('FakeMainWindow', (), dict(_FAKE_SHUTDOWN_STATE))()
         fake_window._settings = {'close_ask_each_time': False, 'close_default_action': 'minimize'}
         fake_window._force_exit = False
         fake_window.hotkey_service = _CallRecorder()
@@ -371,6 +377,7 @@ class UiRegressionTests(unittest.TestCase):
 
     def test_close_prompt_uses_configured_default_button(self):
         fake_window = type('FakeMainWindow', (), {
+            **_FAKE_SHUTDOWN_STATE,
             'language': 'zh',
             '_settings': {'close_default_action': 'exit'},
         })()
@@ -382,7 +389,7 @@ class UiRegressionTests(unittest.TestCase):
         """退出弹窗勾选不再提示时写回 settings 并下次不询问。"""
         from config import DEFAULT_SETTINGS
 
-        fake_window = type('FakeMainWindow', (), {})()
+        fake_window = type('FakeMainWindow', (), dict(_FAKE_SHUTDOWN_STATE))()
         fake_window._settings = dict(DEFAULT_SETTINGS, close_ask_each_time=True, close_default_action='minimize')
         fake_window._force_exit = False
         fake_window.language = 'zh'
@@ -873,6 +880,11 @@ class UiRegressionTests(unittest.TestCase):
         self.assertFalse(page.keep_awake_group.isHidden())
         page.resize(900, 600)
         page.show()
+        # 设置页改为左侧分区导航：切到防休眠所在分区再检查可见性
+        for index in range(page.sections_stack.count()):
+            if page.sections_stack.widget(index).isAncestorOf(page.keep_awake_group):
+                page._select_section(index)
+                break
         self.app.processEvents()
         self.assertTrue(page.keep_awake_note.isVisible())
         self.assertGreaterEqual(page.keep_awake_note.height(), 42)
@@ -923,8 +935,8 @@ class UiRegressionTests(unittest.TestCase):
         # 浮层不参与 layout：完成态仅改内部状态，不依赖 addWidget
         progress.finish('导出完成')
         self.assertEqual(progress._value, 100)
-        from ui.aurora_progress import SUCCESS_LINGER_MS
-        self.assertEqual(SUCCESS_LINGER_MS, 180)
+        from ui.aurora_progress import DEFAULT_SUCCESS_LINGER_MS
+        self.assertEqual(progress._success_linger_ms, DEFAULT_SUCCESS_LINGER_MS)
         progress.hide_now()
         self.assertTrue(progress.isHidden())
         host.close()

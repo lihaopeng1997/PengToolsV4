@@ -117,7 +117,9 @@ class NativeSidebarGeometryTests(unittest.TestCase):
                     # controls, so they remain reachable while Web/native
                     # sidebar pages swap in the stack.
                     self.assertTrue(window.user_chip.isVisible())
-                    self.assertTrue(window.version_label.isVisible() or window._nav_icon_only)
+                    # 版本号已移入用户菜单，标题栏不再常驻显示
+                    self.assertFalse(window.version_label.isVisible())
+                    self.assertTrue(window.version_label.property('titlebarHidden'))
                     self.assertIs(window.user_chip.menu(), original_menu)
                     current_ids = {id(button) for button in self._current_sidebar_controls(window._prism_sidebar)}
                     stale_controls = [button for button in old_controls if id(button) not in current_ids]
