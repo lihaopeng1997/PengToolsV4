@@ -145,7 +145,13 @@ class NativeFallbackPrismTests(unittest.TestCase):
     """验证 Native Fallback 侧栏与响应式契约。"""
 
     def setUp(self):
+        from unittest.mock import patch
+        from config import DEFAULT_SETTINGS
         from main_window import MainWindow
+        # 原生回退侧栏：显式关闭 Web 外壳（不依赖用户配置；离屏环境创建 WebEngine 会崩溃）
+        load_patch = patch('main_window.load_settings', return_value=dict(DEFAULT_SETTINGS, ui_web_shell=False))
+        load_patch.start()
+        self.addCleanup(load_patch.stop)
         self.win = MainWindow()
 
     def test_sidebar_widths_and_brand_geometry(self):

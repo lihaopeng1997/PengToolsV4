@@ -528,7 +528,7 @@ class NoSqlLoadingFeedbackProcessTest(unittest.TestCase):
         env.update({
             "QT_QPA_PLATFORM": "offscreen",
             "PENGTOOLS_DISABLE_MOTION": "1",
-            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8",
             "PENGTOOLS_NOSQL_REPO_ROOT": str(ROOT),
             "PENGTOOLS_NOSQL_TEMP_ROOT": str(evidence_dir),
         })
@@ -538,6 +538,8 @@ class NoSqlLoadingFeedbackProcessTest(unittest.TestCase):
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=55,
             check=False,
         )

@@ -174,7 +174,7 @@ class HomeRequirementNavigationFailureProcessTest(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "QT_QPA_PLATFORM": "offscreen",
-                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8",
                 "PENGTOOLS_HOME_CALLBACK_REPO_ROOT": str(ROOT),
                 "PENGTOOLS_HOME_CALLBACK_TEMP_ROOT": temp_root,
                 "PENGTOOLS_HOME_CALLBACK_MODE": mode,
@@ -187,6 +187,8 @@ class HomeRequirementNavigationFailureProcessTest(unittest.TestCase):
                     env=env,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=25,
                     check=False,
                 )
