@@ -2017,7 +2017,8 @@ class OpsLogPanel(QWidget):
             self._form_labels[key] = lab
             form.addRow(lab, w)
         sess_l.addLayout(form)
-        qbtn = QGridLayout()
+        qbtn = QHBoxLayout()
+        qbtn.setSpacing(6)
         self.tail_btn = QPushButton()
         apply_button(self.tail_btn, 'secondary', compact=True)
         self.tail_btn.clicked.connect(self._run_tail_on_session)
@@ -2030,10 +2031,12 @@ class OpsLogPanel(QWidget):
         self.session_export_btn = QPushButton()
         apply_button(self.session_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.session_export_btn.clicked.connect(self._export_current_session)
-        qbtn.addWidget(self.tail_btn, 0, 0)
-        qbtn.addWidget(self.run_grep_btn, 0, 1)
-        qbtn.addWidget(self.session_export_btn, 1, 0)
-        qbtn.addWidget(self.preview_btn, 1, 1)
+        # 一行：主动作「终端截取」在前，其余等宽排开
+        from PyQt6.QtWidgets import QSizePolicy as _SP
+        for b in (self.run_grep_btn, self.tail_btn, self.preview_btn, self.session_export_btn):
+            b.setMinimumWidth(0)
+            b.setSizePolicy(_SP.Policy.Expanding, b.sizePolicy().verticalPolicy())
+            qbtn.addWidget(b, 1)
         sess_l.addLayout(qbtn)
         self.stream_note = QLabel()
         self.stream_note.setObjectName('field-hint')
@@ -2070,7 +2073,7 @@ class OpsLogPanel(QWidget):
         self.path_edit.setPlaceholderText('当前目录路径')
         self.path_edit.returnPressed.connect(self._remote_goto_path)
         rb.addWidget(self.path_edit)
-        path_row = QGridLayout()
+        path_row = QHBoxLayout()
         path_row.setSpacing(4)
         self.path_up_btn = QPushButton()
         apply_button(self.path_up_btn, 'ghost', compact=True)
@@ -2084,8 +2087,15 @@ class OpsLogPanel(QWidget):
         self.use_path_btn = QPushButton()
         apply_button(self.use_path_btn, 'secondary', compact=True)
         self.use_path_btn.clicked.connect(self._use_selected_as_log_path)
-        for index, b in enumerate((self.path_up_btn, self.path_go_btn, self.path_refresh_btn, self.use_path_btn)):
-            path_row.addWidget(b, index // 2, index % 2)
+        # 一行：上级 / 刷新(图标) / 打开 / 选用
+        for b in (self.path_up_btn, self.path_refresh_btn, self.path_go_btn, self.use_path_btn):
+            b.setMinimumWidth(0)
+            if b is self.path_refresh_btn:
+                b.setFixedWidth(34)
+                path_row.addWidget(b)
+            else:
+                b.setSizePolicy(QSizePolicy.Policy.Expanding, b.sizePolicy().verticalPolicy())
+                path_row.addWidget(b, 1)
         rb.addLayout(path_row)
         self.remote_tree = QTreeWidget()
         self.remote_tree.setObjectName('ops-remote-tree')
