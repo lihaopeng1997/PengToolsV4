@@ -689,12 +689,14 @@ class DataCenterPanel(QWidget):
         )
         corner = QWidget(self.workspace_tabs)
         corner_row = QHBoxLayout(corner)
-        corner_row.setContentsMargins(0, 0, 4, 0)
-        corner_row.setSpacing(4)
+        corner_row.setContentsMargins(0, 2, 6, 2)
+        corner_row.setSpacing(2)
         for button in (self.new_query_btn, self.agent_btn, self.catalog_toggle_btn):
             button.setParent(corner)
             apply_button(button, "ghost", compact=True)
-            corner_row.addWidget(button)
+            button.setProperty("cornerAction", True)
+            button.setFixedHeight(24)
+            corner_row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.workspace_tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self._workspace_corner = corner
         self._body_splitter.addWidget(self.catalog_pane)

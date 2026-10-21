@@ -74,6 +74,7 @@ ICON_FILES = {
     'api-debug': ('resources', 'icons', 'api-debug.svg'),
     'eye': ('resources', 'icons', 'eye.svg'),
     'eye-off': ('resources', 'icons', 'eye-off.svg'),
+    'close': ('resources', 'icons', 'close.svg'),
 }
 
 # brand_pixmap 角色 → ICON_FILES key

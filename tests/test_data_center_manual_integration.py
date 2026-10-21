@@ -625,7 +625,13 @@ class ManualWorkbenchIntegrationTests(unittest.TestCase):
         self.assertEqual(scan_calls, ["scan"], "overflow actions must keep existing workbench handlers")
         self.assertFalse(panel.format_btn.isVisible(), "compact mode moves formatting into the editor menu")
         self.assertFalse(panel.clear_btn.isVisible(), "compact mode moves clearing into the editor menu")
-        self.assertTrue(panel.editor_more_btn.isVisible())
+        # 编辑器的 ⋯ 已并入工作台「更多」：格式化/清空/草稿面板都在同一个菜单里
+        self.assertFalse(panel.editor_more_btn.isVisible())
+        host = panel.manual_query_host
+        self.assertTrue(host.workbench_more_btn.isVisible())
+        host._refresh_workbench_actions()
+        merged = {action.text() for action in host.workbench_more_menu.actions()}
+        self.assertTrue({"格式化", "清空"} <= merged, merged)
         editor_actions = {action.text(): action for action in panel.editor_more_menu.actions()}
         self.assertIn("格式化", editor_actions)
         self.assertIn("清空", editor_actions)
@@ -646,7 +652,7 @@ class ManualWorkbenchIntegrationTests(unittest.TestCase):
         # 事务/停止按钮只在可用时出现（有未提交事务、执行中），其余常驻
         for button in (self.host.commit_btn, self.host.rollback_btn, self.host.stop_btn):
             self.assertEqual(button.isVisible(), button.isEnabled(), button.text())
-        toolbar_buttons = [panel.run_btn, panel.new_tab_btn, panel.editor_more_btn]
+        toolbar_buttons = [panel.run_btn, panel.new_tab_btn, self.host.workbench_more_btn]
         for button in toolbar_buttons:
             with self.subTest(button=button.text()):
                 self.assertTrue(button.isVisible())

@@ -3850,3 +3850,49 @@ QLabel#agent-step-row {
     border-radius: 8px;
     margin-left: 2px;
 }
+
+/* 页签关闭按钮：灰色细 ×，悬停浅底（替换系统默认的红色方块） */
+QTabBar::close-button {
+    image: url("__TAB_CLOSE__");
+    subcontrol-position: right;
+    width: 14px;
+    height: 14px;
+    margin: 0px 2px;
+    padding: 1px;
+    border-radius: 4px;
+}
+QTabBar::close-button:hover {
+    background: __BORDER__;
+}
+
+/* 工作区页签栏右侧的小操作（+ 查询 / AI / 收起目录） */
+QPushButton[cornerAction="true"], QPushButton#btn-ghost[cornerAction="true"] {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 2px 10px;
+    color: __TEXT__;
+    font-weight: 600;
+}
+QPushButton[cornerAction="true"]:hover, QPushButton#btn-ghost[cornerAction="true"]:hover {
+    background: __SURFACE_SOFT__;
+    border-color: __BORDER__;
+}
+QPushButton[cornerAction="true"]:checked, QPushButton#btn-ghost[cornerAction="true"]:checked {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY__;
+}
+QToolButton[toolbarMore="true"] {
+    background: transparent;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    padding: 3px 10px;
+    color: __TEXT__;
+}
+QToolButton[toolbarMore="true"]:hover {
+    background: __SURFACE_SOFT__;
+}
+QToolButton[toolbarMore="true"]::menu-indicator {
+    image: none;
+    width: 0px;
+}

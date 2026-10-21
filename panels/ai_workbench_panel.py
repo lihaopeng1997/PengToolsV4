@@ -1334,6 +1334,8 @@ class AiWorkbenchPanel(QWidget):
             compact_text = '写入确认' if zh else 'Write?'
         self.risk_chip.setToolTip(text)
         self.risk_chip.setText(compact_text if self._compact_editor_toolbar() else text)
+        # 编辑器为空时不显示「空」徽标，只在有语句时提示 只读 / 写入确认
+        self.risk_chip.setVisible(not info.get('empty'))
         if self._compact_editor_toolbar():
             self.risk_chip.setMinimumWidth(self.risk_chip.sizeHint().width())
         else:
@@ -1381,7 +1383,7 @@ class AiWorkbenchPanel(QWidget):
             self.clear_btn.hide()
             self.editor_more_btn.setText('⋯')
             self.editor_more_btn.setToolTip('更多 SQL 编辑操作' if zh else 'More SQL editor actions')
-            self.editor_more_btn.show()
+            self.editor_more_btn.setVisible(not getattr(self, '_editor_more_merged', False))
             embedded = bool(getattr(self, '_embedded_compact_mode', False))
             self.editor_legacy_panels_action.setVisible(embedded)
             if embedded:

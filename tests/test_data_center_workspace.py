@@ -776,19 +776,24 @@ class DataCenterWorkspaceTests(unittest.TestCase):
                         APP.processEvents()
 
                         self.assertTrue(host.isVisible())
-                        self.assertTrue(host.editor_more_btn.isVisible())
+                        # 编辑器 ⋯ 已并入工作台「更多」：同一组动作从这一个按钮进入
+                        self.assertFalse(host.editor_more_btn.isVisible())
+                        self.assertTrue(manual.workbench_more_btn.isVisible())
                         self.assertIs(host.editor_format_action.parent(), host.editor_more_menu)
                         self.assertIs(host.editor_clear_action.parent(), host.editor_more_menu)
                         self.assertIs(host.editor_legacy_panels_action.parent(), host.editor_more_menu)
                         def click_overflow_action(action):
-                            host.editor_more_menu.popup(
-                                host.editor_more_btn.mapToGlobal(host.editor_more_btn.rect().bottomLeft())
+                            menu = manual.workbench_more_menu
+                            manual._refresh_workbench_actions()
+                            menu.popup(
+                                manual.workbench_more_btn.mapToGlobal(manual.workbench_more_btn.rect().bottomLeft())
                             )
                             APP.processEvents()
-                            self.assertTrue(host.editor_more_menu.isVisible())
-                            action_rect = host.editor_more_menu.actionGeometry(action)
+                            self.assertTrue(menu.isVisible())
+                            self.assertIn(action, menu.actions())
+                            action_rect = menu.actionGeometry(action)
                             QTest.mouseClick(
-                                host.editor_more_menu,
+                                menu,
                                 Qt.MouseButton.LeftButton,
                                 pos=action_rect.center(),
                             )

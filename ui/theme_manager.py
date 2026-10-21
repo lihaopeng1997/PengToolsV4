@@ -408,10 +408,13 @@ class ThemeManager:
         try:
             from ui.icons import tinted_icon_url
             branch_tint = palette.get('PRIMARY_ACTIVE') or palette.get('TEXT_STRONG') or '#6C58D9'
+            close_tint = palette.get('TEXT_MUTED') or '#615D73'
+            qss = qss.replace('__TAB_CLOSE__', tinted_icon_url('close', close_tint) or icon_url('close'))
             qss = qss.replace('__BRANCH_CLOSED__', tinted_icon_url('chevron-right', branch_tint) or arrow)
             qss = qss.replace('__BRANCH_OPEN__', tinted_icon_url('chevron-down-tree', branch_tint) or arrow)
         except Exception:
             qss = qss.replace('__BRANCH_CLOSED__', arrow).replace('__BRANCH_OPEN__', arrow)
+            qss = qss.replace('__TAB_CLOSE__', '')
         unresolved = unresolved_qss_tokens(qss)
         if unresolved:
             raise RuntimeError(f'unresolved QSS tokens: {", ".join(unresolved)}')

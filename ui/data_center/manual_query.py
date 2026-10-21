@@ -318,6 +318,12 @@ class ManualQueryHost(QObject):
         self.run_all_btn.hide()
         self.workbench_more_btn = QToolButton(self.transaction_actions)
         self.workbench_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.workbench_more_btn.setProperty("toolbarMore", True)
+        # 只保留一个「更多」：编辑器自己的 ⋯ 菜单并入这里
+        setattr(panel, "_editor_more_merged", True)
+        editor_more = getattr(panel, "editor_more_btn", None)
+        if editor_more is not None:
+            editor_more.hide()
         self.workbench_more_menu = QMenu(self.workbench_more_btn)
         self.workbench_more_btn.setMenu(self.workbench_more_menu)
         action_layout.addWidget(self.workbench_more_btn)
@@ -587,6 +593,15 @@ class ManualQueryHost(QObject):
         self._result_columns_menu = None
         menu.clear()
         panel = self.panel
+        for name in ("editor_format_action", "editor_clear_action"):
+            action = getattr(panel, name, None)
+            if action is not None:
+                menu.addAction(action)
+        legacy = getattr(panel, "editor_legacy_panels_action", None)
+        if legacy is not None and legacy.isVisible():
+            menu.addAction(legacy)
+        if not menu.isEmpty():
+            menu.addSeparator()
         run_all_button = getattr(self, "run_all_btn", None)
         if run_all_button is not None:
             run_all_action = menu.addAction(run_all_button.text())

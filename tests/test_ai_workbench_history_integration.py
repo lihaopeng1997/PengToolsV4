@@ -531,7 +531,9 @@ class AiWorkbenchHistoryIntegrationTests(unittest.TestCase):
         self.assertTrue(panel._embedded_compact_mode)
         self.assertEqual((panel.width(), panel.height()), (960, 640))
         self.assertTrue(panel.history_btn.isVisible())
-        self.assertTrue(panel.editor_more_btn.isVisible())
+        # 编辑器的 ⋯ 已并入工作台「更多」，工具条只留一个「更多」
+        self.assertFalse(panel.editor_more_btn.isVisible())
+        self.assertTrue(panel.manual_query_host.workbench_more_btn.isVisible())
         self.assertTrue(panel.manual_query_host._transaction_actions_in_toolbar)
         # 事务按钮留在同一工具条，只在有未提交事务时出现
         for button in (panel.manual_query_host.commit_btn, panel.manual_query_host.rollback_btn):
