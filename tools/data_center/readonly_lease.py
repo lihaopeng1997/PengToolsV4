@@ -70,6 +70,9 @@ def _canonical_mode(mode: Any, provider: str) -> str:
         normalized = "mysql"
     elif raw == "oracle":
         normalized = "dameng" if provider == "dameng" else "oracle"
+    elif raw in {"standalone", "single"} and provider not in {"oceanbase_oracle", "oceanbase_mysql"}:
+        # 连接对话框给 MySQL/Oracle/达梦 统一存 mode="standalone"（单机），对它们没有额外含义
+        normalized = ""
     elif raw in {"standalone", "cluster"}:
         if provider not in {"oceanbase_oracle", "oceanbase_mysql"}:
             raise ValueError("provider and mode do not match")

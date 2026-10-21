@@ -173,6 +173,24 @@ class RelationalHostTests(unittest.TestCase):
         self.assertEqual(keyed_snapshot.connection_id, "c2")
         self.assertNotIn("id", keyed["c2"])
 
+    def test_dialog_standalone_mode_is_accepted_for_single_node_engines(self) -> None:
+        # 连接对话框给 MySQL/Oracle/达梦 保存 mode="standalone"；不能因此报 PROFILE_UNAVAILABLE
+        for dialect in ("mysql", "oracle", "dameng"):
+            host = RelationalReadOnlyHost(
+                connections={"c": _profile("c", dialect=dialect, mode="standalone")},
+                decryptor=lambda _token: "pw-hidden",
+                connector=lambda *_a, **_k: _Connection(),
+            )
+            snapshot = host.profile_snapshot("c")
+            self.assertEqual(snapshot.provider, dialect)
+        blocked = RelationalReadOnlyHost(
+            connections={"c": _profile("c", dialect="mysql", mode="cluster")},
+            decryptor=lambda _token: "pw-hidden",
+            connector=lambda *_a, **_k: _Connection(),
+        )
+        with self.assertRaises(Exception):
+            blocked.profile_snapshot("c")
+
     def test_oceanbase_modes_are_fixed_and_unknown_combinations_fail_closed(self) -> None:
         mysql_connection = _Connection()
         calls: list[tuple] = []
