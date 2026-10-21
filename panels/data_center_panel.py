@@ -36,7 +36,7 @@ from ui import layout_metrics as _lm
 from ui.layout_metrics import TREE_ITEM_H
 from ui.navigation_model import FIXED_DB_PAGES, dialect_for_nav
 from ui.page_chrome import make_page_header, set_header_home_language
-from ui.data_center.workspace_tree import TREE_LOADED_ROLE, WorkspaceTree
+from ui.data_center.workspace_tree import NODE_KIND_ROLE, TREE_LOADED_ROLE, WorkspaceTree
 from ui.data_center.connection_transport import (
     ConnectionTransportWorker,
     DataCenterTransportDialog,
@@ -522,6 +522,8 @@ class DataCenterPanel(QWidget):
         self._tree_capture_refresh: dict[str, bool] = {}
         self._agent_return_tabs: dict[str, int] = {}
         self._pending_close_ids: set[str] = set()
+        # 编辑已打开连接后，关闭完成时自动重新打开工作区以套用新配置
+        self._reopen_after_close: set[str] = set()
         self._workspace_close_states: dict[str, dict] = {}
         self._workspace_close_status = ""
         self._manual_shutdown_gated = False
@@ -648,6 +650,8 @@ class DataCenterPanel(QWidget):
         self.tree.setMinimumWidth(150)
         self.tree.setStyleSheet(f"QTreeView::item {{ min-height: {TREE_ITEM_H}px; }}")
         self.tree.connection_selected.connect(self._on_connection_selected)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         self.tree.connection_activated.connect(self._open_connection)
         self.tree.connection_ambiguous.connect(self._on_ambiguous_connection)
         self.tree.directory_connection_expanded.connect(self._on_tree_connection_expanded)
@@ -680,6 +684,8 @@ class DataCenterPanel(QWidget):
         self.workspace_tabs.setObjectName("data-center-workspace-tabs")
         self.workspace_tabs.setTabsClosable(True)
         self.workspace_tabs.tabCloseRequested.connect(self._close_workspace_tab)
+        self.workspace_tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.workspace_tabs.tabBar().customContextMenuRequested.connect(self._on_workspace_tab_context_menu)
         self.workspace_tabs.currentChanged.connect(self._on_workspace_tab_changed)
         self.workspace_tabs.setMovable(True)
         self.workspace_tabs.setDocumentMode(True)
@@ -689,7 +695,7 @@ class DataCenterPanel(QWidget):
         )
         corner = QWidget(self.workspace_tabs)
         corner_row = QHBoxLayout(corner)
-        corner_row.setContentsMargins(0, 2, 6, 2)
+        corner_row.setContentsMargins(0, 0, 6, 0)
         corner_row.setSpacing(2)
         for button in (self.new_query_btn, self.agent_btn, self.catalog_toggle_btn):
             button.setParent(corner)
@@ -697,6 +703,9 @@ class DataCenterPanel(QWidget):
             button.setProperty("cornerAction", True)
             button.setFixedHeight(24)
             corner_row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        # 收起目录只是开关，不用实底；做成小圆按钮
+        self.catalog_toggle_btn.setProperty("cornerPlain", True)
+        self.catalog_toggle_btn.setFixedWidth(30)
         self.workspace_tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self._workspace_corner = corner
         self._body_splitter.addWidget(self.catalog_pane)
@@ -1286,11 +1295,18 @@ class DataCenterPanel(QWidget):
             self._show_catalog_operation_error("read")
             return
         connection_id = self.tree.selected_connection_id()
-        if not connection_id or connection_id in self._workspaces:
+        self._edit_connection_by_id(connection_id)
+
+    def _edit_connection_by_id(self, connection_id: str) -> None:
+        if self._manual_shutdown_gated or not connection_id:
+            return
+        if self.catalog.last_error:
+            self._show_catalog_operation_error("read")
             return
         profile = self.catalog.get_profile(connection_id)
         if profile is None:
             return
+        was_open = connection_id in self._workspaces
         dialog = _WorkspaceConnectionDialog(self.language, profile, self)
         if dialog.exec() != ConnectionDialog.DialogCode.Accepted:
             return
@@ -1308,6 +1324,60 @@ class DataCenterPanel(QWidget):
             return
         self.tree.select_connection(connection_id)
         self._on_connection_selected(connection_id)
+        workspace = self._workspaces.get(connection_id)
+        if was_open and workspace is not None:
+            zh = self.language == "zh"
+            if confirm_action(
+                self,
+                "连接已保存" if zh else "Connection saved",
+                "已打开的工作区还在用旧配置。现在重新打开工作区以使用新配置吗？"
+                "（有未提交事务时会先让你确认）" if zh else
+                "The open workspace still uses the old settings. Reopen it now to use the new ones? "
+                "(You will be asked first if a transaction is uncommitted.)",
+                confirm_text="重新打开" if zh else "Reopen",
+            ):
+                index = self.workspace_tabs.indexOf(workspace)
+                if index >= 0:
+                    self._reopen_after_close.add(connection_id)
+                    self._close_workspace_tab(index)
+
+    def _connection_context_menu(self, connection_id: str, global_pos) -> None:
+        """目录树 / 工作区页签的右键菜单：打开、编辑、收藏、删除。"""
+        if not connection_id or self._manual_shutdown_gated:
+            return
+        zh = self.language == "zh"
+        summary = self.catalog.get_summary(connection_id)
+        is_open = connection_id in self._workspaces
+        menu = QMenu(self)
+        open_action = menu.addAction(("切换到工作区" if is_open else "打开工作区") if zh else ("Go to workspace" if is_open else "Open workspace"))
+        open_action.triggered.connect(lambda: self._open_connection(connection_id))
+        edit_action = menu.addAction("编辑连接…" if zh else "Edit connection…")
+        edit_action.triggered.connect(lambda: self._edit_connection_by_id(connection_id))
+        menu.addSeparator()
+        favorite = bool(getattr(summary, "favorite", False))
+        fav_action = menu.addAction(("取消收藏" if favorite else "收藏") if zh else ("Unfavorite" if favorite else "Favorite"))
+        fav_action.triggered.connect(lambda: (self.tree.select_connection(connection_id), self._toggle_favorite()))
+        delete_action = menu.addAction("删除连接…" if zh else "Delete connection…")
+        delete_action.setEnabled(not is_open)
+        delete_action.triggered.connect(lambda: (self.tree.select_connection(connection_id), self._delete_connection()))
+        menu.exec(global_pos)
+        menu.deleteLater()
+
+    def _on_tree_context_menu(self, pos) -> None:
+        index = self.tree.indexAt(pos)
+        if not index.isValid():
+            return
+        self.tree.setCurrentIndex(index)
+        connection_id = self.tree.selected_connection_id()
+        if connection_id and str(index.data(NODE_KIND_ROLE) or "") == "connection":
+            self._connection_context_menu(connection_id, self.tree.viewport().mapToGlobal(pos))
+
+    def _on_workspace_tab_context_menu(self, pos) -> None:
+        bar = self.workspace_tabs.tabBar()
+        index = bar.tabAt(pos)
+        workspace = self.workspace_tabs.widget(index) if index >= 0 else None
+        if isinstance(workspace, _ConnectionWorkspace):
+            self._connection_context_menu(workspace.connection_id, bar.mapToGlobal(pos))
 
     def _delete_connection(self) -> None:
         if self._manual_shutdown_gated:
@@ -2082,6 +2152,9 @@ class DataCenterPanel(QWidget):
             self.workspace_tabs.removeTab(index)
         workspace.deleteLater()
         self._sync_summary_tab()
+        if connection_id in self._reopen_after_close:
+            self._reopen_after_close.discard(connection_id)
+            QTimer.singleShot(0, lambda cid=connection_id: self._open_connection(cid))
         if connection_id not in self._tree_owners:
             self._completion_catalogs.pop(connection_id, None)
         self._rebuild_tree()
@@ -2164,7 +2237,8 @@ class DataCenterPanel(QWidget):
         allowed = not self._manual_shutdown_gated and not self._tree_shutdown_started
         self.workspace_btn.setEnabled(allowed and not self.workspace_persistence.busy)
         self.new_btn.setEnabled(allowed)
-        self.edit_btn.setEnabled(allowed and selected and connection_id not in self._workspaces)
+        # 已打开的连接也可编辑；保存后提示重新打开工作区以套用新配置
+        self.edit_btn.setEnabled(allowed and selected)
         self.delete_btn.setEnabled(allowed and selected and connection_id not in self._workspaces)
         self.favorite_btn.setEnabled(allowed and selected)
         self.open_btn.setEnabled(allowed and selected)

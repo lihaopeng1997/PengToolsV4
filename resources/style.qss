@@ -3866,20 +3866,30 @@ QTabBar::close-button:hover {
 
 /* 工作区页签栏右侧的小操作（+ 查询 / AI / 收起目录） */
 QPushButton[cornerAction="true"], QPushButton#btn-ghost[cornerAction="true"] {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 2px 10px;
-    color: __TEXT__;
+    background: __SURFACE__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 12px;
+    padding: 0px 14px;
+    color: __PRIMARY_ACTIVE__;
     font-weight: 600;
 }
 QPushButton[cornerAction="true"]:hover, QPushButton#btn-ghost[cornerAction="true"]:hover {
-    background: __SURFACE_SOFT__;
-    border-color: __BORDER__;
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
 }
 QPushButton[cornerAction="true"]:checked, QPushButton#btn-ghost[cornerAction="true"]:checked {
-    background: __PRIMARY_SOFT__;
-    color: __PRIMARY__;
+    background: __PRIMARY__;
+    border-color: __PRIMARY__;
+    color: #FFFFFF;
+}
+QPushButton[cornerPlain="true"]:checked, QPushButton#btn-ghost[cornerPlain="true"]:checked {
+    background: __SURFACE__;
+    border-color: __BORDER_STRONG__;
+    color: __PRIMARY_ACTIVE__;
+    padding: 0px;
+}
+QPushButton[cornerPlain="true"], QPushButton#btn-ghost[cornerPlain="true"] {
+    padding: 0px;
 }
 QToolButton[toolbarMore="true"] {
     background: transparent;
