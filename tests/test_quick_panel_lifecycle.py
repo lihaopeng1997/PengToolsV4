@@ -156,8 +156,9 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         self.assertEqual(panel.BUTTON_MARGIN, 4)
         geom = panel.toggle_btn.geometry()
         self.assertEqual((geom.x(), geom.y(), geom.width(), geom.height()), (4, 4, 44, 44))
-        self.assertEqual(panel.toggle_btn.iconSize().width(), 30)
-        self.assertEqual(panel.toggle_btn.iconSize().height(), 30)
+        # 圆形渐变按钮里的白色 Logo
+        self.assertEqual(panel.toggle_btn.iconSize().width(), 22)
+        self.assertEqual(panel.toggle_btn.iconSize().height(), 22)
         self.assertEqual(panel.toggle_btn.text(), '')
         self.assertFalse(panel.toggle_btn.icon().isNull())
         panel.shutdown()

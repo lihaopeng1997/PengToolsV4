@@ -146,8 +146,8 @@ class PrismDashboardContractTests(unittest.TestCase):
         self.assertIn("emit('createRequirement')", self.header_src)
         self.assertIn('daily_done', self.header_src)
         self.assertEqual(self.header_src.count('class="hero-primary"'), 1)
-        # 首页主视觉为可交互的棱镜光谱（光带 = 需求阶段，点击筛选看板）
-        self.assertIn('<PrismSpectrum', self.header_src)
+        # 首页主视觉为粒子球（粒子按阶段占比着色，图例点击筛选看板）
+        self.assertIn('<ParticleSphere', self.header_src)
         self.assertIn("emit('focusStage'", self.header_src)
         # 原生回退页仍使用每日一句数据
         self.assertEqual(len(self.quotes_data), 12)

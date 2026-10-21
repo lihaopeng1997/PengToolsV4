@@ -273,6 +273,7 @@ function onOpen(item: DashboardBoardItem): void {
           :role="isReal(item) ? 'button' : undefined"
           @click="onOpen(item)"
           @keydown.enter.self="onOpen(item)"
+          @keydown.space.self.prevent="onOpen(item)"
         >
           <span class="row-stage">{{ stageMeta(item.group).label }}</span>
           <span class="row-main">
