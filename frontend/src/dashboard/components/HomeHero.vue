@@ -2,7 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import type { DashboardProgress, DashboardRelease, DashboardStats, StageKey } from '../types'
 import PrismIcon from '../../shared/components/PrismIcon.vue'
-import PrismSpectrum from './PrismSpectrum.vue'
+import ParticleSphere from './ParticleSphere.vue'
 import { useCountUp } from '../composables/useCountUp'
 
 const props = defineProps<{
@@ -165,7 +165,7 @@ const summary = computed(() => {
       </div>
     </div>
 
-    <PrismSpectrum
+    <ParticleSphere
       class="hero-visual"
       :counts="counts"
       :focus="props.focus"

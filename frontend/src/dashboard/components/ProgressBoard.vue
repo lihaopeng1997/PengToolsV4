@@ -87,6 +87,56 @@ function readCompactPref(): boolean | null {
 const compactPref = ref<boolean | null>(readCompactPref())
 const compact = computed(() => compactPref.value ?? totalCards.value > AUTO_COMPACT_ABOVE)
 
+// 视图：列表（默认，只列需要关注的）/ 看板（拖动改阶段）
+const VIEW_KEY = 'pengtools.home.board.view'
+function readView(): 'list' | 'board' {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+const view = ref<'list' | 'board'>(readView())
+
+function setView(next: 'list' | 'board'): void {
+  view.value = next
+  try {
+    window.localStorage.setItem(VIEW_KEY, next)
+  } catch {
+    /* 存不了就只在本次生效 */
+  }
+}
+
+const LIST_LIMIT = 6
+const STAGE_URGENCY: Record<string, number> = { release: 0, testing: 1, develop: 2, analysis: 3, online: 4 }
+const listExpanded = ref(false)
+
+const listItems = computed(() => {
+  const items = (props.progress?.board ?? []).filter((item) => !props.focus || item.group === props.focus)
+  return [...items].sort((a, b) => {
+    const pa = PRIORITY_RANK[String(a.priority || '')] ?? 2
+    const pb = PRIORITY_RANK[String(b.priority || '')] ?? 2
+    if (pa !== pb) return pa - pb
+    const sa = STAGE_URGENCY[a.group] ?? 5
+    const sb = STAGE_URGENCY[b.group] ?? 5
+    if (sa !== sb) return sa - sb
+    return String(a.actual_release_date || a.updated_at || '9999').localeCompare(
+      String(b.actual_release_date || b.updated_at || '9999'),
+    )
+  })
+})
+
+const visibleList = computed(() => (listExpanded.value ? listItems.value : listItems.value.slice(0, LIST_LIMIT)))
+
+function stageMeta(group: string) {
+  return STAGE_DEFS.find((stage) => stage.key === group) ?? STAGE_DEFS[1]
+}
+
+function pickStage(key: StageKey | null): void {
+  listExpanded.value = false
+  emit('focusStage', props.focus === key ? null : key)
+}
+
 function toggleCompact(): void {
   compactPref.value = !compact.value
   try {
@@ -164,11 +214,19 @@ function onOpen(item: DashboardBoardItem): void {
     <header class="board-head">
       <div class="head-title">
         <h2>项目进度</h2>
-        <span class="head-sub">{{ totalCards ? `${totalCards} 个需求 · 拖动卡片即可改阶段` : '还没有在推进的需求' }}</span>
+        <span class="head-sub">{{
+          !totalCards ? '还没有在推进的需求'
+            : view === 'list' ? `${totalCards} 个需求 · 先看最需要关注的`
+              : `${totalCards} 个需求 · 拖动卡片即可改阶段`
+        }}</span>
       </div>
       <div class="head-actions">
+        <div v-if="totalCards" class="seg" role="tablist" aria-label="视图">
+          <button type="button" :class="{ on: view === 'list' }" data-action="view-list" @click="setView('list')">列表</button>
+          <button type="button" :class="{ on: view === 'board' }" data-action="view-board" @click="setView('board')">看板</button>
+        </div>
         <button
-          v-if="totalCards"
+          v-if="totalCards && view === 'board'"
           class="chip view-toggle"
           type="button"
           :title="compact ? '切换为详细卡片' : '切换为一行一条的紧凑视图'"
@@ -177,7 +235,7 @@ function onOpen(item: DashboardBoardItem): void {
         >
           {{ compact ? '紧凑' : '详细' }}
         </button>
-        <button v-if="props.focus" class="chip" type="button" @click="emit('focusStage', null)">
+        <button v-if="props.focus && view === 'board'" class="chip" type="button" @click="emit('focusStage', null)">
           只看 {{ focusLabel }}
           <PrismIcon name="x" :size="12" />
         </button>
@@ -185,7 +243,67 @@ function onOpen(item: DashboardBoardItem): void {
       </div>
     </header>
 
-    <div class="columns" :class="{ compact }">
+    <div v-if="view === 'list' && totalCards" class="focus-list" data-testid="focus-list">
+      <div class="stage-tabs" role="tablist" aria-label="按阶段筛选">
+        <button type="button" class="stage-tab" :class="{ on: !props.focus }" @click="pickStage(null)">
+          全部 <b>{{ totalCards }}</b>
+        </button>
+        <button
+          v-for="col in columns"
+          :key="col.key"
+          type="button"
+          class="stage-tab"
+          :class="{ on: props.focus === col.key, empty: !col.items.length }"
+          :style="{ '--stage': col.color }"
+          :data-stage="col.key"
+          @click="pickStage(col.key)"
+        >
+          <span class="tab-dot" />{{ col.label }} <b>{{ col.items.length }}</b>
+        </button>
+      </div>
+
+      <ul class="rows">
+        <li
+          v-for="item in visibleList"
+          :key="item.id"
+          class="row"
+          :class="{ urgent: item.priority === '紧急', important: item.priority === '重要', busy: props.busyId === item.id }"
+          :style="{ '--stage': stageMeta(item.group).color }"
+          :tabindex="isReal(item) ? 0 : undefined"
+          :role="isReal(item) ? 'button' : undefined"
+          @click="onOpen(item)"
+          @keydown.enter.self="onOpen(item)"
+        >
+          <span class="row-stage">{{ stageMeta(item.group).label }}</span>
+          <span class="row-main">
+            <span class="row-title">{{ item.title }}</span>
+            <span class="row-sub">{{ [item.code, item.system].filter(Boolean).join(' · ') }}</span>
+          </span>
+          <span v-if="item.priority && item.priority !== '普通'" class="prio">{{ item.priority }}</span>
+          <span v-if="(item.tp_total ?? 0) > 0" class="row-tp" :title="`测试点 ${item.tp_done}/${item.tp_total}`">
+            <span class="tp-bar"><span :style="{ width: `${tpPercent(item)}%` }" /></span>
+            {{ item.tp_done }}/{{ item.tp_total }}
+          </span>
+          <span v-else-if="item.actual_release_date" class="row-date">
+            <PrismIcon name="calendar" :size="11" />{{ shortDate(item.actual_release_date) }}
+          </span>
+          <span v-else-if="item.next_action && item.group !== 'online'" class="row-next">{{ item.next_action }}</span>
+        </li>
+      </ul>
+
+      <div v-if="!listItems.length" class="empty">这个阶段暂时没有需求</div>
+      <button
+        v-if="listItems.length > LIST_LIMIT"
+        type="button"
+        class="more list-more"
+        data-action="toggle-list"
+        @click="listExpanded = !listExpanded"
+      >
+        {{ listExpanded ? '收起' : `展开其余 ${listItems.length - LIST_LIMIT} 项` }}
+      </button>
+    </div>
+
+    <div v-if="view === 'board' || !totalCards" class="columns" :class="{ compact }">
       <div
         v-for="col in columns"
         :key="col.key"
@@ -449,6 +567,190 @@ h2 {
   min-height: 120px;
   max-height: 420px;
   overflow-y: auto;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.seg button {
+  height: 24px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.seg button.on {
+  background: var(--surface);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px var(--shadow-l1);
+}
+
+.focus-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stage-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stage-tab b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+.stage-tab.on {
+  border-color: var(--stage, var(--primary));
+  background: var(--primary-soft);
+  color: var(--text-strong);
+}
+
+.stage-tab.empty {
+  opacity: 0.55;
+}
+
+.tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stage);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.row.busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.row-stage {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--stage);
+  background: var(--surface-soft);
+  border: 1px solid var(--stage);
+}
+
+.row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row.urgent .row-title::before {
+  content: "● ";
+  color: var(--danger);
+}
+
+.row.important .row-title::before {
+  content: "● ";
+  color: var(--warning);
+}
+
+.row-tp,
+.row-date,
+.row-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-next {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-tp .tp-bar {
+  width: 54px;
+}
+
+.list-more {
+  align-self: center;
+  min-width: 160px;
 }
 
 .more {
