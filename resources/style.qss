@@ -2073,21 +2073,19 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     border-radius: 16px;
 }
 #floating-toolbar[compact="true"] {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
+    background: transparent;
+    border: none;
 }
 QPushButton#floating-toggle {
-    background: __SURFACE__;
-    color: __TEXT_STRONG__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
+    color: #FFFFFF;
+    border: 2px solid __SURFACE__;
+    border-radius: 22px;
     font-size: 1px;
     padding: 0;
 }
 QPushButton#floating-toggle:hover {
-    border-color: __PRIMARY__;
-    background: __SURFACE_SOFT__;
+    border-color: __PRIMARY_SOFT__;
 }
 #floating-title {
     color: __TEXT_STRONG__;
@@ -2146,16 +2144,17 @@ QPushButton#floating-item:hover {
     border-color: __PRIMARY_SOFT__;
 }
 QPushButton#floating-home {
-    background: transparent;
-    color: __TEXT_MUTED__;
-    border: 1px solid __BORDER__;
+    background: __SURFACE_SOFT__;
+    color: __TEXT__;
+    border: 1px solid transparent;
     border-radius: 10px;
     padding: 6px 10px;
     font-size: 12px;
+    font-weight: 600;
 }
 QPushButton#floating-home:hover {
     color: __PRIMARY_ACTIVE__;
-    border-color: __PRIMARY__;
+    background: __PRIMARY_SOFT__;
 }
 QListWidget#floating-learn-list {
     background: __SURFACE__;

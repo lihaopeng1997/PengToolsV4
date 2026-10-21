@@ -167,7 +167,7 @@ class QuickPanel(QWidget):
         self.collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.collapse_btn.setToolTip('收起')
         self.collapse_btn.clicked.connect(self.hide_panel)
-        apply_icon(self.collapse_btn, 'collapse', size=16)
+        apply_icon(self.collapse_btn, 'close', size=16)
         header.addWidget(self.collapse_btn)
         tools_layout.addWidget(self.header_bar)
 
@@ -618,14 +618,15 @@ class QuickPanel(QWidget):
             return '#262438'
 
     def _apply_toggle_icon(self):
-        tint = self._surface_tint() if self.expanded else self._theme_tint()
-        pix = brand_pixmap('floating', size=30, tint=tint)
+        # 收起态是紫色渐变圆按钮，Logo 用白色
+        tint = self._surface_tint() if self.expanded else '#FFFFFF'
+        pix = brand_pixmap('floating', size=22, tint=tint)
         if pix.isNull():
             # 最后回退：app ico 缩放，仍不使用文字 P
-            pix = brand_pixmap('app_ico', size=30, tint=tint)
+            pix = brand_pixmap('app_ico', size=22, tint=tint)
         if not pix.isNull():
             self.toggle_btn.setIcon(QIcon(pix))
-            self.toggle_btn.setIconSize(QSize(30, 30))
+            self.toggle_btn.setIconSize(QSize(22, 22))
             self.toggle_btn.setText('')
         else:
             self.toggle_btn.setText('')
@@ -640,7 +641,7 @@ class QuickPanel(QWidget):
         self._apply_toggle_icon()
         self._refresh_header_logo()
         apply_icon(self.edit_btn, 'edit', size=16)
-        apply_icon(self.collapse_btn, 'collapse', size=16)
+        apply_icon(self.collapse_btn, 'close', size=16)
         self._rebuild_cards()
 
     # ── 几何 ────────────────────────────────────────────────────
@@ -686,8 +687,26 @@ class QuickPanel(QWidget):
                 self.raise_()
         self.set_opacity(opacity)
 
+    # 收起态时鼠标不在上面就半透明，少挡内容；移上去恢复
+    IDLE_OPACITY_FACTOR = 0.6
+
+    def _effective_opacity(self) -> float:
+        base = getattr(self, '_preferred_opacity', 0.96)
+        if not self.expanded and not self.underMouse():
+            return max(0.35, base * self.IDLE_OPACITY_FACTOR)
+        return base
+
+    def enterEvent(self, event):  # noqa: N802
+        super().enterEvent(event)
+        self.setWindowOpacity(self._effective_opacity())
+
+    def leaveEvent(self, event):  # noqa: N802
+        super().leaveEvent(event)
+        self.setWindowOpacity(self._effective_opacity())
+
     def set_opacity(self, opacity):
-        opacity_value = max(0.45, min(1.0, float(opacity) / 100.0))
+        self._preferred_opacity = max(0.45, min(1.0, float(opacity) / 100.0))
+        opacity_value = self._effective_opacity()
         self.setWindowOpacity(opacity_value)
         if self.isVisible():
             QTimer.singleShot(0, lambda value=opacity_value: self.setWindowOpacity(value))
@@ -704,6 +723,7 @@ class QuickPanel(QWidget):
         self.shell.style().unpolish(self.shell)
         self.shell.style().polish(self.shell)
         self._apply_toggle_icon()
+        self.setWindowOpacity(self._effective_opacity())
 
     def _apply_expanded_geometry(self):
         width, height = self._expanded_size()
@@ -730,6 +750,7 @@ class QuickPanel(QWidget):
         self._apply_toggle_icon()
         # 展开时 toggle 叠在右上/左上角外，内容区自带 collapse 按钮
         self.toggle_btn.hide()
+        self.setWindowOpacity(self._effective_opacity())
 
     def _layout_expanded(self):
         """根据 compact 锚点计算展开矩形，避免越界。"""
