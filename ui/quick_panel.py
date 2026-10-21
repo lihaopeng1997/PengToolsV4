@@ -88,6 +88,13 @@ class QuickPanel(QWidget):
         self._drag_offset = None
         self._dragging = False
         self._compact_position = QPoint()
+        # 贴边收起：靠边时只露 PEEK 像素，鼠标移上滑出
+        self._tucked = False
+        self._tuck_timer = QTimer(self)
+        self._tuck_timer.setSingleShot(True)
+        self._tuck_timer.setInterval(900)
+        self._tuck_timer.timeout.connect(self._tuck)
+        self._slide = None
         self._shortcuts = list(DEFAULT_FLOATING_SHORTCUTS)
         self._private_unlocked = False
         self._expand_right = False
@@ -698,11 +705,13 @@ class QuickPanel(QWidget):
 
     def enterEvent(self, event):  # noqa: N802
         super().enterEvent(event)
+        self._untuck()
         self.setWindowOpacity(self._effective_opacity())
 
     def leaveEvent(self, event):  # noqa: N802
         super().leaveEvent(event)
         self.setWindowOpacity(self._effective_opacity())
+        self._schedule_tuck()
 
     def set_opacity(self, opacity):
         self._preferred_opacity = max(0.45, min(1.0, float(opacity) / 100.0))
@@ -783,6 +792,77 @@ class QuickPanel(QWidget):
         # 展开时 toggle 隐藏：用 compact 锚点
         return self._compact_position + QPoint(self.BUTTON_MARGIN, self.BUTTON_MARGIN)
 
+    # ── 贴边收起 ────────────────────────────────────────────────
+
+    EDGE_SNAP = 28
+    PEEK = 14
+
+    def _screen_area(self) -> QRect:
+        center = self._compact_position + QPoint(self.COMPACT_SIZE[0] // 2, self.COMPACT_SIZE[1] // 2)
+        screen = QApplication.screenAt(center) or QApplication.primaryScreen()
+        return screen.availableGeometry() if screen is not None else QRect(0, 0, 1920, 1080)
+
+    def _dock_side(self) -> str:
+        """收起态的停靠边：'right' / 'left' / ''。"""
+        if self.expanded:
+            return ''
+        area = self._screen_area()
+        width = self.COMPACT_SIZE[0]
+        if self._compact_position.x() + width >= area.right() - self.EDGE_SNAP:
+            return 'right'
+        if self._compact_position.x() <= area.left() + self.EDGE_SNAP:
+            return 'left'
+        return ''
+
+    def _snap_to_edge(self) -> None:
+        """拖到边缘附近时贴齐边缘。"""
+        side = self._dock_side()
+        area = self._screen_area()
+        width = self.COMPACT_SIZE[0]
+        if side == 'right':
+            self._compact_position.setX(area.right() - width + 1)
+        elif side == 'left':
+            self._compact_position.setX(area.left())
+
+    def _slide_to(self, target: QPoint) -> None:
+        from PyQt6.QtCore import QEasingCurve, QPropertyAnimation
+        if self._slide is not None:
+            self._slide.stop()
+        if not self.isVisible() or not getattr(self, '_motion_ok', lambda: True)():
+            self.move(target)
+            return
+        self._slide = QPropertyAnimation(self, b'pos', self)
+        self._slide.setDuration(160)
+        self._slide.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._slide.setStartValue(self.pos())
+        self._slide.setEndValue(target)
+        self._slide.start()
+
+    def _tuck(self) -> None:
+        side = self._dock_side()
+        if not side or self.expanded or self._dragging or self.underMouse():
+            return
+        area = self._screen_area()
+        width = self.COMPACT_SIZE[0]
+        x = area.right() - self.PEEK + 1 if side == 'right' else area.left() - width + self.PEEK
+        self._tucked = True
+        self._slide_to(QPoint(x, self._compact_position.y()))
+
+    def _untuck(self) -> None:
+        self._tuck_timer.stop()
+        if not self._tucked:
+            return
+        self._tucked = False
+        self._slide_to(QPoint(self._compact_position))
+
+    def _schedule_tuck(self) -> None:
+        if not self.expanded and self._dock_side():
+            self._tuck_timer.start()
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        self._schedule_tuck()
+
     # ── 展开/收起 ───────────────────────────────────────────────
 
     def _on_toggle_clicked(self):
@@ -792,7 +872,12 @@ class QuickPanel(QWidget):
 
     def toggle_expanded(self):
         if not self.expanded:
-            self._compact_position = QPoint(self.pos())
+            self._tuck_timer.stop()
+            if self._slide is not None:
+                self._slide.stop()
+            if not self._tucked:
+                self._compact_position = QPoint(self.pos())
+            self._tucked = False
             self.expanded = True
             self._layout_expanded()
         else:
@@ -805,6 +890,7 @@ class QuickPanel(QWidget):
             )
             self.toggle_btn.show()
             self._apply_compact_geometry()
+            self._schedule_tuck()
 
     def show_panel(self):
         if not self.expanded:
@@ -1250,6 +1336,10 @@ class QuickPanel(QWidget):
                     else:
                         button_position = self._button_global_top_left()
                         self._compact_position = button_position - QPoint(self.BUTTON_MARGIN, self.BUTTON_MARGIN)
+                        # 拖到屏幕边缘附近：贴齐边缘，移开后自动缩成一条窄边
+                        self._snap_to_edge()
+                        self.move(self._compact_position)
+                        self._schedule_tuck()
                     self._dragging = False
                     return True
         return super().eventFilter(watched, event)
