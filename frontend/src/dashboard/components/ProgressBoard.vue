@@ -6,7 +6,7 @@
  * - 列头 “+”：在该阶段直接新建
  * 只通过事件把意图交给 DashboardApp，由它统一写入。
  */
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import PrismIcon from '../../shared/components/PrismIcon.vue'
 import { STAGE_DEFS, type DashboardBoardItem, type DashboardProgress, type StageKey } from '../types'
 
@@ -15,6 +15,8 @@ const props = defineProps<{
   focus?: StageKey | null
   isDemo?: boolean | null
   busyId?: string | null
+  /** 首页已有「阶段进度」卡时隐藏列表顶部的阶段页签 */
+  hideStageTabs?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +25,7 @@ const emit = defineEmits<{
   (e: 'create', group: StageKey, title: string): void
   (e: 'focusStage', key: StageKey | null): void
   (e: 'navigate', navIndex: number): void
+  (e: 'viewChange', view: 'list' | 'board'): void
 }>()
 
 const dragId = ref<string | null>(null)
@@ -98,8 +101,11 @@ function readView(): 'list' | 'board' {
 }
 const view = ref<'list' | 'board'>(readView())
 
+onMounted(() => emit('viewChange', view.value))
+
 function setView(next: 'list' | 'board'): void {
   view.value = next
+  emit('viewChange', next)
   try {
     window.localStorage.setItem(VIEW_KEY, next)
   } catch {
@@ -244,7 +250,7 @@ function onOpen(item: DashboardBoardItem): void {
     </header>
 
     <div v-if="view === 'list' && totalCards" class="focus-list" data-testid="focus-list">
-      <div class="stage-tabs" role="tablist" aria-label="按阶段筛选">
+      <div v-if="!props.hideStageTabs" class="stage-tabs" role="tablist" aria-label="按阶段筛选">
         <button type="button" class="stage-tab" :class="{ on: !props.focus }" @click="pickStage(null)">
           全部 <b>{{ totalCards }}</b>
         </button>

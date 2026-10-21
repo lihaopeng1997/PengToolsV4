@@ -9,6 +9,9 @@ import ProgressBoard from './components/ProgressBoard.vue'
 import MonthlyTasks from './components/MonthlyTasks.vue'
 import ReleaseOverview from './components/ReleaseOverview.vue'
 import QuickTools from './components/QuickTools.vue'
+import CalendarTile from './components/CalendarTile.vue'
+import StageTile from './components/StageTile.vue'
+import DailyTile from './components/DailyTile.vue'
 import RequirementDrawer from './components/RequirementDrawer.vue'
 
 const props = defineProps<{
@@ -26,6 +29,8 @@ const error = computed(() => props.state.error)
 const isDemoMode = computed(() => Boolean(summary.value?.is_demo || summary.value?.stats?.is_demo))
 
 const isHidden = ref(false)
+// 「需要关注」切到看板时占满整行
+const boardView = ref<'list' | 'board'>('list')
 
 function onVisibilityChange() {
   if (typeof document !== 'undefined') {
@@ -211,36 +216,66 @@ function onRetry(): void {
   <IconSprite />
 
   <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden }">
-    <!-- 首页：棱镜光谱（阶段分布）→ 项目进度看板（就地查看/拖动/新建）→ 本月上线 + 上线总览/常用工具 -->
-    <HomeHero
-      class="home-hero"
-      :greeting="summary.greeting"
-      :username="summary.username"
-      :date-line="summary.date_line"
-      :stats="summary.stats"
-      :release="summary.release"
-      :progress="summary.progress"
-      :focus="focus"
-      :is-demo="isDemoMode"
-      @write-daily="onWriteDaily"
-      @create-requirement="onCreateRequirement"
-      @focus-stage="onFocusStage"
-      @rename="onRename"
-    />
+    <!-- 首页便当格：主卡（问候+搜索）| 本月上线日历 → 阶段进度 | 需要关注 | 日报+常用工具 → 本月上线任务 | 上线总览 -->
+    <div class="bento">
+      <HomeHero
+        class="home-hero b-hero"
+        :greeting="summary.greeting"
+        :username="summary.username"
+        :date-line="summary.date_line"
+        :stats="summary.stats"
+        :release="summary.release"
+        :progress="summary.progress"
+        :tools="summary.tools"
+        :focus="focus"
+        :is-demo="isDemoMode"
+        @write-daily="onWriteDaily"
+        @create-requirement="onCreateRequirement"
+        @focus-stage="onFocusStage"
+        @rename="onRename"
+        @open-requirement="onOpenRequirement"
+        @navigate="onNavClick"
+      />
 
-    <ProgressBoard
-      ref="boardRef"
-      class="home-board"
-      :progress="summary.progress"
-      :focus="focus"
-      :busy-id="busyId"
-      :is-demo="isDemoMode"
-      @open="onOpenRequirement"
-      @move="onMove"
-      @create="onInlineCreate"
-      @focus-stage="onFocusStage"
-      @navigate="onNavClick"
-    />
+      <CalendarTile
+        class="b-cal"
+        :board="summary.progress?.board"
+        :tasks="summary.monthly_release_tasks"
+        @open-requirement="onOpenRequirement"
+      />
+
+      <StageTile
+        class="b-stage"
+        :progress="summary.progress"
+        :focus="focus"
+        @focus-stage="onFocusStage"
+      />
+
+      <ProgressBoard
+        ref="boardRef"
+        class="home-board b-focus"
+        :class="{ wide: boardView === 'board' }"
+        :progress="summary.progress"
+        :focus="focus"
+        :busy-id="busyId"
+        :is-demo="isDemoMode"
+        hide-stage-tabs
+        @open="onOpenRequirement"
+        @move="onMove"
+        @create="onInlineCreate"
+        @focus-stage="onFocusStage"
+        @navigate="onNavClick"
+        @view-change="(view) => (boardView = view)"
+      />
+
+      <div class="b-side">
+        <DailyTile :stats="summary.stats" @write-daily="onWriteDaily" />
+        <QuickTools
+          :tools="summary.tools"
+          @navigate="onNavClick"
+        />
+      </div>
+    </div>
 
     <div class="home-grid">
       <div class="home-left">
@@ -260,11 +295,6 @@ function onRetry(): void {
           :stats="summary.stats"
           :tasks="summary.monthly_release_tasks"
           :is-demo="isDemoMode"
-          @navigate="onNavClick"
-        />
-
-        <QuickTools
-          :tools="summary.tools"
           @navigate="onNavClick"
         />
       </aside>
@@ -373,15 +403,92 @@ button, input, select, textarea { font: inherit; }
   }
 }
 
-.home-hero {
+/* 便当格：12 栏，卡片大小不一；窄屏逐级折叠 */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 16px;
-  animation: section-in 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  min-width: 0;
+}
+
+.b-hero { grid-column: span 8; }
+.b-cal { grid-column: span 4; }
+.b-stage { grid-column: span 3; }
+.b-focus { grid-column: span 6; }
+.b-focus.wide { grid-column: span 12; order: 10; }
+.b-side {
+  grid-column: span 3;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bento > * {
+  min-width: 0;
+  animation: section-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.bento > :nth-child(2) { animation-delay: 60ms; }
+.bento > :nth-child(3) { animation-delay: 100ms; }
+.bento > :nth-child(4) { animation-delay: 140ms; }
+.bento > :nth-child(5) { animation-delay: 180ms; }
+
+/* 便当格卡片的统一外观（子组件根节点带 .tile） */
+.bento :deep(.tile) {
+  padding: 16px 16px 14px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px var(--shadow-l1);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.bento :deep(.tile:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px var(--shadow-l1);
+}
+
+.bento :deep(.tile-head) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bento :deep(.tile-head h3) {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.bento :deep(.tile-sub) {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .home-board {
-  margin-bottom: 16px;
   scroll-margin-top: 12px;
-  animation: section-in 560ms cubic-bezier(0.2, 0.8, 0.2, 1) 80ms both;
+}
+
+@media (max-width: 1199px) {
+  .b-hero { grid-column: span 12; }
+  .b-cal { grid-column: span 5; }
+  .b-stage { grid-column: span 7; }
+  .b-focus { grid-column: span 12; }
+  .b-side {
+    grid-column: span 12;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .b-cal,
+  .b-stage { grid-column: span 12; }
+  .b-side { grid-template-columns: 1fr; }
 }
 
 .toast {

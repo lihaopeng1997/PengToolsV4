@@ -146,8 +146,10 @@ class PrismDashboardContractTests(unittest.TestCase):
         self.assertIn("emit('createRequirement')", self.header_src)
         self.assertIn('daily_done', self.header_src)
         self.assertEqual(self.header_src.count('class="hero-primary"'), 1)
-        # 首页主视觉为粒子球（粒子按阶段占比着色，图例点击筛选看板）
-        self.assertIn('<ParticleSphere', self.header_src)
+        # 首页为便当格：主卡带全局搜索，阶段进度卡点击筛选「需要关注」
+        self.assertIn('data-testid="home-search"', self.header_src)
+        self.assertIn('<StageTile', self.vue_src)
+        self.assertIn('<CalendarTile', self.vue_src)
         self.assertIn("emit('focusStage'", self.header_src)
         # 原生回退页仍使用每日一句数据
         self.assertEqual(len(self.quotes_data), 12)
