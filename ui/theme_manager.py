@@ -427,6 +427,10 @@ class ThemeManager:
         app = app or QApplication.instance()
         prev = self._theme_id
         theme_id = resolve_theme_id(theme_id)
+        if app is not None:
+            # 菜单 / 下拉弹层透明底，圆角才能完整画出来
+            from ui.rounded_popups import install_rounded_popups
+            install_rounded_popups(app)
         try:
             if self._template is None:
                 self.load_template()

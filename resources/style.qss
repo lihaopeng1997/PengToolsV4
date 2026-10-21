@@ -251,7 +251,7 @@ QLabel#svn-workspace-meta {
 /* —— Button system —— */
 QPushButton {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 8px; padding: 6px 12px;
+    border-radius: 10px; padding: 6px 12px;
     font-weight: 500;
     min-height: 20px;
     outline: none;
@@ -263,7 +263,7 @@ QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; bo
 QPushButton#btn-secondary,
 QPushButton[actionRole="secondary"] {
     background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 8px; font-weight: 500; padding: 6px 12px;
+    border-radius: 10px; font-weight: 500; padding: 6px 12px;
     outline: none;
 }
 QPushButton#btn-secondary:hover,
@@ -285,7 +285,7 @@ QPushButton[actionRole="primary"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
     color: __ON_PRIMARY__; border: 1px solid transparent; font-weight: 600; padding: 7px 14px;
-    border-radius: 8px;
+    border-radius: 10px;
     outline: none;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover,
@@ -650,7 +650,7 @@ QTextEdit, QPlainTextEdit {
     border-radius: 12px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
-QComboBox { padding-right: 38px; }
+QComboBox { padding-right: 38px; combobox-popup: 0; }
 QDateEdit, QTimeEdit { min-width: 150px; max-width: 160px; padding-right: 36px; }
 QComboBox:hover, QLineEdit:hover, QDateEdit:hover, QTimeEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
 QComboBox:focus, QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
@@ -713,9 +713,26 @@ QComboBox::drop-down {
 QComboBox::drop-down:hover { background: __PRIMARY_SOFT__; }
 QComboBox::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
 QComboBox QAbstractItemView {
-    background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 8px; padding: 5px; outline: 0;
-    selection-background-color: __PRIMARY__; selection-color: __ON_PRIMARY__;
+    background: __ELEVATED_SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
+    border-radius: 12px; padding: 6px; outline: 0;
+    selection-background-color: __PRIMARY_SOFT__; selection-color: __PRIMARY_ACTIVE__;
+}
+QComboBox QAbstractItemView::item {
+    min-height: 26px;
+    padding: 2px 8px;
+    border-radius: 8px;
+}
+QComboBox QAbstractItemView::item:hover {
+    background: __SURFACE_SOFT__;
+}
+QComboBox QAbstractItemView::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: none;
+}
+QComboBoxPrivateContainer {
+    background: transparent;
+    border: none;
 }
 QComboBox QLineEdit {
     background: __SURFACE__;
@@ -1950,10 +1967,10 @@ QTabWidget#module-tabs QTabBar::tab {
     min-width: 88px;
     min-height: 20px;
     max-height: 26px;
-    border: 1px solid __BORDER_STRONG__;
+    border: 1px solid __BORDER__;
     border-bottom: none;
-    border-top-left-radius: 7px;
-    border-top-right-radius: 7px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
     font-weight: 600;
     font-size: 12px;
 }
@@ -1975,7 +1992,7 @@ QTabBar::scroller { width: 28px; }
 QTabBar QToolButton {
     background: __PRIMARY_SOFT__;
     border: 1px solid __PRIMARY_SOFT__;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 2px;
 }
 QScrollBar:vertical { background: transparent; width: 9px; }
@@ -2654,17 +2671,19 @@ QToolTip {
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     padding: 6px 10px;
-    border-radius: 6px;
+    border-radius: 8px;
 }
 QMenu {
-    background: __GLASS_BG__;
+    background: __ELEVATED_SURFACE__;
     color: __TEXT_STRONG__;
-    border: 1px solid __GLASS_BORDER__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
     padding: 6px;
 }
 QMenu::item {
-    padding: 7px 28px 7px 14px;
-    border-radius: 6px;
+    padding: 8px 28px 8px 12px;
+    margin: 1px 0px;
+    border-radius: 8px;
     color: __TEXT__;
 }
 QMenu::item:selected {
@@ -2675,8 +2694,9 @@ QMenu::item:disabled { color: __DISABLED_TEXT__; }
 QMenu::separator {
     height: 1px;
     background: __BORDER__;
-    margin: 4px 8px;
+    margin: 5px 10px;
 }
+QMenu::right-arrow { width: 10px; height: 10px; margin-right: 8px; }
 QDialog {
     background: __GLASS_BG__;
     color: __TEXT_STRONG__;
