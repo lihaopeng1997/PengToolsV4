@@ -113,10 +113,9 @@ class NativeSidebarGeometryTests(unittest.TestCase):
                     window._layout_controller.force(width, height)
                     app.processEvents()
                     self._assert_sidebar_geometry(window, app, width, expected_width, collapsed)
-                    # The author unlock and real user menu are common title-bar
-                    # controls, so they remain reachable while Web/native
-                    # sidebar pages swap in the stack.
-                    self.assertTrue(window.user_chip.isVisible())
+                    # 标题栏右侧只留搜索；头像菜单内容已并入 文件/视图/帮助 菜单
+                    self.assertFalse(window.user_chip.isVisible())
+                    self.assertTrue(window.user_chip.property('titlebarHidden'))
                     # 版本号已移入用户菜单，标题栏不再常驻显示
                     self.assertFalse(window.version_label.isVisible())
                     self.assertTrue(window.version_label.property('titlebarHidden'))

@@ -357,6 +357,9 @@ class MainWindow(QMainWindow):
         apply_icon(self._collapse_btn, 'collapse', size=16)
         self._collapse_btn.clicked.connect(self._toggle_nav_collapse)
         controls_layout.addWidget(self._collapse_btn)
+        # 标题栏右侧只保留搜索：收起导航在「视图」菜单
+        self._collapse_btn.setProperty('titlebarHidden', True)
+        self._collapse_btn.hide()
 
         self.version_label = QLabel('作者：Lihp', controls)
         self.version_label.setObjectName('sidebar_version')
@@ -377,6 +380,9 @@ class MainWindow(QMainWindow):
         self._user_menu = QMenu(self)
         self.user_chip.setMenu(self._user_menu)
         controls_layout.addWidget(self.user_chip)
+        # 头像菜单的 语言 / 悬浮栏 / 关于 / 解锁 / 退出 已并入 文件·视图·帮助 菜单
+        self.user_chip.setProperty('titlebarHidden', True)
+        self.user_chip.hide()
         self._prism_title_bar.add_host_widget(controls)
 
     def _rebuild_shell_menus(self):
@@ -393,12 +399,17 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         close_action = file_menu.addAction('关闭窗口' if zh else 'Close window')
         close_action.triggered.connect(self.close)
+        quit_action = file_menu.addAction('退出软件' if zh else 'Exit')
+        quit_action.triggered.connect(self.exit_application)
 
         view_menu = QMenu('视图' if zh else 'View', self)
         collapse = view_menu.addAction('收起导航栏' if zh else 'Collapse navigation')
         collapse.triggered.connect(self._toggle_nav_collapse)
-        floating = view_menu.addAction('悬浮工具栏' if zh else 'Floating toolbar')
+        floating = view_menu.addAction('悬浮工具栏  Ctrl+Shift+P' if zh else 'Floating toolbar  Ctrl+Shift+P')
         floating.triggered.connect(self.toggle_quick_panel)
+        lang_menu = view_menu.addMenu('语言' if zh else 'Language')
+        lang_menu.addAction('中文').triggered.connect(lambda: self._set_language(0))
+        lang_menu.addAction('English').triggered.connect(lambda: self._set_language(1))
         view_menu.addSeparator()
         maximize = view_menu.addAction('还原窗口' if zh else 'Restore window')
         maximize.triggered.connect(self._toggle_window_maximize)
@@ -409,6 +420,12 @@ class MainWindow(QMainWindow):
         guide.triggered.connect(self._show_user_guide)
         about = help_menu.addAction('关于' if zh else 'About')
         about.triggered.connect(self._show_about)
+        unlock = help_menu.addAction('解锁私人工具…' if zh else 'Unlock private tools…')
+        unlock.triggered.connect(self._unlock_private_tools)
+        help_menu.addSeparator()
+        version = help_menu.addAction(f'{APP_NAME} {app_version_text()} · {APP_BUILD_DATE}')
+        version.setEnabled(False)
+        help_menu.aboutToShow.connect(lambda: unlock.setVisible(not self._private_unlocked))
         self._shell_menus = {
             '文件' if zh else 'File': file_menu,
             '视图' if zh else 'View': view_menu,
