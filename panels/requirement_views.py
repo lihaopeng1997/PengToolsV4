@@ -62,7 +62,8 @@ class StageBar(QWidget):
     def set_status(self, status: str):
         self._status = str(status or '').strip()
         self._paused = self._status == PAUSED_STATUS
-        self._index = stage_index(status)
+        # 没选需求时不标任何阶段
+        self._index = stage_index(status) if self._status else -1
         self.setToolTip(' → '.join(label for _key, label, _members in STAGES))
         self.setFixedHeight(self._height())
         self.update()
