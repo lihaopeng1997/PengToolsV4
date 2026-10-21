@@ -2059,12 +2059,9 @@ class MainWindow(QMainWindow):
                 self._settings = save_settings(self._settings)
             except OSError:
                 return {'ok': False, 'error': '保存失败，请稍后再试'}
-            for bridge in (getattr(self, '_chrome_bridge', None), getattr(self, '_dash_bridge', None)):
-                if bridge is not None and hasattr(bridge, 'set_username'):
-                    bridge.set_username(name)
-            if getattr(self, 'user_chip', None) is not None:
-                self.user_chip.setText(_user_initials(name))
-            QTimer.singleShot(0, self._push_dashboard_summary)
+            self._apply_home_username(name)
+            if self.settings_panel is not None and hasattr(self.settings_panel, 'home_username_edit'):
+                self.settings_panel.home_username_edit.setText(name)
             return {'ok': True, 'changed': True, 'name': name}
         if payload.get('action') == 'open_dir':
             folder = home_actions.local_dir_for(str(payload.get('id') or ''))
@@ -2079,6 +2076,15 @@ class MainWindow(QMainWindow):
             # 写入后异步刷新：首页 summary 与已打开的需求管理同步，不阻塞本次返回
             QTimer.singleShot(0, self._after_home_action_change)
         return result
+
+    def _apply_home_username(self, name: str) -> None:
+        """称呼变化后同步首页问候、Web 顶栏与头像字。"""
+        for bridge in (getattr(self, '_chrome_bridge', None), getattr(self, '_dash_bridge', None)):
+            if bridge is not None and hasattr(bridge, 'set_username'):
+                bridge.set_username(name)
+        if getattr(self, 'user_chip', None) is not None:
+            self.user_chip.setText(_user_initials(name))
+        QTimer.singleShot(0, self._push_dashboard_summary)
 
     def _after_home_action_change(self):
         self._push_dashboard_summary()
@@ -2409,6 +2415,8 @@ class MainWindow(QMainWindow):
             return False
         self._settings = saved
         self._settings_apply_persisted = bool(persist)
+        if saved.get('home_username') != previous_settings.get('home_username'):
+            self._apply_home_username(str(saved.get('home_username') or 'Lihp'))
         if self.settings_panel is not None:
             # The page owns two independent stores (daily reminders and the
             # intranet model catalog). Re-reading those stores here would

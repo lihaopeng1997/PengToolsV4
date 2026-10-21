@@ -332,6 +332,12 @@ class SettingsPanel(QWidget):
         size_enum_combo(self.language_combo)
         self.default_language_label = QLabel()
         appearance.addRow(self.default_language_label, self.language_combo)
+        self.home_username_edit = QLineEdit()
+        self.home_username_edit.setObjectName('settings-home-username')
+        self.home_username_edit.setMaxLength(20)
+        self.home_username_edit.setClearButtonEnabled(True)
+        self.home_username_label = QLabel()
+        appearance.addRow(self.home_username_label, self.home_username_edit)
         self.reset_layout_btn = QPushButton()
         size_compact_button(self.reset_layout_btn)
         self.reset_layout_btn.clicked.connect(self._reset_layout_prefs)
@@ -821,6 +827,7 @@ class SettingsPanel(QWidget):
             'floating_shortcuts': list(getattr(self, '_floating_shortcuts', DEFAULT_SETTINGS.get('floating_shortcuts', [10, 2, 9, 5]))),
             'copy_feedback_ms': self.copy_duration.currentData(),
             'default_language': self.language_combo.currentData(),
+            'home_username': ' '.join(self.home_username_edit.text().split()) or 'Lihp',
             'close_ask_each_time': self.close_ask.isChecked(),
             'close_default_action': self.close_default_action.currentData(),
             'keep_awake_enabled': self.keep_awake_enabled.isChecked(),
@@ -1071,6 +1078,7 @@ class SettingsPanel(QWidget):
         self._floating_shortcuts = list(settings.get('floating_shortcuts') or DEFAULT_SETTINGS['floating_shortcuts'])
         self._refresh_shortcuts_summary()
         self.language_combo.setCurrentIndex(self.language_combo.findData(settings['default_language']))
+        self.home_username_edit.setText(str(settings.get('home_username') or 'Lihp'))
         self.close_ask.blockSignals(True)
         self.close_default_action.blockSignals(True)
         self.close_ask.setChecked(settings['close_ask_each_time'])
@@ -2048,6 +2056,8 @@ class SettingsPanel(QWidget):
             '启动时收起侧栏' if zh else 'Collapse sidebar on startup'
         )
         self.default_language_label.setText('默认界面语言' if zh else 'Default language')
+        self.home_username_label.setText('首页称呼' if zh else 'Home greeting name')
+        self.home_username_edit.setPlaceholderText('首页问候里显示的名字' if zh else 'Name shown in the home greeting')
         self.reset_layout_label.setText('分栏布局' if zh else 'Splitter layout')
         self.reset_layout_btn.setText('复位界面布局' if zh else 'Reset layout')
         self.reset_layout_btn.setToolTip(
