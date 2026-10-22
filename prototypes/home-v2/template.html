@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PengToolsHub · 首页 V2 原型</title>
+<style>
+:root {
+  --bg: #f4f3fa;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-strong: #ffffff;
+  --line: #e6e2f0;
+  --line-strong: #d0cbdd;
+  --text: #262438;
+  --muted: #615d73;
+  --faint: #9c98ac;
+  --accent: #6c58d9;
+  --accent-soft: #eee9ff;
+  --ok: #247f75;
+  --warn: #a5772a;
+  --danger: #c45371;
+  --cyan: #0ea5e9;
+  --radius: 18px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; color: var(--text); overflow: hidden;
+  background: radial-gradient(900px 600px at 12% -10%, rgba(169,154,245,.28), transparent 60%),
+              radial-gradient(900px 700px at 100% 110%, rgba(14,165,233,.12), transparent 60%), var(--bg);
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif; }
+button { font: inherit; color: inherit; }
+
+/* ── 入口：粒子球（白底）── */
+#intro { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; transition: opacity 600ms ease;
+  background: radial-gradient(700px 520px at 50% 46%, #ffffff 0%, #f1eefb 55%, #e9e5f7 100%); }
+#intro::before { content: ""; position: absolute; width: 62vmin; height: 62vmin; left: 50%; top: 46%; transform: translate(-50%, -50%);
+  border-radius: 50%; background: radial-gradient(circle, rgba(124,106,230,.20), rgba(14,165,233,.08) 45%, transparent 70%); filter: blur(10px); }
+#intro.gone { opacity: 0; pointer-events: none; }
+#intro canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.intro-ui { position: absolute; bottom: 9vh; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
+.intro-ui .tag { font-size: 12px; letter-spacing: 4px; color: var(--accent); opacity: .85; }
+.intro-ui button { pointer-events: auto; padding: 11px 34px; border-radius: 22px; border: 1px solid rgba(108,88,217,.35);
+  background: rgba(255,255,255,.85); color: var(--accent); font-weight: 600; cursor: pointer; letter-spacing: 1px;
+  box-shadow: 0 10px 30px rgba(108,88,217,.18); transition: transform .2s, box-shadow .2s; }
+.intro-ui button:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(108,88,217,.26); }
+.intro-ui .hint { font-size: 12px; color: var(--faint); }
+
+/* ── 工作台 ── */
+#app { position: fixed; inset: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 340px; gap: 14px; padding: 14px;
+  opacity: 0; transform: scale(.985); transition: opacity 700ms ease, transform 700ms ease; }
+#app.show { opacity: 1; transform: none; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(38,36,56,.04), 0 12px 32px rgba(38,36,56,.05); backdrop-filter: blur(10px); }
+
+nav.side { display: flex; flex-direction: column; padding: 18px 12px; }
+.brand { font-weight: 750; font-size: 18px; padding: 0 8px; }
+.brand small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 3px; }
+.nav-items { margin-top: 22px; display: flex; flex-direction: column; gap: 4px; }
+.nav-items a { padding: 10px 12px; border-radius: 12px; color: var(--muted); font-size: 13px; text-decoration: none; cursor: default; }
+.nav-items a.on { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 8px 18px rgba(108,88,217,.25); }
+.side-foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 10px; border-top: 1px solid var(--line); }
+
+main { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; min-width: 0; min-height: 0; }
+.top { display: flex; align-items: center; gap: 10px; }
+.top h1 { margin: 0; font-size: 22px; letter-spacing: -.3px; }
+.top .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.top .grow { flex: 1; }
+.chip { height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid var(--line); background: #fff;
+  font-size: 12px; cursor: pointer; transition: border-color .2s, background .2s; }
+.chip:hover { border-color: var(--accent); }
+.chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.fps { font: 12px/1 Consolas, monospace; color: var(--muted); min-width: 92px; text-align: right; }
+.fps b { color: var(--ok); font-weight: 600; }
+.fps.slow b { color: var(--warn); }
+
+/* 流体卡（浅色） */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.fluid { position: relative; height: 128px; border-radius: 20px; overflow: hidden; border: 1px solid rgba(255,255,255,.9);
+  box-shadow: 0 14px 34px rgba(108,88,217,.14), inset 0 0 0 1px rgba(108,88,217,.06); cursor: default; }
+.fluid canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fluid .glass { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255,255,255,.55), rgba(255,255,255,.08) 45%, rgba(255,255,255,0) 70%); }
+.fluid .txt { position: absolute; inset: 14px 16px; display: flex; flex-direction: column; color: #1f1d30; }
+.fluid .eyebrow { font-size: 10px; letter-spacing: 1.5px; opacity: .62; }
+.fluid .label { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.fluid .num { margin-top: auto; font-size: 36px; font-weight: 750; line-height: 1; font-variant-numeric: tabular-nums; }
+.fluid .num small { font-size: 13px; font-weight: 500; margin-left: 4px; opacity: .7; }
+.fluid .delta { font-size: 11px; opacity: .7; margin-top: 4px; }
+.fluid.static canvas { display: none; }
+.fluid.static { background: var(--static-bg); }
+
+/* 3D 环形卡片（磨砂白玻璃） */
+.stage-wrap { position: relative; min-height: 0; overflow: hidden;
+  background: radial-gradient(600px 320px at 50% 60%, rgba(169,154,245,.18), transparent 70%), var(--panel); }
+.stage-tools { position: absolute; top: 12px; left: 14px; right: 14px; display: flex; gap: 8px; z-index: 3; align-items: center; }
+.stage-tools .grow { flex: 1; }
+.stage-tools .badge { font-size: 11px; color: var(--muted); padding: 5px 10px; border-radius: 12px; border: 1px solid var(--line); background: #fff; }
+.ring-stage { position: absolute; inset: 56px 0 46px 0; perspective: 1400px; cursor: grab; touch-action: none; }
+.ring-stage.drag { cursor: grabbing; }
+.ring { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-style: preserve-3d; }
+.rcard { position: absolute; width: 168px; height: 226px; left: -84px; top: -113px; border-radius: 16px;
+  background: linear-gradient(170deg, rgba(255,255,255,.95), rgba(246,244,253,.82)); border: 1px solid rgba(108,88,217,.16);
+  box-shadow: 0 18px 38px rgba(38,36,56,.10), inset 0 1px 0 #fff; padding: 14px; display: flex; flex-direction: column; gap: 6px;
+  transition: box-shadow .25s, border-color .25s; user-select: none; }
+.rcard.front { border-color: rgba(108,88,217,.55); box-shadow: 0 24px 54px rgba(108,88,217,.24), 0 0 0 3px rgba(108,88,217,.10); }
+.rcard .code { font: 10px Consolas, monospace; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcard .title { font-size: 14px; font-weight: 650; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.rcard .pill { align-self: flex-start; font-size: 11px; padding: 2px 8px; border-radius: 8px; background: var(--accent-soft); font-weight: 600; }
+.rcard .doc { margin-top: auto; height: 60px; border-radius: 10px; border: 1px solid var(--line);
+  background: repeating-linear-gradient(180deg, rgba(108,88,217,.10) 0 3px, transparent 3px 11px); opacity: .8; }
+.rcard .bar { height: 4px; border-radius: 2px; background: #ece9f5; overflow: hidden; }
+.rcard .bar span { display: block; height: 100%; background: var(--stage, var(--accent)); }
+.focus-card { position: absolute; left: 16px; top: 66px; width: 170px; padding: 14px; border-radius: 16px; z-index: 2;
+  background: #fff; border: 1px solid var(--line); box-shadow: 0 12px 28px rgba(38,36,56,.08); }
+.focus-card .k { font-size: 13px; font-weight: 700; }
+.focus-card .n { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.focus-card .p { font-size: 24px; font-weight: 750; margin-top: 16px; }
+.focus-card .bar { height: 4px; border-radius: 2px; background: #ece9f5; margin-top: 6px; overflow: hidden; }
+.focus-card .bar span { display: block; height: 100%; background: var(--accent); }
+.stage-foot { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 12px; color: var(--muted); }
+.stage-foot i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: middle; }
+
+/* 时间轴 */
+.timeline { padding: 12px 16px 14px; }
+.timeline .head { display: flex; align-items: center; font-size: 13px; font-weight: 650; }
+.timeline .head span { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; }
+.days { display: grid; grid-template-columns: repeat(31, minmax(0, 1fr)); margin-top: 10px; gap: 2px; }
+.day { position: relative; text-align: center; font-size: 11px; color: var(--faint); padding: 6px 0 12px; border-radius: 8px; }
+.day.today { color: #fff; background: var(--accent); font-weight: 600; }
+.day .dot { position: absolute; left: 50%; bottom: 3px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--cyan); }
+.day .dot.done { background: var(--ok); }
+.day.today .dot { background: #fff; }
+
+/* 右侧详情 */
+aside.detail { display: flex; flex-direction: column; padding: 18px; gap: 12px; overflow-y: auto; }
+.detail .eyebrow { font: 11px Consolas, monospace; color: var(--faint); }
+.detail h2 { margin: 0; font-size: 19px; line-height: 1.35; }
+.detail .row { display: grid; grid-template-columns: 70px 1fr; font-size: 13px; gap: 4px 8px; color: var(--muted); }
+.detail .row b { color: var(--text); font-weight: 500; }
+.steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.steps div { height: 5px; border-radius: 3px; background: #ece9f5; }
+.steps div.on { background: var(--stage, var(--accent)); }
+.steps-l { display: grid; grid-template-columns: repeat(5, 1fr); font-size: 11px; color: var(--faint); margin-top: 5px; }
+.box { padding: 12px 14px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
+.box h3 { margin: 0 0 8px; font-size: 13px; }
+.tp { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; padding: 4px 0; color: var(--text); }
+.tp i { flex: none; width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--line-strong); margin-top: 1px; }
+.tp.done { color: var(--muted); text-decoration: line-through; }
+.tp.done i { background: var(--ok); border-color: var(--ok); }
+.next { font-size: 12px; color: var(--accent); }
+.actions { margin-top: auto; display: flex; gap: 8px; }
+.actions button { flex: 1; height: 36px; border-radius: 12px; border: 1px solid var(--line); background: #fff; cursor: not-allowed; font-size: 13px; }
+.actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.empty { color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+/* 呼吸：全局同一节奏 */
+.breath { animation: breath 6s ease-in-out infinite; }
+@keyframes breath { 0%, 100% { box-shadow: 0 14px 34px rgba(108,88,217,.12); } 50% { box-shadow: 0 18px 44px rgba(108,88,217,.22); } }
+.ring-breath { animation: ringBreath 6s ease-in-out infinite; }
+@keyframes ringBreath { 0%, 100% { margin-top: 0; } 50% { margin-top: -6px; } }
+
+body.paused *, body.reduced * { animation-play-state: paused !important; }
+@media (max-width: 1280px) { #app { grid-template-columns: 190px minmax(0, 1fr) 300px; } }
+</style>
+</head>
+<body>
+
+<section id="intro">
+  <canvas id="sphere"></canvas>
+  <div class="intro-ui">
+    <div class="tag" id="introTag">PRISM CORE · READY</div>
+    <button id="enterBtn" type="button">进入项目驾驶舱</button>
+    <div class="hint">点击球体或 Enter 进入 · Esc 跳过启动画面</div>
+  </div>
+</section>
+
+<div id="app">
+  <nav class="side panel">
+    <div class="brand">PengToolsHub<small>原型 · 首页 V2</small></div>
+    <div class="nav-items">
+      <a class="on">项目驾驶舱</a><a>需求管理</a><a>日报</a><a>数据中心</a><a>日志排查</a><a>Agent 工作台</a><a>模型对话</a><a>设置</a>
+    </div>
+    <div class="side-foot" id="sideFoot"></div>
+  </nav>
+
+  <main>
+    <div class="top">
+      <div><h1 id="greet">项目驾驶舱</h1><div class="sub" id="dateLine"></div></div>
+      <div class="grow"></div>
+      <button class="chip on" id="tglFluid" type="button" title="流体卡开/关">流体卡</button>
+      <button class="chip" id="replay" type="button" title="重新播放粒子球入口">粒子球</button>
+      <button class="chip" id="quality" type="button" title="画质：自动/高/低">画质 · 自动</button>
+      <button class="chip" id="dataBtn" type="button" title="切换真实数据 / 示例数据">真实数据</button>
+      <div class="fps" id="fps">FPS <b>--</b></div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="stage-wrap panel breath">
+      <div class="stage-tools">
+        <button class="chip on" id="cruise" type="button">Ⅱ 暂停巡航</button>
+        <button class="chip" id="resetRing" type="button">复位</button>
+        <div class="grow"></div>
+        <span class="badge">3D 环形 · 可拖拽</span>
+      </div>
+      <div class="focus-card" id="focusCard"></div>
+      <div class="ring-stage" id="ringStage"><div class="ring ring-breath" id="ring"></div></div>
+      <div class="stage-foot"><i></i>按住拖动旋转 · 点击卡片置前 · 当前：<span id="frontName">-</span></div>
+    </div>
+
+    <div class="timeline panel">
+      <div class="head">本月上线时间轴<span id="monthLabel"></span></div>
+      <div class="days" id="days"></div>
+    </div>
+  </main>
+
+  <aside class="detail panel" id="detail"></aside>
+</div>
+
+<script>
+'use strict';
+const REAL = /*__REAL_DATA__*/null;
+const STAGES = [
+  { key: 'analysis', label: '分析', color: '#a99af5' },
+  { key: 'develop', label: '开发', color: '#6c58d9' },
+  { key: 'testing', label: '测试', color: '#d08a1e' },
+  { key: 'release', label: '待上线', color: '#0ea5e9' },
+  { key: 'online', label: '已上线', color: '#247f75' },
+];
+const stageOf = (g) => STAGES.find((s) => s.key === g) || STAGES[1];
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduced) document.body.classList.add('reduced');
+
+// ── 数据：真实 / 示例 ───────────────────────────────────────────
+function demoData() {
+  const titles = ['车险承保规则调整', 'ECIF 客户查询优化', '监管接口字段升级', '电销渠道保费试算', '理赔影像上传提速', '续保提醒短信模板',
+    '非车险批改流程', '核保规则引擎升级', '保单打印样式调整', '再保分出数据同步', '车船税计算口径变更', '新能源车险条款上线'];
+  const groups = ['develop', 'develop', 'testing', 'testing', 'release', 'analysis', 'develop', 'testing', 'online', 'online', 'release', 'develop'];
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const reqs = titles.map((t, i) => {
+    const total = [0, 4, 6, 8][i % 4];
+    const done = Math.min(total, (i * 3) % (total + 1));
+    return { id: 'demo-' + i, code: `REQ-${ym.replace('-', '')}${String(i + 3).padStart(2, '0')}-000${i % 9}-SP`, title: t,
+      status: stageOf(groups[i]).label, group: groups[i], priority: ['普通', '重要', '紧急'][i % 3], system: ['车险承保', '客户中心', '理赔', '财务'][i % 4],
+      actual_release_date: `${ym}-${String(4 + i * 2).padStart(2, '0')}`, tp_done: done, tp_total: total,
+      test_points: Array.from({ length: total }, (_, k) => ({ text: `测试点 ${k + 1}：校验关键场景`, done: k < done })),
+      next_action: groups[i] === 'testing' ? '跟进测试问题' : '开发完成后提测' };
+  });
+  return { greeting: '你好', username: 'Lihp', date_line: '示例数据（非真实台账）', stats: { daily_done: 2, daily_total: 5 },
+    release: { done: 2, total: 4 }, requirements: reqs };
+}
+let useDemo = !REAL || !(REAL.requirements || []).length;
+const data = () => (useDemo ? demoData() : REAL);
+
+// ── 流体卡（WebGL 着色器）───────────────────────────────────────
+const FLUID_FS = `precision mediump float;
+uniform vec2 r; uniform float t; uniform vec3 a; uniform vec3 b; uniform vec3 c; uniform float lift;
+float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,w=.5;for(int k=0;k<5;k++){v+=w*n(p);p*=2.03;w*=.5;}return v;}
+void main(){vec2 uv=gl_FragCoord.xy/r; uv.x*=r.x/r.y;
+  vec2 q=vec2(fbm(uv*1.4+vec2(0.,t*.06)),fbm(uv*1.4+vec2(5.2,-t*.05)));
+  float f=fbm(uv*1.8+2.2*q+vec2(t*.03,-t*.02));
+  vec3 col=mix(a,b,smoothstep(.15,.85,f));
+  col=mix(col,c,smoothstep(.45,1.,q.y*f*1.6));
+  col=mix(col,vec3(1.),lift*(.55+.35*f));
+  float v=smoothstep(1.3,.2,length((gl_FragCoord.xy/r-.5)*vec2(1.,1.4)));
+  gl_FragColor=vec4(mix(col,vec3(1.),.12*(1.-v)),1.);}`;
+const QUAD_VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const PALETTES = [
+  { a: [0.78, 0.74, 1.00], b: [0.55, 0.47, 0.95], c: [0.62, 0.88, 1.00], lift: 0.30, bg: 'linear-gradient(135deg,#d9d2ff,#a99af5)' },
+  { a: [1.00, 0.80, 0.86], b: [1.00, 0.86, 0.70], c: [0.82, 0.72, 1.00], lift: 0.34, bg: 'linear-gradient(135deg,#ffd0dc,#ffdcb3)' },
+  { a: [0.70, 0.95, 0.88], b: [0.55, 0.85, 0.95], c: [0.85, 0.95, 0.70], lift: 0.32, bg: 'linear-gradient(135deg,#b6f0de,#9fdcf2)' },
+  { a: [0.80, 0.88, 1.00], b: [0.62, 0.78, 0.98], c: [0.90, 0.82, 1.00], lift: 0.34, bg: 'linear-gradient(135deg,#cfe0ff,#e3d6ff)' },
+];
+
+function makeGL(canvas) {
+  const gl = canvas.getContext('webgl', { antialias: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+  return gl;
+}
+function program(gl, vs, fs) {
+  const mk = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p;
+}
+
+const fluids = [];
+function buildKpis() {
+  const d = data();
+  const reqs = d.requirements || [];
+  const count = (g) => reqs.filter((x) => x.group === g).length;
+  const active = reqs.filter((x) => x.group !== 'online' && x.group !== 'paused').length;
+  const tpT = reqs.reduce((s, x) => s + (x.tp_total || 0), 0), tpD = reqs.reduce((s, x) => s + (x.tp_done || 0), 0);
+  const rel = d.release || {}, st = d.stats || {};
+  const cards = [
+    { eb: 'ACTIVE / 正在推进', label: '正在推进', num: active, unit: '个需求', delta: `开发 ${count('develop')} · 测试 ${count('testing')}` },
+    { eb: 'TESTING / 测试中', label: '测试中', num: count('testing'), unit: '个', delta: tpT ? `测试点完成 ${Math.round(tpD / tpT * 100)}%` : '暂无测试点' },
+    { eb: 'RELEASE / 本月上线', label: '本月上线', num: rel.done ?? 0, unit: `/ ${rel.total ?? 0}`, delta: `待上线 ${count('release')} 个` },
+    { eb: 'DAILY / 本周日报', label: '本周日报', num: st.daily_done ?? 0, unit: `/ ${st.daily_total ?? 5}`, delta: st.daily_note || '保持每日记录' },
+  ];
+  const host = document.getElementById('kpis');
+  host.innerHTML = '';
+  fluids.length = 0;
+  cards.forEach((c, i) => {
+    const pal = PALETTES[i];
+    const el = document.createElement('div');
+    el.className = 'fluid breath';
+    el.style.setProperty('--static-bg', pal.bg);
+    el.innerHTML = `<canvas></canvas><div class="glass"></div><div class="txt"><div class="eyebrow">${c.eb}</div>
+      <div class="label">${c.label}</div><div class="num" data-to="${c.num}">0<small>${c.unit}</small></div><div class="delta">${c.delta}</div></div>`;
+    host.appendChild(el);
+    const canvas = el.querySelector('canvas');
+    try {
+      const gl = makeGL(canvas);
+      if (!gl) throw new Error('no webgl');
+      const prog = program(gl, QUAD_VS, FLUID_FS);
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.useProgram(prog);
+      const u = (n) => gl.getUniformLocation(prog, n);
+      gl.uniform3fv(u('a'), pal.a); gl.uniform3fv(u('b'), pal.b); gl.uniform3fv(u('c'), pal.c); gl.uniform1f(u('lift'), pal.lift);
+      fluids.push({ el, canvas, gl, ur: u('r'), ut: u('t'), seed: i * 7.3 });
+    } catch (e) { el.classList.add('static'); }
+  });
+  countUp();
+}
+function countUp() {
+  document.querySelectorAll('.num[data-to]').forEach((el) => {
+    const to = Number(el.dataset.to) || 0, small = el.querySelector('small').outerHTML, t0 = performance.now();
+    const step = (now) => { const k = Math.min(1, (now - t0) / 900), v = Math.round(to * (1 - Math.pow(1 - k, 3)));
+      el.innerHTML = v + small; if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+}
+function drawFluids(t) {
+  if (!fluidOn) return;
+  const scale = effective() === 'low' ? 0.35 : 0.7;
+  for (const f of fluids) {
+    const w = Math.max(32, Math.round(f.canvas.clientWidth * scale)), h = Math.max(16, Math.round(f.canvas.clientHeight * scale));
+    if (f.canvas.width !== w || f.canvas.height !== h) { f.canvas.width = w; f.canvas.height = h; f.gl.viewport(0, 0, w, h); }
+    f.gl.uniform2f(f.ur, w, h); f.gl.uniform1f(f.ut, t + f.seed);
+    f.gl.drawArrays(f.gl.TRIANGLE_STRIP, 0, 4);
+  }
+}
+
+// ── 粒子球入口 ─────────────────────────────────────────────────
+const SPHERE_VS = `attribute vec3 a_pos; attribute float a_kind; attribute float a_seed;
+uniform float u_time; uniform float u_burst; uniform float u_hover; uniform float u_pr; uniform vec2 u_mouse; uniform vec2 u_res;
+varying float v_alpha; varying float v_tint; varying float v_depth;
+mat3 ry(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}
+mat3 rx(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}
+void main(){
+  float br=1.+.025*sin(u_time*1.047)+.03*u_hover; vec3 p; float size;
+  mat3 view=rx(.32+u_mouse.y*.35)*ry(u_mouse.x*.55);
+  if(a_kind<.5){ float j=.04*sin(u_time*.9+a_seed*60.); p=view*ry(u_time*.12)*(a_pos*(1.+j)*br); size=2.0; v_tint=0.; }
+  else if(a_kind<1.5){ float g=u_time*.33; vec3 cen=vec3(cos(g)*1.8,.12*sin(g),sin(g)*1.0);
+    p=view*(cen+a_pos*.2*br); size=1.7; v_tint=1.; }
+  else { float g=a_seed*6.2832; p=view*vec3(cos(g)*1.8,.12*sin(g),sin(g)*1.0); size=1.1; v_tint=2.; }
+  p*=1.+u_burst*u_burst*(2.2+a_seed*5.);
+  float z=3.6-p.z; vec2 q=p.xy/z*2.15;
+  gl_Position=vec4(q.x*u_res.y/u_res.x,q.y,0.,1.);
+  float depth=clamp((p.z+1.)/2.,0.,1.);
+  v_alpha=mix(.22,.95,depth)*(1.-u_burst);
+  v_depth=depth;
+  gl_PointSize=size*u_pr*(.7+1.0*depth)*(3.6/z);
+}`;
+const SPHERE_FS = `precision mediump float; varying float v_alpha; varying float v_tint; varying float v_depth;
+void main(){ float d=length(gl_PointCoord-.5); if(d>.5) discard;
+  vec3 front=vec3(.38,.30,.84), back=vec3(.66,.60,.96), cyan=vec3(.05,.62,.90);
+  vec3 c=v_tint<.5?mix(back,front,v_depth):(v_tint<1.5?mix(vec3(.45,.78,.98),cyan,v_depth):vec3(.62,.58,.90));
+  float a=v_alpha*smoothstep(.5,.1,d)*(v_tint>1.5?.45:1.);
+  gl_FragColor=vec4(c,a);}`;
+
+// 白底：画布透明，背景由 #intro 的渐变和柔光提供
+const sphere = { gl: null, n: 0, u: {}, burst: 0, bursting: false, hover: 0, mouse: [0, 0], target: [0, 0] };
+function buildSphere() {
+  const canvas = document.getElementById('sphere');
+  const gl = canvas.getContext('webgl', { antialias: false, alpha: true, premultipliedAlpha: false });
+  if (!gl) { enterApp(true); return; }
+  const prog = program(gl, SPHERE_VS, SPHERE_FS);
+  const main = effective() === 'low' ? 4000 : 9000, moon = effective() === 'low' ? 500 : 1100, ring = effective() === 'low' ? 360 : 800;
+  const total = main + moon + ring, pos = new Float32Array(total * 3), kind = new Float32Array(total), seed = new Float32Array(total);
+  const fib = (i, n) => { const y = 1 - (i + .5) / n * 2, r = Math.sqrt(1 - y * y), th = i * 2.399963; return [Math.cos(th) * r, y, Math.sin(th) * r]; };
+  let k = 0;
+  for (let i = 0; i < main; i++, k++) { const v = fib(i, main); pos.set(v, k * 3); kind[k] = 0; seed[k] = Math.random(); }
+  for (let i = 0; i < moon; i++, k++) { const v = fib(i, moon); pos.set(v, k * 3); kind[k] = 1; seed[k] = Math.random(); }
+  for (let i = 0; i < ring; i++, k++) { pos.set([0, 0, 0], k * 3); kind[k] = 2; seed[k] = i / ring; }
+  const attr = (name, arr, size) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+    const l = gl.getAttribLocation(prog, name); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0); };
+  gl.useProgram(prog); attr('a_pos', pos, 3); attr('a_kind', kind, 1); attr('a_seed', seed, 1);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  for (const name of ['u_time', 'u_burst', 'u_hover', 'u_pr', 'u_mouse', 'u_res']) sphere.u[name] = gl.getUniformLocation(prog, name);
+  Object.assign(sphere, { gl, n: total, canvas, burst: 0, bursting: false });
+}
+function drawSphere(t, dt) {
+  const s = sphere; if (!s.gl || introGone) return;
+  const pr = Math.min(window.devicePixelRatio || 1, effective() === 'low' ? 1 : 2);
+  const w = Math.round(s.canvas.clientWidth * pr), h = Math.round(s.canvas.clientHeight * pr);
+  if (s.canvas.width !== w || s.canvas.height !== h) { s.canvas.width = w; s.canvas.height = h; s.gl.viewport(0, 0, w, h); }
+  s.mouse[0] += (s.target[0] - s.mouse[0]) * Math.min(1, dt * 3); s.mouse[1] += (s.target[1] - s.mouse[1]) * Math.min(1, dt * 3);
+  if (s.bursting) { s.burst = Math.min(1, s.burst + dt / 0.9); if (s.burst >= 1) enterApp(); }
+  const gl = s.gl; gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniform1f(s.u.u_time, t); gl.uniform1f(s.u.u_burst, s.burst); gl.uniform1f(s.u.u_hover, s.hover);
+  gl.uniform1f(s.u.u_pr, pr); gl.uniform2f(s.u.u_mouse, s.mouse[0], s.mouse[1]); gl.uniform2f(s.u.u_res, w, h);
+  gl.drawArrays(gl.POINTS, 0, s.n);
+}
+let introGone = false;
+function startBurst() { if (!sphere.bursting && !introGone) { sphere.bursting = true; document.getElementById('introTag').textContent = 'ENTERING · 正在进入'; } }
+function enterApp(instant) {
+  if (introGone) return; introGone = true;
+  const intro = document.getElementById('intro'); intro.classList.add('gone');
+  document.getElementById('app').classList.add('show');
+  if (instant) intro.style.transition = 'none';
+}
+function replayIntro() {
+  introGone = false; buildSphere();
+  const intro = document.getElementById('intro'); intro.style.transition = ''; intro.classList.remove('gone');
+  document.getElementById('introTag').textContent = 'PRISM CORE · READY';
+  document.getElementById('app').classList.remove('show');
+}
+
+// ── 3D 环形需求卡片 ───────────────────────────────────────────
+const ringState = { angle: 0, vel: 0, cruise: !reduced, dragging: false, lastX: 0, cards: [], step: 0, radius: 360, front: -1, items: [] };
+function ringItems() {
+  const reqs = (data().requirements || []).slice();
+  reqs.sort((a, b) => STAGES.findIndex((s) => s.key === a.group) - STAGES.findIndex((s) => s.key === b.group));
+  if (reqs.length >= 6) return reqs;
+  // 数据太少时补阶段卡，环才成形
+  const pads = STAGES.filter((s) => !reqs.some((r) => r.group === s.key)).map((s) => ({ id: 'stage-' + s.key, code: 'STAGE', title: `${s.label}阶段 · 暂无需求`,
+    status: s.label, group: s.key, tp_done: 0, tp_total: 0, placeholder: true }));
+  return reqs.concat(pads).slice(0, Math.max(6, reqs.length));
+}
+function buildRing() {
+  const ring = document.getElementById('ring'); ring.innerHTML = '';
+  const items = ringItems(); ringState.items = items;
+  const n = items.length; ringState.step = 360 / n;
+  ringState.radius = Math.max(300, (n * 168) / (2 * Math.PI) * 1.18);
+  ringState.cards = items.map((it, i) => {
+    const el = document.createElement('div'); const st = stageOf(it.group);
+    el.className = 'rcard'; el.style.setProperty('--stage', st.color);
+    const pct = it.tp_total ? Math.round(it.tp_done / it.tp_total * 100) : (it.group === 'online' ? 100 : 0);
+    el.innerHTML = `<div class="code">${esc(it.code || '')}</div><div class="title">${esc(it.title || '')}</div>
+      <span class="pill" style="color:${st.color}">${esc(it.status || st.label)}</span><div class="doc"></div>
+      <div class="bar"><span style="width:${pct}%"></span></div>`;
+    el.addEventListener('click', () => { if (!ringState.moved) focusIndex(i); });
+    ring.appendChild(el); return el;
+  });
+  ringState.front = -1; layoutRing();
+}
+function focusIndex(i) { ringState.cruise = false; syncCruise(); const target = -i * ringState.step;
+  let d = ((target - ringState.angle) % 360 + 540) % 360 - 180; ringState.snapTo = ringState.angle + d; }
+function layoutRing() {
+  const { cards, step, radius, angle } = ringState;
+  document.getElementById('ring').style.transform = `translateZ(${-radius}px) rotateY(${angle}deg)`;
+  let best = 0, bestCos = -2;
+  cards.forEach((el, i) => {
+    const a = i * step; const rel = ((a + angle) % 360 + 360) % 360; const c = Math.cos(rel * Math.PI / 180);
+    el.style.transform = `rotateY(${a}deg) translateZ(${radius}px)`;
+    el.style.opacity = (0.25 + 0.75 * Math.max(0, (c + 0.3) / 1.3)).toFixed(3);
+    if (c > bestCos) { bestCos = c; best = i; }
+  });
+  if (best !== ringState.front) {
+    if (cards[ringState.front]) cards[ringState.front].classList.remove('front');
+    ringState.front = best; cards[best] && cards[best].classList.add('front'); renderDetail(ringState.items[best]);
+  }
+}
+function stepRing(dt) {
+  const r = ringState;
+  if (r.snapTo != null) { const d = r.snapTo - r.angle; r.angle += d * Math.min(1, dt * 6); if (Math.abs(d) < 0.05) { r.angle = r.snapTo; r.snapTo = null; } }
+  else if (!r.dragging) { r.angle += r.vel * dt; r.vel *= Math.pow(0.04, dt); if (r.cruise && Math.abs(r.vel) < 4) r.angle -= 7 * dt; }
+  layoutRing();
+}
+function bindRing() {
+  const stage = document.getElementById('ringStage');
+  stage.addEventListener('pointerdown', (e) => { ringState.dragging = true; ringState.moved = false; ringState.lastX = e.clientX; ringState.snapTo = null; stage.classList.add('drag'); stage.setPointerCapture(e.pointerId); });
+  stage.addEventListener('pointermove', (e) => { if (!ringState.dragging) return; const dx = e.clientX - ringState.lastX; ringState.lastX = e.clientX;
+    if (Math.abs(dx) > 1) ringState.moved = true; ringState.angle += dx * 0.25; ringState.vel = dx * 0.25 * 60; });
+  const up = () => { if (!ringState.dragging) return; ringState.dragging = false; stage.classList.remove('drag'); setTimeout(() => { ringState.moved = false; }, 0); };
+  stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+}
+function syncCruise() { const b = document.getElementById('cruise'); b.textContent = ringState.cruise ? 'Ⅱ 暂停巡航' : '▶ 开始巡航'; b.classList.toggle('on', ringState.cruise); }
+
+// ── 右侧详情 / 聚焦卡 / 时间轴 ─────────────────────────────────
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderDetail(it) {
+  const box = document.getElementById('detail'); const focus = document.getElementById('focusCard');
+  if (!it) { box.innerHTML = '<div class="empty">暂无需求</div>'; return; }
+  const st = stageOf(it.group); const idx = STAGES.indexOf(st);
+  document.getElementById('frontName').textContent = it.title || '-';
+  const same = ringState.items.filter((x) => x.group === it.group && !x.placeholder);
+  const t = same.reduce((s, x) => s + (x.tp_total || 0), 0), d = same.reduce((s, x) => s + (x.tp_done || 0), 0);
+  const pct = t ? Math.round(d / t * 100) : (it.group === 'online' ? 100 : 0);
+  focus.innerHTML = `<div class="k" style="color:${st.color}">${st.label}</div><div class="n">${same.length} 个需求</div>
+    <div class="p">${pct}%</div><div class="n">测试点完成度</div><div class="bar"><span style="width:${pct}%"></span></div>`;
+  if (it.placeholder) { box.innerHTML = `<div class="eyebrow">STAGE</div><h2>${esc(it.title)}</h2><div class="empty">这个阶段目前没有需求。正式版里可在这里直接新建。</div>`; return; }
+  const pts = (it.test_points || []).slice(0, 8).map((p) => `<div class="tp ${p.done ? 'done' : ''}"><i></i><span>${esc(p.text)}</span></div>`).join('')
+    || '<div class="empty">还没有测试点</div>';
+  box.style.setProperty('--stage', st.color);
+  box.innerHTML = `<div class="eyebrow">${esc(it.code || '')}</div><h2>${esc(it.title)}</h2>
+    <div class="row"><span>状态</span><b style="color:${st.color}">${esc(it.status || st.label)}</b>
+      <span>优先级</span><b>${esc(it.priority || '普通')}</b><span>系统</span><b>${esc(it.system || '—')}</b>
+      <span>上线日期</span><b>${esc(it.actual_release_date || '未定')}</b></div>
+    <div class="box"><h3>阶段</h3><div class="steps">${STAGES.map((s, i) => `<div class="${i <= idx ? 'on' : ''}"></div>`).join('')}</div>
+      <div class="steps-l">${STAGES.map((s) => `<span>${s.label}</span>`).join('')}</div>
+      <div class="next" style="margin-top:10px">→ ${esc(it.next_action || '')}</div></div>
+    <div class="box"><h3>测试点 ${it.tp_done || 0}/${it.tp_total || 0}</h3>${pts}</div>
+    <div class="actions"><button type="button" title="原型：正式版接入就地编辑">编辑</button><button class="primary" type="button" title="原型：正式版接入改状态">推进阶段</button></div>`;
+}
+function buildTimeline() {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), days = new Date(y, m + 1, 0).getDate();
+  const ym = `${y}-${String(m + 1).padStart(2, '0')}`;
+  document.getElementById('monthLabel').textContent = `${y} 年 ${m + 1} 月`;
+  const rel = {};
+  (data().requirements || []).forEach((r) => { const dte = String(r.actual_release_date || ''); if (dte.startsWith(ym)) rel[Number(dte.slice(8, 10))] = r.group === 'online' ? 'done' : 'plan'; });
+  const host = document.getElementById('days'); host.style.gridTemplateColumns = `repeat(${days}, minmax(0,1fr))`;
+  host.innerHTML = Array.from({ length: days }, (_, i) => { const d = i + 1;
+    return `<div class="day ${d === now.getDate() ? 'today' : ''}">${d}${rel[d] ? `<span class="dot ${rel[d] === 'done' ? 'done' : ''}"></span>` : ''}</div>`; }).join('');
+}
+function buildHeader() {
+  const d = data();
+  document.getElementById('greet').textContent = `${d.greeting || '你好'}，${d.username || 'Lihp'}`;
+  document.getElementById('dateLine').textContent = d.date_line || '';
+  document.getElementById('sideFoot').textContent = useDemo ? '示例数据 · 非真实台账' : `真实台账 · ${(REAL.requirements || []).length} 条 · 生成于 ${String(REAL.generated_at || '').replace('T', ' ')}`;
+  document.getElementById('dataBtn').textContent = useDemo ? '示例数据' : '真实数据';
+}
+function rebuild() { buildHeader(); buildKpis(); buildRing(); buildTimeline(); }
+
+// ── 画质 / FPS / 主循环 ───────────────────────────────────────
+let quality = 'auto', autoLevel = 'high', fluidOn = true;
+const effective = () => (quality === 'auto' ? autoLevel : quality);
+Object.defineProperty(window, 'qualityLevel', { get: effective });
+let frames = 0, fpsT = performance.now(), slowStreak = 0;
+function tickFps(now) {
+  frames++;
+  if (now - fpsT >= 500) {
+    const fps = frames * 1000 / (now - fpsT); frames = 0; fpsT = now;
+    const el = document.getElementById('fps'); el.innerHTML = `FPS <b>${fps.toFixed(0)}</b> · ${effective() === 'low' ? '低' : '高'}`;
+    el.classList.toggle('slow', fps < 40);
+    if (quality === 'auto') { slowStreak = fps < 32 ? slowStreak + 1 : 0; if (slowStreak >= 6 && autoLevel === 'high') { autoLevel = 'low'; slowStreak = 0; if (!introGone) buildSphere(); } }
+  }
+}
+let last = performance.now(), running = true;
+function loop(now) {
+  if (!running) return;
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; const t = now / 1000;
+  tickFps(now);
+  drawSphere(t, dt);
+  if (introGone) { stepRing(dt); if (effective() === 'high' || (frames % 2 === 0)) drawFluids(t); }
+  requestAnimationFrame(loop);
+}
+document.addEventListener('visibilitychange', () => {
+  running = !document.hidden; document.body.classList.toggle('paused', document.hidden);
+  if (running) { last = performance.now(); requestAnimationFrame(loop); }
+});
+
+// ── 交互绑定 ──────────────────────────────────────────────────
+const sphereCanvas = document.getElementById('sphere');
+sphereCanvas.addEventListener('pointermove', (e) => { const r = sphereCanvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+  sphere.target = [x, y]; sphere.hover = Math.hypot(x, y) < .22 ? 1 : 0; });
+sphereCanvas.addEventListener('click', startBurst);
+document.getElementById('enterBtn').addEventListener('click', startBurst);
+document.addEventListener('keydown', (e) => { if (introGone) return; if (e.key === 'Enter') startBurst(); if (e.key === 'Escape') enterApp(true); });
+document.getElementById('replay').addEventListener('click', replayIntro);
+document.getElementById('tglFluid').addEventListener('click', (e) => { fluidOn = !fluidOn; e.currentTarget.classList.toggle('on', fluidOn);
+  document.querySelectorAll('.fluid').forEach((el) => el.classList.toggle('static', !fluidOn)); });
+document.getElementById('quality').addEventListener('click', (e) => {
+  quality = { auto: 'high', high: 'low', low: 'auto' }[quality]; autoLevel = 'high'; slowStreak = 0;
+  e.currentTarget.textContent = `画质 · ${{ auto: '自动', high: '高', low: '低' }[quality]}`; });
+document.getElementById('dataBtn').addEventListener('click', () => {
+  if (!REAL || !(REAL.requirements || []).length) { useDemo = true; alert('没有读到真实需求数据，只能显示示例数据。'); return; }
+  useDemo = !useDemo; rebuild(); });
+document.getElementById('cruise').addEventListener('click', () => { ringState.cruise = !ringState.cruise; syncCruise(); });
+document.getElementById('resetRing').addEventListener('click', () => { ringState.snapTo = 0; ringState.vel = 0; });
+
+bindRing(); rebuild(); syncCruise(); buildSphere();
+if (reduced) enterApp(true);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

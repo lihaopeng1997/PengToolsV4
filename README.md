@@ -24,6 +24,7 @@ PengToolsV4/
 ├── packaging/             # 安装布局说明
 ├── Installer/             # 安装模板（gitignore 含 EXE）
 ├── frontend/              # Vue 3 + TypeScript + Vite 侧栏与首页源码（node_modules/ dist/ 不提交）
+├── prototypes/            # 视觉原型生成器与模板；生成的 index.html 含本地台账，不提交
 ├── requirements.txt
 ├── AGENTS.md              # AI/开发硬规则
 └── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
