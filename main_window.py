@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         self.module_tabs = self._module_tabs
         self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
         self._module_tabs.close_requested.connect(self._on_module_tab_close)
+        self._module_tabs.context_requested.connect(self._on_module_tab_context)
         self._content_layout.addWidget(self._module_tabs, 0)
 
         self._page_body = QFrame(self._content_frame)
@@ -500,6 +501,36 @@ class MainWindow(QMainWindow):
                     sidebar.set_current(current_tab)
                 return
         self._module_tabs.remove_nav(index)
+
+    def _on_module_tab_context(self, nav_index: int, global_pos) -> None:
+        """Right-click menu: close this tab, the others, or every closable tab."""
+        tabs = self._module_tabs
+        zh = self.language == 'zh'
+        menu = QMenu(tabs)
+        action_self = menu.addAction('关闭' if zh else 'Close')
+        action_others = menu.addAction('关闭其他' if zh else 'Close others')
+        action_all = menu.addAction('关闭全部' if zh else 'Close all')
+        action_self.setToolTip('关闭此页签' if zh else 'Close this tab')
+        action_others.setToolTip('关闭除此页签外的其它页签' if zh else 'Close every tab except this one')
+        action_all.setToolTip('关闭全部可关闭页签，首页保留' if zh else 'Close every closable tab; keep Home')
+        action_self.setEnabled(bool(tabs.close_targets(nav_index, 'self')))
+        action_others.setEnabled(bool(tabs.close_targets(nav_index, 'others')))
+        action_all.setEnabled(bool(tabs.close_targets(nav_index, 'all')))
+        chosen = menu.exec(global_pos)
+        if chosen is action_self:
+            scope = 'self'
+        elif chosen is action_others:
+            scope = 'others'
+        elif chosen is action_all:
+            scope = 'all'
+        else:
+            return
+        targets = tabs.close_targets(nav_index, scope)
+        keep = tabs.keep_nav_after_close(nav_index, scope)
+        for index in targets:
+            self._on_module_tab_close(index)
+        if keep in tabs.open_nav_indices and tabs.current_nav_index != keep:
+            self._show_panel(keep)
 
     def _on_web_nav_group_requested(self, group_key: str, anchor_rect_json: str) -> None:
         """Validate a WebView-local anchor and open the native Prism menu."""
@@ -1149,10 +1180,6 @@ class MainWindow(QMainWindow):
                 self._nav_layout.addWidget(button)
                 self.nav_buttons[nav_index] = button
                 self._nav_order.append(nav_index)
-                # 自我学习：仅未解锁时隐藏；已持久化解锁则保持展示
-                if nav_index == 8 and not self._private_unlocked:
-                    button.hide()
-                    section.hide()
 
         self._nav_layout.addStretch(1)
         scroll.setWidget(nav_host)
@@ -1637,15 +1664,9 @@ class MainWindow(QMainWindow):
             self._context_header.set_compact(is_icon_nav(mode))
         # 分组标题 / 导航文字
         for key, label in self._group_labels.items():
-            if key == 'personal' and not self._private_unlocked:
-                label.setVisible(False)
-            else:
-                label.setVisible(not icon_only)
+            label.setVisible(not icon_only)
         for index, button in enumerate(self.nav_buttons):
             if button is None:
-                continue
-            if index == 8 and not self._private_unlocked:
-                button.hide()
                 continue
             # 图标模式：只显示图标
             if icon_only:
@@ -2144,8 +2165,6 @@ class MainWindow(QMainWindow):
         if index < 0:
             return False
         if getattr(self, '_shutting_down', False) or getattr(self, '_shutdown_finalized', False):
-            return False
-        if index == 8 and not self._private_unlocked:
             return False
         # 父级导航（SQL 控制台 / 模型）：不切换页面，仅展开/折叠子菜单
         if is_parent_nav(index):

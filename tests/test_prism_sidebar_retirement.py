@@ -106,7 +106,7 @@ class PrismSidebarRetirementTests(unittest.TestCase):
         self.sidebar.set_nav_model(locked_model)
         self._assert_retired_immediately(retired, 'navigation-model rebuild')
         APP.processEvents()
-        self.assertNotIn('personal', self.sidebar._group_buttons)
+        self.assertIn('personal', self.sidebar._group_buttons)
         settings = self.sidebar._settings_button
         self.assertIs(settings, self.sidebar._buttons[7])
         self.assertFalse(settings.icon().isNull())

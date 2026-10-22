@@ -746,7 +746,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(normalize_floating_shortcuts([]), [10, 2, 9, 5])
         self.assertEqual(
             normalize_floating_shortcuts([8, 10], private_unlocked=False),
-            [10],
+            [8, 10],
         )
         settings = normalize_settings({'floating_shortcuts': [10, 'x', 2]})
         self.assertEqual(settings['floating_shortcuts'], [10, 2])

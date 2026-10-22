@@ -1523,7 +1523,8 @@ class AiWorkbenchPanel(QWidget):
         layout = QVBoxLayout(dialog)
         view = QPlainTextEdit()
         view.setReadOnly(True)
-        view.setFont(QFont('Consolas', 10))
+        from ui.design_system import mono_font
+        view.setFont(mono_font())
         view.setPlainText(clip_snapshot_for_prompt(self._snapshot, max_chars=20000) or '')
         layout.addWidget(view)
         dialog.exec()

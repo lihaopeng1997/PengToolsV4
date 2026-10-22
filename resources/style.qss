@@ -14,8 +14,8 @@
 QWidget {
     color: __TEXT__;
     background-color: __APP_BG__;
-    font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
-    font-size: 13px;
+    font-family: __FONT_UI__;
+    font-size: __FONT_SIZE_BODY__;
 }
 QMainWindow {
     background: __APP_BG__;
@@ -125,20 +125,20 @@ QCheckBox#flag-check::indicator {
 }
 #sidebar_title {
     color: __SIDEBAR_TEXT__;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
     letter-spacing: 0.2px;
 }
 #sidebar_version {
     color: __SIDEBAR_TEXT_MUTED__;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: __FONT_SIZE_CAPTION__;
+    font-weight: __FONT_WEIGHT_CAPTION__;
     letter-spacing: 0.4px;
 }
 #sidebar-section {
     color: __SIDEBAR_TEXT_MUTED__;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: __FONT_SIZE_CAPTION__;
+    font-weight: __FONT_WEIGHT_CAPTION__;
     letter-spacing: 1.2px;
     padding: 12px 10px 6px 10px;
 }
@@ -164,15 +164,15 @@ QCheckBox#flag-check::indicator {
     background: transparent;
     border: none;
 }
-#sidebar #author-label { color: __SIDEBAR_TEXT_MUTED__; font-size: 11px; }
+#sidebar #author-label { color: __SIDEBAR_TEXT_MUTED__; font-size: __FONT_SIZE_CAPTION__; }
 #sidebar #small-label { color: __SIDEBAR_TEXT_MUTED__; }
 #sidebar #user-chip {
     background: __SIDEBAR_HIGHLIGHT__;
     color: __SIDEBAR_TEXT__;
     border: 1px solid __SIDEBAR_BORDER__;
     border-radius: 16px;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: __FONT_SIZE_CAPTION__;
+    font-weight: __FONT_WEIGHT_CAPTION__;
     padding: 0;
 }
 #sidebar #user-chip:hover {
@@ -188,8 +188,8 @@ QCheckBox#flag-check::indicator {
     color: __PRIMARY_ACTIVE__;
     border: 1px solid __PRIMARY_SOFT__;
     border-radius: 16px;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: __FONT_SIZE_CAPTION__;
+    font-weight: __FONT_WEIGHT_CAPTION__;
     padding: 0;
 }
 #user-chip:hover {
@@ -208,9 +208,9 @@ QLabel#docx-template-status[matched="true"] {
     background: __PRIMARY_SOFT__;
     border-color: __SUCCESS__;
 }
-#small-label { color: __TEXT__; font-size: 12px; }
-#author-label { color: __PRIMARY__; font-size: 12px; font-weight: 700; padding: 4px 2px; }
-#field-hint { color: __TEXT__; font-size: 12px; background: transparent; }
+#small-label { color: __TEXT__; font-size: __FONT_SIZE_HELPER__; font-weight: __FONT_WEIGHT_HELPER__; }
+#author-label { color: __PRIMARY__; font-size: __FONT_SIZE_HELPER__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; padding: 4px 2px; }
+#field-hint { color: __TEXT__; font-size: __FONT_SIZE_HELPER__; font-weight: __FONT_WEIGHT_HELPER__; background: transparent; }
 #path-note {
     color: __TEXT__;
     background: __PRIMARY_SOFT__;
@@ -218,13 +218,13 @@ QLabel#docx-template-status[matched="true"] {
     border-radius: 10px;
     padding: 7px 10px;
     line-height: 1.35;
-    font-size: 12px;
+    font-size: __FONT_SIZE_HELPER__;
 }
-#section-title { color: __TEXT_MUTED__; font-size: 11px; font-weight: 650; letter-spacing: 0.6px; }
+#section-title { color: __TEXT_MUTED__; font-size: __FONT_SIZE_SECTION_TITLE__; font-weight: __FONT_WEIGHT_SECTION_TITLE__; letter-spacing: 0.6px; }
 QLabel#flow-steps {
     color: __TEXT_MUTED__;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: __FONT_SIZE_HELPER__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
     letter-spacing: 0.4px;
     padding: 2px 2px 6px 2px;
 }
@@ -584,8 +584,8 @@ QLabel#empty-state-icon {
 QLabel#empty-state-title {
     background: transparent;
     color: __TEXT_STRONG__;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
 }
 QLabel#empty-state-text {
     background: transparent;
@@ -614,8 +614,8 @@ QTextEdit#ai-explain {
 /* 分区标题：左边线色块区分模块 */
 QLabel#zone-title {
     color: __TEXT_MUTED__;
-    font-size: 11px;
-    font-weight: 600;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
     letter-spacing: 0.8px;
     padding: 1px 0 2px 10px;
     border-left: 2px solid __PRIMARY__;
@@ -623,8 +623,8 @@ QLabel#zone-title {
 }
 QLabel#zone-title-inline {
     color: __SUCCESS__;
-    font-size: 12px;
-    font-weight: 800;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
     padding: 2px 10px 2px 10px;
     min-width: 40px;
     border-left: 3px solid __SUCCESS__;
@@ -1736,8 +1736,8 @@ QDialog#confirm-dialog {
 }
 QLabel#confirm-title {
     color: __TEXT_STRONG__;
-    font-size: 18px;
-    font-weight: 800;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
     letter-spacing: 0.2px;
     background: transparent;
 }
@@ -2005,7 +2005,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     min-height: 27px;
     max-height: 27px;
     padding-left: 10px;
-    font-size: 11px;
+    font-size: __FONT_SIZE_CAPTION__;
 }
 /* ContextHeader (Prism Client Shell V1.0) */
 #context-header {
@@ -2053,15 +2053,15 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 }
 #page-title {
     color: __TEXT_STRONG__;
-    font-size: 16px;
-    font-weight: 650;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
     letter-spacing: -0.3px;
 }
 #page-subtitle {
     color: __TEXT_MUTED__;
-    font-size: 13px;
+    font-size: __FONT_SIZE_BODY__;
     line-height: 1.4;
-    font-weight: 400;
+    font-weight: __FONT_WEIGHT_BODY__;
 }
 #offline-pill {
     color: __SUCCESS__;
@@ -2080,8 +2080,8 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     border-color: __PRIMARY__;
     background: __SURFACE__;
 }
-#card-eyebrow { color: __PRIMARY_ACTIVE__; font-size: 10px; font-weight: 700; }
-#card-title { color: __TEXT_STRONG__; font-size: 20px; font-weight: 700; }
+#card-eyebrow { color: __PRIMARY_ACTIVE__; font-size: __FONT_SIZE_CAPTION__; font-weight: __FONT_WEIGHT_CAPTION__; }
+#card-title { color: __TEXT_STRONG__; font-size: __FONT_SIZE_PAGE_TITLE__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; }
 #card-description { color: __TEXT_MUTED__; }
 #shortcut-hint { color: __TEXT_MUTED__; background: __SURFACE__; border: 1px solid __BORDER__; border-radius: 12px; padding: 11px; }
 #floating-toolbar {
@@ -2106,8 +2106,8 @@ QPushButton#floating-toggle:hover {
 }
 #floating-title {
     color: __TEXT_STRONG__;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
     padding: 0;
 }
 QPushButton#floating-mode-btn {
@@ -2231,7 +2231,7 @@ QPlainTextEdit#floating-learn-content {
 }
 #dashboard-task-row-today #dashboard-task-title {
     color: __PRIMARY_ACTIVE__;
-    font-weight: 700;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
 }
 /* 已上线：降对比，与置顶高亮区分 */
 #dashboard-task-row-done {
@@ -2246,7 +2246,7 @@ QPlainTextEdit#floating-learn-content {
 }
 #dashboard-task-row-done #dashboard-task-title {
     color: __TEXT_MUTED__;
-    font-weight: 600;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
 }
 QLabel#status-pill-today {
     background: __PRIMARY__;
@@ -2287,8 +2287,8 @@ QLabel#dashboard-task-mark-done {
 }
 #dashboard-section-title {
     color: __TEXT_MUTED__;
-    font-size: 11px;
-    font-weight: 650;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
     letter-spacing: 0.6px;
 }
 #dashboard-section-header[collapsible="true"] #dashboard-section-title {
@@ -2311,8 +2311,8 @@ QLabel#dashboard-task-mark-done {
 }
 #dashboard-task-title {
     color: __TEXT_STRONG__;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
 }
 #dashboard-row-arrow {
     color: __TEXT_MUTED__;
@@ -2539,7 +2539,7 @@ QTreeWidget#ops-command-list::branch:!has-children {
     image: none;
     border-image: none;
 }
-QLabel#ops-title { color: __TEXT_STRONG__; font-size: 16px; font-weight: 650; letter-spacing: -0.2px; }
+QLabel#ops-title { color: __TEXT_STRONG__; font-size: __FONT_SIZE_PAGE_TITLE__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; letter-spacing: -0.2px; }
 QLabel#ops-description {
     color: __TEXT_MUTED__;
     background: __SURFACE__;
@@ -2575,8 +2575,8 @@ QFrame#private-reminder-card {
 }
 QLabel#daily-history-title {
     color: __TEXT_MUTED__;
-    font-size: 11px;
-    font-weight: 650;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
     letter-spacing: 0.6px;
 }
 QLabel#private-sensitive-badge {
@@ -2935,8 +2935,8 @@ QDialog#server-editor-dialog QLabel#dialog-title,
 QDialog#server-manage-dialog QLabel#dialog-title,
 QDialog#cmd-history-dialog QLabel#dialog-title {
     color: __TEXT_STRONG__;
-    font-size: 16px;
-    font-weight: 800;
+    font-size: __FONT_SIZE_PAGE_TITLE__;
+    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
 }
 QDialog#ops-dialog QFrame#dialog-card,
 QDialog#server-editor-dialog QFrame#dialog-card,
@@ -3130,7 +3130,7 @@ QFrame#settings-brand-showcase {
     border-radius: 12px;
 }
 QFrame#settings-brand-showcase QLabel { background: transparent; }
-QLabel#settings-brand-title { font-size: 20px; font-weight: 600; }
+QLabel#settings-brand-title { font-size: __FONT_SIZE_PAGE_TITLE__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; }
 QListWidget#chat-session-list { background: transparent; border: none; outline: none; }
 QListWidget#chat-session-list::item {
     min-height: 48px;
@@ -3188,7 +3188,8 @@ QSpinBox:focus {
 }
 QLabel#page-context {
     color: __TEXT_MUTED__;
-    font-size: 12px;
+    font-size: __FONT_SIZE_HELPER__;
+    font-weight: __FONT_WEIGHT_HELPER__;
     padding-top: 1px;
 }
 QWidget#page-chrome {
@@ -3745,7 +3746,8 @@ QFrame#req-selection-bar {
     border-radius: 8px;
 }
 QFrame#detail-summary-card QLabel#section-title {
-    font-size: 16px;
+    font-size: __FONT_SIZE_SECTION_TITLE__;
+    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
 }
 /* 页签内的区域不再套卡片边框，避免卡片套卡片 */
 QTabWidget#module-tabs QFrame#req-file-card,

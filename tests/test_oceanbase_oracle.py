@@ -3,6 +3,7 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
+from config import normalize_settings
 from tools.db_connect import (
     DbError,
     OceanBaseOdbcConnection,
@@ -76,6 +77,29 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             self.assertIn("[ODBC_DRIVER_REQUIRED]", str(ctx.exception))
             self.assertIn("OceanBase ODBC 2.0 Driver", str(ctx.exception))
             self.assertNotIn("SQL Server", str(ctx.exception))
+
+    def test_settings_keep_a_plain_driver_name_and_drop_connection_string_breaks(self):
+        kept = normalize_settings({'oceanbase_odbc_driver': ' OceanBase Oracle ODBC Driver '})
+        self.assertEqual(kept['oceanbase_odbc_driver'], 'OceanBase Oracle ODBC Driver')
+        rejected = normalize_settings({'oceanbase_odbc_driver': 'Driver={x};Server=y'})
+        self.assertEqual(rejected['oceanbase_odbc_driver'], '')
+
+    def test_configured_driver_name_is_used_when_installed(self):
+        drivers = ["OceanBase ODBC 2.0 Driver", "OceanBase Oracle ODBC Driver"]
+        selected, _all = oceanbase_odbc_driver_status(
+            drivers, preferred="OceanBase Oracle ODBC Driver",
+        )
+        self.assertEqual(selected, "OceanBase Oracle ODBC Driver")
+
+    def test_configured_driver_missing_names_the_setting(self):
+        with self.assertRaises(DbError) as ctx:
+            oceanbase_odbc_driver_status(
+                ["SQL Server"], preferred="My OceanBase Driver",
+            )
+        self.assertIn("[ODBC_DRIVER_REQUIRED]", str(ctx.exception))
+        self.assertIn("My OceanBase Driver", str(ctx.exception))
+        self.assertIn("数据库客户端", str(ctx.exception))
+        self.assertNotIn("SQL Server", str(ctx.exception))
 
     def test_regression_c_driver_selection_exact_match(self):
         """C. 驱动选择首选精确匹配 OceanBase ODBC 2.0 Driver"""

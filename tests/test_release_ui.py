@@ -800,13 +800,13 @@ class ReleaseUiTests(unittest.TestCase):
         with patch('main_window.load_settings', return_value=locked), \
                 patch('main_window.save_settings', side_effect=lambda s: dict(s)):
             window = self._track_widget(MainWindow())
-            self.assertTrue(window.nav_buttons[8].isHidden())
+            self.assertFalse(window.nav_buttons[8].isHidden())
             self.assertFalse(window.nav_buttons[9].isHidden())
             self.assertFalse(window.nav_buttons[10].isHidden())
             window._show_panel(9)
             self.assertEqual(window._current_nav_index, 9)
             window._show_panel(8)
-            self.assertEqual(window._current_nav_index, 9)
+            self.assertEqual(window._current_nav_index, 8)
             with patch('main_window.QInputDialog.getText', return_value=('Lihp', True)):
                 self.assertTrue(window._unlock_private_tools())
             self.assertFalse(window.nav_buttons[8].isHidden())

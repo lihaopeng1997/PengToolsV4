@@ -474,6 +474,51 @@ class AgentIncidentAndReActLoopTests(unittest.TestCase):
         self.assertEqual(ar.recover_text_tool_calls('[调用工具 rm_rf: {"path": "/"}]'), [])
         self.assertEqual(ar.recover_text_tool_calls('[调用工具 list_dir: {"path": ]'), [])
 
+    def test_a12g_qwen_xml_tool_call_is_executed_without_native_frames(self):
+        self.assertEqual(
+            ar.recover_text_tool_calls(
+                "I'll start by reading the README file.\n"
+                "<tool_call><function=read_file> <parameter=path> README.md"
+            ),
+            [{'tool': 'read_file', 'args': {'path': 'README.md'}}],
+        )
+        from tools.agent_core.text_protocol import visible_model_text
+        self.assertEqual(
+            visible_model_text(
+                '<tool_call><function=search_objects><parameter=keyword>prpcmain</parameter></function></tool_call>'
+                '{"tool_calls":[{"name":"search_objects","arguments":{"keyword":"prpcmain","kinds":[]}}],"final_answer":""}'
+            ),
+            '',
+        )
+        self.assertEqual(
+            ar.recover_text_tool_calls(
+                '<tool_call><function=list_dir><parameter=path></parameter></function></tool_call>'
+            ),
+            [{'tool': 'list_dir', 'args': {'path': ''}}],
+        )
+        self.assertEqual(
+            ar.recover_text_tool_calls(
+                '<tool_call><function=rm_rf><parameter=path>/</parameter></function></tool_call>'
+            ),
+            [],
+        )
+        adapter = ScriptedModelAdapter([
+            AgentTurn(text='先读。<tool_call><function=read_file><parameter=path>README.md</parameter></function></tool_call>'),
+            AgentTurn(text='README 已读完。'),
+        ])
+        with path_workspace() as tmp:
+            with open(os.path.join(tmp, 'README.md'), 'w', encoding='utf-8') as handle:
+                handle.write('hello hub')
+            final, _messages, calls = ar.run_agent_loop(
+                '读取 README', tmp, {'id': 'synthetic-model'}, [], [],
+                model_adapter=adapter,
+            )
+        self.assertEqual(final, 'README 已读完。')
+        self.assertEqual(calls[0]['tool'], 'read_file')
+        tool_messages = [item for item in adapter.requests[1].messages if item.get('role') == 'tool']
+        self.assertEqual(len(tool_messages), 1)
+        self.assertIn('hello hub', tool_messages[0]['content'])
+
     def test_a12b_repeat_reminder_lets_model_recover(self):
         adapter = ScriptedModelAdapter([
             _tool_turn('list-1', 'list_dir', path=''),

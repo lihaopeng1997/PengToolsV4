@@ -653,7 +653,11 @@ def _escape_like(value: str) -> str:
 
 
 def _normal_kinds(provider: str, value: Any) -> tuple[str, ...]:
-    if value is None:
+    if value is None or (
+        isinstance(value, Sequence)
+        and not isinstance(value, (str, bytes, bytearray))
+        and len(value) == 0
+    ):
         return tuple(sorted(_RELATIONAL_KINDS)) if provider in _RELATIONAL_PROVIDERS else ()
     if isinstance(value, str) or not isinstance(value, Sequence):
         raise MetadataHostError("ARGUMENT_INVALID", "kinds must be an array")
@@ -834,19 +838,8 @@ class MetadataHost:
             token = _safe_text(page_token) if page_token is not None else ""
             if len(token) > MAX_KEY_CHARS:
                 raise MetadataHostError("ARGUMENT_INVALID", "page token is too long")
-            schema_error = self._schema_gate()
-            if schema_error is not None and self.target.provider in _RELATIONAL_PROVIDERS:
-                return ToolResult(
-                    ok=schema_error.ok,
-                    code=schema_error.code,
-                    data=schema_error.data,
-                    evidence_id=schema_error.evidence_id,
-                    query_id=_safe_identifier(query_id),
-                    scope=schema_error.scope,
-                    truncated=schema_error.truncated,
-                    limits=schema_error.limits,
-                    elapsed_ms=schema_error.elapsed_ms,
-                )
+            if self.target.provider in _RELATIONAL_PROVIDERS and not self.target.schema_allowlist:
+                return _failure("METADATA_SCOPE_UNAVAILABLE", "宿主没有提供 schema 范围", scope=self.target.scope, query_id=query_id)
             if _cancelled(cancellation):
                 return _failure("CANCELLED", "metadata operation cancelled", scope=self.target.scope, query_id=query_id)
             if _expired(deadline):
@@ -1140,68 +1133,131 @@ class MetadataHost:
         template = CATALOG_TEMPLATES.get(self.target.provider)
         if template is None:
             return _failure("METADATA_TEMPLATE_UNAVAILABLE", "catalog template is unavailable", scope=self.target.scope, query_id=query_id)
-        schema = self.target.schema_allowlist[0]
+        schemas = tuple(self.target.schema_allowlist)
+        schema_index = 0
         offset = state.offset if state is not None else 0
+        if state is not None and len(state.args) >= 3:
+            try:
+                schema_index = int(state.args[2])
+            except (TypeError, ValueError):
+                schema_index = 0
+        if schema_index < 0 or schema_index >= len(schemas):
+            return _failure("STALE_CURSOR", "page cursor does not match this metadata target", scope=self.target.scope, query_id=query_id)
+        like_keyword = keyword.upper() if self.target.provider in {"oracle", "oceanbase_oracle"} else keyword
         kind_values = _catalog_kinds(self.target.provider, kinds)
-        params = _search_parameters(template, schema, keyword, kind_values, offset, self.max_page_size + 1)
+        objects: list[dict[str, Any]] = []
+        elapsed_ms = 0
         lease = None
         try:
-            lease = self._open_lease(cancellation=cancellation, deadline=deadline)
-            raw = _call_relational_lease(
-                lease,
-                template.search_sql,
-                params,
-                template_id=f"{self.target.provider}:search",
-                row_limit=self.max_page_size + 1,
-                cancellation=cancellation,
-                deadline=deadline,
-                query_id=query_id,
+            from tools.agent_diag import log_agent_event
+            log_agent_event(
+                'metadata_search_start',
+                provider=self.target.provider,
+                schema_count=len(schemas),
+                schema_index=schema_index,
+                keyword_len=len(keyword),
+                kinds=','.join(kinds),
             )
-            self._verify_profile_snapshot()
-            result = _result(raw, query_id=query_id, scope=self.target.scope)
-            if not result.ok:
-                return result
-            rows = _rows(result)
-            has_more = len(rows) > self.max_page_size or bool(result.truncated)
-            visible = rows[: self.max_page_size]
-            objects: list[dict[str, Any]] = []
-            for row in visible:
-                name = _safe_text(_row_value(row, 1, "object_name", _row_value(row, 1, "TABLE_NAME")))
-                raw_type = _safe_text(_row_value(row, 2, "object_type", _row_value(row, 2, "TABLE_TYPE"))).upper()
-                kind = "view" if raw_type in {"VIEW"} else "table"
-                if kind not in kinds:
-                    continue
-                comment = _safe_comment(_row_value(row, 3, "table_comment", _row_value(row, 3, "TABLE_COMMENT")))
-                ref = _ObjectRef(self.target.provider, self.target.mode, self.target.database, schema, kind, name, self.target.scope_key)
-                object_id = self._issue_object(ref)
-                item: dict[str, Any] = {
-                    "object_id": object_id,
-                    "name": name,
-                    "kind": kind,
-                    "schema": schema,
-                    "inferred": False,
-                }
-                if comment is not None:
-                    item["comment"] = comment
-                    item["comment_untrusted"] = True
-                objects.append(item)
-            next_token = self._next_page(
-                _CursorState(self.target.scope_key, "search", (keyword, kinds), offset + len(rows[: self.max_page_size]), created=time.monotonic())
-            ) if has_more else None
+            lease = self._open_lease(cancellation=cancellation, deadline=deadline)
+            has_more = False
+            while schema_index < len(schemas) and len(objects) <= self.max_page_size:
+                schema = schemas[schema_index]
+                remaining = self.max_page_size + 1 - len(objects)
+                params = _search_parameters(template, schema, like_keyword, kind_values, offset, remaining)
+                raw = _call_relational_lease(
+                    lease,
+                    template.search_sql,
+                    params,
+                    template_id=f"{self.target.provider}:search",
+                    row_limit=remaining,
+                    cancellation=cancellation,
+                    deadline=deadline,
+                    query_id=query_id,
+                )
+                self._verify_profile_snapshot()
+                result = _result(raw, query_id=query_id, scope=self.target.scope)
+                elapsed_ms += int(result.elapsed_ms or 0)
+                if not result.ok:
+                    log_agent_event('metadata_search_end', code=result.code, schema=schema, returned=len(objects))
+                    return result
+                rows = _rows(result)
+                room = remaining
+                visible = rows[:room]
+                for row in visible:
+                    name = _safe_text(_row_value(row, 1, "object_name", _row_value(row, 1, "TABLE_NAME")))
+                    raw_type = _safe_text(_row_value(row, 2, "object_type", _row_value(row, 2, "TABLE_TYPE"))).upper()
+                    kind = "view" if raw_type in {"VIEW"} else "table"
+                    if kind not in kinds:
+                        continue
+                    comment = _safe_comment(_row_value(row, 3, "table_comment", _row_value(row, 3, "TABLE_COMMENT")))
+                    ref = _ObjectRef(self.target.provider, self.target.mode, self.target.database, schema, kind, name, self.target.scope_key)
+                    object_id = self._issue_object(ref)
+                    item: dict[str, Any] = {
+                        "object_id": object_id,
+                        "name": name,
+                        "kind": kind,
+                        "schema": schema,
+                        "inferred": False,
+                    }
+                    if comment is not None:
+                        item["comment"] = comment
+                        item["comment_untrusted"] = True
+                    objects.append(item)
+                page_full = len(objects) > self.max_page_size
+                schema_has_more = len(rows) >= remaining or bool(result.truncated)
+                if page_full or schema_has_more:
+                    has_more = True
+                    next_offset = offset + len(visible)
+                    next_schema_index = schema_index
+                    if not schema_has_more:
+                        next_schema_index += 1
+                        next_offset = 0
+                    next_token = None
+                    if next_schema_index < len(schemas):
+                        next_token = self._next_page(
+                            _CursorState(
+                                self.target.scope_key,
+                                "search",
+                                (keyword, kinds, next_schema_index),
+                                next_offset,
+                                created=time.monotonic(),
+                            )
+                        )
+                    else:
+                        has_more = False
+                    log_agent_event('metadata_search_end', code='OK', returned=min(len(objects), self.max_page_size), has_more=bool(next_token))
+                    return ToolResult(
+                        ok=True,
+                        code="OK",
+                        data={"objects": objects[: self.max_page_size], "next_page_token": next_token, "returned": min(len(objects), self.max_page_size)},
+                        evidence_id=_safe_identifier(f"metadata:{query_id}" if query_id else None),
+                        query_id=_safe_identifier(query_id),
+                        scope=self.target.scope,
+                        truncated=bool(next_token),
+                        limits={"page_size": self.max_page_size, "catalog_template": self.target.provider, "offset": offset, "schema_index": schema_index},
+                        elapsed_ms=elapsed_ms,
+                    )
+                schema_index += 1
+                offset = 0
+            log_agent_event('metadata_search_end', code='OK', returned=len(objects), has_more=False)
             return ToolResult(
                 ok=True,
                 code="OK",
-                data={"objects": objects, "next_page_token": next_token, "returned": len(objects)},
+                data={"objects": objects, "next_page_token": None, "returned": len(objects)},
                 evidence_id=_safe_identifier(f"metadata:{query_id}" if query_id else None),
                 query_id=_safe_identifier(query_id),
                 scope=self.target.scope,
-                truncated=bool(next_token) or bool(result.truncated),
-                limits={"page_size": self.max_page_size, "catalog_template": self.target.provider, "offset": offset},
-                elapsed_ms=result.elapsed_ms,
+                truncated=False,
+                limits={"page_size": self.max_page_size, "catalog_template": self.target.provider, "offset": 0},
+                elapsed_ms=elapsed_ms,
             )
         except MetadataHostError as exc:
+            from tools.agent_diag import log_agent_event
+            log_agent_event('metadata_search_end', code=exc.code)
             return _failure(exc.code, exc.message, scope=self.target.scope, query_id=query_id)
         except Exception:
+            from tools.agent_diag import log_agent_event
+            log_agent_event('metadata_search_end', code='QUERY_FAILED')
             return _failure("QUERY_FAILED", "metadata search failed", scope=self.target.scope, query_id=query_id)
         finally:
             _close_quietly(lease)

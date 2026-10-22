@@ -17,7 +17,7 @@ from tools.terminal_emulator import Cell, CellStyle, DEFAULT_STYLE, TerminalEmul
 from ui.ssh_terminal import (
     SshTerminalWidget, _SshTerminalView, pick_terminal_font, terminal_cell_metrics,
     terminal_font_metrics, terminal_grid_size, build_row_foreground_runs,
-    resolve_terminal_cell_style,
+    resolve_terminal_cell_style, font_locked_to_cell, live_view_row_shift,
 )
 
 
@@ -356,6 +356,27 @@ class SshTerminalWidgetTests(unittest.TestCase):
         self.assertEqual(runs[0]['text'], '你')
         self.assertEqual(runs[1]['text'], 'x')
         self.assertEqual(runs[1]['col'], 2)
+
+    def test_locked_font_puts_bold_ascii_on_cell_grid(self):
+        """粗体自然宽度比格子宽时，锁定后每个字符仍从 i * cell_width 起笔。"""
+        from PyQt6.QtGui import QFontMetrics
+        base = pick_terminal_font(12)
+        cw = terminal_cell_metrics(base)['cell_width']
+        bold = QFont(base)
+        bold.setBold(True)
+        locked = font_locked_to_cell(bold, cw)
+        fm = QFontMetrics(locked)
+        text = 'root@host:~# '
+        for index in range(len(text)):
+            start = fm.horizontalAdvance(text[:index]) if index else 0
+            self.assertAlmostEqual(start, index * cw, delta=1.5)
+
+    def test_live_view_keeps_cursor_row_inside_viewport(self):
+        self.assertEqual(live_view_row_shift(32, 40, 5, True), 0)
+        self.assertEqual(live_view_row_shift(32, 10, 3, True), 0)
+        self.assertEqual(live_view_row_shift(32, 10, 31, True), 22)
+        self.assertEqual(live_view_row_shift(32, 10, 31, False), 0)
+        self.assertEqual(22 + 10 - 1, 31)
 
     def test_cell_width_ratio_to_fixed_advance_contract(self):
         """E. cell_width 与 fixed-pitch '0' advance 的比例严格为 1.0，不被 'W' 异常放大。"""

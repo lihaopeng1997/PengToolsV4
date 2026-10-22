@@ -61,6 +61,7 @@ class CompactListLayoutTests(unittest.TestCase):
                 panel.path_up_btn,
                 panel.path_go_btn,
                 panel.path_refresh_btn,
+                panel.download_btn,
                 panel.use_path_btn,
                 panel.tail_btn,
                 panel.run_grep_btn,

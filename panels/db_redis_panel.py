@@ -1105,7 +1105,8 @@ class RedisWorkbenchPanel(QWidget):
             if not key_ico.isNull():
                 item.setIcon(key_ico)
             f = item.font()
-            f.setFamily('Consolas')
+            from ui.theme_manager import FONT_MONO_FAMILIES
+            f.setFamilies(list(FONT_MONO_FAMILIES))
             item.setFont(f)
             item.setToolTip(key)
             self.key_list.addItem(item)

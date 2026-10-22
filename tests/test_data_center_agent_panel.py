@@ -422,7 +422,7 @@ class DataCenterAgentPanelTests(unittest.TestCase):
         self.panel.set_display_context("zh-CN", "query")
         self.assertEqual(self.panel.title_label.text(), "只读查询助手")
         self.assertEqual(self.panel.preview_badge.text(), "只读")
-        self.assertIn("不会自动执行", self.panel.preview_badge.toolTip())
+        self.assertIn("通过工具执行", self.panel.preview_badge.toolTip())
 
     def test_dynamic_status_and_error_copy_follow_display_language(self):
         self.panel.set_display_context("en", "query")

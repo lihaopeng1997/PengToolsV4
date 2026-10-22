@@ -299,10 +299,10 @@ class DataCenterAgentPanel(QWidget):
             ("Draft" if draft else "Read-only")
         )
         mode_description = (
-            ("草稿模式：不访问数据库，也不执行生成内容。" if draft else "只读查询；SQL 仅作为证据显示，不会自动执行。")
+            ("草稿模式：不访问数据库，也不执行生成内容。" if draft else "只读查询会通过工具执行；没有查询证据时，回答尚未核对数据库。")
             if zh else
             ("Draft mode: no database access and generated content is not executed." if draft else
-             "Read-only query; SQL is shown as evidence and never executed automatically.")
+             "Read-only query runs through tools; an answer without query evidence has not been checked against the database.")
         )
         self.preview_badge.setToolTip(mode_description)
         self.preview_badge.setAccessibleName(
@@ -1106,7 +1106,10 @@ class DataCenterAgentPanel(QWidget):
             self._set_phase("已收到明确提供的摘要", "Provider summary received")
             return
         if event_type in _TEXT_EVENTS:
-            self._append_channel("answer", payload.get("text"), self.answer_view)
+            from tools.agent_core.text_protocol import visible_model_text
+            shown = visible_model_text(str(payload.get("text") or ""))
+            if shown:
+                self._append_channel("answer", shown, self.answer_view)
             self._set_phase("正在生成回答…", "Generating answer…")
             return
         if event_type in _TOOL_EVENTS:
@@ -1114,6 +1117,8 @@ class DataCenterAgentPanel(QWidget):
             return
 
         if event_type == "run_started":
+            from tools.agent_diag import log_agent_event, log_file_path
+            log_agent_event('dc_run_started', log=log_file_path())
             status = payload.get("status") or ("准备中" if self._display_language == "zh" else "Preparing")
             status = _bounded_label(status, 100)
             self._set_phase(f"运行开始 · {status}", f"Run started · {status}")

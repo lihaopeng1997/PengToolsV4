@@ -30,6 +30,23 @@ DEFAULT_MAX_CUMULATIVE_BYTES = 48 * 1024
 DEFAULT_MAX_COLUMNS = 100
 
 _MISSING = object()
+_GENERIC_FAILURE = "工具未成功完成，未提供结果数据"
+
+
+def _public_failure_message(code: Any, data: Any) -> str:
+    """Show our own argument errors. Hide driver and path text."""
+
+    if str(code or "") != "ARGUMENT_INVALID" or not isinstance(data, Mapping):
+        return _GENERIC_FAILURE
+    message = data.get("message")
+    if not isinstance(message, str):
+        return _GENERIC_FAILURE
+    text = message.strip()
+    if not text or len(text) > 160 or any(ord(char) < 32 for char in text):
+        return _GENERIC_FAILURE
+    if "://" in text or "\\" in text or "/" in text:
+        return _GENERIC_FAILURE
+    return text
 _SENSITIVE_NAMES = frozenset(
     {
         "password",
@@ -285,9 +302,10 @@ class ResultProjector:
             "returned_rows": 0,
             "truncated": False,
         }
+        message = _public_failure_message(normalized.get("code"), normalized.get("data"))
         envelope = self._envelope(
             normalized,
-            {"message": "工具未成功完成，未提供结果数据"},
+            {"message": message},
             False,
             limits,
         )
@@ -299,7 +317,7 @@ class ResultProjector:
         return ProjectedResult(
             ok=False,
             code=normalized["code"],
-            data={"message": "工具未成功完成，未提供结果数据"},
+            data={"message": message},
             evidence_id=normalized["evidence_id"],
             query_id=normalized["query_id"],
             scope=_safe_scope(normalized["scope"]),

@@ -202,6 +202,53 @@ class ModuleTabs(QFrame):
         self._refresh_tabs(current=current)
         return True
 
+    def close_targets(self, nav_index: int, scope: str) -> tuple[int, ...]:
+        """Nav IDs to close for one tab-menu action.
+
+        ``self`` closes only the clicked tab. ``others`` closes every closable
+        tab except the clicked one. ``all`` closes every closable tab. Home is
+        never included. Inactive tabs come first so the host can close the
+        visible tab last and land on a tab that is still open.
+        """
+
+        try:
+            index = canonical_nav_index(nav_index)
+        except (TypeError, ValueError):
+            return ()
+        if index < 0 or index not in self._open_nav:
+            return ()
+        closable = [item for item in self._open_nav if item != HOME_NAV]
+        if scope == "self":
+            chosen = [index] if index != HOME_NAV else []
+        elif scope == "others":
+            chosen = [item for item in closable if item != index]
+        elif scope == "all":
+            chosen = list(closable)
+        else:
+            return ()
+        current = self._current_nav
+        ordered = [item for item in chosen if item != current]
+        if current in chosen:
+            ordered.append(current)
+        return tuple(ordered)
+
+    def keep_nav_after_close(self, nav_index: int, scope: str) -> int:
+        """Tab that should stay visible after ``close_targets`` for ``scope``."""
+
+        try:
+            index = canonical_nav_index(nav_index)
+        except (TypeError, ValueError):
+            return self._current_nav
+        if scope == "self":
+            if index == self._current_nav and index != HOME_NAV:
+                return self.neighbor_nav(index)
+            return self._current_nav
+        if scope == "others":
+            return index if index in self._open_nav else HOME_NAV
+        if scope == "all":
+            return HOME_NAV
+        return self._current_nav
+
     def neighbor_nav(self, nav_index: int) -> int:
         """Return a close fallback without mutating the tab list.
 

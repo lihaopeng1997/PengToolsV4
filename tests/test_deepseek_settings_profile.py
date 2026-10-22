@@ -55,16 +55,13 @@ class DeepSeekSettingsProfileTests(unittest.TestCase):
             with self._panel_under_temp_paths(directory) as page:
                 self.assertEqual(page.ai_provider.currentData(), 'intranet')
                 page.ai_token.setText('old-intranet-value')
-                page.ai_model.setCurrentText('intranet-only-model')
+                page.ai_model.setText('intranet-only-model')
                 page.ai_provider.setCurrentIndex(page.ai_provider.findData('deepseek'))
 
                 self.assertEqual(page.ai_provider.currentData(), 'deepseek')
                 self.assertEqual(page.ai_base_url.text(), 'https://api.deepseek.com')
-                self.assertEqual(page.ai_model.currentText(), 'deepseek-flash')
-                self.assertEqual(
-                    [page.ai_model.itemText(i) for i in range(page.ai_model.count())],
-                    ['deepseek-flash'],
-                )
+                self.assertEqual(page.ai_model.text(), 'deepseek-flash')
+                self.assertEqual(page._ai_available_models, ['deepseek-flash'])
                 self.assertEqual(page._ai_token_action(), 'clear')
                 self.assertEqual(page.ai_token.text(), '')
                 self.assertFalse(page.ai_enabled.isChecked())
@@ -73,11 +70,9 @@ class DeepSeekSettingsProfileTests(unittest.TestCase):
                 self.assertEqual(page._ai_cfg_from_ui()['provider'], 'deepseek')
 
                 page.ai_provider.setCurrentIndex(page.ai_provider.findData('intranet'))
-                self.assertEqual(page.ai_model.currentText(), 'qwen3.6')
-                self.assertEqual(
-                    [page.ai_model.itemText(i) for i in range(page.ai_model.count())],
-                    ['qwen3.6'],
-                )
+                self.assertEqual(page.ai_model.text(), 'qwen3.8')
+                self.assertEqual(page.ai_base_url.text(), 'http://10.128.25.142:18002/v1')
+                self.assertEqual(page._ai_available_models, ['qwen3.8'])
 
     def test_loaded_model_catalog_survives_form_save_payload(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -152,7 +147,7 @@ class DeepSeekSettingsProfileTests(unittest.TestCase):
                 self.assertFalse(page.ai_enabled.isChecked())
 
                 persisted = []
-                page.ai_model.setCurrentText('deepseek-flash')
+                page.ai_model.setText('deepseek-flash')
                 with patch('tools.intranet_llm.upsert_model_item', side_effect=lambda cfg, **kwargs: persisted.append((cfg, kwargs)) or dict(cfg, id='saved-ds')), patch.object(page, '_refresh_ai_list'), patch(
                     'tools.intranet_llm.encrypt_token', side_effect=lambda value: f'test-encrypted:{value}'
                 ):

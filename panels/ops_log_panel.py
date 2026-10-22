@@ -28,7 +28,8 @@ from tools.ops_ssh import (
     DEFAULT_CATEGORY_NAME, UNCATEGORIZED_ID, OpsSshError,
     build_export_jobs, build_remote_grep_command, category_name_map, close_ssh_client,
     decrypt_secret, delete_category, ensure_category, exec_remote, extract_logs_parallel,
-    format_connection_ok, list_remote_dir, list_remote_log_files, load_categories, load_log_settings,
+    download_remote_file, format_connection_ok, list_remote_dir, list_remote_log_files,
+    load_categories, load_log_settings, safe_download_filename,
     load_server_store, load_servers, make_job_key, open_ssh_client, paramiko_available,
     parent_remote_path, primary_log_path, remote_home_dir, save_log_settings,
     parse_keywords, save_server_store, save_servers, server_has_credentials, server_services,
@@ -2084,11 +2085,17 @@ class OpsLogPanel(QWidget):
         self.path_refresh_btn = QPushButton()
         apply_button(self.path_refresh_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
         self.path_refresh_btn.clicked.connect(self._refresh_remote_dir)
+        self.download_btn = QPushButton()
+        apply_button(self.download_btn, 'secondary', compact=True)
+        self.download_btn.clicked.connect(self._download_selected_remote)
         self.use_path_btn = QPushButton()
         apply_button(self.use_path_btn, 'secondary', compact=True)
         self.use_path_btn.clicked.connect(self._use_selected_as_log_path)
-        # 一行：上级 / 刷新(图标) / 打开 / 选用
-        for b in (self.path_up_btn, self.path_refresh_btn, self.path_go_btn, self.use_path_btn):
+        # 一行：上级 / 刷新(图标) / 打开 / 下载 / 选用
+        for b in (
+            self.path_up_btn, self.path_refresh_btn, self.path_go_btn,
+            self.download_btn, self.use_path_btn,
+        ):
             b.setMinimumWidth(0)
             if b is self.path_refresh_btn:
                 b.setFixedWidth(34)
@@ -2118,6 +2125,8 @@ class OpsLogPanel(QWidget):
         self.remote_tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.remote_tree.itemDoubleClicked.connect(self._remote_item_activated)
         self.remote_tree.itemClicked.connect(self._remote_item_clicked)
+        self.remote_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.remote_tree.customContextMenuRequested.connect(self._remote_tree_menu)
         hdr = self.remote_tree.header()
         try:
             from ui.design_system import apply_list_header
@@ -2294,6 +2303,35 @@ class OpsLogPanel(QWidget):
         top_bar.addWidget(self.new_term_btn)
         session_l.addLayout(top_bar)
 
+        # SSH Terminal Island: 外壳 TERM_CHROME + TERM_BORDER
+        self.term_shell = QFrame()
+        self.term_shell.setObjectName('ops-term-shell')
+        term_shell_l = QVBoxLayout(self.term_shell)
+        term_shell_l.setContentsMargins(8, 8, 8, 8)
+        term_shell_l.setSpacing(4)
+        term_island_bar = QHBoxLayout()
+        term_island_bar.setContentsMargins(4, 0, 4, 2)
+        term_island_bar.setSpacing(6)
+        self.term_status_dot = QLabel('●')
+        self.term_status_dot.setObjectName('ops-term-status-dot')
+        self.term_status_dot.setProperty('termConnected', False)
+        self.term_session_info = QLabel('SSH 会话 · 未连接')
+        self.term_session_info.setObjectName('ops-term-session-info')
+        term_island_bar.addWidget(self.term_status_dot)
+        term_island_bar.addWidget(self.term_session_info)
+        term_island_bar.addStretch(1)
+        term_shell_l.addLayout(term_island_bar)
+        self.term_tabs = QTabWidget()
+        self.term_tabs.setObjectName('ops-term-tabs')
+        self.term_tabs.setTabsClosable(True)
+        self.term_tabs.setDocumentMode(True)
+        self.term_tabs.tabCloseRequested.connect(self._close_term_tab)
+        self.term_tabs.currentChanged.connect(self._on_term_tab_changed)
+        self._term_sessions: list[dict] = []
+        self._last_fill_cmd = ''
+        self.terminal = self._create_terminal_tab('会话 1 · 未连接')
+        term_shell_l.addWidget(self.term_tabs, 1)
+        # 命令栏贴在控制台底部，连上后和提示符同一侧，不再隔着整块终端。
         cmd_row = QHBoxLayout()
         cmd_row.setSpacing(8)
         self.cmd_input = QLineEdit()
@@ -2327,36 +2365,7 @@ class OpsLogPanel(QWidget):
         cmd_row.addWidget(self.cmd_fill_terminal_btn)
         cmd_row.addWidget(self.cmd_fill_btn)
         cmd_row.addWidget(self.cmd_send_bottom_btn)
-        session_l.addLayout(cmd_row)
-
-        # SSH Terminal Island: 外壳 TERM_CHROME + TERM_BORDER
-        self.term_shell = QFrame()
-        self.term_shell.setObjectName('ops-term-shell')
-        term_shell_l = QVBoxLayout(self.term_shell)
-        term_shell_l.setContentsMargins(8, 8, 8, 8)
-        term_shell_l.setSpacing(4)
-        term_island_bar = QHBoxLayout()
-        term_island_bar.setContentsMargins(4, 0, 4, 2)
-        term_island_bar.setSpacing(6)
-        self.term_status_dot = QLabel('●')
-        self.term_status_dot.setObjectName('ops-term-status-dot')
-        self.term_status_dot.setProperty('termConnected', False)
-        self.term_session_info = QLabel('SSH 会话 · 未连接')
-        self.term_session_info.setObjectName('ops-term-session-info')
-        term_island_bar.addWidget(self.term_status_dot)
-        term_island_bar.addWidget(self.term_session_info)
-        term_island_bar.addStretch(1)
-        term_shell_l.addLayout(term_island_bar)
-        self.term_tabs = QTabWidget()
-        self.term_tabs.setObjectName('ops-term-tabs')
-        self.term_tabs.setTabsClosable(True)
-        self.term_tabs.setDocumentMode(True)
-        self.term_tabs.tabCloseRequested.connect(self._close_term_tab)
-        self.term_tabs.currentChanged.connect(self._on_term_tab_changed)
-        self._term_sessions: list[dict] = []
-        self._last_fill_cmd = ''
-        self.terminal = self._create_terminal_tab('会话 1 · 未连接')
-        term_shell_l.addWidget(self.term_tabs, 1)
+        term_shell_l.addLayout(cmd_row)
         session_l.addWidget(self.term_shell, 1)
         self._reload_cmd_history()
         self._rebuild_more_menu()
@@ -2744,6 +2753,12 @@ class OpsLogPanel(QWidget):
         self.path_go_btn.setText('打开' if zh else 'Go')
         self.path_go_btn.setToolTip('打开上方路径中的目录' if zh else 'Open path')
         self.path_refresh_btn.setToolTip('刷新当前目录' if zh else 'Refresh')
+        self.download_btn.setText('下载' if zh else 'Download')
+        self.download_btn.setToolTip(
+            '把选中的文件下载到本机。文件夹请双击进入后再选文件'
+            if zh else
+            'Download the selected file. Open a folder and pick a file'
+        )
         self.use_path_btn.setText('选用' if zh else 'Use')
         self.use_path_btn.setToolTip(
             '目录：绑定为日志目录并刷新文件列表；文件：绑定父目录并选中该日志'
@@ -2862,10 +2877,9 @@ class OpsLogPanel(QWidget):
         )
         self.path_edit.setPlaceholderText('当前目录路径，回车打开' if zh else 'Current directory path')
         self.remote_hint.setText(
-            '展示方式与需求管理「文件库」一致（文件夹/文件图标）。'
-            '双击文件夹进入；双击日志文件绑定路径；「选用」绑定当前选中项。'
+            '双击文件夹进入。选中文件后点「下载」保存到本机；「选用」只绑定日志路径，不会下载。'
             if zh else
-            'Same icon style as Requirements file library. Double-click folder/file; Use to bind path.'
+            'Double-click a folder to enter it. Download saves the selected file. Use only binds a log path.'
         )
         self.result_table.setHorizontalHeaderLabels(
             ['服务器', '服务', '状态', '行数', '本地文件', '时间'] if zh else ['Server', 'Service', 'Status', 'Lines', 'File', 'Time']
@@ -3361,7 +3375,7 @@ class OpsLogPanel(QWidget):
     def _set_session_connected(self, connected: bool):
         widgets = [
             self.path_up_btn, self.path_edit, self.path_go_btn, self.path_refresh_btn,
-            self.use_path_btn, self.remote_tree, self.focus_term_btn,
+            self.download_btn, self.use_path_btn, self.remote_tree, self.focus_term_btn,
             self.run_grep_btn, self.tail_btn, self.preview_btn,
         ]
         if hasattr(self, 'session_export_btn'):
@@ -3859,6 +3873,74 @@ class OpsLogPanel(QWidget):
                 name = prefer_file.rsplit('/', 1)[-1]
                 self.log_file_combo.insertItem(0, name, prefer_file)
                 self.log_file_combo.setCurrentIndex(0)
+
+    def _selected_remote_entry(self) -> dict | None:
+        item = self.remote_tree.currentItem() if hasattr(self, 'remote_tree') else None
+        entry = item.data(0, Qt.ItemDataRole.UserRole) if item else None
+        return entry if isinstance(entry, dict) else None
+
+    def _remote_tree_menu(self, pos):
+        item = self.remote_tree.itemAt(pos)
+        if item is not None:
+            self.remote_tree.setCurrentItem(item)
+        zh = self.language == 'zh'
+        menu = QMenu(self)
+        download_action = menu.addAction('下载' if zh else 'Download')
+        use_action = menu.addAction('选用' if zh else 'Use')
+        chosen = menu.exec(self.remote_tree.viewport().mapToGlobal(pos))
+        if chosen is download_action:
+            self._download_selected_remote()
+        elif chosen is use_action:
+            self._use_selected_as_log_path()
+
+    def _download_selected_remote(self):
+        """把远端列表里选中的文件 SFTP 下载到用户指定的本地路径。目录不整树打包。"""
+        zh = self.language == 'zh'
+        if not self._client:
+            show_warning(self, 'PengTools', '请先连接服务器' if zh else 'Connect first')
+            return
+        entry = self._selected_remote_entry()
+        if entry is None:
+            show_warning(self, 'PengTools', '请先选择要下载的文件' if zh else 'Select a file')
+            return
+        if entry.get('is_dir'):
+            show_warning(
+                self, 'PengTools',
+                '这是文件夹，请双击进入后选择文件再下载' if zh else 'Open the folder and select a file',
+            )
+            return
+        remote = str(entry.get('path') or '').strip()
+        if not remote:
+            show_warning(self, 'PengTools', '文件路径为空' if zh else 'Empty path')
+            return
+        name = safe_download_filename(str(entry.get('name') or remote))
+        start_dir = self.export_dir_edit.text().strip() if hasattr(self, 'export_dir_edit') else ''
+        start = os.path.join(start_dir, name) if start_dir else name
+        local, _selected = QFileDialog.getSaveFileName(
+            self,
+            '下载到本机' if zh else 'Download to',
+            start,
+        )
+        if not local:
+            return
+        client = self._client
+
+        def job():
+            return download_remote_file(client, remote, local)
+
+        def ok(payload):
+            saved = str((payload or {}).get('local') or local)
+            size = int((payload or {}).get('size') or 0)
+            self._console_append(f'[下载] {remote} -> {saved} ({size} bytes)')
+            if hasattr(self, 'remote_hint'):
+                self.remote_hint.setText(
+                    f'已下载到：{saved}' if zh else f'Saved: {saved}'
+                )
+            self.session_status.setText(
+                f'已下载 {name}' if zh else f'Downloaded {name}'
+            )
+
+        self._run_bg(job, ok, '正在下载…' if zh else 'Downloading…')
 
     # ── 会话命令 / 截取（发到交互终端，实时刷） ─────────
     def _run_console_command(self):

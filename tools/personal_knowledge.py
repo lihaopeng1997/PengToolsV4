@@ -516,25 +516,95 @@ def export_word_entry(entry, path):
     return path
 
 
-def search_entries(entries, query='', category='all'):
-    """支持中文原文 / 全拼 / 首字母；索引不含密钥。置顶条目排在前面。"""
-    from tools.list_pin import sort_with_pin
+def _row_text(row) -> str:
+    return ' '.join(str(value).strip() for value in (row or []) if str(value).strip())
+
+
+def row_matches_query(row, query: str) -> bool:
+    """一行里的原文或单个单元格拼音命中。不把相邻单元格的首字母拼起来。"""
+    from tools.pinyin_search import build_search_blob, match_query, normalize_query
+    cells = [str(value).strip() for value in (row or []) if str(value).strip()]
+    if not cells:
+        return False
+    terms = [term for term in normalize_query(query).split() if term]
+    if not terms:
+        return False
+    folded = ' '.join(cells).casefold()
+    if all(term in folded for term in terms):
+        return True
+    blobs = [build_search_blob(cell) for cell in cells]
+    return all(any(match_query(blob, term) for blob in blobs) for term in terms)
+
+
+def _meta_matches_query(entry: dict, query: str) -> bool:
+    from tools.pinyin_search import build_search_blob, match_query, normalize_query
+    fields = [
+        entry.get(key) for key in ('title', 'tags', 'source', 'sheet_name')
+        if str(entry.get(key) or '').strip()
+    ]
+    terms = [term for term in normalize_query(query).split() if term]
+    if not terms or not fields:
+        return False
+    return all(any(match_query(build_search_blob(field), term) for field in fields) for term in terms)
+
+
+def entry_matches_query(entry: dict, query: str) -> bool:
+    """文档按标题和正文一起匹配；Excel 按单个字段或单行匹配。"""
     from tools.pinyin_search import build_search_blob, match_query
-    # 确保索引已建（懒加载兜底）
-    global _INDEX_BUILT
-    if not _INDEX_BUILT:
-        rebuild_search_index(entries)
+    raw = str(query or '')
+    if not raw.strip():
+        return True
+    if entry.get('content_type') == 'workbook_sheet':
+        if _meta_matches_query(entry, raw):
+            return True
+        return any(row_matches_query(row, raw) for row in (entry.get('rows') or []))
+    return match_query(build_search_blob(
+        entry.get('title'), entry.get('content'), entry.get('tags'),
+        entry.get('source'), entry.get('sheet_name'),
+    ), raw)
+
+
+def workbook_context_header_rows(entry: dict) -> set[int]:
+    """只保留表头起连续的前两行。颜色或加粗标出的中间行不当作表头。"""
+    raw = entry.get('header_rows') or []
+    indexes = sorted({int(item) for item in raw if str(item).strip().isdigit() or isinstance(item, int)})
+    kept = []
+    for index in indexes:
+        if index == len(kept) and len(kept) < 2:
+            kept.append(index)
+        else:
+            break
+    return set(kept)
+
+
+def workbook_visible_row_indexes(entry: dict, query: str) -> list[int] | None:
+    """None 表示整表显示。否则返回应显示的行号。"""
+    from tools.pinyin_search import normalize_query
+    terms = [term for term in normalize_query(query).split() if term]
+    rows = entry.get('rows') or []
+    if not terms:
+        return None
+    meta = ' '.join(str(entry.get(key) or '') for key in ('title', 'tags', 'source', 'sheet_name')).casefold()
+    if all(term in meta for term in terms):
+        return None
+    headers = workbook_context_header_rows(entry)
+    visible = [index for index in sorted(headers) if index < len(rows)]
+    for index, row in enumerate(rows):
+        if index in headers:
+            continue
+        if row_matches_query(row, query):
+            visible.append(index)
+    return visible
+
+
+def search_entries(entries, query='', category='all'):
+    """支持中文原文 / 全拼 / 首字母。Excel 按行判断，不把整表首字母拼在一起。"""
+    from tools.list_pin import sort_with_pin
     result = []
     for entry in entries:
         if category != 'all' and entry.get('category') != category:
             continue
-        eid = entry.get('id')
-        blob = _SEARCH_INDEX.get(eid)
-        if blob is None:
-            blob = _build_entry_blob(entry)
-            if eid:
-                _SEARCH_INDEX[eid] = blob
-        if match_query(blob, query):
+        if entry_matches_query(entry, query):
             result.append(entry)
     return sort_with_pin(
         result,

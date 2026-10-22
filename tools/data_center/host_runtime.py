@@ -18,28 +18,35 @@ import math
 import re
 import threading
 import time
+import uuid
 from typing import Any, Callable
 
 from sqlglot import ErrorLevel, exp, parse
 from sqlglot.optimizer.scope import traverse_scope
 
 from tools.agent_core.context import ContextLimits, ContextPlanner
+from tools.agent_diag import log_agent_event, log_file_path
+from tools.agent_core.text_protocol import (
+    TEXT_PROTOCOL_INSTRUCTION,
+    parse_qwen_tool_calls,
+    visible_model_text,
+)
 
 from .agent import AgentRunner
 from .agent_query_tool import AgentQueryTool
 from .budget import Budget, BudgetLimits
-from .contracts import CancellationToken, RunContext, ToolCall, ToolResult
+from .contracts import AgentTurn, CancellationToken, RunContext, ToolCall, ToolResult
 from .context_evidence import DataCenterEvidencePlanner, EvidenceEpoch
 from .host_metadata import MetadataHost, MetadataTarget
 from .host_model_adapter import AgentModelHostAdapter
 from .host_nosql import HostNoSQLRouter
-from .policy import DataCenterPolicy
+from .policy import MONGO_READ_OPERATIONS, REDIS_READ_OPERATIONS, DataCenterPolicy
 from .nosql_codec import encode_bounded, is_sensitive_name, utf8_size
 from .query_executor import QueryExecutor
 from .readonly_driver_adapters import canonical_provider
 from .result_projection import (
     DEFAULT_MAX_CUMULATIVE_BYTES, DEFAULT_MAX_RESULT_BYTES,
-    ProjectionBudget, ResultProjector,
+    ProjectionBudget, ResultProjector, _public_failure_message,
 )
 from .session_manager import SessionManager
 from .sql_policy import SQLDecision, SQLPolicy
@@ -375,7 +382,7 @@ class ScopedResultProjector:
         ok = bool(result.ok)
         code = _safe_code(result.code, ok=ok)
         if not ok:
-            data: Any = {"message": "工具未成功完成，未提供结果数据"}
+            data = {"message": _public_failure_message(result.code, result.data)}
             truncated = False
         else:
             data, truncated = self._shape(result.data)
@@ -1063,6 +1070,101 @@ class _NoSQLHandler:
         return self.worker.execute(self.tool_name, _call_arguments(call), call_id=_call_id(call), cancellation=cancellation)
 
 
+def _capability_text(adapter: Any) -> str:
+    declared = getattr(adapter, "capability", None)
+    if declared is None:
+        declared = getattr(adapter, "effective_capability", None)
+    return str(getattr(declared, "value", declared) or "").strip().lower()
+
+
+def build_data_center_system_prompt(
+    *,
+    provider: str,
+    mode: str,
+    database: str,
+    schemas: tuple[str, ...],
+    text_only: bool,
+) -> str:
+    """Tell the model which connection it is bound to and how to call tools."""
+
+    engine = " / ".join(part for part in (provider, mode) if part) or "未声明"
+    scope = ", ".join(schemas) if schemas else "（无）"
+    binding = f"当前回答固定在这一条连接上，不能改连别的库。\n引擎：{engine}\n数据库：{database or '（未配置）'}\n范围：{scope}\n"
+    if text_only:
+        return (
+            binding
+            + "当前模型配置为仅文本，本轮不能执行查询，也不能假装已经看到库里的数据。"
+            "请直接说明需要在设置里把 Agent 能力改为「原生工具调用」，或换一个会返回工具调用的模型。"
+        )
+    if provider == "redis":
+        operations = ", ".join(sorted(REDIS_READ_OPERATIONS))
+        guide = (
+            "这条连接是 Redis，没有 SQL 表。不要写 SELECT，不要调用 query_readonly。\n"
+            f"读取只能调用 redis_read。operation 只能是：{operations}。\n"
+            "查键名用 SCAN，pattern 用通配符；看字符串用 GET；看类型用 TYPE。\n"
+            "用户如果问某张 SQL 表有多少行，说明表不在这条 Redis 连接上，"
+            "需要到 SQL 控制台选中那条数据库并且完成 schema 扫描后再问。\n"
+        )
+    elif provider == "mongodb":
+        operations = ", ".join(sorted(MONGO_READ_OPERATIONS))
+        guide = (
+            "这条连接是 MongoDB。用 mongo_read 读取已授权集合，"
+            f"operation 只能是：{operations}。\n"
+            "不要写 SQL，不要调用 query_readonly 或 redis_read。\n"
+        )
+    else:
+        guide = (
+            "这条连接是关系库。回答行数、字段或表内容之前必须调用工具，不能说自己无法访问数据库。\n"
+            "先 search_objects，只传 keyword，例如 keyword=prptmain。不要传 schema、database、connection。\n"
+            "kinds 可以不传；要传就用字符串数组。范围里列出的 schema 只是搜索边界，不要停下来让用户挑选。\n"
+            "搜到对象后用 describe_object，再 query_readonly。SQL 必须使用元数据里的 schema.表名。\n"
+        )
+    return binding + guide + TEXT_PROTOCOL_INSTRUCTION
+
+
+class _TextProtocolAdapter:
+    """Execute explicit Qwen/text tool calls when the gateway returns them as text."""
+
+    def __init__(self, inner: Any, allowed_names: frozenset[str]) -> None:
+        self._inner = inner
+        self._allowed = allowed_names
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def complete_turn(self, request: Any, *, cancellation: Any, on_delta: Any) -> AgentTurn:
+        turn = self._inner.complete_turn(request, cancellation=cancellation, on_delta=on_delta)
+        if getattr(turn, "tool_calls", None) or not str(getattr(turn, "text", "") or "").strip():
+            log_agent_event(
+                'dc_model_turn',
+                native_calls=len(getattr(turn, 'tool_calls', ()) or ()),
+                text_chars=len(str(getattr(turn, 'text', '') or '')),
+            )
+            return turn
+        parsed = parse_qwen_tool_calls(turn.text)
+        log_agent_event(
+            'dc_text_protocol',
+            parsed=0 if not parsed else len(parsed),
+            names=','.join(item['name'] for item in (parsed or [])[:8]),
+            text_chars=len(turn.text or ''),
+        )
+        if not parsed:
+            return turn
+        if len(parsed) > 8 or any(item["name"] not in self._allowed for item in parsed):
+            log_agent_event('dc_text_protocol_rejected', parsed=len(parsed))
+            return turn
+        return AgentTurn(
+            text=visible_model_text(turn.text),
+            tool_calls=tuple(
+                ToolCall(f"text-call-{uuid.uuid4().hex[:12]}", item["name"], dict(item.get("arguments") or {}))
+                for item in parsed
+            ),
+            finish_reason="tool_calls",
+            usage=getattr(turn, "usage", None) or {},
+            model_id=str(getattr(turn, "model_id", "") or ""),
+        )
+
+
 class DataCenterAgentRuntime:
     """Compose one fixed model/connection/tool run without UI dependencies."""
 
@@ -1207,10 +1309,29 @@ class DataCenterAgentRuntime:
             query_owner_tracker=self.query_owner_tracker,
         )
         runner_type = runner_factory or AgentRunner
-        effective_system_prompt = str(system_prompt or "")
-        if not self.draft and self.provider in _RELATIONAL:
-            binding_hint = "Use only schema-qualified physical table names from metadata; do not rely on the connection's default schema."
-            effective_system_prompt = f"{effective_system_prompt}\n{binding_hint}".strip()
+        supplied_prompt = str(system_prompt or "").strip()
+        capability_text = _capability_text(self.model_adapter)
+        if supplied_prompt:
+            effective_system_prompt = supplied_prompt
+            if not self.draft and self.provider in _RELATIONAL:
+                binding_hint = "Use only schema-qualified physical table names from metadata; do not rely on the connection's default schema."
+                effective_system_prompt = f"{effective_system_prompt}\n{binding_hint}".strip()
+        elif self.draft:
+            effective_system_prompt = ""
+        else:
+            effective_system_prompt = build_data_center_system_prompt(
+                provider=self.provider,
+                mode=self.mode,
+                database=str(self.context.database or ""),
+                schemas=tuple(self.context.schema_allowlist),
+                text_only=capability_text == "text_only",
+            )
+        if not self.draft and capability_text != "text_only":
+            allowed_names = frozenset(
+                str(item.get("function", {}).get("name") or "")
+                for item in self.registry.definitions()
+            )
+            self.model_adapter = _TextProtocolAdapter(self.model_adapter, allowed_names)
         runner_options = {
             "system_prompt": effective_system_prompt,
             "budget": budget,

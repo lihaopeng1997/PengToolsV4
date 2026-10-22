@@ -69,6 +69,49 @@ class OpsSshTests(unittest.TestCase):
         self.assertEqual([item['name'] for item in files], ['.log'])
         self.assertEqual(files[0]['path'], '/var/log/app/.log')
 
+    def test_download_remote_file_saves_one_file_and_rejects_directory(self):
+        import os
+        import stat
+        import tempfile
+        from types import SimpleNamespace
+        from tools.ops_ssh import download_remote_file, safe_download_filename
+
+        class Sftp:
+            def normalize(self, path):
+                return path
+
+            def stat(self, path):
+                if str(path).endswith('/dir'):
+                    return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_size=0)
+                return SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_size=4)
+
+            def get(self, remote, local):
+                with open(local, 'wb') as stream:
+                    stream.write(b'log\n')
+                self.remote = remote
+
+            def close(self):
+                pass
+
+        class Client:
+            def open_sftp(self):
+                self.sftp = Sftp()
+                return self.sftp
+
+        self.assertEqual(safe_download_filename('a/b:c.log'), 'b_c.log')
+        self.assertEqual(safe_download_filename('..'), 'download')
+        client = Client()
+        with tempfile.TemporaryDirectory() as tmp:
+            local = os.path.join(tmp, 'a.log')
+            payload = download_remote_file(client, '/var/log/a.log', local)
+            self.assertEqual(payload['remote'], '/var/log/a.log')
+            self.assertEqual(payload['local'], local)
+            self.assertEqual(payload['size'], 4)
+            self.assertNotIn('content', payload)
+            self.assertTrue(os.path.isfile(local))
+            with self.assertRaises(OpsSshError):
+                download_remote_file(client, '/var/log/dir', os.path.join(tmp, 'dir.bin'))
+
     def test_export_filename_ip_service(self):
         from tools.ops_ssh import local_export_filename, parse_keywords
         name = local_export_filename(

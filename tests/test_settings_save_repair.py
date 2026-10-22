@@ -36,8 +36,7 @@ class SettingsSaveRepairTests(unittest.TestCase):
             panel.reminder_enabled.setChecked(False)
             panel.reminder_time.setTime(__import__('PyQt6.QtCore', fromlist=['QTime']).QTime(8, 15))
             panel.ai_name.setText('正在编辑的模型')
-            panel.ai_model.addItem('draft-response-model')
-            panel.ai_model.setCurrentText('draft-response-model')
+            panel.ai_model.setText('draft-response-model')
             panel.ai_timeout.setValue(45)
 
             loads = []
@@ -86,7 +85,7 @@ class SettingsSaveRepairTests(unittest.TestCase):
             self.assertFalse(panel.reminder_enabled.isChecked())
             self.assertEqual(panel.reminder_time.time().toString('HH:mm'), '09:20')
             self.assertEqual(panel.ai_name.text(), '正在编辑的模型')
-            self.assertEqual(panel.ai_model.currentText(), 'draft-response-model')
+            self.assertEqual(panel.ai_model.text(), 'draft-response-model')
             self.assertEqual(panel.ai_timeout.value(), 45)
             self.assertEqual(panel._save_loading._state, 'finish')
         finally:
@@ -124,8 +123,7 @@ class SettingsSaveRepairTests(unittest.TestCase):
             import tools.intranet_llm as intranet
 
             panel.ai_name.setText('内存模型配置')
-            panel.ai_model.addItem('response-model')
-            panel.ai_model.setCurrentText('response-model')
+            panel.ai_model.setText('response-model')
             panel.ai_timeout.setValue(33)
             with tempfile.TemporaryDirectory() as temp_dir, \
                     patch.object(intranet, 'AI_LOCAL_FILE', os.path.join(temp_dir, 'ai_local.json')), \
@@ -218,6 +216,7 @@ class SettingsSaveRepairTests(unittest.TestCase):
         host.keep_awake_service = None
         host._language_index = 0
         host._apply_density_preferences = Mock()
+        host._apply_private_unlocked_ui = Mock()
         host._apply_nav_texts = Mock()
         host._refresh_brand_icon = Mock()
         host._sync_web_theme = Mock()
@@ -394,7 +393,7 @@ class SettingsSaveRepairTests(unittest.TestCase):
             self.assertGreaterEqual(panel.ai_name.width(), name_row.width() - 16)
             model_row = form_row(panel.ai_model)
             self.assertIsNotNone(model_row)
-            self.assertLess(panel.ai_model.width(), model_row.width() * 0.7)
+            self.assertGreaterEqual(panel.ai_model.width(), model_row.width() - 16)
             model_left_gap = left_x(panel.ai_model) - model_row.mapTo(panel, QPoint(0, 0)).x()
             self.assertLessEqual(model_left_gap, 4)
 

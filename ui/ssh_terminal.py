@@ -33,7 +33,8 @@ def pick_terminal_font(point_size: int = TERM_FONT_PT_DEFAULT) -> QFont:
     """选择系统可用的等宽字体；不二次乘 DPI。"""
     from PyQt6.QtGui import QFontDatabase
     size = max(TERM_FONT_PT_MIN, min(TERM_FONT_PT_MAX, int(point_size or TERM_FONT_PT_DEFAULT)))
-    preferred = ('Cascadia Mono', 'Cascadia Code', 'Consolas', 'Lucida Console')
+    from ui.theme_manager import FONT_MONO_FAMILIES
+    preferred = FONT_MONO_FAMILIES + ('Cascadia Code', 'Lucida Console')
     families = set(QFontDatabase.families())
     name = next((item for item in preferred if item in families), '')
     font = QFont(name) if name else QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
@@ -203,6 +204,32 @@ def terminal_grid_size(
     cols = max(1, usable_w // max(1, int(cell_width)))
     rows = max(1, usable_h // max(1, int(cell_height)))
     return cols, rows
+
+
+def font_locked_to_cell(font: QFont, cell_width: int) -> QFont:
+    """让 ASCII 字形起点落在列格子上。
+
+    drawText 使用字体自然 advance（粗体、合成粗体、小数像素都会比 '0' 的整数宽度更宽）。
+    光标按 col * cell_width 画。两者不一致时，提示符越长，光标离实际字符越远。
+    AbsoluteSpacing 加在字符之间，使第 i 个字符从 i * cell_width 起笔。
+    """
+    locked = QFont(font)
+    locked.setKerning(False)
+    advance = float(QFontMetrics(locked).horizontalAdvance('0'))
+    extra = float(cell_width) - advance
+    if abs(extra) >= 0.05:
+        locked.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, extra)
+    return locked
+
+
+def live_view_row_shift(screen_rows: int, view_rows: int, cursor_y: int, following: bool) -> int:
+    """屏幕行数大于可见行时，跟随光标上移，避免输入光标画在视口下方。"""
+    screen_rows = max(0, int(screen_rows))
+    view_rows = max(1, int(view_rows))
+    if not following or screen_rows <= view_rows:
+        return 0
+    cursor_y = max(0, min(screen_rows - 1, int(cursor_y)))
+    return min(screen_rows - view_rows, max(0, cursor_y - view_rows + 1))
 
 
 def _theme_term_colors() -> dict:
@@ -375,6 +402,7 @@ class _SshTerminalView(QAbstractScrollArea):
         self._find_query = ''
         self._find_matches: list[tuple[int, int, int]] = []  # (abs_row, col_start, length)
         self._find_index = -1
+        self._cell_font_cache: dict = {}
 
         self._bridge = _ShellBridge(self)
         self._bridge.data.connect(self._on_data)
@@ -451,6 +479,11 @@ class _SshTerminalView(QAbstractScrollArea):
         def on_error(msg: str):
             bridge.error.emit(gen, str(msg))
 
+        measured_cols, measured_rows = self._viewport_grid()
+        if measured_cols >= 20 and measured_rows >= 4:
+            cols, rows = measured_cols, measured_rows
+        else:
+            cols, rows = max(20, int(cols)), max(4, int(rows))
         self._emulator = TerminalEmulator(cols=cols, rows=rows)
         shell = InteractiveShell(
             on_data=on_data, on_closed=on_closed, on_error=on_error,
@@ -462,6 +495,7 @@ class _SshTerminalView(QAbstractScrollArea):
         self._system_status = '[终端已就绪] 可直接输入命令。Ctrl+C 中断 · 右键复制/粘贴 · Ctrl+F 查找'
         self._update_scroll_bar()
         self.setFocus()
+        self._resize_timer.start()
         self.viewport().update()
 
     def detach(self) -> None:
@@ -559,6 +593,49 @@ class _SshTerminalView(QAbstractScrollArea):
         self._metrics = terminal_cell_metrics(self.font())
         return int(self._metrics['cell_width']), int(self._metrics['cell_height'])
 
+    def _viewport_grid(self) -> tuple[int, int]:
+        cw, lh = self._cell_dimensions()
+        width = int(self.viewport().width())
+        height = int(self.viewport().height())
+        if width < 40 or height < 40:
+            return 0, 0
+        return terminal_grid_size(width, height, cw, lh)
+
+    def _view_row_shift(self, lh: int) -> int:
+        usable = max(0, self.viewport().height() - 2 * TERM_PAD_Y)
+        view_rows = max(1, usable // max(1, int(lh)))
+        bar = self.verticalScrollBar()
+        following = bar.value() == bar.maximum()
+        return live_view_row_shift(
+            len(self._emulator.screen.grid),
+            view_rows,
+            self._emulator.screen.cursor_y,
+            following,
+        )
+
+    def _font_for_style(self, eff: dict, cell_width: int) -> QFont:
+        base = self.font()
+        key = (
+            base.family(),
+            base.pointSize(),
+            bool(eff.get('bold')),
+            bool(eff.get('italic')),
+            bool(eff.get('underline')),
+            int(cell_width),
+        )
+        cached = self._cell_font_cache.get(key)
+        if cached is not None:
+            return cached
+        font = QFont(base)
+        font.setBold(bool(eff.get('bold')))
+        font.setItalic(bool(eff.get('italic')))
+        font.setUnderline(bool(eff.get('underline')))
+        locked = font_locked_to_cell(font, cell_width)
+        if len(self._cell_font_cache) > 48:
+            self._cell_font_cache.clear()
+        self._cell_font_cache[key] = locked
+        return locked
+
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
         c = self._colors
@@ -589,12 +666,17 @@ class _SshTerminalView(QAbstractScrollArea):
         abs_row_start = len(self._emulator.scrollback) - scroll_offset
         if abs_row_start < 0:
             abs_row_start = 0
+        shift = self._view_row_shift(lh) if scroll_offset == 0 else 0
+        usable_h = max(0, self.viewport().height() - 2 * pad_y)
+        view_rows = max(1, usable_h // max(1, lh))
 
         # Draw cells
         sel_range = self._get_normalized_selection()
         for r, row in enumerate(visible_rows):
+            if scroll_offset == 0 and (r < shift or r >= shift + view_rows):
+                continue
             abs_row = abs_row_start + r
-            y = pad_y + r * lh
+            y = pad_y + (r - shift) * lh
 
             # Pass 1: Background, Selection & Find highlight per cell grid
             for col_idx, cell in enumerate(row):
@@ -639,32 +721,39 @@ class _SshTerminalView(QAbstractScrollArea):
                     fg_color.setAlpha(150)
 
                 painter.setPen(fg_color)
-                font = self.font()
-                if eff['bold']:
-                    font.setBold(True)
-                if eff['underline']:
-                    font.setUnderline(True)
-                if eff['italic']:
-                    font.setItalic(True)
-                painter.setFont(font)
+                painter.save()
+                span = max(1, int(item.get('width') or len(text)))
+                painter.setClipRect(QRect(run_x, y, span * cw, lh), Qt.ClipOperation.IntersectClip)
+                painter.setFont(self._font_for_style(eff, cw))
                 painter.drawText(run_x, y + ascent, text)
+                painter.restore()
 
         # Draw Cursor
         if scroll_offset == 0 and self._emulator.cursor_visible:
             cx = self._emulator.screen.cursor_x
             cy = self._emulator.screen.cursor_y
-            if 0 <= cy < len(visible_rows) and 0 <= cx < self._emulator.cols:
-                cursor_rect = QRect(pad_x + cx * cw, pad_y + cy * lh, cw, lh)
+            if shift <= cy < shift + view_rows and 0 <= cx < self._emulator.cols:
+                draw_y = pad_y + (cy - shift) * lh
+                cursor_w = cw
+                cur_cell = None
+                if cy < len(self._emulator.screen.grid) and cx < len(self._emulator.screen.grid[cy]):
+                    cur_cell = self._emulator.screen.grid[cy][cx]
+                    if cur_cell.width > 1:
+                        cursor_w = cw * cur_cell.width
+                cursor_rect = QRect(pad_x + cx * cw, draw_y, cursor_w, lh)
                 if self.hasFocus():
                     painter.setBrush(QBrush(QColor(c['primary'])))
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRect(cursor_rect)
                     # redraw character underneath cursor in inverse color
-                    if cy < len(self._emulator.screen.grid) and cx < len(self._emulator.screen.grid[cy]):
-                        cur_cell = self._emulator.screen.grid[cy][cx]
-                        if cur_cell.char and cur_cell.char != ' ' and not cur_cell.style.hidden:
-                            painter.setPen(QColor(c['bg']))
-                            painter.drawText(pad_x + cx * cw, pad_y + cy * lh + ascent, cur_cell.char)
+                    if cur_cell is not None and cur_cell.char and cur_cell.char != ' ' and not cur_cell.style.hidden:
+                        eff = resolve_terminal_cell_style(cur_cell.style, default_fg=c['fg'], default_bg=c['bg'])
+                        painter.setPen(QColor(c['bg']))
+                        painter.save()
+                        painter.setClipRect(cursor_rect, Qt.ClipOperation.IntersectClip)
+                        painter.setFont(self._font_for_style(eff, cw))
+                        painter.drawText(pad_x + cx * cw, draw_y + ascent, cur_cell.char)
+                        painter.restore()
                 else:
                     painter.setPen(QPen(QColor(c['muted']), 1))
                     painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -675,7 +764,7 @@ class _SshTerminalView(QAbstractScrollArea):
             cx = self._emulator.screen.cursor_x
             cy = self._emulator.screen.cursor_y
             pre_x = pad_x + cx * cw
-            pre_y = pad_y + cy * lh
+            pre_y = pad_y + (cy - shift) * lh
             pre_w = fm.horizontalAdvance(self._preedit)
             painter.fillRect(QRect(pre_x, pre_y, pre_w, lh), QColor(c['chrome']))
             painter.setPen(QColor(c['primary']))
@@ -701,6 +790,10 @@ class _SshTerminalView(QAbstractScrollArea):
         super().resizeEvent(event)
         self._resize_timer.start()
 
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        self._resize_timer.start()
+
     def _apply_pty_resize(self):
         cw, lh = self._cell_dimensions()
         cols, rows = terminal_grid_size(
@@ -714,12 +807,14 @@ class _SshTerminalView(QAbstractScrollArea):
         x = max(0, pos.x() - TERM_PAD_X)
         y = max(0, pos.y() - TERM_PAD_Y)
         col = max(0, min(self._emulator.cols - 1, x // cw))
-        row_in_view = max(0, min(self._emulator.rows - 1, y // lh))
+        row_in_view = max(0, y // lh)
         sb_max = self.verticalScrollBar().maximum()
         sb_val = self.verticalScrollBar().value()
         scroll_offset = sb_max - sb_val
+        shift = self._view_row_shift(lh) if scroll_offset == 0 else 0
+        screen_row = min(self._emulator.rows - 1, row_in_view + shift)
         abs_row_start = len(self._emulator.scrollback) - scroll_offset
-        return (max(0, abs_row_start + row_in_view), col)
+        return (max(0, abs_row_start + screen_row), col)
 
     # --- Mouse Selection ---
 
@@ -871,7 +966,10 @@ class _SshTerminalView(QAbstractScrollArea):
             cw, lh = self._cell_dimensions()
             cx = self._emulator.screen.cursor_x
             cy = self._emulator.screen.cursor_y
-            return QRect(cx * cw, cy * lh, cw, lh)
+            shift = self._view_row_shift(lh)
+            rect = QRect(TERM_PAD_X + cx * cw, TERM_PAD_Y + (cy - shift) * lh, cw, lh)
+            origin = self.viewport().mapTo(self, rect.topLeft())
+            return QRect(origin, rect.size())
         return super().inputMethodQuery(query)
 
     def focusNextPrevChild(self, next: bool) -> bool:

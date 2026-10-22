@@ -908,9 +908,12 @@ class AgentRunner:
 
                 # Preserve assistant.tool_calls before any tool result is added;
                 # the next model request then has a valid OpenAI-style pair.
+                # A text-protocol recovery replaces the streamed markup with the
+                # prose it wants kept.  Prefer that text over the raw deltas.
+                stored_text = complete_text if calls and complete_text != visible_text else visible_text
                 assistant_call_message: dict[str, Any] = {
                     "role": "assistant",
-                    "content": visible_text,
+                    "content": stored_text,
                     "tool_calls": [
                         {
                             "id": call.call_id,

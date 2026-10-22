@@ -106,7 +106,8 @@ class _SqlFormatTab(QWidget):
 
         self.editor = QPlainTextEdit()
         self.editor.setObjectName('sql-format-editor')
-        mono = QFont('Consolas', 10)
+        from ui.design_system import mono_font
+        mono = mono_font()
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.editor.setFont(mono)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -307,7 +308,8 @@ class _TextDevHelpersTab(QWidget):
         tools.addWidget(self.clear_btn)
         root.addLayout(tools)
 
-        mono = QFont('Consolas', 10)
+        from ui.design_system import mono_font
+        mono = mono_font()
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.vsplit = QSplitter(Qt.Orientation.Vertical)
         self.vsplit.setChildrenCollapsible(False)

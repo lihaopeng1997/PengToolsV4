@@ -521,6 +521,35 @@ class SettingsPanel(QWidget):
         self.oracle_note.setWordWrap(True)
         oracle_form.addRow(self.oracle_note)
 
+        self.oceanbase_group = QGroupBox()
+        self.oceanbase_group.setObjectName('settings-oceanbase-card')
+        self.oceanbase_group.setProperty('settingsSectionCard', True)
+        oceanbase_form = QFormLayout(self.oceanbase_group)
+        apply_form(oceanbase_form)
+        self.oceanbase_driver = QComboBox()
+        self.oceanbase_driver.setEditable(True)
+        self.oceanbase_driver.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        size_enum_combo(self.oceanbase_driver, min_w=280, max_w=16777215)
+        self.oceanbase_driver_label = QLabel()
+        self.oceanbase_refresh_btn = QPushButton()
+        size_compact_button(self.oceanbase_refresh_btn)
+        self.oceanbase_refresh_btn.clicked.connect(self._refresh_oceanbase_drivers)
+        driver_row = QWidget()
+        driver_layout = QHBoxLayout(driver_row)
+        driver_layout.setContentsMargins(0, 0, 0, 0)
+        driver_layout.setSpacing(8)
+        driver_layout.addWidget(self.oceanbase_driver, 1)
+        driver_layout.addWidget(self.oceanbase_refresh_btn)
+        oceanbase_form.addRow(self.oceanbase_driver_label, driver_row)
+        self.oceanbase_status = QLabel()
+        self.oceanbase_status.setObjectName('field-hint')
+        self.oceanbase_status.setWordWrap(True)
+        oceanbase_form.addRow(self.oceanbase_status)
+        self.oceanbase_note = QLabel()
+        self.oceanbase_note.setObjectName('ops-safety-note')
+        self.oceanbase_note.setWordWrap(True)
+        oceanbase_form.addRow(self.oceanbase_note)
+
         self.ai_group = QGroupBox()
         self.ai_group.setObjectName('settings-ai-card')
         self.ai_group.setProperty('settingsSectionCard', True)
@@ -613,11 +642,10 @@ class SettingsPanel(QWidget):
         self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
         self.ai_base_url_label = QLabel()
         self.ai_base_url_row = wrap_path_field(self.ai_base_url)
-        self.ai_model = QComboBox()
-        self.ai_model.setEditable(True)
-        size_pick_combo(self.ai_model)
-        if self.ai_model.lineEdit() is not None:
-            self.ai_model.lineEdit().setPlaceholderText('qwen3.6')
+        self.ai_model = QLineEdit()
+        self.ai_model.setPlaceholderText('qwen3.8')
+        size_line(self.ai_model, 'std')
+        self._ai_available_models = []
         self.ai_model_label = QLabel()
         self.ai_token = QLineEdit()
         self.ai_token_row, self.ai_token_reveal = wrap_secret_field(self.ai_token)
@@ -702,7 +730,7 @@ class SettingsPanel(QWidget):
         ai_outer.addWidget(self.ai_note)
         self._settings_forms = (
             appearance, floating, shortcuts_form, reminder_form, behavior,
-            keep_awake, security, oracle_form, ai_form, ai_advanced_form,
+            keep_awake, security, oracle_form, oceanbase_form, ai_form, ai_advanced_form,
         )
         self._apply_settings_row_minimums(self._settings_forms)
         self._ai_probe_worker = None
@@ -844,6 +872,7 @@ class SettingsPanel(QWidget):
             'oracle_home': self.oracle_home.text().strip(),
             'oracle_oci_lib': self.oracle_oci.text().strip(),
             'oracle_client_lib_dir': self.oracle_home.text().strip(),
+            'oceanbase_odbc_driver': self._oceanbase_driver_value(),
         })
 
     def _disable_save_actions(self):
@@ -892,7 +921,7 @@ class SettingsPanel(QWidget):
                 (self.float_group, self.shortcuts_group),
                 (self.reminder_group, self.behavior_group, self.keep_awake_group),
                 (self.security_group,),
-                (self.oracle_group,),
+                (self.oracle_group, self.oceanbase_group),
                 (self.ai_group,),
             )
             for groups in categories:
@@ -947,48 +976,9 @@ class SettingsPanel(QWidget):
             reveal_width = min(reveal_width, max(1, reveal_available - edit_minimum - spacing))
         reveal.setFixedWidth(max(28, reveal_width))
 
-    def _fit_ai_model_selector(self):
-        """Keep known model IDs visible in the editable selector when space allows."""
-        if not hasattr(self, 'ai_model') or self.ai_model.lineEdit() is None:
-            return
-
-        combo = self.ai_model
-        combo.ensurePolished()
-        line_edit = combo.lineEdit()
-        labels = [combo.itemText(index) for index in range(combo.count())]
-        labels.append(combo.currentText())
-        text_width = max(
-            (line_edit.fontMetrics().horizontalAdvance(text) for text in labels),
-            default=0,
-        )
-
-        option = QStyleOptionComboBox()
-        option.initFrom(combo)
-        option.currentText = combo.currentText()
-        option.editable = combo.isEditable()
-        option.frame = combo.hasFrame()
-        edit_rect = combo.style().subControlRect(
-            QStyle.ComplexControl.CC_ComboBox,
-            option,
-            QStyle.SubControl.SC_ComboBoxEditField,
-            combo,
-        )
-        combo_chrome_width = max(0, combo.width() - edit_rect.width())
-        requested_width = max(200, text_width + combo_chrome_width + 16)
-
-        row_host = combo.parentWidget()
-        available_width = row_host.contentsRect().width() if row_host else 0
-        if available_width <= 0:
-            available_width = self.ai_group.contentsRect().width()
-        if available_width > 0:
-            requested_width = min(requested_width, available_width)
-        combo.setFixedWidth(max(1, requested_width))
-
     def _schedule_ai_provider_control_fit(self):
         if hasattr(self, 'ai_provider'):
             QTimer.singleShot(0, self._fit_ai_provider_controls)
-        if hasattr(self, 'ai_model'):
-            QTimer.singleShot(0, self._fit_ai_model_selector)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1040,7 +1030,7 @@ class SettingsPanel(QWidget):
         labels = (
             ('外观', 'Appearance'), ('悬浮工具栏', 'Floating toolbar'),
             ('提醒与关闭', 'Reminders and closing'), ('安全与安测', 'Security'),
-            ('Oracle 客户端', 'Oracle client'), ('模型服务', 'Model services'),
+            ('数据库客户端', 'Database clients'), ('模型服务', 'Model services'),
         )
         index = max(0, self.sections_stack.currentIndex())
         self.section_nav.blockSignals(True)
@@ -1101,6 +1091,7 @@ class SettingsPanel(QWidget):
             or []
         )
         self._load_oracle_values(settings)
+        self._load_oceanbase_values(settings)
         if reload_external:
             self._load_reminder_values()
             self._load_ai_local_values()
@@ -1160,6 +1151,63 @@ class SettingsPanel(QWidget):
 
     def _diagnose_oracle_client(self):
         self._refresh_oracle_status()
+
+    def _oceanbase_driver_value(self) -> str:
+        combo = self.oceanbase_driver
+        text = combo.currentText().strip()
+        if combo.count() == 0:
+            return text
+        if combo.currentIndex() == 0 and combo.itemData(0) in ('', None) and (
+            not text or text == combo.itemText(0)
+        ):
+            return ''
+        return text
+
+    def _load_oceanbase_values(self, settings):
+        self._fill_oceanbase_drivers(str(settings.get('oceanbase_odbc_driver') or '').strip())
+
+    def _refresh_oceanbase_drivers(self):
+        self._fill_oceanbase_drivers(self._oceanbase_driver_value())
+
+    def _fill_oceanbase_drivers(self, selected: str = ''):
+        from tools.db_connect import installed_odbc_drivers
+        zh = self.language == 'zh'
+        auto = '自动（OceanBase ODBC 2.0 Driver）' if zh else 'Auto (OceanBase ODBC 2.0 Driver)'
+        drivers = installed_odbc_drivers()
+        self.oceanbase_driver.blockSignals(True)
+        self.oceanbase_driver.clear()
+        self.oceanbase_driver.addItem(auto, '')
+        for name in drivers:
+            self.oceanbase_driver.addItem(name, name)
+        if selected:
+            index = self.oceanbase_driver.findData(selected)
+            if index >= 0:
+                self.oceanbase_driver.setCurrentIndex(index)
+            else:
+                self.oceanbase_driver.setEditText(selected)
+        else:
+            self.oceanbase_driver.setCurrentIndex(0)
+        self.oceanbase_driver.blockSignals(False)
+        self._refresh_oceanbase_status(drivers)
+
+    def _refresh_oceanbase_status(self, drivers: list[str] | None = None):
+        from tools.db_connect import installed_odbc_drivers
+        zh = self.language == 'zh'
+        if drivers is None:
+            drivers = installed_odbc_drivers()
+        selected = self._oceanbase_driver_value()
+        if not selected:
+            if 'OceanBase ODBC 2.0 Driver' in drivers:
+                text = '未指定时将使用已安装的 OceanBase ODBC 2.0 Driver。' if zh else 'Auto will use the installed OceanBase ODBC 2.0 Driver.'
+            elif drivers:
+                text = '没有找到默认驱动名。请从列表选择实际安装的 OceanBase ODBC 驱动。' if zh else 'The default driver name is not installed. Pick the installed OceanBase ODBC driver.'
+            else:
+                text = '当前进程看不到 ODBC 驱动。请先安装 OceanBase Connector/ODBC，再点刷新。' if zh else 'No ODBC drivers are visible. Install OceanBase Connector/ODBC, then refresh.'
+        elif selected in drivers:
+            text = f'将使用：{selected}' if zh else f'Will use: {selected}'
+        else:
+            text = f'系统 ODBC 中没有「{selected}」。请安装该驱动或改选列表中的名称。' if zh else f'ODBC has no driver named "{selected}".'
+        self.oceanbase_status.setText(text)
 
     def _load_reminder_values(self):
         """从磁盘重载提醒控件，与日报模块共用 daily_report_settings.json。"""
@@ -1303,16 +1351,8 @@ class SettingsPanel(QWidget):
                     index = 0
             combo.setCurrentIndex(index if index >= 0 else 0)
         self.ai_base_url.setText(str(cfg.get('base_url') or ''))
-        self.ai_model.blockSignals(True)
-        self.ai_model.clear()
-        for name in cfg.get('available_models') or []:
-            self.ai_model.addItem(str(name))
-        model = str(cfg.get('model') or '')
-        if model:
-            if self.ai_model.findText(model) < 0:
-                self.ai_model.addItem(model)
-            self.ai_model.setCurrentText(model)
-        self.ai_model.blockSignals(False)
+        self._ai_available_models = [str(name) for name in (cfg.get('available_models') or []) if str(name).strip()]
+        self.ai_model.setText(str(cfg.get('model') or ''))
         self._schedule_ai_provider_control_fit()
         # Unknown providers must fail before touching stored credentials. A
         # DeepSeek profile with TLS disabled is also displayed as blocked and
@@ -1372,16 +1412,17 @@ class SettingsPanel(QWidget):
             self.ai_ssl_verify.setChecked(True)
             self.ai_protocol.setCurrentIndex(max(0, self.ai_protocol.findData('openai')))
         elif selected_provider == 'intranet':
-            self.ai_base_url.clear()
+            from tools.intranet_llm import INTRANET_DEFAULT_BASE_URL
+            self.ai_base_url.setText(INTRANET_DEFAULT_BASE_URL)
         if selected_provider in ('intranet', 'deepseek'):
             # Model IDs and probed model lists belong to one provider. Start a
             # provider switch with its documented suggestion, never a stale ID.
-            default_model = 'deepseek-flash' if selected_provider == 'deepseek' else 'qwen3.6'
-            self.ai_model.blockSignals(True)
-            self.ai_model.clear()
-            self.ai_model.addItem(default_model)
-            self.ai_model.setCurrentText(default_model)
-            self.ai_model.blockSignals(False)
+            from tools.intranet_llm import INTRANET_DEFAULT_BASE_URL, INTRANET_DEFAULT_MODEL
+            default_model = 'deepseek-flash' if selected_provider == 'deepseek' else INTRANET_DEFAULT_MODEL
+            self.ai_model.setText(default_model)
+            self._ai_available_models = [default_model]
+            if selected_provider == 'intranet' and not self.ai_base_url.text().strip():
+                self.ai_base_url.setText(INTRANET_DEFAULT_BASE_URL)
             self._schedule_ai_provider_control_fit()
         self._ai_display_provider = selected_provider
         self._refresh_ai_provider_surface()
@@ -1396,8 +1437,7 @@ class SettingsPanel(QWidget):
             'https://api.deepseek.com 或 /v1' if deepseek else
             'http://10.128.25.142:13458' if anthropic else 'http://10.128.25.142:18002/v1'
         )
-        if self.ai_model.lineEdit() is not None:
-            self.ai_model.lineEdit().setPlaceholderText('deepseek-flash' if deepseek else 'qwen3.6')
+        self.ai_model.setPlaceholderText('deepseek-flash' if deepseek else 'qwen3.8')
         self.ai_enabled.setText(
             ('允许访问 DeepSeek 官方 API' if zh else 'Allow requests to the official DeepSeek API')
             if deepseek else
@@ -1421,6 +1461,17 @@ class SettingsPanel(QWidget):
             return
         data = current.data(Qt.ItemDataRole.UserRole) or {}
         self._fill_ai_form(data)
+
+    def _model_names_for_save(self) -> list[str]:
+        model = self.ai_model.text().strip()
+        names = []
+        for name in getattr(self, '_ai_available_models', None) or []:
+            text = str(name or '').strip()
+            if text and text not in names:
+                names.append(text)
+        if model and model not in names:
+            names.insert(0, model)
+        return names
 
     def _ai_cfg_from_ui(self):
         from tools.intranet_llm import (
@@ -1446,8 +1497,8 @@ class SettingsPanel(QWidget):
             'agent_max_tool_argument_bytes': self.ai_agent_max_tool_argument_bytes.currentData(),
             'agent_max_raw_buffer_bytes': self.ai_agent_max_raw_buffer_bytes.currentData(),
             'base_url': self.ai_base_url.text().strip(),
-            'model': self.ai_model.currentText().strip(),
-            'available_models': [self.ai_model.itemText(i) for i in range(self.ai_model.count())],
+            'model': self.ai_model.text().strip(),
+            'available_models': self._model_names_for_save(),
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'supports_vision': self.ai_supports_vision.isChecked(),
@@ -1668,7 +1719,15 @@ class SettingsPanel(QWidget):
     def _new_model_config(self):
         from tools.intranet_llm import upsert_model_item
         import uuid
-        item = upsert_model_item({'name': f'新配置 {uuid.uuid4().hex[:6]}', 'enabled': False})
+        from tools.intranet_llm import INTRANET_DEFAULT_BASE_URL, INTRANET_DEFAULT_MODEL
+        item = upsert_model_item({
+            'name': f'新配置 {uuid.uuid4().hex[:6]}',
+            'provider': 'intranet',
+            'enabled': True,
+            'base_url': INTRANET_DEFAULT_BASE_URL,
+            'model': INTRANET_DEFAULT_MODEL,
+            'available_models': [INTRANET_DEFAULT_MODEL],
+        })
         self._ai_editing_id = item.get('id')
         self._refresh_ai_list()
 
@@ -1718,8 +1777,9 @@ class SettingsPanel(QWidget):
             cfg['enabled'] = True
             cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '', provider=provider)
             if not cfg.get('model'):
-                cfg['model'] = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else 'qwen3.6'
-                self.ai_model.setCurrentText(cfg['model'])
+                from tools.intranet_llm import INTRANET_DEFAULT_MODEL
+                cfg['model'] = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else INTRANET_DEFAULT_MODEL
+                self.ai_model.setText(cfg['model'])
             self.ai_base_url.setText(cfg['base_url'])
             if provider == 'intranet':
                 self.ai_enabled.setChecked(True)
@@ -1738,20 +1798,10 @@ class SettingsPanel(QWidget):
     def _on_ai_probe_ok(self, models):
         zh = self.language == 'zh'
         names = [str(item) for item in (models or []) if str(item).strip()]
-        current = self.ai_model.currentText().strip()
-        self.ai_model.blockSignals(True)
-        self.ai_model.clear()
-        for name in names:
-            self.ai_model.addItem(name)
-        if current:
-            index = self.ai_model.findText(current)
-            if index < 0:
-                self.ai_model.insertItem(0, current)
-                index = 0
-            self.ai_model.setCurrentIndex(max(0, index))
-        elif names:
-            self.ai_model.setCurrentIndex(0)
-        self.ai_model.blockSignals(False)
+        current = self.ai_model.text().strip()
+        self._ai_available_models = names
+        if not current and names:
+            self.ai_model.setText(names[0])
         self._schedule_ai_provider_control_fit()
         if names:
             self.ai_status.setText(
@@ -1770,7 +1820,7 @@ class SettingsPanel(QWidget):
                 cfg['available_models'] = names
                 if not cfg.get('model') and names:
                     cfg['model'] = names[0]
-                    self.ai_model.setCurrentText(names[0])
+                    self.ai_model.setText(names[0])
                 saved = upsert_model_item(cfg, token_action=self._ai_token_action())
                 self._ai_editing_id = saved.get('id')
                 self._ai_original_provider = saved.get('provider', 'intranet')
@@ -2121,6 +2171,21 @@ class SettingsPanel(QWidget):
         self.oracle_oci_label.setText('OCI 库（oci.dll）' if zh else 'OCI library (oci.dll)')
         self.oracle_oci_browse.setText('选择文件' if zh else 'Choose file')
         self.oracle_diag_btn.setText('诊断' if zh else 'Diagnose')
+        self.oceanbase_group.setTitle('OceanBase ODBC' if zh else 'OceanBase ODBC')
+        self.oceanbase_driver_label.setText('ODBC 驱动' if zh else 'ODBC driver')
+        self.oceanbase_refresh_btn.setText('刷新' if zh else 'Refresh')
+        auto = '自动（OceanBase ODBC 2.0 Driver）' if zh else 'Auto (OceanBase ODBC 2.0 Driver)'
+        if self.oceanbase_driver.count():
+            self.oceanbase_driver.setItemText(0, auto)
+        self.oceanbase_note.setText(
+            'OceanBase Oracle 模式走 Windows ODBC，不走 Oracle Instant Client。'
+            '先安装与程序位数一致的 OceanBase Connector/ODBC，再在这里选择它在 ODBC 数据源管理器里的驱动名称。'
+            '留在「自动」则只认 OceanBase ODBC 2.0 Driver。改完保存即可，不用重启。'
+            if zh else
+            'OceanBase Oracle mode uses a Windows ODBC driver, not Oracle Instant Client. '
+            'Install OceanBase Connector/ODBC, then select its driver name. Auto accepts only OceanBase ODBC 2.0 Driver. Save to apply.'
+        )
+        self._refresh_oceanbase_status()
         self.oracle_note.setText(
             '所有 Oracle 连接共用。Thick 必须指向完整的 64 位 Instant Client 19（含 oci.dll 和 oraociei19.dll）。'
             '路径含中文（如「AI辅助编程」）时 OCI 会加载失败并误报 DPI-1072，请整夹拷到 C:\\oracle\\instantclient_19_24。'

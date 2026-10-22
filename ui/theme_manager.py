@@ -31,6 +31,42 @@ THEME_ALIASES = {
 
 DEFAULT_THEME_ID = 'calm'
 
+# 字体阶梯：全仓 UI / 等宽只此一套。QSS 用 __FONT_*__。
+FONT_UI_FAMILY = 'Microsoft YaHei UI'
+FONT_UI_STACK = "'Microsoft YaHei UI', 'Segoe UI', sans-serif"
+FONT_MONO_FAMILY = 'Cascadia Mono'
+FONT_MONO_FAMILIES = ('Cascadia Mono', 'Consolas', 'Courier New')
+FONT_MONO_STACK = "'Cascadia Mono', 'Consolas', 'Courier New', monospace"
+FONT_MONO_POINT = 10
+FONT_ROLES = {
+    'page_title': {'size': 18, 'weight': 600, 'line_height': 24},
+    'section_title': {'size': 13, 'weight': 600, 'line_height': 18},
+    'body': {'size': 13, 'weight': 400, 'line_height': 20},
+    'helper': {'size': 12, 'weight': 400, 'line_height': 18},
+    'caption': {'size': 11, 'weight': 500, 'line_height': 16},
+}
+_FONT_ROLE_TOKEN = {
+    'page_title': 'PAGE_TITLE',
+    'section_title': 'SECTION_TITLE',
+    'body': 'BODY',
+    'helper': 'HELPER',
+    'caption': 'CAPTION',
+}
+
+
+def font_qss_tokens() -> dict[str, str]:
+    """把字体阶梯渲染成 QSS 占位符。同一角色只有一个字号和一个字重。"""
+    tokens = {
+        'FONT_UI': FONT_UI_STACK,
+        'FONT_MONO': FONT_MONO_STACK,
+    }
+    for role, spec in FONT_ROLES.items():
+        prefix = _FONT_ROLE_TOKEN[role]
+        tokens[f'FONT_SIZE_{prefix}'] = f"{int(spec['size'])}px"
+        tokens[f'FONT_WEIGHT_{prefix}'] = str(int(spec['weight']))
+        tokens[f'FONT_LINE_{prefix}'] = f"{int(spec['line_height'])}px"
+    return tokens
+
 # 各主题共享的扩展 token 默认（浅色语义）
 # TERM_*：SSH 控制台「岛」——浅色界面上用深色终端形成强对比，色相贴主色避免违和
 _LIGHT_EXTRA = {
@@ -391,6 +427,8 @@ class ThemeManager:
         palette.setdefault('PRIMARY_GRAD_START', palette.get('PRIMARY', '#5B5FC7'))
         palette.setdefault('PRIMARY_GRAD_END', palette.get('PRIMARY_HOVER', palette.get('PRIMARY', '#4C50B0')))
         for key, value in palette.items():
+            qss = qss.replace(f'__{key}__', value)
+        for key, value in font_qss_tokens().items():
             qss = qss.replace(f'__{key}__', value)
         try:
             from ui.icons import icon_url, tinted_icon_url

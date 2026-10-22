@@ -116,6 +116,22 @@ class DataCenterAgentPolicyTests(unittest.TestCase):
             self.assertFalse(result.ok, (name, result))
         self.assertEqual(self.executor.calls, 0)
 
+    def test_search_aliases_and_string_kinds_stay_inside_the_host_scope(self) -> None:
+        result = self._validate("search_objects", {"table": "prptmain", "kinds": "TABLE", "schema": "INTAUTOCORE"})
+        self.assertTrue(result.ok, result)
+        self.assertEqual(result.data["arguments"]["keyword"], "prptmain")
+        self.assertEqual(result.data["arguments"]["kinds"], ["TABLE"])
+        self.assertNotIn("schema", result.data["arguments"])
+
+        query = self._validate("query_readonly", {"query": "SELECT 1", "row_limit": "20"})
+        self.assertTrue(query.ok, query)
+        self.assertEqual(query.data["arguments"]["sql"], "SELECT 1")
+        self.assertEqual(query.data["arguments"]["row_limit"], 20)
+
+        override = self._validate("search_objects", {"keyword": "prptmain", "database": "OTHER"})
+        self.assertFalse(override.ok)
+        self.assertEqual(override.code, "SCOPE_DENIED")
+
     def test_authorized_object_and_collection_scope_is_host_injected(self) -> None:
         policy = DataCenterPolicy(
             allowed_object_ids=("app.orders",),

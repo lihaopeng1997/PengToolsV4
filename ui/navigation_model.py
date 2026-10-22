@@ -169,7 +169,7 @@ def _build_items() -> dict[int, NavItem]:
                 icon_role=icon_role,
                 group_key=group_key,
                 floating_eligible=nav_index in floating_ok,
-                requires_easter_egg=(nav_index == 8),
+                requires_easter_egg=False,
                 tooltip_zh=tip[0],
                 tooltip_en=tip[1],
                 dashboard_label=(
@@ -363,8 +363,6 @@ def build_web_nav_model_data(*, private_unlocked: bool = False, current: int = 0
     for key, entries in NAV_MODEL:
         items = []
         for nav_index, name_zh, name_en, icon_role in entries:
-            if nav_index == 8 and not private_unlocked:
-                continue
             info = NAV_ITEMS[nav_index]
             entry = {
                 'i': nav_index,

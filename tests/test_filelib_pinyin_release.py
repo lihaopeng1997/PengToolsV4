@@ -71,6 +71,30 @@ class PinyinSearchTests(unittest.TestCase):
         miss2 = search_entries(entries, '!!!', 'all')
         self.assertEqual(miss2, [])
 
+    def test_excel_search_matches_late_cells_and_not_joined_initials(self):
+        from tools.personal_knowledge import search_entries, workbook_visible_row_indexes
+        decoy = {
+            'id': 'decoy', 'content_type': 'workbook_sheet', 'title': '其他表',
+            'source': 'other.xlsx', 'sheet_name': 'Sheet1', 'category': 'other',
+            'content': '', 'tags': '',
+            'rows': [['报表', '单据']],
+            'header_rows': list(range(16)),
+        }
+        wide = {
+            'id': 'wide', 'content_type': 'workbook_sheet', 'title': '宽表',
+            'source': 'wide.xlsx', 'sheet_name': '数据', 'category': 'other',
+            'content': '', 'tags': '',
+            'header_rows': [0],
+            'rows': [
+                ['编号', '说明'],
+                [''] * 20 + ['唯一编号ZQ9'],
+            ],
+        }
+        self.assertEqual(search_entries([decoy], '保单'), [])
+        self.assertEqual(search_entries([wide], 'ZQ9'), [wide])
+        self.assertEqual(workbook_visible_row_indexes(wide, 'ZQ9'), [0, 1])
+        self.assertEqual(workbook_visible_row_indexes(decoy, '报表'), [0])
+
     def test_no_match_must_not_return_all(self):
         from tools.pinyin_search import build_search_blob, match_query
         items = [

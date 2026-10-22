@@ -202,8 +202,8 @@ class XmlWorkspace(QWidget):
         footer.addWidget(self.status_label, 1)
         root.addLayout(footer)
 
-        mono = QFont('Consolas', 10)
-        mono.setStyleHint(QFont.StyleHint.Monospace)
+        from ui.design_system import mono_font
+        mono = mono_font()
         self.input_edit.setFont(mono)
         self.output_edit.setFont(mono)
         self.output_edit.set_indent_guide_step(4)

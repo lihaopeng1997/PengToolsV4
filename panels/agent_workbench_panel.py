@@ -409,7 +409,10 @@ class _WorkbenchWorker(QThread):
                 kwargs['memory_binding'] = self.memory_binding
                 kwargs['context_memory'] = self.context_memory
                 kwargs['memory_cb'] = lambda value: setattr(self, 'context_memory', value)
+            from tools.agent_diag import log_agent_event
+            log_agent_event('wb_run_start', task=self.task_id[:8])
             final, msgs, tcs = run_agent_loop(**kwargs)
+            log_agent_event('wb_run_end', task=self.task_id[:8], answer_chars=len(str(final or '')), tools=len(tcs or []))
             self.completed.emit(self.task_id, final, msgs, tcs)
         except Exception as exc:
             # 关键：子线程任何异常都必须阻止进程崩溃，转发到主线程显示
@@ -2628,7 +2631,9 @@ class AgentWorkbenchPanel(QWidget):
         lbl.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
-        if role == 'assistant':
+        lowered = text.lower()
+        tool_markup = '<tool_call' in lowered or '<function=' in lowered or '<parameter=' in lowered
+        if role == 'assistant' and not tool_markup:
             lbl.setTextFormat(Qt.TextFormat.MarkdownText)
         else:
             lbl.setTextFormat(Qt.TextFormat.PlainText)

@@ -106,8 +106,8 @@ DEFAULT_SETTINGS = {
     'close_default_action': 'minimize',
     'keep_awake_enabled': False,
     'keep_awake_interval_minutes': 3,
-    # 彩蛋「自我学习」解锁：写在 data/settings.json，升级换 EXE 后仍保留
-    'private_unlocked': False,
+    # 自我学习默认展示。旧数据里的 false 不再隐藏入口。
+    'private_unlocked': True,
     # ── 安测 / 安全基线（默认收紧）──
     # HTTPS 请求测试默认校验证书；内网自签可在设置或请求页临时关闭
     'security_ssl_verify': True,
@@ -120,6 +120,8 @@ DEFAULT_SETTINGS = {
     'oracle_client_lib_dir': '',
     'oracle_home': '',
     'oracle_oci_lib': '',
+    # OceanBase Oracle 模式使用的 Windows ODBC 驱动名称。空值表示自动匹配。
+    'oceanbase_odbc_driver': '',
     # 模型对话：明文风险提示关闭状态、上次会话/模型
     'model_chat_banner_dismissed': False,
     'model_chat_last_session_id': '',
@@ -260,6 +262,10 @@ def normalize_settings(settings):
     result['oracle_client_lib_dir'] = str(result.get('oracle_client_lib_dir') or '')
     result['oracle_home'] = str(result.get('oracle_home') or result['oracle_client_lib_dir'] or '')
     result['oracle_oci_lib'] = str(result.get('oracle_oci_lib') or '')
+    driver_name = str(result.get('oceanbase_odbc_driver') or '').strip()
+    if len(driver_name) > 128 or any(char in driver_name for char in '\r\n;{}='):
+        driver_name = ''
+    result['oceanbase_odbc_driver'] = driver_name
     if result['oracle_home'] and not result['oracle_client_lib_dir']:
         result['oracle_client_lib_dir'] = result['oracle_home']
     result['model_chat_banner_dismissed'] = bool(result.get('model_chat_banner_dismissed', False))

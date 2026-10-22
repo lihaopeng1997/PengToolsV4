@@ -420,7 +420,7 @@ class ConnectionDialog(QDialog):
                 status_tip = (
                     f"⚠️ 未检测到 Windows {arch} OceanBase ODBC 驱动（pyodbc {pyodbc_ver} 已就绪）。\n"
                     "需要驱动：OceanBase ODBC 2.0 Driver\n"
-                    "请安装与当前 Python 架构匹配的 Windows OceanBase Connector/ODBC 后重试。"
+                    "请安装驱动，或到「设置 → 数据库客户端」选择已安装的驱动名称。"
                     if zh else
                     f"⚠️ Windows {arch} OceanBase ODBC driver not found (pyodbc {pyodbc_ver} ready).\n"
                     "Required: OceanBase ODBC 2.0 Driver."

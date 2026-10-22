@@ -168,6 +168,19 @@ class PrismModuleTabsTests(unittest.TestCase):
         self.assertEqual(self.tabs.current_nav_index, 14)
         self.assertEqual(self.tabs.tab_bar.tabText(self.tabs.tab_index(14)), display_name(14, "en"))
 
+    def test_close_targets_cover_self_others_and_all_without_home(self):
+        self.tabs.replace_nav([10, 12, 14])
+        self.tabs.set_current_nav(12)
+        self.assertEqual(self.tabs.close_targets(12, "self"), (12,))
+        self.assertEqual(self.tabs.keep_nav_after_close(12, "self"), 10)
+        self.assertEqual(self.tabs.close_targets(14, "others"), (10, 12))
+        self.assertEqual(self.tabs.keep_nav_after_close(14, "others"), 14)
+        self.assertEqual(self.tabs.close_targets(HOME_NAV, "all"), (10, 14, 12))
+        self.assertEqual(self.tabs.keep_nav_after_close(12, "all"), HOME_NAV)
+        self.assertNotIn(HOME_NAV, self.tabs.close_targets(HOME_NAV, "self"))
+        self.assertEqual(self.tabs.close_targets(HOME_NAV, "self"), ())
+        self.assertEqual(self.tabs.open_nav_indices, (HOME_NAV, 10, 12, 14))
+
     def test_context_request_contains_real_nav_id_and_global_position(self):
         requested = []
         self.tabs.context_requested.connect(lambda index, pos: requested.append((index, pos)))

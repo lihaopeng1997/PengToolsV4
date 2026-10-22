@@ -244,6 +244,39 @@ class MetadataHostTests(unittest.TestCase):
         lease.close()
         self.assertTrue(connection.closed)
 
+    def test_multi_schema_search_does_not_ask_for_clarification(self) -> None:
+        class _SchemaLease(_MetadataLease):
+            def execute_readonly(self, request, **_kwargs):
+                self.thread_ids.append(threading.get_ident())
+                params = tuple(request.get("parameters", ()))
+                self.calls.append((request["sql"], params))
+                schema = params[0] if params else ""
+                rows = [("SALES", "PRPCMAIN", "TABLE", None)] if schema == "SALES" else []
+                return {"columns": (), "rows": rows}
+
+        class _SchemaFactory(_MetadataFactory):
+            def __call__(self, connection_id: str, **_kwargs):
+                self.calls += 1
+                lease = _SchemaLease(self.target, self.rows)
+                self.leases.append(lease)
+                return lease
+
+        target = MetadataTarget(
+            "conn-1", "rev-1", "oracle", mode="oracle", database="DB1",
+            schema_allowlist=("EXFSYS", "SALES"),
+        )
+        factory = _SchemaFactory(target)
+        host = MetadataHost(target, lease_factory=factory, max_page_size=20)
+        result = host.search_objects({"keyword": "prpcmain", "kinds": []}, query_id="search-many")
+        host.close()
+        self.assertTrue(result.ok, result)
+        self.assertEqual(result.code, "OK")
+        self.assertEqual(result.data["objects"][0]["name"], "PRPCMAIN")
+        self.assertEqual(result.data["objects"][0]["schema"], "SALES")
+        self.assertEqual(factory.leases[0].calls[0][1][0], "EXFSYS")
+        self.assertEqual(factory.leases[0].calls[1][1][0], "SALES")
+        self.assertEqual(factory.leases[0].calls[1][1][1], "%PRPCMAIN%")
+
     def test_mysql_and_oceanbase_templates_are_fixed_and_parameterized(self) -> None:
         for provider, mode in (("mysql", ""), ("oceanbase_mysql", "mysql")):
             with self.subTest(provider=provider):
@@ -438,6 +471,95 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(payload["query_ids"], ["q"])
         self.assertIn("metadata:s", payload["evidence_ids"])
         self.assertIn("metadata:d", payload["evidence_ids"])
+
+    def test_qwen_text_query_runs_and_redis_prompt_does_not_pretend_to_be_sql(self) -> None:
+        target = MetadataTarget("conn-1", "rev-1", "oracle", mode="oracle", database="DB1", schema_allowlist=("APP",))
+
+        class Metadata:
+            def execute(self, call, *, context, cancellation, **_kwargs):  # noqa: ARG002
+                return ToolResult(ok=True, data={"objects": []}, evidence_id="metadata:s", query_id=call.call_id, scope=target.scope)
+
+        class Query:
+            host_only = True
+            verified_readonly = True
+
+            def __init__(self):
+                self.calls = []
+                self.tracker = None
+
+            def __call__(self, call, *, context, cancellation):  # noqa: ARG002
+                from concurrent.futures import Future
+
+                self.calls.append(dict(call.arguments))
+                future = Future()
+                future.query_id = call.call_id
+                future.session_id = context.tab_id
+                future.generation = 1
+                future.set_result(None)
+                self.tracker.register_query_owner(
+                    context, call.call_id, session_id=context.tab_id, generation=1, future=future,
+                )
+                return ToolResult(
+                    ok=True,
+                    data={"columns": [{"name": "DATA_COUNT"}], "rows": [(12,)]},
+                    evidence_id="query:e",
+                    query_id=call.call_id,
+                    scope=target.scope,
+                )
+
+        class Model:
+            model_config_id = "model-1"
+
+            def __init__(self):
+                self.requests = []
+
+            def complete_turn(self, request, *, cancellation, on_delta):  # noqa: ARG002
+                self.requests.append(request)
+                if len(self.requests) == 1:
+                    return AgentTurn(
+                        text=(
+                            "我来查这张表。\n"
+                            "<tool_call><function=query_readonly>"
+                            "<parameter=sql>SELECT COUNT(*) AS data_count FROM APP.PRPTMAIN</parameter>"
+                            "<parameter=row_limit>20</parameter>"
+                            "</function></tool_call>"
+                        ),
+                        finish_reason="stop",
+                    )
+                return AgentTurn(text="APP.PRPTMAIN 有 12 行。", finish_reason="stop")
+
+        query = Query()
+        model = Model()
+        runtime = DataCenterAgentRuntime(
+            _context(), provider="oracle", mode="oracle", model=model, metadata_host=Metadata(), query_tool=query,
+        )
+        query.tracker = runtime.query_owner_tracker
+        result = runtime.run("查一下 prptmain 表中有多少条数据")
+        runtime.close()
+        self.assertEqual(result.status, AgentStatus.COMPLETED)
+        self.assertEqual(result.final_text, "APP.PRPTMAIN 有 12 行。")
+        self.assertEqual(query.calls, [{"sql": "SELECT COUNT(*) AS data_count FROM APP.PRPTMAIN", "row_limit": 20}])
+        self.assertTrue(result.events[-1].payload.get("verified"))
+
+        class Idle:
+            model_config_id = "model-1"
+
+            def execute(self, call, *, context, cancellation, **_kwargs):  # noqa: ARG002
+                return ToolResult(ok=False, code="UNUSED", data={})
+
+        redis_runtime = DataCenterAgentRuntime(
+            _context(schemas=()),
+            provider="redis",
+            mode="cluster",
+            model=Model(),
+            metadata_host=Idle(),
+        )
+        prompt = redis_runtime.runner.system_prompt
+        redis_runtime.close()
+        self.assertIn("redis / cluster", prompt)
+        self.assertIn("redis_read", prompt)
+        self.assertIn("没有 SQL 表", prompt)
+        self.assertIn("SQL 控制台", prompt)
 
     def test_runtime_query_scope_rejection_makes_zero_query_calls(self) -> None:
         class Metadata:

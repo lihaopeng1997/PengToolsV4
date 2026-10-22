@@ -135,12 +135,12 @@ class PrismSidebarMenuTests(unittest.TestCase):
 
         self.assertEqual(self.model, original_model)
 
-    def test_locked_private_page_is_not_rendered(self):
+    def test_learning_page_is_rendered_without_easter_egg(self):
         self.sidebar.set_nav_model(build_web_nav_model_data(private_unlocked=False))
-        self.assertNotIn(8, self.sidebar._buttons)
-        self.assertNotIn('personal', [group['key'] for group in self.sidebar.nav_model['groups']])
+        self.assertIn(8, self.sidebar._buttons)
+        self.assertIn('personal', [group['key'] for group in self.sidebar.nav_model['groups']])
         self.sidebar.set_icon_only(True)
-        self.assertNotIn('personal', self.sidebar._group_buttons)
+        self.assertIn('personal', self.sidebar._group_buttons)
         self.sidebar.set_nav_model(self.model)
         self.assertIn('personal', self.sidebar._group_buttons)
         self.assertIn(8, [item['i'] for item in self.sidebar.nav_model['groups'][-1]['items']])

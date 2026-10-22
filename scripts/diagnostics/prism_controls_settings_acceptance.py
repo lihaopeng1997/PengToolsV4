@@ -220,12 +220,7 @@ class FixtureSettingsPanelMixin:
             combo.setCurrentIndex(index if index >= 0 else 0)
         self._reload_harness_projects(str(cfg.get("project_id") or "fixture-project"))
         self.ai_base_url.setText(str(cfg.get("base_url") or ""))
-        self.ai_model.blockSignals(True)
-        self.ai_model.clear()
-        for model in cfg.get("available_models") or []:
-            self.ai_model.addItem(str(model))
-        self.ai_model.setCurrentText(str(cfg.get("model") or ""))
-        self.ai_model.blockSignals(False)
+        self.ai_model.setText(str(cfg.get("model") or ""))
         self.ai_token.clear()
         self.ai_app_tag.clear()
         self.ai_timeout.setValue(int(cfg.get("timeout_seconds") or 30))
@@ -270,7 +265,7 @@ class FixtureSettingsPanelMixin:
             {
                 "id": str(getattr(self, "_ai_editing_id", "")),
                 "name": self.ai_name.text(),
-                "model": self.ai_model.currentText(),
+                "model": self.ai_model.text(),
                 "base_url": self.ai_base_url.text(),
                 "enabled": self.ai_enabled.isChecked(),
             }

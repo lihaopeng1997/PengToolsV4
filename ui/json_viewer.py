@@ -121,9 +121,8 @@ class JsonViewer(QWidget):
         self.text_edit.setReadOnly(False)
         from PyQt6.QtWidgets import QPlainTextEdit
         self.text_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        mono = QFont('Consolas', 10)
-        mono.setStyleHint(QFont.StyleHint.Monospace)
-        self.text_edit.setFont(mono)
+        from ui.design_system import mono_font
+        self.text_edit.setFont(mono_font())
         self.tabs.addTab(self.text_edit, '')
 
         self.tree = QTreeWidget()

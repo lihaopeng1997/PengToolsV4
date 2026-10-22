@@ -26,7 +26,10 @@ class IntranetLlmTests(unittest.TestCase):
         self.assertFalse(cfg['enabled'])
         self.assertEqual(cfg['base_url'], '')
         self.assertFalse(is_enabled(cfg))
-        self.assertFalse(is_enabled(DEFAULT_AI_LOCAL))
+        self.assertTrue(is_enabled(DEFAULT_AI_LOCAL))
+        self.assertEqual(DEFAULT_AI_LOCAL['model'], 'qwen3.8')
+        self.assertEqual(DEFAULT_AI_LOCAL['base_url'], 'http://10.128.25.142:18002/v1')
+        self.assertEqual(DEFAULT_AI_LOCAL['token'], '')
 
     def test_allows_private_and_loopback(self):
         self.assertTrue(host_allowed('127.0.0.1')[0])

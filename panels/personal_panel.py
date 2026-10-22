@@ -456,12 +456,14 @@ class KnowledgeTab(QWidget):
                     labels.append(label)
                     self._suggestion_targets[label] = (entry.get('id'), None)
             else:
+                from tools.personal_knowledge import row_matches_query
                 for row_index, row in enumerate(entry.get('rows', [])):
+                    if not row_matches_query(row, query):
+                        continue
                     row_text = '  '.join(str(value) for value in row if str(value).strip())
-                    if row_text and all(term in row_text.casefold() for term in terms):
-                        label = f"表格 · {entry.get('sheet_name', '')} · 第 {row_index + 1} 行 · {row_text[:90]}"
-                        labels.append(label)
-                        self._suggestion_targets[label] = (entry.get('id'), row_index)
+                    label = f"表格 · {entry.get('sheet_name', '')} · 第 {row_index + 1} 行 · {row_text[:90]}"
+                    labels.append(label)
+                    self._suggestion_targets[label] = (entry.get('id'), row_index)
                     if len(labels) >= 12:
                         break
             if len(labels) >= 12:
@@ -650,13 +652,13 @@ class KnowledgeTab(QWidget):
         self.table_view.setColumnCount(column_count)
         self.table_view.setHorizontalHeaderLabels([self._column_name(index) for index in range(column_count)])
         self.table_view.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
-        header_rows = set(entry.get('header_rows', []))
+        from tools.personal_knowledge import workbook_context_header_rows
+        header_rows = workbook_context_header_rows(entry)
         styles = entry.get('cell_styles', {})
         for row_index, row in enumerate(rows):
-            for column_index, value in enumerate(row[:column_count]):
-                if not value:
-                    continue
-                item = QTableWidgetItem(str(value))
+            padded = list(row[:column_count]) + [''] * max(0, column_count - len(row))
+            for column_index, value in enumerate(padded):
+                item = QTableWidgetItem('' if value is None else str(value))
                 style = styles.get(f'{row_index},{column_index}', {})
                 if style.get('bold') or row_index in header_rows:
                     font = item.font(); font.setBold(True); item.setFont(font)
@@ -689,41 +691,44 @@ class KnowledgeTab(QWidget):
             self._highlight_entry_content(entry)
 
     def _filter_workbook_rows(self, entry):
+        from tools.personal_knowledge import workbook_visible_row_indexes
         for item, background in self._highlighted_cells:
             item.setBackground(background)
         self._highlighted_cells = []
         rows = entry.get('rows', [])
-        terms = [term.casefold() for term in self.search_edit.text().split() if term.strip()]
-        header_rows = set(entry.get('header_rows', []))
+        query = self._sanitize_search_query(self.search_edit.text()) if hasattr(self, 'search_edit') else ''
+        visible = workbook_visible_row_indexes(entry, query)
+        visible_set = None if visible is None else set(visible)
         manually_hidden = self._hidden_rows.get(entry.get('id'), set())
-        metadata = ' '.join(str(entry.get(key, '')) for key in ('title', 'tags', 'source', 'sheet_name')).casefold()
-        metadata_match = bool(terms) and all(term in metadata for term in terms)
+        terms = [term.casefold() for term in query.split() if term.strip()]
         matches = 0
         first_match = None
         for row_index, row in enumerate(rows):
-            row_match = not terms or metadata_match or all(term in '\t'.join(map(str, row)).casefold() for term in terms)
-            if terms and row_match and row_index not in header_rows:
-                matches += 1
-            hidden_by_search = bool(terms) and not row_match and row_index not in header_rows
-            self.table_view.setRowHidden(row_index, row_index in manually_hidden or hidden_by_search)
-            if terms and row_match and not metadata_match:
-                for column_index in range(min(len(row), self.table_view.columnCount())):
-                    item = self.table_view.item(row_index, column_index)
-                    if item and any(term in item.text().casefold() for term in terms):
-                        self._highlighted_cells.append((item, QBrush(item.background())))
-                        try:
-                            from ui.theme_manager import ThemeManager
-                            item.setBackground(QColor(ThemeManager.instance().token('SEARCH_MATCH')))
-                        except Exception:
-                            item.setBackground(QColor('#FFF19C'))
-                        first_match = first_match or item
+            row_visible = visible_set is None or row_index in visible_set
+            self.table_view.setRowHidden(row_index, row_index in manually_hidden or not row_visible)
+            if not terms or not row_visible:
+                continue
+            row_text = ' '.join(str(value) for value in row).casefold()
+            if not any(term in row_text for term in terms):
+                continue
+            matches += 1
+            for column_index in range(min(len(row), self.table_view.columnCount())):
+                item = self.table_view.item(row_index, column_index)
+                if item and any(term in item.text().casefold() for term in terms):
+                    self._highlighted_cells.append((item, QBrush(item.background())))
+                    try:
+                        from ui.theme_manager import ThemeManager
+                        item.setBackground(QColor(ThemeManager.instance().token('SEARCH_MATCH')))
+                    except Exception:
+                        item.setBackground(QColor('#FFF19C'))
+                    first_match = first_match or item
         if first_match:
             self.table_view.setCurrentItem(first_match)
             self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
             self.table_view.clearSelection()
         if terms:
-            shown = len(rows) if metadata_match else matches
-            self.table_status.setText(f'实时定位并高亮：匹配 {shown} / 总计 {len(rows)} 行；双击单元格可复制')
+            shown = len(rows) if visible is None else matches
+            self.table_status.setText(f'匹配 {shown} / 总计 {len(rows)} 行；只显示命中行和表头')
         else:
             self.table_status.setText(f'Excel 视图：{len(rows)} 行 × {entry.get("column_count", 0)} 列；双击单元格可复制')
 

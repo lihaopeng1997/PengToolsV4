@@ -720,7 +720,8 @@ class SqlToolPanel(QWidget):
 
         self.input_sql = QPlainTextEdit()
         self.input_sql.setObjectName('sql-input-editor')
-        self.input_sql.setFont(QFont('Consolas', 10))
+        from ui.design_system import mono_font
+        self.input_sql.setFont(mono_font())
         from ui.responsive import editor_min_height as _editor_min_h
         self.input_sql.setMinimumHeight(_editor_min_h())
         self.input_sql.textChanged.connect(self._reset_sources_if_empty)
@@ -826,7 +827,8 @@ class SqlToolPanel(QWidget):
         from ui.responsive import editor_min_height
         editor = QPlainTextEdit()
         editor.setReadOnly(True)
-        editor.setFont(QFont('Consolas', 9))
+        from ui.design_system import mono_font
+        editor.setFont(mono_font())
         editor.setMinimumHeight(120)
         return editor
 
@@ -1478,7 +1480,8 @@ class SqlToolPanel(QWidget):
         hint.setWordWrap(True)
         root.addWidget(hint)
         editor = QPlainTextEdit()
-        editor.setFont(QFont('Consolas', 10))
+        from ui.design_system import mono_font
+        editor.setFont(mono_font())
         editor.setPlainText(text)
         editor.setReadOnly(True)
         root.addWidget(editor, 1)

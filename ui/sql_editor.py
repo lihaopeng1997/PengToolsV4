@@ -86,7 +86,8 @@ class SqlEditor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName('sql-editor')
-        self.setFont(QFont('Consolas', 10))
+        from ui.design_system import mono_font
+        self.setFont(mono_font())
         self.setTabStopDistance(32)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._gutter = _LineNumberArea(self)

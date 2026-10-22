@@ -66,7 +66,7 @@ class NavigationModelPrismContractTests(unittest.TestCase):
                 self.assertEqual(projected[index]['zh'], zh)
                 self.assertEqual(projected[index]['icon'], icon)
         locked = build_web_nav_model_data(private_unlocked=False)
-        self.assertNotIn(8, [item['i'] for group in locked['groups'] for item in group['items']])
+        self.assertIn(8, [item['i'] for group in locked['groups'] for item in group['items']])
 
 
 class WebChromeSourceContractTests(unittest.TestCase):

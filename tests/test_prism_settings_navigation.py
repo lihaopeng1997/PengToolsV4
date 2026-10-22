@@ -56,7 +56,7 @@ class SettingsNavigationTests(unittest.TestCase):
                 panel.ai_list.setCurrentRow(1)
                 self.app.processEvents()
                 self.assertEqual(panel.ai_name.text(), '示例助手B')
-                self.assertEqual(panel.ai_model.currentText(), 'demo-two')
+                self.assertEqual(panel.ai_model.text(), 'demo-two')
                 self.assertIn('示例助手B', panel.ai_list.currentItem().toolTip())
                 self.assertGreaterEqual(panel.ai_list.visualItemRect(panel.ai_list.currentItem()).height(), 36)
                 self.assertTrue(panel.save_btn.isVisible())

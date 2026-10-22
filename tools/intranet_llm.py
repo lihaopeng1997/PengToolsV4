@@ -24,13 +24,17 @@ from urllib.parse import urljoin, urlparse
 from config import AI_LOCAL_FILE, ensure_config_dir
 from tools import anthropic_compat
 
+INTRANET_DEFAULT_NAME = 'qianwen3.8'
+INTRANET_DEFAULT_BASE_URL = 'http://10.128.25.142:18002/v1'
+INTRANET_DEFAULT_MODEL = 'qwen3.8'
+
 DEFAULT_AI_LOCAL = {
     'provider': 'intranet',
     # 'openai' = /v1/chat/completions；'anthropic' = /v1/messages（Claude Code 网关）
     'api_protocol': 'openai',
-    'enabled': False,
-    'base_url': '',
-    'model': '',
+    'enabled': True,
+    'base_url': INTRANET_DEFAULT_BASE_URL,
+    'model': INTRANET_DEFAULT_MODEL,
     'timeout_seconds': 120,
     'ssl_verify': True,
     'token': '',
@@ -448,7 +452,12 @@ def get_active_item(catalog=None) -> dict:
     if item:
         return item
     items = list(data.get('items') or [])
-    return dict(items[0]) if items else normalize_ai_local({})
+    if items:
+        return dict(items[0])
+    profile = normalize_ai_local({})
+    profile['name'] = INTRANET_DEFAULT_NAME
+    profile['available_models'] = [INTRANET_DEFAULT_MODEL]
+    return profile
 
 
 def list_enabled_items(catalog=None) -> list[dict]:
@@ -932,7 +941,7 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
         names = []
     if names:
         return names
-    fallback_model = DEEPSEEK_DEFAULT_MODEL if provider_for_config(cfg) == 'deepseek' else 'qwen3.6'
+    fallback_model = DEEPSEEK_DEFAULT_MODEL if provider_for_config(cfg) == 'deepseek' else INTRANET_DEFAULT_MODEL
     model = str(cfg.get('model') or fallback_model).strip() or fallback_model
     ping = dict(cfg)
     ping['model'] = model
@@ -944,7 +953,7 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
 def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None = None) -> str:
     cfg = _cfg_for_call(cfg, model_config_id)
     provider = provider_for_config(cfg)
-    default_model = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else 'qwen3.6'
+    default_model = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else INTRANET_DEFAULT_MODEL
     model = str(cfg.get('model') or '').strip() or default_model
     body = {
         'model': model,

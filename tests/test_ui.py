@@ -284,9 +284,9 @@ class UiRegressionTests(unittest.TestCase):
         with patch('main_window.load_settings', return_value=settings):
             window = MainWindow()
         try:
-            # 仅自我学习(8)可隐藏；日报(9)、需求(10)必须常显（AGENTS / V2 导航模型）
-            # 未解锁时侧栏根本不生成自我学习按钮（等同隐藏）
-            self.assertTrue(window.nav_buttons[8] is None or window.nav_buttons[8].isHidden())
+            # 自我学习默认展示，不再依赖彩蛋
+            self.assertIsNotNone(window.nav_buttons[8])
+            self.assertFalse(window.nav_buttons[8].isHidden())
             self.assertFalse(window.nav_buttons[9].isHidden())
             self.assertFalse(window.nav_buttons[10].isHidden())
             self.assertIsNotNone(window.settings_button)

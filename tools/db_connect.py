@@ -701,13 +701,35 @@ class OceanBaseOdbcConnection:
         return getattr(self._conn, name)
 
 
-def oceanbase_odbc_driver_status(available_drivers: list[str] | None = None) -> tuple[str, list[str]]:
+def installed_odbc_drivers() -> list[str]:
+    """返回当前进程能看见的 ODBC 驱动名称。失败时返回空列表。"""
+    try:
+        import pyodbc
+        return [str(item).strip() for item in (pyodbc.drivers() or []) if str(item).strip()]
+    except Exception:
+        return []
+
+
+def configured_oceanbase_odbc_driver() -> str:
+    """设置里指定的驱动名称。读失败或未配置时返回空串，表示自动匹配。"""
+    try:
+        from config import load_settings
+        return str(load_settings().get('oceanbase_odbc_driver') or '').strip()
+    except Exception:
+        return ''
+
+
+def oceanbase_odbc_driver_status(
+    available_drivers: list[str] | None = None,
+    preferred: str | None = None,
+) -> tuple[str, list[str]]:
     """检测当前 Python 环境可见的 OceanBase ODBC 驱动。
     规则：
-    1. 首选精确匹配 'OceanBase ODBC 2.0 Driver'；
-    2. 兼容包含 'oceanbase' 与 'odbc' 的名称（忽略大小写）；
-    3. 若匹配到多个候选且无精确匹配，明确报错歧义，不随机挑选；
-    4. 若未匹配到候选，报错提示安装驱动。
+    1. 若设置或调用方指定了驱动名，只使用该精确名称；
+    2. 否则首选精确匹配 'OceanBase ODBC 2.0 Driver'；
+    3. 兼容包含 'oceanbase' 与 'odbc' 的名称（忽略大小写）；
+    4. 若匹配到多个候选且无精确匹配，明确报错歧义，不随机挑选；
+    5. 若未匹配到候选，报错提示安装驱动。
     返回 (selected_driver, all_drivers)。
     """
     if available_drivers is None:
@@ -720,6 +742,15 @@ def oceanbase_odbc_driver_status(available_drivers: list[str] | None = None) -> 
             drivers = []
     else:
         drivers = list(available_drivers)
+
+    preferred_name = str(preferred or '').strip()
+    if preferred_name:
+        if preferred_name in drivers:
+            return preferred_name, drivers
+        raise DbError(
+            f'[ODBC_DRIVER_REQUIRED] 设置中的 OceanBase ODBC 驱动未安装：{preferred_name}\n'
+            '请到「设置 → 数据库客户端」重新选择已安装的驱动，或先安装 OceanBase Connector/ODBC。'
+        )
 
     if 'OceanBase ODBC 2.0 Driver' in drivers:
         return 'OceanBase ODBC 2.0 Driver', drivers
@@ -740,7 +771,7 @@ def oceanbase_odbc_driver_status(available_drivers: list[str] | None = None) -> 
     raise DbError(
         f'[ODBC_DRIVER_REQUIRED] 未检测到 Windows {arch} OceanBase Connector/ODBC。\n'
         '需要驱动：OceanBase ODBC 2.0 Driver\n'
-        '安装驱动后请重新打开连接配置并测试。'
+        '安装后可在「设置 → 数据库客户端」选择实际驱动名称，再重新打开连接配置并测试。'
     )
 
 
@@ -766,7 +797,9 @@ def oceanbase_oracle_provider_status() -> dict:
 
     if pyodbc_available:
         try:
-            selected, _ = oceanbase_odbc_driver_status(drivers)
+            selected, _ = oceanbase_odbc_driver_status(
+                drivers, preferred=configured_oceanbase_odbc_driver() or None,
+            )
             driver_name = selected
             driver_available = True
             status_code = 'READY'
@@ -887,7 +920,9 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
         raise DbError('用户名不能为空')
     password = plain_password if plain_password is not None else _decrypt(str(item.get('password') or ''))
 
-    driver_name, _ = oceanbase_odbc_driver_status()
+    driver_name, _ = oceanbase_odbc_driver_status(
+        preferred=configured_oceanbase_odbc_driver() or None,
+    )
 
     # 根据官方 OceanBase Connector/ODBC Windows DSN-less 规范构建连接串：
     # Option=3 follows OceanBase official Windows ODBC example and selects TCP/IP connection mode.

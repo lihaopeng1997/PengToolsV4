@@ -17,6 +17,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+from tools.agent_core.text_protocol import parse_qwen_tool_calls, strip_tool_markup, TEXT_PROTOCOL_INSTRUCTION
 from tools.ai_harness import strip_markdown_fence
 from tools.sql_guard import redact_error
 
@@ -383,7 +384,19 @@ def _read_file_impl(
     if requested < 1:
         return {'ok': False, 'error': 'char_count 必须大于 0'}
     limit = min(requested, MAX_READ_FILE_CHARS)
+    from tools.agent_diag import log_agent_event
+    import time as _time
+    started = _time.perf_counter()
+    log_agent_event('read_file_start', path=str(relative_path)[-120:], offset=offset, char_count=limit)
     full = _read_complete_file_impl(relative_path, workspace_dir)
+    log_agent_event(
+        'read_file_end',
+        path=str(relative_path)[-120:],
+        elapsed_ms=int((_time.perf_counter() - started) * 1000),
+        ok=bool(full.get('ok')),
+        error=str(full.get('error') or '')[:80],
+        total_chars=len(str(full.get('content') or '')),
+    )
     if not full.get('ok'):
         return full
     content = str(full.get('content') or '')
@@ -1137,6 +1150,7 @@ def build_tool_system_prompt(
     *,
     strict_json: bool = False,
     tools_enabled: bool = True,
+    text_protocol: bool = False,
 ) -> str:
     """Describe the bound programming tools without granting model path control."""
     if not tools_enabled:
@@ -1146,12 +1160,20 @@ def build_tool_system_prompt(
             '只能根据用户在对话中提供的信息给建议；不要声称已读取或修改任何项目文件。\n'
         )
     schemas_json = json.dumps(TOOL_SCHEMAS, ensure_ascii=False, indent=2)
-    protocol = (
-        '模型工具调用必须使用 strict JSON envelope：{"tool_calls":[{"id":"...","name":"...","arguments":{...}}]}；'
-        '最终回答使用 {"tool_calls":[],"final_answer":"..."}。只输出完整 JSON，不要用自然语言包裹。'
-        if strict_json else
-        '只能通过已绑定的原生工具调用工作；不要在自然语言中输出可执行 JSON。'
-    )
+    if strict_json:
+        protocol = (
+            '模型工具调用必须使用 strict JSON envelope：{"tool_calls":[{"id":"...","name":"...","arguments":{...}}]}；'
+            '最终回答使用 {"tool_calls":[],"final_answer":"..."}。只输出完整 JSON，不要用自然语言包裹。'
+        )
+    elif text_protocol:
+        protocol = TEXT_PROTOCOL_INSTRUCTION
+    else:
+        protocol = (
+            '优先使用已绑定的原生工具调用，不要在自然语言里再包一层可执行 JSON。'
+            '如果网关只把调用写在正文里，用完整的 '
+            '<tool_call><function=工具名><parameter=参数名>参数值</parameter></function></tool_call>，'
+            '应用会执行。不要输出未闭合标签，也不要在没看到工具结果时声称已经读过文件。'
+        )
     return (
         '你是编程 Agent。应用已绑定当前工作区；你不能选择工作区或访问其他连接。\n'
         f'可用的受控工具定义：\n{schemas_json}\n'
@@ -1308,14 +1330,31 @@ class _TextToolCallRecovery:
     def complete_turn(self, request, *, cancellation, on_delta):
         from tools.agent_core import AgentTurn, ToolCall
 
+        from tools.agent_diag import log_agent_event
+        import time as _time
+        started = _time.perf_counter()
+        log_agent_event('wb_model_turn_start')
         turn = self._inner.complete_turn(request, cancellation=cancellation, on_delta=on_delta)
+        elapsed_ms = int((_time.perf_counter() - started) * 1000)
         if getattr(turn, 'tool_calls', None) or not str(getattr(turn, 'text', '') or '').strip():
+            log_agent_event(
+                'wb_model_turn_end',
+                elapsed_ms=elapsed_ms,
+                native_calls=len(getattr(turn, 'tool_calls', ()) or ()),
+                text_chars=len(str(getattr(turn, 'text', '') or '')),
+            )
             return turn
         calls = recover_text_tool_calls(turn.text)
+        log_agent_event(
+            'wb_model_turn_end',
+            elapsed_ms=elapsed_ms,
+            recovered=len(calls),
+            text_chars=len(turn.text or ''),
+        )
         if not calls:
             return turn
         return AgentTurn(
-            text='',
+            text=strip_tool_markup(turn.text),
             tool_calls=tuple(
                 ToolCall(f'text-call-{uuid.uuid4().hex[:12]}', item['tool'], item['args']) for item in calls
             ),
@@ -1361,14 +1400,38 @@ def _balanced_json_object(text: str, start: int) -> str:
     return ''
 
 
+def _qwen_payloads(text: str) -> list[dict] | None:
+    """None：没有千问标记。[]：标记损坏，调用方应放弃整批。"""
+    parsed = parse_qwen_tool_calls(text)
+    if parsed is None:
+        return None
+    if not parsed:
+        return []
+    return [{'name': item['name'], 'arguments': item.get('arguments') or {}} for item in parsed]
+
+
 def _recover_marked_tool_calls(raw: str) -> list[dict]:
     """识别带明确调用标记的正文工具调用；任一调用未知/参数无效则整体放弃。"""
     payloads: list[dict] = []
-    for match in _TAGGED_TOOL_CALL_RE.finditer(raw):
-        try:
-            payloads.extend(_flatten_tool_payloads(json.loads(match.group(1))))
-        except (TypeError, ValueError):
-            return []
+    tagged = list(_TAGGED_TOOL_CALL_RE.finditer(raw))
+    if tagged:
+        for match in tagged:
+            inner = match.group(1).strip()
+            try:
+                payloads.extend(_flatten_tool_payloads(json.loads(inner)))
+                continue
+            except (TypeError, ValueError):
+                pass
+            qwen = _qwen_payloads(inner if '<function=' in inner.lower() else f'<tool_call>{inner}</tool_call>')
+            if not qwen:
+                return []
+            payloads.extend(qwen)
+    if not payloads:
+        qwen = _qwen_payloads(raw)
+        if qwen is not None:
+            if not qwen:
+                return []
+            payloads.extend(qwen)
     if not payloads:
         for match in _MARKED_TOOL_CALL_RE.finditer(raw):
             name = match.group(1)
@@ -1669,18 +1732,20 @@ def run_agent_loop(
     capability_text = str(getattr(declared_capability, 'value', declared_capability) or '').strip().lower()
     explicit_text_only = capability_text == 'text_only'
     strict_json = capability_text == 'strict_json'
+    tools_enabled = not explicit_text_only
     registry = ProgrammingToolRegistry(
         workspace_dir,
         confirm_cb=confirm_cb,
         cancellation=token,
-        enabled=not explicit_text_only,
+        enabled=tools_enabled,
     )
     system_prompt = build_tool_system_prompt(
         workspace_dir,
         strict_json=strict_json,
-        tools_enabled=not explicit_text_only,
+        tools_enabled=tools_enabled,
+        text_protocol=tools_enabled and not strict_json and capability_text != 'native_tools',
     )
-    if capability_text == 'native_tools' and not explicit_text_only:
+    if not explicit_text_only and not strict_json:
         model_adapter = _TextToolCallRecovery(model_adapter)
     if memory_binding is not None:
         system_prompt += (

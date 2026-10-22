@@ -589,7 +589,8 @@ class InterfaceDebugPanel(QWidget):
         rl.addWidget(self.detail_summary)
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName('module-tabs')
-        mono = QFont('Consolas', 10)
+        from ui.design_system import mono_font
+        mono = mono_font()
         mono.setStyleHint(QFont.StyleHint.Monospace)
 
         # Tab 0 概览

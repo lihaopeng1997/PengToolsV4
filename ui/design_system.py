@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QTabWidget, QTreeWidget, QWidget,
 )
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
 from ui.field_metrics import size_compact_button
 from ui.icons import apply_icon
 from ui import layout_metrics as _lm
+from ui.theme_manager import FONT_MONO_FAMILIES, FONT_MONO_POINT, FONT_ROLES, FONT_UI_FAMILY
 
 # 视觉 token（与 layout_metrics / style.qss 保持一致）
 COLOR_BG_APP = _lm.APP_BG
@@ -26,6 +28,29 @@ COLOR_PRIMARY_SOFT = _lm.PRIMARY_SOFT
 COLOR_DANGER = _lm.DANGER
 COLOR_SUCCESS = _lm.SUCCESS
 COLOR_SELECTION = _lm.PRIMARY_SOFT
+
+
+def mono_font() -> QFont:
+    """SQL / 代码 / 终端共用的等宽字体，字号只有 FONT_MONO_POINT 一档。"""
+    font = QFont()
+    font.setFamilies(list(FONT_MONO_FAMILIES))
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
+    font.setKerning(False)
+    font.setPointSize(FONT_MONO_POINT)
+    return font
+
+
+def apply_text_role(widget, role: str) -> None:
+    """把控件字号锁到字体阶梯。不改文案、信号和 objectName。"""
+    spec = FONT_ROLES[role]
+    font = widget.font()
+    font.setFamily(FONT_UI_FAMILY)
+    font.setPixelSize(int(spec['size']))
+    weight = QFont.Weight.DemiBold if int(spec['weight']) >= 600 else QFont.Weight.Normal
+    font.setWeight(weight)
+    widget.setFont(font)
+    widget.setProperty('textRole', role)
 
 RADIUS_CONTROL = _lm.RADIUS_CONTROL
 RADIUS_CARD = _lm.RADIUS_CARD

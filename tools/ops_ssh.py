@@ -1378,6 +1378,70 @@ def remote_home_dir(client) -> str:
             raise OpsSshError(f'无法获取家目录：{exc}') from exc
 
 
+def safe_download_filename(name: str) -> str:
+    """本地保存用的文件名：去掉路径和 Windows 非法字符，不带回远端内容。"""
+    base = str(name or '').replace('\\', '/').split('/')[-1].strip()
+    cleaned = []
+    for ch in base:
+        if ch in '<>:"|?*' or ord(ch) < 32:
+            cleaned.append('_')
+        else:
+            cleaned.append(ch)
+    base = ''.join(cleaned).rstrip(' .')
+    if not base or base in ('.', '..'):
+        return 'download'
+    return base[:180]
+
+
+def download_remote_file(client, remote_path: str, local_path: str) -> dict:
+    """SFTP 下载单个文件到本地路径。返回路径和字节数，不返回文件内容。"""
+    if client is None:
+        raise OpsSshError('未连接服务器')
+    remote = str(remote_path or '').strip()
+    local = str(local_path or '').strip()
+    if not remote or remote in ('.', '..') or remote.endswith('/'):
+        raise OpsSshError('请选择文件，不能下载目录')
+    if '\x00' in remote or '\x00' in local:
+        raise OpsSshError('路径含非法字符')
+    if not local or local.endswith(('\\', '/')) or os.path.isdir(local):
+        raise OpsSshError('请指定本机保存的文件名')
+    try:
+        sftp = client.open_sftp()
+    except Exception as exc:
+        raise OpsSshError(f'无法打开 SFTP：{exc}') from exc
+    try:
+        try:
+            remote = sftp.normalize(remote)
+        except Exception:
+            pass
+        try:
+            st = sftp.stat(remote)
+        except FileNotFoundError as exc:
+            raise OpsSshError(f'文件不存在：{remote}') from exc
+        except Exception as exc:
+            raise OpsSshError(f'无法访问文件：{exc}') from exc
+        mode = int(getattr(st, 'st_mode', 0) or 0)
+        if stat_mod.S_ISDIR(mode):
+            raise OpsSshError('这是文件夹，请进入后选择文件再下载')
+        parent = os.path.dirname(os.path.abspath(local))
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
+        try:
+            sftp.get(remote, local)
+        except Exception as exc:
+            raise OpsSshError(f'下载失败：{exc}') from exc
+        try:
+            size = os.path.getsize(local)
+        except OSError:
+            size = int(getattr(st, 'st_size', 0) or 0)
+        return {'remote': remote, 'local': local, 'size': size}
+    finally:
+        try:
+            sftp.close()
+        except Exception:
+            pass
+
+
 def parent_remote_path(path: str) -> str:
     p = str(path or '/').rstrip('/')
     if not p or p == '/':

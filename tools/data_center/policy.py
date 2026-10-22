@@ -279,7 +279,7 @@ class DataCenterPolicy:
 
         if not isinstance(arguments, Mapping):
             return _failure("ARGUMENT_INVALID", "工具参数必须是对象")
-        args = dict(arguments)
+        args = _relax_model_arguments(name, dict(arguments))
 
         override_keys = {str(key).casefold() for key in args}.intersection(HOST_OVERRIDE_ARGUMENTS)
         if override_keys:
@@ -345,6 +345,49 @@ def decide_tool_call(call: ToolCall | Mapping[str, Any], context: RunContext) ->
     """Module-level validation with an explicit ``allowed`` property."""
 
     return DataCenterPolicy().decide(call, context)
+
+
+_SEARCH_KEYWORD_ALIASES = ("table", "table_name", "object_name", "object", "name", "query")
+
+
+def _relax_model_arguments(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Accept the parameter names intranet models actually emit.
+
+    Host targets such as connection and database stay forbidden. A schema name
+    on search_objects is not a connection override: the host allow-list still
+    bounds the search, so that extra key is dropped instead of failing the call.
+    """
+
+    if name == "search_objects":
+        if "keyword" not in args:
+            for alias in _SEARCH_KEYWORD_ALIASES:
+                value = args.get(alias)
+                if isinstance(value, str) and value.strip():
+                    args["keyword"] = value.strip()
+                    break
+        for alias in _SEARCH_KEYWORD_ALIASES:
+            args.pop(alias, None)
+        args.pop("schema", None)
+        args.pop("schema_name", None)
+        kind = args.pop("kind", None)
+        kinds = args.get("kinds", kind)
+        if isinstance(kinds, str):
+            args["kinds"] = [part.strip() for part in kinds.replace("，", ",").split(",") if part.strip()]
+        elif kind is not None and "kinds" not in args:
+            args["kinds"] = kind
+    elif name == "query_readonly":
+        if "sql" not in args:
+            for alias in ("query", "statement"):
+                value = args.get(alias)
+                if isinstance(value, str) and value.strip():
+                    args["sql"] = value
+                    break
+        args.pop("query", None)
+        args.pop("statement", None)
+        limit = args.get("row_limit")
+        if isinstance(limit, str) and limit.strip().isdigit():
+            args["row_limit"] = int(limit.strip())
+    return args
 
 
 def _validate_search_objects(args: dict[str, Any]) -> dict[str, Any]:
