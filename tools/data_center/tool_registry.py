@@ -178,6 +178,19 @@ class QueryOwnerTracker:
             if owner is not None and owner.state == "expected":
                 owner.state = "failed"
 
+    def reject_before_dispatch(self, context: RunContext, query_id: str) -> None:
+        """Retire only a host-rejected query that never reached a worker.
+
+        A pending/failed physical owner can never be cleared by this path.
+        This is called by the target-policy host, not inferred from model or
+        driver result flags.
+        """
+        key = (self._context_key(context), str(query_id or ""))
+        with self._lock:
+            owner = self._owners.get(key)
+            if owner is not None and owner.state == "expected" and owner.future is None:
+                owner.state = "rejected"
+
     def state(self, context: RunContext) -> str:
         context_key = self._context_key(context)
         result = "idle"

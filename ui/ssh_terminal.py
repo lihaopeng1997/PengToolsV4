@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal, QRect, QPoint, QEvent
 from PyQt6.QtGui import (
-    QColor, QFont, QFontInfo, QFontMetrics, QKeyEvent, QMouseEvent,
+    QColor, QFont, QFontInfo, QFontMetrics, QFontMetricsF, QKeyEvent, QMouseEvent,
     QPainter, QPalette, QPen, QBrush, QInputMethodEvent,
 )
 from PyQt6.QtWidgets import (
@@ -215,9 +215,10 @@ def font_locked_to_cell(font: QFont, cell_width: int) -> QFont:
     """
     locked = QFont(font)
     locked.setKerning(False)
-    advance = float(QFontMetrics(locked).horizontalAdvance('0'))
+    locked.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.0)
+    advance = QFontMetricsF(locked).horizontalAdvance('0')
     extra = float(cell_width) - advance
-    if abs(extra) >= 0.05:
+    if abs(extra) > 0.001:
         locked.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, extra)
     return locked
 
@@ -270,6 +271,9 @@ class _ShellBridge(QObject):
 
 class SshTerminalWidget(QWidget):
     """外壳：查找条 + 终端正文（主题协调，无割裂顶栏）。"""
+
+    response_received = pyqtSignal()
+    connection_closed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -376,8 +380,9 @@ class _SshTerminalView(QAbstractScrollArea):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
 
-        self.setFont(pick_terminal_font(TERM_FONT_PT_DEFAULT))
-        self._metrics = terminal_cell_metrics(self.font())
+        self._terminal_font = pick_terminal_font(TERM_FONT_PT_DEFAULT)
+        self.setFont(self._terminal_font)
+        self._metrics = terminal_cell_metrics(self._terminal_font)
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.setInterval(80)
@@ -503,6 +508,7 @@ class _SshTerminalView(QAbstractScrollArea):
         shell = self._shell
         self._shell = None
         self._connected = False
+        self._host.connection_closed.emit()
         if shell is not None:
             try:
                 shell.close()
@@ -562,6 +568,8 @@ class _SshTerminalView(QAbstractScrollArea):
             self._emulator.feed_bytes(data)
         elif isinstance(data, str):
             self._emulator.feed_text(data)
+        if data:
+            self._host.response_received.emit()
 
         self._update_scroll_bar()
         if was_at_bottom:
@@ -573,6 +581,7 @@ class _SshTerminalView(QAbstractScrollArea):
         if gen != self._session_generation:
             return
         self._connected = False
+        self._host.connection_closed.emit()
         self.append_system('[会话已断开]')
 
     def _on_shell_error(self, gen: int, msg: str):
@@ -590,7 +599,7 @@ class _SshTerminalView(QAbstractScrollArea):
         sb.setPageStep(self._emulator.rows)
 
     def _cell_dimensions(self) -> Tuple[int, int]:
-        self._metrics = terminal_cell_metrics(self.font())
+        self._metrics = terminal_cell_metrics(self._terminal_font)
         return int(self._metrics['cell_width']), int(self._metrics['cell_height'])
 
     def _viewport_grid(self) -> tuple[int, int]:
@@ -614,7 +623,7 @@ class _SshTerminalView(QAbstractScrollArea):
         )
 
     def _font_for_style(self, eff: dict, cell_width: int) -> QFont:
-        base = self.font()
+        base = self._terminal_font
         key = (
             base.family(),
             base.pointSize(),

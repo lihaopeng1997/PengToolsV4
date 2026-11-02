@@ -585,6 +585,20 @@ class DataCenterModelAdapterTests(unittest.TestCase):
         self.assertEqual(transport.calls, 1)
         self.assertTrue(transport.source.closed)
 
+    def test_active_stream_can_exceed_idle_interval_but_silence_times_out(self):
+        from tools.agent_core.model_adapter import ModelIdleTimeout
+        class Transport:
+            def stream(self, body, **kwargs):
+                for _ in range(5):
+                    time.sleep(0.02)
+                    yield _frame(json.dumps({'choices': [{'delta': {'content': 'a'}}]}))
+                yield _frame('[DONE]')
+        config = {'model': 'demo', 'agent_capability': 'text_only', 'agent_deadline_seconds': 0.08, 'agent_max_turn_seconds': 1}
+        turn = ModelAdapter(config, transport=Transport()).complete_turn(_request(), cancellation=CancellationToken(), on_delta=lambda _: None)
+        self.assertEqual(turn.text, 'aaaaa')
+        with self.assertRaises(ModelIdleTimeout):
+            ModelAdapter(config, transport=_BlockedTransport()).complete_turn(_request(), cancellation=CancellationToken(), on_delta=lambda _: None)
+
     def test_raw_buffer_limit_stops_plain_json_without_a_tool_turn(self) -> None:
         transport = _MemoryTransport((b"{123", b"4567", b"8"))
 

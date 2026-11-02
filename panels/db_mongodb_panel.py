@@ -243,6 +243,11 @@ class MongoDBWorkbenchPanel(QWidget):
             **dict(data_center_agent_options or {}),
             parent=self,
         )
+        # Replace the legacy generate-only entry with the executing Agent.
+        # Keep its widgets owned for compatibility with existing state helpers.
+        self._legacy_ai_tab = self.side_tabs.widget(1)
+        self.side_tabs.setTabVisible(1, False)
+        self._legacy_ai_tab.hide()
         self.side_tabs.addTab(self.data_center_agent, '只读 Agent' if language == 'zh' else 'Read-only Agent')
         self.conn_combo.currentIndexChanged.connect(self.data_center_agent.target_changed)
 

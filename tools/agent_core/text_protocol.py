@@ -167,14 +167,30 @@ def strip_tool_markup(text: str) -> str:
     return "\n".join(compacted).strip()
 
 
-def visible_model_text(text: str) -> str:
+def visible_model_text(text: str, *, streaming: bool = False) -> str:
     """去掉工具标记和只含 tool_calls/final_answer 的 JSON，留给界面的正文。"""
 
-    cleaned = strip_tool_markup(text)
+    raw = str(text or "")
+    if streaming:
+        # A transport chunk may end in the middle of a tag or protocol key.
+        # This function expects the accumulated turn, never an isolated delta.
+        tag_start = raw.rfind("<")
+        if tag_start >= 0:
+            tail = raw[tag_start:].lower()
+            markers = ("<tool_call", "</tool_call", "<function", "</function", "<parameter", "</parameter")
+            if ">" not in tail and any(marker.startswith(tail) or tail.startswith(marker) for marker in markers):
+                raw = raw[:tag_start]
+        json_start = raw.rfind("{")
+        if json_start >= 0:
+            tail = re.sub(r"\s+", "", raw[json_start:])
+            if any(marker.startswith(tail) for marker in ('{"tool_calls":', '{"final_answer":')):
+                raw = raw[:json_start]
+    cleaned = strip_tool_markup(raw)
+    cleaned = re.sub(r'</?(?:parameter|function|tool_call)\b[^>]*>', '', cleaned, flags=re.I)
     pieces: list[str] = []
     index = 0
     while True:
-        match = re.search(r'\{\s*"tool_calls"\s*:', cleaned[index:], flags=re.I)
+        match = re.search(r'\{\s*"(?:tool_calls|final_answer)"\s*:', cleaned[index:], flags=re.I)
         if match is None:
             pieces.append(cleaned[index:])
             break
@@ -182,7 +198,10 @@ def visible_model_text(text: str) -> str:
         pieces.append(cleaned[index:start])
         blob = _balanced_json_object(cleaned, start)
         if not blob:
-            pieces.append(cleaned[start:])
+            if streaming:
+                pieces.append(_streaming_final_answer(cleaned, start))
+            else:
+                pieces.append(cleaned[start:])
             break
         try:
             data = json.loads(blob)
@@ -191,8 +210,56 @@ def visible_model_text(text: str) -> str:
         else:
             if not isinstance(data, dict) or set(data) - {"tool_calls", "final_answer"}:
                 pieces.append(blob)
+            elif isinstance(data.get("final_answer"), str):
+                pieces.append(data["final_answer"])
         index = start + len(blob)
     return strip_tool_markup("".join(pieces))
+
+
+def _streaming_final_answer(text: str, start: int) -> str:
+    """Show the opened ``final_answer`` string before its closing brace arrives."""
+
+    tail = text[start:]
+    match = re.match(r'\{\s*"final_answer"\s*:\s*', tail, flags=re.I)
+    if match is None:
+        return ""
+    value_at = start + match.end()
+    if value_at >= len(text) or text[value_at] != '"':
+        return ""
+    return _partial_json_string(text, value_at)
+
+
+def _partial_json_string(text: str, start: int) -> str:
+    """Decode a JSON string that may still be missing its closing quote."""
+
+    if start >= len(text) or text[start] != '"':
+        return ""
+    chars: list[str] = []
+    index = start + 1
+    simple = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "/": "/"}
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            if index + 1 >= len(text):
+                break
+            nxt = text[index + 1]
+            if nxt in simple:
+                chars.append(simple[nxt])
+                index += 2
+                continue
+            if nxt == "u":
+                hexpart = text[index + 2:index + 6]
+                if len(hexpart) < 4 or re.fullmatch(r"[0-9a-fA-F]{4}", hexpart) is None:
+                    break
+                chars.append(chr(int(hexpart, 16)))
+                index += 6
+                continue
+            break
+        if char == '"':
+            break
+        chars.append(char)
+        index += 1
+    return "".join(chars)
 
 
 def _balanced_json_object(text: str, start: int) -> str:

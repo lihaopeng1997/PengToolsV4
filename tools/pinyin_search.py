@@ -50,15 +50,31 @@ _GBK_INITIAL_RANGES = (
 
 _VOWEL_STRIP = re.compile(r'[^a-z0-9]+')
 _SPACE_RE = re.compile(r'[\s_\-·./\\:]+')
+# IP、版本号、带端口的地址保持一整段。拆开后 25 会命中 1125，200 会命中 20000。
+_DOTTED_NUMBER = re.compile(r'\d+(?:\.\d+)+(?::\d+)?')
+
+
+def _protect_dotted_numbers(text: str) -> tuple[str, list[str]]:
+    held: list[str] = []
+
+    def _hold(match: re.Match) -> str:
+        held.append(match.group(0))
+        return f' {len(held) - 1:04d}dottedtoken '
+
+    return _DOTTED_NUMBER.sub(_hold, text), held
 
 
 def normalize_query(text: str) -> str:
     s = unicodedata.normalize('NFKD', str(text or ''))
     s = ''.join(ch for ch in s if not unicodedata.combining(ch))
     s = s.casefold().strip()
+    s, held = _protect_dotted_numbers(s)
     s = _SPACE_RE.sub(' ', s)
     # 必须再 strip：否则 "..." 会变成 " "（真值非空），导致当作「有查询」却 0 个 token → 误显示全部
-    return s.strip()
+    s = s.strip()
+    for index, token in enumerate(held):
+        s = s.replace(f'{index:04d}dottedtoken', token)
+    return ' '.join(s.split())
 
 
 def _gbk_initial(ch: str) -> str:
@@ -214,7 +230,11 @@ def match_query(blob_or_text: str, query: str) -> bool:
         latin = _latin_token(term)
         has_cjk = _has_cjk(term)
 
-        if has_cjk:
+        if _DOTTED_NUMBER.fullmatch(term):
+            # 地址和版本号只认连续原文，不进拼音紧凑串。
+            if term in raw_visible or term in raw_line:
+                matched = True
+        elif has_cjk:
             # 中文：先原文，再拼音（全拼走 compact/full，首字母只走 init 行，避免 sq 误伤 jiekousql）
             if term in raw_visible or term in raw_line:
                 matched = True

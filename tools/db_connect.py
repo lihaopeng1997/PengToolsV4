@@ -556,12 +556,25 @@ def resolve_db_provider(item: dict | None) -> str:
     return dialect
 
 
+_OB_ORACLE_SCHEMA = re.compile(r'^[A-Za-z][A-Za-z0-9_$#]{0,127}$')
+
+
+def oceanbase_oracle_schema_sql(schema: str) -> str:
+    """Oracle 模式没有 MySQL database。连上后再切 CURRENT_SCHEMA。"""
+    name = str(schema or '').strip()
+    if not _OB_ORACLE_SCHEMA.fullmatch(name):
+        raise DbError('Database/Schema 只能包含字母、数字、下划线、$ 和 #')
+    quoted = '"' + name.replace('"', '""') + '"'
+    return f'ALTER SESSION SET CURRENT_SCHEMA = {quoted}'
+
+
 def escape_odbc_value(val: Any) -> str:
     """对 ODBC 连接串的属性值进行标准安全转义。
     若包含分号、花括号、等号或空格等保留字符，使用 {} 包裹并将内部的 } 转义为 }}。
     """
     s = str(val or '')
-    if any(c in s for c in (';', '{', '}', '=', ' ')) or not s:
+    # '#' 在 MariaDB/OceanBase ODBC 连接串里会开始注释，user@tenant#cluster 会被截成默认租户 sys。
+    if any(c in s for c in (';', '{', '}', '=', ' ', '#')) or not s:
         return '{' + s.replace('}', '}}') + '}'
     return s
 
@@ -874,6 +887,19 @@ def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None
             '原因：系统 ODBC 管理器中未找到指定的 OceanBase ODBC 驱动。\n'
             '排查建议：请安装与当前 Python 架构一致的 Windows x64 OceanBase Connector/ODBC（首选驱动名：OceanBase ODBC 2.0 Driver）。'
         )
+    if sqlstate in ('28000', '42000') and ('access denied' in low or '1045' in low or 'invalid authorization' in low or 'login failed' in low):
+        hint = '请核对用户名格式（user@租户#集群）和密码。'
+        if '@sys' in low:
+            hint = (
+                '服务器收到的是 @sys 租户。用户名里的 #集群 不能被截掉，'
+                '应完整填写为 用户@租户#集群，例如 INTAUTOCORE@INT_AUTOCORE#obdemo。'
+                'Database/Schema 只填库名，不要拿它代替租户。'
+            )
+        return (
+            f'[AUTH_ERROR] OceanBase (Oracle 模式) 认证失败（用户名或密码错误，SQLSTATE: {sqlstate}）。'
+            f'{ctx}\n'
+            f'排查建议：{hint}'
+        )
     if sqlstate == '28000' or '28000' in low or 'invalid authorization' in low or 'login failed' in low:
         return (
             f'[AUTH_ERROR] OceanBase (Oracle 模式) 认证失败（用户名或密码错误，SQLSTATE: 28000）。'
@@ -897,7 +923,7 @@ def _oceanbase_oracle_error_message(exc: BaseException, item: dict | None = None
 
 
 def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
-    # 0. 迁移安全门禁：旧配置必须先在连接设置中确认 Schema 语义，禁止静默直接连
+    # Oracle 模式固定走 Windows ODBC。Java Agent 需要 Java 21，不作为连接通道。
     require_oceanbase_oracle_odbc_config(item)
 
     try:
@@ -926,11 +952,11 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
 
     # 根据官方 OceanBase Connector/ODBC Windows DSN-less 规范构建连接串：
     # Option=3 follows OceanBase official Windows ODBC example and selects TCP/IP connection mode.
+    # Database= 会被驱动当成 MySQL 库名。Oracle 模式里 Schema 不是库，连上后再切换。
     conn_str = (
         f"Driver={{{driver_name}}};"
         f"Server={escape_odbc_value(host)};"
         f"Port={port};"
-        f"Database={escape_odbc_value(database)};"
         f"User={escape_odbc_value(username)};"
         f"Password={escape_odbc_value(password)};"
         "Option=3"
@@ -938,10 +964,22 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
 
     try:
         raw_conn = pyodbc.connect(conn_str, timeout=8, autocommit=False)
-        return OceanBaseOdbcConnection(raw_conn, driver_name=driver_name)
     except Exception as exc:
         msg = _oceanbase_oracle_error_message(exc, item, plain_password=password)
         raise DbError(msg) from exc
+    try:
+        setup = raw_conn.cursor()
+        setup.execute(oceanbase_oracle_schema_sql(database))
+        setup.close()
+    except Exception as exc:
+        try:
+            raw_conn.close()
+        except Exception:
+            pass
+        raise DbError(
+            f'已连上 OceanBase，但无法切换 Schema {database}：{exc}'
+        ) from exc
+    return OceanBaseOdbcConnection(raw_conn, driver_name=driver_name)
 
 
 def _connect_oracle(item: dict, plain_password: str | None = None):

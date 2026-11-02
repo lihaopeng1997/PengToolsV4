@@ -27,6 +27,7 @@ PengToolsV4/
 ├── prototypes/            # 视觉原型生成器与模板；生成的 index.html 含本地台账，不提交
 ├── requirements.txt
 ├── AGENTS.md              # AI/开发硬规则
+├── pack.cmd               # 双击一键打包 → scripts/pack.ps1
 └── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
 ```
 
@@ -84,9 +85,12 @@ npm run check  # vue-tsc 类型检查 + Vite 双入口构建（file:// 相对产
 发布打包：
 
 ```powershell
-.\build_release.ps1
+.\pack.cmd
+# 或 .\build_release.ps1
 # 产物：dist\PengToolsHub\PengToolsHub.exe 、 PengToolsHub_Offline_Setup.zip
 ```
+
+`pack.cmd` 可双击。打包参数仍只在 `scripts\build_release.ps1`。
 
 发布产物为 onedir 目录（PyInstaller onedir）：
 

@@ -77,8 +77,9 @@ class QuickPanel(QWidget):
         return flags
 
     def __init__(self, main_window, language='zh'):
-        owner = main_window if isinstance(main_window, QWidget) else None
-        super().__init__(owner)
+        # 不把主窗口设为 owner。Windows 上带 owner 的 Tool 窗口会随主窗口
+        # 一起显示、隐藏和最小化，无法单独停留在桌面上操作。
+        super().__init__(None)
         self._main_window = main_window
         self.language = language
         self.expanded = False
@@ -893,6 +894,8 @@ class QuickPanel(QWidget):
             self._schedule_tuck()
 
     def show_panel(self):
+        if self.parentWidget() is not None:
+            self.setParent(None)
         if not self.expanded:
             self.toggle_expanded()
         self.show()

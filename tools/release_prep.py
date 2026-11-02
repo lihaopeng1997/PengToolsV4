@@ -6,6 +6,7 @@ import re
 from urllib.parse import unquote, urlsplit
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 
 
 RELEASE_SVN_URL = 'svn://10.128.23.145:13690/YDPIC_SharingCenter/17.集成测试/02-生产环境发版任务清单'
@@ -130,6 +131,50 @@ def _new_date_sheet(workbook, sheet_name):
         for column in range(1, len(RELEASE_HEADERS) + 1):
             sheet.cell(row, column).value = None
     return sheet
+
+
+def export_packaged_release_template(source_path, output_path):
+    """写出只含表头和样式的发版清单，供安装包使用。
+
+    源文件里的历史日期表和数据行是本机实例，不进入安装包。
+    """
+    source_path = os.path.abspath(source_path)
+    output_path = os.path.abspath(output_path)
+    if source_path == output_path:
+        raise ValueError('打包用发版清单不能覆盖源文件')
+    workbook = load_workbook(source_path)
+    try:
+        dated = _dated_sheets(workbook)
+        if not dated:
+            raise ValueError('发版清单中没有可复制的日期工作表')
+        keep = max(dated, key=lambda sheet: sheet.title)
+        last_column = max(keep.max_column or 0, len(RELEASE_HEADERS))
+        for row in range(2, (keep.max_row or 1) + 1):
+            for column in range(1, last_column + 1):
+                cell = keep.cell(row, column)
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.value = None
+                cell.hyperlink = None
+                cell.comment = None
+        for sheet in list(workbook.worksheets):
+            if sheet is keep:
+                continue
+            title = sheet.title
+            if re.fullmatch(r'20\d{6}', title) or title.startswith('20') or title == 'Sheet1':
+                workbook.remove(sheet)
+        headers = tuple(keep.cell(1, column).value for column in range(1, len(RELEASE_HEADERS) + 1))
+        if headers != RELEASE_HEADERS:
+            raise ValueError(f'{keep.title} 的 23 列表头与生产清单模板不一致')
+        for row in range(2, (keep.max_row or 1) + 1):
+            if any(keep.cell(row, column).value not in (None, '') for column in range(1, len(RELEASE_HEADERS) + 1)):
+                raise ValueError('打包用发版清单仍含数据行')
+        workbook.active = keep
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        workbook.save(output_path)
+    finally:
+        workbook.close()
+    return output_path
 
 
 def update_release_workbook(template_path, output_path, upgrade_date, rows):

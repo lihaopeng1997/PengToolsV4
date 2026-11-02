@@ -164,10 +164,10 @@ class ToolDispatchTests(unittest.TestCase):
 
 
 class PlanConfirmTests(unittest.TestCase):
-    def test_plan_confirm_reject_aborts_tool_execution(self):
-        """plan_confirm=True 且用户拒绝计划时，应终止且不执行任何工具。"""
+    def test_declined_write_is_not_executed_even_with_show_plan_enabled(self):
         adapter = ScriptedModelAdapter([
             _tool_turn('write-x', 'write_file', path='x.txt', content='hi'),
+            AgentTurn(text='用户未批准写入，文件未创建。'),
         ])
 
         def confirm_cb(title, content):
@@ -178,8 +178,8 @@ class PlanConfirmTests(unittest.TestCase):
                 '创建 x.txt', tmp, {}, [], [], plan_confirm=True,
                 confirm_cb=confirm_cb, model_adapter=adapter,
             )
-            self.assertIn('取消执行计划', final)
-            self.assertEqual(len(tcs), 0)
+            self.assertIn('未批准', final)
+            self.assertEqual(len(tcs), 1)
             self.assertFalse(os.path.exists(os.path.join(tmp, 'x.txt')))
 
     def test_plan_confirm_accept_proceeds(self):
@@ -202,7 +202,24 @@ class PlanConfirmTests(unittest.TestCase):
             self.assertEqual(len(tcs), 1)
             self.assertTrue(os.path.exists(os.path.join(tmp, 'y.txt')))
         self.assertEqual(final, '文件已创建。')
-        self.assertEqual([title for title, _ in confirmations], ['确认执行计划', '确认写入文件: y.txt'])
+        self.assertEqual([title for title, _ in confirmations], ['确认写入文件: y.txt'])
+
+    def test_read_only_actions_never_request_confirmation_even_in_plan_mode(self):
+        adapter = ScriptedModelAdapter([_tool_turn('list', 'list_dir', path=''), AgentTurn(text='已读取')])
+        with path_workspace() as tmp:
+            final, _, _ = ar.run_agent_loop('查看目录', tmp, {}, [], [], plan_confirm=True,
+                confirm_cb=lambda *_: self.fail('Read-only call requested approval'), model_adapter=adapter)
+        self.assertEqual(final, '已读取')
+
+    def test_tests_cannot_execute_project_code_without_approval(self):
+        from unittest.mock import patch
+        with path_workspace() as tmp, patch.object(ar, '_run_test_impl') as run:
+            self.assertFalse(ar.execute_tool('run_test', {'args': 'tests'}, tmp)['ok'])
+            self.assertFalse(ar.execute_tool('run_test', {'args': 'tests'}, tmp, confirm_cb=lambda *_: False)['ok'])
+            run.assert_not_called()
+            run.return_value = {'ok': True}
+            self.assertTrue(ar.execute_tool('run_test', {'args': 'tests'}, tmp, confirm_cb=lambda *_: True)['ok'])
+            run.assert_called_once()
 
 
 class ToolCallNormalizeTests(unittest.TestCase):

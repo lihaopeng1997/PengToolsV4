@@ -15,7 +15,10 @@ from copy import deepcopy
 import json
 import math
 import threading
+import time
 from typing import Any, Callable
+
+from tools.agent_diag import log_agent_event
 
 from .budget import Budget, BudgetExceeded, BudgetLimits
 from .context import ContextPlanner
@@ -37,6 +40,42 @@ from .contracts import (
     stable_json,
 )
 from .request_budget import RequestInputLimitExceeded
+
+
+# A model that only announces the next step is not finished. Continue in this
+# same run instead of returning that sentence as the answer.
+_CONTINUE_UNFINISHED = (
+    "上一条只写了下一步打算，任务还没做完。请立刻调用工具继续，"
+    "或根据已经返回的工具结果直接回答。不要再只写计划。"
+)
+_CONTINUE_EMPTY = (
+    "上一条没有可见回答，也没有成功的查询结果。"
+    "请调用工具查出数据后再用简短中文回答，不要空回复。"
+)
+_EMPTY_ANSWER = "这次没有生成查询结果。请确认当前连接、Schema 和表名后再问一次。"
+_UNFINISHED_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先")
+_MAX_UNFINISHED_CONTINUATIONS = 3
+
+
+def unfinished_work_announcement(text: str) -> bool:
+    """One short line that names the next action and then stops."""
+
+    body = str(text or "").strip()
+    if not body or len(body) > 160 or "\n" in body:
+        return False
+    if body[-1] not in ":：":
+        return False
+    return any(marker in body for marker in _UNFINISHED_MARKERS)
+
+
+def _without_continuation_prompts(messages: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        item for item in messages
+        if not (
+            item.get("role") == "user"
+            and item.get("content") in {_CONTINUE_UNFINISHED, _CONTINUE_EMPTY}
+        )
+    )
 
 
 # Identical consecutive read-only calls: remind on the 3rd, stop on the 5th.
@@ -362,9 +401,20 @@ class AgentRunner:
             return {}
 
         external_sink = on_event or self.on_event
+        diagnostic_started = time.monotonic()
 
         def record_event(event: AgentEvent) -> None:
             emitted.append(event)
+            # Stream text and tool payloads stay out of the diagnostic file.
+            if event.event_type not in {"model_text_delta", "model_reasoning_delta", "budget", "tool_call"}:
+                info = event.payload
+                log_agent_event(
+                    event.event_type, run_id=context.run_id, domain=getattr(context, 'domain', 'data_center'),
+                    sequence=event.sequence, turn_index=info.get('turn_index'),
+                    tool=info.get('name'), ok=info.get('ok'), code=info.get('code'),
+                    status=info.get('status'), reason=info.get('error'), verified=info.get('verified'),
+                    elapsed_ms=int((time.monotonic() - diagnostic_started) * 1000),
+                )
             if external_sink is not None:
                 try:
                     external_sink(event)
@@ -396,7 +446,7 @@ class AgentRunner:
                     status=terminal_status or status,
                     final_text=terminal_text,
                     events=tuple(emitted),
-                    messages=tuple(working_messages),
+                    messages=_without_continuation_prompts(working_messages),
                     tool_results=tuple(tool_results),
                     error=terminal_error,
                     budget=budget_payload(),
@@ -428,7 +478,7 @@ class AgentRunner:
                 status=status,
                 final_text=text,
                 events=tuple(emitted),
-                messages=tuple(working_messages),
+                messages=_without_continuation_prompts(working_messages),
                 tool_results=tuple(tool_results),
                 error=error,
                 budget=budget_payload(),
@@ -496,6 +546,7 @@ class AgentRunner:
             )
 
         try:
+            unfinished_continuations = 0
             for turn_index in range(run_budget.limits.max_model_turns):
                 if closed:
                     break
@@ -533,6 +584,12 @@ class AgentRunner:
                         messages=working_messages,
                         tools=definitions,
                     )
+                    log_agent_event('context_plan', run_id=context.run_id,
+                                    status=plan.status, reason=plan.reason,
+                                    input_estimate=plan.estimate.tokens,
+                                    limit_bytes=plan.max_request_bytes,
+                                    messages_kept=plan.messages_kept,
+                                    messages_dropped=plan.messages_dropped)
                     emit(AgentEventType.BUDGET, {
                         "context_status": plan.status,
                         "estimate_kind": plan.estimate.kind,
@@ -754,6 +811,23 @@ class AgentRunner:
                             error="TOOL_CALL_INCOMPLETE",
                             event_type=AgentEventType.FAILED,
                         )
+                    if (
+                        unfinished_work_announcement(visible_text)
+                        and unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS
+                    ):
+                        unfinished_continuations += 1
+                        working_messages.append({"role": "assistant", "content": visible_text})
+                        working_messages.append({"role": "user", "content": _CONTINUE_UNFINISHED})
+                        continue
+                    if (
+                        not str(visible_text or "").strip()
+                        and unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS
+                    ):
+                        unfinished_continuations += 1
+                        working_messages.append({"role": "user", "content": _CONTINUE_EMPTY})
+                        continue
+                    if not str(visible_text or "").strip():
+                        visible_text = _EMPTY_ANSWER
                     if visible_text:
                         working_messages.append({"role": "assistant", "content": visible_text})
                     query_ids = list(verified_query_ids)

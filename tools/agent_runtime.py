@@ -20,13 +20,14 @@ from datetime import datetime, timezone
 from tools.agent_core.text_protocol import parse_qwen_tool_calls, strip_tool_markup, TEXT_PROTOCOL_INSTRUCTION
 from tools.ai_harness import strip_markdown_fence
 from tools.sql_guard import redact_error
+from tools.agent_core.auto_context import DEFAULT_CONTEXT_INPUT_BYTES, default_context_planner
 
-MAX_TOOL_ROUNDS = 40  # 单次请求最多模型轮次（含 Plan 阶段）；读完一个真实工程通常要十几到几十轮
-MAX_TOOL_CALLS = 120  # 单次请求最多工具调用次数
-MAX_RUN_SECONDS = 900  # 单次请求最长运行时间；用户可随时手动停止
-# 单次请求累计发给模型的字符数（每轮都会重发历史与已读文件，按 40 轮 × 约 4 万字估算）；
+MAX_TOOL_ROUNDS = 120  # 长任务按完整工具轮次压缩上下文，保留有界运行预算
+MAX_TOOL_CALLS = 360
+MAX_RUN_SECONDS = 7200  # 两小时任务预算；每次模型请求另有空闲与总时限
+# 单次请求累计发给模型的字符数（每轮最多 500 KiB，按最大轮次预留）；
 # 单轮请求大小另由上下文规划器控制。
-MAX_RUN_INPUT_CHARS = 1_600_000
+MAX_RUN_INPUT_CHARS = DEFAULT_CONTEXT_INPUT_BYTES * MAX_TOOL_ROUNDS
 
 # 预算停止原因 → 给用户看的说明（说清楚哪里到顶、下一步怎么做）
 _BUDGET_REASON_TEXT = {
@@ -40,9 +41,8 @@ _BUDGET_REASON_TEXT = {
 _BUDGET_NEXT_STEP = '已完成的步骤都保留着：发送「继续」可接着做，或把范围缩小到具体目录/文件再问。'
 MAX_FILE_SIZE = 200 * 1024  # 单文件最大读取 200KB
 MAX_READ_FILE_CHARS = 12_000  # Keep one read result below the shared input budget.
-# Application request ceiling, expressed as conservative estimated input
-# tokens. This does not declare or infer the selected provider's context window.
-MAX_CONTEXT_INPUT_ESTIMATE = 64_000
+# Compatibility name: this heuristic counts UTF-8 bytes, not provider tokens.
+MAX_CONTEXT_INPUT_ESTIMATE = DEFAULT_CONTEXT_INPUT_BYTES
 MAX_PUBLIC_REQUEST_BYTE_LIMIT = 10_000_000
 TOOL_ID_PREFIX = 'call_'
 INVALID_TOOL_ARGUMENTS = 'INVALID_TOOL_ARGUMENTS'
@@ -217,7 +217,7 @@ TOOL_SCHEMAS = [
     },
     {
         'name': 'run_test',
-        'description': '在工作文件夹内运行 pytest 定向测试',
+        'description': '在工作文件夹内运行 pytest 定向测试（执行项目代码可能写入文件，需用户确认）',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -387,14 +387,12 @@ def _read_file_impl(
     from tools.agent_diag import log_agent_event
     import time as _time
     started = _time.perf_counter()
-    log_agent_event('read_file_start', path=str(relative_path)[-120:], offset=offset, char_count=limit)
+    log_agent_event('read_file_start', offset=offset, char_count=limit)
     full = _read_complete_file_impl(relative_path, workspace_dir)
     log_agent_event(
         'read_file_end',
-        path=str(relative_path)[-120:],
         elapsed_ms=int((_time.perf_counter() - started) * 1000),
         ok=bool(full.get('ok')),
-        error=str(full.get('error') or '')[:80],
         total_chars=len(str(full.get('content') or '')),
     )
     if not full.get('ok'):
@@ -973,6 +971,17 @@ def execute_tool(
             cancel_cb=cancel_cb,
         )
     elif tool == 'run_test':
+        # Project tests execute arbitrary project code and may create/modify
+        # files, caches or fixtures. They cannot be classified as read-only.
+        if confirm_cb is None:
+            return {'ok': False, 'error': '运行测试可能新增或修改文件，需要用户确认'}
+        try:
+            approved = bool(confirm_cb('确认运行项目测试',
+                '测试会执行项目代码，可能新增或修改文件、缓存及测试数据。\npython -m pytest ' + str(args.get('args', ''))))
+        except Exception:
+            approved = False
+        if not approved or (cancel_cb and cancel_cb()):
+            return {'ok': False, 'error': '用户取消执行测试'}
         return _run_test_impl(args.get('args', ''), workspace_dir)
     elif tool == 'run_svn':
         operation = str(args.get('operation', ''))
@@ -1182,6 +1191,7 @@ def build_tool_system_prompt(
         '写入、编辑、删除文件和 SVN 提交均须展示完整差异并等待用户确认。\n'
         'run_test 仅允许受限 pytest 参数；run_svn 仅限 status、diff、已确认 commit。\n'
         '工具结果会脱敏后返回；不要猜测未读取的项目内容。无法执行时说明原因。\n'
+        '要读文件或搜索时，必须在同一条回复里调用工具。不要只写「让我读取…」「继续读取…」就结束。\n'
     )
 
 
@@ -1291,15 +1301,10 @@ class ProgrammingToolRegistry:
             'truncated': result.get('truncated'),
             'next_offset': result.get('next_offset'),
         }
-        result_text = redact_error(json.dumps(projected, ensure_ascii=False))
-        try:
-            safe_projection = json.loads(result_text)
-        except (TypeError, ValueError):
-            safe_projection = {
-                'ok': False,
-                'tool': call.name,
-                'error': 'RESULT_REDACTION_FAILED',
-            }
+        # Redact values before JSON serialization. Redacting the serialized
+        # envelope can consume its closing quote/braces and escaped newlines,
+        # losing a successfully read file (and all the code after a secret).
+        safe_projection = _redact_tool_value(projected)
         ok = bool(result.get('ok'))
         # 只把有值的字段交给模型：空字段一多，较弱模型会找不到结果并重复调用
         if isinstance(safe_projection, dict):
@@ -1312,6 +1317,16 @@ class ProgrammingToolRegistry:
             code='OK' if ok else str(result.get('error') or 'TOOL_FAILED').split(':', 1)[0][:64],
             data=safe_projection,
         )
+
+
+def _redact_tool_value(value):
+    if isinstance(value, str):
+        return redact_error(value)
+    if isinstance(value, dict):
+        return {key: _redact_tool_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_tool_value(item) for item in value]
+    return value
 
 
 class _TextToolCallRecovery:
@@ -1477,6 +1492,11 @@ def recover_text_tool_calls(text: str) -> list[dict]:
         normalized = normalize_tool_call(item)
         if not normalized or normalized.get('error') or normalized['tool'] not in KNOWN_TOOL_NAMES:
             return []
+        # Bare JSON can be an example in a normal answer. Only harmless reads
+        # use this legacy fallback; mutations require native calls or explicit
+        # tool markup, and still go through the normal preview/confirmation.
+        if normalized['tool'] not in {'list_dir', 'read_file', 'search_code'}:
+            return []
         calls.append(normalized)
     return calls
 
@@ -1523,6 +1543,10 @@ def _safe_status_text(result) -> str:
     if status == 'completed':
         return str(result.final_text or '')
     code = str(result.error or 'RUN_FAILED')
+    if 'ModelIdleTimeout' in code:
+        return '模型连续未返回数据，已停止等待；已完成的工具结果保留，可继续此任务。请结合日志检查内网服务或连接。'
+    if 'ModelDeadlineExceeded' in code:
+        return '模型本轮达到客户端总时限，已保留已有记录。可能仍在生成内容，请检查设置中的单轮最长时间；不能仅凭此错误认定模型服务故障。'
     return f'Agent 执行失败（{code}）。'
 
 
@@ -1585,7 +1609,7 @@ def _context_budget_progress_json(payload) -> str | None:
         'trimmed_to_application_budget_window_unknown',
         'within_known_input_budget',
         'within_application_budget_window_unknown',
-        'memory_compacted', 'memory_omitted',
+        'memory_compacted', 'memory_omitted', 'auto_compacted',
     }
     deferred_reasons = {'pending_exchange'}
     blocked_reasons = {
@@ -1645,7 +1669,6 @@ def run_agent_loop(
         RunContext,
         AgentRunner,
     )
-    from tools.agent_core.context import ContextLimits, ContextPlanner
     if memory_binding is not None:
         from tools.agent_core.memory import MemoryBinding
         if not isinstance(memory_binding, MemoryBinding):
@@ -1754,18 +1777,13 @@ def run_agent_loop(
         )
 
     def authorize_batch(calls, _context, active_token):
-        if not plan_confirm:
-            return True
-        if confirm_cb is None or active_token.is_cancelled():
+        if active_token.is_cancelled():
             return False
-        plan = '准备执行以下工具调用：\n' + '\n'.join(
-            f"- {call.name}: {json.dumps(dict(call.arguments), ensure_ascii=False, sort_keys=True)}"
-            for call in calls
-        )
-        try:
-            return bool(confirm_cb('确认执行计划', plan))
-        except Exception:
-            return False
+        if plan_confirm and progress_cb is not None:
+            progress_cb('summary', '计划：' + ' → '.join(call.name for call in calls))
+        # Confirmation belongs to the individual mutating tool after it has
+        # built a concrete preview. Read-only batches need no extra approval.
+        return True
 
     def dispatch_event(event):
         if event_cb is not None:
@@ -1842,12 +1860,7 @@ def run_agent_loop(
             min(4096, configured_output)
             if type(configured_output) is int and configured_output > 0 else 4096
         )
-        context_planner = ContextPlanner(ContextLimits(
-            input_token_limit=MAX_CONTEXT_INPUT_ESTIMATE,
-            context_window_tokens=None,
-            output_reserve_tokens=output_reserve,
-            safety_margin_tokens=1024,
-        ))
+        context_planner = default_context_planner(output_reserve_tokens=output_reserve)
     memory_planner = None
     if memory_binding is not None:
         from tools.agent_core.memory_context import MemoryContextPlanner
@@ -1862,8 +1875,9 @@ def run_agent_loop(
                 max_model_turns=MAX_TOOL_ROUNDS,
                 max_tool_calls=MAX_TOOL_CALLS,
                 max_duration_s=MAX_RUN_SECONDS,
-                max_bytes=16 * 1024 * 1024,
+                max_bytes=MAX_RUN_INPUT_CHARS + 4 * 1024 * 1024,
                 max_input_chars=MAX_RUN_INPUT_CHARS,
+                max_output_tokens=MAX_TOOL_ROUNDS * 8192,
             ),
             cancellation=token,
             on_event=dispatch_event,
@@ -1900,7 +1914,10 @@ def run_agent_loop(
                 suggestion = answer.strip()
             disclaimer = '当前模型不支持工具调用，仅提供建议，本轮未执行文件操作。'
             answer = f'{disclaimer}\n\n模型建议：\n{suggestion}' if suggestion else disclaimer
-        generated = [dict(item) for item in result.messages[len(prior_messages):]]
+        generated = [
+            dict(item) for item in result.messages[len(prior_messages):]
+            if not (item.get('role') == 'user' and str(item.get('content') or '').startswith('上一条只写了下一步打算'))
+        ]
         if explicit_text_only and result.status in {AgentStatus.COMPLETED, AgentStatus.NEEDS_CLARIFICATION}:
             for item in reversed(generated):
                 if item.get('role') == 'assistant' and str(item.get('content') or '') == str(result.final_text or ''):

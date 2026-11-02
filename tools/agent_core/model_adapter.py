@@ -21,6 +21,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol
 
+from tools.agent_diag import log_agent_event
+
 from .contracts import AgentTurn, AgentTurnRequest, CancellationToken, ModelDelta, ToolCall, stable_json
 from .request_budget import (
     RequestInputLimitExceeded,
@@ -82,6 +84,13 @@ class ModelDeadlineExceeded(ModelTransportError):
 
     def __init__(self, message: str = "model turn deadline exceeded") -> None:
         super().__init__(message, retryable=False)
+
+
+class ModelIdleTimeout(ModelDeadlineExceeded):
+    """No response chunk arrived within the configured idle interval."""
+
+    def __init__(self) -> None:
+        super().__init__("model response idle timeout")
 
 
 class ModelLimitExceeded(ModelProtocolError):
@@ -230,7 +239,7 @@ class _IteratorPump:
                 except Exception:
                     pass
 
-    def next(self, *, deadline: float, cancellation: Any) -> Any:
+    def next(self, *, deadline: float, cancellation: Any, on_wait: Any = None) -> Any:
         self._request.set()
         while True:
             if _is_cancelled(cancellation):
@@ -241,6 +250,8 @@ class _IteratorPump:
             try:
                 kind, value = self._queue.get(timeout=min(0.05, remaining))
             except queue.Empty:
+                if on_wait is not None:
+                    on_wait()
                 continue
             self._ack.set()
             if kind == "done":
@@ -646,11 +657,17 @@ class ModelAdapter:
                 DEFAULT_AGENT_DEADLINE_SECONDS,
             )
         )
-        self.deadline_seconds = _finite_float(
+        self.idle_timeout_seconds = _finite_float(
             configured_deadline,
             default=DEFAULT_AGENT_DEADLINE_SECONDS,
             minimum=0.01,
-            maximum=60.0,
+            maximum=600.0,
+        )
+        # The old 60-second option now limits silence, not active generation.
+        # Explicit constructor deadlines retain their hard-bound semantics.
+        self.deadline_seconds = _finite_float(
+            deadline_seconds if deadline_seconds is not None else self.config.get("agent_max_turn_seconds", 600),
+            default=600.0, minimum=0.01, maximum=3600.0,
         )
         self.max_reasoning_bytes = _positive_limit(
             max_reasoning_bytes
@@ -955,6 +972,8 @@ class ModelAdapter:
         cancellation: Any,
         *,
         deadline: float,
+        on_wait: Any = None,
+        wait_deadline: float | None = None,
     ) -> Any:
         """Call a possibly blocking transport without exceeding the deadline."""
 
@@ -997,12 +1016,14 @@ class ModelAdapter:
             while True:
                 if _is_cancelled(cancellation):
                     raise ModelCancelled()
-                remaining = deadline - time.monotonic()
+                remaining = min(deadline, wait_deadline or deadline) - time.monotonic()
                 if remaining <= 0:
                     raise _DeadlineReached()
                 try:
                     kind, value = result_queue.get(timeout=min(0.05, remaining))
                 except queue.Empty:
+                    if on_wait is not None:
+                        on_wait()
                     continue
                 if kind == "error":
                     raise value
@@ -1107,6 +1128,27 @@ class ModelAdapter:
         )
         text_parts: list[str] = []
         body = self._request_body(request)
+        log_agent_event(
+            'model_request', run_id=request.context.run_id,
+            capability=self.capability.value, provider=self._provider(),
+            request_bytes=len(encode_model_request(body)), messages=len(body['messages']),
+            tools=len(body.get('tools', ())), deadline_seconds=self.deadline_seconds,
+            idle_timeout_seconds=self.idle_timeout_seconds,
+            max_tokens=body.get('max_tokens'),
+        )
+        diagnostic_started = last_chunk_at = last_wait_log = time.monotonic()
+        chunk_count = received_bytes = 0
+
+        def log_wait(stage):
+            nonlocal last_wait_log
+            now = time.monotonic()
+            if now - last_wait_log >= 10:
+                last_wait_log = now
+                log_agent_event('model_wait', run_id=request.context.run_id, stage=stage,
+                                elapsed_ms=int((now - diagnostic_started) * 1000),
+                                idle_ms=int((now - last_chunk_at) * 1000),
+                                chunks=chunk_count, received_bytes=received_bytes,
+                                finish_reason=parser.finish_reason, done=parser.done)
         if request.max_request_bytes is not None:
             limit_error = None
             try:
@@ -1120,15 +1162,21 @@ class ModelAdapter:
             if limit_error is not None:
                 raise limit_error
         transport_cancellation = _DeadlineCancellation(cancellation, deadline)
+        idle_deadline = min(deadline, last_chunk_at + self.idle_timeout_seconds)
+        transport_cancellation.deadline = idle_deadline
         try:
             source = self._source_with_deadline(
                 body,
                 transport_cancellation,
                 deadline=deadline,
+                on_wait=lambda: log_wait('open'),
+                wait_deadline=idle_deadline,
             )
         except ModelCancelled:
             raise
         except _DeadlineReached as exc:
+            if time.monotonic() < deadline:
+                raise ModelIdleTimeout() from exc
             raise ModelDeadlineExceeded() from exc
         except Exception as exc:
             raise _AttemptError(self._as_transport_error(exc), started=False) from exc
@@ -1162,20 +1210,34 @@ class ModelAdapter:
         done = False
         response_complete = False
         started = False
+        eof = False
         pump = _IteratorPump(source)
         pump.start()
         try:
             while True:
                 try:
-                    chunk = pump.next(deadline=deadline, cancellation=cancellation)
+                    idle_deadline = min(deadline, last_chunk_at + self.idle_timeout_seconds)
+                    transport_cancellation.deadline = idle_deadline
+                    chunk = pump.next(deadline=idle_deadline, cancellation=cancellation,
+                                      on_wait=lambda: log_wait('stream'))
                 except _DeadlineReached as exc:
+                    if time.monotonic() < deadline:
+                        raise ModelIdleTimeout() from exc
                     raise ModelDeadlineExceeded() from exc
                 except ModelCancelled:
                     raise ModelCancelled(partial_turn=self._partial_turn(text_parts, parser))
                 except Exception as exc:
                     raise _AttemptError(self._as_transport_error(exc), started=started) from exc
                 if chunk is _PUMP_DONE:
+                    if time.monotonic() >= idle_deadline and not _is_cancelled(cancellation):
+                        if time.monotonic() >= deadline:
+                            raise ModelDeadlineExceeded()
+                        raise ModelIdleTimeout()
+                    eof = True
                     break
+                chunk_count += 1
+                last_chunk_at = time.monotonic()
+                transport_cancellation.deadline = min(deadline, last_chunk_at + self.idle_timeout_seconds)
                 started = True
                 if _is_cancelled(cancellation):
                     raise ModelCancelled(partial_turn=self._partial_turn(text_parts, parser))
@@ -1202,6 +1264,11 @@ class ModelAdapter:
                     encoded = bytes(chunk)
                 else:
                     raise ModelProtocolError("model stream yielded a non-byte chunk")
+                received_bytes += len(encoded)
+                if chunk_count == 1:
+                    log_agent_event('model_first_chunk', run_id=request.context.run_id,
+                                    elapsed_ms=int((time.monotonic() - diagnostic_started) * 1000))
+                log_wait('stream')
                 if len(encoded) > self.max_raw_buffer_bytes:
                     raise ModelLimitExceeded("model raw chunk exceeds the configured byte limit")
                 # Keep a bounded plain-JSON fallback buffer only until the
@@ -1274,6 +1341,10 @@ class ModelAdapter:
                 on_delta(ModelDelta(kind="turn_done"))
             return self._build_turn(parser, text_parts, request, response_complete=response_complete)
         finally:
+            log_agent_event('model_stream_end', run_id=request.context.run_id,
+                            chunks=chunk_count, received_bytes=received_bytes,
+                            finish_reason=parser.finish_reason, done=done, eof=eof,
+                            elapsed_ms=int((time.monotonic() - diagnostic_started) * 1000))
             pump.close()
             parser._clear_private_reasoning_content()
 
@@ -1364,6 +1435,27 @@ class ModelAdapter:
         cancellation: CancellationToken,
         on_delta: Callable[[ModelDelta], None],
     ) -> AgentTurn:
+        started = time.monotonic()
+        run_id = getattr(getattr(request, 'context', None), 'run_id', '')
+        try:
+            turn = self._complete_turn(request, cancellation=cancellation, on_delta=on_delta)
+        except Exception as error:
+            log_agent_event('model_turn_failed', run_id=run_id, error_type=type(error).__name__,
+                            elapsed_ms=int((time.monotonic() - started) * 1000),
+                            cancelled=_is_cancelled(cancellation))
+            raise
+        log_agent_event('model_turn_end', run_id=run_id, tools=len(turn.tool_calls),
+                        text_chars=len(turn.text), finish_reason=turn.finish_reason,
+                        elapsed_ms=int((time.monotonic() - started) * 1000))
+        return turn
+
+    def _complete_turn(
+        self,
+        request: AgentTurnRequest,
+        *,
+        cancellation: CancellationToken,
+        on_delta: Callable[[ModelDelta], None],
+    ) -> AgentTurn:
         """Run one model turn, delivering real deltas as chunks arrive."""
 
         if request is None:
@@ -1398,6 +1490,8 @@ class ModelAdapter:
                     and time.monotonic() < deadline
                 ):
                     attempts += 1
+                    log_agent_event('model_retry', run_id=request.context.run_id, retry=attempts,
+                                    error_type=type(error).__name__)
                     continue
                 self.release_run(request.context)
                 if isinstance(error, ModelAdapterError):
@@ -1463,7 +1557,7 @@ class UrlLibStreamingTransport:
             _config_value(cfg, ("read_timeout_seconds", "timeout_seconds"), 60.0),
             default=60.0,
             minimum=0.01,
-            maximum=60.0,
+            maximum=600.0,
         )
         local_deadline = deadline if deadline is not None else time.monotonic() + timeout
         response = None
@@ -1612,6 +1706,7 @@ __all__ = [
     "ModelAdapterError",
     "ModelCancelled",
     "ModelDeadlineExceeded",
+    "ModelIdleTimeout",
     "ModelLimitExceeded",
     "ModelProtocolError",
     "ModelTransportError",

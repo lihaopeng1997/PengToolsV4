@@ -274,6 +274,17 @@ $list
     if (Test-Path -LiteralPath $InstallerAppDir) { cmd /c "rmdir /s /q `"$InstallerAppDir`"" 2>$null }
     if (Test-Path -LiteralPath $LegacyPrivateAppDir) { cmd /c "rmdir /s /q `"$LegacyPrivateAppDir`"" 2>$null }
 
+    # 安装包只带空表头。resources 里的历史日期表留在本机，不打进 EXE。
+    $BlankTemplateDir = Join-Path $ProjectDir 'build'
+    if (-not (Test-Path -LiteralPath $BlankTemplateDir)) {
+        New-Item -ItemType Directory -Path $BlankTemplateDir | Out-Null
+    }
+    $BlankTemplate = Join-Path $BlankTemplateDir 'release_workbook_template.xlsx'
+    & $BuildPython -c "from tools.release_prep import export_packaged_release_template; import sys; export_packaged_release_template(sys.argv[1], sys.argv[2])" $TemplateResource $BlankTemplate
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to build a blank release workbook for packaging: $TemplateResource"
+    }
+
     # Safe seed templates only (secret scan already passed).
     # --specpath changes the base directory used by the generated spec, so every source
     # path that ends up in Analysis must be absolute instead of relative to the spec file.
@@ -298,7 +309,7 @@ $list
         '--add-data', ((Join-Path $ProjectDir 'resources\build_info.json') + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\private_knowledge_seed.txt') + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\private_knowledge_seed_workbooks.json') + ';resources'),
-        '--add-data', ((Join-Path $ProjectDir 'resources\release_workbook_template.xlsx') + ';resources'),
+        '--add-data', ($BlankTemplate + ';resources'),
         '--add-data', ((Join-Path $ProjectDir 'resources\icons') + ';resources\icons'),
         '--add-data', ((Join-Path $ProjectDir 'resources\help') + ';resources\help'),
         '--add-data', ((Join-Path $ProjectDir 'resources\ai_skills') + ';resources\ai_skills'),

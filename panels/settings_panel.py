@@ -343,6 +343,21 @@ class SettingsPanel(QWidget):
         self.reset_layout_btn.clicked.connect(self._reset_layout_prefs)
         self.reset_layout_label = QLabel()
         appearance.addRow(self.reset_layout_label, self.reset_layout_btn)
+        self.requirement_status_btn = QPushButton('配置任务状态…')
+        size_compact_button(self.requirement_status_btn)
+        from ui.requirement_workflow_editor import open_status_editor
+        self.requirement_status_btn.clicked.connect(lambda: open_status_editor(self))
+        self.requirement_workflow_btn = QPushButton('配置任务进度节点…')
+        size_compact_button(self.requirement_workflow_btn)
+        from ui.requirement_workflow_editor import open_workflow_editor
+        self.requirement_workflow_btn.clicked.connect(lambda: open_workflow_editor(self))
+        workflow_buttons = QWidget()
+        workflow_buttons_layout = QHBoxLayout(workflow_buttons)
+        workflow_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        workflow_buttons_layout.addWidget(self.requirement_status_btn)
+        workflow_buttons_layout.addWidget(self.requirement_workflow_btn)
+        workflow_buttons_layout.addStretch()
+        appearance.addRow('需求管理', workflow_buttons)
         appearance_outer.addLayout(appearance)
 
         self.float_group = QGroupBox()
@@ -541,6 +556,26 @@ class SettingsPanel(QWidget):
         driver_layout.addWidget(self.oceanbase_driver, 1)
         driver_layout.addWidget(self.oceanbase_refresh_btn)
         oceanbase_form.addRow(self.oceanbase_driver_label, driver_row)
+        self.oceanbase_agent_jar = QLineEdit()
+        self.oceanbase_agent_jar.setPlaceholderText('dbx-agent-oceanbase-oracle-*.jar')
+        self.oceanbase_agent_jar_browse = QPushButton()
+        size_compact_button(self.oceanbase_agent_jar_browse)
+        self.oceanbase_agent_jar_browse.clicked.connect(self._browse_oceanbase_agent_jar)
+        self.oceanbase_agent_jar_label = QLabel()
+        oceanbase_form.addRow(
+            self.oceanbase_agent_jar_label,
+            wrap_path_field(self.oceanbase_agent_jar, self.oceanbase_agent_jar_browse),
+        )
+        self.oceanbase_java_bin = QLineEdit()
+        self.oceanbase_java_bin.setPlaceholderText('java.exe，留空则用 PATH')
+        self.oceanbase_java_browse = QPushButton()
+        size_compact_button(self.oceanbase_java_browse)
+        self.oceanbase_java_browse.clicked.connect(self._browse_oceanbase_java)
+        self.oceanbase_java_label = QLabel()
+        oceanbase_form.addRow(
+            self.oceanbase_java_label,
+            wrap_path_field(self.oceanbase_java_bin, self.oceanbase_java_browse),
+        )
         self.oceanbase_status = QLabel()
         self.oceanbase_status.setObjectName('field-hint')
         self.oceanbase_status.setWordWrap(True)
@@ -615,8 +650,10 @@ class SettingsPanel(QWidget):
         self.ai_agent_reasoning_fields.setPlaceholderText('reasoning_content, reasoning_summary')
         size_line(self.ai_agent_reasoning_fields, 'std')
         self.ai_agent_reasoning_fields_label = QLabel()
-        self.ai_agent_deadline_seconds = CompactStepper(1, 60, 60, suffix=' s')
+        self.ai_agent_deadline_seconds = CompactStepper(1, 600, 60, suffix=' s')
         self.ai_agent_deadline_seconds_label = QLabel()
+        self.ai_agent_max_turn_seconds = CompactStepper(1, 3600, 600, suffix=' s')
+        self.ai_agent_max_turn_seconds_label = QLabel()
         self.ai_agent_max_reasoning_bytes = QComboBox()
         self.ai_agent_max_text_bytes = QComboBox()
         self.ai_agent_max_tool_argument_bytes = QComboBox()
@@ -716,6 +753,7 @@ class SettingsPanel(QWidget):
         ai_advanced_form.addRow(self.ai_agent_capability_label, self.ai_agent_capability)
         ai_advanced_form.addRow(self.ai_agent_reasoning_fields_label, self.ai_agent_reasoning_fields)
         ai_advanced_form.addRow(self.ai_agent_deadline_seconds_label, self.ai_agent_deadline_seconds)
+        ai_advanced_form.addRow(self.ai_agent_max_turn_seconds_label, self.ai_agent_max_turn_seconds)
         ai_advanced_form.addRow(self.ai_agent_max_reasoning_bytes_label, self.ai_agent_max_reasoning_bytes)
         ai_advanced_form.addRow(self.ai_agent_max_text_bytes_label, self.ai_agent_max_text_bytes)
         ai_advanced_form.addRow(self.ai_agent_max_tool_argument_bytes_label, self.ai_agent_max_tool_argument_bytes)
@@ -873,6 +911,8 @@ class SettingsPanel(QWidget):
             'oracle_oci_lib': self.oracle_oci.text().strip(),
             'oracle_client_lib_dir': self.oracle_home.text().strip(),
             'oceanbase_odbc_driver': self._oceanbase_driver_value(),
+            'oceanbase_agent_jar': self.oceanbase_agent_jar.text().strip(),
+            'oceanbase_java_bin': self.oceanbase_java_bin.text().strip(),
         })
 
     def _disable_save_actions(self):
@@ -1106,6 +1146,36 @@ class SettingsPanel(QWidget):
         self.oracle_oci.setText(str(settings.get('oracle_oci_lib') or ''))
         self._refresh_oracle_status()
 
+    def _browse_oceanbase_agent_jar(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        zh = self.language == 'zh'
+        start = get_dialog_start_dir('oceanbase_agent_jar', self.oceanbase_agent_jar.text().strip())
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            '导入 OceanBase Java Agent' if zh else 'Import OceanBase Java Agent',
+            start,
+            'Java Agent (*.jar);;所有文件 (*.*)' if zh else 'Java Agent (*.jar);;All (*.*)',
+        )
+        if path:
+            remember_dialog_path('oceanbase_agent_jar', path)
+            self.oceanbase_agent_jar.setText(path)
+            self._refresh_oceanbase_status()
+
+    def _browse_oceanbase_java(self):
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        zh = self.language == 'zh'
+        start = get_dialog_start_dir('oceanbase_java', self.oceanbase_java_bin.text().strip())
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            '选择 Java 21 的 java.exe' if zh else 'Choose Java 21 java.exe',
+            start,
+            'java.exe (java.exe);;可执行文件 (*.exe);;所有文件 (*.*)' if zh else 'java.exe;;All (*.*)',
+        )
+        if path:
+            remember_dialog_path('oceanbase_java', path)
+            self.oceanbase_java_bin.setText(path)
+            self._refresh_oceanbase_status()
+
     def _browse_oracle_home(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         zh = self.language == 'zh'
@@ -1165,6 +1235,13 @@ class SettingsPanel(QWidget):
 
     def _load_oceanbase_values(self, settings):
         self._fill_oceanbase_drivers(str(settings.get('oceanbase_odbc_driver') or '').strip())
+        jar = str(settings.get('oceanbase_agent_jar') or '').strip()
+        if not jar:
+            from tools.dbx_oceanbase_agent import suggested_agent_jar
+            jar = suggested_agent_jar()
+        self.oceanbase_agent_jar.setText(jar)
+        self.oceanbase_java_bin.setText(str(settings.get('oceanbase_java_bin') or '').strip())
+        self._refresh_oceanbase_status()
 
     def _refresh_oceanbase_drivers(self):
         self._fill_oceanbase_drivers(self._oceanbase_driver_value())
@@ -1207,7 +1284,12 @@ class SettingsPanel(QWidget):
             text = f'将使用：{selected}' if zh else f'Will use: {selected}'
         else:
             text = f'系统 ODBC 中没有「{selected}」。请安装该驱动或改选列表中的名称。' if zh else f'ODBC has no driver named "{selected}".'
-        self.oceanbase_status.setText(text)
+        from tools.dbx_oceanbase_agent import describe_agent_status
+        agent_text = describe_agent_status(
+            self.oceanbase_agent_jar.text().strip(),
+            self.oceanbase_java_bin.text().strip(),
+        )
+        self.oceanbase_status.setText(agent_text + '\n' + text)
 
     def _load_reminder_values(self):
         """从磁盘重载提醒控件，与日报模块共用 daily_report_settings.json。"""
@@ -1326,10 +1408,11 @@ class SettingsPanel(QWidget):
         )
         self.ai_agent_reasoning_fields.setText(', '.join(reasoning_fields))
         try:
-            deadline = max(1, min(60, round(float(cfg.get('agent_deadline_seconds', DEFAULT_AGENT_DEADLINE_SECONDS)))))
+            deadline = max(1, min(600, round(float(cfg.get('agent_deadline_seconds', DEFAULT_AGENT_DEADLINE_SECONDS)))))
         except (TypeError, ValueError, OverflowError):
             deadline = DEFAULT_AGENT_DEADLINE_SECONDS
         self.ai_agent_deadline_seconds.setValue(deadline)
+        self.ai_agent_max_turn_seconds.setValue(round(float(cfg.get('agent_max_turn_seconds', 600))))
         buffer_defaults = (
             (self.ai_agent_max_reasoning_bytes, cfg.get('agent_max_reasoning_bytes', DEFAULT_AGENT_MAX_REASONING_BYTES)),
             (self.ai_agent_max_text_bytes, cfg.get('agent_max_text_bytes', DEFAULT_AGENT_MAX_TEXT_BYTES)),
@@ -1492,6 +1575,7 @@ class SettingsPanel(QWidget):
                 self.ai_agent_reasoning_fields.text().split(',')
             ),
             'agent_deadline_seconds': self.ai_agent_deadline_seconds.value(),
+            'agent_max_turn_seconds': self.ai_agent_max_turn_seconds.value(),
             'agent_max_reasoning_bytes': self.ai_agent_max_reasoning_bytes.currentData(),
             'agent_max_text_bytes': self.ai_agent_max_text_bytes.currentData(),
             'agent_max_tool_argument_bytes': self.ai_agent_max_tool_argument_bytes.currentData(),
@@ -2171,19 +2255,22 @@ class SettingsPanel(QWidget):
         self.oracle_oci_label.setText('OCI 库（oci.dll）' if zh else 'OCI library (oci.dll)')
         self.oracle_oci_browse.setText('选择文件' if zh else 'Choose file')
         self.oracle_diag_btn.setText('诊断' if zh else 'Diagnose')
-        self.oceanbase_group.setTitle('OceanBase ODBC' if zh else 'OceanBase ODBC')
+        self.oceanbase_group.setTitle('OceanBase' if zh else 'OceanBase')
         self.oceanbase_driver_label.setText('ODBC 驱动' if zh else 'ODBC driver')
+        self.oceanbase_agent_jar_label.setText('Java Agent JAR' if zh else 'Java Agent JAR')
+        self.oceanbase_agent_jar_browse.setText('导入' if zh else 'Import')
+        self.oceanbase_java_label.setText('Java 21' if zh else 'Java 21')
+        self.oceanbase_java_browse.setText('选择' if zh else 'Choose')
         self.oceanbase_refresh_btn.setText('刷新' if zh else 'Refresh')
         auto = '自动（OceanBase ODBC 2.0 Driver）' if zh else 'Auto (OceanBase ODBC 2.0 Driver)'
         if self.oceanbase_driver.count():
             self.oceanbase_driver.setItemText(0, auto)
         self.oceanbase_note.setText(
-            'OceanBase Oracle 模式走 Windows ODBC，不走 Oracle Instant Client。'
-            '先安装与程序位数一致的 OceanBase Connector/ODBC，再在这里选择它在 ODBC 数据源管理器里的驱动名称。'
-            '留在「自动」则只认 OceanBase ODBC 2.0 Driver。改完保存即可，不用重启。'
+            'Oracle 模式使用已安装的 OceanBase ODBC 2.0 Driver。请安装 64 位 MSI，不要把安装包路径填进驱动名。'
+            'MySQL 模式使用内置 pymysql，不需要这个驱动。'
             if zh else
-            'OceanBase Oracle mode uses a Windows ODBC driver, not Oracle Instant Client. '
-            'Install OceanBase Connector/ODBC, then select its driver name. Auto accepts only OceanBase ODBC 2.0 Driver. Save to apply.'
+            'Oracle mode uses the installed OceanBase ODBC 2.0 Driver. Install the 64-bit MSI; do not enter the installer path as the driver name. '
+            'MySQL mode uses the built-in pymysql driver and does not need it.'
         )
         self._refresh_oceanbase_status()
         self.oracle_note.setText(
@@ -2266,7 +2353,10 @@ class SettingsPanel(QWidget):
             'reasoning_content, reasoning_summary' if zh else
             'reasoning_content, reasoning_summary'
         )
-        self.ai_agent_deadline_seconds_label.setText('Agent 单次截止时间' if zh else 'Agent turn deadline')
+        self.ai_agent_deadline_seconds_label.setText('Agent 连续无响应超时' if zh else 'Agent idle timeout')
+        self.ai_agent_deadline_seconds.setToolTip('等待首个响应或后续数据的最长间隔；收到数据后重新计时。' if zh else 'Maximum wait for the first or next response chunk.')
+        self.ai_agent_max_turn_seconds_label.setText('Agent 单轮最长时间' if zh else 'Agent maximum turn duration')
+        self.ai_agent_max_turn_seconds.setSuffix(' 秒' if zh else ' s')
         self.ai_agent_deadline_seconds.setSuffix(' 秒' if zh else ' s')
         self.ai_agent_max_reasoning_bytes_label.setText('推理摘要缓冲上限' if zh else 'Reasoning buffer limit')
         self.ai_agent_max_text_bytes_label.setText('正文缓冲上限' if zh else 'Text buffer limit')

@@ -197,7 +197,10 @@ class DataCenterAgentControllerTests(unittest.TestCase):
             self.assertIsNone(runtime.runner._new_budget(None).limits.max_duration_s)
             self.assertEqual(runtime.query_executor.default_timeout, 0.05)
             self._wait_until(lambda: bool(future_holder))
-            self._flush()
+            # Future registration happens before queued GUI delivery. Wait for
+            # the actual terminal notice instead of racing one event-loop tick.
+            self._wait_until(lambda: "query worker was unfinished when this run terminated"
+                             in self.panel.phase_label.text())
             self.assertIn(
                 "query worker was unfinished when this run terminated",
                 self.panel.phase_label.text(),

@@ -176,6 +176,25 @@ class AgentWorkbenchRuntimeTests(unittest.TestCase):
             self.panel._send()
         self.assertTrue(self.panel.agent_is_running())
 
+    def test_send_scrolls_to_new_message_after_layout_and_preserves_manual_reading(self):
+        project = os.path.join(self.tmp_dir, 'scroll-project')
+        history = [{'role': 'assistant', 'content': '旧回答\n\n' * 15} for _ in range(25)]
+        workspace = self._workspace('Scroll', project, history)
+        gate, started = threading.Event(), threading.Event()
+        adapter = _ScriptedAdapter([{'wait': True, 'turn': AgentTurn(text='新回答')}], gate=gate, started=started)
+        self.panel.resize(1100, 760)
+        self.panel.show()
+        self._submit(workspace, adapter, '继续分析')
+        self.assertTrue(self._pump_until(started.is_set))
+        bar = self.panel.scroll.verticalScrollBar()
+        self.assertTrue(self._pump_until(lambda: bar.maximum() > 0))
+        self.assertTrue(self._pump_until(lambda: bar.value() == bar.maximum()))
+        bar.setValue(0)
+        gate.set()
+        self.assertTrue(self._pump_until(lambda: not self.panel.agent_is_running()))
+        self.app.processEvents()
+        self.assertEqual(bar.value(), 0)
+
     def test_worker_reads_attachment_edits_with_confirmation_and_persists_final_once(self):
         project = os.path.join(self.tmp_dir, 'project')
         src = os.path.join(project, 'src')
@@ -479,7 +498,7 @@ class AgentWorkbenchRuntimeTests(unittest.TestCase):
         project = os.path.join(self.tmp_dir, 'budget-project')
         history = [
             {'id': f'old-{index}', 'role': 'assistant',
-             'content': f'old assistant history {index} ' + ('x' * 10_000)}
+             'content': f'old assistant history {index} ' + ('x' * 80_000)}
             for index in range(8)
         ]
         workspace = self._workspace('Context budget', project, history)
@@ -507,7 +526,7 @@ class AgentWorkbenchRuntimeTests(unittest.TestCase):
         self.assertTrue(shown, f'No safe context status reached the panel: {observed_budget_events!r}')
         self.assertEqual(self.panel._context_budget_state['status'], 'ready')
         self.assertGreater(self.panel._context_budget_state['messages_dropped'], 0)
-        self.assertIn('请求已精简', self.panel.context_budget_label.text())
+        self.assertIn('自动压缩', self.panel.context_budget_label.text())
         self.assertIn('服务端上下文窗口未知', self.panel.context_budget_label.toolTip())
         self.assertIn('本机请求大小估值', self.panel.context_budget_label.toolTip())
         self.assertEqual(len(adapter.requests), 1)
@@ -637,7 +656,7 @@ class AgentWorkbenchRuntimeTests(unittest.TestCase):
         self.assertTrue(worker.wait(4_000))
 
         self.assertEqual(len(adapter.requests), 2)
-        self.assertEqual([request.max_request_bytes for request in adapter.requests], [64_000, 64_000])
+        self.assertEqual([request.max_request_bytes for request in adapter.requests], [512_000, 512_000])
         self.assertEqual(adapter.released, [adapter.requests[0].context.run_id])
         self.assertIsNone(self.panel._agent_worker)
         self.assertFalse(worker.isRunning())
@@ -645,7 +664,7 @@ class AgentWorkbenchRuntimeTests(unittest.TestCase):
             'schema': 2,
             'status': 'blocked',
             'estimate_kind': 'serialized_request_utf8_bytes',
-            'request_byte_limit': 64_000,
+            'request_byte_limit': 512_000,
         })
         self.assertIn('上下文受限', self.panel.context_budget_label.text())
         tooltip = self.panel.context_budget_label.toolTip()

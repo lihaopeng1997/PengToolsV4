@@ -121,7 +121,12 @@ class PrismShellContractTests(unittest.TestCase):
         self.assertTrue(quick_button.isVisible())
         with patch.object(win, 'quick_panel', Mock()) as quick_panel:
             quick_button.click()
-            quick_panel.show_panel.assert_called_once()
+            _app.processEvents()
+            quick_panel.show_panel.assert_not_called()
+        popup = win._feature_search
+        self.assertTrue(popup.isVisible())
+        self.assertGreater(popup.results.count(), 0)
+        popup.hide()
 
         self.assertTrue(win._show_panel(1))
         self.assertTrue(win._show_panel(2))

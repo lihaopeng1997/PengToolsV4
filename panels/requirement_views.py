@@ -5,9 +5,10 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
+from tools.requirement_workflow import configured_stages, workflow_stage_index, node_default_status
 
 from tools.requirement_stages import (  # noqa: F401  (re-exported for the panel)
     GROUP_TARGET_STATUS, PAUSED_STATUS, STAGES, STATUS_GROUP_LABELS, STATUS_GROUP_ORDER,
@@ -45,6 +46,7 @@ class StageBar(QWidget):
 
     _NODE = 16.0
     _CURRENT = 22.0
+    statusSelected = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,6 +54,9 @@ class StageBar(QWidget):
         self._index = -1
         self._paused = False
         self._status = ''
+        self._stages = configured_stages()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(self._height())
 
@@ -61,10 +66,11 @@ class StageBar(QWidget):
 
     def set_status(self, status: str):
         self._status = str(status or '').strip()
-        self._paused = self._status == PAUSED_STATUS
+        self._stages = configured_stages()
+        self._paused = status_group(self._status) == 'paused'
         # 没选需求时不标任何阶段
-        self._index = stage_index(status) if self._status else -1
-        self.setToolTip(' → '.join(label for _key, label, _members in STAGES))
+        self._index = workflow_stage_index(status) if self._status else -1
+        self.setToolTip('点击节点调整状态：' + ' → '.join(label for _key, label, _members in self._stages))
         self.setFixedHeight(self._height())
         self.update()
 
@@ -86,7 +92,8 @@ class StageBar(QWidget):
             token = lambda name, fallback: QColor(manager.token(name) or fallback)  # noqa: E731
         except Exception:
             token = lambda _name, fallback: QColor(fallback)  # noqa: E731
-        stage_colors = [token(*STAGE_COLOR_TOKENS.get(key, ('PRIMARY', '#6C58D9'))) for key, _l, _m in STAGES]
+        stage_colors = [token(*STAGE_COLOR_TOKENS.get(status_group(members[0]), ('PRIMARY', '#6C58D9')))
+                        for _key, _l, members in self._stages]
         return (
             stage_colors,
             token('BORDER_STRONG', '#D0CBDD'),
@@ -99,7 +106,7 @@ class StageBar(QWidget):
         stage_colors, idle, muted, strong, surface = self._colors()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        count = len(STAGES)
+        count = len(self._stages)
         pad = self._CURRENT / 2 + 4
         span = max(1.0, self.width() - 2 * pad)
         step = span / max(1, count - 1)
@@ -136,7 +143,7 @@ class StageBar(QWidget):
         line_h = self.fontMetrics().height()
         label_top = self._CURRENT + 6
 
-        for i, (_key, label, _members) in enumerate(STAGES):
+        for i, (_key, label, _members) in enumerate(self._stages):
             x = xs[i]
             c = color_for(i)
             if i == current:
@@ -176,7 +183,8 @@ class StageBar(QWidget):
             elif i == count - 1:
                 rect = QRectF(self.width() - step, label_top, step, line_h)
                 align = Qt.AlignmentFlag.AlignRight
-            painter.drawText(rect, align | Qt.AlignmentFlag.AlignVCenter, label)
+            visible_label = self.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight, max(16, int(rect.width()) - 6))
+            painter.drawText(rect, align | Qt.AlignmentFlag.AlignVCenter, visible_label)
             if is_current:
                 detail = self._status if self._status and self._status != label else ''
                 if detail:
@@ -190,3 +198,29 @@ class StageBar(QWidget):
             painter.drawText(QRectF(0, label_top + line_h, self.width(), line_h),
                              Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, '暂停')
         painter.end()
+
+    def activate_node(self, index):
+        if not self._status or not self.isEnabled() or not 0 <= index < len(self._stages):
+            return
+        members = self._stages[index][2]
+        preferred = node_default_status(self._stages[index][0])
+        self.statusSelected.emit(preferred if preferred in members else members[0])
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pad = self._CURRENT / 2 + 4
+            step = max(1, self.width() - 2 * pad) / max(1, len(self._stages) - 1)
+            index = round((event.position().x() - pad) / step)
+            self.activate_node(max(0, min(index, len(self._stages) - 1)))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            delta = 1 if event.key() == Qt.Key.Key_Right else -1
+            self.activate_node(max(0, min(self._index + delta, len(self._stages) - 1)))
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Space):
+            self.activate_node(max(0, self._index))
+        else:
+            super().keyPressEvent(event)

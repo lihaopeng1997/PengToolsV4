@@ -364,6 +364,8 @@ class TargetPolicyTests(unittest.TestCase):
         self.assertFalse(policy.validate("WITH x AS (SELECT * FROM OTHER.USERS) SELECT * FROM x", "oracle").allowed)
         self.assertTrue(policy.validate("WITH x AS (SELECT 1) SELECT * FROM x", "oracle").allowed)
         self.assertTrue(policy.validate("SELECT 1", "oracle").allowed)
+        self.assertTrue(policy.validate("SELECT 1 FROM DUAL", "oracle").allowed)
+        self.assertTrue(policy.validate("```sql\nSELECT * FROM APP.USERS\n```", "oracle").allowed)
         self.assertFalse(policy.validate('SELECT * FROM "app"."USERS"', "oracle").allowed)
         self.assertFalse(policy.validate("SELECT * FROM APP.USERS@DBLINK", "oracle").allowed)
 

@@ -11,7 +11,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from PyQt6.QtCore import QFileInfo, QSize, Qt, QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QFileInfo, QSize, Qt, QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -1560,7 +1560,7 @@ class OpsLogPanel(QWidget):
         except Exception:
             ready = False
         if hasattr(self, 'nl_query_btn'):
-            self.nl_query_btn.setEnabled(ready)
+            self.nl_query_btn.setEnabled(ready and not getattr(self, '_query_generating', False))
         self._refresh_exec_query_button()
 
     def _refresh_exec_query_button(self, *_args):
@@ -1573,9 +1573,11 @@ class OpsLogPanel(QWidget):
         term = self._current_terminal()
         if term is not None:
             connected = bool(getattr(term, 'shell_alive', False))
-        self.exec_query_btn.setEnabled(bool(ok and connected))
+        self.exec_query_btn.setEnabled(bool(ok and connected and not getattr(self, '_query_wait_term', None)))
 
     def _generate_linux_query(self):
+        if getattr(self, '_query_generating', False):
+            return
         from tools.intranet_llm import is_enabled, load_ai_local
         zh = self.language == 'zh'
         if not is_enabled():
@@ -1588,15 +1590,25 @@ class OpsLogPanel(QWidget):
             return
         if not prompt:
             prompt = '根据下面日志找出只读查询命令'
+        self._query_generating = True
         self.nl_query_btn.setEnabled(False)
+        set_button_busy(self.nl_query_btn, True)
+        self.nl_query_btn.setText('   生成中…' if zh else '   Generating…')
         self._query_worker = _LinuxQueryWorker(prompt, context, load_ai_local(), self)
         self._query_worker.completed.connect(self._on_linux_query_ok)
         self._query_worker.failed.connect(self._on_linux_query_fail)
-        self._query_worker.finished.connect(self._refresh_linux_query_buttons)
+        self._query_worker.finished.connect(self._finish_query_generation)
         self._query_worker.start()
         self.status_label.setText('正在生成只读查询…' if zh else 'Generating query…')
 
+    def _finish_query_generation(self):
+        self._query_generating = False
+        set_button_busy(self.nl_query_btn, False)
+        self.nl_query_btn.setText('生成查询' if self.language == 'zh' else 'NL query')
+        self._refresh_linux_query_buttons()
+
     def _on_linux_query_ok(self, payload):
+        self._finish_query_generation()
         zh = self.language == 'zh'
         data = payload if isinstance(payload, dict) else {}
         allowed = list(data.get('allowed') or [])
@@ -1625,10 +1637,13 @@ class OpsLogPanel(QWidget):
         self.status_label.setText('就绪' if zh else 'Ready')
 
     def _on_linux_query_fail(self, message):
+        self._finish_query_generation()
         show_error(self, 'PengTools', str(message or ''))
         self.status_label.setText('就绪' if self.language == 'zh' else 'Ready')
 
     def _execute_linux_query(self):
+        if getattr(self, '_query_wait_term', None):
+            return
         from tools.linux_guard import inspect_command
         zh = self.language == 'zh'
         text = self._cmd_bar_text().strip()
@@ -1643,7 +1658,46 @@ class OpsLogPanel(QWidget):
             danger=False,
         ):
             return
-        self._send_cmd_bar(text)
+        term = self._current_terminal()
+        if term is None or not term.shell_alive:
+            show_warning(self, 'PengTools', '请先连接服务器' if zh else 'Connect first')
+            return
+        self._query_wait_term = term
+        term.response_received.connect(self._query_response_received)
+        term.connection_closed.connect(self._query_connection_closed)
+        self._query_wait_timer.start(30000)
+        set_button_busy(self.exec_query_btn, True)
+        self.exec_query_btn.setText('   等待回显…' if zh else '   Waiting…')
+        self.exec_query_btn.setEnabled(False)
+        self.status_label.setText('查询已发送，等待终端回显…' if zh else 'Waiting for terminal response…')
+        try:
+            self._send_cmd_bar(text)
+        except Exception as error:
+            self._finish_query_wait('发送失败，请查看终端' if zh else 'Send failed; check terminal')
+            show_error(self, 'PengTools', str(error))
+
+    def _finish_query_wait(self, message=''):
+        term = getattr(self, '_query_wait_term', None)
+        self._query_wait_term = None
+        self._query_wait_timer.stop()
+        if term is not None:
+            for signal, slot in ((term.response_received, self._query_response_received),
+                                 (term.connection_closed, self._query_connection_closed)):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+        set_button_busy(self.exec_query_btn, False)
+        self.exec_query_btn.setText('执行查询' if self.language == 'zh' else 'Run query')
+        self._refresh_exec_query_button()
+        if message:
+            self.status_label.setText(message)
+
+    def _query_response_received(self):
+        self._finish_query_wait('已收到回显，执行结果以终端为准' if self.language == 'zh' else 'Response received; check terminal for results')
+
+    def _query_connection_closed(self):
+        self._finish_query_wait('连接已断开，查询结果未知' if self.language == 'zh' else 'Disconnected; query result unknown')
 
     def _fill_cmd_bar_from_history(self):
         self._open_cmd_history_dialog()
@@ -1831,6 +1885,7 @@ class OpsLogPanel(QWidget):
         root.addWidget(self.header)
 
         toolbar, tool_l = make_page_toolbar(divided=True)
+        self._log_manual_toolbar = toolbar
         self.connect_btn = QPushButton()
         apply_button(self.connect_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
         self.connect_btn.clicked.connect(self._connect_session)
@@ -1867,7 +1922,13 @@ class OpsLogPanel(QWidget):
         self.main_split.setChildrenCollapsible(False)
         self.main_split.setHandleWidth(16)
         self.main_split.setProperty('prismGutter', True)
-        root.addWidget(self.main_split, 1)
+        self.log_workspaces = QTabWidget()
+        self.log_workspaces.addTab(self.main_split, '人工排查')
+        # Construct on first use: opening the manual page must not load models/cache.
+        self._log_ai_placeholder = QWidget()
+        self.log_workspaces.addTab(self._log_ai_placeholder, 'AI 日志与系统排查')
+        self.log_workspaces.currentChanged.connect(self._open_log_analysis)
+        root.addWidget(self.log_workspaces, 1)
 
         # ========== LEFT（可拖动变宽；内部可横向滚动避免截断）==========
         from PyQt6.QtWidgets import QScrollArea, QSizePolicy
@@ -2354,6 +2415,11 @@ class OpsLogPanel(QWidget):
         self.nl_query_btn = QPushButton()
         apply_button(self.nl_query_btn, 'secondary', compact=True)
         self.nl_query_btn.clicked.connect(self._generate_linux_query)
+        self._query_wait_term = None
+        self._query_wait_timer = QTimer(self)
+        self._query_wait_timer.setSingleShot(True)
+        self._query_wait_timer.timeout.connect(lambda: self._finish_query_wait(
+            '30秒未收到回显，请检查终端；未自动重试' if self.language == 'zh' else 'No response in 30s; check terminal. Not retried.'))
         self.exec_query_btn = QPushButton()
         apply_button(self.exec_query_btn, 'secondary', compact=True)
         self.exec_query_btn.clicked.connect(self._execute_linux_query)
@@ -2518,6 +2584,18 @@ class OpsLogPanel(QWidget):
         self.cmd_send_btn.hide()
         self._set_work_mode(load_log_settings().get('work_mode') or 'export', persist=False)
         self._refresh_export_selection()
+
+    def _open_log_analysis(self, index):
+        self._log_manual_toolbar.setVisible(index == 0)
+        self.disconnect_btn.setVisible(index == 0)
+        self.header_status.setVisible(index == 0)
+        if index != 1 or getattr(self, 'log_analysis_workspace', None) is not None:
+            return
+        from ui.log_analysis.workspace import LogAnalysisWorkspace
+        layout = QVBoxLayout(self._log_ai_placeholder)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.log_analysis_workspace = LogAnalysisWorkspace(load_servers, self._log_ai_placeholder)
+        layout.addWidget(self.log_analysis_workspace)
 
     def _set_work_mode(self, mode: str, persist: bool = True):
         """session（单机终端）| export（多机截取）：左右两侧整体切换工作区。"""
@@ -4694,7 +4772,7 @@ class OpsLogPanel(QWidget):
                  if self.language == 'zh' else
                  f'Done {ok_n}/{len(results)} · {hits} lines · {parent}')
             )
-            # 结果与内容已在右侧预览，不再弹窗打断
+            self._offer_open_export(paths)
 
     def _offer_open_export(self, paths: list[str]):
         """导出成功后询问打开文件或所在文件夹。"""
@@ -4758,6 +4836,11 @@ class OpsLogPanel(QWidget):
                     pass
 
     def closeEvent(self, event):
+        self._finish_query_wait()
+        set_button_busy(self.nl_query_btn, False)
+        analysis = getattr(self, 'log_analysis_workspace', None)
+        if analysis is not None:
+            analysis.shutdown()
         try:
             from ui.theme_manager import ThemeManager
             ThemeManager.instance().remove_listener(self._on_theme_changed_for_terms)

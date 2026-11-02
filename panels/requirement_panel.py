@@ -199,6 +199,7 @@ from ui.confirm_dialog import (
     confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
 )
 from ui.aurora_progress import AuroraProgress
+from tools.requirement_workflow import configured_statuses, configured_stages, target_status, workflow_stage_index
 from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_date, size_line, size_pick_combo
 from ui.motion import play_dialog_enter
@@ -666,7 +667,7 @@ class SvnWorker(QThread):
 class SvnCheckoutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('检出需求代码')
+        self.setWindowTitle('通过 SVN 路径导入需求')
         clamp_dialog_geometry(self, 720, 380, min_width=520, min_height=320)
         root = QVBoxLayout(self)
         note = QLabel('填写 SVN 地址，选择类型与上线月份后检出到本机。使用本机已缓存认证，不保存密码。')
@@ -789,7 +790,7 @@ class RequirementDialog(QDialog):
         size_line(self.title_edit, 'std')
         self.kind_combo = QComboBox(); self.kind_combo.addItems(('需求', 'BUG')); size_combo(self.kind_combo, 'sm')
         self.category_combo = QComboBox(); self.category_combo.addItems(CATEGORIES); size_combo(self.category_combo, 'md')
-        self.status_combo = QComboBox(); self.status_combo.addItems(STATUSES); size_combo(self.status_combo, 'sm')
+        self.status_combo = QComboBox(); self.status_combo.addItems(configured_statuses()); size_combo(self.status_combo, 'sm')
         self.priority_combo = QComboBox(); self.priority_combo.addItems(PRIORITIES); size_combo(self.priority_combo, 'sm')
         configured_systems = load_systems()
         inferred = apply_auto_inference(dict(base), systems=configured_systems, only_empty=True)
@@ -846,9 +847,11 @@ class RequirementDialog(QDialog):
         for combo, value in (
             (self.kind_combo, inferred.get('record_kind') or base.get('record_kind', '需求')),
             (self.category_combo, inferred.get('category') or base.get('category', '功能需求')),
-            (self.status_combo, base.get('status', '待分析')),
+            (self.status_combo, base.get('status') or configured_statuses()[0]),
             (self.priority_combo, base.get('priority', '普通')),
         ):
+            if combo is self.status_combo and value and combo.findText(value) < 0:
+                combo.addItem(value)
             combo.setCurrentIndex(max(0, combo.findText(value)))
         form.addWidget(QLabel('需求编号'), 0, 0); form.addWidget(self.code_edit, 0, 1)
         form.addWidget(QLabel('需求标题'), 0, 2); form.addWidget(self.title_edit, 0, 3)
@@ -1470,11 +1473,13 @@ class RequirementPanel(QWidget):
         self._setup_ui(); self.set_language(language); self._refresh()
         self._clamp_file_library_action_heights()
         self._sources_stamp = self._current_sources_stamp()
+        from ui.requirement_workflow_editor import workflow_events
+        workflow_events.changed.connect(self._reload_workflow)
 
     def _sync_toolbar_more_menu(self):
         """同步更多菜单中的各项操作状态。"""
         has_active_worker = self._active_worker is not None
-        for name in ('_action_bug', '_action_scan', '_action_checkout'):
+        for name in ('_action_bug', '_action_scan', '_action_checkout', '_action_manual'):
             action = getattr(self, name, None)
             if action is not None:
                 action.setEnabled(not has_active_worker)
@@ -1520,7 +1525,7 @@ class RequirementPanel(QWidget):
         self.system_filter = QComboBox(); self._fill_system_filter(); self.system_filter.currentIndexChanged.connect(self._on_filter_changed)
         self.kind_filter = QComboBox(); self.kind_filter.addItems(('全部类型', '需求', 'BUG')); self.kind_filter.currentIndexChanged.connect(self._on_filter_changed)
         # 精确状态筛选只作为定位/兼容状态保留；可见入口是下方状态统计
-        self.status_filter = QComboBox(self); self.status_filter.addItems(('全部状态',) + STATUSES); self.status_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self.status_filter = QComboBox(self); self.status_filter.addItems(('全部状态',) + configured_statuses()); self.status_filter.currentIndexChanged.connect(self._on_filter_changed)
         self.status_filter.hide()
         size_combo(self.month_filter, 'sm'); size_combo(self.system_filter, 'md'); size_combo(self.kind_filter, 'sm'); size_combo(self.status_filter, 'sm')
         # 筛选只占必要宽度，把空间留给搜索框
@@ -1537,14 +1542,16 @@ class RequirementPanel(QWidget):
         self.add_btn.setObjectName('primary-btn')
         self.add_btn.clicked.connect(self._add_requirement)
         self.toolbar_more_btn = QPushButton('更多', toolbar_card)
-        self.toolbar_more_btn.setToolTip('登记缺陷、扫描目录、检出代码、导入资料、系统配置')
+        self.toolbar_more_btn.setToolTip('登记缺陷、通过 SVN 路径导入、通过需求目录导入、手动登记导入、系统配置')
         self.toolbar_more_menu = QMenu(self.toolbar_more_btn)
         self._action_bug = self.toolbar_more_menu.addAction('登记缺陷（粘贴 BUG）', self._paste_bug)
-        self._action_scan = self.toolbar_more_menu.addAction('扫描需求目录…', self._scan_folder)
-        self._action_checkout = self.toolbar_more_menu.addAction('检出代码…', self._checkout_svn)
-        self._action_import = self.toolbar_more_menu.addAction('导入资料…', self._import_requirement)
+        self._action_checkout = self.toolbar_more_menu.addAction('通过 SVN 路径导入…', self._checkout_svn)
+        self._action_scan = self.toolbar_more_menu.addAction('通过需求目录导入…', self._scan_folder)
+        self._action_manual = self.toolbar_more_menu.addAction('手动登记导入…', self._add_requirement)
         self.toolbar_more_menu.addSeparator()
         self._action_syscfg = self.toolbar_more_menu.addAction('系统配置', self.open_system_config.emit)
+        self.toolbar_more_menu.addAction('任务状态配置…', self._open_status_config)
+        self.toolbar_more_menu.addAction('任务进度节点配置…', self._open_workflow_config)
         self.toolbar_more_menu.aboutToShow.connect(self._sync_toolbar_more_menu)
         self.toolbar_more_btn.setMenu(self.toolbar_more_menu)
         self.ticket_btn = QPushButton('一键提签', toolbar_card)
@@ -1559,6 +1566,10 @@ class RequirementPanel(QWidget):
         except Exception:
             pass
         root.addWidget(toolbar_card)
+        # Local sizing rule: QSS form padding otherwise overrides the fixed height.
+        self._req_toolbar_fields = (self.search_edit, self.month_filter, self.system_filter, self.kind_filter)
+        for field in self._req_toolbar_fields:
+            field.setStyleSheet('QComboBox, QLineEdit { min-height: 28px; max-height: 28px; padding-top: 3px; padding-bottom: 3px; }')
         self.loading = AuroraProgress(self)
 
         # 进度统计：既是概览，也是状态筛选入口
@@ -1671,10 +1682,11 @@ class RequirementPanel(QWidget):
         head.addWidget(self.detail_eyebrow, 1)
         self.status_combo = QComboBox()
         self.status_combo.setObjectName('req-status-combo')
-        self.status_combo.addItems(STATUSES)
+        self.status_combo.addItems(configured_statuses())
         self.status_combo.setToolTip('直接修改进度状态，立即保存')
         self.status_combo.currentTextChanged.connect(self._on_status_combo_changed)
         size_pick_combo(self.status_combo, 132)
+        self.status_combo.setStyleSheet('QComboBox { min-height: 28px; max-height: 28px; padding-top: 3px; padding-bottom: 3px; }')
         head.addWidget(self.status_combo)
         self.edit_btn = QPushButton('编辑')
         self.edit_btn.setProperty('compactAction', True)
@@ -1689,6 +1701,7 @@ class RequirementPanel(QWidget):
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         card.addWidget(self.detail_title)
         self.stage_bar = StageBar()
+        self.stage_bar.statusSelected.connect(self._on_status_combo_changed)
         card.addWidget(self.stage_bar)
         self.stage_caption = QLabel('')
         self.stage_caption.setObjectName('field-caption')
@@ -1847,6 +1860,7 @@ class RequirementPanel(QWidget):
         self.file_more_btn = QPushButton('更多')
         size_compact_button(self.file_more_btn)
         self.file_more_menu = QMenu(self.file_more_btn)
+        self._action_import = self.file_more_menu.addAction('从单份文档登记需求…', self._import_requirement)
         self._action_add_file = self.file_more_menu.addAction('添加文件…', self._add_existing_files)
         self._action_new_text = self.file_more_menu.addAction('新建文本…', self._add_text_file)
         self.file_more_menu.addSeparator()
@@ -1924,6 +1938,8 @@ class RequirementPanel(QWidget):
         file_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         for col in range(5):
             file_header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        file_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         file_header.sectionClicked.connect(self._on_file_header_clicked)
         self.file_tree.setColumnWidth(0, 220)
         self.file_tree.setColumnWidth(1, 72)
@@ -2105,6 +2121,27 @@ class RequirementPanel(QWidget):
             layout.addWidget(chip)
             self._status_chips[key] = chip
 
+    def _open_workflow_config(self):
+        from ui.requirement_workflow_editor import open_workflow_editor
+        open_workflow_editor(self)
+
+    def _open_status_config(self):
+        from ui.requirement_workflow_editor import open_status_editor
+        open_status_editor(self)
+
+    def _reload_workflow(self):
+        for combo, prefix in ((self.status_combo, ()), (self.status_filter, ('全部状态',))):
+            current = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(prefix + configured_statuses())
+            if current and combo.findText(current) < 0:
+                combo.addItem(current)
+            combo.setCurrentText(current)
+            combo.blockSignals(False)
+        self._refresh()
+        self.requirements_changed.emit()
+
     def _on_status_combo_changed(self, status):
         if getattr(self, '_showing_requirement', False) or not isinstance(self._current, dict):
             return
@@ -2114,7 +2151,7 @@ class RequirementPanel(QWidget):
 
     def _set_requirement_status(self, requirement_ids, status):
         ids = {str(value) for value in (requirement_ids or []) if value}
-        if not ids or status not in STATUSES:
+        if not ids or status not in configured_statuses():
             return False
         candidate = copy.deepcopy(self._requirements)
         now = datetime.datetime.now().isoformat(timespec='seconds')
@@ -2131,7 +2168,7 @@ class RequirementPanel(QWidget):
             return False
         if isinstance(self._current, dict):
             self._current = next((item for item in self._requirements if item.get('id') == self._current.get('id')), None)
-        self._refresh()
+        self._refresh(preserve_view=True)
         self.requirement_saved.emit(self._current or {})
         self.requirements_changed.emit()
         return True
@@ -2500,18 +2537,33 @@ class RequirementPanel(QWidget):
         self._refresh()
         self._sources_stamp = self._current_sources_stamp()
 
-    def _refresh(self):
+    def _refresh(self, *, preserve_view=False):
         if not hasattr(self, 'requirement_list'):
             return
         if getattr(self, '_refreshing_tree', False):
             return
         self._refreshing_tree = True
+        tree = self.requirement_list
+        old_id = (self._current or {}).get('id')
+        scroll = tree.verticalScrollBar().value()
+        self._preserve_tree_order = {}
+        if preserve_view:
+            for i in range(tree.topLevelItemCount()):
+                group = tree.topLevelItem(i)
+                for j in range(group.childCount()):
+                    data = group.child(j).data(0, Qt.ItemDataRole.UserRole)
+                    if isinstance(data, dict):
+                        self._preserve_tree_order[data.get('id')] = len(self._preserve_tree_order)
         self.requirement_list.setUpdatesEnabled(False)
         try:
             self._refresh_impl()
+            if preserve_view and old_id == (self._current or {}).get('id'):
+                tree.doItemsLayout()
+                tree.verticalScrollBar().setValue(scroll)
         finally:
             self.requirement_list.setUpdatesEnabled(True)
             self._refreshing_tree = False
+            self._preserve_tree_order = {}
             self._sources_stamp = self._current_sources_stamp()
 
     def _refresh_impl(self):
@@ -2552,6 +2604,8 @@ class RequirementPanel(QWidget):
         self.tree_count_label.setText(f'{len(visible)}/{total_all}' if len(visible) != total_all else f'{total_all} 条')
 
         def _recent_key(item):
+            if self._preserve_tree_order:
+                return (item.get('online_month', ''), -self._preserve_tree_order.get(item.get('id'), -1), '')
             return (
                 item.get('online_month', ''),
                 item.get('source_modified_at') or item.get('updated_at', ''),
@@ -2641,16 +2695,21 @@ class RequirementPanel(QWidget):
                     if header is not None:
                         header.setExpanded(False)
         self._fit_requirement_code_column()
-        # 有搜索词时优先定位第一条匹配；无搜索时尽量保持当前选中
+        # Only a changed search should jump to its first match; saves retain identity.
         from ui.search_highlight import focus_tree_item
-        pick = first_item if query else (selected_item or first_item)
+        new_search = query != getattr(self, '_last_tree_query', '')
+        pick = first_item if query and new_search else (selected_item or first_item)
+        self._last_tree_query = query
         if pick and self._tree_item_alive(pick):
             parent = pick.parent()
             if parent is not None and not parent.isExpanded() and pick is selected_item:
                 parent.setExpanded(True)
             self.requirement_list.blockSignals(True)
             try:
-                focus_tree_item(self.requirement_list, pick)
+                if pick is selected_item and not new_search:
+                    self.requirement_list.setCurrentItem(pick)
+                else:
+                    focus_tree_item(self.requirement_list, pick)
             finally:
                 self.requirement_list.blockSignals(False)
             # 整树重建后需要重新加载文件库；信号已阻断，此处显式刷新
@@ -2939,6 +2998,7 @@ class RequirementPanel(QWidget):
             return False
 
         self._current = target
+        self._patch_requirement_tree_item(target)
         self.requirements_changed.emit()
         return True
 
@@ -3077,6 +3137,7 @@ class RequirementPanel(QWidget):
             from panels.requirement_views import GROUP_TARGET_STATUS, status_group
             group_key = target.split(':', 1)[1]
             status = GROUP_TARGET_STATUS.get(group_key)
+            status = target_status(group_key, status)
             if status:
                 wanted = {r if isinstance(r, str) else str((r or {}).get('id') or '') for r in (requirement_ids or [])}
                 # 已在目标分组内的细状态（如“集成测试”）不被拖放覆盖
@@ -3207,14 +3268,19 @@ class RequirementPanel(QWidget):
         self.detail_title.setToolTip(f'{title}\n编号：{code}\n完整信息请点「编辑」')
         self.status_combo.blockSignals(True)
         try:
+            self.status_combo.clear()
+            self.status_combo.addItems(configured_statuses())
             index = self.status_combo.findText(status)
+            if index < 0:
+                self.status_combo.addItem(status)
+                index = self.status_combo.findText(status)
             self.status_combo.setCurrentIndex(index if index >= 0 else 0)
         finally:
             self.status_combo.blockSignals(False)
         self.stage_bar.set_status(status)
-        current_stage = stage_index(status)
+        current_stage = workflow_stage_index(status)
         parts = []
-        for index, (_key, label, _members) in enumerate(STAGES):
+        for index, (_key, label, _members) in enumerate(configured_stages()):
             parts.append(f'<b>{label}</b>' if index == current_stage else label)
         self.stage_caption.setText('  ·  '.join(parts) + ('  （暂停）' if current_stage < 0 else ''))
 
@@ -4533,7 +4599,7 @@ class RequirementPanel(QWidget):
             return None
 
         self._current = target
-        self._refresh()
+        self._refresh(preserve_view=not is_new)
         self.requirement_saved.emit(target)
         self.svn_activity.setText(
             f'已保存：{target.get("code") or "无编号"} · {target.get("title") or "未命名"}'

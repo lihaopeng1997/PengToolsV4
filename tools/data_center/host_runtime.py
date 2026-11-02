@@ -24,7 +24,7 @@ from typing import Any, Callable
 from sqlglot import ErrorLevel, exp, parse
 from sqlglot.optimizer.scope import traverse_scope
 
-from tools.agent_core.context import ContextLimits, ContextPlanner
+from tools.agent_core.auto_context import DEFAULT_CONTEXT_INPUT_BYTES, default_context_planner
 from tools.agent_diag import log_agent_event, log_file_path
 from tools.agent_core.text_protocol import (
     TEXT_PROTOCOL_INSTRUCTION,
@@ -35,7 +35,7 @@ from tools.agent_core.text_protocol import (
 from .agent import AgentRunner
 from .agent_query_tool import AgentQueryTool
 from .budget import Budget, BudgetLimits
-from .contracts import AgentTurn, CancellationToken, RunContext, ToolCall, ToolResult
+from .contracts import AgentTurn, CancellationToken, ModelDelta, RunContext, ToolCall, ToolResult
 from .context_evidence import DataCenterEvidencePlanner, EvidenceEpoch
 from .host_metadata import MetadataHost, MetadataTarget
 from .host_model_adapter import AgentModelHostAdapter
@@ -95,9 +95,12 @@ _SAFE_CODE = {
     "NEEDS_CLARIFICATION",
     "PROFILE_MISMATCH",
     "PROFILE_UNAVAILABLE",
+    "DIALECT_UNSUPPORTED",
+    "MULTI_STATEMENT",
     "QUERY_FAILED",
     "READ_GUARD_NOT_READY",
     "SCOPE_DENIED",
+    "SQL_INVALID",
     "STALE_CURSOR",
     "TIMEOUT",
     "TOOL_FAILED",
@@ -208,6 +211,37 @@ def _close(value: Any) -> None:
             pass
 
 
+_SQL_FENCE = re.compile(r"^```(?:sql|oracle|mysql)?[^\n]*\n([\s\S]*?)\n?```$", re.I)
+
+
+def _unwrap_model_sql(sql: str) -> str:
+    """Drop one Markdown fence around a model-written statement."""
+
+    text = str(sql or "").strip()
+    match = _SQL_FENCE.fullmatch(text)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def _policy_failure_message(decision: Any) -> str:
+    """Short host-authored reason. Never includes SQL text or driver errors."""
+
+    evidence = tuple(getattr(decision, "evidence", ()) or ())
+    if "scope_default_schema_unbound" in evidence:
+        return "表名没有写 schema。请写成已授权的 schema.表名。连通测试可以用 SELECT 1 FROM DUAL，或直接 SELECT 1。"
+    code = str(getattr(decision, "code", "") or "")
+    messages = {
+        "SQL_INVALID": "SQL 无法解析。只提交一条 SELECT，不要加 Markdown 代码块或说明文字。",
+        "POLICY_DENIED": "这条语句不是允许的只读 SELECT。",
+        "MULTI_STATEMENT": "一次只能执行一条 SQL。",
+        "DIALECT_UNSUPPORTED": "当前连接不支持这条 SQL 的方言。",
+        "ARGUMENT_INVALID": "SQL 为空或参数无效。",
+        "SCOPE_DENIED": "SQL 里的对象不在当前授权 schema 内。请使用元数据返回的 schema.表名。",
+    }
+    return messages.get(code, "SQL 未通过只读检查，查询未执行。")
+
+
 def _scope_name(value: Any) -> str:
     """Normalize an identifier for the fixed-host scope comparison."""
 
@@ -239,6 +273,7 @@ class TargetSQLPolicy:
         self.version = getattr(self._base, "version", "dc-02")
 
     def validate(self, sql: str, dialect: str = "oracle") -> SQLDecision:
+        sql = _unwrap_model_sql(sql)
         try:
             decision = self._base.validate(sql, dialect)
         except Exception:
@@ -264,9 +299,11 @@ class TargetSQLPolicy:
             if "@" in str(table.name or ""):
                 return self._denied(decision, "scope_database_link_denied")
             if not schema_name:
-                # A connection's current schema/database is outside this
-                # wrapper's proof.  Require the model to use the explicit
-                # object scope returned by metadata discovery.
+                # DUAL is Oracle's built-in one-row table, not a user object.
+                # Every other unqualified name stays denied: the session's
+                # current schema is not proof of which table would be read.
+                if table_name == "dual" and self.provider in {"oracle", "oceanbase_oracle"}:
+                    continue
                 return self._denied(decision, "scope_default_schema_unbound")
             if _quoted_identifier(table.args.get("db")) and str(table.db).strip().strip('"`[]') not in self._schemas_exact:
                 return self._denied(decision, "scope_quoted_schema_ambiguous")
@@ -597,9 +634,11 @@ class _VerifiedQueryHandler:
     host_only = True
     verified_readonly = True
 
-    def __init__(self, dependency: Any, *, target_policy: TargetSQLPolicy | None = None) -> None:
+    def __init__(self, dependency: Any, *, target_policy: TargetSQLPolicy | None = None,
+                 owner_tracker: QueryOwnerTracker | None = None) -> None:
         self._dependency = dependency
         self._target_policy = target_policy
+        self._owner_tracker = owner_tracker
 
     def __call__(self, call: ToolCall | Mapping[str, Any], *, context: RunContext, cancellation: Any) -> Any:
         if self._target_policy is not None:
@@ -607,10 +646,12 @@ class _VerifiedQueryHandler:
             sql = arguments.get("sql") if isinstance(arguments, Mapping) else None
             decision = self._target_policy.validate(sql, _dialect(self._target_policy.provider))
             if not decision.allowed:
+                if self._owner_tracker is not None:
+                    self._owner_tracker.reject_before_dispatch(context, _call_id(call))
                 return ToolResult(
                     ok=False,
                     code=_safe_code(decision.code, ok=False),
-                    data={"message": "SQL 对象超出当前数据中心运行范围"},
+                    data={"message": _policy_failure_message(decision)},
                     query_id=_call_id(call),
                     scope=context.as_dict(),
                     limits={"policy_version": "dc-02", "scope": "target_bound"},
@@ -1084,12 +1125,19 @@ def build_data_center_system_prompt(
     database: str,
     schemas: tuple[str, ...],
     text_only: bool,
+    strict_json: bool = False,
+    tool_definitions: tuple[dict[str, Any], ...] = (),
 ) -> str:
     """Tell the model which connection it is bound to and how to call tools."""
 
     engine = " / ".join(part for part in (provider, mode) if part) or "未声明"
     scope = ", ".join(schemas) if schemas else "（无）"
     binding = f"当前回答固定在这一条连接上，不能改连别的库。\n引擎：{engine}\n数据库：{database or '（未配置）'}\n范围：{scope}\n"
+    binding += (
+        "你是可以实际调用只读工具的数据库助手。用户让你查找、统计或读取时，"
+        "必须调用对应工具并根据真实结果回答，不能只给一段 SQL/命令让用户自行执行。"
+        "只有用户明确要求生成语句或解释语法时才只输出示例。失败时如实说明工具错误，不能编造查询结果。\n"
+    )
     if text_only:
         return (
             binding
@@ -1101,7 +1149,9 @@ def build_data_center_system_prompt(
         guide = (
             "这条连接是 Redis，没有 SQL 表。不要写 SELECT，不要调用 query_readonly。\n"
             f"读取只能调用 redis_read。operation 只能是：{operations}。\n"
-            "查键名用 SCAN，pattern 用通配符；看字符串用 GET；看类型用 TYPE。\n"
+            "查键名用 SCAN，pattern 用通配符；例如查包含 sys 的键用 pattern=*sys*。"
+            "看字符串用 GET；看类型用 TYPE。需要更多结果时依据返回的游标继续 SCAN，"
+            "未扫完只能说本次已找到，不能声称已经查全。\n"
             "用户如果问某张 SQL 表有多少行，说明表不在这条 Redis 连接上，"
             "需要到 SQL 控制台选中那条数据库并且完成 schema 扫描后再问。\n"
         )
@@ -1114,12 +1164,21 @@ def build_data_center_system_prompt(
         )
     else:
         guide = (
-            "这条连接是关系库。回答行数、字段或表内容之前必须调用工具，不能说自己无法访问数据库。\n"
+            "这条连接是关系库。回答行数、字段或表内容之前必须调用 query_readonly。"
+            "没有成功的查询结果时不能结束，也不能空回复。\n"
             "先 search_objects，只传 keyword，例如 keyword=prptmain。不要传 schema、database、connection。\n"
             "kinds 可以不传；要传就用字符串数组。范围里列出的 schema 只是搜索边界，不要停下来让用户挑选。\n"
             "搜到对象后用 describe_object，再 query_readonly。SQL 必须使用元数据里的 schema.表名。\n"
+            "sql 参数只放一条 SELECT，不要加 Markdown 代码块。没写 schema 的业务表会被拒绝；"
+            "连通测试用 SELECT 1 FROM DUAL。工具失败时只转述返回的 message，不要推测连接已断开。\n"
         )
-    return binding + guide + TEXT_PROTOCOL_INSTRUCTION
+    protocol = (
+        '只输出完整 JSON。调用工具使用 {"tool_calls":[{"id":"唯一调用ID","name":"工具名","arguments":{}}]}；'
+        '最终回答使用 {"tool_calls":[],"final_answer":"回答内容"}。不要输出 XML 或 Markdown。'
+        if strict_json else TEXT_PROTOCOL_INSTRUCTION
+    )
+    definitions = json.dumps(tool_definitions, ensure_ascii=False, separators=(",", ":"))
+    return binding + guide + f"可用工具及完整参数定义：\n{definitions}\n" + protocol
 
 
 class _TextProtocolAdapter:
@@ -1133,7 +1192,20 @@ class _TextProtocolAdapter:
         return getattr(self._inner, name)
 
     def complete_turn(self, request: Any, *, cancellation: Any, on_delta: Any) -> AgentTurn:
-        turn = self._inner.complete_turn(request, cancellation=cancellation, on_delta=on_delta)
+        raw_text = visible_text = ''
+
+        def display_delta(delta):
+            nonlocal raw_text, visible_text
+            if delta.kind not in {'text', 'text_delta', 'model_text_delta'}:
+                on_delta(delta)
+                return
+            raw_text += str(delta.text or '')
+            shown = visible_model_text(raw_text, streaming=True)
+            if shown.startswith(visible_text) and len(shown) > len(visible_text):
+                on_delta(ModelDelta(kind='text_delta', text=shown[len(visible_text):]))
+                visible_text = shown
+
+        turn = self._inner.complete_turn(request, cancellation=cancellation, on_delta=display_delta)
         if getattr(turn, "tool_calls", None) or not str(getattr(turn, "text", "") or "").strip():
             log_agent_event(
                 'dc_model_turn',
@@ -1142,6 +1214,23 @@ class _TextProtocolAdapter:
             )
             return turn
         parsed = parse_qwen_tool_calls(turn.text)
+        if not parsed:
+            # Accept an entire explicit JSON tool envelope from gateways that
+            # place calls in content. Never infer commands from prose/fences.
+            try:
+                envelope = json.loads(turn.text.strip())
+            except (ValueError, TypeError):
+                envelope = None
+            if isinstance(envelope, dict) and not set(envelope) - {"tool_calls", "final_answer"}:
+                calls = envelope.get("tool_calls")
+                if calls == [] and isinstance(envelope.get("final_answer"), str):
+                    return AgentTurn(text=envelope['final_answer'], finish_reason=turn.finish_reason,
+                                     usage=turn.usage, model_id=turn.model_id)
+                if isinstance(calls, list) and calls and all(
+                    isinstance(c, dict) and isinstance(c.get("name"), str)
+                    and isinstance(c.get("arguments"), dict) for c in calls
+                ):
+                    parsed = calls
         log_agent_event(
             'dc_text_protocol',
             parsed=0 if not parsed else len(parsed),
@@ -1293,9 +1382,11 @@ class DataCenterAgentRuntime:
         if self.draft:
             query_handler = _VerifiedQueryHandler(query_handler)
         elif not getattr(query_handler, "verified_readonly", False):
-            query_handler = _VerifiedQueryHandler(query_handler, target_policy=self.target_policy)
+            query_handler = _VerifiedQueryHandler(query_handler, target_policy=self.target_policy,
+                                                  owner_tracker=self.query_owner_tracker)
         elif self.target_policy is not None:
-            query_handler = _VerifiedQueryHandler(query_handler, target_policy=self.target_policy)
+            query_handler = _VerifiedQueryHandler(query_handler, target_policy=self.target_policy,
+                                                  owner_tracker=self.query_owner_tracker)
         handlers = {
             "search_objects": metadata_handler,
             "describe_object": metadata_handler,
@@ -1325,8 +1416,10 @@ class DataCenterAgentRuntime:
                 database=str(self.context.database or ""),
                 schemas=tuple(self.context.schema_allowlist),
                 text_only=capability_text == "text_only",
+                strict_json=capability_text == "strict_json",
+                tool_definitions=self.registry.definitions() if capability_text != "native_tools" else (),
             )
-        if not self.draft and capability_text != "text_only":
+        if not self.draft and capability_text not in {"text_only", "strict_json"}:
             allowed_names = frozenset(
                 str(item.get("function", {}).get("name") or "")
                 for item in self.registry.definitions()
@@ -1335,19 +1428,20 @@ class DataCenterAgentRuntime:
         runner_options = {
             "system_prompt": effective_system_prompt,
             "budget": budget,
-            "budget_limits": budget_limits,
+            # Match the cumulative allowance to the 500 KiB request ceiling
+            # and default round count. Explicit caller budgets still win.
+            "budget_limits": budget_limits if budget_limits is not None else BudgetLimits(
+                max_duration_s=1800,
+                max_input_chars=DEFAULT_CONTEXT_INPUT_BYTES * BudgetLimits().max_model_turns,
+                max_output_tokens=8192 * BudgetLimits().max_model_turns,
+                max_bytes=DEFAULT_CONTEXT_INPUT_BYTES * BudgetLimits().max_model_turns + 4 * 1024 * 1024,
+            ),
             "cancellation": cancellation,
             "on_event": on_event or event_sink,
         }
         self._evidence_planner: DataCenterEvidencePlanner | None = None
         if runner_factory is None and not self.draft:
-            base_planner = ContextPlanner(
-                ContextLimits(
-                    input_token_limit=64_000,
-                    context_window_tokens=None,
-                    output_reserve_tokens=4_096,
-                )
-            )
+            base_planner = default_context_planner()
             self._evidence_planner = DataCenterEvidencePlanner(
                 base_planner,
                 self.registry,
@@ -1372,6 +1466,7 @@ class DataCenterAgentRuntime:
                 loader=model_loader,
                 config=model_config,
                 transport=transport,
+                strict_tool_envelope=True,
             )
         except Exception as exc:
             raise RuntimeConfigurationError("model adapter unavailable") from exc

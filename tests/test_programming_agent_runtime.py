@@ -144,6 +144,48 @@ class ProgrammingAgentRuntimeTests(unittest.TestCase):
         first_result = json.loads(messages[2]["content"])
         self.assertTrue(first_result["data"]["truncated"])
 
+    def test_dangling_plan_after_tools_continues_once(self):
+        (self.root / "note.txt").write_text("hello\n", encoding="utf-8")
+        adapter = _ScriptedAdapter([
+            {"turn": AgentTurn(
+                text="",
+                tool_calls=(ToolCall("c1", "read_file", {"path": "note.txt"}),),
+                finish_reason="tool_calls",
+            )},
+            {"turn": AgentTurn(text="让我继续读取核心服务：", finish_reason="stop")},
+            {"turn": AgentTurn(text="文件内容是 hello。", finish_reason="stop")},
+        ])
+        final, messages, calls = self._run(adapter)
+        self.assertEqual(final, "文件内容是 hello。")
+        self.assertEqual(len(adapter.requests), 3)
+        self.assertEqual([item["tool"] for item in calls], ["read_file"])
+        user_text = " ".join(str(item.get("content") or "") for item in messages if item.get("role") == "user")
+        self.assertNotIn("上一条只写了下一步", user_text)
+
+    def test_repeated_dangling_plan_keeps_going_until_an_answer(self):
+        (self.root / "note.txt").write_text("hello\n", encoding="utf-8")
+        adapter = _ScriptedAdapter([
+            {"turn": AgentTurn(
+                text="",
+                tool_calls=(ToolCall("c1", "read_file", {"path": "note.txt"}),),
+                finish_reason="tool_calls",
+            )},
+            {"turn": AgentTurn(text="让我继续读取核心服务：", finish_reason="stop")},
+            {"turn": AgentTurn(
+                text="",
+                tool_calls=(ToolCall("c2", "read_file", {"path": "note.txt", "offset": 1}),),
+                finish_reason="tool_calls",
+            )},
+            {"turn": AgentTurn(text="让我继续读取真正的计算部分：", finish_reason="stop")},
+            {"turn": AgentTurn(text="核心逻辑已经读完。", finish_reason="stop")},
+        ])
+        final, messages, calls = self._run(adapter)
+        self.assertEqual(final, "核心逻辑已经读完。")
+        self.assertEqual(len(adapter.requests), 5)
+        self.assertEqual([item["tool"] for item in calls], ["read_file", "read_file"])
+        user_text = " ".join(str(item.get("content") or "") for item in messages if item.get("role") == "user")
+        self.assertNotIn("上一条只写了下一步", user_text)
+
     def test_strict_json_envelope_executes_only_after_complete_parse(self):
         (self.root / "strict.py").write_text("value = 7\n", encoding="utf-8")
         tool_envelope = json.dumps({

@@ -106,24 +106,7 @@ class _RuntimeOwner:
         self._closed = False
 
     def run(self, *args, **kwargs):
-        callback = kwargs.get("on_event")
-        terminal_failed = False
-        if callable(callback):
-            def observe_terminal(event: Any) -> None:
-                nonlocal terminal_failed
-                event_type = getattr(event, "event_type", "")
-                event_type = getattr(event_type, "value", event_type)
-                terminal_failed = terminal_failed or str(event_type or "").strip().casefold() == "failed"
-                callback(event)
-
-            kwargs["on_event"] = observe_terminal
-        result = self._runtime.run(*args, **kwargs)
-        if terminal_failed:
-            # Some runners report a terminal FAILED event and return normally.
-            # Preserve that failure in the controller outcome so the workbench
-            # status cannot subsequently claim that the run completed.
-            raise _ReportedRuntimeFailure()
-        return result
+        return self._runtime.run(*args, **kwargs)
 
     def close(self) -> None:
         if self._closed:
@@ -140,12 +123,10 @@ class _RuntimeOwner:
                     pass
 
 
-class _ReportedRuntimeFailure(RuntimeError):
-    """An Agent runtime reported FAILED through its event stream."""
-
-
 class DataCenterWorkbenchAgent(QWidget):
     """Configured-model and fixed-target host embedded in a database workbench."""
+
+    open_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -185,6 +166,10 @@ class DataCenterWorkbenchAgent(QWidget):
         self._closing = False
         self._controls_row = None
         self._controls_narrow: bool | None = None
+        self._conversation_messages: tuple = ()
+        self._conversation_scope = None
+        self._conversation_generation = 0
+        self._schema_catalog_key = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -213,22 +198,29 @@ class DataCenterWorkbenchAgent(QWidget):
         self.status_label.setObjectName("ops-safety-note")
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
+        scope_row = QHBoxLayout()
+        self.schema_label = QLabel("查询范围 · Schema", self)
+        self.schema_combo = QComboBox(self)
+        self.schema_combo.setMinimumWidth(0)
+        self.schema_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.schema_combo.setMinimumContentsLength(8)
+        self.schema_combo.setToolTip("只允许查询所选用户 / Schema 内的表；切换范围将开始新的上下文。")
+        scope_row.addWidget(self.schema_label)
+        scope_row.addWidget(self.schema_combo, 1)
+        root.addLayout(scope_row)
         self.agent_panel = DataCenterAgentPanel(self, target="尚未固定目标", model="尚未选择模型")
         self._set_production_panel_copy()
         self.agent_panel.prompt_input.setEnabled(False)
         self.agent_panel.set_compact_rail(True)
-        # 空间够时面板撑满；窗口矮时整体滚动，而不是把整个工作台撑高
-        self.agent_scroll = QScrollArea(self)
-        self.agent_scroll.setObjectName("data-center-agent-scroll")
-        self.agent_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.agent_scroll.setWidgetResizable(True)
-        self.agent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.agent_scroll.setWidget(self.agent_panel)
-        root.addWidget(self.agent_scroll, 1)
+        # One transcript scrollbar; keep the composer anchored below it.
+        self.agent_scroll = self.agent_panel.body_scroll
+        root.addWidget(self.agent_panel, 1)
         root.addLayout(row)
 
         self.mode_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_selection_changed)
+        self.schema_combo.currentIndexChanged.connect(self._on_selection_changed)
+        self.agent_panel.new_conversation_requested.connect(self._on_new_conversation)
         self.agent_panel.put_sql_requested.connect(self._on_put_sql_requested)
         self.agent_panel.prompt_send_requested.connect(self._on_prompt_requested)
 
@@ -504,6 +496,12 @@ class DataCenterWorkbenchAgent(QWidget):
             target_label,
             f"{model_choice.name} · {model_choice.model}",
         )
+        scope = (context.connection_id, context.database, tuple(context.schema_allowlist),
+                 context.profile_revision, context.intent, model_choice.model_config_id, model_choice.revision)
+        if scope != self._conversation_scope:
+            self._conversation_messages = ()
+            self._conversation_scope = scope
+            self._conversation_generation += 1
         self._snapshot = snapshot
         self._connection_choice = connection_choice
         self._sync_panel_display_context()
@@ -516,11 +514,13 @@ class DataCenterWorkbenchAgent(QWidget):
         controller = DataCenterAgentController(
             self.agent_panel,
             snapshot,
+            messages=self._conversation_messages,
             runtime_factory=lambda fixed_context, fixed_model=model_choice, fixed_target=connection_choice: self._build_runtime(
                 fixed_context, fixed_model, fixed_target
             ),
         )
-        controller.run_finished.connect(self._on_run_finished)
+        generation = self._conversation_generation
+        controller.run_finished.connect(lambda outcome, gen=generation: self._on_run_finished(outcome, gen))
         controller.run_started.connect(self._on_run_started)
         controller.cleanup_finished.connect(self._on_controller_cleanup_finished)
         controller.run_rejected.connect(self._on_run_rejected)
@@ -637,7 +637,40 @@ class DataCenterWorkbenchAgent(QWidget):
             value = self._selection_provider()
         except Exception:
             return None
-        return value if isinstance(value, Mapping) else None
+        if not isinstance(value, Mapping):
+            return None
+        profile = value.get("profile")
+        provider = str(profile.get("provider") or profile.get("dialect") or "") if isinstance(profile, Mapping) else ""
+        if provider.casefold() in {"oceanbase", "ob"}:
+            provider = "oceanbase_mysql" if str(profile.get("mode") or "").casefold() == "mysql" else "oceanbase_oracle"
+        available = tuple(sorted({str(item) for item in value.get("schema_allowlist", ()) if str(item)}))
+        relational = provider in _RELATIONAL_PROVIDERS
+        self.schema_label.setVisible(relational)
+        self.schema_combo.setVisible(relational)
+        if not relational:
+            return value
+        catalog_key = (str(profile.get("id") or ""), str(value.get("database") or ""), available)
+        if catalog_key != self._schema_catalog_key:
+            previous = self.schema_combo.currentData() if self._schema_catalog_key and self._schema_catalog_key[:2] == catalog_key[:2] else None
+            self.schema_combo.blockSignals(True)
+            self.schema_combo.clear()
+            self.schema_combo.addItem("全部已扫描 Schema", "")
+            for schema in available:
+                self.schema_combo.addItem(schema, schema)
+            preferred = previous if previous == "" or previous in available else next((s for s in available if s.casefold() == str(profile.get("username") or "").casefold()), available[0] if len(available) == 1 else "")
+            self.schema_combo.setCurrentIndex(max(0, self.schema_combo.findData(preferred)))
+            self.schema_combo.setEnabled(bool(available))
+            self.schema_combo.blockSignals(False)
+            self._schema_catalog_key = catalog_key
+        selected = str(self.schema_combo.currentData() or "")
+        return {**value, "schema_allowlist": (selected,) if selected in available else available}
+
+    def _on_new_conversation(self) -> None:
+        self._conversation_generation += 1
+        self._conversation_messages = ()
+        self._last_run_outcome = None
+        self._last_result_target = None
+        self._on_selection_changed()
 
     @staticmethod
     def _validate_query_target(target: ConnectionChoice) -> str:
@@ -771,8 +804,12 @@ class DataCenterWorkbenchAgent(QWidget):
         self._set_status(zh if self._language == "zh" else en)
 
     @pyqtSlot(object)
-    def _on_run_finished(self, outcome: Any) -> None:
+    def _on_run_finished(self, outcome: Any, generation: int | None = None) -> None:
         self.agent_panel.prompt_input.setEnabled(False)
+        if generation is not None and generation != self._conversation_generation:
+            return
+        if getattr(outcome, "messages", ()):
+            self._conversation_messages = tuple(outcome.messages)
         if getattr(outcome, "error", None):
             self._last_run_outcome = "error"
         elif getattr(outcome, "cancelled", False):

@@ -4,6 +4,7 @@
 |---|---|
 | `setup_build_env.ps1` | 创建独立 Python 3.12 构建环境；加 `-Development` 创建测试/审计环境 |
 | `build_release.ps1` | **唯一发布构建**（原 Private 能力 + 品牌图标） |
+| `pack.ps1` | 一键入口：调用上面的发布构建，并用本次生成的 ZIP / EXE 判断成败 |
 | `build_private_release.ps1` | 兼容旧入口，内部转发到 `build_release.ps1` |
 | `run_test_suite.py` | 按测试模块隔离进程；必要时按用例隔离 PyQt6 全局状态 |
 | `scan_release_secrets.py` | 发布前扫描会打包的敏感信息 |
@@ -17,10 +18,12 @@
 
 ```powershell
 .\scripts\setup_build_env.ps1
+.\pack.cmd
+# 或直接
 .\build_release.ps1
-# 或兼容旧命令
-.\build_private_release.ps1
 ```
+
+`pack.cmd` 可以在资源管理器里双击。它只转去 `scripts\pack.ps1`，再调用 `build_release.ps1`，不另写一套 PyInstaller 参数。窗口会停在结果页。日志在 `build\pack-last.log`。三个产物（ZIP、dist EXE、Installer EXE）都是本次新生成的，才算成功；PyInstaller 往 stderr 打进度导致退出码非 0 时，仍以这三个文件为准。
 
 开发与依赖审计：
 

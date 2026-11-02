@@ -13,6 +13,8 @@ import atexit
 from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QFrame, QMenu, QWidget
 
+from ui.text_actions import localize_native_text_menu
+
 _POPUP_CLASS_NAMES = {'QComboBoxPrivateContainer'}
 
 
@@ -31,6 +33,9 @@ class RoundedPopupFilter(QObject):
                     # 下拉容器自带的方框去掉，圆角边框由列表视图的 QSS 画
                     watched.setFrameShape(QFrame.Shape.NoFrame)
                     watched.setLineWidth(0)
+        if event.type() == QEvent.Type.Show and isinstance(watched, QMenu):
+            # Qt creates text menus lazily (including selectable QLabel messages).
+            localize_native_text_menu(watched)
         return False
 
 

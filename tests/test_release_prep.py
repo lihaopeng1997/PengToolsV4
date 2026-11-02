@@ -14,8 +14,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from tools.release_prep import (
-    RELEASE_HEADERS, branch_name_from_svn, rank_requirements,
-    release_row_from_requirement, update_release_workbook,
+    RELEASE_HEADERS, branch_name_from_svn, export_packaged_release_template,
+    rank_requirements, release_row_from_requirement, update_release_workbook,
 )
 from tools.requirements import requirement_identity
 
@@ -96,6 +96,56 @@ class ReleasePrepTests(unittest.TestCase):
             created.close()
             with open(source, 'rb') as stream:
                 self.assertEqual(stream.read(), original)
+
+    def test_packaged_template_drops_historical_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = os.path.join(temp, 'source.xlsx')
+            packaged = os.path.join(temp, 'packaged.xlsx')
+            workbook = Workbook()
+            older = workbook.active
+            older.title = '20260701'
+            newer = workbook.create_sheet('20260723')
+            extra = workbook.create_sheet('20250407临时处理')
+            note = workbook.create_sheet('相关文档提供说明')
+            empty = workbook.create_sheet('Sheet1')
+            for sheet in (older, newer):
+                for column, header in enumerate(RELEASE_HEADERS, 1):
+                    sheet.cell(1, column, header)
+                sheet.cell(2, 1, '历史系统')
+                sheet.cell(2, 2).fill = PatternFill('solid', fgColor='DDEBF7')
+            newer.merge_cells(start_row=2, start_column=3, end_row=3, end_column=3)
+            extra.cell(1, 1, '临时实例')
+            note.cell(1, 1, '说明')
+            empty.cell(1, 1, None)
+            workbook.save(source)
+            workbook.close()
+            with open(source, 'rb') as stream:
+                original = stream.read()
+
+            export_packaged_release_template(source, packaged)
+
+            with open(source, 'rb') as stream:
+                self.assertEqual(stream.read(), original)
+            packed = load_workbook(packaged)
+            self.assertEqual(packed.sheetnames, ['20260723', '相关文档提供说明'])
+            sheet = packed['20260723']
+            self.assertEqual(tuple(sheet.cell(1, column).value for column in range(1, 24)), RELEASE_HEADERS)
+            self.assertIsNone(sheet.cell(2, 1).value)
+            self.assertEqual(sheet.cell(2, 2).fill.fgColor.rgb, '00DDEBF7')
+            self.assertEqual(packed['相关文档提供说明'].cell(1, 1).value, '说明')
+            packed.close()
+
+            row = release_row_from_requirement(
+                {'code': 'REQ-9', 'title': '新行', 'svn_url': 'svn://10/x/DEV_REQ_9'},
+                '20260724',
+            )
+            output = os.path.join(temp, 'out.xlsx')
+            result = update_release_workbook(packaged, output, '20260724', [row])
+            self.assertEqual(result['start_row'], 2)
+            created = load_workbook(output)
+            self.assertEqual(created['20260724'].cell(2, 2).value, 'DEV_REQ_9')
+            self.assertIsNone(created['20260723'].cell(2, 1).value)
+            created.close()
 
 
 if __name__ == '__main__':

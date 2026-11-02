@@ -122,6 +122,9 @@ DEFAULT_SETTINGS = {
     'oracle_oci_lib': '',
     # OceanBase Oracle 模式使用的 Windows ODBC 驱动名称。空值表示自动匹配。
     'oceanbase_odbc_driver': '',
+    # DBX Java Agent。JAR 内已含 OceanBase JDBC；java 为空时使用 PATH 中的 java。
+    'oceanbase_agent_jar': '',
+    'oceanbase_java_bin': '',
     # 模型对话：明文风险提示关闭状态、上次会话/模型
     'model_chat_banner_dismissed': False,
     'model_chat_last_session_id': '',
@@ -210,6 +213,13 @@ def save_systems(systems):
         json.dump([_normalize_system(item) for item in systems], stream, indent=2, ensure_ascii=False)
 
 
+def _plain_path(value) -> str:
+    text = str(value or '').strip()
+    if len(text) > 500 or any(char in text for char in '\r\n'):
+        return ''
+    return text
+
+
 def _coerce_settings_version(value) -> int:
     try:
         return max(0, int(value or 0))
@@ -266,6 +276,8 @@ def normalize_settings(settings):
     if len(driver_name) > 128 or any(char in driver_name for char in '\r\n;{}='):
         driver_name = ''
     result['oceanbase_odbc_driver'] = driver_name
+    result['oceanbase_agent_jar'] = _plain_path(result.get('oceanbase_agent_jar'))
+    result['oceanbase_java_bin'] = _plain_path(result.get('oceanbase_java_bin'))
     if result['oracle_home'] and not result['oracle_client_lib_dir']:
         result['oracle_client_lib_dir'] = result['oracle_home']
     result['model_chat_banner_dismissed'] = bool(result.get('model_chat_banner_dismissed', False))

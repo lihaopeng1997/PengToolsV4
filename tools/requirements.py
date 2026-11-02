@@ -510,7 +510,8 @@ PENDING_ONLINE_STATUS = '待上线'
 
 
 def is_online_status(requirement) -> bool:
-    return str((requirement or {}).get('status') or '').strip() == ONLINE_STATUS
+    from tools.requirement_stages import status_group
+    return status_group((requirement or {}).get('status')) == 'online'
 
 
 def release_board_key(requirement_id, month: str) -> str:
@@ -545,7 +546,8 @@ def mark_requirement_online(requirement_id, path=None, online_date=None):
     day = str(online_date or datetime.date.today().isoformat())[:10]
 
     def _apply(item):
-        item['status'] = ONLINE_STATUS
+        from tools.requirement_workflow import target_status
+        item['status'] = target_status('online', ONLINE_STATUS)
         if not str(item.get('actual_release_date') or item.get('actual_online_date') or '').strip():
             item['actual_release_date'] = day
             item['actual_online_date'] = day
@@ -565,7 +567,8 @@ def restore_requirement_from_online(requirement_id, path=None, clear_actual_date
         return None, False
     changed = False
     if is_online_status(target):
-        target['status'] = PENDING_ONLINE_STATUS
+        from tools.requirement_workflow import target_status
+        target['status'] = target_status('release', PENDING_ONLINE_STATUS)
         if clear_actual_date:
             target['actual_release_date'] = ''
             target['actual_online_date'] = ''
@@ -747,6 +750,7 @@ def apply_auto_inference(requirement, systems=None, only_empty=True):
 
 
 def requirement_from_text(text, source_name='直接粘贴', systems=None):
+    from tools.requirement_workflow import initial_status
     normalized = str(text or '').strip()
     lines = [re.sub(r'^\s*[#>*\-]+\s*', '', line).strip() for line in normalized.splitlines()]
     lines = [line for line in lines if line]
@@ -763,7 +767,7 @@ def requirement_from_text(text, source_name='直接粘贴', systems=None):
         'record_kind': 'BUG' if re.search(r'(?i)(?:\bBUG\b|\bDEF[-_]|缺陷|问题单)', normalized) else '需求',
         'description': normalized,
         'category': classify_requirement(normalized),
-        'status': '待分析',
+        'status': initial_status(),
         'priority': '普通',
         'system': '',
         'owner': '',

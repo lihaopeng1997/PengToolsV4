@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tools.requirements import STATUSES, test_points_progress
+from tools.requirement_workflow import configured_group, configured_stages, configured_statuses
 
 STAGES = (
     ('analysis', '分析', ('待分析',)),
@@ -46,6 +47,9 @@ _STATUS_ALIASES = {
 
 def status_group(status) -> str:
     text = str(status or '').strip() or '待分析'
+    configured = configured_group(text)
+    if configured:
+        return configured
     if text == PAUSED_STATUS:
         return 'paused'
     if text in _STATUS_ALIASES:
@@ -60,13 +64,13 @@ def stage_index(status) -> int:
     """当前状态所在阶段下标；暂停返回 -1。"""
     group = status_group(status)
     for index, (key, _label, _members) in enumerate(STAGES):
-        if key == group:
+        if group == key:
             return index
     return -1
 
 
 def known_statuses() -> tuple[str, ...]:
-    return tuple(STATUSES)
+    return configured_statuses()
 
 
 def next_action(requirement) -> str:

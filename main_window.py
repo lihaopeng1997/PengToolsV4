@@ -348,7 +348,11 @@ class MainWindow(QMainWindow):
         self._quick_panel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._quick_panel_btn.setFixedHeight(30)
         apply_icon(self._quick_panel_btn, 'search', size=16)
-        self._quick_panel_btn.clicked.connect(self._open_quick_panel)
+        self._quick_panel_btn.clicked.connect(self._open_feature_search)
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        self._feature_search_shortcut = QShortcut(QKeySequence('Ctrl+K'), self)
+        self._feature_search_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._feature_search_shortcut.activated.connect(self._open_feature_search)
         controls_layout.addWidget(self._quick_panel_btn)
 
         self._collapse_btn = QPushButton(controls)
@@ -1762,8 +1766,10 @@ class MainWindow(QMainWindow):
     def _apply_nav_texts(self):
         zh = self.language == 'zh'
         if getattr(self, '_quick_panel_btn', None) is not None:
-            self._quick_panel_btn.setText('搜索功能…   Ctrl+Shift+P' if zh else 'Search…   Ctrl+Shift+P')
-            self._quick_panel_btn.setToolTip('快速面板：搜索并跳转到任意模块' if zh else 'Quick panel: jump to any module')
+            self._quick_panel_btn.setText('搜索功能…   Ctrl+K' if zh else 'Search…   Ctrl+K')
+            self._quick_panel_btn.setToolTip(
+                '搜索并打开功能模块' if zh else 'Search and open a module'
+            )
             self._quick_panel_btn.setMinimumWidth(220)
         if getattr(self, '_prism_sidebar', None) is not None:
             self._prism_sidebar.set_language(self.language)
@@ -2010,8 +2016,25 @@ class MainWindow(QMainWindow):
         finally:
             self._disable_web_shell_live(reason=f'renderer_crashed:{page_name}')
 
+    def _open_feature_search(self):
+        """标题栏搜索：列出功能并跳转，不唤起悬浮工具栏。"""
+        from ui.feature_search import FeatureSearchPopup, feature_catalog
+
+        popup = getattr(self, '_feature_search', None)
+        if popup is None:
+            popup = FeatureSearchPopup(self)
+            popup.chosen.connect(self.navigate_to)
+            self._feature_search = popup
+        zh = self.language == 'zh'
+        popup.set_catalog(
+            feature_catalog(language=self.language, private_unlocked=bool(self._private_unlocked)),
+            placeholder='搜索功能，回车打开' if zh else 'Search features, Enter to open',
+        )
+        anchor = getattr(self, '_quick_panel_btn', None) or self
+        popup.open_under(anchor)
+
     def _open_quick_panel(self):
-        """Web 铬层发起的快速面板（与 Ctrl+Shift+P 同源）。"""
+        """侧栏和托盘里的悬浮工具栏（与 Ctrl+Shift+P 同源）。"""
         try:
             if getattr(self, 'quick_panel', None) is not None:
                 self.quick_panel.show_panel()

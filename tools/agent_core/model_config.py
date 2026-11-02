@@ -141,7 +141,7 @@ class AgentModelSnapshot:
             deadline_value,
             default=DEFAULT_AGENT_DEADLINE_SECONDS,
             minimum=0.01,
-            maximum=60.0,
+            maximum=600.0,
         )
         object.__setattr__(self, "timeout_seconds", deadline_value)
         object.__setattr__(self, "deadline_seconds", deadline_value)

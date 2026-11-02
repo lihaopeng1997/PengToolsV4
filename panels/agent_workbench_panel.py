@@ -61,7 +61,7 @@ _CONTEXT_BUDGET_REASONS = {
     'trimmed_to_application_budget_window_unknown',
     'within_known_input_budget',
     'within_application_budget_window_unknown',
-    'memory_compacted', 'memory_omitted',
+    'memory_compacted', 'memory_omitted', 'auto_compacted',
     'pending_exchange', 'invalid_input', 'private_reasoning_content',
     'incomplete_history', 'estimator_error', 'invalid_estimate',
     'context_anchors_too_large', 'estimator_inconsistent',
@@ -439,7 +439,7 @@ class AgentWorkbenchPanel(QWidget):
         self._stream_body = None
         self._stream_summary_text = ''
         self._stream_body_text = ''
-        self._plan_confirm = False       # 始终先确认计划（默认关）
+        self._plan_confirm = False       # 兼容原存储字段：先展示计划；写操作始终单独确认
         self._bridge = None              # 跨线程桥（延迟创建）
         self._send_hint_resize_pending = False
         self._file_attachments: list[str] = []
@@ -624,6 +624,11 @@ class AgentWorkbenchPanel(QWidget):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self._follow_tail_requested = False
+        self.scroll.verticalScrollBar().rangeChanged.connect(self._on_thread_range_changed)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._on_thread_scroll_value)
+        self.scroll.verticalScrollBar().actionTriggered.connect(self._on_thread_scroll_action)
+        self.scroll.verticalScrollBar().sliderPressed.connect(self._on_thread_scroll_action)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.thread_widget = QWidget()
         self.thread_widget.setObjectName('agent-thread-column')
@@ -703,6 +708,8 @@ class AgentWorkbenchPanel(QWidget):
         self.input.setMinimumHeight(120)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
+        from ui.text_actions import install_text_actions
+        install_text_actions(self.input, language=lambda: self.language)
         composer_l.addWidget(self.input, 1)
 
         send_row = QHBoxLayout()
@@ -948,7 +955,7 @@ class AgentWorkbenchPanel(QWidget):
         self.exec_mode_combo.blockSignals(True)
         self.exec_mode_combo.clear()
         self.exec_mode_combo.addItem('直接执行' if zh else 'Run directly', False)
-        self.exec_mode_combo.addItem('执行前确认计划' if zh else 'Plan first', True)
+        self.exec_mode_combo.addItem('先列计划' if zh else 'Plan first', True)
         self.exec_mode_combo.setCurrentIndex(1 if cur_val else 0)
         self.exec_mode_combo.blockSignals(False)
         # Keep every translated option readable at narrow window sizes. The
@@ -1032,14 +1039,14 @@ class AgentWorkbenchPanel(QWidget):
     def _update_exec_mode_tooltips(self):
         zh = self.language == 'zh'
         tip_direct = (
-            '按当前工具权限与安全规则直接执行任务，遇到需要确认的高风险操作仍遵循原有安全确认。'
+            '查询、搜索、读取无需确认；新增、修改、删除及运行可能写入文件的测试命令必须确认。'
             if zh else
-            'Execute directly under safety rules; high-risk operations still require confirmation.'
+            'Read-only actions run directly. Creating, editing, deleting and executing project tests require approval.'
         )
         tip_plan = (
-            'Agent 生成执行计划后先请求确认，确认后才继续执行后续步骤。'
+            '先展示计划再执行；只读操作无需确认，新增、修改、删除仍须逐项确认。'
             if zh else
-            'Agent generates an execution plan and requests confirmation before proceeding.'
+            'Show the plan first. Only actions that may change files or data require approval.'
         )
         self.exec_mode_combo.setItemData(0, tip_direct, Qt.ItemDataRole.ToolTipRole)
         self.exec_mode_combo.setItemData(1, tip_plan, Qt.ItemDataRole.ToolTipRole)
@@ -1564,7 +1571,7 @@ class AgentWorkbenchPanel(QWidget):
             'trimmed_to_application_budget_window_unknown',
             'within_known_input_budget',
             'within_application_budget_window_unknown',
-            'memory_compacted', 'memory_omitted',
+            'memory_compacted', 'memory_omitted', 'auto_compacted',
         }:
             return None
         if status == 'blocked' and reason not in {
@@ -1612,6 +1619,8 @@ class AgentWorkbenchPanel(QWidget):
             short = '上下文受限 · 原文保留' if zh else 'Context limited · history kept'
         elif status == 'deferred':
             short = '等待本轮完成 · 原文保留' if zh else 'Waiting for turn · history kept'
+        elif state['reason'] == 'auto_compacted':
+            short = '上下文已自动压缩 · 原文保留' if zh else 'Context auto-compacted · history kept'
         elif dropped:
             short = '请求已精简 · 原文保留' if zh else 'Request trimmed · history kept'
         else:
@@ -1662,6 +1671,9 @@ class AgentWorkbenchPanel(QWidget):
                     f'Removed {dropped} older messages from this request copy; the complete original conversation remains in local history.'
                     if dropped else 'The complete original conversation remains in local history.'
                 )
+            if state['reason'] == 'auto_compacted':
+                reason_detail += (' 历史或过长结果已压缩为带省略标记的节选；需要细节时会重新读取。'
+                                  if zh else ' History or large results use marked excerpts; source details may need to be read again.')
         tooltip = ' '.join((estimate_detail, window_detail, reason_detail))
         self.context_budget_label.setText(short)
         self.context_budget_label.setToolTip(tooltip)
@@ -1736,6 +1748,12 @@ class AgentWorkbenchPanel(QWidget):
 
     def _render_conversation(self, ws: dict, conv: dict | None):
         """把某对话的消息渲染到中栏。"""
+        key = (str((ws or {}).get('id') or ''), str((conv or {}).get('id') or ''))
+        previous_scroll = self.scroll.verticalScrollBar().value()
+        follow_tail = key != getattr(self, '_rendered_conversation_key', None) or self._is_thread_at_bottom()
+        self._follow_tail_requested = follow_tail
+        self._rendered_conversation_key = key
+        self._rendering_conversation = True
         if hasattr(self, 'thread_title'):
             ws_title = str((ws or {}).get('title') or '')
             conv_title = str((conv or {}).get('title') or '')
@@ -1751,6 +1769,7 @@ class AgentWorkbenchPanel(QWidget):
                 child.widget().deleteLater()
         self._sync_thread_empty()
         if not conv:
+            self._rendering_conversation = False
             self.input.clear()
             return
         pending: list[tuple[str, str]] = []
@@ -1793,6 +1812,11 @@ class AgentWorkbenchPanel(QWidget):
                 flush_steps()
                 self._append_message('assistant', content)
         flush_steps()
+        self._rendering_conversation = False
+        if follow_tail:
+            self._scroll_to_bottom()
+        else:
+            self.scroll.verticalScrollBar().setValue(previous_scroll)
 
     def _on_space_tree_menu(self, pos):
         item = self.space_tree.itemAt(pos)
@@ -2108,12 +2132,17 @@ class AgentWorkbenchPanel(QWidget):
         self._render_conversation(ws, conv)
 
         model_cfg = dict(self._current_model() or {})
+        self._scroll_to_bottom()
         if not model_cfg.get('enabled') or not model_cfg.get('base_url'):
             self._append_message('assistant', '当前模型未启用或未配置 Base URL，请在设置中检查。' if self.language == 'zh' else 'The selected model is disabled or has no Base URL. Check Settings.')
             return
 
         from tools.agent_core import CancellationToken
         task_id = uuid.uuid4().hex
+        from tools.agent_diag import log_agent_event
+        log_agent_event('wb_send', task=task_id,
+                        capability=model_cfg.get('agent_capability'),
+                        deadline_seconds=model_cfg.get('agent_deadline_seconds'))
         cancellation = CancellationToken()
         workspace_id = str(ws.get('id') or '')
         conversation_id = str(conv.get('id') or '')
@@ -2284,6 +2313,8 @@ class AgentWorkbenchPanel(QWidget):
 
     def _stop(self):
         task = self._active_task
+        from tools.agent_diag import log_agent_event
+        log_agent_event('wb_stop_requested', task=str((task or {}).get('id') or ''))
         if task and not task.get('invalidated'):
             task['invalidated'] = True
             token = task.get('cancellation')
@@ -2299,6 +2330,8 @@ class AgentWorkbenchPanel(QWidget):
         self._sync_running_state()
 
     def _on_agent_completed(self, task_id: str, final_answer: str, messages: list, tool_calls: list):
+        from tools.agent_diag import log_agent_event
+        log_agent_event('wb_result_received', task=task_id, answer_chars=len(final_answer), tools=len(tool_calls))
         if not self._task_is_current(task_id):
             return
         # Drain transient progress while the worker still owns the current
@@ -2586,7 +2619,7 @@ class AgentWorkbenchPanel(QWidget):
         self.thread_layout.addWidget(widget)
         self.thread_layout.addStretch(1)
         self._sync_thread_empty()
-        if at_bottom:
+        if at_bottom and not getattr(self, '_rendering_conversation', False):
             self._scroll_to_bottom()
 
     def _is_thread_at_bottom(self) -> bool:
@@ -2594,8 +2627,36 @@ class AgentWorkbenchPanel(QWidget):
         return bar.value() >= bar.maximum() - 4
 
     def _scroll_to_bottom(self):
+        # Qt updates the scroll range after the new message has been laid out.
+        self._follow_tail_requested = True
+        QTimer.singleShot(0, self._apply_scroll_tail)
+
+    def _on_thread_range_changed(self, *_args):
+        if self._follow_tail_requested:
+            self._layout_scroll_pending = True
+            QTimer.singleShot(0, self._apply_scroll_tail)
+
+    def _on_thread_scroll_action(self, *_args):
+        self._follow_tail_requested = False
+
+    def _on_thread_scroll_value(self, value):
+        if (not getattr(self, '_applying_scroll_tail', False)
+                and not getattr(self, '_layout_scroll_pending', False)
+                and not getattr(self, '_rendering_conversation', False)
+                and value < self.scroll.verticalScrollBar().maximum() - 4):
+            self._follow_tail_requested = False
+
+    def _apply_scroll_tail(self):
+        if not self._follow_tail_requested:
+            self._layout_scroll_pending = False
+            return
         bar = self.scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._applying_scroll_tail = True
+        try:
+            bar.setValue(bar.maximum())
+        finally:
+            self._applying_scroll_tail = False
+            self._layout_scroll_pending = False
 
     def _follow_scroll_if_at_bottom(self):
         if self._is_thread_at_bottom():

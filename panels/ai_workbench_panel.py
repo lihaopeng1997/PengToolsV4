@@ -304,6 +304,11 @@ class AiWorkbenchPanel(QWidget):
             **dict(data_center_agent_options or {}),
             parent=self,
         )
+        # Replace the legacy generate-only entry with the executing Agent.
+        # Keep its widgets owned for compatibility with existing state helpers.
+        self._legacy_ai_tab = self.side_tabs.widget(0)
+        self.side_tabs.setTabVisible(0, False)
+        self._legacy_ai_tab.hide()
         self.side_tabs.addTab(self.data_center_agent, '只读 Agent' if language == 'zh' else 'Read-only Agent')
         self.conn_combo.currentIndexChanged.connect(self.data_center_agent.target_changed)
         self.sql_tabs.currentChanged.connect(self._on_agent_sql_tab_changed)
@@ -3068,6 +3073,20 @@ class AiWorkbenchPanel(QWidget):
         self._send_object_to_ai(self._detail_object, self._selected_detail_fields())
 
     def _send_object_to_ai(self, obj: dict, fields: list):
+        agent = getattr(self, 'data_center_agent', None)
+        if agent is not None:
+            name = '.'.join(str(obj.get(key) or '') for key in ('owner', 'name') if obj.get(key))
+            columns = ', '.join(str(field.get('name') or '') for field in fields or [])
+            prompt = agent.agent_panel.prompt_input
+            reference = f'对象：{name}' + (f'；字段：{columns}' if columns else '')
+            prompt.setPlainText((prompt.toPlainText().rstrip() + '\n' + reference).strip())
+            index = self.side_tabs.indexOf(agent)
+            if index >= 0:
+                self.side_tabs.setCurrentIndex(index)
+            else:
+                agent.open_requested.emit()
+            prompt.setFocus()
+            return
         self.nl_input.bind_snapshot(self._snapshot)
         pos = self.nl_input.textCursor().position()
         token = add_object(self.nl_input.context, obj)

@@ -55,7 +55,7 @@ class MemoryContextPlanner:
             self.previous = self.memory.to_dict()
         except (TypeError, ValueError, UnicodeError):
             self.memory = None
-        if not base.messages_dropped or self.memory is None:
+        if (not base.messages_dropped and base.reason != 'auto_compacted') or self.memory is None:
             return base
         # The first user remains an anchor, and this boundary cannot split a
         # tool exchange. Memory stays an assistant data message, not a policy.
@@ -70,5 +70,5 @@ class MemoryContextPlanner:
             return replace(base, reason='memory_omitted')
         if plan.status != 'ready':
             return replace(base, reason='memory_omitted')
-        return replace(plan, reason='memory_compacted',
+        return replace(plan, reason=('auto_compacted' if base.reason == 'auto_compacted' else 'memory_compacted'),
                        messages_dropped=len(messages) - len(plan.messages) + 1)

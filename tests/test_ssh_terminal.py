@@ -25,6 +25,10 @@ class SshTerminalWidgetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        from PyQt6.QtGui import QFontDatabase
+        for filename in ('C:/Windows/Fonts/consola.ttf', 'C:/Windows/Fonts/consolab.ttf'):
+            if os.path.exists(filename):
+                QFontDatabase.addApplicationFont(filename)
 
     def setUp(self):
         self.widget = SshTerminalWidget()
@@ -33,6 +37,39 @@ class SshTerminalWidgetTests(unittest.TestCase):
     def tearDown(self):
         self.widget.detach()
         self.widget.deleteLater()
+
+    def test_fractional_font_advance_stays_on_cursor_grid(self):
+        from PyQt6.QtGui import QFontMetricsF
+        for size in (9, 10, 11, 13):
+            font = pick_terminal_font(size)
+            width = terminal_cell_metrics(font)['cell_width']
+            for bold in (False, True):
+                font.setBold(bold)
+                locked = font_locked_to_cell(font, width)
+                text = 'user@linux:~$ ' + 'asd' * 25
+                self.assertLess(abs(QFontMetricsF(locked).horizontalAdvance(text) - len(text) * width), 1.0)
+        before = self.view._cell_dimensions()
+        self.widget.setStyleSheet('QWidget { font-family: Arial; font-size: 18px; }')
+        self.widget.show()
+        self.app.processEvents()
+        self.assertEqual(self.view._cell_dimensions(), before)
+        painted = self.view._font_for_style({}, before[0])
+        self.assertEqual(painted.family(), self.view._terminal_font.family())
+        self.assertAlmostEqual(QFontMetricsF(painted).horizontalAdvance('i'), QFontMetricsF(painted).horizontalAdvance('W'), places=2)
+
+    def test_response_signal_ignores_old_session_data(self):
+        from PyQt6.QtTest import QSignalSpy
+        replies = QSignalSpy(self.widget.response_received)
+        closed = QSignalSpy(self.widget.connection_closed)
+        gen = self.view._session_generation
+        self.view._on_data(gen - 1, b'old')
+        self.assertEqual(len(replies), 0)
+        self.view._on_data(gen, b'result')
+        self.assertEqual(len(replies), 1)
+        self.view._on_shell_closed(gen - 1)
+        self.assertEqual(len(closed), 0)
+        self.view._on_shell_closed(gen)
+        self.assertEqual(len(closed), 1)
 
     def test_widget_initial_state(self):
         self.assertFalse(self.widget.shell_alive)

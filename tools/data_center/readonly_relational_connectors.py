@@ -504,7 +504,6 @@ def _connect_oceanbase_oracle(
                     f"Driver={{{driver_name}}};",
                     f"Server={_escape_odbc(host)};",
                     f"Port={port};",
-                    f"Database={_escape_odbc(database)};",
                     f"User={_escape_odbc(username)};",
                     f"Password={_escape_odbc(secret)};",
                     "Option=3",
@@ -524,6 +523,13 @@ def _connect_oceanbase_oracle(
                 raise AttributeError("timeout was not applied")
         except Exception:
             raise RelationalConnectorError("ODBC_STATEMENT_TIMEOUT_UNAVAILABLE") from None
+        from tools.db_connect import oceanbase_oracle_schema_sql
+        try:
+            setup = connection.cursor()
+            setup.execute(oceanbase_oracle_schema_sql(database))
+            setup.close()
+        except Exception:
+            raise RelationalConnectorError("CONNECT_FAILED") from None
         return _OceanBaseOdbcConnection(connection, driver_name)
     except RelationalConnectorError:
         _close_safely(connection, ssh_lease=ssh_lease)

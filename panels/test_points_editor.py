@@ -245,6 +245,9 @@ class TestPointsEditor(QWidget):
         )
         self._rebuild()
 
+        self._saved_points = self.points()
+        self._saved_pending_seed = self._pending_seed
+
     def set_description(self, text):
         self._description = str(text or '')
         extracted = extract_test_points_from_text(self._description)
@@ -346,9 +349,9 @@ class TestPointsEditor(QWidget):
             self.add_edit.setFocus()
             return
         self._points.append({'id': uuid.uuid4().hex, 'text': text, 'done': False})
-        self.add_edit.clear()
         self._rebuild()
-        self._commit_change()
+        if self._commit_change():
+            self.add_edit.clear()
         self.add_edit.setFocus()
 
     def _extract_from_description(self):
@@ -375,12 +378,21 @@ class TestPointsEditor(QWidget):
         self._sync_hint()
 
     def _commit_change(self):
-        self._pending_seed = False
         payload = self.points()
-        self.changed.emit(payload)
         if self._persist_callback is not None:
-            self._persist_callback(payload)
+            previous = [dict(item) for item in self._saved_points]
+            pending_seed = self._saved_pending_seed
+            if self._persist_callback(payload) is False:
+                self._points = previous
+                self._pending_seed = pending_seed
+                self._rebuild()
+                return False
+        self._pending_seed = False
+        self._saved_points = self.points()
+        self._saved_pending_seed = False
         self._sync_hint()
+        self.changed.emit(payload)
+        return True
 
 
 class TestPointsDialog(QDialog):
@@ -454,13 +466,18 @@ class TestPointsDialog(QDialog):
     def _persist_points(self, points):
         req_id = str(self._requirement.get('id') or '')
         if not req_id:
-            return
+            show_error(self, '保存失败', '需求标识缺失，无法写入测试点。')
+            return False
         try:
             updated = save_requirement_test_points(req_id, points)
         except OSError as exc:
             show_error(self, '保存失败', f'无法写入测试点：\n{exc}')
-            return
+            return False
+        if updated is None:
+            show_error(self, '保存失败', '需求已不存在，请刷新需求列表后重试。')
+            return False
         if updated is not None:
             self._requirement['test_points'] = list(updated.get('test_points') or [])
             self._saved = True
         self._refresh_subtitle()
+        return True

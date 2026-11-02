@@ -68,6 +68,26 @@ class QuickPanelLifecycleTests(unittest.TestCase):
         panel.shutdown()
         owner.deleteLater()
 
+    def test_floating_window_shows_while_the_main_window_stays_hidden(self):
+        owner = _Stub()
+        panel = QuickPanel(owner, 'zh')
+        self.assertIsNone(panel.parentWidget())
+        panel.show_panel()
+        self.app.processEvents()
+        self.assertTrue(panel.isVisible())
+        self.assertFalse(owner.isVisible())
+        handle = panel.windowHandle()
+        if handle is not None:
+            self.assertIsNone(handle.transientParent())
+        owner.show()
+        self.app.processEvents()
+        owner.hide()
+        self.app.processEvents()
+        self.assertTrue(panel.isVisible())
+        self.assertFalse(owner.isVisible())
+        panel.shutdown()
+        owner.deleteLater()
+
     def test_toggle_expanded_same_object(self):
         owner = _Stub()
         panel = QuickPanel(owner, 'zh')

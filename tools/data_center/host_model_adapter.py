@@ -38,6 +38,7 @@ class AgentModelHostAdapter:
         max_text_bytes: int | None = None,
         max_tool_argument_bytes: int | None = None,
         max_raw_buffer_bytes: int | None = None,
+        strict_tool_envelope: bool = False,
     ) -> None:
         selected_id = str(model_config_id or "").strip()
         if not selected_id:
@@ -63,6 +64,8 @@ class AgentModelHostAdapter:
         # This mapping may contain an encrypted token and an endpoint.  Keep it
         # private; it is deliberately absent from public_metadata and repr.
         self._transport_config = dict(private_config)
+        if strict_tool_envelope and snapshot.effective_capability is AgentModelCapability.STRICT_JSON:
+            self._transport_config["agent_strict_tool_envelope"] = True
         self._adapter = StreamingModelAdapter(
             self._transport_config,
             transport=transport,

@@ -166,20 +166,20 @@ class DataCenterContextPlannerTests(unittest.TestCase):
         self.assertEqual(
             planner.limits,
             ContextLimits(
-                input_token_limit=64_000,
+                input_token_limit=512_000,
                 context_window_tokens=None,
                 output_reserve_tokens=4_096,
             ),
         )
         self.assertEqual(planner.estimator.kind, "heuristic_utf8_bytes")
-        self.assertEqual(runtime.runner._new_budget(None).limits.max_input_chars, 24_000)
+        self.assertEqual(runtime.runner._new_budget(None).limits.max_input_chars, 512_000 * 12)
 
         result = runtime.run("synthetic question")
 
         self.assertEqual(result.status, AgentStatus.COMPLETED)
         self.assertEqual(len(model.requests), 1)
         request = model.requests[0]
-        self.assertEqual(request.max_request_bytes, 64_000)
+        self.assertEqual(request.max_request_bytes, 512_000)
         self.assertEqual(request.max_output_tokens, 4_096)
         record = next(
             event.payload for event in events
@@ -206,7 +206,7 @@ class DataCenterContextPlannerTests(unittest.TestCase):
         self.assertNotIn("reasoning_content", record)
 
     def test_default_planner_drops_old_exchange_only_from_request_not_canonical_history(self) -> None:
-        old_payload = "synthetic-old-result " * 4_000
+        old_payload = "synthetic-old-result " * 24_000
         history = [
             {"role": "system", "content": "synthetic history anchor"},
             {"role": "user", "content": "synthetic first question"},
@@ -260,7 +260,7 @@ class DataCenterContextPlannerTests(unittest.TestCase):
         )
         self.assertEqual(record["messages_dropped"], 2)
         self.assertNotIn(old_payload, stable_json(request_messages))
-        self.assertEqual(model.requests[0].max_request_bytes, 64_000)
+        self.assertEqual(model.requests[0].max_request_bytes, 512_000)
 
     def test_draft_and_strict_custom_factory_keep_the_old_constructor_arguments(self) -> None:
         draft_runtime = self._runtime(draft=True, model=_FakeModel(AgentTurn(text="draft")))
@@ -415,7 +415,7 @@ class DataCenterContextPlannerTests(unittest.TestCase):
         )
         runtime = self._runtime(model=model, query_tool=query_tool)
 
-        result = runtime.run("synthetic-anchor-" + ("x" * 70_000))
+        result = runtime.run("synthetic-anchor-" + ("x" * 600_000))
 
         self.assertEqual(result.status, AgentStatus.BUDGET_EXHAUSTED)
         self.assertEqual(result.error, "context_anchors_too_large")

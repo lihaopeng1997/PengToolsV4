@@ -125,17 +125,20 @@ class OceanBaseOracleContractTests(unittest.TestCase):
             "mode": "oracle",
             "host": "10.0.0.1",
             "port": 2883,
-            "database": "ob;db",
+            "database": "INT_AUTOCORE",
             "username": "user;tenant}cluster",
             "oceanbase_oracle_provider": "odbc",
         }
         fake_pyodbc = MagicMock()
         fake_pyodbc.drivers.return_value = ["OceanBase ODBC 2.0 Driver"]
         captured_conn_str = []
+        created = []
 
         def fake_connect(conn_str, **kwargs):
             captured_conn_str.append(conn_str)
-            return MagicMock()
+            connection = MagicMock()
+            created.append(connection)
+            return connection
 
         fake_pyodbc.connect.side_effect = fake_connect
 
@@ -146,8 +149,14 @@ class OceanBaseOracleContractTests(unittest.TestCase):
         conn_str = captured_conn_str[0]
         self.assertIn("Driver={OceanBase ODBC 2.0 Driver}", conn_str)
         self.assertIn("Password={abc;123}}xyz}", conn_str)
-        self.assertIn("Database={ob;db}", conn_str)
+        self.assertNotIn("Database=", conn_str)
+        executed = created[0].cursor.return_value.execute.call_args[0][0]
+        self.assertEqual(executed, 'ALTER SESSION SET CURRENT_SCHEMA = "INT_AUTOCORE"')
         self.assertIn("User={user;tenant}}cluster}", conn_str)
+        self.assertEqual(
+            escape_odbc_value("INTAUTOCORE@INT_AUTOCORE#obdemo"),
+            "{INTAUTOCORE@INT_AUTOCORE#obdemo}",
+        )
         self.assertIn("Option=3", conn_str)
 
     def test_regression_f_password_never_appears_in_dberror(self):

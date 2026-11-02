@@ -426,6 +426,9 @@ class _ConnectionWorkspace(QWidget):
                 self.view_splitter.addWidget(self.agent_widget)
                 self.view_splitter.setCollapsible(1, True)
                 self.agent_widget.setMinimumWidth(340)
+                open_requested = getattr(self.agent_widget, 'open_requested', None)
+                if open_requested is not None:
+                    open_requested.connect(lambda: self.set_agent_visible(True))
                 self.agent_widget.hide()
             else:
                 self.agent_widget = None

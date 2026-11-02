@@ -52,6 +52,61 @@ class DataCenterAgentPanelTests(unittest.TestCase):
         self._flush()
         self.assertIn("queued answer", self.panel.answer_view.toPlainText())
 
+    def test_partial_final_answer_shows_before_the_json_closes(self):
+        from PyQt6.QtCore import Qt
+        self.panel.set_compact_rail(True)
+        self.sink(self._event(1, AgentEventType.MODEL_TEXT_DELTA, text='{"final_answer":"查到'))
+        self._flush()
+        self.assertIn('查到', self.panel.answer_view.toPlainText())
+        self.assertNotIn('final_answer', self.panel.answer_view.toPlainText())
+        self.assertEqual(self.panel._chat_answer.textFormat(), Qt.TextFormat.PlainText)
+        self.assertIn('查到', self.panel._chat_answer.text())
+        self.sink(self._event(2, AgentEventType.MODEL_TEXT_DELTA, text=' 1 条"}'))
+        self._flush()
+        self.assertIn('查到 1 条', self.panel.answer_view.toPlainText())
+        self.sink(self._event(3, AgentEventType.FINAL, text='查到 1 条'))
+        self._flush()
+        self.assertEqual(self.panel._chat_answer.textFormat(), Qt.TextFormat.MarkdownText)
+        self.assertIn('查到 1 条', self.panel._chat_answer.text())
+
+    def test_split_protocol_is_hidden_and_final_answer_replaces_stream(self):
+        self.panel.set_compact_rail(True)
+        parts = ['<to', 'ol_call><function=query_readonly><parameter=sql>', 'SELECT 1', '</parameter></function></tool_call>', '{"tool_', 'calls":[],"final_answer":"查到 1 条"}']
+        for sequence, part in enumerate(parts, 1):
+            self.sink(self._event(sequence, AgentEventType.MODEL_TEXT_DELTA, text=part))
+            self._flush()
+            self.assertNotIn('SELECT', self.panel.answer_view.toPlainText())
+            self.assertNotIn('tool_', self.panel.answer_view.toPlainText())
+        self.sink(self._event(20, AgentEventType.FINAL, text='实际结果'))
+        self._flush()
+        self.assertEqual(self.panel.answer_view.toPlainText(), '实际结果')
+        self.assertIn('实际结果', self.panel._chat_answer.text())
+
+    def test_enter_sends_shift_enter_adds_line_and_transcript_keeps_previous_turn(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        self.panel.set_compact_rail(True)
+        self.panel.reset_run()
+        sent = []
+        self.panel.prompt_send_requested.connect(sent.append)
+        self.panel.prompt_input.setPlainText('第一个问题')
+        QTest.keyClick(self.panel.prompt_input, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(sent, [])
+        self.assertIn('\n', self.panel.prompt_input.toPlainText())
+        self.panel.prompt_input.setPlainText('第一个问题')
+        QTest.keyClick(self.panel.prompt_input, Qt.Key.Key_Return)
+        self.assertEqual(sent, ['第一个问题'])
+        self.panel.start_run('first', 'tab')
+        self.panel.acknowledge_prompt('第一个问题')
+        self.panel._replace_answer('第一轮回答')
+        self.panel.start_run('second', 'tab')
+        self.panel.prompt_input.setPlainText('继续')
+        self.panel.acknowledge_prompt('继续')
+        self.assertEqual(self.panel._chat_layout.count(), 4)
+        self.assertIn('第一轮回答', self.panel._chat_layout.itemAt(1).widget().text())
+        self.panel.reset_run()
+        self.assertEqual(self.panel._chat_layout.count(), 0)
+
     def test_terminal_timeout_reports_worker_snapshot_and_ignores_unapproved_fields(self):
         self.sink(self._event(
             1,
@@ -258,6 +313,19 @@ class DataCenterAgentPanelTests(unittest.TestCase):
         self.assertFalse(self.panel.put_sql_button.isEnabled())
         self.panel.copy_sql_button.click()
         self.assertEqual(copied, [])
+
+    def test_failed_query_still_offers_sql_for_the_editor(self):
+        put: list[str] = []
+        self.panel.put_sql_requested.connect(put.append)
+        sql = "SELECT COUNT(*) FROM INTAUTOCORE.PRPCMAIN"
+        self.sink(self._event(1, AgentEventType.TOOL_CALL, name="query_readonly", call_id="c1", arguments={"sql": sql}))
+        self.sink(self._event(2, AgentEventType.TOOL_RESULT, name="query_readonly", ok=False, code="QUERY_FAILED"))
+        self.sink(self._event(3, AgentEventType.FINAL, text="", verified=False, verification_status="unverified"))
+        self._flush()
+        self.assertIn(sql, self.panel._channels["sql"].value)
+        self.assertIn("没有查到数据", self.panel.answer_view.toPlainText())
+        self.panel.put_sql_button.click()
+        self.assertEqual(put, [sql])
 
     def test_prompt_send_rejects_blank_and_emits_one_stripped_value(self):
         prompts: list[str] = []

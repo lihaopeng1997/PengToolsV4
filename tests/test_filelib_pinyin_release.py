@@ -95,6 +95,36 @@ class PinyinSearchTests(unittest.TestCase):
         self.assertEqual(workbook_visible_row_indexes(wide, 'ZQ9'), [0, 1])
         self.assertEqual(workbook_visible_row_indexes(decoy, '报表'), [0])
 
+    def test_ip_search_keeps_the_address_together(self):
+        from tools.personal_knowledge import row_matches_query, search_entries
+        from tools.pinyin_search import match_query, normalize_query
+        self.assertEqual(normalize_query('10.128.25.200'), '10.128.25.200')
+        self.assertEqual(normalize_query('车险.承保'), '车险 承保')
+        host = '10.128.25.200  cxcbhd1 18001 车险承保'
+        other = '1125 用户 10.128.23.217 wfw 20000 微服务'
+        self.assertTrue(match_query(host, '10.128.25.200'))
+        self.assertFalse(match_query(other, '10.128.25.200'))
+        self.assertTrue(row_matches_query(['cxcbhd1', '10.128.25.200', '18001'], '10.128.25.200'))
+        self.assertFalse(row_matches_query(['1125', '10.128.23.217', '20000'], '10.128.25.200'))
+        exact = {
+            'id': 'exact', 'content_type': 'workbook_sheet', 'title': '内网',
+            'source': 'servers.xlsx', 'sheet_name': '内网', 'category': 'other',
+            'content': '', 'tags': '', 'header_rows': [0],
+            'rows': [['主机', '地址'], ['cxcbhd1', '10.128.25.200']],
+        }
+        near = {
+            'id': 'near', 'content_type': 'workbook_sheet', 'title': '其他地址',
+            'source': 'other.xlsx', 'sheet_name': '内网', 'category': 'other',
+            'content': '', 'tags': '', 'header_rows': [0],
+            'rows': [['编号', '地址', '端口'], ['1125', '10.128.23.217', '20000']],
+        }
+        note = {
+            'id': 'note', 'content_type': 'text', 'title': '网关',
+            'content': '接口说明 10 和 200', 'tags': '', 'category': 'interface',
+            'source': '', 'sheet_name': '', 'rows': [],
+        }
+        self.assertEqual(search_entries([exact, near, note], '10.128.25.200'), [exact])
+
     def test_no_match_must_not_return_all(self):
         from tools.pinyin_search import build_search_blob, match_query
         items = [

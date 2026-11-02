@@ -47,6 +47,7 @@ DEFAULT_AI_LOCAL = {
     'agent_capability': 'unknown',
     'agent_reasoning_fields': [],
     'agent_deadline_seconds': 60.0,
+    'agent_max_turn_seconds': 600.0,
     'agent_max_reasoning_bytes': 64 * 1024,
     'agent_max_text_bytes': 128 * 1024,
     'agent_max_tool_argument_bytes': 32 * 1024,
@@ -230,7 +231,10 @@ def normalize_ai_local(raw) -> dict:
             _first_config_value(raw, _AGENT_DEADLINE_ALIASES, DEFAULT_AGENT_DEADLINE_SECONDS),
             default=DEFAULT_AGENT_DEADLINE_SECONDS,
             minimum=0.01,
-            maximum=60.0,
+            maximum=600.0,
+        )
+        result['agent_max_turn_seconds'] = _normalize_agent_float(
+            raw.get('agent_max_turn_seconds', 600.0), default=600.0, minimum=1.0, maximum=3600.0,
         )
         result['agent_max_reasoning_bytes'] = _normalize_agent_int(
             _first_config_value(raw, _AGENT_REASONING_MAX_ALIASES, DEFAULT_AGENT_MAX_REASONING_BYTES),

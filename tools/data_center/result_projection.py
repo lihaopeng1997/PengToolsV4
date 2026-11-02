@@ -31,12 +31,24 @@ DEFAULT_MAX_COLUMNS = 100
 
 _MISSING = object()
 _GENERIC_FAILURE = "工具未成功完成，未提供结果数据"
+_HOST_MESSAGE_CODES = frozenset({
+    "ARGUMENT_INVALID",
+    "CAPABILITY_UNAVAILABLE",
+    "DIALECT_UNSUPPORTED",
+    "MULTI_STATEMENT",
+    "POLICY_DENIED",
+    "QUERY_FAILED",
+    "READ_GUARD_NOT_READY",
+    "SCOPE_DENIED",
+    "SESSION_NOT_FOUND",
+    "SQL_INVALID",
+})
 
 
 def _public_failure_message(code: Any, data: Any) -> str:
-    """Show our own argument errors. Hide driver and path text."""
+    """Show host-authored failures. Hide driver text, paths, and SQL."""
 
-    if str(code or "") != "ARGUMENT_INVALID" or not isinstance(data, Mapping):
+    if str(code or "") not in _HOST_MESSAGE_CODES or not isinstance(data, Mapping):
         return _GENERIC_FAILURE
     message = data.get("message")
     if not isinstance(message, str):

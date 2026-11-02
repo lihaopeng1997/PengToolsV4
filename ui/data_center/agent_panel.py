@@ -13,7 +13,7 @@ import json
 from typing import Any, Mapping
 import weakref
 
-from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -58,6 +58,14 @@ def _event_name(value: Any) -> str:
 
     raw = getattr(value, "value", value)
     return str(raw or "").strip().lower()
+
+
+def _first_select(text: str) -> str:
+    import re
+    match = re.search(r"(?is)\bselect\b\s+.+?(?:;|$)", text or "")
+    if match is None:
+        return ""
+    return match.group(0).strip()
 
 
 def _bounded_label(value: Any, limit: int = 160) -> str:
@@ -219,6 +227,10 @@ class DataCenterAgentPanel(QWidget):
         self._phase_texts = ("未绑定运行", "No run bound")
         self._result_status_texts = ("尚无最终结果", "No final result yet")
         self._result_status_role = "neutral"
+        self._turn_text = ""
+        self._turn_prefix = ""
+        self._chat_answer = None
+        self._input_composing = False
 
         self._build_ui(target=target, model=model)
 
@@ -510,6 +522,11 @@ class DataCenterAgentPanel(QWidget):
         self._stop_was_requested = False
         self._terminal_seen = None
         self._set_cancel_pending(False)
+        while self._chat_layout.count():
+            item = self._chat_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._chat_answer = None
         self._reset_channels()
         self._set_phase("未绑定运行", "No run bound")
         self._set_progress_value(None)
@@ -528,10 +545,21 @@ class DataCenterAgentPanel(QWidget):
             return False
         if prompt is not None and str(prompt).strip() != current:
             return False
+        self._add_chat_message("你", current)
+        self._chat_answer = self._add_chat_message("Agent", "正在处理…")
         self.prompt_input.clear()
+        self._follow_chat_tail(force=True)
         return True
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is getattr(self, "prompt_input", None):
+            if event.type() == QEvent.Type.InputMethod:
+                self._input_composing = bool(event.preeditString())
+            if (event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                    and not event.modifiers() & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+                    and not self._input_composing):
+                self._on_send_prompt()
+                return True
         if watched is getattr(self, "stop_button", None) and event.type() == QEvent.Type.EnabledChange:
             self._sync_compact_rail()
         if (
@@ -701,6 +729,17 @@ class DataCenterAgentPanel(QWidget):
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(_lm.SPACING_CARD)
+        self._chat_widget = QWidget(body)
+        self._chat_layout = QVBoxLayout(self._chat_widget)
+        self._chat_layout.setContentsMargins(4, 6, 4, 6)
+        self._chat_layout.setSpacing(14)
+        self._chat_widget.hide()
+        body_layout.addWidget(self._chat_widget)
+        self.details_button = QPushButton("查看本轮执行详情", body)
+        self.details_button.setCheckable(True)
+        self.details_button.setVisible(False)
+        self.details_button.toggled.connect(self._sync_compact_rail)
+        body_layout.addWidget(self.details_button)
 
         composer = QFrame(self)
         composer.setObjectName("agent-prompt-card")
@@ -721,6 +760,10 @@ class DataCenterAgentPanel(QWidget):
         self.prompt_input.setMaximumHeight(112)
         self.prompt_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.prompt_input.textChanged.connect(self._refresh_send_availability)
+        self.prompt_input.installEventFilter(self)
+        from ui.text_actions import install_text_actions
+        install_text_actions(self.prompt_input, language=lambda: self._display_language)
+        self.prompt_input.setToolTip("Enter 发送，Shift+Enter 换行")
         composer_layout.addWidget(self.prompt_input)
         prompt_actions = QHBoxLayout()
         prompt_actions.addStretch(1)
@@ -998,6 +1041,15 @@ class DataCenterAgentPanel(QWidget):
         self.result_preview_view.setVisible(preview)
         self._evidence_card.setVisible(sql or preview or evidence)
         self.compact_hint.setVisible(not (reasoning or answer or running or sql or preview or evidence))
+        self._chat_widget.show()
+        self.answer_view.hide()
+        expanded = self.details_button.isChecked()
+        self.details_button.setVisible(reasoning or sql or preview or evidence)
+        self.reasoning_view.setVisible(reasoning and expanded)
+        self._conversation_card.setVisible(running or bool(self._terminal_seen) or (reasoning and expanded))
+        self.result_status_label.setVisible(bool(self._terminal_seen))
+        self._evidence_card.setVisible(expanded and (sql or preview or evidence))
+        self.compact_hint.setVisible(self._chat_layout.count() == 0 and not running)
 
     @staticmethod
     def _make_readonly_view(parent: QWidget, object_name: str, *, minimum_height: int, maximum_height: int) -> QPlainTextEdit:
@@ -1107,9 +1159,9 @@ class DataCenterAgentPanel(QWidget):
             return
         if event_type in _TEXT_EVENTS:
             from tools.agent_core.text_protocol import visible_model_text
-            shown = visible_model_text(str(payload.get("text") or ""))
-            if shown:
-                self._append_channel("answer", shown, self.answer_view)
+            self._turn_text = (self._turn_text + str(payload.get("text") or ""))[:512_000]
+            shown = visible_model_text(self._turn_text, streaming=True)
+            self._replace_answer(self._turn_prefix + shown)
             self._set_phase("正在生成回答…", "Generating answer…")
             return
         if event_type in _TOOL_EVENTS:
@@ -1124,6 +1176,10 @@ class DataCenterAgentPanel(QWidget):
             self._set_phase(f"运行开始 · {status}", f"Run started · {status}")
             return
         if event_type == "turn_started":
+            self._turn_prefix = self._channels["answer"].value
+            if self._turn_prefix:
+                self._turn_prefix += "\n\n"
+            self._turn_text = ""
             turn = payload.get("turn_index")
             if str(turn).isdigit():
                 self._set_phase(f"模型处理中 · 第 {int(turn) + 1} 轮", f"Model turn {int(turn) + 1}")
@@ -1221,12 +1277,15 @@ class DataCenterAgentPanel(QWidget):
         reasoning_summary = payload.get("reasoning_summary")
         if reasoning_summary:
             self._append_reasoning_summary(reasoning_summary)
-        if not self._channels["answer"].value:
-            final_text = payload.get("text") if "text" in payload else payload.get("answer")
-            if final_text:
-                self._append_channel("answer", final_text, self.answer_view)
+        final_text = payload.get("text") if "text" in payload else payload.get("answer")
+        if final_text:
+            from tools.agent_core.text_protocol import visible_model_text
+            self._replace_answer(visible_model_text(str(final_text)))
+        verified_now = payload.get("verified") is True or payload.get("verification_status") == "verified"
+        self._publish_unverified_sql(verified=verified_now)
         self._active = False
         self._terminal_seen = "final"
+        self._paint_chat_answer(markdown=True)
         self.stop_button.setEnabled(False)
         verified = payload.get("verified")
         status = payload.get("verification_status")
@@ -1245,6 +1304,31 @@ class DataCenterAgentPanel(QWidget):
         self._set_phase("已完成", "Completed")
         self._set_result_status(label, "success" if verified is True else "warning", label_en)
         self._refresh_send_availability()
+
+    def _publish_unverified_sql(self, *, verified: bool) -> None:
+        """查询没有成功结果时，仍把 SQL 显示出来并允许放进编辑器。"""
+
+        if verified:
+            return
+        answer = self._channels["answer"].value.strip()
+        sql = self._channels["sql"].value.strip()
+        if not sql:
+            sql = _first_select(answer)
+            if sql:
+                self._append_channel("sql", sql.rstrip() + "\n", self.sql_view)
+        if not sql:
+            return
+        if sql in answer:
+            return
+        note = (
+            "没有查到数据。SQL 如下，可应用到编辑器。\n\n" + sql
+            if self._display_language == "zh" else
+            "No rows were returned. The SQL is below and can be applied to the editor.\n\n" + sql
+        )
+        if answer:
+            self._append_channel("answer", "\n\n" + note, self.answer_view)
+        else:
+            self._replace_answer(note)
 
     def _append_reasoning_summary(self, summary: Any) -> None:
         """Append a final summary only when it adds information to deltas."""
@@ -1350,11 +1434,52 @@ class DataCenterAgentPanel(QWidget):
     # ------------------------------------------------------------------
     # Display and actions
     # ------------------------------------------------------------------
+    def _add_chat_message(self, role: str, text: str) -> QLabel:
+        label = QLabel(self._chat_widget)
+        label.setWordWrap(True)
+        label.setMinimumWidth(0)
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        label.setTextFormat(Qt.TextFormat.MarkdownText)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        label.setText(f"**{role}**\n\n{text}")
+        self._chat_layout.addWidget(label)
+        return label
+
+    def _paint_chat_answer(self, *, markdown: bool) -> None:
+        label = self._chat_answer
+        if label is None or not getattr(self, "_compact_rail", False):
+            return
+        body = self._channels["answer"].display
+        if markdown:
+            label.setTextFormat(Qt.TextFormat.MarkdownText)
+            label.setText(f"**Agent**\n\n{body}")
+        else:
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setText(f"Agent\n{body}" if body else "Agent\n正在生成…")
+        label.update()
+
+    def _follow_chat_tail(self, *, force: bool = False) -> None:
+        bar = self.body_scroll.verticalScrollBar()
+        if force or bar.value() >= bar.maximum() - 24:
+            QTimer.singleShot(0, lambda: bar.setValue(bar.maximum()))
+
+    def _replace_answer(self, text: str) -> None:
+        self._channels["answer"] = _BoundedChannel(self._limits["answer"], marker=self._truncation_marker("answer"))
+        self.answer_view.clear()
+        self._append_channel("answer", text, self.answer_view)
+
     def _append_channel(self, name: str, text: Any, view: QPlainTextEdit) -> None:
         channel = self._channels[name]
         visible = channel.append(text)
         if not visible:
             return
+        if name == "answer" and getattr(self, "_compact_rail", False):
+            self._follow_chat_tail()
+            if self._chat_answer is None:
+                self._chat_answer = self._add_chat_message("Agent", "")
+            # Markdown tables stay blank until the fence closes. While the
+            # model is still writing, show the text itself; format once at rest.
+            self._paint_chat_answer(markdown=not self._active)
         scroll_bar = view.verticalScrollBar()
         old_scroll_value = scroll_bar.value()
         follow_tail = old_scroll_value >= scroll_bar.maximum() - 1
@@ -1380,6 +1505,10 @@ class DataCenterAgentPanel(QWidget):
                 self.put_sql_button.setToolTip(warning)
 
     def _reset_channels(self) -> None:
+        self._turn_text = ""
+        self._turn_prefix = ""
+        self._chat_answer = None
+        self.details_button.setChecked(False)
         self._channels = {
             key: _BoundedChannel(limit, marker=self._truncation_marker(key))
             for key, limit in self._limits.items()
@@ -1463,6 +1592,9 @@ class DataCenterAgentPanel(QWidget):
         )
         self._result_status_role = str(role or "neutral")
         self._apply_result_status_copy()
+        if self._terminal_seen and self._chat_answer is not None and not self._channels["answer"].value:
+            empty = "这次没有返回查询内容。" if self._display_language == "zh" else "The run returned no query content."
+            self._chat_answer.setText(f"**Agent**\n\n{empty}")
 
     def _any_channel_truncated(self) -> bool:
         return any(channel.truncated for channel in self._channels.values())

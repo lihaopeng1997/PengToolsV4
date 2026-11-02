@@ -19,6 +19,7 @@ from tools.requirement_stages import (
     stage_index,
     status_group,
 )
+from tools.requirement_workflow import configured_statuses, target_status
 from tools.requirements import (
     ONLINE_STATUS,
     PRIORITIES,
@@ -118,7 +119,7 @@ def _clean_text(value: Any, limit: int) -> str:
 
 
 def _set_status(rid: str, status: str, path=None) -> dict | None:
-    if status not in STATUSES:
+    if status not in configured_statuses():
         raise HomeActionError('未知状态')
     if status == ONLINE_STATUS:
         return mark_requirement_online(rid, path=path)
@@ -138,7 +139,7 @@ def _move_group(rid: str, group: str, path=None) -> dict | None:
     # 同组内保留更细的状态（例如“用户测试”拖到“测试”列不被改回“待测试”）
     if status_group(current.get('status')) == group:
         return normalize_requirement(current)
-    return _set_status(rid, GROUP_TARGET_STATUS[group], path)
+    return _set_status(rid, target_status(group, GROUP_TARGET_STATUS[group]), path)
 
 
 def _update_fields(rid: str, fields: Any, path=None) -> dict | None:
@@ -200,6 +201,7 @@ def _create(action: Mapping[str, Any], path=None) -> dict:
     status = GROUP_TARGET_STATUS.get(group)
     if status is None:
         raise HomeActionError('未知阶段')
+    status = target_status(group, status)
     now = datetime.datetime.now().isoformat(timespec='seconds')
     item = {
         'id': uuid.uuid4().hex,
@@ -234,7 +236,7 @@ def handle(action: Any, path=None) -> dict[str, Any]:
             item = _find(str(action.get('id') or ''), path)
             if item is None:
                 raise HomeActionError('需求不存在或已删除')
-            return {'ok': True, 'item': requirement_detail(item), 'statuses': list(STATUSES),
+            return {'ok': True, 'item': requirement_detail(item), 'statuses': list(configured_statuses()),
                     'priorities': list(PRIORITIES)}
         if kind == 'create':
             created = _create(action, path)
@@ -253,7 +255,7 @@ def handle(action: Any, path=None) -> dict[str, Any]:
         if updated is None:
             raise HomeActionError('需求不存在或已删除')
         return {'ok': True, 'changed': True, 'item': requirement_detail(updated),
-                'statuses': list(STATUSES), 'priorities': list(PRIORITIES)}
+                'statuses': list(configured_statuses()), 'priorities': list(PRIORITIES)}
     except HomeActionError as exc:
         return {'ok': False, 'error': str(exc)}
     except OSError:

@@ -9,6 +9,7 @@ dependencies itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
@@ -56,6 +57,7 @@ class _WorkerOutcome:
     prompt: str
     cancelled: bool
     error: str | None = None
+    messages: tuple = ()
 
 
 class _RuntimeWorker(QObject):
@@ -70,6 +72,7 @@ class _RuntimeWorker(QObject):
         event_sink: AgentEventFacade,
         runtime: Any = None,
         runtime_factory: Callable[[RunContext], Any] | None = None,
+        messages: tuple = (),
     ) -> None:
         super().__init__()
         self._snapshot = snapshot
@@ -78,15 +81,18 @@ class _RuntimeWorker(QObject):
         self._event_sink = event_sink
         self._runtime = runtime
         self._runtime_factory = runtime_factory
+        self._messages = deepcopy(messages)
 
     @pyqtSlot()
     def run(self) -> None:
         runtime = None
         last_sequence = 0
         terminal_seen = False
+        terminal_failed = False
+        result = None
 
         def forward(event: Any) -> None:
-            nonlocal last_sequence, terminal_seen
+            nonlocal last_sequence, terminal_seen, terminal_failed
             if not isinstance(event, AgentEvent):
                 return
             context = self._snapshot.context
@@ -100,6 +106,7 @@ class _RuntimeWorker(QObject):
             except (TypeError, ValueError):
                 pass
             terminal_seen = terminal_seen or event_name in _TERMINAL_EVENTS
+            terminal_failed = terminal_failed or event_name in {"failed", "budget_exhausted"}
             self._event_sink(event)
 
         error: str | None = None
@@ -116,6 +123,7 @@ class _RuntimeWorker(QObject):
                 self._prompt,
                 cancellation=self._cancellation,
                 on_event=forward,
+                **({"messages": list(self._messages)} if self._messages else {}),
             )
             if not terminal_seen:
                 if self._cancellation.is_cancelled():
@@ -149,7 +157,8 @@ class _RuntimeWorker(QObject):
                 _WorkerOutcome(
                     prompt=self._prompt,
                     cancelled=self._cancellation.is_cancelled(),
-                    error=error,
+                    error=error or ("RuntimeFailed" if terminal_failed else None),
+                    messages=tuple(deepcopy(getattr(result, "messages", ()) or ())),
                 )
             )
 
@@ -173,6 +182,7 @@ class DataCenterAgentController(QObject):
         *,
         runtime: Any = None,
         runtime_factory: Callable[[RunContext], Any] | None = None,
+        messages: tuple = (),
     ) -> None:
         super().__init__(panel)
         if (runtime is None) == (runtime_factory is None):
@@ -181,6 +191,7 @@ class DataCenterAgentController(QObject):
         if runtime is not None and runtime_context != snapshot.context:
             raise ValueError("runtime context does not match snapshot")
         self.panel = panel
+        self._messages = deepcopy(messages)
         self.snapshot = snapshot
         self._runtime = runtime
         self._runtime_factory = runtime_factory
@@ -216,6 +227,8 @@ class DataCenterAgentController(QObject):
             return
 
         context = self.snapshot.context
+        from tools.agent_diag import log_agent_event
+        log_agent_event('dc_send', run_id=context.run_id)
         self._snapshot_consumed = True
         sink = self.panel.start_run(
             context.run_id,
@@ -233,6 +246,7 @@ class DataCenterAgentController(QObject):
             event_sink=sink,
             runtime=self._runtime,
             runtime_factory=self._runtime_factory,
+            messages=self._messages,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -251,6 +265,8 @@ class DataCenterAgentController(QObject):
     def _on_cancel_requested(self, run_id: str) -> None:
         if str(run_id) != self.snapshot.context.run_id:
             return
+        from tools.agent_diag import log_agent_event
+        log_agent_event('dc_stop_requested', run_id=run_id)
         token = self._cancellation
         if token is not None:
             token.cancel("user")
@@ -267,6 +283,9 @@ class DataCenterAgentController(QObject):
 
     @pyqtSlot(object)
     def _on_worker_finished(self, outcome: _WorkerOutcome) -> None:
+        from tools.agent_diag import log_agent_event
+        log_agent_event('dc_result_received', run_id=self.snapshot.context.run_id,
+                        cancelled=outcome.cancelled, error_type=outcome.error)
         self._pending_outcome = outcome
         self._emit_run_finished()
 

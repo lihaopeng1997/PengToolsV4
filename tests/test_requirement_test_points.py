@@ -105,6 +105,26 @@ class TestPointModelTests(unittest.TestCase):
 
 
 class TestPointUiTests(unittest.TestCase):
+    def test_dialog_failed_add_retains_draft_and_reports_no_save(self):
+        from panels.test_points_editor import TestPointsDialog
+        for result in (OSError('disk unavailable'), None):
+            with self.subTest(result=type(result).__name__), \
+                    patch('panels.test_points_editor.save_requirement_test_points') as save, \
+                    patch('panels.test_points_editor.show_error') as error:
+                if isinstance(result, Exception):
+                    save.side_effect = result
+                else:
+                    save.return_value = result
+                dialog = TestPointsDialog({'id': 'fixture', 'test_points': []})
+                dialog.editor.add_edit.setText('保留待重试输入')
+                dialog.editor.add_btn.click()
+                self.assertEqual(dialog.points(), [])
+                self.assertEqual(dialog.editor.add_edit.text(), '保留待重试输入')
+                self.assertFalse(dialog.saved())
+                self.assertIn('0/0', dialog.subtitle.text())
+                error.assert_called_once()
+                dialog.close()
+
     @classmethod
     def setUpClass(cls):
         from PyQt6.QtGui import QFont

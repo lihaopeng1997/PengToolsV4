@@ -398,6 +398,37 @@ class DataCenterWorkbenchIntegrationTests(unittest.TestCase):
         self.assertTrue(transport.thread_ids)
         self.assertTrue(all(thread_id != threading.get_ident() for thread_id in transport.thread_ids))
 
+    def test_followup_preserves_model_history_and_new_conversation_clears_it(self):
+        transport = _ScriptedTransport([
+            {"choices": [{"message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}]}
+            for answer in ('第一轮结果', '第二轮结果', '新对话结果')
+        ])
+        host = self._make_panel(transport)
+        for prompt, expected in [('第一问', '第一轮结果'), ('继续解释', '第二轮结果')]:
+            host.agent_panel.prompt_input.setPlainText(prompt)
+            host.agent_panel.send_button.click()
+            self._wait(lambda: host.agent_panel.prompt_input.isEnabled() and host._controller is not None and not host._controller.is_running and expected in host.agent_panel.answer_view.toPlainText())
+        history = transport.bodies[1]['messages']
+        self.assertTrue(any(m.get('content') == '第一问' for m in history))
+        self.assertTrue(any(m.get('content') == '第一轮结果' for m in history))
+        host.agent_panel.new_conversation_button.click()
+        host.agent_panel.prompt_input.setPlainText('重新开始')
+        host.agent_panel.send_button.click()
+        self._wait(lambda: '新对话结果' in host.agent_panel.answer_view.toPlainText() and not host._controller.is_running)
+        self.assertFalse(any(m.get('content') == '第一问' for m in transport.bodies[2]['messages']))
+
+    def test_schema_choice_is_captured_and_scope_change_drops_previous_context(self):
+        host = self._make_panel(_ScriptedTransport([]))
+        host._selection_provider = lambda: {'profile': self.profile, 'database': 'sales', 'schema_allowlist': ('sales', 'audit')}
+        host.target_changed()
+        host.schema_combo.setCurrentIndex(host.schema_combo.findData('sales'))
+        self.assertEqual(host._snapshot.context.schema_allowlist, ('sales',))
+        host._conversation_messages = ({'role': 'user', 'content': 'old scoped question'},)
+        host.schema_combo.setCurrentIndex(host.schema_combo.findData('audit'))
+        self.assertEqual(host._snapshot.context.schema_allowlist, ('audit',))
+        self.assertEqual(host._conversation_messages, ())
+        self.assertEqual(host._safe_selection()['schema_allowlist'], ('audit',))
+
     def test_text_only_nonstream_draft_uses_zero_database_and_keeps_sql_draft_entry(self):
         self.model = _model(capability="text_only", model="fake-text")
         self._write_temp(self.model_path, {"active_model_id": self.model["id"], "items": [self.model]})
@@ -957,6 +988,9 @@ class DataCenterWorkbenchIntegrationTests(unittest.TestCase):
                 if host._controller is None:
                     self.fail(f"supported provider {name} did not install a run controller: {host.status_label.text()!r}")
                 captured = host._controller.snapshot.context
+                if name in {"oracle", "mysql", "oceanbase_oracle", "oceanbase_mysql"}:
+                    self.assertFalse(host.schema_combo.isHidden())
+                    self.assertEqual(host.schema_combo.currentData(), "sales")
                 expected_provider = name
                 self.assertEqual(captured.connection_id, profile["id"])
                 self.assertEqual(captured.profile_revision, host._connection_choice.revision)

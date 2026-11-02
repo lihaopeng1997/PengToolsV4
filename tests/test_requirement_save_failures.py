@@ -290,6 +290,58 @@ class RequirementSaveFailuresTests(unittest.TestCase):
             persisted = json.load(f)
         self.assertTrue(persisted[0]['test_points'][0]['done'])
 
+    def test_add_points_updates_row_and_survives_reselection(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        panel = self._panel([_make_sample_requirement('first'), _make_sample_requirement('second')])
+        panel.search_edit.setText('业务')
+        panel._req_search_timer.stop()
+        panel._refresh()
+        tree = panel.requirement_list
+        group = tree.topLevelItem(0)
+        selected, other = group.child(1), group.child(0)
+        tree.setCurrentItem(selected)
+        panel._select_detail_tab('test_points')
+        req_id = panel._current['id']
+        before = tree.verticalScrollBar().value()
+        editor = panel.test_points_editor
+        for index in range(2):
+            editor.add_edit.setText(f'新增测试点{index}')
+            if index == 0:
+                editor.add_btn.click()
+            else:
+                QTest.keyClick(editor.add_edit, Qt.Key.Key_Return)
+            self.app.processEvents()
+            self.assertEqual(selected.text(3), f'0/{index + 2}')
+            self.assertIs(tree.currentItem(), selected)
+            self.assertEqual(tree.verticalScrollBar().value(), before)
+            tree.setCurrentItem(other)
+            tree.setCurrentItem(selected)
+            self.assertEqual(len(editor.points()), index + 2)
+        with open(self.temp_req_path, encoding='utf-8') as stream:
+            saved = next(row for row in json.load(stream) if row['id'] == req_id)
+        self.assertEqual(len(saved['test_points']), 3)
+        row = editor.list_layout.itemAt(1).widget()
+        row.check.click()
+        self.assertEqual(selected.text(3), '1/3')
+
+    def test_add_failure_keeps_input_and_retry_saves_once(self):
+        panel = self._panel([_make_sample_requirement()])
+        editor = panel.test_points_editor
+        changed = []
+        editor.changed.connect(changed.append)
+        editor.add_edit.setText('失败后保留的测试点')
+        self._simulate_save_failure = True
+        editor.add_btn.click()
+        self.assertEqual(editor.add_edit.text(), '失败后保留的测试点')
+        self.assertEqual(len(editor.points()), 1)
+        self.assertEqual(changed, [])
+        self._simulate_save_failure = False
+        editor.add_btn.click()
+        self.assertEqual(editor.add_edit.text(), '')
+        self.assertEqual(len(editor.points()), 2)
+        self.assertEqual(len(changed), 1)
+
     def test_scan_finished_success_duplicate_retains_title_status_and_actual_date(self):
         """扫描成功且命中已有条目：保留既有 title、status、actual_release_date、online_month，更新 SVN 元数据。"""
         existing = _make_sample_requirement(

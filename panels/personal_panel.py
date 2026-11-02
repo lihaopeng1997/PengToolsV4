@@ -266,6 +266,9 @@ class KnowledgeTab(QWidget):
         self.content_view = QPlainTextEdit()
         self.content_view.setReadOnly(True)
         self.content_view.setObjectName('private-content')
+        from ui.text_actions import install_text_actions
+        install_text_actions(self.content_view, language=lambda: self.language,
+                             edit_action=lambda: self.edit_btn.click() if self.edit_btn.isVisible() else None)
         self.content_stack.addWidget(self.content_view)
         table_page = QWidget()
         table_layout = QVBoxLayout(table_page)

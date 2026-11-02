@@ -77,5 +77,57 @@ class OpsCaptureWorkspaceTests(unittest.TestCase):
         self.assertEqual(p.export_selected_label.text(), '已选 3')
 
 
+
+    def test_query_generation_busy_and_failure_cleanup(self):
+        from PyQt6.QtCore import QObject, pyqtSignal
+        class Worker(QObject):
+            completed = pyqtSignal(object)
+            failed = pyqtSignal(str)
+            finished = pyqtSignal()
+            def __init__(self, *args):
+                super().__init__()
+            def start(self):
+                pass
+        p = self.panel
+        p._set_cmd_bar_text('inspect load')
+        with patch('tools.intranet_llm.is_enabled', return_value=True), patch('tools.intranet_llm.load_ai_local', return_value={}), patch('panels.ops_log_panel._LinuxQueryWorker', Worker), patch('panels.ops_log_panel.show_error'):
+            p._generate_linux_query()
+            first = p._query_worker
+            self.assertTrue(p.nl_query_btn._button_busy_ring.is_busy())
+            self.assertFalse(p.nl_query_btn.isEnabled())
+            p._generate_linux_query()
+            self.assertIs(p._query_worker, first)
+            first.failed.emit('test failure')
+            first.finished.emit()
+            self.assertFalse(p.nl_query_btn._button_busy_ring.is_busy())
+            self.assertTrue(p.nl_query_btn.isEnabled())
+
+    def test_query_wait_ends_on_response_disconnect_timeout_or_send_failure(self):
+        from unittest.mock import MagicMock
+        from ui.ssh_terminal import SshTerminalWidget
+        p = self.panel
+        term = SshTerminalWidget(p)
+        term.view._connected = True
+        term.view._shell = MagicMock(alive=True)
+        with patch.object(p, '_current_terminal', return_value=term), patch.object(p, '_send_cmd_bar') as send, patch('panels.ops_log_panel.confirm_action', return_value=True), patch('panels.ops_log_panel.show_error'):
+            for finish in (term.response_received.emit, term.connection_closed.emit, p._query_wait_timer.timeout.emit):
+                p._set_cmd_bar_text('cat /proc/loadavg')
+                p._execute_linux_query()
+                self.assertTrue(p.exec_query_btn._button_busy_ring.is_busy())
+                count = send.call_count
+                p._execute_linux_query()
+                self.assertEqual(send.call_count, count)
+                finish()
+                self.assertFalse(p.exec_query_btn._button_busy_ring.is_busy())
+                self.assertIsNone(p._query_wait_term)
+                self.assertFalse(p._query_wait_timer.isActive())
+            self.assertIn('未自动重试', p.status_label.text())
+            send.side_effect = RuntimeError('send unavailable')
+            p._execute_linux_query()
+            self.assertFalse(p.exec_query_btn._button_busy_ring.is_busy())
+            self.assertIn('发送失败', p.status_label.text())
+        term.detach()
+
+
 if __name__ == '__main__':
     unittest.main()
