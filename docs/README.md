@@ -2,6 +2,8 @@
 
 当前项目与双 AI 接手先读 [project/README.md](project/README.md)，包含功能地图、已确认决定、开发协议及本轮审计。
 
+历史截图、控件快照、早期方向演示和原始验收日志已退出 Git 跟踪，本地保留；范围及历史访问方式见 [2026-11-02 Git 精简记录](project/PROJECT_CLEANUP_2026-11-02.md)。当前 UI 规格与配套原型继续使用 [Prism V2.1 入口](ui/concepts-2026-09/prism-suite/README.md)。
+
 ## 分类
 
 | 分类 | 位置 | 内容与权威性 |

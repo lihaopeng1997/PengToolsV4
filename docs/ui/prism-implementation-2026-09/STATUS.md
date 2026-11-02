@@ -43,7 +43,7 @@ Windows隔离 `tests.test_prism_dashboard_motion` 2项新增运行回归修复�
 
 Windows隔离定向验证：`tests.test_prism_icons_brand` 17项、`tests.test_prism_native_sidebar_geometry` 1项、`tests.test_prism_main_shell` 19项，共37项通过。两个新增回归分别在修复前复现选中像素颜色错误和960窗首页按钮44宽但viewport仅38宽；修复后检查全部可见导航项逐个滚动可达、44×44命中区、设置/用户菜单不重叠、四种窗口/折叠组合下对象保持及展开后缩进恢复。
 
-重新生成并查看四张真实原生窗口：[1440首页](shell/nav-0-1440-900-native.png)、[1280手动折叠首页](shell/nav-0-1280-800-collapsed-native.png)、[1100 Agent](shell/nav-17-1100-720-native.png)、[960首页/字号16](shell/nav-0-960-640-native-font-16.png)，四次隔离运行退出0。该批实际DPR1.0，按运行记录报告，不以历史截图DPR推断；窄窗仍使用原有纵向滚动，单张截图不代表所有下方内容同时可见。页面空数据来自临时配置。完整UI状态矩阵、实际多屏、性能及NoSQL等待线程范围仍未完成。
+重新生成并查看四张真实原生窗口：[1440首页](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1440-900-native.png)、[1280手动折叠首页](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1280-800-collapsed-native.png)、[1100 Agent](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-17-1100-720-native.png)、[960首页/字号16](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-960-640-native-font-16.png)，四次隔离运行退出0。该批实际DPR1.0，按运行记录报告，不以历史截图DPR推断；窄窗仍使用原有纵向滚动，单张截图不代表所有下方内容同时可见。页面空数据来自临时配置。完整UI状态矩阵、实际多屏、性能及NoSQL等待线程范围仍未完成。
 
 ## 2026-09-14 工具菜单按钮状态
 
@@ -77,7 +77,7 @@ Windows隔离 `tests.test_prism_loading` 19项与 `tests.test_loading_feedback` 
 
 本批基于 `5ebb493fa3b1e5a2f244cf109e24618a56fb997f`。实际检查Redis/MongoDB各1440×900展开侧栏、1280×800折叠侧栏，四次通过网页加载/bridge就绪、实际侧栏选中、目标窗口尺寸核验。初始四图均查看，未发现结果区与分页/控制台新增重叠；RedisOverview保留内部滚动。发现无连接占位文字在下拉框截断，简化为“无 Redis 连接 / 无 MongoDB 连接”，创建说明置于该项ToolTipRole。占位UserRole仍None，连接列表及回调不变。
 
-修改后重新运行上述四种实际窗口，均退出0，最新MongoDB折叠图已再次查看，空态文字完整。`tests.test_prism_database_layout` 4项通过。图集更新至64张：[Redis宽窗](shell/nav-22-1440-900.png)、[MongoDB宽窗](shell/nav-23-1440-900.png)、[Redis折叠](shell/nav-22-1280-800-collapsed.png)、[MongoDB折叠](shell/nav-23-1280-800-collapsed.png)。所有诊断使用临时配置、无网络连接，实际DPR为1.5。
+修改后重新运行上述四种实际窗口，均退出0，最新MongoDB折叠图已再次查看，空态文字完整。`tests.test_prism_database_layout` 4项通过。图集更新至64张：[Redis宽窗](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-1440-900.png)、[MongoDB宽窗](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-1440-900.png)、[Redis折叠](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-1280-800-collapsed.png)、[MongoDB折叠](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-1280-800-collapsed.png)。所有诊断使用临时配置、无网络连接，实际DPR为1.5。
 
 这是两个入口的初始空态与两种窗口组合证据，不是完整尺寸矩阵、数据库业务或AI等待动效验收。NoSQL线程调整仍待用户对已准备需求的确认，没有将自动继续消息当作批准。其余不依赖线程决策的UI工作继续进行。
 
@@ -85,7 +85,7 @@ Windows隔离 `tests.test_prism_loading` 19项与 `tests.test_loading_feedback` 
 
 本批基于 `02fbd195b3faa9fcaabc758f8cfa3452d029777b`。检查发现StartupSplash直接使用QColor解析GLASS_BORDER与SHADOW的rgba字符串；实际执行QColor('rgba(38, 36, 56, 45)').isValid()为False。现在这两处绘制调用已有theme_manager.parse_color，保留边框(230,226,240,200)和阴影(38,36,56,45)的完整RGBA。未更改启动时序、延迟、窗口归属或动画策略。
 
-Windows隔离 `tests.test_prism_loading` 18项通过，新检查核对calm边框/阴影透明度。隔离原生预览增加splash入口，生成并查看[480×280启动卡片](splash-glass.png)，offscreen运行退出0，DEMO状态仅用于画面检查。图片是静态离屏渲染，不证明Windows桌面合成与真实启动耗时。完整验收继续保留。
+Windows隔离 `tests.test_prism_loading` 18项通过，新检查核对calm边框/阴影透明度。隔离原生预览增加splash入口，生成并查看[480×280启动卡片](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/splash-glass.png)，offscreen运行退出0，DEMO状态仅用于画面检查。图片是静态离屏渲染，不证明Windows桌面合成与真实启动耗时。完整验收继续保留。
 
 ## 2026-09-14 NoSQL AI等待调用链审计
 
@@ -103,7 +103,7 @@ Windows与offscreen隔离运行 `tests.test_quick_panel_lifecycle` 最终各16�
 
 本批基于 `3497ec0289bd216100c2d7cb371d0d655215907c`。模拟已有提签配置时，底部三个入口同时出现，原“打开完整工作台”被压缩至96而sizeHint为106。改为“工作台 / 一键提签 / 快捷入口”，英文Workspace / Ticket / Shortcuts，完整说明保留在tooltip；固定40底栏与原按钮、回调和可见规则不变。
 
-Windows隔离 `tests.test_quick_panel_lifecycle` 16项通过。新用例先复现中文压缩，再校验中英文全部按钮宽度/边界及40高度；实际点击提签仍调用原owner.open_ticket_submit(compact=True)，执行端为Mock，不提交任何内容。初次英文Submit ticket仍差1像素，缩短为Ticket后通过。生成并查看[三个底部入口](floating/mode-8-font-16.png)，offscreen退出0；旧mode1～7图片保留为历史状态，其底部文字已由本批更新。没有真实配置、网络请求或提签操作，完整验收仍未结束。
+Windows隔离 `tests.test_quick_panel_lifecycle` 16项通过。新用例先复现中文压缩，再校验中英文全部按钮宽度/边界及40高度；实际点击提签仍调用原owner.open_ticket_submit(compact=True)，执行端为Mock，不提交任何内容。初次英文Submit ticket仍差1像素，缩短为Ticket后通过。生成并查看[三个底部入口](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-8-font-16.png)，offscreen退出0；旧mode1～7图片保留为历史状态，其底部文字已由本批更新。没有真实配置、网络请求或提签操作，完整验收仍未结束。
 
 ## 2026-09-14 减弱动效停止菱点刷新
 
@@ -123,7 +123,7 @@ Windows隔离验证：`tests.test_prism_loading` 17项和 `tests.test_quick_pane
 
 Windows隔离 `tests.test_quick_panel_lifecycle` 15项通过。检查收起/展开时菱点与边环计时器交替、原尺寸和完成清除；新增实际绘图检查以两个受控时间点抓图，正常动效帧不同，减弱动效帧相同且timer停止；确认鼠标透明属性、未自动展开与52宽。原100次展开窗口/计时器集合检查继续通过。该绘图测试验证相位变化，不代表实测帧率或GPU性能。
 
-新增并查看[收起等待态](floating/mode-7-font-16.png)，隔离offscreen静态预览退出0，52×52，仅品牌加细弧，没有文字或额外操作。没有向模型发送请求。真实Windows透明合成与跨屏、全部业务加载场景、性能仍未完成。无新依赖，构建信息及五份报告继续排除。
+新增并查看[收起等待态](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-7-font-16.png)，隔离offscreen静态预览退出0，52×52，仅品牌加细弧，没有文字或额外操作。没有向模型发送请求。真实Windows透明合成与跨屏、全部业务加载场景、性能仍未完成。无新依赖，构建信息及五份报告继续排除。
 
 ## 2026-09-13 悬浮AI等待动画接入
 
@@ -131,11 +131,11 @@ Windows隔离 `tests.test_quick_panel_lifecycle` 15项通过。检查收起/展�
 
 Windows隔离 `tests.test_quick_panel_lifecycle` 最终14项通过，新增完成/失败/停止按钮、收起恢复、关闭及隐藏父级start计时器检查。`tests.test_prism_loading` 在原定offscreen环境17项通过；Windows原生DPR1.5运行时有2项旧像素断言失败（图高42对28、Logo物理96对64），本批未改这两个断言，也不宣称Windows整组通过。共31项在各自说明的环境通过。
 
-生成并查看[悬浮聊天等待态](floating/mode-6-font-16.png)，356×456外框保持，底部发送/停止与完整聊天入口可见。诊断tab6只设置DEMO等待状态，不发模型请求。该静态截图不单独证明动画逐帧变化；实际定时器启停由回归验证。LD-07收起态的32×32品牌边环尚未接入，仍属未完成项，完整DPI、性能及视觉验收继续保留。
+生成并查看[悬浮聊天等待态](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-6-font-16.png)，356×456外框保持，底部发送/停止与完整聊天入口可见。诊断tab6只设置DEMO等待状态，不发模型请求。该静态截图不单独证明动画逐帧变化；实际定时器启停由回归验证。LD-07收起态的32×32品牌边环尚未接入，仍属未完成项，完整DPI、性能及视觉验收继续保留。
 
 ## 2026-09-13 悬浮结果预览复核
 
-本批基于 `8c611ce29527d1f2cd312e089b419fb2b7300f61`，仅补充诊断、测试与图片，未改产品源码。隔离预览支持floating tab4证件/tab5 VIN，均以16字号运行并退出0；逐一查看[证件](floating/mode-4-font-16.png)与[VIN](floating/mode-5-font-16.png)空结果态，返回、标题、生成按钮均可完整显示，截图包含透明外边距为316×396。
+本批基于 `8c611ce29527d1f2cd312e089b419fb2b7300f61`，仅补充诊断、测试与图片，未改产品源码。隔离预览支持floating tab4证件/tab5 VIN，均以16字号运行并退出0；逐一查看[证件](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-4-font-16.png)与[VIN](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-5-font-16.png)空结果态，返回、标题、生成按钮均可完整显示，截图包含透明外边距为316×396。
 
 `tests.test_quick_panel_lifecycle` 最终13项通过。新增实际结果预览用例检查内容位于工具容器内、标题及可见按钮不被压缩、按钮位于预览范围；点击三个生成按钮仍分别传personal/unit/vin给原生成入口，测试在入口处替代执行，不生成实际数据。点击原返回按钮恢复工具网格。所有验证在临时配置中完成。
 
@@ -145,7 +145,7 @@ Windows隔离 `tests.test_quick_panel_lifecycle` 最终14项通过，新增完�
 
 本批基于 `318ba3be3080dd2df592516b59b95df367698083`。核对7.4发现QuickPanel虽然用48/40常量计算总高，实际头部和底部仍是无高度约束的布局，且上下padding为10。现在头部与底部分别放进48/40高容器，四边padding统一12；工具总高度补足两处8间距及网格上下边距。聊天隐藏工具底部容器，仍保持340×440内容尺寸，学习仍360×520。原按钮、信号、拖动事件安装对象与模式规则保留。
 
-`tests.test_quick_panel_lifecycle` 12项通过，新增实际头尾高度和上下padding断言、聊天底部隐藏检查；原134×58卡片/8间距、边界与100次展开用例全部通过。隔离预览新增可选font参数及学习tab3入口；生成并逐一查看16字号下[工具](floating/mode-1-font-16.png)、[聊天](floating/mode-2-font-16.png)、[学习](floating/mode-3-font-16.png)，三次退出0。包含外侧8透明边距的截图尺寸分别316×276、356×456、376×536；学习内容来自隔离临时配置的默认示例，不是用户数据。
+`tests.test_quick_panel_lifecycle` 12项通过，新增实际头尾高度和上下padding断言、聊天底部隐藏检查；原134×58卡片/8间距、边界与100次展开用例全部通过。隔离预览新增可选font参数及学习tab3入口；生成并逐一查看16字号下[工具](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-1-font-16.png)、[聊天](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-2-font-16.png)、[学习](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/floating/mode-3-font-16.png)，三次退出0。包含外侧8透明边距的截图尺寸分别316×276、356×456、376×536；学习内容来自隔离临时配置的默认示例，不是用户数据。
 
 图片是原生offscreen渲染，不能证明Windows透明合成、真实跨屏或所有大字体状态通过；部分悬浮控件按原QSS保留固定字体。完整验收继续进行。本批不增加依赖，不改业务逻辑，构建信息与五份阶段报告保留。
 
@@ -165,7 +165,7 @@ Windows隔离 `tests.test_quick_panel_lifecycle` 最终14项通过，新增完�
 
 `tests.test_prism_database_layout` 4项通过，新增用例修复前失败、修复后通过：大字体英文详情无横向滚动，每个操作保持完整建议宽度，逐个滚动后完整进入视口；通过原_render_value渲染Hash/List/Set/ZSet示例，检查原页签选择、行内容及280值区高度。`tests.test_redis_panel_layout` 2项通过，原分栏及控制台层级保持。共6项通过，均退出0；仅在隔离配置中使用DEMO值，没有连接或修改数据库。
 
-新增 [16字号实际窗口](shell/nav-22-960-640-tab-1-sample-font-16.png)，主窗口尺寸、实际页签和侧栏选中验证通过，已查看图片。图中详情操作位于当前视口下方，可达性由实际控件测试证明；不把此初始态截图当成按钮区的目视验收。图集现60张。其余长内容、编码/错误状态、跨屏和性能检查仍未全部完成。无新依赖，原构建信息与五份阶段报告未纳入。
+新增 [16字号实际窗口](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-960-640-tab-1-sample-font-16.png)，主窗口尺寸、实际页签和侧栏选中验证通过，已查看图片。图中详情操作位于当前视口下方，可达性由实际控件测试证明；不把此初始态截图当成按钮区的目视验收。图集现60张。其余长内容、编码/错误状态、跨屏和性能检查仍未全部完成。无新依赖，原构建信息与五份阶段报告未纳入。
 
 ## 2026-09-13 MongoDB文档页窄窗修复
 
@@ -173,7 +173,7 @@ Windows隔离 `tests.test_quick_panel_lifecycle` 最终14项通过，新增完�
 
 `tests.test_prism_database_layout` 3项通过：新增856×528页面中的表格/JSON真实按钮切换、查询与DEMO内容保留、结果高度、分页无重叠、滚动后复制按钮完整进入视口及窗口尺寸检查。修复前新增用例因JSON高度114不足120失败，修复后通过。`tests.test_nosql_command_guard` 2项通过。通过隔离诊断运行，均退出0，不连接真实数据库。
 
-重新生成并查看 [MongoDB实际窗口](shell/nav-23-960-640.png)，分页与表格已分离，底部操作需要滚动到达；窗口大小与网页侧栏加载/选中记录通过。旧DPR图片为历史版本，不代表本次布局的全DPI验收。其他数据状态、子窗、真实跨屏及性能验证仍未全部完成。原构建信息修改和五份阶段报告继续排除。
+重新生成并查看 [MongoDB实际窗口](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-960-640.png)，分页与表格已分离，底部操作需要滚动到达；窗口大小与网页侧栏加载/选中记录通过。旧DPR图片为历史版本，不代表本次布局的全DPI验收。其他数据状态、子窗、真实跨屏及性能验证仍未全部完成。原构建信息修改和五份阶段报告继续排除。
 
 ## 2026-09-12 Redis详情滚动与MongoDB Shell复核
 
@@ -181,7 +181,7 @@ Windows隔离 `tests.test_quick_panel_lifecycle` 最终14项通过，新增完�
 
 隔离测试：`tests.test_prism_database_layout` 2项通过，新增50行示例值、值区高度、按钮与值区不重叠、滚动后复制按钮完全进入视口、AI/详情切换后命令和文本保留；原测试覆盖Redis与MongoDB的页签和输入保留。`tests.test_redis_panel_layout` 2项通过，确认右下控制台及主分栏层级保留；`tests.test_redis_overview` 12项通过；`tests.test_nosql_command_guard` 2项通过。共18项通过，均退出0，不连接真实数据库。
 
-最新图：[Redis总览](shell/nav-22-960-640.png)、[空详情](shell/nav-22-960-640-tab-1.png)、[示例值](shell/nav-22-960-640-tab-1-sample.png)、[MongoDB Shell](shell/nav-23-960-640-tab-2.png)。示例值和Shell已查看，主窗口大小、实际侧栏选中和目标页签记录通过；示例数据只用于隔离诊断。详情操作在内容底部，需要向下滚动，已由实际控件回归证明可达。
+最新图：[Redis总览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-960-640.png)、[空详情](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-960-640-tab-1.png)、[示例值](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-960-640-tab-1-sample.png)、[MongoDB Shell](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-960-640-tab-2.png)。示例值和Shell已查看，主窗口大小、实际侧栏选中和目标页签记录通过；示例数据只用于隔离诊断。详情操作在内容底部，需要向下滚动，已由实际控件回归证明可达。
 
 MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的历史检查，不能代表新详情滚动布局的DPI验收。完整目标中的其他数据类型、长内容/错误/执行取消、实际跨屏及性能检查继续保留。`resources/build_info.json`及五份原阶段报告未纳入本批。
 
@@ -203,7 +203,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 实际回归：`tests.test_prism_settings_navigation` 2项通过，其中新用例在13/16字体下点击真实步进区验证17:30→17:31→17:30，禁用时点击不改变值，两个示例模型的选择仍填入原表单；`tests.test_theme_responsive` 52项通过；`tests.test_prism_icons_brand` 最终16项通过。合计70项通过。初次图标检查指出硬编码颜色/线宽不符，已按规范修正后重跑通过。
 
-最新图：[提醒时间](shell/nav-7-960-640-tab-2.png)、[模型列表示例](shell/nav-7-960-640-tab-5-sample.png)。样例使用仅存在于诊断临时配置的两个禁用模型，不含URL/Token，不探测或保存真实配置。图片已查看，侧栏加载和选中DOM检查通过。图集已更新并区分示例数据。
+最新图：[提醒时间](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-2.png)、[模型列表示例](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-5-sample.png)。样例使用仅存在于诊断临时配置的两个禁用模型，不含URL/Token，不探测或保存真实配置。图片已查看，侧栏加载和选中DOM检查通过。图集已更新并区分示例数据。
 
 本批仅修改展示属性、QSS/图标及诊断/测试，没有改变模型配置切换、提醒保存、时间规则或执行逻辑。剩余工作台状态、子窗口、DPI与性能验收继续保留在完整目标中。
 
@@ -215,7 +215,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 已逐个运行全部22个叶子入口（0～13、16～23）的960×640主窗口，全部退出0；独立复查22份记录，窗口尺寸、目标导航与DOM选中项均一致，侧栏文档宽度与视口同为72。另复测格式XML页签与设置悬浮工具栏分区，均通过。最新XML、设置、Redis和MongoDB截图已目视确认侧栏绘出。此证据解决已复现的诊断等待缺陷，不证明所有启动时序、DPI及显示器环境均通过。
 
-新增 [实际窗口检查图集](shell/index.html)，由 `scripts/diagnostics/prism_shell_gallery.py` 根据PNG与JSON生成，包含35张记录，默认仅显示24张已核对网页就绪/选中的图，旧采样可手动显示。图集为本地静态文件，不加载远程资源。内置浏览器的URL策略拒绝打开该file地址，未绕过限制，因此图集本身的浏览器交互验收未完成；本轮已核对图片文件与运行记录。用户可在本地浏览器手动查看。
+新增 [实际窗口检查图集](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/index.html)，由 `scripts/diagnostics/prism_shell_gallery.py` 根据PNG与JSON生成，包含35张记录，默认仅显示24张已核对网页就绪/选中的图，旧采样可手动显示。图集为本地静态文件，不加载远程资源。内置浏览器的URL策略拒绝打开该file地址，未绕过限制，因此图集本身的浏览器交互验收未完成；本轮已核对图片文件与运行记录。用户可在本地浏览器手动查看。
 
 本批不改正式UI、WebEngine策略、启动或导航代码，不连接真实数据库/模型服务，不改五份原有阶段报告。全入口的初始态导航检查不替代长内容、执行/取消、弹窗、DPI和性能验收。图集中的Redis/MongoDB等工作台仍需按剩余状态清单核对。
 
@@ -225,7 +225,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 隔离回归：`tests.test_prism_workbench_overflow` 7项通过，新增格式四页签宽窄切换保留长文本及SQL、工具栏完整按钮宽度/无重叠、XML原格式化回调、Base64编码解码还原原文、文档SQL与作者保留及原多文件选择回调；`tests.test_prism_settings_navigation` 1项通过，遍历六分区并检查修改值/固定保存入口；`tests.test_theme_format_tools` 7项通过；`tests.test_xml_formatter` 12项通过。合计27项，均退出0。
 
-主窗口探针新增 `--tab`，记录请求页签与实际页签并校验一致。当前图包括 [接口文档](shell/nav-3-960-640.png)、格式工具 [JSON](shell/nav-11-960-640.png)/[XML](shell/nav-11-960-640-tab-1.png)/[SQL](shell/nav-11-960-640-tab-2.png)/[文本辅助](shell/nav-11-960-640-tab-3.png)，以及设置 [外观](shell/nav-7-960-640.png)/[悬浮工具栏](shell/nav-7-960-640-tab-1.png)/[提醒](shell/nav-7-960-640-tab-2.png)/[安全](shell/nav-7-960-640-tab-3.png)/[Oracle](shell/nav-7-960-640-tab-4.png)/[模型](shell/nav-7-960-640-tab-5.png)。原生页面区域已逐图查看。
+主窗口探针新增 `--tab`，记录请求页签与实际页签并校验一致。当前图包括 [接口文档](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-3-960-640.png)、格式工具 [JSON](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-11-960-640.png)/[XML](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-11-960-640-tab-1.png)/[SQL](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-11-960-640-tab-2.png)/[文本辅助](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-11-960-640-tab-3.png)，以及设置 [外观](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640.png)/[悬浮工具栏](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-1.png)/[提醒](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-2.png)/[安全](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-3.png)/[Oracle](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-4.png)/[模型](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-5.png)。原生页面区域已逐图查看。
 
 证据边界：部分Qt客户区抓图中WebEngine侧栏呈白色或仍显示首页选中态，即使JSON renderer为web；这些图只支持本轮原生页面布局核对，不能当成侧栏绘制和选中同步通过的证据。延长导航后采样到1000ms未彻底消除，后续需要区分采样限制与真实绘制/同步问题。没有因此修改生产WebEngine策略、导航或Bridge契约。设置模型列表和时间控件的视觉一致性仍待细查；各页长内容、错误/禁用状态及全DPI/性能验收仍按完整目标继续。
 
@@ -247,7 +247,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 - 命令库预览区由125恢复规格240，仍在既有右侧滚动区中；原固定底部复制入口可见，生成/复制业务未改。
 - 需求目录全选、删除、提签、展开、折叠的原控件按可用宽度换行，消除窄栏按钮重叠；目录/详情分隔统一16。工作区增加无边框滚动容器，低高度时详情和文件区内容完整可达，不依赖窗口外的裁切区域。
 
-最新真实主窗口图：[Agent](shell/nav-17-960-640.png)、[命令库](shell/nav-6-960-640.png)、[需求管理](shell/nav-10-960-640.png)，均960×640逻辑客户区，探针退出0。Agent和需求图已检查对应修复；截图仅展示当前滚动位置，不是整个内容拼图。
+最新真实主窗口图：[Agent](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-17-960-640.png)、[命令库](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-6-960-640.png)、[需求管理](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-10-960-640.png)，均960×640逻辑客户区，探针退出0。Agent和需求图已检查对应修复；截图仅展示当前滚动位置，不是整个内容拼图。
 
 隔离验证：`tests.test_prism_workbench_overflow` 5项通过（包括新增的Agent输入/项目文件开关保留草稿、需求目录按钮不重叠与原展开/折叠行为、命令预览高度及复制入口可达）；`tests.test_prism_main_shell` 19项通过（新增低高度创建页面、侧栏折叠和恢复大窗）；`tests.test_agent_workbench_layout` 10项通过。
 
@@ -261,7 +261,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 - 接口排查保留原上下/左右分栏和原请求测试页签，在上下布局时按子区域实际最小高度为工作区留空间，由外层滚动容器承担低高度滚动，空列表提示不再覆盖详情页签。恢复宽窗时清除上下布局专用最小高度。
 - 主窗口诊断改为等待WebChannel就绪后再导航，避免截图中页面已切换但初始化侧栏仍选中首页。此修改仅在诊断脚本，不改变正式导航或启动策略。
 
-当前图：[SQL 960×640](shell/nav-18-960-640.png)、[SQL 1440×900](shell/nav-18-1440-900.png)、[接口排查960×640](shell/nav-12-960-640.png)、[聊天960×640](shell/nav-16-960-640.png)。低高度的工作区需要滚动，截图不是完整滚动内容的拼接。SQL与接口截图已检查对应重叠问题；聊天本轮仅补主窗口运行记录。
+当前图：[SQL 960×640](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-18-960-640.png)、[SQL 1440×900](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-18-1440-900.png)、[接口排查960×640](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-12-960-640.png)、[聊天960×640](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-16-960-640.png)。低高度的工作区需要滚动，截图不是完整滚动内容的拼接。SQL与接口截图已检查对应重叠问题；聊天本轮仅补主窗口运行记录。
 
 定向验证均使用临时配置隔离运行：`tests.test_prism_workbench_overflow` 2项通过（四方言、中英文、13/16字体、宽窄切换、控件边界与相互重叠、SQL输入保留和原测试连接回调、接口请求体保留与滚动可达）；`tests.test_sql_workbench_query` 21项通过；`tests.test_interface_fiddler_workbench` 31项通过；`tests.test_splitter_prefs` 14项通过。合计68项通过，均退出0。四份最新主窗口探针退出0。
 
@@ -273,11 +273,11 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 | 逻辑窗口尺寸 | 侧栏初始偏好 | 页面实际尺寸 | 截图 |
 |---|---|---|---|
-| 1440×900 | 展开 | 1144×772 | [整体预览](shell/nav-0-1440-900.png) |
-| 1440×900 | 折叠 | 1308×772 | [折叠预览](shell/nav-0-1440-900-collapsed.png) |
-| 1280×800 | 展开 | 1020×680 | [整体预览](shell/nav-0-1280-800.png) |
-| 1100×720 | 展开，窄窗自动收缩 | 984×608 | [整体预览](shell/nav-0-1100-720.png) |
-| 960×640 | 展开，窄窗自动收缩 | 856×528 | [整体预览](shell/nav-0-960-640.png) |
+| 1440×900 | 展开 | 1144×772 | [整体预览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1440-900.png) |
+| 1440×900 | 折叠 | 1308×772 | [折叠预览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1440-900-collapsed.png) |
+| 1280×800 | 展开 | 1020×680 | [整体预览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1280-800.png) |
+| 1100×720 | 展开，窄窗自动收缩 | 984×608 | [整体预览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1100-720.png) |
+| 960×640 | 展开，窄窗自动收缩 | 856×528 | [整体预览](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-960-640.png) |
 
 五份 JSON 均记录窗口未被内部最小尺寸撑大、当前导航为首页、侧栏和首页 renderer 均为 web、上下文栏52和状态栏28。`collapsed` 字段表示传入的初始偏好，不代表窄窗最终有效侧栏宽度。截图为 Qt 客户区抓图，像素尺寸受当前屏幕缩放影响，不证明其他 DPI 或系统非客户区效果。已查看1440展开及960截图；其余截图已生成，仍需视觉核对。
 
@@ -285,7 +285,7 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 ## 2026-09-10 子窗口与消息显示续修
 
-本批基于 `2a9cb230f286c1d6ed78aa5ae985d0835b6e2b23`。可打开 [子窗口检查图集](dialogs/index.html)，在13/16像素全局字体设置间切换，点击查看原图。
+本批基于 `2a9cb230f286c1d6ed78aa5ae985d0835b6e2b23`。可打开 [子窗口检查图集](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/index.html)，在13/16像素全局字体设置间切换，点击查看原图。
 
 - 修复确认框在布局建立前按空sizeHint确定180高度，导致短正文被压缩的问题。现在按实际带样式的文字高度确定初始大小；超长内容进入滚动区，固定取消与确认按钮不被挤走。
 - 通知与后续操作窗口采用相同的长正文保留/滚动策略；原 accepted/rejected、确认默认焦点、Esc取消、selected_action返回值未改。回归验证了长正文、实际可滚动范围、操作按钮与返回结果。
@@ -304,10 +304,10 @@ MongoDB本批没有改正式代码。Redis已有DPR截图属于本修复前的�
 
 | 页面/组件 | 实际修复与证据 | 当前图 |
 |---|---|---|
-| 日报 | 原日期行按钮超出视口；日期、辅助操作分行，保存/复制/删除固定底部。低高度下历史与编辑区不再把共享页面撑高。问题与计划编辑区最小120，保留今日完成优先伸展。窗口切换保留草稿，点击保存仍调用原保存方法；昨日计划、富文本和图片回归通过 | [864×520](daily-verified-864.png) |
-| 学习 | 检索与分类移入260资料栏；16分隔；保留实际既有左右布局。搜索防抖、选择结果和拖拽分栏在布局变化后保留，搜索测试使用隔离样例 | [1144×740](learning-verified-1144.png) |
-| 聊天 | 低高度时收缩可滚动消息区，输入框仍至少120；原风险提示不隐藏。25行样例的完整文本、内容高度、滚动和复制、未发送草稿、发送按钮可达均通过 | [864×520](chat-verified-864.png) |
-| SQL/通用分隔 | 四SQL工作台上下/左右改16分隔；带prismGutter的垂直分隔改为16命中区域中的细线，避免原粗横条。实际控件测量横向宽16、垂直高16；日志/发版/数据库布局回归通过 | [Oracle 1440×740](oracle-verified-1440.png) |
+| 日报 | 原日期行按钮超出视口；日期、辅助操作分行，保存/复制/删除固定底部。低高度下历史与编辑区不再把共享页面撑高。问题与计划编辑区最小120，保留今日完成优先伸展。窗口切换保留草稿，点击保存仍调用原保存方法；昨日计划、富文本和图片回归通过 | [864×520](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/daily-verified-864.png) |
+| 学习 | 检索与分类移入260资料栏；16分隔；保留实际既有左右布局。搜索防抖、选择结果和拖拽分栏在布局变化后保留，搜索测试使用隔离样例 | [1144×740](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/learning-verified-1144.png) |
+| 聊天 | 低高度时收缩可滚动消息区，输入框仍至少120；原风险提示不隐藏。25行样例的完整文本、内容高度、滚动和复制、未发送草稿、发送按钮可达均通过 | [864×520](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/chat-verified-864.png) |
+| SQL/通用分隔 | 四SQL工作台上下/左右改16分隔；带prismGutter的垂直分隔改为16命中区域中的细线，避免原粗横条。实际控件测量横向宽16、垂直高16；日志/发版/数据库布局回归通过 | [Oracle 1440×740](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/oracle-verified-1440.png) |
 
 最终代码下定向验证共51项通过：`tests.test_daily_report_upgrade` 12、`tests.test_p09a_delivery_panels` 6、`tests.test_p09b_database_panels` 5、`tests.test_splitter_prefs` 14、`tests.test_model_chat_bubbles` 10、`tests.test_prism_learning_layout` 1、`tests.test_prism_release_layout` 1、`tests.test_prism_log_layout` 1、`tests.test_prism_database_layout` 1。分别使用 `PYTHONUTF8=1 python scripts/diagnostics/prism_web_runtime.py --test-module <模块>` 在临时配置下运行，均退出0。
 

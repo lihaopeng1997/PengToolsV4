@@ -54,3 +54,22 @@ htmlcov/
 *.swp
 .DS_Store
 Thumbs.db
+
+# 2026-11-02: historical evidence stays local; restore from Git history if needed.
+/.codex_resume_last.txt
+/.codex_resume_prompt.txt
+/docs/ui/prism-implementation-2026-09/**/*.png
+/docs/ui/prism-implementation-2026-09/**/*.json
+/docs/ui/prism-implementation-2026-09/**/*.html
+/docs/ui/prism-implementation-2026-09/**/*.gif
+/docs/ui/concepts-2026-09/README.md
+/docs/ui/concepts-2026-09/aurora.html
+/docs/ui/concepts-2026-09/dashboard.css
+/docs/ui/concepts-2026-09/dashboard.js
+/docs/ui/concepts-2026-09/index.html
+/docs/ui/concepts-2026-09/ion.html
+/docs/ui/concepts-2026-09/prism.html
+/docs/ui/concepts-2026-09/verification.md
+/docs/ui/concepts-2026-09/prism-suite/archive/UI实施规范_v1.1_已被V2替代.md
+/docs/验收/截图/
+/docs/验收/记录/*.txt

@@ -12,28 +12,28 @@
 
 |入口|1440展开|1440收起|1280|1100|960|
 |---|---|---|---|---|---|
-|0 首页|[录制1](shell/nav-0-1440-900.json)|—|—|—|[录制5](shell/nav-0-960-640-dpr-100-font-16.json)|
-|1 证件|—|—|—|—|[录制1](shell/nav-1-960-640.json)|
-|2 发版联动|—|—|—|—|[录制1](shell/nav-2-960-640.json)|
-|3 接口文档|—|—|—|—|[录制1](shell/nav-3-960-640.json)|
-|4 VIN|—|—|—|—|[录制1](shell/nav-4-960-640.json)|
-|5 加解密|—|—|—|—|[录制1](shell/nav-5-960-640.json)|
-|6 命令库|—|—|—|—|[录制1](shell/nav-6-960-640.json)|
-|7 设置|[录制1](shell/nav-7-1440-900.json)|—|—|—|[录制8](shell/nav-7-960-640-tab-1.json)|
-|8 学习|—|—|—|—|[录制1](shell/nav-8-960-640.json)|
-|9 日报|—|—|—|—|[录制1](shell/nav-9-960-640.json)|
-|10 需求|[录制1](shell/nav-10-1440-900.json)|—|—|—|[录制1](shell/nav-10-960-640.json)|
-|11 格式工具|—|—|—|—|[录制2](shell/nav-11-960-640-tab-1.json)|
-|12 接口排查|—|—|—|—|[录制1](shell/nav-12-960-640.json)|
-|13 日志|—|—|—|—|[录制1](shell/nav-13-960-640.json)|
-|16 聊天|—|—|—|—|[录制1](shell/nav-16-960-640.json)|
-|17 工作|[录制1](shell/nav-17-1440-900.json)|—|—|—|[录制1](shell/nav-17-960-640.json)|
-|18 Oracle|—|—|—|—|[录制5](shell/nav-18-960-640-dpr-100-font-16.json)|
-|19 MySQL|—|—|—|—|[录制1](shell/nav-19-960-640.json)|
-|20 OceanBase|—|—|—|—|[录制1](shell/nav-20-960-640.json)|
-|21 达梦|—|—|—|—|[录制1](shell/nav-21-960-640.json)|
-|22 Redis|[录制1](shell/nav-22-1440-900.json)|—|[录制1](shell/nav-22-1280-800-collapsed.json)|—|[录制8](shell/nav-22-960-640-dpr-100-font-16.json)|
-|23 MongoDB|[录制1](shell/nav-23-1440-900.json)|—|[录制1](shell/nav-23-1280-800-collapsed.json)|—|[录制6](shell/nav-23-960-640-dpr-100-font-16.json)|
+|0 首页|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-1440-900.json)|—|—|—|[录制5](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-0-960-640-dpr-100-font-16.json)|
+|1 证件|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-1-960-640.json)|
+|2 发版联动|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-2-960-640.json)|
+|3 接口文档|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-3-960-640.json)|
+|4 VIN|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-4-960-640.json)|
+|5 加解密|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-5-960-640.json)|
+|6 命令库|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-6-960-640.json)|
+|7 设置|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-1440-900.json)|—|—|—|[录制8](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-7-960-640-tab-1.json)|
+|8 学习|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-8-960-640.json)|
+|9 日报|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-9-960-640.json)|
+|10 需求|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-10-1440-900.json)|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-10-960-640.json)|
+|11 格式工具|—|—|—|—|[录制2](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-11-960-640-tab-1.json)|
+|12 接口排查|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-12-960-640.json)|
+|13 日志|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-13-960-640.json)|
+|16 聊天|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-16-960-640.json)|
+|17 工作|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-17-1440-900.json)|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-17-960-640.json)|
+|18 Oracle|—|—|—|—|[录制5](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-18-960-640-dpr-100-font-16.json)|
+|19 MySQL|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-19-960-640.json)|
+|20 OceanBase|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-20-960-640.json)|
+|21 达梦|—|—|—|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-21-960-640.json)|
+|22 Redis|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-1440-900.json)|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-1280-800-collapsed.json)|—|[录制8](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-22-960-640-dpr-100-font-16.json)|
+|23 MongoDB|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-1440-900.json)|—|[录制1](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-1280-800-collapsed.json)|—|[录制6](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/shell/nav-23-960-640-dpr-100-font-16.json)|
 
 原生首页/侧栏已有四种组合记录，见[实施记录](STATUS.md)。其模拟的是启动时网页不可用，不替代运行中崩溃、实际多屏或全状态验收。
 
@@ -43,32 +43,32 @@
 
 |源码类|13字号|16字号|
 |---|---|---|
-|[ObjectPickDialog](../../../panels/ai_token_edit.py)|[初始录制](dialogs/objects-13.json)|[初始录制](dialogs/objects-16.json)|
-|[_SkillManagerDialog](../../../panels/model_chat_panel.py)|[初始录制](dialogs/skills-13.json)|[初始录制](dialogs/skills-16.json)|
-|[CategoryManageDialog](../../../panels/ops_log_panel.py)|[初始录制](dialogs/category-13.json)|[初始录制](dialogs/category-16.json)|
-|[ServerEditorDialog](../../../panels/ops_log_panel.py)|[初始录制](dialogs/server-13.json)|[初始录制](dialogs/server-16.json)|
-|[LogSettingsDialog](../../../panels/ops_log_panel.py)|[初始录制](dialogs/log-settings-13.json)|[初始录制](dialogs/log-settings-16.json)|
-|[ServerManageDialog](../../../panels/ops_log_panel.py)|[初始录制](dialogs/servers-13.json)|[初始录制](dialogs/servers-16.json)|
-|[CommandHistoryDialog](../../../panels/ops_log_panel.py)|[初始录制](dialogs/history-13.json)|[初始录制](dialogs/history-16.json)|
-|[CustomCommandDialog](../../../panels/ops_panel.py)|[初始录制](dialogs/command-13.json)|[初始录制](dialogs/command-16.json)|
-|[PasteKnowledgeDialog](../../../panels/personal_panel.py)|[初始录制](dialogs/paste-13.json)|[初始录制](dialogs/paste-16.json)|
-|[KnowledgeEditDialog](../../../panels/personal_panel.py)|[初始录制](dialogs/knowledge-13.json)|[初始录制](dialogs/knowledge-16.json)|
-|[MonthPickerDialog](../../../panels/requirement_panel.py)|[初始录制](dialogs/month-13.json)|[初始录制](dialogs/month-16.json)|
-|[RequirementAttachmentDialog](../../../panels/requirement_panel.py)|[初始录制](dialogs/attachment-13.json)|[初始录制](dialogs/attachment-16.json)|
-|[SvnCheckoutDialog](../../../panels/requirement_panel.py)|[初始录制](dialogs/svn-13.json)|[初始录制](dialogs/svn-16.json)|
-|[RequirementDialog](../../../panels/requirement_panel.py)|[初始录制](dialogs/requirement-13.json)|[初始录制](dialogs/requirement-16.json)|
-|[TestPointsDialog](../../../panels/test_points_editor.py)|[初始录制](dialogs/test-points-13.json)|[初始录制](dialogs/test-points-16.json)|
-|[TicketSubmitConfigDialog](../../../panels/ticket_submit_dialog.py)|[初始录制](dialogs/ticket-config-13.json)|[初始录制](dialogs/ticket-config-16.json)|
-|[TicketSubmitDialog](../../../panels/ticket_submit_dialog.py)|[初始录制](dialogs/ticket-13.json)|[初始录制](dialogs/ticket-16.json)|
-|[ConfirmActionDialog](../../../ui/confirm_dialog.py)|[初始录制](dialogs/confirm-13.json)|[初始录制](dialogs/confirm-16.json)|
-|[CloseActionDialog](../../../ui/confirm_dialog.py)|[初始录制](dialogs/close-13.json)|[初始录制](dialogs/close-16.json)|
-|[AppNoticeDialog](../../../ui/confirm_dialog.py)|[初始录制](dialogs/notice-13.json)|[初始录制](dialogs/notice-16.json)|
-|[NextStepDialog](../../../ui/confirm_dialog.py)|[初始录制](dialogs/next-13.json)|[初始录制](dialogs/next-16.json)|
-|[HttpsCertConsentDialog](../../../ui/confirm_dialog.py)|[初始录制](dialogs/https-13.json)|[初始录制](dialogs/https-16.json)|
-|[ConnectionDialog](../../../ui/connection_dialog.py)|[初始录制](dialogs/connection-13.json)|[初始录制](dialogs/connection-16.json)|
-|[ImagePreviewDialog](../../../ui/daily_rich_edit.py)|[初始录制](dialogs/image-preview-13.json)|[初始录制](dialogs/image-preview-16.json)|
-|[FloatingShortcutsEditor](../../../ui/floating_shortcuts_editor.py)|[初始录制](dialogs/floating-shortcuts-13.json)|[初始录制](dialogs/floating-shortcuts-16.json)|
-|[UserGuideDialog](../../../ui/help_dialog.py)|[初始录制](dialogs/help-13.json)|[初始录制](dialogs/help-16.json)|
+|[ObjectPickDialog](../../../panels/ai_token_edit.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/objects-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/objects-16.json)|
+|[_SkillManagerDialog](../../../panels/model_chat_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/skills-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/skills-16.json)|
+|[CategoryManageDialog](../../../panels/ops_log_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/category-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/category-16.json)|
+|[ServerEditorDialog](../../../panels/ops_log_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/server-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/server-16.json)|
+|[LogSettingsDialog](../../../panels/ops_log_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/log-settings-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/log-settings-16.json)|
+|[ServerManageDialog](../../../panels/ops_log_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/servers-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/servers-16.json)|
+|[CommandHistoryDialog](../../../panels/ops_log_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/history-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/history-16.json)|
+|[CustomCommandDialog](../../../panels/ops_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/command-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/command-16.json)|
+|[PasteKnowledgeDialog](../../../panels/personal_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/paste-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/paste-16.json)|
+|[KnowledgeEditDialog](../../../panels/personal_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/knowledge-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/knowledge-16.json)|
+|[MonthPickerDialog](../../../panels/requirement_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/month-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/month-16.json)|
+|[RequirementAttachmentDialog](../../../panels/requirement_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/attachment-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/attachment-16.json)|
+|[SvnCheckoutDialog](../../../panels/requirement_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/svn-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/svn-16.json)|
+|[RequirementDialog](../../../panels/requirement_panel.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/requirement-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/requirement-16.json)|
+|[TestPointsDialog](../../../panels/test_points_editor.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/test-points-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/test-points-16.json)|
+|[TicketSubmitConfigDialog](../../../panels/ticket_submit_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/ticket-config-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/ticket-config-16.json)|
+|[TicketSubmitDialog](../../../panels/ticket_submit_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/ticket-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/ticket-16.json)|
+|[ConfirmActionDialog](../../../ui/confirm_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/confirm-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/confirm-16.json)|
+|[CloseActionDialog](../../../ui/confirm_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/close-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/close-16.json)|
+|[AppNoticeDialog](../../../ui/confirm_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/notice-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/notice-16.json)|
+|[NextStepDialog](../../../ui/confirm_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/next-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/next-16.json)|
+|[HttpsCertConsentDialog](../../../ui/confirm_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/https-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/https-16.json)|
+|[ConnectionDialog](../../../ui/connection_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/connection-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/connection-16.json)|
+|[ImagePreviewDialog](../../../ui/daily_rich_edit.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/image-preview-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/image-preview-16.json)|
+|[FloatingShortcutsEditor](../../../ui/floating_shortcuts_editor.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/floating-shortcuts-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/floating-shortcuts-16.json)|
+|[UserGuideDialog](../../../ui/help_dialog.py)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/help-13.json)|[初始录制](https://github.com/lihaopeng1997/PengToolsV4/blob/59c2da8cde8ff89f0e4bbda75d69a8c3233d0d8b/docs/ui/prism-implementation-2026-09/dialogs/help-16.json)|
 
 当前扫描到26个直接子类，初始截图覆盖不等于保存、取消、拖动、权限和错误状态均已验收。
 
