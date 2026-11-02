@@ -27,7 +27,7 @@ if (-not (Test-Path -LiteralPath $BuildPython)) {
     throw @"
 未找到 PengToolsHub 独立构建环境：$BuildPython
 请先执行：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1
-也可通过 PENGTOOLS_BUILD_PYTHON 指定已按 requirements-build.txt 安装的 Python 3.12。
+也可通过 PENGTOOLS_BUILD_PYTHON 指定已按 requirements/build.txt 安装的 Python 3.12。
 "@
 }
 
@@ -37,7 +37,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 & $BuildPython -c "import importlib.metadata as m; raise SystemExit(0 if m.version('PyInstaller') == '6.22.2' else 1)"
 if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller 6.22.2 is required. Rebuild the environment from requirements-build.txt: $BuildPython"
+    throw "PyInstaller 6.22.2 is required. Rebuild the environment from requirements/build.txt: $BuildPython"
 }
 & $BuildPython -m pip check
 if ($LASTEXITCODE -ne 0) {

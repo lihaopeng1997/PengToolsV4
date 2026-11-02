@@ -41,7 +41,7 @@ run -> main_window -> panels -> tools / ui / config
 - Make only changes traceable to the current task. Report unrelated defects instead of repairing them.
 - Do not alter user `data`, real configuration, credentials, keys, captured payloads, or existing user sessions.
 - Choose focused verification for the changed risk. Do not run full discovery, package builds, or disruptive GUI automation unless the task requires them.
-- For Python changes, run the relevant `python -m unittest tests.test_<area> -v` target. For frontend changes, use `npm --prefix frontend run typecheck`; run `build:embedded` and `verify:embedded` when embedded assets change.
+- Tests, diagnostic scripts, and verification reports are intentionally local-only. Do not add them back to Git unless explicitly requested. Use focused source/syntax checks; backend execution or tests require explicit user authorization. For frontend changes, use `npm --prefix frontend run typecheck`; run `build:embedded` and `verify:embedded` when embedded assets change.
 - Changes to startup, WebEngine policy, single-instance ownership, packaging, user-data paths, navigation authority, bridge contracts, or SSH session ownership need explicit task scope.
 
 ## Delivery

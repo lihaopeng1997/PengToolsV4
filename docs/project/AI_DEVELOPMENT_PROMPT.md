@@ -1,6 +1,6 @@
 # 后续开发 AI 的完整接手提示词
 
-与[需求 AI 提示词](AI_REQUIREMENTS_PROMPT.md)、[开发与复核规范](DEVELOPMENT_AND_AI.md)配套使用。将下文和需求 AI 输出的完整任务一起交给开发 AI；不要只转发一句“按照设计改”。本文不是本轮 UI 已完成的声明，进展以交付 SHA、[实施记录](../ui/prism-implementation-2026-09/STATUS.md)和[缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)为准。
+与[需求 AI 提示词](AI_REQUIREMENTS_PROMPT.md)、[开发与复核规范](DEVELOPMENT_AND_AI.md)配套使用。将下文和需求 AI 输出的完整任务一起交给开发 AI；不要只转发一句“按照设计改”。本文不是本轮 UI 已完成的声明，进展以交付 SHA、[实施记录](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/STATUS.md)和[缺口清单](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)为准。
 
 ## 复制以下正文给开发 AI
 
@@ -33,7 +33,7 @@ UI 调整复用现有控件与动作，保留 model/document、选择、撤销�
 
 ### 4. 验证要与改动风险一致
 
-先运行受影响面的最小有效测试，发现真实回归再扩大范围。不要默认全量发现或打包。现有隔离入口可运行：`python scripts/diagnostics/prism_web_runtime.py --test-module tests.test_<area>`；实际 WebEngine 验证使用 Windows 平台，不能把离屏平台错误改成生产启动策略。只使用临时配置、fake 服务和模拟数据，不连接真实生产系统。
+开发测试和诊断入口仅保留本地，不是当前克隆的前置条件。先做任务相关的源码、语法和路径检查；后端运行或测试需用户明确要求，不默认全量发现或打包。实际 WebEngine 验证使用 Windows 平台，不能把离屏平台错误改成生产启动策略。验证使用隔离数据，不连接真实生产系统。
 
 Vue 修改运行 typecheck；嵌入资源修改还要运行 build:embedded、verify:embedded。纯 Qt 修改无需为了形式运行无关前端构建。所有交付检查 git diff --check。
 

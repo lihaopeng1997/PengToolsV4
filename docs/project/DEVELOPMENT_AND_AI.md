@@ -31,7 +31,7 @@
 
 ## 3. 每项任务的开始步骤
 
-可复制的双向接手正文：[需求 AI 提示词](AI_REQUIREMENTS_PROMPT.md)、[开发 AI 提示词](AI_DEVELOPMENT_PROMPT.md)。当前 UI 续修同时读取[验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)和[实施记录](../ui/prism-implementation-2026-09/STATUS.md)，以实际交付 SHA 核对证据，不能用历史截图数量代替验收。
+可复制的双向接手正文：[需求 AI 提示词](AI_REQUIREMENTS_PROMPT.md)、[开发 AI 提示词](AI_DEVELOPMENT_PROMPT.md)。当前 UI 续修同时读取[验收缺口清单](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)和[实施记录](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/STATUS.md)，以实际交付 SHA 核对证据，不能用历史截图数量代替验收。
 
 项目事实、会话交接、重型证据和并行代码工作区的载体选择遵循 [AI 上下文与工作区规范](AI_CONTEXT_WORKFLOW.md)。长任务在阶段边界或出现重复查找/状态混淆时先生成结构化交接；大日志和批量证据写入任务目录后按需读取；除并行代码方案或明确隔离实验外，不为普通顺序任务创建 worktree。
 
@@ -145,12 +145,10 @@ Python 依赖方向保持 `run → main_window → panels → tools / ui / confi
 npm --prefix frontend run typecheck
 npm --prefix frontend run build:embedded
 npm --prefix frontend run verify:embedded
-python -m unittest tests.test_dashboard_summary -v
-python -m pytest -q tests/test_prism_drift_repair.py
 git diff --check
 ```
 
-命令按实际改动挑选，上例不是所有任务强制全跑。涉及 WebEngine 时另运行相关集成测试，原生 Qt 测试优先按文件隔离进程。进程崩溃、空输出或被跳过一律不能记为通过；记录退出码、环境、复现命令，区分本次引入与尚未归因，禁止未做基线对比就称“原有问题”。
+命令按实际改动挑选，上例不是所有任务强制全跑。开发测试、诊断入口和验收报告仅保留本地，不随当前分支发布。后端运行或测试需用户明确要求；没有本机测试资料时，明确报告验证限制。进程崩溃、空输出或被跳过一律不能记为通过；记录退出码、环境、复现命令，区分本次引入与尚未归因，禁止未做基线对比就称“原有问题”。
 
 视觉验收按 UI 规格矩阵，至少覆盖本任务的正常/空/错/忙、窄宽、长中文、英文和缩放；记录视口与 DPI。无需每次小修都全量打包和测试整个项目，但最终 P10 必须覆盖全部约定展示面。测试夹具必须脱敏且与用户数据隔离。
 

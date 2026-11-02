@@ -1,52 +1,32 @@
-# PengToolsHub：项目与 AI 协作入口
+# PengToolsHub 开发入口
 
-更新日期：2026-10-19。适用仓库 `lihaopeng1997/PengToolsV4`。当前工作分支为 `dev/2026-09-23`；提交和进度以 [最新详细交接](SESSION_HANDOFF_2026-10-19.md) 及实际 Git 状态为准。旧审计的 `ui/prism-v1` / `a3a3a4a` 仅为历史基线，不要据此自动切换分支。
+先阅读根目录 [AGENTS.md](../../AGENTS.md)，核对实际分支、提交和工作区，再按本次任务读取相关源码。不要根据历史文档中的分支名切换工作区。
 
-本次入口：**[详细交接与下一步](SESSION_HANDOFF_2026-10-19.md)** · [目录清理与归档](PROJECT_CLEANUP_2026-10-19.md) · [原始需求剩余核对](reviews/agent-refactor-2026-10-01/REMAINING_REQUIREMENTS_2026-10-16.md)。详细交接优先说明当前状态，以下旧阶段记录仅用于追溯。
+## 源码地图
 
-## 接手时按这个顺序读
+```text
+run.py → main_window.py → panels/ → tools/、ui/、config.py
+```
 
-1. 根目录 [AGENTS.md](../../AGENTS.md)：工程边界和交付规则。
-2. [产品与代码地图](PRODUCT_AND_SOURCE.md)：软件解决什么问题、模块在哪里、哪些行为不能动。
-3. [后续开发与双 AI 协作规范](DEVELOPMENT_AND_AI.md)：从需求到验收的具体流程、交接模板、验证标准。
-4. [AI 上下文与工作区规范](AI_CONTEXT_WORKFLOW.md)：固定 Project、长会话交接、重型上下文外置与 Worktree 使用边界。
-5. [本轮审计](DRIFT_AUDIT_2026-09-08.md)：已发现问题、已批准变更、修复和未验证项。
-6. [晴空棱镜 UI 规格 V2.1](../ui/concepts-2026-09/prism-suite/UI优化需求_晴空棱镜_Agent实施规范.md)：当前 UI 目标、组件尺寸、动效、模块改造与验收矩阵。
-7. [原型入口](../ui/concepts-2026-09/prism-suite/index.html)：与同目录所有资源一起阅读。Git 文件浏览可以读源码，但不能替代实际浏览器预览。
+`panels/` 组合页面流程，`tools/` 提供无 QWidget 的业务逻辑，`ui/` 提供公共界面和桥接。前端源码在 `frontend/`，正式离线资源在 `resources/webui/vue/`。
 
-历史架构、旧交接、旧阶段报告供查证，不再作为默认接手入口。不要仅根据文件名里的“最终”“完整”“唯一”判断有效性。
+| 事项 | 入口 |
+|---|---|
+| 产品功能与源码定位 | [PRODUCT_AND_SOURCE.md](PRODUCT_AND_SOURCE.md)；导航以 `ui/navigation_model.py` 为准 |
+| 开发与交接协议 | [DEVELOPMENT_AND_AI.md](DEVELOPMENT_AND_AI.md) |
+| 上下文与工作区 | [AI_CONTEXT_WORKFLOW.md](AI_CONTEXT_WORKFLOW.md) |
+| 需求与开发提示词 | [需求提示词](AI_REQUIREMENTS_PROMPT.md)、[开发提示词](AI_DEVELOPMENT_PROMPT.md) |
+| 数据中心 | [功能需求](../requirements/data-center/DATA_CENTER_AGENT_REQUIREMENTS.md) |
+| 日志与系统排查 | [Linux 排查设计](../requirements/log-analysis/LINUX_OPS_AI_DESIGN_2026-10-29.md)、[日志分析需求](../requirements/log-analysis/LOG_ANALYSIS_AGENT_REQUIREMENTS_2026-10-28.md) |
+| 需求状态与进度流程 | [需求流程说明](../requirements/workflow/REQUIREMENT_WORKFLOW_2026-10-29.md) |
+| UI 规格与原型 | [Prism V2.1](../design/prism/README.md) |
 
-后续微调、新功能与缺陷处理可复制 [需求 AI 完整接手提示词](AI_REQUIREMENTS_PROMPT.md)和[开发 AI 完整接手提示词](AI_DEVELOPMENT_PROMPT.md)，配合[开发与复核规范](DEVELOPMENT_AND_AI.md)执行“需求定义 → 开发实现 → 需求 AI 读代码复核 → 返工或接受”。原型应与其资源目录一起交接。当前续修先读[验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)，不要把仍未验收的本轮UI改造算作已完成。
+## 当前约定
 
-2026-09-09 实施检查点见 [UI 修复与验证记录](../ui/prism-implementation-2026-09/STATUS.md)，内含已改展示面、测试结果、样例图及待验收项。此检查点按用户要求提交供 Git 读取，不等于整套 UI 最终验收通过。
+- 单一 Prism `calm` 主题；旧多主题方案属于历史材料。
+- Vue 用于轻量全局界面；数据库、SQL、SSH、抓包和文件操作等工作台保留原生 PyQt。
+- 主题、响应式布局和导航分别以 `ui/theme_manager.py`、`ui/layout_metrics.py`、`ui/navigation_model.py` 为准。
+- 用户数据路径由 `config.local_data_dir()` 定义。目录整理不改变用户数据、连接或会话位置。
+- 当前分支不发布开发测试、诊断脚本、测试报告和验收记录；这些文件保留本地。功能实现、静态检查、实际集成和人工验收必须分别说明。
 
-## 当前必须知道的决定
-
-2026-09-15 数据中心新增授权：用户明确选择全面重构、统一六类数据库工作区、默认手动事务和专用SSH隧道；最新允许Agent自主只读查询，使用现有内网模型并回传有限脱敏结果，要求思考摘要/正文真正流式显示。此范围覆盖数据中心此前的UI-only和AI不执行限制；详见[数据中心Agent需求](DATA_CENTER_AGENT_REQUIREMENTS.md)及[Luna开发交接](DATA_CENTER_AGENT_DEVELOPMENT.md)。相关源码已逐步接入，尚有明确功能缺口和真实环境验收，达梦按用户决定延后；当前进度以最新交接为准。不得据此改变其他模块业务。自绘标题栏的另行确认见[窗口续修决定](../ui/prism-implementation-2026-09/PRISM_SHELL_REVISION_2026-09-15.md)。
-
-| 决定 | 当前要求 | 不得误解为 |
-|---|---|---|
-| 全 UI 重构 | 重做既有展示面；数据中心另按已确认的全面重构需求实施 | 将数据中心新增授权扩展到其他业务模块 |
-| 技术路线 | Vue 负责轻量全局界面，PyQt 保留密集工作台与系统交互 | 全部页面迁移为网页或引入 Electron |
-| 单主题 | 用户于本轮明确确认只保留晴空棱镜 `calm`，已更新 V2.1 | 仍需恢复 V2.0 的深色主题选择器 |
-| 首页任务 | 只保留详细本月上线任务，旧“最近需求”卡片退出首页 | 删除需求历史数据、删 `recent` DTO 或改变统计口径 |
-| 完成操作 | 首页进入既有需求编辑处理完成、测试点 | 仿照 HTML 直接新增写入 Bridge |
-| 桌面边框 | 用户于2026-09-15批准原型自绘标题栏，须验证拖动/缩放/Snap/跨屏及原关闭流程 | 自绘已实现或窗口行为已验收 |
-| 动效 | 首页、加载和悬浮框按规格；有减弱动态和暂停策略 | 动画决定业务任务何时完成或伪造进度 |
-| 原型 | 视觉与布局参考，25 个路由包含 3 个设计展板 | 正式软件增加 3 个业务菜单 |
-
-单主题确认原文：“已确认，保留单主题并更新规范”。这是已批准的外观偏好调整；其余业务不变边界继续有效。
-
-## 只读 Git 的需求 AI 应如何使用
-
-你看不到开发者未提交文件、本机数据、运行窗口和对话里的截图。先确认上述文件在你读取的提交中存在；缺失意味着交接未发布，不能假装已读取。需要开发 AI 提供基准 SHA、变更清单、定向测试结果和脱敏视觉材料。
-
-当前代码用于确认真实行为，设计文档用于确认目标，用户决定用于解决目标变更。三者冲突时应列出证据和最小解决方案，不能直接把代码现状改写成需求，也不能照旧设计回退用户已批准的新决定。
-
-给需求 AI 的接手文本：
-
-> 你是 PengToolsHub 的需求 AI。先报告所读仓库、分支、完整 SHA，按 docs/project/README.md 的顺序阅读。项目是 Windows 本地研发交付与排查工具台，当前任务是晴空棱镜 UI 重构，保持既有业务行为。单主题 calm 已获确认，不恢复深色。先建立任务涉及功能的源码调用链和不变契约，再输出可以直接开发的需求、模块落点、状态与验收标准。未读到的代码、未运行的结果必须写“待核验”。原型中的模拟逻辑不能变成正式业务需求。使用 DEVELOPMENT_AND_AI.md 的模板；不要凭命名猜测架构。
-
-给开发 AI 的接手文本：
-
-> 先读 AGENTS.md、docs/project/README.md 和本任务需求；报告分支、SHA、工作区状态。核实需求引用的接口与当前源代码，遇到实质冲突先提出具体差异。沿现有信号、数据和生命周期只改授权展示层，保留无关修改。Vue 源码和正式产物一起交付；测试结果按静态、行为、WebEngine、视觉、发布分别报告。不要以源码字符串断言代替运行验证，不要用新功能掩盖原功能丢失。
+历史交接已归入 [archive/](../archive/README.md)。其中记录的路径、版本、分支及验证结果仅适用于当时上下文。报告当前状态前重新检查源码，不将历史报告视为现行验证。

@@ -8,11 +8,11 @@
 2. 本文件、`docs/project/README.md`、`PRODUCT_AND_SOURCE.md`、`DEVELOPMENT_AND_AI.md`。
 3. `docs/ui/concepts-2026-09/prism-suite/` 整个目录，包括 V2.1 规格、HTML、CSS、JavaScript。只发一张截图不能说明页签、菜单、动效和响应式行为。
 4. 用户本次要求、当前软件截图或可复现步骤、开发 AI 提供的测试与运行材料。截图只能证明拍摄时的状态；动态效果需要录屏或运行证据。
-5. [开发 AI 完整提示词](AI_DEVELOPMENT_PROMPT.md)、[本轮验收缺口清单](../ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)与[实施记录](../ui/prism-implementation-2026-09/STATUS.md)。清单包含历史证据和未核验项，不可当作全部通过。
+5. [开发 AI 完整提示词](AI_DEVELOPMENT_PROMPT.md)、[本轮验收缺口清单](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/ACCEPTANCE_MATRIX.md)与[实施记录](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/STATUS.md)。清单包含历史证据和未核验项，不可当作全部通过。
 
 只读 Git 的 AI 看不到本机未提交代码。未发布材料必须标为缺失，不能声称读过。
 
-已定位的专项后续草案：[Redis / MongoDB AI 等待反馈](NOSQL_AI_WAITING_HANDOFF.md)。它记录同步调用造成的动效限制及需明确批准的线程调整边界，不代表该问题已修复。
+已定位的专项后续草案：[Redis / MongoDB AI 等待反馈](../requirements/data-center/NOSQL_AI_WAITING_HANDOFF.md)。它记录同步调用造成的动效限制及需明确批准的线程调整边界，不代表该问题已修复。
 
 ## 复制以下提示词给需求 AI
 

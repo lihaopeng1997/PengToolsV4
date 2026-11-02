@@ -1,137 +1,94 @@
 # PengToolsHub
 
-Windows 离线桌面工具台（Python 3.12 + PyQt6）。界面显示名 **PengToolsHub**，版本文案 **V4 Private**。
+面向研发、交付和运维排查的 Windows 桌面工具台，将需求管理、发版材料、数据库、接口、日志和 AI 辅助集中到一个应用中。
 
-当前晴空棱镜改造采用 **单主题 calm + Vue/PyQt 混合界面**，保持现有业务行为。需求 AI 和开发 AI 从 [项目交接入口](docs/project/README.md) 开始；原型不能替代生产功能契约。
+基于 Python 3.12、PyQt6 和 Vue 3，采用单一 `calm` 主题。Vue 提供侧栏与首页，数据库、SQL、SSH 和文件操作等工作台使用原生 PyQt。应用资源随程序分发；数据库、SSH、接口和模型功能按用户配置连接目标服务。
 
-当前进度、待办和验证边界见 [2026-10-19 详细交接](docs/project/SESSION_HANDOFF_2026-10-19.md)，目录清理和本地归档见 [清理记录](docs/project/PROJECT_CLEANUP_2026-10-19.md)。源码已实现的能力与旧预览包有差异，接手先读交接。
+## 主要功能
 
-## 仓库结构（与架构分层一致）
+| 模块 | 用途 |
+|---|---|
+| 需求与交付 | 需求台账、自定义状态与进度节点、测试点、文件库、SQL 和发版材料整理 |
+| 数据中心 | Oracle、MySQL、OceanBase、达梦、Redis、MongoDB 的连接和工作区；关系库 SQL、对象导航、结果查看及 AI 辅助 |
+| 接口排查 | 本机流量捕获、请求与响应查看、接口请求测试、接口文档更新 |
+| 日志与终端 | SSH 终端、日志截取与导出、AI 日志分析及系统排查 |
+| 模型与 Agent | 内网模型聊天、流式输出、项目工作区、受控工具与上下文管理 |
+| 开发辅助 | JSON/XML/SQL 格式处理、加解密、命令库、证件与 VIN 数据工具、日报和个人资料 |
 
-```
+各数据库驱动、模型和网络功能需要对应环境配置。功能清单描述源码提供的能力，实际可用范围取决于驱动、权限和目标环境。
+
+## 项目结构
+
+```text
 PengToolsV4/
-├── run.py                 # 入口：QApplication / 主题 / 单实例
-├── main_window.py         # 装配：导航、Stack、跨模块信号、托盘
-├── config.py              # 配置：local_data_dir、JSON 路径与默认值
-├── panels/                # 页面与工作台界面层
-├── tools/                 # 无界面业务逻辑层（可单测）
-├── ui/                    # 基础 UI 能力层（主题/图标/弹窗/响应式）
-├── resources/             # 打进安装包的资源（QSS/图标/模板/种子）
-├── data/                  # 开发态用户数据（gitignore，升级保留）
-├── tests/                 # 定向单元 / 面板烟雾测试
-├── scripts/               # 构建脚本与开发工具
-├── docs/                  # 架构 / 交接 / UI 需求文档
-├── packaging/             # 安装布局说明
-├── Installer/             # 安装模板（gitignore 含 EXE）
-├── frontend/              # Vue 3 + TypeScript + Vite 侧栏与首页源码（node_modules/ dist/ 不提交）
-├── prototypes/            # 视觉原型生成器与模板；生成的 index.html 含本地台账，不提交
-├── requirements.txt
-├── AGENTS.md              # AI/开发硬规则
-├── pack.cmd               # 双击一键打包 → scripts/pack.ps1
-└── build_release.ps1      # 便捷入口 → scripts/build_release.ps1
+├── run.py                 # 应用入口
+├── main_window.py         # 导航、页面装配和生命周期
+├── config.py              # 配置定义与用户数据路径
+├── panels/                # 页面与工作台
+├── tools/                 # 业务逻辑、数据库与 Agent 运行时
+├── ui/                    # 公共界面组件和 Qt/Web 适配
+├── frontend/              # Vue 3 / TypeScript / Vite 源码
+├── resources/             # 图标、模板、技能及嵌入式 Web 资源
+├── requirements/          # 构建与开发依赖
+├── scripts/               # 环境准备、构建、发布扫描和维护工具
+├── packaging/             # 安装脚本与安装说明源文件
+├── docs/                  # 架构、设计、需求、使用说明和历史资料
+├── requirements.txt       # Python 运行依赖
+├── pack.cmd               # Windows 一键打包入口
+└── AGENTS.md              # 项目开发约定
 ```
 
-依赖方向（强制）：
+`data/`、虚拟环境、测试与诊断资料、构建缓存和发布产物保留本地，不纳入 Git。
 
-```
-run → main_window → panels → tools / ui / config
-tools 不得 import panels / ui
-ui 不得 import panels；公共 UI 组件仅可调用无 QWidget 的窄接口工具
-```
+## 从源码运行
 
-## 快速开始
+环境要求：Windows、Python 3.12。以下命令在仓库根目录执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1 -Development
-.\.venv-dev\Scripts\python.exe run.py
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe run.py
 ```
 
-发布构建使用独立的 Python 3.12 环境，避免与本机其它项目的依赖冲突：
+需要开发和依赖审计工具时，可使用 `scripts/setup_build_env.ps1 -Development` 创建 `.venv-dev`。数据库客户端、ODBC 驱动和 SVN 等外部工具按所用功能配置，不包含在上述 Python 依赖中。
+
+## 前端开发
+
+前端使用 Node.js 20.19+ 或 22.12+，通过锁文件安装依赖：
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run typecheck
+npm --prefix frontend run build:embedded
+npm --prefix frontend run verify:embedded
+```
+
+正式应用加载 `resources/webui/vue/` 中的离线资源。修改前端后，从 `frontend/` 重新生成并一并提交嵌入资源；不要手工修改生成的 JS/CSS。
+
+## 构建与安装
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
-```
-
-定向测试：
-
-```powershell
-$env:QT_QPA_PLATFORM='offscreen'
-.\.venv-dev\Scripts\python.exe -m pytest -q tests\test_core.py
-```
-
-全量测试按文件隔离 PyQt6 全局状态：
-
-```powershell
-.\.venv-dev\Scripts\python.exe scripts\run_test_suite.py
-```
-
-依赖漏洞审计：
-
-```powershell
-.\.venv-dev\Scripts\python.exe -X utf8 -m pip_audit -r requirements.txt
-```
-
-Frontend（Vue 3 + TypeScript + Vite，侧栏与首页，Node ≥ 20.19 或 ≥ 22.12）：
-
-```powershell
-cd frontend
-npm ci         # 按 package-lock.json 精确还原依赖
-npm run check  # vue-tsc 类型检查 + Vite 双入口构建（file:// 相对产物）+ verify:dist 守护
-```
-
-`frontend/dist/` 为开发构建产物（gitignore）；`npm run build:embedded` 产出正式运行时资源 `resources/webui/vue/`（已提交，随 PyInstaller 整体打包）。当前侧栏与首页分别加载 `vue/chrome.html`、`vue/dashboard.html`，由 QWebChannel 对接 Python；原生侧栏/首页保留为回退。密集业务工作台继续使用 PyQt。
-
-发布打包：
-
-```powershell
 .\pack.cmd
-# 或 .\build_release.ps1
-# 产物：dist\PengToolsHub\PengToolsHub.exe 、 PengToolsHub_Offline_Setup.zip
+# 或直接执行：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 ```
 
-`pack.cmd` 可双击。打包参数仍只在 `scripts\build_release.ps1`。
+唯一发布配置位于 `scripts/build_release.ps1`，使用独立 `.venv-build` 环境。构建前会扫描发布资源中的敏感信息。
 
-发布产物为 onedir 目录（PyInstaller onedir）：
+产物为 `dist/PengToolsHub/` 和 `PengToolsHub_Offline_Setup.zip`。安装包包含 `setup.cmd`、安装说明及 `PengToolsHub/` 程序目录；程序依赖同目录 `_internal/`，不能只复制 EXE。安装布局见 [packaging/README.md](packaging/README.md)。
 
-```
-dist
-└── PengToolsHub
-    ├── PengToolsHub.exe
-    └── _internal\
-```
+## 数据与配置
 
-离线包 `PengToolsHub_Offline_Setup.zip` 解压后：
+开发态数据位于仓库根目录 `data/`；打包后位于 EXE 旁的 `data/`。连接配置、模型设置、需求台账和会话等在本机保存，不应提交到 Git 或放入 `resources/`。
 
-```
-setup.cmd
-README.txt
-PengToolsHub
-├── PengToolsHub.exe
-└── _internal\
-```
+升级前备份数据，替换程序文件时保留 `data/`。不要将真实账号、密码、Token、私钥或捕获报文放入源码、文档和安装包。详见 [安全说明](docs/SECURITY.md)。
 
-日常使用双击 `PengToolsHub\PengToolsHub.exe`；升级时替换 PengToolsHub 目录内的程序文件，必须保留 `PengToolsHub\data`（用户数据目录，首次运行后产生）。
+## 文档
 
-## 文档入口
+- [文档导航](docs/README.md)：按架构、设计、功能需求和使用说明查阅。
+- [项目开发入口](docs/project/README.md)：源码地图、当前约定和协作方式。
+- [使用说明](docs/guides/PengToolsHub_使用说明_V4.27.docx)：桌面软件的用户手册。
+- [Prism UI 设计](docs/design/prism/README.md)：现用 V2.1 规格与离线原型。
+- [脚本说明](scripts/README.md)：环境、构建和维护命令。
 
-| 文档 | 说明 |
-|---|---|
-| [AGENTS.md](AGENTS.md) | 硬规则（边界/导航/数据） |
-| [当前项目与 AI 协作入口](docs/project/README.md) | 产品功能、代码地图、当前决定、开发协议与审计，接手必读 |
-| [历史 Grok 交接](docs/项目交接/PengToolsV4_Grok接手完整交接文档_V4.27_Private.md) | 历史背景，动态事实按当前分支核实 |
-| [整体架构](docs/架构/PengToolsV4_项目整体架构文档_V1.0.md) | 分层与规范 |
-| [docs/README.md](docs/README.md) | 文档目录索引 |
-
-## 产品边界（摘要）
-
-- 离线优先；用户数据只在 `config.local_data_dir()`（开发 `./data/`，打包 `<exe旁>/data/`）。
-- Private 抓包仅 loopback；报文只存内存。
-- 唯一发布包：`PengToolsHub_Offline_Setup.zip`（内含 `setup.cmd`、`README.txt` 与 `PengToolsHub\` 程序目录，程序入口 `PengToolsHub\PengToolsHub.exe`）。
-
-## 安全与分发
-
-- **禁止**把真实账密 / VPN / Token 写入 `resources/`（会打进 EXE）。
-- 打包前自动扫描：`python scripts/scan_release_secrets.py`（`build_release.ps1` 已集成，失败则中止）。
-- 内置学习种子仅为安全空模板；私有笔记只存本机 `data/`。
-- 详见 [docs/SECURITY.md](docs/SECURITY.md)。
+历史设计与交接统一存放在 `docs/archive/`，用于追溯，不代表当前版本已实现或已验收。

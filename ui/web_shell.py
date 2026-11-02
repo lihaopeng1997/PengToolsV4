@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """V2 Web 壳：QWebEngine 铬层（侧栏/首页）与 Python 桥接。
 
-设计规格：docs/superpowers/specs/2026-08-29-v2-ui-shell-rebuild-design.md
+设计规格：docs/archive/design/superpowers/specs/2026-08-29-v2-ui-shell-rebuild-design.md
 - 仅加载打包内 resources/webui/*.html（本地 file://），WebLocalPage 拦截一切外链；
 - 桥接对象不 import panels；首页数据由 main_window 注入 summary provider；
 - 任何依赖缺失时 WEB_SHELL_AVAILABLE=False，调用方回退原生侧栏。

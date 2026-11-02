@@ -20,6 +20,6 @@
 
 - 仓库 `lihaopeng1997/PengToolsV4`，分支 `ui/prism-v1`。
 - 本轮 UI 代码提交：`b2867646afa791a9daba64dc350fd19724493eb9`；基线 `ce01d8166ed94f411bbd4d917cff938dc887fbc8`。提交和推送后 fresh fetch 校验一致，ahead/behind 为 0/0。
-- 复核任务见 [Web UI 复核说明](../ui/prism-implementation-2026-09/WEB_UI_REVIEW_2026-09-18.md)。代码和运行证据见 [UI 修复记录](../ui/prism-implementation-2026-09/UI_SETTINGS_MENU_REPAIR_2026-09-17.md)。
+- 复核任务见 [Web UI 复核说明](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/WEB_UI_REVIEW_2026-09-18.md)。代码和运行证据见 [UI 修复记录](https://github.com/lihaopeng1997/PengToolsV4/blob/46b1249e49130e00297fd6b9adf0369a774feaaf/docs/ui/prism-implementation-2026-09/UI_SETTINGS_MENU_REPAIR_2026-09-17.md)。
 - 本地仍有原 13 个遗留文件和先前数据中心 Agent 包；已确认 13 文件哈希未变。Web 不能审查这些未发布内容。保持现场，不删除、覆盖或纳入其他包。
 - 当前浏览器控制能列出 Edge，但读取标签页连续返回“Unable to load browser request-header policy”。复核尚未派发，未取得 Web 结果。不得绕过浏览器策略、冒充已完成复核或以本地结果代替 Web 方案；连接恢复后使用上述固定代码提交派发。

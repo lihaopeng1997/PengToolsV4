@@ -9,7 +9,7 @@
 | `PrivateInstaller/` | 兼容旧路径，构建时同步程序目录 | 已 gitignore |
 | 根目录 `PengToolsHub_Offline_Setup.zip` | 离线安装包产物 | 已 gitignore |
 
-构建入口见 `scripts/README.md`。双击仓库根的 `pack.cmd`，或运行 `.\build_release.ps1`。参数只在 `scripts/build_release.ps1`。
+构建入口见 [脚本说明](../scripts/README.md)。双击仓库根的 `pack.cmd`，或运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1`。参数只在 `scripts/build_release.ps1`。
 
 发布布局（PyInstaller onedir）：
 

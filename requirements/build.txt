@@ -1,0 +1,4 @@
+# PengToolsHub reproducible Windows build environment (Python 3.12)
+-r ../requirements.txt
+# Keep the release builder version pinned.
+PyInstaller==6.22.2

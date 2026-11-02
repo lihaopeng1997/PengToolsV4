@@ -32,5 +32,5 @@ React / QWebEngine as the main UI, downloading fonts at runtime.
 
 ## Frozen tokens
 
-Authoritative values live in `docs/ui/PengToolsV4_新视觉语言_V1.0.md` and
+Authoritative values live in `docs/archive/design/ui/PengToolsV4_新视觉语言_V1.0.md` and
 `THEMES` in `ui/theme_manager.py`.
