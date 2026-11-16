@@ -28,6 +28,18 @@ except Exception as _exc:  # pragma: no cover - 依赖缺失环境
     WEB_SHELL_AVAILABLE = False
     WEB_SHELL_IMPORT_ERROR = f'{type(_exc).__name__}: {_exc}'
 
+if WEB_SHELL_AVAILABLE:
+    class _ShellWebView(QWebEngineView):
+        """No Chromium context menu.
+
+        The stock menu offers Back / Forward / Reload / Save page / View page
+        source, which turns a product surface into a browser tab.  Page text
+        stays copyable with Ctrl+C, so nothing essential is lost.
+        """
+
+        def contextMenuEvent(self, event):  # noqa: N802
+            event.accept()
+
 
 def _project_root() -> str:
     if getattr(sys, '_MEIPASS', None):
@@ -424,7 +436,7 @@ def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
         return wrap
 
     page = WebLocalPage(wrap)
-    view = QWebEngineView(wrap)
+    view = _ShellWebView(wrap)
     view.setPage(page)
     _register_channel(page, bridge)
 
