@@ -1,7 +1,7 @@
 # PengToolsHub V4 UI 重构 — 接手提示词（直接复制可用）
 
 > 用途：交给接手人（AI 助手或开发）作为开工指令。复制「正文」整段发给接手人即可。
-> 配套阅读（按需）：`PenngTools_V4_UI重构_整体进度与后续交接_2026-08-27.md`
+> 配套阅读（按需）：`PengTools_V4_UI重构_整体进度与后续交接_2026-08-27.md`
 
 ---
 
@@ -10,10 +10,10 @@
 你是 PengToolsHub V4 Private（Windows 离线 PyQt6 桌面应用）UI 重构项目的接手人。上一任已完成 P0 阶段大部分样式壳层，现在由你继续。开工前请先完整阅读以下交接文档，再动手：
 
 **必读文档（按顺序）**
-1. `docs/archive/design/product-strategy/PenngTools_V4_Private_全套UI需求文档_C方向_V1.2.md` —— 权威 UI 需求基线（含品牌名、四主题 Token、各页面规范）
-2. `docs/archive/design/product-strategy/PenngTools_V4_Private_全套页面设计稿_C方向_V1.2.html` —— 权威视觉基线（冻结设计稿）
-3. `docs/archive/design/product-strategy/PenngTools_V4_UI重构_Grok实施交接_V1.0.md` —— 上一任的整体路线图与分批规划
-4. `docs/archive/design/product-strategy/PenngTools_V4_UI重构_整体进度与后续交接_2026-08-27.md` —— 当前进度快照、未完成项、收尾清单（以这份为准）
+1. `docs/archive/design/product-strategy/PengTools_V4_Private_全套UI需求文档_C方向_V1.2.md` —— 权威 UI 需求基线（含品牌名、四主题 Token、各页面规范）
+2. `docs/archive/design/product-strategy/PengTools_V4_Private_全套页面设计稿_C方向_V1.2.html` —— 权威视觉基线（冻结设计稿）
+3. `docs/archive/design/product-strategy/PengTools_V4_UI重构_Grok实施交接_V1.0.md` —— 上一任的整体路线图与分批规划
+4. `docs/archive/design/product-strategy/PengTools_V4_UI重构_整体进度与后续交接_2026-08-27.md` —— 当前进度快照、未完成项、收尾清单（以这份为准）
 
 **当前进度（截至 2026-08-27）**
 - ✅ P0-0 全局设计系统（四主题 Token、四层骨架、按钮角色、Loading、Splitter、响应式）
@@ -27,7 +27,7 @@
 **你接手后必须按顺序做的 4 件收尾（未完成，最高优先级）**
 1. **品牌名切换**：`config.py` 的 `APP_NAME` 仍是旧值 `'PengToolsHub'`，V1.2 基线已定为 `PenngTools`。同步检查 spec 文件、打包脚本、EXE 产物命名。
 2. **文件库按钮回归确认**：需求管理 → 文件库，九按钮（打开目录/刷新/更新/添加文件/新建文本/锁定/解锁/回滚/提交）必须完整可见、可点、顺序正确。
-3. **P0 三项阻断勾选**：`PenngTools_V4_UI_P0阻断三项_核查交接_2026-08-27.md` 结论栏待用户勾选通过，通过后才放行 P0-3。
+3. **P0 三项阻断勾选**：`PengTools_V4_UI_P0阻断三项_核查交接_2026-08-27.md` 结论栏待用户勾选通过，通过后才放行 P0-3。
 4. **离线打包**：`scripts/build_release.ps1`，上次因软件运行中被安全机制拦下，需先关闭软件再重跑。
 
 **下一步主任务：P0-3 TamengAgent**（如用户确认放行）
