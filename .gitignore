@@ -75,7 +75,11 @@ Thumbs.db
 /docs/验收/记录/*.txt
 
 # Local-only tests, diagnostics and previous repository layout (2026-11-02).
-/tests/
+# SSH session-callback regressions are versioned on purpose: they run fully
+# offline against fake SSH transports.
+/tests/*
+!/tests/ssh_session/
+!/tests/log_analysis/
 /scripts/diagnostics/
 /docs/project/reviews/
 /docs/project/handoffs/
