@@ -676,7 +676,7 @@ class SettingsPanel(QWidget):
         size_pick_combo(self.ai_project)
         self.ai_project_label = QLabel()
         self.ai_base_url = QLineEdit()
-        self.ai_base_url.setPlaceholderText('http://10.128.25.142:18002/v1')
+        self.ai_base_url.setPlaceholderText('http://192.0.2.10:18002/v1')
         self.ai_base_url_label = QLabel()
         self.ai_base_url_row = wrap_path_field(self.ai_base_url)
         self.ai_model = QLineEdit()
@@ -2367,7 +2367,7 @@ class SettingsPanel(QWidget):
         self.ai_scan_btn.setText('从 MyBatis XML 提取业务表名（可选）' if zh else 'Extract table names from MyBatis XML')
         self.ai_base_url_label.setText('Base URL' if zh else 'Base URL')
         self.ai_base_url.setToolTip(
-            '可粘贴内网已验证的完整地址，例如 http://10.128.25.142:18002/v1/chat/completions'
+            '可粘贴内网已验证的完整地址，例如 http://192.0.2.10:18002/v1/chat/completions'
             if zh else
             'Paste a working intranet Chat Completions URL; /chat/completions is stripped.'
         )

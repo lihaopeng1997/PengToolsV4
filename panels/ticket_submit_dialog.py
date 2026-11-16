@@ -115,10 +115,10 @@ class TicketSubmitConfigDialog(QDialog):
         for env in TICKET_ENVS:
             url = QLineEdit()
             size_line(url, 'path')
-            url.setPlaceholderText(f'例如 svn://10.128.23.145:13690/…/{env.lower()} ，没有就留空')
+            url.setPlaceholderText(f'例如 svn://192.0.2.10:13690/…/{env.lower()} ，没有就留空')
             host = QLineEdit()
             size_line(host, 'std')
-            host.setPlaceholderText('填到签上的升级环境地址，例如 10.128.24.72')
+            host.setPlaceholderText('填到签上的升级环境地址，例如 192.0.2.10')
             env_host = QWidget()
             env_box = QVBoxLayout(env_host)
             env_box.setContentsMargins(0, 0, 0, 0)
