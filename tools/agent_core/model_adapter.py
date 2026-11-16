@@ -1672,6 +1672,18 @@ class UrlLibStreamingTransport:
                     if time.monotonic() >= local_deadline:
                         raise ModelDeadlineExceeded()
                     raise ModelTransportError("model stream read failed", retryable=True) from exc
+                except (ValueError, AttributeError) as exc:
+                    # Our own close (cancel or deadline) makes a pending read
+                    # fail on the closed handle. Resolve the cause explicitly:
+                    # cancellation wins, then the deadline, and only a genuine
+                    # handle loss stays a transport error. Never treat it as a
+                    # clean end - that would pass a half-read stream off as a
+                    # complete answer.
+                    if _is_cancelled(cancellation):
+                        return
+                    if time.monotonic() >= local_deadline:
+                        raise ModelDeadlineExceeded()
+                    raise ModelTransportError("model stream lost its handle", retryable=True) from exc
                 if not chunk:
                     if translator is not None:
                         tail = translator.finish()
