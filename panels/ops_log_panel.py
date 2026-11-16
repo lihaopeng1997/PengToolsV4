@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -1124,6 +1125,7 @@ class OpsLogPanel(QWidget):
         self._active_term_index: int | None = None
         self._restoring_session = False
         self._worker: _Worker | None = None
+        self._worker_purpose = ''
         self._query_worker: _LinuxQueryWorker | None = None
         self._harness_allowed_cmds: list[str] = []
         self._executor = ThreadPoolExecutor(max_workers=2)
@@ -1161,6 +1163,11 @@ class OpsLogPanel(QWidget):
             'context_lines': 20,
             'connected': False,
             'title': '',
+            # Stable identity for callbacks; the tab index is display-only and
+            # shifts whenever a tab is closed.
+            'session_id': uuid.uuid4().hex,
+            'gen': 0,
+            'closed': False,
         }
 
 
@@ -1199,22 +1206,50 @@ class OpsLogPanel(QWidget):
         if 0 <= index < len(getattr(self, '_term_sessions', [])):
             self._term_sessions[index]['title'] = title
 
+    def _on_worker_finished(self):
+        """Clear the shared worker slot and repaint the current tab's buttons."""
+        self._worker = None
+        self._worker_purpose = ''
+        self._refresh_header_session_status()
+
     def _refresh_header_session_status(self):
         if not hasattr(self, 'header_status'):
             return
         zh = self.language == 'zh'
+        has_tab = bool(getattr(self, '_term_sessions', None)) and hasattr(self, 'term_tabs') and self.term_tabs.count() > 0
         idx = self.term_tabs.currentIndex() if hasattr(self, 'term_tabs') else 0
         n = self._session_index_label(idx)
-        sess = self._current_session() or {}
+        sess = (self._current_session() or {}) if has_tab else {}
         connected = bool(sess.get('client') and sess.get('connected'))
-        if zh:
-            self.header_status.setText(f'会话 {n} · {"已连接" if connected else "未连接"}')
+        connecting = bool(sess.get('connecting'))
+        disconnecting = bool(sess.get('disconnecting'))
+        busy = connecting or disconnecting
+        # Single-flight connection worker: a connection started from another
+        # tab makes this tab's button unusable, so say why instead of failing.
+        worker = getattr(self, '_worker', None)
+        busy_other = bool(worker is not None and worker.isRunning() and not busy)
+
+        # Everything below is derived from the *current tab's own* session; a
+        # global "some session exists" flag would desync the moment tabs switch.
+        if not has_tab:
+            state = '请选择或新建终端' if zh else 'Select or create a terminal'
+        elif connecting:
+            state = '正在连接…' if zh else 'Connecting…'
+        elif disconnecting:
+            state = '正在断开…' if zh else 'Disconnecting…'
+        elif busy_other:
+            if getattr(self, '_worker_purpose', '') == 'connect':
+                state = '其他会话正在连接…' if zh else 'Another session is connecting…'
+            else:
+                state = '后台任务进行中…' if zh else 'Background task running…'
         else:
-            self.header_status.setText(
-                f'Session {n} · {"Connected" if connected else "Disconnected"}'
-            )
+            state = '已连接' if connected else '未连接'
+        self.header_status.setText(f'会话 {n} · {state}' if has_tab else state)
+
+        if hasattr(self, 'connect_btn'):
+            self.connect_btn.setEnabled(has_tab and not busy and not connected and not busy_other)
         if hasattr(self, 'disconnect_btn'):
-            self.disconnect_btn.setEnabled(connected)
+            self.disconnect_btn.setEnabled(has_tab and not busy and connected)
         if hasattr(self, 'term_status_dot'):
             self.term_status_dot.setProperty('termConnected', bool(connected))
             style = self.term_status_dot.style()
@@ -1224,8 +1259,64 @@ class OpsLogPanel(QWidget):
             self.term_status_dot.update()
         if hasattr(self, 'term_session_info'):
             srv = sess.get('server_id') or ''
-            st_str = ('已连接' if connected else '未连接') if zh else ('Connected' if connected else 'Disconnected')
-            self.term_session_info.setText(f'会话 {n} ({srv}) · {st_str}' if srv else f'会话 {n} · {st_str}')
+            st_str = state if has_tab else ('请选择终端' if zh else 'No terminal')
+            self.term_session_info.setText(f'会话 {n} ({srv}) · {st_str}' if srv else f'会话 {n} · {st_str}' if has_tab else st_str)
+
+    def _session_hint(self, text: str):
+        """Short, non-modal feedback that always names its terminal."""
+        if hasattr(self, 'toolbar_hint') and text:
+            self.toolbar_hint.setText(text)
+
+    def _find_session(self, session_id: str) -> dict | None:
+        """Look a session up by stable id; tab indexes are display-only."""
+        if not session_id:
+            return None
+        for sess in getattr(self, '_term_sessions', []):
+            if sess.get('session_id') == session_id:
+                return sess
+        return None
+
+    def _resolve_target_session(self, session_id: str, gen: int) -> dict | None:
+        """The session this callback owns, or None when it is stale."""
+        sess = self._find_session(session_id)
+        if sess is None or sess.get('closed'):
+            return None
+        if int(sess.get('gen', 0)) != int(gen):
+            return None
+        return sess
+
+    def _on_terminal_dropped_widget(self, widget):
+        """Resolve the current session from the widget that reported the drop."""
+        for sess in getattr(self, '_term_sessions', []):
+            if sess.get('widget') is widget:
+                self._on_terminal_dropped(sess.get('session_id') or '')
+                return
+        # The widget no longer belongs to any session: nothing to update.
+
+    def _on_terminal_dropped(self, session_id: str):
+        """Remote-side drop; a user-initiated disconnect never reports here."""
+        sess = self._find_session(session_id)
+        if sess is None or sess.get('closed'):
+            return
+        if sess.get('disconnecting'):
+            return
+        if not sess.get('connected') and not sess.get('connecting'):
+            return  # already idle; a duplicate late signal must not spam
+        sess['client'] = None
+        sess['connected'] = False
+        sess['connecting'] = False
+        sess['remote_entries'] = []
+        try:
+            index = self._term_sessions.index(sess)
+        except ValueError:
+            return
+        self._apply_tab_chrome(index, connected=False)
+        self._refresh_header_session_status()
+        zh = self.language == 'zh'
+        self._session_hint(f'会话 {index + 1} 远端连接已断开' if zh
+                           else f'Session {index + 1} disconnected by remote')
+        if self.term_tabs.currentIndex() == index:
+            self._console_append('[远端连接已断开，请重新连接]' if zh else '[remote closed]')
 
     def _create_terminal_tab(self, title: str = '会话', *, copy_from_current: bool = False):
         from ui.ssh_terminal import SshTerminalWidget
@@ -1235,6 +1326,11 @@ class OpsLogPanel(QWidget):
             self._save_session_at(self.term_tabs.currentIndex())
         idx = self.term_tabs.addTab(term, title)
         sess = self._new_session_dict(term)
+        # Bind once, to the widget - not to a session id. The last-tab rebuild
+        # swaps the session dict but keeps the same widget, so a widget lookup
+        # still resolves the *current* session.
+        term.connection_closed.connect(
+            lambda w=term: self._on_terminal_dropped_widget(w))
         # title finalized after append so index-based naming is stable
         sess['title'] = title
         if copy_from_current and self._term_sessions:
@@ -1441,11 +1537,25 @@ class OpsLogPanel(QWidget):
             self._save_session_at(prev)
         self._active_term_index = index
         self._restore_session_at(index)
+        # The buttons must describe the newly selected terminal immediately;
+        # this is the switch that used to leave stale state behind.
+        self._refresh_header_session_status()
+        if index >= 0:
+            sess = self._current_session() or {}
+            connected = bool(sess.get('client') and sess.get('connected'))
+            zh = self.language == 'zh'
+            self._session_hint(f"会话 {index + 1} · {'已连接' if connected else '未连接'}"
+                               if zh else f"Session {index + 1} · {'connected' if connected else 'disconnected'}")
 
     def _close_session_resources(self, sess: dict | None):
         if not sess:
             return
         w = sess.get('widget')
+        if w is not None and getattr(self, '_query_wait_term', None) is w:
+            # A pending read-only query is waiting on this terminal. End the
+            # wait now instead of leaving the button busy for the full timeout.
+            self._finish_query_wait('会话已断开，查询已取消' if self.language == 'zh'
+                                    else 'Session closed; query cancelled')
         if w is not None:
             try:
                 w.detach()
@@ -1467,7 +1577,10 @@ class OpsLogPanel(QWidget):
         zh = self.language == 'zh'
         if self.term_tabs.count() <= 1:
             if 0 <= index < len(self._term_sessions):
-                self._close_session_resources(self._term_sessions[index])
+                old = self._term_sessions[index]
+                old['gen'] = int(old.get('gen', 0)) + 1
+                old['closed'] = True
+                self._close_session_resources(old)
                 self._term_sessions[index] = self._new_session_dict(self.term_tabs.widget(index))
                 self._apply_tab_chrome(index, connected=False)
             self._active_term_index = index
@@ -1476,7 +1589,11 @@ class OpsLogPanel(QWidget):
             self._console_append('[本会话已断开，标签仍保留]' if zh else '[session disconnected]')
             return
         if 0 <= index < len(self._term_sessions):
-            self._close_session_resources(self._term_sessions[index])
+            closing = self._term_sessions[index]
+            # Invalidate first: a connection still in flight must not land here.
+            closing['gen'] = int(closing.get('gen', 0)) + 1
+            closing['closed'] = True
+            self._close_session_resources(closing)
             del self._term_sessions[index]
         self.term_tabs.blockSignals(True)
         self.term_tabs.removeTab(index)
@@ -1485,6 +1602,8 @@ class OpsLogPanel(QWidget):
         self._active_term_index = new_idx
         self.term_tabs.setCurrentIndex(new_idx)
         self._restore_session_at(new_idx)
+        # Closing a tab must repaint the buttons for whichever tab remains.
+        self._refresh_header_session_status()
 
     def _add_term_tab(self):
         if self.term_tabs.count() >= 4:
@@ -1881,7 +2000,6 @@ class OpsLogPanel(QWidget):
             trailing=self.header_status,
         )
         self.header_status.setObjectName('status-pill')
-        self.header.layout().addWidget(self.disconnect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(self.header)
 
         toolbar, tool_l = make_page_toolbar(divided=True)
@@ -1900,6 +2018,7 @@ class OpsLogPanel(QWidget):
         self.toolbar_hint = QLabel()
         self.toolbar_hint.setObjectName('field-hint')
         tool_l.addWidget(self.connect_btn)
+        tool_l.addWidget(self.disconnect_btn)
         tool_l.addWidget(self.toolbar_export_btn)
         # 左栏分段已能切到多机截取，工具栏不再重复放一个
         self.toolbar_export_btn.hide()
@@ -3561,20 +3680,26 @@ class OpsLogPanel(QWidget):
         sess = self._current_session()
         if sess is None:
             return
-        self._close_session_resources(sess)
-        sess['remote_cwd'] = '/'
-        sess['remote_entries'] = []
-        if hasattr(self, 'remote_tree'):
-            self.remote_tree.clear()
-        if hasattr(self, 'path_edit'):
-            self.path_edit.clear()
-        self._set_session_connected(False)
-        self._update_session_status_label(sess)
         idx = self.term_tabs.currentIndex()
-        if idx >= 0:
-            self._apply_tab_chrome(idx, connected=False)
+        sess['disconnecting'] = True
+        self._refresh_header_session_status()
+        try:
+            self._close_session_resources(sess)
+            sess['remote_cwd'] = '/'
+            sess['remote_entries'] = []
+            if hasattr(self, 'remote_tree'):
+                self.remote_tree.clear()
+            if hasattr(self, 'path_edit'):
+                self.path_edit.clear()
+            self._set_session_connected(False)
+            self._update_session_status_label(sess)
+            if idx >= 0:
+                self._apply_tab_chrome(idx, connected=False)
+        finally:
+            sess['disconnecting'] = False
         self._refresh_header_session_status()
         self._console_append('[本会话已断开，其它标签不受影响]' if zh else '[this tab disconnected only]')
+        self._session_hint(f'会话 {idx + 1} 已断开' if zh else f'Session {idx + 1} disconnected')
 
     def _connect_session(self):
         zh = self.language == 'zh'
@@ -3589,14 +3714,25 @@ class OpsLogPanel(QWidget):
             show_warning(self, 'PengTools', '密码无效，请编辑服务器重新输入' if zh else 'Password missing')
             return
         if self._worker and self._worker.isRunning():
-            show_warning(self, 'PengTools', '请等待当前操作完成' if zh else 'Busy')
+            # Single-flight by design: say why, do not pop a modal.
+            self._session_hint('其他会话正在连接或文件操作进行中，请稍候' if zh
+                               else 'Another session is busy; please wait')
             return
         if self._session_client() is not None:
             self._disconnect_session()
 
-        connect_tab_index = self.term_tabs.currentIndex()
+        connect_tab_index = self.term_tabs.currentIndex()  # display only
+        connect_sess = self._current_session()
+        if connect_sess is None:
+            self._session_hint('请先选择或新建终端' if zh else 'Select a terminal first')
+            return
+        connect_id = str(connect_sess.get('session_id') or '')
+        connect_gen = int(connect_sess.get('gen', 0)) + 1
+        connect_sess['gen'] = connect_gen
+        connect_sess['closed'] = False
+        connect_sess['connecting'] = True
         self.session_status.setText('正在连接本会话…' if zh else 'Connecting this tab…')
-        self.connect_btn.setEnabled(False)
+        self._refresh_header_session_status()
         self._console_banner(
             f"会话{connect_tab_index + 1} 连接 {server.get('name')} ({server.get('host')}:{server.get('port')})"
         )
@@ -3628,23 +3764,41 @@ class OpsLogPanel(QWidget):
                 cwd = home
             return {
                 'client': client, 'server': server, 'cwd': cwd,
-                'entries': entries, 'home': home, 'tab_index': connect_tab_index,
+                'entries': entries, 'home': home,
+                'session_id': connect_id, 'gen': connect_gen,
             }
 
         worker = _Worker(job, self)
+        self._worker_purpose = 'connect'
         self._worker = worker
 
         def ok(payload):
-            self.connect_btn.setEnabled(True)
-            tab_index = int(payload.get('tab_index', connect_tab_index))
-            if tab_index < 0 or tab_index >= len(self._term_sessions):
+            sess = self._resolve_target_session(
+                str(payload.get('session_id') or ''), int(payload.get('gen') or 0))
+            if sess is None:
+                # The terminal was closed or re-created while connecting: this
+                # connection belongs to nobody, so release it instead of
+                # attaching it to whatever tab happens to sit at that index.
                 try:
                     close_ssh_client(payload.get('client'))
                 except Exception:
                     pass
-                show_warning(self, 'PengTools', '会话标签已关闭，连接已取消' if zh else 'Tab closed')
+                if connect_sess is not None:
+                    connect_sess['connecting'] = False
+                self._refresh_header_session_status()
+                self._session_hint('终端已关闭，本次连接已释放' if zh
+                                   else 'Terminal closed; pending connection released')
                 return
-            sess = self._term_sessions[tab_index]
+            sess['connecting'] = False
+            try:
+                tab_index = self._term_sessions.index(sess)
+            except ValueError:
+                try:
+                    close_ssh_client(payload.get('client'))
+                except Exception:
+                    pass
+                self._refresh_header_session_status()
+                return
             term = sess.get('widget')
             # FinalShell/MobaXterm 式会话边界：SSH 连通不等于交互 PTY 就绪。
             # 先为“目标标签”申请并核验 PTY，成功后才提交会话状态并开放键盘输入。
@@ -3667,12 +3821,15 @@ class OpsLogPanel(QWidget):
                 sess['client'] = None
                 sess['connected'] = False
                 sess['remote_entries'] = []
+                self._refresh_header_session_status()
                 if self.term_tabs.currentIndex() == tab_index:
                     self._set_session_connected(False)
                     self._update_session_status_label(sess)
                 self._console_append(
                     f'[终端启动失败] {exc}；本标签未建立交互会话，请重试连接'
                 )
+                self._session_hint(f'会话 {tab_index + 1} 连接失败：终端通道未就绪'
+                                   if zh else f'Session {tab_index + 1} failed: terminal not ready')
                 return
 
             if sess.get('client') is not None and sess.get('client') is not payload['client']:
@@ -3686,6 +3843,13 @@ class OpsLogPanel(QWidget):
             sess['remote_entries'] = payload.get('entries') or []
             sess['connected'] = True
             self._apply_tab_chrome(tab_index, connected=True)
+            # Refresh regardless of which tab is active: the buttons must always
+            # describe the terminal the user is looking at right now.
+            self._refresh_header_session_status()
+            self._session_hint(
+                f"会话 {tab_index + 1} 已连接 {payload['server'].get('name')} ({payload['server'].get('host')})"
+                if zh else
+                f"Session {tab_index + 1} connected to {payload['server'].get('name')}")
 
             if self.term_tabs.currentIndex() == tab_index:
                 self.path_edit.setText(sess['remote_cwd'])
@@ -3710,15 +3874,23 @@ class OpsLogPanel(QWidget):
             )
 
         def fail(msg):
-            self.connect_btn.setEnabled(True)
+            sess = self._resolve_target_session(connect_id, connect_gen)
+            # A stale failure must never touch a rebuilt terminal's state.
+            if sess is not None:
+                sess['connecting'] = False
+                self._refresh_header_session_status()
             self.session_status.setText('连接失败' if zh else 'Failed')
             self._console_append(f'[ERROR] {msg}')
-            show_error(self, 'PengTools', msg)
             self._update_connect_button_text()
+            # A short, tab-scoped notice instead of a modal per attempt.
+            self._session_hint(
+                f'会话 {connect_tab_index + 1} 连接失败：{str(msg)[:80]}'
+                if zh else
+                f'Session {connect_tab_index + 1} failed: {str(msg)[:80]}')
 
         worker.ok.connect(ok)
         worker.fail.connect(fail)
-        worker.finished.connect(lambda: setattr(self, '_worker', None))
+        worker.finished.connect(self._on_worker_finished)
         worker.start()
 
     # ── 远端目录 ────────────────────────────────────────
@@ -3831,6 +4003,7 @@ class OpsLogPanel(QWidget):
         if busy_text:
             self.session_status.setText(busy_text)
         worker = _Worker(fn, self)
+        self._worker_purpose = 'file'
         self._worker = worker
         worker.ok.connect(on_ok)
 
@@ -3839,7 +4012,7 @@ class OpsLogPanel(QWidget):
             show_warning(self, 'PengTools', msg)
 
         worker.fail.connect(on_fail if on_fail is not None else _default_fail)
-        worker.finished.connect(lambda: setattr(self, '_worker', None))
+        worker.finished.connect(self._on_worker_finished)
         worker.start()
 
     def _refresh_remote_dir(self):
