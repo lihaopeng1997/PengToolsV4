@@ -143,6 +143,12 @@ app.processEvents()
 check('延迟掉线定位正确', not b2['connected'] and c2['connected'])
 
 print()
+try:
+    _isolation.assert_untouched()
+    check('未触碰真实 data/ 与用户配置', True)
+except AssertionError as exc:
+    check('未触碰真实 data/ 与用户配置', False, str(exc))
+
 print(f'RESULT: {len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('FAILED:', FAIL)

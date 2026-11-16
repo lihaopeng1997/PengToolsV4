@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ssh_session'))
+import _isolation  # noqa: E402,F401  (redirect HOME/config before imports)
 
 from PyQt6.QtWidgets import QApplication
 
@@ -85,6 +87,12 @@ drain_src = inspect.getsource(LogService.drain_deltas)
 check('drain_deltas 只出队', 'self.deltas.clear()' in drain_src and 'history' not in drain_src)
 
 print()
+try:
+    _isolation.assert_untouched()
+    check('未触碰真实 data/ 与用户配置', True)
+except AssertionError as exc:
+    check('未触碰真实 data/ 与用户配置', False, str(exc))
+
 print(f'RESULT: {len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('FAILED:', FAIL)

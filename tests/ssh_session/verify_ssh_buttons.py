@@ -111,6 +111,12 @@ check('掉线处理存在', '_on_terminal_dropped' in src and 'connection_closed
 check('失败不再弹模态', "show_error(self, 'PengTools', msg)" not in inspect.getsource(OpsLogPanel._connect_session))
 
 print()
+try:
+    _isolation.assert_untouched()
+    check('未触碰真实 data/ 与用户配置', True)
+except AssertionError as exc:
+    check('未触碰真实 data/ 与用户配置', False, str(exc))
+
 print(f'RESULT: {len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('FAILED:', FAIL)

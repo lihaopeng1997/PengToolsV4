@@ -160,6 +160,12 @@ p4._close_session_resources(d)     # disconnect D
 check('无关断开不终止查询', p4._query_wait_term is w5)
 
 print()
+try:
+    _isolation.assert_untouched()
+    check('未触碰真实 data/ 与用户配置', True)
+except AssertionError as exc:
+    check('未触碰真实 data/ 与用户配置', False, str(exc))
+
 print(f'RESULT: {len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('FAILED:', FAIL)
