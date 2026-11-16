@@ -1518,7 +1518,7 @@ class SettingsPanel(QWidget):
         self.ai_protocol.setEnabled(not deepseek)
         self.ai_base_url.setPlaceholderText(
             'https://api.deepseek.com 或 /v1' if deepseek else
-            'http://10.128.25.142:13458' if anthropic else 'http://10.128.25.142:18002/v1'
+            'http://192.0.2.10:13458' if anthropic else 'http://192.0.2.10:18002/v1'
         )
         self.ai_model.setPlaceholderText('deepseek-flash' if deepseek else 'qwen3.8')
         self.ai_enabled.setText(
