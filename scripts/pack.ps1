@@ -1,5 +1,7 @@
 ﻿# Double-click pack.cmd at the repo root. This wrapper does not add a second
 # PyInstaller recipe; scripts/build_release.ps1 remains the only release build.
+param([switch]$CheckOnly)
+
 $ErrorActionPreference = 'Continue'
 
 $ScriptDir = $PSScriptRoot
@@ -28,20 +30,65 @@ Write-Host '若 dist\PengToolsHub 或 Installer\PengToolsHub 里的 EXE 正被�
 Write-Host 'PyInstaller 通常要十几分钟。完成前不要关闭窗口。'
 Write-Host ''
 
-$buildPython = Join-Path $ProjectDir '.venv-build\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir 'run.py'))) {
     Write-Host '未找到 run.py，当前目录不是仓库根。'
     try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
-if (-not (Test-Path -LiteralPath $buildPython)) {
-    Write-Host "未找到构建环境: $buildPython"
-    Write-Host '先执行: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1'
+
+$buildScript = Join-Path $ScriptDir 'build_release.ps1'
+if (-not (Test-Path -LiteralPath $buildScript)) {
+    Write-Host "未找到构建脚本: $buildScript"
     try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
-$buildScript = Join-Path $ScriptDir 'build_release.ps1'
+# 构建环境解析：显式变量 > 隔离环境 .venv-build > 自动补建。
+# 具体的版本/依赖校验由 build_release.ps1 负责，这里只保证解释器存在。
+$explicitPython = $env:PENGTOOLS_BUILD_PYTHON
+if ($explicitPython) {
+    if (-not (Test-Path -LiteralPath $explicitPython)) {
+        Write-Host "PENGTOOLS_BUILD_PYTHON 指向的 Python 不存在: $explicitPython"
+        Write-Host '请修正该环境变量，或清除它以便使用 .venv-build。'
+        try { Stop-Transcript | Out-Null } catch {}
+        exit 1
+    }
+    $buildPython = $explicitPython
+    Write-Host "构建环境（来自 PENGTOOLS_BUILD_PYTHON）: $buildPython"
+} else {
+    $buildPython = Join-Path $ProjectDir '.venv-build\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $buildPython)) {
+        $setupScript = Join-Path $ScriptDir 'setup_build_env.ps1'
+        Write-Host "未找到构建环境: $buildPython"
+        if (-not (Test-Path -LiteralPath $setupScript)) {
+            Write-Host "未找到环境安装脚本: $setupScript"
+            try { Stop-Transcript | Out-Null } catch {}
+            exit 1
+        }
+        Write-Host '首次打包需要先创建独立构建环境，会下载 PyInstaller 与依赖，通常 3-10 分钟。'
+        Write-Host '现在自动创建（需要联网）……'
+        Write-Host ''
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setupScript
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $buildPython)) {
+            Write-Host ''
+            Write-Host "自动创建构建环境失败（退出码 $LASTEXITCODE）。请手动执行后重试："
+            Write-Host '  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1'
+            Write-Host '若已有合规环境，可用 PENGTOOLS_BUILD_PYTHON 指向其 python.exe。'
+            try { Stop-Transcript | Out-Null } catch {}
+            exit 1
+        }
+        Write-Host ''
+        Write-Host "构建环境就绪: $buildPython"
+    }
+}
+
+if ($CheckOnly) {
+    Write-Host "环境检查通过，可以开始打包: $buildPython"
+    Write-Host '去掉 -Check 即可执行完整打包。'
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
+}
+
 $started = Get-Date
 # Separate powershell process so this wrapper does not turn PyInstaller stderr into a failed command.
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript
