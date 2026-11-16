@@ -1033,9 +1033,10 @@ class ModelAdapter:
 
     def _emit(self, on_delta: Callable[[ModelDelta], None], event: Mapping[str, Any]) -> ModelDelta:
         kind = str(event.get("kind") or "")
-        if kind == "reasoning_delta" and self._provider() == "deepseek":
+        if kind == "reasoning_delta" and self._provider() == "deepseek" and not getattr(self, "expose_reasoning", False):
             # The raw thinking channel belongs only to the private continuation
-            # cache. Never construct a public ModelDelta with its text.
+            # cache. Never construct a public ModelDelta with its text unless the
+            # caller explicitly opted into displaying it (log-analysis UI).
             return ModelDelta(kind="reasoning_delta")
         if kind in ("reasoning_delta", "text_delta"):
             delta = ModelDelta(kind=kind, text=str(event.get("text") or ""))
