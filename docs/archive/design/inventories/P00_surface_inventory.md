@@ -5,7 +5,7 @@
 - **开发分支**: `ui/prism-v1`
 - **设计权威文档**: `docs/design/prism/UI优化需求_晴空棱镜_Agent实施规范.md`
 - **视觉参考原型**: `docs/design/prism/index.html`
-- **静态代码基线**: `docs/design/prism/implementation-source-baseline.json`
+- **静态代码基线**: `docs/design/prism/implementation-source-baseline.json`（已移除（生成产物，见 git 历史 b1d9945））
 - **冻结日期**: 2026-09-08
 - **本轮生产代码改动**: **0 (STRICTLY PROHIBITED)**
 
