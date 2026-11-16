@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, QRegularExpression, QSize, QSortFilterProxyModel, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView, QWidget
+from PyQt6.QtWidgets import QMenu, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView, QWidget
 
 from tools.data_center.workspace_catalog import ConnectionSummary
 from ui.theme_manager import ThemeManager
@@ -250,6 +250,8 @@ class WorkspaceTree(QTreeView):
     directory_node_expanded = pyqtSignal(str, object, object, int)
     directory_more_requested = pyqtSignal(str, object, object, str, int)
     directory_node_activated = pyqtSignal(str, object, object, int)
+    directory_node_structure_requested = pyqtSignal(str, object, object, int)
+    directory_node_export_requested = pyqtSignal(str, object, object, int)
 
     def __init__(self, *, language: str = "zh", parent: QWidget | None = None):
         super().__init__(parent)
@@ -270,6 +272,8 @@ class WorkspaceTree(QTreeView):
         self.setModel(self.proxy_model)
         self.selectionModel().currentChanged.connect(self._on_current_changed)
         self.doubleClicked.connect(self._on_double_clicked)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         self.expanded.connect(self._on_expanded)
         self._connection_indices: dict[str, object] = {}
         self._connection_items: dict[str, QStandardItem] = {}
@@ -703,6 +707,42 @@ class WorkspaceTree(QTreeView):
                 node,
                 int(item.data(TREE_GENERATION_ROLE) or 0),
             )
+
+    def _on_context_menu(self, pos) -> None:
+        """Table/view rows expose structure directly instead of a deep menu."""
+        index = self.indexAt(pos)
+        source = self.proxy_model.mapToSource(index) if index.isValid() else index
+        item = self.source_model.itemFromIndex(source) if source.isValid() else None
+        if item is None:
+            return
+        connection_id = self._connection_id_for_item(item)
+        node = item.data(TREE_NODE_ROLE)
+        target = item.data(TREE_TARGET_ROLE)
+        if (
+            not connection_id
+            or node is None
+            or target is None
+            or str(getattr(node, "kind", "")) not in {"table", "view"}
+            or not bool(getattr(node, "actionable", False))
+        ):
+            return
+        connection_item = self._connection_items.get(connection_id)
+        if connection_item is not None and bool(connection_item.data(TREE_CLOSING_ROLE)):
+            return
+        menu = QMenu(self)
+        action = menu.addAction("查看表结构" if self.language == "zh" else "View structure")
+        action.triggered.connect(
+            lambda: self.directory_node_structure_requested.emit(
+                connection_id, target, node, int(item.data(TREE_GENERATION_ROLE) or 0)
+            )
+        )
+        export = menu.addAction("导出表数据…" if self.language == "zh" else "Export table data…")
+        export.triggered.connect(
+            lambda: self.directory_node_export_requested.emit(
+                connection_id, target, node, int(item.data(TREE_GENERATION_ROLE) or 0)
+            )
+        )
+        menu.exec(self.viewport().mapToGlobal(pos))
 
     def _find_directory_parent(self, connection_id: str, target, node) -> QStandardItem | None:
         if node is None:

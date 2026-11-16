@@ -679,6 +679,59 @@ class ManualSession:
             query,
         )
 
+    def inspect_table_source(
+        self,
+        tree_service: Any,
+        tree_target: Any,
+        node: Any,
+        *,
+        tree_generation: int,
+        choice: Any,
+    ) -> Future:
+        """Queue a metadata-only catalog read for one signed table/view.
+
+        Unlike ``open_table_source`` this builds no SELECT and replaces no
+        result cursor, so a host can show a structure dialog without opening
+        or disturbing a data tab.
+        """
+
+        try:
+            from .changeset_dialects import create_changeset_dialect
+            from .object_tree import ObjectTreeError
+            from .table_source import TableSourceError, validate_table_target
+
+            resolver = getattr(tree_service, "resolve_table_source", None)
+            if not callable(resolver):
+                raise TableSourceError("INVALID_TABLE_REF")
+            ref = resolver(tree_target, node, generation=tree_generation)
+            validate_table_target(ref, tree_target, self.target, choice)
+            create_changeset_dialect(choice, self.target)
+        except Exception as error:
+            from .changeset import ChangeSetError
+            from .object_tree import ObjectTreeError
+            from .table_source import TableSourceError
+
+            if isinstance(error, ManualSessionError):
+                code = error.code
+            elif isinstance(error, ObjectTreeError):
+                code = "STALE_TABLE_REF" if error.code == "STALE_NODE" else "TABLE_TARGET_MISMATCH"
+            elif isinstance(error, TableSourceError):
+                code = error.code
+            elif isinstance(error, ChangeSetError):
+                code = "UNSUPPORTED_TABLE_DIALECT" if error.code == "UNSUPPORTED_SQL_DIALECT" else "TABLE_TARGET_MISMATCH"
+            else:
+                code = "INVALID_TABLE_SOURCE_REQUEST"
+            return _completed_future(error=ManualSessionError(code))
+        return self._enqueue(
+            "inspect_table_source",
+            tree_service,
+            tree_target,
+            node,
+            tree_generation,
+            self.target,
+            choice,
+        )
+
     def export_full_query(
         self,
         destination: str,
@@ -972,6 +1025,8 @@ class ManualSession:
             return self._export_full_query_owner(*arguments)
         if operation == "open_table_source":
             return self._open_table_source_owner(*arguments)
+        if operation == "inspect_table_source":
+            return self._inspect_table_source_owner(*arguments)
         if operation == "commit":
             return self._commit_owner()
         if operation == "rollback":
@@ -1114,6 +1169,59 @@ class ManualSession:
         if not isinstance(page, ManualQueryPage):
             raise ManualSessionError("TABLE_PAGE_UNAVAILABLE")
         return TableSourceOpenResult(metadata, page, query)
+
+    def _inspect_table_source_owner(
+        self,
+        tree_service: Any,
+        tree_target: Any,
+        node: Any,
+        tree_generation: int,
+        expected_target: Any,
+        choice: Any,
+    ) -> Any:
+        """Read catalog metadata only. No query, no cursor, no result source."""
+        from .changeset_dialects import create_changeset_dialect
+        from .object_tree import ObjectTreeError
+        from .table_source import TableSourceError, inspect_table, validate_table_target
+
+        if expected_target != self.target:
+            raise ManualSessionError("TABLE_TARGET_MISMATCH")
+        if self._cancel_requested.is_set():
+            raise ManualSessionError("CANCELLED")
+        try:
+            ref = tree_service.resolve_table_source(tree_target, node, generation=tree_generation)
+            validate_table_target(ref, tree_target, expected_target, choice)
+            dialect = create_changeset_dialect(choice, expected_target)
+        except ObjectTreeError as error:
+            code = "STALE_TABLE_REF" if error.code == "STALE_NODE" else "TABLE_TARGET_MISMATCH"
+            raise ManualSessionError(code) from None
+        except TableSourceError as error:
+            raise ManualSessionError(error.code) from None
+        except Exception as error:
+            from .changeset import ChangeSetError
+
+            code = ("UNSUPPORTED_TABLE_DIALECT"
+                    if isinstance(error, ChangeSetError) and error.code == "UNSUPPORTED_SQL_DIALECT"
+                    else "TABLE_TARGET_MISMATCH")
+            raise ManualSessionError(code) from None
+
+        # A dedicated cursor per catalog query keeps the caller's current
+        # result untouched; no _invalidate_result_source here.
+        driver = self._ensure_connected_owner()
+        try:
+            metadata = inspect_table(driver, ref, expected_target, choice, dialect, self._cancel_requested)
+            if self._cancel_requested.is_set():
+                raise ManualSessionError("CANCELLED")
+            current_ref = tree_service.resolve_table_source(tree_target, node, generation=tree_generation)
+            validate_table_target(current_ref, tree_target, expected_target, choice)
+            if current_ref != ref:
+                raise ManualSessionError("STALE_TABLE_REF")
+            return metadata
+        except ObjectTreeError as error:
+            code = "STALE_TABLE_REF" if error.code == "STALE_NODE" else "TABLE_TARGET_MISMATCH"
+            raise ManualSessionError(code) from None
+        except TableSourceError as error:
+            raise ManualSessionError(error.code) from None
 
     def _classify(self, sql: str) -> StatementClassification:
         if not sql.strip():

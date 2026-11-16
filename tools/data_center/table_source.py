@@ -60,6 +60,7 @@ class TableColumnMetadata:
     data_length: int | None = None
     data_precision: int | None = None
     data_scale: int | None = None
+    comment: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,7 +316,7 @@ def _inspect_mysql(
         raise TableSourceError("DIALECT_BIND_MISMATCH")
     column_sql = (
         "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, DATA_TYPE, "
-        "IS_NULLABLE, (COLUMN_DEFAULT IS NOT NULL), EXTRA, ORDINAL_POSITION "
+        "IS_NULLABLE, (COLUMN_DEFAULT IS NOT NULL), EXTRA, ORDINAL_POSITION, COLUMN_COMMENT "
         "FROM information_schema.COLUMNS "
         f"WHERE TABLE_SCHEMA = {bound.markers[0]} AND TABLE_NAME = {bound.markers[1]} "
         f"ORDER BY ORDINAL_POSITION LIMIT {bound.markers[2]}"
@@ -325,7 +326,7 @@ def _inspect_mysql(
         raise TableSourceError("TABLE_COLUMNS_UNAVAILABLE" if not rows else "TABLE_METADATA_OVER_BUDGET")
     columns: list[TableColumnMetadata] = []
     for row in rows:
-        if len(row) < 9 or _text(_field(row, 0), "TABLE_METADATA_INVALID") != target.database or _text(_field(row, 1), "TABLE_METADATA_INVALID") != ref.raw_name:
+        if len(row) < 10 or _text(_field(row, 0), "TABLE_METADATA_INVALID") != target.database or _text(_field(row, 1), "TABLE_METADATA_INVALID") != ref.raw_name:
             raise TableSourceError("TABLE_METADATA_SCOPE_MISMATCH")
         name = _identifier(_field(row, 2))
         type_name = _text(_field(row, 3), "TABLE_METADATA_INVALID")
@@ -357,6 +358,7 @@ def _inspect_mysql(
                 editable=not generated and editable_type,
                 comparable=comparable,
                 required_on_insert=not nullable and not generated and has_default is not True,
+                comment=_column_comment(_field(row, 9)),
             )
         )
         if ordinal != len(columns):
@@ -409,12 +411,14 @@ def _inspect_oracle(
         raise TableSourceError("DIALECT_BIND_MISMATCH")
     column_sql = (
         "SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, "
-        "DATA_SCALE, NULLABLE, DEFAULT_LENGTH, IDENTITY_COLUMN, VIRTUAL_COLUMN, COLUMN_ID "
+        "DATA_SCALE, NULLABLE, DEFAULT_LENGTH, IDENTITY_COLUMN, VIRTUAL_COLUMN, COLUMN_ID, COMMENTS "
         "FROM (SELECT c.OWNER, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.DATA_LENGTH, "
         "c.DATA_PRECISION, c.DATA_SCALE, c.NULLABLE, c.DEFAULT_LENGTH, c.IDENTITY_COLUMN, "
-        "g.VIRTUAL_COLUMN, c.COLUMN_ID FROM ALL_TAB_COLUMNS c "
+        "g.VIRTUAL_COLUMN, c.COLUMN_ID, cm.COMMENTS FROM ALL_TAB_COLUMNS c "
         "LEFT JOIN ALL_TAB_COLS g ON g.OWNER = c.OWNER AND g.TABLE_NAME = c.TABLE_NAME "
         "AND g.COLUMN_NAME = c.COLUMN_NAME "
+        "LEFT JOIN ALL_COL_COMMENTS cm ON cm.OWNER = c.OWNER AND cm.TABLE_NAME = c.TABLE_NAME "
+        "AND cm.COLUMN_NAME = c.COLUMN_NAME "
         f"WHERE c.OWNER = {bound.markers[0]} AND c.TABLE_NAME = {bound.markers[1]} "
         "ORDER BY c.COLUMN_ID) WHERE ROWNUM <= " + bound.markers[2]
     )
@@ -425,7 +429,7 @@ def _inspect_oracle(
     columns: list[TableColumnMetadata] = []
     previous_ordinal = 0
     for row in rows:
-        if len(row) < 12 or _text(_field(row, 0), "TABLE_METADATA_INVALID") != ref.schema or _text(_field(row, 1), "TABLE_METADATA_INVALID") != ref.raw_name:
+        if len(row) < 13 or _text(_field(row, 0), "TABLE_METADATA_INVALID") != ref.schema or _text(_field(row, 1), "TABLE_METADATA_INVALID") != ref.raw_name:
             raise TableSourceError("TABLE_METADATA_SCOPE_MISMATCH")
         name = _identifier(_field(row, 2))
         type_name = _text(_field(row, 3), "TABLE_METADATA_INVALID")
@@ -460,6 +464,7 @@ def _inspect_oracle(
                 data_length=_optional_nonnegative_int(_field(row, 4)),
                 data_precision=_optional_nonnegative_int(_field(row, 5)),
                 data_scale=_optional_nonnegative_int(_field(row, 6), allow_negative=True),
+                comment=_column_comment(_field(row, 12)),
             )
         )
         if ordinal <= previous_ordinal:
@@ -619,6 +624,17 @@ def _identifier(value: Any) -> str:
         return _validate_identifier(name)
     except (ChangeSetError, TableSourceError):
         raise TableSourceError("TABLE_IDENTIFIER_UNSAFE") from None
+
+
+def _column_comment(value: Any) -> str:
+    """Catalog comments are untrusted display text; never fail a table open."""
+
+    if value is None:
+        return ""
+    try:
+        return str(value)[:2000]
+    except Exception:
+        return ""
 
 
 def _mysql_bool(value: Any) -> bool:
