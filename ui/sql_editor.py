@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect, QSize, QStringListModel, Qt
+from PyQt6.QtCore import QRect, QSize, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QFont, QKeyEvent, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PyQt6.QtWidgets import QCompleter, QMenu, QPlainTextEdit, QWidget
 
@@ -83,6 +83,10 @@ class _LineNumberArea(QWidget):
 
 
 class SqlEditor(QPlainTextEdit):
+    # Emitted on focus so a host can pull the object directory once when the
+    # completion catalog is still empty.  Debouncing belongs to the host.
+    completion_wanted = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName('sql-editor')
@@ -115,6 +119,10 @@ class SqlEditor(QPlainTextEdit):
         self._snapshot = snapshot if isinstance(snapshot, dict) else {}
         self._model.setStringList([])
         self._completer.popup().hide()
+
+    def focusInEvent(self, event):  # noqa: N802
+        super().focusInEvent(event)
+        self.completion_wanted.emit()
 
     def _apply_selection_style(self):
         primary = self._token('PRIMARY', '#2F6FED')

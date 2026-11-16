@@ -12,12 +12,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 import re
 import threading
+import time
 import uuid
 from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QMenu, QPushButton, QSizePolicy, QTableView, QToolButton, QWidget
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QTableView, QToolButton, QWidget
 
 from tools.data_center.manual_driver import (
     ManualDriverError,
@@ -209,6 +210,19 @@ class ManualQueryHost(QObject):
         self._table_result_layout_state: tuple[Any, ...] | None = None
         self._transaction_actions_in_toolbar = False
         self._completion_catalog = CompletionCatalog()
+        self._directory_primer = None
+        self._pending_export: set[str] = set()
+        self._temporary_export_tab = None
+        self._temporary_export_return = None
+        self._tree_binding = None
+
+    def set_tree_binding(self, binding) -> None:
+        """Panel injects a live directory lookup so a plain SELECT can be edited."""
+        self._tree_binding = binding if isinstance(binding, dict) else None
+
+    def set_directory_primer(self, primer) -> None:
+        """Panel injects its directory loader; no reverse import is needed."""
+        self._directory_primer = primer if callable(primer) else None
 
     def set_completion_catalog(self, catalog: CompletionCatalog) -> None:
         self._completion_catalog = catalog
@@ -233,10 +247,39 @@ class ManualQueryHost(QObject):
             self._bind_completion(state.tab, state)
 
     def _bind_completion(self, tab: Any, state: _TabState | None) -> None:
-        bind = getattr(getattr(tab, "editor", None), "bind_schema", None)
+        editor = getattr(tab, "editor", None)
+        bind = getattr(editor, "bind_schema", None)
         if callable(bind):
             bind(self._completion_catalog.snapshot(state.target, state.choice.provider)
                  if state and not getattr(tab, "_history_target_locked", False) else None)
+        signal = getattr(editor, "completion_wanted", None)
+        if signal is not None and not getattr(editor, "_catalog_prime_hooked", False):
+            editor._catalog_prime_hooked = True
+            signal.connect(self._prime_completion_catalog)
+
+    def _prime_completion_catalog(self) -> None:
+        """Pull the directory once when the editor has no table metadata yet."""
+        if self._shutdown_gated:
+            return
+        state = self._current_state()
+        if state is None:
+            return
+        try:
+            objects = self._completion_catalog.snapshot(state.target, state.choice.provider).get("objects") or ()
+        except Exception:
+            objects = ()
+        if objects:
+            return
+        now = time.monotonic()
+        if now - getattr(self, "_last_catalog_prime_at", 0.0) < 20.0:
+            return
+        self._last_catalog_prime_at = now
+        primer = self._directory_primer
+        if callable(primer):
+            try:
+                primer(str(state.target.connection_id or ""))
+            except Exception:
+                pass
 
     @classmethod
     def install(cls, panel: Any, **kwargs: Any) -> "ManualQueryHost":
@@ -299,6 +342,17 @@ class ManualQueryHost(QObject):
         self.rollback_btn.clicked.connect(self.rollback_current)
         self.stop_btn.clicked.connect(self.cancel_current)
         self.run_all_btn.clicked.connect(self.run_all_current)
+        # Transaction controls stay visible so the workflow is discoverable;
+        # disabled state carries the "why" instead of hiding the button.
+        self.commit_btn.setToolTip(self._message(
+            "提交当前事务；存在未提交修改时可点。不会自动提交。",
+            "Commit the current transaction; enabled once changes are pending. Never automatic."))
+        self.rollback_btn.setToolTip(self._message(
+            "回滚当前事务；有未提交修改或状态未知时可点。",
+            "Roll back the current transaction; enabled when changes are pending or the state is unknown."))
+        self.stop_btn.setToolTip(self._message(
+            "停止正在执行的语句或导出。",
+            "Stop the running statement or export."))
         middle_layout = panel._middle_pane.layout()
         editor_toolbar = _layout_containing(middle_layout, panel.run_btn) if middle_layout is not None else None
         if editor_toolbar is None:
@@ -406,6 +460,320 @@ class ManualQueryHost(QObject):
         self.table_editor.sql_view_requested.connect(self._show_sql_view)
         self.table_editor.server_query_requested.connect(self.open_table_query)
         self.table_editor.page_size.currentIndexChanged.connect(self._table_page_size_changed)
+        self._install_table_actions()
+
+    def _install_table_actions(self) -> None:
+        """Structure and row editing belong in the result toolbar, not a menu."""
+        next_button = getattr(self.panel, "next_btn", None)
+        parent = next_button.parentWidget() if next_button is not None else None
+        layout = _layout_containing(parent.layout(), next_button) if parent is not None else None
+        if parent is None or layout is None:
+            return
+        self.structure_button = QPushButton(self._message("表结构", "Structure"), parent)
+        self.structure_button.setObjectName("manual-table-structure")
+        self.structure_button.setToolTip(self._message(
+            "查看当前表的列、类型、可空、主键和注释（只读）",
+            "Columns, types, nullability, primary key and comments (read-only)"))
+        self.structure_button.setEnabled(False)
+        self.structure_button.clicked.connect(self.show_table_structure)
+        layout.addWidget(self.structure_button)
+        self.table_edit_button = QPushButton(self._message("按表编辑", "Edit rows"), parent)
+        self.table_edit_button.setObjectName("manual-table-edit-enter")
+        self.table_edit_button.setToolTip(self._message(
+            "回到表编辑：新增行、标记删除、预览并应用本地变更",
+            "Back to row editing: insert, mark delete, preview and apply"))
+        self.table_edit_button.setEnabled(False)
+        self.table_edit_button.clicked.connect(self.activate_table_edit)
+        layout.addWidget(self.table_edit_button)
+        self.table_edit_hint = QLabel("", parent)
+        self.table_edit_hint.setObjectName("manual-table-edit-hint")
+        self.table_edit_hint.setWordWrap(True)
+        self.table_edit_hint.hide()
+        layout.addWidget(self.table_edit_hint)
+
+    def _table_metadata_for(self, state: _TabState | None):
+        if state is None or state.table_result is None:
+            return None
+        return getattr(state.table_result, "metadata", None)
+
+    def _show_structure_dialog(self, metadata) -> None:
+        from ui.data_center.table_structure_dialog import TableStructureDialog
+
+        dialog = TableStructureDialog(
+            metadata,
+            language=getattr(self.panel, "language", "zh"),
+            parent=self.panel,
+        )
+        dialog.exec()
+
+    def show_table_structure(self, *_args: Any) -> None:
+        state = self._current_state()
+        metadata = self._table_metadata_for(state)
+        if metadata is None:
+            self._set_status(self._message(
+                "当前结果没有表元数据；请先在左侧对象树双击该表打开，再查看结构。",
+                "This result has no table metadata; open the table from the object tree first."))
+            return
+        self._show_structure_dialog(metadata)
+
+    def open_table_structure(self, tree_service: Any, tree_target: TreeTarget, node: TreeNode,
+                             tree_generation: int) -> bool:
+        """Read catalog metadata only: no data tab, no result replacement."""
+        if self._shutdown_gated or self._preparing_table_tab:
+            return False
+        if not isinstance(tree_target, TreeTarget) or not isinstance(node, TreeNode):
+            self._set_status(self._message("表对象范围无效。", "The table source scope is invalid."))
+            return False
+        profile = getattr(self.panel, "_bound_conn_item", None)
+        if not isinstance(profile, dict):
+            profile = self.panel._browse_conn()
+        if not isinstance(profile, dict):
+            self._set_status(self._message("固定连接不可用。", "The fixed connection is unavailable."))
+            return False
+        try:
+            choice, target, table_scope = self._capture_table_binding(
+                tree_service, profile, tree_target, node, tree_generation
+            )
+        except (ProfileHostError, ManualDriverError, ValueError, TypeError) as error:
+            self._set_status(self._safe_error(error))
+            return False
+        factory = ManualRelationalProviderFactory(
+            choice,
+            profile_host=self.profile_host,
+            connector=self.connector,
+            secret_resolver=self.secret_resolver,
+            table_scope=table_scope,
+        )
+        session = ManualSession(
+            target,
+            factory,
+            lambda sql, fixed_choice=choice: classify_manual_sql(fixed_choice, sql),
+            page_size=self.page_size,
+            result_budget_bytes=self.result_budget_bytes,
+        )
+        self._set_status(self._message("正在读取表结构…", "Reading table structure…"))
+        future = session.inspect_table_source(
+            tree_service, tree_target, node,
+            tree_generation=tree_generation, choice=choice,
+        )
+
+        def _done(completed):
+            metadata = None
+            error = None
+            try:
+                metadata = completed.result()
+            except Exception as exc:
+                error = exc
+            QTimer.singleShot(0, lambda: self._structure_ready(session, metadata, error))
+
+        future.add_done_callback(_done)
+        return True
+
+    def export_table_data(self, tree_service: Any, tree_target: TreeTarget, node: TreeNode,
+                          tree_generation: int) -> bool:
+        """Open the table source, then offer the existing full export.
+
+        The full export needs a live result source, so this briefly opens the
+        table's data workspace (one tab) and opens the export dialog as soon as
+        the first page lands. The tab is left in place; close it if unwanted.
+        """
+        key = str(getattr(node, "node_ref", "") or "")
+        if key:
+            self._pending_export.add(key)
+        tabs = getattr(self.panel, 'sql_tabs', None)
+        self._temporary_export_return = tabs.currentWidget() if tabs is not None else None
+        before = set(self._states_by_tab)
+        try:
+            opened = self.open_table_source(tree_service, tree_target, node, tree_generation)
+        except Exception:
+            opened = False
+        if not opened:
+            if key:
+                self._pending_export.discard(key)
+            self._temporary_export_return = None
+            return False
+        # Only a tab created by this call may be closed afterwards; an already
+        # open tab for the same table belongs to the user.
+        created = [self._states_by_tab[state_id].tab
+                   for state_id in set(self._states_by_tab) - before
+                   if state_id in self._states_by_tab]
+        self._temporary_export_tab = created[0] if len(created) == 1 else None
+        if self._temporary_export_tab is None:
+            self._temporary_export_return = None
+        return True
+
+    def _run_temporary_export(self) -> None:
+        """Open the export dialog for a tree-initiated export, then clean up.
+
+        A cancelled/failed dialog closes the temporary tab immediately; a
+        started export keeps it alive until completion, because the running
+        export reads through that tab's session.
+        """
+        if self._temporary_export_tab is None:
+            self.export_current()
+            return
+        state = self._current_state()
+        before_jobs = set(self._export_jobs)
+        self.export_current()
+        started = bool(set(self._export_jobs) - before_jobs) or bool(
+            state is not None and state.busy and state.active_operation == 'export_full'
+        )
+        if not started:
+            self._close_temporary_export_tab()
+
+    def _close_temporary_export_tab(self) -> None:
+        """Close only the tab this export created; never a pre-existing one."""
+        tab = self._temporary_export_tab
+        back = self._temporary_export_return
+        self._temporary_export_tab = None
+        self._temporary_export_return = None
+        if tab is None:
+            return
+        tabs = getattr(self.panel, 'sql_tabs', None)
+        if tabs is None:
+            return
+        index = tabs.indexOf(tab)
+        if index < 0:
+            return
+        state = self._states_by_tab.get(id(tab))
+        already_closing = bool(state is not None and state.pending_close)
+        if tabs.count() <= 1:
+            # Never leave the workbench with zero tabs; reset the last one.
+            if state is not None and not already_closing:
+                self._close_state(state, disposition='')
+                self._forget_state(state, retain_until_cleanup=True)
+            tab.editor.clear()
+            setattr(tab, "_manual_tab_id", "")
+            setattr(tab, "_manual_generation", (state.generation + 1) if state is not None else 1)
+            self._ensure_tab_state(tab)
+            return
+        if state is not None and not already_closing:
+            try:
+                self._close_state(state, disposition='')
+                self._forget_state(state, retain_until_cleanup=True)
+            except Exception:
+                pass
+        tabs.removeTab(index)
+        tab.deleteLater()
+        if back is not None and tabs.indexOf(back) >= 0:
+            tabs.setCurrentWidget(back)
+
+    def _structure_ready(self, session: Any, metadata: Any, error: Any) -> None:
+        # This session exists only for one metadata read.
+        try:
+            session.close()
+        except Exception:
+            pass
+        if error is not None:
+            self._set_status(self._structure_error_text(error))
+            return
+        if metadata is None:
+            self._set_status(self._message("无法读取表结构：未返回元数据。",
+                                          "Could not read the table structure: no metadata returned."))
+            return
+        self._show_structure_dialog(metadata)
+
+    def _structure_error_text(self, error: Any) -> str:
+        code = str(getattr(error, "code", "") or type(error).__name__)
+        mapping = {
+            'TABLE_TARGET_MISMATCH': ("表范围已变化，请刷新对象树后重试。",
+                                      "The table scope changed; refresh the tree and retry."),
+            'STALE_TABLE_REF': ("对象树已刷新，请重新选择该表。",
+                                "The directory was refreshed; select the table again."),
+            'TABLE_COLUMNS_UNAVAILABLE': ("无法读取列信息，可能没有权限。",
+                                          "Column metadata is unavailable; check permissions."),
+            'TABLE_METADATA_QUERY_FAILED': ("读取数据字典失败，请检查连接。",
+                                            "Reading the catalog failed; check the connection."),
+            'TABLE_NOT_FOUND': ("表不存在或已被删除。", "The table does not exist or was dropped."),
+            'CONNECT_FAILED': ("连接失败，请检查服务器与账号。",
+                               "Connection failed; check the server and account."),
+            'CONNECTION_FAILED': ("连接失败，请检查服务器与账号。",
+                                  "Connection failed; check the server and account."),
+            'MANUAL_PROVIDER_UNSUPPORTED': ("此连接类型不支持表结构查看。",
+                                            "This provider does not support structure view."),
+            'UNSUPPORTED_TABLE_DIALECT': ("此数据库方言不支持表结构查看。",
+                                          "This SQL dialect is unsupported for structure view."),
+            'CANCELLED': ("已取消。", "Cancelled."),
+        }
+        pair = mapping.get(code)
+        if pair:
+            return self._message(pair[0], pair[1])
+        return self._message(f"读取表结构失败：{code}", f"Could not read the table structure: {code}")
+
+    def activate_table_edit(self, *_args: Any) -> None:
+        state = self._current_state()
+        if self._table_metadata_for(state) is not None:
+            self._show_table_editor(state)
+            return
+        # Plain SELECT: resolve the single FROM table through the live registry
+        # and reuse the normal table-edit path. No node is fabricated here.
+        name = self._single_table_name(state)
+        if not name:
+            self._set_status(self._message(
+                "当前结果不是单表查询，无法进入表编辑；请从左侧对象树双击该表。",
+                "This result is not a single-table query; open the table from the object tree."))
+            return
+        binding = self._tree_binding
+        if not isinstance(binding, dict) or not callable(binding.get('find')):
+            self._set_status(self._message(
+                f"目录尚未就绪，找不到表「{name}」；展开对象树后重试。",
+                f"The directory is not ready for table '{name}'; expand the tree and retry."))
+            return
+        try:
+            node = binding['find'](name)
+        except Exception:
+            node = None
+        if node is None:
+            self._set_status(self._message(
+                f"对象树中没有唯一的表「{name}」；展开目录确认后再试。",
+                f"No unique table '{name}' in the directory; expand the tree and retry."))
+            return
+        opened = self.open_table_source(
+            binding.get('service'), binding.get('target'), node, int(binding.get('generation') or 0)
+        )
+        if opened:
+            self._set_status(self._message(
+                f"已打开「{name}」的表编辑：改完先预览应用，再点提交事务。",
+                f"Opened '{name}' for editing: preview and apply, then commit the transaction."))
+        else:
+            self._set_status(self._message(
+                f"无法打开「{name}」的表编辑；请检查连接或权限。",
+                f"Could not open '{name}' for editing; check the connection or permissions."))
+
+    def _show_table_editor(self, state: _TabState) -> None:
+        self.result_view.hide()
+        self.table_editor.bind_model(
+            state.table_model,
+            page_size=state.table_page_size,
+            has_more=bool(state.last_page and state.last_page.has_more),
+            busy=bool(state.busy),
+        )
+        self.table_editor.show()
+        self._sync_table_focus_layout(state)
+        self._set_status(self._message(
+            "已切到表编辑：新增行 / 删除所选 / 预览并应用。只读表会说明原因。",
+            "Row editing: Insert / Delete selected / Preview and apply. Read-only tables state the reason."))
+
+    def _single_table_name(self, state: _TabState | None = None) -> str:
+        """The single FROM table of a plain SELECT, or '' when not identifiable."""
+        state = state if state is not None else self._current_state()
+        if state is None or state.tab is None:
+            return ''
+        editor = getattr(state.tab, 'editor', None)
+        text = str(editor.toPlainText() if editor is not None else '') or ''
+        text = text.strip().rstrip(';').strip()
+        if not text or not text[:6].casefold().startswith('select'):
+            return ''
+        if re.search(r'(?i)\b(join|union|intersect|except)\b', text):
+            return ''
+        match = re.search(r'(?i)\bfrom\s+([A-Za-z0-9_$#."`]+)', text)
+        if not match:
+            return ''
+        tail = text[match.end():]
+        if re.match(r'\s*[,()]', tail):
+            return ''
+        # Drop any schema/owner prefix: the directory lookup matches bare names.
+        return match.group(1).strip('"`').split('.')[-1].strip('"`')
 
     def _install_page_size_control(self) -> None:
         next_button = getattr(self.panel, "next_btn", None)
@@ -917,6 +1285,57 @@ class ManualQueryHost(QObject):
         )
         return choice, target
 
+    def _capture_table_binding(self, tree_service: Any, profile: Any, tree_target: TreeTarget,
+                               node: TreeNode, tree_generation: int):
+        """Validate one signed tree node against the fixed profile.
+
+        Returns the immutable (choice, target, table_scope) triple shared by the
+        data path and the metadata-only path. Raises on any scope mismatch.
+        """
+        selected_id = str(profile.get("id") or profile.get("connection_id") or "").strip()
+        if selected_id != tree_target.connection_id:
+            raise ManualDriverError("TABLE_SCOPE_MISMATCH")
+        provider = tree_target.provider.casefold()
+        oracle = provider in {"oracle", "oceanbase_oracle"}
+        schema_allowlist = (node.schema,) if oracle and node.schema else ()
+        selected_database = str(node.database or "") if not oracle else ""
+        if not oracle and not selected_database.strip():
+            raise ManualDriverError("TABLE_SCOPE_MISMATCH")
+        if tree_target.database and selected_database and tree_target.database != selected_database:
+            raise ManualDriverError("TABLE_SCOPE_MISMATCH")
+        choice = self.profile_host.capture_connection(
+            profile,
+            database=selected_database or None,
+            schema_allowlist=schema_allowlist,
+        )
+        if oracle and tree_target.database and choice.database != tree_target.database:
+            raise ManualDriverError("PROFILE_MISMATCH")
+        if (
+            choice.connection_id != tree_target.connection_id
+            or choice.revision != tree_target.profile_revision
+            or choice.provider.casefold() != provider
+            or choice.mode.casefold() != tree_target.mode.casefold()
+            or (selected_database and choice.database != selected_database)
+        ):
+            raise ManualDriverError("PROFILE_MISMATCH")
+        if provider not in self.supported_providers:
+            raise ManualDriverError("MANUAL_PROVIDER_UNSUPPORTED")
+        target = ManualSessionTarget(
+            tab_id=uuid.uuid4().hex,
+            connection_id=choice.connection_id,
+            profile_revision=choice.revision,
+            database=choice.database,
+            schema=node.schema if oracle else choice.database,
+            generation=1,
+        )
+        table_scope = BoundManualTableScope.capture(
+            tree_service, tree_target, node, tree_generation, target, choice,
+        )
+        capability = inspect_manual_provider(choice)
+        if not capability.supported:
+            raise ManualDriverError(capability.reason_code or "MANUAL_PROVIDER_UNSUPPORTED")
+        return choice, target, table_scope
+
     def open_table_source(
         self,
         tree_service: Any,
@@ -937,55 +1356,9 @@ class ManualQueryHost(QObject):
             self._set_status(self._message("固定连接不可用。", "The fixed connection is unavailable."))
             return False
         try:
-            selected_id = str(profile.get("id") or profile.get("connection_id") or "").strip()
-            if selected_id != tree_target.connection_id:
-                raise ManualDriverError("TABLE_SCOPE_MISMATCH")
-            provider = tree_target.provider.casefold()
-            oracle = provider in {"oracle", "oceanbase_oracle"}
-            schema_allowlist = (node.schema,) if oracle and node.schema else ()
-            selected_database = str(node.database or "") if not oracle else ""
-            if not oracle and not selected_database.strip():
-                raise ManualDriverError("TABLE_SCOPE_MISMATCH")
-            if tree_target.database and selected_database and tree_target.database != selected_database:
-                raise ManualDriverError("TABLE_SCOPE_MISMATCH")
-            choice = self.profile_host.capture_connection(
-                profile,
-                database=selected_database or None,
-                schema_allowlist=schema_allowlist,
+            choice, target, table_scope = self._capture_table_binding(
+                tree_service, profile, tree_target, node, tree_generation
             )
-            if oracle and tree_target.database and choice.database != tree_target.database:
-                raise ManualDriverError("PROFILE_MISMATCH")
-            if (
-                choice.connection_id != tree_target.connection_id
-                or choice.revision != tree_target.profile_revision
-                or choice.provider.casefold() != provider
-                or choice.mode.casefold() != tree_target.mode.casefold()
-                or (selected_database and choice.database != selected_database)
-            ):
-                raise ManualDriverError("PROFILE_MISMATCH")
-            if provider not in self.supported_providers:
-                raise ManualDriverError("MANUAL_PROVIDER_UNSUPPORTED")
-            tab_id = uuid.uuid4().hex
-            schema = node.schema if oracle else tree_target.database
-            target = ManualSessionTarget(
-                tab_id=tab_id,
-                connection_id=choice.connection_id,
-                profile_revision=choice.revision,
-                database=choice.database,
-                schema=schema if oracle else choice.database,
-                generation=1,
-            )
-            table_scope = BoundManualTableScope.capture(
-                tree_service,
-                tree_target,
-                node,
-                tree_generation,
-                target,
-                choice,
-            )
-            capability = inspect_manual_provider(choice)
-            if not capability.supported:
-                raise ManualDriverError(capability.reason_code or "MANUAL_PROVIDER_UNSUPPORTED")
         except (ProfileHostError, ManualDriverError, ValueError, TypeError) as error:
             self._set_status(self._safe_error(error))
             return False
@@ -1494,12 +1867,12 @@ class ManualQueryHost(QObject):
         if len(sql.encode("utf-8")) > MAX_SCRIPT_BYTES:
             self._set_status(self._message("过程块超过可保存的文本上限。", "The block exceeds the workspace text limit."), state=state)
             return
-        from ui.confirm_dialog import confirm_action
-
         detail = self._message(
             f"目标：{state.target.connection_id} / {state.target.database} / {state.target.schema}\n按一整个块提交给数据库，不拆分内部语句。块内提交、回滚、DDL 或其他副作用按服务端语义生效，外层无法保证撤销；失败或取消也不会自动重跑。请核对编辑器中的完整选区。\n\n",
             f"Target: {state.target.connection_id} / {state.target.database} / {state.target.schema}\nSubmit the whole selected block once. Internal commits, rollback, DDL and side effects follow server semantics and may be irreversible. Failure/cancellation never triggers replay. Review the full selection in the editor.\n\n",
         ) + sql[:1600]
+        from ui.confirm_dialog import confirm_action
+
         if not confirm_action(self.panel, self._message("执行完整过程块", "Execute complete block"), detail, confirm_text=self._message("执行整个块", "Execute block"), danger=True):
             return
         if self._shutdown_gated or self._current_state() is not state or state.busy:
@@ -1548,8 +1921,6 @@ class ManualQueryHost(QObject):
             detail = self._message(f"最多 {MAX_SCRIPT_STATEMENTS} 条、{MAX_SCRIPT_BYTES // 1024} KiB；脚本不能为空。", f"Use 1–{MAX_SCRIPT_STATEMENTS} statements, at most {MAX_SCRIPT_BYTES // 1024} KiB.") if error.code == "SCRIPT_LIMIT" else error.code
             self._set_status(self._message(f"不能执行全部：{detail}", f"Cannot run all: {detail}"), state=state)
             return
-        from ui.confirm_dialog import confirm_action
-
         details = self._message(
             f"共 {len(statements)} 条，目标：{state.target.connection_id} / {state.target.database} / {state.target.schema}\n依次执行；失败或取消后停止剩余语句。已执行写入留在当前事务，提交/回滚需另行操作。DDL/DCL 可能隐式提交且仍受 CLEAN 限制。\n\n",
             f"{len(statements)} statements; target: {state.target.connection_id} / {state.target.database} / {state.target.schema}\nRun in order; stop on failure or cancellation. Writes remain in the current transaction. DDL/DCL may implicitly commit and require CLEAN.\n\n",
@@ -1557,6 +1928,8 @@ class ManualQueryHost(QObject):
         details += "\n".join(f"{index + 1}. {kind.value.upper()} · {sql[:90].replace(chr(10), ' ')}" for index, (sql, kind) in enumerate(zip(statements, kinds)) if index < 10)
         if len(statements) > 10:
             details += self._message(f"\n另 {len(statements) - 10} 条，请在编辑器核对完整脚本。", f"\n{len(statements) - 10} more; review the full script in the editor.")
+        from ui.confirm_dialog import confirm_action
+
         if not confirm_action(self.panel, self._message("执行全部", "Run all"), details, confirm_text=self._message(f"执行 {len(statements)} 条", f"Run {len(statements)}"), danger=any(kind is not StatementKind.QUERY for kind in kinds)):
             return
         if self._shutdown_gated or self._current_state() is not state or state.busy:
@@ -1831,6 +2204,13 @@ class ManualQueryHost(QObject):
                 )
                 self.table_editor.show()
                 self._sync_table_focus_layout(state)
+            export_key = str(getattr(delivery.result.metadata.signed_ref, "node_ref", "") or "")
+            if export_key and export_key in self._pending_export:
+                self._pending_export.discard(export_key)
+                if self._current_state() is state:
+                    # Offer the existing full-export dialog once the source is
+                    # ready, then drop this temporary tab.
+                    QTimer.singleShot(0, self._run_temporary_export)
         elif isinstance(delivery.result, ManualQueryPage):
             if delivery.operation == "page" and state.pages:
                 state.pages = (*state.pages, delivery.result)
@@ -1906,6 +2286,7 @@ class ManualQueryHost(QObject):
                 )
             else:
                 state.export_status = self._export_error_text("EXPORT_FAILED")
+            self._close_temporary_export_tab()
         elif delivery.operation == "close":
             state.pending_close = False
             if isinstance(delivery.result, ManualCloseResult) and delivery.result.closed:
@@ -2386,6 +2767,30 @@ class ManualQueryHost(QObject):
         if state is not None and state.table_model is not None:
             state.table_model.set_editing_enabled(not state.busy and not self._shutdown_gated)
         current = state if state is not None and self._current_tab_is(state) else None
+        metadata = self._table_metadata_for(current)
+        structure_button = getattr(self, "structure_button", None)
+        if structure_button is not None:
+            structure_button.setEnabled(bool(metadata is not None and not self._shutdown_gated))
+        edit_button = getattr(self, "table_edit_button", None)
+        if edit_button is not None:
+            single = bool(current is not None and self._single_table_name(current))
+            edit_button.setEnabled(bool((metadata is not None or single) and not self._shutdown_gated))
+            if metadata is None:
+                edit_button.setToolTip(
+                    self._message("按当前单表查询定位该表并进入编辑",
+                                  "Locate the single FROM table and edit it")
+                    if single else
+                    self._message("当前结果不是单表查询；请从左侧对象树双击该表进入编辑",
+                                  "Not a single-table query; open the table from the object tree"))
+        hint = getattr(self, "table_edit_hint", None)
+        if hint is not None:
+            reason = str(getattr(metadata, "read_only_reason", "") or "")
+            if reason:
+                hint.setText(self._message("该表当前只读：" + reason, "Read-only: " + reason))
+                hint.show()
+            else:
+                hint.setText("")
+                hint.hide()
         self._sync_query_page_size(self._states_by_tab.get(id(self.panel._current_tab())))
         run_all = getattr(self, "run_all_btn", None)
         if run_all is not None:
@@ -2408,10 +2813,10 @@ class ManualQueryHost(QObject):
             or self._export_jobs
             or self._active_full_export_states()
         ))
-        # V1.1：事务按钮只在有未提交事务时出现，「停止」只在执行/导出中出现，工具条平时只留常用项
-        self.commit_btn.setVisible(self.commit_btn.isEnabled())
-        self.rollback_btn.setVisible(self.rollback_btn.isEnabled())
-        self.stop_btn.setVisible(self.stop_btn.isEnabled())
+        # V1.1 起三钮始终可见；不可用时灰显并靠 tooltip 说明时机，避免功能被藏起来。
+        self.commit_btn.setVisible(True)
+        self.rollback_btn.setVisible(True)
+        self.stop_btn.setVisible(True)
         run_button = getattr(self.panel, "run_btn", None)
         if run_button is not None:
             tab = self.panel._current_tab()
@@ -2717,6 +3122,8 @@ class ManualQueryHost(QObject):
         worker.deleteLater()
         self._update_actions(self._current_state())
         self._refresh_workbench_actions()
+        # No-op unless this export created its own tab.
+        self._close_temporary_export_tab()
 
     def _export_error_text(self, code: str) -> str:
         messages = {

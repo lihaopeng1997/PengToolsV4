@@ -374,6 +374,38 @@ class ObjectTreeService:
 
         return self._submit(target, node, cursor=None, refresh=False, generation=generation, page_size=1, details=True)
 
+    def find_table_node(self, target: TreeTarget, name: str) -> TreeNode | None:
+        """Read-only lookup of an already registered table/view by name.
+
+        A plain SELECT has no signed node, so the editor may look one up here to
+        reuse the normal table-edit path. Only nodes this live registry already
+        issued are returned; nothing is fabricated, and ambiguous names fail.
+        """
+        wanted = str(name or "").strip().strip('"`')
+        if not wanted or not isinstance(target, TreeTarget):
+            return None
+        scope = target.scope_key
+        with self._lock:
+            hits = [
+                (node_ref, record) for node_ref, record in self._nodes.items()
+                if record.target_key == scope
+                and record.kind in {"table", "view"}
+                and record.name.casefold() == wanted.casefold()
+            ]
+        if len(hits) != 1:
+            return None
+        node_ref, record = hits[0]
+        return TreeNode(
+            node_ref=node_ref,
+            kind=record.kind,
+            name=record.name,
+            database=record.database,
+            schema=record.schema,
+            parent_ref=record.parent_ref,
+            actionable=record.actionable,
+            notice=record.notice,
+        )
+
     def invalidate(self, target: TreeTarget, node: TreeNode | None = None) -> None:
         """Drop cached pages and issued descendants without performing I/O."""
 

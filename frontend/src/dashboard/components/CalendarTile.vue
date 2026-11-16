@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 便当格 · 本月上线日历：按天的热力格。颜色深浅 = 当天计划/实际上线的需求数，
- * 今天加描边；悬停看当天需求，点击打开第一条。
+ * 今天加描边。点击任意一天展开当天任务，可就地打开需求、进完成情况/测试点，
+ * 也可把未排期需求排到该日，或把任务从该日移出（清空实际上线日）。
  */
 import { computed, ref } from 'vue'
 import type { DashboardBoardItem, MonthlyReleaseTask } from '../types'
@@ -9,10 +10,15 @@ import type { DashboardBoardItem, MonthlyReleaseTask } from '../types'
 const props = defineProps<{
   board?: DashboardBoardItem[] | null
   tasks?: MonthlyReleaseTask[] | null
+  busyId?: string | null
 }>()
 
 const emit = defineEmits<{
   (e: 'openRequirement', id: string): void
+  (e: 'openRequirementSection', id: string, section: 'completion' | 'test_points'): void
+  (e: 'setReleaseDate', id: string, date: string): void
+  (e: 'createRequirement'): void
+  (e: 'openManager'): void
 }>()
 
 type DayItem = { id: string; title: string; done: boolean }
@@ -22,6 +28,8 @@ const year = today.getFullYear()
 const month = today.getMonth()
 const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`
 const hoveredDay = ref<number | null>(null)
+const selectedDay = ref<number | null>(null)
+const pickedId = ref('')
 
 const byDay = computed(() => {
   const map = new Map<number, DayItem[]>()
@@ -64,6 +72,16 @@ const upcoming = computed(() => {
 })
 
 const hoverItems = computed(() => (hoveredDay.value ? byDay.value.get(hoveredDay.value) ?? [] : []))
+const selectedItems = computed(() => (selectedDay.value ? byDay.value.get(selectedDay.value) ?? [] : []))
+const selectedDate = computed(() =>
+  selectedDay.value ? `${monthKey}-${String(selectedDay.value).padStart(2, '0')}` : '',
+)
+
+/** Tasks without any actual release date: the pool that can still be scheduled. */
+const unplanned = computed(() => (props.tasks ?? [])
+  .filter((task) => String(task.id || '')
+    && !String(task.actual_release_date || task.actual_online_date || ''))
+  .sort((a, b) => String(a.title || a.code || '').localeCompare(String(b.title || b.code || ''), 'zh-CN')))
 
 function level(count: number): string {
   if (!count) return 'l0'
@@ -72,8 +90,34 @@ function level(count: number): string {
   return 'l3'
 }
 
-function open(items: DayItem[]): void {
-  if (items.length) emit('openRequirement', items[0].id)
+function select(day: number | null): void {
+  if (!day) return
+  selectedDay.value = selectedDay.value === day ? null : day
+  pickedId.value = ''
+}
+
+function isBusy(id: string): boolean {
+  return Boolean(props.busyId && props.busyId === id)
+}
+
+function openTask(id: string): void {
+  if (id) emit('openRequirement', id)
+}
+
+function openSection(id: string, section: 'completion' | 'test_points'): void {
+  if (id) emit('openRequirementSection', id, section)
+}
+
+function clearDate(id: string): void {
+  if (id) emit('setReleaseDate', id, '')
+}
+
+function schedule(): void {
+  const id = pickedId.value
+  const date = selectedDate.value
+  if (!id || !date) return
+  emit('setReleaseDate', id, date)
+  pickedId.value = ''
 }
 </script>
 
@@ -92,20 +136,58 @@ function open(items: DayItem[]): void {
         :key="index"
         type="button"
         class="cell"
-        :class="[level(cell.items.length), { blank: !cell.day, today: cell.today, past: cell.past, done: cell.items.length && cell.items.every((i) => i.done) }]"
-        :disabled="!cell.day || !cell.items.length"
-        :title="cell.items.map((i) => i.title).join('\n')"
+        :class="[level(cell.items.length), { blank: !cell.day, today: cell.today, past: cell.past, done: cell.items.length && cell.items.every((i) => i.done), selected: cell.day && cell.day === selectedDay }]"
+        :disabled="!cell.day"
+        :aria-label="cell.day ? `${month + 1} 月 ${cell.day} 日，${cell.items.length} 项上线任务` : undefined"
+        :title="cell.items.map((i) => i.title).join('\n') || (cell.day ? '点击查看当天安排' : undefined)"
         @mouseenter="hoveredDay = cell.day"
         @mouseleave="hoveredDay = null"
-        @click="open(cell.items)"
+        @click="select(cell.day)"
       >
         {{ cell.day ?? '' }}
       </button>
     </div>
-    <p class="calendar-foot">
+
+    <div v-if="selectedDay" class="day-panel">
+      <div class="day-head">
+        <strong>{{ month + 1 }} 月 {{ selectedDay }} 日</strong>
+        <span class="day-count">{{ selectedItems.length }} 项</span>
+        <button type="button" class="link" @click="selectedDay = null">收起</button>
+      </div>
+
+      <ul v-if="selectedItems.length" class="day-list">
+        <li v-for="item in selectedItems" :key="item.id" class="day-item">
+          <button type="button" class="task" :disabled="isBusy(item.id)" @click="openTask(item.id)">
+            <span class="task-title">{{ item.title || item.id }}</span>
+            <span class="task-state" :class="{ done: item.done }">{{ item.done ? '已完成' : '进行中' }}</span>
+          </button>
+          <div class="task-actions">
+            <button type="button" @click="openSection(item.id, 'completion')">完成情况</button>
+            <button type="button" @click="openSection(item.id, 'test_points')">测试点</button>
+            <button type="button" :disabled="isBusy(item.id)" @click="clearDate(item.id)">移出该日</button>
+          </div>
+        </li>
+      </ul>
+      <p v-else class="empty">这天暂无上线任务</p>
+
+      <div class="day-foot">
+        <select v-if="unplanned.length" v-model="pickedId">
+          <option value="">选择未排期需求…</option>
+          <option v-for="task in unplanned" :key="String(task.id)" :value="String(task.id)">
+            {{ task.title || task.code || task.id }}
+          </option>
+        </select>
+        <button v-else type="button" class="ghost" disabled>没有未排期需求</button>
+        <button type="button" :disabled="!pickedId" @click="schedule">排到 {{ selectedDay }} 日</button>
+        <button v-if="!selectedItems.length" type="button" @click="emit('createRequirement')">新建需求</button>
+        <button type="button" class="ghost" @click="emit('openManager')">去需求管理</button>
+      </div>
+    </div>
+
+    <p v-else class="calendar-foot">
       <template v-if="hoverItems.length">{{ hoveredDay }} 日：{{ hoverItems.map((i) => i.title).join('、') }}</template>
       <template v-else-if="upcoming">下一个上线：{{ upcoming }} 日</template>
-      <template v-else>本月没有待上线的需求</template>
+      <template v-else>本月没有待上线的需求，点任意日期可安排</template>
     </p>
   </section>
 </template>
@@ -140,21 +222,22 @@ function open(items: DayItem[]): void {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   background: var(--surface-soft);
-  cursor: default;
+  cursor: pointer;
   transition: transform 140ms ease, border-color 140ms ease;
 }
 
 .cell.blank {
   background: transparent;
+  cursor: default;
 }
 
 .cell.past {
   opacity: 0.6;
 }
 
-.cell.l1 { background: var(--primary-soft); color: var(--primary); cursor: pointer; }
-.cell.l2 { background: var(--aurora-end); color: var(--on-primary); cursor: pointer; }
-.cell.l3 { background: var(--primary); color: var(--on-primary); cursor: pointer; }
+.cell.l1 { background: var(--primary-soft); color: var(--primary); }
+.cell.l2 { background: var(--aurora-end); color: var(--on-primary); }
+.cell.l3 { background: var(--primary); color: var(--on-primary); }
 .cell.done { background: var(--success); color: var(--on-primary); }
 
 .cell.today {
@@ -163,9 +246,150 @@ function open(items: DayItem[]): void {
   color: var(--text-strong);
 }
 
+.cell.selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
 .cell:not(:disabled):hover {
   transform: translateY(-1px);
   border-color: var(--primary);
+}
+
+.day-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  max-height: 220px;
+  overflow: auto;
+}
+
+.day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-strong);
+}
+
+.day-count {
+  color: var(--text-muted);
+}
+
+.link {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.day-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.day-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.task:hover .task-title {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.task-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-state {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.task-state.done {
+  color: var(--success);
+}
+
+.task-actions {
+  display: flex;
+  gap: 4px;
+  padding-left: 2px;
+}
+
+.task-actions button,
+.day-foot button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.task-actions button:hover:not(:disabled),
+.day-foot button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.task-actions button:disabled,
+.day-foot button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.day-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.day-foot select {
+  flex: 1;
+  min-width: 120px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-strong);
 }
 
 .calendar-foot {

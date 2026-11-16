@@ -325,8 +325,8 @@ class SshTerminalWidget(QWidget):
     def attach_client(self, client, *, cols: int = 120, rows: int = 32) -> None:
         self.view.attach_client(client, cols=cols, rows=rows)
 
-    def detach(self) -> None:
-        self.view.detach()
+    def detach(self, *, notify: bool = False) -> None:
+        self.view.detach(notify=notify)
 
     def append_system(self, text: str) -> None:
         self.view.append_system(text)
@@ -503,12 +503,19 @@ class _SshTerminalView(QAbstractScrollArea):
         self._resize_timer.start()
         self.viewport().update()
 
-    def detach(self) -> None:
+    def detach(self, *, notify: bool = False) -> None:
+        """Tear down the local view of the shell.
+
+        ``notify`` stays False for user-initiated disconnect and for the
+        detach that precedes a re-attach: those are not remote drops. Only
+        ``_on_shell_closed`` (the real remote close) emits connection_closed.
+        """
         self._session_generation += 1
         shell = self._shell
         self._shell = None
         self._connected = False
-        self._host.connection_closed.emit()
+        if notify:
+            self._host.connection_closed.emit()
         if shell is not None:
             try:
                 shell.close()

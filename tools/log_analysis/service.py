@@ -24,6 +24,9 @@ class LogService:
         self.active_since = None
         self.outcomes = {}
         self.analysis_state = '待分析'
+        # Display-only streaming chunks: (task_id, kind, text). Never persisted,
+        # never fed back into history or the model context.
+        self.deltas = deque(maxlen=4000)
         self.cache_state = ''
         self.auto = {}  # task -> explicitly chosen model ID
         self.last_auto = {}
@@ -34,6 +37,15 @@ class LogService:
         self.saver = threading.Thread(target=self._save, name='log-checkpoints', daemon=True)
         self.worker.start()
         self.saver.start()
+
+    def drain_deltas(self):
+        """Return and clear queued streaming chunks (called from the UI thread)."""
+        with self.lock:
+            if not self.deltas:
+                return []
+            items = list(self.deltas)
+            self.deltas.clear()
+        return items
 
     def open_snapshot(self, snapshot):
         from .cached import CachedTask
@@ -143,6 +155,13 @@ class LogService:
                     if event:
                         clean_question += '\n所选异常证据：\n' + event['evidence']
                 def progress(kind, name):
+                    if kind in ('model_reasoning_delta', 'model_text_delta'):
+                        # Reasoning/text chunks: queue for the UI, do not touch
+                        # history, outcomes, or the model context.
+                        if not token.is_cancelled() and not self.closed.is_set():
+                            with self.lock:
+                                self.deltas.append((task_id, kind, name))
+                        return
                     self.analysis_state = {'turn_started': '模型分析中', 'tool_started': '正在补查',
                                            'tool_result': '补查完成', 'budget': '整理上下文'}.get(kind, kind) + (' · ' + name if name else '')
                 result = self.analyzer(snapshot, clean_question, model_id, token,

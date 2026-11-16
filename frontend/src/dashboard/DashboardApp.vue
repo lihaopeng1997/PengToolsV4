@@ -203,6 +203,25 @@ function onWriteDaily(): void {
   onNavClick(9)
 }
 
+/** Calendar-side date edit: schedule onto a day, or clear with an empty value. */
+async function onCalendarSetDate(id?: string | null, date?: string | null): Promise<void> {
+  const requirementId = String(id || '').trim()
+  if (!requirementId) return
+  const next = String(date || '').trim()
+  busyId.value = requirementId
+  const result = await act({
+    action: 'update_fields',
+    id: requirementId,
+    fields: { actual_release_date: next },
+  })
+  busyId.value = null
+  if (!result.ok) {
+    showToast(result.error || '修改实际上线日失败')
+  } else {
+    showToast(next ? `已排到 ${next}` : '已清除实际上线日')
+  }
+}
+
 function onRetry(): void {
   if (props.state.retry) {
     props.state.retry()
@@ -241,7 +260,12 @@ function onRetry(): void {
         class="b-cal"
         :board="summary.progress?.board"
         :tasks="summary.monthly_release_tasks"
+        :busy-id="busyId"
         @open-requirement="onOpenRequirement"
+        @open-requirement-section="onOpenRequirementSection"
+        @set-release-date="onCalendarSetDate"
+        @create-requirement="onCreateRequirement"
+        @open-manager="() => onNavClick(10)"
       />
 
       <StageTile

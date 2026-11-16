@@ -124,14 +124,75 @@ class LogTools:
         return [lines[i] for i in sorted(indexes)]
 
 
+_REASON_MARKERS = ('可能原因', '原因假设', '根因', '推测', '推断', '原因')
+_NEXT_MARKERS = ('下一步', '建议', '检查', '验证', '复现', '排查')
+_EVIDENCE_MARKERS = ('证据', '缺失', '未覆盖', '偏移', 'event', '事件')
+
+
+def _is_heading(line):
+    """A short line that ends with a colon is a section label, not content."""
+
+    body = line.lstrip('#>*- \t')
+    return body.endswith(('：', ':')) and len(body) <= 20
+
+
+def log_answer_gap(text):
+    """Return a reason when a log conclusion is not actionable, else ''.
+
+    Reported symptom plus an event ID is not an answer: an operator needs a
+    candidate cause, the evidence still missing, and the next check.
+    """
+
+    body = str(text or '').strip()
+    if not body:
+        return '没有任何可见回答'
+    if '工具调用协议解析失败' in body:
+        return '工具调用协议未解析成功'
+    lowered = body.casefold()
+    prose = ''.join(line.strip() for line in body.splitlines()
+                    if line.strip() and not line.lstrip().startswith('#') and not _is_heading(line))
+    if len(prose) < 40:
+        return '只有章节标题或事件ID复述，缺少结论内容'
+    if not any(marker in lowered for marker in _REASON_MARKERS):
+        return '缺少可能原因'
+    if not any(marker in lowered for marker in _NEXT_MARKERS):
+        return '缺少下一步检查'
+    if not any(marker in lowered for marker in _EVIDENCE_MARKERS):
+        return '缺少缺失证据说明'
+    return ''
+
+
+def _is_tool_envelope(text):
+    head = text[:200]
+    return '<tool_call>' in head or '"tool_calls"' in head or head.startswith('```json')
+
+
+def _protocol_failure(text):
+    excerpt = text[:400].replace('\r', '')
+    return ('工具调用协议解析失败，本轮没有执行任何工具。原始输出摘要：\n'
+            '```\n' + excerpt + '\n```\n'
+            '请改用完整的工具调用格式重试，或直接给出可核验的结论与缺失证据。')
+
+
 class TextCalls:
     """Use existing Qwen parser only for complete, explicit tool envelopes."""
-    def __init__(self, adapter):
+    def __init__(self, adapter, delta_sink=None):
         self.adapter = adapter
+        self.delta_sink = delta_sink
 
     def complete_turn(self, request, *, cancellation, on_delta):
-        # Don't expose raw tool markup/private reasoning in the conversation.
-        turn = self.adapter.complete_turn(request, cancellation=cancellation, on_delta=lambda _d: None)
+        def forward(delta):
+            # Only reasoning streams into the UI. Final prose is rendered once
+            # from the validated turn, so a half-written tool envelope never
+            # reaches the visible transcript.
+            kind = str(getattr(delta, 'kind', '') or '')
+            if kind == 'reasoning_delta' and self.delta_sink is not None:
+                text = str(getattr(delta, 'text', '') or '')
+                if text:
+                    self.delta_sink('model_reasoning_delta', text)
+            on_delta(delta)
+
+        turn = self.adapter.complete_turn(request, cancellation=cancellation, on_delta=forward)
         if turn.tool_calls:
             return turn
         text = turn.text.strip()
@@ -153,11 +214,15 @@ class TextCalls:
                 return AgentTurn(tool_calls=normalized, finish_reason='tool_calls')
             except (TypeError, KeyError):
                 pass
+        if _is_tool_envelope(text):
+            # Never let unparsed tool markup pass as a final answer.
+            return replace(turn, text=_protocol_failure(text))
         return turn
 
 
 def analyze(snapshot, question, model_id, cancellation, *, history=(), progress=None, adapter=None, reader=None, searcher=None, probe=None):
-    adapter = adapter or AgentModelHostAdapter(model_id, retry_count=1, strict_tool_envelope=True)
+    adapter = adapter or AgentModelHostAdapter(model_id, retry_count=1, strict_tool_envelope=True,
+                                               expose_reasoning=True)
     tools = LogTools(snapshot, reader, searcher, probe)
     context = RunContext(uuid.uuid4().hex, snapshot['id'], model_id, domain='log-analysis',
                          scope={'capture': snapshot['id'], 'policy': 'readonly-captured-log-v1'})
@@ -177,8 +242,15 @@ def analyze(snapshot, question, model_id, cancellation, *, history=(), progress=
     def event_sink(event):
         if progress and event.event_type in ('turn_started', 'tool_started', 'tool_result', 'budget'):
             progress(event.event_type, str(event.payload.get('name', '')))
-    runner = AgentRunner(TextCalls(adapter), tools, system_prompt=prompt, cancellation=cancellation,
+    def delta_sink(kind, text):
+        # Streaming chunks go straight to the UI; the service decides whether
+        # they are display-only or also persisted.
+        if progress:
+            progress(kind, text)
+
+    runner = AgentRunner(TextCalls(adapter, delta_sink=delta_sink), tools, system_prompt=prompt, cancellation=cancellation,
                          context_planner=planner, on_event=event_sink,
+                         answer_validator=log_answer_gap,
                          budget_limits=BudgetLimits(max_model_turns=8, max_tool_calls=16,
                             max_duration_s=600, max_input_chars=2 * 1024 * 1024, max_output_tokens=32768))
     # Always obtain evidence first, even when the model chooses a plain-text answer.

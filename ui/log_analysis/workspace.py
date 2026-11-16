@@ -498,6 +498,18 @@ class LogAnalysisWorkspace(QWidget):
             self.auto.setChecked(False)
             self.status.setText('先启动任务并选择、确认内网模型。')
 
+    def _apply_deltas(self, deltas):
+        """Render streaming chunks for the selected task only."""
+        for task_id, kind, text in deltas:
+            if not text or task_id != self.selected_id:
+                continue
+            if kind == 'model_reasoning_delta':
+                if self.chat.stream_role != 'thinking':
+                    self.chat.begin_stream('思考过程', role='thinking')
+                self.chat.append_stream(text)
+            # text_delta is suppressed upstream by the strict tool envelope, and
+            # the final answer is rendered once by append_chat below.
+
     def append_chat(self, task_id, text, force=False, *, role='system'):
         message = {'role': role, 'text': str(text)}
         if len(message['text']) > 150000:
@@ -634,6 +646,9 @@ class LogAnalysisWorkspace(QWidget):
                 snapshot = task.snapshot(blocking=False)
                 if snapshot is not None:
                     self.snapshots[task_id] = snapshot
+            deltas = self.service.drain_deltas()
+            if deltas:
+                self._apply_deltas(deltas)
             for task_id, text, kind in self.service.drain():
                 self.append_chat(task_id, text, role='assistant')
                 if kind == 'report':

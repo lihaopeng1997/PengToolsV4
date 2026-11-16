@@ -661,6 +661,8 @@ class DataCenterPanel(QWidget):
         self.tree.directory_node_expanded.connect(self._on_tree_node_expanded)
         self.tree.directory_more_requested.connect(self._on_tree_more_requested)
         self.tree.directory_node_activated.connect(self._on_tree_node_activated)
+        self.tree.directory_node_structure_requested.connect(self._on_tree_node_structure)
+        self.tree.directory_node_export_requested.connect(self._on_tree_node_export)
         catalog_layout.addWidget(self.tree, 1)
         directory_actions = QFrame(self.catalog_pane)
         directory_action_row = WrapLayout(directory_actions, spacing=6)
@@ -864,6 +866,19 @@ class DataCenterPanel(QWidget):
                 self.tree.set_directory_loading(connection_id, owner.target, root, owner.generation, True)
                 owner.load_children(owner.target, root, generation=owner.generation)
 
+    def prime_directory(self, connection_id: str) -> None:
+        """Best-effort first directory page so SQL completion sees real tables.
+
+        The SQL editor calls this on focus when its catalog is empty. A loaded
+        directory short-circuits inside _on_tree_connection_expanded.
+        """
+        if self._manual_shutdown_gated or self._tree_shutdown_started:
+            return
+        target_id = str(connection_id or "").strip()
+        if not target_id:
+            return
+        self._on_tree_connection_expanded(target_id)
+
     def _start_tree_capture(
         self,
         connection_id: str,
@@ -981,6 +996,34 @@ class DataCenterPanel(QWidget):
         setter = getattr(manual, "set_completion_catalog", None)
         if callable(setter):
             setter(self._completion_catalogs.setdefault(connection_id, CompletionCatalog(allow_unseeded=False)))
+        # The SQL editor can ask for the first directory page on focus without
+        # importing this panel; completion otherwise stays empty until a manual
+        # tree expansion.
+        primer = getattr(manual, "set_directory_primer", None)
+        if callable(primer):
+            primer(self.prime_directory)
+        # Lets a plain SELECT look up its table in this live registry and reuse
+        # the normal edit path; no node is ever fabricated for the caller.
+        binder = getattr(manual, "set_tree_binding", None)
+        if callable(binder):
+            binder(self._tree_binding_for(connection_id))
+
+    def _tree_binding_for(self, connection_id: str):
+        owner = self._tree_owners.get(connection_id)
+        if owner is None or owner.is_closing:
+            return None
+        service = getattr(owner, "table_source_service", None)
+        target = getattr(owner, "target", None)
+        finder = getattr(service, "find_table_node", None)
+        if not callable(finder) or target is None:
+            return None
+        return {
+            'service': service,
+            'target': target,
+            'generation': int(getattr(owner, "generation", 0) or 0),
+            'find': lambda name: finder(target, name),
+            'connection_id': connection_id,
+        }
 
     def _on_tree_details_ready(self, connection_id: str, details, _target, _generation: int) -> None:
         self.tree.set_directory_status(connection_id, details.target, details.node_ref, "")
@@ -1008,6 +1051,90 @@ class DataCenterPanel(QWidget):
         self.tree.set_directory_status(connection_id, target, parent_ref, message)
         if not parent_ref:
             self._tree_capture_refresh.pop(connection_id, None)
+
+    def _on_tree_node_structure(
+        self, connection_id: str, target, node: TreeNode, generation: int
+    ) -> None:
+        """Open the table workspace and surface its structure once metadata lands."""
+        owner = self._tree_owners.get(connection_id)
+        if owner is None or owner.is_closing or target != owner.target:
+            return
+        if node.kind not in {"table", "view"}:
+            return
+        if target.provider not in {"mysql", "oracle", "oceanbase_mysql", "oceanbase_oracle"}:
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "此连接暂不支持表结构查看。" if self.language == "zh" else
+                "Table structure is unavailable for this provider.",
+            )
+            return
+        workspace = self._open_connection(connection_id)
+        if workspace is None:
+            return
+        manual_host = getattr(workspace.host, "manual_query_host", None)
+        open_structure = getattr(manual_host, "open_table_structure", None)
+        if not callable(open_structure):
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "固定 SQL 工作区不可用；目录保持不变。" if self.language == "zh" else
+                "The fixed SQL workbench is unavailable; the directory is unchanged.",
+            )
+            return
+        service = getattr(owner, "table_source_service", None)
+        try:
+            opened = bool(open_structure(service, target, node, generation))
+        except Exception:
+            opened = False
+        if not opened:
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "无法读取此表结构；请检查连接状态或刷新目录。" if self.language == "zh" else
+                "Could not read this table structure; check the connection or refresh the directory.",
+            )
+        else:
+            self.tree.set_directory_status(connection_id, target, node.node_ref, "")
+
+    def _on_tree_node_export(
+        self, connection_id: str, target, node: TreeNode, generation: int
+    ) -> None:
+        """Open the table source and immediately offer the full export."""
+        owner = self._tree_owners.get(connection_id)
+        if owner is None or owner.is_closing or target != owner.target:
+            return
+        if node.kind not in {"table", "view"}:
+            return
+        if target.provider not in {"mysql", "oracle", "oceanbase_mysql", "oceanbase_oracle"}:
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "此连接暂不支持整表导出。" if self.language == "zh" else
+                "Table export is unavailable for this provider.",
+            )
+            return
+        workspace = self._open_connection(connection_id)
+        if workspace is None:
+            return
+        manual_host = getattr(workspace.host, "manual_query_host", None)
+        export_table = getattr(manual_host, "export_table_data", None)
+        if not callable(export_table):
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "固定 SQL 工作区不可用；目录保持不变。" if self.language == "zh" else
+                "The fixed SQL workbench is unavailable; the directory is unchanged.",
+            )
+            return
+        service = getattr(owner, "table_source_service", None)
+        try:
+            opened = bool(export_table(service, target, node, generation))
+        except Exception:
+            opened = False
+        if not opened:
+            self.tree.set_directory_status(
+                connection_id, target, node.node_ref,
+                "无法打开此表用于导出；请检查连接状态或刷新目录。" if self.language == "zh" else
+                "Could not open this table for export; check the connection or refresh the directory.",
+            )
+        else:
+            self.tree.set_directory_status(connection_id, target, node.node_ref, "")
 
     def _on_tree_node_expanded(self, connection_id: str, target, node: TreeNode, generation: int) -> None:
         owner = self._tree_owners.get(connection_id)
@@ -1475,6 +1602,10 @@ class DataCenterPanel(QWidget):
         self._apply_host_layout(workspace.host)
         workspace.apply_layout_mode(self._layout_mode, self._low_height)
         self._sync_actions()
+        # Idempotent re-publish after full host wiring: the manual workbench and
+        # its editor exist by now, so the completion catalog and directory
+        # primer are guaranteed to land even if the host was assembled late.
+        self._publish_completion_catalog(wanted)
         return workspace
 
     def _sync_summary_tab(self) -> None:
