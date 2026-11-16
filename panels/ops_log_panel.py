@@ -1249,7 +1249,9 @@ class OpsLogPanel(QWidget):
         if hasattr(self, 'connect_btn'):
             self.connect_btn.setEnabled(has_tab and not busy and not connected and not busy_other)
         if hasattr(self, 'disconnect_btn'):
-            self.disconnect_btn.setEnabled(has_tab and not busy and connected)
+            # A background listing/log read also blocks disconnect: the worker
+            # owns this terminal's client until it finishes.
+            self.disconnect_btn.setEnabled(has_tab and not busy and connected and not busy_other)
         if hasattr(self, 'term_status_dot'):
             self.term_status_dot.setProperty('termConnected', bool(connected))
             style = self.term_status_dot.style()
@@ -4014,6 +4016,10 @@ class OpsLogPanel(QWidget):
         worker.fail.connect(on_fail if on_fail is not None else _default_fail)
         worker.finished.connect(self._on_worker_finished)
         worker.start()
+        # Must run after start(): QThread.isRunning() is still False before it,
+        # so refreshing earlier would compute busy_other as idle and leave both
+        # session buttons enabled for the whole run.
+        self._refresh_header_session_status()
 
     def _refresh_remote_dir(self):
         if not self._client:
