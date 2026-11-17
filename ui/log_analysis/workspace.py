@@ -547,7 +547,6 @@ class LogAnalysisWorkspace(QWidget):
         self._thinking_active.pop(task_id, None)
 
     def pause(self):
-        self._drop_idle_thinking(self.selected_id)
         task = self.current_task()
         if task:
             if hasattr(task, 'set_paused'):
