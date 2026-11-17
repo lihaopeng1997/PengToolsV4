@@ -67,6 +67,29 @@ check('自定义键标为非默认', 'diag_custom_flag: str (非默认)' in whol
 check('只保留日志尾部', 'TAILKEEP' in whole and 'HEADMARKER' not in whole)
 check('清单记录截取大小', '截取 2048 字节' in whole and '无' in whole)
 
+outside = os.path.join(data_dir, 'outside.log')
+with open(outside, 'w', encoding='utf-8') as handle:
+    handle.write('SECRETOUTSIDE\n')
+app_log = os.path.join(log_dir, 'app.log')
+outside_dest = os.path.join(_isolation.temp_dir(), 'out', 'outside.zip')
+build_bundle(
+    outside_dest,
+    tail_bytes=2048,
+    log_paths=[outside, os.path.join(log_dir, '..', 'ops_servers.json'), app_log],
+    settings=settings,
+)
+with zipfile.ZipFile(outside_dest) as archive:
+    outside_names = set(archive.namelist())
+    outside_whole = '\n'.join(
+        archive.read(name).decode('utf-8', errors='replace') for name in archive.namelist()
+    )
+    outside_manifest = archive.read('manifest.txt').decode('utf-8', errors='replace')
+check('越界内容不进包', 'SECRETOUTSIDE' not in outside_whole and 'SECRETHOST' not in outside_whole)
+check('越界项标记已跳过',
+      'outside.log: 已跳过' in outside_manifest and 'ops_servers.json: 已跳过' in outside_manifest,
+      outside_manifest)
+check('目录内 app.log 仍打包', 'logs/app.log' in outside_names)
+
 after = os.stat(servers)
 check('data 文件元数据不变',
       before.st_size == after.st_size and before.st_mtime_ns == after.st_mtime_ns)
@@ -114,25 +137,26 @@ probe = (
     f'sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})\n'
     'import _isolation\n'
     'from PyQt6.QtWidgets import QApplication\n'
-    'QApplication([])\n'
+    'app = QApplication([])\n'
     'from panels.settings_panel import SettingsPanel\n'
     'panel = SettingsPanel({})\n'
     'print("HAS_BUTTON" if getattr(panel, "diag_export_btn", None) is not None else "NO_BUTTON")\n'
 )
+button_ok = False
+button_detail = ''
 try:
     probed = subprocess.run(
         [sys.executable, '-B', '-c', probe],
         capture_output=True, text=True, timeout=30,
         env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen'},
     )
-    if probed.returncode == 0 and 'HAS_BUTTON' in (probed.stdout or ''):
-        check('设置页有导出诊断包按钮', True)
-    elif probed.returncode == 0 and 'NO_BUTTON' in (probed.stdout or ''):
-        check('设置页有导出诊断包按钮', False, 'created without the button')
-    else:
-        check('设置页导出按钮（创建失败已跳过）', True, f'exit={probed.returncode}')
+    button_ok = probed.returncode == 0 and 'HAS_BUTTON' in (probed.stdout or '')
+    if not button_ok:
+        button_detail = f'exit={probed.returncode} stderr={(probed.stderr or "")[-300:]}'
 except Exception as exc:
-    check('设置页导出按钮（创建失败已跳过）', True, type(exc).__name__)
+    button_ok = False
+    button_detail = f'{type(exc).__name__}: {exc}'
+check('设置页有导出诊断包按钮', button_ok, button_detail)
 
 print()
 try:
