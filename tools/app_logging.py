@@ -11,6 +11,7 @@ import logging.handlers
 import os
 import sys
 import threading
+import time
 import traceback
 
 _LOG_BYTES = 2 * 1024 * 1024
@@ -18,12 +19,17 @@ _LOG_BACKUPS = 5
 _FORMAT = '%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s'
 _HANDLER_MARK = '_pengtools_app_log'
 
+_QUIET_LOGGERS = ('paramiko', 'urllib3', 'asyncio', 'PIL')
+_DIALOG_INTERVAL = 30.0
+
 _state = {
     'path': '',
     'handler': None,
     'hooks': False,
     'show_dialog': None,
     'fault_file': None,
+    'dialog_open': False,
+    'dialog_at': 0.0,
 }
 
 
@@ -50,22 +56,29 @@ class RedactingFilter(logging.Filter):
 
 def setup_logging(log_dir=None) -> str:
     """Attach one rotating file handler. Repeat calls keep the same handler."""
-    existing = _state.get('handler')
-    if existing is not None and _state.get('path'):
-        return _state['path']
-    directory = _choose_dir(log_dir)
-    path = os.path.join(directory, 'app.log')
-    handler = logging.handlers.RotatingFileHandler(
-        path,
-        maxBytes=_LOG_BYTES,
-        backupCount=_LOG_BACKUPS,
-        encoding='utf-8',
-    )
-    handler.setFormatter(logging.Formatter(_FORMAT))
-    handler.addFilter(RedactingFilter())
-    setattr(handler, _HANDLER_MARK, True)
+    if _state.get('handler') is not None:
+        return _state.get('path') or ''
+    _quiet_libraries()
     root = logging.getLogger()
     root.setLevel(_level())
+    directory = _choose_dir(log_dir)
+    path = os.path.join(directory, 'app.log') if directory else ''
+    try:
+        if not path:
+            raise OSError('no writable log directory')
+        handler = logging.handlers.RotatingFileHandler(
+            path,
+            maxBytes=_LOG_BYTES,
+            backupCount=_LOG_BACKUPS,
+            encoding='utf-8',
+        )
+    except OSError:
+        handler = logging.NullHandler()
+        path = ''
+    else:
+        handler.setFormatter(logging.Formatter(_FORMAT))
+        handler.addFilter(RedactingFilter())
+        setattr(handler, _HANDLER_MARK, True)
     root.addHandler(handler)
     _state['handler'] = handler
     _state['path'] = path
@@ -76,12 +89,15 @@ def install_exception_hooks(show_dialog=None) -> None:
     """Record uncaught exceptions. A dialog is optional and must not raise."""
     if show_dialog is not None:
         _state['show_dialog'] = show_dialog
-    path = _state.get('path') or setup_logging()
+    if _state.get('handler') is None:
+        setup_logging()
+    path = _state.get('path') or ''
     if not _state.get('hooks'):
         _state['hooks'] = True
         sys.excepthook = _sys_excepthook
         threading.excepthook = _thread_excepthook
-        _enable_fault_log(os.path.dirname(path))
+        if path:
+            _enable_fault_log(os.path.dirname(path))
     _install_qt_handler()
 
 
@@ -95,14 +111,29 @@ def _level() -> int:
     return value if isinstance(value, int) else logging.INFO
 
 
+def _quiet_libraries() -> None:
+    for name in _QUIET_LOGGERS:
+        logger = logging.getLogger(name)
+        if logger.level == logging.NOTSET:
+            logger.setLevel(logging.WARNING)
+
+
 def _choose_dir(log_dir) -> str:
     primary = log_dir or _default_dir()
     chosen = _usable_dir(primary)
     if chosen:
         return chosen
-    fallback = os.path.join(os.environ.get('LOCALAPPDATA') or '', 'PengToolsHub', 'logs')
-    chosen = _usable_dir(fallback)
-    return chosen or primary or fallback
+    fallback = _fallback_dir()
+    if not fallback:
+        return ''
+    return _usable_dir(fallback) or ''
+
+
+def _fallback_dir() -> str:
+    local_app = str(os.environ.get('LOCALAPPDATA') or '').strip()
+    if not local_app:
+        return ''
+    return os.path.join(local_app, 'PengToolsHub', 'logs')
 
 
 def _default_dir() -> str:
@@ -110,7 +141,7 @@ def _default_dir() -> str:
         from config import local_data_dir
         return os.path.join(local_data_dir(), 'logs')
     except Exception:
-        return os.path.join(os.environ.get('LOCALAPPDATA') or '', 'PengToolsHub', 'logs')
+        return _fallback_dir()
 
 
 def _usable_dir(path: str) -> str:
@@ -164,8 +195,20 @@ def _sys_excepthook(exc_type, exc, tb):
         from PyQt6.QtWidgets import QApplication
         if QApplication.instance() is None:
             return
-        dialog()
+        now = time.monotonic()
+        if _state.get('dialog_open'):
+            return
+        last = float(_state.get('dialog_at') or 0.0)
+        if last and now - last < _DIALOG_INTERVAL:
+            return
+        _state['dialog_open'] = True
+        _state['dialog_at'] = now
+        try:
+            dialog()
+        finally:
+            _state['dialog_open'] = False
     except Exception:
+        _state['dialog_open'] = False
         return
 
 

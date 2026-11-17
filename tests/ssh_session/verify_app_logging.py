@@ -38,6 +38,8 @@ again = setup_logging(log_dir)
 marked = [h for h in logging.getLogger().handlers if getattr(h, '_pengtools_app_log', False)]
 check('日志落在隔离临时目录', os.path.abspath(log_path).startswith(os.path.abspath(_isolation.temp_dir())))
 check('重复初始化不增加 handler', again == log_path and len(marked) == 1, str(len(marked)))
+check('paramiko 实际级别是 WARNING',
+      logging.getLogger('paramiko').getEffectiveLevel() == logging.WARNING)
 
 logger = get_logger('verify.app')
 logger.info('token Bearer abc123')
@@ -103,6 +105,30 @@ if not rotated:
     flush()
     rotated = os.path.exists(log_path + '.1')
 check('轮转生效', rotated, log_path)
+
+import tools.app_logging as app_logging
+
+shown = []
+app_logging._state['dialog_open'] = False
+app_logging._state['dialog_at'] = 0.0
+install_exception_hooks(show_dialog=lambda: shown.append(1))
+app_logging._sys_excepthook(RuntimeError, RuntimeError('rate-1'), None)
+app_logging._sys_excepthook(RuntimeError, RuntimeError('rate-2'), None)
+check('连续两次异常只弹一次窗', len(shown) == 1, str(len(shown)))
+
+app_logging._state['handler'] = None
+app_logging._state['path'] = ''
+real_handler = logging.handlers.RotatingFileHandler
+
+def _deny_file(*args, **kwargs):
+    raise OSError('unwritable')
+
+logging.handlers.RotatingFileHandler = _deny_file
+try:
+    denied = setup_logging(os.path.join(_isolation.temp_dir(), 'denied-log'))
+    check('目录不可写时返回空字符串', denied == '')
+finally:
+    logging.handlers.RotatingFileHandler = real_handler
 
 print()
 try:
