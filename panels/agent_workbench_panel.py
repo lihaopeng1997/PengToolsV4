@@ -525,6 +525,12 @@ class AgentWorkbenchPanel(QWidget):
         self.header_dir_btn.clicked.connect(self._bind_directory)
         top.addWidget(self.header_dir_btn)
 
+        self.diagnostics_btn = QPushButton('内网排障')
+        apply_button(self.diagnostics_btn, 'secondary', compact=True)
+        self.diagnostics_btn.setToolTip('只读排障：选择场景、日志材料与代码根，外发前必须确认')
+        self.diagnostics_btn.clicked.connect(self._open_intranet_diagnostics)
+        top.addWidget(self.diagnostics_btn)
+
         self.context_toggle_btn = QPushButton()
         apply_button(self.context_toggle_btn, 'ghost', compact=True)
         self.context_toggle_btn.setCheckable(True)
@@ -1185,6 +1191,12 @@ class AgentWorkbenchPanel(QWidget):
         self._render_conversation(ws, conv)
         self._refresh_space_tree(select_ws_id=ws.get('id'),
                                  select_conv_id=conv.get('id') if select_last_conv else '')
+
+    def _open_intranet_diagnostics(self):
+        """Read-only diagnostics dialog; the outbound gate lives in the run call."""
+        from ui.intranet_diagnostics_dialog import IntranetDiagnosticsDialog
+        dialog = IntranetDiagnosticsDialog(self, getattr(self, 'language', 'zh'))
+        dialog.exec()
 
     def _bind_directory(self):
         """绑定/更换工作文件夹。未建空间时自动先建一个并绑定。"""
