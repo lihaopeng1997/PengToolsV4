@@ -290,7 +290,10 @@ paused.service = SimpleNamespace(tasks={})
 paused.current_task = lambda: None
 LogAnalysisWorkspace._reserve_thinking_round(paused, 't')
 LogAnalysisWorkspace.pause(paused)
-check('暂停清掉空预留', paused._thinking_pending.get('t') == [] and 't' not in paused._thinking_active)
+check('暂停采集后预留轮次保留',
+      len(paused._thinking_pending.get('t') or []) == 1
+      and paused._thinking_pending['t'][0] in paused._thinking.get('t', []),
+      str(paused._thinking_pending))
 
 stopped = workspace_like('t', chats={'t': [{'role': 'user', 'text': '问'}]})
 stopped.service = SimpleNamespace(tasks={}, stop=lambda task_id: None)

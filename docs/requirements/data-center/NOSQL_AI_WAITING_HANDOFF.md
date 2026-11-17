@@ -2,7 +2,7 @@
 
 状态：已定位源码问题，尚未实施线程调整。不是本轮纯 UI 改造的已完成项，也不是对开发 AI 的自动执行授权。
 
-基准：`ui/prism-v1`，`9649fd44d6efe159a6d4ddfba6ad217b130e26e6`。需求 AI 接手时先重新核对当前 SHA 和以下调用链。本文件配合 `AI_REQUIREMENTS_PROMPT.md` 使用。
+基准：`ui/prism-v1`，`9649fd44d6efe159a6d4ddfba6ad217b130e26e6`。需求 AI 接手时先重新核对当前 SHA 和以下调用链。本文件配合 `docs/project/DEVELOPMENT_AND_AI.md` 使用。
 
 ## 当前事实与影响
 
