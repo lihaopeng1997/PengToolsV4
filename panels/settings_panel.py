@@ -502,6 +502,14 @@ class SettingsPanel(QWidget):
             '读写白名单、私网校验、主键校验、事务未知处理不受影响。修改后需重启生效。')
         self.intranet_open.setToolTip(self.intranet_open_label.toolTip())
         security.addRow(self.intranet_open_label, self.intranet_open)
+        self.diag_export_btn = QPushButton()
+        size_compact_button(self.diag_export_btn)
+        self.diag_export_btn.clicked.connect(self._export_diagnostics)
+        security.addRow(self.diag_export_btn)
+        self.diag_export_status = QLabel()
+        self.diag_export_status.setObjectName('field-hint')
+        self.diag_export_status.setWordWrap(True)
+        security.addRow(self.diag_export_status)
         self.security_note = QLabel()
         self.security_note.setObjectName('ops-safety-note')
         self.security_note.setWordWrap(True)
@@ -1146,6 +1154,52 @@ class SettingsPanel(QWidget):
             self._load_reminder_values()
             self._load_ai_local_values()
         self._refresh_close_behavior_hint()
+
+    def _export_diagnostics(self):
+        import os
+        from datetime import datetime
+        from PyQt6.QtWidgets import QMessageBox
+        from tools.app_logging import get_logger
+        from tools.diagnostics_bundle import DiagnosticsError, build_bundle, collect_manifest
+        from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
+        zh = self.language == 'zh'
+        manifest = collect_manifest()
+        included = '\n'.join(f'• {item}' for item in manifest.get('included') or [])
+        excluded = '\n'.join(f'• {item}' for item in manifest.get('excluded') or [])
+        title = '导出诊断包' if zh else 'Export diagnostics'
+        preview = (
+            f'将打包：\n{included}\n\n不会打包：\n{excluded}'
+            if zh else
+            f'Will include:\n{included}\n\nWill not include:\n{excluded}'
+        )
+        answer = QMessageBox.question(
+            self, title, preview,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        filename = 'PengToolsHub-diag-' + datetime.now().strftime('%Y%m%d-%H%M') + '.zip'
+        start = get_dialog_save_path('diagnostics_bundle', filename)
+        path, _chosen = QFileDialog.getSaveFileName(
+            self, title, start,
+            'Zip (*.zip)' if zh else 'Zip (*.zip)',
+        )
+        if not path:
+            return
+        remember_dialog_path('diagnostics_bundle', path)
+        logger = get_logger('pengtools.diag')
+        try:
+            build_bundle(path)
+        except DiagnosticsError as exc:
+            self.diag_export_status.setText(str(exc))
+            QMessageBox.warning(self, title, str(exc))
+            logger.warning('诊断包导出失败 %s', os.path.basename(path))
+            return
+        saved = f'已保存到 {path}' if zh else f'Saved to {path}'
+        self.diag_export_status.setText(saved)
+        QMessageBox.information(self, title, saved)
+        logger.info('诊断包已导出 %s', os.path.basename(path))
 
     def _load_oracle_values(self, settings):
         mode = str(settings.get('oracle_client_mode') or 'auto')
@@ -2248,6 +2302,7 @@ class SettingsPanel(QWidget):
         self.security_ssl_verify_label.setText('HTTPS 校验证书' if zh else 'Verify HTTPS certs')
         self.intranet_open_label.setText('内网模式（放开产品限制）' if zh else 'Intranet mode (relax product limits)')
         self.intranet_open.setText('启用（重启生效）' if zh else 'Enabled (restart to apply)')
+        self.diag_export_btn.setText('导出诊断包…' if zh else 'Export diagnostics…')
         self.security_ssl_verify.setText('启用（推荐）' if zh else 'Enabled (recommended)')
         self.security_confirm_remote_label.setText('远程请求确认' if zh else 'Confirm remote requests')
         self.security_confirm_remote.setText('启用（推荐）' if zh else 'Enabled (recommended)')

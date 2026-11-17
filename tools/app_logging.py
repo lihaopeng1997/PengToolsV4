@@ -157,12 +157,23 @@ def _usable_dir(path: str) -> str:
         return ''
 
 
-def _redact(text: str) -> str:
+def redact_text(text: str) -> str:
     from tools.sql_guard import redact_error
     from tools.log_analysis.events import Redactor
     cleaned = redact_error(str(text or ''))
     cleaned = Redactor().clean(cleaned)
     return _mask_private_ipv4(cleaned)
+
+
+_redact = redact_text
+
+
+def current_log_dir() -> str:
+    """Directory of the active app.log, or '' when file logging is not set up."""
+    path = str(_state.get('path') or '')
+    if not path:
+        return ''
+    return os.path.dirname(path)
 
 
 def _mask_private_ipv4(text: str) -> str:
