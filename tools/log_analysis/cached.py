@@ -15,7 +15,7 @@ class CachedTask:
         self.stop_event = threading.Event()
         self.paused = threading.Event()
         self.lock = threading.RLock()
-        self.buffer = EventBuffer(limit=2000)
+        self.buffer = EventBuffer(limit=2000, redact=True)
         keys = {f.name for f in fields(Event)}
         for event in snapshot.get('events', [])[:2000]:
             self.buffer.events.append(Event(**{k: v for k, v in event.items() if k in keys}))

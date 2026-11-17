@@ -15,12 +15,23 @@ TRACE = re.compile(r'(?:traceId|trace_id|requestId)\s*[=:]\s*([\w-]{1,128})', re
 
 
 class Redactor:
-    def __init__(self):
+    """Sensitive-value masking, on by default.
+
+    The capture list, event details and evidence preview mask passwords,
+    tokens, Authorization headers and URL credentials by default. An operator
+    can explicitly opt into raw text per task; the model path always scrubs.
+    """
+
+    def __init__(self, enabled=True):
+        self.enabled = bool(enabled)
         self.salt = uuid.uuid4().hex
         self.private_block = False
         self.payload_block = False
 
     def line(self, text):
+        text = str(text)
+        if not self.enabled:
+            return text
         if '-----BEGIN' in text and 'PRIVATE KEY-----' in text:
             self.private_block = True
         if self.private_block:
@@ -39,6 +50,8 @@ class Redactor:
 
     def clean(self, text):
         text = str(text)
+        if not self.enabled:
+            return text
         text = re.sub(r'-----BEGIN[^\n]*PRIVATE KEY-----.*?(?:-----END[^\n]*PRIVATE KEY-----|$)', '[私钥已隐藏]', text, flags=re.S)
         text = re.sub(r'(?im)^.*(?:authorization|cookie|password|passwd|secret|(?:access[_-]?)?token|api[_-]?key|密码)["\x27]?\s*[=:].*$', '[敏感字段已隐藏]', text)
         text = re.sub(r'(?im)^.*(?:requestBody|responseBody|请求体|响应体)\s*[=:].*$', '[请求/响应正文已隐藏]', text)
@@ -71,8 +84,15 @@ class Event:
 
 class EventBuffer:
     """Caller serializes access. Offsets refer to bytes, times to observation."""
-    def __init__(self, redactor=None, warn=False, limit=200, clock=time.time):
-        self.redactor = redactor or Redactor()
+    def __init__(self, redactor=None, warn=False, limit=200, clock=time.time, redact=None):
+        if redact is None:
+            # Default follows the intranet switch: on -> show raw, off -> mask.
+            try:
+                from tools.intranet_mode import is_intranet_open
+                redact = not is_intranet_open()
+            except Exception:
+                redact = True
+        self.redactor = redactor or Redactor(enabled=redact)
         self.warn, self.limit, self.clock = warn, limit, clock
         self.events = deque(maxlen=limit)
         self.before = deque(maxlen=20)

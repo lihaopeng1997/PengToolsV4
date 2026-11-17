@@ -29,7 +29,7 @@ def report(snapshot, selected=None):
         lines += [f"### {e['id']} · {e['title']}", f"文件：{e.get('source') or snapshot['path'] or '系统指标'}",
                   f"次数：{e['count']}；首次：{stamp(e['first_seen'])}；最近：{stamp(e['last_seen'])}",
                   f"来源：文件代次 {e['generation']}，字节偏移 {e['offset']}；截断：{e['truncated']}",
-                  '证据（脱敏）：', '']
+                  ('证据（脱敏）：' if snapshot.get('redacted', True) else '证据（原文）：'), '']
         lines += ['    ' + line for line in e['evidence'].splitlines()]
         lines += ['', '#### 分析与建议']
         for analysis in e.get('analyses', []):

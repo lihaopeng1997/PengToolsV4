@@ -177,6 +177,19 @@ class LogAnalysisWorkspace(QWidget):
                               ('磁盘/inode告警 %', self.disk_threshold), ('持续秒数', self.duration)]:
             system_form.addRow(label, widget)
         form.addRow(self.system_options)
+        from tools.intranet_mode import is_intranet_open
+        self._intranet_open = is_intranet_open()
+        self.scrub_model = QCheckBox('发给模型前清洗敏感字段')
+        self.scrub_model.setChecked(True)
+        self.scrub_model.setToolTip('默认开启，建议保持；关闭后模型会收到原文。')
+        self.scrub_model.toggled.connect(self._scrub_changed)
+        form.addRow(self.scrub_model)
+        self.show_raw = QCheckBox('显示原文（关闭采集打码）')
+        self.show_raw.setChecked(self._intranet_open)
+        self.show_raw.setToolTip(
+            '默认对采集列表、事件详情和证据预览打码（密码、token、Authorization 等）。'
+            '勾选后仅对之后新启动的任务显示原文；发给模型的内容仍按上面的清洗开关处理。')
+        form.addRow(self.show_raw)
         for widget in (self.backfill, self.warn):
             form.addRow(widget)
         self.more_btn = QPushButton('更多')
@@ -319,7 +332,7 @@ class LogAnalysisWorkspace(QWidget):
         historical = mode == 'history'
         local = historical and self.source.currentData() == 'local'
         advanced = self.system_advanced.isChecked()
-        self.system_advanced.setText('收起高级设置' if advanced else '高级设置')
+        self.system_advanced.setText('收起高级设置' if advanced else '高级设置（采集周期 / 阈值 / 编码 / 清洗）')
         for widget, visible in ((self.source, historical), (self.files, historical), (self.tail_lines, historical and advanced),
                                 (self.use_time, historical and advanced), (self.time_options, historical and advanced and self.use_time.isChecked()),
                                 (self.servers, not local), (self.services, not local and (mode != 'system' or self.with_logs.isChecked())),
@@ -328,7 +341,9 @@ class LogAnalysisWorkspace(QWidget):
                                 (self.interval, not historical and advanced), (self.system_advanced, True),
                                 (self.encoding, advanced), (self.warn, advanced), (self.notice, advanced),
                                 (self.system_options, mode == 'system' and self.system_advanced.isChecked()),
-                                (self.with_logs, mode == 'system'), (self.backfill, not historical and advanced)):
+                                (self.with_logs, mode == 'system'), (self.backfill, not historical and advanced),
+                                (self.scrub_model, not local and advanced),
+                                (self.show_raw, not local and advanced)):
             self.form.setRowVisible(widget, visible)
         self.result_tabs.setTabVisible(1, mode == 'system')
         self.control_buttons['开始监控 / AI取证'].setText('读取文件' if historical else '开始监控')
@@ -338,6 +353,17 @@ class LogAnalysisWorkspace(QWidget):
         self.control_buttons['恢复所选历史任务'].setText('打开所选任务的缓存证据')
         self.interval.setMinimum(5 if mode == 'system' else 1)
         self.tail_lines.setEnabled(not self.use_time.isChecked())
+
+    def _scrub_changed(self, enabled):
+        if self.service:
+            self.service.set_scrub_for_model(enabled)
+        if enabled:
+            text = '发送给模型的内容将清洗敏感字段。'
+        elif getattr(self, '_intranet_open', False):
+            text = '已关闭模型前清洗：按内网模式直接发送原文。'
+        else:
+            text = '已关闭模型前清洗：模型会收到原文，请确认内网环境可信。'
+        self.status.setText(text)
 
     def selected_mode(self):
         return self.mode.tabData(self.mode.currentIndex())
@@ -399,8 +425,9 @@ class LogAnalysisWorkspace(QWidget):
             return
         try:
             if self.service is None:
-                self.service = LogService(self.store)
-            options = {'encoding': self.encoding.currentText(), 'warn': self.warn.isChecked()}
+                self.service = LogService(self.store, scrub_for_model=self.scrub_model.isChecked())
+            options = {'encoding': self.encoding.currentText(), 'warn': self.warn.isChecked(),
+                       'redact': not self.show_raw.isChecked()}
             if mode == 'history':
                 path = [line.strip() for line in self.files.toPlainText().splitlines() if line.strip()]
                 options.update(local=local, tail_lines=0 if self.use_time.isChecked() else self.tail_lines.value())
@@ -476,7 +503,7 @@ class LogAnalysisWorkspace(QWidget):
             self.details.clear()
             return
         if self.service is None:
-            self.service = LogService(self.store)
+            self.service = LogService(self.store, scrub_for_model=self.scrub_model.isChecked())
         try:
             self.service.open_snapshot(snapshot)
             self.status.setText('已打开缓存证据，可提问；未重新连接服务器或启动采集。')
@@ -484,8 +511,33 @@ class LogAnalysisWorkspace(QWidget):
             self.status.setText(str(error))
 
     def _model_changed(self):
-        self.model_consent.setChecked(False)
+        # Skip the checkbox only when this model's address is a proven intranet target.
+        self._apply_model_consent()
         self.auto.setChecked(False)
+
+    def _selected_model_is_proven_intranet(self):
+        """True only when the selected endpoint is provably private. Unknown stays public."""
+        model_id = str(self.models.currentData() or '').strip()
+        if not model_id:
+            return False
+        try:
+            from tools.agent_core.model_config import load_agent_model_profile
+            from tools.model_boundary import classify_private_config
+            _snapshot, private_config = load_agent_model_profile(model_id, require_endpoint=False)
+        except Exception:
+            return False
+        boundary = classify_private_config(private_config)
+        return bool(boundary is not None and boundary.is_intranet)
+
+    def _apply_model_consent(self):
+        if self._selected_model_is_proven_intranet():
+            self.model_consent.setChecked(True)
+            self.model_consent.setToolTip('所选模型地址已确认为内网，无需再次同意。')
+            self.model_consent.hide()
+            return
+        self.model_consent.setChecked(False)
+        self.model_consent.setToolTip('只使用明确选择的配置，不自动切换模型。请核对配置地址。')
+        self.model_consent.show()
 
     def _auto_changed(self, enabled):
         if self.service:

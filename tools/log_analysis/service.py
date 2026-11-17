@@ -7,14 +7,17 @@ import time
 
 from tools.agent_core.contracts import CancellationToken
 from .collector import Monitor
-from .events import Event
+from .events import Event, Redactor
 from .runtime import analyze
 from tools.agent_diag import log_agent_event
 
 
 class LogService:
-    def __init__(self, store=None, analyzer=analyze):
+    def __init__(self, store=None, analyzer=analyze, scrub_for_model=None):
         self.store, self.analyzer = store, analyzer
+        if scrub_for_model is None:
+            scrub_for_model = True
+        self.scrubber = Redactor(enabled=scrub_for_model)
         self.tasks = {}
         self.queue = deque(maxlen=50)
         self.results = deque(maxlen=100)
@@ -148,7 +151,7 @@ class LogService:
             log_agent_event('log_analysis_started', task=task_id, stage='open')
             try:
                 snapshot = task.snapshot()
-                clean_question = task.buffer.redactor.clean(question)
+                clean_question = self.scrubber.clean(question)
                 if event_id:
                     # Pin selected evidence in the prompt; full tools remain scoped.
                     event = next((e for e in snapshot['events'] if e['id'] == event_id), None)
@@ -169,7 +172,7 @@ class LogService:
                                        searcher=getattr(task, 'search', None), probe=getattr(task, 'probe', None))
                 if token.is_cancelled() or self.closed.is_set():
                     continue
-                text = task.buffer.redactor.clean(result.final_text or '分析未完成：' + str(result.error or result.status.value))
+                text = result.final_text or '分析未完成：' + str(result.error or result.status.value)
                 if event_id:
                     for owner in (task, getattr(task, 'log_task', None)):
                         if owner is None:
@@ -181,7 +184,7 @@ class LogService:
                                 e.analyses = e.analyses[-5:]
                                 break
                 history = self.history.setdefault(task_id, [])
-                history.extend([{'role': 'user', 'content': task.buffer.redactor.clean(question)[:8192]},
+                history.extend([{'role': 'user', 'content': self.scrubber.clean(question)[:8192]},
                                 {'role': 'assistant', 'content': text[:16384]}])
                 self.history[task_id] = history[-12:]
                 if len(history) > 12:
@@ -248,6 +251,10 @@ class LogService:
             rows = list(self.results)
             self.results.clear()
             return rows
+
+    def set_scrub_for_model(self, enabled):
+        """Mask only what is sent to the model. Capture and preview stay raw."""
+        self.scrubber.enabled = bool(enabled)
 
     def close(self):
         self.closed.set()

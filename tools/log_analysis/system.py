@@ -374,7 +374,7 @@ class SystemMonitor(Monitor):
             text, code = self.sampler.executor(client, 'journalctl --no-pager -n 80 -o short-iso -u ' + shlex.quote(unit), CancelAdapter())
             if code:
                 raise ValueError('journal不可用或无权限，未取得日志')
-            redactor = Redactor()
+            redactor = Redactor(enabled=True)  # Journal evidence goes to the model.
             return {'unit': unit, 'observed_at': time.time(), 'coverage': '该服务当前journal末尾最多80行，非故障时段全量',
                     'text': '\n'.join(redactor.line(line) for line in text.splitlines())}
         finally:
