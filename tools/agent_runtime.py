@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import difflib
 import hashlib
+import logging
 import os
 import re
 import subprocess
@@ -17,10 +18,13 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+from tools.app_logging import get_logger, log_failure
 from tools.agent_core.text_protocol import parse_qwen_tool_calls, strip_tool_markup, TEXT_PROTOCOL_INSTRUCTION
 from tools.ai_harness import strip_markdown_fence
 from tools.sql_guard import redact_error
 from tools.agent_core.auto_context import DEFAULT_CONTEXT_INPUT_BYTES, default_context_planner
+
+logger = get_logger(__name__)
 
 MAX_TOOL_ROUNDS = 120  # 长任务按完整工具轮次压缩上下文，保留有界运行预算
 MAX_TOOL_CALLS = 360
@@ -1278,6 +1282,7 @@ class ProgrammingToolRegistry:
                 cancel_cb=cancellation.is_cancelled,
             )
         except Exception as error:
+            log_failure(logger, 'TOOL_EXECUTION_FAILED', error, level=logging.WARNING)
             safe_error = f'TOOL_EXECUTION_FAILED:{type(error).__name__}'
             return ToolResult(ok=False, code='TOOL_EXECUTION_FAILED', data=safe_error)
         projected = {
@@ -1689,8 +1694,8 @@ def run_agent_loop(
         if callable(progress_cb):
             try:
                 progress_cb('status', 'failed')
-            except Exception:
-                pass
+            except Exception as exc:
+                log_failure(logger, 'AGENT_PROGRESS_CB_FAILED', exc, level=logging.WARNING)
         return answer, public_messages, _clean_tool_records(call_list)
     token = cancellation if cancellation is not None else CancellationToken()
     config = dict(model_cfg) if isinstance(model_cfg, dict) else {}
@@ -1700,8 +1705,8 @@ def run_agent_loop(
         try:
             if cancel_cb():
                 token.cancel('cancelled')
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('AGENT_CANCEL_CB_FAILED: %s', type(exc).__name__)
     if token.is_cancelled():
         timed_out = 'timeout' in token.reason.lower()
         answer = 'Agent 运行超时，已停止。' if timed_out else '任务已由用户手动停止。'
@@ -1712,8 +1717,8 @@ def run_agent_loop(
         if progress_cb:
             try:
                 progress_cb('status', 'timeout' if timed_out else 'cancelled')
-            except Exception:
-                pass
+            except Exception as exc:
+                log_failure(logger, 'AGENT_PROGRESS_CB_FAILED', exc, level=logging.WARNING)
         return answer, message_list, call_list
     if model_adapter is None:
         if not selected_id:
@@ -1731,6 +1736,7 @@ def run_agent_loop(
                 transport=model_transport,
             )
         except Exception as error:
+            log_failure(logger, 'AGENT_ADAPTER_INIT_FAILED', error)
             answer = f'模型配置不可用（{type(error).__name__}），未执行工具。'
             message_list.append({'id': _new_id(), 'role': 'assistant', 'content': answer, 'created_at': _now()})
             if progress_cb:
@@ -1785,12 +1791,17 @@ def run_agent_loop(
         # built a concrete preview. Read-only batches need no extra approval.
         return True
 
+    event_cb_failure_logged = False
+
     def dispatch_event(event):
+        nonlocal event_cb_failure_logged
         if event_cb is not None:
             try:
                 event_cb(event)
-            except Exception:
-                pass
+            except Exception as exc:
+                if not event_cb_failure_logged:
+                    event_cb_failure_logged = True
+                    log_failure(logger, 'AGENT_EVENT_CB_FAILED', exc, level=logging.WARNING)
         if progress_cb is None:
             return
         kind = None
@@ -1813,8 +1824,10 @@ def run_agent_loop(
                     'name': str(payload.get('name') or ''),
                     'arguments': dict(payload.get('arguments') or {}),
                 }, ensure_ascii=False))
-            except Exception:
-                pass
+            except Exception as exc:
+                if not event_cb_failure_logged:
+                    event_cb_failure_logged = True
+                    log_failure(logger, 'AGENT_EVENT_CB_FAILED', exc, level=logging.WARNING)
         elif event_type == AgentEventType.TOOL_STARTED.value:
             kind, content = 'tool', f"正在执行：{payload.get('name') or ''}"
         elif event_type == AgentEventType.TOOL_RESULT.value:
@@ -1836,8 +1849,10 @@ def run_agent_loop(
         if kind is not None:
             try:
                 progress_cb(kind, content)
-            except Exception:
-                pass
+            except Exception as exc:
+                if not event_cb_failure_logged:
+                    event_cb_failure_logged = True
+                    log_failure(logger, 'AGENT_EVENT_CB_FAILED', exc, level=logging.WARNING)
 
     monitor_stop = threading.Event()
     monitor = None
@@ -1893,6 +1908,7 @@ def run_agent_loop(
         )
     except Exception as error:
         # Host integration errors do not serialize endpoint/config exception text.
+        log_failure(logger, 'AGENT_RUN_FAILED', error)
         result = None
         safe_failure = f'Agent 执行失败（{type(error).__name__}）。'
     finally:
@@ -1957,11 +1973,11 @@ def run_agent_loop(
             public_messages = _clean_message_history(message_list)
             previous = decode_memory(memory_planner.previous, messages=public_messages, binding=memory_binding)
             memory = build_memory(messages=public_messages, binding=memory_binding, previous=previous)
-        except (TypeError, ValueError, UnicodeError):
-            pass
+        except (TypeError, ValueError, UnicodeError) as exc:
+            logger.debug('AGENT_MEMORY_DECODE_FAILED: %s', type(exc).__name__)
         try:
             memory_cb(memory.to_dict() if memory is not None else None)
-        except Exception:
+        except Exception as exc:
             # A host's cache callback must not discard a completed run result.
-            pass
+            log_failure(logger, 'AGENT_MEMORY_CB_FAILED', exc, level=logging.WARNING)
     return answer, message_list, call_list

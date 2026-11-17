@@ -5,6 +5,7 @@ import codecs
 from collections import deque
 import copy
 import hashlib
+import logging
 import stat
 import threading
 import time
@@ -12,6 +13,9 @@ import uuid
 
 from .events import EventBuffer
 from tools.agent_diag import log_agent_event
+from tools.app_logging import get_logger, log_failure
+
+logger = get_logger(__name__)
 
 CHUNK = 256 * 1024
 
@@ -174,6 +178,7 @@ class Monitor:
                     failures = 0
                     self.stop_event.wait(self.interval)
                 except Exception as error:
+                    log_failure(logger, 'LOG_MONITOR_READ_FAILED', error, level=logging.WARNING)
                     self._disconnect()
                     failures += 1
                     log_agent_event('log_monitor_read_failed', task=self.id, retry=failures, error_type=type(error).__name__)

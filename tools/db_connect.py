@@ -12,9 +12,6 @@ import uuid
 from typing import Any
 
 from config import HARNESS_CONNECTIONS_FILE
-from tools.app_logging import get_logger, log_failure
-
-logger = get_logger(__name__)
 from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 
 # PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
@@ -34,6 +31,9 @@ from tools.sql_guard import (
     classify_statement, is_read_query, leading_verb, redact_error, reject_reason,
     strip_sql_comments,
 )
+from tools.app_logging import get_logger, log_failure
+
+logger = get_logger(__name__)
 
 PAGE_SIZE = 20
 MAX_ROWS = 2000  # Redis/Mongo 等非 SQL 路径保护；SQL 分页不再用它做总行上限

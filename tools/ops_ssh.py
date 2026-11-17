@@ -17,8 +17,6 @@ from typing import Callable
 
 from config import OPS_LOG_SETTINGS_FILE, OPS_SERVERS_FILE, OPS_SSH_KNOWN_HOSTS_FILE, ensure_config_dir
 from tools.app_logging import get_logger, log_failure
-
-logger = get_logger(__name__)
 from tools.secure_store import (
     decrypt_secret,
     encrypt_secret,
@@ -29,6 +27,8 @@ try:
     import paramiko
 except ImportError:  # pragma: no cover
     paramiko = None
+
+logger = get_logger(__name__)
 
 
 DEFAULT_LOG_SETTINGS = {

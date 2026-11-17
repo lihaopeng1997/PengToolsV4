@@ -174,7 +174,7 @@ def log_failure(logger, code, exc, *, level=logging.ERROR, with_message=False) -
         text = f'{code}: {type(exc).__name__}'
         if with_message:
             text += ': ' + redact_text(str(exc))
-        text += ''.join(traceback.format_tb(exc.__traceback__))
+        text += '\n' + ''.join(traceback.format_tb(exc.__traceback__))
         logger.log(level, '%s', text)
     except Exception:
         return
