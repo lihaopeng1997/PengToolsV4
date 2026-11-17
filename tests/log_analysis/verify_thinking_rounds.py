@@ -89,6 +89,7 @@ def workspace_like(selected='A', chats=None, service=None):
                  '_start_thinking_round', '_reserve_thinking_round',
                  '_activate_thinking_round', '_shift_thinking', '_ensure_round_maps',
                  '_append_answer_preview', '_clear_answer_preview',
+                 '_drop_idle_thinking',
                  'append_chat', '_drain_analysis_events'):
         setattr(ws, name, (lambda n: lambda *a, **k: getattr(LogAnalysisWorkspace, n)(ws, *a, **k))(name))
     return ws
@@ -255,6 +256,82 @@ check('到达顺序是轮次开始、思考、再结果',
       _kinds[:3] == [('delta', 'model_round_start'), ('delta', 'model_reasoning_delta'), ('result', '只有结论')],
       str(_kinds))
 check('history 没有思考', _history and _history[-1]['content'].startswith('只有结论') and '不应进历史' not in str(_history), str(_history))
+
+
+print('--- 取消后的下一轮 ---')
+from tools.log_analysis.service import EnqueueResult
+
+fresh = workspace_like('t', chats={'t': []})
+fresh.models = SimpleNamespace(currentData=lambda: 'm')
+fresh.model_consent = SimpleNamespace(isChecked=lambda: True)
+fresh.input = SimpleNamespace(toPlainText=lambda: '', clear=lambda: None)
+fresh._refresh_analysis_activity = lambda: None
+fresh.service = SimpleNamespace(
+    tasks={},
+    cancel_analysis=lambda *args, **kwargs: None,
+    stop=lambda *args, **kwargs: None,
+    enqueue=lambda *args, **kwargs: EnqueueResult(True),
+)
+LogAnalysisWorkspace.send(fresh, question='旧问题')
+LogAnalysisWorkspace._apply_deltas(fresh, [('t', 'model_round_start', 'chat')])
+LogAnalysisWorkspace.cancel_analysis(fresh)
+LogAnalysisWorkspace.send(fresh, question='新问题')
+LogAnalysisWorkspace._apply_deltas(fresh, [
+    ('t', 'model_round_start', 'chat'),
+    ('t', 'model_reasoning_delta', '新思考'),
+])
+fresh.chat.set_messages([])
+fresh._replay_thinking()
+check('取消后思考跟在新问题后面', thinking_follows(fresh.chat, '新问题'), str(fresh._thinking['t']))
+check('取消后空预留已清掉', all(item.get('chunks') for item in fresh._thinking['t']), str(fresh._thinking['t']))
+
+paused = workspace_like('t', chats={'t': [{'role': 'user', 'text': '问'}]})
+paused.service = SimpleNamespace(tasks={})
+paused.current_task = lambda: None
+LogAnalysisWorkspace._reserve_thinking_round(paused, 't')
+LogAnalysisWorkspace.pause(paused)
+check('暂停清掉空预留', paused._thinking_pending.get('t') == [] and 't' not in paused._thinking_active)
+
+stopped = workspace_like('t', chats={'t': [{'role': 'user', 'text': '问'}]})
+stopped.service = SimpleNamespace(tasks={}, stop=lambda task_id: None)
+stopped.current_task = lambda: None
+stopped.refresh = lambda: None
+LogAnalysisWorkspace._reserve_thinking_round(stopped, 't')
+LogAnalysisWorkspace._activate_thinking_round(stopped, 't', 'chat')
+LogAnalysisWorkspace.stop(stopped)
+check('停止清掉空的激活轮次', stopped._thinking.get('t') == [] and 't' not in stopped._thinking_active)
+
+
+print('--- 重复分析只预留一轮 ---')
+once = workspace_like('t', chats={'t': []})
+once.models = SimpleNamespace(currentData=lambda: 'm')
+once.model_consent = SimpleNamespace(isChecked=lambda: True)
+once.input = SimpleNamespace(toPlainText=lambda: '', clear=lambda: None)
+once._refresh_analysis_activity = lambda: None
+_seen = {'n': 0}
+
+def _enqueue(*args, **kwargs):
+    _seen['n'] += 1
+    return EnqueueResult(_seen['n'] == 1)
+
+once.service = SimpleNamespace(tasks={}, enqueue=_enqueue)
+LogAnalysisWorkspace.send(once, event_id='e1', question='分析此异常')
+LogAnalysisWorkspace.send(once, event_id='e1', question='分析此异常')
+check('重复分析同一条异常只预留一轮', len(once._thinking_pending.get('t') or []) == 1, str(once._thinking_pending))
+
+_limit = LogService(store=None, analyzer=lambda *args, **kwargs: None)
+_limit.tasks['t'] = _Task()
+with _limit.lock:
+    _added = _limit.enqueue('t', '分析此异常', 'm', event_id='e1')
+    _again = _limit.enqueue('t', '分析此异常', 'm', event_id='e1')
+check('新增与去重都保持真值', bool(_added) and bool(_again) and _added.added and not _again.added)
+for _i in range(4200):
+    _limit._queue_delta(('t', 'model_reasoning_delta', str(_i)))
+check('_ordered 有上限', len(_limit._ordered) == _limit._ordered.maxlen == 4100, str(len(_limit._ordered)))
+_limit.drain_deltas()
+check('出队后仍保留上限', _limit._ordered.maxlen == 4100)
+_limit.close()
+_limit.join(1)
 
 
 print()

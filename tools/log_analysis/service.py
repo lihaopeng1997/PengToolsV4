@@ -11,6 +11,20 @@ from .events import Event, Redactor
 from .runtime import analyze
 from tools.agent_diag import log_agent_event
 
+_ORDERED_LIMIT = 4100
+
+
+class EnqueueResult:
+    """Accepted enqueue. Truthy either way; ``added`` is false when deduplicated."""
+
+    __slots__ = ('added',)
+
+    def __init__(self, added):
+        self.added = bool(added)
+
+    def __bool__(self):
+        return True
+
 
 class LogService:
     def __init__(self, store=None, analyzer=analyze, scrub_for_model=None):
@@ -31,7 +45,7 @@ class LogService:
         # never fed back into history or the model context.
         self.deltas = deque(maxlen=4000)
         self._seq = 0
-        self._ordered = deque()
+        self._ordered = deque(maxlen=_ORDERED_LIMIT)
         self.cache_state = ''
         self.auto = {}  # task -> explicitly chosen model ID
         self.last_auto = {}
@@ -95,11 +109,11 @@ class LogService:
                 self.analysis_state = '分析队列已满（50），请稍后重试'
                 return False
             if event_id and any(x[0] == task_id and x[3] == event_id for x in self.queue):
-                return True
+                return EnqueueResult(False)
             self.queue.append((task_id, question, model_id, event_id, kind))
             self.outcomes.pop(task_id, None)
             self.wake.set()
-            return True
+            return EnqueueResult(True)
 
     def cancel_analysis(self, task_id, disable_auto=False):
         with self.lock:
@@ -147,7 +161,7 @@ class LogService:
                 return []
             items = list(self.deltas)
             self.deltas.clear()
-            self._ordered = deque(row for row in self._ordered if row[1] != 'delta')
+            self._ordered = deque((row for row in self._ordered if row[1] != 'delta'), maxlen=_ORDERED_LIMIT)
         return items
 
     def drain_events(self):
@@ -283,7 +297,7 @@ class LogService:
         with self.lock:
             rows = list(self.results)
             self.results.clear()
-            self._ordered = deque(row for row in self._ordered if row[1] != 'result')
+            self._ordered = deque((row for row in self._ordered if row[1] != 'result'), maxlen=_ORDERED_LIMIT)
             return rows
 
     def set_scrub_for_model(self, enabled):

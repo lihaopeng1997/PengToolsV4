@@ -531,7 +531,23 @@ class LogAnalysisWorkspace(QWidget):
     def current_task(self):
         return self.service.tasks.get(self.selected_id) if self.service else None
 
+    def _drop_idle_thinking(self, task_id):
+        """Drop empty reserved rounds and detach the active round for this task."""
+        if not task_id:
+            return
+        _ensure_round_maps(self)
+        pending = list(self._thinking_pending.get(task_id) or [])
+        active = self._thinking_active.get(task_id)
+        drop = {id(item) for item in pending if not item.get('chunks')}
+        if active is not None and not active.get('chunks'):
+            drop.add(id(active))
+        if drop:
+            self._thinking[task_id] = [item for item in (self._thinking.get(task_id) or []) if id(item) not in drop]
+            self._thinking_pending[task_id] = [item for item in pending if id(item) not in drop]
+        self._thinking_active.pop(task_id, None)
+
     def pause(self):
+        self._drop_idle_thinking(self.selected_id)
         task = self.current_task()
         if task:
             if hasattr(task, 'set_paused'):
@@ -543,6 +559,7 @@ class LogAnalysisWorkspace(QWidget):
                 task.paused.set()
 
     def cancel_analysis(self, _checked=False, disable_auto=False):
+        self._drop_idle_thinking(self.selected_id)
         if self.service:
             self.service.cancel_analysis(self.selected_id, disable_auto=disable_auto)
         if disable_auto:
@@ -550,6 +567,7 @@ class LogAnalysisWorkspace(QWidget):
         self._refresh_analysis_activity()
 
     def stop(self):
+        self._drop_idle_thinking(self.selected_id)
         if self.current_task():
             self.service.stop(self.selected_id)
             self.refresh()
@@ -822,11 +840,13 @@ class LogAnalysisWorkspace(QWidget):
         if not self.models.currentData() or not self.model_consent.isChecked():
             self.status.setText('请选择并确认内网模型。')
             return
-        if not self.service or not self.service.enqueue(self.selected_id, text, self.models.currentData(), event_id, kind=kind):
+        queued = self.service.enqueue(self.selected_id, text, self.models.currentData(), event_id, kind=kind) if self.service else False
+        if not queued:
             self.status.setText('请先读取文件、启动监控或打开缓存任务；分析队列可能已满。')
             return
         self.append_chat(self.selected_id, text, force=True, role='user')
-        self._reserve_thinking_round(self.selected_id)
+        if getattr(queued, 'added', True):
+            self._reserve_thinking_round(self.selected_id)
         if question is None:
             self.input.clear()
         self.right_tabs.setCurrentIndex(0)
