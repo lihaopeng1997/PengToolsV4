@@ -8,4 +8,4 @@
 | `design/inventories/` | 历史功能盘点 |
 | `design/ui/` | 仅保留 `PengToolsV4_新视觉语言_V1.0.md` |
 
-当前入口为 [项目开发说明](../project/README.md)和 [Prism V2.1](../design/prism/README.md)。历史文档中链接到旧提交的资料不包含在当前分支；开发测试和验收材料在本机保留。
+当前入口为 [文档导航](../README.md)和 [Prism V2.1](../design/prism/README.md)。历史文档中链接到旧提交的资料不包含在当前分支；开发测试和验收材料在本机保留。

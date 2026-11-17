@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_build_env.ps1
 ## 文档
 
 - [文档导航](docs/README.md)：按架构、设计、功能需求和使用说明查阅。
-- [项目开发入口](docs/project/README.md)：源码地图、当前约定和协作方式。
+- [项目开发入口](docs/README.md)：源码地图、当前约定和协作方式。
 - [使用说明](docs/guides/PengToolsHub_使用说明_V4.27.docx)：桌面软件的用户手册。
 - [Prism UI 设计](docs/design/prism/README.md)：现用 V2.1 规格与离线原型。
 - [脚本说明](scripts/README.md)：环境、构建和维护命令。

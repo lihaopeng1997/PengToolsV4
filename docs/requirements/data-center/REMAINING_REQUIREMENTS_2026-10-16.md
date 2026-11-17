@@ -15,4 +15,4 @@
 | 内网 qwen3.6 实际上下文/工具/流式 | 仅已知家族名；现有保守预算、压缩/恢复/所有权证据不能证明服务端实际容量及tools能力 | 真实环境待验 |
 | 六类/模式真实引擎、生命周期、完整界面与发布 | 当前有分层定向/模拟证据；R8未启动验收，且之后源码增量尚未打包 | 完整目标**未达到**；修完明确源码缺口后再一次构建与验收，达梦除外 |
 
-本次检查来源：`DATA_CENTER_AGENT_REQUIREMENTS.md` 7.3/7.4；当前 `panels/db_redis_panel.py` 按钮与worker分派、`tools/db_redis_ops.py` 值读取/写入函数、两个新NoSQL导出模块与已落地receipts。其余需求矩阵不是本次新增完整验收；目标保持active。用户窗口曾物理Esc停止，当前仍不操作用户窗口；隔离Qt fixture不属于该用户窗口。
+本次检查来源：`DATA_CENTER.md`；当前 `panels/db_redis_panel.py` 按钮与worker分派、`tools/db_redis_ops.py` 值读取/写入函数、两个新NoSQL导出模块与已落地receipts。其余需求矩阵不是本次新增完整验收；目标保持active。用户窗口曾物理Esc停止，当前仍不操作用户窗口；隔离Qt fixture不属于该用户窗口。
