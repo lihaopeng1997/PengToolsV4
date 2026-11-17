@@ -88,6 +88,7 @@ def workspace_like(selected='A', chats=None, service=None):
     for name in ('_apply_deltas', '_replay_thinking', '_thinking_round',
                  '_start_thinking_round', '_reserve_thinking_round',
                  '_activate_thinking_round', '_shift_thinking', '_ensure_round_maps',
+                 '_append_answer_preview', '_clear_answer_preview',
                  'append_chat', '_drain_analysis_events'):
         setattr(ws, name, (lambda n: lambda *a, **k: getattr(LogAnalysisWorkspace, n)(ws, *a, **k))(name))
     return ws

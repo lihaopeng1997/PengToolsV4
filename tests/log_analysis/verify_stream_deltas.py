@@ -41,6 +41,28 @@ class FakeChat:
     def append_stream(self, text):
         self.calls.append(('append', text))
 
+    def end_stream(self):
+        self.role = ''
+
+    def set_messages(self, messages):
+        self.role = ''
+        self.calls.append(('set', len(messages)))
+
+    def append_message(self, message):
+        self.calls.append(('msg', message.get('text')))
+
+    def verticalScrollBar(self):
+        class _Bar:
+            def value(self):
+                return 0
+
+            def maximum(self):
+                return 0
+
+            def setValue(self, value):
+                return None
+        return _Bar()
+
 
 print('--- deltas 队列 ---')
 svc = LogService(store=None, analyzer=lambda *a, **k: None)
@@ -76,11 +98,30 @@ check('只追加当前任务', [c[1] for c in obj.chat.calls if c[0] == 'append'
       str(obj.chat.calls))
 check('不串台', '串台片段' not in str(obj.chat.calls))
 
-print('--- text_delta 不渲染 ---')
-obj2 = SimpleNamespace(selected_id='t1', chat=FakeChat(), _thinking={}, chats={})
-obj2._thinking_round = lambda tid: LogAnalysisWorkspace._thinking_round(obj2, tid)
+print('--- text_delta 只进临时气泡 ---')
+obj2 = SimpleNamespace(selected_id='t1', chat=FakeChat(), _thinking={}, chats={},
+                       _answer_preview={}, _thinking_pending={}, _thinking_active={},
+                       jump=SimpleNamespace(hide=lambda: None, show=lambda: None))
+for _name in ('_thinking_round', '_append_answer_preview', '_clear_answer_preview',
+              '_replay_thinking', '_shift_thinking', 'append_chat', '_ensure_round_maps'):
+    setattr(obj2, _name, (lambda n: lambda *a, **k: getattr(LogAnalysisWorkspace, n)(obj2, *a, **k))(_name))
 LogAnalysisWorkspace._apply_deltas(obj2, [('t1', 'model_text_delta', '半截JSON')])
-check('text_delta 不落屏', obj2.chat.calls == [], str(obj2.chat.calls))
+check('text_delta 只进临时气泡',
+      [c[1] for c in obj2.chat.calls if c[0] == 'append'] == ['半截JSON']
+      and obj2.chat.calls[0][2] == 'assistant', str(obj2.chat.calls))
+check('text_delta 不进 self.chats/history', obj2.chats == {} and not hasattr(obj2, 'history') or obj2.chats == {})
+class _Done:
+    def drain_events(self):
+        return [('result', ('t1', '最终核验文本', 'chat'))]
+obj2.service = _Done()
+obj2.reports = {}
+obj2.report_baselines = {}
+obj2.draft = SimpleNamespace(toPlainText=lambda: '', setPlainText=lambda text: None)
+obj2.right_tabs = SimpleNamespace(setCurrentIndex=lambda index: None)
+LogAnalysisWorkspace._drain_analysis_events(obj2)
+check('结果到达后被 final_text 替换',
+      obj2.chats.get('t1') == [{'role': 'assistant', 'text': '最终核验文本'}]
+      and '半截JSON' not in str(obj2.chats), str(obj2.chats))
 
 print('--- 不写历史 ---')
 apply_src = inspect.getsource(LogAnalysisWorkspace._apply_deltas)

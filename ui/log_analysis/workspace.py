@@ -64,6 +64,7 @@ class LogAnalysisWorkspace(QWidget):
         self._thinking = {}
         self._thinking_pending = {}
         self._thinking_active = {}
+        self._answer_preview = {}
         self.restored = {s['id']: s for s in store.load()}
         self._setup()
         self.timer = QTimer(self)
@@ -602,6 +603,7 @@ class LogAnalysisWorkspace(QWidget):
         self._thinking.pop(ident, None)
         self._thinking_pending.pop(ident, None)
         self._thinking_active.pop(ident, None)
+        self._answer_preview.pop(ident, None)
         self.reports.pop(ident, None)
         self.report_baselines.pop(ident, None)
         if self.service:
@@ -723,6 +725,12 @@ class LogAnalysisWorkspace(QWidget):
             if kind == 'model_round_start':
                 self._activate_thinking_round(task_id, str(text or ''))
                 continue
+            if kind == 'model_turn_reset':
+                self._clear_answer_preview(task_id)
+                continue
+            if kind == 'model_text_delta':
+                self._append_answer_preview(task_id, text)
+                continue
             if kind != 'model_reasoning_delta' or not text:
                 continue
             # UI-only buffer: never appended to self.chats or the service
@@ -735,6 +743,26 @@ class LogAnalysisWorkspace(QWidget):
             if self.chat.stream_role != 'thinking':
                 self.chat.begin_stream('思考过程', role='thinking')
             self.chat.append_stream(text)
+
+    def _append_answer_preview(self, task_id, text):
+        """Display-only answer chunks. They never enter chats or history."""
+        if not text:
+            return
+        if not hasattr(self, '_answer_preview'):
+            self._answer_preview = {}
+        self._answer_preview.setdefault(task_id, []).append(text)
+        if task_id != self.selected_id:
+            return
+        if self.chat.stream_role != 'assistant':
+            self.chat.begin_stream('AI 助手（生成中）', role='assistant')
+        self.chat.append_stream(text)
+
+    def _clear_answer_preview(self, task_id):
+        preview = getattr(self, '_answer_preview', None)
+        had = bool(preview and preview.pop(task_id, None))
+        showing = task_id == self.selected_id and getattr(self.chat, 'stream_role', '') == 'assistant'
+        if (had or showing) and task_id == self.selected_id:
+            self._replay_thinking()
 
     def _replay_thinking(self):
         """Redraw this task's messages with each round's thinking in place."""
@@ -914,6 +942,7 @@ class LogAnalysisWorkspace(QWidget):
                 self._apply_deltas([payload])
                 continue
             task_id, text, kind = payload
+            self._clear_answer_preview(task_id)
             self.append_chat(task_id, text, role='assistant')
             if kind == 'report':
                 current = self.draft.toPlainText() if task_id == self.selected_id else self.reports.get(task_id, '')
@@ -943,6 +972,9 @@ class LogAnalysisWorkspace(QWidget):
                 if snapshot is not None:
                     self.snapshots[task_id] = snapshot
             self._drain_analysis_events()
+            activity = self.service.analysis_activity(self.selected_id)
+            if not activity.get('busy') and self.selected_id in getattr(self, '_answer_preview', {}):
+                self._clear_answer_preview(self.selected_id)
         snapshot = self.snapshots.get(self.selected_id)
         self.guide.setVisible(not snapshot)
         if not snapshot:

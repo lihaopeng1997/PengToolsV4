@@ -174,22 +174,81 @@ def _protocol_failure(text):
             '请改用完整的工具调用格式重试，或直接给出可核验的结论与缺失证据。')
 
 
+_TOOL_MARK = '<tool_call>'
+
+
+def _split_tool_hold(text):
+    """Keep a suffix that could still grow into '<tool_call>'."""
+    limit = min(len(text), len(_TOOL_MARK) - 1)
+    for size in range(limit, 0, -1):
+        if _TOOL_MARK.startswith(text[-size:]):
+            return text[:-size], text[-size:]
+    return text, ''
+
+
 class TextCalls:
     """Use existing Qwen parser only for complete, explicit tool envelopes."""
     def __init__(self, adapter, delta_sink=None):
         self.adapter = adapter
         self.delta_sink = delta_sink
+        self._answer_buf = ''
+        self._answer_open = False
+        self._answer_block = False
+
+    def _reset_answer_stream(self):
+        self._answer_buf = ''
+        self._answer_open = False
+        self._answer_block = False
+        if self.delta_sink is not None:
+            self.delta_sink('model_turn_reset', '')
+
+    def _emit_answer(self, text):
+        if text and self.delta_sink is not None:
+            self.delta_sink('model_text_delta', text)
+
+    def _feed_answer(self, chunk):
+        """Stream ordinary prose; never leak a tool envelope or its prefix."""
+        if self._answer_block or self.delta_sink is None:
+            return
+        self._answer_buf += str(chunk or '')
+        if not self._answer_open:
+            stripped = self._answer_buf.lstrip()
+            if not stripped:
+                return
+            if stripped[0] in '<{' or stripped.startswith('```'):
+                self._answer_block = True
+                self._answer_buf = ''
+                return
+            self._answer_open = True
+        cut = len(self._answer_buf)
+        blocked = False
+        for marker in ('<tool_call', '"tool_calls"'):
+            at = self._answer_buf.find(marker)
+            if at != -1:
+                cut = min(cut, at)
+                blocked = True
+        if blocked:
+            self._emit_answer(self._answer_buf[:cut])
+            self._answer_block = True
+            self._answer_buf = ''
+            return
+        emit, hold = _split_tool_hold(self._answer_buf)
+        self._answer_buf = hold
+        self._emit_answer(emit)
 
     def complete_turn(self, request, *, cancellation, on_delta):
+        self._reset_answer_stream()
+
         def forward(delta):
-            # Only reasoning streams into the UI. Final prose is rendered once
-            # from the validated turn, so a half-written tool envelope never
-            # reaches the visible transcript.
+            # Reasoning still streams unchanged. Visible prose is guarded per
+            # turn and replaced by the validated final_text when the turn ends.
             kind = str(getattr(delta, 'kind', '') or '')
             if kind == 'reasoning_delta' and self.delta_sink is not None:
                 text = str(getattr(delta, 'text', '') or '')
                 if text:
                     self.delta_sink('model_reasoning_delta', text)
+            elif kind == 'text_delta':
+                self._feed_answer(getattr(delta, 'text', '') or '')
             on_delta(delta)
 
         turn = self.adapter.complete_turn(request, cancellation=cancellation, on_delta=forward)
