@@ -6,11 +6,15 @@ Oracle 瘦模式依赖 cryptography 的 pbkdf2 等子模块；打包时必须显
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Any
 
 from config import HARNESS_CONNECTIONS_FILE
+from tools.app_logging import get_logger, log_failure
+
+logger = get_logger(__name__)
 from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 
 # PyInstaller 静态分析扫不到 oracledb 内部 import，必须在本模块顶层拉齐。
@@ -719,7 +723,8 @@ def installed_odbc_drivers() -> list[str]:
     try:
         import pyodbc
         return [str(item).strip() for item in (pyodbc.drivers() or []) if str(item).strip()]
-    except Exception:
+    except Exception as exc:
+        logger.debug('DB_ODBC_DRIVERS_FAILED: %s', type(exc).__name__)
         return []
 
 
@@ -728,7 +733,8 @@ def configured_oceanbase_odbc_driver() -> str:
     try:
         from config import load_settings
         return str(load_settings().get('oceanbase_odbc_driver') or '').strip()
-    except Exception:
+    except Exception as exc:
+        log_failure(logger, 'DB_ODBC_SETTING_FAILED', exc, level=logging.WARNING)
         return ''
 
 
@@ -1212,8 +1218,8 @@ def probe_connection(item: dict, plain_password: str | None = None) -> dict:
             try:
                 dbs = client.list_database_names()
                 meta_info += f'，可访问数据库数：{len(dbs)}'
-            except Exception:
-                pass
+            except Exception as exc:
+                log_failure(logger, 'DB_PROBE_LIST_DATABASES_FAILED', exc, level=logging.WARNING)
             mode = str(item.get('mode') or 'standalone').strip().lower()
             auth_src = mongo_auth_source(item)
             auth_mech = mongo_auth_mechanism(item) or '默认'
@@ -1355,13 +1361,17 @@ def list_columns(conn, dialect: str, table: str) -> list[str]:
     if dialect == 'redis':
         try:
             return [str(conn.type(table) or 'none')]
-        except Exception:
+        except Exception as exc:
+            log_failure(logger, 'DB_LIST_COLUMNS_FAILED', exc, level=logging.WARNING)
+            logger.warning('DB_LIST_COLUMNS_FAILED dialect=%s', dialect)
             return []
     if dialect == 'mongodb':
         try:
             doc = conn[table].find_one() or {}
             return [str(key) for key in list(doc.keys())[:20]]
-        except Exception:
+        except Exception as exc:
+            log_failure(logger, 'DB_LIST_COLUMNS_FAILED', exc, level=logging.WARNING)
+            logger.warning('DB_LIST_COLUMNS_FAILED dialect=%s', dialect)
             return []
     cur = _cursor(conn)
     try:
@@ -1830,8 +1840,8 @@ def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limi
             except Exception as exc:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as rollback_exc:
+                    log_failure(logger, 'DB_ROLLBACK_FAILED', rollback_exc, level=logging.WARNING)
                 raise DbError(f'提交失败，已尝试回滚：{redact_error(str(exc))}') from exc
         elif category == 'ddl':
             tx = 'implicit'
@@ -1854,8 +1864,8 @@ def run_console_statement(conn, dialect: str, sql: str, *, offset: int = 0, limi
         if info.get('category') == 'dml':
             try:
                 conn.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_exc:
+                log_failure(logger, 'DB_ROLLBACK_FAILED', rollback_exc, level=logging.WARNING)
         raise DbError(f'执行失败：{redact_error(str(exc))}') from exc
     finally:
         try:

@@ -168,6 +168,18 @@ def redact_text(text: str) -> str:
 _redact = redact_text
 
 
+def log_failure(logger, code, exc, *, level=logging.ERROR, with_message=False) -> None:
+    """Record a swallowed failure without logging the raw exception message."""
+    try:
+        text = f'{code}: {type(exc).__name__}'
+        if with_message:
+            text += ': ' + redact_text(str(exc))
+        text += ''.join(traceback.format_tb(exc.__traceback__))
+        logger.log(level, '%s', text)
+    except Exception:
+        return
+
+
 def current_log_dir() -> str:
     """Directory of the active app.log, or '' when file logging is not set up."""
     path = str(_state.get('path') or '')

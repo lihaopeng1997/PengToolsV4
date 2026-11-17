@@ -14,13 +14,18 @@ from concurrent.futures import Future
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
+import logging
 import re
 import sys
 import threading
 import uuid
 from typing import Any, Protocol, TypeAlias
 
+from tools.app_logging import get_logger, log_failure
+
 from .workspace_store import MAX_TEXT_BYTES as MAX_SCRIPT_BYTES
+
+logger = get_logger(__name__)
 
 
 PAGE_SIZES = frozenset({50, 200, 500})
@@ -829,8 +834,8 @@ class ManualSession:
                 # This optional hook is an out-of-band interrupt contract,
                 # never a substitute for waiting for the owner-thread call.
                 interrupt()
-            except Exception:
-                pass
+            except Exception as exc:
+                log_failure(logger, 'MANUAL_INTERRUPT_FAILED', exc, level=logging.WARNING)
         return active
 
     def close(self, *, disposition: str | None = None) -> Future:
@@ -875,8 +880,8 @@ class ManualSession:
         if callable(interrupt):
             try:
                 interrupt()
-            except Exception:
-                pass
+            except Exception as exc:
+                log_failure(logger, 'MANUAL_INTERRUPT_FAILED', exc, level=logging.WARNING)
         return future
 
     def poll_cleanup(self) -> ManualCleanupStatus:
@@ -1095,6 +1100,8 @@ class ManualSession:
                 entries.append(ManualScriptEntry(sql, result))
             except Exception as error:
                 error_code = error.code if isinstance(error, ManualSessionError) else "MANUAL_SESSION_FAILED"
+                log_failure(logger, 'MANUAL_SCRIPT_STATEMENT_FAILED', error, level=logging.WARNING)
+                logger.warning('MANUAL_SCRIPT_STATEMENT_FAILED error_code=%s', error_code)
                 entries.append(ManualScriptEntry(sql, error_code=error_code))
         return ManualScriptResult(uuid.uuid4().hex, self.target.tab_id, self.target.generation, tuple(entries), error_code)
 

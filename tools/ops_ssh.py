@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -15,6 +16,9 @@ from datetime import datetime
 from typing import Callable
 
 from config import OPS_LOG_SETTINGS_FILE, OPS_SERVERS_FILE, OPS_SSH_KNOWN_HOSTS_FILE, ensure_config_dir
+from tools.app_logging import get_logger, log_failure
+
+logger = get_logger(__name__)
 from tools.secure_store import (
     decrypt_secret,
     encrypt_secret,
@@ -863,6 +867,11 @@ def extract_logs_parallel(
             )
             return result
         except OpsSshError as exc:
+            log_failure(logger, 'SSH_LOG_EXTRACT_FAILED', exc, level=logging.WARNING, with_message=True)
+            logger.warning(
+                'SSH_LOG_EXTRACT_FAILED server_id=%s service_id=%s',
+                server.get('id'), svc_id,
+            )
             return {
                 'ok': False,
                 'server_id': server.get('id'),
@@ -880,6 +889,11 @@ def extract_logs_parallel(
                 'job_key': job.get('job_key') or '',
             }
         except Exception as exc:  # pragma: no cover
+            log_failure(logger, 'SSH_LOG_EXTRACT_UNEXPECTED', exc)
+            logger.error(
+                'SSH_LOG_EXTRACT_UNEXPECTED server_id=%s service_id=%s',
+                server.get('id'), svc_id,
+            )
             return {
                 'ok': False,
                 'server_id': server.get('id'),
@@ -905,8 +919,8 @@ def extract_logs_parallel(
             if on_result is not None:
                 try:
                     on_result(item)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_failure(logger, 'SSH_RESULT_CALLBACK_FAILED', exc)
     order = {str(j.get('job_key') or i): i for i, j in enumerate(jobs)}
     results.sort(key=lambda r: order.get(str(r.get('job_key')), 9999))
     return results
@@ -1210,8 +1224,8 @@ def list_remote_dir(client, path: str = '.') -> list[dict]:
                 remote = sftp.normalize(remote)
             else:
                 remote = sftp.normalize(remote)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('SSH_SFTP_NORMALIZE_FAILED: %s', type(exc).__name__)
         try:
             attrs = sftp.listdir_attr(remote)
         except FileNotFoundError as exc:
@@ -1290,8 +1304,8 @@ def list_remote_log_files(client, path: str) -> list[dict]:
     try:
         try:
             remote = sftp.normalize(remote)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('SSH_SFTP_NORMALIZE_FAILED: %s', type(exc).__name__)
         try:
             st = sftp.stat(remote)
         except FileNotFoundError as exc:
@@ -1412,8 +1426,8 @@ def download_remote_file(client, remote_path: str, local_path: str) -> dict:
     try:
         try:
             remote = sftp.normalize(remote)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('SSH_SFTP_NORMALIZE_FAILED: %s', type(exc).__name__)
         try:
             st = sftp.stat(remote)
         except FileNotFoundError as exc:
@@ -1506,8 +1520,8 @@ def exec_remote(
             err_rest = stderr.read()
             if err_rest:
                 err_chunks.append(err_rest)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('SSH_STDERR_READ_FAILED: %s', type(exc).__name__)
         stdout_text = b''.join(out_chunks).decode('utf-8', errors='replace')
         stderr_text = b''.join(err_chunks).decode('utf-8', errors='replace')
         if total > max_bytes:

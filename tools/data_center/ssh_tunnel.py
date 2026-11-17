@@ -15,7 +15,11 @@ import time
 import uuid
 from typing import Any, Callable
 
+from tools.app_logging import get_logger, log_failure
+
 from .connection_transport import ConnectionTransportError, DataCenterConnectionTransport, resolve_secret_token
+
+logger = get_logger(__name__)
 
 
 class SshTunnelError(RuntimeError):
@@ -412,7 +416,8 @@ class DataCenterSshTunnelManager:
                 local, origin = entry.listener.accept()
             except (TimeoutError, socket.timeout):
                 continue
-            except OSError:
+            except OSError as exc:
+                logger.debug('SSH_TUNNEL_ACCEPT_FAILED: %s', type(exc).__name__)
                 return
             if entry.stopping.is_set():
                 try:
@@ -459,7 +464,8 @@ class DataCenterSshTunnelManager:
                         return
                     target = channel if source is local else local
                     target.sendall(payload)
-        except (OSError, EOFError, ValueError):
+        except (OSError, EOFError, ValueError) as exc:
+            logger.debug('SSH_TUNNEL_BRIDGE_EXIT: %s', type(exc).__name__)
             return
         finally:
             try:
@@ -535,7 +541,8 @@ class DataCenterSshTunnelManager:
             try:
                 if callable(alive) and alive():
                     return False
-            except Exception:
+            except Exception as exc:
+                logger.debug('SSH_TUNNEL_ALIVE_CHECK_FAILED: %s', type(exc).__name__)
                 return False
         with self._lock:
             if entry.references > 0:
