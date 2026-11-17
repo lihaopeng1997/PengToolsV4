@@ -202,12 +202,15 @@ class _WorkbenchBridge(QObject):
         self._active_dialog = None
         self._progress = deque()
         self._progress_chars = 0
+        self._scope_allowed = False  # "allow all this session" for write approvals
         self.confirmRequested.connect(self._show_confirmation, Qt.ConnectionType.QueuedConnection)
 
     def confirm(self, task_id: str, title: str, content: str, cancellation) -> bool:
         """Worker side: wait without blocking the GUI event loop; cancellation always denies."""
         if cancellation.is_cancelled():
             return False
+        if self._scope_allowed:
+            return True
         request_id = uuid.uuid4().hex
         request = {
             'id': request_id,
@@ -243,21 +246,28 @@ class _WorkbenchBridge(QObject):
             self.resolve(request_id, False)
             return
         try:
-            from ui.confirm_dialog import confirm_action
-            # A timer runs inside confirm_action's modal event loop and closes the
-            # dialog if stop/close invalidates the waiting request.
+            from ui.confirm_dialog import confirm_action_scoped
+            if self._scope_allowed:
+                self.resolve(request_id, True)
+                return
+            # A timer runs inside the modal event loop and closes the dialog if
+            # stop/close invalidates the waiting request.
             watcher = QTimer(self)
             watcher.setInterval(40)
             watcher.timeout.connect(lambda rid=request_id: self._cancel_dialog_if_needed(rid))
             watcher.start()
             self._close_cancelled_dialog(request_id)
-            accepted = confirm_action(
+            zh = self._owner.language == 'zh'
+            accepted, scope_all = confirm_action_scoped(
                 self._owner,
                 request.get('title') or self._owner._title(),
                 request.get('content') or '',
-                confirm_text='确认并应用' if self._owner.language == 'zh' else 'Confirm and apply',
+                confirm_text='确认并应用' if zh else 'Confirm and apply',
                 danger=True,
+                scope_text='本会话全部允许' if zh else 'Allow all this session',
             )
+            if scope_all:
+                self._scope_allowed = True
             accepted = bool(accepted and not request['cancellation'].is_cancelled()
                             and self._owner._task_is_current(request.get('task_id')))
         except Exception:

@@ -44,8 +44,10 @@ def _add_scrollable_message(root, message):
 class ConfirmActionDialog(QDialog):
     """危险/确认操作：取消在左、确认在右，默认焦点永远在取消。"""
 
-    def __init__(self, title, message, confirm_text='确认删除', parent=None, danger=True):
+    def __init__(self, title, message, confirm_text='确认删除', parent=None, danger=True,
+                 scope_text=''):
         super().__init__(parent)
+        self.scope_all = False
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
         self.setModal(True)
@@ -105,6 +107,15 @@ class ConfirmActionDialog(QDialog):
         self.cancel_button.setAutoDefault(True)
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
+        if scope_text:
+            # Optional third choice: approve every similar action this session.
+            self.scope_button = QPushButton(scope_text)
+            size_dialog_button(self.scope_button, 'secondary')
+            self.scope_button.setObjectName('confirm-scope-all')
+            self.scope_button.setAutoDefault(False)
+            self.scope_button.setDefault(False)
+            self.scope_button.clicked.connect(self._accept_scope_all)
+            buttons.addWidget(self.scope_button)
         self.confirm_button = QPushButton(confirm_text)
         size_dialog_button(
             self.confirm_button,
@@ -135,6 +146,10 @@ class ConfirmActionDialog(QDialog):
         self.message_scroll.setMinimumHeight(min(80, text_height + 30))
         natural_height = 48 + max(56, header_band.sizeHint().height()) + text_height + 30 + 60
         clamp_dialog_geometry(self, 440, natural_height, min_width=440, min_height=180)
+
+    def _accept_scope_all(self):
+        self.scope_all = True
+        self.accept()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -372,10 +387,20 @@ class AppNoticeDialog(QDialog):
         play_dialog_enter(self)
 
 
-def confirm_action(parent, title, message, confirm_text='确认删除', danger=True):
+def confirm_action(parent, title, message, confirm_text='确认删除', danger=True, scope_text=''):
     return ConfirmActionDialog(
-        title, message, confirm_text, parent, danger=danger
+        title, message, confirm_text, parent, danger=danger, scope_text=scope_text
     ).exec() == QDialog.DialogCode.Accepted
+
+
+def confirm_action_scoped(parent, title, message, confirm_text='确认删除', danger=True,
+                          scope_text=''):
+    """Like confirm_action, and also reports "allow for this session"."""
+    dialog = ConfirmActionDialog(
+        title, message, confirm_text, parent, danger=danger, scope_text=scope_text
+    )
+    accepted = dialog.exec() == QDialog.DialogCode.Accepted
+    return accepted, bool(dialog.scope_all)
 
 
 def ask_close_action(parent, language='zh', default_action='minimize'):
