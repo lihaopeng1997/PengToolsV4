@@ -13,13 +13,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 import json
+import logging
 import math
 import threading
 import time
 from typing import Any, Callable
 
 from tools.agent_diag import log_agent_event
-
+from tools.app_logging import get_logger, log_failure
 from .budget import Budget, BudgetExceeded, BudgetLimits
 from .context import ContextPlanner
 from .contracts import (
@@ -40,6 +41,8 @@ from .contracts import (
     stable_json,
 )
 from .request_budget import RequestInputLimitExceeded
+
+logger = get_logger(__name__)
 
 
 # A model that only announces the next step is not finished. Continue in this
@@ -83,7 +86,8 @@ def _intranet_soft_mode() -> bool:
     try:
         from tools.intranet_mode import is_intranet_open
         return bool(is_intranet_open())
-    except Exception:
+    except Exception as exc:
+        logger.debug('INTRANET_MODE_CHECK_FAILED: %s', type(exc).__name__)
         return False
 
 
@@ -317,8 +321,8 @@ class AgentRunner:
             if callable(disable):
                 try:
                     disable(context)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_failure(logger, 'TOOL_EVIDENCE_DISABLE_FAILED', exc, level=logging.WARNING)
 
         def disable_tool_evidence() -> None:
             nonlocal commit_tool_batch
@@ -329,14 +333,14 @@ class AgentRunner:
                 try:
                     disable_bound()
                     return
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('TOOL_EVIDENCE_DISABLE_FAILED: %s', type(exc).__name__)
             disable = getattr(self.tool_registry, "disable_evidence", None)
             if callable(disable):
                 try:
                     disable(context)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_failure(logger, 'TOOL_EVIDENCE_DISABLE_FAILED', exc, level=logging.WARNING)
 
         token = cancellation or self.cancellation
         self.cancellation = token
@@ -428,8 +432,10 @@ class AgentRunner:
 
         external_sink = on_event or self.on_event
         diagnostic_started = time.monotonic()
+        sink_failure_logged = False
 
         def record_event(event: AgentEvent) -> None:
+            nonlocal sink_failure_logged
             emitted.append(event)
             # Stream text and tool payloads stay out of the diagnostic file.
             if event.event_type not in {"model_text_delta", "model_reasoning_delta", "budget", "tool_call"}:
@@ -444,9 +450,11 @@ class AgentRunner:
             if external_sink is not None:
                 try:
                     external_sink(event)
-                except Exception:
+                except Exception as exc:
                     # A UI subscriber cannot make the model/tool worker fail.
-                    pass
+                    if not sink_failure_logged:
+                        sink_failure_logged = True
+                        log_failure(logger, 'EVENT_SINK_FAILED', exc, level=logging.WARNING)
 
         emitter = AgentEventEmitter(context.run_id, context.tab_id, record_event)
 
@@ -495,10 +503,10 @@ class AgentRunner:
             if callable(release_run):
                 try:
                     release_run(context)
-                except Exception:
+                except Exception as exc:
                     # Private transport cleanup cannot change the terminal
                     # result or leak into the public event stream.
-                    pass
+                    log_failure(logger, 'MODEL_RELEASE_RUN_FAILED', exc, level=logging.WARNING)
             closed = True
             return AgentRunResult(
                 status=status,
@@ -552,6 +560,8 @@ class AgentRunner:
         try:
             definitions, allowed_names, enforce_closed_set = self._tool_definitions()
         except Exception as error:
+            if not token.is_cancelled():
+                log_failure(logger, 'TOOL_DEFINITIONS_FAILED', error)
             emit(AgentEventType.RUN_STARTED, {"status": AgentStatus.PREPARING.value, "context": context.as_dict()})
             return finish(
                 AgentStatus.FAILED,
@@ -673,7 +683,8 @@ class AgentRunner:
                         return
                     try:
                         delta = ModelDelta.from_value(raw_delta)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug('MODEL_DELTA_PARSE_FAILED: %s', type(exc).__name__)
                         return
                     kind = str(delta.kind or "text").strip().lower()
                     text = delta.text or ""
@@ -756,6 +767,7 @@ class AgentRunner:
                     turn_open = False
                     if token.is_cancelled():
                         return cancellation_result()
+                    log_failure(logger, 'MODEL_FAILED', error)
                     return finish(
                         AgentStatus.FAILED,
                         text="".join(all_displayed_text),
@@ -775,6 +787,8 @@ class AgentRunner:
                 try:
                     turn = _as_turn(raw_turn)
                 except Exception as error:
+                    if not token.is_cancelled():
+                        log_failure(logger, 'MODEL_TURN_INVALID', error)
                     return finish(
                         AgentStatus.FAILED,
                         text="".join(all_displayed_text),
@@ -978,6 +992,8 @@ class AgentRunner:
                     try:
                         authorized = self.authorize_tool_batch(calls, context, token)
                     except Exception as error:
+                        if not token.is_cancelled():
+                            log_failure(logger, 'TOOL_AUTHORIZATION_FAILED', error)
                         return finish(
                             AgentStatus.FAILED,
                             text="".join(all_displayed_text),
@@ -1121,6 +1137,8 @@ class AgentRunner:
                         )
                         result = ToolResult.from_value(raw_result)
                     except Exception as error:
+                        if not token.is_cancelled():
+                            log_failure(logger, 'TOOL_EXECUTION_FAILED', error, level=logging.WARNING)
                         result = ToolResult(ok=False, code="TOOL_FAILED", data=None)
                         tool_error = _safe_error("TOOL_EXECUTION_FAILED", error)
                     else:
@@ -1229,6 +1247,7 @@ class AgentRunner:
         except Exception as error:
             if token.is_cancelled():
                 return cancellation_result()
+            log_failure(logger, 'RUN_FAILED', error)
             return finish(
                 AgentStatus.FAILED,
                 text="".join(all_displayed_text),

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import inspect
 import json
+import logging
 import math
 import queue
 import socket
@@ -22,7 +23,7 @@ import urllib.request
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol
 
 from tools.agent_diag import log_agent_event
-
+from tools.app_logging import get_logger, log_failure
 from .contracts import AgentTurn, AgentTurnRequest, CancellationToken, ModelDelta, ToolCall, stable_json
 from .request_budget import (
     RequestInputLimitExceeded,
@@ -46,6 +47,8 @@ from .streaming import (
     StreamingError,
     ToolArgumentsError,
 )
+
+logger = get_logger(__name__)
 
 
 class ModelAdapterError(RuntimeError):
@@ -867,7 +870,8 @@ class ModelAdapter:
             if self._provider() != "deepseek":
                 return
             scope = self._continuation_scope_key(context)
-        except Exception:
+        except Exception as exc:
+            log_failure(logger, 'MODEL_RELEASE_SCOPE_FAILED', exc, level=logging.WARNING)
             return
         with self._private_continuation_lock:
             self._private_continuations.pop(scope, None)

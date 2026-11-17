@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
+import logging
 import threading
 import time
 
@@ -10,6 +11,9 @@ from .collector import Monitor
 from .events import Event, Redactor
 from .runtime import analyze
 from tools.agent_diag import log_agent_event
+from tools.app_logging import get_logger, log_failure
+
+logger = get_logger(__name__)
 
 _ORDERED_LIMIT = 4100
 
@@ -250,6 +254,8 @@ class LogService:
             except Exception as error:
                 log_agent_event('log_analysis_failed', task=task_id, stage='failed', error_type=type(error).__name__)
                 if not token.is_cancelled():
+                    log_failure(logger, 'LOG_ANALYSIS_FAILED', error)
+                if not token.is_cancelled():
                     with self.lock:
                         failed = (task_id, '分析失败：' + type(error).__name__ + '；已保留证据，可手动重试。', 'chat')
                         self.results.append(failed)
@@ -277,6 +283,7 @@ class LogService:
                         self.store.save(snapshot)
                         self.cache_state = ''
                     except Exception as error:
+                        log_failure(logger, 'LOG_ANALYSIS_CACHE_SAVE_FAILED', error, level=logging.WARNING)
                         self.cache_state = str(error) if isinstance(error, ValueError) else '缓存保存失败：' + type(error).__name__
                 model_id = self.auto.get(task.id)
                 if model_id and not task.stop_event.is_set() and not getattr(task, 'saved', None):
