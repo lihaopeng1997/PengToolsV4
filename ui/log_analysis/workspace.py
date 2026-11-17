@@ -39,6 +39,13 @@ class Composer(QPlainTextEdit):
         super().keyPressEvent(event)
 
 
+def _ensure_round_maps(host):
+    if not hasattr(host, '_thinking_pending'):
+        host._thinking_pending = {}
+    if not hasattr(host, '_thinking_active'):
+        host._thinking_active = {}
+
+
 class LogAnalysisWorkspace(QWidget):
     def __init__(self, server_loader, parent=None, *, store=None):
         super().__init__(parent)
@@ -53,7 +60,11 @@ class LogAnalysisWorkspace(QWidget):
         self.reports = {}
         self.report_baselines = {}
         self.selected_id = ''
-        self._thinking = {}  # task_id -> [chunk]; display only, never in messages
+        # task_id -> [{'start': 消息下标, 'chunks': [...]}]，只用于显示，不进消息和历史。
+        self._thinking = {}
+        self._thinking_pending = {}
+        self._thinking_active = {}
+        self._answer_preview = {}
         self.restored = {s['id']: s for s in store.load()}
         self._setup()
         self.timer = QTimer(self)
@@ -520,7 +531,23 @@ class LogAnalysisWorkspace(QWidget):
     def current_task(self):
         return self.service.tasks.get(self.selected_id) if self.service else None
 
+    def _drop_idle_thinking(self, task_id):
+        """Drop empty reserved rounds and detach the active round for this task."""
+        if not task_id:
+            return
+        _ensure_round_maps(self)
+        pending = list(self._thinking_pending.get(task_id) or [])
+        active = self._thinking_active.get(task_id)
+        drop = {id(item) for item in pending if not item.get('chunks')}
+        if active is not None and not active.get('chunks'):
+            drop.add(id(active))
+        if drop:
+            self._thinking[task_id] = [item for item in (self._thinking.get(task_id) or []) if id(item) not in drop]
+            self._thinking_pending[task_id] = [item for item in pending if id(item) not in drop]
+        self._thinking_active.pop(task_id, None)
+
     def pause(self):
+        self._drop_idle_thinking(self.selected_id)
         task = self.current_task()
         if task:
             if hasattr(task, 'set_paused'):
@@ -532,6 +559,7 @@ class LogAnalysisWorkspace(QWidget):
                 task.paused.set()
 
     def cancel_analysis(self, _checked=False, disable_auto=False):
+        self._drop_idle_thinking(self.selected_id)
         if self.service:
             self.service.cancel_analysis(self.selected_id, disable_auto=disable_auto)
         if disable_auto:
@@ -539,6 +567,7 @@ class LogAnalysisWorkspace(QWidget):
         self._refresh_analysis_activity()
 
     def stop(self):
+        self._drop_idle_thinking(self.selected_id)
         if self.current_task():
             self.service.stop(self.selected_id)
             self.refresh()
@@ -590,6 +619,9 @@ class LogAnalysisWorkspace(QWidget):
         self.snapshots.pop(ident, None)
         self.chats.pop(ident, None)
         self._thinking.pop(ident, None)
+        self._thinking_pending.pop(ident, None)
+        self._thinking_active.pop(ident, None)
+        self._answer_preview.pop(ident, None)
         self.reports.pop(ident, None)
         self.report_baselines.pop(ident, None)
         if self.service:
@@ -648,34 +680,107 @@ class LogAnalysisWorkspace(QWidget):
 
     def _thinking_round(self, task_id):
         """The round that is currently collecting chunks for this task."""
+        _ensure_round_maps(self)
+        active = self._thinking_active.get(task_id)
+        if active is not None:
+            return active
         rounds = self._thinking.setdefault(task_id, [])
-        if not rounds:
-            rounds.append({'start': len(self.chats.get(task_id, [])), 'chunks': []})
+        pending = self._thinking_pending.get(task_id) or []
+        if not rounds or rounds[-1] in pending:
+            created = {'start': len(self.chats.get(task_id, [])), 'chunks': []}
+            rounds.append(created)
+            self._thinking_active[task_id] = created
+            return created
+        self._thinking_active[task_id] = rounds[-1]
         return rounds[-1]
 
+    def _reserve_thinking_round(self, task_id):
+        """Remember a chat round after the question, but do not collect into it yet."""
+        _ensure_round_maps(self)
+        reserved = {'start': len(self.chats.get(task_id, [])), 'chunks': []}
+        self._thinking.setdefault(task_id, []).append(reserved)
+        self._thinking_pending.setdefault(task_id, []).append(reserved)
+        return reserved
+
     def _start_thinking_round(self, task_id):
-        """Mark where the next round's thinking belongs: after the question."""
-        self._thinking.setdefault(task_id, []).append(
-            {'start': len(self.chats.get(task_id, [])), 'chunks': []})
+        """Backward-compatible name: reserve one pending round, do not activate it."""
+        return self._reserve_thinking_round(task_id)
+
+    def _activate_thinking_round(self, task_id, kind):
+        """Open the round that the analysis just starting should write into."""
+        _ensure_round_maps(self)
+        pending = self._thinking_pending.setdefault(task_id, [])
+        if kind == 'chat' and pending:
+            current = pending.pop(0)
+        else:
+            current = {'start': len(self.chats.get(task_id, [])), 'chunks': []}
+            self._thinking.setdefault(task_id, []).append(current)
+        self._thinking_active[task_id] = current
+        return current
+
+    def _shift_thinking(self, task_id, removed):
+        """Keep round anchors aligned after messages are dropped from the front."""
+        if removed <= 0:
+            return
+        _ensure_round_maps(self)
+        kept = []
+        for item in self._thinking.get(task_id) or []:
+            lost_anchor = item['start'] < removed
+            item['start'] = max(0, item['start'] - removed)
+            if lost_anchor and not item.get('chunks'):
+                continue
+            kept.append(item)
+        self._thinking[task_id] = kept
+        pending = self._thinking_pending.get(task_id) or []
+        self._thinking_pending[task_id] = [item for item in pending if item in kept]
+        active = self._thinking_active.get(task_id)
+        if active is not None and active not in kept:
+            self._thinking_active.pop(task_id, None)
 
     def _apply_deltas(self, deltas):
         """Collect thinking per round; render only for the selected task."""
         for task_id, kind, text in deltas:
-            if not text:
+            if kind == 'model_round_start':
+                self._activate_thinking_round(task_id, str(text or ''))
                 continue
-            if kind == 'model_reasoning_delta':
-                # UI-only buffer: never appended to self.chats or the service
-                # history, so it cannot reach the model's messages.
-                current = self._thinking_round(task_id)
-                if len(current['chunks']) < 4000:
-                    current['chunks'].append(text)
-                if task_id != self.selected_id:
-                    continue
-                if self.chat.stream_role != 'thinking':
-                    self.chat.begin_stream('思考过程', role='thinking')
-                self.chat.append_stream(text)
-            # text_delta is suppressed upstream by the strict tool envelope, and
-            # the final answer is rendered once by append_chat below.
+            if kind == 'model_turn_reset':
+                self._clear_answer_preview(task_id)
+                continue
+            if kind == 'model_text_delta':
+                self._append_answer_preview(task_id, text)
+                continue
+            if kind != 'model_reasoning_delta' or not text:
+                continue
+            # UI-only buffer: never appended to self.chats or the service
+            # history, so it cannot reach the model's messages.
+            current = self._thinking_round(task_id)
+            if len(current['chunks']) < 4000:
+                current['chunks'].append(text)
+            if task_id != self.selected_id:
+                continue
+            if self.chat.stream_role != 'thinking':
+                self.chat.begin_stream('思考过程', role='thinking')
+            self.chat.append_stream(text)
+
+    def _append_answer_preview(self, task_id, text):
+        """Display-only answer chunks. They never enter chats or history."""
+        if not text:
+            return
+        if not hasattr(self, '_answer_preview'):
+            self._answer_preview = {}
+        self._answer_preview.setdefault(task_id, []).append(text)
+        if task_id != self.selected_id:
+            return
+        if self.chat.stream_role != 'assistant':
+            self.chat.begin_stream('AI 助手（生成中）', role='assistant')
+        self.chat.append_stream(text)
+
+    def _clear_answer_preview(self, task_id):
+        preview = getattr(self, '_answer_preview', None)
+        had = bool(preview and preview.pop(task_id, None))
+        showing = task_id == self.selected_id and getattr(self.chat, 'stream_role', '') == 'assistant'
+        if (had or showing) and task_id == self.selected_id:
+            self._replay_thinking()
 
     def _replay_thinking(self):
         """Redraw this task's messages with each round's thinking in place."""
@@ -706,17 +811,19 @@ class LogAnalysisWorkspace(QWidget):
         messages = self.chats.setdefault(task_id, [])
         messages.append(message)
         total = sum(len(row['text']) for row in messages)
-        trimmed = False
+        removed = 0
         while len(messages) > 1 and (len(messages) > 200 or total > 150000):
             total -= len(messages.pop(0)['text'])
-            trimmed = True
+            removed += 1
+        if removed:
+            self._shift_thinking(task_id, removed)
         if task_id != self.selected_id:
             return
         bar = self.chat.verticalScrollBar()
         near_end = bar.value() >= bar.maximum() - 20
         position = bar.value()
-        if trimmed:
-            self.chat.set_messages(messages)
+        if removed:
+            self._replay_thinking()
         else:
             self.chat.append_message(message)
         if force or near_end:
@@ -733,11 +840,13 @@ class LogAnalysisWorkspace(QWidget):
         if not self.models.currentData() or not self.model_consent.isChecked():
             self.status.setText('请选择并确认内网模型。')
             return
-        if not self.service or not self.service.enqueue(self.selected_id, text, self.models.currentData(), event_id, kind=kind):
+        queued = self.service.enqueue(self.selected_id, text, self.models.currentData(), event_id, kind=kind) if self.service else False
+        if not queued:
             self.status.setText('请先读取文件、启动监控或打开缓存任务；分析队列可能已满。')
             return
         self.append_chat(self.selected_id, text, force=True, role='user')
-        self._start_thinking_round(self.selected_id)
+        if getattr(queued, 'added', True):
+            self._reserve_thinking_round(self.selected_id)
         if question is None:
             self.input.clear()
         self.right_tabs.setCurrentIndex(0)
@@ -843,6 +952,28 @@ class LogAnalysisWorkspace(QWidget):
         self.control_buttons['暂停 AI 分析'].setEnabled(analyzing)
         self.control_buttons['恢复所选历史任务'].setEnabled(self.selected_id in self.restored)
 
+    def _drain_analysis_events(self):
+        """Apply streamed chunks and finished answers in arrival order."""
+        if not self.service:
+            return
+        events = self.service.drain_events()
+        for bucket, payload in events:
+            if bucket == 'delta':
+                self._apply_deltas([payload])
+                continue
+            task_id, text, kind = payload
+            self._clear_answer_preview(task_id)
+            self.append_chat(task_id, text, role='assistant')
+            if kind == 'report':
+                current = self.draft.toPlainText() if task_id == self.selected_id else self.reports.get(task_id, '')
+                if current == self.report_baselines.get(task_id):
+                    self.reports[task_id] = text
+                    if task_id == self.selected_id:
+                        self.draft.setPlainText(text)
+                        self.right_tabs.setCurrentIndex(1)
+                else:
+                    self.append_chat(task_id, '报告生成期间草稿已被编辑，新报告保留在对话中，未覆盖草稿。')
+
     def refresh(self):
         self._refresh_analysis_activity()
         task = self.current_task()
@@ -860,20 +991,10 @@ class LogAnalysisWorkspace(QWidget):
                 snapshot = task.snapshot(blocking=False)
                 if snapshot is not None:
                     self.snapshots[task_id] = snapshot
-            deltas = self.service.drain_deltas()
-            if deltas:
-                self._apply_deltas(deltas)
-            for task_id, text, kind in self.service.drain():
-                self.append_chat(task_id, text, role='assistant')
-                if kind == 'report':
-                    current = self.draft.toPlainText() if task_id == self.selected_id else self.reports.get(task_id, '')
-                    if current == self.report_baselines.get(task_id):
-                        self.reports[task_id] = text
-                        if task_id == self.selected_id:
-                            self.draft.setPlainText(text)
-                            self.right_tabs.setCurrentIndex(1)
-                    else:
-                        self.append_chat(task_id, '报告生成期间草稿已被编辑，新报告保留在对话中，未覆盖草稿。')
+            self._drain_analysis_events()
+            activity = self.service.analysis_activity(self.selected_id)
+            if not activity.get('busy') and self.selected_id in getattr(self, '_answer_preview', {}):
+                self._clear_answer_preview(self.selected_id)
         snapshot = self.snapshots.get(self.selected_id)
         self.guide.setVisible(not snapshot)
         if not snapshot:

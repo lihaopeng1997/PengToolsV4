@@ -11,6 +11,20 @@ from .events import Event, Redactor
 from .runtime import analyze
 from tools.agent_diag import log_agent_event
 
+_ORDERED_LIMIT = 4100
+
+
+class EnqueueResult:
+    """Accepted enqueue. Truthy either way; ``added`` is false when deduplicated."""
+
+    __slots__ = ('added',)
+
+    def __init__(self, added):
+        self.added = bool(added)
+
+    def __bool__(self):
+        return True
+
 
 class LogService:
     def __init__(self, store=None, analyzer=analyze, scrub_for_model=None):
@@ -30,6 +44,8 @@ class LogService:
         # Display-only streaming chunks: (task_id, kind, text). Never persisted,
         # never fed back into history or the model context.
         self.deltas = deque(maxlen=4000)
+        self._seq = 0
+        self._ordered = deque(maxlen=_ORDERED_LIMIT)
         self.cache_state = ''
         self.auto = {}  # task -> explicitly chosen model ID
         self.last_auto = {}
@@ -93,11 +109,11 @@ class LogService:
                 self.analysis_state = '分析队列已满（50），请稍后重试'
                 return False
             if event_id and any(x[0] == task_id and x[3] == event_id for x in self.queue):
-                return True
+                return EnqueueResult(False)
             self.queue.append((task_id, question, model_id, event_id, kind))
             self.outcomes.pop(task_id, None)
             self.wake.set()
-            return True
+            return EnqueueResult(True)
 
     def cancel_analysis(self, task_id, disable_auto=False):
         with self.lock:
@@ -124,6 +140,20 @@ class LogService:
         task = self.tasks[task_id]
         task.stop()
 
+    def _remember_locked(self, bucket, item):
+        self._seq += 1
+        self._ordered.append((self._seq, bucket, item))
+
+    def _queue_delta(self, item):
+        with self.lock:
+            self.deltas.append(item)
+            self._remember_locked('delta', item)
+
+    def _queue_result(self, item):
+        with self.lock:
+            self.results.append(item)
+            self._remember_locked('result', item)
+
     def drain_deltas(self):
         """Return and clear queued streaming chunks (called from the UI thread)."""
         with self.lock:
@@ -131,7 +161,17 @@ class LogService:
                 return []
             items = list(self.deltas)
             self.deltas.clear()
+            self._ordered = deque((row for row in self._ordered if row[1] != 'delta'), maxlen=_ORDERED_LIMIT)
         return items
+
+    def drain_events(self):
+        """Return deltas and finished answers in the order they were queued."""
+        with self.lock:
+            events = [(bucket, item) for _seq, bucket, item in self._ordered]
+            self._ordered.clear()
+            self.deltas.clear()
+            self.results.clear()
+            return events
 
     def _work(self):
         while not self.closed.is_set():
@@ -148,6 +188,7 @@ class LogService:
                 self.active_since = time.monotonic()
                 token = self.token = CancellationToken()
                 self.analysis_state = '分析中'
+            self._queue_delta((task_id, 'model_round_start', kind))
             log_agent_event('log_analysis_started', task=task_id, stage='open')
             try:
                 snapshot = task.snapshot()
@@ -164,6 +205,7 @@ class LogService:
                         if not token.is_cancelled() and not self.closed.is_set():
                             with self.lock:
                                 self.deltas.append((task_id, kind, name))
+                                self._remember_locked('delta', (task_id, kind, name))
                         return
                     self.analysis_state = {'turn_started': '模型分析中', 'tool_started': '正在补查',
                                            'tool_result': '补查完成', 'budget': '整理上下文'}.get(kind, kind) + (' · ' + name if name else '')
@@ -195,18 +237,23 @@ class LogService:
                 gap = error.split(':', 1)[-1] if incomplete else ''
                 with self.lock:
                     self.results.append((task_id, text, kind))
+                    self._remember_locked('result', (task_id, text, kind))
                     if incomplete:
-                        self.results.append((task_id,
+                        follow = (task_id,
                             f'分析不完整，可重试：{gap or "回答内容不足"}。'
                             '本次回答未达到可执行结论标准（现象、可能原因、缺失证据、下一步），'
-                            '已保留证据与原始回答，可直接重试。', 'chat'))
+                            '已保留证据与原始回答，可直接重试。', 'chat')
+                        self.results.append(follow)
+                        self._remember_locked('result', follow)
                     self.outcomes[task_id] = ('分析不完整，可重试' if incomplete else
                                               '分析失败，可重试' if error else '本次分析完成')
             except Exception as error:
                 log_agent_event('log_analysis_failed', task=task_id, stage='failed', error_type=type(error).__name__)
                 if not token.is_cancelled():
                     with self.lock:
-                        self.results.append((task_id, '分析失败：' + type(error).__name__ + '；已保留证据，可手动重试。', 'chat'))
+                        failed = (task_id, '分析失败：' + type(error).__name__ + '；已保留证据，可手动重试。', 'chat')
+                        self.results.append(failed)
+                        self._remember_locked('result', failed)
                         self.outcomes[task_id] = '分析失败，可重试'
             finally:
                 log_agent_event('log_analysis_ended', task=task_id, cancelled=token.is_cancelled())
@@ -250,6 +297,7 @@ class LogService:
         with self.lock:
             rows = list(self.results)
             self.results.clear()
+            self._ordered = deque((row for row in self._ordered if row[1] != 'result'), maxlen=_ORDERED_LIMIT)
             return rows
 
     def set_scrub_for_model(self, enabled):
