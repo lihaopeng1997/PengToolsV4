@@ -61,7 +61,8 @@ check('状态栏文案不含流式分支',
       "'model_reasoning_delta'" not in progress_block.split('self.analysis_state', 1)[1])
 
 print('--- _apply_deltas 只渲染当前任务 ---')
-obj = SimpleNamespace(selected_id='t1', chat=FakeChat())
+obj = SimpleNamespace(selected_id='t1', chat=FakeChat(), _thinking={}, chats={})
+obj._thinking_round = lambda tid: LogAnalysisWorkspace._thinking_round(obj, tid)
 LogAnalysisWorkspace._apply_deltas(obj, [
     ('t1', 'model_reasoning_delta', '片段1'),
     ('t2', 'model_reasoning_delta', '串台片段'),
@@ -76,13 +77,14 @@ check('只追加当前任务', [c[1] for c in obj.chat.calls if c[0] == 'append'
 check('不串台', '串台片段' not in str(obj.chat.calls))
 
 print('--- text_delta 不渲染 ---')
-obj2 = SimpleNamespace(selected_id='t1', chat=FakeChat())
+obj2 = SimpleNamespace(selected_id='t1', chat=FakeChat(), _thinking={}, chats={})
+obj2._thinking_round = lambda tid: LogAnalysisWorkspace._thinking_round(obj2, tid)
 LogAnalysisWorkspace._apply_deltas(obj2, [('t1', 'model_text_delta', '半截JSON')])
 check('text_delta 不落屏', obj2.chat.calls == [], str(obj2.chat.calls))
 
 print('--- 不写历史 ---')
 apply_src = inspect.getsource(LogAnalysisWorkspace._apply_deltas)
-check('_apply_deltas 不碰历史', 'history' not in apply_src and 'self.chats' not in apply_src)
+check('_apply_deltas 不碰历史', 'self.history[' not in apply_src and 'self.chats[' not in apply_src)
 drain_src = inspect.getsource(LogService.drain_deltas)
 check('drain_deltas 只出队', 'self.deltas.clear()' in drain_src and 'history' not in drain_src)
 

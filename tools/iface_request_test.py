@@ -70,9 +70,9 @@ def rewrite_url_with_base(original_url: str, base_host: str) -> str:
 def strip_url_prefixes(url: str, prefixes: list) -> str:
     """剥离 URL path 中的网关前缀。
 
-    例：url='http://10.128.24.46:18888/prpcar-api/car/endorse/delete'
-        prefixes=['/prpcar-api/car']
-        → 'http://10.128.24.46:18888/endorse/delete'
+    例：url='http://192.0.2.10:18888/api/example/car/endorse/delete'
+        prefixes=['/api/example/car']
+        → 'http://192.0.2.10:18888/endorse/delete'
 
     仅剥离 path 开头匹配的前缀，保留 query。
     """

@@ -52,6 +52,7 @@ class LogAnalysisWorkspace(QWidget):
         self.reports = {}
         self.report_baselines = {}
         self.selected_id = ''
+        self._thinking = {}  # task_id -> [chunk]; display only, never in messages
         self.restored = {s['id']: s for s in store.load()}
         self._setup()
         self.timer = QTimer(self)
@@ -436,7 +437,7 @@ class LogAnalysisWorkspace(QWidget):
         self.auto.blockSignals(True)
         self.auto.setChecked(bool(self.service and self.selected_id in self.service.auto))
         self.auto.blockSignals(False)
-        self.chat.set_messages(self.chats.get(self.selected_id, []))
+        self._replay_thinking()
         self.draft.setPlainText(self.reports.get(self.selected_id, ''))
         self.input.clear()
         self.refresh()
@@ -498,17 +499,58 @@ class LogAnalysisWorkspace(QWidget):
             self.auto.setChecked(False)
             self.status.setText('先启动任务并选择、确认内网模型。')
 
+    def _thinking_round(self, task_id):
+        """The round that is currently collecting chunks for this task."""
+        rounds = self._thinking.setdefault(task_id, [])
+        if not rounds:
+            rounds.append({'start': len(self.chats.get(task_id, [])), 'chunks': []})
+        return rounds[-1]
+
+    def _start_thinking_round(self, task_id):
+        """Mark where the next round's thinking belongs: after the question."""
+        self._thinking.setdefault(task_id, []).append(
+            {'start': len(self.chats.get(task_id, [])), 'chunks': []})
+
     def _apply_deltas(self, deltas):
         """Render streaming chunks for the selected task only."""
         for task_id, kind, text in deltas:
-            if not text or task_id != self.selected_id:
+            if not text:
                 continue
             if kind == 'model_reasoning_delta':
+                # UI-only buffer: never appended to self.chats or the service
+                # history, so it cannot reach the model's messages.
+                current = self._thinking_round(task_id)
+                if len(current['chunks']) < 4000:
+                    current['chunks'].append(text)
+                if task_id != self.selected_id:
+                    continue
                 if self.chat.stream_role != 'thinking':
                     self.chat.begin_stream('思考过程', role='thinking')
                 self.chat.append_stream(text)
             # text_delta is suppressed upstream by the strict tool envelope, and
             # the final answer is rendered once by append_chat below.
+
+    def _replay_thinking(self):
+        """Redraw this task's messages with each round's thinking in place."""
+        messages = list(self.chats.get(self.selected_id, []))
+        rounds = self._thinking.get(self.selected_id) or []
+        live = [r for r in rounds if r['chunks']]
+        if not live:
+            self.chat.set_messages(messages)
+            return
+        self.chat.set_messages([])
+        cursor = 0
+        for item in sorted(live, key=lambda r: r['start']):
+            start = max(cursor, min(item['start'], len(messages)))
+            for message in messages[cursor:start]:
+                self.chat.append_message(message)
+            self.chat.begin_stream('思考过程', role='thinking')
+            for chunk in item['chunks']:
+                self.chat.append_stream(chunk)
+            self.chat.end_stream()
+            cursor = start
+        for message in messages[cursor:]:
+            self.chat.append_message(message)
 
     def append_chat(self, task_id, text, force=False, *, role='system'):
         message = {'role': role, 'text': str(text)}
@@ -548,6 +590,7 @@ class LogAnalysisWorkspace(QWidget):
             self.status.setText('请先读取文件、启动监控或打开缓存任务；分析队列可能已满。')
             return
         self.append_chat(self.selected_id, text, force=True, role='user')
+        self._start_thinking_round(self.selected_id)
         if question is None:
             self.input.clear()
         self.right_tabs.setCurrentIndex(0)
@@ -630,9 +673,33 @@ class LogAnalysisWorkspace(QWidget):
             except OSError:
                 self.status.setText('缓存清理失败，请检查目录权限。')
 
+    def _sync_control_buttons(self, task=None):
+        """Keep the capture buttons in step with the selected task and inputs."""
+        mode = self.selected_mode()
+        local = mode == 'history' and self.source.currentData() == 'local'
+        has_server = bool(self.servers.currentData())
+        if mode == 'history':
+            has_source = bool(self.files.toPlainText().strip()) if local else has_server
+            ready = (has_server or local) and has_source
+        else:
+            ready = has_server
+        stop_event = getattr(task, 'stop_event', None)
+        running = bool(task and getattr(task, 'thread', None) and task.thread.is_alive()
+                       and not (stop_event is not None and stop_event.is_set()))
+        service = getattr(self, 'service', None)
+        activity = service.analysis_activity(self.selected_id) if service else None
+        analyzing = bool(activity and activity.get('busy'))
+        self.control_buttons['开始监控 / AI取证'].setEnabled(ready and not running)
+        self.control_buttons['停止任务'].setEnabled(running)
+        self.control_buttons['暂停 / 恢复采集'].setEnabled(running)
+        # Only usable while this task is actually being analysed.
+        self.control_buttons['暂停 AI 分析'].setEnabled(analyzing)
+        self.control_buttons['恢复所选历史任务'].setEnabled(self.selected_id in self.restored)
+
     def refresh(self):
         self._refresh_analysis_activity()
         task = self.current_task()
+        self._sync_control_buttons(task)
         capturing = bool(task and task.thread and task.thread.is_alive() and not task.stop_event.is_set()
                          and task.state.startswith(('连接中', '重连中', '校验文件', '读取文件')))
         if capturing:

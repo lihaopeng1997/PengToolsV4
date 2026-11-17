@@ -85,7 +85,7 @@ def validate_svn_url(url):
         shown = raw[:80] or '（空）'
         raise ValueError(
             'SVN 地址请写成 svn://服务器/路径\n'
-            '例如：svn://10.128.23.145:13690/项目名/int\n'
+            '例如：svn://192.0.2.10:13690/项目名/int\n'
             f'当前填的是：{shown}'
         )
     return value
