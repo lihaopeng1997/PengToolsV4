@@ -82,8 +82,27 @@ def main():
             aumid = 'PengTools.Hub.Private.4.27'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(aumid)
 
+    from tools.app_logging import get_logger, install_exception_hooks, setup_logging
+    log_path = setup_logging()
+    install_exception_hooks()
+    logger = get_logger('pengtools')
+
     from config import APP_NAME, APP_VERSION
     app = QApplication(sys.argv)
+
+    def _show_unexpected_error():
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                None,
+                '出现意外错误',
+                '程序遇到意外错误，详细信息已写入日志。\n日志目录：'
+                + os.path.dirname(log_path),
+            )
+        except Exception:
+            pass
+
+    install_exception_hooks(show_dialog=_show_unexpected_error)
     try:
         from PyQt6.QtWidgets import QStyleFactory
         fusion = QStyleFactory.create('Fusion')
@@ -110,6 +129,7 @@ def main():
         # 两种情况都不得继续创建 Splash / MainWindow / 托盘服务。
         if guard.last_error:
             print(f'[single-instance] {guard.last_error}', file=sys.stderr, flush=True)
+            logger.warning('[single-instance] %s', guard.last_error)
         return 0
 
     from config import load_settings
