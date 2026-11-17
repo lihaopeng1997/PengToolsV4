@@ -75,6 +75,23 @@ def effective_capability(value: Any) -> AgentModelCapability:
     return AgentModelCapability.TEXT_ONLY
 
 
+def _default_max_tokens() -> int:
+    """Mode-sensitive default; an explicit configured value always wins."""
+    try:
+        from tools.intranet_mode import is_intranet_open
+        return 16384 if is_intranet_open() else 4096
+    except Exception:
+        return 4096
+
+
+def _max_tokens_ceiling() -> int:
+    try:
+        from tools.intranet_mode import is_intranet_open
+        return 32768 if is_intranet_open() else 4096
+    except Exception:
+        return 4096
+
+
 def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -117,7 +134,7 @@ class AgentModelSnapshot:
     timeout_seconds: float = DEFAULT_AGENT_DEADLINE_SECONDS
     ssl_verify: bool = True
     app_tag: str = ""
-    max_tokens: int = 4096
+    max_tokens: int = 0  # 0 = follow the mode default (4096, or 16384 intranet)
     include_usage: bool = True
     reasoning_fields: tuple[str, ...] = ()
     deadline_seconds: float | None = None
@@ -150,7 +167,9 @@ class AgentModelSnapshot:
         object.__setattr__(
             self,
             "max_tokens",
-            _safe_int(self.max_tokens, default=4096, minimum=1, maximum=4096),
+            _safe_int(self.max_tokens or _default_max_tokens(),
+                      default=_default_max_tokens(), minimum=1,
+                      maximum=_max_tokens_ceiling()),
         )
         object.__setattr__(self, "include_usage", _safe_bool(self.include_usage, default=True))
         raw_reasoning_fields = self.reasoning_fields
@@ -329,7 +348,7 @@ def _profile_from_raw(model_config_id: str, raw: Mapping[str, Any], *, require_e
         deadline_seconds=configured_deadline,
         ssl_verify=data.get("ssl_verify", True),
         app_tag="" if provider == "deepseek" else data.get("app_tag", ""),
-        max_tokens=data.get("max_tokens", 4096),
+        max_tokens=data.get("max_tokens", 0),
         include_usage=data.get("include_usage", True),
         reasoning_fields=tuple(reasoning_fields),
         max_reasoning_bytes=data.get(

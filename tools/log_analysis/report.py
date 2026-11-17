@@ -29,7 +29,7 @@ def report(snapshot, selected=None):
         lines += [f"### {e['id']} · {e['title']}", f"文件：{e.get('source') or snapshot['path'] or '系统指标'}",
                   f"次数：{e['count']}；首次：{stamp(e['first_seen'])}；最近：{stamp(e['last_seen'])}",
                   f"来源：文件代次 {e['generation']}，字节偏移 {e['offset']}；截断：{e['truncated']}",
-                  '证据（脱敏）：', '']
+                  ('证据（脱敏）：' if snapshot.get('redacted', True) else '证据（原文）：'), '']
         lines += ['    ' + line for line in e['evidence'].splitlines()]
         lines += ['', '#### 分析与建议']
         for analysis in e.get('analyses', []):
@@ -54,7 +54,13 @@ def report(snapshot, selected=None):
 
 
 class Store:
-    def __init__(self, root, quota=200 * 1024 * 1024, days=7):
+    def __init__(self, root, quota=200 * 1024 * 1024, days=None):
+        if days is None:
+            try:
+                from tools.intranet_mode import is_intranet_open
+                days = 30 if is_intranet_open() else 7
+            except Exception:
+                days = 7
         self.root, self.quota, self.days = Path(root), quota, days
 
     def save(self, snapshot):
@@ -65,7 +71,7 @@ class Store:
         target = self.root / (name + '.json')
         files = list(self.root.glob('*.json'))
         if any(time.time() - p.stat().st_mtime > self.days * 86400 for p in files):
-            raise ValueError('缓存超过7天，请确认清理后继续持久化')
+            raise ValueError(f'缓存超过{self.days}天，请确认清理后继续持久化')
         data = {k: v for k, v in snapshot.items() if k != 'recent'}
         raw = json.dumps({'version': 1, 'task': data}, ensure_ascii=False).encode('utf-8')
         if len(raw) > 16 * 1024 * 1024:
@@ -87,6 +93,15 @@ class Store:
             except (OSError, ValueError, KeyError):
                 continue
         return result
+
+    def delete(self, task_id):
+        """Remove one task checkpoint. The caller owns the confirmation."""
+        name = str(task_id)
+        if not name.isalnum():
+            raise ValueError('INVALID_TASK_ID')
+        target = self.root / (name + '.json')
+        if target.exists():
+            target.unlink()
 
     def clear(self):
         # Only our direct task files; caller must have obtained confirmation.

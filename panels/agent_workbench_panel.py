@@ -202,12 +202,15 @@ class _WorkbenchBridge(QObject):
         self._active_dialog = None
         self._progress = deque()
         self._progress_chars = 0
+        self._scope_allowed = False  # "allow all this session" for write approvals
         self.confirmRequested.connect(self._show_confirmation, Qt.ConnectionType.QueuedConnection)
 
     def confirm(self, task_id: str, title: str, content: str, cancellation) -> bool:
         """Worker side: wait without blocking the GUI event loop; cancellation always denies."""
         if cancellation.is_cancelled():
             return False
+        if self._scope_allowed:
+            return True
         request_id = uuid.uuid4().hex
         request = {
             'id': request_id,
@@ -243,21 +246,28 @@ class _WorkbenchBridge(QObject):
             self.resolve(request_id, False)
             return
         try:
-            from ui.confirm_dialog import confirm_action
-            # A timer runs inside confirm_action's modal event loop and closes the
-            # dialog if stop/close invalidates the waiting request.
+            from ui.confirm_dialog import confirm_action_scoped
+            if self._scope_allowed:
+                self.resolve(request_id, True)
+                return
+            # A timer runs inside the modal event loop and closes the dialog if
+            # stop/close invalidates the waiting request.
             watcher = QTimer(self)
             watcher.setInterval(40)
             watcher.timeout.connect(lambda rid=request_id: self._cancel_dialog_if_needed(rid))
             watcher.start()
             self._close_cancelled_dialog(request_id)
-            accepted = confirm_action(
+            zh = self._owner.language == 'zh'
+            accepted, scope_all = confirm_action_scoped(
                 self._owner,
                 request.get('title') or self._owner._title(),
                 request.get('content') or '',
-                confirm_text='确认并应用' if self._owner.language == 'zh' else 'Confirm and apply',
+                confirm_text='确认并应用' if zh else 'Confirm and apply',
                 danger=True,
+                scope_text='本会话全部允许' if zh else 'Allow all this session',
             )
+            if scope_all:
+                self._scope_allowed = True
             accepted = bool(accepted and not request['cancellation'].is_cancelled()
                             and self._owner._task_is_current(request.get('task_id')))
         except Exception:
@@ -514,6 +524,12 @@ class AgentWorkbenchPanel(QWidget):
         self.header_dir_btn.setMaximumWidth(260)
         self.header_dir_btn.clicked.connect(self._bind_directory)
         top.addWidget(self.header_dir_btn)
+
+        self.diagnostics_btn = QPushButton('内网排障')
+        apply_button(self.diagnostics_btn, 'secondary', compact=True)
+        self.diagnostics_btn.setToolTip('只读排障：选择场景、日志材料与代码根，外发前必须确认')
+        self.diagnostics_btn.clicked.connect(self._open_intranet_diagnostics)
+        top.addWidget(self.diagnostics_btn)
 
         self.context_toggle_btn = QPushButton()
         apply_button(self.context_toggle_btn, 'ghost', compact=True)
@@ -1053,8 +1069,19 @@ class AgentWorkbenchPanel(QWidget):
         current_tip = tip_plan if self._plan_confirm else tip_direct
         self.exec_mode_combo.setToolTip(current_tip)
 
+    def _intranet_plan_skip(self) -> bool:
+        """Intranet mode runs directly instead of showing a plan first."""
+        try:
+            from tools.intranet_mode import is_intranet_open
+            return bool(is_intranet_open())
+        except Exception:
+            return False
+
     def _on_exec_mode_changed(self, index: int):
         self._plan_confirm = bool(self.exec_mode_combo.currentData())
+        if self._intranet_plan_skip():
+            # Intranet mode runs directly; the plan-first mode is disabled.
+            self._plan_confirm = False
         self._update_exec_mode_tooltips()
         if self._workspace_session:
             self._workspace_session['plan_confirm'] = self._plan_confirm
@@ -1149,6 +1176,8 @@ class AgentWorkbenchPanel(QWidget):
         self._workspace_session = ws
         self._tool_calls = []
         self._plan_confirm = bool(ws.get('plan_confirm', False))
+        if self._intranet_plan_skip():
+            self._plan_confirm = False
         self.exec_mode_combo.blockSignals(True)
         self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
         self.exec_mode_combo.blockSignals(False)
@@ -1162,6 +1191,12 @@ class AgentWorkbenchPanel(QWidget):
         self._render_conversation(ws, conv)
         self._refresh_space_tree(select_ws_id=ws.get('id'),
                                  select_conv_id=conv.get('id') if select_last_conv else '')
+
+    def _open_intranet_diagnostics(self):
+        """Read-only diagnostics dialog; the outbound gate lives in the run call."""
+        from ui.intranet_diagnostics_dialog import IntranetDiagnosticsDialog
+        dialog = IntranetDiagnosticsDialog(self, getattr(self, 'language', 'zh'))
+        dialog.exec()
 
     def _bind_directory(self):
         """绑定/更换工作文件夹。未建空间时自动先建一个并绑定。"""

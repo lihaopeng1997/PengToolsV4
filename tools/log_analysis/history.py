@@ -37,7 +37,7 @@ class HistoryScan(Monitor):
 
     def __init__(self, server, service, paths, *, local=False, encoding='utf-8', warn=False,
                  connector=None, max_bytes=200 * 1024 * 1024, tail_lines=0,
-                 time_start='', time_end='', timezone_minutes=480):
+                 time_start='', time_end='', timezone_minutes=480, redact=None):
         paths = list(dict.fromkeys(str(p) for p in paths if str(p).strip()))
         if not 1 <= len(paths) <= 20:
             raise ValueError('请选择1～20个日志文件')
@@ -45,7 +45,7 @@ class HistoryScan(Monitor):
             raise ValueError('远端日志必须使用绝对路径')
         super().__init__(server or {'id': 'local', 'name': '本地文件'}, service,
                          paths[0] if not local else '/local-history', encoding=encoding,
-                         warn=warn, connector=connector)
+                         warn=warn, connector=connector, redact=redact)
         self.path = '\n'.join(paths)
         self.paths, self.local = paths, local
         self.max_bytes = max(1024, min(int(max_bytes), 200 * 1024 * 1024))
@@ -64,7 +64,7 @@ class HistoryScan(Monitor):
         self.time_source = None
         self.unknown_time_lines = 0
         self.filtered_lines = 0
-        self.buffer = EventBuffer(warn=warn, limit=2000)
+        self.buffer = EventBuffer(warn=warn, limit=2000, redact=redact)
         self.sources = []
         self.lines_read = 0
         self.index_bytes = 0

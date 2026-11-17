@@ -55,13 +55,40 @@ from tools.data_center.sql_script import SqlScriptError, has_procedural_block, s
 from tools.data_center.import_session import candidate_target_columns
 from ui.data_center.import_controller import ImportTableContext
 from ui.data_center.import_host import ImportHost
-from tools.sql_guard import classify_statement
+from tools.sql_guard import classify_statement, split_sql_statements
 from ui.data_center.result_model import ManualResultTableModel
 from ui.data_center.result_view import ResultTableView
 from ui.data_center.value_inspector import inspect_value
 from ui.data_center.result_find import ResultFindDialog
 from ui.data_center.result_export import ExportRequestPlan, ResultExportDialog, SnapshotExportWorker
 from ui.data_center.table_editor import TableEditorModel, TableEditorWidget
+
+
+_INTRANET_SKIP_VERBS = frozenset({
+    'select', 'with', 'show', 'desc', 'describe', 'explain',
+})
+
+
+def intranet_may_skip_sql_confirm(sql: str) -> bool:
+    """Whether intranet mode may skip the manual-SQL confirmation dialog.
+
+    Only one provably read-only SELECT, WITH, SHOW, DESC or EXPLAIN qualifies.
+    INSERT/UPDATE/DELETE/MERGE, DDL/DCL, procedure text, multiple statements
+    and anything the classifier cannot prove stay on the confirmation path.
+    This does not change the AI read-only whitelist.
+    """
+
+    text = str(sql or '').strip()
+    if not text:
+        return False
+    try:
+        parts = [part for part in split_sql_statements(text) if str(part).strip()]
+        info = classify_statement(parts[0]) if len(parts) == 1 else None
+    except Exception:
+        return False
+    if not isinstance(info, dict) or not info.get('is_read'):
+        return False
+    return str(info.get('verb') or '').lower() in _INTRANET_SKIP_VERBS
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +241,11 @@ class ManualQueryHost(QObject):
         self._pending_export: set[str] = set()
         self._temporary_export_tab = None
         self._temporary_export_return = None
+        try:
+            from tools.intranet_mode import is_intranet_open
+            self._intranet_open = bool(is_intranet_open())
+        except Exception:
+            self._intranet_open = False
         self._tree_binding = None
 
     def set_tree_binding(self, binding) -> None:
@@ -1336,6 +1368,21 @@ class ManualQueryHost(QObject):
             raise ManualDriverError(capability.reason_code or "MANUAL_PROVIDER_UNSUPPORTED")
         return choice, target, table_scope
 
+    def _intranet_confirm(self, title: str, detail: str, *, confirm_text: str,
+                          danger: bool = True, allow_skip: bool = False,
+                          skip_note: str = '') -> bool:
+        """Skip the modal only when the caller proved this action is read-only.
+
+        The status note is shown only on that skip. Writes, DDL/DCL, blocks,
+        scripts and anything unrecognized still open the confirmation dialog.
+        """
+        if allow_skip and self._intranet_open:
+            if skip_note:
+                self._set_status(skip_note)
+            return True
+        from ui.confirm_dialog import confirm_action
+        return bool(confirm_action(self.panel, title, detail, confirm_text=confirm_text, danger=danger))
+
     def open_table_source(
         self,
         tree_service: Any,
@@ -1778,20 +1825,24 @@ class ManualQueryHost(QObject):
             return
         risk = classify_statement(sql, state.choice.dialect or "oracle")
         if risk.get("needs_confirm") and classification.kind not in {StatementKind.DDL, StatementKind.DCL}:
-            from ui.confirm_dialog import confirm_action
-
             zh = getattr(self.panel, "language", "zh") == "zh"
             detail = (
                 f"类型：{risk.get('label') or '未知'}\n\n{sql}"
                 if zh else
                 f"Kind: {risk.get('label') or 'Unknown'}\n\n{sql}"
             )
-            if not confirm_action(
-                self.panel,
+            skip = self._intranet_open and intranet_may_skip_sql_confirm(sql)
+            note = self._message(
+                f"内网模式：已跳过「{risk.get('label') or '查询'}」确认。",
+                "Intranet mode: confirmation skipped for this read-only statement.",
+            ) if skip else ''
+            if not self._intranet_confirm(
                 self.panel._title(),
                 detail,
                 confirm_text="执行" if zh else "Run",
                 danger=True,
+                allow_skip=skip,
+                skip_note=note,
             ):
                 return
         if classification.kind in {StatementKind.DDL, StatementKind.DCL}:
@@ -1801,11 +1852,8 @@ class ManualQueryHost(QObject):
                     "DDL/DCL is allowed only in a CLEAN session; commit or roll back first.",
                 ))
                 return
-            from ui.confirm_dialog import confirm_action
-
             kind_text = "DDL" if classification.kind is StatementKind.DDL else "DCL"
-            accepted = confirm_action(
-                self.panel,
+            accepted = self._intranet_confirm(
                 self._message("确认执行" + kind_text, "Confirm " + kind_text),
                 self._message(
                     f"此操作可能隐式提交事务，且无法通过回滚撤销。\n\n{sql}",
@@ -1871,9 +1919,12 @@ class ManualQueryHost(QObject):
             f"目标：{state.target.connection_id} / {state.target.database} / {state.target.schema}\n按一整个块提交给数据库，不拆分内部语句。块内提交、回滚、DDL 或其他副作用按服务端语义生效，外层无法保证撤销；失败或取消也不会自动重跑。请核对编辑器中的完整选区。\n\n",
             f"Target: {state.target.connection_id} / {state.target.database} / {state.target.schema}\nSubmit the whole selected block once. Internal commits, rollback, DDL and side effects follow server semantics and may be irreversible. Failure/cancellation never triggers replay. Review the full selection in the editor.\n\n",
         ) + sql[:1600]
-        from ui.confirm_dialog import confirm_action
-
-        if not confirm_action(self.panel, self._message("执行完整过程块", "Execute complete block"), detail, confirm_text=self._message("执行整个块", "Execute block"), danger=True):
+        if not self._intranet_confirm(
+            self._message("执行完整过程块", "Execute complete block"),
+            detail,
+            confirm_text=self._message("执行整个块", "Execute block"),
+            danger=True,
+        ):
             return
         if self._shutdown_gated or self._current_state() is not state or state.busy:
             return
@@ -1928,9 +1979,12 @@ class ManualQueryHost(QObject):
         details += "\n".join(f"{index + 1}. {kind.value.upper()} · {sql[:90].replace(chr(10), ' ')}" for index, (sql, kind) in enumerate(zip(statements, kinds)) if index < 10)
         if len(statements) > 10:
             details += self._message(f"\n另 {len(statements) - 10} 条，请在编辑器核对完整脚本。", f"\n{len(statements) - 10} more; review the full script in the editor.")
-        from ui.confirm_dialog import confirm_action
-
-        if not confirm_action(self.panel, self._message("执行全部", "Run all"), details, confirm_text=self._message(f"执行 {len(statements)} 条", f"Run {len(statements)}"), danger=any(kind is not StatementKind.QUERY for kind in kinds)):
+        if not self._intranet_confirm(
+            self._message("执行全部", "Run all"),
+            details,
+            confirm_text=self._message(f"执行 {len(statements)} 条", f"Run {len(statements)}"),
+            danger=any(kind is not StatementKind.QUERY for kind in kinds),
+        ):
             return
         if self._shutdown_gated or self._current_state() is not state or state.busy:
             return
@@ -2826,9 +2880,11 @@ class ManualQueryHost(QObject):
                     and not self._shutdown_gated
                 )
             else:
+                staged = bool(current is not None and current.table_model is not None
+                              and current.table_model.has_staged_changes)
                 run_button.setEnabled(
                     current is not None and not current.busy and not self._shutdown_gated
-                    and not (current.table_model is not None and current.table_model.has_staged_changes)
+                    and not staged
                 )
         table_editor = getattr(self, "table_editor", None)
         if table_editor is None:

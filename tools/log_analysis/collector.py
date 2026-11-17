@@ -89,7 +89,7 @@ class Cursor:
 
 class Monitor:
     def __init__(self, server, service, path, *, encoding='utf-8', warn=False,
-                 interval=2, backfill=0, connector=None, restored=None):
+                 interval=2, backfill=0, connector=None, restored=None, redact=None):
         if not path.startswith('/') or '\x00' in path:
             raise ValueError('请选择远端绝对文件路径')
         self.id = (restored or {}).get('id') or uuid.uuid4().hex
@@ -100,7 +100,7 @@ class Monitor:
         self.interval = max(1, min(30, interval))
         self.backfill = max(0, min(CHUNK, backfill))
         self.cursor = Cursor(encoding, (restored or {}).get('checkpoint'))
-        self.buffer = EventBuffer(warn=warn)
+        self.buffer = EventBuffer(warn=warn, redact=redact)
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.paused = threading.Event()
@@ -219,7 +219,7 @@ class Monitor:
                         raise ValueError('SOURCE_CHANGED_RECAPTURE_REQUIRED')
                 stream.seek(offset)
                 raw = stream.read(min(limit, boundary - offset))
-            redactor = Redactor()
+            redactor = Redactor(enabled=True)  # Model-facing evidence is always masked.
             lines = raw.decode(self.cursor.encoding, 'replace').splitlines()
             # Mid-file partial lines are explicitly excluded from evidence.
             if offset and lines:
@@ -243,6 +243,7 @@ class Monitor:
                     'state': self.state, 'bytes': self.bytes_read, 'backlog': self.backlog,
                     'last_received': self.last_received, 'last_poll': self.last_poll, 'checkpoint': self.cursor.checkpoint(),
                     'events': self.buffer.snapshot(), 'notices': list(self.notices),
+                    'redacted': bool(self.buffer.redactor.enabled),
                     'dropped_events': self.buffer.dropped, 'truncated_lines': self.cursor.truncated_lines,
                     'recent': list(self.buffer.recent)}
         finally:
