@@ -15,6 +15,7 @@ from tools.log_analysis.service import LogService
 from tools.log_analysis.report import Store, report, stamp
 from ui.text_actions import install_text_actions
 from ui.thinking_indicator import ThinkingIndicator
+from ui.splitter_prefs import install_splitter_prefs
 from .chat_view import ChatView
 
 
@@ -74,11 +75,13 @@ class LogAnalysisWorkspace(QWidget):
             index = self.mode.addTab(text)
             self.mode.setTabData(index, key)
             self.mode.setTabToolTip(index, hint)
-        modes.addWidget(self.mode, 1)
+        modes.addWidget(self.mode)
         root.addLayout(modes)
-        target_toggle = QPushButton('收起设置')
+        target_toggle = QPushButton('展开设置')
         target_toggle.setCheckable(True)
-        target_toggle.setChecked(True)
+        # Collapsed by default: the AI column is the primary interaction area.
+        target_toggle.setChecked(False)
+        self._target_toggle = target_toggle
         controls = QHBoxLayout()
         controls.addWidget(target_toggle)
         controls.addStretch()
@@ -87,6 +90,18 @@ class LogAnalysisWorkspace(QWidget):
         root.addWidget(self.split, 1)
         left = QWidget()
         target_layout = QVBoxLayout(left)
+        self.guide = QLabel()
+        self.guide.setWordWrap(True)
+        self.guide.setTextFormat(Qt.TextFormat.RichText)
+        self.guide.setText(
+            '<b>怎么用（5 步）</b><br>'
+            '1. <b>选排查方式</b>：历史日志看已发生的时段；Linux 监控看资源、服务和端口；仅实时日志跟新增行。<br>'
+            '2. <b>选服务器与服务</b>（历史模式可直接选本地文件），日志文件路径会带出来。<br>'
+            '3. 点「读取文件」或「开始监控」，中间「异常事件」表出现候选异常。<br>'
+            '4. 选中一条看证据；要结论时在右侧选内网模型并勾选确认，点「分析所选」。<br>'
+            '5. 顶部「任务」里的<b>待恢复</b>是本地检查点：软件关闭期间未监控，可单条删除，不影响远端日志。'
+        )
+        target_layout.addWidget(self.guide)
         form = QFormLayout()
         form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         target_layout.addLayout(form)
@@ -135,8 +150,7 @@ class LogAnalysisWorkspace(QWidget):
         self.tasks = QComboBox()
         self.tasks.addItem('请选择或启动任务', '')
         for ident, snapshot in self.restored.items():
-            self.tasks.addItem('待恢复 · ' + snapshot['service'], ident)
-            self.snapshots[ident] = snapshot
+            self._add_restored_item(ident, snapshot)
         self.models = QComboBox()
         self.models.addItem('请选择内网模型', '')
         self.model_consent = QCheckBox('确认使用所选内网模型')
@@ -150,13 +164,21 @@ class LogAnalysisWorkspace(QWidget):
             form.addRow(label, widget)
         modes.addWidget(QLabel('任务'))
         self.tasks.setMinimumWidth(150)
-        self.tasks.setMaximumWidth(250)
+        self.tasks.setMaximumWidth(260)
+        self.tasks.setToolTip('待恢复 = 本地检查点，软件关闭期间未监控。')
         modes.addWidget(self.tasks)
+        self.delete_task_btn = QPushButton('删除')
+        self.delete_task_btn.setToolTip('删除当前选中的「待恢复」本地检查点；不删除远端日志，运行中的任务会先停止。')
+        self.delete_task_btn.setEnabled(False)
+        self.delete_task_btn.clicked.connect(self.delete_task)
+        modes.addWidget(self.delete_task_btn)
+        modes.addStretch(1)
         self.with_logs = QCheckBox('同时跟踪所选日志文件')
         form.addRow(self.with_logs)
         self.with_logs.toggled.connect(self.mode_changed)
         self.system_options = QGroupBox('系统监控对象与阈值')
-        self.system_advanced = QPushButton('高级设置')
+        self.system_advanced = QPushButton('高级设置（采集周期 / 阈值 / 编码 / 清洗）')
+        self.system_advanced.setToolTip('默认折叠；展开后显示采集周期、告警阈值、编码、补读和模型前清洗。')
         self.system_advanced.setCheckable(True)
         self.system_advanced.toggled.connect(self.mode_changed)
         form.addRow(self.system_advanced)
@@ -215,9 +237,14 @@ class LogAnalysisWorkspace(QWidget):
         self.target_scroll = QScrollArea()
         self.target_scroll.setWidgetResizable(True)
         self.target_scroll.setWidget(left)
-        self.split.addWidget(self.target_scroll)
+        # Top level is deliberately two zones: capture (target form + events)
+        # | AI. The target form keeps a nested splitter so it can be narrowed
+        # without squeezing the event table out of view.
+        self.capture_split = QSplitter(Qt.Orientation.Horizontal)
+        self.capture_split.addWidget(self.target_scroll)
         target_toggle.toggled.connect(self.target_scroll.setVisible)
         target_toggle.toggled.connect(lambda checked: target_toggle.setText('收起设置' if checked else '展开设置'))
+        self.target_scroll.setVisible(False)
         center = QWidget()
         middle = QVBoxLayout(center)
         self.scope = QLabel('未选任务；先选择服务器、服务及具体文件。')
@@ -271,7 +298,8 @@ class LogAnalysisWorkspace(QWidget):
         report_btn.setMenu(report_menu)
         row.addWidget(report_btn)
         middle.addLayout(row)
-        self.split.addWidget(center)
+        self.capture_split.addWidget(center)
+        self.split.addWidget(self.capture_split)
         right = QWidget()
         box = QVBoxLayout(right)
         box.addWidget(QLabel('AI 助手'))
@@ -309,11 +337,30 @@ class LogAnalysisWorkspace(QWidget):
             actions.addWidget(button)
         box.addLayout(actions)
         self.split.addWidget(right)
-        self.split.setSizes([240, 450, 400])
-        for i in range(3):
-            self.split.widget(i).setMinimumWidth(0)
-            self.split.setCollapsible(i, True)
-        self.target_scroll.setMinimumWidth(320)
+        # Capture keeps the slack; AI may narrow to its minimum instead of
+        # stealing width from the event table.
+        self.split.setStretchFactor(0, 0)
+        self.split.setStretchFactor(1, 1)
+        install_splitter_prefs(
+            self.split,
+            defaults=[320, 820],
+            page_id='log-analysis',
+            # v2: new defaults must not be overwritten by the old capture-first ratio.
+            tab_id='capture-ai-v2',
+            min_sizes=[280, 420],
+            accessible_name='日志排查 采集/AI 分隔',
+        )
+        install_splitter_prefs(
+            self.capture_split,
+            defaults=[180, 420],
+            page_id='log-analysis',
+            tab_id='target-events-v2',
+            min_sizes=[160, 300],
+            accessible_name='日志排查 目标/事件 分隔',
+        )
+        self.target_scroll.setMinimumWidth(160)
+        self.capture_split.setMinimumWidth(280)
+        right.setMinimumWidth(420)
         self.status = QLabel('未启动 · 未连接服务器')
         self.status.setWordWrap(True)
         root.addWidget(self.status)
@@ -459,6 +506,7 @@ class LogAnalysisWorkspace(QWidget):
         if self.selected_id:
             self.reports[self.selected_id] = self.draft.toPlainText()
         self.selected_id = self.tasks.currentData() or ''
+        self.delete_task_btn.setEnabled(self.selected_id in self.restored)
         self.events.clearSelection()
         self.details.clear()
         self.auto.blockSignals(True)
@@ -509,6 +557,53 @@ class LogAnalysisWorkspace(QWidget):
             self.status.setText('已打开缓存证据，可提问；未重新连接服务器或启动采集。')
         except ValueError as error:
             self.status.setText(str(error))
+
+    def _add_restored_item(self, ident, snapshot):
+        label = '待恢复 · ' + str(snapshot.get('service') or snapshot.get('label') or '日志任务')
+        self.tasks.addItem(label, ident)
+        self.tasks.setItemData(self.tasks.count() - 1,
+                               '本地检查点：软件关闭期间未监控；可单条删除，不影响远端日志。',
+                               Qt.ItemDataRole.ToolTipRole)
+        self.snapshots[ident] = snapshot
+
+    def delete_task(self):
+        ident = self.selected_id
+        snapshot = self.restored.get(ident)
+        if not snapshot:
+            self.status.setText('当前任务不是本地缓存记录，无法删除；请先停止采集任务。')
+            return
+        name = str(snapshot.get('service') or snapshot.get('label') or ident)
+        if QMessageBox.question(
+                self, '删除任务检查点',
+                f'删除「待恢复 · {name}」的本地检查点？\n只删除本机缓存文件，不删除远端日志。'
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        task = self.current_task()
+        if task and task.thread and task.thread.is_alive() and self.service:
+            self.service.stop(ident)
+        try:
+            self.store.delete(ident)
+        except (OSError, ValueError):
+            self.status.setText('删除失败，请检查目录权限或任务标识。')
+            return
+        self.restored.pop(ident, None)
+        self.snapshots.pop(ident, None)
+        self.chats.pop(ident, None)
+        self._thinking.pop(ident, None)
+        self.reports.pop(ident, None)
+        self.report_baselines.pop(ident, None)
+        if self.service:
+            with self.service.lock:
+                self.service.tasks.pop(ident, None)
+                self.service.outcomes.pop(ident, None)
+        self.selected_id = ''  # Do not write the current draft back to a deleted id.
+        index = self.tasks.findData(ident)
+        if index >= 0:
+            self.tasks.removeItem(index)
+        if not self.selected_id:
+            self.select_task()
+        self.delete_task_btn.setEnabled(self.selected_id in self.restored)
+        self.status.setText(f'已删除「待恢复 · {name}」的检查点；远端日志未受影响。')
 
     def _model_changed(self):
         # Skip the checkbox only when this model's address is a proven intranet target.
@@ -564,7 +659,7 @@ class LogAnalysisWorkspace(QWidget):
             {'start': len(self.chats.get(task_id, [])), 'chunks': []})
 
     def _apply_deltas(self, deltas):
-        """Render streaming chunks for the selected task only."""
+        """Collect thinking per round; render only for the selected task."""
         for task_id, kind, text in deltas:
             if not text:
                 continue
@@ -780,6 +875,7 @@ class LogAnalysisWorkspace(QWidget):
                     else:
                         self.append_chat(task_id, '报告生成期间草稿已被编辑，新报告保留在对话中，未覆盖草稿。')
         snapshot = self.snapshots.get(self.selected_id)
+        self.guide.setVisible(not snapshot)
         if not snapshot:
             self.scope.setText('任务已启动，等待首次采集结果。' if self.current_task() else
                                '历史分析：选择文件后开始读取。Linux监控：选择服务器即可开始，日志文件可选。')
@@ -790,7 +886,7 @@ class LogAnalysisWorkspace(QWidget):
         mode = snapshot.get('mode', 'live')
         mode_label = {'history': '历史日志分析', 'system': 'Linux实时监控', 'live': '实时日志'}.get(mode, mode)
         self.scope.setText(f"{mode_label} · {snapshot['label']} / {snapshot['service']}\n"
-                           + snapshot.get('coverage', '仅覆盖已采集证据') + ' · ' + snapshot['state'])
+                           + snapshot.get('coverage', '仅覆盖已采集证据') + ' · ' + snapshot.get('state', '缓存证据'))
         self.scope.setToolTip(snapshot['path'])
         metrics = snapshot.get('metrics', [])
         latest = metrics[-1] if metrics else {}
@@ -819,8 +915,8 @@ class LogAnalysisWorkspace(QWidget):
         self.events.verticalScrollBar().setValue(scroll_position)
         self.show_evidence()
         extra = '' if not self.service else f" · {self.service.analysis_activity(self.selected_id)['state']} · {self.service.cache_state}"
-        self.status.setText(f"{snapshot['state']} · 最近接收 {stamp(snapshot.get('last_received'))} · 积压{snapshot['backlog']}字节"
-                            f" · 淘汰{snapshot['dropped_events']}组 · 超长行{snapshot['truncated_lines']}" + extra
+        self.status.setText(f"{snapshot.get('state', '缓存证据')} · 最近接收 {stamp(snapshot.get('last_received'))} · 积压{snapshot.get('backlog', 0)}字节"
+                            f" · 淘汰{snapshot.get('dropped_events', 0)}组 · 超长行{snapshot.get('truncated_lines', 0)}" + extra
                             + ('\n' + snapshot['notices'][-1] if snapshot.get('notices') else ''))
 
     def _refresh_analysis_activity(self):
@@ -880,13 +976,29 @@ class LogAnalysisWorkspace(QWidget):
             self.service.close()
             self.service.join(12)
 
+    def _rebalance_two_zones(self, narrow):
+        """AI is the primary column: at least two thirds on wide screens."""
+        total = max(0, self.split.width() - self.split.handleWidth())
+        if total <= 0:
+            return
+        ai = max(420, total * 2 // 3) if not narrow else max(420, total // 2)
+        self.split.setSizes([max(280, total - ai), ai])
+
     def resizeEvent(self, event):
         from ui.layout_metrics import BP_NARROW
         # Use the existing breakpoint; user can reopen the collapsible target rail.
         narrow = event.size().width() < BP_NARROW
-        if narrow != getattr(self, '_narrow', None):
+        previous = getattr(self, '_narrow', None)
+        if narrow != previous:
             self._narrow = narrow
-            self.target_scroll.setVisible(not narrow)
+            self.target_scroll.setVisible(not narrow and self._target_toggle.isChecked())
+            # Settings default to collapsed, so the event column only needs a
+            # narrow floor here.
+            self.capture_split.setMinimumWidth(260 if narrow else 280)
+            if previous is not None:
+                # Only on an actual breakpoint crossing: keep the configured
+                # defaults on first show, and keep the user's drag otherwise.
+                self._rebalance_two_zones(narrow)
         super().resizeEvent(event)
 
     def closeEvent(self, event):

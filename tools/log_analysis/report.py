@@ -94,6 +94,15 @@ class Store:
                 continue
         return result
 
+    def delete(self, task_id):
+        """Remove one task checkpoint. The caller owns the confirmation."""
+        name = str(task_id)
+        if not name.isalnum():
+            raise ValueError('INVALID_TASK_ID')
+        target = self.root / (name + '.json')
+        if target.exists():
+            target.unlink()
+
     def clear(self):
         # Only our direct task files; caller must have obtained confirmation.
         for path in self.root.glob('*.json'):
