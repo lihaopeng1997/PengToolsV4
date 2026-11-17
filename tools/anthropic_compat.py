@@ -187,7 +187,7 @@ def _convert_tool_choice(choice: Any) -> dict[str, Any] | None:
     return None
 
 
-def to_anthropic_request(body: Mapping[str, Any], *, default_max_tokens: int = DEFAULT_MAX_TOKENS) -> dict[str, Any]:
+def to_anthropic_request(body: Mapping[str, Any], *, default_max_tokens: int | None = None) -> dict[str, Any]:
     system_parts: list[str] = []
     messages: list[dict[str, Any]] = []
     for message in body.get('messages') or []:
@@ -231,6 +231,12 @@ def to_anthropic_request(body: Mapping[str, Any], *, default_max_tokens: int = D
         max_tokens = int(body.get('max_tokens') or body.get('max_completion_tokens') or 0)
     except (TypeError, ValueError):
         max_tokens = 0
+    if default_max_tokens is None:
+        try:
+            from tools.intranet_mode import is_intranet_open
+            default_max_tokens = 16384 if is_intranet_open() else DEFAULT_MAX_TOKENS
+        except Exception:
+            default_max_tokens = DEFAULT_MAX_TOKENS
     request: dict[str, Any] = {
         'model': str(body.get('model') or '').strip(),
         'max_tokens': max_tokens if max_tokens > 0 else int(default_max_tokens),

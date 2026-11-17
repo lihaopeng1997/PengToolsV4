@@ -108,6 +108,9 @@ DEFAULT_SETTINGS = {
     'keep_awake_interval_minutes': 3,
     # 自我学习默认展示。旧数据里的 false 不再隐藏入口。
     'private_unlocked': True,
+    # 内网模式总开关：为 true 时放开产品侧的确认/清洗/重试限制。
+    # 环境变量 PENGTOOLS_INTRANET=1 可临时强制开启，不落盘。
+    'intranet_open': False,
     # ── 安测 / 安全基线（默认收紧）──
     # HTTPS 请求测试默认校验证书；内网自签可在设置或请求页临时关闭
     'security_ssl_verify': True,
@@ -237,6 +240,7 @@ def normalize_settings(settings):
     result['floating_always_on_top'] = bool(result['floating_always_on_top'])
     result['floating_show_on_startup'] = bool(result['floating_show_on_startup'])
     result['default_language'] = 'en' if result['default_language'] == 'en' else 'zh'
+    result['intranet_open'] = bool(result.get('intranet_open'))
     result['home_username'] = str(result.get('home_username') or '').strip() or 'Lihp'
     web_shell = result.get('ui_web_shell', True)
     if isinstance(web_shell, str):

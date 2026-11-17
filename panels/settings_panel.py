@@ -494,6 +494,14 @@ class SettingsPanel(QWidget):
         self.security_confirm_remote = QCheckBox()
         self.security_confirm_remote_label = QLabel()
         security.addRow(self.security_confirm_remote_label, self.security_confirm_remote)
+        self.intranet_open_label = QLabel()
+        self.intranet_open = QCheckBox()
+        self.intranet_open_label.setToolTip(
+            '内网模式：默认显示日志原文，放宽分析完整性，并跳过先看计划。'
+            '模型确认只在所选地址被证明是内网时免除。'
+            '读写白名单、私网校验、主键校验、事务未知处理不受影响。修改后需重启生效。')
+        self.intranet_open.setToolTip(self.intranet_open_label.toolTip())
+        security.addRow(self.intranet_open_label, self.intranet_open)
         self.security_note = QLabel()
         self.security_note.setObjectName('ops-safety-note')
         self.security_note.setWordWrap(True)
@@ -902,6 +910,7 @@ class SettingsPanel(QWidget):
             'private_unlocked': bool(getattr(self, '_private_unlocked', False)),
             'security_ssl_verify': self.security_ssl_verify.isChecked(),
             'security_confirm_remote_request': self.security_confirm_remote.isChecked(),
+            'intranet_open': self.intranet_open.isChecked(),
             # 生产主机关键词仅配置层维护，UI 不直接编辑
             'security_prod_host_hints': list(
                 getattr(self, '_security_prod_host_hints', DEFAULT_SETTINGS.get('security_prod_host_hints') or [])
@@ -1122,6 +1131,7 @@ class SettingsPanel(QWidget):
         index = self.copy_duration.findData(settings['copy_feedback_ms'])
         self.copy_duration.setCurrentIndex(max(index, 0))
         self.security_ssl_verify.setChecked(bool(settings.get('security_ssl_verify', True)))
+        self.intranet_open.setChecked(bool(settings.get('intranet_open', False)))
         self.security_confirm_remote.setChecked(
             bool(settings.get('security_confirm_remote_request', True))
         )
@@ -2236,6 +2246,8 @@ class SettingsPanel(QWidget):
         )
         self.security_group.setTitle('安全与安测' if zh else 'Security')
         self.security_ssl_verify_label.setText('HTTPS 校验证书' if zh else 'Verify HTTPS certs')
+        self.intranet_open_label.setText('内网模式（放开产品限制）' if zh else 'Intranet mode (relax product limits)')
+        self.intranet_open.setText('启用（重启生效）' if zh else 'Enabled (restart to apply)')
         self.security_ssl_verify.setText('启用（推荐）' if zh else 'Enabled (recommended)')
         self.security_confirm_remote_label.setText('远程请求确认' if zh else 'Confirm remote requests')
         self.security_confirm_remote.setText('启用（推荐）' if zh else 'Enabled (recommended)')

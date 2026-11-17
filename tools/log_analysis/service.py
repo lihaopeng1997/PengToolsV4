@@ -38,15 +38,6 @@ class LogService:
         self.worker.start()
         self.saver.start()
 
-    def drain_deltas(self):
-        """Return and clear queued streaming chunks (called from the UI thread)."""
-        with self.lock:
-            if not self.deltas:
-                return []
-            items = list(self.deltas)
-            self.deltas.clear()
-        return items
-
     def open_snapshot(self, snapshot):
         from .cached import CachedTask
         with self.lock:
@@ -130,6 +121,15 @@ class LogService:
         task = self.tasks[task_id]
         task.stop()
 
+    def drain_deltas(self):
+        """Return and clear queued streaming chunks (called from the UI thread)."""
+        with self.lock:
+            if not self.deltas:
+                return []
+            items = list(self.deltas)
+            self.deltas.clear()
+        return items
+
     def _work(self):
         while not self.closed.is_set():
             self.wake.wait(.5)
@@ -187,9 +187,18 @@ class LogService:
                 if len(history) > 12:
                     self.history[task_id][0] = dict(self.history[task_id][0])
                     self.history[task_id][0]['content'] = '[较早对话已省略；证据以当前工具查询为准]\n' + self.history[task_id][0]['content']
+                error = str(result.error or '')
+                incomplete = error.startswith('INCOMPLETE_ANSWER:')
+                gap = error.split(':', 1)[-1] if incomplete else ''
                 with self.lock:
                     self.results.append((task_id, text, kind))
-                    self.outcomes[task_id] = '分析失败，可重试' if result.error else '本次分析完成'
+                    if incomplete:
+                        self.results.append((task_id,
+                            f'分析不完整，可重试：{gap or "回答内容不足"}。'
+                            '本次回答未达到可执行结论标准（现象、可能原因、缺失证据、下一步），'
+                            '已保留证据与原始回答，可直接重试。', 'chat'))
+                    self.outcomes[task_id] = ('分析不完整，可重试' if incomplete else
+                                              '分析失败，可重试' if error else '本次分析完成')
             except Exception as error:
                 log_agent_event('log_analysis_failed', task=task_id, stage='failed', error_type=type(error).__name__)
                 if not token.is_cancelled():

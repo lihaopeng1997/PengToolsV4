@@ -54,7 +54,13 @@ def report(snapshot, selected=None):
 
 
 class Store:
-    def __init__(self, root, quota=200 * 1024 * 1024, days=7):
+    def __init__(self, root, quota=200 * 1024 * 1024, days=None):
+        if days is None:
+            try:
+                from tools.intranet_mode import is_intranet_open
+                days = 30 if is_intranet_open() else 7
+            except Exception:
+                days = 7
         self.root, self.quota, self.days = Path(root), quota, days
 
     def save(self, snapshot):
@@ -65,7 +71,7 @@ class Store:
         target = self.root / (name + '.json')
         files = list(self.root.glob('*.json'))
         if any(time.time() - p.stat().st_mtime > self.days * 86400 for p in files):
-            raise ValueError('缓存超过7天，请确认清理后继续持久化')
+            raise ValueError(f'缓存超过{self.days}天，请确认清理后继续持久化')
         data = {k: v for k, v in snapshot.items() if k != 'recent'}
         raw = json.dumps({'version': 1, 'task': data}, ensure_ascii=False).encode('utf-8')
         if len(raw) > 16 * 1024 * 1024:

@@ -1053,8 +1053,19 @@ class AgentWorkbenchPanel(QWidget):
         current_tip = tip_plan if self._plan_confirm else tip_direct
         self.exec_mode_combo.setToolTip(current_tip)
 
+    def _intranet_plan_skip(self) -> bool:
+        """Intranet mode runs directly instead of showing a plan first."""
+        try:
+            from tools.intranet_mode import is_intranet_open
+            return bool(is_intranet_open())
+        except Exception:
+            return False
+
     def _on_exec_mode_changed(self, index: int):
         self._plan_confirm = bool(self.exec_mode_combo.currentData())
+        if self._intranet_plan_skip():
+            # Intranet mode runs directly; the plan-first mode is disabled.
+            self._plan_confirm = False
         self._update_exec_mode_tooltips()
         if self._workspace_session:
             self._workspace_session['plan_confirm'] = self._plan_confirm
@@ -1149,6 +1160,8 @@ class AgentWorkbenchPanel(QWidget):
         self._workspace_session = ws
         self._tool_calls = []
         self._plan_confirm = bool(ws.get('plan_confirm', False))
+        if self._intranet_plan_skip():
+            self._plan_confirm = False
         self.exec_mode_combo.blockSignals(True)
         self.exec_mode_combo.setCurrentIndex(1 if self._plan_confirm else 0)
         self.exec_mode_combo.blockSignals(False)

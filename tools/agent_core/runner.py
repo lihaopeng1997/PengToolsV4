@@ -53,6 +53,15 @@ _CONTINUE_EMPTY = (
     "请调用工具查出数据后再用简短中文回答，不要空回复。"
 )
 _EMPTY_ANSWER = "这次没有生成查询结果。请确认当前连接、Schema 和表名后再问一次。"
+# A host may reject a text answer as structurally incomplete (for example a
+# heading and an event ID with no cause or next step).  The reason is carried
+# into one more turn so the model can repair its own answer.
+_CONTINUE_INCOMPLETE_PREFIX = "上一条回答不完整："
+_CONTINUE_INCOMPLETE = (
+    _CONTINUE_INCOMPLETE_PREFIX
+    + "{reason}。请重新给出完整回答，包含已确认现象、可能原因、缺失证据和下一步检查；"
+    "不要只补一句结论，没有把握的部分明确标注为推断。"
+)
 _UNFINISHED_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
@@ -68,12 +77,25 @@ def unfinished_work_announcement(text: str) -> bool:
     return any(marker in body for marker in _UNFINISHED_MARKERS)
 
 
+def _intranet_soft_mode() -> bool:
+    """In intranet mode an incomplete answer is annotated, not retried."""
+
+    try:
+        from tools.intranet_mode import is_intranet_open
+        return bool(is_intranet_open())
+    except Exception:
+        return False
+
+
 def _without_continuation_prompts(messages: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
     return tuple(
         item for item in messages
         if not (
             item.get("role") == "user"
-            and item.get("content") in {_CONTINUE_UNFINISHED, _CONTINUE_EMPTY}
+            and (
+                item.get("content") in {_CONTINUE_UNFINISHED, _CONTINUE_EMPTY}
+                or str(item.get("content") or "").startswith(_CONTINUE_INCOMPLETE_PREFIX)
+            )
         )
     )
 
@@ -198,6 +220,7 @@ class AgentRunner:
         is_repeatable_tool: Callable[[ToolCall], bool] | None = None,
         authorize_tool_batch: Callable[[Sequence[ToolCall], RunContext, CancellationToken], bool] | None = None,
         context_planner: ContextPlanner | None = None,
+        answer_validator: Callable[[str], str | None] | None = None,
     ) -> None:
         self.model_adapter = model_adapter or model
         self.tool_registry = tool_registry or tools
@@ -210,6 +233,9 @@ class AgentRunner:
         self.is_repeatable_tool = is_repeatable_tool or (lambda _call: False)
         self.authorize_tool_batch = authorize_tool_batch
         self.context_planner = context_planner
+        # Host-supplied completeness check.  Returning a reason rejects the
+        # answer; returning None/"" accepts it.  Generic runs stay unchanged.
+        self.answer_validator = answer_validator or (lambda _text: None)
 
     def cancel(self, reason: str = "cancelled") -> None:
         """Request one-way cancellation of the currently associated run."""
@@ -828,6 +854,35 @@ class AgentRunner:
                         continue
                     if not str(visible_text or "").strip():
                         visible_text = _EMPTY_ANSWER
+                    answer_gap = ""
+                    try:
+                        answer_gap = str(self.answer_validator(visible_text) or "")
+                    except Exception:
+                        answer_gap = ""  # A host validator must not fail a finished run.
+                    if answer_gap:
+                        if _intranet_soft_mode():
+                            # Soft mode: show the answer with a one-line note.
+                            visible_text = (
+                                visible_text + "\n\n> 分析可能不完整：" + answer_gap
+                                + "（内网模式：未强制重写）"
+                            )
+                        else:
+                            if visible_text:
+                                working_messages.append({"role": "assistant", "content": visible_text})
+                            if unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS:
+                                unfinished_continuations += 1
+                                working_messages.append({
+                                    "role": "user",
+                                    "content": _CONTINUE_INCOMPLETE.format(reason=answer_gap),
+                                })
+                                continue
+                            return finish(
+                                AgentStatus.FAILED,
+                                text=visible_text,
+                                error="INCOMPLETE_ANSWER:" + answer_gap,
+                                event_type=AgentEventType.FAILED,
+                                payload={"incomplete": True, "reason": answer_gap},
+                            )
                     if visible_text:
                         working_messages.append({"role": "assistant", "content": visible_text})
                     query_ids = list(verified_query_ids)
