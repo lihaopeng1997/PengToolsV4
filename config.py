@@ -108,7 +108,8 @@ DEFAULT_SETTINGS = {
     'keep_awake_interval_minutes': 3,
     # 自我学习默认展示。旧数据里的 false 不再隐藏入口。
     'private_unlocked': True,
-    # 内网模式总开关：为 true 时放开产品侧的确认/清洗/重试限制。
+    # 内网模式总开关。只读查询免确认；写操作、DDL 和执行全部仍需确认。
+    # 外发模型默认脱敏；只有能确认是私网地址的模型才免同意。
     # 环境变量 PENGTOOLS_INTRANET=1 可临时强制开启，不落盘。
     'intranet_open': False,
     # ── 安测 / 安全基线（默认收紧）──
