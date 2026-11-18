@@ -989,6 +989,8 @@ def consume_openai_sse(chunks, on_delta=None) -> str:
                 take(item)
         for item in parser.finish():
             take(item)
+        if saw_sse and not (parser.done or parser.finish_reason):
+            raise StreamInterrupted('流式响应中断')
         for part_kind, part in splitter.finish():
             if part_kind == 'text':
                 texts.append(part)

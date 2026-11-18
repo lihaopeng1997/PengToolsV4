@@ -326,6 +326,13 @@ def _incomplete(parts, exc=None):
 
 
 check('有正文后连接重置不回退', _incomplete([partial_sse], ConnectionResetError()))
+check('有正文但无结束信号的 EOF 不重发', _incomplete([partial_sse]))
+finish_chunk = _sse({'choices': [{'delta': {}, 'finish_reason': 'stop'}]}).encode('utf-8')
+kind, seen, value = _interrupt([partial_sse, finish_chunk])
+check('只有 finish_reason 的正常 EOF 保留正文', (kind, seen, value) == ('ok', [True], '可见一半'))
+reasoning_chunk = _sse({'choices': [{'delta': {'reasoning_content': THINK}}]}).encode('utf-8')
+kind, seen, value = _interrupt([reasoning_chunk])
+check('只有思考且无结束信号的 EOF 可以回退', (kind, seen, value) == ('ok', [True, False], expected))
 check('有正文后空闲超时不回退', _incomplete([partial_sse], TimeoutError()))
 check('有正文后解析异常不回退', _incomplete([partial_sse, b'data: {bad\n\n']))
 
