@@ -41,8 +41,8 @@ class _QuickChatWorker(QThread):
 
     def run(self):
         try:
-            from tools.intranet_llm import chat_completions
-            text = chat_completions(self.messages, cfg=self.cfg)
+            from tools.intranet_llm import chat_completions, scrub_chat_messages
+            text = chat_completions(scrub_chat_messages(self.messages), cfg=self.cfg)
             if self.cancelled:
                 return
             self.completed.emit(text)

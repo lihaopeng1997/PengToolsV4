@@ -380,6 +380,19 @@ stored = buffer.text()
 check('思考内存不超过 64KB', len(stored.encode('utf-8')) <= 64 * 1024 and blob.endswith(stored) and stored)
 
 print('--- 会话与日志不含思考 ---')
+from ui.quick_panel import _QuickChatWorker
+from unittest.mock import patch
+
+raw_chat = [{'role': 'assistant', 'content': 'password=TEST_ONLY_MARKER'},
+            {'role': 'user', 'content': [{'type': 'text', 'text': '普通文字\ntoken=TEST_ONLY_MARKER'},
+                                         {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AA=='}}]}]
+for worker_type in (_QuickChatWorker, _ChatWorker):
+    with patch.object(llm, 'chat_completions', return_value='OK') as fake_send:
+        worker_type(raw_chat, _cfg()).run()
+        sent = fake_send.call_args.args[0]
+        check(worker_type.__name__ + ' 清洗请求副本而非原历史', 'TEST_ONLY_MARKER' not in str(sent)
+              and 'TEST_ONLY_MARKER' in raw_chat[0]['content'] and '普通文字' in str(sent)
+              and sent[1]['content'][1] == raw_chat[1]['content'][1])
 import tools.intranet_llm as llm_mod
 
 

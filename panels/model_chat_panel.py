@@ -63,7 +63,7 @@ class _ChatWorker(QThread):
 
     def run(self):
         from tools.ai_events import AiEvent, ReasoningBuffer, make_phase
-        from tools.intranet_llm import chat_completions
+        from tools.intranet_llm import chat_completions, scrub_chat_messages
 
         # Thinking stays in this buffer and is never logged or saved.
         reasoning = ReasoningBuffer()
@@ -85,7 +85,7 @@ class _ChatWorker(QThread):
                 if kind == 'text':
                     self.ai_event.emit(AiEvent(kind='text_delta', text=text))
 
-            text = chat_completions(self.messages, cfg=self.cfg, on_delta=on_delta)
+            text = chat_completions(scrub_chat_messages(self.messages), cfg=self.cfg, on_delta=on_delta)
             if self.cancelled:
                 return
             self.ai_event.emit(AiEvent(kind='finished', text=text))

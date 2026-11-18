@@ -1231,6 +1231,25 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
     return [model]
 
 
+def scrub_chat_messages(messages: list[dict]) -> list[dict]:
+    from tools.app_logging import redact_text
+
+    result = []
+    for message in messages:
+        content = message.get('content')
+        if isinstance(content, str):
+            content = redact_text(content)
+        elif isinstance(content, list):
+            content = [
+                {**block, 'text': redact_text(block['text'])}
+                if isinstance(block, dict) and isinstance(block.get('text'), str)
+                else redact_text(block) if isinstance(block, str) else block
+                for block in content
+            ]
+        result.append({**message, 'content': content})
+    return result
+
+
 def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None = None, on_delta=None) -> str:
     """Return the full visible answer. ``on_delta(kind, text)`` receives live pieces.
 
