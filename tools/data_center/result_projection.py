@@ -3,7 +3,8 @@
 The database/grid side keeps native values in ``QueryResult``/``ToolResult``.
 This module creates a separate JSON-shaped view for the model.  It preserves
 the important distinctions (NULL, empty text, decimal, dates and binary),
-redacts obvious credential columns, and applies both per-result and per-run
+redacts obvious credential columns and explicit credentials/private IPv4 in
+cell text, and applies both per-result and per-run
 UTF-8 budgets.  It does not write files or contact a database.
 """
 
@@ -13,10 +14,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
+from itertools import islice
 import json
 import math
 import re
 from typing import Any
+
+from tools.app_logging import mask_private_ipv4
+from tools.sql_guard import redact_error
 
 from .contracts import QueryResult, ToolResult
 
@@ -67,6 +72,7 @@ _SENSITIVE_NAMES = frozenset(
         "token",
         "secret",
         "authorization",
+        "cookie",
         "apikey",
         "api_key",
         "access_token",
@@ -79,8 +85,17 @@ _SENSITIVE_NAMES = frozenset(
     }
 )
 _SENSITIVE_PART = re.compile(
-    r"(?:^|_)(?:password|passwd|pwd|token|secret|authorization|api_key|apikey|access_token|refresh_token|client_secret|private_key|credential|credentials|jwt)(?:_|$)"
+    r"(?:^|_)(?:password|passwd|pwd|token|secret|authorization|cookie|api_key|apikey|access_token|refresh_token|client_secret|private_key|credential|credentials|jwt)(?:_|$)"
 )
+_CREDENTIAL_ASSIGNMENT = re.compile(
+    r"""(?i)(?<![^\W_])(?:password|passwd|pwd|token|secret|authorization|api[_-]?key|"""
+    r"""private[_-]?key|credentials?|jwt|cookie|密码)["']?[^\S\r\n]*[=:]"""
+    r"""(?:\s*(?:"(?:[^"\\]|\\[\s\S])*(?:"|\\?\Z)|'(?:[^'\\]|\\[\s\S])*(?:'|\\?\Z))|[^\r\n]*)"""
+)
+_PRIVATE_KEY = re.compile(r"-----BEGIN[^\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END[^\r\n]*PRIVATE KEY-----|$)")
+_OPEN_URL_AUTHORITY = re.compile(r"(://)[^/\s?#@]+\Z")
+_OPEN_PRIVATE_IPV4 = re.compile(r"\b(10|172(?=\.(?:1[6-9]|2\d|3[01]))|192(?=\.168))\.[\d.]*\Z")
+_TEXT_LOOKAHEAD = 64
 
 
 @dataclass(slots=True)
@@ -197,7 +212,6 @@ class ResultProjector:
             return self._project_failure(normalized, budget)
 
         columns, rows, source_truncated, source_row_count = _tabular_data(normalized["data"])
-        column_names = tuple(item["name"] for item in columns)
         projected_columns = [
             {
                 "name": item["name"],
@@ -206,26 +220,9 @@ class ResultProjector:
             }
             for item in columns[:DEFAULT_MAX_COLUMNS]
         ]
-        column_sensitive = {
-            item["name"]: bool(item.get("sensitive")) or _is_sensitive_name(item["name"], sensitive)
-            for item in columns[:DEFAULT_MAX_COLUMNS]
-        }
-        # A mapping row may contain a key not in the source descriptor.  The
-        # tabular normalizer folds such keys into column_names before here.
-        projected_rows: list[list[Any]] = []
+        sensitivity = {item["name"]: item["sensitive"] for item in projected_columns}
+        column_sensitive = [sensitivity[item["name"]] for item in projected_columns]
         row_limit_hit = source_truncated or len(rows) > row_cap or source_row_count > row_cap
-        candidate_rows = rows[:row_cap]
-        for row in candidate_rows:
-            projected_rows.append(
-                [
-                    _project_value(
-                        value,
-                        sensitive=column_sensitive.get(column_name, _is_sensitive_name(column_name, sensitive)),
-                        max_cell_chars=cell_cap,
-                    )
-                    for column_name, value in zip(column_names, row, strict=False)
-                ]
-            )
 
         base_limits = {
             "row_limit": row_cap,
@@ -245,7 +242,11 @@ class ResultProjector:
         max_available = min(self.max_result_bytes, budget.remaining_bytes)
         # Fit rows against the complete envelope, not just the row array, so
         # the published model message obeys the stated UTF-8 budget.
-        for row in projected_rows:
+        for source_row in rows[:row_cap]:
+            row = [
+                _project_value(value, sensitive=is_sensitive, max_cell_chars=cell_cap)
+                for is_sensitive, value in zip(column_sensitive, source_row, strict=False)
+            ]
             trial = dict(payload_base)
             trial["rows"] = chosen_rows + [row]
             trial_truncated = row_limit_hit or len(chosen_rows) + 1 < len(rows)
@@ -522,6 +523,27 @@ def _normalize_columns(raw: Any, rows: Sequence[Any]) -> list[dict[str, Any]]:
     return columns
 
 
+def _project_text(text: str, limit: int) -> tuple[str, bool]:
+    # Include enough lookahead for a private IPv4 crossing the visible edge.
+    # An authority still open at the scan edge could contain unfinished userinfo.
+    scan_limit = limit + _TEXT_LOOKAHEAD
+    head = text[:scan_limit]
+    if len(text) > scan_limit:
+        if "://" in head:
+            head = _OPEN_URL_AUTHORITY.sub(r"\1[隐藏]", head)
+        if "." in head:
+            head = _OPEN_PRIVATE_IPV4.sub(r"\1.x.x.x", head)
+    if "PRIVATE KEY-----" in head:
+        head = _PRIVATE_KEY.sub("[私钥已隐藏]", head)
+    if "=" in head or ":" in head:
+        head = _CREDENTIAL_ASSIGNMENT.sub("[敏感字段已隐藏]", head)
+    if "://" in head or "bearer" in head.lower():
+        head = redact_error(head)
+    if "." in head:
+        head = mask_private_ipv4(head)
+    return head[:limit], len(text) > limit or len(head) > limit
+
+
 def _project_value(value: Any, *, sensitive: bool, max_cell_chars: int, depth: int = 0) -> Any:
     if sensitive:
         return {"type": "redacted"}
@@ -546,16 +568,21 @@ def _project_value(value: Any, *, sensitive: bool, max_cell_chars: int, depth: i
     if isinstance(value, (bytes, bytearray, memoryview)):
         return {"type": "bytes", "size": len(value)}
     if isinstance(value, str):
-        if len(value) > max_cell_chars:
-            return {"type": "string", "value": value[:max_cell_chars], "truncated": True}
-        return {"type": "string", "value": value}
+        text, truncated = _project_text(value, max_cell_chars)
+        return {"type": "string", "value": text, **({"truncated": True} if truncated else {})}
     if depth >= 8:
-        return {"type": "string", "value": str(value)[:max_cell_chars], "truncated": len(str(value)) > max_cell_chars}
+        return {"type": "string", "value": "[嵌套已截断]"[:max_cell_chars], "truncated": True}
     if isinstance(value, Mapping):
         mapped: dict[str, Any] = {}
-        for key, item in list(value.items())[:DEFAULT_MAX_COLUMNS]:
+        for key, item in islice(value.items(), DEFAULT_MAX_COLUMNS):
             key_name = str(key)
-            mapped[key_name] = _project_value(
+            safe_key, _ = _project_text(key_name, DEFAULT_MAX_CELL_CHARS)
+            if safe_key in mapped:
+                suffix = len(mapped) + 1
+                while f"{safe_key} [{suffix}]" in mapped:
+                    suffix += 1
+                safe_key = f"{safe_key} [{suffix}]"
+            mapped[safe_key] = _project_value(
                 item,
                 sensitive=_is_sensitive_name(key_name, frozenset()),
                 max_cell_chars=max_cell_chars,
@@ -567,13 +594,13 @@ def _project_value(value: Any, *, sensitive: bool, max_cell_chars: int, depth: i
             "type": "array",
             "value": [
                 _project_value(item, sensitive=False, max_cell_chars=max_cell_chars, depth=depth + 1)
-                for item in list(value)[:DEFAULT_MAX_COLUMNS]
+                for item in islice(value, DEFAULT_MAX_COLUMNS)
             ],
         }
     # BSON ObjectId/Decimal128 and other driver types are represented without
     # importing a driver.  Their textual representation is still bounded.
-    text = str(value)
-    return {"type": value.__class__.__name__.casefold(), "value": text[:max_cell_chars], "truncated": len(text) > max_cell_chars}
+    text, truncated = _project_text(str(value), max_cell_chars)
+    return {"type": value.__class__.__name__.casefold(), "value": text, "truncated": truncated}
 
 
 def _normalize_name(value: Any) -> str:
