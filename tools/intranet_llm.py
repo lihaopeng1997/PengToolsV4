@@ -23,6 +23,7 @@ from urllib.parse import urljoin, urlparse
 
 from config import AI_LOCAL_FILE, ensure_config_dir
 from tools import anthropic_compat
+from tools.agent_core.streaming import ModelStreamParser, StreamingError
 
 INTRANET_DEFAULT_NAME = 'qianwen3.8'
 INTRANET_DEFAULT_BASE_URL = 'http://10.128.25.142:18002/v1'
@@ -843,30 +844,202 @@ def endpoint_url(cfg: dict, suffix: str) -> str:
     return _join(base_url, suffix, provider=provider)
 
 
-def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
+class _StreamFallback(Exception):
+    """The streaming attempt cannot be used. Callers retry without stream."""
+
+
+class StreamIdleTimeout(_StreamFallback):
+    """No bytes arrived within the idle gap. This is not a total-duration limit."""
+
+
+class _ThinkSplitter:
+    """Pull ``<think>`` out of text deltas. Visible text never keeps the tags."""
+
+    _OPEN = '<think>'
+    _CLOSE = '</think>'
+
+    def __init__(self) -> None:
+        self._buf = ''
+        self._inside = False
+
+    def feed(self, text: str) -> list[tuple[str, str]]:
+        self._buf += str(text or '')
+        return self._drain(final=False)
+
+    def finish(self) -> list[tuple[str, str]]:
+        return self._drain(final=True)
+
+    def _drain(self, *, final: bool) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        while self._buf:
+            if self._inside:
+                end = self._buf.lower().find(self._CLOSE)
+                if end < 0:
+                    if final:
+                        out.append(('reasoning', self._buf))
+                        self._buf = ''
+                        break
+                    hold = _tag_suffix(self._buf, self._CLOSE)
+                    emit = self._buf[:-len(hold)] if hold else self._buf
+                    self._buf = hold
+                    if emit:
+                        out.append(('reasoning', emit))
+                    break
+                if end:
+                    out.append(('reasoning', self._buf[:end]))
+                self._buf = self._buf[end + len(self._CLOSE):]
+                self._inside = False
+                continue
+            start = self._buf.lower().find(self._OPEN)
+            if start < 0:
+                if final:
+                    out.append(('text', self._buf))
+                    self._buf = ''
+                    break
+                hold = _tag_suffix(self._buf, self._OPEN)
+                emit = self._buf[:-len(hold)] if hold else self._buf
+                self._buf = hold
+                if emit:
+                    out.append(('text', emit))
+                break
+            if start:
+                out.append(('text', self._buf[:start]))
+            self._buf = self._buf[start + len(self._OPEN):]
+            self._inside = True
+        return out
+
+
+def _tag_suffix(text: str, marker: str) -> str:
+    lowered = text.lower()
+    needle = marker.lower()
+    for size in range(min(len(needle) - 1, len(text)), 0, -1):
+        if needle.startswith(lowered[-size:]):
+            return text[-size:]
+    return ''
+
+
+def _emit_delta(on_delta, kind: str, text: str) -> None:
+    if on_delta is None or not text:
+        return
+    on_delta(kind, text)
+
+
+def consume_openai_sse(chunks, on_delta=None) -> str:
+    """Parse OpenAI SSE with :class:`ModelStreamParser` and split ``<think>`` tags.
+
+    ``ModelStreamParser`` keeps ``<think>`` inside ordinary text on purpose, so
+    the tag split stays here instead of a second SSE decoder.
+    """
+
+    parser = ModelStreamParser(
+        reasoning_fields=('reasoning', 'thinking'),
+        max_reasoning_bytes=16 * 1024 * 1024,
+        max_text_bytes=16 * 1024 * 1024,
+        max_tool_argument_bytes=4 * 1024 * 1024,
+    )
+    splitter = _ThinkSplitter()
+    texts: list[str] = []
+    saw_sse = False
+
+    def take(item: dict) -> None:
+        nonlocal saw_sse
+        kind = str(item.get('kind') or '')
+        if kind == 'turn_done':
+            saw_sse = True
+            return
+        if kind == 'reasoning_delta':
+            saw_sse = True
+            _emit_delta(on_delta, 'reasoning', str(item.get('text') or ''))
+            return
+        if kind != 'text_delta':
+            return
+        saw_sse = True
+        for part_kind, part in splitter.feed(str(item.get('text') or '')):
+            if part_kind == 'text':
+                texts.append(part)
+            _emit_delta(on_delta, part_kind, part)
+
+    try:
+        for chunk in chunks:
+            if not chunk:
+                continue
+            for item in parser.feed(chunk):
+                take(item)
+        for item in parser.finish():
+            take(item)
+        for part_kind, part in splitter.finish():
+            if part_kind == 'text':
+                texts.append(part)
+            _emit_delta(on_delta, part_kind, part)
+    except StreamIdleTimeout:
+        for part_kind, part in splitter.finish():
+            if part_kind == 'text':
+                texts.append(part)
+            _emit_delta(on_delta, part_kind, part)
+        if not texts:
+            raise
+    except StreamingError as exc:
+        if not texts:
+            raise _StreamFallback('parse') from exc
+    if not saw_sse:
+        raise _StreamFallback('not-sse')
+    return ''.join(texts).strip()
+
+
+def iter_idle_chunks(read_chunk, *, idle_seconds: float, clock=None):
+    """Yield chunks. The gap since the previous bytes, not the total time, times out."""
+
+    now = time.monotonic if clock is None else clock
+    last = now()
+    while True:
+        try:
+            chunk = read_chunk()
+        except (TimeoutError, socket.timeout) as exc:
+            raise StreamIdleTimeout('流式响应空闲超时') from exc
+        current = now()
+        if idle_seconds is not None and (current - last) > float(idle_seconds):
+            raise StreamIdleTimeout('流式响应空闲超时')
+        if not chunk:
+            return
+        last = current
+        yield chunk
+
+
+def _arm_idle_timeout(resp, seconds: float) -> None:
+    """Socket timeout is the idle gap between reads, not a cap on the whole answer."""
+
+    try:
+        fp = getattr(resp, 'fp', None)
+        raw = getattr(fp, 'raw', None)
+        sock = getattr(raw, '_sock', None) or getattr(fp, '_sock', None)
+        if sock is not None and seconds:
+            sock.settimeout(float(seconds))
+    except Exception:
+        return
+
+
+def _open_http(cfg: dict, method: str, suffix: str, body, timeout: int):
     provider = provider_for_config(cfg)
     if not cfg.get('enabled'):
         raise IntranetLlmError('模型服务配置未启用')
     validate_profile_config(cfg, require_base_url=True)
     anthropic = anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC
     url = endpoint_url(cfg, suffix)
+    request_body = body
     if anthropic and body is not None and suffix.strip('/') == 'chat/completions':
-        body = anthropic_compat.to_anthropic_request(
+        request_body = anthropic_compat.to_anthropic_request(
             body, default_max_tokens=int(cfg.get('max_tokens') or anthropic_compat.DEFAULT_MAX_TOKENS),
         )
     if provider == 'intranet':
         resolve_private_host(_hostname(url))
-    timeout = int(cfg.get('timeout_seconds') or 120)
     payload = None
     headers = build_headers(cfg)
-    if body is not None:
-        payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
+    if request_body is not None:
+        payload = json.dumps(request_body, ensure_ascii=False).encode('utf-8')
     request = urllib.request.Request(url, data=payload, headers=headers, method=method)
     try:
         opener = opener_for_profile(cfg)
-        with opener.open(request, timeout=timeout) as resp:
-            raw = resp.read().decode('utf-8', errors='replace')
-            status = getattr(resp, 'status', 200)
+        return opener.open(request, timeout=timeout)
     except urllib.error.HTTPError as exc:
         detail = ''
         try:
@@ -882,9 +1055,80 @@ def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
         raise
     except Exception as exc:
         raise IntranetLlmError(redact_llm_error(str(exc))) from exc
+
+
+def _request(cfg: dict, method: str, suffix: str, body=None) -> dict:
+    timeout = int(cfg.get('timeout_seconds') or 120)
+    anthropic = anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC
+    try:
+        with _open_http(cfg, method, suffix, body, timeout) as resp:
+            raw = resp.read().decode('utf-8', errors='replace')
+            status = getattr(resp, 'status', 200)
+    except IntranetLlmError:
+        raise
+    except TimeoutError as exc:
+        raise IntranetLlmError(f'连接超时（{timeout}s）') from exc
+    except Exception as exc:
+        raise IntranetLlmError(redact_llm_error(str(exc))) from exc
     if anthropic:
         return _decode_anthropic_body(raw, status)
     return _decode_body(raw, status)
+
+
+def _completion_text(data: dict) -> str:
+    choices = data.get('choices') if isinstance(data, dict) else None
+    if not isinstance(choices, list) or not choices:
+        err = data.get('error') if isinstance(data, dict) else None
+        if isinstance(err, dict) and err.get('message'):
+            raise IntranetLlmError(str(err['message']))
+        raise IntranetLlmError('模型没有返回内容')
+    message = choices[0].get('message') if isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        raise IntranetLlmError('模型返回无法解析')
+    content = message.get('content')
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get('type') == 'text':
+                parts.append(str(item.get('text') or ''))
+            elif isinstance(item, str):
+                parts.append(item)
+        content = ''.join(parts)
+    text = str(content or '').strip()
+    if not text:
+        raise IntranetLlmError('模型返回为空')
+    return text
+
+
+def _completion_from_request(cfg: dict, body: dict) -> str:
+    payload = dict(body)
+    payload['stream'] = False
+    return _completion_text(_request(cfg, 'POST', 'chat/completions', payload))
+
+
+def _finish_stream(cfg: dict, body: dict, on_delta=None) -> str:
+    timeout = int(cfg.get('timeout_seconds') or 120)
+    stream_body = dict(body)
+    stream_body['stream'] = True
+    with _open_http(cfg, 'POST', 'chat/completions', stream_body, timeout) as resp:
+        _arm_idle_timeout(resp, timeout)
+
+        def read_chunk():
+            try:
+                return resp.read(8192) or b''
+            except (TimeoutError, socket.timeout) as exc:
+                raise StreamIdleTimeout('流式响应空闲超时') from exc
+
+        try:
+            text = consume_openai_sse(
+                iter_idle_chunks(read_chunk, idle_seconds=timeout),
+                on_delta=on_delta,
+            )
+        except StreamIdleTimeout as exc:
+            raise _StreamFallback('idle') from exc
+    if not text:
+        raise _StreamFallback('empty')
+    return text
 
 
 def _decode_anthropic_body(raw: str, status: int) -> dict:
@@ -954,7 +1198,14 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
     return [model]
 
 
-def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None = None) -> str:
+def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None = None, on_delta=None) -> str:
+    """Return the full visible answer. ``on_delta(kind, text)`` receives live pieces.
+
+    ``kind`` is ``reasoning`` or ``text``. Callers that omit ``on_delta`` still
+    receive one complete string. Anthropic gateways and unusable streams use
+    the non-streaming request.
+    """
+
     cfg = _cfg_for_call(cfg, model_config_id)
     provider = provider_for_config(cfg)
     default_model = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else INTRANET_DEFAULT_MODEL
@@ -968,33 +1219,12 @@ def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None
     }
     if provider == 'deepseek':
         body['thinking'] = {'type': 'enabled'}
+    if anthropic_compat.protocol_for_config(cfg) == anthropic_compat.PROTOCOL_ANTHROPIC:
+        return _completion_from_request(cfg, body)
     try:
-        data = _request(cfg, 'POST', 'chat/completions', body)
-    except IntranetLlmError:
-        body['stream'] = False
-        data = _request(cfg, 'POST', 'chat/completions', body)
-    choices = data.get('choices')
-    if not isinstance(choices, list) or not choices:
-        err = data.get('error')
-        if isinstance(err, dict) and err.get('message'):
-            raise IntranetLlmError(str(err['message']))
-        raise IntranetLlmError('模型没有返回内容')
-    message = choices[0].get('message') if isinstance(choices[0], dict) else None
-    if not isinstance(message, dict):
-        raise IntranetLlmError('模型返回无法解析')
-    content = message.get('content')
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get('type') == 'text':
-                parts.append(str(item.get('text') or ''))
-            elif isinstance(item, str):
-                parts.append(item)
-        content = ''.join(parts)
-    text = str(content or '').strip()
-    if not text:
-        raise IntranetLlmError('模型返回为空')
-    return text
+        return _finish_stream(cfg, body, on_delta=on_delta)
+    except (_StreamFallback, IntranetLlmError):
+        return _completion_from_request(cfg, body)
 
 
 def ping_model(cfg=None, model_config_id: str | None = None) -> dict:

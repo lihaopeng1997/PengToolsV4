@@ -63,6 +63,7 @@ def format_chat_clock(value) -> str:
 class _ChatWorker(QThread):
     completed = pyqtSignal(str)
     failed = pyqtSignal(str)
+    ai_event = pyqtSignal(object)
 
     def __init__(self, messages, cfg):
         super().__init__()
@@ -71,16 +72,40 @@ class _ChatWorker(QThread):
         self.cancelled = False
 
     def run(self):
+        from tools.ai_events import AiEvent, ReasoningBuffer, make_phase
+        from tools.intranet_llm import chat_completions
+
+        # Thinking stays in this buffer and is never logged or saved.
+        reasoning = ReasoningBuffer()
+        announced_thinking = False
         try:
-            from tools.intranet_llm import chat_completions
-            text = chat_completions(self.messages, cfg=self.cfg)
+            self.ai_event.emit(make_phase('model_turn_reset'))
+
+            def on_delta(kind, text):
+                nonlocal announced_thinking
+                if self.cancelled or not text:
+                    return
+                if kind == 'reasoning':
+                    reasoning.add(text)
+                    if not announced_thinking:
+                        announced_thinking = True
+                        self.ai_event.emit(make_phase('thinking'))
+                    self.ai_event.emit(AiEvent(kind='reasoning_delta', text=text))
+                    return
+                if kind == 'text':
+                    self.ai_event.emit(AiEvent(kind='text_delta', text=text))
+
+            text = chat_completions(self.messages, cfg=self.cfg, on_delta=on_delta)
             if self.cancelled:
                 return
+            self.ai_event.emit(AiEvent(kind='finished', text=text))
             self.completed.emit(text)
         except Exception as exc:
             if self.cancelled:
                 return
-            self.failed.emit(redact_error(str(exc)))
+            message = redact_error(str(exc))
+            self.ai_event.emit(AiEvent(kind='failed', text=message))
+            self.failed.emit(message)
 
 
 class _PingWorker(QThread):
@@ -100,6 +125,8 @@ class ModelChatPanel(QWidget):
         self.language = language
         self._worker = None
         self._ping_worker = None
+        self._live_answer = ''
+        self._pending_body = None
         self._session = None
         self._pending_id = ''
         self._is_running = False
@@ -744,9 +771,12 @@ class ModelChatPanel(QWidget):
             return
         self.empty.hide()
         self.scroll.show()
+        self._pending_body = None
         for msg in self._session.get('messages') or []:
             holder = self._make_message_row(msg)
             self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
+            if str(msg.get('id') or '') == self._pending_id and msg.get('role') != 'user':
+                self._pending_body = holder.findChild(QLabel, 'chat-bubble-body')
         self._apply_bubble_widths()
         if follow:
             QTimer.singleShot(0, self._scroll_thread_to_bottom)
@@ -837,7 +867,9 @@ class ModelChatPanel(QWidget):
         self._is_running = True
         self._stop_requested = False
         self._sync_running_state()
+        self._live_answer = ''
         self._worker = _ChatWorker(messages, cfg)
+        self._worker.ai_event.connect(self._on_ai_event)
         self._worker.completed.connect(self._on_chat_ok)
         self._worker.failed.connect(self._on_chat_fail)
         self._worker.finished.connect(self._on_chat_done)
@@ -845,6 +877,25 @@ class ModelChatPanel(QWidget):
         settings = load_settings()
         settings['model_chat_last_model_id'] = str(model.get('id') or '')
         save_settings(settings)
+
+    def _on_ai_event(self, event) -> None:
+        """Append visible text only. Reasoning is not shown or stored."""
+
+        if self._stop_requested or getattr(event, 'kind', '') != 'text_delta':
+            return
+        piece = str(getattr(event, 'text', '') or '')
+        if not piece:
+            return
+        self._live_answer += piece
+        if self._session and self._pending_id:
+            for item in self._session.get('messages') or []:
+                if item.get('id') == self._pending_id:
+                    item['content'] = self._live_answer
+                    break
+        if self._pending_body is not None:
+            self._pending_body.setText(self._live_answer)
+            if self._thread_at_bottom():
+                self._scroll_thread_to_bottom()
 
     def _on_chat_ok(self, text: str):
         if self._stop_requested:
