@@ -10,13 +10,12 @@ import base64
 import mimetypes
 import os
 
-from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor, QKeyEvent, QTextOption
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QToolButton, QToolTip, QVBoxLayout, QWidget,
+    QMenu, QPushButton, QSplitter, QToolTip, QVBoxLayout, QWidget,
 )
 
 from config import load_settings, save_settings
@@ -34,6 +33,7 @@ from ui.dialog_buttons import clamp_dialog_geometry
 from ui.motion import play_dialog_enter
 from ui.field_metrics import size_line, size_pick_combo
 from ui.page_chrome import make_empty_state, make_page_header, make_page_toolbar
+from ui.chat_kit import ChatController, ChatView, Composer, format_chat_clock
 from ui.splitter_prefs import install_splitter_prefs
 
 MAX_TEXT_FILE_SIZE = 256 * 1024  # 256 KB
@@ -48,16 +48,6 @@ def chat_bubble_max_width(viewport_width: int, *, ratio: float = CHAT_BUBBLE_RAT
     vw = max(1, int(viewport_width or 0))
     capped = min(CHAT_BUBBLE_RATIO_CAP, max(0.45, float(ratio)))
     return max(120, min(int(vw * capped), vw - 24))
-
-
-def format_chat_clock(value) -> str:
-    text = str(value or '').strip()
-    if 'T' in text:
-        clock = text.split('T', 1)[1]
-        return clock[:5]
-    if len(text) >= 5 and ':' in text:
-        return text[-5:]
-    return text
 
 
 class _ChatWorker(QThread):
@@ -133,7 +123,6 @@ class ModelChatPanel(QWidget):
         self._stop_requested = False
         self._text_attachments: list[dict] = []
         self._image_attachments: list[dict] = []
-        self._bubble_width_lock = False
         self._setup_ui()
         self.set_language(language)
         self._reload_models()
@@ -181,10 +170,10 @@ class ModelChatPanel(QWidget):
         self.ping_status = QLabel()
         self.ping_status.setObjectName('field-hint')
         self.ping_status.setWordWrap(True)
-        top.addWidget(self.model_combo)
         top.addWidget(self.ping_btn)
         top.addWidget(self.skill_btn)
         top.addWidget(self.ping_status, 1)
+        top.addWidget(self.model_combo)
         root.addWidget(toolbar)
 
         # 聊天主内容区（左右 split）
@@ -242,19 +231,14 @@ class ModelChatPanel(QWidget):
         top_chat_l.setContentsMargins(0, 0, 0, 0)
         top_chat_l.setSpacing(4)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.thread_host = QWidget()
-        self.thread_layout = QVBoxLayout(self.thread_host)
-        self.thread_layout.setContentsMargins(8, 8, 8, 8)
-        self.thread_layout.addStretch(1)
-        self.scroll.setWidget(self.thread_host)
-        top_chat_l.addWidget(self.scroll, 1)
+        self.chat = ChatView()
+        self.scroll = self.chat
+        self.controller = ChatController(self.chat, self)
+        top_chat_l.addWidget(self.chat, 1)
 
         self.empty = make_empty_state('还没有对话', '新建会话后即可向已启用的内网模型发消息')
         top_chat_l.addWidget(self.empty, 1)
-        self.scroll.hide()  # 有消息时由 _render_messages 显示
+        self.chat.hide()
         self.trim_hint = QLabel()
         self.trim_hint.setObjectName('field-hint')
         self.trim_hint.hide()
@@ -262,61 +246,25 @@ class ModelChatPanel(QWidget):
 
         self.chat_vsplit.addWidget(top_chat_widget)
 
-        composer_container = QFrame()
-        composer_container.setObjectName('chat-composer-card')
-        self.composer_card = composer_container
-        composer_l = QVBoxLayout(composer_container)
-        composer_l.setContentsMargins(8, 8, 8, 8)
-        composer_l.setSpacing(6)
-
-        # 附件状态栏
-        self.attachment_bar = QLabel()
-        self.attachment_bar.setObjectName('field-hint')
-        self.attachment_bar.setWordWrap(True)
-        self.attachment_bar.hide()
-        composer_l.addWidget(self.attachment_bar)
-
-        self.input = QPlainTextEdit()
-        self.input.setObjectName('chat-composer-input')
-        self.input.setMinimumHeight(120)
-        self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        self.input.installEventFilter(self)
-        composer_l.addWidget(self.input, 1)
-
-        send_row = QHBoxLayout()
-        self.send_hint = QLabel()
-        self.send_hint.setObjectName('field-hint')
-        # 提示可被挤压，不撑大窄窗口的最小宽度
-        self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-
-        # "+" 附件菜单按钮
-        self.add_attachment_btn = QToolButton()
-        self.add_attachment_btn.setText('+')
-        self.add_attachment_btn.setToolTip('添加附件（文件/图片）')
-        self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        apply_button(self.add_attachment_btn, 'ghost', compact=True)
-        attach_menu = QMenu(self.add_attachment_btn)
-        self.add_file_action = attach_menu.addAction('添加文本文件', self._pick_text_file)
-        self.add_img_action = attach_menu.addAction('添加图片', self._pick_image_file)
-        attach_menu.addSeparator()
-        self.clear_attach_action = attach_menu.addAction('清空附件', self._clear_attachments)
-        self.add_attachment_btn.setMenu(attach_menu)
-
-        self.retry_btn = QPushButton()
-        apply_button(self.retry_btn, 'ghost', compact=True)
-        self.retry_btn.clicked.connect(self._regenerate)
-
-        self.send_btn = QPushButton()
-        apply_button(self.send_btn, 'primary', compact=True)
-        self.send_btn.clicked.connect(self._on_action_clicked)
-
-        send_row.addWidget(self.add_attachment_btn)
-        send_row.addWidget(self.send_hint, 1)
-        send_row.addWidget(self.retry_btn)
-        send_row.addWidget(self.send_btn)
-        composer_l.addLayout(send_row)
-
-        self.chat_vsplit.addWidget(composer_container)
+        self.composer = Composer()
+        self.composer_card = self.composer
+        self.input = self.composer.input
+        self.attachment_bar = self.composer.attachment_bar
+        self.send_hint = self.composer.send_hint
+        self.add_attachment_btn = self.composer.add_attachment_btn
+        self.add_file_action = self.composer.add_file_action
+        self.add_img_action = self.composer.add_img_action
+        self.clear_attach_action = self.composer.clear_attach_action
+        self.retry_btn = self.composer.retry_btn
+        self.send_btn = self.composer.send_btn
+        self.add_file_action.triggered.connect(self._pick_text_file)
+        self.add_img_action.triggered.connect(self._pick_image_file)
+        self.clear_attach_action.triggered.connect(self._clear_attachments)
+        self.composer.send_requested.connect(self._on_action_clicked)
+        self.composer.stop_requested.connect(self._stop)
+        self.composer.regenerate_requested.connect(self._regenerate)
+        self.input.textChanged.connect(self._sync_send_enabled)
+        self.chat_vsplit.addWidget(self.composer)
 
         install_splitter_prefs(
             self.chat_vsplit,
@@ -343,24 +291,6 @@ class ModelChatPanel(QWidget):
         )
         root.addWidget(split, 1)
 
-    def eventFilter(self, watched, event):
-        if watched is self.input and event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
-            key = event.key()
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                modifiers = event.modifiers()
-                # Alt+Enter 或 Shift+Enter: 换行
-                if modifiers & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier):
-                    return False
-                # Enter 或 Ctrl+Enter: 发送
-                if not event.isAutoRepeat():
-                    self._on_action_clicked()
-                    return True
-        return super().eventFilter(watched, event)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_bubble_widths()
-
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
@@ -372,35 +302,28 @@ class ModelChatPanel(QWidget):
         self.rename_btn.setText('重命名' if zh else 'Rename')
         self.delete_btn.setText('删除' if zh else 'Delete')
         self.search.setPlaceholderText('搜索会话标题/内容' if zh else 'Search sessions')
-        self.input.setPlaceholderText('输入消息…（Enter 发送，Alt+Enter 换行）' if zh else 'Type message… (Enter to send, Alt+Enter for newline)')
-        self.retry_btn.setText('重新生成' if zh else 'Regenerate')
-        self.send_hint.setText(
-            'Enter 发送 · Alt+Enter 换行 · 内网模型响应仅供参考' if zh
-            else 'Enter: send · Alt+Enter: newline · Model output is for reference only'
-        )
+        self.composer.set_language(language)
         self.banner_text.setText('内网模型响应仅供参考，请勿用于非授权环境' if zh else 'Intranet model output is for reference only.')
         self.banner_close.setText('我知道了' if zh else 'Dismiss')
         self.empty.findChild(QLabel).setText('还没有对话' if zh else 'No conversation yet')
-        self.add_file_action.setText('添加文本文件' if zh else 'Add text file')
-        self.add_img_action.setText('添加图片' if zh else 'Add image')
-        self.clear_attach_action.setText('清空附件' if zh else 'Clear attachments')
         self._sync_running_state()
 
     def _sync_running_state(self):
         zh = self.language == 'zh'
         if self._stop_requested:
-            self.send_btn.setText('停止中…' if zh else 'Stopping…')
-            self.send_btn.setEnabled(False)
+            self.composer.set_running(True, stopping=True)
+            if not zh:
+                self.send_btn.setText('Stopping…')
             self.retry_btn.setEnabled(False)
         elif self._is_running:
-            self.send_btn.setText('停止' if zh else 'Stop')
-            apply_button(self.send_btn, 'secondary', compact=True)
-            self.send_btn.setEnabled(True)
+            self.composer.set_running(True)
+            if not zh:
+                self.send_btn.setText('Stop')
             self.retry_btn.setEnabled(False)
         else:
-            self.send_btn.setText('发送' if zh else 'Send')
-            apply_button(self.send_btn, 'primary', compact=True)
-            self.send_btn.setEnabled(True)
+            self.composer.set_running(False)
+            if not zh:
+                self.send_btn.setText('Send')
             self.retry_btn.setEnabled(self._session is not None)
             self._sync_send_enabled()
 
@@ -641,145 +564,48 @@ class ModelChatPanel(QWidget):
         self._render_messages()
         self._sync_send_enabled()
 
-    def _thread_at_bottom(self) -> bool:
-        bar = self.scroll.verticalScrollBar()
-        return bar.value() >= bar.maximum() - 32
-
-    def _scroll_thread_to_bottom(self):
-        bar = self.scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
-
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
         set_subtitle_visible(self.page_subtitle, low_height)
         # Preserve the 120px composer; let the scrollable transcript shrink in low windows.
         self.chat_vsplit.widget(0).setMinimumHeight(100 if low_height else 200)
 
-    def _bubble_max_width(self) -> int:
-        return chat_bubble_max_width(self.scroll.viewport().width() or self.scroll.width())
+    def _show_chat(self) -> None:
+        self.empty.hide()
+        self.chat.show()
 
-    def _apply_bubble_widths(self):
-        if self._bubble_width_lock:
+    def _bind_bubble(self, bubble) -> None:
+        if bubble is None or getattr(bubble, '_panel_bound', False):
             return
-        self._bubble_width_lock = True
-        try:
-            self._apply_bubble_widths_unlocked()
-        finally:
-            self._bubble_width_lock = False
+        bubble._panel_bound = True
+        if bubble.role == 'user':
+            return
+        bubble.retry_requested.connect(self._regenerate)
+        bubble.copy_error_requested.connect(self._copy_error)
 
-    def _apply_bubble_widths_unlocked(self):
-        max_w = self._bubble_max_width()
-        inner = max(80, max_w - 28)
-        for i in range(max(0, self.thread_layout.count() - 1)):
-            item = self.thread_layout.itemAt(i)
-            holder = item.widget() if item is not None else None
-            if holder is None:
-                continue
-            for frame in holder.findChildren(QFrame):
-                name = frame.objectName()
-                if name in ('chat-user-bubble', 'chat-assistant-bubble'):
-                    frame.setMaximumWidth(max_w)
-                    body = frame.findChild(QLabel, 'chat-bubble-body')
-                    if body is not None:
-                        body.setMaximumWidth(inner)
-
-    def _make_message_row(self, msg: dict) -> QWidget:
-        zh = self.language == 'zh'
-        role = msg.get('role')
-        status = str(msg.get('status') or 'complete')
-        frame = QFrame()
-        frame.setObjectName('chat-user-bubble' if role == 'user' else 'chat-assistant-bubble')
-        frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        box = QVBoxLayout(frame)
-        box.setContentsMargins(14, 8, 14, 8)
-        box.setSpacing(4)
-
-        if role == 'assistant' and status == 'pending':
-            from ui.thinking_indicator import ThinkingIndicator
-            indicator = ThinkingIndicator(frame, text='正在思考...' if zh else 'Thinking...')
-            indicator.setObjectName('chat-thinking-indicator')
-            indicator.start()
-            box.addWidget(indicator)
-        else:
-            raw_content = str(msg.get('content') or '')
-            if status == 'stopped':
-                if not raw_content:
-                    raw_content = '（请求已停止）' if zh else '(Request stopped)'
-                else:
-                    raw_content += ('\n（已停止/未完成）' if zh else '\n(stopped)')
-            elif status == 'failed':
-                if not raw_content:
-                    raw_content = '（请求失败）' if zh else '(Request failed)'
-            elif not raw_content and role != 'user':
-                raw_content = '（无内容）' if zh else '(Empty)'
-
-            body = QLabel(raw_content)
-            body.setObjectName('chat-bubble-body')
-            body.setWordWrap(True)
-            body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            box.addWidget(body)
-
-        meta_row = QHBoxLayout()
-        meta_row.setContentsMargins(0, 0, 0, 0)
-        meta_row.setSpacing(6)
-        meta = QLabel()
-        meta.setObjectName('field-hint')
-        clock = format_chat_clock(msg.get('created_at'))
-        if role == 'user':
-            meta.setText(clock)
-        else:
-            mname = msg.get('model') or msg.get('config_name') or 'AI'
-            meta.setText(f'{mname} · {clock}'.strip(' ·'))
-        meta_row.addWidget(meta, 1)
-
-        if role != 'user':
-            copy = QPushButton('复制' if zh else 'Copy', frame)
-            apply_button(copy, 'ghost', compact=True)
-            copy.setObjectName('chat-copy-btn')
-            copy.clicked.connect(lambda _=False, text=str(msg.get('content') or ''): self._copy(text))
-            if status == 'pending':
-                copy.hide()
-            meta_row.addWidget(copy, 0)
-
-        box.addLayout(meta_row)
-        wrap = QHBoxLayout()
-        wrap.setContentsMargins(0, 0, 0, 0)
-        wrap.setSpacing(8)
-        if role == 'user':
-            wrap.addStretch(1)
-            wrap.addWidget(frame, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        else:
-            wrap.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            wrap.addStretch(1)
-        holder = QWidget()
-        holder.setProperty('chatRole', role)
-        holder.setLayout(wrap)
-        return holder
+    def _copy_error(self, text: str) -> None:
+        self._copy(redact_error(str(text or '')))
 
     def _render_messages(self):
-        follow = self._thread_at_bottom()
-        while self.thread_layout.count() > 1:
-            item = self.thread_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
-                w.deleteLater()
-        if not self._session or not (self._session.get('messages') or []):
-            # 空状态居中占满对话区，不再缩在底部
-            self.scroll.hide()
+        """Full rebuild only when the open session changes."""
+
+        self.controller.detach()
+        messages = list((self._session or {}).get('messages') or [])
+        if not self._session or not messages:
+            self.chat.clear()
+            self.chat.hide()
             self.empty.show()
             return
-        self.empty.hide()
-        self.scroll.show()
-        self._pending_body = None
-        for msg in self._session.get('messages') or []:
-            holder = self._make_message_row(msg)
-            self.thread_layout.insertWidget(self.thread_layout.count() - 1, holder)
-            if str(msg.get('id') or '') == self._pending_id and msg.get('role') != 'user':
-                self._pending_body = holder.findChild(QLabel, 'chat-bubble-body')
-        self._apply_bubble_widths()
-        if follow:
-            QTimer.singleShot(0, self._scroll_thread_to_bottom)
+        self._show_chat()
+        self.chat.set_messages(messages)
+        pending_status = ''
+        for message in messages:
+            self._bind_bubble(self.chat.bubble(message.get('id')))
+            if str(message.get('id') or '') == str(self._pending_id or ''):
+                pending_status = str(message.get('status') or '')
+        pending = self.chat.bubble(self._pending_id)
+        if pending is not None and pending_status == 'pending':
+            self.controller.attach(pending)
 
     def _copy(self, text: str):
         QApplication.clipboard().setText(text)
@@ -857,7 +683,13 @@ class ModelChatPanel(QWidget):
                     p_msg['content'] = blocks
                     break
 
-        self._render_messages()
+        self._show_chat()
+        rows = list(self._session.get('messages') or [])
+        if len(rows) >= 2:
+            self._bind_bubble(self.chat.append_message(rows[-2]))
+        pending_bubble = self.chat.append_message(rows[-1])
+        self._bind_bubble(pending_bubble)
+        self.controller.attach(pending_bubble)
         self._reload_sessions()
         self._start_worker(payload, model)
 
@@ -879,41 +711,64 @@ class ModelChatPanel(QWidget):
         save_settings(settings)
 
     def _on_ai_event(self, event) -> None:
-        """Append visible text only. Reasoning is not shown or stored."""
+        """Route events to the open bubble. Only visible text is remembered."""
 
-        if self._stop_requested or getattr(event, 'kind', '') != 'text_delta':
+        if getattr(self, '_stop_requested', False):
+            return
+        kind = str(getattr(event, 'kind', '') or '')
+        controller = getattr(self, 'controller', None)
+        if controller is not None:
+            controller.handle(event)
+        if kind != 'text_delta':
             return
         piece = str(getattr(event, 'text', '') or '')
         if not piece:
             return
         self._live_answer += piece
-        if self._session and self._pending_id:
-            for item in self._session.get('messages') or []:
-                if item.get('id') == self._pending_id:
+        session = getattr(self, '_session', None)
+        pending = getattr(self, '_pending_id', '')
+        if session and pending:
+            for item in session.get('messages') or []:
+                if item.get('id') == pending:
                     item['content'] = self._live_answer
                     break
-        if self._pending_body is not None:
-            self._pending_body.setText(self._live_answer)
-            if self._thread_at_bottom():
-                self._scroll_thread_to_bottom()
+        if controller is not None:
+            return
+        body = getattr(self, '_pending_body', None)
+        if body is not None:
+            body.setText(self._live_answer)
 
     def _on_chat_ok(self, text: str):
-        if self._stop_requested:
+        if getattr(self, '_stop_requested', False):
             return
-        if self._session and self._pending_id:
-            self._session = update_message(self._session.get('id'), self._pending_id, content=text, status='complete')
-            self._render_messages()
+        session = getattr(self, '_session', None)
+        pending = getattr(self, '_pending_id', '')
+        if session and pending:
+            updated = update_message(session.get('id'), pending, content=text, status='complete')
+            if updated is not None:
+                self._session = updated
+        chat = getattr(self, 'chat', None)
+        controller = getattr(self, 'controller', None)
+        if chat is not None and controller is not None and pending:
+            bubble = chat.bubble(pending)
+            if bubble is not None:
+                controller.complete(text)
 
     def _on_chat_fail(self, message: str):
         if self._stop_requested:
             return
+        reason = redact_error(message)
         if self._session and self._pending_id:
-            self._session = update_message(
+            updated = update_message(
                 self._session.get('id'), self._pending_id,
-                content=redact_error(message), status='failed',
+                content=reason, status='failed',
             )
-            self._render_messages()
-        self.ping_status.setText(redact_error(message))
+            if updated is not None:
+                self._session = updated
+            bubble = self.chat.bubble(self._pending_id)
+            if bubble is not None:
+                self.controller.fail(reason)
+        self.ping_status.setText(reason)
 
     def _on_chat_done(self):
         self._is_running = False
@@ -926,20 +781,24 @@ class ModelChatPanel(QWidget):
         self._stop_requested = True
         if self._worker is not None:
             self._worker.cancelled = True
-        if self._session and self._pending_id:
-            current = ''
+        text = ''
+        bubble = self.chat.bubble(self._pending_id) if self._pending_id else None
+        if bubble is not None:
+            self.controller.stop()
+            text = bubble.visible_text()
+        elif self._session and self._pending_id:
             for msg in self._session.get('messages') or []:
                 if msg.get('id') == self._pending_id:
-                    current = str(msg.get('content') or '')
-            self._session = update_message(
+                    text = str(msg.get('content') or '')
+                    break
+        if self._session and self._pending_id:
+            updated = update_message(
                 self._session.get('id'), self._pending_id,
-                content=current if current else ('（请求已停止）' if zh else '(Request stopped)'),
-                status='stopped',
+                content=text, status='stopped',
             )
-            self._render_messages()
-        self.ping_status.setText(
-            '请求已停止' if zh else 'The request was stopped.'
-        )
+            if updated is not None:
+                self._session = updated
+        self.ping_status.setText('请求已停止' if zh else 'The request was stopped.')
         self._sync_running_state()
 
     def _regenerate(self):
@@ -965,7 +824,10 @@ class ModelChatPanel(QWidget):
         self._pending_id = str((pending.get('messages') or [{}])[-1].get('id') or '')
         payload, trimmed = trim_messages_for_request(self._session.get('messages') or [])
         self.trim_hint.setVisible(trimmed)
-        self._render_messages()
+        self._show_chat()
+        bubble = self.chat.append_message((self._session.get('messages') or [])[-1])
+        self._bind_bubble(bubble)
+        self.controller.attach(bubble)
         self._start_worker(payload, model)
 
     def _ping_current(self):

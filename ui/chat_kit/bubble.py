@@ -1,0 +1,419 @@
+# -*- coding: utf-8 -*-
+"""One chat message: thinking, tools, markdown, phase, or an error card."""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import (
+    QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QToolTip, QVBoxLayout, QWidget,
+)
+
+from tools.ai_events import ReasoningBuffer, phase_label, tool_label
+from ui.chat_kit.markdown import MarkdownBody
+
+
+class ThinkingBlock(QFrame):
+    """In-memory thinking. There is no save method."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('chat-thinking')
+        self.buffer = ReasoningBuffer()
+        self._seconds = 0
+        self._running = False
+        self._user_opened = False
+        self._expanded = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 4, 0, 4)
+        layout.setSpacing(4)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self._dot = QLabel()
+        self._dot.setObjectName('chat-breath')
+        self._dot.setFixedSize(8, 8)
+        self.title = QLabel(self._title())
+        self.title.setObjectName('chat-thinking-title')
+        self.title.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.title.mousePressEvent = self._toggle  # noqa: assignment
+        head.addWidget(self._dot, 0)
+        head.addWidget(self.title, 1)
+        layout.addLayout(head)
+        self.body = QLabel()
+        self.body.setObjectName('chat-thinking-body')
+        self.body.setWordWrap(True)
+        self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.body.hide()
+        layout.addWidget(self.body)
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._tick)
+        self.hide()
+
+    def add_delta(self, text: str) -> None:
+        self.buffer.add(text)
+        self.show()
+        self._running = True
+        self._dot.show()
+        if not self._timer.isActive():
+            self._timer.start()
+        self._open_body()
+        self._refresh()
+
+    def collapse(self) -> None:
+        if self._user_opened:
+            return
+        self._running = False
+        self._expanded = False
+        self.body.hide()
+        self._dot.hide()
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+    def text(self) -> str:
+        return self.buffer.text()
+
+    def _toggle(self, event) -> None:
+        if self.body.isVisible():
+            self._user_opened = False
+            self.body.hide()
+        else:
+            self._user_opened = True
+            self._open_body()
+        if event is not None:
+            event.accept()
+
+    def _open_body(self) -> None:
+        self._expanded = True
+        self.body.setText(self.buffer.text())
+        self.body.show()
+        self._refresh()
+
+    def _tick(self) -> None:
+        if self._running:
+            self._seconds += 1
+            self._refresh()
+
+    def _refresh(self) -> None:
+        self.title.setText(self._title())
+        if self.body.isVisible():
+            self.body.setText(self.buffer.text())
+
+    def _title(self) -> str:
+        return f'思考过程 · {self._seconds} 秒 · {len(self.buffer.text())} 字'
+
+
+class ToolStepLine(QWidget):
+    """One tool row. Internal ids are never shown."""
+
+    def __init__(self, tool: str, target: str = '', state: str = 'running', seconds: float = 0,
+                 call_id: str = '', parent=None):
+        super().__init__(parent)
+        self.setObjectName('chat-tool-step')
+        self._tool = str(tool or '')
+        self._target = str(target or '')
+        self._seconds = seconds
+        self._call_id = str(call_id or '')
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.mark = QLabel(self._mark(state))
+        self.mark.setObjectName('chat-tool-mark')
+        self._state = self._normalize(state)
+        self.mark.setProperty('state', self._state)
+        self.caption = QLabel(self._caption())
+        self.caption.setObjectName('chat-tool-caption')
+        layout.addWidget(self.mark, 0)
+        layout.addWidget(self.caption, 1)
+        self._polish(self.mark)
+
+    def text(self) -> str:
+        return self.caption.text()
+
+    def _caption(self) -> str:
+        label = tool_label(self._tool)
+        target = self._target.strip()
+        duration = _duration(self._seconds)
+        pieces = [label]
+        if target:
+            pieces.append(target)
+        pieces.append(duration)
+        return ' '.join(pieces)
+
+    @staticmethod
+    def _normalize(state: str) -> str:
+        key = str(state or '').strip().lower()
+        if key in {'ok', 'success', 'done', 'succeeded'}:
+            return 'ok'
+        if key in {'failed', 'error', 'fail'}:
+            return 'failed'
+        return 'running'
+
+    @staticmethod
+    def _mark(state: str) -> str:
+        key = ToolStepLine._normalize(state)
+        if key == 'ok':
+            return '✓'
+        if key == 'failed':
+            return '!'
+        return '…'
+
+    @staticmethod
+    def _polish(widget) -> None:
+        _polish(widget)
+
+
+def _polish(widget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    widget.update()
+
+
+class PhaseLine(QWidget):
+    """Running phase. The label is always the Chinese phase name."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('chat-phase-line')
+        self._seconds = 0
+        self._state = ''
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self._dot = QLabel()
+        self._dot.setObjectName('chat-breath')
+        self._dot.setFixedSize(8, 8)
+        self.caption = QLabel('')
+        self.caption.setObjectName('chat-phase')
+        layout.addWidget(self._dot, 0)
+        layout.addWidget(self.caption, 1)
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._tick)
+        self.hide()
+
+    def set_state(self, state: str) -> None:
+        self._state = str(state or '')
+        self._seconds = 0
+        self.caption.setText(self.display_text())
+        self.show()
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def display_text(self) -> str:
+        return f'{phase_label(self._state)} · {self._seconds} 秒'
+
+    def stop(self) -> None:
+        self._timer.stop()
+        self.hide()
+
+    def _tick(self) -> None:
+        self._seconds += 1
+        self.caption.setText(self.display_text())
+
+
+class ErrorCard(QFrame):
+    retry_requested = pyqtSignal()
+    copy_requested = pyqtSignal(str)
+
+    def __init__(self, reason: str = '', tip: str = '', parent=None):
+        super().__init__(parent)
+        self.setObjectName('chat-error-card')
+        self._reason = str(reason or '')
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        title = QLabel('没有得到回答')
+        title.setObjectName('chat-error-title')
+        self.reason = QLabel(self._reason)
+        self.reason.setObjectName('chat-error-reason')
+        self.reason.setWordWrap(True)
+        self.tip = QLabel(tip or '可以重试这一次，或换一种问法。')
+        self.tip.setObjectName('chat-error-tip')
+        self.tip.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(self.reason)
+        layout.addWidget(self.tip)
+        row = QHBoxLayout()
+        retry = QPushButton('重试')
+        retry.setObjectName('chat-error-retry')
+        retry.clicked.connect(self.retry_requested.emit)
+        copy = QPushButton('复制错误信息')
+        copy.setObjectName('chat-copy-btn')
+        copy.clicked.connect(lambda: self.copy_requested.emit(self._reason))
+        row.addWidget(retry, 0)
+        row.addWidget(copy, 0)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+    def set_reason(self, reason: str, tip: str = '') -> None:
+        self._reason = str(reason or '')
+        self.reason.setText(self._reason)
+        if tip:
+            self.tip.setText(tip)
+
+
+class MessageBubble(QWidget):
+    resized = pyqtSignal()
+    retry_requested = pyqtSignal()
+    copy_error_requested = pyqtSignal(str)
+
+    def __init__(self, message: dict, parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(0)
+        self.message = dict(message or {})
+        self.message_id = str(self.message.get('id') or '')
+        self.role = str(self.message.get('role') or 'assistant')
+        self._viewport = 480
+        from ui.chat_kit.view import format_chat_clock
+        user = self.role == 'user'
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+        clock = format_chat_clock(self.message.get('created_at'))
+        self.meta = QLabel()
+        if user:
+            self.meta.setObjectName('chat-user-meta')
+            self.meta.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.meta.setText(clock)
+        else:
+            self.meta.setObjectName('chat-meta')
+            self.meta.setText(f'AI 助手 · {clock}' if clock else 'AI 助手')
+            model = str(self.message.get('model') or self.message.get('config_name') or '')
+            if model:
+                self.meta.setToolTip(model)
+        root.addWidget(self.meta)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        self.card = QFrame()
+        self.card.setObjectName('chat-user-bubble' if user else 'chat-assistant-bubble')
+        self.card.setProperty('failed', False)
+        self.card.setSizePolicy(
+            QSizePolicy.Policy.Maximum if user else QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        box = QVBoxLayout(self.card)
+        box.setContentsMargins(12, 8, 12, 8)
+        box.setSpacing(8)
+        self.thinking = ThinkingBlock()
+        self.tools = QVBoxLayout()
+        self.tools.setSpacing(4)
+        self.markdown = MarkdownBody()
+        self.phase = PhaseLine()
+        self.stopped = QLabel('已停止')
+        self.stopped.setObjectName('chat-stopped')
+        self.stopped.hide()
+        self.error_card = ErrorCard()
+        self.error_card.hide()
+        self.error_card.retry_requested.connect(self.retry_requested.emit)
+        self.error_card.copy_requested.connect(self.copy_error_requested.emit)
+        self.copy_btn = QPushButton('复制')
+        self.copy_btn.setObjectName('chat-copy-btn')
+        self.copy_btn.clicked.connect(self._copy_body)
+        if user:
+            self.user_text = QLabel(str(self.message.get('content') or ''))
+            self.user_text.setObjectName('chat-user-text')
+            self.user_text.setWordWrap(True)
+            self.user_text.setMinimumWidth(0)
+            self.user_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            box.addWidget(self.user_text)
+            self.thinking.hide()
+            self.copy_btn.hide()
+            self.phase.hide()
+        else:
+            box.addWidget(self.thinking)
+            box.addLayout(self.tools)
+            box.addWidget(self.markdown)
+            box.addWidget(self.phase)
+            box.addWidget(self.stopped)
+            box.addWidget(self.error_card)
+            actions = QHBoxLayout()
+            actions.addStretch(1)
+            actions.addWidget(self.copy_btn, 0)
+            box.addLayout(actions)
+            self.markdown.set_markdown(str(self.message.get('content') or ''))
+            status = str(self.message.get('status') or 'complete')
+            if status == 'pending':
+                self.copy_btn.hide()
+            elif status == 'stopped':
+                self.stopped.show()
+            elif status == 'failed':
+                self.show_error(str(self.message.get('content') or ''))
+        if user:
+            row.addStretch(1)
+            row.addWidget(self.card, 0)
+        else:
+            row.addWidget(self.card, 1)
+        root.addLayout(row)
+
+    def set_viewport_width(self, width: int) -> None:
+        width = max(120, int(width or 0))
+        if width == self._viewport and getattr(self, '_width_ready', False):
+            return
+        self._width_ready = True
+        self._viewport = width
+        self.setMaximumWidth(self._viewport)
+        if self.role == 'user':
+            limit = max(120, int(self._viewport * 0.78))
+            self.card.setMaximumWidth(limit)
+            self.user_text.setMaximumWidth(max(80, limit - 24))
+        else:
+            self.card.setMaximumWidth(self._viewport)
+            self.markdown.set_width(max(80, self._viewport - 48))
+        self.resized.emit()
+
+    def add_tool(self, tool: str, target: str = '', state: str = 'running', seconds: float = 0,
+                 call_id: str = '') -> ToolStepLine:
+        line = ToolStepLine(tool, target, state, seconds, call_id)
+        self.tools.addWidget(line)
+        return line
+
+    def show_error(self, reason: str, tip: str = '') -> None:
+        self.thinking.hide()
+        self.markdown.hide()
+        self.phase.stop()
+        self.stopped.hide()
+        self.copy_btn.hide()
+        self.error_card.set_reason(reason, tip)
+        self.error_card.show()
+        self.card.setProperty('failed', True)
+        _polish(self.card)
+
+    def mark_complete(self, text: str) -> None:
+        if text:
+            self.markdown.set_markdown(text)
+        self.markdown.show()
+        self.error_card.hide()
+        self.phase.stop()
+        self.thinking.collapse()
+        self.copy_btn.show()
+        self.card.setProperty('failed', False)
+        _polish(self.card)
+
+    def mark_stopped(self) -> None:
+        self.phase.stop()
+        self.thinking.collapse()
+        self.stopped.show()
+        self.copy_btn.show()
+
+    def visible_text(self) -> str:
+        if self.role == 'user':
+            return self.user_text.text()
+        return self.markdown.source()
+
+    def _copy_body(self) -> None:
+        QApplication.clipboard().setText(self.visible_text())
+        QToolTip.showText(QCursor.pos(), '已复制')
+
+
+def _duration(seconds: float) -> str:
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError):
+        value = 0
+    if value.is_integer():
+        return f'{int(value)} 秒'
+    return f'{value:.1f} 秒'

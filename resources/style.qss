@@ -592,12 +592,6 @@ QLabel#empty-state-text {
     color: __TEXT_MUTED__;
     font-size: 12px;
 }
-QFrame#chat-risk-banner {
-    background: __SURFACE_SOFT__;
-    border: 1px solid __BORDER__;
-    border-left: 3px solid __WARNING__;
-    border-radius: 10px;
-}
 QFrame#chat-bubble-user, QFrame#chat-bubble-assistant {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
@@ -890,24 +884,6 @@ QLineEdit#compact-step-value:focus {
 }
 QLineEdit#compact-step-value:disabled {
     color: __TEXT_MUTED__;
-}
-QFrame#chat-user-bubble {
-    background: __PRIMARY_SOFT__;
-    color: __TEXT_STRONG__;
-    border: 1px solid __PRIMARY_SOFT__;
-    border-radius: 12px;
-}
-QFrame#chat-assistant-bubble {
-    background: __ELEVATED_SURFACE__;
-    color: __TEXT_STRONG__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
-}
-QPushButton#chat-copy-btn {
-    padding: 0 8px;
-    min-height: 22px;
-    max-height: 22px;
-    font-size: 11px;
 }
 QFrame#gateway-work-zone QLabel#zone-title {
     border-left-color: __TEXT_MUTED__;
@@ -3416,35 +3392,208 @@ QFrame#chat-session-card {
     border-radius: 12px;
 }
 
+/* ChatKit */
+QScrollArea#chat-view,
+QWidget#chat-thread-host {
+    background: transparent;
+    border: none;
+}
+QFrame#chat-user-bubble {
+    background: __PRIMARY__;
+    color: __ON_PRIMARY__;
+    border: none;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 4px;
+    border-bottom-left-radius: 12px;
+}
+QLabel#chat-user-text {
+    background: transparent;
+    color: __ON_PRIMARY__;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+}
+QFrame#chat-assistant-bubble {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    border-bottom-left-radius: 4px;
+}
+QFrame#chat-assistant-bubble[failed="true"] {
+    background: transparent;
+    border: none;
+}
+QLabel#chat-meta,
+QLabel#chat-user-meta,
+QLabel#chat-phase,
+QLabel#chat-thinking-title,
+QLabel#chat-tool-caption,
+QLabel#chat-stopped,
+QLabel#chat-code-lang,
+QLabel#chat-error-tip,
+QFrame#chat-composer-card QLabel#field-hint {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    font-family: __FONT_UI__;
+    font-size: 12px;
+}
+QTextBrowser#chat-markdown,
+QLabel#chat-thinking-body {
+    background: transparent;
+    color: __TEXT__;
+    border: none;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+}
+QFrame#chat-thinking {
+    background: transparent;
+    border: none;
+    border-left: 2px solid __PRIMARY__;
+    margin-top: 4px;
+    margin-bottom: 4px;
+    padding-left: 8px;
+}
+QLabel#chat-breath {
+    background: __PRIMARY__;
+    border-radius: 4px;
+    min-width: 8px;
+    max-width: 8px;
+    min-height: 8px;
+    max-height: 8px;
+}
+QLabel#chat-tool-mark {
+    background: transparent;
+    font-size: 14px;
+    min-width: 16px;
+}
+QLabel#chat-tool-mark[state="ok"] { color: __SUCCESS__; }
+QLabel#chat-tool-mark[state="running"] { color: __PRIMARY__; }
+QLabel#chat-tool-mark[state="failed"] { color: __DANGER__; }
+QFrame#chat-code-block {
+    background: __TERM_BG__;
+    border: 1px solid __TERM_BORDER__;
+    border-radius: 8px;
+}
+QLabel#chat-code-lang {
+    color: __TERM_MUTED__;
+    font-family: __FONT_MONO__;
+}
+QPlainTextEdit#chat-code-edit {
+    background: __TERM_BG__;
+    color: __TERM_FG__;
+    border: none;
+    font-family: __FONT_MONO__;
+    font-size: 12.5px;
+    selection-background-color: __TERM_SEL__;
+    selection-color: __TERM_FG__;
+}
+QFrame#chat-code-block QPushButton#chat-copy-btn {
+    color: __TERM_FG__;
+    border: 1px solid __TERM_BORDER__;
+}
+QPushButton#chat-copy-btn {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: __FONT_UI__;
+    font-size: 12px;
+    padding: 4px 8px;
+    min-height: 22px;
+}
+QPushButton#chat-copy-btn:hover {
+    color: __TEXT__;
+    border-color: __BORDER__;
+}
+QFrame#chat-error-card {
+    background: __DANGER_BG__;
+    border: 1px solid __DANGER_BORDER__;
+    border-radius: 12px;
+}
+QLabel#chat-error-title {
+    background: transparent;
+    color: __DANGER__;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+    font-weight: 600;
+}
+QLabel#chat-error-reason {
+    background: transparent;
+    color: __TEXT__;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+}
 QFrame#chat-composer-card {
-    background: __SURFACE__;
+    background: __ELEVATED_SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-
 QPlainTextEdit#chat-composer-input {
-    background: __SURFACE_SOFT__;
+    background: __INPUT_BG__;
     color: __TEXT__;
     border: 1px solid __BORDER__;
     border-radius: 8px;
+    padding: 8px;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+    selection-background-color: __PRIMARY_SOFT__;
+    selection-color: __TEXT_STRONG__;
 }
-
-QFrame#chat-user-bubble {
-    background: __PRIMARY_SOFT__;
-    border: 1px solid __PRIMARY__;
-    border-radius: 12px;
-}
-
-QFrame#chat-assistant-bubble {
-    background: __SURFACE__;
+QToolButton#chat-attach-btn,
+QPushButton#chat-retry-btn,
+QPushButton#chat-error-retry {
+    background: transparent;
+    color: __TEXT__;
     border: 1px solid __BORDER__;
-    border-radius: 12px;
+    border-radius: 8px;
+    font-family: __FONT_UI__;
+    font-size: 12px;
+    padding: 4px 8px;
+    min-height: 32px;
 }
-
-QFrame#chat-risk-banner {
-    background: __PRIMARY_SOFT__;
+QPushButton#chat-send-btn {
+    background: __PRIMARY__;
+    color: __ON_PRIMARY__;
     border: 1px solid __PRIMARY__;
-    border-radius: 10px;
+    border-radius: 8px;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+    padding: 4px 16px;
+    min-height: 32px;
+}
+QPushButton#chat-send-btn[danger="true"] {
+    background: transparent;
+    color: __DANGER__;
+    border: 1px solid __DANGER__;
+}
+QToolButton#chat-jump-bottom {
+    background: __ELEVATED_SURFACE__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 17px;
+    font-size: 14px;
+    padding: 0;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 34px;
+    max-height: 34px;
+}
+QLabel#chat-jump-dot {
+    background: __DANGER__;
+    border-radius: 4px;
+    min-width: 8px;
+    max-width: 8px;
+    min-height: 8px;
+    max-height: 8px;
+}
+QFrame#chat-risk-banner {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-left: 3px solid __WARNING__;
+    border-radius: 12px;
 }
 
 /* Agent Workbench（大模型桌面端风格：侧栏 + 无框对话流 + 圆角输入框） */
