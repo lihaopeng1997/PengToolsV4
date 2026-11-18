@@ -136,8 +136,9 @@ class Monitor:
             client.close()
             return
         self.client = client
-        self.sftp = client.open_sftp()
-        self.sftp.get_channel().settimeout(10)
+        sftp = client.open_sftp()
+        self.sftp = sftp
+        sftp.get_channel().settimeout(10)
 
     def _disconnect(self):
         for resource in (self.sftp, self.client):
@@ -161,10 +162,11 @@ class Monitor:
                 try:
                     if self.sftp is None:
                         self._connect()
+                    sftp = self.sftp
                     if self.stop_event.is_set():
                         break
                     with self.lock:
-                        result = self.cursor.read(self.sftp, self.path, self.buffer.line, backfill=self.backfill)
+                        result = self.cursor.read(sftp, self.path, self.buffer.line, backfill=self.backfill)
                         self.buffer.idle()
                         self.bytes_read += result['bytes']
                         self.backlog = result['backlog']
@@ -178,6 +180,13 @@ class Monitor:
                     failures = 0
                     self.stop_event.wait(self.interval)
                 except Exception as error:
+                    if self.stop_event.is_set() and (
+                        isinstance(error, (EOFError, InterruptedError))
+                        or (isinstance(error, OSError) and error.args == ('Socket is closed',))
+                        or (isinstance(error.__context__, EOFError)
+                            and str(error).startswith(('Server connection dropped:', 'EOF during negotiation')))
+                    ):
+                        break
                     log_failure(logger, 'LOG_MONITOR_READ_FAILED', error, level=logging.WARNING)
                     self._disconnect()
                     failures += 1
