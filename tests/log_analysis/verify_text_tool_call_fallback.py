@@ -144,6 +144,8 @@ check('坏 JSON 得到 parse_failed', result.failure_reason == "parse_failed")
 check('parse_failed 的回答非空且不显示代号',
       result.final_text == "模型工具调用格式无法识别" and "parse_failed" not in (result.final_text or ""))
 check('修复提示进了下一轮', any("无法识别" in text for text in user_text(model.seen[1])))
+check('坏标记仅进入本轮修复请求', any('<tool_call>' in str(item.get('content')) for item in model.seen[1])
+      and not any('<tool_call>' in str(item.get('content')) for item in result.messages))
 check('修复提示不留在返回历史', all(
     "无法识别" not in str(item.get("content") or "")
     for item in result.messages if item.get("role") == "user"

@@ -122,24 +122,6 @@ def _intranet_soft_mode() -> bool:
         return False
 
 
-def _without_continuation_prompts(messages: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
-    return tuple(
-        item for item in messages
-        if not (
-            item.get("role") == "user"
-            and (
-                item.get("content") in {
-                    _CONTINUE_ANNOUNCEMENT,
-                    _CONTINUE_EMPTY,
-                    _REPAIR_PARSE,
-                    _REPAIR_REJECTED,
-                }
-                or str(item.get("content") or "").startswith(_CONTINUE_INCOMPLETE_PREFIX)
-            )
-        )
-    )
-
-
 # Identical consecutive read-only calls: remind on the 3rd, stop on the 5th.
 _REPEAT_REMIND_AFTER = 2
 _REPEAT_STOP_AFTER = 4
@@ -390,6 +372,15 @@ class AgentRunner:
             for item in (source_messages or ())
         ])
         question = user_message or ""
+        transient_indexes: set[int] = set()
+
+        def append_transient(role: str, content: str) -> None:
+            transient_indexes.add(len(working_messages))
+            working_messages.append({"role": role, "content": content})
+
+        def public_history() -> tuple[dict[str, Any], ...]:
+            return tuple(item for index, item in enumerate(working_messages) if index not in transient_indexes)
+
         if question and not (
             working_messages
             and working_messages[-1].get("role") == "user"
@@ -518,7 +509,7 @@ class AgentRunner:
                     status=terminal_status or status,
                     final_text=terminal_text,
                     events=tuple(emitted),
-                    messages=_without_continuation_prompts(working_messages),
+                    messages=public_history(),
                     tool_results=tuple(tool_results),
                     error=terminal_error,
                     budget=budget_payload(),
@@ -554,7 +545,7 @@ class AgentRunner:
                 status=status,
                 final_text=text,
                 events=tuple(emitted),
-                messages=_without_continuation_prompts(working_messages),
+                messages=public_history(),
                 tool_results=tuple(tool_results),
                 error=error,
                 budget=budget_payload(),
@@ -886,9 +877,9 @@ class AgentRunner:
                             tool_format_repairs += 1
                             stored = str(source or "").strip()
                             if stored:
-                                working_messages.append({"role": "assistant", "content": stored})
+                                append_transient("assistant", stored)
                             repair = _REPAIR_PARSE if failure == "parse_failed" else _REPAIR_REJECTED
-                            working_messages.append({"role": "user", "content": repair})
+                            append_transient("user", repair)
                             continue
                         answer = _TOOL_FAILURE_TEXT.get(failure) or _TOOL_FAILURE_TEXT["parse_failed"]
                         query_ids = list(verified_query_ids)
@@ -947,14 +938,14 @@ class AgentRunner:
                         announcement_continuations += 1
                         spoken = visible_text if str(visible_text or "").strip() else complete_text
                         working_messages.append({"role": "assistant", "content": spoken})
-                        working_messages.append({"role": "user", "content": _CONTINUE_ANNOUNCEMENT})
+                        append_transient("user", _CONTINUE_ANNOUNCEMENT)
                         continue
                     if (
                         not str(visible_text or "").strip()
                         and unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS
                     ):
                         unfinished_continuations += 1
-                        working_messages.append({"role": "user", "content": _CONTINUE_EMPTY})
+                        append_transient("user", _CONTINUE_EMPTY)
                         continue
                     empty_failure = None
                     if not str(visible_text or "").strip():
@@ -977,10 +968,7 @@ class AgentRunner:
                                 working_messages.append({"role": "assistant", "content": visible_text})
                             if unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS:
                                 unfinished_continuations += 1
-                                working_messages.append({
-                                    "role": "user",
-                                    "content": _CONTINUE_INCOMPLETE.format(reason=answer_gap),
-                                })
+                                append_transient("user", _CONTINUE_INCOMPLETE.format(reason=answer_gap))
                                 continue
                             return finish(
                                 AgentStatus.FAILED,
