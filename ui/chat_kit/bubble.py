@@ -52,14 +52,15 @@ class ThinkingBlock(QFrame):
         self._timer.timeout.connect(self._tick)
         self.hide()
 
-    def add_delta(self, text: str) -> None:
+    def add_delta(self, text: str, *, expand: bool = True) -> None:
         self.buffer.add(text)
         self.show()
         self._running = True
         self._dot.show()
         if not self._timer.isActive():
             self._timer.start()
-        self._open_body()
+        if expand:
+            self._open_body()
         self._refresh()
 
     def collapse(self) -> None:
@@ -111,11 +112,12 @@ class ThinkingBlock(QFrame):
 class ToolStepLine(QWidget):
     """One tool row. Internal ids are never shown."""
 
-    def __init__(self, tool: str, target: str = '', state: str = 'running', seconds: float = 0,
-                 call_id: str = '', parent=None):
+    def __init__(self, tool: str, target: str = '', state: str = 'running', seconds: float | None = 0,
+                 call_id: str = '', parent=None, *, label: str = ''):
         super().__init__(parent)
         self.setObjectName('chat-tool-step')
         self._tool = str(tool or '')
+        self._label = label
         self._target = str(target or '')
         self._seconds = seconds
         self._call_id = str(call_id or '')
@@ -127,6 +129,8 @@ class ToolStepLine(QWidget):
         self._state = self._normalize(state)
         self.mark.setProperty('state', self._state)
         self.caption = QLabel(self._caption())
+        self.caption.setTextFormat(Qt.TextFormat.PlainText)
+        self.caption.setWordWrap(True)
         self.caption.setObjectName('chat-tool-caption')
         layout.addWidget(self.mark, 0)
         layout.addWidget(self.caption, 1)
@@ -135,14 +139,22 @@ class ToolStepLine(QWidget):
     def text(self) -> str:
         return self.caption.text()
 
+    def set_state(self, state: str, seconds: float | None = None) -> None:
+        self._state = self._normalize(state)
+        self._seconds = seconds
+        self.mark.setProperty('state', self._state)
+        self.mark.setText(self._mark(state))
+        self.caption.setText(self._caption())
+        self._polish(self.mark)
+
     def _caption(self) -> str:
-        label = tool_label(self._tool)
+        label = self._label or tool_label(self._tool)
         target = self._target.strip()
-        duration = _duration(self._seconds)
         pieces = [label]
         if target:
             pieces.append(target)
-        pieces.append(duration)
+        if self._seconds is not None:
+            pieces.append(_duration(self._seconds))
         return ' '.join(pieces)
 
     @staticmethod
@@ -152,6 +164,8 @@ class ToolStepLine(QWidget):
             return 'ok'
         if key in {'failed', 'error', 'fail'}:
             return 'failed'
+        if key == 'recorded':
+            return 'recorded'
         return 'running'
 
     @staticmethod
@@ -161,6 +175,8 @@ class ToolStepLine(QWidget):
             return '✓'
         if key == 'failed':
             return '!'
+        if key == 'recorded':
+            return '•'
         return '…'
 
     @staticmethod
@@ -231,6 +247,7 @@ class ErrorCard(QFrame):
         title = QLabel('没有得到回答')
         title.setObjectName('chat-error-title')
         self.reason = QLabel(self._reason)
+        self.reason.setTextFormat(Qt.TextFormat.PlainText)
         self.reason.setObjectName('chat-error-reason')
         self.reason.setWordWrap(True)
         self.tip = QLabel(tip or '可以重试这一次，或换一种问法。')
@@ -240,7 +257,7 @@ class ErrorCard(QFrame):
         layout.addWidget(self.reason)
         layout.addWidget(self.tip)
         row = QHBoxLayout()
-        retry = QPushButton('重试')
+        retry = self.retry_btn = QPushButton('重试')
         retry.setObjectName('chat-error-retry')
         retry.clicked.connect(self.retry_requested.emit)
         copy = QPushButton('复制错误信息')
@@ -371,7 +388,7 @@ class MessageBubble(QWidget):
             self.markdown.set_width(max(80, self._viewport - 48))
         self.resized.emit()
 
-    def add_tool(self, tool: str, target: str = '', state: str = 'running', seconds: float = 0,
+    def add_tool(self, tool: str, target: str = '', state: str = 'running', seconds: float | None = 0,
                  call_id: str = '') -> ToolStepLine:
         line = ToolStepLine(tool, target, state, seconds, call_id)
         self.tools.addWidget(line)

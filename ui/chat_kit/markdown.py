@@ -149,6 +149,7 @@ class MarkdownBody(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(8)
         self._source = ''
+        self._plain = False
         self._width = 320
         self._blocks: list[QWidget] = []
 
@@ -158,6 +159,17 @@ class MarkdownBody(QWidget):
 
     def set_markdown(self, text: str) -> None:
         self._source = str(text or '')
+        self._plain = False
+        self._rebuild()
+
+    def set_plain_text(self, text: str) -> None:
+        self._source = str(text or '')
+        if self._plain and self._blocks and self._source.strip():
+            block = self._blocks[0]
+            block.setPlainText(self._source)
+            block._fit(self._width)
+            return
+        self._plain = True
         self._rebuild()
 
     def append_text(self, piece: str) -> None:
@@ -175,14 +187,19 @@ class MarkdownBody(QWidget):
                 widget.hide()
                 widget.deleteLater()
         self._blocks.clear()
-        for kind, lang, body in _split_fences(self._source):
+        blocks = [('plain', '', self._source)] if self._plain else _split_fences(self._source)
+        for kind, lang, body in blocks:
             if kind == 'code':
                 block = CodeBlock(lang, body)
             else:
                 if not str(body or '').strip():
                     continue
                 block = _FittingBrowser()
-                block.set_markdown(body, self._width)
+                if kind == 'plain':
+                    block.setPlainText(body)
+                    block._fit(self._width)
+                else:
+                    block.set_markdown(body, self._width)
             block.setMinimumWidth(0)
             block.setMaximumWidth(self._width)
             self._layout.addWidget(block)

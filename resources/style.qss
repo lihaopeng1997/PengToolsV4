@@ -592,14 +592,6 @@ QLabel#empty-state-text {
     color: __TEXT_MUTED__;
     font-size: 12px;
 }
-QFrame#chat-bubble-user, QFrame#chat-bubble-assistant {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
-}
-QFrame#chat-bubble-user {
-    background: __PRIMARY_SOFT__;
-}
 QTextEdit#ai-explain {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
@@ -3606,9 +3598,6 @@ QFrame#agent-thread-card {
     background: transparent;
     border: none;
 }
-QWidget#agent-thread-host, QWidget#agent-thread-column {
-    background: transparent;
-}
 QFrame#agent-composer-card {
     background: __ELEVATED_SURFACE__;
     border: 1px solid __BORDER_STRONG__;
@@ -3655,23 +3644,6 @@ QPlainTextEdit#agent-composer-input {
     border: none;
     border-radius: 0px;
 }
-QFrame#agent-stream-card {
-    background: transparent;
-    border: none;
-}
-QPlainTextEdit#agent-reasoning-summary {
-    background: transparent;
-    color: __TEXT_MUTED__;
-    border: none;
-    border-left: 2px solid __BORDER_STRONG__;
-    padding-left: 8px;
-}
-QPlainTextEdit#agent-response-stream {
-    background: transparent;
-    color: __TEXT__;
-    border: none;
-}
-
 /* MongoDB Workbench */
 QFrame#mongo-tree-card {
     background: __SURFACE__;
@@ -3947,21 +3919,7 @@ QTreeWidget#requirement-tree::item:has-children:hover {
     border: none;
 }
 
-/* —— Agent 工作台：对话气泡与步骤 —— */
-QFrame#agent-user-bubble {
-    background: __SURFACE_SOFT__;
-    border: 1px solid __SURFACE_SOFT__;
-    border-radius: 16px;
-}
-QFrame#agent-assistant-bubble {
-    background: transparent;
-    border: none;
-}
-QLabel#agent-bubble-role {
-    color: __PRIMARY__;
-    font-size: 12px;
-    font-weight: 600;
-}
+/* —— Agent 工作台：空状态与执行步骤 —— */
 QFrame#agent-empty-hero {
     background: transparent;
     border: none;
@@ -4012,15 +3970,6 @@ QLabel#agent-step-note {
     font-style: italic;
     padding: 0px 10px;
 }
-QLabel#agent-step-row {
-    color: __TEXT_MUTED__;
-    background: __SURFACE_SOFT__;
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 8px;
-    margin-left: 2px;
-}
-
 /* 页签关闭按钮：灰色细 ×，悬停浅底（替换系统默认的红色方块） */
 QTabBar::close-button {
     image: url("__TAB_CLOSE__");

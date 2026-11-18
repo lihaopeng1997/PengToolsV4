@@ -84,23 +84,40 @@ class ChatView(QScrollArea):
         if not message.get('id'):
             message = dict(message, id=uuid4().hex)
         bubble = MessageBubble(message)
-        bubble.set_viewport_width(self.viewport().width() or self.width())
+        self.append_widget(bubble, follow=follow)
+        return bubble
+
+    def append_widget(self, widget: QWidget, *, follow=True) -> None:
+        if isinstance(widget, MessageBubble):
+            widget.set_viewport_width(self.viewport().width() or self.width())
+            self._bubbles[widget.message_id] = widget
         index = max(0, self._layout.count() - 1)
-        self._layout.insertWidget(index, bubble)
-        self._bubbles[bubble.message_id] = bubble
+        self._layout.insertWidget(index, widget)
         if follow:
             QTimer.singleShot(0, self._after_append)
-        return bubble
 
     def bubble(self, msg_id) -> MessageBubble | None:
         return self._bubbles.get(str(msg_id or ''))
 
     def remove_message(self, msg_id: str) -> None:
-        bubble = self._bubbles.pop(msg_id, None)
+        bubble = self._bubbles.get(msg_id)
         if bubble is not None:
-            self._layout.removeWidget(bubble)
-            bubble.hide()
-            bubble.deleteLater()
+            self.remove_widget(bubble)
+
+    def remove_widget(self, widget: QWidget) -> None:
+        self._layout.removeWidget(widget)
+        if isinstance(widget, MessageBubble):
+            self._bubbles.pop(widget.message_id, None)
+        widget.hide()
+        widget.deleteLater()
+
+    def has_items(self) -> bool:
+        return self._layout.count() > 1
+
+    def restore_scroll(self, value: int) -> None:
+        self._stick = False
+        self.verticalScrollBar().setValue(value)
+        self._on_scroll(self.verticalScrollBar().value())
 
     def clear(self) -> None:
         while self._layout.count() > 1:

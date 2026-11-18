@@ -20,7 +20,7 @@ from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QSizePolicy, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from config import load_settings
@@ -40,7 +40,9 @@ from tools.agent_store import (
 from tools.agent_runtime import IGNORED_DIR_NAMES, WHITELIST_EXTENSIONS
 from tools.intranet_llm import list_enabled_items
 from tools.sql_guard import redact_error
+from ui.chat_kit import ChatView, ToolStepLine
 from ui.confirm_dialog import confirm_action, show_error, show_warning
+from ui.data_center.agent_panel import empty_answer_text
 from ui.design_system import apply_button
 from ui.field_metrics import size_pick_combo
 from ui.page_chrome import make_page_header
@@ -72,14 +74,14 @@ _CONFLICT_VIEWER_MAX_CHARS = 256 * 1024
 _ROLE_PREFIXES = ('👤', '🤖', '🔧')
 
 _STEP_LABELS = {
-    'list_dir': ('📂', '列出目录'),
-    'read_file': ('📄', '读取'),
-    'search_code': ('🔎', '搜索'),
-    'write_file': ('✏️', '写入'),
-    'edit_file': ('✏️', '修改'),
-    'delete_file': ('🗑', '删除'),
-    'run_test': ('🧪', '运行测试'),
-    'run_svn': ('🔀', 'SVN'),
+    'list_dir': '列出目录',
+    'read_file': '读取',
+    'search_code': '搜索',
+    'write_file': '写入',
+    'edit_file': '修改',
+    'delete_file': '删除',
+    'run_test': '运行测试',
+    'run_svn': 'SVN',
 }
 
 
@@ -90,11 +92,9 @@ def _strip_role_prefix(content) -> str:
     return text
 
 
-def describe_tool_step(name, arguments) -> str:
-    """把一次工具调用描述成一行人能看懂的步骤。"""
+def _tool_step_target(name, arguments) -> str:
     tool = str(name or '').strip()
     args = arguments if isinstance(arguments, dict) else {}
-    icon, verb = _STEP_LABELS.get(tool, ('⚙️', tool or '工具'))
     if tool == 'list_dir':
         target = str(args.get('path') or '').strip() or '项目根目录'
     elif tool == 'search_code':
@@ -109,7 +109,7 @@ def describe_tool_step(name, arguments) -> str:
         target = str(args.get('path') or '').strip()
         if tool == 'read_file' and args.get('start_offset'):
             target += f'（从第 {args.get("start_offset")} 个字符起）'
-    return f'{icon}  {verb} {target}'.rstrip()
+    return target
 
 
 class _StepGroup(QFrame):
@@ -140,11 +140,9 @@ class _StepGroup(QFrame):
         self.toggle.setChecked(live)
         self._set_expanded(live)
 
-    def add_step(self, text: str) -> None:
-        row = QLabel(str(text or ''))
-        row.setObjectName('agent-step-row')
-        row.setWordWrap(True)
-        row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    def add_step(self, name, arguments, state) -> None:
+        row = ToolStepLine(name, _tool_step_target(name, arguments), state, seconds=None,
+                           label=_STEP_LABELS.get(str(name or ''), ''))
         self.body_layout.addWidget(row)
         self._steps += 1
         self._refresh_title()
@@ -390,6 +388,11 @@ class _WorkbenchWorker(QThread):
         self.model_adapter = model_adapter
         self.memory_binding = memory_binding
         self.context_memory = context_memory
+        self.failure_reason = ''
+
+    def _capture_terminal_event(self, event):
+        if event.event_type == 'final':
+            self.failure_reason = str(event.payload.get('failure_reason') or '')
 
     def stop(self):
         self.cancellation.cancel('cancelled')
@@ -413,6 +416,8 @@ class _WorkbenchWorker(QThread):
                 kwargs['cancellation'] = self.cancellation
             else:
                 kwargs['cancel_cb'] = self.cancellation.is_cancelled
+            if 'event_cb' in params:
+                kwargs['event_cb'] = self._capture_terminal_event
             if self.model_adapter is not None and 'model_adapter' in params:
                 kwargs['model_adapter'] = self.model_adapter
             if self.memory_binding is not None and 'memory_binding' in params:
@@ -445,10 +450,8 @@ class AgentWorkbenchPanel(QWidget):
         self._shutdown_complete = False
         self._progress_timer = None
         self._stream_holder = None
-        self._stream_summary = None
-        self._stream_body = None
-        self._stream_summary_text = ''
         self._stream_body_text = ''
+        self._failure_messages = {}
         self._plan_confirm = False       # 兼容原存储字段：先展示计划；写操作始终单独确认
         self._bridge = None              # 跨线程桥（延迟创建）
         self._send_hint_resize_pending = False
@@ -638,29 +641,7 @@ class AgentWorkbenchPanel(QWidget):
         thread_l.setContentsMargins(8, 8, 8, 8)
         thread_l.setSpacing(6)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self._follow_tail_requested = False
-        self.scroll.verticalScrollBar().rangeChanged.connect(self._on_thread_range_changed)
-        self.scroll.verticalScrollBar().valueChanged.connect(self._on_thread_scroll_value)
-        self.scroll.verticalScrollBar().actionTriggered.connect(self._on_thread_scroll_action)
-        self.scroll.verticalScrollBar().sliderPressed.connect(self._on_thread_scroll_action)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.thread_widget = QWidget()
-        self.thread_widget.setObjectName('agent-thread-column')
-        self.thread_widget.setMaximumWidth(860)
-        self.thread_layout = QVBoxLayout(self.thread_widget)
-        self.thread_layout.setContentsMargins(4, 8, 4, 8)
-        self.thread_layout.setSpacing(14)
-        self.thread_layout.addStretch(1)
-        thread_host = QWidget()
-        thread_host.setObjectName('agent-thread-host')
-        host_row = QHBoxLayout(thread_host)
-        host_row.setContentsMargins(0, 0, 0, 0)
-        host_row.addStretch(1)
-        host_row.addWidget(self.thread_widget, 100)
-        host_row.addStretch(1)
-        self.scroll.setWidget(thread_host)
+        self.scroll = ChatView()
         # 空对话时的上手引导（有消息后自动隐藏）
         from ui.page_chrome import make_empty_state
         self.thread_empty = make_empty_state(
@@ -1786,9 +1767,10 @@ class AgentWorkbenchPanel(QWidget):
         key = (str((ws or {}).get('id') or ''), str((conv or {}).get('id') or ''))
         previous_scroll = self.scroll.verticalScrollBar().value()
         follow_tail = key != getattr(self, '_rendered_conversation_key', None) or self._is_thread_at_bottom()
-        self._follow_tail_requested = follow_tail
         self._rendered_conversation_key = key
         self._rendering_conversation = True
+        self._clear_stream_preview()
+        self._clear_transient_status()
         if hasattr(self, 'thread_title'):
             ws_title = str((ws or {}).get('title') or '')
             conv_title = str((conv or {}).get('title') or '')
@@ -1797,27 +1779,25 @@ class AgentWorkbenchPanel(QWidget):
                 or ('新对话' if self.language == 'zh' else 'New chat')
             )
         self._live_step_group = None
-        while self.thread_layout.count() > 1:
-            child = self.thread_layout.takeAt(0)
-            if child.widget():
-                child.widget().hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
-                child.widget().deleteLater()
+        self.scroll.clear()
         self._sync_thread_empty()
         if not conv:
             self._rendering_conversation = False
             self.input.clear()
             return
-        pending: list[tuple[str, str]] = []
+        pending = []
+        call_states = {str(call.get('id') or ''): ('failed' if call.get('error') else 'ok')
+                       for call in conv.get('tool_calls') or [] if isinstance(call, dict) and call.get('id')}
 
         def flush_steps():
             if not pending:
                 return
             group = _StepGroup(language=self.language)
-            for kind, text in pending:
+            for kind, item in pending:
                 if kind == 'note':
-                    group.add_note(text)
+                    group.add_note(item)
                 else:
-                    group.add_step(text)
+                    group.add_step(*item)
             group.finish()
             self._insert_thread_widget(group)
             pending.clear()
@@ -1829,7 +1809,7 @@ class AgentWorkbenchPanel(QWidget):
             if role == 'user':
                 flush_steps()
                 if content:
-                    self._append_message('user', content)
+                    self._append_message('user', content, message=msg)
             elif role == 'assistant' and calls:
                 # 调用工具前的中间说明只算过程，不当作回答展示
                 if content.strip():
@@ -1842,16 +1822,22 @@ class AgentWorkbenchPanel(QWidget):
                         arguments = json.loads(function.get('arguments') or '{}')
                     except (TypeError, ValueError):
                         arguments = {}
-                    pending.append(('step', describe_tool_step(function.get('name'), arguments)))
+                    state = call_states.get(str(call.get('id') or ''), 'recorded')
+                    pending.append(('step', (function.get('name'), arguments, state)))
             elif role == 'assistant' and content:
                 flush_steps()
-                self._append_message('assistant', content)
+                reason = self._failure_messages.get(str(msg.get('id') or ''))
+                if reason:
+                    self._append_message('assistant', empty_answer_text(reason, self.language),
+                                         message=msg, status='failed')
+                else:
+                    self._append_message('assistant', content, message=msg)
         flush_steps()
         self._rendering_conversation = False
         if follow_tail:
             self._scroll_to_bottom()
         else:
-            self.scroll.verticalScrollBar().setValue(previous_scroll)
+            self.scroll.restore_scroll(previous_scroll)
 
     def _on_space_tree_menu(self, pos):
         item = self.space_tree.itemAt(pos)
@@ -2316,11 +2302,7 @@ class AgentWorkbenchPanel(QWidget):
             self._transient_holder = holder
             self._transient_indicator = indicator
 
-            stretch = self.thread_layout.takeAt(self.thread_layout.count() - 1)
-            del stretch
-            self.thread_layout.addWidget(holder)
-            self.thread_layout.addStretch(1)
-            self._sync_thread_empty()
+            self._insert_thread_widget(holder)
         else:
             self._tick_transient_status()
         self._follow_scroll_if_at_bottom()
@@ -2342,9 +2324,10 @@ class AgentWorkbenchPanel(QWidget):
         if self._transient_holder is not None:
             if self._transient_indicator is not None:
                 self._transient_indicator.stop()
-            self._transient_holder.deleteLater()
+            self.scroll.remove_widget(self._transient_holder)
             self._transient_holder = None
             self._transient_indicator = None
+            self._sync_thread_empty()
 
     def _stop(self):
         task = self._active_task
@@ -2380,14 +2363,18 @@ class AgentWorkbenchPanel(QWidget):
                          if isinstance(item, dict) and item.get('role') == 'user'
                          and item.get('content') == self._active_task.get('user_message')),
                         default=-1)
-        answer_in_current_turn = any(
-            isinstance(item, dict) and item.get('role') == 'assistant'
-            and item.get('content') == final_answer
-            for item in persisted_messages[user_turn + 1:]
-        )
-        if final_answer and not answer_in_current_turn:
-            persisted_messages.append({'id': 'wb-final-' + uuid.uuid4().hex,
-                                       'role': 'assistant', 'content': str(final_answer)})
+        answer_message = next((item for item in reversed(persisted_messages[user_turn + 1:])
+                               if isinstance(item, dict) and item.get('role') == 'assistant'
+                               and not item.get('tool_calls') and item.get('content') == final_answer), None)
+        if final_answer and answer_message is None:
+            answer_message = {'id': 'wb-final-' + uuid.uuid4().hex,
+                              'role': 'assistant', 'content': str(final_answer)}
+            persisted_messages.append(answer_message)
+        reason = getattr(self._agent_worker, 'failure_reason', '')
+        if reason and answer_message is not None:
+            message_id = str(answer_message.get('id') or '')
+            if message_id:
+                self._failure_messages[message_id] = reason
         try:
             committed = commit_conversation_result(
                 task['workspace_id'], task['conversation_id'],
@@ -2545,157 +2532,47 @@ class AgentWorkbenchPanel(QWidget):
                     self._set_transient_status(content)
         flush_deltas()
 
-    def _ensure_stream_preview(self):
-        if self._stream_holder is not None:
-            return
-        bubble = QFrame()
-        bubble.setObjectName('detail-summary-card')
-        layout = QVBoxLayout(bubble)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
-        summary_title = QToolButton()
-        summary_title.setObjectName('agent-steps-toggle')
-        summary_title.setCheckable(True)
-        summary_title.setCursor(Qt.CursorShape.PointingHandCursor)
-        thinking = '思考过程' if self.language == 'zh' else 'Thinking'
-        summary_title.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        summary_title.setArrowType(Qt.ArrowType.RightArrow)
-        summary_title.setText(thinking)
-        layout.addWidget(summary_title, 0, Qt.AlignmentFlag.AlignLeft)
-        self._stream_summary = QPlainTextEdit()
-        self._stream_summary.setReadOnly(True)
-        self._stream_summary.setObjectName('agent-reasoning-summary')
-        self._stream_summary.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self._stream_summary.setMaximumHeight(100)
-        self._stream_summary.setMinimumHeight(36)
-        self._stream_summary.hide()
-        summary_title.toggled.connect(self._stream_summary.setVisible)
-        summary_title.toggled.connect(
-            lambda on, button=summary_title: button.setArrowType(
-                Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow
-            )
-        )
-        layout.addWidget(self._stream_summary)
-        body_title = QLabel('◆ Agent')
-        body_title.setObjectName('agent-bubble-role')
-        layout.addWidget(body_title)
-        self._stream_body = QPlainTextEdit()
-        self._stream_body.setReadOnly(True)
-        self._stream_body.setObjectName('agent-response-stream')
-        self._stream_body.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        # 流式时只露最近几行，完整回答在结束后展示
-        self._stream_body.setMaximumHeight(max(54, self._stream_body.fontMetrics().lineSpacing() * 4 + 12))
-        self._stream_body.setMinimumHeight(54)
-        layout.addWidget(self._stream_body)
-        bubble.setObjectName('agent-stream-card')
-        holder = QWidget()
-        wrap = QHBoxLayout(holder)
-        wrap.setContentsMargins(0, 0, 0, 0)
-        wrap.addWidget(bubble, 1)
-        self._stream_holder = holder
-        self._insert_thread_widget(holder)
-
     def _append_stream_delta(self, kind: str, content: str):
         if not content:
             return
-        self._ensure_stream_preview()
-        limit = 512 * 1024
+        if self._stream_holder is None:
+            self._stream_holder = self._append_message('assistant', '', status='pending')
         if kind == 'reasoning_delta':
-            remaining = max(0, limit - len(self._stream_summary_text))
-            if remaining:
-                chunk = content[:remaining]
-                self._stream_summary_text += chunk
-                cursor = self._stream_summary.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-                cursor.insertText(chunk)
-                self._stream_summary.setTextCursor(cursor)
-                self._stream_summary.verticalScrollBar().setValue(self._stream_summary.verticalScrollBar().maximum())
+            self._stream_holder.thinking.add_delta(content, expand=False)
         else:
-            remaining = max(0, limit - len(self._stream_body_text))
-            if remaining:
-                chunk = content[:remaining]
-                self._stream_body_text += chunk
-                cursor = self._stream_body.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-                cursor.insertText(chunk)
-                self._stream_body.setTextCursor(cursor)
-                self._stream_body.verticalScrollBar().setValue(self._stream_body.verticalScrollBar().maximum())
-        self._follow_scroll_if_at_bottom()
+            self._stream_body_text = (self._stream_body_text + content)[:512 * 1024]
+            self._stream_holder.markdown.set_plain_text(self._stream_body_text)
+        self.scroll.note_activity()
 
     def _reset_stream_preview(self):
-        self._stream_summary_text = ''
-        self._stream_body_text = ''
-        if self._stream_summary is not None:
-            self._stream_summary.clear()
-        if self._stream_body is not None:
-            self._stream_body.clear()
+        self._clear_stream_preview()
 
     def _clear_stream_preview(self):
         if self._stream_holder is not None:
-            self._stream_holder.deleteLater()
+            self.scroll.remove_widget(self._stream_holder)
         self._stream_holder = None
-        self._stream_summary = None
-        self._stream_body = None
-        self._reset_stream_preview()
+        self._stream_body_text = ''
+        self._sync_thread_empty()
 
     def _sync_thread_empty(self):
-        has_items = any(
-            self.thread_layout.itemAt(i).widget() is not None for i in range(self.thread_layout.count())
-        )
         if hasattr(self, 'thread_empty'):
+            has_items = self.scroll.has_items()
             self.thread_empty.setVisible(not has_items)
             self.scroll.setVisible(has_items)
 
     def _insert_thread_widget(self, widget: QWidget):
-        at_bottom = self._is_thread_at_bottom()
-        if self.thread_layout.count() and self.thread_layout.itemAt(self.thread_layout.count() - 1).spacerItem():
-            stretch = self.thread_layout.takeAt(self.thread_layout.count() - 1)
-            del stretch
-        self.thread_layout.addWidget(widget)
-        self.thread_layout.addStretch(1)
+        self.scroll.append_widget(widget, follow=not getattr(self, '_rendering_conversation', False))
         self._sync_thread_empty()
-        if at_bottom and not getattr(self, '_rendering_conversation', False):
-            self._scroll_to_bottom()
 
     def _is_thread_at_bottom(self) -> bool:
         bar = self.scroll.verticalScrollBar()
-        return bar.value() >= bar.maximum() - 4
+        return bar.maximum() - bar.value() <= 32
 
     def _scroll_to_bottom(self):
-        # Qt updates the scroll range after the new message has been laid out.
-        self._follow_tail_requested = True
-        QTimer.singleShot(0, self._apply_scroll_tail)
-
-    def _on_thread_range_changed(self, *_args):
-        if self._follow_tail_requested:
-            self._layout_scroll_pending = True
-            QTimer.singleShot(0, self._apply_scroll_tail)
-
-    def _on_thread_scroll_action(self, *_args):
-        self._follow_tail_requested = False
-
-    def _on_thread_scroll_value(self, value):
-        if (not getattr(self, '_applying_scroll_tail', False)
-                and not getattr(self, '_layout_scroll_pending', False)
-                and not getattr(self, '_rendering_conversation', False)
-                and value < self.scroll.verticalScrollBar().maximum() - 4):
-            self._follow_tail_requested = False
-
-    def _apply_scroll_tail(self):
-        if not self._follow_tail_requested:
-            self._layout_scroll_pending = False
-            return
-        bar = self.scroll.verticalScrollBar()
-        self._applying_scroll_tail = True
-        try:
-            bar.setValue(bar.maximum())
-        finally:
-            self._applying_scroll_tail = False
-            self._layout_scroll_pending = False
+        self.scroll.scroll_to_bottom()
 
     def _follow_scroll_if_at_bottom(self):
-        if self._is_thread_at_bottom():
-            self._scroll_to_bottom()
+        self.scroll.note_activity()
 
     def _append_step(self, name, arguments):
         """工具调用以一行步骤显示（如“读取 README.md”），运行中归入同一个「正在执行」组。"""
@@ -2704,53 +2581,18 @@ class AgentWorkbenchPanel(QWidget):
             group = _StepGroup(live=True, language=self.language)
             self._live_step_group = group
             self._insert_thread_widget(group)
-        group.add_step(describe_tool_step(name, arguments))
+        group.add_step(name, arguments, 'running')
         self._follow_scroll_if_at_bottom()
 
-    def _append_message(self, role: str, content: str):
-        """在工作台中栏追加一条消息气泡，滚动到底。"""
-        text = _strip_role_prefix(content)
-        bubble = QFrame()
-        bubble.setObjectName('agent-user-bubble' if role == 'user' else 'agent-assistant-bubble')
-        bl = QVBoxLayout(bubble)
-        if role == 'user':
-            bl.setContentsMargins(14, 9, 14, 9)
-        else:
-            bl.setContentsMargins(2, 0, 2, 0)
-        bl.setSpacing(4)
-        if role != 'user':
-            who = QLabel('◆ Agent' if role == 'assistant' else '工具')
-            who.setObjectName('agent-bubble-role')
-            bl.addWidget(who)
-        lbl = QLabel()
-        lbl.setWordWrap(True)
-        lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse
-        )
-        lowered = text.lower()
-        tool_markup = '<tool_call' in lowered or '<function=' in lowered or '<parameter=' in lowered
-        if role == 'assistant' and not tool_markup:
-            lbl.setTextFormat(Qt.TextFormat.MarkdownText)
-        else:
-            lbl.setTextFormat(Qt.TextFormat.PlainText)
-        lbl.setText(text)
-        if role == 'user':
-            # 短消息一行显示完，长消息到 600px 再换行
-            longest = max((lbl.fontMetrics().horizontalAdvance(line) for line in text.splitlines() or ['']), default=0)
-            lbl.setMinimumWidth(min(longest + 24, 600))
-        bl.addWidget(lbl)
-
-        wrap = QHBoxLayout()
-        wrap.setContentsMargins(0, 0, 0, 0)
-        if role == 'user':
-            bubble.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-            bubble.setMaximumWidth(640)
-            wrap.addStretch(1)
-            wrap.addWidget(bubble)
-        else:
-            wrap.addWidget(bubble, 1)
-
-        holder = QWidget()
-        holder.setLayout(wrap)
-
-        self._insert_thread_widget(holder)
+    def _append_message(self, role: str, content: str, *, message=None, status='complete'):
+        data = dict(message or {})
+        data.update(id=data.get('id') or uuid.uuid4().hex, role=role,
+                    content=_strip_role_prefix(content), status=status)
+        bubble = self.scroll.append_message(data, follow=not getattr(self, '_rendering_conversation', False))
+        bubble.error_card.retry_btn.hide()
+        if status == 'failed':
+            bubble.error_card.set_reason(data['content'], '请检查本轮执行步骤再继续。' if self.language == 'zh'
+                                         else 'Review the steps from this turn before continuing.')
+        bubble.copy_error_requested.connect(QApplication.clipboard().setText)
+        self._sync_thread_empty()
+        return bubble
