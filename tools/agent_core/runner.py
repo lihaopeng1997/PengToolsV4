@@ -81,7 +81,9 @@ _CONTINUE_INCOMPLETE = (
     + "{reason}。请重新给出完整回答，包含已确认现象、可能原因、缺失证据和下一步检查；"
     "不要只补一句结论，没有把握的部分明确标注为推断。"
 )
-_ANNOUNCE_PREFIXES = ("让我", "我来", "我先", "接下来", "现在我将", "下面")
+_COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先", "现在我将")
+_LOOSE_PREFIXES = ("让我", "我来", "我先", "我再", "现在我将")
+_COLON_ONLY_PREFIXES = ("下面", "接下来")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
 
@@ -89,14 +91,22 @@ def unfinished_work_announcement(text: str) -> bool:
     """One short line that only announces the next action and then stops.
 
     The caller must also require that this turn produced no tool call.
+    A colon ending matches the older marker rule. A full stop or no
+    punctuation matches only the tighter prefixes. 「下面」 and 「接下来」
+    count only when the line ends with a colon.
     """
 
     body = str(text or "").strip()
     if not body or len(body) > 160 or "\n" in body:
         return False
-    if not body.startswith(_ANNOUNCE_PREFIXES):
+    if body[-1] in ":：" and (
+        any(marker in body for marker in _COLON_MARKERS)
+        or body.startswith(_COLON_ONLY_PREFIXES)
+    ):
+        return True
+    if not body.startswith(_LOOSE_PREFIXES):
         return False
-    if body[-1] in "。:：":
+    if body[-1] == "。":
         return True
     return not unicodedata.category(body[-1]).startswith("P")
 

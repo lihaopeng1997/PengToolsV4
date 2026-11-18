@@ -152,8 +152,13 @@ check('修复提示不留在返回历史', all(
 print('--- 宣告句续跑 ---')
 check('宣告句本身被识别', unfinished_work_announcement(ANNOUNCE))
 check('普通回答不是宣告句', not unfinished_work_announcement("商业险出险次数是 3 次。"))
-check('无标点结尾也是宣告句', unfinished_work_announcement("下面开始查"))
+check('无标点结尾也是宣告句', unfinished_work_announcement("我先查一下"))
 check('感叹号结尾不是宣告句', not unfinished_work_announcement("让我搜索来源！"))
+check('继续读取冒号是宣告', unfinished_work_announcement("继续读取 config.py："))
+check('句中让我加冒号是宣告', unfinished_work_announcement("好的，让我看下表结构："))
+check('我再搜一下冒号是宣告', unfinished_work_announcement("我再搜一下："))
+check('接下来句号不是宣告', not unfinished_work_announcement("接下来建议重建索引。"))
+check('下面句号不是宣告', not unfinished_work_announcement("下面是结果。"))
 
 result, model, registry = run([
     ANNOUNCE,
