@@ -75,6 +75,24 @@ def _bounded_label(value: Any, limit: int = 160) -> str:
     return text[: max(1, limit - 1)].rstrip() + "…"
 
 
+_FAILURE_REASON_TEXT = {
+    "parse_failed": ("模型工具调用格式无法识别", "The model tool-call format could not be recognized."),
+    "tool_rejected": ("模型调用了不允许的工具", "The model called a tool that is not allowed."),
+    "empty_output": ("模型没有输出内容", "The model returned no output."),
+}
+
+
+def empty_answer_text(reason: str, language: str = "zh") -> str:
+    """User-facing empty answer. Never show the English failure code."""
+
+    pair = _FAILURE_REASON_TEXT.get(str(reason or "").strip())
+    if pair is None:
+        if language == "zh":
+            return "这次没有返回查询内容。"
+        return "The run returned no query content."
+    return pair[0] if language == "zh" else pair[1]
+
+
 def _query_worker_notice(payload: Mapping[str, Any]) -> str | None:
     """Accept only the scalar worker-state fields produced by the runner."""
 
@@ -230,6 +248,7 @@ class DataCenterAgentPanel(QWidget):
         self._turn_text = ""
         self._turn_prefix = ""
         self._chat_answer = None
+        self._failure_reason = ""
         self._input_composing = False
 
         self._build_ui(target=target, model=model)
@@ -470,6 +489,7 @@ class DataCenterAgentPanel(QWidget):
         self._active = True
         self._stop_was_requested = False
         self._terminal_seen = None
+        self._failure_reason = ""
         self._set_cancel_pending(False)
         if target is not None:
             self._set_value_label(self.target_value_label, target, limit=180)
@@ -521,6 +541,7 @@ class DataCenterAgentPanel(QWidget):
         self._active = False
         self._stop_was_requested = False
         self._terminal_seen = None
+        self._failure_reason = ""
         self._set_cancel_pending(False)
         while self._chat_layout.count():
             item = self._chat_layout.takeAt(0)
@@ -1149,6 +1170,9 @@ class DataCenterAgentPanel(QWidget):
     def _handle_event(self, event: AgentEvent) -> None:
         event_type = _event_name(event.event_type)
         payload = dict(event.payload or {})
+        reason = str(payload.get("failure_reason") or "").strip()
+        if reason:
+            self._failure_reason = reason
         self._progress_from_payload(payload)
         if event_type in _REASONING_EVENTS:
             # Only the explicit fields are accepted.  No generic payload scan
@@ -1280,7 +1304,13 @@ class DataCenterAgentPanel(QWidget):
         final_text = payload.get("text") if "text" in payload else payload.get("answer")
         if final_text:
             from tools.agent_core.text_protocol import visible_model_text
-            self._replace_answer(visible_model_text(str(final_text)))
+            shown = visible_model_text(str(final_text))
+            if not shown and self._failure_reason:
+                shown = empty_answer_text(self._failure_reason, self._display_language)
+            if shown:
+                self._replace_answer(shown)
+        elif self._failure_reason:
+            self._replace_answer(empty_answer_text(self._failure_reason, self._display_language))
         verified_now = payload.get("verified") is True or payload.get("verification_status") == "verified"
         self._publish_unverified_sql(verified=verified_now)
         self._active = False
@@ -1593,7 +1623,7 @@ class DataCenterAgentPanel(QWidget):
         self._result_status_role = str(role or "neutral")
         self._apply_result_status_copy()
         if self._terminal_seen and self._chat_answer is not None and not self._channels["answer"].value:
-            empty = "这次没有返回查询内容。" if self._display_language == "zh" else "The run returned no query content."
+            empty = empty_answer_text(self._failure_reason, self._display_language)
             self._chat_answer.setText(f"**Agent**\n\n{empty}")
 
     def _any_channel_truncated(self) -> bool:

@@ -27,8 +27,10 @@ from sqlglot.optimizer.scope import traverse_scope
 from tools.agent_core.auto_context import DEFAULT_CONTEXT_INPUT_BYTES, default_context_planner
 from tools.agent_diag import log_agent_event, log_file_path
 from tools.agent_core.text_protocol import (
+    EVIDENCE_CONTINUATION_INSTRUCTION,
     TEXT_PROTOCOL_INSTRUCTION,
-    parse_qwen_tool_calls,
+    prepare_text_tool_calls,
+    resolve_tool_alias,
     visible_model_text,
 )
 
@@ -1178,7 +1180,10 @@ def build_data_center_system_prompt(
         if strict_json else TEXT_PROTOCOL_INSTRUCTION
     )
     definitions = json.dumps(tool_definitions, ensure_ascii=False, separators=(",", ":"))
-    return binding + guide + f"可用工具及完整参数定义：\n{definitions}\n" + protocol
+    return (
+        binding + guide + f"可用工具及完整参数定义：\n{definitions}\n" + protocol
+        + EVIDENCE_CONTINUATION_INSTRUCTION + "\n"
+    )
 
 
 class _TextProtocolAdapter:
@@ -1213,8 +1218,8 @@ class _TextProtocolAdapter:
                 text_chars=len(str(getattr(turn, 'text', '') or '')),
             )
             return turn
-        parsed = parse_qwen_tool_calls(turn.text)
-        if not parsed:
+        prepared, failure = prepare_text_tool_calls(turn.text, self._allowed)
+        if prepared is None and not failure:
             # Accept an entire explicit JSON tool envelope from gateways that
             # place calls in content. Never infer commands from prose/fences.
             try:
@@ -1230,23 +1235,31 @@ class _TextProtocolAdapter:
                     isinstance(c, dict) and isinstance(c.get("name"), str)
                     and isinstance(c.get("arguments"), dict) for c in calls
                 ):
-                    parsed = calls
+                    resolved = []
+                    for item in calls:
+                        name = resolve_tool_alias(str(item.get("name") or ""), self._allowed)
+                        if not name:
+                            failure = "tool_rejected"
+                            resolved = []
+                            break
+                        resolved.append({"name": name, "arguments": dict(item.get("arguments") or {})})
+                    if not failure:
+                        prepared = resolved
         log_agent_event(
             'dc_text_protocol',
-            parsed=0 if not parsed else len(parsed),
-            names=','.join(item['name'] for item in (parsed or [])[:8]),
+            parsed=0 if not prepared else len(prepared),
             text_chars=len(turn.text or ''),
         )
-        if not parsed:
+        if failure or (prepared is not None and len(prepared) > 8):
+            log_agent_event('dc_text_protocol_rejected', parsed=0 if not prepared else len(prepared))
             return turn
-        if len(parsed) > 8 or any(item["name"] not in self._allowed for item in parsed):
-            log_agent_event('dc_text_protocol_rejected', parsed=len(parsed))
+        if not prepared:
             return turn
         return AgentTurn(
             text=visible_model_text(turn.text),
             tool_calls=tuple(
                 ToolCall(f"text-call-{uuid.uuid4().hex[:12]}", item["name"], dict(item.get("arguments") or {}))
-                for item in parsed
+                for item in prepared
             ),
             finish_reason="tool_calls",
             usage=getattr(turn, "usage", None) or {},

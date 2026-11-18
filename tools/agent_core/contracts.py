@@ -448,6 +448,7 @@ class AgentRunResult:
     tool_results: tuple[ToolResult, ...] = ()
     error: str | None = None
     budget: Mapping[str, Any] = field(default_factory=dict)
+    failure_reason: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "events", tuple(self.events))

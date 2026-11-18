@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Collection
 
 
 _TOOL_CALL_BLOCK = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.I | re.S)
@@ -33,6 +33,22 @@ TEXT_PROTOCOL_INSTRUCTION = (
     "没有工具结果之前，不要声称已经查完，也不要说自己无法访问数据库或文件系统。格式：\n"
     "<tool_call><function=工具名><parameter=参数名>参数值</parameter></function></tool_call>"
 )
+
+# 工具结果不是结束语。数据中心和代码 Agent 的系统提示都带这一句。
+EVIDENCE_CONTINUATION_INSTRUCTION = (
+    "工具结果只是中间证据，拿到结果后必须继续调用工具或给出基于证据的完整回答，不要只描述计划。"
+)
+
+# 只映射到本次允许列表里已经有的工具。目标不在列表中时调用方必须拒绝，不能放宽白名单。
+TOOL_NAME_ALIASES = {
+    "describe_table": "describe_object",
+    "get_columns": "describe_object",
+    "get_table_schema": "describe_object",
+    "search_tables": "search_objects",
+    "list_tables": "search_objects",
+}
+
+_INVALID = object()
 
 
 def _looks_like_json_literal(text: str) -> bool:
@@ -84,8 +100,135 @@ def _arguments_from_body(body: str) -> dict[str, Any]:
     return arguments
 
 
+def _strip_embedded_fence(text: str) -> str:
+    """Drop one surrounding ``` / ```json fence. Leave other prose unchanged."""
+
+    raw = str(text or "").strip()
+    match = re.fullmatch(r"```(?:json|JSON)?\s*([\s\S]*?)\s*```", raw)
+    if match:
+        return match.group(1).strip()
+    return raw
+
+
+def _coerce_arguments(raw: Any) -> Any:
+    """Return a dict, or ``_INVALID`` when a JSON argument payload cannot be used."""
+
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        text = _strip_embedded_fence(raw)
+        if not text:
+            return {}
+        if text[:1] not in "{[":
+            return _INVALID
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            return _INVALID
+        if isinstance(value, dict):
+            return value
+        return _INVALID
+    return _INVALID
+
+
+def _call_from_mapping(obj: Any) -> Any:
+    """One ``{name, arguments}`` object, or ``_INVALID`` when the shape is unusable."""
+
+    if not isinstance(obj, dict):
+        return _INVALID
+    name = obj.get("name")
+    arguments = None
+    if not isinstance(name, str) or not name.strip():
+        function = obj.get("function")
+        if isinstance(function, dict) and isinstance(function.get("name"), str) and function.get("name").strip():
+            name = function.get("name")
+            arguments = function.get("arguments", function.get("parameters", function.get("args")))
+        else:
+            tool = obj.get("tool")
+            if isinstance(tool, str) and tool.strip():
+                name = tool
+                arguments = obj.get("arguments", obj.get("args", obj.get("parameters")))
+            else:
+                return _INVALID
+    if arguments is None:
+        if "arguments" in obj:
+            arguments = obj.get("arguments")
+        elif "args" in obj:
+            arguments = obj.get("args")
+        elif "parameters" in obj:
+            arguments = obj.get("parameters")
+        else:
+            arguments = {}
+    coerced = _coerce_arguments(arguments)
+    if coerced is _INVALID:
+        return _INVALID
+    return {"name": str(name).strip(), "arguments": coerced}
+
+
+def _calls_from_json_payload(body: str) -> Any:
+    """Calls from a JSON object/array, ``None`` when it is not JSON, ``_INVALID`` when it is broken."""
+
+    stripped = _strip_embedded_fence(body)
+    if not stripped:
+        return None
+    candidate = stripped
+    if candidate[0] not in "{[":
+        return None
+    if candidate[0] == "{":
+        blob = _balanced_json_object(candidate, 0)
+        if not blob:
+            return _INVALID
+        trailing = candidate[len(blob):].strip()
+        if trailing and trailing != "```":
+            return _INVALID
+        try:
+            value = json.loads(blob)
+        except json.JSONDecodeError:
+            return _INVALID
+    else:
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            return _INVALID
+    if isinstance(value, dict) and isinstance(value.get("tool_calls"), list) and "name" not in value and "tool" not in value:
+        items = value.get("tool_calls")
+        if not items:
+            return _INVALID
+    elif isinstance(value, list):
+        items = value
+        if not items:
+            return _INVALID
+    else:
+        items = [value]
+    calls: list[dict[str, Any]] = []
+    for item in items:
+        call = _call_from_mapping(item)
+        if call is _INVALID:
+            return _INVALID
+        calls.append(call)
+    return calls
+
+
+def _arguments_from_function_body(body: str) -> dict[str, Any] | None:
+    """Parameter tags, a JSON object, or None when a JSON body is unusable."""
+
+    if "<parameter=" in str(body or "").lower():
+        return _arguments_from_body(body)
+    stripped = _strip_embedded_fence(body)
+    if not stripped:
+        return {}
+    if stripped[:1] in "{[":
+        coerced = _coerce_arguments(stripped)
+        if coerced is _INVALID:
+            return None
+        return coerced
+    return _arguments_from_body(body)
+
+
 def _calls_from_fragment(fragment: str) -> list[dict[str, Any]] | None:
-    """Parse function tags. None means this fragment has no function tag."""
+    """Parse function tags. None means this fragment has no usable function tag."""
 
     if "<function=" not in fragment.lower():
         return None
@@ -93,9 +236,12 @@ def _calls_from_fragment(fragment: str) -> list[dict[str, Any]] | None:
     closed = list(_FUNCTION_BLOCK.finditer(fragment))
     if closed:
         for match in closed:
+            arguments = _arguments_from_function_body(match.group(2))
+            if arguments is None:
+                return None
             calls.append({
                 "name": match.group(1),
-                "arguments": _arguments_from_body(match.group(2)),
+                "arguments": arguments,
             })
         tail = fragment[closed[-1].end():]
         if "<function=" not in tail.lower():
@@ -106,15 +252,34 @@ def _calls_from_fragment(fragment: str) -> list[dict[str, Any]] | None:
         return calls or None
     body = fragment[opened.end():]
     body = re.split(r"</function>", body, maxsplit=1, flags=re.I)[0]
+    arguments = _arguments_from_function_body(body)
+    if arguments is None:
+        return None
     calls.append({
         "name": opened.group(1),
-        "arguments": _arguments_from_body(body),
+        "arguments": arguments,
     })
     return calls
 
 
+def _calls_from_tool_block(body: str) -> list[dict[str, Any]] | None:
+    """Calls inside one ``<tool_call>`` body. None means the body is unusable."""
+
+    if "<function=" in str(body or "").lower():
+        return _calls_from_fragment(body)
+    payload = _calls_from_json_payload(body)
+    if payload is None or payload is _INVALID or not payload:
+        return None
+    return payload
+
+
 def parse_qwen_tool_calls(text: str) -> list[dict[str, Any]] | None:
-    """Return parsed calls, [] when markup is present but unusable, or None when absent."""
+    """Return parsed calls, [] when markup is present but unusable, or None when absent.
+
+    Accepts the parameter-tag form, ``<tool_call>{name, arguments}</tool_call>``
+    (several tags, surrounding prose, a ```json fence, arguments as a JSON
+    string) and ``<function=name>{json}</function>``.
+    """
 
     raw = str(text or "")
     lowered = raw.lower()
@@ -124,13 +289,13 @@ def parse_qwen_tool_calls(text: str) -> list[dict[str, Any]] | None:
     blocks = list(_TOOL_CALL_BLOCK.finditer(raw))
     if blocks:
         for block in blocks:
-            parsed = _calls_from_fragment(block.group(1))
+            parsed = _calls_from_tool_block(block.group(1))
             if not parsed:
                 return []
             calls.extend(parsed)
         tail = raw[blocks[-1].end():]
         if "<tool_call" in tail.lower() or "<function=" in tail.lower():
-            extra = _calls_from_fragment(re.sub(r"^.*?<tool_call>\s*", "", tail, count=1, flags=re.I | re.S))
+            extra = _calls_from_tool_block(re.sub(r"^.*?<tool_call>\s*", "", tail, count=1, flags=re.I | re.S))
             if not extra:
                 return []
             calls.extend(extra)
@@ -140,10 +305,51 @@ def parse_qwen_tool_calls(text: str) -> list[dict[str, Any]] | None:
     if start >= 0:
         fragment = raw[start:]
         fragment = re.sub(r"^<tool_call>\s*", "", fragment, count=1, flags=re.I)
-    parsed = _calls_from_fragment(fragment)
+    parsed = _calls_from_tool_block(fragment)
     if not parsed:
         return []
     return parsed
+
+
+def resolve_tool_alias(name: str, allowed: Collection[str]) -> str:
+    """Map a tool name onto this turn's allow-list. Empty string means reject."""
+
+    cleaned = str(name or "").strip()
+    allowed_set = {str(item) for item in allowed if str(item)}
+    if cleaned in allowed_set:
+        return cleaned
+    target = TOOL_NAME_ALIASES.get(cleaned)
+    if target and target in allowed_set:
+        return target
+    return ""
+
+
+def prepare_text_tool_calls(
+    text: str,
+    allowed: Collection[str],
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """``(calls, None)`` when markup maps onto allowed tools.
+
+    ``(None, None)`` when the text has no tool markup.
+    ``(None, "parse_failed"|"tool_rejected")`` when markup cannot be executed.
+    A rejected alias is never rewritten onto a tool outside ``allowed``.
+    """
+
+    parsed = parse_qwen_tool_calls(text)
+    if parsed is None:
+        return None, None
+    if not parsed:
+        return None, "parse_failed"
+    prepared: list[dict[str, Any]] = []
+    for item in parsed:
+        name = resolve_tool_alias(str(item.get("name") or ""), allowed)
+        if not name:
+            return None, "tool_rejected"
+        arguments = item.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return None, "parse_failed"
+        prepared.append({"name": name, "arguments": dict(arguments)})
+    return prepared, None
 
 
 def strip_tool_markup(text: str) -> str:
@@ -151,6 +357,8 @@ def strip_tool_markup(text: str) -> str:
 
     raw = str(text or "")
     without = _TOOL_CALL_BLOCK.sub("", raw)
+    without = _FUNCTION_BLOCK.sub("", without)
+    without = re.sub(r"```(?:json|JSON)?\s*```", "", without)
     without = re.sub(r"<tool_call\b[^>]*>[\s\S]*\Z", "", without, flags=re.I)
     without = re.sub(r"<function=[^>]*>[\s\S]*\Z", "", without, flags=re.I)
     lines = [line.rstrip() for line in without.splitlines()]

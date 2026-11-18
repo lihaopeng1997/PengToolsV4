@@ -19,7 +19,13 @@ import uuid
 from datetime import datetime, timezone
 
 from tools.app_logging import get_logger, log_failure
-from tools.agent_core.text_protocol import parse_qwen_tool_calls, strip_tool_markup, TEXT_PROTOCOL_INSTRUCTION
+from tools.agent_core.text_protocol import (
+    EVIDENCE_CONTINUATION_INSTRUCTION,
+    TEXT_PROTOCOL_INSTRUCTION,
+    TOOL_NAME_ALIASES,
+    parse_qwen_tool_calls,
+    strip_tool_markup,
+)
 from tools.ai_harness import strip_markdown_fence
 from tools.sql_guard import redact_error
 from tools.agent_core.auto_context import DEFAULT_CONTEXT_INPUT_BYTES, default_context_planner
@@ -1196,6 +1202,7 @@ def build_tool_system_prompt(
         'run_test 仅允许受限 pytest 参数；run_svn 仅限 status、diff、已确认 commit。\n'
         '工具结果会脱敏后返回；不要猜测未读取的项目内容。无法执行时说明原因。\n'
         '要读文件或搜索时，必须在同一条回复里调用工具。不要只写「让我读取…」「继续读取…」就结束。\n'
+        + EVIDENCE_CONTINUATION_INSTRUCTION + '\n'
     )
 
 
@@ -1471,11 +1478,26 @@ def _recover_marked_tool_calls(raw: str) -> list[dict]:
         return []
     calls = []
     for item in payloads:
-        normalized = normalize_tool_call(item)
-        if not normalized or normalized.get('error') or normalized['tool'] not in KNOWN_TOOL_NAMES:
+        accepted = _accept_known_tool(normalize_tool_call(item))
+        if accepted is None:
             return []
-        calls.append(normalized)
+        calls.append(accepted)
     return calls
+
+
+def _accept_known_tool(normalized) -> dict | None:
+    """Keep a call only when its name, or its alias target, is in this workspace allow-list."""
+
+    if not normalized or normalized.get('error'):
+        return None
+    tool = str(normalized.get('tool') or '')
+    if tool not in KNOWN_TOOL_NAMES:
+        target = TOOL_NAME_ALIASES.get(tool)
+        if not target or target not in KNOWN_TOOL_NAMES:
+            return None
+        normalized = dict(normalized)
+        normalized['tool'] = target
+    return normalized
 
 
 def recover_text_tool_calls(text: str) -> list[dict]:
@@ -1494,15 +1516,15 @@ def recover_text_tool_calls(text: str) -> list[dict]:
         return []
     calls = []
     for item in payloads:
-        normalized = normalize_tool_call(item)
-        if not normalized or normalized.get('error') or normalized['tool'] not in KNOWN_TOOL_NAMES:
+        accepted = _accept_known_tool(normalize_tool_call(item))
+        if accepted is None:
             return []
         # Bare JSON can be an example in a normal answer. Only harmless reads
         # use this legacy fallback; mutations require native calls or explicit
         # tool markup, and still go through the normal preview/confirmation.
-        if normalized['tool'] not in {'list_dir', 'read_file', 'search_code'}:
+        if accepted['tool'] not in {'list_dir', 'read_file', 'search_code'}:
             return []
-        calls.append(normalized)
+        calls.append(accepted)
     return calls
 
 

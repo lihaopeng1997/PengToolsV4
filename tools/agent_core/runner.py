@@ -17,6 +17,8 @@ import logging
 import math
 import threading
 import time
+import unicodedata
+import uuid
 from typing import Any, Callable
 
 from tools.agent_diag import log_agent_event
@@ -41,21 +43,35 @@ from .contracts import (
     stable_json,
 )
 from .request_budget import RequestInputLimitExceeded
+from .text_protocol import prepare_text_tool_calls
 
 logger = get_logger(__name__)
 
 
 # A model that only announces the next step is not finished. Continue in this
 # same run instead of returning that sentence as the answer.
-_CONTINUE_UNFINISHED = (
-    "上一条只写了下一步打算，任务还没做完。请立刻调用工具继续，"
-    "或根据已经返回的工具结果直接回答。不要再只写计划。"
-)
+_CONTINUE_ANNOUNCEMENT = "请直接调用工具继续执行，不要只描述计划。"
 _CONTINUE_EMPTY = (
     "上一条没有可见回答，也没有成功的查询结果。"
     "请调用工具查出数据后再用简短中文回答，不要空回复。"
 )
-_EMPTY_ANSWER = "这次没有生成查询结果。请确认当前连接、Schema 和表名后再问一次。"
+_REPAIR_PARSE = (
+    "上一条的工具调用格式无法识别，不能当作最终回答。"
+    "请改用完整标记重新调用允许的工具："
+    "<tool_call><function=工具名><parameter=参数名>参数值</parameter></function></tool_call>。"
+    "不要输出无法解析的标签。"
+)
+_REPAIR_REJECTED = (
+    "上一条调用了当前不允许的工具，不能当作最终回答。"
+    "请只调用本轮允许的工具，并用完整标记重新发起调用。"
+)
+_TOOL_FAILURE_TEXT = {
+    "parse_failed": "模型工具调用格式无法识别",
+    "tool_rejected": "模型调用了不允许的工具",
+    "empty_output": "模型没有输出内容",
+}
+_MAX_TOOL_FORMAT_RETRIES = 2
+_MAX_ANNOUNCEMENT_CONTINUATIONS = 2
 # A host may reject a text answer as structurally incomplete (for example a
 # heading and an event ID with no cause or next step).  The reason is carried
 # into one more turn so the model can repair its own answer.
@@ -65,19 +81,24 @@ _CONTINUE_INCOMPLETE = (
     + "{reason}。请重新给出完整回答，包含已确认现象、可能原因、缺失证据和下一步检查；"
     "不要只补一句结论，没有把握的部分明确标注为推断。"
 )
-_UNFINISHED_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先")
+_ANNOUNCE_PREFIXES = ("让我", "我来", "我先", "接下来", "现在我将", "下面")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
 
 def unfinished_work_announcement(text: str) -> bool:
-    """One short line that names the next action and then stops."""
+    """One short line that only announces the next action and then stops.
+
+    The caller must also require that this turn produced no tool call.
+    """
 
     body = str(text or "").strip()
     if not body or len(body) > 160 or "\n" in body:
         return False
-    if body[-1] not in ":：":
+    if not body.startswith(_ANNOUNCE_PREFIXES):
         return False
-    return any(marker in body for marker in _UNFINISHED_MARKERS)
+    if body[-1] in "。:：":
+        return True
+    return not unicodedata.category(body[-1]).startswith("P")
 
 
 def _intranet_soft_mode() -> bool:
@@ -97,7 +118,12 @@ def _without_continuation_prompts(messages: list[dict[str, Any]]) -> tuple[dict[
         if not (
             item.get("role") == "user"
             and (
-                item.get("content") in {_CONTINUE_UNFINISHED, _CONTINUE_EMPTY}
+                item.get("content") in {
+                    _CONTINUE_ANNOUNCEMENT,
+                    _CONTINUE_EMPTY,
+                    _REPAIR_PARSE,
+                    _REPAIR_REJECTED,
+                }
                 or str(item.get("content") or "").startswith(_CONTINUE_INCOMPLETE_PREFIX)
             )
         )
@@ -371,6 +397,7 @@ class AgentRunner:
         terminal_status: AgentStatus | None = None
         terminal_text = ""
         terminal_error: str | None = None
+        terminal_failure_reason: str | None = None
         active_tool_calls: tuple[ToolCall, ...] | None = None
         paired_tool_call_indexes: set[int] = set()
 
@@ -473,8 +500,9 @@ class AgentRunner:
             error: str | None = None,
             event_type: AgentEventType | None = None,
             payload: Mapping[str, Any] | None = None,
+            failure_reason: str | None = None,
         ) -> AgentRunResult:
-            nonlocal closed, terminal_status, terminal_text, terminal_error
+            nonlocal closed, terminal_status, terminal_text, terminal_error, terminal_failure_reason
             if closed:
                 return AgentRunResult(
                     status=terminal_status or status,
@@ -484,11 +512,13 @@ class AgentRunner:
                     tool_results=tuple(tool_results),
                     error=terminal_error,
                     budget=budget_payload(),
+                    failure_reason=terminal_failure_reason,
                 )
             append_unstarted_tool_pairs()
             terminal_status = status
             terminal_text = text
             terminal_error = error
+            terminal_failure_reason = failure_reason or None
             final_payload: dict[str, Any] = {
                 "status": status.value,
                 "text": text,
@@ -497,6 +527,8 @@ class AgentRunner:
             }
             if payload:
                 final_payload.update(dict(payload))
+            if terminal_failure_reason:
+                final_payload["failure_reason"] = terminal_failure_reason
             if event_type is not None:
                 emitter.emit(event_type, final_payload)
             release_run = getattr(self.model_adapter, "release_run", None)
@@ -516,6 +548,7 @@ class AgentRunner:
                 tool_results=tuple(tool_results),
                 error=error,
                 budget=budget_payload(),
+                failure_reason=terminal_failure_reason,
             )
 
         def cancellation_result() -> AgentRunResult:
@@ -583,6 +616,8 @@ class AgentRunner:
 
         try:
             unfinished_continuations = 0
+            tool_format_repairs = 0
+            announcement_continuations = 0
             for turn_index in range(run_budget.limits.max_model_turns):
                 if closed:
                     break
@@ -828,6 +863,49 @@ class AgentRunner:
 
                 calls = tuple(turn.tool_calls)
                 finish_reason = str(turn.finish_reason or "stop").strip().lower()
+                if not calls and enforce_closed_set:
+                    source = complete_text or visible_text
+                    for candidate in (complete_text, visible_text):
+                        lowered = str(candidate or "").lower()
+                        if "<tool_call" in lowered or "<function=" in lowered:
+                            source = candidate
+                            break
+                    prepared, failure = prepare_text_tool_calls(source, allowed_names)
+                    if failure:
+                        if tool_format_repairs < _MAX_TOOL_FORMAT_RETRIES:
+                            tool_format_repairs += 1
+                            stored = str(source or "").strip()
+                            if stored:
+                                working_messages.append({"role": "assistant", "content": stored})
+                            repair = _REPAIR_PARSE if failure == "parse_failed" else _REPAIR_REJECTED
+                            working_messages.append({"role": "user", "content": repair})
+                            continue
+                        answer = _TOOL_FAILURE_TEXT.get(failure) or _TOOL_FAILURE_TEXT["parse_failed"]
+                        query_ids = list(verified_query_ids)
+                        evidence_ids = [result.evidence_id for result in tool_results if result.evidence_id]
+                        return finish(
+                            AgentStatus.COMPLETED,
+                            text=answer,
+                            event_type=AgentEventType.FINAL,
+                            failure_reason=failure,
+                            payload={
+                                "model_id": turn.model_id,
+                                "reasoning_summary": "".join(reasoning_parts),
+                                "query_ids": query_ids,
+                                "evidence_ids": evidence_ids,
+                                "verified": bool(query_ids),
+                                "verification_status": "verified" if query_ids else "unverified",
+                            },
+                        )
+                    if prepared:
+                        calls = tuple(
+                            ToolCall(
+                                f"text-call-{uuid.uuid4().hex[:12]}",
+                                str(item["name"]),
+                                dict(item.get("arguments") or {}),
+                            )
+                            for item in prepared
+                        )
                 if not calls:
                     if finish_reason in _CLARIFY_REASONS:
                         if visible_text:
@@ -851,13 +929,15 @@ class AgentRunner:
                             error="TOOL_CALL_INCOMPLETE",
                             event_type=AgentEventType.FAILED,
                         )
-                    if (
+                    announced = (
                         unfinished_work_announcement(visible_text)
-                        and unfinished_continuations < _MAX_UNFINISHED_CONTINUATIONS
-                    ):
-                        unfinished_continuations += 1
-                        working_messages.append({"role": "assistant", "content": visible_text})
-                        working_messages.append({"role": "user", "content": _CONTINUE_UNFINISHED})
+                        or unfinished_work_announcement(complete_text)
+                    )
+                    if announced and announcement_continuations < _MAX_ANNOUNCEMENT_CONTINUATIONS:
+                        announcement_continuations += 1
+                        spoken = visible_text if str(visible_text or "").strip() else complete_text
+                        working_messages.append({"role": "assistant", "content": spoken})
+                        working_messages.append({"role": "user", "content": _CONTINUE_ANNOUNCEMENT})
                         continue
                     if (
                         not str(visible_text or "").strip()
@@ -866,8 +946,10 @@ class AgentRunner:
                         unfinished_continuations += 1
                         working_messages.append({"role": "user", "content": _CONTINUE_EMPTY})
                         continue
+                    empty_failure = None
                     if not str(visible_text or "").strip():
-                        visible_text = _EMPTY_ANSWER
+                        visible_text = _TOOL_FAILURE_TEXT["empty_output"]
+                        empty_failure = "empty_output"
                     answer_gap = ""
                     try:
                         answer_gap = str(self.answer_validator(visible_text) or "")
@@ -905,6 +987,7 @@ class AgentRunner:
                         AgentStatus.COMPLETED,
                         text=visible_text,
                         event_type=AgentEventType.FINAL,
+                        failure_reason=empty_failure,
                         payload={
                             "model_id": turn.model_id,
                             "reasoning_summary": "".join(reasoning_parts),
