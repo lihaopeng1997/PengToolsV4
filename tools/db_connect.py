@@ -502,8 +502,13 @@ def upsert_connection(
     item: dict,
     plain_password: str | None = None,
     *,
+    password_action: str | None = None,
     expected_revision: str | None | object = _CONNECTION_STORE_REVISION_UNSPECIFIED,
 ) -> dict:
+    if password_action not in (None, 'keep', 'replace', 'clear'):
+        raise DbError('CONNECTION_CREDENTIAL_ACTION_INVALID')
+    if password_action == 'replace' and not plain_password:
+        raise DbError('CONNECTION_CREDENTIAL_REPLACEMENT_REQUIRED')
     data = dict(item)
     connection_id = str(data.get('id') or uuid.uuid4().hex)
     snapshot = _connection_store_call(lambda store: store.load())
@@ -513,7 +518,13 @@ def upsert_connection(
     )
     patch = _normalize_connection_patch(data, existing, connection_id)
 
-    if plain_password is not None and str(plain_password):
+    if password_action == 'clear':
+        patch['password'] = ''
+    elif password_action == 'keep':
+        patch.pop('password', None)
+        if existing is None:
+            patch['password'] = ''
+    elif plain_password is not None and str(plain_password):
         try:
             patch['password'] = _encrypt(plain_password)
         except Exception:

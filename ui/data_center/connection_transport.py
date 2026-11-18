@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import size_compact_button, size_enum_combo, size_line
+from ui.password_field import PasswordField
 
 
 _SSH_FIELDS = (
@@ -35,12 +36,15 @@ _TLS_FIELDS = (
 )
 
 
-def _encrypt_secret(value: str) -> str:
-    if not value:
+def _updated_secret(field: PasswordField) -> str:
+    action = field.action()
+    if action == "keep":
+        return field.stored
+    if action == "clear":
         return ""
     from tools.secure_store import encrypt_secret
 
-    token = encrypt_secret(value)
+    token = encrypt_secret(field.edit.text())
     if not str(token).startswith(("dpapi:", "enc:")):
         raise RuntimeError("SECURE_STORE_UNAVAILABLE")
     return str(token)
@@ -73,17 +77,12 @@ class DataCenterTransportDialog(QDialog):
         self.ssh_auth.addItem("私钥文件" if self.zh else "Private key file", "private_key")
         index = self.ssh_auth.findData(str(self._profile.get("ssh_auth_method") or "password"))
         self.ssh_auth.setCurrentIndex(max(index, 0))
-        self.ssh_password = QLineEdit()
-        self.ssh_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.ssh_password.setPlaceholderText("留空保留已保存口令" if self.zh else "Blank keeps the saved secret")
+        self.ssh_password = PasswordField(self.language, self._profile.get("ssh_password_token"))
         self.ssh_key_path = QLineEdit(str(self._profile.get("ssh_private_key_path") or ""))
-        self.ssh_key_passphrase = QLineEdit()
-        self.ssh_key_passphrase.setEchoMode(QLineEdit.EchoMode.Password)
-        self.ssh_key_passphrase.setPlaceholderText("留空保留已保存口令" if self.zh else "Blank keeps the saved secret")
+        self.ssh_key_passphrase = PasswordField(self.language, self._profile.get("ssh_key_passphrase_token"))
         for widget, kind in (
             (self.ssh_host, "path"), (self.ssh_port, "std"),
-            (self.ssh_username, "path"), (self.ssh_password, "path"),
-            (self.ssh_key_path, "path"), (self.ssh_key_passphrase, "path"),
+            (self.ssh_username, "path"), (self.ssh_key_path, "path"),
         ):
             size_line(widget, kind)
         size_enum_combo(self.ssh_auth)
@@ -110,10 +109,8 @@ class DataCenterTransportDialog(QDialog):
         self.tls_ca = QLineEdit(str(self._profile.get("tls_ca_path") or ""))
         self.tls_cert = QLineEdit(str(self._profile.get("tls_client_cert_path") or ""))
         self.tls_key = QLineEdit(str(self._profile.get("tls_client_key_path") or ""))
-        self.tls_key_password = QLineEdit()
-        self.tls_key_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.tls_key_password.setPlaceholderText("留空保留已保存口令" if self.zh else "Blank keeps the saved secret")
-        for widget in (self.tls_ca, self.tls_cert, self.tls_key, self.tls_key_password):
+        self.tls_key_password = PasswordField(self.language, self._profile.get("tls_client_key_password_token"))
+        for widget in (self.tls_ca, self.tls_cert, self.tls_key):
             size_line(widget, "path")
         self._tls_browse_buttons: list[QPushButton] = []
         form.addRow("CA 证书" if self.zh else "CA certificate", self._file_row(self.tls_ca))
@@ -178,6 +175,8 @@ class DataCenterTransportDialog(QDialog):
 
     def payload(self) -> dict[str, Any]:
         result: dict[str, Any] = {
+            **dict.fromkeys(_SSH_FIELDS + _TLS_FIELDS, ""),
+            "ssh_port": 22,
             "ssh_enabled": self.ssh_enabled.isChecked(),
             "tls_enabled": self.tls_enabled.isChecked(),
         }
@@ -196,24 +195,16 @@ class DataCenterTransportDialog(QDialog):
                 "ssh_auth_method": auth,
             })
             if auth == "password":
-                result["ssh_password_token"] = _encrypt_secret(self.ssh_password.text()) or (
-                    str(self._profile.get("ssh_password_token") or "")
-                    if self._profile.get("ssh_auth_method") == "password" else ""
-                )
+                result["ssh_password_token"] = _updated_secret(self.ssh_password)
             else:
                 result["ssh_private_key_path"] = self.ssh_key_path.text().strip()
-                result["ssh_key_passphrase_token"] = _encrypt_secret(self.ssh_key_passphrase.text()) or (
-                    str(self._profile.get("ssh_key_passphrase_token") or "")
-                    if self._profile.get("ssh_auth_method") == "private_key" else ""
-                )
+                result["ssh_key_passphrase_token"] = _updated_secret(self.ssh_key_passphrase)
         if self.tls_enabled.isChecked():
             result.update({
                 "tls_ca_path": self.tls_ca.text().strip(),
                 "tls_client_cert_path": self.tls_cert.text().strip(),
                 "tls_client_key_path": self.tls_key.text().strip(),
-                "tls_client_key_password_token": _encrypt_secret(self.tls_key_password.text()) or str(
-                    self._profile.get("tls_client_key_password_token") or ""
-                ),
+                "tls_client_key_password_token": _updated_secret(self.tls_key_password),
             })
         return result
 
@@ -227,7 +218,7 @@ class ConnectionTransportWorker(QThread):
         self,
         action: str,
         profile: Mapping[str, Any],
-        database_secret: str = "",
+        database_secret: str | None = "",
         *,
         manager: Any = None,
         connector: Any = None,
@@ -238,7 +229,7 @@ class ConnectionTransportWorker(QThread):
         super().__init__(parent)
         self.action = str(action)
         self.profile = dict(profile)
-        self.database_secret = str(database_secret or "")
+        self.database_secret = database_secret
         self.manager = manager
         self.connector = connector
         self.challenge_id = str(challenge_id or "")
@@ -289,10 +280,15 @@ class ConnectionTransportWorker(QThread):
                 connect = self.connector or connect_nosql
             else:
                 connect = self.connector or connect_relational
+            secret = self.database_secret
+            if secret is None:
+                from tools.db_connect import _decrypt
+
+                secret = _decrypt(str(profile.get("password") or ""))
             connection = connect(
                 provider,
                 profile,
-                self.database_secret,
+                secret,
                 mode=profile.get("mode"),
                 connect_timeout=8,
                 read_timeout=8,

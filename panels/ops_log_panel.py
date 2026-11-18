@@ -42,6 +42,7 @@ from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show
 from ui.design_system import apply_button, apply_surface, apply_table
 from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
+from ui.password_field import PasswordField
 from ui.motion import play_dialog_enter
 from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
@@ -93,20 +94,6 @@ class _SshTestWorker(QThread):
             self.finished_err.emit(str(exc) or exc.__class__.__name__)
 
 
-class PasswordLineEdit(QLineEdit):
-    """密码框：黑点隐藏；允许 Ctrl+V / 右键粘贴 / 拖放；可切换明文查看。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setEchoMode(QLineEdit.EchoMode.Password)
-        self.setInputMethodHints(
-            Qt.InputMethodHint.ImhHiddenText
-            | Qt.InputMethodHint.ImhNoAutoUppercase
-            | Qt.InputMethodHint.ImhNoPredictiveText
-        )
-        # 允许粘贴与标准右键菜单（含粘贴）
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-        self.setAcceptDrops(True)
 
 
 class _ExportBridge(QObject):
@@ -273,7 +260,6 @@ class ServerEditorDialog(QDialog):
         self.language = language
         self._server = dict(server or {})
         self._categories = [dict(c) for c in (categories or load_categories())]
-        self._password_dirty = False
         zh = language == 'zh'
         self.setObjectName('server-editor-dialog')
         self.setWindowTitle('编辑服务器' if self._server.get('id') else ('新增服务器' if zh else 'Add server'))
@@ -293,38 +279,9 @@ class ServerEditorDialog(QDialog):
         self.port_spin = CompactStepper(1, 65535, int(self._server.get('port') or 22), edit_width=64)
         self.user_edit = QLineEdit(self._server.get('username', ''))
         size_line(self.user_edit, 'std')
-        # 密码：可粘贴 + 可保存（DPAPI/Fernet 加密写入 data/）
-        pwd_row = QHBoxLayout()
-        pwd_row.setContentsMargins(0, 0, 0, 0)
-        pwd_row.setSpacing(8)
-        self.password_edit = PasswordLineEdit()
-        size_line(self.password_edit, 'std')
-        has_saved = bool(self._server.get('password_token'))
-        if has_saved:
-            self.password_edit.setPlaceholderText(
-                '已保存（留空则保持原密码；可粘贴新密码覆盖）'
-                if zh else
-                'Saved (blank keeps current; paste to replace)'
-            )
-        else:
-            self.password_edit.setPlaceholderText(
-                '输入或粘贴密码（Ctrl+V / 右键粘贴）'
-                if zh else
-                'Type or paste password (Ctrl+V)'
-            )
-        self.password_edit.setToolTip(
-            '支持粘贴；点保存后加密存本机 data，下次连接无需再输'
-            if zh else
-            'Paste supported; saved encrypted to local data/'
-        )
-        self.password_edit.textChanged.connect(self._on_password_changed)
-        from ui.field_metrics import wrap_secret_field
-        pwd_wrap_inner, self.show_password_btn = wrap_secret_field(
-            self.password_edit, reveal_text='查看' if zh else 'Show', hide_text='隐藏' if zh else 'Hide'
-        )
-        pwd_row.addWidget(pwd_wrap_inner, 1)
-        pwd_wrap = QWidget()
-        pwd_wrap.setLayout(pwd_row)
+        self.password_field = PasswordField(language, self._server.get('password_token'))
+        self.password_edit = self.password_field.edit
+        pwd_wrap = self.password_field
         # 登录方式：密码 / 密钥（服务器禁用密码登录时必须用密钥）
         self.auth_combo = QComboBox()
         self.auth_combo.addItem('密码' if zh else 'Password', 'password')
@@ -346,12 +303,7 @@ class ServerEditorDialog(QDialog):
         key_row.addWidget(key_browse)
         self.key_wrap = QWidget()
         self.key_wrap.setLayout(key_row)
-        self.key_passphrase_edit = PasswordLineEdit()
-        size_line(self.key_passphrase_edit, 'std')
-        self.key_passphrase_edit.setPlaceholderText(
-            ('已保存口令，留空则沿用' if self._server.get('key_passphrase_token') else '私钥无口令可留空')
-            if zh else 'Optional passphrase'
-        )
+        self.key_passphrase_field = PasswordField(language, self._server.get('key_passphrase_token'))
         self.save_password_check = QCheckBox('保存密码到本机' if zh else 'Save password locally')
         self.save_password_check.setChecked(True)
         self.save_password_check.setToolTip(
@@ -419,10 +371,10 @@ class ServerEditorDialog(QDialog):
         form.addRow('密码' if zh else 'Password', pwd_wrap)
         form.addRow('', self.save_password_check)
         form.addRow('私钥文件' if zh else 'Private key', self.key_wrap)
-        form.addRow('私钥口令' if zh else 'Passphrase', self.key_passphrase_edit)
+        form.addRow('私钥口令' if zh else 'Passphrase', self.key_passphrase_field)
         self._auth_form = form
         self._auth_rows = {'password': (pwd_wrap, self.save_password_check),
-                           'key': (self.key_wrap, self.key_passphrase_edit)}
+                           'key': (self.key_wrap, self.key_passphrase_field)}
         self.auth_combo.currentIndexChanged.connect(self._sync_auth_rows)
         self._sync_auth_rows()
         form.addRow('服务与日志' if zh else 'Services / logs', svc_wrap)
@@ -546,9 +498,6 @@ class ServerEditorDialog(QDialog):
     def categories(self) -> list[dict]:
         return list(self._categories)
 
-    def _on_password_changed(self, *_args):
-        self._password_dirty = True
-
     def _uses_key(self) -> bool:
         return self.auth_combo.currentData() == 'key'
 
@@ -569,13 +518,10 @@ class ServerEditorDialog(QDialog):
 
     def _password_for_use(self) -> str:
         from tools.ops_ssh import _clean_password
-        typed = _clean_password(self.password_edit.text())
-        if typed:
-            return typed
-        # 未改动时沿用已保存密文
-        if self._server.get('password_token') and not self._password_dirty:
-            return _clean_password(decrypt_secret(self._server.get('password_token')))
-        return ''
+        text = self.password_edit.text()
+        if not text and self.password_field.action() == 'keep':
+            text = decrypt_secret(self.password_field.stored)
+        return _clean_password(text)
 
     def _test(self):
         zh = self.language == 'zh'
@@ -643,44 +589,26 @@ class ServerEditorDialog(QDialog):
             'auth_method': 'key' if self._uses_key() else 'password',
             'key_path': self.key_path_edit.text().strip(),
         })
-        passphrase = self.key_passphrase_edit.text()
-        if passphrase:
-            data['key_passphrase'] = passphrase
-            data.pop('key_passphrase_token', None)
-        else:
-            data['key_passphrase_token'] = str(self._server.get('key_passphrase_token') or '')
-        from tools.ops_ssh import _clean_password
-        typed = _clean_password(self.password_edit.text())
-        save_pwd = bool(self.save_password_check.isChecked()) if hasattr(self, 'save_password_check') else True
-        if for_persist:
-            if typed and save_pwd:
-                # 明文交给 normalize → encrypt_secret 落盘
-                data['password'] = typed
-                data.pop('password_token', None)
-            elif typed and not save_pwd:
-                # 本次连接可用，但不写入 token
-                data['password'] = typed
-                data['password_token'] = ''
+        for field, name in (
+            (self.key_passphrase_field, 'key_passphrase'),
+            (self.password_field, 'password'),
+        ):
+            action = field.action()
+            token_key = name + '_token'
+            data.pop(name, None)
+            if action == 'replace':
+                value = self._password_for_use() if name == 'password' else field.edit.text()
+                if value:
+                    data[name] = value
+                    data.pop(token_key, None)
+                else:
+                    data[token_key] = ''
+            elif action == 'clear':
+                data[token_key] = ''
+        if for_persist and not self.save_password_check.isChecked() and not self._uses_key():
+            data['password_token'] = ''
+            if data.get('password'):
                 data['_skip_persist_password'] = True
-            elif self._server.get('password_token') and not self._password_dirty:
-                # 保留原加密 token
-                data['password_token'] = self._server.get('password_token')
-                data.pop('password', None)
-            elif self._server.get('password_token') and self._password_dirty and not typed:
-                # 用户清空密码框：删除已存密码
-                data['password_token'] = ''
-                data.pop('password', None)
-            else:
-                data.pop('password', None)
-        else:
-            # 测试连接：只带可用密码，不强行改存储语义
-            if typed:
-                data['password'] = typed
-            elif self._server.get('password_token') and not self._password_dirty:
-                data['password_token'] = self._server.get('password_token')
-            # 若框里有「显示后改过」的空串，仍尽量用已存 token
-            elif self._server.get('password_token') and not typed:
-                data['password_token'] = self._server.get('password_token')
         return data
 
     def _accept(self):
@@ -688,10 +616,10 @@ class ServerEditorDialog(QDialog):
         if not self.host_edit.text().strip() or not self.user_edit.text().strip():
             show_warning(self, 'PengTools', '请填写主机和用户名' if zh else 'Host and username required')
             return
-        if not self._uses_key() and not self._password_for_use():
+        if not self._uses_key() and not self._server.get('id') and not self._password_for_use():
             show_warning(
                 self, 'PengTools',
-                '请输入或粘贴密码（已保存过的可留空）' if zh else 'Enter/paste password (or leave blank if saved)',
+                '请输入或粘贴密码' if zh else 'Enter or paste a password',
             )
             return
         key_path = os.path.expandvars(os.path.expanduser(self.key_path_edit.text().strip()))

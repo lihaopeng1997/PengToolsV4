@@ -974,7 +974,7 @@ class RedisWorkbenchPanel(QWidget):
             return
         item, password = dialog.payload()
         try:
-            saved = upsert_connection(item, password if password else None)
+            saved = upsert_connection(item, password, password_action=dialog.password_action())
         except Exception:
             zh = self.language == 'zh'
             show_error(

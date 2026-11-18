@@ -237,7 +237,7 @@ class WorkspaceCatalog:
         item = self._profiles.get(str(connection_id or ""))
         return dict(item) if item is not None else None
 
-    def save(self, item: dict, password: str | None = None) -> dict:
+    def save(self, item: dict, password: str | None = None, *, password_action: str | None = None) -> dict:
         if self.last_error:
             return {}
         data = dict(item or {})
@@ -247,10 +247,12 @@ class WorkspaceCatalog:
             merged = dict(existing)
             merged.update(data)
             data = merged
+        options = {}
+        if password_action is not None:
+            options["password_action"] = password_action
         if self._uses_default_saver and self._source_revision is not _SOURCE_REVISION_UNKNOWN:
-            saved = self._saver(data, password, expected_revision=self._source_revision)
-        else:
-            saved = self._saver(data, password)
+            options["expected_revision"] = self._source_revision
+        saved = self._saver(data, password, **options)
         result = dict(saved or data)
         self.refresh()
         return result

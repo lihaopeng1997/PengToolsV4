@@ -83,7 +83,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         self._transport_test_pending_close = False
         self._transport_test_context = None
 
-    def payload(self) -> tuple[dict, str]:
+    def payload(self) -> tuple[dict, str | None]:
         item, password = super().payload()
         item["group_path"] = self.group_path.text().strip()
         item["environment"] = self.environment.text().strip()
@@ -1396,7 +1396,7 @@ class DataCenterPanel(QWidget):
             return
         item, password = dialog.payload()
         try:
-            saved = self.catalog.save(item, password if password else None)
+            saved = self.catalog.save(item, password, password_action=dialog.password_action())
         except Exception:
             self._show_catalog_operation_error("save")
             return
@@ -1435,7 +1435,7 @@ class DataCenterPanel(QWidget):
             return
         item, password = dialog.payload()
         try:
-            saved = self.catalog.save(item, password if password else None)
+            saved = self.catalog.save(item, password, password_action=dialog.password_action())
         except Exception:
             self._show_catalog_operation_error("save")
             return

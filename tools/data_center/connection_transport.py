@@ -224,7 +224,7 @@ class DataCenterConnectionTransport:
             if not ssh_host or "://" in ssh_host or not ssh_username:
                 raise ConnectionTransportError("TRANSPORT_PROFILE_INVALID")
             if auth_method == "password":
-                if not ssh_password_token or not _encrypted_token(ssh_password_token) or private_key_path or key_passphrase_token:
+                if not _encrypted_token(ssh_password_token) or private_key_path or key_passphrase_token:
                     raise ConnectionTransportError("TRANSPORT_PROFILE_INVALID")
             elif auth_method == "private_key":
                 if not private_key_path or ssh_password_token or not _encrypted_token(key_passphrase_token):

@@ -395,6 +395,8 @@ class DataCenterSshTunnelManager:
     def _authenticate(self, transport: Any, spec: DataCenterConnectionTransport) -> None:
         try:
             if spec.ssh_auth_method == "password":
+                if not spec.ssh_password_token:
+                    raise SshTunnelError("SSH_SECRET_UNAVAILABLE")
                 secret = self.secret_resolver(spec.ssh_password_token)
                 transport.auth_password(spec.ssh_username, secret)
             else:

@@ -38,7 +38,8 @@ from tools.db_contracts import DEFAULT_PORTS, DIALECTS, normalize_oceanbase_mode
 from ui.confirm_dialog import show_success, show_warning
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry, size_dialog_button
-from ui.field_metrics import size_compact_button, size_enum_combo, size_line, wrap_secret_field
+from ui.field_metrics import size_compact_button, size_enum_combo, size_line
+from ui.password_field import PasswordField
 
 
 class ConnectionDialog(QDialog):
@@ -46,7 +47,7 @@ class ConnectionDialog(QDialog):
 
     Args:
         language: 界面语言，支持 ``zh`` 或 ``en``。
-        item: 已有连接配置；密码不在该控件中回显。
+        item: 已有连接配置；已保存密码默认遮盖。
         parent: Qt 父控件。
         locked_dialect: 非空时锁定数据库类型，供特定工作台使用。
     """
@@ -172,12 +173,8 @@ class ConnectionDialog(QDialog):
         self.user_label = QLabel("用户" if zh else "User")
         self.user_label.setMinimumWidth(80)
         self.user_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.password = QLineEdit()
-        self.password_row, self.password_reveal = wrap_secret_field(
-            self.password,
-            reveal_text="查看" if zh else "Show",
-            hide_text="隐藏" if zh else "Hide",
-        )
+        self.password_row = PasswordField(language, self._item.get("password"))
+        self.password = self.password_row.edit
         self.password_label = QLabel("密码" if zh else "Password")
         self.password_label.setMinimumWidth(80)
         self.password_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -654,7 +651,7 @@ class ConnectionDialog(QDialog):
         if not self.port.text().strip() or self.port.text().strip() in defaults:
             self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
 
-    def _draft_item(self) -> tuple[dict, str]:
+    def _draft_item(self) -> tuple[dict, str | None]:
         item = dict(self._item)
         item["name"] = self.name.text().strip()
         item["dialect"] = self._locked_dialect or self.dialect.currentData() or "oracle"
@@ -701,10 +698,13 @@ class ConnectionDialog(QDialog):
                 item["seed_nodes"] = [{"host": item["host"] or "127.0.0.1", "port": int(item["port"] or 27017)}]
                 item.pop("replica_set_name", None)
                 item.pop("replicaSet", None)
-        return item, self.password.text()
+        return item, None if self.password_action() == "keep" else self.password.text()
 
-    def payload(self) -> tuple[dict, str]:
-        """返回连接配置和当前输入的明文密码。"""
+    def password_action(self) -> str:
+        return self.password_row.action()
+
+    def payload(self) -> tuple[dict, str | None]:
+        """返回连接配置和可选的密码覆盖值。"""
         return self._draft_item()
 
     def _on_test_connection(self) -> None:

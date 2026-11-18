@@ -14,8 +14,9 @@ from PyQt6.QtWidgets import (
 from config import DEFAULT_SETTINGS, normalize_settings, save_settings
 from ui.field_metrics import (
     CompactStepper, apply_form, size_combo, size_compact_button, size_enum_combo,
-    size_field_height, size_line, size_pick_combo, wrap_path_field, wrap_secret_field,
+    size_field_height, size_line, size_pick_combo, wrap_path_field,
 )
+from ui.password_field import PasswordField
 from ui.aurora_progress import AuroraProgress
 from ui.theme_manager import (
     THEME_IDS, THEME_META, preview_swatches, resolve_theme_id, theme_mode,
@@ -207,7 +208,7 @@ class SettingsPanel(QWidget):
         self._save_button_states = None
         self._pending_settings_save_values = None
         self._pending_reminder_save = None
-        self._pending_ai_cfg = None
+        self._pending_ai_save = None
         self._setup_ui()
         self.load_values(settings)
         self.set_language(language)
@@ -700,8 +701,7 @@ class SettingsPanel(QWidget):
         size_line(self.ai_model, 'std')
         self._ai_available_models = []
         self.ai_model_label = QLabel()
-        self.ai_token = QLineEdit()
-        self.ai_token_row, self.ai_token_reveal = wrap_secret_field(self.ai_token)
+        self.ai_token_row = PasswordField(self.language)
         self.ai_token_label = QLabel()
         self.ai_app_tag = QLineEdit()
         self.ai_app_tag.setPlaceholderText('一般不用填')
@@ -790,13 +790,11 @@ class SettingsPanel(QWidget):
         self._ai_probe_worker = None
         self._ai_editing_id = ''
         self._ai_loading = False
-        self._ai_token_was_edited = False
         self._ai_original_provider = 'intranet'
         self._ai_display_provider = 'intranet'
         self._ai_probe_persist_enabled = None
         self.ai_provider.currentIndexChanged.connect(self._on_ai_provider_changed)
         self.ai_protocol.currentIndexChanged.connect(lambda _i: self._refresh_ai_provider_surface())
-        self.ai_token.textEdited.connect(self._on_ai_token_edited)
 
         self._layout_sections(is_compact=False)
 
@@ -1000,8 +998,8 @@ class SettingsPanel(QWidget):
         self.section_picker.setVisible(is_compact)
 
     def _fit_ai_provider_controls(self):
-        """Fit provider and API-key action text within this responsive form row."""
-        if not hasattr(self, 'ai_provider') or not hasattr(self, 'ai_token_reveal'):
+        """Fit the provider picker within this responsive form row."""
+        if not hasattr(self, 'ai_provider'):
             return
 
         provider = self.ai_provider
@@ -1014,24 +1012,6 @@ class SettingsPanel(QWidget):
         if provider_available > 0:
             provider_width = min(provider_width, provider_available)
         provider.setFixedWidth(max(1, provider_width))
-
-        reveal = self.ai_token_reveal
-        reveal.ensurePolished()
-        current_text = reveal.text()
-        candidates = ('查看', '隐藏') if self.language == 'zh' else ('Show', 'Hide')
-        reveal_width = reveal.width()
-        for text in candidates:
-            reveal.setText(text)
-            reveal_width = max(reveal_width, int(reveal.sizeHint().width()))
-        reveal.setText(current_text)
-
-        reveal_host = reveal.parentWidget()
-        reveal_available = reveal_host.contentsRect().width() if reveal_host else 0
-        if reveal_available > 0:
-            spacing = reveal_host.layout().spacing() if reveal_host.layout() else 0
-            edit_minimum = self.ai_token.minimumWidth()
-            reveal_width = min(reveal_width, max(1, reveal_available - edit_minimum - spacing))
-        reveal.setFixedWidth(max(28, reveal_width))
 
     def _schedule_ai_provider_control_fit(self):
         if hasattr(self, 'ai_provider'):
@@ -1427,7 +1407,6 @@ class SettingsPanel(QWidget):
             DEFAULT_AGENT_MAX_REASONING_BYTES,
             DEFAULT_AGENT_MAX_TEXT_BYTES,
             DEFAULT_AGENT_MAX_TOOL_ARGUMENT_BYTES,
-            decrypt_token,
             normalize_agent_capability,
             normalize_agent_reasoning_fields,
             normalize_ai_local,
@@ -1502,8 +1481,7 @@ class SettingsPanel(QWidget):
         can_show_token = provider in ('intranet', 'deepseek') and (
             provider != 'deepseek' or type(cfg.get('ssl_verify', True)) is bool and cfg.get('ssl_verify', True) is True
         )
-        self.ai_token.setText(decrypt_token(cfg.get('token') or '') if can_show_token else '')
-        self._ai_token_was_edited = False
+        self.ai_token_row.load(cfg.get('token'), allow_reveal=can_show_token)
         self.ai_app_tag.setText(str(cfg.get('app_tag') or ''))
         self.ai_timeout.setValue(int(cfg.get('timeout_seconds') or 120))
         ssl_value = cfg.get('ssl_verify', True)
@@ -1530,9 +1508,6 @@ class SettingsPanel(QWidget):
                 'Off by default. Enter the API key locally and review the endpoint before enabling.'
             )
 
-    def _on_ai_token_edited(self, _text=None):
-        if not self._ai_loading:
-            self._ai_token_was_edited = True
 
     def _on_ai_provider_changed(self, _index=None):
         if self._ai_loading:
@@ -1544,8 +1519,7 @@ class SettingsPanel(QWidget):
         previous_provider = self._ai_display_provider
         # A provider change starts a credential-isolated draft. The backend
         # repeats this rule so non-UI callers cannot copy an old token across.
-        self.ai_token.clear()
-        self._ai_token_was_edited = False
+        self.ai_token_row.load()
         self.ai_enabled.setChecked(False)
         self.ai_agent_capability.setCurrentIndex(max(0, self.ai_agent_capability.findData('unknown')))
         self.ai_app_tag.clear()
@@ -1622,7 +1596,12 @@ class SettingsPanel(QWidget):
             normalize_agent_reasoning_fields,
             normalize_model_item,
         )
-        token_plain = self.ai_token.text()
+        token_action = self._ai_token_action()
+        token = ''
+        if token_action == 'replace':
+            token = encrypt_token(self.ai_token_row.edit.text())
+        elif token_action == 'preserve':
+            token = self.ai_token_row.stored
         payload = {
             'id': self._ai_editing_id,
             'name': self.ai_name.text().strip() or '未命名配置',
@@ -1645,7 +1624,7 @@ class SettingsPanel(QWidget):
             'timeout_seconds': self.ai_timeout.value(),
             'ssl_verify': self.ai_ssl_verify.isChecked(),
             'supports_vision': self.ai_supports_vision.isChecked(),
-            'token': encrypt_token(token_plain) if token_plain else '',
+            'token': token,
             'app_tag': self.ai_app_tag.text().strip(),
             'project_id': self.ai_project.currentData() or 'prpcar',
         }
@@ -1729,11 +1708,10 @@ class SettingsPanel(QWidget):
 
     def _ai_token_action(self, *, new_profile: bool = False) -> str:
         """Return explicit credential intent; never infer replacement from copied text."""
-        if new_profile:
-            return 'replace' if self._ai_token_was_edited and self.ai_token.text() else 'clear'
-        if self._ai_token_was_edited:
-            return 'replace' if self.ai_token.text() else 'clear'
-        if self.ai_provider.currentData() != self._ai_original_provider:
+        action = self.ai_token_row.action()
+        if action != 'keep':
+            return action
+        if new_profile or self.ai_provider.currentData() != self._ai_original_provider:
             return 'clear'
         return 'preserve'
 
@@ -1807,7 +1785,7 @@ class SettingsPanel(QWidget):
         self._ai_save_in_progress = True
         self._disable_save_actions()
         self._save_feedback_source = 'ai'
-        self._pending_ai_cfg = deepcopy(pending_cfg)
+        self._pending_ai_save = (deepcopy(pending_cfg), self._ai_token_action())
         self._save_loading.start_busy(
             '正在保存内网模型…' if zh else 'Saving intranet model…',
             immediate=True,
@@ -1828,7 +1806,7 @@ class SettingsPanel(QWidget):
                 upsert_model_item,
                 validate_profile_base_url,
             )
-            cfg = dict(self._pending_ai_cfg or self._ai_cfg_from_ui())
+            cfg, token_action = self._pending_ai_save
             provider = provider_for_config(cfg)
             if cfg.get('enabled') or cfg.get('base_url'):
                 cfg['base_url'] = canonical_base_url(cfg.get('base_url') or '', provider=provider)
@@ -1836,10 +1814,9 @@ class SettingsPanel(QWidget):
                 # A saved-but-disabled DeepSeek profile still gets the exact
                 # official endpoint so the user can see what will be probed.
                 cfg['base_url'] = validate_profile_base_url('https://api.deepseek.com', provider)
-            saved = upsert_model_item(cfg, token_action=self._ai_token_action())
+            saved = upsert_model_item(cfg, token_action=token_action)
             self._ai_editing_id = saved.get('id')
             self._ai_original_provider = saved.get('provider', 'intranet')
-            self._ai_token_was_edited = False
             if saved.get('base_url'):
                 self.ai_base_url.setText(saved['base_url'])
             self._refresh_ai_list()
@@ -1847,7 +1824,7 @@ class SettingsPanel(QWidget):
             self._ai_save_in_progress = False
             self._restore_save_actions()
             self._save_feedback_source = None
-            self._pending_ai_cfg = None
+            self._pending_ai_save = None
             self._save_loading.finish('模型已保存' if zh else 'Model saved')
             show_success(self, '模型服务' if zh else 'Model service', '已写入 data/ai_local.json' if zh else 'Saved to data/ai_local.json')
         except Exception as exc:
@@ -1855,7 +1832,7 @@ class SettingsPanel(QWidget):
             self._ai_save_in_progress = False
             self._restore_save_actions()
             self._save_feedback_source = None
-            self._pending_ai_cfg = None
+            self._pending_ai_save = None
             self._save_loading.fail(str(exc))
             show_error(self, '模型服务' if zh else 'Model service', str(exc))
 
@@ -1967,7 +1944,6 @@ class SettingsPanel(QWidget):
                 saved = upsert_model_item(cfg, token_action=self._ai_token_action())
                 self._ai_editing_id = saved.get('id')
                 self._ai_original_provider = saved.get('provider', 'intranet')
-                self._ai_token_was_edited = False
                 self._refresh_ai_list()
             except Exception as exc:
                 self.ai_status.setText(str(exc))
@@ -2342,10 +2318,7 @@ class SettingsPanel(QWidget):
             if zh else
             'Shared by all Oracle connections. Thick needs 64-bit Instant Client 19 oci.dll, not the 11g/32-bit client used by PL/SQL Developer. Restart after changes.'
         )
-        if self.ai_token_reveal.isChecked():
-            self.ai_token_reveal.setText('隐藏' if zh else 'Hide')
-        else:
-            self.ai_token_reveal.setText('查看' if zh else 'Show')
+        self.ai_token_row.set_language(self.language)
         self._refresh_oracle_status()
         self.restore_btn.setText('恢复默认设置' if zh else 'Restore defaults')
         self._refresh_general_save_scope_text()
