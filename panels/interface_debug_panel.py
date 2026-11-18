@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,
-    QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
+    QSplitter, QTableWidget, QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QVBoxLayout,
     QWidget,
 )
 
@@ -317,6 +317,15 @@ class InterfaceDebugPanel(QWidget):
         )
         root.addWidget(header)
 
+        self.workspace_tabs = QTabWidget()
+        self.workspace_tabs.setObjectName('module-tabs')
+        root.addWidget(self.workspace_tabs, 1)
+        session_page = QWidget()
+        session_layout = QVBoxLayout(session_page)
+        session_layout.setContentsMargins(0, 8, 0, 0)
+        session_layout.setSpacing(SPACING_PAGE)
+        self.workspace_tabs.addTab(session_page, '会话')
+
         # L2：测试监听 / 显示敏感 / 更多 + 脱敏提示
         page_toolbar, page_tool_l = make_page_toolbar(divided=True)
         self.page_toolbar = page_toolbar
@@ -337,7 +346,7 @@ class InterfaceDebugPanel(QWidget):
         self.toolbar_hint.setObjectName('field-hint')
         self.toolbar_hint.setWordWrap(True)
         page_tool_l.addWidget(self.toolbar_hint, 1)
-        root.addWidget(page_toolbar)
+        session_layout.addWidget(page_toolbar)
 
         # 连接控制区兼容壳（隐藏）
         conn = QFrame()
@@ -668,8 +677,8 @@ class InterfaceDebugPanel(QWidget):
         rs.addWidget(self.resp_detail, 1)
         self.detail_tabs.addTab(self.resp_page, '响应')
 
-        # Tab 3 请求测试（Postman 风格 · 按已保存环境发送）
         self.draft_page = QWidget()
+        control_height = 32
         self.draft_page.setAcceptDrops(True)
         self.draft_page.installEventFilter(self)
         draft_outer = QVBoxLayout(self.draft_page)
@@ -683,9 +692,6 @@ class InterfaceDebugPanel(QWidget):
         dl = QVBoxLayout(draft_host)
         dl.setContentsMargins(0, 8, 0, 0)
         dl.setSpacing(8)
-        self.draft_badge = QLabel()
-        self.draft_badge.setObjectName('offline-pill')
-        dl.addWidget(self.draft_badge)
 
         self.include_auth_cb = QCheckBox()
         self.include_auth_cb.hide()
@@ -707,7 +713,6 @@ class InterfaceDebugPanel(QWidget):
         self.request_verify_context = QFrame()
         self.request_verify_context.setObjectName('request-verify-context')
         ctx_l = QVBoxLayout(self.request_verify_context)
-        # V1.2 §8.3：单行控件高 36–40；两行紧凑上下文内边距统一
         ctx_l.setContentsMargins(12, 10, 12, 10)
         ctx_l.setSpacing(8)
 
@@ -733,10 +738,6 @@ class InterfaceDebugPanel(QWidget):
         self.rt_method.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
         size_enum_combo(self.rt_method)
         row1.addWidget(self.rt_method)
-        self.rt_environment_config_btn = QPushButton()
-        apply_button(self.rt_environment_config_btn, 'ghost', compact=True)
-        self.rt_environment_config_btn.clicked.connect(self._show_environment_config_dialog)
-        row1.addWidget(self.rt_environment_config_btn)
         ctx_l.addLayout(row1)
 
         row2 = QHBoxLayout()
@@ -747,6 +748,7 @@ class InterfaceDebugPanel(QWidget):
         row2.addWidget(self.rt_url, 1)
         self.rt_ssl_verify = QCheckBox()
         self.rt_ssl_verify.setChecked(True)
+        self.rt_ssl_verify.setStyleSheet('min-height: 32px;')
         self.rt_ssl_verify.setToolTip(
             '关闭仅用于内网自签证书；默认校验证书以满足安测要求'
         )
@@ -757,26 +759,23 @@ class InterfaceDebugPanel(QWidget):
         self.rt_send_btn.clicked.connect(self._rt_send)
         row2.addWidget(self.rt_send_btn)
         ctx_l.addLayout(row2)
-        for control in (
-            self.local_target_combo, self.rt_base_edit, self.rt_method,
-            self.rt_url, self.rt_send_btn,
-        ):
-            control.setMinimumHeight(36)
         dl.addWidget(self.request_verify_context)
 
-        # 次要工具：填入/过滤（不挤进两行上下文）
         tools_row = QHBoxLayout()
         tools_row.setSpacing(8)
+        self.rt_library_toggle = QPushButton()
+        self.rt_library_toggle.setCheckable(True)
+        self.rt_library_toggle.setChecked(True)
+        apply_button(self.rt_library_toggle, 'secondary', compact=True)
+        tools_row.addWidget(self.rt_library_toggle)
         self.rt_fill_btn = QPushButton()
         apply_button(self.rt_fill_btn, 'secondary', compact=True)
         self.rt_fill_btn.clicked.connect(self._rt_fill_from_selection)
         tools_row.addWidget(self.rt_fill_btn)
-        self.rt_filter_config_btn = QPushButton()
-        apply_button(self.rt_filter_config_btn, 'ghost', compact=True)
-        self.rt_filter_config_btn.clicked.connect(self._show_url_filter_config_dialog)
-        tools_row.addWidget(self.rt_filter_config_btn)
         tools_row.addStretch(1)
+        self.rt_more_btn, self._rt_actions_menu = self._make_overflow_button(tools_row)
         dl.addLayout(tools_row)
+        self.rt_more_btn.show()
 
         # 旧控件保留隐藏兼容，避免破坏既有管理槽函数。
         self.add_target_btn = QPushButton(self)
@@ -795,7 +794,7 @@ class InterfaceDebugPanel(QWidget):
         # 分类 + 保存到接口库
         cat_row = QHBoxLayout()
         cat_row.setSpacing(6)
-        self.rt_cat_label = QLabel('分类')
+        self.rt_cat_label = QLabel('保存分类')
         cat_row.addWidget(self.rt_cat_label)
         self.rt_category_combo = QComboBox()
         size_pick_combo(self.rt_category_combo, 160)
@@ -804,48 +803,37 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.rt_save_api_btn, 'secondary', compact=True, icon='save', icon_size=16)
         self.rt_save_api_btn.clicked.connect(self._rt_save_api)
         cat_row.addWidget(self.rt_save_api_btn)
-        self.rt_manage_cat_btn = QPushButton()
-        apply_button(self.rt_manage_cat_btn, 'ghost', compact=True, icon='edit', icon_size=16)
-        self.rt_manage_cat_btn.clicked.connect(self._rt_manage_categories)
-        cat_row.addWidget(self.rt_manage_cat_btn)
         cat_row.addStretch(1)
-        self.rt_form_more_btn, self._rt_form_actions_menu = self._make_overflow_button(cat_row)
         dl.addLayout(cat_row)
 
         # 左：接口库/历史 · 右：表单与响应
         self.rt_split = QSplitter(Qt.Orientation.Horizontal)
         self.rt_split.setChildrenCollapsible(False)
         lib_panel = QWidget()
+        self.rt_library_toggle.toggled.connect(lib_panel.setVisible)
         lib_panel.setMinimumWidth(240)
         lib_panel.setMaximumWidth(480)
         lib_l = QVBoxLayout(lib_panel)
         lib_l.setContentsMargins(0, 0, 4, 0)
         lib_l.setSpacing(6)
-        self.rt_lib_mode_label = QLabel('列表')
-        self.rt_lib_mode_label.hide()
-        self.rt_lib_mode = QComboBox()
-        self.rt_lib_mode.addItem('已保存', 'library')
-        self.rt_lib_mode.addItem('发送记录', 'history')
-        self.rt_lib_mode.setToolTip('已保存：点「保存接口」收藏的请求。发送记录：点「发送」后自动留下的记录。')
-        size_enum_combo(self.rt_lib_mode)
-        self.rt_lib_mode.setMaximumWidth(16777215)
-        self.rt_lib_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.rt_lib_mode.currentIndexChanged.connect(self._rt_lib_on_mode_changed)
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(6)
-        mode_row.addWidget(self.rt_lib_mode, 1)
+        self.rt_lib_mode = QTabBar()
+        self.rt_lib_mode.setObjectName('module-tabs')
+        self.rt_lib_mode.setTabData(self.rt_lib_mode.addTab('已保存接口'), 'library')
+        self.rt_lib_mode.setTabData(self.rt_lib_mode.addTab('发送记录'), 'history')
+        self.rt_lib_mode.currentChanged.connect(self._rt_lib_on_mode_changed)
+        lib_l.addWidget(self.rt_lib_mode)
+        lib_filters = QHBoxLayout()
+        lib_filters.setSpacing(6)
         self.rt_history_cleanup_btn = QPushButton()
         apply_button(self.rt_history_cleanup_btn, 'ghost', compact=True, icon='delete', icon_size=16)
         self.rt_history_cleanup_btn.clicked.connect(self._show_history_cleanup_dialog)
         self.rt_history_cleanup_btn.hide()
-        mode_row.addWidget(self.rt_history_cleanup_btn)
-        lib_l.addLayout(mode_row)
-        self.rt_lib_cat_label = QLabel('分类')
-        self.rt_lib_cat_label.hide()
         self.rt_lib_cat_filter = QComboBox()
         size_combo(self.rt_lib_cat_filter, fill=True)
         self.rt_lib_cat_filter.currentIndexChanged.connect(self._rt_lib_refresh_list)
-        lib_l.addWidget(self.rt_lib_cat_filter)
+        lib_filters.addWidget(self.rt_lib_cat_filter, 1)
+        lib_filters.addWidget(self.rt_history_cleanup_btn)
+        lib_l.addLayout(lib_filters)
         self.rt_lib_search = QLineEdit()
         self.rt_lib_search.setPlaceholderText('搜索名称 / URL')
         self.rt_lib_search.setClearButtonEnabled(True)
@@ -893,45 +881,25 @@ class InterfaceDebugPanel(QWidget):
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(8)
 
-        req_bar = QHBoxLayout()
-        req_bar.setSpacing(6)
-        self.rt_req_copy_btn = QPushButton()
-        apply_button(self.rt_req_copy_btn, 'ghost', compact=True, icon='copy', icon_size=16)
-        self.rt_req_copy_btn.clicked.connect(self._rt_copy_request_body)
-        req_bar.addWidget(self.rt_req_copy_btn)
-        self.rt_req_format_btn = QPushButton()
-        apply_button(self.rt_req_format_btn, 'secondary', compact=True, icon='json', icon_size=16)
-        self.rt_req_format_btn.clicked.connect(self._rt_send_request_to_format)
-        req_bar.addWidget(self.rt_req_format_btn)
-        req_bar.addStretch(1)
-        self.export_detail_btn = QPushButton()
-        apply_button(self.export_detail_btn, 'secondary', compact=True, icon='export', icon_size=16)
-        self.export_detail_btn.clicked.connect(self._export_session_detail)
-        req_bar.addWidget(self.export_detail_btn)
-        self.rt_import_btn = QPushButton()
-        apply_button(self.rt_import_btn, 'secondary', compact=True, icon='import', icon_size=16)
-        self.rt_import_btn.clicked.connect(self._rt_import_file)
-        req_bar.addWidget(self.rt_import_btn)
-        self.rt_io_more_btn, self._rt_io_actions_menu = self._make_overflow_button(req_bar)
-        editor_layout.addLayout(req_bar)
+        self.rt_req_label = QLabel('请求')
+        self.rt_req_label.setObjectName('field-caption')
+        editor_layout.addWidget(self.rt_req_label)
 
         self.rt_tabs = QTabWidget()
         self.rt_tabs.setObjectName('module-tabs')
         self.rt_tabs.setDocumentMode(False)
-        self.rt_headers = KeyValueEditor(mode='header')
+        self.rt_headers = KeyValueEditor(mode='header', control_height=control_height)
         self.rt_headers.setPlainText('Content-Type: application/json')
         self.rt_tabs.addTab(self.rt_headers, 'Headers')
-        self.rt_params = KeyValueEditor(mode='query')
+        self.rt_params = KeyValueEditor(mode='query', control_height=control_height)
         self.rt_tabs.addTab(self.rt_params, 'Params')
         self.rt_body = QPlainTextEdit()
         self.rt_body.setObjectName('rt-json-body')
         self.rt_body.setPlaceholderText('{\n  "key": "value"\n}')
         self.rt_body.setFont(mono)
         self.rt_body.setPlainText('{\n  \n}')
-        self.rt_body.setMinimumHeight(240)
         self.rt_tabs.addTab(self.rt_body, 'Body')
         self.rt_tabs.setCurrentWidget(self.rt_body)
-        self.rt_tabs.setMinimumHeight(280)
         editor_layout.addWidget(self.rt_tabs, 1)
         self.rt_editor_response_splitter.addWidget(editor_panel)
 
@@ -947,21 +915,12 @@ class InterfaceDebugPanel(QWidget):
         self.rt_resp_meta.setObjectName('field-hint')
         self.rt_resp_meta.setWordWrap(True)
         resp_head.addWidget(self.rt_resp_meta, 1)
-        self.rt_resp_copy_btn = QPushButton()
-        apply_button(self.rt_resp_copy_btn, 'ghost', compact=True, icon='copy', icon_size=16)
-        self.rt_resp_copy_btn.clicked.connect(self._rt_copy_response_body)
-        resp_head.addWidget(self.rt_resp_copy_btn)
-        self.rt_resp_format_btn = QPushButton()
-        apply_button(self.rt_resp_format_btn, 'secondary', compact=True, icon='json', icon_size=16)
-        self.rt_resp_format_btn.clicked.connect(self._rt_send_response_to_format)
-        resp_head.addWidget(self.rt_resp_format_btn)
         response_layout.addLayout(resp_head)
         # 响应区：摘要 + 完整 Body（不截断）
         self.draft_preview = QPlainTextEdit()
         self.draft_preview.setReadOnly(True)
         self.draft_preview.setObjectName('iface-draft-preview')
         self.draft_preview.setFont(mono)
-        self.draft_preview.setMinimumHeight(220)
         self.draft_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.draft_preview.setPlaceholderText(
             '发送后此处显示完整响应 Body（不截断）；左侧可收藏接口与查看历史'
@@ -970,7 +929,14 @@ class InterfaceDebugPanel(QWidget):
             self.draft_preview.document().setMaximumBlockCount(0)
         except Exception:
             pass
-        response_layout.addWidget(self.draft_preview, 1)
+        self.rt_response_tabs = QTabWidget()
+        self.rt_response_tabs.setObjectName('module-tabs')
+        self.rt_response_headers = QPlainTextEdit()
+        self.rt_response_headers.setReadOnly(True)
+        self.rt_response_headers.setFont(mono)
+        self.rt_response_tabs.addTab(self.draft_preview, 'Body')
+        self.rt_response_tabs.addTab(self.rt_response_headers, 'Headers')
+        response_layout.addWidget(self.rt_response_tabs, 1)
         self.rt_editor_response_splitter.addWidget(response_panel)
         self.rt_editor_response_splitter.setStretchFactor(0, 3)
         self.rt_editor_response_splitter.setStretchFactor(1, 2)
@@ -981,7 +947,7 @@ class InterfaceDebugPanel(QWidget):
             saved=request_test_sizes,
             page_id='interface-debug',
             tab_id='request-response',
-            min_sizes=[240, 200],
+            min_sizes=[140, 120],
             accessible_name='接口排查请求编辑/响应分隔',
             on_changed=lambda *_: self._save_request_test_splitter_sizes(),
         )
@@ -1000,14 +966,20 @@ class InterfaceDebugPanel(QWidget):
         self._rt_send_started_at = 0.0
         self._rt_lib_reload(refresh_ui=True)
         self._rt_sync_ssl_checkbox_from_settings()
-        self.detail_tabs.addTab(self.draft_page, '请求测试')
-        self.detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
+        self.workspace_tabs.addTab(self.draft_page, '请求验证')
+        self.workspace_tabs.currentChanged.connect(self._on_workspace_tab_changed)
+        for control in (
+            self.local_target_combo, self.rt_base_edit, self.rt_method, self.rt_url,
+            self.rt_ssl_verify, self.rt_send_btn, self.rt_library_toggle, self.rt_fill_btn,
+            self.rt_more_btn, self.rt_category_combo, self.rt_save_api_btn,
+            self.rt_lib_mode, self.rt_history_cleanup_btn, self.rt_lib_cat_filter, self.rt_lib_search,
+        ):
+            control.setFixedHeight(control_height)
 
         # 键盘路径：采集 → 定位 → 会话 → 详情 → 请求测试。
         QWidget.setTabOrder(self.capture_toggle_btn, self.filter_edit)
         QWidget.setTabOrder(self.filter_edit, self.table)
         QWidget.setTabOrder(self.table, self.detail_tabs)
-        QWidget.setTabOrder(self.detail_tabs, self.rt_url)
 
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
@@ -1045,7 +1017,7 @@ class InterfaceDebugPanel(QWidget):
         self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.workspace_scroll.setWidgetResizable(True)
         self.workspace_scroll.setWidget(self.mid_splitter)
-        root.addWidget(self.workspace_scroll, 1)
+        session_layout.addWidget(self.workspace_scroll, 1)
 
         self.loading = AuroraProgress(self)
         self._refresh_browsers()
@@ -1165,36 +1137,6 @@ class InterfaceDebugPanel(QWidget):
                 ('送格式工具' if self.language == 'zh' else 'Format tools', lambda: self._send_body_side('response', 'format')),
                 ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('response', 'gateway')),
             ])
-
-        # 核心主操作直显：发送 / 从会话填充 / 保存接口
-        self._set_widgets_visible((self.rt_send_btn, self.rt_fill_btn, self.rt_save_api_btn), True)
-
-        # 低频操作统一进入更多菜单
-        request_test_actions = (
-            self.export_detail_btn, self.rt_import_btn, self.rt_req_copy_btn,
-            self.rt_req_format_btn, self.rt_resp_copy_btn, self.rt_resp_format_btn,
-        )
-        self._set_widgets_visible(request_test_actions, False)
-        self.rt_io_more_btn.setVisible(True)
-        self._rebuild_overflow_menu(self._rt_io_actions_menu, [
-            ('复制请求' if self.language == 'zh' else 'Copy request', self._rt_copy_request_body),
-            ('请求→格式工具' if self.language == 'zh' else 'Request → Format', self._rt_send_request_to_format),
-            ('复制响应' if self.language == 'zh' else 'Copy response', self._rt_copy_response_body),
-            ('响应→格式工具' if self.language == 'zh' else 'Response → Format', self._rt_send_response_to_format),
-            ('导入接口' if self.language == 'zh' else 'Import API', self._rt_import_file),
-            ('导出明细' if self.language == 'zh' else 'Export detail', self._export_session_detail),
-        ])
-
-        form_secondary = (
-            self.rt_environment_config_btn, self.rt_filter_config_btn, self.rt_manage_cat_btn,
-        )
-        self._set_widgets_visible(form_secondary, False)
-        self.rt_form_more_btn.setVisible(True)
-        self._rebuild_overflow_menu(self._rt_form_actions_menu, [
-            ('管理分类' if self.language == 'zh' else 'Manage categories', self._rt_manage_categories),
-            ('环境配置' if self.language == 'zh' else 'Environment settings', self._show_environment_config_dialog),
-            ('过滤配置' if self.language == 'zh' else 'Filter settings', self._show_url_filter_config_dialog),
-        ])
 
         self._adaptive_table_width = table_width
         self._apply_column_visibility()
@@ -2915,15 +2857,15 @@ class InterfaceDebugPanel(QWidget):
         self._follow_latest = (row == 0)
         self._refresh_detail()
         # 在请求测试页时自动按选中会话填充（静默，不弹窗）
-        if self.detail_tabs.currentWidget() is getattr(self, 'draft_page', None):
+        if self.workspace_tabs.currentWidget() is self.draft_page:
             try:
                 self._rt_fill_from_selection(silent=True)
             except Exception:
                 pass
 
-    def _on_detail_tab_changed(self, index: int):
+    def _on_workspace_tab_changed(self, index: int):
         try:
-            if self.detail_tabs.widget(index) is getattr(self, 'draft_page', None):
+            if self.workspace_tabs.widget(index) is self.draft_page:
                 self._rt_fill_from_selection(silent=True)
         except Exception:
             pass
@@ -3209,7 +3151,7 @@ class InterfaceDebugPanel(QWidget):
             form['url'] = strip_url_prefixes(form['url'], prefixes)
         self._rt_apply_form(form)
         if not silent:
-            self.detail_tabs.setCurrentWidget(self.draft_page)
+            self.workspace_tabs.setCurrentWidget(self.draft_page)
             show_info(self, '请求测试', '已按抓包会话填充（Body 优先解密明文）')
 
     def _rt_apply_form(self, form: dict):
@@ -3251,6 +3193,10 @@ class InterfaceDebugPanel(QWidget):
         raw = body if body is not None else ''
         self._rt_last_response_body = raw
         self._rt_last_response_headers = dict(headers or {})
+        self.rt_response_headers.setPlainText('\n'.join(
+            f'{key}: {mask_sensitive_value(key, value, False)}'
+            for key, value in self._rt_last_response_headers.items()
+        ))
         if hasattr(self, 'rt_resp_meta'):
             self.rt_resp_meta.setText(meta or '')
         if not raw.strip():
@@ -3474,45 +3420,19 @@ class InterfaceDebugPanel(QWidget):
             status = result.get('status')
             ok = result.get('ok')
             err = result.get('error') or ''
-            # 元信息：状态 + 长度 + 头数量（完整 body 放预览区，不截断）
             meta_bits = [
-                f'{method} {url}',
+                f'{method} {mask_url_query(url, False)}',
                 f'Status: {status}',
                 f'OK: {ok}',
                 f'Body: {len(rbody)} 字符',
             ]
             if err:
                 meta_bits.append(f'Error: {err}')
-            if headers:
-                # 头单独列几行在 meta，完整头可进预览前缀
-                head_lines = [f'{k}: {v}' for k, v in headers.items()]
-                meta_text = ' · '.join(meta_bits[:4])
-                if err:
-                    meta_text += f' · Error: {err}'
-                # Body 区：可选 Headers 全文 + Body 全文
-                body_parts = []
-                body_parts.append('—— Response Headers ——')
-                body_parts.extend(head_lines if head_lines else ['（无）'])
-                body_parts.append('')
-                body_parts.append('—— Response Body（完整）——')
-                kind, pretty, perr = pretty_body(rbody)
-                if perr:
-                    body_parts.append(f'# {perr}')
-                body_parts.append(pretty if pretty else rbody)
-                self._rt_last_response_body = rbody
-                self._rt_last_response_headers = dict(headers)
-                if hasattr(self, 'rt_resp_meta'):
-                    self.rt_resp_meta.setText(meta_text)
-                self.draft_preview.setPlainText('\n'.join(body_parts))
-                cursor = self.draft_preview.textCursor()
-                cursor.movePosition(cursor.MoveOperation.Start)
-                self.draft_preview.setTextCursor(cursor)
-            else:
-                self._rt_set_response_view(
-                    body=rbody,
-                    meta=' · '.join(meta_bits),
-                    headers=headers,
-                )
+            self._rt_set_response_view(
+                body=rbody,
+                meta=' · '.join(meta_bits),
+                headers=headers,
+            )
             self._rt_append_history_from_send(
                 status=status, ok=ok, error=err, response_body=rbody,
             )
@@ -3561,8 +3481,8 @@ class InterfaceDebugPanel(QWidget):
         item = items[0]
         base = self._selected_base_url()
         form = fill_request_form_from_item(item, base)
+        self.workspace_tabs.setCurrentWidget(self.draft_page)
         self._rt_apply_form(form)
-        self.detail_tabs.setCurrentWidget(self.draft_page)
         show_success(self, '导入', f'已加载 {len(items)} 条中的第 1 条到请求测试')
 
     def eventFilter(self, watched, event):
@@ -3673,7 +3593,6 @@ class InterfaceDebugPanel(QWidget):
                 self.rt_category_combo.addItem(c.get('name') or '', c.get('id'))
             self._rt_select_category(last)
             self.rt_category_combo.blockSignals(False)
-            size_pick_combo(self.rt_category_combo)
         # 列表筛选：全部 + 各分类
         if hasattr(self, 'rt_lib_cat_filter'):
             self.rt_lib_cat_filter.blockSignals(True)
@@ -3691,7 +3610,6 @@ class InterfaceDebugPanel(QWidget):
                     break
             self.rt_lib_cat_filter.setCurrentIndex(sel)
             self.rt_lib_cat_filter.blockSignals(False)
-            size_combo(self.rt_lib_cat_filter, fill=True)
 
     def _rt_lib_sync_mode_combo(self):
         if not hasattr(self, 'rt_lib_mode'):
@@ -3700,7 +3618,7 @@ class InterfaceDebugPanel(QWidget):
         mode = lib.get('last_mode') or 'library'
         self.rt_lib_mode.blockSignals(True)
         for i in range(self.rt_lib_mode.count()):
-            if self.rt_lib_mode.itemData(i) == mode:
+            if self.rt_lib_mode.tabData(i) == mode:
                 self.rt_lib_mode.setCurrentIndex(i)
                 break
         self.rt_lib_mode.blockSignals(False)
@@ -3712,7 +3630,7 @@ class InterfaceDebugPanel(QWidget):
     def _rt_lib_mode_value(self) -> str:
         if not hasattr(self, 'rt_lib_mode'):
             return 'library'
-        return self.rt_lib_mode.currentData() or 'library'
+        return self.rt_lib_mode.tabData(self.rt_lib_mode.currentIndex()) or 'library'
 
     def _rt_lib_on_mode_changed(self, *_args):
         from tools.iface_request_library import set_last_mode
@@ -3745,7 +3663,15 @@ class InterfaceDebugPanel(QWidget):
         self.rt_lib_list.clear()
         first_hit = None
         for it in items:
-            label = display_label(it, mode=mode, category_map=cat_map)
+            method = (it.get('method') or 'GET').upper()
+            name = (it.get('name') or '').strip()
+            first, _, rest = name.partition(' ')
+            if first.upper() == method:
+                name = rest.lstrip()
+            if not name:
+                path = urlparse(it.get('url') or '').path or '/'
+                name = '…' + path[-47:] if len(path) > 48 else path
+            label = display_label({**it, 'name': name}, mode=mode, category_map=cat_map)
             row = QListWidgetItem(label)
             row.setData(Qt.ItemDataRole.UserRole, it.get('id'))
             tip = (
@@ -3976,7 +3902,7 @@ class InterfaceDebugPanel(QWidget):
             # 切到接口库视图
             if hasattr(self, 'rt_lib_mode'):
                 for i in range(self.rt_lib_mode.count()):
-                    if self.rt_lib_mode.itemData(i) == 'library':
+                    if self.rt_lib_mode.tabData(i) == 'library':
                         self.rt_lib_mode.setCurrentIndex(i)
                         break
             self._rt_lib_fill_category_combos()
@@ -4632,7 +4558,7 @@ class InterfaceDebugPanel(QWidget):
         self.connect_btn.hide()
         self.stop_btn.hide()
         self.test_listen_btn.show()
-        for edit in (self.overview_edit, self.req_detail, self.resp_detail, self.draft_preview):
+        for edit in (self.overview_edit, self.req_detail, self.resp_detail):
             edit.setMinimumHeight(240 if mode in ('compact', 'narrow') else editor_min_height())
         # The stacked workspace must scroll instead of squeezing its child
         # layouts below their real minimum (which paints hints over detail tabs).
@@ -4696,7 +4622,7 @@ class InterfaceDebugPanel(QWidget):
         for button in (
             self.session_actions_more_btn, self.capture_actions_more_btn,
             self.req_actions_more_btn, self.resp_actions_more_btn,
-            self.rt_io_more_btn, self.rt_form_more_btn,
+            self.rt_more_btn,
         ):
             button.setText('更多' if zh else 'More')
             button.setToolTip('显示收纳操作' if zh else 'Show overflow actions')
@@ -4709,7 +4635,23 @@ class InterfaceDebugPanel(QWidget):
         self.detail_tabs.setTabText(0, '概览' if zh else 'Overview')
         self.detail_tabs.setTabText(1, '请求' if zh else 'Request')
         self.detail_tabs.setTabText(2, '响应' if zh else 'Response')
-        self.detail_tabs.setTabText(3, '请求验证' if zh else 'Request verify')
+        self.workspace_tabs.setTabText(0, '会话' if zh else 'Session')
+        self.workspace_tabs.setTabText(1, '请求验证' if zh else 'Request Verification')
+        self.rt_library_toggle.setText('接口列表' if zh else 'Request List')
+        self.rt_library_toggle.setToolTip(
+            '展开或收起已保存接口和发送记录' if zh else 'Show or hide saved requests and send history'
+        )
+        self._rebuild_overflow_menu(self._rt_actions_menu, [
+            ('复制请求' if zh else 'Copy request', self._rt_copy_request_body),
+            ('请求→格式工具' if zh else 'Request → Format', self._rt_send_request_to_format),
+            ('复制响应' if zh else 'Copy response', self._rt_copy_response_body),
+            ('响应→格式工具' if zh else 'Response → Format', self._rt_send_response_to_format),
+            ('导入接口' if zh else 'Import API', self._rt_import_file),
+            ('导出明细' if zh else 'Export detail', self._export_session_detail),
+            ('管理分类' if zh else 'Manage categories', self._rt_manage_categories),
+            ('环境配置' if zh else 'Environment settings', self._show_environment_config_dialog),
+            ('过滤配置' if zh else 'Filter settings', self._show_url_filter_config_dialog),
+        ])
         self.reveal_cb.setText('显示敏感内容' if zh else 'Reveal secrets')
         self.copy_safe_url_btn.setText('复制安全 URL' if zh else 'Copy safe URL')
         self.copy_req_btn.setText('复制请求' if zh else 'Copy request')
@@ -4718,21 +4660,13 @@ class InterfaceDebugPanel(QWidget):
         self.copy_resp_btn.setText('复制响应' if zh else 'Copy response')
         self.format_resp_btn.setText('送格式工具' if zh else 'Format tools')
         self.gateway_resp_btn.setText('送入加解密' if zh else 'Crypto')
-        self.draft_badge.setText(
-            '请求验证' if zh else 'Request verify'
-        )
         self.target_label.setText('环境' if zh else 'Env')
         if hasattr(self, 'base_label'):
             self.base_label.setText('Base')
         if hasattr(self, 'rt_fill_btn'):
             self.rt_fill_btn.setText('从会话填充' if zh else 'Fill from session')
-            if hasattr(self, 'rt_environment_config_btn'):
-                self.rt_environment_config_btn.setText('环境' if zh else 'Env')
-            if hasattr(self, 'rt_filter_config_btn'):
-                self.rt_filter_config_btn.setText('过滤' if zh else 'Filter')
             self._rt_refresh_send_label()
-            self.export_detail_btn.setText('导出明细' if zh else 'Export detail')
-            self.rt_import_btn.setText('导入明细' if zh else 'Import')
+            self.rt_req_label.setText('请求' if zh else 'Request')
             self.rt_resp_label.setText('响应' if zh else 'Response')
         if hasattr(self, 'rt_ssl_verify'):
             self.rt_ssl_verify.setText('HTTPS' if zh else 'HTTPS')
@@ -4741,54 +4675,22 @@ class InterfaceDebugPanel(QWidget):
                 if zh else
                 'Disable only for self-signed intranet hosts; verification is on by default'
             )
-        if hasattr(self, 'rt_req_copy_btn'):
-            self.rt_req_copy_btn.setText('复制请求' if zh else 'Copy req')
-            self.rt_req_copy_btn.setToolTip(
-                '一键复制当前请求 Body（完整）' if zh else 'Copy full request body'
-            )
-            self.rt_resp_copy_btn.setText('复制响应' if zh else 'Copy resp')
-            self.rt_resp_copy_btn.setToolTip(
-                '一键复制完整响应 Body' if zh else 'Copy full response body'
-            )
-        if hasattr(self, 'rt_req_format_btn'):
-            self.rt_req_format_btn.setText('请求→格式工具' if zh else 'Req → Format')
-            self.rt_req_format_btn.setToolTip(
-                '把当前请求 Body 送入格式工具' if zh else 'Send request body to Format Tools'
-            )
-            self.rt_resp_format_btn.setText('响应→格式工具' if zh else 'Resp → Format')
-            self.rt_resp_format_btn.setToolTip(
-                '把完整响应 Body 送入格式工具' if zh else 'Send full response body to Format Tools'
-            )
         if hasattr(self, 'rt_save_env_btn'):
             self.rt_save_env_btn.setText('保存环境' if zh else 'Save env')
         if hasattr(self, 'rt_cat_label'):
-            self.rt_cat_label.setText('分类' if zh else 'Category')
+            self.rt_cat_label.setText('保存分类' if zh else 'Save category')
             self.rt_save_api_btn.setText('保存接口' if zh else 'Save API')
             self.rt_save_api_btn.setToolTip(
                 '把当前请求保存到接口库（可分类）' if zh else 'Save current request to library'
             )
-            self.rt_manage_cat_btn.setText('管理分类' if zh else 'Categories')
-            self.rt_manage_cat_btn.setToolTip(
-                '新增 / 重命名 / 删除接口分类' if zh else 'Add / rename / delete categories'
-            )
         if hasattr(self, 'rt_lib_mode'):
-            if hasattr(self, 'rt_lib_mode_label'):
-                self.rt_lib_mode_label.setText('列表' if zh else 'List')
-            if hasattr(self, 'rt_lib_cat_label'):
-                self.rt_lib_cat_label.setText('分类' if zh else 'Category')
-            # 保留 data，只改显示文案
-            for i in range(self.rt_lib_mode.count()):
-                data = self.rt_lib_mode.itemData(i)
-                if data == 'library':
-                    self.rt_lib_mode.setItemText(i, '已保存' if zh else 'Saved')
-                elif data == 'history':
-                    self.rt_lib_mode.setItemText(i, '发送记录' if zh else 'Sent')
+            self.rt_lib_mode.setTabText(0, '已保存接口' if zh else 'Saved Requests')
+            self.rt_lib_mode.setTabText(1, '发送记录' if zh else 'Send History')
             self.rt_lib_mode.setToolTip(
                 '已保存：点「保存接口」收藏的请求。发送记录：点「发送」后自动留下的记录。'
                 if zh else
                 'Saved: requests you bookmarked. Sent: auto-logged after Send.'
             )
-            size_enum_combo(self.rt_lib_mode)
             self.rt_lib_search.setPlaceholderText(
                 '搜索名称 / URL' if zh else 'Search name / URL'
             )

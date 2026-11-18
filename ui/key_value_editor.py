@@ -15,10 +15,11 @@ from ui.field_metrics import size_field_height
 class KeyValueEditor(QWidget):
     """多行 Key / Value。toPlainText / setPlainText 兼容旧的纯文本接口。"""
 
-    def __init__(self, *, mode: str = 'header', parent=None):
+    def __init__(self, *, mode: str = 'header', control_height: int | None = None, parent=None):
         super().__init__(parent)
         self._mode = 'query' if mode == 'query' else 'header'
         self._sep = '=' if self._mode == 'query' else ': '
+        self._control_height = control_height
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(6)
@@ -36,6 +37,8 @@ class KeyValueEditor(QWidget):
         add_row.addStretch(1)
         self.add_btn = QPushButton('添加一行')
         apply_button(self.add_btn, 'ghost', compact=True)
+        if control_height is not None:
+            self.add_btn.setFixedHeight(control_height)
         self.add_btn.clicked.connect(lambda: self._add_row('', '', focus=True))
         add_row.addWidget(self.add_btn)
         root.addLayout(add_row)
@@ -60,6 +63,9 @@ class KeyValueEditor(QWidget):
         value_edit.setText(value)
         delete_btn = QPushButton('删除')
         apply_button(delete_btn, 'ghost', compact=True)
+        if self._control_height is not None:
+            for control in (key_edit, value_edit, delete_btn):
+                control.setFixedHeight(self._control_height)
         delete_btn.clicked.connect(lambda: self._remove_row(row))
         layout.addWidget(key_edit)
         layout.addWidget(value_edit, 1)
