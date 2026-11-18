@@ -20,6 +20,7 @@ import uuid
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from itertools import chain
 from urllib.parse import urljoin, urlparse
 
 from config import AI_LOCAL_FILE, ensure_config_dir
@@ -1130,20 +1131,28 @@ def _finish_stream(cfg: dict, body: dict, on_delta=None) -> str:
     stream_body['stream'] = True
     with _open_http(cfg, 'POST', 'chat/completions', stream_body, timeout) as resp:
         _arm_idle_timeout(resp, timeout)
+        reader = getattr(resp, 'read1', None) or resp.read
 
         def read_chunk():
             try:
-                return resp.read(8192) or b''
+                return reader(8192) or b''
             except (TimeoutError, socket.timeout):
                 raise StreamIdleTimeout('流式响应空闲超时') from None
             except (http.client.IncompleteRead, http.client.HTTPException, OSError):
                 raise StreamInterrupted('流式响应中断') from None
 
         try:
-            text = consume_openai_sse(
-                iter_idle_chunks(read_chunk, idle_seconds=timeout),
-                on_delta=on_delta,
-            )
+            chunks = iter_idle_chunks(read_chunk, idle_seconds=timeout)
+            first = next((chunk for chunk in chunks if chunk.strip()), b'')
+            if first.lstrip().startswith(b'{'):
+                raw = bytearray(first)
+                for chunk in chunks:
+                    raw.extend(chunk)
+                    if len(raw) > 16 * 1024 * 1024:
+                        raise _StreamFallback('json-size')
+                text = _completion_text(_decode_body(raw.decode('utf-8'), getattr(resp, 'status', 200)))
+            else:
+                text = consume_openai_sse(chain((first,), chunks), on_delta=on_delta)
         except IntranetLlmError:
             raise
         except _StreamFallback:

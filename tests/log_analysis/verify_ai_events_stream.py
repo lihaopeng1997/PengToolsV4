@@ -207,6 +207,23 @@ def _anth_open(body):
     return _Resp(anth_body)
 
 
+class _JsonGateway(_Resp):
+    def read1(self, size):
+        return super().read(min(size, 7))
+
+    def read(self, size=-1):
+        raise AssertionError('应优先使用 read1')
+
+
+json_requests = []
+original_open = _install_open(lambda body: (json_requests.append(body['stream']), _JsonGateway(fallback_body))[1])
+try:
+    json_answer = chat_completions([{'role': 'user', 'content': 'hi'}], cfg=_cfg())
+finally:
+    llm._open_http = original_open
+check('网关直接返回分片 JSON 时不重发且只返回正文', json_requests == [True] and json_answer == '同一结果')
+
+
 original_open = _install_open(_nonsse_open)
 try:
     non_sse = chat_completions([{'role': 'user', 'content': 'hi'}], cfg=_cfg())
