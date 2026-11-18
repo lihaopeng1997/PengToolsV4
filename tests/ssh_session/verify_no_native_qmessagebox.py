@@ -1,4 +1,5 @@
 """Native QMessageBox calls stay on the shared confirm dialog."""
+import ast
 import os
 import re
 import sys
@@ -54,6 +55,11 @@ def scan_calls():
 
 
 hits = scan_calls()
+for filename in ('main_window.py', 'panels/ops_log_panel.py'):
+    imports = ast.walk(ast.parse((ROOT / filename).read_text(encoding='utf-8-sig')))
+    check(filename + ' 不再导入原生弹框', not any(isinstance(node, ast.ImportFrom)
+          and node.module == 'PyQt6.QtWidgets' and any(alias.name == 'QMessageBox' for alias in node.names)
+          for node in imports))
 from ui.confirm_dialog import AppNoticeDialog, ConfirmActionDialog
 
 owner = QWidget()

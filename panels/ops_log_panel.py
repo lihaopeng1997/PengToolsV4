@@ -17,7 +17,7 @@ from PyQt6.QtGui import QFont, QIcon, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFileIconProvider, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QToolButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )

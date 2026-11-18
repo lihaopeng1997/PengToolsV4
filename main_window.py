@@ -7,7 +7,7 @@ import os
 from PyQt6.QtCore import QPoint, QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QBoxLayout, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu,
-    QInputDialog, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+    QInputDialog, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QStatusBar, QToolButton, QVBoxLayout, QWidget,
 )
 
