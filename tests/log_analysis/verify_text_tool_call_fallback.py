@@ -161,6 +161,9 @@ check('句中让我加冒号是宣告', unfinished_work_announcement("好的，�
 check('我再搜一下冒号是宣告', unfinished_work_announcement("我再搜一下："))
 check('接下来句号不是宣告', not unfinished_work_announcement("接下来建议重建索引。"))
 check('下面句号不是宣告', not unfinished_work_announcement("下面是结果。"))
+for conclusion in ("我先前的判断有误，查询结果为零。", "我先查了订单，结果为零。"):
+    result, model, registry = run([conclusion])
+    check(conclusion + ' 不额外调用模型', len(model.seen) == 1 and result.final_text == conclusion)
 
 result, model, registry = run([
     ANNOUNCE,

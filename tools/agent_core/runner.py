@@ -83,6 +83,7 @@ _CONTINUE_INCOMPLETE = (
 )
 _COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先", "现在我将")
 _LOOSE_PREFIXES = ("让我", "我来", "我先", "我再", "现在我将")
+_ACTION_STARTS = ("查", "搜", "看", "读", "检查", "分析", "核对", "验证", "执行", "调用", "确认", "定位", "打开", "获取", "尝试")
 _COLON_ONLY_PREFIXES = ("下面", "接下来")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
@@ -104,7 +105,8 @@ def unfinished_work_announcement(text: str) -> bool:
         or body.startswith(_COLON_ONLY_PREFIXES)
     ):
         return True
-    if not body.startswith(_LOOSE_PREFIXES):
+    action = next((body[len(prefix):].lstrip() for prefix in _LOOSE_PREFIXES if body.startswith(prefix)), "")
+    if not action.startswith(_ACTION_STARTS) or any(mark in action for mark in "，,；;"):
         return False
     if body[-1] == "。":
         return True
