@@ -16,8 +16,11 @@ class Composer(QFrame):
     stop_requested = pyqtSignal()
     regenerate_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, compact=False):
         super().__init__(parent)
+        self._language = 'zh'
+        self._stopping = False
+        self._composing = False
         self.setObjectName('chat-composer-card')
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -29,7 +32,9 @@ class Composer(QFrame):
         layout.addWidget(self.attachment_bar)
         self.input = QPlainTextEdit()
         self.input.setObjectName('chat-composer-input')
-        self.input.setMinimumHeight(120)
+        self.input.setMinimumHeight(48 if compact else 120)
+        if compact:
+            self.input.setMaximumHeight(80)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
         layout.addWidget(self.input, 1)
@@ -65,37 +70,40 @@ class Composer(QFrame):
         row.addWidget(self.retry_btn, 0)
         row.addWidget(self.send_btn, 0)
         layout.addLayout(row)
+        if compact:
+            self.add_attachment_btn.hide()
+            self.retry_btn.hide()
+            self.send_hint.hide()
+        self.set_language('zh')
 
     def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self.input and event.type() == QEvent.Type.InputMethod:
+            self._composing = bool(event.preeditString())
         if watched is self.input and event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                if event.modifiers() & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier):
+                if self._composing or event.modifiers() & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier):
                     return False
                 if event.isAutoRepeat():
                     return True
-                self.send_requested.emit()
+                if not self.send_btn.property('running'):
+                    self.send_requested.emit()
                 return True
         return super().eventFilter(watched, event)
 
     def set_running(self, running: bool, *, stopping: bool = False) -> None:
-        if stopping:
-            self.send_btn.setText('停止中…')
-            self.send_btn.setEnabled(False)
-            self._set_danger(True)
-            self.retry_btn.setEnabled(False)
-            return
-        if running:
-            self.send_btn.setText('停止')
-            self.send_btn.setEnabled(True)
-            self._set_danger(True)
-            self.retry_btn.setEnabled(False)
-            return
-        self.send_btn.setText('发送')
-        self._set_danger(False)
-        self.retry_btn.setEnabled(True)
+        was_stopping = self._stopping
+        self._stopping = stopping
+        active = running or stopping
+        self._set_danger(active)
+        if active or was_stopping:
+            self.send_btn.setEnabled(not stopping)
+        self.retry_btn.setEnabled(not active)
+        self._update_send_text()
 
     def set_language(self, language: str) -> None:
+        self._language = language
         zh = language == 'zh'
+        self.add_attachment_btn.setToolTip('添加附件（文件/图片）' if zh else 'Add attachment (file/image)')
         self.input.setPlaceholderText(
             '输入消息…（Enter 发送，Alt+Enter 换行）' if zh else 'Type message… (Enter to send, Alt+Enter for newline)'
         )
@@ -107,9 +115,16 @@ class Composer(QFrame):
         self.add_file_action.setText('添加文本文件' if zh else 'Add text file')
         self.add_img_action.setText('添加图片' if zh else 'Add image')
         self.clear_attach_action.setText('清空附件' if zh else 'Clear attachments')
-        if not self.send_btn.property('running'):
+        self._update_send_text()
+
+    def _update_send_text(self) -> None:
+        zh = self._language == 'zh'
+        if self._stopping:
+            self.send_btn.setText('停止中…' if zh else 'Stopping…')
+        elif self.send_btn.property('running'):
+            self.send_btn.setText('停止' if zh else 'Stop')
+        else:
             self.send_btn.setText('发送' if zh else 'Send')
-        self._lock_send_width()
 
     def _on_send_clicked(self) -> None:
         if self.send_btn.property('running'):

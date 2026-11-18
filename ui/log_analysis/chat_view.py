@@ -1,128 +1,58 @@
-"""Role-separated, offline rich-text transcript for log analysis."""
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import (QColor, QFont, QTextBlockFormat, QTextCharFormat,
-                        QTextCursor, QTextDocument, QTextFrameFormat, QTextOption)
-from PyQt6.QtWidgets import QTextBrowser
+"""ChatKit adapter for the log analysis transcript and transient stream."""
+
+from ui.chat_kit import ChatView as KitChatView
 
 
-class OfflineDocument(QTextDocument):
-    def loadResource(self, resource_type, url):  # noqa: N802
-        # Model output is content, never a request to load a local/remote image.
-        return None
-
-
-class ChatView(QTextBrowser):
+class ChatView(KitChatView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDocument(OfflineDocument(self))
-        self.setOpenLinks(False)
-        self.setOpenExternalLinks(False)
-        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        self.document().setDocumentMargin(10)
         self._stream = None
+        self._preview_ids = []
+        self.stream_role = ''
 
-    @property
-    def streaming(self):
-        return self._stream is not None
+    def clear(self):
+        self.end_stream()
+        self._preview_ids.clear()
+        super().clear()
 
-    @property
-    def stream_role(self):
-        return self._stream['role'] if self._stream else ''
+    def append_message(self, message, follow=True):
+        self.end_stream()
+        return super().append_message(
+            dict(message, content=message['text']), follow=follow,
+        )
 
     def begin_stream(self, label, *, role='thinking'):
-        """Open a bubble that later tokens append into (no full re-render)."""
-        from ui.theme_manager import ThemeManager
         self.end_stream()
-        palette = ThemeManager.instance().palette()
-        cursor = QTextCursor(self.document())
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        frame_format = QTextFrameFormat()
-        frame_format.setPadding(10)
-        frame_format.setTopMargin(6)
-        frame_format.setBottomMargin(8)
-        frame_format.setLeftMargin(0)
-        frame_format.setRightMargin(16)
-        frame_format.setBorder(1)
-        frame_format.setBorderBrush(QColor(palette['BORDER']))
-        frame_format.setBackground(QColor(palette['PRIMARY_SOFT'] if role == 'thinking' else palette['SURFACE']))
-        frame = cursor.insertFrame(frame_format)
-        label_format = QTextCharFormat()
-        label_format.setFontWeight(QFont.Weight.Bold)
-        label_format.setForeground(QColor(palette['PRIMARY'] if role == 'assistant' else palette['TEXT']))
-        cursor.insertText('思考过程' if role == 'thinking' else label, label_format)
-        body_format = QTextCharFormat()
-        body_format.setForeground(QColor(palette['TEXT']))
-        body_format.setFontWeight(QFont.Weight.Normal)
-        cursor.insertBlock(QTextBlockFormat(), body_format)
-        self._stream = {
-            'cursor': QTextCursor(cursor),
-            'frame': frame,
-            'format': body_format,
-            'role': role,
-        }
-        self._ensure_cursor_visible()
+        self.stream_role = role
+        self._stream = super().append_message({
+            'role': 'assistant',
+            'label': '' if role == 'thinking' else label,
+            'status': 'pending',
+        })
+        if role == 'thinking':
+            self._stream.meta.hide()
+            self._stream.markdown.hide()
+        else:
+            self._preview_ids.append(self._stream.message_id)
 
     def append_stream(self, text):
-        """Append one chunk to the open bubble; never re-sets the document."""
-        if not self._stream:
+        if self._stream is None or not text:
             return
-        chunk = str(text or '')
-        if not chunk:
-            return
-        self._stream['cursor'].insertText(chunk, self._stream['format'])
-        self._ensure_cursor_visible()
+        if self.stream_role == 'thinking':
+            self._stream.thinking.add_delta(text)
+        else:
+            self._stream.markdown.append_text(text)
+        self.note_activity()
 
     def end_stream(self):
-        if self._stream:
-            self._stream = None
+        if self._stream is not None and self.stream_role == 'thinking':
+            self._stream.thinking.collapse()
+        self._stream = None
+        self.stream_role = ''
 
-    def _ensure_cursor_visible(self):
-        bar = self.verticalScrollBar()
-        if bar.value() >= bar.maximum() - 40:
-            bar.setValue(bar.maximum())
-
-    def set_messages(self, messages):
-        self.end_stream()
-        self.clear()
-        for message in messages:
-            self.append_message(message)
-
-    def append_message(self, message):
-        from ui.theme_manager import ThemeManager
-        self.end_stream()
-        palette = ThemeManager.instance().palette()
-        role = message['role']
-        user = role == 'user'
-        cursor = QTextCursor(self.document())
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        frame_format = QTextFrameFormat()
-        frame_format.setPadding(12)
-        frame_format.setTopMargin(8)
-        frame_format.setBottomMargin(10)
-        frame_format.setLeftMargin(28 if user else 0)
-        frame_format.setRightMargin(0 if user else 16)
-        frame_format.setBorder(1)
-        frame_format.setBorderBrush(QColor(palette['BORDER']))
-        frame_format.setBackground(QColor(palette['PRIMARY_SOFT'] if user else palette['SURFACE']))
-        frame = cursor.insertFrame(frame_format)
-        block = QTextBlockFormat()
-        block.setAlignment(Qt.AlignmentFlag.AlignRight if user else Qt.AlignmentFlag.AlignLeft)
-        block.setBottomMargin(8)
-        cursor.setBlockFormat(block)
-        label_format = QTextCharFormat()
-        label_format.setFontWeight(QFont.Weight.Bold)
-        label_format.setForeground(QColor(palette['PRIMARY'] if user else palette['TEXT']))
-        label = {'user': '你', 'assistant': 'AI 助手', 'system': '系统提示'}[role]
-        cursor.insertText(label, label_format)
-        body_format = QTextCharFormat()
-        body_format.setForeground(QColor(palette['TEXT']))
-        body_format.setFontWeight(QFont.Weight.Normal)
-        cursor.insertBlock(QTextBlockFormat(), body_format)
-        if role == 'assistant':
-            cursor.insertMarkdown(message['text'], QTextDocument.MarkdownFeature.MarkdownDialectGitHub |
-                                  QTextDocument.MarkdownFeature.MarkdownNoHTML)
-        else:
-            cursor.insertText(message['text'], body_format)
-        # Leave the frame before appending the next message.
-        cursor.setPosition(frame.lastPosition() + 1)
-        cursor.insertBlock(QTextBlockFormat(), body_format)
+    def discard_answer_preview(self):
+        if self.stream_role == 'assistant':
+            self.end_stream()
+        for message_id in self._preview_ids:
+            self.remove_message(message_id)
+        self._preview_ids.clear()

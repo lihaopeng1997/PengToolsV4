@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
@@ -79,6 +81,8 @@ class ChatView(QScrollArea):
         QTimer.singleShot(0, self.scroll_to_bottom)
 
     def append_message(self, message, follow=True) -> MessageBubble:
+        if not message.get('id'):
+            message = dict(message, id=uuid4().hex)
         bubble = MessageBubble(message)
         bubble.set_viewport_width(self.viewport().width() or self.width())
         index = max(0, self._layout.count() - 1)
@@ -90,6 +94,13 @@ class ChatView(QScrollArea):
 
     def bubble(self, msg_id) -> MessageBubble | None:
         return self._bubbles.get(str(msg_id or ''))
+
+    def remove_message(self, msg_id: str) -> None:
+        bubble = self._bubbles.pop(msg_id, None)
+        if bubble is not None:
+            self._layout.removeWidget(bubble)
+            bubble.hide()
+            bubble.deleteLater()
 
     def clear(self) -> None:
         while self._layout.count() > 1:
@@ -107,8 +118,7 @@ class ChatView(QScrollArea):
     def note_activity(self) -> None:
         """New tokens arrived. Follow the bottom, or mark the jump button."""
 
-        if self._at_bottom():
-            self._stick = True
+        if self._stick:
             QTimer.singleShot(0, self.scroll_to_bottom)
             return
         self._stick = False

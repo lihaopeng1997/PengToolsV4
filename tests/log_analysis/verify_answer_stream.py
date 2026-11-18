@@ -107,6 +107,10 @@ class _Chat:
     def end_stream(self):
         self.role = ''
 
+    def discard_answer_preview(self):
+        if self.role == 'assistant':
+            self.end_stream()
+
     def set_messages(self, messages):
         self.role = ''
 
@@ -162,8 +166,15 @@ class _Task:
         return None
 
 
+visible_states = []
+
+
 def _analyzer(snapshot, question, model_id, token, **kwargs):
+    kwargs['progress']('internal_phase_marker', 'internal_payload_marker')
+    visible_states.append(service.analysis_activity('t')['state'])
     kwargs['progress']('model_reasoning_delta', '思考不该进历史')
+    kwargs['progress']('model_text_delta', '工具轮临时正文')
+    kwargs['progress']('model_turn_reset', '')
     return SimpleNamespace(final_text='质检后的最终回答', error='', status=SimpleNamespace(value='ok'))
 
 
@@ -179,11 +190,18 @@ while time.time() < deadline:
     time.sleep(0.02)
 service.close()
 service.join(1)
+events = service.drain_events()
+check('未知状态只显示通用标签', visible_states == ['正在处理'], str(visible_states))
+check('流重置排在临时正文之后、最终结果之前',
+      [(bucket, payload[1]) for bucket, payload in events][-3:]
+      == [('delta', 'model_text_delta'), ('delta', 'model_turn_reset'), ('result', '质检后的最终回答')])
 history = service.history.get('t', [])
 check('history 只有 final_text、没有思考',
       history and history[-1]['role'] == 'assistant'
       and history[-1]['content'].startswith('质检后的最终回答')
-      and '思考不该进历史' not in str(history), str(history))
+      and '思考不该进历史' not in str(history)
+      and '工具轮临时正文' not in str(history)
+      and 'internal_phase_marker' not in str(history), str(history))
 
 
 class _DeepSeek:

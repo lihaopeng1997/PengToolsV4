@@ -44,6 +44,10 @@ class FakeChat:
     def end_stream(self):
         self.role = ''
 
+    def discard_answer_preview(self):
+        if self.role == 'assistant':
+            self.end_stream()
+
     def set_messages(self, messages):
         self.role = ''
         self.calls.append(('set', len(messages)))

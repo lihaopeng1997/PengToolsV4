@@ -20,6 +20,7 @@ from tools.app_logging import current_log_dir, get_logger, setup_logging
 from ui.chat_kit import (
     ChatController, ChatView, CodeBlock, Composer, PhaseLine, ThinkingBlock, ToolStepLine,
 )
+from ui.log_analysis.chat_view import ChatView as LogChatView
 from ui.theme_manager import ThemeManager, unresolved_qss_tokens
 import tools.intranet_llm as llm
 import tools.model_chat_store as chat_store
@@ -188,6 +189,51 @@ QTest.keyClick(composer.input, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModif
 shift_count = sent['n']
 QTest.keyClick(composer.input, Qt.Key.Key_Return)
 check('Enter 发送且 Shift+Enter 不发送', shift_count == 0 and sent['n'] == 1, str(sent))
+
+print('--- P5 Composer 与日志流 ---')
+compact = Composer(compact=True)
+_show(compact, 320, 130)
+button = compact.send_btn
+stops = []
+compact.stop_requested.connect(lambda: stops.append(True))
+compact.set_language('en')
+check('紧凑输入框使用英文发送，隐藏附件和重试',
+      button.text() == 'Send' and compact.add_attachment_btn.isHidden() and compact.retry_btn.isHidden())
+compact.set_running(True)
+button.click()
+check('原按钮原位切为英文停止', compact.send_btn is button and button.text() == 'Stop' and stops == [True])
+compact.set_running(True, stopping=True)
+check('等待停止时禁用同一按钮', button.text() == 'Stopping…' and not button.isEnabled())
+compact.set_language('zh')
+check('停止过程中切换语言', button.text() == '停止中…' and not button.isEnabled())
+compact.set_language('en')
+compact.set_running(False)
+check('停止完成恢复英文发送', button.text() == 'Send' and button.isEnabled())
+
+log_chat = LogChatView()
+_show(log_chat, 340, 190)
+for index in range(12):
+    log_chat.append_message({'role': 'user', 'text': f'测试消息 {index}'})
+QTest.qWait(40)
+log_chat.verticalScrollBar().setValue(0)
+log_chat.begin_stream('思考过程', role='thinking')
+log_chat.append_stream('只用于显示')
+log_chat.begin_stream('AI 助手（生成中）', role='assistant')
+log_chat.append_stream('工具轮临时正文')
+QTest.qWait(40)
+jump = log_chat.findChild(QWidget, 'chat-jump-bottom')
+dot = log_chat.findChild(QWidget, 'chat-jump-dot')
+check('日志聊天浏览旧消息时显示跳转按钮及红点',
+      log_chat.verticalScrollBar().value() == 0 and jump.isVisible() and dot.isVisible())
+log_chat.discard_answer_preview()
+check('流重置只删除临时正文气泡',
+      log_chat.stream_role == ''
+      and all('工具轮临时正文' not in bubble.visible_text() for bubble in log_chat._bubbles.values())
+      and any(bubble.thinking.text() == '只用于显示' for bubble in log_chat._bubbles.values()))
+jump.click()
+check('点击跳转后回到底部并清除红点',
+      log_chat.verticalScrollBar().value() == log_chat.verticalScrollBar().maximum()
+      and not dot.isVisible())
 
 print('--- 对话页不落思考 ---')
 panel = ModelChatPanel()

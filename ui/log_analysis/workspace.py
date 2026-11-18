@@ -4,7 +4,7 @@ import time
 import json
 from collections import deque
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton,
     QComboBox, QLineEdit, QLabel, QCheckBox, QSpinBox, QSplitter, QPlainTextEdit,
@@ -13,31 +13,12 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPu
 
 from tools.log_analysis.service import LogService
 from tools.log_analysis.report import Store, report, stamp
+from ui.chat_kit import Composer
 from ui.confirm_dialog import confirm_action
 from ui.text_actions import install_text_actions
 from ui.thinking_indicator import ThinkingIndicator
 from ui.splitter_prefs import install_splitter_prefs
 from .chat_view import ChatView
-
-
-class Composer(QPlainTextEdit):
-    submitted = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-        self.composing = False
-
-    def inputMethodEvent(self, event):
-        self.composing = bool(event.preeditString())
-        super().inputMethodEvent(event)
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-            if not self.composing:
-                self.submitted.emit()
-                event.accept()
-                return
-        super().keyPressEvent(event)
 
 
 def _ensure_round_maps(host):
@@ -327,27 +308,17 @@ class LogAnalysisWorkspace(QWidget):
         self.right_tabs = QTabWidget()
         self.chat = ChatView()
         self.draft = QPlainTextEdit()
-        install_text_actions(self.chat)
         install_text_actions(self.draft)
         self.right_tabs.addTab(self.chat, 'AI 对话')
         self.right_tabs.addTab(self.draft, '报告草稿（可编辑）')
         box.addWidget(self.right_tabs, 1)
-        self.jump = QPushButton('查看最新消息')
-        self.jump.clicked.connect(lambda: self.chat.verticalScrollBar().setValue(self.chat.verticalScrollBar().maximum()))
-        self.jump.hide()
-        box.addWidget(self.jump)
-        self.input = Composer()
-        self.input.setPlaceholderText('描述问题；Enter发送，Shift+Enter换行。仅查询当前采集快照。')
-        self.input.setMaximumHeight(100)
-        install_text_actions(self.input)
-        self.input.submitted.connect(self.send)
-        box.addWidget(self.input)
-        actions = QHBoxLayout()
-        for text, callback in [('发送', self.send), ('停止分析', self.cancel_analysis)]:
-            button = QPushButton(text)
-            button.clicked.connect(callback)
-            actions.addWidget(button)
-        box.addLayout(actions)
+        self.composer = Composer(compact=True)
+        self.input = self.composer.input
+        self.set_language('zh')
+        install_text_actions(self.input, language=lambda: self.language)
+        self.composer.send_requested.connect(self.send)
+        self.composer.stop_requested.connect(self.cancel_analysis)
+        box.addWidget(self.composer)
         self.split.addWidget(right)
         # Capture keeps the slack; AI may narrow to its minimum instead of
         # stealing width from the event table.
@@ -778,19 +749,16 @@ class LogAnalysisWorkspace(QWidget):
 
     def _clear_answer_preview(self, task_id):
         preview = getattr(self, '_answer_preview', None)
-        had = bool(preview and preview.pop(task_id, None))
-        showing = task_id == self.selected_id and getattr(self.chat, 'stream_role', '') == 'assistant'
-        if (had or showing) and task_id == self.selected_id:
-            self._replay_thinking()
+        if preview is not None:
+            preview.pop(task_id, None)
+        if task_id == self.selected_id:
+            self.chat.discard_answer_preview()
 
     def _replay_thinking(self):
         """Redraw this task's messages with each round's thinking in place."""
         messages = list(self.chats.get(self.selected_id, []))
         rounds = self._thinking.get(self.selected_id) or []
         live = [r for r in rounds if r['chunks']]
-        if not live:
-            self.chat.set_messages(messages)
-            return
         self.chat.set_messages([])
         cursor = 0
         for item in sorted(live, key=lambda r: r['start']):
@@ -804,6 +772,10 @@ class LogAnalysisWorkspace(QWidget):
             cursor = start
         for message in messages[cursor:]:
             self.chat.append_message(message)
+        preview = getattr(self, '_answer_preview', {}).get(self.selected_id)
+        if preview:
+            self.chat.begin_stream('AI 助手（生成中）', role='assistant')
+            self.chat.append_stream(''.join(preview))
 
     def append_chat(self, task_id, text, force=False, *, role='system'):
         message = {'role': role, 'text': str(text)}
@@ -820,19 +792,12 @@ class LogAnalysisWorkspace(QWidget):
             self._shift_thinking(task_id, removed)
         if task_id != self.selected_id:
             return
-        bar = self.chat.verticalScrollBar()
-        near_end = bar.value() >= bar.maximum() - 20
-        position = bar.value()
         if removed:
             self._replay_thinking()
         else:
             self.chat.append_message(message)
-        if force or near_end:
-            bar.setValue(bar.maximum())
-            self.jump.hide()
-        else:
-            bar.setValue(position)
-            self.jump.show()
+        if force:
+            self.chat.scroll_to_bottom()
 
     def send(self, _checked=False, event_id=None, question=None, kind='chat'):
         text = question or self.input.toPlainText().strip() or ('分析所选异常：' + event_id if event_id else '')
@@ -1053,6 +1018,10 @@ class LogAnalysisWorkspace(QWidget):
 
     def _refresh_analysis_activity(self):
         activity = self.service.analysis_activity(self.selected_id) if self.service else None
+        self.composer.set_running(
+            bool(activity and activity['busy']),
+            stopping=bool(activity and activity['state'] == '正在取消分析'),
+        )
         if activity and activity['busy']:
             text = activity['state'] + f" · {activity['elapsed']}秒"
             if activity['queued']:
@@ -1068,6 +1037,14 @@ class LogAnalysisWorkspace(QWidget):
                 text = ('AI未启用；采集和证据汇总可独立使用' if not self.models.currentData() or not self.model_consent.isChecked()
                         else 'AI就绪；发送问题或开启自动分析新异常')
             self.ai_activity.setText(text)
+
+    def set_language(self, language):
+        self.language = language
+        self.composer.set_language(language)
+        self.input.setPlaceholderText(
+            '描述问题；Enter 发送，Shift+Enter 换行。仅查询当前采集快照。' if language == 'zh'
+            else 'Ask about the current capture. Enter to send, Shift+Enter for a newline.'
+        )
 
     @staticmethod
     def _set_preview(widget, text, *, follow_new=False):

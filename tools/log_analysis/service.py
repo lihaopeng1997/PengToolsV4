@@ -7,6 +7,7 @@ import threading
 import time
 
 from tools.agent_core.contracts import CancellationToken
+from tools.ai_events import phase_label
 from .collector import Monitor
 from .events import Event, Redactor
 from .runtime import analyze
@@ -203,7 +204,7 @@ class LogService:
                     if event:
                         clean_question += '\n所选异常证据：\n' + event['evidence']
                 def progress(kind, name):
-                    if kind in ('model_reasoning_delta', 'model_text_delta'):
+                    if kind in ('model_reasoning_delta', 'model_text_delta', 'model_turn_reset'):
                         # Reasoning/text chunks: queue for the UI, do not touch
                         # history, outcomes, or the model context.
                         if not token.is_cancelled() and not self.closed.is_set():
@@ -211,8 +212,8 @@ class LogService:
                                 self.deltas.append((task_id, kind, name))
                                 self._remember_locked('delta', (task_id, kind, name))
                         return
-                    self.analysis_state = {'turn_started': '模型分析中', 'tool_started': '正在补查',
-                                           'tool_result': '补查完成', 'budget': '整理上下文'}.get(kind, kind) + (' · ' + name if name else '')
+                    if not token.is_cancelled() and not self.closed.is_set():
+                        self.analysis_state = phase_label(kind)
                 result = self.analyzer(snapshot, clean_question, model_id, token,
                                        history=self.history.get(task_id, []), progress=progress, reader=task.read_range,
                                        searcher=getattr(task, 'search', None), probe=getattr(task, 'probe', None))

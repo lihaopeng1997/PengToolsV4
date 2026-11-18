@@ -2716,6 +2716,7 @@ class OpsLogPanel(QWidget):
         layout = QVBoxLayout(self._log_ai_placeholder)
         layout.setContentsMargins(0, 0, 0, 0)
         self.log_analysis_workspace = LogAnalysisWorkspace(load_servers, self._log_ai_placeholder)
+        self.log_analysis_workspace.set_language(self.language)
         layout.addWidget(self.log_analysis_workspace)
 
     def _set_work_mode(self, mode: str, persist: bool = True):
@@ -2883,6 +2884,9 @@ class OpsLogPanel(QWidget):
     # ── 语言 ────────────────────────────────────────────
     def set_language(self, language):
         self.language = language
+        analysis = getattr(self, 'log_analysis_workspace', None)
+        if analysis is not None:
+            analysis.set_language(language)
         zh = language == 'zh'
         self.title_label.setText('日志排查' if zh else 'Log Investigation')
         self.subtitle_label.setText('SSH 会话 · 远端目录 · 日志检索与批量导出' if zh else 'SSH sessions · remote files · log search and batch export')

@@ -41,6 +41,7 @@ class ThinkingBlock(QFrame):
         head.addWidget(self.title, 1)
         layout.addLayout(head)
         self.body = QLabel()
+        self.body.setTextFormat(Qt.TextFormat.PlainText)
         self.body.setObjectName('chat-thinking-body')
         self.body.setWordWrap(True)
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -62,12 +63,14 @@ class ThinkingBlock(QFrame):
         self._refresh()
 
     def collapse(self) -> None:
+        self._running = False
+        self._timer.stop()
+        self._dot.hide()
+        self._refresh()
         if self._user_opened:
             return
-        self._running = False
         self._expanded = False
         self.body.hide()
-        self._dot.hide()
 
     def is_expanded(self) -> bool:
         return self._expanded
@@ -274,13 +277,15 @@ class MessageBubble(QWidget):
         root.setSpacing(4)
         clock = format_chat_clock(self.message.get('created_at'))
         self.meta = QLabel()
+        self.meta.setTextFormat(Qt.TextFormat.PlainText)
         if user:
             self.meta.setObjectName('chat-user-meta')
             self.meta.setAlignment(Qt.AlignmentFlag.AlignRight)
-            self.meta.setText(clock)
+            self.meta.setText(str(self.message.get('label') or clock))
         else:
             self.meta.setObjectName('chat-meta')
-            self.meta.setText(f'AI 助手 · {clock}' if clock else 'AI 助手')
+            label = str(self.message.get('label') or ('系统提示' if self.role == 'system' else 'AI 助手'))
+            self.meta.setText(f'{label} · {clock}' if clock else label)
             model = str(self.message.get('model') or self.message.get('config_name') or '')
             if model:
                 self.meta.setToolTip(model)
@@ -315,6 +320,7 @@ class MessageBubble(QWidget):
         self.copy_btn.clicked.connect(self._copy_body)
         if user:
             self.user_text = QLabel(str(self.message.get('content') or ''))
+            self.user_text.setTextFormat(Qt.TextFormat.PlainText)
             self.user_text.setObjectName('chat-user-text')
             self.user_text.setWordWrap(True)
             self.user_text.setMinimumWidth(0)

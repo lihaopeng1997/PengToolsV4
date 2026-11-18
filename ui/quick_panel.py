@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.design_system import apply_button
+from ui.chat_kit import ChatView, Composer
 from ui.field_metrics import size_line
 from ui.thinking_indicator import ThinkingIndicator
 from ui.brand_wait_ring import BrandWaitRing
@@ -33,8 +34,8 @@ class _QuickChatWorker(QThread):
     completed = pyqtSignal(str)
     failed = pyqtSignal(str)
 
-    def __init__(self, messages: list[dict], cfg: dict):
-        super().__init__()
+    def __init__(self, messages: list[dict], cfg: dict, parent=None):
+        super().__init__(parent)
         self.messages = list(messages)
         self.cfg = dict(cfg)
         self.cancelled = False
@@ -313,27 +314,17 @@ class QuickPanel(QWidget):
         chat_top.addWidget(self.chat_clear_btn)
         chat_l.addLayout(chat_top)
 
-        self.chat_history = QPlainTextEdit()
-        self.chat_history.setObjectName('floating-chat-history')
-        self.chat_history.setReadOnly(True)
-        self.chat_history.setPlaceholderText('发送消息开始轻量多轮对话…')
+        self.chat_history = ChatView()
         chat_l.addWidget(self.chat_history, 1)
         self.chat_thinking = ThinkingIndicator(text='正在等待回复…')
         self.chat_thinking.hide()
         chat_l.addWidget(self.chat_thinking)
 
-        chat_input_row = QHBoxLayout()
-        chat_input_row.setSpacing(6)
-        self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText('输入消息，按 Enter 发送…')
-        self.chat_input.returnPressed.connect(self._on_chat_send_or_stop)
-        chat_input_row.addWidget(self.chat_input, 1)
-
-        self.chat_send_btn = QPushButton('发送')
-        apply_button(self.chat_send_btn, 'primary', compact=True)
-        self.chat_send_btn.clicked.connect(self._on_chat_send_or_stop)
-        chat_input_row.addWidget(self.chat_send_btn)
-        chat_l.addLayout(chat_input_row)
+        self.chat_composer = Composer(compact=True)
+        self.chat_input = self.chat_composer.input
+        self.chat_composer.send_requested.connect(self._on_chat_send_or_stop)
+        self.chat_composer.stop_requested.connect(self._on_chat_send_or_stop)
+        chat_l.addWidget(self.chat_composer)
 
         chat_bottom = QHBoxLayout()
         self.open_full_chat_btn = QPushButton('打开完整模型聊天')
@@ -391,10 +382,9 @@ class QuickPanel(QWidget):
         self.footer_edit_btn.setText('快捷入口' if zh else 'Edit')
         self.footer_edit_btn.setToolTip('设置快捷入口' if zh else 'Edit shortcuts')
         self.open_full_chat_btn.setText('打开完整模型聊天' if zh else 'Open Full Model Chat')
-        self.chat_input.setPlaceholderText('输入消息，按 Enter 发送…' if zh else 'Type message, press Enter…')
-        self.chat_history.setPlaceholderText('发送消息开始轻量多轮对话…' if zh else 'Start chat with enabled model…')
+        self.chat_composer.set_language(language)
         self.chat_clear_btn.setToolTip('清空会话' if zh else 'Clear chat')
-        self._sync_chat_running_state(self._chat_worker is not None and self._chat_worker.isRunning())
+        self._sync_chat_running_state(self._chat_worker is not None)
         self._refresh_ticket_button()
         self.edit_btn.setToolTip('编辑快捷入口' if zh else 'Edit shortcuts')
         self.collapse_btn.setToolTip('收起' if zh else 'Collapse')
@@ -459,21 +449,22 @@ class QuickPanel(QWidget):
         self.chat_model_combo.blockSignals(False)
 
     def _clear_chat(self):
-        if self._chat_worker is not None and self._chat_worker.isRunning():
-            self._chat_worker.cancelled = True
-            self._chat_worker = None
+        self._stop_chat()
         self._chat_messages.clear()
         self.chat_history.clear()
+
+    def _stop_chat(self):
+        if self._chat_worker is not None:
+            self._chat_worker.cancelled = True
+            self._chat_worker = None
         self._sync_chat_running_state(False)
 
     def _on_chat_send_or_stop(self):
-        if self._chat_worker is not None and self._chat_worker.isRunning():
-            self._chat_worker.cancelled = True
-            self._chat_worker = None
-            self._sync_chat_running_state(False)
-            self._append_chat_message('system', '已停止')
+        if self._chat_worker is not None:
+            self._stop_chat()
+            self._append_chat_message('system', '已停止' if self.language == 'zh' else 'Stopped')
             return
-        text = self.chat_input.text().strip()
+        text = self.chat_input.toPlainText().strip()
         if not text:
             return
         model_cfg = self.chat_model_combo.currentData()
@@ -484,18 +475,23 @@ class QuickPanel(QWidget):
         self._chat_messages.append({'role': 'user', 'content': text})
         self._append_chat_message('user', text)
         self._sync_chat_running_state(True)
-        self._chat_worker = _QuickChatWorker(self._chat_messages, model_cfg)
+        self._chat_worker = _QuickChatWorker(self._chat_messages, model_cfg, self)
         self._chat_worker.completed.connect(self._on_chat_completed)
         self._chat_worker.failed.connect(self._on_chat_failed)
+        self._chat_worker.finished.connect(self._chat_worker.deleteLater)
         self._chat_worker.start()
 
     def _on_chat_completed(self, answer: str):
+        if self.sender() is not self._chat_worker:
+            return
         self._chat_worker = None
         self._sync_chat_running_state(False)
         self._chat_messages.append({'role': 'assistant', 'content': answer})
         self._append_chat_message('assistant', answer)
 
     def _on_chat_failed(self, error: str):
+        if self.sender() is not self._chat_worker:
+            return
         self._chat_worker = None
         self._sync_chat_running_state(False)
         self._append_chat_message('system', f'模型返回异常：{error}')
@@ -509,12 +505,7 @@ class QuickPanel(QWidget):
         else:
             self.chat_thinking.stop()
             self.chat_thinking.hide()
-        if running:
-            self.chat_send_btn.setText('停止' if zh else 'Stop')
-            apply_button(self.chat_send_btn, 'secondary', compact=True)
-        else:
-            self.chat_send_btn.setText('发送' if zh else 'Send')
-            apply_button(self.chat_send_btn, 'primary', compact=True)
+        self.chat_composer.set_running(running)
 
     def _append_chat_message(self, role: str, content: str):
         zh = self.language == 'zh'
@@ -524,10 +515,7 @@ class QuickPanel(QWidget):
             prefix = '🤖 ' + ('模型' if zh else 'Assistant')
         else:
             prefix = 'ℹ️ ' + ('系统' if zh else 'System')
-        self.chat_history.appendPlainText(f'[{prefix}]\n{content}\n')
-        self.chat_history.verticalScrollBar().setValue(
-            self.chat_history.verticalScrollBar().maximum()
-        )
+        self.chat_history.append_message({'role': role, 'label': prefix, 'content': content})
 
     def apply_shortcuts(self, shortcuts, *, private_unlocked: bool | None = None):
         """刷新快捷配置；保留面板位置与展开/收起状态。"""
@@ -1288,12 +1276,7 @@ class QuickPanel(QWidget):
         menu.exec(global_position)
 
     def close_toolbar(self):
-        self.compact_wait_ring.set_running(False)
-        self.chat_thinking.stop()
-        self.chat_thinking.hide()
-        if self._chat_worker is not None and self._chat_worker.isRunning():
-            self._chat_worker.cancelled = True
-            self._chat_worker = None
+        self._stop_chat()
         if self.expanded:
             self.expanded = False
             width, height = self.COMPACT_SIZE

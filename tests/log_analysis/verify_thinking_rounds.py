@@ -72,6 +72,13 @@ class FakeChat:
         self.calls.append(('end',))
         self.role = ''
 
+    def discard_answer_preview(self):
+        if self.role == 'assistant':
+            self.end_stream()
+
+    def scroll_to_bottom(self):
+        self._bar.setValue(self._bar.maximum())
+
     def verticalScrollBar(self):
         return self._bar
 

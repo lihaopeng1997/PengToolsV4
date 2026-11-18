@@ -10,10 +10,13 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from ui.log_analysis.chat_view import OfflineDocument
-
 _CODE_LIMIT = 320
 _HEADER = 32
+
+
+class OfflineDocument(QTextDocument):
+    def loadResource(self, resource_type, url):  # noqa: N802
+        return None
 
 
 class _FittingBrowser(QTextBrowser):
