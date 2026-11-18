@@ -13,10 +13,11 @@ import uuid
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QMessageBox, QPlainTextEdit, QPushButton,
+    QLabel, QLineEdit, QListWidget, QPlainTextEdit, QPushButton,
     QVBoxLayout, QWidget,
 )
 
+from ui.confirm_dialog import show_warning
 from tools import outbound_authorization as auth
 from tools.intranet_scenario import IntranetScenario, load_scenario, save_scenario
 from tools.log_materials import MaterialReader
@@ -279,7 +280,7 @@ class IntranetDiagnosticsDialog(QDialog):
             reader = MaterialReader(scenario.log_materials, scenario.code_root_resolved)
             rows = reader.describe()
         except Exception as exc:
-            QMessageBox.warning(self, self._t('预览失败', 'Preview failed'), str(exc))
+            show_warning(self, self._t('预览失败', 'Preview failed'), str(exc))
             return
         if not rows:
             self.output.setPlainText(self._t('尚未选择日志材料。', 'No material selected.'))
@@ -317,9 +318,9 @@ class IntranetDiagnosticsDialog(QDialog):
         scenario = self._scenario()
         boundary = self._boundary()
         if not self.confirm_check.isChecked():
-            QMessageBox.warning(self, self._t('需要勾选确认', 'Approval required'),
-                                self._t('请先勾选确认，再记录授权。',
-                                        'Tick the approval box before recording it.'))
+            show_warning(self, self._t('需要勾选确认', 'Approval required'),
+                         self._t('请先勾选确认，再记录授权。',
+                                 'Tick the approval box before recording it.'))
             return
         # One run id per approved scope: the run reuses this grant instead of
         # issuing a second one.
@@ -349,19 +350,19 @@ class IntranetDiagnosticsDialog(QDialog):
         scenario = self._scenario()
         errors = scenario.validate()
         if errors:
-            QMessageBox.warning(self, self._t('场景不完整', 'Incomplete scenario'), '；'.join(errors))
+            show_warning(self, self._t('场景不完整', 'Incomplete scenario'), '；'.join(errors))
             return
         boundary = self._boundary()
         if boundary.requires_confirmation:
             if not self.confirm_check.isChecked():
-                QMessageBox.warning(self, self._t('需要确认外发', 'Approval required'),
-                                    self._t('该目标不是可证内网，请先勾选确认并记录授权。',
-                                            'This target is not provably intranet; approve it first.'))
+                show_warning(self, self._t('需要确认外发', 'Approval required'),
+                             self._t('该目标不是可证内网，请先勾选确认并记录授权。',
+                                     'This target is not provably intranet; approve it first.'))
                 return
             if not self.run_id or self.granted_scope != self._scope_key():
-                QMessageBox.warning(self, self._t('需要重新确认', 'Re-approval required'),
-                                    self._t('模型、地址、代码根或材料已变化，请重新点「记录本次授权」。',
-                                            'Model, host, code root or materials changed; record approval again.'))
+                show_warning(self, self._t('需要重新确认', 'Re-approval required'),
+                             self._t('模型、地址、代码根或材料已变化，请重新点「记录本次授权」。',
+                                     'Model, host, code root or materials changed; record approval again.'))
                 return
             try:
                 auth.check(self.run_id, model_config_id=scenario.model_config_id,
@@ -369,7 +370,7 @@ class IntranetDiagnosticsDialog(QDialog):
                            code_root=scenario.code_root_resolved,
                            allowed_tools=scenario.allowed_tools)
             except auth.OutboundNotAuthorized as exc:
-                QMessageBox.warning(self, self._t('需要重新确认', 'Re-approval required'), exc.reason)
+                show_warning(self, self._t('需要重新确认', 'Re-approval required'), exc.reason)
                 self._invalidate_grant()
                 return
         else:

@@ -1158,7 +1158,7 @@ class SettingsPanel(QWidget):
     def _export_diagnostics(self):
         import os
         from datetime import datetime
-        from PyQt6.QtWidgets import QMessageBox
+        from ui.confirm_dialog import confirm_action, show_info, show_warning
         from tools.app_logging import get_logger
         from tools.diagnostics_bundle import DiagnosticsError, build_bundle, collect_manifest
         from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
@@ -1172,12 +1172,7 @@ class SettingsPanel(QWidget):
             if zh else
             f'Will include:\n{included}\n\nWill not include:\n{excluded}'
         )
-        answer = QMessageBox.question(
-            self, title, preview,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirm_action(self, title, preview, confirm_text='导出', danger=False):
             return
         filename = 'PengToolsHub-diag-' + datetime.now().strftime('%Y%m%d-%H%M') + '.zip'
         start = get_dialog_save_path('diagnostics_bundle', filename)
@@ -1193,12 +1188,12 @@ class SettingsPanel(QWidget):
             build_bundle(path)
         except DiagnosticsError as exc:
             self.diag_export_status.setText(str(exc))
-            QMessageBox.warning(self, title, str(exc))
+            show_warning(self, title, str(exc))
             logger.warning('诊断包导出失败 %s', os.path.basename(path))
             return
         saved = f'已保存到 {path}' if zh else f'Saved to {path}'
         self.diag_export_status.setText(saved)
-        QMessageBox.information(self, title, saved)
+        show_info(self, title, saved)
         logger.info('诊断包已导出 %s', os.path.basename(path))
 
     def _load_oracle_values(self, settings):

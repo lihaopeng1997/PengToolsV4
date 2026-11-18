@@ -2404,8 +2404,8 @@ class ManualQueryHost(QObject):
     def _ask_dirty_close(self, state: _TabState) -> str | None:
         from PyQt6.QtWidgets import QMessageBox
 
-        box = QMessageBox(self.panel)
-        box.setIcon(QMessageBox.Icon.Warning)
+        box = QMessageBox(self.panel)  # qmessagebox-allowed: multi-button
+        box.setIcon(QMessageBox.Icon.Warning)  # qmessagebox-allowed: multi-button
         box.setWindowTitle(self._message("关闭手动会话", "Close manual session"))
         if state.session.state is ManualSessionState.UNKNOWN:
             box.setText(self._message(
@@ -2418,13 +2418,13 @@ class ManualQueryHost(QObject):
                 "此标签存在未提交事务。选择提交、回滚，或取消关闭并保留会话。",
                 "This tab has an uncommitted transaction. Commit, roll back, or cancel and keep the session open.",
             ))
-            commit = box.addButton(self._message("提交并关闭", "Commit and close"), QMessageBox.ButtonRole.AcceptRole)
+            commit = box.addButton(self._message("提交并关闭", "Commit and close"), QMessageBox.ButtonRole.AcceptRole)  # qmessagebox-allowed: multi-button
         rollback = box.addButton(
             self._message("确认回滚并关闭" if state.session.state is ManualSessionState.UNKNOWN else "回滚并关闭",
                           "Confirm rollback and close" if state.session.state is ManualSessionState.UNKNOWN else "Roll back and close"),
-            QMessageBox.ButtonRole.DestructiveRole,
+            QMessageBox.ButtonRole.DestructiveRole,  # qmessagebox-allowed: multi-button
         )
-        cancel = box.addButton(self._message("取消关闭", "Keep open"), QMessageBox.ButtonRole.RejectRole)
+        cancel = box.addButton(self._message("取消关闭", "Keep open"), QMessageBox.ButtonRole.RejectRole)  # qmessagebox-allowed: multi-button
         box.setDefaultButton(cancel)
         box.exec()
         clicked = box.clickedButton()
@@ -2541,20 +2541,19 @@ class ManualQueryHost(QObject):
             # Preflight is a read-only global decision seam. The model overlay
             # has not reached the owner or database, so only an explicit close,
             # commit, or rollback request may offer to discard it.
-            from PyQt6.QtWidgets import QMessageBox
+            from ui.confirm_dialog import confirm_action
 
             change_count = sum(state.table_model.staged_count for state in pending_table_states)
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self.panel,
                 self._message("关闭前处理本地变更", "Resolve local changes before closing"),
                 self._message(
                     f"有 {change_count} 项表格变更仍仅在本地，尚未发送到数据库。放弃这些本地变更并继续关闭？不会自动应用。",
                     f"{change_count} table change(s) remain local and have not been sent to the database. Discard them and continue closing? They will not be applied automatically.",
                 ),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                confirm_text="放弃",
+                danger=True,
+            ):
                 return ManualShutdownStatus.CANCELLED
             for state in pending_table_states:
                 state.table_model.discard_staged()

@@ -23,11 +23,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
 
+from ui.confirm_dialog import confirm_action
 from tools.data_center.result_export import (
     ExportError,
     ExportReceipt,
@@ -355,17 +355,16 @@ class ResultExportDialog(QDialog):
 
         overwrite = False
         if os.path.lexists(destination):
-            answer = QMessageBox.question(
+            if not confirm_action(
                 self,
                 self._tr("确认覆盖文件", "Confirm file replacement"),
                 self._tr(
                     "目标文件已存在。是否替换它？",
                     "The destination already exists. Replace it?",
                 ),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
+                confirm_text="覆盖",
+                danger=True,
+            ):
                 return
             overwrite = True
 

@@ -24,7 +24,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QTableView,
@@ -32,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.confirm_dialog import confirm_action, show_warning
 from tools.data_center.changeset import ChangePreview, ChangeSet, ChangeSetError
 from tools.data_center.changeset_dialects import create_changeset_dialect
 from tools.data_center.manual_session import ManualQueryPage
@@ -774,14 +774,14 @@ class TableEditorWidget(QWidget):
         try:
             values = dialog.values()
         except (ValueError, InvalidOperation, TypeError):
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "新增行" if self.language == "zh" else "Insert row",
                 "有字段值格式无效。" if self.language == "zh" else "One or more values have an invalid format.",
             )
             return
         if not self.model.stage_insert(values):
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "新增行" if self.language == "zh" else "Insert row",
                 "字段不满足已验证的主键或必填规则。" if self.language == "zh" else
@@ -802,14 +802,13 @@ class TableEditorWidget(QWidget):
         if self._shutdown_gated or self.model is None or not self.model.has_staged_changes:
             return
         zh = self.language == "zh"
-        answer = QMessageBox.question(
+        if confirm_action(
             self,
             "放弃本地变更" if zh else "Discard local changes",
             "放弃所有尚未应用的本地表格变更？" if zh else "Discard all local table changes that have not been applied?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
+            confirm_text="放弃",
+            danger=True,
+        ):
             self.model.discard_staged()
             self._update_status()
 

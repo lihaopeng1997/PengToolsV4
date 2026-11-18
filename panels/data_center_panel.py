@@ -7,7 +7,7 @@ import uuid
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QMessageBox
+from ui.confirm_dialog import confirm_action, show_info, show_warning
 from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -108,7 +108,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         try:
             self._transport_settings = dialog.payload()
         except Exception as error:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "连接传输" if self.language == "zh" else "Connection transport",
                 "SSH 端口无效。" if self.language == "zh" else str(getattr(error, "args", ["Invalid transport settings"])[0]),
@@ -137,7 +137,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
                 "TRANSPORT_SECRET_UNAVAILABLE": "无法安全保存传输口令。",
             }
             text = labels.get(code, "请检查连接配置。") if self.language == "zh" else code.replace("_", " ").title()
-            QMessageBox.warning(self, "保存连接" if self.language == "zh" else "Save", text)
+            show_warning(self, "保存连接" if self.language == "zh" else "Save", text)
             return
         super().accept()
 
@@ -168,7 +168,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         except Exception as error:
             code = str(getattr(error, "code", "") or getattr(error, "args", [""])[0])
             text = code.replace("_", " ").title() or ("连接配置无效" if self.language == "zh" else "Invalid connection settings")
-            QMessageBox.warning(self, "测试连接" if self.language == "zh" else "Test", text)
+            show_warning(self, "测试连接" if self.language == "zh" else "Test", text)
 
     def _start_transport_test_worker(
         self, action: str, *, challenge_id: str = "", accepted_fingerprint: str = ""
@@ -228,14 +228,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
                     if self.language == "zh" else
                     f"Host: {inspection.host}:{inspection.port}\nKey type: {inspection.key_type}\nSHA-256: {inspection.fingerprint}\n\nConfirm only after verifying this fingerprint through an independent channel. Authentication starts afterward."
                 )
-                answer = QMessageBox.question(
-                    self,
-                    title,
-                    prompt,
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if answer == QMessageBox.StandardButton.Yes:
+                if confirm_action(self, title, prompt, confirm_text='确认', danger=False):
                     self._start_transport_test_worker(
                         "confirm",
                         challenge_id=inspection.challenge_id,
@@ -244,7 +237,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
                 else:
                     self._transport_test_context = None
             elif state == "changed":
-                QMessageBox.warning(self, "SSH" if self.language == "zh" else "SSH", "SSH 主机密钥已变化，已阻止连接。" if self.language == "zh" else "The SSH host key changed; the connection was blocked.")
+                show_warning(self, "SSH" if self.language == "zh" else "SSH", "SSH 主机密钥已变化，已阻止连接。" if self.language == "zh" else "The SSH host key changed; the connection was blocked.")
                 self._transport_test_context = None
             else:
                 self._show_transport_test_failure(payload)
@@ -258,7 +251,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
                 self._transport_test_context = None
             return
         if state == "connected":
-            QMessageBox.information(self, "测试连接" if self.language == "zh" else "Test", "连接成功。" if self.language == "zh" else "Connection succeeded.")
+            show_info(self, "测试连接" if self.language == "zh" else "Test", "连接成功。" if self.language == "zh" else "Connection succeeded.")
         else:
             self._show_transport_test_failure(payload)
         self._transport_test_context = None
@@ -274,7 +267,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         }
         pair = messages.get(code, ("连接测试失败，请检查连接配置。", "Connection test failed. Check the connection settings."))
         text = pair[0] if self.language == "zh" else pair[1]
-        QMessageBox.warning(self, "测试连接" if self.language == "zh" else "Test", text)
+        show_warning(self, "测试连接" if self.language == "zh" else "Test", text)
 
     def _defer_close_for_transport_worker(self) -> bool:
         worker = self._transport_test_worker

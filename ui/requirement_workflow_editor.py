@@ -2,8 +2,9 @@
 from copy import deepcopy
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QComboBox, QPushButton, QDialogButtonBox, QMessageBox, QHeaderView,
+    QTableWidgetItem, QComboBox, QPushButton, QDialogButtonBox, QHeaderView,
     QListWidget, QListWidgetItem)
+from ui.confirm_dialog import confirm_action, show_warning
 from tools.requirement_workflow import (DEFAULT_ROWS, GROUPS, load_workflow, load_nodes,
     save_nodes, save_statuses, configured_statuses, nodes_from_rows)
 
@@ -151,7 +152,11 @@ class WorkflowEditor(QDialog):
         self.table.setCurrentCell(target, 0)
 
     def reset_defaults(self):
-        if QMessageBox.question(self, '恢复默认配置', '替换当前编辑内容为默认状态？点击保存后生效，已有需求不会被改写。') == QMessageBox.StandardButton.Yes:
+        if confirm_action(
+                self, '恢复默认配置',
+                '替换当前编辑内容为默认状态？点击保存后生效，已有需求不会被改写。',
+                confirm_text='替换', danger=True,
+        ):
             if self.status_mode:
                 self.fill(deepcopy(DEFAULT_ROWS))
             else:
@@ -172,7 +177,7 @@ class WorkflowEditor(QDialog):
             else:
                 save_nodes(rows)
         except (ValueError, OSError) as error:
-            QMessageBox.warning(self, '配置未保存', str(error))
+            show_warning(self, '配置未保存', str(error))
             return
         workflow_events.changed.emit()
         self.accept()

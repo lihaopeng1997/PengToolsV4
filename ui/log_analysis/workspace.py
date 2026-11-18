@@ -8,11 +8,12 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton,
     QComboBox, QLineEdit, QLabel, QCheckBox, QSpinBox, QSplitter, QPlainTextEdit,
-    QTableWidget, QTableWidgetItem, QAbstractItemView, QTabWidget, QTabBar, QMessageBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QTabWidget, QTabBar,
     QFileDialog, QApplication, QMenu, QScrollArea, QGroupBox, QHeaderView)
 
 from tools.log_analysis.service import LogService
 from tools.log_analysis.report import Store, report, stamp
+from ui.confirm_dialog import confirm_action
 from ui.text_actions import install_text_actions
 from ui.thinking_indicator import ThinkingIndicator
 from ui.splitter_prefs import install_splitter_prefs
@@ -601,10 +602,11 @@ class LogAnalysisWorkspace(QWidget):
             self.status.setText('当前任务不是本地缓存记录，无法删除；请先停止采集任务。')
             return
         name = str(snapshot.get('service') or snapshot.get('label') or ident)
-        if QMessageBox.question(
+        if not confirm_action(
                 self, '删除任务检查点',
-                f'删除「待恢复 · {name}」的本地检查点？\n只删除本机缓存文件，不删除远端日志。'
-        ) != QMessageBox.StandardButton.Yes:
+                f'删除「待恢复 · {name}」的本地检查点？\n只删除本机缓存文件，不删除远端日志。',
+                confirm_text='删除', danger=True,
+        ):
             return
         task = self.current_task()
         if task and task.thread and task.thread.is_alive() and self.service:
@@ -887,13 +889,19 @@ class LogAnalysisWorkspace(QWidget):
         snapshot = self.snapshots.get(self.selected_id)
         if not snapshot:
             return
-        if self.draft.toPlainText() and QMessageBox.question(self, '重新生成报告', '当前草稿可能包含人工编辑，是否替换？') != QMessageBox.StandardButton.Yes:
+        if self.draft.toPlainText() and not confirm_action(
+                self, '重新生成报告', '当前草稿可能包含人工编辑，是否替换？',
+                confirm_text='替换', danger=True,
+        ):
             return
         self.draft.setPlainText(report(snapshot, self.selected_events() or None))
         self.right_tabs.setCurrentIndex(1)
 
     def make_ai_report(self):
-        if self.draft.toPlainText() and QMessageBox.question(self, '生成AI报告', '完成后替换未再编辑的当前报告草稿？') != QMessageBox.StandardButton.Yes:
+        if self.draft.toPlainText() and not confirm_action(
+                self, '生成AI报告', '完成后替换未再编辑的当前报告草稿？',
+                confirm_text='替换', danger=True,
+        ):
             return
         self.report_baselines[self.selected_id] = self.draft.toPlainText()
         self.send(question='请先查看覆盖范围、异常和可用系统指标，生成Markdown排查报告：范围、事实、证据、原因假设、处理建议和缺口。不能声称未读取的范围已检查。', kind='report')
@@ -915,7 +923,11 @@ class LogAnalysisWorkspace(QWidget):
         if self.service and any(t.thread and t.thread.is_alive() for t in self.service.tasks.values()):
             self.status.setText('请先停止监控任务再清理缓存。')
             return
-        if QMessageBox.question(self, '清理日志缓存', f'删除 {self.store.root} 中的任务缓存？不删除远端日志或导出报告。') == QMessageBox.StandardButton.Yes:
+        if confirm_action(
+                self, '清理日志缓存',
+                f'删除 {self.store.root} 中的任务缓存？不删除远端日志或导出报告。',
+                confirm_text='删除', danger=True,
+        ):
             try:
                 if self.service:
                     self.service.close()

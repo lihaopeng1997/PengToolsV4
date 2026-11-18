@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -41,6 +40,7 @@ from tools.data_center.import_preview import (
 )
 from tools.data_center.import_session import ImportSessionError, ImportTargetCandidate
 from ui.data_center.import_controller import ImportController, ImportProgress
+from ui.confirm_dialog import confirm_action
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry
 
@@ -528,17 +528,16 @@ class ManualImportDialog(QDialog):
             self._refresh_actions(self.controller.progress())
 
     def _start_import(self) -> None:
-        answer = QMessageBox.question(
+        if not confirm_action(
             self,
             self._tr("确认导入", "Confirm import"),
             self._tr(
                 "将按当前映射追加文件中的行。导入不会自动提交；完成后仍需明确提交或回滚。",
                 "Append rows using the current mapping. The import will remain uncommitted until you explicitly commit or roll back.",
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+            confirm_text="开始导入",
+            danger=False,
+        ):
             return
         if self.controller.approve_and_start(user_approved=True):
             self.status_label.setText(self._tr(
@@ -693,36 +692,32 @@ class ManualImportDialog(QDialog):
             return
         progress = self.controller.progress()
         if progress.state == "READY_TO_COMMIT":
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle(self._tr("导入尚未提交", "Import is still uncommitted"))
-            box.setText(self._tr(
-                "选择回滚并关闭，或保留窗口继续处理事务。",
-                "Roll back and close, or keep the window open to decide the transaction.",
-            ))
-            rollback = box.addButton(self._tr("回滚并关闭", "Roll back and close"), QMessageBox.ButtonRole.DestructiveRole)
-            keep = box.addButton(self._tr("保持打开", "Keep open"), QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(keep)
-            box.exec()
-            if box.clickedButton() is rollback:
+            if confirm_action(
+                self,
+                self._tr("导入尚未提交", "Import is still uncommitted"),
+                self._tr(
+                    "选择回滚并关闭，或保留窗口继续处理事务。",
+                    "Roll back and close, or keep the window open to decide the transaction.",
+                ),
+                confirm_text="回滚并关闭",
+                danger=True,
+            ):
                 self.controller.request_close(action="rollback")
                 event.accept()
             else:
                 event.ignore()
             return
         if progress.state == "UNKNOWN":
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle(self._tr("事务结果未知", "Transaction outcome is unknown"))
-            box.setText(self._tr(
-                "导入结果不会自动重试。关闭窗口只确认已了解未知状态；资源仍由导入注册表跟踪。",
-                "The import will not be retried automatically. Closing acknowledges the unknown outcome; the registry continues tracking resources.",
-            ))
-            acknowledge = box.addButton(self._tr("确认并关闭", "Acknowledge and close"), QMessageBox.ButtonRole.DestructiveRole)
-            keep = box.addButton(self._tr("保持打开", "Keep open"), QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(keep)
-            box.exec()
-            if box.clickedButton() is acknowledge:
+            if confirm_action(
+                self,
+                self._tr("事务结果未知", "Transaction outcome is unknown"),
+                self._tr(
+                    "导入结果不会自动重试。关闭窗口只确认已了解未知状态；资源仍由导入注册表跟踪。",
+                    "The import will not be retried automatically. Closing acknowledges the unknown outcome; the registry continues tracking resources.",
+                ),
+                confirm_text="确认并关闭",
+                danger=True,
+            ):
                 self.controller.request_close(action="acknowledge")
                 event.accept()
             else:

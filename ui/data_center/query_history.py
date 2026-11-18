@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
@@ -32,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.confirm_dialog import confirm_action
 from tools.data_center.workspace_store import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -958,29 +958,27 @@ class QueryHistoryBrowser(QWidget):
         self.controller.set_favorite(record.history_id, not record.is_favorite)
 
     def _confirm_clear_history(self) -> None:
-        answer = QMessageBox.question(
+        if confirm_action(
             self,
             self._tr("清除历史", "Clear history"),
             self._tr(
                 "清除所有普通历史记录？收藏会保留。",
                 "Clear ordinary history records? Favorites will be kept.",
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
+            confirm_text="清除",
+            danger=True,
+        ):
             self.status_label.setText(self._tr("正在清除普通历史…", "Clearing ordinary history…"))
             self.controller.clear_history(confirmed=True)
 
     def _confirm_clear_all(self) -> None:
-        answer = QMessageBox.question(
+        if confirm_action(
             self,
             self._tr("清除历史和收藏", "Clear history and favorites"),
             self._tr("这会同时删除普通历史和所有收藏，是否继续？", "This also deletes every favorite. Continue?"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
+            confirm_text="清除",
+            danger=True,
+        ):
             self.status_label.setText(self._tr("正在清除历史和收藏…", "Clearing history and favorites…"))
             self.controller.clear_all_history(confirmed=True)
 
