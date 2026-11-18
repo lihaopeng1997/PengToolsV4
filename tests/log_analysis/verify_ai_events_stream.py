@@ -1,4 +1,5 @@
 """Fake SSE streaming and the shared AI event contract. No network."""
+import http.client
 import json
 import os
 import random
@@ -18,6 +19,7 @@ QApplication([])
 from tools.ai_events import ReasoningBuffer, phase_label, tool_label
 from tools.app_logging import current_log_dir, get_logger, setup_logging
 from tools.intranet_llm import (
+    IntranetLlmError,
     StreamIdleTimeout,
     _completion_text,
     _decode_anthropic_body,
@@ -236,6 +238,77 @@ finally:
     llm._open_http = original_open
 check('解析异常回退后与非流式一致', broken == expected and broken_calls == [True, False], str((broken, broken_calls)))
 check('anthropic 直接走非流式且结果一致', anth == anth_expected == '同一结果' and anth_calls == [False], str((anth, anth_calls)))
+
+print('--- 流中断 ---')
+partial_sse = (
+    _sse({'choices': [{'delta': {'reasoning_content': THINK}}]})
+    + _sse({'choices': [{'delta': {'content': '可见一半'}}]})
+).encode('utf-8')
+
+
+class _Then:
+    def __init__(self, parts, exc=None):
+        self.parts = list(parts)
+        self.exc = exc
+        self.status = 200
+
+    def read(self, n=-1):
+        if self.parts:
+            return self.parts.pop(0)
+        if self.exc is not None:
+            raise self.exc
+        return b''
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _interrupt(parts, exc=None):
+    seen = []
+
+    def _open(body):
+        seen.append(bool(body.get('stream')))
+        if body.get('stream'):
+            return _Then(parts, exc)
+        return _Resp(fallback_body)
+
+    original = _install_open(_open)
+    try:
+        try:
+            result = chat_completions([{'role': 'user', 'content': 'hi'}], cfg=_cfg())
+        except IntranetLlmError as err:
+            return 'error', seen, err
+        return 'ok', seen, result
+    finally:
+        llm._open_http = original
+
+
+kind, seen, value = _interrupt([], ConnectionResetError())
+check('无正文连接重置走回退', kind == 'ok' and value == expected and seen == [True, False], str((kind, seen)))
+kind, seen, value = _interrupt([], http.client.IncompleteRead(b''))
+check('无正文 IncompleteRead 走回退', kind == 'ok' and value == expected and seen == [True, False], str((kind, seen)))
+
+
+def _incomplete(parts, exc=None):
+    kind, seen, err = _interrupt(parts, exc)
+    message = '' if kind == 'ok' else str(err)
+    return (
+        kind == 'error'
+        and seen == [True]
+        and type(err) is IntranetLlmError
+        and '回答不完整' in message
+        and THINK not in message
+        and 'http://' not in message
+        and 'https://' not in message
+    )
+
+
+check('有正文后连接重置不回退', _incomplete([partial_sse], ConnectionResetError()))
+check('有正文后空闲超时不回退', _incomplete([partial_sse], TimeoutError()))
+check('有正文后解析异常不回退', _incomplete([partial_sse, b'data: {bad\n\n']))
 
 print('--- 标签与上限 ---')
 rng = random.Random(7)

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import math
@@ -852,6 +853,13 @@ class StreamIdleTimeout(_StreamFallback):
     """No bytes arrived within the idle gap. This is not a total-duration limit."""
 
 
+class StreamInterrupted(_StreamFallback):
+    """The read side closed or broke before the stream ended normally."""
+
+
+_INCOMPLETE_STREAM = '流式响应中断，回答不完整'
+
+
 class _ThinkSplitter:
     """Pull ``<think>`` out of text deltas. Visible text never keeps the tags."""
 
@@ -959,6 +967,20 @@ def consume_openai_sse(chunks, on_delta=None) -> str:
                 texts.append(part)
             _emit_delta(on_delta, part_kind, part)
 
+    def _stop(exc: BaseException) -> None:
+        for part_kind, part in splitter.finish():
+            if part_kind == 'text':
+                texts.append(part)
+            _emit_delta(on_delta, part_kind, part)
+        # Visible text already delivered must not be retried; a second request
+        # would bill the same answer again. The message stays fixed so thinking,
+        # URLs and secrets cannot leak out of the failure.
+        if ''.join(texts).strip():
+            raise IntranetLlmError(_INCOMPLETE_STREAM) from None
+        if isinstance(exc, _StreamFallback):
+            raise exc from None
+        raise _StreamFallback('parse') from None
+
     try:
         for chunk in chunks:
             if not chunk:
@@ -971,16 +993,8 @@ def consume_openai_sse(chunks, on_delta=None) -> str:
             if part_kind == 'text':
                 texts.append(part)
             _emit_delta(on_delta, part_kind, part)
-    except StreamIdleTimeout:
-        for part_kind, part in splitter.finish():
-            if part_kind == 'text':
-                texts.append(part)
-            _emit_delta(on_delta, part_kind, part)
-        if not texts:
-            raise
-    except StreamingError as exc:
-        if not texts:
-            raise _StreamFallback('parse') from exc
+    except (StreamIdleTimeout, StreamInterrupted, StreamingError) as exc:
+        _stop(exc)
     if not saw_sse:
         raise _StreamFallback('not-sse')
     return ''.join(texts).strip()
@@ -1116,16 +1130,22 @@ def _finish_stream(cfg: dict, body: dict, on_delta=None) -> str:
         def read_chunk():
             try:
                 return resp.read(8192) or b''
-            except (TimeoutError, socket.timeout) as exc:
-                raise StreamIdleTimeout('流式响应空闲超时') from exc
+            except (TimeoutError, socket.timeout):
+                raise StreamIdleTimeout('流式响应空闲超时') from None
+            except (http.client.IncompleteRead, http.client.HTTPException, OSError):
+                raise StreamInterrupted('流式响应中断') from None
 
         try:
             text = consume_openai_sse(
                 iter_idle_chunks(read_chunk, idle_seconds=timeout),
                 on_delta=on_delta,
             )
-        except StreamIdleTimeout as exc:
-            raise _StreamFallback('idle') from exc
+        except IntranetLlmError:
+            raise
+        except _StreamFallback:
+            raise
+        except Exception:
+            raise StreamInterrupted('流式响应中断') from None
     if not text:
         raise _StreamFallback('empty')
     return text
@@ -1223,7 +1243,11 @@ def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None
         return _completion_from_request(cfg, body)
     try:
         return _finish_stream(cfg, body, on_delta=on_delta)
-    except (_StreamFallback, IntranetLlmError):
+    except IntranetLlmError as exc:
+        if _INCOMPLETE_STREAM in str(exc):
+            raise
+        return _completion_from_request(cfg, body)
+    except _StreamFallback:
         return _completion_from_request(cfg, body)
 
 
