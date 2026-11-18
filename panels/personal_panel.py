@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
     QInputDialog, QLineEdit, QHeaderView,
-    QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QTabBar, QTableView, QTableWidget, QTableWidgetItem, QTextEdit,
     QTimeEdit, QVBoxLayout, QWidget,
 )
 
@@ -26,12 +26,13 @@ from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
 from ui.motion import play_dialog_enter
 from ui.splitter_prefs import install_splitter_prefs
+from ui.table_utils import autofit_columns
 from tools.personal_knowledge import (
     CATEGORIES, entry_fingerprint, export_word_entry, export_workbook_entry,
     extract_document_entries, extract_document_text, extract_workbook_entries,
     load_custom_entries, load_seed_entries, merge_knowledge_entries,
-    organize_content, save_custom_entries,
-    search_entries,
+    masked_workbook_rows, organize_content, save_custom_entries,
+    search_entries, workbook_group, WORKBOOK_MASK,
 )
 from tools.requirements import daily_template
 
@@ -145,6 +146,73 @@ class KnowledgeEditDialog(QDialog):
         }
 
 
+class _WorkbookTable(QTableWidget):
+    """Display row 1 in the header and pin column A over the scrolling body."""
+
+    def __init__(self):
+        super().__init__()
+        self.frozen = QTableView(self)
+        self.frozen.setModel(self.model())
+        self.frozen.setSelectionModel(self.selectionModel())
+        self.frozen.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.frozen.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.frozen.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.frozen.setAlternatingRowColors(True)
+        self.frozen.setWordWrap(False)
+        self.frozen.setFrameShape(QFrame.Shape.NoFrame)
+        self.frozen.verticalHeader().hide()
+        self.frozen.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.frozen.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        for view in (self, self.frozen):
+            view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.frozen.doubleClicked.connect(lambda index: self.cellDoubleClicked.emit(index.row(), index.column()))
+        self.frozen.horizontalHeader().setSectionsClickable(True)
+        self.frozen.horizontalHeader().sectionClicked.connect(self.horizontalHeader().sectionClicked.emit)
+        self.frozen.horizontalHeader().sectionDoubleClicked.connect(self.horizontalHeader().sectionDoubleClicked.emit)
+        self.frozen.horizontalHeader().sectionResized.connect(self._sync_first_column_width)
+        self.horizontalScrollBar().valueChanged.connect(self.sync_frozen_geometry)
+        self.verticalScrollBar().valueChanged.connect(self.frozen.verticalScrollBar().setValue)
+        self.frozen.verticalScrollBar().valueChanged.connect(self.verticalScrollBar().setValue)
+        self.horizontalHeader().sectionResized.connect(self.sync_frozen_geometry)
+        self.horizontalHeader().geometriesChanged.connect(self.sync_frozen_geometry)
+        self.verticalHeader().sectionMoved.connect(self._sync_row_order)
+        self.verticalHeader().sectionResized.connect(self._sync_row_height)
+        self.viewport().stackUnder(self.frozen)
+        self.frozen.hide()
+
+    def _sync_first_column_width(self, column, _old, width):
+        if column == 0 and width > 0 and not self.isColumnHidden(0) and width != self.columnWidth(0):
+            self.setColumnWidth(0, width)
+
+    def _sync_row_order(self, row, _old, position):
+        header = self.frozen.verticalHeader()
+        if 0 <= header.visualIndex(row) < header.count():
+            header.moveSection(header.visualIndex(row), position)
+
+    def _sync_row_height(self, row, _old, height):
+        self.frozen.setRowHidden(row, self.isRowHidden(row))
+        if height:
+            self.frozen.setRowHeight(row, height)
+
+    def sync_frozen_geometry(self, *_args):
+        enabled = bool(self.columnCount() and not self.isColumnHidden(0))
+        self.frozen.setVisible(enabled)
+        if enabled:
+            rect = self.viewport().geometry()
+            scrolled = self.horizontalScrollBar().value() > 0
+            height = self.horizontalHeader().height() if scrolled else 0
+            self.frozen.horizontalHeader().setVisible(scrolled)
+            self.frozen.horizontalHeader().setFixedHeight(height)
+            self.frozen.setColumnWidth(0, self.columnWidth(0))
+            self.frozen.setGeometry(rect.x(), rect.y() - height,
+                                    min(rect.width(), self.columnWidth(0)), rect.height() + height)
+            self.frozen.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.sync_frozen_geometry()
+
+
 class KnowledgeTab(QWidget):
     def __init__(self, language='zh'):
         super().__init__()
@@ -156,6 +224,9 @@ class KnowledgeTab(QWidget):
         self._hidden_rows = {}
         self._hidden_columns = {}
         self._highlighted_cells = []
+        self._workbook_rows = []
+        self._sheet_entries = []
+        self._sort_by_sheet = {}
         self._setup_ui()
         self.set_language(language)
         self._refresh()
@@ -273,16 +344,32 @@ class KnowledgeTab(QWidget):
         table_page = QWidget()
         table_layout = QVBoxLayout(table_page)
         table_layout.setContentsMargins(0, 0, 0, 0)
+        self.sheet_tabs = QTabBar()
+        self.sheet_tabs.currentChanged.connect(self._choose_sheet)
+        table_layout.addWidget(self.sheet_tabs)
+        filter_row = QHBoxLayout()
+        self.filter_column = QComboBox()
+        self.filter_column.currentIndexChanged.connect(self._apply_sheet_filter)
+        self.sheet_filter = QLineEdit()
+        self.sheet_filter.setPlaceholderText('筛选当前工作表')
+        self.sheet_filter.setClearButtonEnabled(True)
+        self.sheet_filter.textChanged.connect(self._apply_sheet_filter)
+        filter_row.addWidget(self.filter_column)
+        filter_row.addWidget(self.sheet_filter, 1)
+        table_layout.addLayout(filter_row)
         self.table_status = QLabel()
         self.table_status.setObjectName('small-label')
         table_layout.addWidget(self.table_status)
-        self.table_view = QTableWidget()
+        self.table_view = _WorkbookTable()
         self.table_view.setObjectName('private-workbook-table')
         self.table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setWordWrap(False)
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table_view.horizontalHeader().setSectionsClickable(True)
+        self.table_view.horizontalHeader().sectionClicked.connect(self._sort_sheet)
+        self.table_view.horizontalHeader().sectionDoubleClicked.connect(lambda column: self._open_table_cell(0, column))
         try:
             from ui.design_system import apply_list_header
             apply_list_header(self.table_view.horizontalHeader())
@@ -291,7 +378,9 @@ class KnowledgeTab(QWidget):
         self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table_view.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_view.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.table_view.cellDoubleClicked.connect(self._copy_table_cell)
+        self._table_autofit = autofit_columns(self.table_view)
+        self._table_autofit.watch_header(self.table_view.frozen.horizontalHeader())
+        self.table_view.cellDoubleClicked.connect(self._open_table_cell)
         table_layout.addWidget(self.table_view, 1)
         table_copy_actions = QHBoxLayout()
         # 复制 / 导出 合并为下拉，避免一排重复动作
@@ -308,6 +397,10 @@ class KnowledgeTab(QWidget):
         table_copy_actions.addWidget(self.copy_menu_btn)
         self.edit_cell_btn = QPushButton('修改单元格'); self.edit_cell_btn.clicked.connect(self._edit_table_cell)
         table_copy_actions.addWidget(self.edit_cell_btn)
+        reveal_button = QPushButton('查看敏感单元格')
+        reveal_button.clicked.connect(lambda: self._open_table_cell(
+            self.table_view.currentRow(), self.table_view.currentColumn(), sensitive_only=True))
+        table_copy_actions.addWidget(reveal_button)
         table_copy_actions.addStretch()
         table_layout.addLayout(table_copy_actions)
         table_view_actions = QHBoxLayout()
@@ -460,7 +553,7 @@ class KnowledgeTab(QWidget):
                     self._suggestion_targets[label] = (entry.get('id'), None)
             else:
                 from tools.personal_knowledge import row_matches_query
-                for row_index, row in enumerate(entry.get('rows', [])):
+                for row_index, row in enumerate(masked_workbook_rows(entry)):
                     if not row_matches_query(row, query):
                         continue
                     row_text = '  '.join(str(value) for value in row if str(value).strip())
@@ -562,7 +655,12 @@ class KnowledgeTab(QWidget):
             self._show_entry(None)
 
     def _show_entry(self, current, _previous=None):
-        self._current = current.data(Qt.ItemDataRole.UserRole) if current else None
+        entry = current.data(Qt.ItemDataRole.UserRole) if current else None
+        self._show_entry_detail(entry)
+
+    def _show_entry_detail(self, entry):
+        same_sheet = entry and self._current and entry.get('id') == self._current.get('id')
+        self._current = entry
         if not self._current:
             self.title_label.setText('没有匹配内容')
             self.category_badge.clear()
@@ -570,6 +668,9 @@ class KnowledgeTab(QWidget):
             self.meta_label.clear()
             self.content_view.clear()
             self.table_view.clear()
+            self.table_view.setColumnCount(0)
+            self.table_view.sync_frozen_geometry()
+            self.sheet_tabs.hide()
             self.table_status.clear()
             self.copy_btn.setEnabled(False)
             self.edit_btn.hide()
@@ -593,6 +694,14 @@ class KnowledgeTab(QWidget):
         sheet_meta = f"  ·  工作表：{entry.get('sheet_name')}" if is_table else ''
         self.meta_label.setText(f"{source_kind}  ·  来源：{entry.get('source', '手工新增')}{sheet_meta}  ·  {entry.get('updated_at', '')}")
         if is_table:
+            self._load_sheet_tabs(entry)
+            if not same_sheet:
+                self.sheet_filter.blockSignals(True)
+                self.sheet_filter.clear()
+                self.sheet_filter.blockSignals(False)
+                self.filter_column.blockSignals(True)
+                self.filter_column.setCurrentIndex(0)
+                self.filter_column.blockSignals(False)
             self._show_workbook(entry)
             self.content_stack.setCurrentIndex(1)
             self.copy_btn.setText('复制表格')
@@ -614,6 +723,36 @@ class KnowledgeTab(QWidget):
         self.update_btn.setVisible(True)
         self.delete_btn.setVisible(not entry.get('builtin'))
         self.delete_btn.setText('恢复内置原版' if entry.get('builtin_source') else '删除')
+
+    def _load_sheet_tabs(self, entry):
+        self._sheet_entries = [candidate for candidate in self.all_entries()
+                               if candidate.get('content_type') == 'workbook_sheet'
+                               and workbook_group(candidate) == workbook_group(entry)]
+        if not self._sheet_entries:
+            self._sheet_entries = [entry]
+        self.sheet_tabs.blockSignals(True)
+        while self.sheet_tabs.count():
+            self.sheet_tabs.removeTab(0)
+        for index, sheet in enumerate(self._sheet_entries):
+            self.sheet_tabs.addTab(sheet.get('sheet_name') or 'Sheet')
+            if sheet.get('id') == entry.get('id'):
+                self.sheet_tabs.setCurrentIndex(index)
+        self.sheet_tabs.setVisible(len(self._sheet_entries) > 1)
+        self.sheet_tabs.blockSignals(False)
+
+    def _choose_sheet(self, index):
+        if not 0 <= index < len(self._sheet_entries):
+            return
+        entry = self._sheet_entries[index]
+        for row in range(self.entry_list.count()):
+            item = self.entry_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole).get('id') == entry.get('id'):
+                self.entry_list.setCurrentItem(item)
+                return
+        self.entry_list.blockSignals(True)
+        self.entry_list.setCurrentRow(-1)
+        self.entry_list.blockSignals(False)
+        self._show_entry_detail(entry)
 
     def _highlight_entry_content(self, entry):
         """详情区：按当前搜索词高亮并滚动到首个命中。"""
@@ -645,7 +784,7 @@ class KnowledgeTab(QWidget):
         return result
 
     def _show_workbook(self, entry):
-        rows = entry.get('rows', [])
+        rows = self._workbook_rows = masked_workbook_rows(entry)
         column_count = entry.get('column_count') or max((len(row) for row in rows), default=0)
         # clear() 会销毁单元格；不得保留上一轮高亮中的 QTableWidgetItem 引用。
         self._highlighted_cells = []
@@ -653,7 +792,20 @@ class KnowledgeTab(QWidget):
         self.table_view.clear()
         self.table_view.setRowCount(len(rows))
         self.table_view.setColumnCount(column_count)
-        self.table_view.setHorizontalHeaderLabels([self._column_name(index) for index in range(column_count)])
+        self.filter_column.blockSignals(True)
+        previous_column = self.filter_column.currentIndex()
+        self.filter_column.clear()
+        self.filter_column.addItem('全部列', -1)
+        labels = []
+        for column in range(column_count):
+            letter = self._column_name(column)
+            value = rows[0][column] if rows and column < len(rows[0]) else ''
+            label = f'{letter} · {value}' if value else letter
+            labels.append(label)
+            self.filter_column.addItem(label, column)
+        self.filter_column.setCurrentIndex(max(0, min(previous_column, column_count)))
+        self.filter_column.blockSignals(False)
+        self.table_view.setHorizontalHeaderLabels(labels)
         self.table_view.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
         from tools.personal_knowledge import workbook_context_header_rows
         header_rows = workbook_context_header_rows(entry)
@@ -676,11 +828,14 @@ class KnowledgeTab(QWidget):
                         item.setBackground(QColor('#E8EEFF'))
                 item.setToolTip(str(value))
                 self.table_view.setItem(row_index, column_index, item)
-        for index, width in enumerate(entry.get('column_widths', [])):
-            self.table_view.setColumnWidth(index, min(max(int(float(width) * 7 + 12), 48), 420))
-            self.table_view.setColumnHidden(index, index in self._hidden_columns.get(entry.get('id'), set()))
+        for column in range(column_count):
+            self.table_view.setColumnHidden(column, column in self._hidden_columns.get(entry.get('id'), set()))
+            self.table_view.frozen.setColumnHidden(column, column != 0)
+        self._table_autofit.configure({}, scope=entry.get('id'))
+        self._apply_sheet_order()
         self.table_view.setUpdatesEnabled(True)
         self._filter_workbook_rows(entry)
+        self.table_view.sync_frozen_geometry()
 
     def refresh_theme(self):
         """重新绘制当前资料的主题相关刷色与搜索高亮。"""
@@ -689,32 +844,75 @@ class KnowledgeTab(QWidget):
             return
         if entry.get('content_type') == 'workbook_sheet':
             self._show_workbook(entry)
-            self._filter_workbook_rows(entry)
         else:
             self._highlight_entry_content(entry)
+
+    def _sort_sheet(self, column):
+        key = self._current.get('id')
+        previous, descending = self._sort_by_sheet.get(key, (-1, False))
+        self._sort_by_sheet[key] = (column, not descending if previous == column else False)
+        self._apply_sheet_order()
+
+    def _apply_sheet_order(self):
+        header = self.table_view.verticalHeader()
+        sort_header = self.table_view.horizontalHeader()
+        column, descending = self._sort_by_sheet.get(self._current.get('id'), (-1, False))
+        order = list(range(1, len(self._workbook_rows)))
+        sort_header.setSortIndicatorShown(0 <= column < self.table_view.columnCount())
+        frozen_header = self.table_view.frozen.horizontalHeader()
+        frozen_header.setSortIndicatorShown(column == 0)
+        if 0 <= column < self.table_view.columnCount():
+            direction = Qt.SortOrder.DescendingOrder if descending else Qt.SortOrder.AscendingOrder
+            sort_header.setSortIndicator(column, direction)
+            frozen_header.setSortIndicator(column, direction)
+            def sort_key(row):
+                values = self._workbook_rows[row]
+                value = values[column] if column < len(values) else ''
+                try:
+                    number = float(value)
+                except ValueError:
+                    return 1, value.casefold()
+                if float('-inf') < number < float('inf'):
+                    return 0, number
+                return 1, value.casefold()
+            order.sort(key=sort_key, reverse=descending)
+        for position, row in enumerate([0, *order] if self._workbook_rows else []):
+            visual = header.visualIndex(row)
+            if visual != position:
+                header.moveSection(visual, position)
+
+    def _apply_sheet_filter(self, *_args):
+        if self._current and self._current.get('content_type') == 'workbook_sheet':
+            self._filter_workbook_rows(self._current)
 
     def _filter_workbook_rows(self, entry):
         from tools.personal_knowledge import workbook_visible_row_indexes
         for item, background in self._highlighted_cells:
             item.setBackground(background)
         self._highlighted_cells = []
-        rows = entry.get('rows', [])
+        rows = self._workbook_rows
         query = self._sanitize_search_query(self.search_edit.text()) if hasattr(self, 'search_edit') else ''
-        visible = workbook_visible_row_indexes(entry, query)
+        visible = workbook_visible_row_indexes(entry, query, display_rows=rows)
         visible_set = None if visible is None else set(visible)
         manually_hidden = self._hidden_rows.get(entry.get('id'), set())
+        filter_text = self.sheet_filter.text().strip().casefold()
+        filter_column = self.filter_column.currentData()
+        shown = 0
         terms = [term.casefold() for term in query.split() if term.strip()]
-        matches = 0
         first_match = None
         for row_index, row in enumerate(rows):
-            row_visible = visible_set is None or row_index in visible_set
-            self.table_view.setRowHidden(row_index, row_index in manually_hidden or not row_visible)
+            cells = row if filter_column in (-1, None) else row[filter_column:filter_column + 1]
+            row_visible = (row_index != 0 and row_index not in manually_hidden
+                           and (visible_set is None or row_index in visible_set)
+                           and (not filter_text or any(filter_text in cell.casefold() for cell in cells)))
+            self.table_view.setRowHidden(row_index, not row_visible)
+            self.table_view.frozen.setRowHidden(row_index, not row_visible)
+            shown += bool(row_visible)
             if not terms or not row_visible:
                 continue
             row_text = ' '.join(str(value) for value in row).casefold()
             if not any(term in row_text for term in terms):
                 continue
-            matches += 1
             for column_index in range(min(len(row), self.table_view.columnCount())):
                 item = self.table_view.item(row_index, column_index)
                 if item and any(term in item.text().casefold() for term in terms):
@@ -729,16 +927,41 @@ class KnowledgeTab(QWidget):
             self.table_view.setCurrentItem(first_match)
             self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
             self.table_view.clearSelection()
-        if terms:
-            shown = len(rows) if visible is None else matches
-            self.table_status.setText(f'匹配 {shown} / 总计 {len(rows)} 行；只显示命中行和表头')
-        else:
-            self.table_status.setText(f'Excel 视图：{len(rows)} 行 × {entry.get("column_count", 0)} 列；双击单元格可复制')
+        self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击查看敏感单元格，点击表头排序')
+        self._table_autofit.schedule()
+
+    def _open_table_cell(self, row, column, *, sensitive_only=False):
+        if row < 0 or column < 0:
+            return
+        if self._projected_cell(row, column) != WORKBOOK_MASK:
+            if not sensitive_only:
+                self._copy_table_cell(row, column)
+            return
+        values = self._current['rows'][row]
+        if column >= len(values):
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle('查看敏感单元格')
+        layout = QVBoxLayout(dialog)
+        label = QLabel(str(values[column]))
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+        label.clear()
+        dialog.deleteLater()
 
     def _copy_table_cell(self, row, column):
-        item = self.table_view.item(row, column)
-        if item:
-            QApplication.clipboard().setText(item.text())
+        if 0 <= row < len(self._workbook_rows) and 0 <= column < self.table_view.columnCount():
+            QApplication.clipboard().setText(self._projected_cell(row, column))
+
+    def _projected_cell(self, row, column):
+        if 0 <= row < len(self._workbook_rows) and 0 <= column < len(self._workbook_rows[row]):
+            return self._workbook_rows[row][column]
+        return ''
 
     def _copy_table_cell_action(self):
         row = self.table_view.currentRow()
@@ -749,14 +972,8 @@ class KnowledgeTab(QWidget):
         self._copy_table_cell(row, column)
 
     def _table_text(self, row_indexes, column_indexes):
-        lines = []
-        for row in row_indexes:
-            values = []
-            for column in column_indexes:
-                item = self.table_view.item(row, column)
-                values.append(item.text() if item else '')
-            lines.append('\t'.join(values))
-        return '\n'.join(lines)
+        return '\n'.join('\t'.join(self._projected_cell(row, column) for column in column_indexes)
+                         for row in row_indexes)
 
     def _copy_current_row(self):
         row = self.table_view.currentRow()
@@ -766,12 +983,19 @@ class KnowledgeTab(QWidget):
         QApplication.clipboard().setText(self._table_text([row], range(self.table_view.columnCount())))
 
     def _copy_visible_table(self):
-        rows = [row for row in range(self.table_view.rowCount()) if not self.table_view.isRowHidden(row)]
+        rows = self._visible_source_rows()
         columns = [column for column in range(self.table_view.columnCount()) if not self.table_view.isColumnHidden(column)]
         QApplication.clipboard().setText(self._table_text(rows, columns))
 
     def _copy_all_table(self):
-        QApplication.clipboard().setText(self._table_text(range(self.table_view.rowCount()), range(self.table_view.columnCount())))
+        header = self.table_view.verticalHeader()
+        rows = [header.logicalIndex(index) for index in range(header.count())]
+        QApplication.clipboard().setText(self._table_text(rows, range(self.table_view.columnCount())))
+
+    def _visible_source_rows(self):
+        header = self.table_view.verticalHeader()
+        rows = [header.logicalIndex(index) for index in range(header.count())]
+        return [row for row in rows if row == 0 or not self.table_view.isRowHidden(row)]
 
     def _hide_selected_rows(self):
         if not self._current:
@@ -788,6 +1012,8 @@ class KnowledgeTab(QWidget):
         column = self.table_view.currentColumn()
         self._hidden_columns.setdefault(self._current.get('id'), set()).add(column)
         self.table_view.setColumnHidden(column, True)
+        self.table_view.sync_frozen_geometry()
+        self._table_autofit.schedule()
 
     def _restore_hidden_table(self):
         if not self._current:
@@ -797,26 +1023,24 @@ class KnowledgeTab(QWidget):
         for column in range(self.table_view.columnCount()):
             self.table_view.setColumnHidden(column, False)
         self._filter_workbook_rows(self._current)
+        self.table_view.sync_frozen_geometry()
 
     def _edit_table_cell(self):
         if not self._current or self.table_view.currentRow() < 0 or self.table_view.currentColumn() < 0:
             show_info(self, '修改单元格', '请先选择要修改的单元格。')
             return
         row, column = self.table_view.currentRow(), self.table_view.currentColumn()
-        item = self.table_view.item(row, column)
-        old_value = item.text() if item else ''
+        old_value = self._projected_cell(row, column)
+        if old_value == WORKBOOK_MASK:
+            old_value = ''
         value, accepted = QInputDialog.getMultiLineText(self, '修改单元格', f'{self._column_name(column)}{row + 1}：', old_value)
         if not accepted:
             return
-        if item is None:
-            item = QTableWidgetItem(); self.table_view.setItem(row, column, item)
-        item.setText(value); item.setToolTip(value)
         updated = copy.deepcopy(self._current)
-        updated['rows'] = [
-            [self.table_view.item(r, c).text() if self.table_view.item(r, c) else '' for c in range(self.table_view.columnCount())]
-            for r in range(self.table_view.rowCount())
-        ]
-        self._persist_updated_entry(updated)
+        source_row = updated['rows'][row]
+        source_row.extend([''] * max(0, column + 1 - len(source_row)))
+        source_row[column] = value
+        self._persist_updated_entry(updated, reload_detail=True)
 
     def _export_table(self, visible_only):
         if not self._current:
@@ -831,7 +1055,7 @@ class KnowledgeTab(QWidget):
         remember_dialog_path('personal_table_export', path)
         if not path.lower().endswith('.xlsx'):
             path += '.xlsx'
-        rows = [row for row in range(self.table_view.rowCount()) if not self.table_view.isRowHidden(row)] if visible_only else None
+        rows = self._visible_source_rows() if visible_only else None
         columns = [column for column in range(self.table_view.columnCount()) if not self.table_view.isColumnHidden(column)] if visible_only else None
         try:
             export_workbook_entry(self._current, path, rows, columns)
@@ -969,7 +1193,7 @@ class KnowledgeTab(QWidget):
         entry.update(values)
         self._append_entries([entry])
 
-    def _persist_updated_entry(self, updated):
+    def _persist_updated_entry(self, updated, *, reload_detail=False):
         updated = copy.deepcopy(updated)
         was_builtin = bool(updated.get('builtin') or updated.get('builtin_source'))
         if updated.get('builtin'):
@@ -989,6 +1213,8 @@ class KnowledgeTab(QWidget):
         from tools.personal_knowledge import update_entry_index
         update_entry_index(updated)
         self._refresh()
+        if reload_detail and self._current and self._current.get('id') == updated.get('id'):
+            self._show_entry_detail(updated)
 
     def _edit_entry(self):
         if not self._current:
@@ -1050,7 +1276,11 @@ class KnowledgeTab(QWidget):
         replacement['base_seed_id'] = self._current.get('base_seed_id')
         replacement['builtin'] = self._current.get('builtin', False)
         replacement['builtin_source'] = self._current.get('builtin_source', False)
-        self._persist_updated_entry(replacement)
+        if is_table:
+            for field in ('source', 'created_at'):
+                if field in self._current:
+                    replacement[field] = self._current[field]
+        self._persist_updated_entry(replacement, reload_detail=is_table)
         show_success(self, '更新资料', '当前资料已经更新并保存到本机。')
 
     def _delete_entry(self):
@@ -1075,7 +1305,8 @@ class KnowledgeTab(QWidget):
     def _copy_entry(self):
         if self._current:
             if self._current.get('content_type') == 'workbook_sheet':
-                content = '\n'.join('\t'.join(map(str, row)) for row in self._current.get('rows', []))
+                self._copy_all_table()
+                return
             else:
                 content = self._current.get('content', '')
             QApplication.clipboard().setText(content)

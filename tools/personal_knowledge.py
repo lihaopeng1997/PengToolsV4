@@ -41,6 +41,38 @@ CATEGORY_KEYWORDS = {
 SENSITIVE_PATTERN = re.compile(
     r'(?i)密码|password|passwd|pwd|vpn|堡垒机|jdbc:oracle|username|用户名|账号'
 )
+WORKBOOK_MASK = '••••••'
+_SENSITIVE_COLUMN = re.compile(
+    r'(?i)token|secret|authorization|api[\s_-]*key|private[\s_-]*key|credential|jwt|口令|令牌|密钥|凭证'
+)
+
+
+def masked_workbook_rows(entry):
+    """Project stored rows for display, search and clipboard."""
+    rows = entry.get('rows') or []
+    headers = set(entry.get('header_rows') or [])
+    first = next((index for index, row in enumerate(rows) if any(row)), None)
+    if first is not None:
+        headers.add(first)
+    columns = {
+        column
+        for index, row in enumerate(rows) if index in headers
+        for column, value in enumerate(row)
+        if SENSITIVE_PATTERN.search(_cell_text(value)) or _SENSITIVE_COLUMN.search(_cell_text(value))
+    }
+    return [
+        [WORKBOOK_MASK if text and (column in columns or SENSITIVE_PATTERN.search(text))
+         else text for column, text in enumerate(map(_cell_text, row))]
+        for row in rows
+    ]
+
+
+def workbook_group(entry):
+    """Legacy sheets from one import share their source and creation timestamp."""
+    source, created = entry.get('source'), entry.get('created_at')
+    if not source or not created:
+        return (entry.get('id'),)
+    return source, created, bool(entry.get('builtin') or entry.get('builtin_source'))
 
 
 def _resource_path(filename):
@@ -557,7 +589,7 @@ def entry_matches_query(entry: dict, query: str) -> bool:
     if entry.get('content_type') == 'workbook_sheet':
         if _meta_matches_query(entry, raw):
             return True
-        return any(row_matches_query(row, raw) for row in (entry.get('rows') or []))
+        return any(row_matches_query(row, raw) for row in masked_workbook_rows(entry))
     return match_query(build_search_blob(
         entry.get('title'), entry.get('content'), entry.get('tags'),
         entry.get('source'), entry.get('sheet_name'),
@@ -577,11 +609,11 @@ def workbook_context_header_rows(entry: dict) -> set[int]:
     return set(kept)
 
 
-def workbook_visible_row_indexes(entry: dict, query: str) -> list[int] | None:
+def workbook_visible_row_indexes(entry: dict, query: str, *, display_rows=None) -> list[int] | None:
     """None 表示整表显示。否则返回应显示的行号。"""
     from tools.pinyin_search import normalize_query
     terms = [term for term in normalize_query(query).split() if term]
-    rows = entry.get('rows') or []
+    rows = masked_workbook_rows(entry) if display_rows is None else display_rows
     if not terms:
         return None
     meta = ' '.join(str(entry.get(key) or '') for key in ('title', 'tags', 'source', 'sheet_name')).casefold()
@@ -624,7 +656,7 @@ def _build_entry_blob(entry: dict) -> str:
     """为单条目构建搜索 blob（含拼音），表格取前 80 行×16 列。"""
     from tools.pinyin_search import build_search_blob
     parts = [str(entry.get(key, '')) for key in ('title', 'content', 'tags', 'source', 'sheet_name')]
-    for row in (entry.get('rows', []) or [])[:80]:
+    for row in masked_workbook_rows(entry)[:80]:
         parts.extend(str(value) for value in (row or [])[:16])
     return build_search_blob(*parts)
 
