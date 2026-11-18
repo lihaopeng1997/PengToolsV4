@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -43,6 +42,7 @@ from ui.data_center.import_controller import ImportController, ImportProgress
 from ui.confirm_dialog import confirm_action
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry
+from ui.table_utils import autofit_columns
 
 
 class ManualImportDialog(QDialog):
@@ -236,12 +236,7 @@ class ManualImportDialog(QDialog):
         self.mapping_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.mapping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.mapping_table.verticalHeader().setVisible(False)
-        header = self.mapping_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        self.mapping_table.setColumnWidth(3, 190)
+        autofit_columns(self.mapping_table).configure({3: 190}, minimum=True)
         self.mapping_table.setMinimumHeight(150)
         self.mapping_table.setMaximumHeight(250)
         parent_layout.addWidget(self.mapping_table)
@@ -261,7 +256,7 @@ class ManualImportDialog(QDialog):
         self.preview_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.preview_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.preview_table.verticalHeader().setVisible(False)
-        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        autofit_columns(self.preview_table)
         self.preview_table.setMinimumHeight(112)
         self.preview_table.setMaximumHeight(230)
         parent_layout.addWidget(self.preview_table)

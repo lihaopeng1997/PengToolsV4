@@ -480,12 +480,8 @@ class CreditCodePanel(QWidget):
         if count <= 0:
             return
         header = self.table.horizontalHeader()
-        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 48)
-        for column in range(1, count - 1):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(count - 1, QHeaderView.ResizeMode.Stretch)
 
     def _fit_table_to_row(self):
         """序号固定、中间列交互拖拽、最后一列地址拉伸铺满。"""

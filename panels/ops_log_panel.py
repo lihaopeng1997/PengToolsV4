@@ -45,6 +45,7 @@ from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, 
 from ui.motion import play_dialog_enter
 from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
+from ui.table_utils import autofit_columns
 from ui.ssh_terminal import SshTerminalWidget
 
 
@@ -370,18 +371,12 @@ class ServerEditorDialog(QDialog):
             apply_list_header(self.services_table.horizontalHeader())
         except Exception:
             pass
-        self.services_table.horizontalHeader().setStretchLastSection(True)
         self.services_table.setMinimumHeight(180)
         self.services_table.setMaximumHeight(280)
-        self.services_table.setColumnWidth(0, 120)
-        self.services_table.setColumnWidth(1, 360)
+        autofit_columns(self.services_table).configure({0: 120, 1: 360}, minimum=True)
         self.services_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.services_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.services_table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
-        try:
-            self.services_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        except Exception:
-            pass
         svc_btns = QHBoxLayout()
         self.add_svc_btn = QPushButton('添加服务' if zh else 'Add service')
         apply_button(self.add_svc_btn, 'ghost', compact=True)
@@ -2614,13 +2609,6 @@ class OpsLogPanel(QWidget):
             apply_list_header(self.result_table.horizontalHeader())
         except Exception:
             pass
-        self.result_table.horizontalHeader().setStretchLastSection(True)
-        self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.result_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        self.result_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        self.result_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.result_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.result_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.result_table.doubleClicked.connect(self._open_selected_result)

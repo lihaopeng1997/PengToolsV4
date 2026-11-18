@@ -10,12 +10,13 @@ from __future__ import annotations
 from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ui.design_system import apply_button
+from ui.table_utils import autofit_columns
 from ui.chat_kit import ChatView, Composer
 from ui.field_metrics import size_line
 from ui.thinking_indicator import ThinkingIndicator
@@ -230,8 +231,7 @@ class QuickPanel(QWidget):
         self.preview_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.preview_table.verticalHeader().setVisible(False)
         self.preview_table.verticalHeader().setDefaultSectionSize(28)
-        self.preview_table.horizontalHeader().setStretchLastSection(True)
-        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        autofit_columns(self.preview_table)
         self.preview_table.setShowGrid(False)
         self.preview_table.itemDoubleClicked.connect(self._copy_preview_item)
         preview_l.addWidget(self.preview_table, 1)

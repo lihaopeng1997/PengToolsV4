@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from ui.design_system import apply_button
 from ui.field_metrics import size_line
+from ui.table_utils import autofit_columns
 from tools.json_viewer import (
     json_path_child, json_type_name, node_json_text,
     node_value_text, parse_json_text,
@@ -310,10 +311,9 @@ class JsonViewer(QWidget):
         self.child_table.setAlternatingRowColors(True)
         self.child_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.child_table.verticalHeader().hide()
-        self.child_table.horizontalHeader().setStretchLastSection(True)
         self._child_model = _ChildTableModel(self)
         self.child_table.setModel(self._child_model)
-        self.child_table.setColumnWidth(0, _KEY_COL_MIN)
+        autofit_columns(self.child_table).configure({0: _KEY_COL_MIN}, minimum=True)
         self.child_table.doubleClicked.connect(
             lambda index: self._focus_node(self._child_model.child_at(index.row()))
         )

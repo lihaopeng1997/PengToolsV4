@@ -7,7 +7,7 @@ from PyQt6.QtCore import QDate, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFileDialog, QFormLayout,
-    QFrame, QGroupBox, QHeaderView, QHBoxLayout, QLabel, QLineEdit,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -30,6 +30,7 @@ from tools.requirements import (
 from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button, apply_module_tabs
+from ui.table_utils import autofit_columns
 from ui.field_metrics import (
     apply_form, size_caption, size_combo, size_compact_button, size_date,
     size_enum_combo, size_line, size_pick_combo, size_status_pill, size_system_chip,
@@ -274,18 +275,8 @@ class SqlToolPanel(QWidget):
             header.setHighlightSections(False)
             header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setMinimumSectionSize(52)
-        header.setStretchLastSection(False)
-        fixed_widths = {0: 52, 1: 58, 2: 128, 4: 108, 5: 178, 7: 108}
-        for column, width in fixed_widths.items():
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-            self.release_table.setColumnWidth(column, width)
-        for column in (3, 6, 8, 9):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-        self.release_table.setColumnWidth(3, 180)
-        self.release_table.setColumnWidth(6, 220)
-        self.release_table.setColumnWidth(8, 180)
-        self.release_table.setColumnWidth(9, 150)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        widths = {0: 52, 1: 58, 2: 128, 3: 180, 4: 108, 5: 178, 6: 220, 7: 108, 8: 180, 9: 150}
+        autofit_columns(self.release_table).configure(widths, minimum=True)
         table_zone_layout.addWidget(self.release_table, 1)
         layout.addWidget(table_zone, 1)
 

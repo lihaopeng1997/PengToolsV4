@@ -6,6 +6,8 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
                             QLabel, QTableWidget, QTableWidgetItem, QAbstractItemView)
 
+from ui.table_utils import autofit_columns
+
 
 class BrowserSignals(QObject):
     loaded = pyqtSignal(int, object, str)
@@ -36,8 +38,7 @@ class RemoteFilePicker(QDialog):
         self.path.returnPressed.connect(self.browse)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(['文件 / 目录', '大小（字节）', '类型'])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setColumnWidth(0, 420)
+        autofit_columns(self.table)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

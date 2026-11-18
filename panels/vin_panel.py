@@ -164,17 +164,9 @@ class VinPanel(QWidget):
             apply_list_header(self.table.horizontalHeader())
         except Exception:
             pass
-        header = self.table.horizontalHeader()
-        for column in range(len(VEHICLE_HEADERS_ZH)):
-            mode = (
-                QHeaderView.ResizeMode.Stretch
-                if column == 3 else QHeaderView.ResizeMode.ResizeToContents
-            )
-            header.setSectionResizeMode(column, mode)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)

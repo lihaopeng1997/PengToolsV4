@@ -19,7 +19,7 @@ from tools.data_center.mongo_transfer import apply_import, export_documents, exp
 from PyQt6.QtCore import QDateTime, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QSizePolicy,
-    QComboBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -359,8 +359,6 @@ class MongoDBWorkbenchPanel(QWidget):
         self.doc_table = QTableWidget()
         apply_table(self.doc_table, alternating=True)
         self.doc_table.setMinimumHeight(120)
-        self.doc_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.doc_table.horizontalHeader().setStretchLastSection(True)
         docs_l.addWidget(self.doc_table, 1)
         self.doc_json = QPlainTextEdit()
         self.doc_json.setObjectName('mongo-doc-edit')

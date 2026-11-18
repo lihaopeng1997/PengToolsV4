@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox,
-    QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTabWidget,
+    QLabel, QLineEdit, QPushButton, QTableWidget, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -14,6 +14,7 @@ from tools.data_center.table_source import (
     TableOrder, TableQuerySpec, TableSourceError, TableSourceMetadata,
     validate_table_query,
 )
+from ui.table_utils import autofit_columns
 
 
 class TableQueryDialog(QDialog):
@@ -64,8 +65,7 @@ class TableQueryDialog(QDialog):
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.verticalHeader().hide()
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.ResizeToContents)
+        autofit_columns(table)
         layout.addWidget(table, 1)
         add = QPushButton(self.text("添加条件" if maximum == MAX_TABLE_FILTERS else "添加排序", "Add filter" if maximum == MAX_TABLE_FILTERS else "Add sort"), page)
         add.setAutoDefault(False)

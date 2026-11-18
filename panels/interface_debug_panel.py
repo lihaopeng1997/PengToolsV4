@@ -16,7 +16,7 @@ from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,
     QSplitter, QTableWidget, QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QVBoxLayout,
     QWidget,
@@ -74,6 +74,7 @@ from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pi
 from ui.key_value_editor import KeyValueEditor
 from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs, layout_bucket
+from ui.table_utils import autofit_columns
 
 # 会话仅内存：限制条数与单条 body，避免长时间抓包撑爆进程
 MAX_SESSION_RECORDS = 3000
@@ -553,24 +554,18 @@ class InterfaceDebugPanel(QWidget):
             apply_list_header(header_view)
         except Exception:
             pass
-        header_view.setStretchLastSection(False)
         header_view.setSectionsMovable(True)
         header_view.setMinimumSectionSize(40)
         header_view.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        # 短列 Interactive；URL 列 Stretch 吃掉尾部空白，表头随视口变化
-        _default_w = {
+        default_widths = {
             'seq': 44, 'status': 68, 'protocol': 56, 'method': 64,
             'host': 160, 'url': 360, 'body': 72, 'type': 72,
             'duration': 84, 'time': 110,
         }
-        for i, key in enumerate(COLUMN_KEYS):
-            if key == 'url':
-                header_view.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-            else:
-                header_view.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
-            self.table.setColumnWidth(i, int(_default_w.get(key, 80)))
+        fit = autofit_columns(self.table)
+        fit.configure({i: default_widths.get(key, 80) for i, key in enumerate(COLUMN_KEYS)}, minimum=True)
         header_view.sectionClicked.connect(self._on_header_clicked)
-        header_view.sectionResized.connect(self._on_column_resized)
+        fit.column_dragged.connect(self._on_column_resized)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_context_menu)
@@ -1236,31 +1231,19 @@ class InterfaceDebugPanel(QWidget):
             core = ('status', 'method', 'url')
         else:
             core = compact_core if self._compact_session_view else ('seq', 'status', 'method', 'host', 'url')
-        header = self.table.horizontalHeader()
-        last_visible = -1
+        configured_widths = {}
         for i, key in enumerate(COLUMN_KEYS):
             show = key in core if self._compact_session_view else (key in visible or key in core)
             self.table.setColumnHidden(i, not show)
-            if show:
-                last_visible = i
-            # URL 固定 Stretch 填满尾部空白；其余 Interactive 可拖宽
-            if key == 'url':
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-            else:
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
             w = widths.get(key)
-            if w and key != 'url':
+            if w:
                 try:
-                    self.table.setColumnWidth(i, max(40, int(w)))
+                    configured_widths[i] = max(40, int(w))
                 except (TypeError, ValueError):
                     pass
-        # 若 URL 被隐藏（不应），最后一列 Stretch 避免空白
-        if last_visible >= 0 and COLUMN_KEYS[last_visible] != 'url':
-            header.setSectionResizeMode(last_visible, QHeaderView.ResizeMode.Stretch)
-        header.setStretchLastSection(False)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        autofit_columns(self.table).configure(configured_widths)
 
-    def _on_column_resized(self, index: int, _old: int, new: int):
+    def _on_column_resized(self, index: int, new: int):
         if index < 0 or index >= len(COLUMN_KEYS):
             return
         key = COLUMN_KEYS[index]

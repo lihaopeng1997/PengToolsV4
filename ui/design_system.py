@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 
 from ui.field_metrics import size_compact_button
 from ui.icons import apply_icon
+from ui.table_utils import autofit_columns
 from ui import layout_metrics as _lm
 from ui.theme_manager import FONT_MONO_FAMILIES, FONT_MONO_POINT, FONT_ROLES, FONT_UI_FAMILY
 
@@ -187,7 +188,7 @@ def apply_list_header(header) -> None:
 
 
 def apply_table(table: QTableWidget, *, alternating: bool = True) -> None:
-    """统一表格交互基线，不改列定义与业务填充。"""
+    """统一表格交互基线与自动列宽。"""
     table.setAlternatingRowColors(alternating)
     table.setShowGrid(False)
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -210,6 +211,7 @@ def apply_table(table: QTableWidget, *, alternating: bool = True) -> None:
     header = table.horizontalHeader()
     if header is not None:
         header.setMinimumSectionSize(52)
+    autofit_columns(table)
 
 
 def finish_result_rows(table: QTableWidget, row_height: int = 32) -> None:

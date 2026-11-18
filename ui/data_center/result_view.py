@@ -5,6 +5,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QAbstractItemModel, QEvent, QModelIndex, QPoint, Qt
 from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTableView
 
+from ui.table_utils import autofit_columns
+
 
 class ResultTableView(QTableView):
     """Resizable/hideable columns with an optional first-column overlay."""
@@ -44,6 +46,7 @@ class ResultTableView(QTableView):
                 lambda point, owner=header: self._header_menu(owner, point)
             )
         self.set_language(language)
+        autofit_columns(self).watch_header(self.frozen_view.horizontalHeader())
 
     def set_language(self, language: str) -> None:
         self._language = language
@@ -68,6 +71,7 @@ class ResultTableView(QTableView):
             for signal in (model.modelReset, model.columnsInserted, model.columnsRemoved, model.headerDataChanged):
                 signal.connect(self._sync_columns)
         self._sync_columns()
+        autofit_columns(self)
 
     def setSelectionModel(self, selection_model) -> None:  # noqa: N802
         super().setSelectionModel(selection_model)

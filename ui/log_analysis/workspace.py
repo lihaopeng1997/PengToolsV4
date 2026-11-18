@@ -9,7 +9,7 @@ from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton,
     QComboBox, QLineEdit, QLabel, QCheckBox, QSpinBox, QSplitter, QPlainTextEdit,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QTabWidget, QTabBar,
-    QFileDialog, QApplication, QMenu, QScrollArea, QGroupBox, QHeaderView)
+    QFileDialog, QApplication, QMenu, QScrollArea, QGroupBox)
 
 from tools.log_analysis.service import LogService
 from tools.log_analysis.report import Store, report, stamp
@@ -18,6 +18,7 @@ from ui.confirm_dialog import confirm_action
 from ui.text_actions import install_text_actions
 from ui.thinking_indicator import ThinkingIndicator
 from ui.splitter_prefs import install_splitter_prefs
+from ui.table_utils import autofit_columns
 from .chat_view import ChatView
 
 
@@ -254,11 +255,7 @@ class LogAnalysisWorkspace(QWidget):
         self.events.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.events.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.events.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        header = self.events.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (1, 3):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        self.events.setColumnWidth(2, 170)
+        autofit_columns(self.events).configure({2: 170}, minimum=True)
         self.events.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.events.customContextMenuRequested.connect(self.event_menu)
         self.events.itemSelectionChanged.connect(self.show_evidence)

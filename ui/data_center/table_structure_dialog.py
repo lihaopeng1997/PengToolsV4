@@ -8,13 +8,14 @@ from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
-    QHeaderView,
     QLabel,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
+
+from ui.table_utils import autofit_columns
 
 _HEADERS_ZH = ("序号", "列名", "类型", "可空", "主键", "注释")
 _HEADERS_EN = ("#", "Column", "Type", "Nullable", "PK", "Comment")
@@ -95,13 +96,7 @@ class TableStructureDialog(QDialog):
                 if column_index == 4 and value:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 table.setItem(row_index, column_index, item)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for column in (3, 4):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        autofit_columns(table)
         layout.addWidget(table, 1)
         self.table = table
 

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit,
     QPushButton, QScrollArea, QSizePolicy, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -1947,10 +1947,6 @@ class AiWorkbenchPanel(QWidget):
                     table.setItem(start + r, c, QTableWidgetItem(str(value)))
         finally:
             table.setUpdatesEnabled(was)
-        header = table.horizontalHeader()
-        if header is not None and not append:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
     def _editor_sql(self) -> str:
         editor = self._current_editor()
