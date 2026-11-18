@@ -189,5 +189,9 @@ if __name__ == '__main__':
         for verify in (verify_widget, verify_database, verify_ops, verify_transport, verify_ai_intent):
             verify()
             print(f'PASS  {verify.__name__}')
+    from importlib import import_module
+    for module in ('panels.ai_workbench_panel', 'panels.db_redis_panel', 'panels.db_mongodb_panel'):
+        import_module(module)
+    print('PASS credential consumer imports')
     _isolation.assert_untouched()
-    print('RESULT: 5 passed, 0 failed')
+    print('RESULT: 6 passed, 0 failed')
