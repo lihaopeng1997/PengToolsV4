@@ -1,29 +1,30 @@
 # -*- coding: utf-8 -*-
-"""JSON 查看器：树表可读性优先（深层级字段名可横滑、可拖列宽）。
+"""JSON 文本、树和子键值联动查看器。"""
 
-XML 完整能力已迁至网关模块的 XmlWorkspace；本组件专注 JSON。
-"""
+import json
+import re
+from bisect import bisect_left, bisect_right
+from dataclasses import dataclass, field
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QTimer, Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu,
-    QHeaderView, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QMenu, QHeaderView, QPushButton, QSplitter, QTableView, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ui.design_system import apply_button
 from ui.field_metrics import size_line
 from tools.json_viewer import (
-    format_json_text, json_path_child, json_type_name, node_json_text,
+    json_path_child, json_type_name, node_json_text,
     node_value_text, parse_json_text,
 )
 from ui.confirm_dialog import show_warning
 from ui.foldable_text_edit import FoldablePlainTextEdit
 from ui.search_highlight import (
     apply_text_match_index,
-    clear_text_highlights,
     collect_text_spans,
+    ensure_text_pos_unfolded,
     focus_tree_item,
     paint_tree_item,
 )
@@ -34,6 +35,129 @@ _KEY_COL_DEFAULT = 280
 _KEY_COL_MAX_AUTO = 520
 _TYPE_COL_DEFAULT = 88
 _VALUE_PREVIEW_MAX = 280
+_NODE_LIMIT = 20_000
+_NODE_ROLE = Qt.ItemDataRole.UserRole + 1
+_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|[{}\[\]]|-Infinity|Infinity|NaN|true|false|null|[-+0-9.eE]+')
+_COLON = re.compile(r'\s*:')
+_NON_BMP = re.compile(r'[\U00010000-\U0010ffff]')
+_DECODER = json.JSONDecoder()
+
+
+@dataclass
+class _JsonNode:
+    parent: int | None
+    key: str
+    path: str
+    start: int
+    value_start: int
+    end: int
+    type_name: str
+    value_text: str
+    children: list[int] = field(default_factory=list)
+    child_count: int = 0
+
+    def display_value(self):
+        if self.type_name == 'object':
+            return f'{{{self.child_count}}}'
+        if self.type_name == 'array':
+            return f'[{self.child_count}]'
+        return self.value_text
+
+
+def _source_nodes(text, non_bmp):
+    def qt_position(position):
+        return position + bisect_left(non_bmp, position)
+
+    nodes = []
+    parents = []
+    pending_key = None
+    truncated = False
+    for token in _TOKEN.finditer(text):
+        literal = token.group()
+        if literal in ('}', ']'):
+            index = parents.pop()
+            if index is not None:
+                nodes[index].end = qt_position(token.end())
+            continue
+        if literal.startswith('"') and _COLON.match(text, token.end()):
+            pending_key = token
+            continue
+
+        parent_index = parents[-1] if parents else None
+        parent = nodes[parent_index] if parent_index is not None else None
+        container = literal in ('{', '[')
+        index = None
+        if len(nodes) < _NODE_LIMIT:
+            start = token.start()
+            if parent is None:
+                key, label, path = '$', '$', '$'
+            elif pending_key is not None:
+                key = json.loads(pending_key.group())
+                label, path = key, json_path_child(parent.path, key)
+                start = pending_key.start()
+            else:
+                key = parent.child_count
+                label, path = f'[{key}]', json_path_child(parent.path, key)
+            if container:
+                type_name, value_text = ('object' if literal == '{' else 'array'), ''
+            else:
+                value = json.loads(literal)
+                type_name, value_text = json_type_name(value), node_value_text(value)
+            index = len(nodes)
+            nodes.append(_JsonNode(
+                parent_index, label, path, qt_position(start), token.start(),
+                qt_position(token.end()), type_name, value_text,
+            ))
+            if parent is not None:
+                parent.children.append(index)
+        else:
+            truncated = True
+
+        if parent is not None:
+            parent.child_count += 1
+        if container:
+            parents.append(index)
+        pending_key = None
+    return nodes, truncated
+
+
+def _preview(value):
+    return value if len(value) <= _VALUE_PREVIEW_MAX else value[:_VALUE_PREVIEW_MAX - 1] + '…'
+
+
+class _ChildTableModel(QAbstractTableModel):
+    def __init__(self, viewer):
+        super().__init__(viewer)
+        self._viewer = viewer
+        self._children = []
+
+    def set_children(self, children):
+        self.beginResetModel()
+        self._children = children
+        self.endResetModel()
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._children)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else 2
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return (('子键', '值') if self._viewer.language == 'zh' else ('Child key', 'Value'))[section]
+        return super().headerData(section, orientation, role)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+            return None
+        node = self._viewer._nodes[self._children[index.row()]]
+        value = node.key if index.column() == 0 else node.display_value()
+        return _preview(value) if role == Qt.ItemDataRole.DisplayRole else value
+
+    def child_at(self, row):
+        return self._children[row]
+
+
 
 
 class JsonViewer(QWidget):
@@ -43,11 +167,22 @@ class JsonViewer(QWidget):
         super().__init__()
         self.language = language
         self._data = None
-        self._item_values = {}
-        # 树搜索：QTreeWidgetItem 列表；文本搜索： (start, end) 列表
+        self._nodes = []
+        self._node_starts = []
+        self._items = {}
+        self._source = ''
+        self._non_bmp = []
+        self._truncated = False
+        self._syncing = False
+        self._setting_text = False
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(180)
+        self._refresh_timer.timeout.connect(self._refresh_from_editor)
+        # 树搜索：源节点编号列表；文本搜索：(start, end) 列表
         self._matches = []
         self._match_index = -1
-        self._search_mode = 'tree'  # 'tree' | 'text'
+        self._search_mode = 'text'  # 'tree' | 'text'
         self._text_spans: list[tuple[int, int]] = []
         self._setup_ui()
         self.set_language(language)
@@ -70,6 +205,10 @@ class JsonViewer(QWidget):
         self.search_edit.textChanged.connect(self._search)
         self.search_edit.returnPressed.connect(self.next_match)
         toolbar.addWidget(self.search_edit, 1)
+        self.search_scope = QComboBox()
+        self.search_scope.addItems(['', ''])
+        self.search_scope.currentIndexChanged.connect(lambda: self._search(self.search_edit.text()))
+        toolbar.addWidget(self.search_scope)
         self.previous_btn = QPushButton('上一条')
         apply_button(self.previous_btn, 'ghost', compact=True)
         self.previous_btn.clicked.connect(self.previous_match)
@@ -113,8 +252,8 @@ class JsonViewer(QWidget):
         second.addWidget(self.glance_btn)
         layout.addLayout(second)
 
-        self.tabs = QTabWidget()
-        self.tabs.setObjectName('module-tabs')
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
         # 格式化文本：HiJson 风格折叠（左侧 +/-、工具栏展开/折叠）
         self.text_edit = FoldablePlainTextEdit(fold_mode='auto')
         self.text_edit.setObjectName('json-text')
@@ -123,7 +262,10 @@ class JsonViewer(QWidget):
         self.text_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         from ui.design_system import mono_font
         self.text_edit.setFont(mono_font())
-        self.tabs.addTab(self.text_edit, '')
+        self.text_edit.textChanged.connect(self._on_text_changed)
+        self.text_edit.cursorPositionChanged.connect(self._on_text_cursor)
+        self.text_edit.selectionChanged.connect(self._on_text_cursor)
+        self.splitter.addWidget(self.text_edit)
 
         self.tree = QTreeWidget()
         self.tree.setObjectName('json-tree')
@@ -160,9 +302,37 @@ class JsonViewer(QWidget):
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
         self.tree.itemDoubleClicked.connect(self._copy_item_value)
-        self.tabs.addTab(self.tree, '')
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        layout.addWidget(self.tabs, 1)
+        self.tree.itemExpanded.connect(self._load_children)
+        self.tree.itemClicked.connect(lambda item, _column: self._locate_text(item))
+
+        self.child_table = QTableView()
+        self.child_table.setObjectName('json-children')
+        self.child_table.setAlternatingRowColors(True)
+        self.child_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.child_table.verticalHeader().hide()
+        self.child_table.horizontalHeader().setStretchLastSection(True)
+        self._child_model = _ChildTableModel(self)
+        self.child_table.setModel(self._child_model)
+        self.child_table.setColumnWidth(0, _KEY_COL_MIN)
+        self.child_table.doubleClicked.connect(
+            lambda index: self._focus_node(self._child_model.child_at(index.row()))
+        )
+        details = QSplitter(Qt.Orientation.Vertical)
+        details.setChildrenCollapsible(False)
+        details.addWidget(self.tree)
+        details.addWidget(self.child_table)
+        details.setSizes([420, 180])
+        self.splitter.addWidget(details)
+        self.splitter.setSizes([520, 480])
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+        layout.addWidget(self.splitter, 1)
+
+        self.limit_hint = QLabel()
+        self.limit_hint.setObjectName('field-hint')
+        self.limit_hint.setWordWrap(True)
+        self.limit_hint.hide()
+        layout.addWidget(self.limit_hint)
 
         footer = QHBoxLayout()
         footer.setSpacing(8)
@@ -186,11 +356,10 @@ class JsonViewer(QWidget):
         self.format_btn.setToolTip(
             '将文本区内容解析为 JSON 并美化缩进' if zh else 'Parse and pretty-print JSON in the text area'
         )
-        self.search_edit.setPlaceholderText(
-            '搜索：当前在「格式化文本」则搜正文，在「树形节点」则搜树（回车下一个）'
-            if zh else
-            'Search text tab or tree tab (Enter = next)'
-        )
+        self.search_edit.setPlaceholderText('搜索（回车下一个）' if zh else 'Search (Enter = next)')
+        self.search_scope.setItemText(0, '文本' if zh else 'Text')
+        self.search_scope.setItemText(1, '树' if zh else 'Tree')
+        self.search_scope.setAccessibleName('搜索范围' if zh else 'Search scope')
         self.previous_btn.setText('上一条' if zh else 'Prev')
         self.next_btn.setText('下一条' if zh else 'Next')
         self.previous_btn.setToolTip('上一个匹配' if zh else 'Previous match')
@@ -219,8 +388,10 @@ class JsonViewer(QWidget):
             if zh else
             'Right-side CodeGlance minimap: click to jump, drag viewport to scroll, drag edge to resize'
         )
-        self.tabs.setTabText(0, '格式化文本' if zh else 'Formatted text')
-        self.tabs.setTabText(1, '树形节点' if zh else 'Tree nodes')
+        self.child_table.setAccessibleName('选中节点的子键值' if zh else 'Selected node children')
+        self._child_model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, 1)
+        self._update_limit_hint()
+        self._update_search_status()
         self.tree.setHeaderLabels(['字段名', '类型', '值'] if zh else ['Field', 'Type', 'Value'])
         self.tree.headerItem().setToolTip(0, '可拖动列宽 · 深层级可横向滚动查看完整字段名' if zh else 'Drag to resize · scroll horizontally for deep keys')
         self.tree.headerItem().setToolTip(2, '可拖动列宽 · 悬停看完整值' if zh else 'Drag to resize · hover for full value')
@@ -231,49 +402,91 @@ class JsonViewer(QWidget):
             if zh else
             'Paste JSON then format. Use +/- margin to fold objects/arrays (HiJson-style); toolbar expands/collapses all.'
         )
-        if self._data is None and not self.text_edit.toPlainText().strip():
+        if not self.text_edit.toPlainText().strip():
             self.json_status.setText('等待解密结果，或粘贴 JSON' if zh else 'Waiting for content, or paste JSON')
 
-    def set_text(self, text, auto_format=True):
-        self.text_edit.setPlainText(text)
+    def _parse(self, text):
         try:
-            data = parse_json_text(text)
+            return parse_json_text(text), None
         except ValueError as exc:
-            self._data = None
-            self.tree.clear()
-            self._item_values.clear()
-            self._clear_search_state()
-            self.path_value.setText('$')
-            self.json_status.setText(str(exc))
-            return False
+            return None, str(exc)
+        except RecursionError:
+            return None, 'JSON 嵌套过深' if self.language == 'zh' else 'JSON nesting is too deep'
+
+    @staticmethod
+    def _formatted(data):
+        return json.dumps(data, ensure_ascii=False, indent=2).replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+
+    def set_text(self, text, auto_format=True):
+        self._refresh_timer.stop()
+        data, error = self._parse(text)
+        if error is None and auto_format:
+            text = self._formatted(data)
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        self._setting_text = True
+        try:
+            self.text_edit.setPlainText(text)
+            self.text_edit.rebuild_folds(expand_all=True)
+        finally:
+            self._setting_text = False
+        self._refresh_document(text, data, error)
+        return error is None
+
+    def _on_text_changed(self):
+        if not self._setting_text:
+            self._refresh_timer.start()
+
+    def _editor_source(self):
+        return self.text_edit.document().toRawText().replace('\u2029', '\n')
+
+    def _refresh_from_editor(self):
+        text = self._editor_source()
+        self._refresh_document(text, *self._parse(text))
+        self._on_text_cursor()
+
+    def _refresh_document(self, text, data, error):
         self._data = data
-        if auto_format:
-            self.text_edit.setPlainText(format_json_text(text))
+        self._source = text
+        self._non_bmp = [match.start() for match in _NON_BMP.finditer(text)]
+        self._syncing = True
+        try:
+            self.tree.clear()
+            self._child_model.set_children([])
+            self.path_value.setText('$')
+            self._items.clear()
+            self._nodes, self._truncated = _source_nodes(text, self._non_bmp) if error is None else ([], False)
+            self._node_starts = [node.start for node in self._nodes]
+            if self._nodes:
+                root = self._add_item(0)
+                self.tree.setCurrentItem(root)
+                self._fit_key_column()
+        finally:
+            self._syncing = False
+
+        self._update_limit_hint()
+        if error is not None:
+            self.json_status.setText(error)
         else:
-            # 文本可能已写入；确保折叠区重建
-            if hasattr(self.text_edit, 'rebuild_folds'):
-                self.text_edit.rebuild_folds(expand_all=True)
-        self._build_tree()
-        count = len(self._item_values)
-        folds = 0
-        if hasattr(self.text_edit, 'fold_regions'):
+            count = len(self._nodes)
             folds = len(self.text_edit.fold_regions())
-        self.json_status.setText(
-            f'JSON 已识别 · {count} 个节点 · 格式化文本可折叠 {folds} 处 · 双击叶子复制'
-            if self.language == 'zh' else
-            f'Valid JSON · {count} nodes · {folds} fold points · double-click leaf to copy'
-        )
+            self.json_status.setText(
+                f'JSON 已识别 · {count} 个可浏览节点 · 格式化文本可折叠 {folds} 处 · 双击叶子复制'
+                if self.language == 'zh' else
+                f'Valid JSON · {count} browsable nodes · {folds} fold points · double-click leaf to copy'
+            )
         self._search(self.search_edit.text())
-        return True
+
+    def _update_limit_hint(self):
+        self.limit_hint.setText(
+            f'树和子键值表最多展示 {_NODE_LIMIT:,} 个节点（含根节点），其余内容可在文本区查看。'
+            if self.language == 'zh' else
+            f'Tree and child table show up to {_NODE_LIMIT:,} nodes including the root. See the text pane for the rest.'
+        )
+        self.limit_hint.setVisible(self._truncated)
 
     def clear(self):
-        self._data = None
-        self.text_edit.clear()
-        self.tree.clear()
-        self._item_values.clear()
-        self._clear_search_state()
+        self.set_text('')
         self.search_edit.clear()
-        self.path_value.setText('$')
         self.json_status.setText(
             '等待解密结果，或粘贴 JSON' if self.language == 'zh' else 'Waiting for content, or paste JSON'
         )
@@ -282,22 +495,12 @@ class JsonViewer(QWidget):
         return self.text_edit.toPlainText()
 
     def format_current(self):
-        text = self.text_edit.toPlainText()
-        try:
-            formatted = format_json_text(text)
-        except ValueError as exc:
-            show_warning(self, 'PengTools JSON', str(exc))
+        text = self._source if not self._refresh_timer.isActive() else self._editor_source()
+        data, error = self._parse(text)
+        if error is not None:
+            show_warning(self, 'PengTools JSON', error)
             return False
-        self.set_text(formatted, auto_format=False)
-        return True
-
-    def _build_tree(self):
-        self.tree.clear()
-        self._item_values.clear()
-        root = self._add_item(None, '$', self._data, '$')
-        root.setExpanded(True)
-        self.tree.setCurrentItem(root)
-        self._fit_key_column()
+        return self.set_text(self._formatted(data), auto_format=False)
 
     def _fit_key_column(self):
         """按内容撑开字段名列（含缩进），再夹在可读上下限内；用户仍可拖动。"""
@@ -323,111 +526,72 @@ class JsonViewer(QWidget):
         self.tree.setColumnWidth(0, _KEY_COL_MIN)
         header.blockSignals(False)
 
-    def _add_item(self, parent, key, value, path):
-        key_text = str(key)
-        type_name = json_type_name(value)
-        if isinstance(value, dict):
-            full_value = f'{{{len(value)}}}'
-            preview = full_value
-        elif isinstance(value, list):
-            full_value = f'[{len(value)}]'
-            preview = full_value
-        else:
-            full_value = node_value_text(value)
-            if len(full_value) > _VALUE_PREVIEW_MAX:
-                preview = full_value[: _VALUE_PREVIEW_MAX - 1] + '…'
-            else:
-                preview = full_value
-        item = QTreeWidgetItem([key_text, type_name, preview])
-        item.setData(0, Qt.ItemDataRole.UserRole, path)
-        # 悬停始终可见完整字段名 / 路径 / 值（深层级不截断阅读）
-        item.setToolTip(0, f'{key_text}\n{path}')
-        item.setToolTip(1, type_name)
-        item.setToolTip(2, full_value if full_value else preview)
-        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-        self._item_values[id(item)] = value
+    def _add_item(self, index, parent=None):
+        node = self._nodes[index]
+        value = node.display_value()
+        item = QTreeWidgetItem([node.key, node.type_name, _preview(value)])
+        item.setData(0, Qt.ItemDataRole.UserRole, node.path)
+        item.setData(0, _NODE_ROLE, index)
+        item.setToolTip(0, f'{node.key}\n{node.path}')
+        item.setToolTip(1, node.type_name)
+        item.setToolTip(2, value)
+        if node.children:
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        self._items[index] = item
         (parent.addChild(item) if parent is not None else self.tree.addTopLevelItem(item))
-        if isinstance(value, dict):
-            for child_key in sorted(value):
-                child_value = value[child_key]
-                self._add_item(item, child_key, child_value, json_path_child(path, child_key))
-        elif isinstance(value, list):
-            for index, child_value in enumerate(value):
-                self._add_item(item, f'[{index}]', child_value, json_path_child(path, index))
         return item
 
-    def _all_items(self):
-        result = []
+    def _load_children(self, item):
+        if item.childCount():
+            return
+        for index in self._nodes[item.data(0, _NODE_ROLE)].children:
+            self._add_item(index, item)
 
-        def visit(item):
-            result.append(item)
-            for index in range(item.childCount()):
-                visit(item.child(index))
-
-        for index in range(self.tree.topLevelItemCount()):
-            visit(self.tree.topLevelItem(index))
-        return result
-
-    def _clear_search_state(self):
-        self._matches = []
-        self._match_index = -1
-        self._text_spans = []
-        self._search_mode = 'tree'
-        self.search_status.setText('0 / 0')
-        # 清树高亮
-        for item in self._all_items():
-            paint_tree_item(item, matched=False)
-        # 清文本高亮
-        if hasattr(self.text_edit, 'set_search_selections'):
-            self.text_edit.set_search_selections([])
-        else:
-            clear_text_highlights(self.text_edit)
-
-    def _on_tab_changed(self, _index: int):
-        # 切到另一视图时，用同一关键词重新在当前视图搜索
-        query = self.search_edit.text() if hasattr(self, 'search_edit') else ''
-        self._search(query)
+    def _focus_node(self, index):
+        ancestors = []
+        parent = self._nodes[index].parent
+        while parent is not None:
+            ancestors.append(parent)
+            parent = self._nodes[parent].parent
+        for ancestor in reversed(ancestors):
+            item = self._items[ancestor]
+            self._load_children(item)
+            item.setExpanded(True)
+        item = self._items[index]
+        focus_tree_item(self.tree, item)
+        return item
 
     def _search(self, query):
-        needle = (query or '').strip()
-        # 先清状态（保留输入框内容）
-        for item in self._all_items():
+        for item in self._items.values():
             paint_tree_item(item, matched=False)
-        if hasattr(self.text_edit, 'set_search_selections'):
-            self.text_edit.set_search_selections([])
-        else:
-            clear_text_highlights(self.text_edit)
+        self.text_edit.set_search_selections([])
         self._matches = []
         self._match_index = -1
         self._text_spans = []
+        self._search_mode = 'text' if self.search_scope.currentIndex() == 0 else 'tree'
+        needle = (query or '').strip()
+        if needle and self._search_mode == 'text':
+            non_bmp = self._non_bmp
+            if self._refresh_timer.isActive():
+                non_bmp = [match.start() for match in _NON_BMP.finditer(self.plain_text())]
+            self._text_spans = [
+                (start + bisect_left(non_bmp, start), end + bisect_left(non_bmp, end))
+                for start, end in collect_text_spans(self.text_edit, needle)
+            ]
+            self._matches = self._text_spans
+        elif needle:
+            folded = needle.casefold()
+            self._matches = [
+                index for index, node in enumerate(self._nodes)
+                if folded in '\n'.join((node.key, node.type_name, node.display_value(), node.path)).casefold()
+            ]
+            for index in self._matches:
+                if index in self._items:
+                    paint_tree_item(self._items[index], matched=True)
 
-        if not needle:
-            self._update_search_status()
-            return
-
-        # 按当前页签分流：0=格式化文本，1=树
-        if self.tabs.currentIndex() == 0:
-            self._search_mode = 'text'
-            self._text_spans = collect_text_spans(self.text_edit, needle)
-            self._matches = list(self._text_spans)
-            if self._matches:
-                self._match_index = 0
-                apply_text_match_index(self.text_edit, self._text_spans, 0, take_focus=False)
-        else:
-            self._search_mode = 'tree'
-            for item in self._all_items():
-                path = item.data(0, Qt.ItemDataRole.UserRole) or ''
-                haystack = '\n'.join((item.text(0), item.text(1), item.text(2), path)).casefold()
-                if needle.casefold() in haystack:
-                    self._matches.append(item)
-                    paint_tree_item(item, matched=True, current=False)
-            if self._matches:
-                self._match_index = 0
-                paint_tree_item(self._matches[0], matched=True, current=True)
-                focus_tree_item(self.tree, self._matches[0])
-                self.path_value.setText(
-                    self._matches[0].data(0, Qt.ItemDataRole.UserRole) or '$'
-                )
+        if self._matches:
+            self._match_index = 0
+            self._focus_match(take_focus=False)
         self._update_search_status()
 
     def _update_search_status(self):
@@ -443,19 +607,12 @@ class JsonViewer(QWidget):
     def _move_match(self, delta):
         if not self._matches:
             return
-        if self._search_mode == 'text':
-            self._match_index = (self._match_index + delta) % len(self._matches)
-            apply_text_match_index(self.text_edit, self._text_spans, self._match_index)
-            self._update_search_status()
-            return
-        # 树模式
-        if 0 <= self._match_index < len(self._matches):
-            paint_tree_item(self._matches[self._match_index], matched=True, current=False)
+        if self._search_mode == 'tree':
+            old_item = self._items.get(self._matches[self._match_index])
+            if old_item is not None:
+                paint_tree_item(old_item, matched=True)
         self._match_index = (self._match_index + delta) % len(self._matches)
-        item = self._matches[self._match_index]
-        paint_tree_item(item, matched=True, current=True)
-        focus_tree_item(self.tree, item)
-        self.path_value.setText(item.data(0, Qt.ItemDataRole.UserRole) or '$')
+        self._focus_match()
         self._update_search_status()
 
     def previous_match(self):
@@ -464,29 +621,66 @@ class JsonViewer(QWidget):
     def next_match(self):
         self._move_match(1)
 
-    def _focus_match(self):
-        """兼容旧调用：按当前模式聚焦命中。"""
+    def _focus_match(self, take_focus=True):
         if not self._matches or self._match_index < 0:
             return
         if self._search_mode == 'text':
-            apply_text_match_index(self.text_edit, self._text_spans, self._match_index)
+            apply_text_match_index(self.text_edit, self._text_spans, self._match_index, take_focus=take_focus)
         else:
-            focus_tree_item(self.tree, self._matches[self._match_index])
+            item = self._focus_node(self._matches[self._match_index])
+            paint_tree_item(item, matched=True, current=True)
+            self._locate_text(item)
+
+    def _on_text_cursor(self):
+        if self._syncing or not self._nodes or self._refresh_timer.isActive():
+            return
+        position = self.text_edit.textCursor().selectionStart()
+        index = bisect_right(self._node_starts, position) - 1
+        while index > 0 and self._nodes[index].end <= position:
+            index = self._nodes[index].parent
+        index = max(index, 0)
+        if self.tree.currentItem() is self._items.get(index):
+            return
+        self._syncing = True
+        try:
+            self._focus_node(index)
+        finally:
+            self._syncing = False
 
     def _on_current_item_changed(self, current, _previous):
         self.path_value.setText(current.data(0, Qt.ItemDataRole.UserRole) if current else '$')
+        children = self._nodes[current.data(0, _NODE_ROLE)].children if current else []
+        self._child_model.set_children(children)
+        if current is not None:
+            self._locate_text(current)
+
+    def _locate_text(self, item):
+        if self._syncing or self._refresh_timer.isActive():
+            return
+        position = self._nodes[item.data(0, _NODE_ROLE)].start
+        self._syncing = True
+        try:
+            ensure_text_pos_unfolded(self.text_edit, position)
+            cursor = self.text_edit.textCursor()
+            cursor.setPosition(position)
+            self.text_edit.setTextCursor(cursor)
+            self.text_edit.ensureCursorVisible()
+        finally:
+            self._syncing = False
 
     def _value_for_item(self, item):
-        return self._item_values.get(id(item))
+        node = self._nodes[item.data(0, _NODE_ROLE)]
+        return _DECODER.raw_decode(self._source, node.value_start)[0]
 
     def _copy_item_value(self, item, _column=0):
-        if item and item.childCount() == 0:
+        if item and self._nodes[item.data(0, _NODE_ROLE)].type_name not in ('object', 'array'):
             self._copy_text(node_value_text(self._value_for_item(item)))
 
     def _show_context_menu(self, position):
         item = self.tree.itemAt(position)
         if item is None:
             return
+        index = item.data(0, _NODE_ROLE)
         zh = self.language == 'zh'
         menu = QMenu(self)
         value_action = menu.addAction('复制节点值' if zh else 'Copy node value')
@@ -496,6 +690,8 @@ class JsonViewer(QWidget):
         expand_action = menu.addAction('展开此节点' if zh else 'Expand this node')
         collapse_action = menu.addAction('折叠此节点' if zh else 'Collapse this node')
         chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
+        if self._items.get(index) is not item:
+            return
         if chosen is value_action:
             self._copy_text(node_value_text(self._value_for_item(item)))
         elif chosen is json_action:
@@ -507,17 +703,19 @@ class JsonViewer(QWidget):
         elif chosen is collapse_action:
             self._set_expanded_recursive(item, False)
 
-    @staticmethod
-    def _set_expanded_recursive(item, expanded):
-        item.setExpanded(expanded)
-        for index in range(item.childCount()):
-            JsonViewer._set_expanded_recursive(item.child(index), expanded)
+    def _set_expanded_recursive(self, item, expanded):
+        pending = [item]
+        while pending:
+            current = pending.pop()
+            if expanded:
+                self._load_children(current)
+            current.setExpanded(expanded)
+            pending.extend(current.child(index) for index in range(current.childCount()))
 
     def _expand_all(self):
-        # 格式化文本 + 树 同步展开（HiJson 体验）
-        if hasattr(self.text_edit, 'expand_all_folds'):
-            self.text_edit.expand_all_folds()
-        self.tree.expandAll()
+        self.text_edit.expand_all_folds()
+        if self.tree.topLevelItemCount():
+            self._set_expanded_recursive(self.tree.topLevelItem(0), True)
 
     def _collapse_all(self):
         if hasattr(self.text_edit, 'collapse_all_folds'):
