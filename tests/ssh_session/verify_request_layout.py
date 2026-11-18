@@ -76,7 +76,9 @@ view = SimpleNamespace(
 )
 header_views = []
 body_clears = []
-render = isolated(after['_rt_set_response_view'],
+from tools.app_logging import mask_private_ipv4
+
+render = isolated(after['_rt_set_response_view'], mask_private_ipv4=mask_private_ipv4,
                   mask_sensitive_value=lambda key, value, reveal: value if reveal else '[masked]')
 render(view, '', headers={'Set-Cookie': 'synthetic'})
 render(view, '')

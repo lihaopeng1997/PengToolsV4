@@ -9,6 +9,8 @@ import time
 import uuid
 from itertools import islice
 
+from tools.app_logging import mask_private_ipv4
+
 ERROR = re.compile(r'\b(?:ERROR|FATAL)\b|\b[\w.$]*(?:Exception|Error):')
 START = re.compile(r'^\s*(?:\d{4}[-/]\d\d[-/]\d\d|\[?\d\d:\d\d:\d\d)|\b(?:INFO|DEBUG|TRACE|WARN|ERROR|FATAL)\b')
 TRACE = re.compile(r'(?:traceId|trace_id|requestId)\s*[=:]\s*([\w-]{1,128})', re.I)
@@ -60,7 +62,7 @@ class Redactor:
         def alias(m):
             digest = hashlib.sha256((self.salt + m.group()).encode()).hexdigest()[:10]
             return '[标识-' + digest + ']'
-        return re.sub(r'\b(?:\d{11}|\d{17}[0-9Xx])\b', alias, text)
+        return mask_private_ipv4(re.sub(r'\b(?:\d{11}|\d{17}[0-9Xx])\b', alias, text))
 
 
 @dataclass
@@ -85,14 +87,7 @@ class Event:
 class EventBuffer:
     """Caller serializes access. Offsets refer to bytes, times to observation."""
     def __init__(self, redactor=None, warn=False, limit=200, clock=time.time, redact=None):
-        if redact is None:
-            # Default follows the intranet switch: on -> show raw, off -> mask.
-            try:
-                from tools.intranet_mode import is_intranet_open
-                redact = not is_intranet_open()
-            except Exception:
-                redact = True
-        self.redactor = redactor or Redactor(enabled=redact)
+        self.redactor = redactor or Redactor(enabled=redact is not False)
         self.warn, self.limit, self.clock = warn, limit, clock
         self.events = deque(maxlen=limit)
         self.before = deque(maxlen=20)

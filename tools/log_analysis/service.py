@@ -34,9 +34,7 @@ class EnqueueResult:
 class LogService:
     def __init__(self, store=None, analyzer=analyze, scrub_for_model=None):
         self.store, self.analyzer = store, analyzer
-        if scrub_for_model is None:
-            scrub_for_model = True
-        self.scrubber = Redactor(enabled=scrub_for_model)
+        self.scrubber = Redactor()
         self.tasks = {}
         self.queue = deque(maxlen=50)
         self.results = deque(maxlen=100)
@@ -202,7 +200,7 @@ class LogService:
                     # Pin selected evidence in the prompt; full tools remain scoped.
                     event = next((e for e in snapshot['events'] if e['id'] == event_id), None)
                     if event:
-                        clean_question += '\n所选异常证据：\n' + event['evidence']
+                        clean_question += '\n所选异常证据：\n' + self.scrubber.clean(event['evidence'])
                 def progress(kind, name):
                     if kind in ('model_reasoning_delta', 'model_text_delta', 'model_turn_reset'):
                         # Reasoning/text chunks: queue for the UI, do not touch
@@ -309,8 +307,8 @@ class LogService:
             return rows
 
     def set_scrub_for_model(self, enabled):
-        """Mask only what is sent to the model. Capture and preview stay raw."""
-        self.scrubber.enabled = bool(enabled)
+        """Legacy setter; outbound cleaning is mandatory."""
+        self.scrubber.enabled = True
 
     def close(self):
         self.closed.set()

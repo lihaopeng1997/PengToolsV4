@@ -48,6 +48,7 @@ from tools.browser_debug import (
     is_loopback_host, launch_debug_browser, mask_sensitive_value, mask_url_query,
     pick_default_page_target, port_open, wait_debug_port,
 )
+from tools.app_logging import mask_private_ipv4
 from tools.ie_proxy import (
     IeProxyWorker, install_user_root_cert, is_recorded_root_cert_installed,
     remove_recorded_cert, restore_proxy_from_snapshot,
@@ -1356,7 +1357,7 @@ class InterfaceDebugPanel(QWidget):
         sel = 0
         for i, t in enumerate(targets):
             label = f"{t.get('name') or '环境'} · {t.get('base_url') or ''}"
-            self.local_target_combo.addItem(label, t.get('id'))
+            self.local_target_combo.addItem(mask_private_ipv4(label), t.get('id'))
             if t.get('id') == default_id:
                 sel = i
         if not targets:
@@ -1419,7 +1420,8 @@ class InterfaceDebugPanel(QWidget):
             return
         self.rt_send_btn.setEnabled(True)
         if host:
-            self.rt_send_btn.setText(f'发送 · 到 {host}' if zh else f'Send · to {host}')
+            display_host = mask_private_ipv4(host)
+            self.rt_send_btn.setText(f'发送 · 到 {display_host}' if zh else f'Send · to {display_host}')
         else:
             self.rt_send_btn.setText('发送 · 到所选环境' if zh else 'Send · to environment')
 
@@ -3176,12 +3178,12 @@ class InterfaceDebugPanel(QWidget):
         raw = body if body is not None else ''
         self._rt_last_response_body = raw
         self._rt_last_response_headers = dict(headers or {})
-        self.rt_response_headers.setPlainText('\n'.join(
+        self.rt_response_headers.setPlainText(mask_private_ipv4('\n'.join(
             f'{key}: {mask_sensitive_value(key, value, False)}'
             for key, value in self._rt_last_response_headers.items()
-        ))
+        )))
         if hasattr(self, 'rt_resp_meta'):
-            self.rt_resp_meta.setText(meta or '')
+            self.rt_resp_meta.setText(mask_private_ipv4(meta or ''))
         if not raw.strip():
             self.draft_preview.clear()
             return
@@ -3193,7 +3195,7 @@ class InterfaceDebugPanel(QWidget):
             parts.append(f'# {err}')
             parts.append('')
         parts.append(display)
-        self.draft_preview.setPlainText('\n'.join(parts))
+        self.draft_preview.setPlainText(mask_private_ipv4('\n'.join(parts)))
         # 滚到开头，方便通读
         cursor = self.draft_preview.textCursor()
         cursor.movePosition(cursor.MoveOperation.Start)
@@ -3655,13 +3657,13 @@ class InterfaceDebugPanel(QWidget):
                 path = urlparse(it.get('url') or '').path or '/'
                 name = '…' + path[-47:] if len(path) > 48 else path
             label = display_label({**it, 'name': name}, mode=mode, category_map=cat_map)
-            row = QListWidgetItem(label)
+            row = QListWidgetItem(mask_private_ipv4(label))
             row.setData(Qt.ItemDataRole.UserRole, it.get('id'))
             tip = (
                 f"{it.get('method') or ''} {it.get('url') or ''}\n"
                 f"{cat_map.get(it.get('category_id'), '')}"
             )
-            row.setToolTip(tip)
+            row.setToolTip(mask_private_ipv4(tip))
             self.rt_lib_list.addItem(row)
             if kw and first_hit is None:
                 first_hit = row

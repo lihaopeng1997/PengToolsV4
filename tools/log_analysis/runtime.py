@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import re
 import uuid
 
 from tools.agent_core.contracts import AgentTurn, RunContext, ToolCall, ToolResult
@@ -12,6 +13,37 @@ from tools.agent_core.auto_context import AutoCompactingContextPlanner
 from tools.agent_core.context import ContextLimits
 from tools.agent_core.text_protocol import parse_qwen_tool_calls, TEXT_PROTOCOL_INSTRUCTION
 from tools.data_center.host_model_adapter import AgentModelHostAdapter
+from tools.app_logging import mask_private_ipv4
+from .events import Redactor
+
+
+_IPV4_STREAM_TAIL = re.compile(r'(?<![A-Za-z0-9_])(?:1|17|19|(?:10|172|192)(?:\.\d{0,3}){0,3})$')
+
+
+def _clean_model_value(value, scrubber):
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            key = str(key)
+            field = scrubber.clean(key + '=')
+            clean[mask_private_ipv4(key)] = (
+                field if field.startswith('[敏感字段') or field.startswith('[请求/响应正文')
+                else _clean_model_value(item, scrubber)
+            )
+        return clean
+    if isinstance(value, (tuple, list)):
+        return [_clean_model_value(item, scrubber) for item in value]
+    if isinstance(value, str):
+        if value.lstrip().startswith(('{', '[')):
+            try:
+                structured = json.loads(value)
+            except ValueError:
+                pass
+            else:
+                return json.dumps(_clean_model_value(structured, scrubber), ensure_ascii=False)
+        scrubber.private_block = scrubber.payload_block = False
+        return '\n'.join(scrubber.line(line) for line in value.split('\n'))
+    return value
 
 
 class LogTools:
@@ -238,6 +270,25 @@ class TextCalls:
 
     def complete_turn(self, request, *, cancellation, on_delta):
         self._reset_answer_stream()
+        if request is not None:
+            scrubber = Redactor()
+            request = replace(request,
+                              system_prompt=mask_private_ipv4(request.system_prompt),
+                              messages=tuple(_clean_model_value(dict(message), scrubber)
+                                             for message in request.messages))
+        pending = {}
+
+        original_sink = self.delta_sink
+        if original_sink is not None:
+            def emit_masked(kind, text):
+                combined = pending.pop(kind, '') + text
+                tail = _IPV4_STREAM_TAIL.search(combined)
+                if tail:
+                    pending[kind] = tail.group()
+                    combined = combined[:tail.start()]
+                if combined:
+                    original_sink(kind, mask_private_ipv4(combined))
+            self.delta_sink = emit_masked
 
         def forward(delta):
             # Reasoning still streams unchanged. Visible prose is guarded per
@@ -248,10 +299,19 @@ class TextCalls:
                 if text:
                     self.delta_sink('model_reasoning_delta', text)
             elif kind == 'text_delta':
+                reasoning_tail = pending.pop('model_reasoning_delta', '')
+                if reasoning_tail:
+                    original_sink('model_reasoning_delta', mask_private_ipv4(reasoning_tail))
                 self._feed_answer(getattr(delta, 'text', '') or '')
             on_delta(delta)
 
-        turn = self.adapter.complete_turn(request, cancellation=cancellation, on_delta=forward)
+        try:
+            turn = self.adapter.complete_turn(request, cancellation=cancellation, on_delta=forward)
+        finally:
+            self.delta_sink = original_sink
+            if original_sink is not None:
+                for kind, text in pending.items():
+                    original_sink(kind, mask_private_ipv4(text))
         if turn.tool_calls:
             return turn
         text = turn.text.strip()
@@ -293,8 +353,8 @@ def analyze(snapshot, question, model_id, cancellation, *, history=(), progress=
         '时间是采集观察时间，不一定是日志发生时间；未查范围/轮转/截断必须说明。没有异常不代表恢复。'
         '最近日志仅有界快照，不可声称检查完整时间段。所有写入/重启只能建议，不执行。\n'
         + TEXT_PROTOCOL_INSTRUCTION + '\n工具定义：' + json.dumps(tools.definitions(), ensure_ascii=False)
-        + '\n固定任务范围：' + json.dumps({k: snapshot.get(k) for k in
-              ('mode', 'label', 'service', 'path', 'state', 'started', 'checkpoint', 'notices', 'coverage', 'sources', 'targets', 'dropped_events', 'truncated_lines')}, ensure_ascii=False)
+        + '\n固定任务范围：' + json.dumps(_clean_model_value({k: snapshot.get(k) for k in
+              ('mode', 'label', 'service', 'path', 'state', 'started', 'checkpoint', 'notices', 'coverage', 'sources', 'targets', 'dropped_events', 'truncated_lines')}, Redactor()), ensure_ascii=False)
     )
     # One UTF-8 byte per estimated token is conservative; provider window is optional.
     planner = AutoCompactingContextPlanner(ContextLimits(input_token_limit=500 * 1024))
@@ -315,6 +375,7 @@ def analyze(snapshot, question, model_id, cancellation, *, history=(), progress=
     # Always obtain evidence first, even when the model chooses a plain-text answer.
     initial = tools.execute(ToolCall('initial', 'get_host_snapshot' if snapshot.get('mode') == 'system' else 'list_events'), context=context, cancellation=cancellation)
     question = snapshot.get('_question_clean', question)
-    messages = list(history) + [{'role': 'user', 'content': question + '\n当前工具证据：' + json.dumps(initial.as_dict(), ensure_ascii=False)}]
+    messages = list(history) + [{'role': 'user', 'content': question + '\n当前工具证据：\n'
+                                + json.dumps(_clean_model_value(initial.as_dict(), Redactor()), ensure_ascii=False)}]
     result = runner.run(context, messages=messages)
     return result

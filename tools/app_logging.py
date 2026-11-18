@@ -160,9 +160,7 @@ def _usable_dir(path: str) -> str:
 def redact_text(text: str) -> str:
     from tools.sql_guard import redact_error
     from tools.log_analysis.events import Redactor
-    cleaned = redact_error(str(text or ''))
-    cleaned = Redactor().clean(cleaned)
-    return _mask_private_ipv4(cleaned)
+    return Redactor().clean(redact_error(str(text or '')))
 
 
 _redact = redact_text
@@ -188,14 +186,14 @@ def current_log_dir() -> str:
     return os.path.dirname(path)
 
 
-def _mask_private_ipv4(text: str) -> str:
+def mask_private_ipv4(text: str) -> str:
     import re
     pattern = re.compile(
-        r'\b(?:'
+        r'(?<![A-Za-z0-9_])(?:'
         r'10\.\d{1,3}\.\d{1,3}\.\d{1,3}'
         r'|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}'
         r'|192\.168\.\d{1,3}\.\d{1,3}'
-        r')\b'
+        r')(?![A-Za-z0-9_])'
     )
 
     def repl(match):

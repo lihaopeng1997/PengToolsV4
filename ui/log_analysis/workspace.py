@@ -12,7 +12,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPu
     QFileDialog, QApplication, QMenu, QScrollArea, QGroupBox)
 
 from tools.log_analysis.service import LogService
+from tools.log_analysis.events import Redactor
 from tools.log_analysis.report import Store, report, stamp
+from tools.app_logging import mask_private_ipv4
 from ui.chat_kit import Composer
 from ui.confirm_dialog import confirm_action
 from ui.text_actions import install_text_actions
@@ -48,6 +50,7 @@ class LogAnalysisWorkspace(QWidget):
         self._thinking_pending = {}
         self._thinking_active = {}
         self._answer_preview = {}
+        self._raw_task_ids = set()
         self.restored = {s['id']: s for s in store.load()}
         self._setup()
         self.timer = QTimer(self)
@@ -193,18 +196,16 @@ class LogAnalysisWorkspace(QWidget):
                               ('磁盘/inode告警 %', self.disk_threshold), ('持续秒数', self.duration)]:
             system_form.addRow(label, widget)
         form.addRow(self.system_options)
-        from tools.intranet_mode import is_intranet_open
-        self._intranet_open = is_intranet_open()
         self.scrub_model = QCheckBox('发给模型前清洗敏感字段')
         self.scrub_model.setChecked(True)
-        self.scrub_model.setToolTip('默认开启，建议保持；关闭后模型会收到原文。')
-        self.scrub_model.toggled.connect(self._scrub_changed)
+        self.scrub_model.setEnabled(False)
+        self.scrub_model.setToolTip('始终清洗后发送，包括已授权显示原文的任务。')
         form.addRow(self.scrub_model)
         self.show_raw = QCheckBox('显示原文（关闭采集打码）')
-        self.show_raw.setChecked(self._intranet_open)
+        self.show_raw.setChecked(False)
         self.show_raw.setToolTip(
             '默认对采集列表、事件详情和证据预览打码（密码、token、Authorization 等）。'
-            '勾选后仅对之后新启动的任务显示原文；发给模型的内容仍按上面的清洗开关处理。')
+            '启动时需确认，仅对本次任务有效。发送给模型的内容始终清洗。')
         form.addRow(self.show_raw)
         for widget in (self.backfill, self.warn):
             form.addRow(widget)
@@ -369,8 +370,7 @@ class LogAnalysisWorkspace(QWidget):
                                 (self.encoding, advanced), (self.warn, advanced), (self.notice, advanced),
                                 (self.system_options, mode == 'system' and self.system_advanced.isChecked()),
                                 (self.with_logs, mode == 'system'), (self.backfill, not historical and advanced),
-                                (self.scrub_model, not local and advanced),
-                                (self.show_raw, not local and advanced)):
+                                (self.scrub_model, advanced), (self.show_raw, advanced)):
             self.form.setRowVisible(widget, visible)
         self.result_tabs.setTabVisible(1, mode == 'system')
         self.control_buttons['开始监控 / AI取证'].setText('读取文件' if historical else '开始监控')
@@ -381,16 +381,13 @@ class LogAnalysisWorkspace(QWidget):
         self.interval.setMinimum(5 if mode == 'system' else 1)
         self.tail_lines.setEnabled(not self.use_time.isChecked())
 
-    def _scrub_changed(self, enabled):
-        if self.service:
-            self.service.set_scrub_for_model(enabled)
-        if enabled:
-            text = '发送给模型的内容将清洗敏感字段。'
-        elif getattr(self, '_intranet_open', False):
-            text = '已关闭模型前清洗：按内网模式直接发送原文。'
-        else:
-            text = '已关闭模型前清洗：模型会收到原文，请确认内网环境可信。'
-        self.status.setText(text)
+    def _display_evidence(self, text):
+        if self.selected_id in self._raw_task_ids:
+            return text
+        if not self.snapshots.get(self.selected_id, {}).get('redacted', True):
+            scrubber = Redactor()
+            return '\n'.join(scrubber.line(line) for line in text.split('\n'))
+        return mask_private_ipv4(text)
 
     def selected_mode(self):
         return self.mode.tabData(self.mode.currentIndex())
@@ -451,10 +448,19 @@ class LogAnalysisWorkspace(QWidget):
             self.status.setText('请先选择服务器。')
             return
         try:
+            raw = self.show_raw.isChecked()
+            if raw:
+                self.show_raw.setChecked(False)
+                if not confirm_action(
+                    self, '显示日志原文',
+                    '原文可能包含敏感字段和内网地址，且可能进入任务缓存或报告。仅授权本次任务。',
+                    confirm_text='显示原文', danger=True,
+                ):
+                    return
             if self.service is None:
-                self.service = LogService(self.store, scrub_for_model=self.scrub_model.isChecked())
+                self.service = LogService(self.store)
             options = {'encoding': self.encoding.currentText(), 'warn': self.warn.isChecked(),
-                       'redact': not self.show_raw.isChecked()}
+                       'redact': not raw}
             if mode == 'history':
                 path = [line.strip() for line in self.files.toPlainText().splitlines() if line.strip()]
                 options.update(local=local, tail_lines=0 if self.use_time.isChecked() else self.tail_lines.value())
@@ -472,15 +478,18 @@ class LogAnalysisWorkspace(QWidget):
                                    disk=self.disk_threshold.value(), duration=self.duration.value())
             task = self.service.add(server or {'id': 'local', 'name': '本地文件'},
                                     self.services.currentText() if not local else '历史日志', path, mode=mode, **options)
+            if raw:
+                self._raw_task_ids.add(task.id)
             index = self.tasks.findData(task.id)
             if index < 0:
-                self.tasks.addItem(self.mode.tabText(self.mode.currentIndex()) + ' · ' + task.label + ' / ' + task.service, task.id)
+                label = self.mode.tabText(self.mode.currentIndex()) + ' · ' + task.label + ' / ' + task.service
+                self.tasks.addItem(mask_private_ipv4(label), task.id)
                 index = self.tasks.count() - 1
             self.tasks.setCurrentIndex(index)
             self.select_task()
             self.result_tabs.setCurrentIndex(1 if mode == 'system' else 0)
         except Exception as error:
-            self.status.setText(str(error) if isinstance(error, ValueError) else '启动失败：' + type(error).__name__)
+            self.status.setText(mask_private_ipv4(str(error)) if isinstance(error, ValueError) else '启动失败：' + type(error).__name__)
 
     def select_task(self):
         if self.selected_id:
@@ -548,7 +557,7 @@ class LogAnalysisWorkspace(QWidget):
             self.details.clear()
             return
         if self.service is None:
-            self.service = LogService(self.store, scrub_for_model=self.scrub_model.isChecked())
+            self.service = LogService(self.store)
         try:
             self.service.open_snapshot(snapshot)
             self.status.setText('已打开缓存证据，可提问；未重新连接服务器或启动采集。')
@@ -557,7 +566,7 @@ class LogAnalysisWorkspace(QWidget):
 
     def _add_restored_item(self, ident, snapshot):
         label = '待恢复 · ' + str(snapshot.get('service') or snapshot.get('label') or '日志任务')
-        self.tasks.addItem(label, ident)
+        self.tasks.addItem(mask_private_ipv4(label), ident)
         self.tasks.setItemData(self.tasks.count() - 1,
                                '本地检查点：软件关闭期间未监控；可单条删除，不影响远端日志。',
                                Qt.ItemDataRole.ToolTipRole)
@@ -604,7 +613,7 @@ class LogAnalysisWorkspace(QWidget):
         if not self.selected_id:
             self.select_task()
         self.delete_task_btn.setEnabled(self.selected_id in self.restored)
-        self.status.setText(f'已删除「待恢复 · {name}」的检查点；远端日志未受影响。')
+        self.status.setText(mask_private_ipv4(f'已删除「待恢复 · {name}」的检查点；远端日志未受影响。'))
 
     def _model_changed(self):
         # Skip the checkbox only when this model's address is a proven intranet target.
@@ -775,7 +784,7 @@ class LogAnalysisWorkspace(QWidget):
             self.chat.append_stream(''.join(preview))
 
     def append_chat(self, task_id, text, force=False, *, role='system'):
-        message = {'role': role, 'text': str(text)}
+        message = {'role': role, 'text': mask_private_ipv4(str(text))}
         if len(message['text']) > 150000:
             message['text'] = message['text'][:150000] + '\n[本条显示已截断]'
         messages = self.chats.setdefault(task_id, [])
@@ -841,7 +850,8 @@ class LogAnalysisWorkspace(QWidget):
         selected = self.selected_events()
         event = next((e for e in self.snapshots.get(self.selected_id, {}).get('events', []) if e['id'] in selected), None)
         if event:
-            menu.addAction('复制 traceId', lambda: QApplication.clipboard().setText(event.get('trace_id', '')))
+            menu.addAction('复制 traceId', lambda: QApplication.clipboard().setText(
+                self._display_evidence(event.get('trace_id', ''))))
         menu.addAction('查看前后文', self.show_evidence)
         menu.addAction('交给 AI 分析', self.analyze_selected)
         menu.addAction('所选事件生成报告', self.make_report)
@@ -856,7 +866,7 @@ class LogAnalysisWorkspace(QWidget):
                 confirm_text='替换', danger=True,
         ):
             return
-        self.draft.setPlainText(report(snapshot, self.selected_events() or None))
+        self.draft.setPlainText(self._display_evidence(report(snapshot, self.selected_events() or None)))
         self.right_tabs.setCurrentIndex(1)
 
     def make_ai_report(self):
@@ -935,6 +945,7 @@ class LogAnalysisWorkspace(QWidget):
                 self._apply_deltas([payload])
                 continue
             task_id, text, kind = payload
+            text = mask_private_ipv4(text)
             self._clear_answer_preview(task_id)
             self.append_chat(task_id, text, role='assistant')
             if kind == 'report':
@@ -954,7 +965,7 @@ class LogAnalysisWorkspace(QWidget):
         capturing = bool(task and task.thread and task.thread.is_alive() and not task.stop_event.is_set()
                          and task.state.startswith(('连接中', '重连中', '校验文件', '读取文件')))
         if capturing:
-            self.capture_waiting.set_text(task.state + '…')
+            self.capture_waiting.set_text(mask_private_ipv4(task.state) + '…')
             self.capture_waiting.start()
         else:
             self.capture_waiting.stop()
@@ -979,9 +990,9 @@ class LogAnalysisWorkspace(QWidget):
             return
         mode = snapshot.get('mode', 'live')
         mode_label = {'history': '历史日志分析', 'system': 'Linux实时监控', 'live': '实时日志'}.get(mode, mode)
-        self.scope.setText(f"{mode_label} · {snapshot['label']} / {snapshot['service']}\n"
-                           + snapshot.get('coverage', '仅覆盖已采集证据') + ' · ' + snapshot.get('state', '缓存证据'))
-        self.scope.setToolTip(snapshot['path'])
+        self.scope.setText(self._display_evidence(f"{mode_label} · {snapshot['label']} / {snapshot['service']}\n"
+                           + snapshot.get('coverage', '仅覆盖已采集证据') + ' · ' + snapshot.get('state', '缓存证据')))
+        self.scope.setToolTip(self._display_evidence(snapshot['path']))
         metrics = snapshot.get('metrics', [])
         latest = metrics[-1] if metrics else {}
         def show(key):
@@ -999,8 +1010,9 @@ class LogAnalysisWorkspace(QWidget):
         for row, event in enumerate(snapshot['events']):
             for col, value in enumerate((event['title'], event['count'], stamp(event['last_seen']),
                                           '已分析' if event.get('analyses') else '待分析')):
-                item = QTableWidgetItem(str(value))
-                item.setToolTip(str(value))
+                text = self._display_evidence(str(value))
+                item = QTableWidgetItem(text)
+                item.setToolTip(text)
                 item.setData(Qt.ItemDataRole.UserRole, event['id'])
                 self.events.setItem(row, col, item)
                 if event['id'] in selected:
@@ -1009,9 +1021,9 @@ class LogAnalysisWorkspace(QWidget):
         self.events.verticalScrollBar().setValue(scroll_position)
         self.show_evidence()
         extra = '' if not self.service else f" · {self.service.analysis_activity(self.selected_id)['state']} · {self.service.cache_state}"
-        self.status.setText(f"{snapshot.get('state', '缓存证据')} · 最近接收 {stamp(snapshot.get('last_received'))} · 积压{snapshot.get('backlog', 0)}字节"
+        self.status.setText(self._display_evidence(f"{snapshot.get('state', '缓存证据')} · 最近接收 {stamp(snapshot.get('last_received'))} · 积压{snapshot.get('backlog', 0)}字节"
                             f" · 淘汰{snapshot.get('dropped_events', 0)}组 · 超长行{snapshot.get('truncated_lines', 0)}" + extra
-                            + ('\n' + snapshot['notices'][-1] if snapshot.get('notices') else ''))
+                            + ('\n' + snapshot['notices'][-1] if snapshot.get('notices') else '')))
 
     def _refresh_analysis_activity(self):
         activity = self.service.analysis_activity(self.selected_id) if self.service else None
@@ -1043,8 +1055,8 @@ class LogAnalysisWorkspace(QWidget):
             else 'Ask about the current capture. Enter to send, Shift+Enter for a newline.'
         )
 
-    @staticmethod
-    def _set_preview(widget, text, *, follow_new=False):
+    def _set_preview(self, widget, text, *, follow_new=False):
+        text = self._display_evidence(text)
         if widget.toPlainText() == text:
             return
         bar = widget.verticalScrollBar()
