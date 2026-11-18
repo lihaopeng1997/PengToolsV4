@@ -41,13 +41,23 @@ def _add_scrollable_message(root, message):
     return scroll, text_height
 
 
+def _dialog_is_zh(parent):
+    while parent is not None:
+        language = getattr(parent, 'language', None)
+        if language in ('en', 'zh'):
+            return language == 'zh'
+        parent = parent.parentWidget()
+    return True
+
+
 class ConfirmActionDialog(QDialog):
     """危险/确认操作：取消在左、确认在右，默认焦点永远在取消。"""
 
-    def __init__(self, title, message, confirm_text='确认删除', parent=None, danger=True,
+    def __init__(self, title, message, confirm_text=None, parent=None, danger=True,
                  scope_text=''):
         super().__init__(parent)
         self.scope_all = False
+        zh = _dialog_is_zh(parent)
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
         self.setModal(True)
@@ -71,7 +81,7 @@ class ConfirmActionDialog(QDialog):
         title_label.setWordWrap(True)
         title_wrap.addWidget(title_label)
         if danger:
-            role_hint = QLabel('此操作需二次确认 · 默认焦点在「取消」')
+            role_hint = QLabel('此操作需二次确认 · 默认焦点在「取消」' if zh else 'Confirmation required · Cancel is selected by default')
             role_hint.setObjectName('field-hint')
             title_wrap.addWidget(role_hint)
         header.addLayout(title_wrap, 1)
@@ -100,7 +110,7 @@ class ConfirmActionDialog(QDialog):
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
         buttons.addStretch()
-        self.cancel_button = QPushButton('取消')
+        self.cancel_button = QPushButton('取消' if zh else 'Cancel')
         size_dialog_button(self.cancel_button, 'secondary')
         self.cancel_button.setObjectName('confirm-cancel')
         self.cancel_button.setDefault(True)
@@ -116,7 +126,7 @@ class ConfirmActionDialog(QDialog):
             self.scope_button.setDefault(False)
             self.scope_button.clicked.connect(self._accept_scope_all)
             buttons.addWidget(self.scope_button)
-        self.confirm_button = QPushButton(confirm_text)
+        self.confirm_button = QPushButton(confirm_text if confirm_text is not None else ('确认删除' if zh else 'Confirm deletion'))
         size_dialog_button(
             self.confirm_button,
             'danger' if danger else 'primary',
@@ -331,7 +341,7 @@ class CloseActionDialog(QDialog):
 class AppNoticeDialog(QDialog):
     """统一成功 / 提示 / 警告弹窗，替代原生 QMessageBox 的生硬外观。"""
 
-    def __init__(self, title, message, kind='info', parent=None, button_text='知道了'):
+    def __init__(self, title, message, kind='info', parent=None, button_text=None):
         super().__init__(parent)
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(title)
@@ -369,7 +379,7 @@ class AppNoticeDialog(QDialog):
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
         buttons.addStretch()
-        self.ok_button = QPushButton(button_text)
+        self.ok_button = QPushButton(button_text if button_text is not None else ('知道了' if _dialog_is_zh(parent) else 'OK'))
         size_dialog_button(self.ok_button, 'primary')
         self.ok_button.setObjectName('primary-btn')
         self.ok_button.setDefault(True)
@@ -387,13 +397,13 @@ class AppNoticeDialog(QDialog):
         play_dialog_enter(self)
 
 
-def confirm_action(parent, title, message, confirm_text='确认删除', danger=True, scope_text=''):
+def confirm_action(parent, title, message, confirm_text=None, danger=True, scope_text=''):
     return ConfirmActionDialog(
         title, message, confirm_text, parent, danger=danger, scope_text=scope_text
     ).exec() == QDialog.DialogCode.Accepted
 
 
-def confirm_action_scoped(parent, title, message, confirm_text='确认删除', danger=True,
+def confirm_action_scoped(parent, title, message, confirm_text=None, danger=True,
                           scope_text=''):
     """Like confirm_action, and also reports "allow for this session"."""
     dialog = ConfirmActionDialog(
@@ -418,19 +428,19 @@ def ask_close_action(parent, language='zh', default_action='minimize'):
     return action, dialog.dont_ask_again()
 
 
-def show_info(parent, title, message, kind='info', button_text='知道了'):
+def show_info(parent, title, message, kind='info', button_text=None):
     return AppNoticeDialog(title, message, kind=kind, parent=parent, button_text=button_text).exec()
 
 
-def show_success(parent, title, message, button_text='知道了'):
+def show_success(parent, title, message, button_text=None):
     return show_info(parent, title, message, kind='success', button_text=button_text)
 
 
-def show_warning(parent, title, message, button_text='知道了'):
+def show_warning(parent, title, message, button_text=None):
     return show_info(parent, title, message, kind='warning', button_text=button_text)
 
 
-def show_error(parent, title, message, button_text='知道了'):
+def show_error(parent, title, message, button_text=None):
     return show_info(parent, title, message, kind='error', button_text=button_text)
 
 

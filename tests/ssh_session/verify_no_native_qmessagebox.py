@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ssh_session'))
 import _isolation  # noqa: E402,F401  (redirect HOME/config before imports)
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
-QApplication([])
+app = QApplication([])
 
 PASS, FAIL = [], []
 
@@ -54,6 +54,20 @@ def scan_calls():
 
 
 hits = scan_calls()
+from ui.confirm_dialog import AppNoticeDialog, ConfirmActionDialog
+
+owner = QWidget()
+owner.language = 'en'
+child = QWidget(owner)
+dialog = ConfirmActionDialog('Test', 'Test', parent=child)
+check('英文确认框继承上层语言且默认取消', dialog.cancel_button.text() == 'Cancel'
+      and dialog.cancel_button.isDefault() and dialog.confirm_button.text() == 'Confirm deletion')
+english_notice = AppNoticeDialog('Test', '', parent=child)
+default_notice = AppNoticeDialog('Test', '')
+check('通知默认按钮随语言切换', english_notice.ok_button.text() == 'OK'
+      and default_notice.ok_button.text() == '知道了')
+check('保留调用方指定的确认和通知文案', ConfirmActionDialog('Test', '', 'Keep', child).confirm_button.text() == 'Keep'
+      and AppNoticeDialog('Test', '', parent=child, button_text='Close').ok_button.text() == 'Close')
 check('仓库里没有未允许的 QMessageBox 调用', hits == [], '; '.join(hits[:8]))
 
 import ui.log_analysis.workspace as workspace_mod
