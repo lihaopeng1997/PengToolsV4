@@ -1108,7 +1108,9 @@ def _completion_text(data: dict) -> str:
             elif isinstance(item, str):
                 parts.append(item)
         content = ''.join(parts)
-    text = str(content or '').strip()
+    splitter = _ThinkSplitter()
+    segments = splitter.feed(str(content or '')) + splitter.finish()
+    text = ''.join(part for kind, part in segments if kind == 'text').strip()
     if not text:
         raise IntranetLlmError('模型返回为空')
     return text

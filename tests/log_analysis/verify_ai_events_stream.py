@@ -180,14 +180,17 @@ steady = list(iter_idle_chunks(_steady_read, idle_seconds=1, clock=lambda: clock
 check('持续有分片时总时长不触发超时', len(steady) == 40 and clock['t'] >= 20, str((len(steady), clock['t'])))
 
 print('--- 回退 ---')
-fallback_body = json.dumps({'choices': [{'message': {'content': '同一结果'}}]}, ensure_ascii=False).encode('utf-8')
+fallback_body = json.dumps({'choices': [{'message': {'content': [
+    {'type': 'text', 'text': '同一<th'},
+    {'type': 'text', 'text': 'ink>' + THINK + '</think>结果'},
+]}}]}, ensure_ascii=False).encode('utf-8')
 anth_body = json.dumps({
     'id': 'm',
     'type': 'message',
     'role': 'assistant',
     'model': 'fake',
     'stop_reason': 'end_turn',
-    'content': [{'type': 'text', 'text': '同一结果'}],
+    'content': [{'type': 'text', 'text': '<THINK>' + THINK + '</THINK>同一结果'}],
 }, ensure_ascii=False).encode('utf-8')
 calls = []
 
@@ -220,6 +223,22 @@ finally:
 expected = _completion_text(json.loads(fallback_body.decode('utf-8')))
 anth_expected = _completion_text(_decode_anthropic_body(anth_body.decode('utf-8'), 200))
 check('非 SSE 走非流式回退', non_sse == expected == '同一结果' and non_sse_calls == [True, False], str(non_sse_calls))
+check('未闭合思考只保留前面的正文', _completion_text({
+    'choices': [{'message': {'content': '可见<think>' + THINK}}],
+}) == '可见')
+try:
+    _completion_text({'choices': [{'message': {'content': '<think>' + THINK + '</think>'}}]})
+except IntranetLlmError as exc:
+    check('纯思考使用无正文错误', str(exc) == '模型返回为空')
+else:
+    check('纯思考使用无正文错误', False)
+fallback_session = chat_store.create_session(model='fake')
+fallback_session = chat_store.append_message(fallback_session['id'], 'assistant', '', status='pending')
+fallback_host = SimpleNamespace(_stop_requested=False, _session=fallback_session,
+                                _pending_id=fallback_session['messages'][-1]['id'])
+ModelChatPanel._on_chat_ok(fallback_host, non_sse)
+saved_message = chat_store.load_session(fallback_session['id'])['messages'][-1]
+check('非流式回退落盘只含正文', saved_message['content'] == '同一结果' and saved_message['status'] == 'complete')
 calls.clear()
 
 
