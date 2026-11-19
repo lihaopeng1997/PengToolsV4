@@ -86,12 +86,20 @@ def main():
     assert table.item(1, 1).text() == table.item(1, 1).toolTip() == WORKBOOK_MASK
     assert table.item(1, 3).text() == WORKBOOK_MASK
     captured = []
+    confirmations = []
+    confirm_result = {'allow': True}
+
+    def fake_confirm(_parent, title, message, confirm_text=None, danger=True, scope_text=''):
+        confirmations.append((title, message, danger))
+        return confirm_result['allow']
+
     def export_from_panel(visible_only):
         destination = temp / ('visible.xlsx' if visible_only else 'all.xlsx')
         with ExitStack() as stack:
             stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(destination), '')))
             stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
             stack.enter_context(patch('panels.personal_panel.show_success'))
+            stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
             tab._export_table(visible_only)
         with destination.open('rb') as stream:
             result = load_workbook(stream)
@@ -181,6 +189,84 @@ def main():
     assert saved['rows'][1] == first['rows'][1]
     print('PASS baseline public export preserves original values for full and subset calls')
 
+    assert confirmations and confirmations[-1][2] is True and '未打码' in confirmations[-1][1]
+    confirm_result['allow'] = False
+    blocked = temp / 'cancelled.xlsx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(blocked), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        tab._show_entry_detail(first)
+        confirmations.clear()
+        tab._export_table(False)
+    assert len(confirmations) == 1 and not blocked.exists()
+    confirm_result['allow'] = True
+    allowed = temp / 'confirmed.xlsx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(allowed), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        confirmations.clear()
+        tab._export_table(False)
+    assert len(confirmations) == 1
+    with allowed.open('rb') as stream:
+        result = load_workbook(stream)
+        try:
+            assert list(result.active.values)[1] == tuple(first['rows'][1])
+        finally:
+            result.close()
+    clean = temp / 'clean.xlsx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(clean), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        tab._show_entry_detail(second)
+        confirmations.clear()
+        tab._export_table(False)
+    assert not confirmations and clean.exists()
+    print('PASS table export asks before writing masked originals and stays silent without them')
+
+    from docx import Document
+    sensitive_doc = {'id': 'word-fixture', 'title': 'Connect notes', 'content_type': 'word_document',
+                     'content': 'demo account\npassword=fake-value', 'category': 'learning',
+                     'source': 'fixture.docx'}
+    tab._show_entry_detail(sensitive_doc)
+    confirm_result['allow'] = False
+    doc_blocked = temp / 'word-cancelled.docx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(doc_blocked), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        confirmations.clear()
+        tab._export_word_document()
+    assert len(confirmations) == 1 and not doc_blocked.exists()
+    confirm_result['allow'] = True
+    doc_kept = temp / 'word-kept.docx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(doc_kept), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        tab._export_word_document()
+    assert doc_kept.exists()
+    text = '\n'.join(paragraph.text for paragraph in Document(str(doc_kept)).paragraphs)
+    assert 'password=fake-value' in text
+    tab._show_entry_detail(dict(sensitive_doc, id='word-clean', content='普通的整理说明，没有凭据。'))
+    doc_clean = temp / 'word-clean.docx'
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(QFileDialog, 'getSaveFileName', return_value=(str(doc_clean), '')))
+        stack.enter_context(patch('tools.dialog_paths.remember_dialog_path'))
+        stack.enter_context(patch('panels.personal_panel.show_success'))
+        stack.enter_context(patch('panels.personal_panel.confirm_action', side_effect=fake_confirm))
+        confirmations.clear()
+        tab._export_word_document()
+    assert not confirmations and doc_clean.exists()
+    print('PASS word export asks before writing sensitive text and stays silent without it')
+
     for relative in ('panels/personal_panel.py', 'tools/personal_knowledge.py', 'ui/table_utils.py'):
         filename = ROOT / relative
         ast.parse(filename.read_bytes(), filename=str(filename))
@@ -190,7 +276,7 @@ def main():
     app.processEvents()
     _isolation.assert_untouched()
     print('PASS syntax and isolation')
-    print('RESULT: 7 passed, 0 failed')
+    print('RESULT: 8 passed, 0 failed')
 
 
 if __name__ == '__main__':

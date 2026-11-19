@@ -32,7 +32,7 @@ from tools.personal_knowledge import (
     extract_document_entries, extract_document_text, extract_workbook_entries,
     load_custom_entries, load_seed_entries, merge_knowledge_entries,
     masked_workbook_rows, organize_content, save_custom_entries,
-    search_entries, workbook_group, WORKBOOK_MASK,
+    search_entries, workbook_group, WORKBOOK_MASK, SENSITIVE_PATTERN,
 )
 from tools.requirements import daily_template
 
@@ -1042,6 +1042,35 @@ class KnowledgeTab(QWidget):
         source_row[column] = value
         self._persist_updated_entry(updated, reload_detail=True)
 
+    def _export_shows_masked(self, entry, row_indexes=None, column_indexes=None, text=''):
+        """导出内容是否会写界面上已打码的原文（表格按打码投影比对，文档按敏感词判断）。"""
+        if entry.get('content_type') == 'workbook_sheet':
+            raw_rows = entry.get('rows') or []
+            shown_rows = masked_workbook_rows(entry)
+            indexes = range(len(shown_rows)) if row_indexes is None else row_indexes
+            for index in indexes:
+                shown = shown_rows[index] if index < len(shown_rows) else []
+                raw = raw_rows[index] if index < len(raw_rows) else []
+                for column, value in enumerate(shown):
+                    if column_indexes is not None and column not in column_indexes:
+                        continue
+                    if value != WORKBOOK_MASK:
+                        continue
+                    raw_text = raw[column] if column < len(raw) else ''
+                    if str(raw_text).strip() != WORKBOOK_MASK:
+                        return True
+            return False
+        return bool(SENSITIVE_PATTERN.search(str(text or entry.get('content') or '')))
+
+    def _confirm_unmasked_export(self, entry, target, **scope):
+        if not self._export_shows_masked(entry, **scope):
+            return True
+        return confirm_action(
+            self, f'导出 {target}',
+            '导出文件将包含未打码的原始内容（如密码、Token），请妥善保管。',
+            '仍要导出',
+        )
+
     def _export_table(self, visible_only):
         if not self._current:
             return
@@ -1057,6 +1086,9 @@ class KnowledgeTab(QWidget):
             path += '.xlsx'
         rows = self._visible_source_rows() if visible_only else None
         columns = [column for column in range(self.table_view.columnCount()) if not self.table_view.isColumnHidden(column)] if visible_only else None
+        if not self._confirm_unmasked_export(
+                self._current, 'Excel', row_indexes=rows, column_indexes=columns):
+            return
         try:
             export_workbook_entry(self._current, path, rows, columns)
         except OSError as exc:
@@ -1085,6 +1117,8 @@ class KnowledgeTab(QWidget):
         if not path.lower().endswith('.docx'):
             path += '.docx'
         entry = copy.deepcopy(self._current); entry['content'] = self.word_view.toPlainText(); entry['document_html'] = self.word_view.toHtml()
+        if not self._confirm_unmasked_export(self._current, 'Word', text=entry['content']):
+            return
         try:
             export_word_entry(entry, path)
         except OSError as exc:
