@@ -256,7 +256,8 @@ def _normalize_server(item: dict, category_ids: set[str] | None = None) -> dict:
     # 若调用方直接给 password，加密后存（DPAPI / Fernet，禁止新 b64）
     if item.get('password') is not None and str(item.get('password')) != '':
         password_token = encrypt_secret(str(item.get('password')))
-    elif password_token.startswith('b64:'):
+    else:
+        # 统一走升级：reencrypt_if_weak 自己跳过强加密值（返回 None），弱编码/明文才重加密
         upgraded = reencrypt_if_weak(password_token)
         if upgraded:
             password_token = upgraded

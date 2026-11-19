@@ -1,4 +1,5 @@
 """Offline P11 regressions using only disposable profiles and credentials."""
+import base64
 import os
 import sys
 from pathlib import Path
@@ -135,6 +136,24 @@ def verify_ops():
     assert ops_ssh._normalize_server(dict(server, password_token='opaque'))['password_token'] == 'opaque'
 
 
+def verify_token_upgrade():
+    """读取服务器配置时必须继续升级明文/b64 旧值；强加密值原样保留。"""
+    plain = 'synthetic legacy credential'
+    strong = secure_store.encrypt_secret(plain)
+    assert strong.startswith(('dpapi:', 'enc:'))
+    weak = 'b64:' + base64.urlsafe_b64encode(plain.encode('utf-8')).decode('ascii')
+    for token, upgrades in ((plain, True), (weak, True), (strong, False)):
+        saved = ops_ssh._normalize_server({'id': 'p11', 'host': 'fixture.invalid',
+                                           'username': 'tester', 'password_token': token})
+        normalized = saved['password_token']
+        if not upgrades:
+            assert normalized == strong == token
+            continue
+        assert normalized.startswith(('dpapi:', 'enc:'))
+        assert normalized != token
+        assert secure_store.decrypt_secret(normalized) == plain
+
+
 def verify_transport():
     profile = {'host': 'db.fixture.invalid', 'ssh_enabled': True, 'ssh_auth_method': 'password',
                'ssh_host': 'jump.fixture.invalid', 'ssh_username': 'tester', 'ssh_password_token': STORED,
@@ -181,6 +200,9 @@ def verify_ai_intent():
 
 if __name__ == '__main__':
     app = QApplication([])
+    # 用真实加解密验证升级后的前缀，因此必须放在下面的替身补丁之外
+    verify_token_upgrade()
+    print('PASS  verify_token_upgrade')
     with (
         patch.object(secure_store, 'decrypt_secret', side_effect=unseal),
         patch.object(secure_store, 'encrypt_secret', return_value=REPLACED),
@@ -194,4 +216,4 @@ if __name__ == '__main__':
         import_module(module)
     print('PASS credential consumer imports')
     _isolation.assert_untouched()
-    print('RESULT: 6 passed, 0 failed')
+    print('RESULT: 7 passed, 0 failed')
