@@ -381,8 +381,8 @@ def brand_tray_icon() -> QIcon:
         icon = QIcon(hc)
         if not icon.isNull():
             return icon
-    # 回退：固定 Prism 安全主色 tint 的 tray SVG，避免夜间主题染成近黑
-    prism_tray_tint = '#6C58D9'
+    # 回退：固定 Airy Frost 安全主色 tint 的 tray SVG，避免深色任务栏不可见
+    prism_tray_tint = '#0284C7'
     for size in (20, 16, 24, 32):
         pix = brand_pixmap('tray', size=size, tint=prism_tray_tint)
         if not pix.isNull():

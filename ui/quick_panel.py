@@ -235,6 +235,15 @@ class QuickPanel(QWidget):
         self.preview_table.setShowGrid(False)
         self.preview_table.itemDoubleClicked.connect(self._copy_preview_item)
         preview_l.addWidget(self.preview_table, 1)
+        preview_actions = QHBoxLayout()
+        preview_actions.addStretch()
+        self.preview_open_full_btn = QPushButton()
+        apply_button(self.preview_open_full_btn, 'ghost', compact=True)
+        self.preview_open_full_btn.clicked.connect(
+            lambda: self._open_main_page(int(getattr(self, '_preview_index', 1) or 1))
+        )
+        preview_actions.addWidget(self.preview_open_full_btn)
+        preview_l.addLayout(preview_actions)
         self.preview.hide()
         tools_layout.addWidget(self.preview, 1)
 
@@ -281,6 +290,10 @@ class QuickPanel(QWidget):
         self.learn_content.setReadOnly(True)
         learn_l.addWidget(self.learn_content, 1)
         learn_actions = QHBoxLayout()
+        self.learn_open_full_btn = QPushButton()
+        apply_button(self.learn_open_full_btn, 'ghost', compact=True)
+        self.learn_open_full_btn.clicked.connect(lambda: self._open_main_page(8))
+        learn_actions.addWidget(self.learn_open_full_btn)
         learn_actions.addStretch()
         self.learn_copy_btn = QPushButton()
         apply_button(self.learn_copy_btn, 'primary', compact=True)
@@ -393,6 +406,7 @@ class QuickPanel(QWidget):
         self.preview_gen_personal.setText('生成个人' if zh else 'Personal')
         self.preview_gen_unit.setText('生成单位' if zh else 'Company')
         self.preview_gen_vin.setText('生成' if zh else 'Generate')
+        self.preview_open_full_btn.setText('打开完整页' if zh else 'Open Full Page')
         self.preview_table.setToolTip('双击单元格复制该字段' if zh else 'Double-click a cell to copy that field')
         self.learn_back.setText('返回' if zh else 'Back')
         self.learn_title.setText('自我学习' if zh else 'Learning')
@@ -400,6 +414,7 @@ class QuickPanel(QWidget):
             '全文搜索：标题、正文、标签、来源……' if zh else
             'Search title, content, tags and source…'
         )
+        self.learn_open_full_btn.setText('打开完整页' if zh else 'Open Full Page')
         self.learn_copy_btn.setText('复制内容' if zh else 'Copy')
         self.learn_list.setToolTip('单击查看，双击复制内容' if zh else 'Click to view, double-click to copy')
         if self.learn_search.isVisible():
@@ -604,14 +619,14 @@ class QuickPanel(QWidget):
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('PRIMARY_ACTIVE')
         except Exception:
-            return '#6C58D9'
+            return '#0369A1'
 
     def _surface_tint(self) -> str:
         try:
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('TEXT_STRONG')
         except Exception:
-            return '#262438'
+            return '#0F172A'
 
     def _apply_toggle_icon(self):
         # 收起态是紫色渐变圆按钮，Logo 用白色
@@ -950,6 +965,13 @@ class QuickPanel(QWidget):
             on_saved=_on_saved,
         )
 
+    def _open_main_page(self, index: int):
+        self._main_window.showNormal()
+        self._main_window.raise_()
+        self._main_window.activateWindow()
+        self._main_window.navigate_to(int(index))
+        self.hide_panel()
+
     def _activate(self, index):
         if index in (1, 4):
             self._open_result_preview(index)
@@ -957,11 +979,7 @@ class QuickPanel(QWidget):
         if index == 8:
             self._open_learning_search()
             return
-        self._main_window.showNormal()
-        self._main_window.raise_()
-        self._main_window.activateWindow()
-        self._main_window.navigate_to(index)
-        self.hide_panel()
+        self._open_main_page(index)
 
     def _open_result_preview(self, index: int):
         if not self.expanded:

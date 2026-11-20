@@ -874,6 +874,10 @@ class AiWorkbenchPanel(QWidget):
             self.page_header.setVisible(not compact)
         if hasattr(self, 'connection_toolbar'):
             self.connection_toolbar.setVisible(not compact)
+        if hasattr(self, 'left_pane'):
+            self.left_pane.setVisible(not compact)
+            if compact:
+                self.left_pane.setMinimumWidth(0)
         if hasattr(self, 'narrow_chrome'):
             self.narrow_chrome.setVisible(not compact and self.width() < 1200)
         if hasattr(self, 'columns_splitter'):
@@ -921,41 +925,46 @@ class AiWorkbenchPanel(QWidget):
         self._prev_applied_c = c
         is_wide_c = c >= 1200
 
+        compact = bool(getattr(self, '_embedded_compact_mode', False))
         if hasattr(self, 'narrow_chrome'):
-            self.narrow_chrome.setVisible(
-                not is_wide_c and not bool(getattr(self, '_embedded_compact_mode', False))
-            )
+            self.narrow_chrome.setVisible(not is_wide_c and not compact)
 
         if is_wide_c:
-            # C >= 1200: 树 220，主 C-522，辅助 270，gap 16
-            self.left_pane.setVisible(True)
-            self.side_tabs.setVisible(True)
-            self.left_pane.setMinimumWidth(200)
-            self.side_tabs.setMinimumWidth(240)
+            # C >= 1200: 树 220，主 C-522，辅助 270，gap 16；嵌入数据中心时隐藏重复左树
+            show_left = not compact
+            show_side = bool(self._embedded_sidebar_visible) if compact else True
+            self.left_pane.setVisible(show_left)
+            self.side_tabs.setVisible(show_side)
+            self.left_pane.setMinimumWidth(200 if show_left else 0)
+            self.side_tabs.setMinimumWidth(240 if show_side else 0)
             mid = self.columns_splitter.widget(1)
             if mid is not None:
                 mid.setMinimumWidth(420)
-            col_mins = [200, 420, 240]
-            col_defs = [220, max(420, c - 522), 270]
+            col_mins = [200 if show_left else 0, 420, 240 if show_side else 0]
+            left_def = 220 if show_left else 0
+            right_def = 270 if show_side else 0
+            col_defs = [left_def, max(420, c - left_def - right_def - 32), right_def]
             bucket_name = f'{mode}_wide' if mode != 'wide' else 'wide'
         else:
-            # C < 1200: 树 200 + 主 C-216，AI/对象使用现有窄面板切换
-            self.left_pane.setVisible(self._narrow_show_objects)
-            self.side_tabs.setVisible(self._narrow_show_ai)
+            # C < 1200: 树 200 + 主 C-216，AI/对象使用现有窄面板切换；嵌入数据中心时隐藏重复左树
+            show_left = (not compact) and bool(self._narrow_show_objects)
+            show_side = bool(self._embedded_sidebar_visible) if compact else bool(self._narrow_show_ai)
+            self.left_pane.setVisible(show_left)
+            self.side_tabs.setVisible(show_side)
             self.columns_splitter.setOrientation(Qt.Orientation.Horizontal)
             mid = self.columns_splitter.widget(1)
             if mid is not None:
                 mid.setMinimumWidth(360)
-            if self._narrow_show_objects:
-                self.left_pane.setMinimumWidth(200)
-            if self._narrow_show_ai:
-                self.side_tabs.setMinimumWidth(200)
+            self.left_pane.setMinimumWidth(200 if show_left else 0)
+            self.side_tabs.setMinimumWidth(200 if show_side else 0)
             col_mins = [
-                200 if self._narrow_show_objects else 0,
+                200 if show_left else 0,
                 360,
-                200 if self._narrow_show_ai else 0,
+                200 if show_side else 0,
             ]
-            col_defs = [200, max(360, c - 216), 240]
+            left_def = 200 if show_left else 0
+            right_def = 240 if show_side else 0
+            col_defs = [left_def, max(360, c - left_def - right_def - 16), right_def]
             bucket_name = f'{mode}_narrow' if mode == 'wide' else layout_bucket(mode)
 
         self._in_sync_layout = True

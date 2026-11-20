@@ -111,7 +111,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
   gap: 8px;
   box-sizing: border-box;
   font-family: inherit;
-  color: var(--text-strong, #262438);
+  color: var(--text-strong, #0f172a);
 }
 
 /* Ring 变体 */
@@ -132,18 +132,18 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 }
 
 .spinner-track {
-  stroke: var(--surface-soft, rgba(108, 88, 217, 0.12));
+  stroke: var(--surface-soft, rgba(2, 132, 199, 0.12));
 }
 
 .spinner-arc {
-  stroke: var(--primary, #6c58d9);
+  stroke: var(--primary, #0284c7);
 }
 
 .ring-gem {
   position: absolute;
   width: 5px;
   height: 5px;
-  background: var(--primary, #6c58d9);
+  background: var(--primary, #0284c7);
   transform: rotate(45deg);
   border-radius: 1px;
 }
@@ -158,7 +158,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 .loading-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-strong, #262438);
+  color: var(--text-strong, #0f172a);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -173,14 +173,14 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 .progress-track {
   width: 120px;
   height: 4px;
-  background: var(--surface-soft, rgba(108, 88, 217, 0.12));
+  background: var(--surface-soft, rgba(2, 132, 199, 0.12));
   border-radius: 2px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary-grad-start, #7c6ae6), var(--primary-grad-end, #6c58d9));
+  background: linear-gradient(90deg, var(--primary-grad-start, #0ea5e9), var(--primary-grad-end, #0284c7));
   border-radius: 2px;
   transition: width 0.15s ease;
 }
@@ -188,7 +188,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 .progress-pct {
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary, #6c58d9);
+  color: var(--primary, #0284c7);
 }
 
 /* Dots 变体 (LD-05 6x6 菱形，间距 5px，1.2s 纯透明度脉动) */
@@ -202,7 +202,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 .diamond-dot {
   width: 6px;
   height: 6px;
-  background: var(--primary, #6c58d9);
+  background: var(--primary, #0284c7);
   transform: rotate(45deg);
   border-radius: 1px;
   opacity: 0.35;
@@ -224,7 +224,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
 
 .dots-label {
   font-size: 12px;
-  color: var(--text-muted, #615d73);
+  color: var(--text-muted, #64748b);
   font-weight: normal;
 }
 
@@ -240,14 +240,14 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
   position: relative;
   width: 100%;
   height: 4px;
-  background: var(--surface-soft, rgba(108, 88, 217, 0.12));
+  background: var(--surface-soft, rgba(2, 132, 199, 0.12));
   border-radius: 2px;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  background: var(--primary, #6c58d9);
+  background: var(--primary, #0284c7);
   border-radius: 2px;
   transition: width 0.15s ease;
 }
@@ -257,7 +257,7 @@ const displayLabel = computed(() => props.label || (props.variant === 'dots' ? '
   top: 0;
   height: 100%;
   width: 96px;
-  background: var(--primary, #6c58d9);
+  background: var(--primary, #0284c7);
   border-radius: 2px;
   animation: barShimmer 1.6s ease-in-out infinite alternate;
 }

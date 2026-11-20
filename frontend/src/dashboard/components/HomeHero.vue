@@ -545,23 +545,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   align-items: center;
   gap: 7px;
   height: 36px;
-  padding: 0 16px;
-  border-radius: 11px;
+  padding: 0 18px;
+  border-radius: 999px;
   font-size: 13px;
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease,
+    background 180ms ease;
 }
 
 .hero-primary {
-  background: linear-gradient(115deg, var(--primary-grad-start), var(--primary-grad-end));
+  background: linear-gradient(125deg, var(--primary-grad-start), var(--primary-grad-end));
   color: var(--on-primary);
   border: 1px solid var(--primary);
   font-weight: 600;
-  box-shadow: 0 8px 20px var(--shadow-l2);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.22);
 }
 
 .hero-primary:hover {
   transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(2, 132, 199, 0.3);
+}
+
+.hero-primary:active,
+.hero-ghost:active {
+  transform: scale(0.975);
 }
 
 .hero-ghost {
@@ -572,6 +581,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 
 .hero-ghost:hover {
   border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-active);
 }
 
 .hero-ghost.pending {

@@ -361,12 +361,12 @@ class PrismSidebar(QWidget):
             palette = ThemeManager.instance().palette()
         except Exception:
             palette = {}
-        surface = palette.get('ELEVATED_SURFACE', palette.get('SURFACE', '#FDFDFF'))
-        border = palette.get('ELEVATED_BORDER', palette.get('BORDER', '#E6E2F0'))
-        text = palette.get('TEXT_NAV', palette.get('TEXT', '#4B5569'))
-        muted = palette.get('TEXT_MUTED', '#615D73')
-        primary = palette.get('PRIMARY', '#6C58D9')
-        primary_soft = palette.get('PRIMARY_SOFT', '#EEE9FF')
+        surface = palette.get('ELEVATED_SURFACE', palette.get('SURFACE', '#FFFFFF'))
+        border = palette.get('ELEVATED_BORDER', palette.get('BORDER', '#D7E7F3'))
+        text = palette.get('TEXT_NAV', palette.get('TEXT', '#334155'))
+        muted = palette.get('TEXT_MUTED', '#64748B')
+        primary = palette.get('PRIMARY', '#0284C7')
+        primary_soft = palette.get('PRIMARY_SOFT', '#E0F2FE')
         menu.setStyleSheet(
             'QMenu#prism-nav-group-menu {'
             f'background: {surface}; border: 1px solid {border}; border-radius: 15px; padding: 10px;'

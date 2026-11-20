@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QEasingCurve, QEvent, QObject, QPointF, QRectF, QVariantAnimation, Qt
+from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath
 from PyQt6.QtWidgets import (
     QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QTabWidget, QTreeWidget, QWidget,
 )
@@ -90,6 +90,117 @@ def density_metrics(name: str | None) -> DensityMetrics:
     return DENSITY_METRICS.get(str(name or '').strip().lower(), DENSITY_METRICS['compact'])
 
 
+class _RippleOverlay(QWidget):
+    """清风玻璃原生按钮点击水波纹覆盖层：零点击劫持，隐藏/销毁自动停止。"""
+
+    def __init__(self, target: QWidget, *, primary: bool = False):
+        super().__init__(target)
+        self._target = target
+        self._primary = bool(primary)
+        self._center = QPointF(0.0, 0.0)
+        self._progress = 0.0
+        self._active = False
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(360)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._on_step)
+        self._anim.finished.connect(self._on_done)
+        self.hide()
+
+    def set_primary(self, primary: bool) -> None:
+        self._primary = bool(primary)
+
+    def trigger(self, pos: QPointF) -> None:
+        if not self._target.isVisible() or not self._target.isEnabled():
+            return
+        self.setGeometry(self._target.rect())
+        self._center = QPointF(pos)
+        self._progress = 0.0
+        self._active = True
+        self.raise_()
+        self.show()
+        self._anim.stop()
+        self._anim.start()
+
+    def stop_now(self) -> None:
+        self._anim.stop()
+        self._active = False
+        self.hide()
+
+    def _on_step(self, value) -> None:
+        self._progress = float(value or 0.0)
+        self.update()
+
+    def _on_done(self) -> None:
+        self._active = False
+        self.hide()
+
+    def paintEvent(self, _event) -> None:
+        if not self._active:
+            return
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        try:
+            radius_clip = float(min(h / 2.0, 16.0 if self._primary else 10.0))
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(0.5, 0.5, max(0.0, w - 1.0), max(0.0, h - 1.0)), radius_clip, radius_clip)
+            painter.setClipPath(path)
+            max_r = max(w, h) * 1.15
+            cur_r = max_r * self._progress
+            alpha = int(max(0.0, (1.0 - self._progress) * (105.0 if self._primary else 72.0)))
+            color = QColor(255, 255, 255, alpha) if self._primary else QColor(14, 165, 233, alpha)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawEllipse(self._center, cur_r, cur_r)
+        finally:
+            painter.end()
+
+
+class _AiryRippleFilter(QObject):
+    def __init__(self, button: QWidget, *, primary: bool = False):
+        super().__init__(button)
+        self._button = button
+        self._overlay = _RippleOverlay(button, primary=primary)
+
+    def set_primary(self, primary: bool) -> None:
+        self._overlay.set_primary(primary)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is not self._button:
+            return False
+        etype = event.type()
+        if etype == QEvent.Type.MouseButtonPress and hasattr(event, 'position'):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._overlay.trigger(event.position())
+        elif etype == QEvent.Type.Resize:
+            if self._overlay.isVisible():
+                self._overlay.setGeometry(self._button.rect())
+        elif etype in (QEvent.Type.Hide, QEvent.Type.EnabledChange):
+            if etype == QEvent.Type.Hide or not self._button.isEnabled():
+                self._overlay.stop_now()
+        return False
+
+
+def install_button_ripple(button, *, primary: bool = False) -> None:
+    """为原生 PyQt6 按钮挂接清风玻璃水波纹（幂等安装）。"""
+    existing = getattr(button, '_airy_ripple_filter', None)
+    if isinstance(existing, _AiryRippleFilter):
+        existing.set_primary(primary)
+        return
+    flt = _AiryRippleFilter(button, primary=primary)
+    button._airy_ripple_filter = flt
+    button.installEventFilter(flt)
+
+
 def apply_button(
     button,
     role: str = 'secondary',
@@ -109,6 +220,7 @@ def apply_button(
         button.setFixedHeight(32)
         button.setProperty('compactAction', False)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
+    install_button_ripple(button, primary=(role == 'primary'))
     if icon:
         icon_kwargs = {}
         if role == 'primary':
@@ -128,9 +240,9 @@ def apply_button(
         elif role == 'fold':
             try:
                 from ui.theme_manager import ThemeManager
-                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#503DBE'
+                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#0369A1'
             except Exception:
-                accent = '#503DBE'
+                accent = '#0369A1'
             icon_kwargs = {'normal': accent, 'active': accent}
         apply_icon(button, icon, size=icon_size, **icon_kwargs)
     style = button.style()

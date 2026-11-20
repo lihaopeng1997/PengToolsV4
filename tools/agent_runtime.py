@@ -49,7 +49,7 @@ _BUDGET_REASON_TEXT = {
     'output_tokens': '模型这次的回答长度已到上限，先停在这里。',
 }
 _BUDGET_NEXT_STEP = '已完成的步骤都保留着：发送「继续」可接着做，或把范围缩小到具体目录/文件再问。'
-MAX_FILE_SIZE = 200 * 1024  # 单文件最大读取 200KB
+MAX_FILE_SIZE = 2 * 1024 * 1024  # 单文件最大读取 2MB（单次返回仍受 MAX_READ_FILE_CHARS 分段约束）
 MAX_READ_FILE_CHARS = 12_000  # Keep one read result below the shared input budget.
 # Compatibility name: this heuristic counts UTF-8 bytes, not provider tokens.
 MAX_CONTEXT_INPUT_ESTIMATE = DEFAULT_CONTEXT_INPUT_BYTES
@@ -60,8 +60,9 @@ UNKNOWN_TOOL = 'UNKNOWN_TOOL'
 
 # 白名单扩展名（用于目录树索引）
 WHITELIST_EXTENSIONS = frozenset(
-    '.py .js .ts .vue .html .css .scss .md .json .txt .yml .yaml .xml '
-    '.sql .sh .bat .ps1 .rs .go .java .c .cpp .h .hpp .less .properties .gradle'.split()
+    '.py .js .jsx .ts .tsx .vue .html .css .scss .less .md .json .txt .yml .yaml .xml '
+    '.toml .ini .cfg .conf .csv .svg '
+    '.sql .sh .bat .ps1 .rs .go .java .c .cpp .h .hpp .properties .gradle'.split()
 )
 
 # 默认跳过的大型/生成目录
@@ -346,7 +347,7 @@ def _read_complete_file_impl(relative_path: str, workspace_dir: str) -> dict:
         return {'ok': False, 'success': False, 'tool': 'read_file', 'error': f'读取失败: {e}', 'data': None}
 
     from tools.text_file_codec import decode_text_bytes
-    decoded = decode_text_bytes(raw, filename=relative_path)
+    decoded = decode_text_bytes(raw, filename=relative_path, max_size=MAX_FILE_SIZE)
     if not decoded.get('ok') or decoded.get('binary'):
         return {
             'ok': False,

@@ -350,8 +350,10 @@ class _DataCenterRedisPanel:
         self._on_connection_changed()
         combo.hide()
         combo.setEnabled(False)
-        for name in ("conn_new_btn", "conn_edit_btn", "conn_del_btn"):
-            getattr(self, name).hide()
+        for name in ("conn_new_btn", "conn_edit_btn", "conn_del_btn", "home_btn"):
+            btn = getattr(self, name, None)
+            if btn is not None:
+                btn.hide()
 
 
 class _DataCenterMongoPanel:
@@ -383,8 +385,10 @@ class _DataCenterMongoPanel:
         self._on_connection_changed()
         combo.hide()
         combo.setEnabled(False)
-        for name in ("conn_new_btn", "conn_edit_btn", "conn_del_btn"):
-            getattr(self, name).hide()
+        for name in ("conn_new_btn", "conn_edit_btn", "conn_del_btn", "page_header"):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.hide()
 
 
 class _ConnectionWorkspace(QWidget):

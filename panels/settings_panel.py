@@ -2145,6 +2145,23 @@ class SettingsPanel(QWidget):
             self._pending_reminder_save = None
 
     def _restore_defaults(self):
+        from ui.confirm_dialog import confirm_action
+        zh = self.language == 'zh'
+        if not confirm_action(
+            self,
+            '恢复默认设置' if zh else 'Restore default settings',
+            (
+                '确定将常规偏好（外观、字体、启动项、快捷键、悬浮栏快捷入口等）恢复为默认值吗？\n'
+                '（不会删除您的数据库/服务器配置、AI 模型配置或需求/学习数据）'
+            ) if zh else (
+                'Restore general preferences (appearance, font, startup, shortcuts, quick panel) to defaults?\n'
+                '(Your connections, servers, AI models, and personal data will NOT be deleted.)'
+            ),
+            confirm_text='恢复默认' if zh else 'Restore',
+            cancel_text='取消' if zh else 'Cancel',
+            danger=True,
+        ):
+            return
         self.load_values(DEFAULT_SETTINGS, reload_external=False)
         self._save()
 

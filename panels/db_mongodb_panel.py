@@ -263,6 +263,7 @@ class MongoDBWorkbenchPanel(QWidget):
             '集合浏览 · 文档查询 · Shell',
             'database',
         )
+        self.page_header = header
         root.addWidget(header)
 
         toolbar, top = make_page_toolbar(divided=True)

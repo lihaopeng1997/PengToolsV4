@@ -459,19 +459,25 @@ button, input, select, textarea { font: inherit; }
 .bento > :nth-child(4) { animation-delay: 140ms; }
 .bento > :nth-child(5) { animation-delay: 180ms; }
 
-/* 便当格卡片的统一外观（子组件根节点带 .tile） */
+/* 清风玻璃卡片的统一外观（子组件根节点带 .tile） */
 .bento :deep(.tile) {
   padding: 16px 16px 14px;
-  border-radius: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 3px var(--shadow-l1);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  border-radius: 16px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.88));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 22px var(--shadow-l1), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease;
 }
 
 .bento :deep(.tile:hover) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px var(--shadow-l1);
+  border-color: rgba(125, 211, 252, 0.72);
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .bento :deep(.tile-head) {
