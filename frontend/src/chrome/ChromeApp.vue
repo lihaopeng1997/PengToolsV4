@@ -275,11 +275,11 @@ body::before {
 }
 
 svg.ic {
-  width: 26px;
-  height: 26px;
-  padding: 4.5px;
-  border-radius: 8px;
-  background: rgba(108, 88, 217, 0.07);
+  width: 22px;
+  height: 22px;
+  padding: 3.5px;
+  border-radius: 6px;
+  background: rgba(108, 88, 217, 0.08);
   color: #6C58D9;
   flex-shrink: 0;
   opacity: 0.92;
@@ -339,15 +339,16 @@ svg.ic {
   padding: 0 4px;
 }
 
-.nav::-webkit-scrollbar { width: 5px; }
-.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 999px; }
-.group { margin-bottom: 4px; }
+.nav::-webkit-scrollbar { width: 4px; }
+.nav::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; transition: background 200ms ease; }
+.nav:hover::-webkit-scrollbar-thumb { background: rgba(108, 88, 217, 0.28); }
+.group { margin-bottom: 3px; }
 
 .g-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 3px;
+  padding: 5px 8px 2px;
   color: var(--ink-3);
   font-size: 11px;
   font-weight: 600;
@@ -356,7 +357,7 @@ svg.ic {
 }
 
 .g-label::after { content: ""; flex: 1; height: 1px; background: var(--edge); opacity: 0.55; }
-.rail-divider { height: 1px; margin: 7px 4px; background: var(--edge); opacity: 0.78; }
+.rail-divider { height: 1px; margin: 6px 4px; background: var(--edge); opacity: 0.78; }
 
 .nav-item {
   position: relative;
@@ -364,17 +365,17 @@ svg.ic {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 38px;
-  gap: 10px;
+  height: 34px;
+  gap: 9px;
   padding: 0 10px 0 8px;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 10px;
   color: var(--ink-2);
   background: transparent;
   font: inherit;
-  font-size: 13.5px;
-  line-height: 19px;
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -391,45 +392,30 @@ svg.ic {
 .nav-item:hover,
 .nav-item:focus-visible {
   background: rgba(108, 88, 217, 0.08);
-  border-color: rgba(124, 106, 230, 0.18);
+  border-color: rgba(124, 106, 230, 0.16);
   color: var(--ink);
-  transform: translateX(3px);
+  transform: translateX(2px);
 }
 .nav-item:hover svg.ic {
   opacity: 1;
-  background: rgba(108, 88, 217, 0.14);
-  transform: scale(1.06);
+  background: rgba(108, 88, 217, 0.15);
+  transform: scale(1.05);
 }
 .nav-item:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
-.nav-item:active { transform: scale(0.97); }
+.nav-item:active { transform: scale(0.975); }
 .nav-item.active {
   background: linear-gradient(135deg, #F1ECFF 0%, #FFFFFF 100%);
   color: #4A35B8;
-  border-color: rgba(124, 106, 230, 0.48);
-  box-shadow: 0 4px 14px rgba(108, 88, 217, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border-color: rgba(124, 106, 230, 0.42);
+  box-shadow: 0 3px 10px rgba(108, 88, 217, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.96);
   font-weight: 700;
   transform: none;
-}
-.nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #8472F0 0%, #6852D6 100%);
-  animation: navPillIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes navPillIn {
-  from { transform: scaleY(0.25); opacity: 0; }
-  to { transform: scaleY(1); opacity: 1; }
 }
 .nav-item.active svg.ic {
   opacity: 1;
   background: linear-gradient(135deg, #8472F0 0%, #6852D6 100%);
   color: #FFFFFF;
-  box-shadow: 0 3px 10px rgba(108, 88, 217, 0.34);
+  box-shadow: 0 2px 8px rgba(108, 88, 217, 0.32);
   transform: none;
 }
 .group-trigger.is-open { background: var(--nav-hover-bg); }

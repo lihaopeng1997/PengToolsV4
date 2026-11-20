@@ -13,18 +13,21 @@
  */
 QWidget {
     color: __TEXT__;
-    background-color: __APP_BG__;
     font-family: __FONT_UI__;
     font-size: __FONT_SIZE_BODY__;
 }
-QMainWindow {
+.QWidget {
+    background-color: transparent;
+}
+QMainWindow, QDialog {
     background: __APP_BG__;
 }
 QFrame#content_area, QFrame#page-body, #page-body, QStackedWidget {
     background: __APP_BG__;
     border: none;
 }
-QStackedWidget > QWidget {
+QStackedWidget > QWidget,
+QStackedWidget > .QWidget {
     background: __APP_BG__;
 }
 QScrollArea {
@@ -48,7 +51,7 @@ QSpinBox, QDoubleSpinBox {
     background: __SURFACE__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 2px 8px;
 }
 QLabel, QCheckBox, QRadioButton { background: transparent; }
@@ -636,17 +639,17 @@ QFrame#detail-summary-card QLabel#zone-title { border-left-color: __PRIMARY__; }
 QFrame#release-filter-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QFrame#release-table-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
 QFrame#release-generate-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
-/* —— 输入 / 下拉 / 多行：统一高度、圆角、焦点环 —— */
+/* —— 输入 / 下拉 / 多行：统一高度、利落 8px 圆角（杜绝 28px 高度下过圆成椭圆）、焦点环 —— */
 QComboBox, QLineEdit, QDateEdit, QTimeEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 12px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 8px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
     min-height: 18px;
     max-height: 28px;
 }
 QTextEdit, QPlainTextEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 12px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 10px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
 QComboBox { padding-right: 38px; combobox-popup: 0; }
@@ -707,7 +710,7 @@ QPlainTextEdit[readOnlyField="true"]:disabled {
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 32px; border: none; border-left: 1px solid __BORDER__;
-    background: __PRIMARY_SOFT__; border-top-right-radius: 11px; border-bottom-right-radius: 11px;
+    background: __PRIMARY_SOFT__; border-top-right-radius: 7px; border-bottom-right-radius: 7px;
 }
 QComboBox::drop-down:hover { background: __PRIMARY_SOFT__; }
 QComboBox::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
@@ -1789,16 +1792,16 @@ QMessageBox QPushButton {
 
 QDateEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 10px; padding: 7px 38px 7px 11px;
-    min-width: 150px; max-width: 160px; min-height: 18px; max-height: 34px;
+    border-radius: 8px; padding: 5px 38px 5px 10px;
+    min-width: 150px; max-width: 160px; min-height: 18px; max-height: 32px;
     selection-background-color: __PRIMARY__; selection-color: __SURFACE__;
 }
 QDateEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
-QDateEdit:focus { border: 2px solid __FOCUS_RING__; padding: 6px 37px 6px 10px; outline: none; }
+QDateEdit:focus { border: 2px solid __FOCUS_RING__; padding: 4px 37px 4px 9px; outline: none; }
 QDateEdit::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 32px; border: none; border-left: 1px solid __BORDER__;
-    background: __PRIMARY_SOFT__; border-top-right-radius: 11px; border-bottom-right-radius: 11px;
+    background: __PRIMARY_SOFT__; border-top-right-radius: 7px; border-bottom-right-radius: 7px;
 }
 QDateEdit::drop-down:hover { background: __PRIMARY_SOFT__; }
 QDateEdit::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
@@ -2002,19 +2005,20 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     font-weight: 600;
 }
 #context-quick-btn {
-    min-height: 30px;
-    max-height: 30px;
+    min-height: 28px;
+    max-height: 28px;
     font-size: 12px;
-    font-weight: 400;
+    font-weight: 500;
     padding: 0 12px;
     text-align: left;
     color: __TEXT_MUTED__;
-    background: __SURFACE_SOFT__;
+    background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-radius: 8px;
+    border-radius: 9px;
 }
 #context-quick-btn:hover {
     color: __TEXT_STRONG__;
+    background: #FFFFFF;
     border-color: __PRIMARY__;
 }
 #context-quick-btn[compact="true"] {
