@@ -262,17 +262,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
       </div>
 
       <div class="kpis">
-        <button class="kpi" type="button" :class="{ on: !props.focus }" @click="emit('focusStage', null)">
-          <strong>{{ activeTotal }}</strong><span>在推进</span>
+        <button class="kpi kpi-dev" type="button" :class="{ on: !props.focus }" @click="emit('focusStage', null)">
+          <i class="kpi-dot" /><strong>{{ activeTotal }}</strong><span>在推进</span>
         </button>
-        <button class="kpi" type="button" :class="{ on: props.focus === 'online' }" @click="emit('focusStage', 'online')">
-          <strong>{{ releaseDone }}<small>/{{ releaseTotal }}</small></strong><span>本月上线</span>
+        <button class="kpi kpi-online" type="button" :class="{ on: props.focus === 'online' }" @click="emit('focusStage', 'online')">
+          <i class="kpi-dot" /><strong>{{ releaseDone }}<small>/{{ releaseTotal }}</small></strong><span>本月上线</span>
         </button>
-        <div class="kpi static" :title="`测试点 ${testPoints.done}/${testPoints.total}`">
-          <strong>{{ testPoints.total ? tpPercent : '—' }}<small v-if="testPoints.total">%</small></strong><span>测试点</span>
+        <div class="kpi kpi-tp static" :title="`测试点 ${testPoints.done}/${testPoints.total}`">
+          <i class="kpi-dot" /><strong>{{ testPoints.total ? tpPercent : '—' }}<small v-if="testPoints.total">%</small></strong><span>测试点</span>
         </div>
-        <button class="kpi" type="button" :class="{ warn: dailyPending }" :title="props.stats?.daily_note || ''" @click="emit('writeDaily')">
-          <strong>{{ dailyDone }}<small>/{{ dailyTotal }}</small></strong><span>本周日报</span>
+        <button class="kpi kpi-daily" type="button" :class="{ warn: dailyPending }" :title="props.stats?.daily_note || ''" @click="emit('writeDaily')">
+          <i class="kpi-dot" /><strong>{{ dailyDone }}<small>/{{ dailyTotal }}</small></strong><span>本周日报</span>
         </button>
       </div>
     </div>
@@ -545,39 +545,53 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   align-items: center;
   gap: 7px;
   height: 36px;
-  padding: 0 16px;
-  border-radius: 11px;
+  padding: 0 18px;
+  border-radius: 999px;
   font-size: 13px;
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, filter 160ms ease, background 180ms ease;
 }
 
 .hero-primary {
-  background: linear-gradient(115deg, var(--primary-grad-start), var(--primary-grad-end));
+  background: linear-gradient(125deg, var(--primary-grad-start), var(--primary-grad-end));
   color: var(--on-primary);
-  border: 1px solid var(--primary);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   font-weight: 600;
-  box-shadow: 0 8px 20px var(--shadow-l2);
+  box-shadow: 0 6px 18px rgba(108, 88, 217, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 .hero-primary:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  filter: brightness(1.04);
+  box-shadow: 0 10px 24px rgba(108, 88, 217, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.hero-primary:active,
+.hero-ghost:active {
+  transform: scale(0.96);
 }
 
 .hero-ghost {
   background: var(--surface);
-  color: var(--text);
+  color: var(--text-strong);
   border: 1px solid var(--border);
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(38, 36, 56, 0.04);
 }
 
 .hero-ghost:hover {
+  transform: translateY(-1px);
   border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-active);
+  box-shadow: 0 6px 14px rgba(108, 88, 217, 0.14);
 }
 
 .hero-ghost.pending {
-  color: var(--warning);
-  border-color: var(--warning-border);
-  background: var(--warning-bg);
+  color: #B45309;
+  border-color: #FCD34D;
+  background: #FEF3C7;
+  font-weight: 600;
 }
 
 .kpis {
@@ -588,7 +602,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 
 .kpi {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   height: 34px;
   padding: 0 12px;
@@ -596,8 +610,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
-  transition: border-color 160ms ease;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 160ms ease, box-shadow 180ms ease;
   line-height: 34px;
+}
+
+.kpi-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.kpi-dev .kpi-dot { background: #6C58D9; }
+.kpi-online .kpi-dot { background: #059669; }
+.kpi-tp .kpi-dot { background: #0891B2; }
+.kpi-daily .kpi-dot { background: #059669; }
+.kpi-daily.warn .kpi-dot { background: #D97706; }
+
+.kpi:not(.static):hover {
+  transform: translateY(-1px);
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(108, 88, 217, 0.12);
 }
 
 .kpi strong {

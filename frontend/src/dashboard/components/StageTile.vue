@@ -42,11 +42,11 @@ function pick(key: StageKey): void {
           type="button"
           class="bar-row"
           :class="{ on: props.focus === row.key, dim: props.focus && props.focus !== row.key }"
-          :style="{ '--stage': row.color }"
+          :style="{ '--stage': row.color, '--stage-bg': row.bg }"
           :data-stage="row.key"
           @click="pick(row.key)"
         >
-          <span class="bar-label">{{ row.label }}</span>
+          <span class="bar-label"><i class="stage-dot" />{{ row.label }}</span>
           <span class="bar-track"><span class="bar-fill" :style="{ width: `${row.width}%` }" /></span>
           <span class="bar-count">{{ row.count }}</span>
         </button>
@@ -75,21 +75,22 @@ function pick(key: StageKey): void {
 .bar-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 28px;
+  grid-template-columns: 64px minmax(0, 1fr) 32px;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 7px 9px;
   border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, opacity 140ms ease;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms cubic-bezier(0.22, 1, 0.36, 1), opacity 140ms ease;
 }
 
 .bar-row:hover,
 .bar-row.on {
-  background: var(--surface-soft);
+  background: var(--stage-bg, var(--surface-soft));
   border-color: var(--stage);
+  transform: translateX(2px);
 }
 
 .bar-row.dim {
@@ -97,15 +98,26 @@ function pick(key: StageKey): void {
 }
 
 .bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   text-align: left;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stage);
+  flex-shrink: 0;
 }
 
 .bar-track {
-  height: 8px;
-  border-radius: 4px;
+  height: 9px;
+  border-radius: 999px;
   background: var(--surface-soft);
   overflow: hidden;
 }
@@ -113,16 +125,19 @@ function pick(key: StageKey): void {
 .bar-fill {
   display: block;
   height: 100%;
-  border-radius: 4px;
+  border-radius: 999px;
   background: var(--stage);
   transition: width 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .bar-count {
-  text-align: right;
-  font-size: 15px;
+  text-align: center;
+  font-size: 12px;
   font-weight: 800;
   color: var(--stage);
+  background: var(--stage-bg, var(--surface-soft));
+  border-radius: 999px;
+  padding: 1px 6px;
   font-variant-numeric: tabular-nums;
 }
 

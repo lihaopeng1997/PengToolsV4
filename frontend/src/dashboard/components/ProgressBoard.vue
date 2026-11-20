@@ -274,7 +274,7 @@ function onOpen(item: DashboardBoardItem): void {
           :key="item.id"
           class="row"
           :class="{ urgent: item.priority === '紧急', important: item.priority === '重要', busy: props.busyId === item.id }"
-          :style="{ '--stage': stageMeta(item.group).color }"
+          :style="{ '--stage': stageMeta(item.group).color, '--stage-bg': stageMeta(item.group).bg }"
           :tabindex="isReal(item) ? 0 : undefined"
           :role="isReal(item) ? 'button' : undefined"
           @click="onOpen(item)"
@@ -664,14 +664,15 @@ h2 {
 
 .row {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto auto;
+  grid-template-columns: 68px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 14px 10px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  border-left: 3.5px solid var(--stage);
   cursor: pointer;
-  transition: background 140ms ease;
+  transition: background 150ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .row:last-child {
@@ -680,7 +681,8 @@ h2 {
 
 .row:hover,
 .row:focus-visible {
-  background: var(--surface-soft);
+  background: var(--stage-bg, var(--surface-soft));
+  transform: translateX(2px);
   outline: none;
 }
 
@@ -691,13 +693,29 @@ h2 {
 
 .row-stage {
   justify-self: start;
-  padding: 2px 8px;
-  border-radius: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
   color: var(--stage);
-  background: var(--surface-soft);
+  background: var(--stage-bg, var(--surface-soft));
   border: 1px solid var(--stage);
+}
+
+.prio {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #FEF3C7;
+  color: #B45309;
+  border: 1px solid #FCD34D;
+}
+
+.row.urgent .prio {
+  background: #FEE2E2;
+  color: #DC2626;
+  border-color: #FCA5A5;
 }
 
 .row-main {

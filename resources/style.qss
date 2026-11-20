@@ -267,9 +267,9 @@ QPushButton[actionRole="secondary"] {
     outline: none;
 }
 QPushButton#btn-secondary:hover,
-QPushButton[actionRole="secondary"]:hover { background: __SURFACE_SOFT__; border-color: __BORDER_STRONG__; color: __TEXT_STRONG__; }
+QPushButton[actionRole="secondary"]:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:pressed,
-QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __TEXT_STRONG__; }
+QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY_ACTIVE__; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:focus,
 QPushButton[actionRole="secondary"]:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QPushButton#btn-secondary:disabled,
@@ -282,18 +282,18 @@ QPushButton[actionRole="primary"]:pressed {
 }
 QPushButton#primary-btn, QPushButton#card-action,
 QPushButton[actionRole="primary"] {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
-    color: __ON_PRIMARY__; border: 1px solid transparent; font-weight: 600; padding: 7px 14px;
-    border-radius: 10px;
+    color: __ON_PRIMARY__; border: 1px solid __PRIMARY__; font-weight: 600; padding: 6px 16px;
+    border-radius: 16px;
     outline: none;
 }
 QPushButton#primary-btn:hover, QPushButton#card-action:hover,
 QPushButton[actionRole="primary"]:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 __PRIMARY_HOVER__, stop:1 __PRIMARY__);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 __PRIMARY__, stop:1 __PRIMARY_HOVER__);
     color: __ON_PRIMARY__;
-    border: 1px solid transparent;
+    border: 1px solid __PRIMARY_GRAD_START__;
 }
 QPushButton#primary-btn:focus, QPushButton#card-action:focus,
 QPushButton[actionRole="primary"]:focus {
@@ -375,9 +375,8 @@ QPushButton[actionRole="ghost"]:disabled {
     color: __DISABLED_TEXT__;
     border-color: transparent;
 }
-/* 紧凑行内按钮：与 field_metrics.BTN_COMPACT_H=28 对齐（含 primary，避免被 #primary-btn padding 抬高） */
+/* 紧凑行内按钮：主按钮保持 14px 胶囊，工具按钮 10px 圆角 */
 QPushButton[compactAction="true"],
-QPushButton#primary-btn[compactAction="true"],
 QPushButton#btn-secondary[compactAction="true"],
 QPushButton#btn-danger[compactAction="true"],
 QPushButton#btn-ghost[compactAction="true"],
@@ -387,12 +386,26 @@ QPushButton#fold-action-btn[compactAction="true"] {
     min-height: 28px;
     max-height: 28px;
     font-size: 12px;
-    border-radius: 8px;
+    border-radius: 10px;
+}
+QPushButton#primary-btn[compactAction="true"],
+QPushButton[actionRole="primary"][compactAction="true"] {
+    padding: 3px 14px;
+    min-height: 28px;
+    max-height: 28px;
+    font-size: 12px;
+    border-radius: 14px;
 }
 QPushButton[compactAction="false"] {
     min-height: 32px;
     padding: 6px 14px;
-    border-radius: 8px;
+    border-radius: 10px;
+}
+QPushButton#primary-btn[compactAction="false"],
+QPushButton[actionRole="primary"][compactAction="false"] {
+    min-height: 32px;
+    padding: 6px 18px;
+    border-radius: 16px;
 }
 QPushButton#fold-action-btn,
 QPushButton[actionRole="fold"] {

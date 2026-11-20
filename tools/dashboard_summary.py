@@ -188,6 +188,48 @@ def requirement_progress(requirements, *, limit: int = 8, month: str = '') -> di
     }
 
 
+def monthly_work_logs(reports, month: str) -> list[dict]:
+    """Extract current-month daily work logs (for both developers and non-developers)."""
+    if not isinstance(reports, dict) or not month:
+        return []
+    prefix = f'{month}-'
+    entries: list[dict] = []
+    for key, raw in sorted(reports.items()):
+        day_str = str(key or '').strip()
+        if not day_str.startswith(prefix) or len(day_str) < 10:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        completed = str(raw.get('completed') or '').strip()
+        notes = str(raw.get('notes') or '').strip()
+        issues = str(raw.get('issues') or '').strip()
+        tomorrow = str(raw.get('tomorrow') or '').strip()
+        lines: list[str] = []
+        for block in (completed, notes):
+            if not block:
+                continue
+            for line in block.splitlines():
+                cleaned = line.strip().lstrip('-•*· ').strip()
+                if cleaned and cleaned not in lines:
+                    lines.append(cleaned)
+        if not lines and issues:
+            for line in issues.splitlines():
+                cleaned = line.strip().lstrip('-•*· ').strip()
+                if cleaned:
+                    lines.append(cleaned)
+        if not lines and not tomorrow:
+            continue
+        entries.append({
+            'date': day_str[:10],
+            'count': len(lines) if lines else 1,
+            'summary': lines[0] if lines else tomorrow.splitlines()[0].strip(),
+            'lines': lines[:12],
+            'issues': issues[:300],
+            'tomorrow': tomorrow[:300],
+        })
+    return entries
+
+
 def build_dashboard_summary(
     *,
     today=None,
@@ -363,6 +405,7 @@ def build_dashboard_summary(
         ],
         'tools': tools,
         'monthly_release_tasks': display_month_tasks,
+        'monthly_logs': monthly_work_logs(reports, month),
         'progress': requirement_progress(display_items, month=month),
         'release_months': collect_release_months(display_items),
     }

@@ -226,12 +226,33 @@ def _create(action: Mapping[str, Any], path=None) -> dict:
     return created
 
 
+def _add_day_note(date_value: Any, text_value: Any) -> dict[str, Any]:
+    """Append one quick work note to the given day's daily report record."""
+    text = str(text_value or '').strip()
+    if not text:
+        raise HomeActionError('记录内容不能为空')
+    if len(text) > 500:
+        text = text[:500]
+    day = valid_iso_date(str(date_value or '').strip()) or datetime.date.today().isoformat()
+    from tools.daily_reports import load_reports, normalize_report, save_reports
+    reports = load_reports()
+    entry = normalize_report(reports.get(day))
+    existing = str(entry.get('completed') or '').strip()
+    entry['completed'] = f'{existing}\n{text}' if existing else text
+    entry['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+    reports[day] = entry
+    save_reports(reports)
+    return {'ok': True, 'changed': True, 'date': day, 'text': text}
+
+
 def handle(action: Any, path=None) -> dict[str, Any]:
     """执行一条首页指令，返回 ``{ok, item?, error?}``；不抛异常给桥。"""
     try:
         if not isinstance(action, Mapping):
             raise HomeActionError('指令格式不正确')
         kind = str(action.get('action') or '')
+        if kind == 'add_day_note':
+            return _add_day_note(action.get('date'), action.get('text'))
         if kind == 'detail':
             item = _find(str(action.get('id') or ''), path)
             if item is None:

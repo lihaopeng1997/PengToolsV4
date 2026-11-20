@@ -2145,6 +2145,17 @@ class MainWindow(QMainWindow):
                 panel.reload_requirements()
             except Exception:
                 pass
+        personal = getattr(self, 'personal_panel', None)
+        daily_tab = getattr(personal, 'daily_tab', None) if personal is not None else None
+        if daily_tab is not None:
+            for method_name in ('_reload_from_store', 'reload_reports', '_refresh_history'):
+                fn = getattr(daily_tab, method_name, None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+                    break
 
     def _on_web_create_requirement(self):
         """Web 首页点击 '+ 新建需求'：切换到需求管理并直接弹出新增对话框。"""

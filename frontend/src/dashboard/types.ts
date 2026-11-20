@@ -146,16 +146,25 @@ export interface RequirementDetail {
   description: string
 }
 
-/** 看板/光谱共用的阶段定义（与 tools/requirement_stages.py 对齐）。 */
+/** 看板/光谱共用的阶段定义（高对比鲜明语义色，与 Prism 晴空紫主色调和谐区分）。 */
 export const STAGE_DEFS = [
-  { key: 'analysis', label: '分析', color: 'var(--aurora-end)' },
-  { key: 'develop', label: '开发', color: 'var(--primary)' },
-  { key: 'testing', label: '测试', color: 'var(--warning)' },
-  { key: 'release', label: '待上线', color: 'var(--accent-cyan)' },
-  { key: 'online', label: '本月上线', color: 'var(--success)' },
+  { key: 'analysis', label: '分析', color: '#2563EB', bg: '#DBEAFE' },
+  { key: 'develop', label: '开发', color: '#6C58D9', bg: '#EDE9FE' },
+  { key: 'testing', label: '测试', color: '#D97706', bg: '#FEF3C7' },
+  { key: 'release', label: '待上线', color: '#0891B2', bg: '#CFFAFE' },
+  { key: 'online', label: '本月上线', color: '#059669', bg: '#D1FAE5' },
 ] as const
 
 export type StageKey = typeof STAGE_DEFS[number]['key']
+
+export interface MonthlyWorkLog {
+  date: string
+  count: number
+  summary: string
+  lines: string[]
+  issues?: string | null
+  tomorrow?: string | null
+}
 
 export interface DashboardSummary {
   username?: string | null
@@ -168,5 +177,6 @@ export interface DashboardSummary {
   checklist?: DashboardChecklistItem[] | null
   tools?: DashboardToolItem[] | null
   monthly_release_tasks?: MonthlyReleaseTask[] | null
+  monthly_logs?: MonthlyWorkLog[] | null
   progress?: DashboardProgress | null
 }

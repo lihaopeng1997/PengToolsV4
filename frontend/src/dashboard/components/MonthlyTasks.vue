@@ -348,14 +348,14 @@ function onRowKeydown(task: MonthlyReleaseTask): void {
 }
 
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.dot.run { background: var(--warning); }
-.dot.rev { background: var(--accent-cyan, var(--cyan)); }
-.dot.ok { background: var(--success); }
+.dot.run { background: #D97706; box-shadow: 0 0 0 3px #FEF3C7; }
+.dot.rev { background: #2563EB; box-shadow: 0 0 0 3px #DBEAFE; }
+.dot.ok { background: #059669; box-shadow: 0 0 0 3px #D1FAE5; }
 
 .req-id-badge {
   font-family: Consolas, monospace;

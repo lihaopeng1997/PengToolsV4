@@ -99,15 +99,25 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   cursor: pointer;
   box-sizing: border-box;
   will-change: transform;
-  /* 动效契约：hover/focus 上浮 2px、旋转 -6 度、200ms */
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, background 180ms ease;
 }
 
 .quick-btn:hover,
 .quick-btn:focus-visible {
-  transform: translateY(-2px) rotate(-6deg);
+  transform: translateY(-2px);
+  background: var(--surface);
   border-color: var(--primary);
-  box-shadow: 0 4px 14px var(--shadow-l2);
+  box-shadow: 0 8px 18px rgba(108, 88, 217, 0.14);
+}
+
+.quick-btn:hover .quick-icon-wrap {
+  transform: scale(1.08);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.quick-btn:active {
+  transform: scale(0.97);
 }
 
 .quick-btn:focus-visible {
@@ -120,10 +130,11 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--primary-soft);
   color: var(--primary);
   flex-shrink: 0;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease, color 180ms ease;
 }
 
 .quick-text {

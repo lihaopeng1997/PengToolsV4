@@ -228,6 +228,15 @@ async function onCalendarSetDate(id?: string | null, date?: string | null): Prom
   }
 }
 
+async function onAddDayNote(date: string, text: string): Promise<void> {
+  const result = await act({ action: 'add_day_note', date, text })
+  if (!result.ok) {
+    showToast(result.error || '记录失败')
+  } else {
+    showToast(`已记录到 ${date} 工作足迹`)
+  }
+}
+
 function onRetry(): void {
   if (props.state.retry) {
     props.state.retry()
@@ -266,10 +275,13 @@ function onRetry(): void {
         class="b-cal"
         :board="summary.progress?.board"
         :tasks="summary.monthly_release_tasks"
+        :logs="summary.monthly_logs"
         :busy-id="busyId"
         @open-requirement="onOpenRequirement"
         @open-requirement-section="onOpenRequirementSection"
         @set-release-date="onCalendarSetDate"
+        @add-day-note="onAddDayNote"
+        @open-daily="onWriteDaily"
         @create-requirement="onCreateRequirement"
         @open-manager="() => onNavClick(10)"
       />
@@ -365,7 +377,11 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background: var(--app-bg);
+  background:
+    radial-gradient(660px 360px at 8% 0%, rgba(124, 106, 230, 0.13), transparent 66%),
+    radial-gradient(560px 380px at 94% 96%, rgba(14, 165, 233, 0.10), transparent 68%),
+    var(--app-bg);
+  background-attachment: fixed;
 }
 button, input, select, textarea { font: inherit; }
 *, *::before, *::after { box-sizing: border-box; }
@@ -469,15 +485,18 @@ button, input, select, textarea { font: inherit; }
 .bento :deep(.tile) {
   padding: 16px 16px 14px;
   border-radius: 20px;
-  background: var(--surface);
+  background: rgba(253, 253, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px var(--shadow-l1);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
 }
 
 .bento :deep(.tile:hover) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px var(--shadow-l1);
+  border-color: rgba(108, 88, 217, 0.38);
+  box-shadow: 0 12px 28px rgba(108, 88, 217, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .bento :deep(.tile-head) {

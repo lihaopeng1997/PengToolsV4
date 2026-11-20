@@ -150,7 +150,7 @@ class _RippleOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         try:
-            radius_clip = float(min(h / 2.0, 10.0 if self._primary else 8.0))
+            radius_clip = float(min(h / 2.0, 16.0 if self._primary else 10.0))
             path = QPainterPath()
             path.addRoundedRect(QRectF(0.5, 0.5, max(0.0, w - 1.0), max(0.0, h - 1.0)), radius_clip, radius_clip)
             painter.setClipPath(path)
