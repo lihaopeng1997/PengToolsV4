@@ -2415,7 +2415,10 @@ class MainWindow(QMainWindow):
 
     def _apply_settings_impl(self, settings, *, persist: bool = True):
         """先完整应用主题，再原子保存并分发设置，避免视觉与持久化状态分裂。"""
-        candidate = normalize_settings(settings)
+        merged_input = dict(self._settings or {})
+        if isinstance(settings, dict):
+            merged_input.update(settings)
+        candidate = normalize_settings(merged_input)
         settings_save_request = bool(
             self.settings_panel is not None
             and getattr(self.settings_panel, '_settings_save_in_progress', False)

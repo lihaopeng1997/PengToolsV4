@@ -52,12 +52,17 @@ def is_read_query(sql: str) -> bool:
     return bool(info.get('is_read'))
 
 
-_REDACT_KV = re.compile(
-    r'(password|pwd|passwd|token|secret|authorization|api[_-]?key)\s*[=:]\s*([^\s,;]+)',
+_REDACT_JSON_KV = re.compile(
+    r'(["\'])([A-Za-z0-9_.\-]*?(?:password|passwd|pwd|token|secret|authorization|cookie|api[_-]?key|private[_-]?key|credential|jwt|密码|口令|密钥|秘钥|令牌|凭证))\1\s*[:=：]\s*(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\s,;\}\]]+)',
     re.IGNORECASE,
 )
-_REDACT_BEARER = re.compile(r'Bearer\s+\S+', re.IGNORECASE)
+_REDACT_KV = re.compile(
+    r'([A-Za-z0-9_.\-]*?(?:password|passwd|pwd|token|secret|authorization|cookie|api[_-]?key|private[_-]?key|credential|jwt|密码|口令|密钥|秘钥|令牌|凭证))\s*[=:：]\s*(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\s,;\}\]]+)',
+    re.IGNORECASE,
+)
+_REDACT_BEARER = re.compile(r'\b(Bearer|Basic)\s+\S+', re.IGNORECASE)
 _REDACT_URL_AUTH = re.compile(r'([a-z][a-z0-9+.-]*://)([^/@\s]+):([^@\s]+)@', re.IGNORECASE)
+_REDACT_ORACLE_AUTH = re.compile(r'(jdbc:oracle:thin:)([^/\s@]+)/([^@\s]+)@', re.IGNORECASE)
 
 MONGO_WRITE_MARKS = (
     'drop', 'deletemany', 'deleteone', 'insert', 'insertone', 'insertmany',
@@ -74,8 +79,10 @@ DML_VERBS = frozenset({
 
 def redact_error(message: str) -> str:
     text = str(message or '')
-    text = _REDACT_BEARER.sub('Bearer ***', text)
+    text = _REDACT_BEARER.sub(lambda m: f'{m.group(1)} ***', text)
     text = _REDACT_URL_AUTH.sub(r'\1***:***@', text)
+    text = _REDACT_ORACLE_AUTH.sub(r'\1\2/***@', text)
+    text = _REDACT_JSON_KV.sub(lambda m: f'{m.group(1)}{m.group(2)}{m.group(1)}: "***"', text)
     text = _REDACT_KV.sub(lambda m: f'{m.group(1)}=***', text)
     return text
 

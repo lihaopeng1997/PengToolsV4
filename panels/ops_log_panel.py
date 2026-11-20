@@ -804,7 +804,11 @@ class ServerManageDialog(QDialog):
         return next((s for s in self._servers if s.get('id') == sid), None)
 
     def _persist(self):
-        save_server_store(servers=self._servers, categories=self._categories)
+        saved = save_server_store(servers=self._servers, categories=self._categories)
+        if isinstance(saved, dict):
+            self._servers = list(saved.get('servers') or [])
+            if saved.get('categories') is not None:
+                self._categories = list(saved.get('categories') or [])
         self._changed = True
 
     @staticmethod

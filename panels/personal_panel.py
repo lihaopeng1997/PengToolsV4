@@ -397,10 +397,11 @@ class KnowledgeTab(QWidget):
         table_copy_actions.addWidget(self.copy_menu_btn)
         self.edit_cell_btn = QPushButton('修改单元格'); self.edit_cell_btn.clicked.connect(self._edit_table_cell)
         table_copy_actions.addWidget(self.edit_cell_btn)
-        reveal_button = QPushButton('查看敏感单元格')
-        reveal_button.clicked.connect(lambda: self._open_table_cell(
+        self.reveal_cell_btn = QPushButton('查看敏感单元格')
+        self.reveal_cell_btn.clicked.connect(lambda: self._open_table_cell(
             self.table_view.currentRow(), self.table_view.currentColumn(), sensitive_only=True))
-        table_copy_actions.addWidget(reveal_button)
+        self.reveal_cell_btn.setVisible(False)
+        table_copy_actions.addWidget(self.reveal_cell_btn)
         table_copy_actions.addStretch()
         table_layout.addLayout(table_copy_actions)
         table_view_actions = QHBoxLayout()
@@ -553,7 +554,7 @@ class KnowledgeTab(QWidget):
                     self._suggestion_targets[label] = (entry.get('id'), None)
             else:
                 from tools.personal_knowledge import row_matches_query
-                for row_index, row in enumerate(masked_workbook_rows(entry)):
+                for row_index, row in enumerate(self._display_workbook_rows(entry)):
                     if not row_matches_query(row, query):
                         continue
                     row_text = '  '.join(str(value) for value in row if str(value).strip())
@@ -783,8 +784,14 @@ class KnowledgeTab(QWidget):
             result = chr(65 + remainder) + result
         return result
 
+    @staticmethod
+    def _display_workbook_rows(entry):
+        """自我学习界面按用户确认的明文策略展示表头与单元格内容。"""
+        rows = entry.get('rows') or []
+        return [['' if value is None else str(value) for value in row] for row in rows]
+
     def _show_workbook(self, entry):
-        rows = self._workbook_rows = masked_workbook_rows(entry)
+        rows = self._workbook_rows = self._display_workbook_rows(entry)
         column_count = entry.get('column_count') or max((len(row) for row in rows), default=0)
         # clear() 会销毁单元格；不得保留上一轮高亮中的 QTableWidgetItem 引用。
         self._highlighted_cells = []
@@ -927,7 +934,7 @@ class KnowledgeTab(QWidget):
             self.table_view.setCurrentItem(first_match)
             self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
             self.table_view.clearSelection()
-        self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击查看敏感单元格，点击表头排序')
+        self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击复制单元格，点击表头排序')
         self._table_autofit.schedule()
 
     def _open_table_cell(self, row, column, *, sensitive_only=False):
@@ -1025,21 +1032,66 @@ class KnowledgeTab(QWidget):
         self._filter_workbook_rows(self._current)
         self.table_view.sync_frozen_geometry()
 
+    def _source_cell(self, row, column):
+        raw_rows = (self._current or {}).get('rows') or []
+        if 0 <= row < len(raw_rows) and 0 <= column < len(raw_rows[row]):
+            val = raw_rows[row][column]
+            return '' if val is None else str(val)
+        return ''
+
     def _edit_table_cell(self):
         if not self._current or self.table_view.currentRow() < 0 or self.table_view.currentColumn() < 0:
             show_info(self, '修改单元格', '请先选择要修改的单元格。')
             return
         row, column = self.table_view.currentRow(), self.table_view.currentColumn()
-        old_value = self._projected_cell(row, column)
-        if old_value == WORKBOOK_MASK:
-            old_value = ''
-        value, accepted = QInputDialog.getMultiLineText(self, '修改单元格', f'{self._column_name(column)}{row + 1}：', old_value)
-        if not accepted:
+        old_value = self._source_cell(row, column)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle('修改单元格')
+        dialog.resize(440, 220)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(f'{self._column_name(column)}{row + 1}：'))
+        editor = QPlainTextEdit(dialog)
+        editor.setPlainText(old_value)
+        layout.addWidget(editor, 1)
+
+        btn_row = QHBoxLayout()
+        clear_btn = QPushButton('清空单元格', dialog)
+        clear_btn.setProperty('actionRole', 'danger')
+        cancel_btn = QPushButton('取消', dialog)
+        save_btn = QPushButton('保存', dialog)
+        save_btn.setDefault(True)
+        btn_row.addWidget(clear_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
+
+        decision = {'mode': None}
+
+        def _do_save():
+            decision['mode'] = 'save'
+            dialog.accept()
+
+        def _do_clear():
+            decision['mode'] = 'clear'
+            dialog.accept()
+
+        save_btn.clicked.connect(_do_save)
+        clear_btn.clicked.connect(_do_clear)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted or not decision['mode']:
+            dialog.deleteLater()
+            return
+        new_value = '' if decision['mode'] == 'clear' else editor.toPlainText()
+        dialog.deleteLater()
+        if new_value == old_value:
             return
         updated = copy.deepcopy(self._current)
         source_row = updated['rows'][row]
         source_row.extend([''] * max(0, column + 1 - len(source_row)))
-        source_row[column] = value
+        source_row[column] = new_value
         self._persist_updated_entry(updated, reload_detail=True)
 
     def _export_shows_masked(self, entry, row_indexes=None, column_indexes=None, text=''):

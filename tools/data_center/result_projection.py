@@ -20,7 +20,7 @@ import math
 import re
 from typing import Any
 
-from tools.app_logging import mask_private_ipv4
+from tools.app_logging import mask_private_ipv4, mask_private_ipv6
 from tools.sql_guard import redact_error
 
 from .contracts import QueryResult, ToolResult
@@ -85,14 +85,20 @@ _SENSITIVE_NAMES = frozenset(
     }
 )
 _SENSITIVE_PART = re.compile(
-    r"(?:^|_)(?:password|passwd|pwd|token|secret|authorization|cookie|api_key|apikey|access_token|refresh_token|client_secret|private_key|credential|credentials|jwt)(?:_|$)"
+    r"(?:^|_)(?:password|passwd|pwd|token|secret|authorization|cookie|api_key|apikey|access_token|refresh_token|client_secret|app_secret|private_key|credential|credentials|jwt|passphrase|auth_key|secret_key)(?:_|$)"
 )
+_SENSITIVE_CJK = re.compile(r"(?:密码|口令|密钥|秘钥|令牌|凭证|凭据|私钥|鉴权|授权码)")
+_CAMEL_SPLIT_1 = re.compile(r"([a-z0-9])([A-Z])")
+_CAMEL_SPLIT_2 = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _CREDENTIAL_ASSIGNMENT = re.compile(
-    r"""(?i)(?<![^\W_])(?:password|passwd|pwd|token|secret|authorization|api[_-]?key|"""
-    r"""private[_-]?key|credentials?|jwt|cookie|密码)["']?[^\S\r\n]*[=:]"""
+    r"""(?i)(?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|authorization|api[_-]?key|"""
+    r"""private[_-]?key|credentials?|jwt|cookie|passphrase)|(?:密码|口令|密钥|秘钥|令牌|凭证|凭据|私钥))["']?[^\S\r\n]*[=:：]"""
     r"""(?:\s*(?:"(?:[^"\\]|\\[\s\S])*(?:"|\\?\Z)|'(?:[^'\\]|\\[\s\S])*(?:'|\\?\Z))|[^\r\n]*)"""
 )
-_PRIVATE_KEY = re.compile(r"-----BEGIN[^\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END[^\r\n]*PRIVATE KEY-----|$)")
+_PRIVATE_KEY = re.compile(
+    r"-----BEGIN[^\r\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----[\s\S]*?(?:-----END[^\r\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----|$)",
+    re.IGNORECASE,
+)
 _OPEN_URL_AUTHORITY = re.compile(r"(://)[^/\s?#@]+\Z")
 _OPEN_PRIVATE_IPV4 = re.compile(r"\b(10|172(?=\.(?:1[6-9]|2\d|3[01]))|192(?=\.168))\.[\d.]*\Z")
 _TEXT_LOOKAHEAD = 64
@@ -533,14 +539,17 @@ def _project_text(text: str, limit: int) -> tuple[str, bool]:
             head = _OPEN_URL_AUTHORITY.sub(r"\1[隐藏]", head)
         if "." in head:
             head = _OPEN_PRIVATE_IPV4.sub(r"\1.x.x.x", head)
-    if "PRIVATE KEY-----" in head:
+    if "PRIVATE KEY" in head.upper():
         head = _PRIVATE_KEY.sub("[私钥已隐藏]", head)
-    if "=" in head or ":" in head:
+    if "=" in head or ":" in head or "：" in head:
         head = _CREDENTIAL_ASSIGNMENT.sub("[敏感字段已隐藏]", head)
-    if "://" in head or "bearer" in head.lower():
+    lowered = head.lower()
+    if "://" in head or "bearer" in lowered or "basic " in lowered or "jdbc:oracle:" in lowered:
         head = redact_error(head)
     if "." in head:
         head = mask_private_ipv4(head)
+    if ":" in head:
+        head = mask_private_ipv6(head)
     return head[:limit], len(text) > limit or len(head) > limit
 
 
@@ -604,11 +613,17 @@ def _project_value(value: Any, *, sensitive: bool, max_cell_chars: int, depth: i
 
 
 def _normalize_name(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", str(value).casefold()).strip("_")
+    raw = str(value or "")
+    raw = _CAMEL_SPLIT_2.sub(r"\1_\2", raw)
+    raw = _CAMEL_SPLIT_1.sub(r"\1_\2", raw)
+    return re.sub(r"[^a-z0-9]+", "_", raw.casefold()).strip("_")
 
 
 def _is_sensitive_name(name: Any, extra: frozenset[str]) -> bool:
-    normalized = _normalize_name(name)
+    raw = str(name or "")
+    if _SENSITIVE_CJK.search(raw):
+        return True
+    normalized = _normalize_name(raw)
     return normalized in _SENSITIVE_NAMES or normalized in extra or bool(_SENSITIVE_PART.search(normalized))
 
 

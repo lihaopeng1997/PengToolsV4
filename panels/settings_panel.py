@@ -896,7 +896,19 @@ class SettingsPanel(QWidget):
                     form.insertRow(row, label_host, host)
 
     def values(self):
-        return normalize_settings({
+        # XR-06: 以当前已加载/落盘设置作为基底，仅覆盖本表单声明管理的键，
+        # 避免未在本表单展示的状态键（如侧栏展开、浮窗位置、上次模型、WebShell 开关等）回落默认。
+        base = {}
+        try:
+            from config import load_settings
+            base.update(load_settings() or {})
+        except Exception:
+            pass
+        loaded_base = getattr(self, '_loaded_settings', None)
+        if isinstance(loaded_base, dict):
+            for k, v in loaded_base.items():
+                base.setdefault(k, deepcopy(v))
+        base.update({
             'font_size': self.font_size.value(),
             'ui_theme': resolve_theme_id(self._ui_theme),
             'ui_density': self.density_combo.currentData(),
@@ -929,6 +941,7 @@ class SettingsPanel(QWidget):
             'oceanbase_agent_jar': self.oceanbase_agent_jar.text().strip(),
             'oceanbase_java_bin': self.oceanbase_java_bin.text().strip(),
         })
+        return normalize_settings(base)
 
     def _disable_save_actions(self):
         """Keep the three persistence domains mutually exclusive while writing."""
@@ -1090,6 +1103,7 @@ class SettingsPanel(QWidget):
 
     def load_values(self, settings, *, reload_external: bool = True):
         settings = normalize_settings(settings)
+        self._loaded_settings = deepcopy(settings)
         self._private_unlocked = bool(settings.get('private_unlocked', False))
         self.font_size.setValue(settings['font_size'])
         self.density_combo.setCurrentIndex(

@@ -202,6 +202,27 @@ def mask_private_ipv4(text: str) -> str:
     return pattern.sub(repl, text)
 
 
+def mask_private_ipv6(text: str) -> str:
+    """Mask RFC 4193 ULA (fc00::/7), link-local (fe80::/10), and private IPv4-mapped IPv6."""
+    import re
+    raw = str(text or '')
+    if ':' not in raw:
+        return raw
+    # IPv4-mapped private IPv6: ::ffff:10.x / 172.16-31.x / 192.168.x
+    raw = re.sub(
+        r'(?i)(?<![A-Za-z0-9_])::ffff:(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}(?![A-Za-z0-9_])',
+        '::ffff:x.x.x.x',
+        raw,
+    )
+    # ULA (fc00::/7 -> fc.. or fd..) and link-local (fe80::/10 -> fe80..febf)
+    raw = re.sub(
+        r'(?i)(?<![A-Za-z0-9_:])(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):(?:[0-9a-f]{0,4}:){1,6}[0-9a-f]{0,4}(?:%[A-Za-z0-9_.-]+)?(?![A-Za-z0-9_:])',
+        '[私网IPv6已隐藏]',
+        raw,
+    )
+    return raw
+
+
 def _sys_excepthook(exc_type, exc, tb):
     try:
         logging.getLogger('pengtools').error(

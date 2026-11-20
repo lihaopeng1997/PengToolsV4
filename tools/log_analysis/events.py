@@ -24,6 +24,25 @@ class Redactor:
     can explicitly opt into raw text per task; the model path always scrubs.
     """
 
+    _KEY_BLOCK_BEGIN = re.compile(r'-----BEGIN[^\r\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----', re.I)
+    _KEY_BLOCK_END = re.compile(r'-----END[^\r\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----', re.I)
+    _KEY_BLOCK_MULTI = re.compile(
+        r'-----BEGIN[^\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----.*?(?:-----END[^\n]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----|$)',
+        re.I | re.S,
+    )
+    _SENSITIVE_LINE = re.compile(
+        r'(?im)^.*(?:authorization|cookie|password|passwd|pwd|secret|(?:access|refresh|auth|id)?[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|app[_-]?secret|credential|jwt|密码|口令|密钥|秘钥|令牌|凭证|私钥)["\x27]?\s*[=:：].*$'
+    )
+    _ORACLE_CONN = re.compile(
+        r'(?i)(jdbc:oracle:thin:|[A-Za-z0-9_.-]+/)([^/@\s,;]+)(@(?:[A-Za-z0-9_.\-:\[\]]+:\d+[/:\w.-]*|\(DESCRIPTION=))'
+    )
+    _IPV4_MAPPED_V6 = re.compile(
+        r'(?i)(?<![A-Za-z0-9_])::ffff:(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}(?![A-Za-z0-9_])'
+    )
+    _PRIVATE_V6 = re.compile(
+        r'(?i)(?<![A-Za-z0-9_:])(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):(?:[0-9a-f]{0,4}:){1,6}[0-9a-f]{0,4}(?:%[A-Za-z0-9_.-]+)?(?![A-Za-z0-9_:])'
+    )
+
     def __init__(self, enabled=True):
         self.enabled = bool(enabled)
         self.salt = uuid.uuid4().hex
@@ -34,13 +53,13 @@ class Redactor:
         text = str(text)
         if not self.enabled:
             return text
-        if '-----BEGIN' in text and 'PRIVATE KEY-----' in text:
+        if self._KEY_BLOCK_BEGIN.search(text):
             self.private_block = True
         if self.private_block:
-            if '-----END' in text and 'PRIVATE KEY-----' in text:
+            if self._KEY_BLOCK_END.search(text):
                 self.private_block = False
             return '[私钥片段已隐藏]'
-        if re.search(r'(?i)(?:requestBody|responseBody|请求体|响应体)\s*[=:]', text):
+        if re.search(r'(?i)(?:requestBody|responseBody|请求体|响应体)\s*[=:：]', text):
             self.payload_block = True
             return '[请求/响应正文已隐藏]'
         if self.payload_block:
@@ -54,15 +73,22 @@ class Redactor:
         text = str(text)
         if not self.enabled:
             return text
-        text = re.sub(r'-----BEGIN[^\n]*PRIVATE KEY-----.*?(?:-----END[^\n]*PRIVATE KEY-----|$)', '[私钥已隐藏]', text, flags=re.S)
-        text = re.sub(r'(?im)^.*(?:authorization|cookie|password|passwd|secret|(?:access[_-]?)?token|api[_-]?key|密码)["\x27]?\s*[=:].*$', '[敏感字段已隐藏]', text)
-        text = re.sub(r'(?im)^.*(?:requestBody|responseBody|请求体|响应体)\s*[=:].*$', '[请求/响应正文已隐藏]', text)
-        text = re.sub(r'(?i)\bBearer\s+\S+', 'Bearer [隐藏]', text)
+        text = self._KEY_BLOCK_MULTI.sub('[私钥已隐藏]', text)
+        text = self._SENSITIVE_LINE.sub('[敏感字段已隐藏]', text)
+        text = re.sub(r'(?im)^.*(?:requestBody|responseBody|请求体|响应体)\s*[=:：].*$', '[请求/响应正文已隐藏]', text)
+        text = re.sub(r'(?i)\b(Bearer|Basic)\s+\S+', lambda m: f'{m.group(1)} [隐藏]', text)
         text = re.sub(r'(?i)(://)[^\s/@]+:[^\s/@]+@', r'\1[隐藏]@', text)
+        text = re.sub(r'(?i)(jdbc:oracle:thin:)([^/\s@]+)/([^@\s]+)@', r'\1\2/[隐藏]@', text)
+        text = self._ORACLE_CONN.sub(r'\1[隐藏]\3', text)
         def alias(m):
             digest = hashlib.sha256((self.salt + m.group()).encode()).hexdigest()[:10]
             return '[标识-' + digest + ']'
-        return mask_private_ipv4(re.sub(r'\b(?:\d{11}|\d{17}[0-9Xx])\b', alias, text))
+        text = re.sub(r'\b(?:\d{11}|\d{17}[0-9Xx])\b', alias, text)
+        text = mask_private_ipv4(text)
+        if ':' in text:
+            text = self._IPV4_MAPPED_V6.sub('::ffff:x.x.x.x', text)
+            text = self._PRIVATE_V6.sub('[私网IPv6已隐藏]', text)
+        return text
 
 
 @dataclass

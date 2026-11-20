@@ -1231,22 +1231,103 @@ def list_models(cfg=None, model_config_id: str | None = None) -> list[str]:
     return [model]
 
 
+def _scrub_nested_value(value, redact_fn, *, depth: int = 0):
+    if depth >= 10:
+        return value
+    if isinstance(value, str):
+        return redact_fn(value)
+    if isinstance(value, list):
+        return [_scrub_nested_value(item, redact_fn, depth=depth + 1) for item in value]
+    if isinstance(value, dict):
+        from tools.data_center.result_projection import _is_sensitive_name
+        cleaned = {}
+        for k, v in value.items():
+            if _is_sensitive_name(k, frozenset()):
+                cleaned[k] = '[敏感字段已隐藏]' if v not in (None, '') else v
+            else:
+                cleaned[k] = _scrub_nested_value(v, redact_fn, depth=depth + 1)
+        return cleaned
+    return value
+
+
+def _scrub_tool_arguments(raw_args, redact_fn):
+    if isinstance(raw_args, str):
+        stripped = raw_args.strip()
+        if stripped.startswith('{') and stripped.endswith('}'):
+            try:
+                parsed = json.loads(stripped)
+            except ValueError:
+                return redact_fn(raw_args)
+            if isinstance(parsed, dict):
+                return json.dumps(_scrub_nested_value(parsed, redact_fn), ensure_ascii=False)
+        return redact_fn(raw_args)
+    if isinstance(raw_args, (dict, list)):
+        return _scrub_nested_value(raw_args, redact_fn)
+    return raw_args
+
+
 def scrub_chat_messages(messages: list[dict]) -> list[dict]:
     from tools.app_logging import redact_text
 
     result = []
     for message in messages:
-        content = message.get('content')
+        if not isinstance(message, dict):
+            result.append(message)
+            continue
+        copy_msg = dict(message)
+        content = copy_msg.get('content')
         if isinstance(content, str):
-            content = redact_text(content)
+            copy_msg['content'] = redact_text(content)
         elif isinstance(content, list):
-            content = [
-                {**block, 'text': redact_text(block['text'])}
-                if isinstance(block, dict) and isinstance(block.get('text'), str)
-                else redact_text(block) if isinstance(block, str) else block
-                for block in content
-            ]
-        result.append({**message, 'content': content})
+            blocks = []
+            for block in content:
+                if isinstance(block, dict):
+                    bcopy = dict(block)
+                    if isinstance(bcopy.get('text'), str):
+                        bcopy['text'] = redact_text(bcopy['text'])
+                    if 'input' in bcopy:
+                        bcopy['input'] = _scrub_tool_arguments(bcopy['input'], redact_text)
+                    if isinstance(bcopy.get('content'), (str, list, dict)):
+                        bcopy['content'] = _scrub_nested_value(bcopy['content'], redact_text)
+                    blocks.append(bcopy)
+                elif isinstance(block, str):
+                    blocks.append(redact_text(block))
+                else:
+                    blocks.append(block)
+            copy_msg['content'] = blocks
+
+        if isinstance(copy_msg.get('reasoning'), str):
+            copy_msg['reasoning'] = redact_text(copy_msg['reasoning'])
+        if isinstance(copy_msg.get('reasoning_content'), str):
+            copy_msg['reasoning_content'] = redact_text(copy_msg['reasoning_content'])
+
+        tool_calls = copy_msg.get('tool_calls')
+        if isinstance(tool_calls, list):
+            cleaned_calls = []
+            for call in tool_calls:
+                if not isinstance(call, dict):
+                    cleaned_calls.append(call)
+                    continue
+                ccopy = dict(call)
+                fn = ccopy.get('function')
+                if isinstance(fn, dict):
+                    fcopy = dict(fn)
+                    if 'arguments' in fcopy:
+                        fcopy['arguments'] = _scrub_tool_arguments(fcopy['arguments'], redact_text)
+                    ccopy['function'] = fcopy
+                if 'arguments' in ccopy:
+                    ccopy['arguments'] = _scrub_tool_arguments(ccopy['arguments'], redact_text)
+                cleaned_calls.append(ccopy)
+            copy_msg['tool_calls'] = cleaned_calls
+
+        fn_call = copy_msg.get('function_call')
+        if isinstance(fn_call, dict):
+            fcopy = dict(fn_call)
+            if 'arguments' in fcopy:
+                fcopy['arguments'] = _scrub_tool_arguments(fcopy['arguments'], redact_text)
+            copy_msg['function_call'] = fcopy
+
+        result.append(copy_msg)
     return result
 
 

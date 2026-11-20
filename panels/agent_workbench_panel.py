@@ -203,6 +203,10 @@ class _WorkbenchBridge(QObject):
         self._scope_allowed = False  # "allow all this session" for write approvals
         self.confirmRequested.connect(self._show_confirmation, Qt.ConnectionType.QueuedConnection)
 
+    def reset_scope(self):
+        with self._lock:
+            self._scope_allowed = False
+
     def confirm(self, task_id: str, title: str, content: str, cancellation) -> bool:
         """Worker side: wait without blocking the GUI event loop; cancellation always denies."""
         if cancellation.is_cancelled():
@@ -1201,6 +1205,7 @@ class AgentWorkbenchPanel(QWidget):
             self._update_exec_mode_tooltips()
         elif os.path.realpath(str(self._workspace_session.get('workspace_dir') or '')) != os.path.realpath(path):
             self._invalidate_active_task('workspace directory changed')
+            self._reset_approval_scope()
             self._clear_attachments()
         self._workspace_session['workspace_dir'] = path
         save_workspace(self._workspace_session)
@@ -1762,11 +1767,19 @@ class AgentWorkbenchPanel(QWidget):
                     return c
         return convs[0] if convs else None
 
+    def _reset_approval_scope(self):
+        """切换对话/工作区/绑定目录时重置「本会话全部允许」写入授权，防止跨上下文越权。"""
+        if self._bridge is not None:
+            self._bridge.reset_scope()
+
     def _render_conversation(self, ws: dict, conv: dict | None):
         """把某对话的消息渲染到中栏。"""
         key = (str((ws or {}).get('id') or ''), str((conv or {}).get('id') or ''))
+        previous_key = getattr(self, '_rendered_conversation_key', None)
+        if previous_key is not None and key != previous_key:
+            self._reset_approval_scope()
         previous_scroll = self.scroll.verticalScrollBar().value()
-        follow_tail = key != getattr(self, '_rendered_conversation_key', None) or self._is_thread_at_bottom()
+        follow_tail = key != previous_key or self._is_thread_at_bottom()
         self._rendered_conversation_key = key
         self._rendering_conversation = True
         self._clear_stream_preview()
@@ -1909,6 +1922,7 @@ class AgentWorkbenchPanel(QWidget):
         current = self._workspace_session or {}
         if current.get('id') == ws_id and os.path.realpath(str(current.get('workspace_dir') or '')) != os.path.realpath(path):
             self._invalidate_active_task('workspace directory changed')
+            self._reset_approval_scope()
             self._clear_attachments()
         updated = update_workspace(ws_id, {'workspace_dir': path})
         if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
@@ -2048,6 +2062,7 @@ class AgentWorkbenchPanel(QWidget):
         if not ok or not title.strip():
             return
         self._invalidate_active_task('workspace changed')
+        self._reset_approval_scope()
         self._clear_attachments()
         ws = empty_workspace(title=title.strip())
         save_workspace(ws)
