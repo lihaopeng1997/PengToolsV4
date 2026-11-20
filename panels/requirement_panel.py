@@ -2645,8 +2645,12 @@ class RequirementPanel(QWidget):
             header.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsDropEnabled)
             font = header.font(0); font.setBold(True); header.setFont(0, font)
             try:
+                from panels.requirement_views import STAGE_COLOR_TOKENS
                 from ui.theme_manager import ThemeManager
-                header.setForeground(0, QColor(ThemeManager.instance().token('TEXT_MUTED')))
+                if self._group_mode != 'month' and str(key) in STAGE_COLOR_TOKENS:
+                    header.setForeground(0, QColor(STAGE_COLOR_TOKENS[str(key)][1]))
+                else:
+                    header.setForeground(0, QColor(ThemeManager.instance().token('TEXT_MUTED')))
             except Exception:
                 header.setForeground(0, QColor('#615D73'))
             self.requirement_list.addTopLevelItem(header)
@@ -2737,7 +2741,7 @@ class RequirementPanel(QWidget):
         """单行：编号 | 标题 | 状态 | 测试点；细节放 tooltip。"""
         from tools.list_pin import is_pinned
         from tools.requirements import test_points_progress
-        from panels.requirement_views import status_tone
+        from panels.requirement_views import status_vivid_color
         count = len(requirement.get('sql_parts', []))
         file_count = requirement.get('file_count', 0)
         title = (
@@ -2757,15 +2761,16 @@ class RequirementPanel(QWidget):
         try:
             from ui.theme_manager import ThemeManager
             manager = ThemeManager.instance()
-            code_c = QColor(manager.token('DANGER' if is_bug else 'PRIMARY'))
-            tone_c = QColor(manager.token(status_tone(status_text)))
+            code_c = QColor('#DC2626' if is_bug else (manager.token('PRIMARY') or '#6C58D9'))
+            tone_c = QColor(status_vivid_color(status_text))
             mute_c = QColor(manager.token('TEXT_MUTED'))
         except Exception:
-            code_c, tone_c, mute_c = QColor('#B85C5C' if is_bug else '#6C58D9'), QColor('#615D73'), QColor('#615D73')
+            code_c, tone_c, mute_c = QColor('#DC2626' if is_bug else '#6C58D9'), QColor(status_vivid_color(status_text)), QColor('#615D73')
         item.setForeground(0, code_c)
         item.setForeground(2, tone_c)
         item.setForeground(3, mute_c)
         code_font = item.font(0); code_font.setBold(True); item.setFont(0, code_font)
+        status_font = item.font(2); status_font.setBold(True); item.setFont(2, status_font)
         if is_pinned(requirement):
             title_font = item.font(1); title_font.setBold(True); item.setFont(1, title_font)
         done_flags = normalize_flag_done(requirement)

@@ -391,6 +391,98 @@ class _DataCenterMongoPanel:
                 widget.hide()
 
 
+_ENGINE_BADGE_COLORS = {
+    "oceanbase": "#2563EB",
+    "oracle": "#DC2626",
+    "mysql": "#0891B2",
+    "mariadb": "#0891B2",
+    "postgres": "#4F46E5",
+    "postgresql": "#4F46E5",
+    "redis": "#D97706",
+    "mongo": "#059669",
+    "mongodb": "#059669",
+}
+
+
+def _engine_badge_icon(engine_label: str) -> QIcon:
+    """绘制 12x12 鲜明库类型圆角色标，便于多库并排标签一眼分辨。"""
+    from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
+    key = str(engine_label or "").strip().lower()
+    color_hex = "#6C58D9"
+    for prefix, hex_val in _ENGINE_BADGE_COLORS.items():
+        if prefix in key:
+            color_hex = hex_val
+            break
+    pix = QPixmap(12, 12)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+    painter.drawRoundedRect(1, 1, 10, 10, 3.5, 3.5)
+    painter.end()
+    return QIcon(pix)
+
+
+class _DetachedWorkspaceWindow(QWidget):
+    """数据中心独立弹出窗口（仿 DBX 多窗口对照）：关闭时无损归还工作区回主标签栏。"""
+
+    def __init__(
+        self,
+        connection_id: str,
+        title: str,
+        workspace: "_ConnectionWorkspace",
+        on_dock_back,
+        *,
+        language: str = "zh",
+    ):
+        super().__init__(None, Qt.WindowType.Window)
+        self.connection_id = str(connection_id)
+        self.workspace = workspace
+        self._on_dock_back = on_dock_back
+        self._docking = False
+        self.setObjectName(f"data-center-detached-{self.connection_id}")
+        self.setWindowTitle(f"PengToolsHub · {title}")
+        self.resize(1120, 740)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 8, 10, 10)
+        root.setSpacing(6)
+
+        bar = QHBoxLayout()
+        bar.setContentsMargins(2, 0, 2, 0)
+        title_lbl = QLabel(title, self)
+        title_lbl.setObjectName("section-title")
+        bar.addWidget(title_lbl, 1)
+        dock_btn = QPushButton("↙ 归还主窗口" if language == "zh" else "↙ Dock back", self)
+        apply_button(dock_btn, "secondary", compact=True)
+        dock_btn.clicked.connect(self._request_dock_back)
+        bar.addWidget(dock_btn)
+        root.addLayout(bar)
+
+        workspace.setParent(self)
+        root.addWidget(workspace, 1)
+        workspace.show()
+
+    def _request_dock_back(self) -> None:
+        if self._docking:
+            return
+        self._docking = True
+        try:
+            self._on_dock_back(self.connection_id)
+        finally:
+            self.close()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if not self._docking:
+            self._docking = True
+            try:
+                self._on_dock_back(self.connection_id)
+            except Exception:
+                pass
+        event.accept()
+
+
 class _ConnectionWorkspace(QWidget):
     def __init__(self, connection_id: str, profile: dict, host: QWidget, parent=None):
         super().__init__(parent)
@@ -515,6 +607,7 @@ class DataCenterPanel(QWidget):
         self._host_factory = host_factory or self._default_host_factory
         self._object_tree_composition_factory = object_tree_composition_factory
         self._workspaces: dict[str, _ConnectionWorkspace] = {}
+        self._detached_windows: dict[str, _DetachedWorkspaceWindow] = {}
         self._tree_owners: dict[str, ObjectTreeWorkspace] = {}
         self._completion_catalogs: dict[str, CompletionCatalog] = {}
         self._tree_owner_close_futures: dict[str, object] = {}
@@ -585,6 +678,8 @@ class DataCenterPanel(QWidget):
         self.agent_btn = self._button()
         self.agent_btn.setCheckable(True)
         self.agent_btn.clicked.connect(self._toggle_agent)
+        self.pop_out_btn = self._button()
+        self.pop_out_btn.clicked.connect(self._pop_out_active_workspace)
         self.workspace_btn = self._button()
         workspace_menu = QMenu(self.workspace_btn)
         self.workspace_save_action = workspace_menu.addAction("")
@@ -699,7 +794,7 @@ class DataCenterPanel(QWidget):
         corner_row = QHBoxLayout(corner)
         corner_row.setContentsMargins(0, 0, 6, 0)
         corner_row.setSpacing(2)
-        for button in (self.new_query_btn, self.agent_btn, self.catalog_toggle_btn):
+        for button in (self.new_query_btn, self.pop_out_btn, self.agent_btn, self.catalog_toggle_btn):
             button.setParent(corner)
             apply_button(button, "ghost", compact=True)
             button.setProperty("cornerAction", True)
@@ -1478,6 +1573,16 @@ class DataCenterPanel(QWidget):
         menu = QMenu(self)
         open_action = menu.addAction(("切换到工作区" if is_open else "打开工作区") if zh else ("Go to workspace" if is_open else "Open workspace"))
         open_action.triggered.connect(lambda: self._open_connection(connection_id))
+        if is_open:
+            is_detached = connection_id in self._detached_windows
+            detach_action = menu.addAction(
+                ("归还到主窗口" if is_detached else "拆分为独立窗口")
+                if zh else
+                ("Dock back to main window" if is_detached else "Pop out to separate window")
+            )
+            detach_action.triggered.connect(
+                lambda: self.dock_back_workspace(connection_id) if is_detached else self.pop_out_workspace(connection_id)
+            )
         edit_action = menu.addAction("编辑连接…" if zh else "Edit connection…")
         edit_action.triggered.connect(lambda: self._edit_connection_by_id(connection_id))
         menu.addSeparator()
@@ -1573,6 +1678,12 @@ class DataCenterPanel(QWidget):
             return None
         existing = self._workspaces.get(wanted)
         if existing is not None:
+            detached = self._detached_windows.get(wanted)
+            if detached is not None:
+                detached.showNormal()
+                detached.raise_()
+                detached.activateWindow()
+                return existing
             self.workspace_tabs.setCurrentWidget(existing)
             return existing
         try:
@@ -1587,7 +1698,7 @@ class DataCenterPanel(QWidget):
         workspace = _ConnectionWorkspace(wanted, profile, host, self.workspace_tabs)
         workspace.setObjectName(f"data-center-workspace-{wanted}")
         title = f"{summary.name} · {summary.engine_label}"
-        index = self.workspace_tabs.addTab(workspace, title)
+        index = self.workspace_tabs.addTab(workspace, _engine_badge_icon(summary.engine_label), title)
         self.workspace_tabs.setTabToolTip(index, f"{summary.name} · {summary.engine_label} · {wanted}")
         self._workspaces[wanted] = workspace
         self._publish_completion_catalog(wanted)
@@ -1606,11 +1717,67 @@ class DataCenterPanel(QWidget):
         return workspace
 
     def _sync_summary_tab(self) -> None:
-        """「连接概览」只作为没有打开任何连接时的欢迎页；有工作区时隐藏其页签。"""
-        has_workspace = bool(self._workspaces)
-        self.workspace_tabs.setTabVisible(0, not has_workspace)
-        if not has_workspace:
+        """「连接概览」只作为没有内嵌工作区时的欢迎页；有内嵌工作区时隐藏其页签。"""
+        has_docked = any(
+            self.workspace_tabs.indexOf(ws) > 0
+            for ws in self._workspaces.values()
+        )
+        self.workspace_tabs.setTabVisible(0, not has_docked)
+        if not has_docked:
             self.workspace_tabs.setCurrentIndex(0)
+
+    def _pop_out_active_workspace(self) -> None:
+        workspace = self._active_workspace()
+        if workspace is not None:
+            self.pop_out_workspace(workspace.connection_id)
+
+    def pop_out_workspace(self, connection_id: str) -> _DetachedWorkspaceWindow | None:
+        """将已打开的数据库连接工作区拆分为独立顶级窗口，支持多屏/多库对照。"""
+        wanted = str(connection_id or "")
+        workspace = self._workspaces.get(wanted)
+        if workspace is None:
+            return None
+        existing_win = self._detached_windows.get(wanted)
+        if existing_win is not None:
+            existing_win.showNormal()
+            existing_win.raise_()
+            existing_win.activateWindow()
+            return existing_win
+        summary = self.catalog.get_summary(wanted)
+        title = f"{summary.name} · {summary.engine_label}" if summary is not None else wanted
+        tab_idx = self.workspace_tabs.indexOf(workspace)
+        if tab_idx > 0:
+            self.workspace_tabs.removeTab(tab_idx)
+        win = _DetachedWorkspaceWindow(
+            wanted, title, workspace, self.dock_back_workspace, language=self.language
+        )
+        self._detached_windows[wanted] = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        self._sync_summary_tab()
+        self._sync_actions()
+        return win
+
+    def dock_back_workspace(self, connection_id: str) -> None:
+        """将独立窗口中的连接工作区无损归还回数据中心主标签栏。"""
+        wanted = str(connection_id or "")
+        win = self._detached_windows.pop(wanted, None)
+        workspace = self._workspaces.get(wanted)
+        if workspace is not None and self.workspace_tabs.indexOf(workspace) < 0:
+            summary = self.catalog.get_summary(wanted)
+            title = f"{summary.name} · {summary.engine_label}" if summary is not None else wanted
+            engine_label = summary.engine_label if summary is not None else ""
+            workspace.setParent(self.workspace_tabs)
+            idx = self.workspace_tabs.addTab(workspace, _engine_badge_icon(engine_label), title)
+            self.workspace_tabs.setTabToolTip(idx, f"{title} · {wanted}")
+            self.workspace_tabs.setCurrentIndex(idx)
+            workspace.show()
+        if win is not None and not getattr(win, "_docking", False):
+            win._docking = True
+            win.close()
+        self._sync_summary_tab()
+        self._sync_actions()
 
     def _new_query(self) -> None:
         if self._manual_shutdown_gated:
@@ -2354,6 +2521,8 @@ class DataCenterPanel(QWidget):
         self.open_btn.setText("打开工作区" if zh else "Open workspace")
         self.new_query_btn.setText("+ 查询" if zh else "+ Query")
         self.new_query_btn.setToolTip("在当前连接新建查询页签" if zh else "New query tab on this connection")
+        self.pop_out_btn.setText("↗ 独立窗口" if zh else "↗ Pop out")
+        self.pop_out_btn.setToolTip("将当前数据库连接拆分为独立窗口（关闭自动归还）" if zh else "Pop out active DB workspace into separate window")
         self.agent_btn.setText("AI")
         self.agent_btn.setToolTip("打开/收起 AI 侧栏（绑定当前连接）" if zh else "Toggle the AI panel bound to this connection")
         self.workspace_tabs.setTabText(0, "连接概览" if zh else "Connections")
@@ -2397,6 +2566,8 @@ class DataCenterPanel(QWidget):
         host = workspace.host if workspace is not None else None
         self.new_query_btn.setVisible(callable(getattr(host, "_new_sql_tab", None)))
         self.new_query_btn.setEnabled(allowed and callable(getattr(host, "_new_sql_tab", None)))
+        self.pop_out_btn.setVisible(workspace is not None)
+        self.pop_out_btn.setEnabled(allowed and workspace is not None)
         agent = workspace.agent_widget if workspace is not None else None
         self.agent_btn.setVisible(agent is not None)
         self.agent_btn.setEnabled(self.agent_btn.isVisible() and allowed)
@@ -2592,6 +2763,11 @@ class DataCenterPanel(QWidget):
         return complete
 
     def shutdown_cleanup(self) -> bool:
+        for cid in list(self._detached_windows.keys()):
+            try:
+                self.dock_back_workspace(cid)
+            except Exception:
+                pass
         return self.agent_shutdown_cleanup()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

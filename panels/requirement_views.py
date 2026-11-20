@@ -30,14 +30,22 @@ def status_tone(status: str) -> str:
     }.get(group, 'TEXT_MUTED')
 
 
-# 各阶段专属颜色（与首页看板一致）：分析 浅紫 / 开发 主紫 / 测试 琥珀 / 待上线 青 / 已上线 绿
+# 高对比鲜明状态语义色（与首页看板 STAGE_DEFS 完全一致）：
+# 分析 亮蔚蓝 / 开发 棱镜紫 / 测试 琥珀亮橙 / 待上线 湖光青 / 已上线 翡翠绿 / 暂停 鲜明玫红
 STAGE_COLOR_TOKENS = {
-    'analysis': ('AURORA_END', '#A99AF5'),
+    'analysis': ('STAGE_ANALYSIS', '#2563EB'),
     'develop': ('PRIMARY', '#6C58D9'),
-    'testing': ('WARNING', '#A5772A'),
-    'release': ('ACCENT_CYAN', '#0EA5E9'),
-    'online': ('SUCCESS', '#247F75'),
+    'testing': ('STAGE_TESTING', '#D97706'),
+    'release': ('STAGE_RELEASE', '#0891B2'),
+    'online': ('STAGE_ONLINE', '#059669'),
+    'paused': ('STAGE_PAUSED', '#DC2626'),
 }
+
+
+def status_vivid_color(status: str) -> str:
+    """返回状态对应的鲜明十六进制语义色（用于列表状态列、分组头与进度节点）。"""
+    group = status_group(status)
+    return STAGE_COLOR_TOKENS.get(group, ('TEXT_MUTED', '#615D73'))[1]
 
 
 class StageBar(QWidget):
