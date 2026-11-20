@@ -51,6 +51,14 @@ class _FittingBrowser(QTextBrowser):
         self.document().setDefaultTextOption(option)
         self._fit(width)
 
+    def append_plain(self, delta: str, width: int) -> None:
+        if not delta:
+            return
+        cursor = self.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(delta)
+        self._fit(width)
+
     def _fit(self, width: int) -> None:
         inner = max(40, int(width) - 8)
         self.document().setTextWidth(inner)
@@ -116,6 +124,23 @@ class CodeBlock(QFrame):
     def _copy(self) -> None:
         QApplication.clipboard().setText(self._code)
 
+    def set_code(self, language: str, code: str) -> None:
+        new_lang = (language or 'text').strip() or 'text'
+        if self.language.text() != new_lang:
+            self.language.setText(new_lang)
+        normalized = str(code or '').replace('\r\n', '\n')
+        if normalized == self._code:
+            return
+        if normalized.startswith(self._code):
+            delta = normalized[len(self._code):]
+            cursor = self.editor.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            cursor.insertText(delta)
+        else:
+            self.editor.setPlainText(normalized)
+        self._code = normalized
+        self._fit_height()
+
     def _fit_height(self) -> None:
         metrics = self.editor.fontMetrics()
         lines = max(1, self._code.count('\n') + (0 if self._code.endswith('\n') or not self._code else 1))
@@ -152,9 +177,21 @@ class MarkdownBody(QWidget):
         self._plain = False
         self._width = 320
         self._blocks: list[QWidget] = []
+        self._block_specs: list[tuple[str, str, str]] = []
+        self._spacer: QWidget | None = None
 
     def set_width(self, width: int) -> None:
-        self._width = max(80, int(width))
+        new_width = max(80, int(width))
+        if new_width == self._width and self._blocks:
+            return
+        self._width = new_width
+        # BUG-011: 窗口缩放/切页不再销毁重建所有 Markdown 控件，仅就地重排高度
+        if self._blocks:
+            for block in self._blocks:
+                block.setMaximumWidth(self._width)
+                if isinstance(block, _FittingBrowser):
+                    block._fit(self._width)
+            return
         self._rebuild()
 
     def set_markdown(self, text: str) -> None:
@@ -168,13 +205,87 @@ class MarkdownBody(QWidget):
             block = self._blocks[0]
             block.setPlainText(self._source)
             block._fit(self._width)
+            self._block_specs = [('plain', '', self._source)]
             return
         self._plain = True
         self._rebuild()
 
     def append_text(self, piece: str) -> None:
-        self._source += str(piece or '')
-        self._rebuild()
+        piece = str(piece or '')
+        if not piece:
+            return
+        self._source += piece
+        # BUG-011: 增量更新尾部块，前缀已定型的段落与代码块零重建
+        raw_blocks = [('plain', '', self._source)] if self._plain else _split_fences(self._source)
+        specs = [
+            (kind, lang, body)
+            for kind, lang, body in raw_blocks
+            if kind == 'code' or str(body or '').strip()
+        ]
+        if not specs:
+            return
+        if self._spacer is not None:
+            self._layout.removeWidget(self._spacer)
+            self._spacer.deleteLater()
+            self._spacer = None
+
+        # 找到未变化的公共前缀长度
+        common = 0
+        limit = min(len(self._block_specs), len(specs))
+        while common < limit and self._block_specs[common] == specs[common]:
+            common += 1
+
+        # 如果仅尾部块增长且类型一致，直接就地更新该尾部控件
+        if common == len(self._block_specs) - 1 and len(specs) >= len(self._block_specs) and self._blocks:
+            old_kind, old_lang, old_body = self._block_specs[-1]
+            new_kind, new_lang, new_body = specs[common]
+            if old_kind == new_kind:
+                tail_widget = self._blocks[-1]
+                if new_kind == 'code' and isinstance(tail_widget, CodeBlock):
+                    tail_widget.set_code(new_lang, new_body)
+                    self._block_specs[-1] = (new_kind, new_lang, new_body)
+                    common += 1
+                elif new_kind == 'plain' and isinstance(tail_widget, _FittingBrowser):
+                    if new_body.startswith(old_body):
+                        tail_widget.append_plain(new_body[len(old_body):], self._width)
+                    else:
+                        tail_widget.setPlainText(new_body)
+                        tail_widget._fit(self._width)
+                    self._block_specs[-1] = (new_kind, new_lang, new_body)
+                    common += 1
+                elif new_kind == 'md' and isinstance(tail_widget, _FittingBrowser):
+                    tail_widget.set_markdown(new_body, self._width)
+                    self._block_specs[-1] = (new_kind, new_lang, new_body)
+                    common += 1
+
+        # 移除尾部多余旧块（例如刚闭合/拆分出的块）
+        while len(self._blocks) > common:
+            w = self._blocks.pop()
+            self._block_specs.pop()
+            self._layout.removeWidget(w)
+            w.hide()
+            w.deleteLater()
+
+        # 追加新增块
+        for kind, lang, body in specs[common:]:
+            block = self._create_block(kind, lang, body)
+            self._layout.addWidget(block)
+            self._blocks.append(block)
+            self._block_specs.append((kind, lang, body))
+
+    def _create_block(self, kind: str, lang: str, body: str) -> QWidget:
+        if kind == 'code':
+            block = CodeBlock(lang, body)
+        else:
+            block = _FittingBrowser()
+            if kind == 'plain':
+                block.setPlainText(body)
+                block._fit(self._width)
+            else:
+                block.set_markdown(body, self._width)
+        block.setMinimumWidth(0)
+        block.setMaximumWidth(self._width)
+        return block
 
     def source(self) -> str:
         return self._source
@@ -187,27 +298,21 @@ class MarkdownBody(QWidget):
                 widget.hide()
                 widget.deleteLater()
         self._blocks.clear()
+        self._block_specs.clear()
+        self._spacer = None
         blocks = [('plain', '', self._source)] if self._plain else _split_fences(self._source)
         for kind, lang, body in blocks:
-            if kind == 'code':
-                block = CodeBlock(lang, body)
-            else:
-                if not str(body or '').strip():
-                    continue
-                block = _FittingBrowser()
-                if kind == 'plain':
-                    block.setPlainText(body)
-                    block._fit(self._width)
-                else:
-                    block.set_markdown(body, self._width)
-            block.setMinimumWidth(0)
-            block.setMaximumWidth(self._width)
+            if kind != 'code' and not str(body or '').strip():
+                continue
+            block = self._create_block(kind, lang, body)
             self._layout.addWidget(block)
             self._blocks.append(block)
+            self._block_specs.append((kind, lang, body))
         if not self._blocks:
             spacer = QWidget()
             spacer.setFixedHeight(0)
             self._layout.addWidget(spacer)
+            self._spacer = spacer
 
 
 def _split_fences(text: str) -> list[tuple[str, str, str]]:

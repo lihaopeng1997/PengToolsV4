@@ -65,6 +65,39 @@ class _JsonNode:
         return self.value_text
 
 
+_LARGE_JSON_FOLD_LIMIT = 2 * 1024 * 1024
+_MAX_AUTO_FORMAT_DEPTH = 128
+
+
+def _estimate_json_depth(text: str, stop_at: int = _MAX_AUTO_FORMAT_DEPTH + 1) -> int:
+    """O(N) 扫描 JSON 括号深度（字符串感知），超过阈值即提前返回。"""
+    depth = 0
+    max_depth = 0
+    in_str = False
+    esc = False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in ('{', '['):
+            depth += 1
+            if depth > max_depth:
+                max_depth = depth
+                if max_depth >= stop_at:
+                    return max_depth
+        elif ch in ('}', ']'):
+            if depth > 0:
+                depth -= 1
+    return max_depth
+
+
 def _source_nodes(text, non_bmp):
     def qt_position(position):
         return position + bisect_left(non_bmp, position)
@@ -113,6 +146,8 @@ def _source_nodes(text, non_bmp):
                 parent.children.append(index)
         else:
             truncated = True
+            if len(text) > _LARGE_JSON_FOLD_LIMIT // 4:
+                break
 
         if parent is not None:
             parent.child_count += 1
@@ -422,21 +457,34 @@ class JsonViewer(QWidget):
 
     def set_text(self, text, auto_format=True):
         self._refresh_timer.stop()
-        data, error = self._parse(text)
+        raw_text = str(text or '')
+        depth_too_deep = _estimate_json_depth(raw_text) > _MAX_AUTO_FORMAT_DEPTH if raw_text else False
+        data, error = self._parse(raw_text)
         if error is None and auto_format:
-            try:
-                text = self._formatted(data)
-            except (ValueError, RecursionError):
+            if depth_too_deep:
                 error = (
-                    'JSON 嵌套过深，已保留原文（无法自动格式化）'
+                    f'JSON 嵌套超过 {_MAX_AUTO_FORMAT_DEPTH} 层，已保留原文以免卡顿'
                     if self.language == 'zh' else
-                    'JSON nesting is too deep; kept raw text without auto-formatting'
+                    f'JSON nesting exceeds {_MAX_AUTO_FORMAT_DEPTH} levels; kept raw text to keep UI responsive'
                 )
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
+            elif len(raw_text) > _LARGE_JSON_FOLD_LIMIT:
+                # 超大文本默认保留原文不自动美化，避免主线程生成数十 MB 缩进文本冻结界面
+                pass
+            else:
+                try:
+                    raw_text = self._formatted(data)
+                except (ValueError, RecursionError):
+                    error = (
+                        'JSON 嵌套过深，已保留原文（无法自动格式化）'
+                        if self.language == 'zh' else
+                        'JSON nesting is too deep; kept raw text without auto-formatting'
+                    )
+        text = raw_text.replace('\r\n', '\n').replace('\r', '\n')
         self._setting_text = True
         try:
             self.text_edit.setPlainText(text)
-            self.text_edit.rebuild_folds(expand_all=True)
+            if len(text) <= _LARGE_JSON_FOLD_LIMIT and not depth_too_deep:
+                self.text_edit.rebuild_folds(expand_all=True)
         finally:
             self._setting_text = False
         self._refresh_document(text, data, error)

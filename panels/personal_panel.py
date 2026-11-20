@@ -410,6 +410,15 @@ class KnowledgeTab(QWidget):
         self.restore_table_btn = QPushButton('恢复全部行列'); self.restore_table_btn.clicked.connect(self._restore_hidden_table)
         for button in (self.hide_rows_btn, self.hide_column_btn, self.restore_table_btn):
             table_view_actions.addWidget(button)
+        self.page_prev_btn = QPushButton('上一页')
+        self.page_prev_btn.clicked.connect(lambda: self._step_workbook_page(-1))
+        self.page_next_btn = QPushButton('下一页')
+        self.page_next_btn.clicked.connect(lambda: self._step_workbook_page(1))
+        self.page_info_label = QLabel('')
+        self.page_info_label.setObjectName('small-label')
+        for w in (self.page_prev_btn, self.page_info_label, self.page_next_btn):
+            w.hide()
+            table_view_actions.addWidget(w)
         table_view_actions.addStretch()
         self.export_menu_btn = QToolButton()
         self.export_menu_btn.setText('导出')
@@ -784,14 +793,52 @@ class KnowledgeTab(QWidget):
             result = chr(65 + remainder) + result
         return result
 
+    _WORKBOOK_PAGE_SIZE = 1000
+
     @staticmethod
     def _display_workbook_rows(entry):
         """自我学习界面按用户确认的明文策略展示表头与单元格内容。"""
         rows = entry.get('rows') or []
         return [['' if value is None else str(value) for value in row] for row in rows]
 
-    def _show_workbook(self, entry):
-        rows = self._workbook_rows = self._display_workbook_rows(entry)
+    def _step_workbook_page(self, delta: int):
+        if not self._current or self._current.get('content_type') != 'workbook_sheet':
+            return
+        total_data = max(0, len(getattr(self, '_all_workbook_rows', [])) - 1)
+        total_pages = max(1, (total_data + self._WORKBOOK_PAGE_SIZE - 1) // self._WORKBOOK_PAGE_SIZE)
+        next_page = max(0, min(total_pages - 1, int(getattr(self, '_workbook_page', 0)) + delta))
+        if next_page != getattr(self, '_workbook_page', 0):
+            self._workbook_page = next_page
+            self._show_workbook(self._current, reset_page=False)
+
+    def _show_workbook(self, entry, *, reset_page: bool = True):
+        all_rows = self._all_workbook_rows = self._display_workbook_rows(entry)
+        if reset_page or getattr(self, '_workbook_entry_id', None) != entry.get('id'):
+            self._workbook_page = 0
+            self._workbook_entry_id = entry.get('id')
+        total_data = max(0, len(all_rows) - 1)
+        page_size = self._WORKBOOK_PAGE_SIZE
+        total_pages = max(1, (total_data + page_size - 1) // page_size)
+        self._workbook_page = max(0, min(self._workbook_page, total_pages - 1))
+        # BUG-013: 超大工作表按页渲染（每页最多 1000 行），避免全量创建数百万 QTableWidgetItem 冻结界面
+        if total_pages > 1 and all_rows:
+            start = 1 + self._workbook_page * page_size
+            end = min(len(all_rows), start + page_size)
+            rows = [all_rows[0], *all_rows[start:end]]
+            self._workbook_row_map = [0, *range(start, end)]
+        else:
+            rows = all_rows
+            self._workbook_row_map = list(range(len(rows)))
+        self._workbook_rows = rows
+        paginated = total_pages > 1
+        if hasattr(self, 'page_prev_btn'):
+            self.page_prev_btn.setVisible(paginated)
+            self.page_next_btn.setVisible(paginated)
+            self.page_info_label.setVisible(paginated)
+            if paginated:
+                self.page_prev_btn.setEnabled(self._workbook_page > 0)
+                self.page_next_btn.setEnabled(self._workbook_page + 1 < total_pages)
+                self.page_info_label.setText(f'第 {self._workbook_page + 1}/{total_pages} 页（共 {total_data:,} 行）')
         column_count = entry.get('column_count') or max((len(row) for row in rows), default=0)
         # clear() 会销毁单元格；不得保留上一轮高亮中的 QTableWidgetItem 引用。
         self._highlighted_cells = []
@@ -813,21 +860,22 @@ class KnowledgeTab(QWidget):
         self.filter_column.setCurrentIndex(max(0, min(previous_column, column_count)))
         self.filter_column.blockSignals(False)
         self.table_view.setHorizontalHeaderLabels(labels)
-        self.table_view.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
+        self.table_view.setVerticalHeaderLabels([str(src_idx + 1) for src_idx in self._workbook_row_map])
         from tools.personal_knowledge import workbook_context_header_rows
         header_rows = workbook_context_header_rows(entry)
         styles = entry.get('cell_styles', {})
         for row_index, row in enumerate(rows):
+            src_row = self._workbook_row_map[row_index]
             padded = list(row[:column_count]) + [''] * max(0, column_count - len(row))
             for column_index, value in enumerate(padded):
                 item = QTableWidgetItem('' if value is None else str(value))
-                style = styles.get(f'{row_index},{column_index}', {})
-                if style.get('bold') or row_index in header_rows:
+                style = styles.get(f'{src_row},{column_index}', {})
+                if style.get('bold') or src_row in header_rows:
                     font = item.font(); font.setBold(True); item.setFont(font)
                 background = style.get('background')
                 if background:
                     item.setBackground(QColor(background))
-                elif row_index in header_rows:
+                elif src_row in header_rows:
                     try:
                         from ui.theme_manager import ThemeManager
                         item.setBackground(QColor(ThemeManager.instance().token('PRIMARY_SOFT')))
@@ -1032,10 +1080,17 @@ class KnowledgeTab(QWidget):
         self._filter_workbook_rows(self._current)
         self.table_view.sync_frozen_geometry()
 
+    def _source_row_index(self, display_row: int) -> int:
+        row_map = getattr(self, '_workbook_row_map', None)
+        if row_map and 0 <= display_row < len(row_map):
+            return int(row_map[display_row])
+        return int(display_row)
+
     def _source_cell(self, row, column):
+        src_row = self._source_row_index(row)
         raw_rows = (self._current or {}).get('rows') or []
-        if 0 <= row < len(raw_rows) and 0 <= column < len(raw_rows[row]):
-            val = raw_rows[row][column]
+        if 0 <= src_row < len(raw_rows) and 0 <= column < len(raw_rows[src_row]):
+            val = raw_rows[src_row][column]
             return '' if val is None else str(val)
         return ''
 
@@ -1044,13 +1099,14 @@ class KnowledgeTab(QWidget):
             show_info(self, '修改单元格', '请先选择要修改的单元格。')
             return
         row, column = self.table_view.currentRow(), self.table_view.currentColumn()
+        src_row = self._source_row_index(row)
         old_value = self._source_cell(row, column)
 
         dialog = QDialog(self)
         dialog.setWindowTitle('修改单元格')
         dialog.resize(440, 220)
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(f'{self._column_name(column)}{row + 1}：'))
+        layout.addWidget(QLabel(f'{self._column_name(column)}{src_row + 1}：'))
         editor = QPlainTextEdit(dialog)
         editor.setPlainText(old_value)
         layout.addWidget(editor, 1)
@@ -1089,7 +1145,7 @@ class KnowledgeTab(QWidget):
         if new_value == old_value:
             return
         updated = copy.deepcopy(self._current)
-        source_row = updated['rows'][row]
+        source_row = updated['rows'][src_row]
         source_row.extend([''] * max(0, column + 1 - len(source_row)))
         source_row[column] = new_value
         self._persist_updated_entry(updated, reload_detail=True)

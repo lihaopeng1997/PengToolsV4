@@ -88,45 +88,45 @@ def compute_indent_fold_regions(
             last = ind
             filled.append(ind)
 
-    regions: list[tuple[int, int]] = []
+    # BUG-012: 用单调栈将原 O(N^2) 扫描降至 O(N)，防止十万行大 JSON/XML 折叠计算卡死主线程。
     n = len(lines)
+    # 预先定位每个非空行之后的下一个非空行索引，便于 O(1) 判断 has_child
+    next_nonempty = [-1] * n
+    nxt = -1
+    for idx in range(n - 1, -1, -1):
+        next_nonempty[idx] = nxt
+        if indents[idx] is not None:
+            nxt = idx
+
+    regions: list[tuple[int, int]] = []
+    stack: list[tuple[int, int]] = []  # (start_line, base_indent)
+
+    def _close_up_to(curr_idx: int, curr_indent: int, curr_stripped: str) -> None:
+        while stack and stack[-1][1] >= curr_indent:
+            start_line, base_ind = stack.pop()
+            if base_ind == curr_indent and _is_closing_line(curr_stripped):
+                end_line = curr_idx
+            else:
+                end_line = curr_idx - 1
+            if end_line - start_line >= min_span:
+                regions.append((start_line, end_line))
+
     for i in range(n):
         if indents[i] is None:
             continue
-        base = filled[i]
+        cur_ind = filled[i]
         stripped = lines[i].strip()
-        # 必须有真正更深的子行
-        j = i + 1
-        has_child = False
-        while j < n:
-            if indents[j] is None:
-                j += 1
-                continue
-            if filled[j] > base:
-                has_child = True
-                break
-            break
-        if not has_child:
-            # 同行开闭如 { } 不折叠；或仅括号同级
-            continue
-        # 扫描到缩进回到 base 或更小
-        k = i + 1
-        end = i
-        while k < n:
-            if indents[k] is None:
-                end = k
-                k += 1
-                continue
-            if filled[k] > base:
-                end = k
-                k += 1
-                continue
-            # 同级：若是闭合行则纳入折叠范围
-            if filled[k] == base and _is_closing_line(lines[k].strip()):
-                end = k
-            break
-        if end - i >= min_span:
-            regions.append((i, end))
+        _close_up_to(i, cur_ind, stripped)
+        nn = next_nonempty[i]
+        if nn != -1 and filled[nn] > cur_ind:
+            stack.append((i, cur_ind))
+
+    # 文件末尾关闭剩余未闭合缩进块
+    while stack:
+        start_line, _base_ind = stack.pop()
+        end_line = n - 1
+        if end_line - start_line >= min_span:
+            regions.append((start_line, end_line))
 
     # 去重：同一 start 只保留跨度最大的
     by_start: dict[int, int] = {}

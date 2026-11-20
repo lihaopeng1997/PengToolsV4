@@ -161,10 +161,14 @@ def extract_document_entries(path, password=None, builtin=False):
     )
 
 
-def _open_workbook(path, password=None):
+LARGE_WORKBOOK_BYTES = 2 * 1024 * 1024
+MAX_LARGE_WORKBOOK_ROWS = 50_000
+
+
+def _open_workbook(path, password=None, *, read_only=False):
     from openpyxl import load_workbook
     try:
-        return load_workbook(path, read_only=False, data_only=True)
+        return load_workbook(path, read_only=read_only, data_only=True)
     except (zipfile.BadZipFile, OSError):
         if not password:
             raise PermissionError('PASSWORD_REQUIRED')
@@ -176,7 +180,7 @@ def _open_workbook(path, password=None):
             office.decrypt(decrypted)
         decrypted.seek(0)
         try:
-            return load_workbook(decrypted, read_only=False, data_only=True)
+            return load_workbook(decrypted, read_only=read_only, data_only=True)
         except (zipfile.BadZipFile, OSError, ValueError) as exc:
             raise ValueError('工作簿密码不正确或文件无法读取') from exc
 
@@ -193,12 +197,71 @@ def extract_workbook_entries(path, password=None, builtin=False, source=None):
     """Return one structured knowledge entry per non-empty worksheet."""
     from openpyxl.utils import get_column_letter
 
-    workbook = _open_workbook(path, password)
+    try:
+        file_size = os.path.getsize(path)
+    except OSError:
+        file_size = 0
+    stream_mode = file_size > LARGE_WORKBOOK_BYTES
+    workbook = _open_workbook(path, password, read_only=stream_mode)
     now = datetime.datetime.now().isoformat(timespec='seconds')
     source_name = source or os.path.basename(path)
     entries = []
     try:
         for sheet in workbook.worksheets:
+            if stream_mode:
+                # BUG-013: 大工作簿采用 read_only 流式读取 + 上限保护，避免全量构造数百万 Cell 对象吃满内存
+                rows = []
+                max_column = 0
+                truncated_rows = False
+                for raw_row in sheet.iter_rows(values_only=True):
+                    texts = [_cell_text(v) for v in raw_row]
+                    while texts and not texts[-1]:
+                        texts.pop()
+                    if not texts:
+                        continue
+                    if len(rows) >= MAX_LARGE_WORKBOOK_ROWS:
+                        truncated_rows = True
+                        break
+                    max_column = max(max_column, len(texts))
+                    rows.append(texts)
+                if not rows:
+                    continue
+                for r in rows:
+                    if len(r) < max_column:
+                        r.extend([''] * (max_column - len(r)))
+                max_row = len(rows)
+                widths = [14.0] * max_column
+                header_rows = [0]
+                cell_styles = {}
+                sample_rows = rows[:200]
+                searchable = '\n'.join('\t'.join(r) for r in sample_rows)
+                category = classify_content(f'{source_name}\n{sheet.title}\n{searchable}')
+                digest_input = json.dumps([source_name, sheet.title, max_row, max_column, rows[:20], rows[-5:]], ensure_ascii=False)
+                digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()[:20]
+                entries.append({
+                    'id': f'seed-sheet-{digest}' if builtin else uuid.uuid4().hex,
+                    'title': f'{os.path.splitext(source_name)[0]} · {sheet.title}',
+                    'category': category,
+                    'content_type': 'workbook_sheet',
+                    'file_type': 'EXCEL',
+                    'content': '',
+                    'tags': f'Excel 工作表 {sheet.title}' + ('（已截断超大表）' if truncated_rows else ''),
+                    'source': source_name,
+                    'sheet_name': sheet.title,
+                    'rows': rows,
+                    'column_widths': widths,
+                    'header_rows': header_rows,
+                    'cell_styles': cell_styles,
+                    'row_count': max_row,
+                    'column_count': max_column,
+                    'truncated_rows': truncated_rows,
+                    'builtin': bool(builtin),
+                    'sensitive': bool(SENSITIVE_PATTERN.search(searchable)),
+                    'created_at': now,
+                    'updated_at': now,
+                })
+                continue
+
             # Some supplied workbooks contain formatting down to row 1,048,500.
             # Determine the real rectangle from non-empty cells instead of max_row.
             nonempty = [
