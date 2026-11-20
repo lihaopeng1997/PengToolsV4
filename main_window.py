@@ -616,7 +616,14 @@ class MainWindow(QMainWindow):
         # insert 后同 index 可能变成 panel 在 stack_index，再清掉挤到 stack_index+1 的旧件
         # 上面 remove 已处理；再校正 current
         if was_current:
-            self.stack.setCurrentIndex(stack_index)
+            prev_stack_idx = self.stack.currentIndex()
+        self.stack.setCurrentIndex(stack_index)
+        if prev_stack_idx != stack_index:
+            try:
+                from ui.motion import play_page_enter
+                play_page_enter(self.stack.currentWidget())
+            except Exception:
+                pass
         if stack_index < len(self._panel_hosts):
             self._panel_hosts[stack_index] = panel
         if stack_index == 11:
@@ -2254,7 +2261,14 @@ class MainWindow(QMainWindow):
             self.personal_panel.open_daily_report()
         elif index == 10 and self.requirement_panel is not None:
             self.requirement_panel.refresh_systems()
+        prev_stack_idx = self.stack.currentIndex()
         self.stack.setCurrentIndex(stack_index)
+        if prev_stack_idx != stack_index:
+            try:
+                from ui.motion import play_page_enter
+                play_page_enter(self.stack.currentWidget())
+            except Exception:
+                pass
         if getattr(self, '_module_tabs', None) is not None:
             self._module_tabs.open_nav(index, activate=True)
         if getattr(self, '_prism_sidebar', None) is not None:

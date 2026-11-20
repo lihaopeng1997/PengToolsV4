@@ -619,14 +619,14 @@ class QuickPanel(QWidget):
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('PRIMARY_ACTIVE')
         except Exception:
-            return '#0369A1'
+            return '#6C58D9'
 
     def _surface_tint(self) -> str:
         try:
             from ui.theme_manager import ThemeManager
             return ThemeManager.instance().token('TEXT_STRONG')
         except Exception:
-            return '#0F172A'
+            return '#262438'
 
     def _apply_toggle_icon(self):
         # 收起态是紫色渐变圆按钮，Logo 用白色

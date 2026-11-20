@@ -409,8 +409,8 @@ class ModuleTabs(QFrame):
         tokens = self._tokens()
         icon = QIcon()
         for mode, color in (
-            (QIcon.Mode.Normal, tokens.get("TEXT_MUTED", "#64748B")),
-            (QIcon.Mode.Active, tokens.get("PRIMARY_ACTIVE", "#0369A1")),
+            (QIcon.Mode.Normal, tokens.get("TEXT_MUTED", "#615D73")),
+            (QIcon.Mode.Active, tokens.get("PRIMARY_ACTIVE", "#503DBE")),
         ):
             pixmap = QPixmap(12, 12)
             pixmap.fill(Qt.GlobalColor.transparent)
@@ -437,25 +437,25 @@ class ModuleTabs(QFrame):
             return ThemeManager.instance().palette()
         except Exception:
             return {
-                "SURFACE": "#FFFFFF",
-                "SURFACE_SOFT": "#F4F9FD",
-                "BORDER": "#D7E7F3",
-                "TEXT": "#1E293B",
-                "TEXT_MUTED": "#64748B",
-                "PRIMARY": "#0284C7",
-                "PRIMARY_SOFT": "#E0F2FE",
-                "PRIMARY_ACTIVE": "#0369A1",
+                "SURFACE": "#FDFDFF",
+                "SURFACE_SOFT": "#F0ECFA",
+                "BORDER": "#E6E2F0",
+                "TEXT": "#3D3952",
+                "TEXT_MUTED": "#615D73",
+                "PRIMARY": "#6C58D9",
+                "PRIMARY_SOFT": "#EEE9FF",
+                "PRIMARY_ACTIVE": "#503DBE",
             }
 
     def _apply_style(self) -> None:
         tokens = self._tokens()
-        surface = tokens.get("SURFACE", "#FFFFFF")
+        surface = tokens.get("SURFACE", "#FDFDFF")
         soft = tokens.get("SURFACE_SOFT", surface)
-        border = tokens.get("BORDER", "#D7E7F3")
-        text = tokens.get("TEXT", "#1E293B")
+        border = tokens.get("BORDER", "#E6E2F0")
+        text = tokens.get("TEXT", "#3D3952")
         muted = tokens.get("TEXT_MUTED", text)
-        primary = tokens.get("PRIMARY", "#0284C7")
-        primary_soft = tokens.get("PRIMARY_SOFT", "#E0F2FE")
+        primary = tokens.get("PRIMARY", "#6C58D9")
+        primary_soft = tokens.get("PRIMARY_SOFT", "#EEE9FF")
         active = tokens.get("PRIMARY_ACTIVE", primary)
         self.setStyleSheet(
             """
@@ -473,7 +473,7 @@ class ModuleTabs(QFrame):
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
-                border-radius: 10px;
+                border-radius: 8px;
             }
             QTabBar#module-tab-bar::tab:hover {
                 color: %(text)s;

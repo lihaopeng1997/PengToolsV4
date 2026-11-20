@@ -500,9 +500,9 @@ class PrismTitleBar(QFrame):
 
     def _refresh_standard_icons(self) -> None:
         tokens = self._tokens()
-        normal = tokens.get("WINDOW_CONTROL", "#64748B")
+        normal = tokens.get("WINDOW_CONTROL", "#778199")
         active = tokens.get("WINDOW_CONTROL_HOVER", normal)
-        primary = tokens.get("PRIMARY", "#0284C7")
+        primary = tokens.get("PRIMARY", "#6C58D9")
         self.pin_button.setIcon(_action_icon("pin", normal, active, primary))
         self.minimize_button.setIcon(_action_icon("minimize", normal, active))
         self.maximize_button.setIcon(
@@ -514,9 +514,9 @@ class PrismTitleBar(QFrame):
 
     def _refresh_pin_icon(self) -> None:
         tokens = self._tokens()
-        normal = tokens.get("WINDOW_CONTROL", "#64748B")
+        normal = tokens.get("WINDOW_CONTROL", "#778199")
         active = tokens.get("WINDOW_CONTROL_HOVER", normal)
-        primary = tokens.get("PRIMARY", "#0284C7")
+        primary = tokens.get("PRIMARY", "#6C58D9")
         self.pin_button.setIcon(_action_icon("pin", normal, active, primary))
         self.pin_button.setIconSize(QSize(13, 13))
 
@@ -524,9 +524,9 @@ class PrismTitleBar(QFrame):
         try:
             from ui.theme_manager import ThemeManager
 
-            tint = ThemeManager.instance().token("PRIMARY_ACTIVE") or "#0369A1"
+            tint = ThemeManager.instance().token("PRIMARY_ACTIVE") or "#503DBE"
         except Exception:
-            tint = "#0369A1"
+            tint = "#503DBE"
         pixmap = brand_pixmap("app_mark", BRAND_ICON_SIZE, tint)
         if pixmap.isNull():
             pixmap = brand_pixmap("app", BRAND_ICON_SIZE, tint)
@@ -560,14 +560,14 @@ class PrismTitleBar(QFrame):
             return ThemeManager.instance().palette()
         except Exception:
             return {
-                "SURFACE": "#FFFFFF",
-                "BORDER": "#D7E7F3",
-                "TEXT_STRONG": "#0F172A",
-                "TEXT": "#1E293B",
-                "TEXT_MUTED": "#64748B",
-                "PRIMARY": "#0284C7",
-                "PRIMARY_SOFT": "#E0F2FE",
-                "DANGER": "#DC2626",
+                "SURFACE": "#FDFDFF",
+                "BORDER": "#E6E2F0",
+                "TEXT_STRONG": "#262438",
+                "TEXT": "#3D3952",
+                "TEXT_MUTED": "#615D73",
+                "PRIMARY": "#6C58D9",
+                "PRIMARY_SOFT": "#EEE9FF",
+                "DANGER": "#C45371",
                 "ON_PRIMARY": "#FFFFFF",
             }
 
@@ -580,15 +580,15 @@ class PrismTitleBar(QFrame):
 
     def _apply_style(self) -> None:
         tokens = self._tokens()
-        surface = tokens.get("SURFACE", "#FFFFFF")
-        border = tokens.get("BORDER", "#D7E7F3")
-        text = tokens.get("TEXT", tokens.get("TEXT_STRONG", "#1E293B"))
+        surface = tokens.get("SURFACE", "#FDFDFF")
+        border = tokens.get("BORDER", "#E6E2F0")
+        text = tokens.get("TEXT", tokens.get("TEXT_STRONG", "#3D3952"))
         strong = tokens.get("TEXT_STRONG", text)
         muted = tokens.get("TEXT_MUTED", text)
-        primary = tokens.get("PRIMARY", "#0284C7")
-        primary_soft = tokens.get("PRIMARY_SOFT", "#E0F2FE")
-        window_control = tokens.get("WINDOW_CONTROL", "#64748B")
-        window_hover = tokens.get("WINDOW_CONTROL_HOVER_BG", "#E2EFF8")
+        primary = tokens.get("PRIMARY", "#6C58D9")
+        primary_soft = tokens.get("PRIMARY_SOFT", "#EEE9FF")
+        window_control = tokens.get("WINDOW_CONTROL", "#778199")
+        window_hover = tokens.get("WINDOW_CONTROL_HOVER_BG", "#E9E7F2")
         danger = tokens.get("WINDOW_CLOSE_HOVER", "#DF647E")
         on_primary = tokens.get("ON_PRIMARY", "#FFFFFF")
         self.setStyleSheet(

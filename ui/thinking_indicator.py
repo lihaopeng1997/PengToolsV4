@@ -41,8 +41,8 @@ def _qc(pal: dict, key: str, fallback: str = '#29332E') -> QColor:
 def thinking_colors(palette: dict | None = None) -> tuple[QColor, QColor]:
     """返回 ThinkingIndicator 在给定（或当前全局）调色板下的 (accent_color, text_color)。"""
     pal = palette if palette is not None else _palette()
-    accent = _qc(pal, 'PRIMARY', '#0284C7')
-    text_color = _qc(pal, 'TEXT_MUTED', '#64748B')
+    accent = _qc(pal, 'PRIMARY', '#6C58D9')
+    text_color = _qc(pal, 'TEXT_MUTED', '#615D73')
     return accent, text_color
 
 

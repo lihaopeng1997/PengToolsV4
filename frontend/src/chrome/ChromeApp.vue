@@ -7,6 +7,7 @@ import IconSprite from './IconSprite.vue'
 import NavIcon from './NavIcon.vue'
 import NavGroupMenu from './NavGroupMenu.vue'
 import PrismLogo from '../shared/components/PrismLogo.vue'
+import { installWebRipples } from '../shared/ripple'
 
 // Prism 晴空棱镜 Web 主侧栏。
 // 导航索引、权限和叶子动作严格来自 Python navModel；这里仅派生原型分组布局。
@@ -33,6 +34,7 @@ const openGroup = computed(() => (
 const workspaceLabel = 'PengToolsHub'
 
 let collapsedMedia: MediaQueryList | null = null
+let removeWebRipples: (() => void) | null = null
 
 function syncCollapsed(): void {
   collapsed.value = collapsedMedia?.matches ?? window.innerWidth <= 120
@@ -47,11 +49,14 @@ onMounted(() => {
   syncCollapsed()
   collapsedMedia.addEventListener('change', onCollapsedMediaChange)
   window.addEventListener('resize', syncCollapsed)
+  removeWebRipples = installWebRipples()
 })
 
 onBeforeUnmount(() => {
   collapsedMedia?.removeEventListener('change', onCollapsedMediaChange)
   window.removeEventListener('resize', syncCollapsed)
+  removeWebRipples?.()
+  removeWebRipples = null
 })
 
 function textOf(item: { zh: string; en: string } | null | undefined): string {
@@ -254,8 +259,8 @@ body {
   color: var(--ink);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  background: var(--app-bg, var(--sidebar-bg));
-  padding: 8px 4px 8px 8px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--edge);
 }
 
 body::before {
@@ -264,37 +269,31 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(420px 300px at -40px -30px, var(--aurora-start), transparent 72%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-end), transparent 72%);
-  opacity: 0.14;
+    radial-gradient(420px 300px at -60px -40px, var(--aurora-mid), transparent 70%),
+    radial-gradient(380px 320px at 110% 108%, var(--aurora-start), transparent 70%);
+  opacity: 0.06;
 }
 
 svg.ic {
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   opacity: 0.85;
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-standard) var(--ease-out);
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 
-/* Airy Frost: 悬浮圆角磨砂侧轨（保留完整全部导航入口） */
 .sidebar {
   position: relative;
   z-index: 1;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0 10px 10px;
-  border-radius: 18px;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.86));
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 26px var(--shadow-l1, rgba(13, 34, 53, 0.07)), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  padding: 0 12px 12px;
+  background: transparent;
 }
 
 .brand {
-  height: 58px;
+  height: 64px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -302,16 +301,16 @@ svg.ic {
 }
 
 .logo {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--motion-standard) var(--ease-out);
 }
 
-.brand:hover .logo { transform: translateY(-1.5px) scale(1.03); }
+.brand:hover .logo { transform: translateY(-1px); }
 .brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; color: var(--ink); }
 
 .nav {
@@ -322,72 +321,53 @@ svg.ic {
   padding: 0 4px;
 }
 
-.nav::-webkit-scrollbar { width: 5px; }
-.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 999px; }
+.nav::-webkit-scrollbar { width: 6px; }
+.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 6px; }
 .group { margin-bottom: 4px; }
 
 .g-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 3px;
-  color: var(--ink-3);
-  font-size: 11px;
+  padding: 8px 8px 4px;
+  color: var(--ink-2);
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  line-height: 16px;
+  line-height: 18px;
 }
 
-.g-label::after { content: ""; flex: 1; height: 1px; background: var(--edge); opacity: 0.55; }
-.rail-divider { height: 1px; margin: 7px 4px; background: var(--edge); opacity: 0.78; }
+.g-label::after { content: ""; flex: 1; height: 1px; background: var(--edge); opacity: 0.5; }
+.rail-divider { height: 1px; margin: 8px 4px; background: var(--edge); opacity: 0.78; }
 
 .nav-item {
-  position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
   width: 100%;
-  height: 35px;
+  height: 40px;
   gap: 10px;
   padding: 0 10px;
   margin-bottom: 2px;
-  border: 1px solid transparent;
-  border-radius: 12px;
+  border: 0;
+  border-radius: var(--r-sm);
   color: var(--ink-2);
   background: transparent;
   font: inherit;
-  font-size: 13.5px;
-  line-height: 19px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
   user-select: none;
-  transition:
-    background 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
   outline: none;
 }
 
 .nav-item:hover,
-.nav-item:focus-visible {
-  background: var(--nav-hover-bg);
-  color: var(--ink);
-  transform: translateX(2px);
-}
+.nav-item:focus-visible { background: var(--nav-hover-bg); color: var(--ink); transform: translateX(1px); }
 .nav-item:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
-.nav-item:active { transform: scale(0.975); }
-.nav-item.active {
-  background: linear-gradient(135deg, var(--nav-active-fill) 0%, rgba(255, 255, 255, 0.96) 100%);
-  color: var(--nav-active-text);
-  border-color: rgba(125, 211, 252, 0.72);
-  box-shadow: 0 3px 12px rgba(14, 165, 233, 0.14);
-  font-weight: 600;
-  transform: none;
-}
-.nav-item.active svg.ic { opacity: 1; color: var(--c1); }
+.nav-item:active { transform: translateX(1px) scale(0.99); }
+.nav-item.active { background: var(--nav-active-fill); color: var(--nav-active-text); font-weight: 600; transform: none; }
+.nav-item.active svg.ic { opacity: 1; color: var(--nav-active-text); }
 .group-trigger.is-open { background: var(--nav-hover-bg); }
 
 .foot { padding-top: 8px; border-top: 1px solid var(--edge); }

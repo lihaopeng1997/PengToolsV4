@@ -150,14 +150,22 @@ class _RippleOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         try:
-            radius_clip = float(min(h / 2.0, 16.0 if self._primary else 10.0))
+            radius_clip = float(min(h / 2.0, 10.0 if self._primary else 8.0))
             path = QPainterPath()
             path.addRoundedRect(QRectF(0.5, 0.5, max(0.0, w - 1.0), max(0.0, h - 1.0)), radius_clip, radius_clip)
             painter.setClipPath(path)
             max_r = max(w, h) * 1.15
             cur_r = max_r * self._progress
-            alpha = int(max(0.0, (1.0 - self._progress) * (105.0 if self._primary else 72.0)))
-            color = QColor(255, 255, 255, alpha) if self._primary else QColor(14, 165, 233, alpha)
+            alpha = int(max(0.0, (1.0 - self._progress) * (115.0 if self._primary else 82.0)))
+            if self._primary:
+                color = QColor(255, 255, 255, alpha)
+            else:
+                try:
+                    from ui.theme_manager import ThemeManager
+                    base = QColor(ThemeManager.instance().token('PRIMARY') or '#6C58D9')
+                except Exception:
+                    base = QColor('#6C58D9')
+                color = QColor(base.red(), base.green(), base.blue(), alpha)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(color)
             painter.drawEllipse(self._center, cur_r, cur_r)
@@ -188,6 +196,41 @@ class _AiryRippleFilter(QObject):
             if etype == QEvent.Type.Hide or not self._button.isEnabled():
                 self._overlay.stop_now()
         return False
+
+
+class _GlobalButtonRippleFilter(QObject):
+    """全局原生 QPushButton 水波纹钩子：覆盖未显式调用 apply_button() 的工作台按钮。"""
+
+    _SKIP_NAMES = frozenset({'floating-toggle', 'prism-win-min', 'prism-win-max', 'prism-win-close'})
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress and hasattr(event, 'position'):
+            if event.button() == Qt.MouseButton.LeftButton:
+                from PyQt6.QtWidgets import QPushButton
+                if isinstance(watched, QPushButton) and watched.isEnabled():
+                    if getattr(watched, '_airy_ripple_filter', None) is None:
+                        obj_name = watched.objectName() or ''
+                        if obj_name not in self._SKIP_NAMES and watched.width() >= 26 and watched.height() >= 20:
+                            is_primary = (
+                                obj_name == 'primary-btn'
+                                or watched.property('actionRole') == 'primary'
+                            )
+                            install_button_ripple(watched, primary=is_primary)
+                            flt = getattr(watched, '_airy_ripple_filter', None)
+                            if isinstance(flt, _AiryRippleFilter):
+                                flt._overlay.trigger(event.position())
+        return False
+
+
+def install_global_button_ripples(app) -> None:
+    """在 QApplication 上幂等安装全局按钮点击水波纹。"""
+    if app is None:
+        return
+    if getattr(app, '_global_button_ripple_filter', None) is not None:
+        return
+    flt = _GlobalButtonRippleFilter(app)
+    app._global_button_ripple_filter = flt
+    app.installEventFilter(flt)
 
 
 def install_button_ripple(button, *, primary: bool = False) -> None:
@@ -240,9 +283,9 @@ def apply_button(
         elif role == 'fold':
             try:
                 from ui.theme_manager import ThemeManager
-                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#0369A1'
+                accent = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#503DBE'
             except Exception:
-                accent = '#0369A1'
+                accent = '#503DBE'
             icon_kwargs = {'normal': accent, 'active': accent}
         apply_icon(button, icon, size=icon_size, **icon_kwargs)
     style = button.style()

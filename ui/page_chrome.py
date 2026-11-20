@@ -128,9 +128,9 @@ class ContextHeader(QFrame):
         """按当前主题色刷新模块图标与快速面板图标。"""
         try:
             from ui.theme_manager import ThemeManager
-            tint = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#0369A1'
+            tint = ThemeManager.instance().token('PRIMARY_ACTIVE') or '#6C58D9'
         except Exception:
-            tint = '#0369A1'
+            tint = '#6C58D9'
         pix = icon_pixmap(self._icon_role, 20, tint)
         if not pix.isNull():
             self.icon_label.setPixmap(pix)

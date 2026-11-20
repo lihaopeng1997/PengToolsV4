@@ -28,7 +28,7 @@ DEFAULT_SPLASH_DELAY_MS = 300
 MIN_VISIBLE_MS = 550
 
 
-def _brand_pixmap(size: int = 64, tint: str = '#0284C7') -> QPixmap:
+def _brand_pixmap(size: int = 64, tint: str = '#6C58D9') -> QPixmap:
     try:
         from ui.icons import brand_pixmap
         pix = brand_pixmap('app', size=size, tint=tint)
@@ -58,15 +58,15 @@ def _resolve_palette() -> dict:
     return {
         'SURFACE': '#FFFFFF',
         'ELEVATED_SURFACE': '#FFFFFF',
-        'APP_BG': '#ECF4FA',
-        'TEXT_STRONG': '#0F172A',
-        'TEXT_MUTED': '#64748B',
-        'BORDER': '#D7E7F3',
-        'GLASS_BORDER': 'rgba(215, 231, 243, 210)',
-        'PRIMARY': '#0284C7',
-        'PRIMARY_SOFT': '#E0F2FE',
-        'LOADING_TRACK': '#E2EFF8',
-        'SHADOW': 'rgba(15, 23, 42, 36)',
+        'APP_BG': '#EEF0F6',
+        'TEXT_STRONG': '#262438',
+        'TEXT_MUTED': '#615D73',
+        'BORDER': '#E6E2F0',
+        'GLASS_BORDER': 'rgba(221, 218, 210, 200)',
+        'PRIMARY': '#6C58D9',
+        'PRIMARY_SOFT': '#EEE9FF',
+        'LOADING_TRACK': '#E6EBF5',
+        'SHADOW': 'rgba(38, 36, 56, 45)',
     }
 
 
@@ -108,7 +108,7 @@ class StartupSplash(QWidget):
         self._subtitle = 'Developer & Ops Workbench'
         self._message = '正在准备工作台…'
 
-        primary_color = self._palette.get('PRIMARY') or '#0284C7'
+        primary_color = self._palette.get('PRIMARY') or '#6C58D9'
         self._logo = _brand_pixmap(64, tint=primary_color)
 
         # 动效计时与定时器 (~30 FPS)
@@ -251,18 +251,18 @@ class StartupSplash(QWidget):
 
         pal = self._palette
         card_bg = QColor(pal.get('ELEVATED_SURFACE') or pal.get('SURFACE') or '#FFFFFF')
-        text_strong = QColor(pal.get('TEXT_STRONG') or '#0F172A')
-        text_muted = QColor(pal.get('TEXT_MUTED') or '#64748B')
-        border_color = _palette_color(pal, 'GLASS_BORDER', pal.get('BORDER') or '#D7E7F3')
-        primary_color = QColor(pal.get('PRIMARY') or '#0284C7')
-        track_color = QColor(pal.get('LOADING_TRACK') or pal.get('SURFACE_TECH') or '#E2EFF8')
+        text_strong = QColor(pal.get('TEXT_STRONG') or '#262438')
+        text_muted = QColor(pal.get('TEXT_MUTED') or '#615D73')
+        border_color = _palette_color(pal, 'GLASS_BORDER', pal.get('BORDER') or '#E6E2F0')
+        primary_color = QColor(pal.get('PRIMARY') or '#6C58D9')
+        track_color = QColor(pal.get('LOADING_TRACK') or pal.get('SURFACE_TECH') or '#E6EBF5')
 
         # 1. 浮层卡片区域：480x280，圆角 20px
         card_rect = QRectF(10.0, 10.0, float(self.width() - 20), float(self.height() - 20))
         radius = 20.0
 
         # 2. 柔和阴影层
-        shadow_base = _palette_color(pal, 'SHADOW', '#240F172A')
+        shadow_base = _palette_color(pal, 'SHADOW', '#2D262438')
         painter.setPen(Qt.PenStyle.NoPen)
         for i in (3, 2, 1):
             s_color = QColor(shadow_base)

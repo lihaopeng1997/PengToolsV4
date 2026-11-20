@@ -82,3 +82,44 @@ def play_dialog_enter(dialog: QDialog, offset_y: int = 4) -> QPropertyAnimation 
         return anim
     except Exception:
         return None
+
+
+def play_page_enter(widget: QWidget | None) -> QPropertyAnimation | None:
+    """为原生页面切换提供轻量淡入动效（自动跳过含 WebEngine 视图，完成后卸载特效避免常驻开销）。"""
+    if widget is None or not motion_enabled():
+        return None
+    try:
+        # 跳过包含 QWebEngineView 的容器，防止 Chromium 原生窗口句柄与 QGraphicsOpacityEffect 冲突
+        for child in widget.findChildren(object):
+            cls_name = type(child).__name__
+            if 'WebEngine' in cls_name:
+                return None
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+
+        prev_anim = getattr(widget, '_page_enter_anim', None)
+        if prev_anim is not None and isinstance(prev_anim, QPropertyAnimation):
+            prev_anim.stop()
+
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(0.45)
+        widget.setGraphicsEffect(effect)
+
+        anim = QPropertyAnimation(effect, b'opacity', widget)
+        anim.setDuration(duration(DURATION_ENTER))
+        anim.setStartValue(0.45)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        def _cleanup():
+            try:
+                if widget.graphicsEffect() is effect:
+                    widget.setGraphicsEffect(None)
+            except RuntimeError:
+                pass
+
+        anim.finished.connect(_cleanup)
+        setattr(widget, '_page_enter_anim', anim)
+        anim.start()
+        return anim
+    except Exception:
+        return None
