@@ -30,6 +30,16 @@ QStackedWidget > QWidget,
 QStackedWidget > .QWidget {
     background: __APP_BG__;
 }
+QTabWidget > QStackedWidget,
+QTabWidget > QStackedWidget > QWidget,
+QTabWidget > QStackedWidget > .QWidget {
+    background: __SURFACE__;
+}
+QTabWidget::pane QScrollArea,
+QTabWidget::pane QScrollArea > QWidget,
+QTabWidget::pane QScrollArea::viewport {
+    background: transparent;
+}
 QScrollArea {
     background: __APP_BG__;
     border: none;
@@ -1940,7 +1950,7 @@ QTabWidget#module-tabs::pane {
 QTabBar {
     min-height: 24px;
     max-height: 28px;
-    background: __SURFACE_SOFT__;
+    background: transparent;
 }
 QTabBar::tab,
 QTabWidget#module-tabs QTabBar::tab {

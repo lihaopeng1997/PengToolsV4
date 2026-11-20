@@ -420,12 +420,12 @@ svg.ic {
 }
 .group-trigger.is-open { background: var(--nav-hover-bg); }
 
-.foot { padding-top: 8px; border-top: 1px solid var(--edge); }
+.foot { padding: 6px 2px 2px; border-top: 1px solid var(--edge); }
 .foot-actions { display: flex; flex-direction: column; }
 .palette-button { color: var(--c1); }
 .palette-button .ic { color: var(--c1); }
-.foot .meta { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0; color: var(--ink-3); font-size: 10px; font-weight: 600; }
-.shortcut-hint { color: var(--c1); font-size: 9px; }
+.foot .meta { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 2px; color: var(--ink-3); font-size: 10px; font-weight: 600; }
+.shortcut-hint { color: var(--c1); font-size: 9.5px; }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .sidebar { animation: fadeUp var(--motion-enter) var(--ease-out); }

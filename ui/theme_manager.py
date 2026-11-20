@@ -187,7 +187,7 @@ THEMES: dict[str, dict[str, str]] = {
         'ACCENT_ROSE': '#C45371',
         'ACCENT_EMERALD': '#247F75',
     }, {
-        'CODE_BG': '#F0ECFA',
+        'CODE_BG': '#F8F7FD',
         'ELEVATED_SURFACE': '#FFFFFF',
         'MONTH_HEADER_BG': '#ECE8F7',
         'MONTH_HEADER_FG': '#262438',

@@ -616,14 +616,7 @@ class MainWindow(QMainWindow):
         # insert 后同 index 可能变成 panel 在 stack_index，再清掉挤到 stack_index+1 的旧件
         # 上面 remove 已处理；再校正 current
         if was_current:
-            prev_stack_idx = self.stack.currentIndex()
-        self.stack.setCurrentIndex(stack_index)
-        if prev_stack_idx != stack_index:
-            try:
-                from ui.motion import play_page_enter
-                play_page_enter(self.stack.currentWidget())
-            except Exception:
-                pass
+            self.stack.setCurrentIndex(stack_index)
         if stack_index < len(self._panel_hosts):
             self._panel_hosts[stack_index] = panel
         if stack_index == 11:

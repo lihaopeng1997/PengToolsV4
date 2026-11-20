@@ -1939,6 +1939,9 @@ class OpsLogPanel(QWidget):
         self.toolbar_export_btn = QPushButton()
         apply_button(self.toolbar_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.toolbar_export_btn.clicked.connect(lambda: self._set_work_mode('export'))
+        self.toolbar_server_btn = QPushButton('服务器管理' if self.language == 'zh' else 'Servers')
+        apply_button(self.toolbar_server_btn, 'secondary', compact=True, icon='settings', icon_size=15)
+        self.toolbar_server_btn.clicked.connect(self._open_server_manage_dialog)
         self.more_btn = QToolButton()
         self.more_btn.setObjectName('responsive-more-btn')
         self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -1951,6 +1954,7 @@ class OpsLogPanel(QWidget):
         tool_l.addWidget(self.toolbar_export_btn)
         # 左栏分段已能切到多机截取，工具栏不再重复放一个
         self.toolbar_export_btn.hide()
+        tool_l.addWidget(self.toolbar_server_btn)
         tool_l.addWidget(self.more_btn)
         tool_l.addStretch(1)
         tool_l.addWidget(self.toolbar_hint)

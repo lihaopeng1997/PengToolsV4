@@ -1889,6 +1889,7 @@ class RequirementPanel(QWidget):
         self.svn_meta.setObjectName('svn-workspace-meta')
         self.svn_meta.setWordWrap(False)
         self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.svn_meta.hide()
         file_head.addWidget(self.svn_meta)
         file_layout.addLayout(file_head)
 
@@ -3294,6 +3295,7 @@ class RequirementPanel(QWidget):
             for button in (self.sql_btn, self.docx_btn, self.release_link_btn):
                 button.setEnabled(False)
             self.svn_meta.clear()
+            self.svn_meta.hide()
             self.file_tree.blockSignals(True)
             try:
                 self.file_tree.clear()
@@ -3353,6 +3355,7 @@ class RequirementPanel(QWidget):
                 self.svn_meta.setText(f'版本 r{rev}' if rev else '版本未知')
         else:
             self.svn_meta.setText('未关联资料目录')
+        self.svn_meta.setVisible(bool(self.svn_meta.text().strip()))
         self.svn_meta.setToolTip(
             f"分支：{requirement.get('svn_url') or '无'}\n"
             f"资料：{local_path or '无'}\n"
