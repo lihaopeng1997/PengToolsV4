@@ -37,7 +37,13 @@ from tools.agent_store import (
     set_active_conversation,
     update_workspace,
 )
-from tools.agent_runtime import IGNORED_DIR_NAMES, WHITELIST_EXTENSIONS
+from tools.agent_runtime import (
+    IGNORED_DIR_NAMES,
+    IMAGE_EXTENSIONS,
+    MAX_VISION_ATTACHMENTS_PER_TURN,
+    MAX_VISION_ATTACHMENT_BYTES,
+    WHITELIST_EXTENSIONS,
+)
 from tools.intranet_llm import list_enabled_items
 from tools.sql_guard import redact_error
 from ui.chat_kit import ChatView, ToolStepLine
@@ -76,10 +82,12 @@ _ROLE_PREFIXES = ('👤', '🤖', '🔧')
 _STEP_LABELS = {
     'list_dir': '列出目录',
     'read_file': '读取',
+    'read_image': '读取图片',
     'search_code': '搜索',
     'write_file': '写入',
     'edit_file': '修改',
     'delete_file': '删除',
+    'create_ppt': '生成 PPT',
     'run_test': '运行测试',
     'run_svn': 'SVN',
 }
@@ -105,6 +113,10 @@ def _tool_step_target(name, arguments) -> str:
         target = str(args.get('args') or '').strip()
     elif tool == 'run_svn':
         target = str(args.get('operation') or '').strip()
+    elif tool == 'create_ppt':
+        path_txt = str(args.get('path') or '').strip()
+        title_txt = str(args.get('title') or '').strip()
+        target = f'{path_txt}（{title_txt}）' if title_txt else path_txt
     else:
         target = str(args.get('path') or '').strip()
         if tool == 'read_file' and args.get('start_offset'):
@@ -375,7 +387,8 @@ class _WorkbenchWorker(QThread):
     def __init__(self, user_message, workspace_dir, model_cfg,
                  messages, tool_calls, plan_confirm, confirm_cb, progress_cb,
                  *, task_id, workspace_id, conversation_id, cancellation,
-                 model_adapter=None, memory_binding=None, context_memory=None):
+                 model_adapter=None, memory_binding=None, context_memory=None,
+                 image_attachments=None):
         super().__init__()
         self.task_id = task_id
         self.workspace_id = workspace_id
@@ -392,6 +405,7 @@ class _WorkbenchWorker(QThread):
         self.model_adapter = model_adapter
         self.memory_binding = memory_binding
         self.context_memory = context_memory
+        self.image_attachments = list(image_attachments or [])
         self.failure_reason = ''
 
     def _capture_terminal_event(self, event):
@@ -428,6 +442,8 @@ class _WorkbenchWorker(QThread):
                 kwargs['memory_binding'] = self.memory_binding
                 kwargs['context_memory'] = self.context_memory
                 kwargs['memory_cb'] = lambda value: setattr(self, 'context_memory', value)
+            if self.image_attachments and 'image_attachments' in params:
+                kwargs['image_attachments'] = list(self.image_attachments)
             from tools.agent_diag import log_agent_event
             log_agent_event('wb_run_start', task=self.task_id[:8])
             final, msgs, tcs = run_agent_loop(**kwargs)
@@ -460,6 +476,7 @@ class AgentWorkbenchPanel(QWidget):
         self._bridge = None              # 跨线程桥（延迟创建）
         self._send_hint_resize_pending = False
         self._file_attachments: list[str] = []
+        self._image_attachments: list[str] = []
         self._transient_holder = None
         self._transient_indicator = None
         self._context_budget_state = None
@@ -727,8 +744,9 @@ class AgentWorkbenchPanel(QWidget):
         attach_menu = QMenu(self.add_attachment_btn)
         self.new_conv_action = attach_menu.addAction('新建对话', self._new_conversation)
         self.add_file_ref_action = attach_menu.addAction('添加工作区内文件引用', self._pick_workspace_file_ref)
+        self.add_image_ref_action = attach_menu.addAction('添加图片分析 (PNG/JPG)…', self._pick_workspace_image_ref)
         attach_menu.addSeparator()
-        self.clear_ref_action = attach_menu.addAction('清空输入', lambda: self.input.clear())
+        self.clear_ref_action = attach_menu.addAction('清空附件', self._clear_attachments)
         self.add_attachment_btn.setMenu(attach_menu)
 
         self.send_hint = QLabel()
@@ -943,6 +961,7 @@ class AgentWorkbenchPanel(QWidget):
         self._sync_send_hint_minimum()
         self.new_conv_action.setText('新建对话' if zh else 'New conversation')
         self.add_file_ref_action.setText('添加文件引用' if zh else 'Reference file')
+        self.add_image_ref_action.setText('添加图片分析 (PNG/JPG)…' if zh else 'Attach image (PNG/JPG)…')
         self.clear_ref_action.setText('清空附件' if zh else 'Clear attachments')
         self.input.setPlaceholderText('描述任务…（Enter 发送，Alt+Enter 换行）' if zh else 'Describe task… (Enter to send, Alt+Enter for newline)')
         self._update_exec_mode_options()
@@ -2051,14 +2070,81 @@ class AgentWorkbenchPanel(QWidget):
         if added:
             self._refresh_attachment_bar()
 
+    def _pick_workspace_image_ref(self):
+        ws_dir = self._workspace_session.get('workspace_dir') if self._workspace_session else ''
+        zh = self.language == 'zh'
+        if not ws_dir or not os.path.isdir(ws_dir):
+            show_warning(
+                self,
+                '请先绑定工作目录' if zh else 'Bind workspace first',
+                '当前工作区尚未绑定有效工作文件夹。' if zh else 'Bind a valid workspace folder first.',
+            )
+            return
+        from tools.dialog_paths import remember_dialog_path
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            '选择工作区内图片' if zh else 'Pick workspace image',
+            ws_dir,
+            'Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)',
+        )
+        if not paths:
+            return
+        remember_dialog_path('agent_image_ref', paths[0])
+        added = False
+        for p in paths:
+            if not self._is_path_within_workspace(p, ws_dir):
+                show_warning(
+                    self,
+                    '禁止引用工作区外图片' if zh else 'Outside workspace',
+                    f'图片「{os.path.basename(p)}」超出当前绑定的工作区范围，已拒绝。'
+                    if zh else f'Image "{os.path.basename(p)}" is outside the bound workspace.',
+                )
+                continue
+            ext = os.path.splitext(p)[1].lower()
+            if ext not in IMAGE_EXTENSIONS:
+                continue
+            try:
+                size = os.path.getsize(p)
+            except OSError:
+                continue
+            if size <= 0 or size > MAX_VISION_ATTACHMENT_BYTES:
+                show_warning(
+                    self,
+                    '图片体积超限' if zh else 'Image too large',
+                    f'图片「{os.path.basename(p)}」超过单张 {MAX_VISION_ATTACHMENT_BYTES // (1024 * 1024)}MB 上限，已跳过。'
+                    if zh else f'Image "{os.path.basename(p)}" exceeds the {MAX_VISION_ATTACHMENT_BYTES // (1024 * 1024)}MB limit.',
+                )
+                continue
+            if len(self._image_attachments) >= MAX_VISION_ATTACHMENTS_PER_TURN:
+                show_warning(
+                    self,
+                    '图片数量已达上限' if zh else 'Image limit reached',
+                    f'单轮最多附带 {MAX_VISION_ATTACHMENTS_PER_TURN} 张图片。'
+                    if zh else f'Up to {MAX_VISION_ATTACHMENTS_PER_TURN} images per turn.',
+                )
+                break
+            rel = os.path.relpath(os.path.realpath(p), os.path.realpath(ws_dir)).replace('\\', '/')
+            if rel not in self._image_attachments:
+                self._image_attachments.append(rel)
+                added = True
+        if added:
+            self._refresh_attachment_bar()
+
     def _clear_attachments(self):
         self._file_attachments.clear()
+        self._image_attachments.clear()
         self._refresh_attachment_bar()
 
     def _refresh_attachment_bar(self):
+        parts = []
         if self._file_attachments:
-            chips = ' · '.join(f'📎 {f}' for f in self._file_attachments)
-            self.attachment_bar.setText(f'已附加文件引用：{chips}')
+            parts.extend(f'📎 {f}' for f in self._file_attachments)
+        if self._image_attachments:
+            parts.extend(f'🖼 {img}' for img in self._image_attachments)
+        if parts:
+            zh = self.language == 'zh'
+            prefix = '已附加引用：' if zh else 'Attached: '
+            self.attachment_bar.setText(prefix + ' · '.join(parts))
             self.attachment_bar.show()
         else:
             self.attachment_bar.setText('')
@@ -2125,7 +2211,7 @@ class AgentWorkbenchPanel(QWidget):
         if self._closing or self._agent_worker is not None:
             return
         user_text = self.input.toPlainText().strip()
-        if not user_text and not self._file_attachments:
+        if not user_text and not self._file_attachments and not self._image_attachments:
             return
         self.input.clear()
 
@@ -2145,12 +2231,20 @@ class AgentWorkbenchPanel(QWidget):
             ok, resolved, _error = self._validate_workspace_relative_path(rel, ws_dir)
             if ok and os.path.isfile(resolved):
                 valid_attachments.append(rel)
-        if len(valid_attachments) != len(attachments):
+        image_attachments = list(self._image_attachments)
+        valid_images = []
+        for rel in image_attachments[:MAX_VISION_ATTACHMENTS_PER_TURN]:
+            ok, resolved, _error = self._validate_workspace_relative_path(rel, ws_dir)
+            if ok and os.path.isfile(resolved) and os.path.splitext(resolved)[1].lower() in IMAGE_EXTENSIONS:
+                valid_images.append(rel)
+        if len(valid_attachments) != len(attachments) or len(valid_images) != len(image_attachments):
             self._file_attachments = valid_attachments
+            self._image_attachments = valid_images
             self._refresh_attachment_bar()
-        if attachments and not valid_attachments and not user_text:
-            self._append_message('assistant', '附件已失效，请重新选择工作区内文件。' if self.language == 'zh' else 'The file reference is no longer valid. Pick a workspace file again.')
+        if (attachments or image_attachments) and not valid_attachments and not valid_images and not user_text:
+            self._append_message('assistant', '附件已失效，请重新选择工作区内文件或图片。' if self.language == 'zh' else 'The attachment is no longer valid. Pick a workspace file or image again.')
             return
+        extra_blocks = []
         if valid_attachments:
             if self.language == 'zh':
                 refs_context = (
@@ -2164,7 +2258,22 @@ class AgentWorkbenchPanel(QWidget):
                     'Call the read_file tool for each reference before answering, and only claim successful reads returned by the tool.\n' +
                     '\n'.join(f'- `{rel}`' for rel in valid_attachments)
                 )
-            text = f'{user_text}\n\n{refs_context}' if user_text else refs_context
+            extra_blocks.append(refs_context)
+        if valid_images:
+            if self.language == 'zh':
+                img_context = (
+                    '以下是本次附带的工作区图片（已随本条消息以多模态视觉块传入；如当前模型不支持视觉，也可调用 read_image 检查尺寸与格式）：\n' +
+                    '\n'.join(f'- 🖼 `{rel}`' for rel in valid_images)
+                )
+            else:
+                img_context = (
+                    'Attached workspace images (sent as multimodal vision blocks with this turn; call read_image to inspect metadata if needed):\n' +
+                    '\n'.join(f'- 🖼 `{rel}`' for rel in valid_images)
+                )
+            extra_blocks.append(img_context)
+        if extra_blocks:
+            joined_extra = '\n\n'.join(extra_blocks)
+            text = f'{user_text}\n\n{joined_extra}' if user_text else joined_extra
         else:
             text = user_text
         self._clear_attachments()
@@ -2242,6 +2351,7 @@ class AgentWorkbenchPanel(QWidget):
             model_adapter=model_adapter,
             memory_binding=memory_binding,
             context_memory=copy.deepcopy(conv.get('context_memory')),
+            image_attachments=valid_images,
         )
         self._agent_worker = worker
         self._set_transient_status('正在分析项目…' if self.language == 'zh' else 'Analyzing project…')
