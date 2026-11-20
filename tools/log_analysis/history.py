@@ -32,6 +32,10 @@ class FrozenReader(io.RawIOBase):
         return len(raw)
 
 
+class _ScanLimitReached(ValueError):
+    """扫描达到字节或事件容量上限（属于有界部分完成，并非读取故障）。"""
+
+
 class HistoryScan(Monitor):
     mode = 'history'
 
@@ -149,7 +153,7 @@ class HistoryScan(Monitor):
                                 break
                             self.bytes_read += len(raw)
                             if self.bytes_read > self.max_bytes:
-                                raise ValueError('达到读取额度，结果仅覆盖已处理部分；请缩小文件范围后继续')
+                                raise _ScanLimitReached('达到读取额度，结果仅覆盖已处理部分；请缩小文件范围后继续')
                             long_line = len(raw) > 65536
                             if long_line:
                                 self.cursor.truncated_lines += 1
@@ -163,7 +167,7 @@ class HistoryScan(Monitor):
                                 self.bytes_read += len(raw)
                                 offset += len(raw)
                                 if self.bytes_read > self.max_bytes:
-                                    raise ValueError('达到读取额度，长行未完整读取')
+                                    raise _ScanLimitReached('达到读取额度，长行未完整读取')
                                 if not raw:
                                     break
                             if self.tail_lines:
@@ -192,13 +196,32 @@ class HistoryScan(Monitor):
                 self.state = '读取完成 · 可继续提问'
         except InterruptedError:
             self.state = '已取消读取 · 保留部分证据'
+            self._finalize_source_states('已取消（部分）', '未读取')
+        except _ScanLimitReached as limit_err:
+            # BUG-018: 区分“触及容量上限（部分成功）”与“真实读取失败”，并同步来源终态
+            self.state = '已达上限 · 部分读取（可继续提问）'
+            self.notices.append(str(limit_err))
+            self._finalize_source_states('已达上限（部分）', '未读取')
         except Exception as error:
-            self.state = '已取消读取 · 保留部分证据' if self.stop_event.is_set() else '部分读取 / 失败'
+            if self.stop_event.is_set():
+                self.state = '已取消读取 · 保留部分证据'
+                self._finalize_source_states('已取消（部分）', '未读取')
+            else:
+                self.state = '读取失败'
+                self._finalize_source_states('读取失败', '未读取')
             self.notices.append(str(error) if isinstance(error, ValueError) else '读取失败：' + type(error).__name__)
         finally:
             with self.lock:
                 self.buffer.flush()
             self._disconnect()
+
+    def _finalize_source_states(self, active_state: str, pending_state: str):
+        with self.lock:
+            for src in self.sources:
+                if src.get('state') == '读取中':
+                    src['state'] = active_state
+                elif src.get('state') == '待读取':
+                    src['state'] = pending_state
 
     def _accept(self, db, source, text, offset):
         with self.lock:
@@ -221,7 +244,7 @@ class HistoryScan(Monitor):
             # Stop before eviction: a finite scan must not claim complete statistics after dropping events.
             if (len(self.buffer.events) >= 1999 or self.index_bytes >= 32 * 1024 * 1024 or
                 (self.lines_read % 20 == 0 and sum(len(e.evidence.encode('utf-8')) for e in self.buffer.events) >= 8 * 1024 * 1024)):
-                raise ValueError('证据容量已达上限，结果为部分读取；请分批分析')
+                raise _ScanLimitReached('证据容量已达上限，结果为部分读取；请分批分析')
             self.buffer.line(text, offset, source)
             clean = self.buffer.recent[-1][2]
             self.lines_read += 1

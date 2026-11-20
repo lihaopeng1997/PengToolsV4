@@ -1698,8 +1698,22 @@ class RequirementPanel(QWidget):
         self.detail_title = QLabel('请选择左侧需求')
         self.detail_title.setObjectName('section-title')
         self.detail_title.setWordWrap(True)
+        self.detail_title.setMaximumHeight(96)
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        card.addWidget(self.detail_title)
+        self._full_detail_title = ''
+        self._detail_title_expanded = False
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addWidget(self.detail_title, 1)
+        self.detail_title_toggle = QPushButton('展开全文')
+        self.detail_title_toggle.setProperty('compactAction', True)
+        self.detail_title_toggle.setProperty('actionRole', 'ghost')
+        self.detail_title_toggle.clicked.connect(self._toggle_detail_title)
+        self.detail_title_toggle.hide()
+        size_compact_button(self.detail_title_toggle)
+        title_row.addWidget(self.detail_title_toggle, 0, Qt.AlignmentFlag.AlignTop)
+        card.addLayout(title_row)
         self.stage_bar = StageBar()
         self.stage_bar.statusSelected.connect(self._on_status_combo_changed)
         card.addWidget(self.stage_bar)
@@ -2860,8 +2874,10 @@ class RequirementPanel(QWidget):
             toggle.triggered.connect(lambda: item.setExpanded(not item.isExpanded()))
             menu.exec(self.requirement_list.viewport().mapToGlobal(point)); return
         if not item.isSelected():
-            self.requirement_list.clearSelection(); item.setSelected(True)
-        self.requirement_list.setCurrentItem(item)
+            self.requirement_list.clearSelection()
+            item.setSelected(True)
+        from PyQt6.QtCore import QItemSelectionModel
+        self.requirement_list.setCurrentItem(item, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
         rename_action = menu.addAction('修改标题'); rename_action.triggered.connect(self._rename_requirement_title)
         edit_action = menu.addAction('编辑完整信息'); edit_action.triggered.connect(self._edit_requirement)
         from tools.list_pin import is_pinned, pin_action_label
@@ -3210,6 +3226,37 @@ class RequirementPanel(QWidget):
         finally:
             self._showing_requirement = False
 
+    def _set_detail_title_text(self, title: str, code: str = ''):
+        """BUG-021: 限制超长需求标题默认高度，防止挤占阶段条与快捷操作按钮。"""
+        full = str(title or '未命名需求')
+        self._full_detail_title = full
+        self._detail_title_expanded = False
+        tip = f'{full[:400]}{"…" if len(full) > 400 else ""}\n编号：{code}\n完整信息请点「编辑」'
+        self.detail_title.setToolTip(tip)
+        if len(full) > 140:
+            self.detail_title.setMaximumHeight(96)
+            self.detail_title.setText(full[:140] + '…')
+            self.detail_title_toggle.setText('展开全文')
+            self.detail_title_toggle.show()
+        else:
+            self.detail_title.setMaximumHeight(96)
+            self.detail_title.setText(full)
+            self.detail_title_toggle.hide()
+
+    def _toggle_detail_title(self):
+        full = getattr(self, '_full_detail_title', '') or ''
+        if not full:
+            return
+        self._detail_title_expanded = not getattr(self, '_detail_title_expanded', False)
+        if self._detail_title_expanded:
+            self.detail_title.setMaximumHeight(240)
+            self.detail_title.setText(full[:1200] + ('…（完整标题请点「编辑」查看）' if len(full) > 1200 else ''))
+            self.detail_title_toggle.setText('收起')
+        else:
+            self.detail_title.setMaximumHeight(96)
+            self.detail_title.setText(full[:140] + '…')
+            self.detail_title_toggle.setText('展开全文')
+
     def _show_requirement_impl(self, current, refresh_files=True):
         from panels.requirement_views import STAGES, stage_index
         try:
@@ -3230,8 +3277,11 @@ class RequirementPanel(QWidget):
         self._action_open_folder.setEnabled(has_path)
         self._update_vcs_action_state()
         if not self._current:
+            self.detail_title.setMaximumHeight(96)
             self.detail_title.setText('请选择左侧需求')
             self.detail_title.setToolTip('')
+            if hasattr(self, 'detail_title_toggle'):
+                self.detail_title_toggle.hide()
             self.detail_eyebrow.setText('')
             self.stage_bar.set_status('')
             self.stage_caption.setText('')
@@ -3264,8 +3314,7 @@ class RequirementPanel(QWidget):
         actual = requirement.get('actual_release_date') or requirement.get('actual_online_date') or ''
         online_text = f'上线 {actual}' if actual else (f'{format_online_month_label(month)}上线' if month else '未安排上线')
         self.detail_eyebrow.setText(f'{code}  ·  {kind}  ·  {system}  ·  {online_text}')
-        self.detail_title.setText(title)
-        self.detail_title.setToolTip(f'{title}\n编号：{code}\n完整信息请点「编辑」')
+        self._set_detail_title_text(title, code)
         self.status_combo.blockSignals(True)
         try:
             self.status_combo.clear()

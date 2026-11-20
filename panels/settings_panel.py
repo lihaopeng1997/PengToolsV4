@@ -1938,9 +1938,8 @@ class SettingsPanel(QWidget):
             self.ai_model.setText(names[0])
         self._schedule_ai_provider_control_fit()
         if names:
-            self.ai_status.setText(
-                f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
-            )
+            probe_msg = f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
+            self.ai_status.setText(probe_msg)
             try:
                 from tools.intranet_llm import upsert_model_item
                 # /models only supplies model names.  It must never infer or
@@ -1959,6 +1958,8 @@ class SettingsPanel(QWidget):
                 self._ai_editing_id = saved.get('id')
                 self._ai_original_provider = saved.get('provider', 'intranet')
                 self._refresh_ai_list()
+                # BUG-023: _refresh_ai_list 会重填表单并把状态改回「已保存」，需恢复本次探测成功结果
+                self.ai_status.setText(probe_msg)
             except Exception as exc:
                 self.ai_status.setText(str(exc))
         else:

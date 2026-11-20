@@ -517,11 +517,15 @@ class ModelChatPanel(QWidget):
             return
         sid = current.data(Qt.ItemDataRole.UserRole)
         if sid:
+            if self._is_running:
+                self._stop()
             self._session = load_session(sid)
             self._render_messages()
             self._sync_send_enabled()
 
     def _new_session(self):
+        if self._is_running:
+            self._stop()
         model = self._current_model()
         mid = str(model.get('id') or '') if model else ''
         mname = str(model.get('model') or '') if model else ''
@@ -696,19 +700,47 @@ class ModelChatPanel(QWidget):
     def _start_worker(self, messages, model):
         cfg = dict(model)
         cfg['enabled'] = True
+        self._request_gen = int(getattr(self, '_request_gen', 0)) + 1
+        gen = self._request_gen
+        if not hasattr(self, '_stale_workers'):
+            self._stale_workers = []
         self._is_running = True
         self._stop_requested = False
         self._sync_running_state()
         self._live_answer = ''
-        self._worker = _ChatWorker(messages, cfg)
-        self._worker.ai_event.connect(self._on_ai_event)
-        self._worker.completed.connect(self._on_chat_ok)
-        self._worker.failed.connect(self._on_chat_fail)
-        self._worker.finished.connect(self._on_chat_done)
-        self._worker.start()
+        worker = _ChatWorker(messages, cfg)
+        self._worker = worker
+        worker.ai_event.connect(lambda ev, g=gen: self._on_ai_event_for_gen(g, ev))
+        worker.completed.connect(lambda text, g=gen: self._on_chat_ok_for_gen(g, text))
+        worker.failed.connect(lambda msg, g=gen: self._on_chat_fail_for_gen(g, msg))
+        worker.finished.connect(lambda g=gen, w=worker: self._on_chat_done_for_gen(g, w))
+        worker.start()
         settings = load_settings()
         settings['model_chat_last_model_id'] = str(model.get('id') or '')
         save_settings(settings)
+
+    def _on_ai_event_for_gen(self, gen: int, event) -> None:
+        if gen != getattr(self, '_request_gen', 0):
+            return
+        self._on_ai_event(event)
+
+    def _on_chat_ok_for_gen(self, gen: int, text: str) -> None:
+        if gen != getattr(self, '_request_gen', 0):
+            return
+        self._on_chat_ok(text)
+
+    def _on_chat_fail_for_gen(self, gen: int, message: str) -> None:
+        if gen != getattr(self, '_request_gen', 0):
+            return
+        self._on_chat_fail(message)
+
+    def _on_chat_done_for_gen(self, gen: int, worker) -> None:
+        stale = getattr(self, '_stale_workers', None)
+        if isinstance(stale, list) and worker in stale:
+            stale.remove(worker)
+        if gen != getattr(self, '_request_gen', 0):
+            return
+        self._on_chat_done()
 
     def _on_ai_event(self, event) -> None:
         """Route events to the open bubble. Only visible text is remembered."""
@@ -778,9 +810,18 @@ class ModelChatPanel(QWidget):
 
     def _stop(self):
         zh = self.language == 'zh'
+        self._request_gen = int(getattr(self, '_request_gen', 0)) + 1
         self._stop_requested = True
-        if self._worker is not None:
-            self._worker.cancelled = True
+        worker = self._worker
+        if worker is not None:
+            worker.cancelled = True
+            stale = getattr(self, '_stale_workers', None)
+            if stale is None:
+                stale = []
+                self._stale_workers = stale
+            if worker not in stale:
+                stale.append(worker)
+            self._worker = None
         text = ''
         bubble = self.chat.bubble(self._pending_id) if self._pending_id else None
         if bubble is not None:
@@ -798,6 +839,10 @@ class ModelChatPanel(QWidget):
             )
             if updated is not None:
                 self._session = updated
+        # BUG-024: 请求代次已递增并隔离旧线程，UI 立即恢复可发送终态
+        self._is_running = False
+        self._stop_requested = False
+        self._pending_id = ''
         self.ping_status.setText('请求已停止' if zh else 'The request was stopped.')
         self._sync_running_state()
 

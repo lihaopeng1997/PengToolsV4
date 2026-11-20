@@ -193,8 +193,9 @@ def _candidate_logs():
     except Exception:
         pass
     try:
-        from ui.web_diagnostics import log_file_path as web_log
-        paths.append(web_log())
+        web_dir = _primary_log_dir()
+        if web_dir:
+            paths.append(os.path.join(web_dir, 'webengine_startup.log'))
     except Exception:
         pass
     return paths
@@ -220,11 +221,6 @@ def _log_roots():
     try:
         from tools.agent_diag import log_file_path
         roots.append(os.path.dirname(log_file_path()))
-    except Exception:
-        pass
-    try:
-        from ui.web_diagnostics import log_file_path as web_log
-        roots.append(os.path.dirname(web_log()))
     except Exception:
         pass
     unique = []

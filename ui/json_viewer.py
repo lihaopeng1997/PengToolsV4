@@ -17,10 +17,10 @@ from ui.design_system import apply_button
 from ui.field_metrics import size_line
 from ui.table_utils import autofit_columns
 from tools.json_viewer import (
-    json_path_child, json_type_name, node_json_text,
+    find_duplicate_json_keys, json_path_child, json_type_name, node_json_text,
     node_value_text, parse_json_text,
 )
-from ui.confirm_dialog import show_warning
+from ui.confirm_dialog import confirm_action, show_warning
 from ui.foldable_text_edit import FoldablePlainTextEdit
 from ui.search_highlight import (
     apply_text_match_index,
@@ -415,13 +415,23 @@ class JsonViewer(QWidget):
 
     @staticmethod
     def _formatted(data):
-        return json.dumps(data, ensure_ascii=False, indent=2).replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+        try:
+            return json.dumps(data, ensure_ascii=False, indent=2).replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+        except RecursionError as exc:
+            raise ValueError('JSON 嵌套过深，无法格式化') from exc
 
     def set_text(self, text, auto_format=True):
         self._refresh_timer.stop()
         data, error = self._parse(text)
         if error is None and auto_format:
-            text = self._formatted(data)
+            try:
+                text = self._formatted(data)
+            except (ValueError, RecursionError):
+                error = (
+                    'JSON 嵌套过深，已保留原文（无法自动格式化）'
+                    if self.language == 'zh' else
+                    'JSON nesting is too deep; kept raw text without auto-formatting'
+                )
         text = text.replace('\r\n', '\n').replace('\r', '\n')
         self._setting_text = True
         try:
@@ -500,7 +510,31 @@ class JsonViewer(QWidget):
         if error is not None:
             show_warning(self, 'PengTools JSON', error)
             return False
-        return self.set_text(self._formatted(data), auto_format=False)
+        dups = find_duplicate_json_keys(text)
+        if dups:
+            preview = '、'.join(dups[:5]) + (' 等' if len(dups) > 5 else '')
+            zh = self.language == 'zh'
+            ok = confirm_action(
+                self,
+                '检测到重复键' if zh else 'Duplicate keys detected',
+                (
+                    f'当前 JSON 存在重复键（{preview}）。继续格式化将仅保留每个键最后一次出现的值，是否继续？'
+                    if zh else
+                    f'Duplicate JSON keys found ({preview}). Formatting keeps only the last value per key. Continue?'
+                ),
+                confirm_text='仍要格式化' if zh else 'Format anyway',
+                danger=True,
+            )
+            if not ok:
+                return False
+        try:
+            formatted = self._formatted(data)
+        except (ValueError, RecursionError) as exc:
+            msg = str(exc) if self.language == 'zh' else 'JSON nesting is too deep to format'
+            self.json_status.setText(msg)
+            show_warning(self, 'PengTools JSON', msg)
+            return False
+        return self.set_text(formatted, auto_format=False)
 
     def _fit_key_column(self):
         """按内容撑开字段名列（含缩进），再夹在可读上下限内；用户仍可拖动。"""

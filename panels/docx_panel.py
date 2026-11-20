@@ -1037,7 +1037,7 @@ class DocxUpdatePanel(QWidget):
         if not output_path or not os.path.isfile(output_path):
             self._on_update_failed('没有产生输出文件' if self.language == 'zh' else 'No output file was created', token=token)
             return
-        self.sql_editor.clear()
+        # 保留 SQL 编辑器内容方便用户微调或对第二份文档复用，仅清空本次附带的外部文件列表
         self._sql_paths.clear()
         self.progress.finish('接口文档已生成' if self.language == 'zh' else 'Interface document generated', token=token)
         self.task_completed.emit()

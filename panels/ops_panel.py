@@ -622,6 +622,20 @@ class OpsPanel(QWidget):
                 self.command_list.setCurrentRow(row)
                 break
 
+    @staticmethod
+    def _same_custom_command(left: dict, right: dict) -> bool:
+        if left is right:
+            return True
+        lid = str(left.get('id') or '').strip()
+        rid = str(right.get('id') or '').strip()
+        if lid and rid:
+            return lid == rid
+        return (
+            str(left.get('command') or '') == str(right.get('command') or '')
+            and str(left.get('title_zh') or '') == str(right.get('title_zh') or '')
+            and str(left.get('category') or '') == str(right.get('category') or '')
+        )
+
     def _delete_custom_command(self):
         command = self._current_command
         if not command or command.get('builtin', True):
@@ -632,6 +646,17 @@ class OpsPanel(QWidget):
             f"{'仅删除这条用户自定义命令，内置命令不会受影响。\n\n待删除：' if zh else 'Delete this custom command?\n\n'}{command['title_zh' if zh else 'title_en']}?",
         ):
             return
-        self._custom_commands = [item for item in self._custom_commands if item is not command]
+        removed = False
+        remaining = []
+        for item in self._custom_commands:
+            if not removed and self._same_custom_command(item, command):
+                removed = True
+                continue
+            remaining.append(item)
+        if not removed:
+            show_warning(self, '删除自定义命令', '未找到对应的自定义命令。' if zh else 'Custom command not found.')
+            return
+        self._custom_commands = remaining
         save_custom_commands(self._custom_commands)
+        self._current_command = None
         self._refresh_results()

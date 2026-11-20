@@ -17,6 +17,7 @@ class ChatController(QObject):
         self._bubble = None
         self._pending = ''
         self._collapsed = False
+        self._terminal = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(40)
@@ -26,6 +27,7 @@ class ChatController(QObject):
         self._bubble = bubble
         self._pending = ''
         self._collapsed = False
+        self._terminal = False
         self._timer.stop()
 
     def detach(self) -> None:
@@ -33,9 +35,10 @@ class ChatController(QObject):
         self._bubble = None
         self._pending = ''
         self._collapsed = False
+        self._terminal = False
 
     def handle(self, event) -> None:
-        if self._bubble is None:
+        if self._bubble is None or self._terminal:
             return
         kind = str(getattr(event, 'kind', '') or '')
         if kind == 'phase':
@@ -67,21 +70,30 @@ class ChatController(QObject):
 
     def complete(self, text: str) -> None:
         self._timer.stop()
-        self._pending = ''
-        if self._bubble is None:
+        if self._bubble is None or self._terminal:
+            self._pending = ''
             return
+        self._terminal = True
         if text:
+            self._pending = ''
             self._bubble.markdown.set_markdown(text)
+            final_text = text
+        else:
+            if self._pending:
+                self._bubble.markdown.append_text(self._pending)
+                self._pending = ''
+            final_text = self._bubble.visible_text() if hasattr(self._bubble, 'visible_text') else ''
         self._collapse_thinking()
         self._bubble.phase.stop()
-        self._bubble.mark_complete(text)
+        self._bubble.mark_complete(final_text)
         self.view.note_activity()
 
     def fail(self, reason: str) -> None:
         self._timer.stop()
         self._pending = ''
-        if self._bubble is None:
+        if self._bubble is None or self._terminal:
             return
+        self._terminal = True
         self._collapse_thinking()
         self._bubble.phase.stop()
         self._bubble.show_error(reason)
@@ -89,15 +101,19 @@ class ChatController(QObject):
 
     def stop(self) -> None:
         self._timer.stop()
-        if self._pending and self._bubble is not None:
+        if self._bubble is None or self._terminal:
+            self._pending = ''
+            return
+        self._terminal = True
+        if self._pending:
             self._bubble.markdown.append_text(self._pending)
             self._pending = ''
-        if self._bubble is not None:
-            self._collapse_thinking()
-            self._bubble.mark_stopped()
+        self._collapse_thinking()
+        self._bubble.mark_stopped()
 
     def _flush(self) -> None:
-        if self._bubble is None or not self._pending:
+        if self._bubble is None or self._terminal or not self._pending:
+            self._pending = ''
             return
         self._bubble.markdown.append_text(self._pending)
         self._pending = ''

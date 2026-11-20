@@ -14,11 +14,43 @@ def parse_json_text(text):
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f'JSON 格式错误：第 {exc.lineno} 行，第 {exc.colno} 列，{exc.msg}') from exc
+    except RecursionError as exc:
+        raise ValueError('JSON 嵌套过深，超过允许层级') from exc
+
+
+def find_duplicate_json_keys(text, limit=10):
+    """检测 JSON 对象中的重复键名；遇到语法错误或过深嵌套返回空列表。"""
+    if not text or not text.strip():
+        return []
+    duplicates = []
+    seen_dups = set()
+
+    def _hook(pairs):
+        seen = set()
+        obj = {}
+        for k, v in pairs:
+            if k in seen and k not in seen_dups:
+                seen_dups.add(k)
+                if len(duplicates) < limit:
+                    duplicates.append(str(k))
+            seen.add(k)
+            obj[k] = v
+        return obj
+
+    try:
+        json.loads(text, object_pairs_hook=_hook)
+    except (json.JSONDecodeError, RecursionError, ValueError):
+        return []
+    return duplicates
 
 
 def format_json_text(text):
     """格式化 JSON：对象字段按 A-Z 字典序递归排序，数组元素保持原序。"""
-    return json.dumps(parse_json_text(text), ensure_ascii=False, indent=2, sort_keys=True)
+    parsed = parse_json_text(text)
+    try:
+        return json.dumps(parsed, ensure_ascii=False, indent=2, sort_keys=True)
+    except RecursionError as exc:
+        raise ValueError('JSON 嵌套过深，超过允许层级') from exc
 
 
 def json_path_child(parent, key):

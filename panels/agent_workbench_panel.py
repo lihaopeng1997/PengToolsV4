@@ -1772,6 +1772,19 @@ class AgentWorkbenchPanel(QWidget):
         if self._bridge is not None:
             self._bridge.reset_scope()
 
+    def _sync_thread_title(self, ws: dict | None = None, conv: dict | None = None):
+        """BUG-025: 同步顶部「工作区 / 对话」面包屑标题。"""
+        if not hasattr(self, 'thread_title'):
+            return
+        target_ws = ws if ws is not None else (self._workspace_session or {})
+        target_conv = conv if conv is not None else self._active_conversation_of(target_ws)
+        ws_title = str((target_ws or {}).get('title') or '')
+        conv_title = str((target_conv or {}).get('title') or '')
+        self.thread_title.setText(
+            ' / '.join(part for part in (ws_title, conv_title) if part)
+            or ('新对话' if self.language == 'zh' else 'New chat')
+        )
+
     def _render_conversation(self, ws: dict, conv: dict | None):
         """把某对话的消息渲染到中栏。"""
         key = (str((ws or {}).get('id') or ''), str((conv or {}).get('id') or ''))
@@ -1907,6 +1920,7 @@ class AgentWorkbenchPanel(QWidget):
         updated = update_workspace(ws_id, {'title': title.strip()})
         if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
             self._workspace_session = updated
+            self._sync_thread_title()
         self._refresh_space_tree(select_ws_id=ws_id)
 
     def _change_workspace_dir(self, ws_id: str):
@@ -1979,6 +1993,7 @@ class AgentWorkbenchPanel(QWidget):
         updated = rename_conversation(ws_id, conv_id, title.strip())
         if updated and self._workspace_session and self._workspace_session.get('id') == ws_id:
             self._workspace_session = updated
+            self._sync_thread_title()
         self._refresh_space_tree(select_ws_id=ws_id, select_conv_id=conv_id)
 
     def _delete_conversation(self, ws_id: str, conv_id: str):

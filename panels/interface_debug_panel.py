@@ -2849,8 +2849,13 @@ class InterfaceDebugPanel(QWidget):
                 pass
 
     def _on_workspace_tab_changed(self, index: int):
+        # BB-02: 切到「请求验证」Tab 时不得静默覆盖用户已手工编辑的请求；
+        # 仅当目标 URL 仍为空时顺手按选中会话预填，其余场景由用户显式点击「从会话填充」。
         try:
-            if self.workspace_tabs.widget(index) is self.draft_page:
+            if (
+                self.workspace_tabs.widget(index) is self.draft_page
+                and not self.rt_url.text().strip()
+            ):
                 self._rt_fill_from_selection(silent=True)
         except Exception:
             pass
@@ -3429,10 +3434,17 @@ class InterfaceDebugPanel(QWidget):
         if token is not None and token != getattr(self, '_rt_token', None):
             return
         try:
-            self.loading.fail(message or '请求失败', token=token)
-            show_warning(self, '请求测试', message or '请求失败')
+            err_msg = message or '请求失败'
+            self.loading.fail(err_msg, token=token)
+            # BUG-020: 本次请求失败时清空上次成功响应并明确展示失败状态，避免残留旧 200 结果误导。
+            self._rt_set_response_view(
+                body=f'请求失败：{err_msg}',
+                meta=f'请求失败 · {err_msg}',
+                headers={},
+            )
+            show_warning(self, '请求测试', err_msg)
             self._rt_append_history_from_send(
-                status=None, ok=False, error=message or '请求失败', response_body='',
+                status=None, ok=False, error=err_msg, response_body='',
             )
         finally:
             self._rt_refresh_send_label()

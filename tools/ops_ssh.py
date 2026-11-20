@@ -557,6 +557,7 @@ def build_remote_grep_command(
     *,
     context_lines: int = 20,
     case_insensitive: bool = True,
+    encoding: str = 'auto',
 ) -> str:
     """构造远端只读 grep 管道。结果走 stdout，不写远端文件。"""
     path = str(log_path or '').strip()
@@ -576,13 +577,29 @@ def build_remote_grep_command(
     except (TypeError, ValueError):
         ctx = 20
     flag_i = ' -i' if case_insensitive else ''
+    q_primary = shlex.quote(primary)
+    q_path = shlex.quote(path)
+    extra_pipe = ''.join(f' | grep -a{flag_i} -- {shlex.quote(extra)}' for extra in extras)
     # grep -a：按文本读，避免被识别成二进制后截断
-    cmd = (
-        f'grep -a -n{flag_i} -C {ctx} -- {shlex.quote(primary)} {shlex.quote(path)}'
-    )
-    for extra in extras:
-        cmd += f' | grep -a{flag_i} -- {shlex.quote(extra)}'
-    return cmd
+    utf8_cmd = f'grep -a -n{flag_i} -C {ctx} -- {q_primary} {q_path}{extra_pipe}'
+    has_non_ascii = any(ord(ch) > 127 for kw in (primary, *extras) for ch in kw)
+    enc = str(encoding or 'auto').strip().lower()
+    if enc in ('gbk', 'gb18030'):
+        return (
+            f'iconv -f GB18030 -t UTF-8//IGNORE {q_path} 2>/dev/null'
+            f' | grep -a -n{flag_i} -C {ctx} -- {q_primary}{extra_pipe}'
+        )
+    if enc == 'auto' and has_non_ascii:
+        # BUG-017: UTF-8 优先快速命中；若无命中（exit 1）且远端支持 iconv，自动按 GB18030 转码再匹配一次。
+        gbk_pipe = (
+            f'iconv -f GB18030 -t UTF-8//IGNORE {q_path} 2>/dev/null'
+            f' | grep -a -n{flag_i} -C {ctx} -- {q_primary}{extra_pipe}'
+        )
+        return (
+            f'{utf8_cmd} || {{ rc=$?; '
+            f'if [ "$rc" -eq 1 ] && command -v iconv >/dev/null 2>&1; then {gbk_pipe}; else exit "$rc"; fi; }}'
+        )
+    return utf8_cmd
 
 
 def _safe_filename_part(text: str, limit: int = 40) -> str:
@@ -784,12 +801,17 @@ def extract_log_from_server(
             f'# note=streamed via SSH stdout; no temp file on server\n'
             f'# ----\n'
         ).encode('utf-8')
+        # 统一转码为 UTF-8 落盘，避免 GBK 远端日志与 UTF-8 头混编乱码
+        try:
+            text = body.decode('utf-8')
+        except UnicodeDecodeError:
+            text = body.decode('gb18030', errors='replace')
+        body_utf8 = text.encode('utf-8')
         with open(local_path, 'wb') as stream:
             stream.write(header)
-            stream.write(body)
+            stream.write(body_utf8)
 
         # 粗略统计命中行（含上下文时仅作参考）
-        text = body.decode('utf-8', errors='replace')
         line_count = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
         if not text.strip():
             line_count = 0
@@ -1016,6 +1038,7 @@ def open_ssh_client(
         except Exception as exc:
             raise OpsSshError(_friendly_ssh_error(exc)) from exc
     password = _resolve_password(server, password_override)
+    deadline = time.monotonic() + float(timeout)
     client = _new_ssh_client(port)
     try:
         client.connect(
@@ -1037,6 +1060,18 @@ def open_ssh_client(
             pass
         raise
     except Exception as first_exc:
+        # BUG-016: 共享单次连接总截止时间；网络/握手超时类失败不再消耗第二轮完整 timeout。
+        remaining = deadline - time.monotonic()
+        is_timeout_or_net = isinstance(first_exc, (socket.timeout, TimeoutError, OSError)) or (
+            'banner' in str(first_exc).lower() or 'timed out' in str(first_exc).lower()
+        )
+        if is_timeout_or_net or remaining < 0.5:
+            try:
+                client.close()
+            except Exception:
+                pass
+            raise OpsSshError(_friendly_ssh_error(first_exc)) from first_exc
+        retry_timeout = max(0.5, remaining)
         # 服务器禁用了密码登录、只收公钥：自动用本机 ~/.ssh 默认密钥 / ssh-agent 再试一次
         if 'publickey' in _allowed_auth_types(first_exc) and 'password' not in _allowed_auth_types(first_exc):
             try:
@@ -1044,7 +1079,7 @@ def open_ssh_client(
             except Exception:
                 pass
             try:
-                return _connect_with_key(server, host, port, username, timeout)
+                return _connect_with_key(server, host, port, username, retry_timeout)
             except Exception:
                 raise OpsSshError(_friendly_ssh_error(first_exc)) from first_exc
         # 部分环境仅 keyboard-interactive 收密码：先建会话再 interactive
@@ -1055,11 +1090,12 @@ def open_ssh_client(
                 pass
             client = _new_ssh_client(port)
             # 不带 password 建连接会停在未认证状态
-            sock = socket.create_connection((host, port), timeout=timeout)
+            sock = socket.create_connection((host, port), timeout=retry_timeout)
             transport = paramiko.Transport(sock)
-            transport.banner_timeout = timeout
-            transport.auth_timeout = timeout
-            transport.start_client(timeout=timeout)
+            rem_after_sock = max(0.5, deadline - time.monotonic())
+            transport.banner_timeout = rem_after_sock
+            transport.auth_timeout = rem_after_sock
+            transport.start_client(timeout=rem_after_sock)
             # 直接用 Transport 不走 SSHClient 的指纹回调：这里手动校验
             _verify_or_remember_host_key(host, port, transport.get_remote_server_key())
 

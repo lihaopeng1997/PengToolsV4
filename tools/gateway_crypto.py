@@ -73,7 +73,10 @@ def decrypt_gateway_payload(direction, environment, encrypted_sm4_key, encrypted
         public_key=key_pair["public"],
         mode=1,
     )
-    key_bytes = crypt_sm2.decrypt(key_cipher_bytes)
+    try:
+        key_bytes = crypt_sm2.decrypt(key_cipher_bytes)
+    except (TypeError, ValueError, IndexError, RuntimeError):
+        raise ValueError("SM2 解密失败，请检查环境、方向和 Key 密文") from None
     if not key_bytes:
         raise ValueError("SM2 解密失败，请检查环境、方向和 Key 密文")
     try:
