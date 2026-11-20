@@ -285,13 +285,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   isolation: isolate;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 10px;
-  padding: 26px 28px 22px;
-  border-radius: 24px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 3px var(--shadow-l1), 0 18px 40px var(--shadow-l1);
+  padding: 22px 26px 20px;
+  border-radius: 22px;
+  background: rgba(253, 253, 255, 0.86);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 28px rgba(38, 36, 56, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.96);
   min-width: 0;
+  transition: box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms ease;
+}
+
+.hero:hover {
+  border-color: rgba(124, 106, 230, 0.36);
+  box-shadow: 0 12px 32px rgba(108, 88, 217, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .hero-bg {

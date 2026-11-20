@@ -259,8 +259,8 @@ body {
   color: var(--ink);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--edge);
+  background: var(--app-bg, var(--sidebar-bg));
+  padding: 8px 4px 8px 8px;
 }
 
 body::before {
@@ -269,31 +269,37 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(420px 300px at -60px -40px, var(--aurora-mid), transparent 70%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-start), transparent 70%);
-  opacity: 0.06;
+    radial-gradient(420px 300px at -40px -30px, var(--aurora-start), transparent 72%),
+    radial-gradient(380px 320px at 110% 108%, var(--aurora-end), transparent 72%);
+  opacity: 0.16;
 }
 
 svg.ic {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   flex-shrink: 0;
   opacity: 0.85;
-  transition: opacity var(--motion-fast) var(--ease-out);
+  transition: opacity var(--motion-fast) var(--ease-out), transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* 晴空棱镜紫 · 悬浮圆角磨砂侧轨（保留完整全部导航入口） */
 .sidebar {
   position: relative;
   z-index: 1;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0 12px 12px;
-  background: transparent;
+  padding: 0 10px 10px;
+  border-radius: 18px;
+  background: rgba(253, 253, 255, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 26px rgba(38, 36, 56, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .brand {
-  height: 64px;
+  height: 58px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -301,16 +307,16 @@ svg.ic {
 }
 
 .logo {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform var(--motion-standard) var(--ease-out);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.brand:hover .logo { transform: translateY(-1px); }
+.brand:hover .logo { transform: translateY(-1.5px) scale(1.04); }
 .brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; color: var(--ink); }
 
 .nav {
@@ -321,53 +327,91 @@ svg.ic {
   padding: 0 4px;
 }
 
-.nav::-webkit-scrollbar { width: 6px; }
-.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 6px; }
+.nav::-webkit-scrollbar { width: 5px; }
+.nav::-webkit-scrollbar-thumb { background: var(--scroll-handle); border-radius: 999px; }
 .group { margin-bottom: 4px; }
 
 .g-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px 4px;
-  color: var(--ink-2);
-  font-size: 13px;
+  padding: 7px 8px 3px;
+  color: var(--ink-3);
+  font-size: 11px;
   font-weight: 600;
-  line-height: 18px;
+  letter-spacing: 0.4px;
+  line-height: 16px;
 }
 
-.g-label::after { content: ""; flex: 1; height: 1px; background: var(--edge); opacity: 0.5; }
-.rail-divider { height: 1px; margin: 8px 4px; background: var(--edge); opacity: 0.78; }
+.g-label::after { content: ""; flex: 1; height: 1px; background: var(--edge); opacity: 0.55; }
+.rail-divider { height: 1px; margin: 7px 4px; background: var(--edge); opacity: 0.78; }
 
 .nav-item {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   width: 100%;
-  height: 40px;
+  height: 36px;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 11px;
   margin-bottom: 2px;
-  border: 0;
-  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  border-radius: 12px;
   color: var(--ink-2);
   background: transparent;
   font: inherit;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 13.5px;
+  line-height: 19px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
   user-select: none;
-  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+  transition:
+    background 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   outline: none;
 }
 
 .nav-item:hover,
-.nav-item:focus-visible { background: var(--nav-hover-bg); color: var(--ink); transform: translateX(1px); }
+.nav-item:focus-visible {
+  background: rgba(108, 88, 217, 0.09);
+  color: var(--ink);
+  transform: translateX(3px);
+}
+.nav-item:hover svg.ic {
+  opacity: 1;
+  transform: scale(1.07);
+}
 .nav-item:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
-.nav-item:active { transform: translateX(1px) scale(0.99); }
-.nav-item.active { background: var(--nav-active-fill); color: var(--nav-active-text); font-weight: 600; transform: none; }
-.nav-item.active svg.ic { opacity: 1; color: var(--nav-active-text); }
+.nav-item:active { transform: scale(0.97); }
+.nav-item.active {
+  background: linear-gradient(135deg, #EEE9FF 0%, #FFFFFF 100%);
+  color: #503DBE;
+  border-color: rgba(124, 106, 230, 0.42);
+  box-shadow: 0 3px 12px rgba(108, 88, 217, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  transform: none;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7C6AE6 0%, #6C58D9 100%);
+  animation: navPillIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes navPillIn {
+  from { transform: scaleY(0.25); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+.nav-item.active svg.ic { opacity: 1; color: #6C58D9; }
 .group-trigger.is-open { background: var(--nav-hover-bg); }
 
 .foot { padding-top: 8px; border-top: 1px solid var(--edge); }

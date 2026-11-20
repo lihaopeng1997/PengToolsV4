@@ -378,8 +378,9 @@ body {
   line-height: 1.5;
   color: var(--text);
   background:
-    radial-gradient(660px 360px at 8% 0%, rgba(124, 106, 230, 0.13), transparent 66%),
-    radial-gradient(560px 380px at 94% 96%, rgba(14, 165, 233, 0.10), transparent 68%),
+    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.20), transparent 65%),
+    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.14), transparent 65%),
+    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.55), transparent 70%),
     var(--app-bg);
   background-attachment: fixed;
 }

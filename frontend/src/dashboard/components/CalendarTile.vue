@@ -244,72 +244,75 @@ function schedule(): void {
       </button>
     </div>
 
-    <div v-if="selectedDay" class="day-panel">
-      <div class="day-head">
-        <strong>{{ month + 1 }} 月 {{ selectedDay }} 日</strong>
-        <span class="day-badges">
-          <span v-if="selectedLog" class="mini-badge work">{{ selectedLog.count }} 条记录</span>
-          <span v-if="selectedTasks.length" class="mini-badge rel">{{ selectedTasks.length }} 项上线</span>
-        </span>
-        <button type="button" class="link" @click="selectedDay = null">收起</button>
-      </div>
-
-      <!-- 区块一：当天做了什么（所有用户通用） -->
-      <div v-if="filterMode !== 'release'" class="sub-block">
-        <div class="sub-head">
-          <span class="sub-title"><i class="lg-dot work" />当天做了什么</span>
-          <button type="button" class="link-xs" @click="emit('openDaily')">完整日报 →</button>
+    <div v-if="selectedDay" class="day-sheet-backdrop" @click.self="selectedDay = null">
+      <div class="day-panel">
+        <div class="day-head">
+          <button type="button" class="back-cal" @click="selectedDay = null">← 日历</button>
+          <strong>{{ month + 1 }} 月 {{ selectedDay }} 日</strong>
+          <span class="day-badges">
+            <span v-if="selectedLog" class="mini-badge work">{{ selectedLog.count }} 条记录</span>
+            <span v-if="selectedTasks.length" class="mini-badge rel">{{ selectedTasks.length }} 项上线</span>
+          </span>
+          <button type="button" class="link" @click="selectedDay = null">收起</button>
         </div>
-        <ul v-if="selectedLog && selectedLog.lines.length" class="work-list">
-          <li v-for="(line, i) in selectedLog.lines.slice(0, 5)" :key="i">{{ line }}</li>
-        </ul>
-        <p v-else class="empty">还没有记录这天做了什么</p>
-        <form class="quick-note-form" @submit.prevent="submitDayNote">
-          <input
-            v-model="noteDraft"
-            type="text"
-            maxlength="300"
-            :placeholder="`记一笔 ${month + 1}/${selectedDay} 做了什么…（回车保存）`"
-          />
-          <button type="submit" class="btn-save-note" :disabled="!noteDraft.trim()">记一笔</button>
-        </form>
-      </div>
 
-      <!-- 区块二：当天上线任务（开发/发版视角） -->
-      <div v-if="filterMode !== 'work'" class="sub-block">
-        <div class="sub-head">
-          <span class="sub-title"><i class="lg-dot rel" />上线任务</span>
-          <button type="button" class="link-xs" @click="emit('openManager')">需求管理 →</button>
+        <!-- 区块一：当天做了什么（所有用户通用） -->
+        <div v-if="filterMode !== 'release'" class="sub-block">
+          <div class="sub-head">
+            <span class="sub-title"><i class="lg-dot work" />当天做了什么</span>
+            <button type="button" class="link-xs" @click="emit('openDaily')">完整日报 →</button>
+          </div>
+          <ul v-if="selectedLog && selectedLog.lines.length" class="work-list">
+            <li v-for="(line, i) in selectedLog.lines.slice(0, 5)" :key="i">{{ line }}</li>
+          </ul>
+          <p v-else class="empty">还没有记录这天做了什么</p>
+          <form class="quick-note-form" @submit.prevent="submitDayNote">
+            <input
+              v-model="noteDraft"
+              type="text"
+              maxlength="300"
+              :placeholder="`记一笔 ${month + 1}/${selectedDay} 做了什么…（回车保存）`"
+            />
+            <button type="submit" class="btn-save-note" :disabled="!noteDraft.trim()">记一笔</button>
+          </form>
         </div>
-        <ul v-if="selectedTasks.length" class="day-list">
-          <li v-for="item in selectedTasks" :key="item.id" class="day-item">
-            <button type="button" class="task" :disabled="isBusy(item.id)" @click="openTask(item.id)">
-              <span class="task-title">{{ item.title || item.id }}</span>
-              <span class="task-state" :class="{ done: item.done }">{{ item.done ? '已上线' : '推进中' }}</span>
-            </button>
-            <div class="task-actions">
-              <button type="button" @click="openSection(item.id, 'completion')">完成情况</button>
-              <button type="button" @click="openSection(item.id, 'test_points')">测试点</button>
-              <button type="button" :disabled="isBusy(item.id)" @click="clearDate(item.id)">移出</button>
-            </div>
-          </li>
-        </ul>
-        <p v-else class="empty">这天暂无排期上线任务</p>
 
-        <div class="day-foot">
-          <select v-if="unplanned.length" v-model="pickedId">
-            <option value="">安排未排期需求到 {{ selectedDay }} 日…</option>
-            <option v-for="task in unplanned" :key="String(task.id)" :value="String(task.id)">
-              {{ task.title || task.code || task.id }}
-            </option>
-          </select>
-          <button v-if="unplanned.length" type="button" :disabled="!pickedId" @click="schedule">排期</button>
-          <button v-if="!selectedTasks.length" type="button" class="ghost" @click="emit('createRequirement')">+ 新建需求</button>
+        <!-- 区块二：当天上线任务（开发/发版视角） -->
+        <div v-if="filterMode !== 'work'" class="sub-block">
+          <div class="sub-head">
+            <span class="sub-title"><i class="lg-dot rel" />上线任务</span>
+            <button type="button" class="link-xs" @click="emit('openManager')">需求管理 →</button>
+          </div>
+          <ul v-if="selectedTasks.length" class="day-list">
+            <li v-for="item in selectedTasks" :key="item.id" class="day-item">
+              <button type="button" class="task" :disabled="isBusy(item.id)" @click="openTask(item.id)">
+                <span class="task-title">{{ item.title || item.id }}</span>
+                <span class="task-state" :class="{ done: item.done }">{{ item.done ? '已上线' : '推进中' }}</span>
+              </button>
+              <div class="task-actions">
+                <button type="button" @click="openSection(item.id, 'completion')">完成情况</button>
+                <button type="button" @click="openSection(item.id, 'test_points')">测试点</button>
+                <button type="button" :disabled="isBusy(item.id)" @click="clearDate(item.id)">移出</button>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="empty">这天暂无排期上线任务</p>
+
+          <div class="day-foot">
+            <select v-if="unplanned.length" v-model="pickedId">
+              <option value="">安排未排期需求到 {{ selectedDay }} 日…</option>
+              <option v-for="task in unplanned" :key="String(task.id)" :value="String(task.id)">
+                {{ task.title || task.code || task.id }}
+              </option>
+            </select>
+            <button v-if="unplanned.length" type="button" :disabled="!pickedId" @click="schedule">排期</button>
+            <button v-if="!selectedTasks.length" type="button" class="ghost" @click="emit('createRequirement')">+ 新建需求</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <p v-else class="calendar-foot">
+    <p class="calendar-foot">
       <template v-if="hoverSummary">{{ hoverSummary }}</template>
       <template v-else-if="upcoming">下一个上线：{{ upcoming }} 日 · 点任意日期记一笔或查看足迹</template>
       <template v-else>点任意日期即可记录「今天做了什么」或安排上线任务</template>
@@ -319,9 +322,11 @@ function schedule(): void {
 
 <style scoped>
 .calendar {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  overflow: hidden;
 }
 
 .cal-head {
@@ -413,12 +418,12 @@ function schedule(): void {
 }
 
 .cell {
-  height: 30px;
+  height: 26px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   border-radius: 8px;
   border: 1px solid transparent;
   font-size: 11px;
@@ -506,14 +511,52 @@ function schedule(): void {
 .dots .dot.rel { background: #6C58D9; }
 .dots .dot.rel.done { background: #059669; }
 
+/* 点击日期弹出磨砂浮层，绝不把左侧主卡撑出大块空白 */
+.day-sheet-backdrop {
+  position: absolute;
+  inset: 44px 8px 8px;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  animation: daySheetIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes daySheetIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .day-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  background: var(--surface-soft);
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(253, 253, 255, 0.96);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(108, 88, 217, 0.32);
+  box-shadow: 0 14px 34px rgba(38, 36, 56, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.back-cal {
   border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--primary-active);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.back-cal:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .day-head {
