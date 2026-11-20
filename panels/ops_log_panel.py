@@ -2517,6 +2517,23 @@ class OpsLogPanel(QWidget):
         bar_grid.setColumnStretch(0, 3)
         bar_grid.setColumnStretch(2, 2)
         bar_l.addLayout(bar_grid)
+        # 常用异常关键字快捷芯片（一键填入/追加，生产快速排障少敲字）
+        quick_kw_row = QHBoxLayout()
+        quick_kw_row.setSpacing(6)
+        quick_kw_lbl = QLabel('快捷关键字:' if self.language == 'zh' else 'Quick:')
+        quick_kw_lbl.setObjectName('small-label')
+        quick_kw_row.addWidget(quick_kw_lbl)
+        self._quick_kw_buttons: list[QPushButton] = []
+        for term in ('ERROR', 'Exception', 'Timeout', 'OutOfMemory', 'Deadlock', '500'):
+            chip = QPushButton(term)
+            apply_button(chip, 'ghost', compact=True)
+            chip.setFixedHeight(24)
+            chip.setToolTip(f'点击添加关键字「{term}」' if self.language == 'zh' else f'Add keyword "{term}"')
+            chip.clicked.connect(lambda _=False, t=term: self._append_quick_keyword(t))
+            quick_kw_row.addWidget(chip)
+            self._quick_kw_buttons.append(chip)
+        quick_kw_row.addStretch(1)
+        bar_l.addLayout(quick_kw_row)
         bar_l.addWidget(self.export_path_hint)
         capture_l.addWidget(bar_card)
 
@@ -2530,6 +2547,16 @@ class OpsLogPanel(QWidget):
         self.status_label = QLabel()
         self.status_label.setObjectName('small-label')
         rtop.addWidget(self.status_label, 1)
+        self.send_to_ai_btn = QPushButton('✨ 送 AI 分析' if self.language == 'zh' else '✨ Send to AI')
+        apply_button(self.send_to_ai_btn, 'primary', compact=True)
+        self.send_to_ai_btn.setEnabled(False)
+        self.send_to_ai_btn.setToolTip(
+            '将本次导出的多机日志文件一键导入「AI 日志与系统排查」聚合分析'
+            if self.language == 'zh' else
+            'Send exported log files directly to AI Log Analysis'
+        )
+        self.send_to_ai_btn.clicked.connect(lambda: self._send_exports_to_ai())
+        rtop.addWidget(self.send_to_ai_btn)
         self.open_dir_btn = QPushButton()
         apply_button(self.open_dir_btn, 'secondary', compact=True, icon='folder-open', icon_size=16)
         self.open_dir_btn.clicked.connect(self._open_export_dir)
@@ -4677,6 +4704,8 @@ class OpsLogPanel(QWidget):
             self.result_panel.show()
         if hasattr(self, 'result_table'):
             self.result_table.setRowCount(0)
+        if hasattr(self, 'send_to_ai_btn'):
+            self.send_to_ai_btn.setEnabled(False)
         self.status_label.setText('正在导出当前日志…' if zh else 'Exporting current log…')
         bridge = self._bridge
         job = {
@@ -4764,6 +4793,8 @@ class OpsLogPanel(QWidget):
         self._refresh_export_selection()
         self._capture_terms = [keyword] + [k for k in extras if k]
         self.result_table.setRowCount(0)
+        if hasattr(self, 'send_to_ai_btn'):
+            self.send_to_ai_btn.setEnabled(False)
         self.result_preview.clear()
         self.preview_title.setText('')
         self._preview_has_hits = False
@@ -4843,13 +4874,16 @@ class OpsLogPanel(QWidget):
             str(result.get('local_path') or msg),
             time_str,
         ]
+        from PyQt6.QtGui import QColor
         for col, cell in enumerate(values):
             item = QTableWidgetItem(cell)
             if col == 2:
-                item.setForeground(Qt.GlobalColor.darkGreen if ok else Qt.GlobalColor.red)
+                item.setForeground(QColor('#059669' if ok else '#DC2626'))
             if col == 4 and result.get('local_path'):
                 item.setData(Qt.ItemDataRole.UserRole, result.get('local_path'))
             self.result_table.setItem(row, col, item)
+        if ok and result.get('local_path') and hasattr(self, 'send_to_ai_btn'):
+            self.send_to_ai_btn.setEnabled(True)
         # 自动预览：优先第一个有命中的结果；全都 0 命中时至少展示第一个成功的
         hits = int(result.get('line_count') or 0) if ok else 0
         if ok and result.get('local_path'):
@@ -4880,6 +4914,47 @@ class OpsLogPanel(QWidget):
                  f'Done {ok_n}/{len(results)} · {hits} lines · {parent}')
             )
             self._offer_open_export(paths)
+
+    def _append_quick_keyword(self, term: str) -> None:
+        """向多机截取关键字栏智能追加常用异常关键字（自动去重）。"""
+        kw = str(term or '').strip()
+        if not kw:
+            return
+        cur = self.export_keyword.text().strip()
+        existing = [x.strip() for x in cur.replace('，', ',').split(',') if x.strip()]
+        if any(x.lower() == kw.lower() for x in existing):
+            return
+        existing.append(kw)
+        self.export_keyword.setText(', '.join(existing))
+
+    def _collect_exported_paths(self) -> list[str]:
+        paths: list[str] = []
+        for row in range(self.result_table.rowCount()):
+            item = self.result_table.item(row, 4)
+            if item is None:
+                continue
+            p = str(item.data(Qt.ItemDataRole.UserRole) or '').strip()
+            if p and os.path.isfile(p) and p not in paths:
+                paths.append(p)
+        return paths
+
+    def _send_exports_to_ai(self, paths: list[str] | None = None) -> bool:
+        """将多机导出的本地日志文件一键载入 AI 日志与系统排查并开始聚合扫描。"""
+        targets = [p for p in (paths if paths is not None else self._collect_exported_paths()) if p and os.path.isfile(p)]
+        if not targets:
+            show_warning(
+                self,
+                'PengTools',
+                '当前没有可分析的导出日志文件，请先完成截取导出。' if self.language == 'zh' else 'No exported log files to analyze.',
+            )
+            return False
+        self.log_workspaces.setCurrentIndex(1)
+        if getattr(self, 'log_analysis_workspace', None) is None:
+            self._open_log_analysis(1)
+        ws = getattr(self, 'log_analysis_workspace', None)
+        if ws is None or not hasattr(ws, 'load_local_files_for_analysis'):
+            return False
+        return bool(ws.load_local_files_for_analysis(targets, auto_start=True))
 
     def _offer_open_export(self, paths: list[str]):
         """导出成功后询问打开文件或所在文件夹。"""

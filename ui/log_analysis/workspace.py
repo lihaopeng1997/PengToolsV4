@@ -411,6 +411,25 @@ class LogAnalysisWorkspace(QWidget):
                 self.path.setText(paths[0])
                 self.with_logs.setChecked(True)
 
+    def load_local_files_for_analysis(self, paths: list[str], *, auto_start: bool = True) -> bool:
+        """从多机日志导出等入口一键载入本地日志文件到历史分析并可选立即扫描。"""
+        import os
+        valid = [str(p).strip() for p in (paths or []) if str(p).strip() and os.path.isfile(str(p).strip())]
+        if not valid:
+            return False
+        for i in range(self.mode.count()):
+            if self.mode.tabData(i) == 'history':
+                self.mode.setCurrentIndex(i)
+                break
+        for i in range(self.source.count()):
+            if self.source.itemData(i) == 'local':
+                self.source.setCurrentIndex(i)
+                break
+        self.files.setPlainText('\n'.join(valid))
+        if auto_start:
+            self.start()
+        return True
+
     @staticmethod
     def _values(widget):
         return [x.strip() for x in widget.text().replace('，', ',').split(',') if x.strip()]
