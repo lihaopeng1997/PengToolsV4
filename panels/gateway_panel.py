@@ -56,7 +56,7 @@ class GatewayDecodePanel(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(10)
 
         self.offline_pill = QLabel()
         self.offline_pill.setObjectName('dashboard-local-status')
@@ -74,7 +74,8 @@ class GatewayDecodePanel(QWidget):
         )
         layout.addWidget(header)
 
-        toolbar, tool_l = make_page_toolbar(divided=True)
+        toolbar, tool_l = make_page_toolbar(divided=False)
+        tool_l.setContentsMargins(0, 0, 0, 2)
         self.to_iface_btn = QPushButton()
         apply_button(self.to_iface_btn, 'ghost', compact=True, icon='api-debug', icon_size=16)
         self.to_iface_btn.clicked.connect(self.open_interface_debug.emit)
@@ -106,104 +107,112 @@ class GatewayDecodePanel(QWidget):
         layout.addWidget(toolbar)
         self._secondary_btns = [self.to_iface_btn, self.clear_btn, self.copy_btn, self.request_btn]
 
-        # 解密参数区：始终显示，不得默认折叠
+        # 单层纯白工作面：参数条 + 细分割线 + 左右报文区统一落在一张白面上
+        sheet = QFrame()
+        sheet.setObjectName('gateway-sheet')
+        sheet_l = QVBoxLayout(sheet)
+        sheet_l.setContentsMargins(16, 14, 16, 14)
+        sheet_l.setSpacing(12)
+
+        # 解密参数区：扁平顶条（标签在控件上方，环境与 Key 并排）
         self.config_group = QGroupBox()
         self.config_group.setObjectName('gateway-config-group')
-        self.config_group.setTitle('解密参数')
-        config = QFormLayout(self.config_group)
-        apply_form(config)
-        config.setContentsMargins(12, 10, 12, 8)
+        self.config_group.setTitle('')
+        config_outer = QVBoxLayout(self.config_group)
+        config_outer.setContentsMargins(0, 0, 0, 0)
+        config_outer.setSpacing(0)
 
+        # 保留兼容隐藏字段，不占视觉高度
         self.system_label = QLabel()
         self.system_value = QLabel('新车险系统（固定兼容模式）')
         self.system_value.setObjectName('field-hint')
-        config.addRow(self.system_label, self.system_value)
-
         self.algo_label = QLabel()
         self.algo_value = QLabel('SM2 + SM4')
-        config.addRow(self.algo_label, self.algo_value)
-
         self.mode_label = QLabel()
         self.mode_value = QLabel('CBC')
-        config.addRow(self.mode_label, self.mode_value)
-
         self.padding_label = QLabel()
         self.padding_value = QLabel('PKCS#7 / 分组填充')
-        config.addRow(self.padding_label, self.padding_value)
-
         self.encoding_label = QLabel()
         self.encoding_value = QLabel('Key=Hex · 正文=Base64 · 明文=UTF-8')
-        config.addRow(self.encoding_label, self.encoding_value)
+        self.iv_label = QLabel()
+        self.iv_value = QLabel()
+        self.iv_value.setObjectName('field-hint')
+        self.iv_value.setWordWrap(True)
+        self.param_note = QLabel()
+        self.param_note.setObjectName('field-hint')
+        self.param_note.setWordWrap(True)
+        self.key_hint = QLabel()
+        self.key_hint.setObjectName('field-hint')
+        self.key_hint.setWordWrap(True)
         for _fixed in (
             self.system_label, self.system_value, self.algo_label, self.algo_value,
             self.mode_label, self.mode_value, self.padding_label, self.padding_value,
-            self.encoding_label, self.encoding_value,
+            self.encoding_label, self.encoding_value, self.iv_label, self.iv_value,
+            self.param_note, self.key_hint,
         ):
+            _fixed.setParent(self.config_group)
             _fixed.hide()
 
+        param_row = QHBoxLayout()
+        param_row.setContentsMargins(0, 0, 0, 0)
+        param_row.setSpacing(16)
+
+        env_col = QVBoxLayout()
+        env_col.setContentsMargins(0, 0, 0, 0)
+        env_col.setSpacing(5)
+        self.environment_label = QLabel()
+        self.environment_label.setObjectName('conn-field-label')
+        env_col.addWidget(self.environment_label)
         self.environment = QComboBox()
         size_combo(self.environment, 'sm')
+        self.environment.setMinimumWidth(136)
         self.environment.addItems(['集成环境', '用户环境', '生产环境'])
-        self.environment_label = QLabel()
-        config.addRow(self.environment_label, self.environment)
+        env_col.addWidget(self.environment)
+        env_col.addStretch(1)
+        param_row.addLayout(env_col, 0)
 
-        # Key（密钥）— 清晰中文标签 + 可录入区域 + 显示/隐藏
-        key_wrap = QWidget()
-        key_layout = QVBoxLayout(key_wrap)
-        key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.setSpacing(2)
+        key_col = QVBoxLayout()
+        key_col.setContentsMargins(0, 0, 0, 0)
+        key_col.setSpacing(5)
         key_head = QHBoxLayout()
         key_head.setContentsMargins(0, 0, 0, 0)
+        key_head.setSpacing(8)
         self.key_label = QLabel()
-        self.key_label.setObjectName('zone-title')
+        self.key_label.setObjectName('conn-field-label')
         key_head.addWidget(self.key_label, 1)
         self.key_reveal_cb = QCheckBox()
         self.key_reveal_cb.setChecked(True)
         self.key_reveal_cb.toggled.connect(self._toggle_key_visibility)
         key_head.addWidget(self.key_reveal_cb)
-        key_layout.addLayout(key_head)
+        key_col.addLayout(key_head)
         self.key_cipher = QPlainTextEdit()
         self.key_cipher.setObjectName('gateway-key-edit')
-        self.key_cipher.setMinimumHeight(84)
-        self.key_cipher.setMaximumHeight(110)
+        self.key_cipher.setMinimumHeight(46)
+        self.key_cipher.setMaximumHeight(72)
         self.key_cipher.setPlaceholderText('粘贴 SM2 加密后的 SM4 Key（十六进制 Hex）')
-        key_layout.addWidget(self.key_cipher)
-        self.key_hint = QLabel()
-        self.key_hint.setObjectName('field-hint')
-        self.key_hint.setWordWrap(True)
-        self.key_hint.hide()
-        key_layout.addWidget(self.key_hint)
-        config.addRow(key_wrap)
+        key_col.addWidget(self.key_cipher)
+        param_row.addLayout(key_col, 1)
 
-        # IV/Nonce：本协议 Key 同时作 IV，说明原因
-        self.iv_label = QLabel()
-        self.iv_value = QLabel()
-        self.iv_value.setObjectName('field-hint')
-        self.iv_value.setWordWrap(True)
-        config.addRow(self.iv_label, self.iv_value)
-        self.iv_label.hide()
-        self.iv_value.hide()
-
-        self.param_note = QLabel()
-        self.param_note.setObjectName('field-hint')
-        self.param_note.setWordWrap(True)
-        config.addRow(self.param_note)
-        self.param_note.hide()
+        config_outer.addLayout(param_row)
 
         # 兼容旧代码：config_toggle 仍存在但不隐藏参数区
         self.config_toggle = QPushButton('解密参数（始终显示）')
         self.config_toggle.setCheckable(True)
         self.config_toggle.setChecked(True)
         self.config_toggle.setProperty('compactAction', True)
-        self.config_toggle.hide()  # 不再作为折叠入口
+        self.config_toggle.hide()
 
-        layout.addWidget(self.config_group)
+        sheet_l.addWidget(self.config_group)
+
+        divider = QFrame()
+        divider.setObjectName('gateway-divider')
+        divider.setFrameShape(QFrame.Shape.HLine)
+        sheet_l.addWidget(divider)
 
         work_zone = QFrame()
-        apply_surface(work_zone, 'card')
         work_zone.setObjectName('gateway-work-zone')
         work_layout = QVBoxLayout(work_zone)
-        work_layout.setContentsMargins(12, 10, 12, 12)
+        work_layout.setContentsMargins(0, 0, 0, 0)
         work_layout.setSpacing(8)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -216,7 +225,7 @@ class GatewayDecodePanel(QWidget):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        left_layout.setSpacing(6)
         self.cipher_label = QLabel()
         self.cipher_label.setObjectName('zone-title')
         left_layout.addWidget(self.cipher_label)
@@ -229,7 +238,7 @@ class GatewayDecodePanel(QWidget):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        right_layout.setSpacing(6)
         plain_head = QHBoxLayout()
         plain_head.setSpacing(8)
         self.plain_label = QLabel()
@@ -264,7 +273,8 @@ class GatewayDecodePanel(QWidget):
         self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.workspace_scroll.setWidget(splitter)
         work_layout.addWidget(self.workspace_scroll, 1)
-        layout.addWidget(work_zone, 1)
+        sheet_l.addWidget(work_zone, 1)
+        layout.addWidget(sheet, 1)
 
         self.work_tabs = None
         self.xml_workspace = None
@@ -360,7 +370,7 @@ class GatewayDecodePanel(QWidget):
         )
         self.offline_pill.setText('● 本地' if zh else '● Local')
         self.offline_pill.hide()
-        self.config_group.setTitle('解密参数' if zh else 'Decrypt parameters')
+        self.config_group.setTitle('')
         self.config_group.setToolTip(
             '新车险固定兼容：SM2 解 Key + SM4-CBC 解正文；Key=Hex，正文=Base64。密钥只留内存。'
             if zh else

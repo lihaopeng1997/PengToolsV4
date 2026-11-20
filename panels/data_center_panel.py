@@ -53,18 +53,22 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
     def __init__(self, language: str, item: dict | None = None, parent=None):
         super().__init__(language, item, parent)
         zh = language == "zh"
-        form = self.form_host.layout()
         self.group_path = QLineEdit(str((item or {}).get("group_path") or ""))
         self.group_path.setPlaceholderText("项目/子项目" if zh else "Project/subproject")
         size_line(self.group_path, "path")
         self.environment = QLineEdit(str((item or {}).get("environment") or ""))
-        self.environment.setPlaceholderText("local / test / staging / production" if zh else "local / test / staging / production")
-        size_line(self.environment, "std")
-        self.favorite = QCheckBox("收藏" if zh else "Favorite")
+        self.environment.setPlaceholderText("local / test / staging / production")
+        size_line(self.environment, "path")
+        self.favorite = QCheckBox("收藏此连接" if zh else "Favorite")
         self.favorite.setChecked(bool((item or {}).get("favorite", (item or {}).get("is_favorite", False))))
-        form.addRow("项目" if zh else "Project", self.group_path)
-        form.addRow("环境" if zh else "Environment", self.environment)
-        form.addRow("" if zh else "", self.favorite)
+
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 0, 0, 0)
+        meta_row.setSpacing(12)
+        meta_row.addWidget(self.make_field_block("项目" if zh else "Project", self.group_path), 1)
+        meta_row.addWidget(self.make_field_block("环境" if zh else "Environment", self.environment), 1)
+        self.advanced_layout.insertLayout(0, meta_row)
+
         self._transport_settings = {
             key: value for key, value in (item or {}).items()
             if key in {
@@ -77,11 +81,33 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         self._transport_button = QPushButton("SSH / TLS 设置…" if zh else "SSH / TLS settings…")
         apply_button(self._transport_button, "secondary", compact=True)
         self._transport_button.clicked.connect(self._open_transport_settings)
-        form.addRow("传输" if zh else "Transport", self._transport_button)
+
+        extra_row = QHBoxLayout()
+        extra_row.setContentsMargins(0, 0, 0, 0)
+        extra_row.setSpacing(12)
+        extra_row.addWidget(self.favorite)
+        extra_row.addStretch(1)
+        extra_row.addWidget(self._transport_button)
+        self.advanced_layout.insertLayout(1, extra_row)
+        self._refresh_advanced_summary()
         self._transport_test_worker = None
         self._transport_test_result = None
         self._transport_test_pending_close = False
         self._transport_test_context = None
+
+    def _refresh_advanced_summary(self) -> None:
+        zh = self.language == "zh"
+        tags = []
+        if self._transport_settings.get("ssh_enabled"):
+            tags.append("SSH")
+        if self._transport_settings.get("tls_enabled"):
+            tags.append("TLS")
+        if self.group_path.text().strip() or self.environment.text().strip():
+            tags.append("项目/环境" if zh else "Meta")
+        if tags:
+            self.set_advanced_summary(("已配置 " if zh else "Configured: ") + " · ".join(tags))
+        else:
+            self.set_advanced_summary("SSH / TLS · 项目与环境" if zh else "SSH / TLS · Project & Env")
 
     def payload(self) -> tuple[dict, str | None]:
         item, password = super().payload()
@@ -107,6 +133,7 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
             return
         try:
             self._transport_settings = dialog.payload()
+            self._refresh_advanced_summary()
         except Exception as error:
             show_warning(
                 self,

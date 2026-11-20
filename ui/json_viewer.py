@@ -201,6 +201,7 @@ class JsonViewer(QWidget):
 
     def __init__(self, language='zh'):
         super().__init__()
+        self.setObjectName('json-viewer')
         self.language = language
         self._data = None
         self._nodes = []

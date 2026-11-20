@@ -69,10 +69,13 @@ def module_tab_for_nav(nav_index: int, language: str = "zh") -> ModuleTab | None
 
 
 class _ModuleTabBar(QTabBar):
-    """QTabBar with a stable data contract for the shell wrapper."""
+    """QTabBar with a stable data contract and hover tracking for segmented tabs."""
+
+    hovered_changed = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._hovered_index = -1
         self.setObjectName("module-tab-bar")
         self.setDocumentMode(True)
         self.setDrawBase(False)
@@ -81,8 +84,27 @@ class _ModuleTabBar(QTabBar):
         self.setUsesScrollButtons(True)
         self.setElideMode(Qt.TextElideMode.ElideNone)
         self.setTabsClosable(True)
+        self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+    @property
+    def hovered_index(self) -> int:
+        return self._hovered_index
+
+    def mouseMoveEvent(self, event) -> None:
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        idx = self.tabAt(pos)
+        if idx != self._hovered_index:
+            self._hovered_index = idx
+            self.hovered_changed.emit(idx)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._hovered_index != -1:
+            self._hovered_index = -1
+            self.hovered_changed.emit(-1)
+        super().leaveEvent(event)
 
 
 class ModuleTabs(QFrame):
@@ -112,13 +134,26 @@ class ModuleTabs(QFrame):
         self._syncing = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setContentsMargins(10, 4, 10, 4)
         layout.setSpacing(0)
         self._layout = layout
 
-        self.tab_bar = _ModuleTabBar(self)
-        layout.addWidget(self.tab_bar)
+        self._track = QFrame(self)
+        self._track.setObjectName("module-tabs-track")
+        self._track.setMinimumWidth(0)
+        self._track.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        track_l = QHBoxLayout(self._track)
+        track_l.setContentsMargins(3, 2, 3, 2)
+        track_l.setSpacing(0)
+
+        self.tab_bar = _ModuleTabBar(self._track)
+        self.tab_bar.setMinimumWidth(0)
+        self.tab_bar.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        track_l.addWidget(self.tab_bar)
+        layout.addWidget(self._track, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        layout.addStretch(1)
         self.tab_bar.currentChanged.connect(self._on_current_changed)
+        self.tab_bar.hovered_changed.connect(self._sync_close_buttons)
         self.tab_bar.tabCloseRequested.connect(self._on_close_requested)
         self.tab_bar.customContextMenuRequested.connect(self._on_context_requested)
 
@@ -181,6 +216,7 @@ class ModuleTabs(QFrame):
             blocked = self.tab_bar.blockSignals(True)
             self.tab_bar.setCurrentIndex(tab_index)
             self.tab_bar.blockSignals(blocked)
+        self._sync_close_buttons()
         return True
 
     def remove_nav(self, nav_index: int) -> bool:
@@ -327,6 +363,7 @@ class ModuleTabs(QFrame):
         if module_tab_for_nav(nav_index, self._language) is None:
             return
         self._current_nav = nav_index
+        self._sync_close_buttons()
         self.activate_requested.emit(nav_index)
 
     def _on_close_requested(self, tab_index: int) -> None:
@@ -382,6 +419,18 @@ class ModuleTabs(QFrame):
                 self._current_nav = HOME_NAV
         finally:
             self._syncing = False
+        self._sync_close_buttons()
+
+    def _sync_close_buttons(self, _hovered: int | None = None) -> None:
+        current_idx = self.tab_bar.currentIndex()
+        hovered_idx = self.tab_bar.hovered_index
+        active_icon = self._close_icon()
+        empty_icon = QIcon()
+        for i in range(self.tab_bar.count()):
+            btn = self.tab_bar.tabButton(i, QTabBar.ButtonPosition.RightSide)
+            if isinstance(btn, QToolButton):
+                show = i == current_idx or i == hovered_idx
+                btn.setIcon(active_icon if show else empty_icon)
 
     def _set_tab_close_button(self, tab_index: int, record: ModuleTab) -> None:
         if not record.closable:
@@ -464,34 +513,50 @@ class ModuleTabs(QFrame):
                 background: %(app_bg)s;
                 border-bottom: 1px solid %(border)s;
             }
+            QFrame#module-tabs-track {
+                background: #E2DCF2;
+                border: 1px solid #D5CDE9;
+                border-radius: 10px;
+            }
             QTabBar#module-tab-bar {
                 background: transparent;
+                border: none;
             }
             QTabBar#module-tab-bar::tab {
-                min-height: 26px;
-                padding: 2px 10px 2px 12px;
-                margin: 4px 5px 4px 0;
+                min-height: 24px;
+                max-height: 24px;
+                padding: 0 6px 0 10px;
+                margin: 0 2px 0 0;
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
-                border-radius: 10px;
+                border-radius: 7px;
                 font-weight: 500;
             }
             QTabBar#module-tab-bar::tab:hover {
                 color: %(text)s;
-                background: %(surface)s;
-                border: 1px solid %(border)s;
+                background: rgba(255, 255, 255, 0.58);
+                border: 1px solid transparent;
             }
             QTabBar#module-tab-bar::tab:selected {
                 color: %(active)s;
                 background: #FFFFFF;
-                border: 1px solid %(border_strong)s;
-                font-weight: 700;
+                border: 1px solid rgba(108, 88, 217, 0.16);
+                font-weight: 600;
+            }
+            QTabBar#module-tab-bar QToolButton {
+                background: transparent;
+                border: none;
+                border-radius: 6px;
+                padding: 0;
+            }
+            QTabBar#module-tab-bar QToolButton:hover {
+                background: rgba(255, 255, 255, 0.72);
             }
             QTabBar#module-tab-bar QToolButton#module-tab-close {
                 color: %(muted)s;
                 border: 0;
-                border-radius: 6px;
+                border-radius: 5px;
                 padding: 0;
                 background: transparent;
             }

@@ -64,66 +64,81 @@ class ConnectionDialog(QDialog):
         self._locked_dialect = str(locked_dialect or "").strip().lower()
         zh = language == "zh"
         self.setWindowTitle("编辑连接" if zh else "Edit connection")
-        clamp_dialog_geometry(self, 720, 680, min_width=520, min_height=420)
+        clamp_dialog_geometry(self, 580, 560, min_width=480, min_height=400)
         self._item = dict(item or {})
         if self._locked_dialect and not self._item.get("dialect"):
             self._item["dialect"] = self._locked_dialect
         self._seed_rows: list[tuple[QLineEdit, QLineEdit, QPushButton]] = []
+        self._field_wrappers: list[tuple[QWidget, QWidget]] = []
+
+        def _make_section_title(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setObjectName("conn-section-title")
+            return lbl
+
+        def _make_divider() -> QFrame:
+            line = QFrame()
+            line.setObjectName("conn-divider")
+            line.setFrameShape(QFrame.Shape.HLine)
+            return line
+
+        def _make_field(label: QLabel, control: QWidget) -> QWidget:
+            label.setObjectName("conn-field-label")
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            label.setMinimumWidth(0)
+            wrap = QWidget()
+            v = QVBoxLayout(wrap)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(4)
+            v.addWidget(label)
+            v.addWidget(control)
+            self._field_wrappers.append((wrap, control))
+            return wrap
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(22, 18, 22, 16)
+        root.setSpacing(12)
 
         self.content_scroll = QScrollArea()
         self.content_scroll.setWidgetResizable(True)
         self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.form_host = QWidget()
-        form = QFormLayout(self.form_host)
-        form.setContentsMargins(4, 4, 4, 4)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(12)
+        form_root = QVBoxLayout(self.form_host)
+        form_root.setContentsMargins(2, 2, 6, 4)
+        form_root.setSpacing(12)
 
         self.name_label = QLabel("名称" if zh else "Name")
-        self.name_label.setMinimumWidth(80)
-        self.name_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.name = QLineEdit(str(self._item.get("name") or ""))
+        self.name.setPlaceholderText("例如：生产 Oracle / 本地测试库" if zh else "e.g. Prod Oracle")
         size_line(self.name, "path")
 
         self.dialect_label = QLabel("类型" if zh else "Type")
-        self.dialect_label.setMinimumWidth(80)
-        self.dialect_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.dialect = QComboBox()
         for key, label in DIALECTS:
             self.dialect.addItem(label, key)
         index = self.dialect.findData(str(self._item.get("dialect") or "oracle"))
         self.dialect.setCurrentIndex(index if index >= 0 else 0)
         size_enum_combo(self.dialect)
+        self.dialect.setMaximumWidth(16777215)
         self.dialect.currentIndexChanged.connect(self._on_dialect_changed)
         if self._locked_dialect:
             self.dialect.setEnabled(False)
 
         self.host = QLineEdit(str(self._item.get("host") or ""))
+        self.host.setPlaceholderText("127.0.0.1 或主机名" if zh else "127.0.0.1 or hostname")
         size_line(self.host, "path")
         self.host.textChanged.connect(self._on_host_changed)
         self.host_label = QLabel("主机" if zh else "Host")
-        self.host_label.setMinimumWidth(80)
-        self.host_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.port = QLineEdit(str(self._item.get("port") or DEFAULT_PORTS["oracle"]))
         size_line(self.port, "std")
+        self.port.setMaximumWidth(120)
         self.port_label = QLabel("端口" if zh else "Port")
-        self.port_label.setMinimumWidth(80)
-        self.port_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.database = QLineEdit(str(self._item.get("database") or ""))
         self.database.setPlaceholderText("SID / Service / 库名")
         size_line(self.database, "path")
         self.database_label = QLabel("库名" if zh else "Database")
-        self.database_label.setMinimumWidth(80)
-        self.database_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.mode = QComboBox()
         self.mode.addItem("单机" if zh else "Standalone", "standalone")
@@ -131,18 +146,16 @@ class ConnectionDialog(QDialog):
         mode_index = self.mode.findData(str(self._item.get("mode") or "standalone"))
         self.mode.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         size_enum_combo(self.mode)
+        self.mode.setMaximumWidth(16777215)
         self.mode.currentIndexChanged.connect(self._on_mode_changed)
         self.mode_label = QLabel("模式" if zh else "Mode")
-        self.mode_label.setMinimumWidth(80)
-        self.mode_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.seed_host = QWidget()
         self.seed_layout = QVBoxLayout(self.seed_host)
         self.seed_layout.setContentsMargins(0, 0, 0, 0)
-        self.seed_layout.setSpacing(4)
+        self.seed_layout.setSpacing(6)
         self.seed_label = QLabel("集群节点" if zh else "Seed nodes")
-        self.seed_label.setMinimumWidth(80)
-        self.seed_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.seed_label.setObjectName("conn-field-label")
         self.add_seed_btn = QPushButton("+ 添加节点" if zh else "+ Add node")
         apply_button(self.add_seed_btn, "ghost", compact=True)
         self.add_seed_btn.clicked.connect(
@@ -161,35 +174,29 @@ class ConnectionDialog(QDialog):
         self.auth_mode.addItem("仅密码" if zh else "Password", REDIS_AUTH_PASSWORD)
         self.auth_mode.addItem("ACL 用户名 + 密码" if zh else "ACL", REDIS_AUTH_ACL)
         size_enum_combo(self.auth_mode)
+        self.auth_mode.setMaximumWidth(16777215)
         auth_idx = self.auth_mode.findData(normalize_redis_auth_mode(self._item))
         self.auth_mode.setCurrentIndex(auth_idx if auth_idx >= 0 else 0)
         self.auth_mode.currentIndexChanged.connect(self._on_auth_mode_changed)
         self.auth_mode_label = QLabel("认证方式" if zh else "Auth")
-        self.auth_mode_label.setMinimumWidth(80)
-        self.auth_mode_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.username = QLineEdit(str(self._item.get("username") or ""))
         size_line(self.username, "path")
         self.user_label = QLabel("用户" if zh else "User")
-        self.user_label.setMinimumWidth(80)
-        self.user_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.password_row = PasswordField(language, self._item.get("password"))
         self.password = self.password_row.edit
         self.password_label = QLabel("密码" if zh else "Password")
-        self.password_label.setMinimumWidth(80)
-        self.password_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.mongo_auth_source = QLineEdit(str(self._item.get("auth_source") or ""))
         self.mongo_auth_source.setPlaceholderText("默认：目标库，再否则 admin")
         size_line(self.mongo_auth_source, "path")
         self.mongo_auth_source_label = QLabel("认证库" if zh else "Auth DB")
-        self.mongo_auth_source_label.setMinimumWidth(80)
-        self.mongo_auth_source_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.mongo_auth_mech = QComboBox()
         self.mongo_auth_mech.addItem("自动" if zh else "Auto", "auto")
         self.mongo_auth_mech.addItem("SCRAM-SHA-256", "SCRAM-SHA-256")
         self.mongo_auth_mech.addItem("SCRAM-SHA-1", "SCRAM-SHA-1")
         size_enum_combo(self.mongo_auth_mech)
+        self.mongo_auth_mech.setMaximumWidth(16777215)
         mech = mongo_auth_mechanism(self._item) or "auto"
         mech_idx = self.mongo_auth_mech.findData(mech if mech != "" else "auto")
         if mech and mech_idx < 0:
@@ -197,8 +204,6 @@ class ConnectionDialog(QDialog):
             mech_idx = self.mongo_auth_mech.findData(mech)
         self.mongo_auth_mech.setCurrentIndex(mech_idx if mech_idx >= 0 else 0)
         self.mongo_auth_mech_label = QLabel("认证机制" if zh else "Mechanism")
-        self.mongo_auth_mech_label.setMinimumWidth(80)
-        self.mongo_auth_mech_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.mongo_uri_hint = QLabel(
             "已填写完整 URI：端口与认证库/机制以 URI 参数为准，不会改写连接串。"
             if zh
@@ -216,9 +221,7 @@ class ConnectionDialog(QDialog):
             else "Optional, leave empty for auto discovery"
         )
         size_line(self.mongo_replica_set, "path")
-        self.mongo_replica_set_label = QLabel("Replica Set" if zh else "Replica Set")
-        self.mongo_replica_set_label.setMinimumWidth(80)
-        self.mongo_replica_set_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.mongo_replica_set_label = QLabel("Replica Set")
         self.mongo_replica_set_hint = QLabel(
             "仅在已知名称时填写；mongos/sharded cluster 通常无需填写"
             if zh
@@ -235,28 +238,89 @@ class ConnectionDialog(QDialog):
         self.oracle_hint.setObjectName("field-hint")
         self.oracle_hint.setWordWrap(True)
 
-        form.addRow(self.name_label, self.name)
-        form.addRow(self.dialect_label, self.dialect)
-        form.addRow(self.host_label, self.host)
-        form.addRow(self.port_label, self.port)
-        form.addRow(self.seed_label, self.seed_host)
-        form.addRow("", self.add_seed_btn)
-        form.addRow(self.database_label, self.database)
-        form.addRow(self.mode_label, self.mode)
-        form.addRow(self.cluster_hint)
-        form.addRow(self.auth_mode_label, self.auth_mode)
-        form.addRow(self.mongo_auth_source_label, self.mongo_auth_source)
-        form.addRow(self.mongo_auth_mech_label, self.mongo_auth_mech)
-        form.addRow(self.mongo_replica_set_label, self.mongo_replica_set)
-        form.addRow(self.mongo_replica_set_hint)
-        form.addRow(self.mongo_uri_hint)
-        form.addRow(self.user_label, self.username)
-        form.addRow(self.password_label, self.password_row)
-        form.addRow(self.oracle_hint)
+        # ── 第 1 组：基本连接 ──
+        form_root.addWidget(_make_section_title("基本连接" if zh else "Connection"))
+
+        row_name_type = QHBoxLayout()
+        row_name_type.setSpacing(12)
+        row_name_type.addWidget(_make_field(self.name_label, self.name), 3)
+        row_name_type.addWidget(_make_field(self.dialect_label, self.dialect), 2)
+        form_root.addLayout(row_name_type)
+
+        row_host_port = QHBoxLayout()
+        row_host_port.setSpacing(12)
+        row_host_port.addWidget(_make_field(self.host_label, self.host), 3)
+        row_host_port.addWidget(_make_field(self.port_label, self.port), 1)
+        form_root.addLayout(row_host_port)
+
+        self._seed_block = QWidget()
+        seed_block_l = QVBoxLayout(self._seed_block)
+        seed_block_l.setContentsMargins(0, 0, 0, 0)
+        seed_block_l.setSpacing(5)
+        seed_head = QHBoxLayout()
+        seed_head.setContentsMargins(0, 0, 0, 0)
+        seed_head.addWidget(self.seed_label, 1)
+        seed_head.addWidget(self.add_seed_btn)
+        seed_block_l.addLayout(seed_head)
+        seed_block_l.addWidget(self.seed_host)
+        seed_block_l.addWidget(self.cluster_hint)
+        form_root.addWidget(self._seed_block)
+
+        row_db_mode = QHBoxLayout()
+        row_db_mode.setSpacing(12)
+        row_db_mode.addWidget(_make_field(self.database_label, self.database), 3)
+        row_db_mode.addWidget(_make_field(self.mode_label, self.mode), 2)
+        form_root.addLayout(row_db_mode)
+        form_root.addWidget(self.mongo_uri_hint)
+
+        form_root.addWidget(_make_divider())
+
+        # ── 第 2 组：身份认证 ──
+        form_root.addWidget(_make_section_title("身份认证" if zh else "Authentication"))
+        form_root.addWidget(_make_field(self.auth_mode_label, self.auth_mode))
+
+        row_auth = QHBoxLayout()
+        row_auth.setSpacing(12)
+        row_auth.addWidget(_make_field(self.user_label, self.username), 1)
+        row_auth.addWidget(_make_field(self.password_label, self.password_row), 1)
+        form_root.addLayout(row_auth)
+
+        row_mongo_auth = QHBoxLayout()
+        row_mongo_auth.setSpacing(12)
+        row_mongo_auth.addWidget(_make_field(self.mongo_auth_source_label, self.mongo_auth_source), 1)
+        row_mongo_auth.addWidget(_make_field(self.mongo_auth_mech_label, self.mongo_auth_mech), 1)
+        form_root.addLayout(row_mongo_auth)
+
+        form_root.addWidget(_make_field(self.mongo_replica_set_label, self.mongo_replica_set))
+        form_root.addWidget(self.mongo_replica_set_hint)
+
+        form_root.addWidget(_make_divider())
+
+        # ── 第 3 组：高级选项（默认折叠） ──
+        self._advanced_base_title = "高级选项" if zh else "Advanced"
+        self._advanced_suffix = ""
+        self.advanced_toggle = QPushButton()
+        self.advanced_toggle.setObjectName("conn-advanced-toggle")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.advanced_toggle.toggled.connect(self._on_advanced_toggled)
+        form_root.addWidget(self.advanced_toggle)
+
+        self.advanced_body = QWidget()
+        self.advanced_layout = QVBoxLayout(self.advanced_body)
+        self.advanced_layout.setContentsMargins(4, 2, 0, 2)
+        self.advanced_layout.setSpacing(10)
+        self.advanced_layout.addWidget(self.oracle_hint)
+        self.advanced_body.hide()
+        form_root.addWidget(self.advanced_body)
+        form_root.addStretch(1)
+        self._sync_advanced_label()
 
         self.content_scroll.setWidget(self.form_host)
         root.addWidget(self.content_scroll, 1)
 
+        root.addWidget(_make_divider())
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         self.test_btn = QPushButton("测试连接" if zh else "Test")
@@ -275,6 +339,35 @@ class ConnectionDialog(QDialog):
         root.addLayout(buttons)
         self._load_seed_rows()
         self._on_dialect_changed()
+
+    def _sync_field_wrappers(self) -> None:
+        for wrap, control in self._field_wrappers:
+            wrap.setVisible(not control.isHidden())
+
+    def _sync_advanced_label(self) -> None:
+        arrow = "▾" if self.advanced_toggle.isChecked() else "▸"
+        suffix = f" · {self._advanced_suffix}" if self._advanced_suffix else ""
+        self.advanced_toggle.setText(f"{arrow} {self._advanced_base_title}{suffix}")
+
+    def _on_advanced_toggled(self, checked: bool) -> None:
+        self.advanced_body.setVisible(bool(checked))
+        self._sync_advanced_label()
+
+    def set_advanced_summary(self, summary: str) -> None:
+        self._advanced_suffix = str(summary or "").strip()
+        self._sync_advanced_label()
+
+    def make_field_block(self, label_text: str, control: QWidget) -> QWidget:
+        lbl = QLabel(label_text)
+        lbl.setObjectName("conn-field-label")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        wrap = QWidget()
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        v.addWidget(lbl)
+        v.addWidget(control)
+        return wrap
 
     def _load_seed_rows(self) -> None:
         while self._seed_rows:
@@ -439,6 +532,7 @@ class ConnectionDialog(QDialog):
             self.database.setPlaceholderText("mysql 库名（可选，留空可浏览所有库）" if zh else "Database (optional)")
 
     def _set_redis_seed_visible(self, visible: bool) -> None:
+        self._seed_block.setVisible(visible)
         self.seed_label.setVisible(visible)
         self.seed_host.setVisible(visible)
         self.add_seed_btn.setVisible(visible)
@@ -498,6 +592,7 @@ class ConnectionDialog(QDialog):
             self.password_row.setVisible(True)
             self.database_label.setVisible(True)
             self.database.setVisible(True)
+        self._sync_field_wrappers()
 
     def _on_dialect_changed(self) -> None:
         dialect = self.dialect.currentData() or "oracle"
@@ -650,6 +745,7 @@ class ConnectionDialog(QDialog):
         defaults = {"1521", "2883", "3306", "5236", "6379", "27017"}
         if not self.port.text().strip() or self.port.text().strip() in defaults:
             self.port.setText(str(DEFAULT_PORTS.get(dialect, 3306)))
+        self._sync_field_wrappers()
 
     def _draft_item(self) -> tuple[dict, str | None]:
         item = dict(self._item)

@@ -11,6 +11,7 @@ from ui.icons import apply_icon
 class PasswordField(QWidget):
     def __init__(self, language="zh", stored="", parent=None):
         super().__init__(parent)
+        self.setObjectName("password-field")
         self.language = language
         self.edit = QLineEdit(self)
         self.edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -23,6 +24,7 @@ class PasswordField(QWidget):
         )
         self.eye = QPushButton(self)
         apply_button(self.eye, "ghost", compact=True)
+        self.eye.setStyleSheet("padding: 0px; min-height: 0px; max-height: 28px;")
         self.eye.setFixedSize(FIELD_H, FIELD_H)
         self.eye.setCheckable(True)
         self.eye.setAutoDefault(False)
@@ -35,6 +37,7 @@ class PasswordField(QWidget):
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.setVisible(False)
         self._explicit_clear = False
+        self.setFixedHeight(FIELD_H)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)

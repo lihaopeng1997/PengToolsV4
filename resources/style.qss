@@ -41,12 +41,18 @@ QTabWidget::pane QScrollArea::viewport {
     background: transparent;
 }
 QScrollArea {
-    background: __APP_BG__;
+    background: transparent;
     border: none;
 }
 QScrollArea > QWidget,
 QScrollArea::viewport {
-    background: __APP_BG__;
+    background: transparent;
+}
+QSplitter,
+QWidget#json-viewer,
+QWidget#password-field {
+    background: transparent;
+    border: none;
 }
 QStatusBar {
     background: __STATUS_BAR_BG__;
@@ -275,18 +281,20 @@ QPushButton:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#btn-secondary,
 QPushButton[actionRole="secondary"] {
-    background: __SURFACE__; color: __TEXT__; border: 1px solid __BORDER__;
-    border-radius: 10px; font-weight: 500; padding: 6px 12px;
+    background: transparent; color: __TEXT__; border: 1px solid transparent;
+    border-radius: 8px; font-weight: 500; padding: 5px 10px;
     outline: none;
 }
 QPushButton#btn-secondary:hover,
-QPushButton[actionRole="secondary"]:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
+QPushButton[actionRole="secondary"]:hover { background: __PRIMARY_SOFT__; border-color: transparent; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:pressed,
-QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY_ACTIVE__; color: __PRIMARY_ACTIVE__; }
+QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: transparent; color: __PRIMARY_ACTIVE__; }
+QPushButton#btn-secondary:checked,
+QPushButton[actionRole="secondary"]:checked { background: __PRIMARY_SOFT__; border-color: transparent; color: __PRIMARY_ACTIVE__; font-weight: 600; }
 QPushButton#btn-secondary:focus,
 QPushButton[actionRole="secondary"]:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QPushButton#btn-secondary:disabled,
-QPushButton[actionRole="secondary"]:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
+QPushButton[actionRole="secondary"]:disabled { color: __DISABLED_TEXT__; background: transparent; border-color: transparent; }
 QPushButton#primary-btn:pressed, QPushButton#card-action:pressed,
 QPushButton[actionRole="primary"]:pressed {
     background: __PRIMARY_ACTIVE__;
@@ -350,30 +358,39 @@ QPushButton[actionRole="danger"]:disabled, QPushButton[actionRole="delete"]:disa
     background: __DISABLED_BG__;
     border-color: __BORDER__;
 }
-/* ghost：次级工具按钮（浅底+边框）；#ghost-btn 为历史别名，样式与 #btn-ghost 一致 */
+/* ghost：次级工具按钮（无底色无边框，悬停显浅紫底）；#ghost-btn 为历史别名 */
 QPushButton#btn-ghost,
 QPushButton#ghost-btn,
 QPushButton[actionRole="ghost"] {
-    background: __SURFACE_SOFT__;
+    background: transparent;
     color: __TEXT__;
-    border: 1px solid __BORDER__;
+    border: 1px solid transparent;
     border-radius: 8px;
-    font-weight: 600;
+    font-weight: 500;
+    padding: 5px 10px;
     outline: none;
 }
 QPushButton#btn-ghost:hover,
 QPushButton#ghost-btn:hover,
 QPushButton[actionRole="ghost"]:hover {
     background: __PRIMARY_SOFT__;
-    border-color: __PRIMARY__;
+    border-color: transparent;
     color: __PRIMARY_ACTIVE__;
 }
 QPushButton#btn-ghost:pressed,
 QPushButton#ghost-btn:pressed,
 QPushButton[actionRole="ghost"]:pressed {
     background: __TABLE_SELECT__;
-    border-color: __PRIMARY_ACTIVE__;
+    border-color: transparent;
     color: __PRIMARY_ACTIVE__;
+}
+QPushButton#btn-ghost:checked,
+QPushButton#ghost-btn:checked,
+QPushButton[actionRole="ghost"]:checked {
+    background: __PRIMARY_SOFT__;
+    border-color: transparent;
+    color: __PRIMARY_ACTIVE__;
+    font-weight: 600;
 }
 QPushButton#btn-ghost:focus,
 QPushButton#ghost-btn:focus,
@@ -384,7 +401,7 @@ QPushButton[actionRole="ghost"]:focus {
 QPushButton#btn-ghost:disabled,
 QPushButton#ghost-btn:disabled,
 QPushButton[actionRole="ghost"]:disabled {
-    background: __DISABLED_BG__;
+    background: transparent;
     color: __DISABLED_TEXT__;
     border-color: transparent;
 }
@@ -561,9 +578,10 @@ QFrame#page-toolbar {
     border: none;
 }
 QFrame#page-toolbar[divided="true"] {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    border-radius: 0px;
 }
 QFrame#page-toolbar[card="true"],
 QFrame#req-toolbar-card {
@@ -623,32 +641,32 @@ QTextEdit#ai-explain {
     border: 1px solid __BORDER__;
     border-radius: 10px;
 }
-/* 分区标题：左边线色块区分模块 */
+/* 分区标题：去掉竖线，采用现代克制小号加粗深色文字 */
 QLabel#zone-title {
-    color: __TEXT_MUTED__;
-    font-size: __FONT_SIZE_SECTION_TITLE__;
-    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
-    letter-spacing: 0.8px;
-    padding: 1px 0 2px 10px;
-    border-left: 2px solid __PRIMARY__;
+    color: __TEXT_STRONG__;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    padding: 2px 0;
+    border: none;
     background: transparent;
 }
 QLabel#zone-title-inline {
-    color: __SUCCESS__;
-    font-size: __FONT_SIZE_SECTION_TITLE__;
-    font-weight: __FONT_WEIGHT_SECTION_TITLE__;
-    padding: 2px 10px 2px 10px;
+    color: __TEXT_STRONG__;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 4px;
     min-width: 40px;
-    border-left: 3px solid __SUCCESS__;
+    border: none;
     background: transparent;
 }
-QFrame#req-tree-card QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QFrame#req-file-card QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
-QFrame#req-sql-card QLabel#zone-title { border-left-color: __SUCCESS__; color: __SUCCESS__; }
-QFrame#detail-summary-card QLabel#zone-title { border-left-color: __PRIMARY__; }
-QFrame#release-filter-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QFrame#release-table-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
-QFrame#release-generate-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
+QFrame#req-tree-card QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#req-file-card QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#req-sql-card QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#detail-summary-card QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#release-filter-zone QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#release-table-zone QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#release-generate-zone QLabel#zone-title-inline { color: __TEXT_STRONG__; }
 /* —— 输入 / 下拉 / 多行：统一高度、利落 8px 圆角（杜绝 28px 高度下过圆成椭圆）、焦点环 —— */
 QComboBox, QLineEdit, QDateEdit, QTimeEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
@@ -719,10 +737,10 @@ QPlainTextEdit[readOnlyField="true"]:disabled {
 }
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
-    width: 32px; border: none; border-left: 1px solid __BORDER__;
-    background: __PRIMARY_SOFT__; border-top-right-radius: 7px; border-bottom-right-radius: 7px;
+    width: 28px; border: none;
+    background: transparent; border-top-right-radius: 7px; border-bottom-right-radius: 7px;
 }
-QComboBox::drop-down:hover { background: __PRIMARY_SOFT__; }
+QComboBox::drop-down:hover { background: transparent; }
 QComboBox::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 11px; height: 11px; }
 QComboBox QAbstractItemView {
     background: __ELEVATED_SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
@@ -776,7 +794,6 @@ QFrame#ds-zone,
 QFrame[surfaceRole="zone"] {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
-    border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
 }
 QFrame#ds-muted,
@@ -804,26 +821,37 @@ QFrame[surfaceRole="tech"] {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-/* Gateway 加解密工作台 */
-QGroupBox#gateway-config-group {
+/* Gateway 加解密工作台：单层纯白工作面 + 细分割线 */
+QFrame#gateway-sheet {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
-    margin-top: 10px;
-    padding-top: 8px;
-    font-weight: 700;
+}
+QFrame#gateway-divider,
+QFrame#conn-divider {
+    background: __BORDER__;
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+}
+QGroupBox#gateway-config-group {
+    background: transparent;
+    border: none;
+    margin-top: 0px;
+    padding-top: 0px;
+    font-weight: 600;
     color: __TEXT_STRONG__;
 }
 QGroupBox#gateway-config-group::title {
     subcontrol-origin: margin;
-    left: 14px;
-    padding: 0 6px;
-    color: __PRIMARY_ACTIVE__;
+    left: 0px;
+    padding: 0px;
+    color: transparent;
 }
 QFrame#gateway-work-zone {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0px;
 }
 QGroupBox#vin-settings,
 QGroupBox#docx-file-group {
@@ -904,18 +932,21 @@ QLineEdit#compact-step-value:disabled {
     color: __TEXT_MUTED__;
 }
 QFrame#gateway-work-zone QLabel#zone-title {
-    border-left-color: __TEXT_MUTED__;
     color: __TEXT_STRONG__;
 }
 QPlainTextEdit#gateway-key-edit,
 QPlainTextEdit#gateway-cipher-edit {
-    background: __INPUT_BG__;
+    background: __SURFACE__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
-    border-radius: 10px;
-    padding: 8px;
+    border-radius: 8px;
+    padding: 7px 10px;
     selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
+}
+QPlainTextEdit#gateway-key-edit:hover,
+QPlainTextEdit#gateway-cipher-edit:hover {
+    border-color: __BORDER_STRONG__;
 }
 QPlainTextEdit#gateway-key-edit:focus,
 QPlainTextEdit#gateway-cipher-edit:focus {
@@ -1520,10 +1551,10 @@ QFrame#sql-action-zone {
     border-left: 3px solid __PRIMARY__;
     border-radius: 12px;
 }
-QFrame#sql-tool-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QFrame#sql-delivery-zone QLabel#zone-title { border-left-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
-QFrame#sql-editor-zone QLabel#zone-title { border-left-color: __TEXT_MUTED__; color: __TEXT_STRONG__; }
-QFrame#sql-action-zone QLabel#zone-title-inline { border-left-color: __SUCCESS__; color: __SUCCESS__; }
+QFrame#sql-tool-zone QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#sql-delivery-zone QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#sql-editor-zone QLabel#zone-title { color: __TEXT_STRONG__; }
+QFrame#sql-action-zone QLabel#zone-title-inline { color: __TEXT_STRONG__; }
 QPlainTextEdit#sql-input-editor,
 QPlainTextEdit#sql-format-editor,
 QPlainTextEdit#text-helper-input,
@@ -1864,22 +1895,22 @@ QTableWidget::item:hover {
     background: __PRIMARY_SOFT__;
 }
 QHeaderView {
-    background: __SURFACE_SOFT__;
+    background: #F8F7FC;
 }
 QTableWidget QHeaderView:horizontal,
 QTreeWidget QHeaderView:horizontal {
-    min-height: 24px;
-    max-height: 26px;
+    min-height: 26px;
+    max-height: 28px;
 }
 QHeaderView::section {
-    background: __SURFACE_SOFT__;
-    color: __TEXT_STRONG__;
+    background: #F8F7FC;
+    color: __TEXT_MUTED__;
     border: none;
     border-right: 1px solid __BORDER__;
-    border-bottom: 2px solid __PRIMARY__;
-    padding: 3px 8px;
+    border-bottom: 1px solid __BORDER__;
+    padding: 4px 8px;
     min-height: 20px;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 12px;
 }
 QHeaderView::section:hover {
@@ -2409,12 +2440,13 @@ QLineEdit#json-search { padding: 6px 9px; }
 QLabel#json-search-status { color: __TEXT_MUTED__; background: transparent; min-width: 38px; }
 QLabel#json-path-caption { color: __TEXT_MUTED__; background: transparent; font-size: 10px; }
 QLineEdit#json-path {
-    background: __SURFACE_SOFT__;
+    background: #FAFAFD;
     color: __TEXT__;
     border: 1px solid __BORDER__;
-    padding: 6px 9px;
+    border-radius: 8px;
+    padding: 3px 9px;
     font-family: 'Cascadia Mono', 'Consolas', monospace;
-    font-size: 10px;
+    font-size: 11px;
 }
 QPlainTextEdit#json-text {
     font-family: 'Cascadia Mono', 'Consolas', monospace;
@@ -2468,14 +2500,14 @@ QTreeWidget#json-tree::item:selected:!active {
 }
 QTreeWidget#json-tree QHeaderView::section,
 QHeaderView#json-tree-header::section {
-    background: __SURFACE_SOFT__;
-    color: __TEXT_STRONG__;
+    background: #F8F7FC;
+    color: __TEXT_MUTED__;
     border: none;
     border-right: 1px solid __BORDER__;
-    border-bottom: 2px solid __PRIMARY__;
-    padding: 3px 8px;
+    border-bottom: 1px solid __BORDER__;
+    padding: 4px 8px;
     min-height: 20px;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 12px;
 }
 QTreeWidget#json-tree QHeaderView::section:hover,
@@ -2693,9 +2725,39 @@ QMenu::separator {
 }
 QMenu::right-arrow { width: 10px; height: 10px; margin-right: 8px; }
 QDialog {
-    background: __GLASS_BG__;
+    background: __SURFACE__;
     color: __TEXT_STRONG__;
-    border: 1px solid __GLASS_BORDER__;
+    border: none;
+}
+/* 连接弹窗扁平分组样式 */
+QLabel#conn-section-title {
+    color: __TEXT_STRONG__;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    padding: 0;
+    background: transparent;
+}
+QLabel#conn-field-label {
+    color: __TEXT_MUTED__;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 0;
+    background: transparent;
+}
+QPushButton#conn-advanced-toggle {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+}
+QPushButton#conn-advanced-toggle:hover {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
 }
 /* 实底高对比面：SQL/日志/终端/表格/密钥不使用玻璃 */
 QTextEdit#ai-prompt-edit,
@@ -2720,12 +2782,12 @@ QTextEdit#ai-prompt-edit:focus {
     outline: none;
 }
 QToolButton#responsive-more-btn, QToolButton#agent-attachment-btn {
-    background: __SURFACE__;
+    background: transparent;
     color: __TEXT__;
-    border: 1px solid __BORDER__;
+    border: 1px solid transparent;
     border-radius: 8px;
-    padding: 6px 10px;
-    font-weight: 600;
+    padding: 5px 10px;
+    font-weight: 500;
 }
 QToolButton#responsive-more-btn:hover:enabled, QToolButton#agent-attachment-btn:hover:enabled {
     background: __PRIMARY_SOFT__;
@@ -3697,29 +3759,6 @@ QFrame#credit-filter-card {
     background: __SURFACE__;
     border: 1px solid __BORDER__;
     border-radius: 12px;
-}
-
-QGroupBox#gateway-config-group {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
-    border-radius: 12px;
-    margin-top: 10px;
-    padding-top: 14px;
-}
-
-QGroupBox#gateway-config-group::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 12px;
-    color: __TEXT_STRONG__;
-    font-weight: 700;
-}
-
-QPlainTextEdit#gateway-key-edit {
-    background: __SURFACE_SOFT__;
-    color: __TEXT__;
-    border: 1px solid __BORDER__;
-    border-radius: 8px;
 }
 
 QGroupBox#docx-file-group {
