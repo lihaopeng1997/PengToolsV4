@@ -275,14 +275,23 @@ body::before {
 }
 
 svg.ic {
-  width: 19px;
-  height: 19px;
+  width: 26px;
+  height: 26px;
+  padding: 4.5px;
+  border-radius: 8px;
+  background: rgba(108, 88, 217, 0.07);
+  color: #6C58D9;
   flex-shrink: 0;
-  opacity: 0.85;
-  transition: opacity var(--motion-fast) var(--ease-out), transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0.92;
+  transition:
+    opacity 160ms ease,
+    background 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 180ms ease,
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 晴空棱镜紫 · 悬浮圆角磨砂侧轨（保留完整全部导航入口） */
+/* 晴空棱镜紫 · 悬浮圆角磨砂侧轨（立体玻璃质感 + 保留完整全部导航入口） */
 .sidebar {
   position: relative;
   z-index: 1;
@@ -291,11 +300,14 @@ svg.ic {
   flex-direction: column;
   padding: 0 10px 10px;
   border-radius: 18px;
-  background: rgba(253, 253, 255, 0.88);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 26px rgba(38, 36, 56, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.90);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(206, 196, 238, 0.85);
+  box-shadow:
+    0 10px 28px rgba(60, 44, 124, 0.11),
+    0 2px 6px rgba(60, 44, 124, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .brand {
@@ -352,10 +364,10 @@ svg.ic {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 36px;
+  height: 38px;
   gap: 10px;
-  padding: 0 11px;
-  margin-bottom: 2px;
+  padding: 0 10px 0 8px;
+  margin-bottom: 3px;
   border: 1px solid transparent;
   border-radius: 12px;
   color: var(--ink-2);
@@ -378,40 +390,48 @@ svg.ic {
 
 .nav-item:hover,
 .nav-item:focus-visible {
-  background: rgba(108, 88, 217, 0.09);
+  background: rgba(108, 88, 217, 0.08);
+  border-color: rgba(124, 106, 230, 0.18);
   color: var(--ink);
   transform: translateX(3px);
 }
 .nav-item:hover svg.ic {
   opacity: 1;
-  transform: scale(1.07);
+  background: rgba(108, 88, 217, 0.14);
+  transform: scale(1.06);
 }
 .nav-item:focus-visible { outline: 2px solid var(--c1); outline-offset: 1px; }
 .nav-item:active { transform: scale(0.97); }
 .nav-item.active {
-  background: linear-gradient(135deg, #EEE9FF 0%, #FFFFFF 100%);
-  color: #503DBE;
-  border-color: rgba(124, 106, 230, 0.42);
-  box-shadow: 0 3px 12px rgba(108, 88, 217, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: linear-gradient(135deg, #F1ECFF 0%, #FFFFFF 100%);
+  color: #4A35B8;
+  border-color: rgba(124, 106, 230, 0.48);
+  box-shadow: 0 4px 14px rgba(108, 88, 217, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.96);
   font-weight: 700;
   transform: none;
 }
 .nav-item.active::before {
   content: "";
   position: absolute;
-  left: 3px;
-  top: 8px;
-  bottom: 8px;
+  left: 2px;
+  top: 9px;
+  bottom: 9px;
   width: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #7C6AE6 0%, #6C58D9 100%);
+  background: linear-gradient(180deg, #8472F0 0%, #6852D6 100%);
   animation: navPillIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes navPillIn {
   from { transform: scaleY(0.25); opacity: 0; }
   to { transform: scaleY(1); opacity: 1; }
 }
-.nav-item.active svg.ic { opacity: 1; color: #6C58D9; }
+.nav-item.active svg.ic {
+  opacity: 1;
+  background: linear-gradient(135deg, #8472F0 0%, #6852D6 100%);
+  color: #FFFFFF;
+  box-shadow: 0 3px 10px rgba(108, 88, 217, 0.34);
+  transform: none;
+}
 .group-trigger.is-open { background: var(--nav-hover-bg); }
 
 .foot { padding-top: 8px; border-top: 1px solid var(--edge); }

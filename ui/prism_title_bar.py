@@ -594,7 +594,7 @@ class PrismTitleBar(QFrame):
         self.setStyleSheet(
             """
             QFrame#prism-titlebar {
-                background: %(surface)s;
+                background: #F7F5FC;
                 border-bottom: 1px solid %(border)s;
             }
             QWidget#prism-menu-bar {
@@ -604,18 +604,19 @@ class PrismTitleBar(QFrame):
             QLabel#prism-brand-name {
                 color: %(strong)s;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 700;
             }
             QToolButton#prism-menu-file,
             QToolButton#prism-menu-view,
             QToolButton#prism-menu-help,
             QToolButton[class="prism-menu"] {
-                color: %(muted)s;
-                border: 0;
-                border-radius: 6px;
-                padding: 5px 10px;
+                color: %(text)s;
+                border: 1px solid transparent;
+                border-radius: 8px;
+                padding: 4px 10px;
                 background: transparent;
                 font-size: 12px;
+                font-weight: 500;
             }
             QToolButton[class="prism-menu"]::menu-indicator {
                 image: none;
@@ -627,6 +628,7 @@ class PrismTitleBar(QFrame):
             QToolButton[class="prism-menu"]:hover {
                 color: %(primary)s;
                 background: %(primary_soft)s;
+                border: 1px solid %(border)s;
             }
             QToolButton#prism-window-pin-btn,
             QToolButton#prism-window-min-btn,

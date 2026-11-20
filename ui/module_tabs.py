@@ -449,9 +449,10 @@ class ModuleTabs(QFrame):
 
     def _apply_style(self) -> None:
         tokens = self._tokens()
+        app_bg = tokens.get("APP_BG", "#EBE7F6")
         surface = tokens.get("SURFACE", "#FDFDFF")
-        soft = tokens.get("SURFACE_SOFT", surface)
-        border = tokens.get("BORDER", "#E6E2F0")
+        border = tokens.get("BORDER", "#DFD9F0")
+        border_strong = tokens.get("BORDER_STRONG", "#C7BEE6")
         text = tokens.get("TEXT", "#3D3952")
         muted = tokens.get("TEXT_MUTED", text)
         primary = tokens.get("PRIMARY", "#6C58D9")
@@ -460,20 +461,21 @@ class ModuleTabs(QFrame):
         self.setStyleSheet(
             """
             QFrame#module-tabs {
-                background: %(soft)s;
+                background: %(app_bg)s;
                 border-bottom: 1px solid %(border)s;
             }
             QTabBar#module-tab-bar {
                 background: transparent;
             }
             QTabBar#module-tab-bar::tab {
-                min-height: 24px;
-                padding: 1px 8px 1px 12px;
-                margin: 4px 4px 4px 0;
+                min-height: 26px;
+                padding: 2px 10px 2px 12px;
+                margin: 4px 5px 4px 0;
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
-                border-radius: 8px;
+                border-radius: 10px;
+                font-weight: 500;
             }
             QTabBar#module-tab-bar::tab:hover {
                 color: %(text)s;
@@ -482,14 +484,14 @@ class ModuleTabs(QFrame):
             }
             QTabBar#module-tab-bar::tab:selected {
                 color: %(active)s;
-                background: %(primary_soft)s;
-                border: 1px solid %(primary_soft)s;
-                font-weight: 600;
+                background: #FFFFFF;
+                border: 1px solid %(border_strong)s;
+                font-weight: 700;
             }
             QTabBar#module-tab-bar QToolButton#module-tab-close {
                 color: %(muted)s;
                 border: 0;
-                border-radius: 5px;
+                border-radius: 6px;
                 padding: 0;
                 background: transparent;
             }
@@ -503,9 +505,10 @@ class ModuleTabs(QFrame):
             }
             """
             % {
+                "app_bg": app_bg,
                 "surface": surface,
-                "soft": soft,
                 "border": border,
+                "border_strong": border_strong,
                 "text": text,
                 "muted": muted,
                 "primary": primary,

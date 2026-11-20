@@ -204,41 +204,54 @@ onBeforeUnmount(() => {
   align-items: center;
   width: 100%;
   height: auto;
-  min-height: 40px;
+  min-height: 38px;
   gap: 10px;
-  padding: 10px;
+  padding: 7px 10px;
+  margin-bottom: 2px;
   color: var(--text-nav, var(--sidebar-text));
   background: transparent;
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 20px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   outline: none;
-  transform: none;
+  transition: background 180ms ease, border-color 180ms ease, color 160ms ease, transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .group-menu-item:hover,
 .group-menu-item:focus-visible {
-  color: var(--primary);
-  background: var(--primary-soft, var(--sidebar-highlight));
-  transform: none;
+  color: #4A35B8;
+  background: rgba(108, 88, 217, 0.09);
+  border-color: rgba(124, 106, 230, 0.25);
+  transform: translateX(2px);
 }
 
 .group-menu-item.active {
-  color: var(--primary);
-  font-weight: 650;
-  background: transparent;
+  color: #4A35B8;
+  font-weight: 700;
+  background: linear-gradient(135deg, #F1ECFF 0%, #FFFFFF 100%);
+  border-color: rgba(124, 106, 230, 0.45);
+  box-shadow: 0 3px 10px rgba(108, 88, 217, 0.14);
 }
 
 .group-menu-item .ic {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  color: var(--primary);
-  opacity: 0.86;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 7px;
+  background: rgba(108, 88, 217, 0.08);
+  flex: 0 0 24px;
+  color: #6C58D9;
+  opacity: 0.94;
+}
+
+.group-menu-item.active .ic {
+  background: linear-gradient(135deg, #8472F0 0%, #6852D6 100%);
+  color: #FFFFFF;
 }
 
 .group-menu-item > span:nth-child(2) {
