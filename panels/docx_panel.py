@@ -26,6 +26,7 @@ from ui.aurora_progress import AuroraProgress
 from ui.confirm_dialog import confirm_action, show_error, show_info, show_success, show_warning
 from ui.design_system import apply_button
 from ui.field_metrics import CAPTION_W, apply_caption, apply_form, size_compact_button, size_date, size_field_height, size_line
+from ui.date_picker import UnifiedDateEdit
 from ui.page_chrome import make_page_header
 
 _FILE_ICON_PROVIDER = QFileIconProvider()
@@ -199,7 +200,7 @@ class DocxUpdatePanel(QWidget):
         self.output_row_label = _DocxCaption()
         form.addRow(self.output_row_label, self.output_path)
 
-        self.update_date = QDateEdit(QDate.currentDate())
+        self.update_date = UnifiedDateEdit(QDate.currentDate())
         self.update_date.setObjectName('docx-date')
         self.update_date.setDisplayFormat('yyyy-MM-dd')
         size_date(self.update_date)
@@ -218,11 +219,16 @@ class DocxUpdatePanel(QWidget):
         date_l.addWidget(self.update_date)
         date_l.addWidget(self.today_btn)
         self.author_row_label = _DocxCaption()
-        date_l.addWidget(self.author_row_label)
         self.author = QLineEdit('System')
         size_field_height(self.author)
         self.author.setFixedWidth(160)
-        date_l.addWidget(self.author)
+        author_field = QWidget()
+        author_l = QHBoxLayout(author_field)
+        author_l.setContentsMargins(0, 0, 0, 0)
+        author_l.setSpacing(4)
+        author_l.addWidget(self.author_row_label)
+        author_l.addWidget(self.author)
+        date_l.addWidget(author_field)
         date_l.addStretch(1)
         self.date_row_label = _DocxCaption()
         form.addRow(self.date_row_label, date_field)

@@ -282,7 +282,7 @@ class HttpCaptureWorker:
     def stop(self, *, join_timeout: float = 1.2, clear_records: bool = False):
         """停止抓包：标记 stopping → 恢复代理 → 主动关 listener → shutdown → 线程收尾。
 
-        mitmproxy 12.2.3 的 Master.shutdown() 只置位 should_exit 结束 run()，
+        mitmproxy 12.3.1 的 Master.shutdown() 只置位 should_exit 结束 run()，
         不会关闭 asyncio.Server 监听 socket；引擎还被 mitmproxy.ctx.master 模块级
         全局引用钉住，旧端口可能长期不释放 → 下次同端口启动绑定失败（10048）。
         因此必须先在 mitmproxy 自己的 event loop 里把 server=False / servers.update([])
@@ -316,7 +316,7 @@ class HttpCaptureWorker:
             return
 
         async def _close():
-            # server=False（mitmproxy 12.2.3 配置项 "Start a proxy server. Enabled
+            # server=False（mitmproxy 12.3.1 配置项 "Start a proxy server. Enabled
             # by default."）→ Proxyserver.configure → Servers.update：所有监听实例
             # 逐一 stop()，asyncio.Server 关闭、端口立即释放。
             try:
@@ -475,10 +475,8 @@ class HttpCaptureWorker:
             # HTTPS 解密 + 兼容上游自签；失败则忽略未知 option
             for key, val in (
                 ('ssl_insecure', True),
-                # mitmproxy 12.2.3 pins h2 4.3.0, which is affected by a
-                # duplicate-Host request-smuggling advisory.  The desktop
-                # capture use case does not require HTTP/2, so keep it off
-                # until mitmproxy permits h2 >= 4.4.1.
+                # HTTP/2 is deliberately disabled for this desktop capture path because
+                # the supported inspection workflow does not require it.
                 ('http2', False),
                 ('websocket', False),  # 接口排查以 HTTP(S) 请求为主
                 ('connection_strategy', 'lazy'),

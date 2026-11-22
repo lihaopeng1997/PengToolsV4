@@ -24,6 +24,7 @@ from ui.confirm_dialog import confirm_action, show_info, show_success, show_warn
 from ui.daily_rich_edit import DailyRichEdit
 from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
+from ui.date_picker import UnifiedDateEdit
 from ui.motion import play_dialog_enter
 from ui.splitter_prefs import install_splitter_prefs
 from ui.table_utils import autofit_columns
@@ -797,9 +798,9 @@ class KnowledgeTab(QWidget):
 
     @staticmethod
     def _display_workbook_rows(entry):
-        """自我学习界面按用户确认的明文策略展示表头与单元格内容。"""
-        rows = entry.get('rows') or []
-        return [['' if value is None else str(value) for value in row] for row in rows]
+        """自我学习界面展示经过敏感字段遮罩的表头与单元格内容。"""
+        return masked_workbook_rows(entry)
+
 
     def _step_workbook_page(self, delta: int):
         if not self._current or self._current.get('content_type') != 'workbook_sheet':
@@ -1583,7 +1584,7 @@ class DailyReportTab(QWidget):
         date_caption = QLabel('日报日期')
         apply_caption(date_caption)
         date_row.addWidget(date_caption)
-        self.date_edit = QDateEdit(QDate.currentDate())
+        self.date_edit = UnifiedDateEdit(QDate.currentDate())
         self.date_edit.setObjectName('release-date')
         self.date_edit.setDisplayFormat('yyyy-MM-dd')
         size_date(self.date_edit)

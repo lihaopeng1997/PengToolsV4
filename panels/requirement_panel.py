@@ -202,6 +202,7 @@ from ui.aurora_progress import AuroraProgress
 from tools.requirement_workflow import configured_statuses, configured_stages, target_status, workflow_stage_index
 from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_compact_button, size_date, size_line, size_pick_combo
+from ui.date_picker import choose_date
 from ui.motion import play_dialog_enter
 
 
@@ -394,6 +395,7 @@ class DateInput(QWidget):
         size_date(self.edit, month=month_only)
         self.edit.setPlaceholderText('yyyy-MM，可留空' if month_only else 'yyyy-MM-dd，可留空')
         self.button = QPushButton('选月份' if month_only else '选日期')
+        self.button.setObjectName('date-picker-btn')
         size_compact_button(self.button)
         self.button.clicked.connect(self._choose_date)
         layout.addWidget(self.edit, 1); layout.addWidget(self.button)
@@ -425,22 +427,10 @@ class DateInput(QWidget):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.edit.setText(dialog.month_text())
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle('选择日期')
-        layout = QVBoxLayout(dialog)
-        calendar = QCalendarWidget()
         current = QDate.fromString(self.text(), 'yyyy-MM-dd')
-        calendar.setSelectedDate(current if current.isValid() else QDate.currentDate())
-        layout.addWidget(calendar)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        from ui.dialog_buttons import localize_button_box
-        localize_button_box(buttons, 'zh')
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        calendar.activated.connect(lambda _date: dialog.accept())
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.edit.setText(calendar.selectedDate().toString('yyyy-MM-dd'))
+        selected = choose_date(self, current)
+        if selected is not None:
+            self.edit.setText(selected.toString('yyyy-MM-dd'))
 
 
 def _document_entries_with_password(path, parent):
@@ -838,11 +828,34 @@ class RequirementDialog(QDialog):
         bind_folder_btn = QPushButton('绑定目录'); size_compact_button(bind_folder_btn); bind_folder_btn.clicked.connect(self._bind_local_folder)
         clear_folder_btn = QPushButton('清除'); size_compact_button(clear_folder_btn); clear_folder_btn.clicked.connect(self._clear_local_folder)
         local_path_row = QHBoxLayout(); local_path_row.addWidget(self.local_path_edit, 1); local_path_row.addWidget(bind_folder_btn); local_path_row.addWidget(clear_folder_btn)
-        self.system_bindings_host = QWidget()
-        self.system_bindings_layout = QVBoxLayout(self.system_bindings_host)
+        self.system_bindings_host = QScrollArea()
+        self.system_bindings_host.setObjectName('requirement-binding-host')
+        self.system_bindings_host.setFixedHeight(126)
+        self.system_bindings_host.setWidgetResizable(True)
+        self.system_bindings_host.setFrameShape(QFrame.Shape.NoFrame)
+        self.system_bindings_host.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.system_bindings_body = QWidget()
+        self.system_bindings_host.setWidget(self.system_bindings_body)
+        self.system_bindings_layout = QGridLayout(self.system_bindings_body)
         self.system_bindings_layout.setContentsMargins(0, 0, 0, 0)
-        self.system_bindings_layout.setSpacing(6)
+        self.system_bindings_layout.setHorizontalSpacing(8)
+        self.system_bindings_layout.setVerticalSpacing(6)
         self._binding_rows = {}
+        self._standalone_binding_host = QWidget()
+        standalone_layout = QVBoxLayout(self._standalone_binding_host)
+        standalone_layout.setContentsMargins(0, 0, 0, 0)
+        standalone_layout.setSpacing(4)
+        standalone_svn_row = QHBoxLayout()
+        standalone_svn_row.setContentsMargins(0, 0, 0, 0)
+        standalone_svn_row.addWidget(QLabel('开发分支 SVN 地址'))
+        standalone_svn_row.addWidget(self.svn_url_edit, 1)
+        standalone_layout.addLayout(standalone_svn_row)
+        standalone_dev_row = QHBoxLayout()
+        standalone_dev_row.setContentsMargins(0, 0, 0, 0)
+        standalone_dev_row.addWidget(QLabel('本地开发项目地址'))
+        standalone_dev_row.addLayout(self._standalone_dev_row, 1)
+        standalone_layout.addLayout(standalone_dev_row)
+        self.system_bindings_layout.addWidget(self._standalone_binding_host, 0, 0, 1, 2)
         self.actual_date = DateInput(base.get('actual_release_date') or base.get('actual_online_date', ''))
         for combo, value in (
             (self.kind_combo, inferred.get('record_kind') or base.get('record_kind', '需求')),
@@ -862,12 +875,10 @@ class RequirementDialog(QDialog):
         form.addWidget(QLabel('负责人'), 3, 0); form.addWidget(self.owner_edit, 3, 1, 1, 3)
         form.addWidget(QLabel('所属系统'), 4, 0); form.addWidget(self.system_pick, 4, 1, 1, 3)
         form.addWidget(self.system_bindings_host, 5, 0, 1, 4)
-        self.svn_label = QLabel('开发分支 SVN 地址')
-        self.dev_label = QLabel('本地开发项目地址')
-        form.addWidget(self.svn_label, 6, 0); form.addWidget(self.svn_url_edit, 6, 1, 1, 3)
-        form.addWidget(self.dev_label, 7, 0); form.addLayout(self._standalone_dev_row, 7, 1, 1, 3)
-        form.addWidget(QLabel('绑定本地目录'), 8, 0); form.addLayout(local_path_row, 8, 1, 1, 3)
-        form.addWidget(QLabel('实际上线'), 9, 0); form.addWidget(self.actual_date, 9, 1, 1, 3)
+        form.addWidget(QLabel('绑定本地目录'), 6, 0); form.addLayout(local_path_row, 6, 1, 1, 3)
+        form.addWidget(QLabel('实际上线'), 7, 0); form.addWidget(self.actual_date, 7, 1)
+        self.actual_date.setMaximumWidth(300)
+        self.actual_date.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._rebuild_system_bindings()
         layout.addLayout(form)
 
@@ -1015,12 +1026,15 @@ class RequirementDialog(QDialog):
             item = self.system_bindings_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
-                widget.deleteLater()
+                if widget is self._standalone_binding_host:
+                    widget.hide()
+                else:
+                    widget.hide()  # 先隐藏：deleteLater 前不再以默认尺寸闪现
+                    widget.deleteLater()
         self._binding_rows = {}
         names = self.selected_systems()
         has_systems = bool(names)
-        if names and not self._binding_rows:
+        if names:
             first = names[0]
             seeded = self._binding_cache.get(first) or {}
             if not str(seeded.get('svn_url') or '').strip():
@@ -1028,31 +1042,31 @@ class RequirementDialog(QDialog):
             if not str(seeded.get('dev_local_path') or '').strip():
                 seeded['dev_local_path'] = self.dev_local_path_edit.text().strip()
             self._binding_cache[first] = seeded
-        self.svn_label.setVisible(not has_systems)
-        self.svn_url_edit.setVisible(not has_systems)
-        self.dev_label.setVisible(not has_systems)
-        self.dev_local_path_edit.setVisible(not has_systems)
-        self._standalone_dev_btn.setVisible(not has_systems)
-        if hasattr(self, '_standalone_dev_clear'):
-            self._standalone_dev_clear.setVisible(not has_systems)
-        for name in names:
+        if not has_systems:
+            self.system_bindings_layout.addWidget(self._standalone_binding_host, 0, 0, 1, 2)
+            self._standalone_binding_host.show()
+        for index, name in enumerate(names):
             cached = self._binding_cache.get(name) or {'svn_url': '', 'dev_local_path': ''}
             row = QWidget()
             box = QVBoxLayout(row)
-            box.setContentsMargins(0, 0, 0, 4)
-            box.setSpacing(4)
+            box.setContentsMargins(0, 0, 0, 2)
+            box.setSpacing(2)
+            row.setMinimumWidth(0)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             title = QLabel(f'{name} 的开发绑定')
             title.setObjectName('field-hint')
             box.addWidget(title)
             svn_edit = QLineEdit(cached.get('svn_url', ''))
             svn_edit.setProperty('editableField', True)
             size_line(svn_edit, 'path')
+            svn_edit.setMinimumWidth(0)
             svn_edit.setPlaceholderText('未配置则留空')
             box.addWidget(svn_edit)
             dev_row = QHBoxLayout()
             dev_edit = QLineEdit(cached.get('dev_local_path', ''))
             dev_edit.setProperty('editableField', True)
             size_line(dev_edit, 'path')
+            dev_edit.setMinimumWidth(0)
             dev_edit.setPlaceholderText('本机开发工程目录')
             pick_btn = QPushButton('选择目录')
             size_compact_button(pick_btn)
@@ -1064,7 +1078,7 @@ class RequirementDialog(QDialog):
             dev_row.addWidget(pick_btn)
             dev_row.addWidget(clear_btn)
             box.addLayout(dev_row)
-            self.system_bindings_layout.addWidget(row)
+            self.system_bindings_layout.addWidget(row, index // 2, index % 2)
             self._binding_rows[name] = {'svn': svn_edit, 'dev': dev_edit}
         if hasattr(self, 'sql_system_combo'):
             self._refresh_sql_system_combo()

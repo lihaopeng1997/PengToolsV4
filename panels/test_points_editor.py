@@ -195,10 +195,11 @@ class TestPointsEditor(QWidget):
         self.list_layout.addStretch(1)
         self.scroll.setWidget(self.list_host)
         if compact:
-            self.scroll.setMinimumHeight(48)
-            self.scroll.setMaximumHeight(140)
+            self.scroll.setMinimumHeight(168)
+            self.scroll.setMaximumHeight(230)
             self.scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-            self.setMaximumHeight(220)
+            self.setMinimumHeight(236)
+            self.setMaximumHeight(310)
         else:
             self.scroll.setMinimumHeight(160)
             self.scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)

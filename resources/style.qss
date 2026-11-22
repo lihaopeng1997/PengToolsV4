@@ -281,14 +281,14 @@ QPushButton:focus { border: 2px solid __FOCUS_RING__; outline: none; }
 QPushButton:disabled { color: __DISABLED_TEXT__; background: __DISABLED_BG__; border-color: __BORDER__; }
 QPushButton#btn-secondary,
 QPushButton[actionRole="secondary"] {
-    background: transparent; color: __TEXT__; border: 1px solid transparent;
+    background: __SURFACE_SOFT__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
     border-radius: 8px; font-weight: 500; padding: 5px 10px;
     outline: none;
 }
 QPushButton#btn-secondary:hover,
-QPushButton[actionRole="secondary"]:hover { background: __PRIMARY_SOFT__; border-color: transparent; color: __PRIMARY_ACTIVE__; }
+QPushButton[actionRole="secondary"]:hover { background: __PRIMARY_SOFT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:pressed,
-QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: transparent; color: __PRIMARY_ACTIVE__; }
+QPushButton[actionRole="secondary"]:pressed { background: __TABLE_SELECT__; border-color: __PRIMARY__; color: __PRIMARY_ACTIVE__; }
 QPushButton#btn-secondary:checked,
 QPushButton[actionRole="secondary"]:checked { background: __PRIMARY_SOFT__; border-color: transparent; color: __PRIMARY_ACTIVE__; font-weight: 600; }
 QPushButton#btn-secondary:focus,
@@ -1490,6 +1490,29 @@ QLineEdit#date-input-edit {
     max-height: 28px;
     padding: 4px 10px;
 }
+QPushButton#date-picker-btn {
+    background: __SURFACE_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: 1px solid __BORDER__;
+    min-width: 64px;
+}
+QPushButton#date-picker-btn:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+}
+QPushButton#model-ping-btn,
+QPushButton#model-skill-btn {
+    min-width: 92px;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
+    color: __TEXT_STRONG__;
+}
+QPushButton#model-ping-btn:hover,
+QPushButton#model-skill-btn:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
 /* 日期统一：yyyy-MM-dd 150–160；月份略窄 */
 QDateEdit {
     min-width: 150px;
@@ -1861,6 +1884,37 @@ QCalendarWidget QAbstractItemView:enabled {
     background: __SURFACE__; color: __TEXT_STRONG__; border: none; outline: 0;
     selection-background-color: __PRIMARY__; selection-color: __ON_PRIMARY__;
 }
+QDialog#unified-date-dialog {
+    background: __SURFACE__;
+}
+QCalendarWidget#unified-calendar {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 12px;
+}
+QCalendarWidget#unified-calendar QWidget#qt_calendar_navigationbar {
+    background: __PRIMARY__;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+QCalendarWidget#unified-calendar QToolButton {
+    color: __ON_PRIMARY__;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-weight: 700;
+}
+QCalendarWidget#unified-calendar QToolButton:hover {
+    background: __PRIMARY_HOVER__;
+}
+QCalendarWidget#unified-calendar QAbstractItemView:enabled {
+    background: __SURFACE__;
+    color: __TEXT_STRONG__;
+    border: none;
+    selection-background-color: __PRIMARY__;
+    selection-color: __ON_PRIMARY__;
+}
 QGroupBox {
     background: __SURFACE__; color: __TEXT_MUTED__; font-weight: 700;
     border: 1px solid __BORDER__; border-radius: 12px; margin-top: 10px; padding: 16px 12px 12px;
@@ -1972,8 +2026,8 @@ QTabWidget::pane {
     padding: 4px;
 }
 QTabWidget#module-tabs::pane {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
     border-radius: 10px;
     margin-top: 1px;
     padding: 4px;
@@ -1983,9 +2037,14 @@ QTabBar {
     max-height: 28px;
     background: transparent;
 }
+QFrame#module-tabs-track {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 10px;
+}
 QTabBar::tab,
 QTabWidget#module-tabs QTabBar::tab {
-    background: __SURFACE__;
+    background: transparent;
     color: __TEXT__;
     padding: 4px 12px;
     margin-right: 3px;
@@ -2010,7 +2069,7 @@ QTabWidget#module-tabs QTabBar::tab:selected {
     color: __PRIMARY_ACTIVE__;
     font-weight: 700;
     background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    border: 1px solid __PRIMARY_SOFT__;
     border-bottom: 2px solid __PRIMARY__;
 }
 QTabBar::scroller { width: 28px; }
@@ -3327,6 +3386,47 @@ QFrame#test-point-row[done="true"] QLabel#test-point-text {
 QDialog#test-points-dialog {
     background: __SURFACE__;
 }
+QScrollArea#requirement-binding-host {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 6px 8px;
+}
+QScrollArea#requirement-binding-host QWidget {
+    background: transparent;
+}
+QFrame#ops-terminal-header {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+}
+QFrame#ops-terminal-header QPushButton {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    min-width: 82px;
+}
+QFrame#ops-terminal-header QPushButton:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
+QFrame#ops-remote-card QPushButton#remote-up-btn,
+QFrame#ops-remote-card QPushButton#remote-go-btn,
+QFrame#ops-remote-card QPushButton#remote-refresh-btn,
+QFrame#ops-remote-card QPushButton#remote-download-btn,
+QFrame#ops-remote-card QPushButton#remote-use-btn {
+    background: __SURFACE_SOFT__;
+    border: 1px solid __BORDER__;
+}
+QFrame#ops-remote-card QPushButton#remote-up-btn:hover,
+QFrame#ops-remote-card QPushButton#remote-go-btn:hover,
+QFrame#ops-remote-card QPushButton#remote-refresh-btn:hover,
+QFrame#ops-remote-card QPushButton#remote-download-btn:hover,
+QFrame#ops-remote-card QPushButton#remote-use-btn:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
 
 /* ── Correction Round 4-V2A: Native Data Workbenches ── */
 
@@ -3623,6 +3723,22 @@ QPlainTextEdit#chat-composer-input {
     selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
+QFrame#chat-composer-card[compactComposer="true"] {
+    border-radius: 14px;
+    padding: 2px;
+}
+QFrame#chat-composer-card[compactComposer="true"] QPlainTextEdit#chat-composer-input {
+    min-height: 48px;
+    max-height: 80px;
+    border-radius: 12px;
+}
+QFrame#chat-composer-card[compactComposer="true"] QPushButton#chat-send-btn {
+    min-height: 36px;
+    max-height: 36px;
+    border-radius: 10px;
+    padding-left: 14px;
+    padding-right: 14px;
+}
 QToolButton#chat-attach-btn,
 QPushButton#chat-retry-btn,
 QPushButton#chat-error-retry {
@@ -3649,6 +3765,38 @@ QPushButton#chat-send-btn[danger="true"] {
     background: transparent;
     color: __DANGER__;
     border: 1px solid __DANGER__;
+}
+QTabWidget#log-result-tabs,
+QTabWidget#log-ai-tabs {
+    background: transparent;
+}
+QTabWidget#log-result-tabs QTabBar::tab,
+QTabWidget#log-ai-tabs QTabBar::tab {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_MUTED__;
+    border: 1px solid __BORDER__;
+    border-bottom: none;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    padding: 6px 12px;
+    margin-right: 4px;
+    font-weight: 600;
+}
+QTabWidget#log-result-tabs QTabBar::tab:selected,
+QTabWidget#log-ai-tabs QTabBar::tab:selected {
+    background: __SURFACE__;
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY_SOFT__;
+    border-bottom: 2px solid __PRIMARY__;
+}
+QTabWidget#log-result-tabs QTabBar QToolButton,
+QTabWidget#log-ai-tabs QTabBar QToolButton {
+    background: __SURFACE_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: 1px solid __BORDER__;
+    border-radius: 8px;
+    min-width: 26px;
+    max-width: 26px;
 }
 QToolButton#chat-jump-bottom {
     background: __ELEVATED_SURFACE__;

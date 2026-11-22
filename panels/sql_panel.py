@@ -35,6 +35,7 @@ from ui.field_metrics import (
     apply_form, size_caption, size_combo, size_compact_button, size_date,
     size_enum_combo, size_line, size_pick_combo, size_status_pill, size_system_chip,
 )
+from ui.date_picker import UnifiedDateEdit
 
 
 class SqlDraftWorker(QThread):
@@ -168,7 +169,7 @@ class SqlToolPanel(QWidget):
         date_label.setObjectName('field-caption')
         size_caption(date_label)
         summary_layout.addWidget(date_label)
-        self.release_date = QDateEdit(QDate.currentDate())
+        self.release_date = UnifiedDateEdit(QDate.currentDate())
         self.release_date.setObjectName('release-date')
         self.release_date.setDisplayFormat('yyyy-MM-dd')
         size_date(self.release_date)
@@ -660,7 +661,7 @@ class SqlToolPanel(QWidget):
         self.date_label.setObjectName('field-caption')
         size_caption(self.date_label)
         first.addWidget(self.date_label)
-        self.date_edit = QDateEdit(QDate.currentDate())
+        self.date_edit = UnifiedDateEdit(QDate.currentDate())
         self.date_edit.setObjectName('release-date')
         self.date_edit.setDisplayFormat('yyyy-MM-dd')
         size_date(self.date_edit)

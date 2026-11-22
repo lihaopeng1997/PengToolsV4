@@ -22,6 +22,7 @@ class Composer(QFrame):
         self._stopping = False
         self._composing = False
         self.setObjectName('chat-composer-card')
+        self.setProperty('compactComposer', bool(compact))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
@@ -37,7 +38,6 @@ class Composer(QFrame):
             self.input.setMaximumHeight(80)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.input.installEventFilter(self)
-        layout.addWidget(self.input, 1)
         row = QHBoxLayout()
         row.setSpacing(8)
         self.add_attachment_btn = QToolButton()
@@ -65,15 +65,22 @@ class Composer(QFrame):
         self.send_btn.setProperty('actionRole', 'primary')
         self._lock_send_width()
         self.send_btn.clicked.connect(self._on_send_clicked)
-        row.addWidget(self.add_attachment_btn, 0)
-        row.addWidget(self.send_hint, 1)
-        row.addWidget(self.retry_btn, 0)
-        row.addWidget(self.send_btn, 0)
-        layout.addLayout(row)
         if compact:
             self.add_attachment_btn.hide()
             self.retry_btn.hide()
             self.send_hint.hide()
+            compact_row = QHBoxLayout()
+            compact_row.setSpacing(8)
+            compact_row.addWidget(self.input, 1)
+            compact_row.addWidget(self.send_btn, 0, Qt.AlignmentFlag.AlignBottom)
+            layout.addLayout(compact_row, 1)
+        else:
+            layout.addWidget(self.input, 1)
+            row.addWidget(self.add_attachment_btn, 0)
+            row.addWidget(self.send_hint, 1)
+            row.addWidget(self.retry_btn, 0)
+            row.addWidget(self.send_btn, 0)
+            layout.addLayout(row)
         self.set_language('zh')
 
     def eventFilter(self, watched, event):  # noqa: N802

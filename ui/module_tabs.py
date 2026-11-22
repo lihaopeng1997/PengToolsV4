@@ -140,6 +140,7 @@ class ModuleTabs(QFrame):
 
         self._track = QFrame(self)
         self._track.setObjectName("module-tabs-track")
+        self._track.setProperty("tabSurface", True)
         self._track.setMinimumWidth(0)
         self._track.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         track_l = QHBoxLayout(self._track)
