@@ -219,6 +219,7 @@ class CompactStepper(QWidget):
     def __init__(self, minimum=0, maximum=200, value=0, parent=None, *, edit_width=None, suffix=''):
         super().__init__(parent)
         self.setObjectName('compact-stepper')
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._min = int(minimum)
         self._max = int(maximum)
         layout = QHBoxLayout(self)

@@ -4,7 +4,7 @@ import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QHeaderView, QHBoxLayout,
+    QApplication, QComboBox, QFileDialog, QFrame, QHeaderView, QHBoxLayout,
     QLabel, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -38,7 +38,7 @@ class VinPanel(QWidget):
         outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(10)
         self.generate_btn = QPushButton()
         apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)
@@ -50,7 +50,16 @@ class VinPanel(QWidget):
         )
         layout.addWidget(header)
 
-        toolbar, row = make_page_toolbar(divided=True)
+        # 单层纯白工作面：参数压成顶部一行工具条 + 细线 + 表格 + 底栏
+        sheet = QFrame()
+        sheet.setObjectName('vin-sheet')
+        sheet_l = QVBoxLayout(sheet)
+        sheet_l.setContentsMargins(16, 12, 16, 12)
+        sheet_l.setSpacing(10)
+
+        toolbar, row = make_page_toolbar(divided=False)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         self.mode_label = QLabel()
         apply_caption(self.mode_label)
         row.addWidget(self.mode_label)
@@ -59,6 +68,7 @@ class VinPanel(QWidget):
         size_enum_combo(self.mode_combo)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row.addWidget(self.mode_combo)
+        row.addSpacing(8)
         self.year_label = QLabel()
         apply_caption(self.year_label)
         row.addWidget(self.year_label)
@@ -67,6 +77,7 @@ class VinPanel(QWidget):
         self.year_combo.setCurrentText(str(datetime.date.today().year))
         size_enum_combo(self.year_combo)
         row.addWidget(self.year_combo)
+        row.addSpacing(8)
         self.wmi_label = QLabel()
         apply_caption(self.wmi_label)
         row.addWidget(self.wmi_label)
@@ -74,38 +85,26 @@ class VinPanel(QWidget):
         self.wmi_combo.addItems(['AUTO'] + list(CHINA_WMIS))
         size_enum_combo(self.wmi_combo)
         row.addWidget(self.wmi_combo)
+        row.addSpacing(8)
         self.qty_label = QLabel()
         apply_caption(self.qty_label)
         row.addWidget(self.qty_label)
         self.qty = CompactStepper(1, 200, 10)
         row.addWidget(self.qty)
         row.addStretch(1)
-        # Two field pairs per row keep every filter available at the minimum window width.
-        from PyQt6.QtWidgets import QGridLayout
-        filters = QGridLayout()
-        filters.setHorizontalSpacing(8)
-        filters.setVerticalSpacing(8)
-        while row.count():
-            row.takeAt(0)
-        for index, widget in enumerate((self.mode_label, self.mode_combo,
-                self.year_label, self.year_combo, self.wmi_label, self.wmi_combo,
-                self.qty_label, self.qty)):
-            filters.addWidget(widget, index // 4, index % 4)
-        row.addLayout(filters)
-        row.addStretch(1)
-        layout.addWidget(toolbar)
+        sheet_l.addWidget(toolbar)
 
-        # 兼容旧引用：指定条件区即原 settings 容器
+        # 兼容旧引用：指定条件区（单行紧凑筛选条）
         self.settings = QWidget()
         self.settings.setObjectName('vin-settings')
         self.settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         settings_l = QVBoxLayout(self.settings)
         settings_l.setContentsMargins(0, 0, 0, 0)
-        settings_l.setSpacing(8)
+        settings_l.setSpacing(6)
 
         self.custom = QWidget()
         custom = QHBoxLayout(self.custom)
-        custom.setContentsMargins(0, 0, 0, 0)
+        custom.setContentsMargins(0, 2, 0, 0)
         custom.setSpacing(8)
         self.energy_label = QLabel()
         apply_caption(self.energy_label)
@@ -116,6 +115,7 @@ class VinPanel(QWidget):
             self.energy_combo.addItem(item, item)
         size_enum_combo(self.energy_combo)
         custom.addWidget(self.energy_combo)
+        custom.addSpacing(8)
         self.category_label = QLabel()
         apply_caption(self.category_label)
         custom.addWidget(self.category_label)
@@ -126,12 +126,14 @@ class VinPanel(QWidget):
         size_enum_combo(self.category_combo)
         self.category_combo.currentIndexChanged.connect(self._refresh_kind_options)
         custom.addWidget(self.category_combo)
+        custom.addSpacing(8)
         self.kind_label = QLabel()
         apply_caption(self.kind_label)
         custom.addWidget(self.kind_label)
         self.kind_combo = QComboBox()
         self._refresh_kind_options()
         custom.addWidget(self.kind_combo)
+        custom.addSpacing(8)
         self.plate_label = QLabel()
         apply_caption(self.plate_label)
         custom.addWidget(self.plate_label)
@@ -142,20 +144,14 @@ class VinPanel(QWidget):
         size_enum_combo(self.plate_combo)
         custom.addWidget(self.plate_combo)
         custom.addStretch(1)
-        custom_filters = QGridLayout()
-        custom_filters.setHorizontalSpacing(8)
-        custom_filters.setVerticalSpacing(8)
-        while custom.count():
-            custom.takeAt(0)
-        for index, widget in enumerate((self.energy_label, self.energy_combo,
-                self.category_label, self.category_combo, self.kind_label, self.kind_combo,
-                self.plate_label, self.plate_combo)):
-            custom_filters.addWidget(widget, index // 4, index % 4)
-        custom.addLayout(custom_filters)
-        custom.addStretch(1)
         self.custom.hide()
         settings_l.addWidget(self.custom)
-        layout.addWidget(self.settings)
+        sheet_l.addWidget(self.settings)
+
+        divider = QFrame()
+        divider.setObjectName('gateway-divider')
+        divider.setFrameShape(QFrame.Shape.HLine)
+        sheet_l.addWidget(divider)
 
         self.table = QTableWidget(0, len(VEHICLE_HEADERS_ZH))
         try:
@@ -177,9 +173,11 @@ class VinPanel(QWidget):
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.itemDoubleClicked.connect(self._copy_cell)
-        layout.addWidget(self.table, 1)
+        sheet_l.addWidget(self.table, 1)
 
         bottom = QHBoxLayout()
+        bottom.setContentsMargins(0, 2, 0, 0)
+        bottom.setSpacing(8)
         self.status = QLabel()
         self.status.setObjectName('status-pill')
         bottom.addWidget(self.status)
@@ -192,7 +190,8 @@ class VinPanel(QWidget):
         apply_button(self.export_btn, 'ghost', compact=True)
         self.export_btn.clicked.connect(self._export)
         bottom.addWidget(self.export_btn)
-        layout.addLayout(bottom)
+        sheet_l.addLayout(bottom)
+        layout.addWidget(sheet, 1)
 
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible

@@ -65,6 +65,7 @@ class Composer(QFrame):
         self.send_btn.setProperty('actionRole', 'primary')
         self._lock_send_width()
         self.send_btn.clicked.connect(self._on_send_clicked)
+        self._footer_row = None
         if compact:
             self.add_attachment_btn.hide()
             self.retry_btn.hide()
@@ -75,6 +76,7 @@ class Composer(QFrame):
             compact_row.addWidget(self.send_btn, 0, Qt.AlignmentFlag.AlignBottom)
             layout.addLayout(compact_row, 1)
         else:
+            self._footer_row = row
             layout.addWidget(self.input, 1)
             row.addWidget(self.add_attachment_btn, 0)
             row.addWidget(self.send_hint, 1)
@@ -82,6 +84,10 @@ class Composer(QFrame):
             row.addWidget(self.send_btn, 0)
             layout.addLayout(row)
         self.set_language('zh')
+
+    def insert_footer_widget(self, index: int, widget, stretch: int = 0) -> None:
+        if self._footer_row is not None and widget is not None:
+            self._footer_row.insertWidget(index, widget, stretch)
 
     def eventFilter(self, watched, event):  # noqa: N802
         if watched is self.input and event.type() == QEvent.Type.InputMethod:

@@ -157,26 +157,28 @@ class ModelChatPanel(QWidget):
         # 风险提示不再单独占一行：并入输入框下方的提示文字
         self.banner.setProperty('mergedIntoComposer', True)
 
-        toolbar, top = make_page_toolbar(divided=True)
+        # 去掉冗余顶部整行：模型选择与连通性状态点移入输入框底栏，Skill 管理收进 + 菜单
         self.model_combo = QComboBox()
         size_pick_combo(self.model_combo)
+        self.model_combo.setMinimumWidth(136)
+        self.model_combo.setMaximumWidth(230)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         self.ping_btn = QPushButton()
-        apply_button(self.ping_btn, 'secondary', compact=True)
+        apply_button(self.ping_btn, 'ghost', compact=True)
         self.ping_btn.setObjectName('model-ping-btn')
+        self.ping_btn.setProperty('pingState', 'idle')
+        self.ping_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ping_btn.clicked.connect(self._ping_current)
-        self.skill_btn = QPushButton()
+        # 保留兼容引用（隐藏）
+        self.skill_btn = QPushButton(self)
         apply_button(self.skill_btn, 'ghost', compact=True)
         self.skill_btn.setObjectName('model-skill-btn')
         self.skill_btn.clicked.connect(self._open_skill_manager)
-        self.ping_status = QLabel()
+        self.skill_btn.hide()
+        self.ping_status = QLabel(self)
         self.ping_status.setObjectName('field-hint')
         self.ping_status.setWordWrap(True)
-        top.addWidget(self.ping_btn)
-        top.addWidget(self.skill_btn)
-        top.addWidget(self.ping_status, 1)
-        top.addWidget(self.model_combo)
-        root.addWidget(toolbar)
+        self.ping_status.hide()
 
         # 聊天主内容区（左右 split）
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -262,6 +264,10 @@ class ModelChatPanel(QWidget):
         self.add_file_action.triggered.connect(self._pick_text_file)
         self.add_img_action.triggered.connect(self._pick_image_file)
         self.clear_attach_action.triggered.connect(self._clear_attachments)
+        self.composer.menu.addSeparator()
+        self.skill_action = self.composer.menu.addAction('Skill 管理…', self._open_skill_manager)
+        self.composer.insert_footer_widget(1, self.model_combo, 0)
+        self.composer.insert_footer_widget(2, self.ping_btn, 0)
         self.composer.send_requested.connect(self._on_action_clicked)
         self.composer.stop_requested.connect(self._stop)
         self.composer.regenerate_requested.connect(self._regenerate)
@@ -298,8 +304,12 @@ class ModelChatPanel(QWidget):
         zh = language == 'zh'
         self.page_title.setText('模型对话' if zh else 'Model Chat')
         self.page_subtitle.setText('连续对话并验证内网模型配置' if zh else 'Multi-turn chat & intranet model verification')
-        self.ping_btn.setText('连通性测试' if zh else 'Ping')
+        self.ping_btn.setText('○ 测连通' if zh else '○ Ping')
+        self.ping_btn.setToolTip('点击测试当前模型连通性' if zh else 'Click to test selected model connectivity')
         self.skill_btn.setText('skill 管理' if zh else 'Skills')
+        if hasattr(self, 'skill_action'):
+            self.skill_action.setText('Skill 管理…' if zh else 'Manage skills…')
+        self.model_combo.setPlaceholderText('未配置模型' if zh else 'No model')
         self.new_btn.setText('新建会话' if zh else 'New session')
         self.rename_btn.setText('重命名' if zh else 'Rename')
         self.delete_btn.setText('删除' if zh else 'Delete')
@@ -877,6 +887,15 @@ class ModelChatPanel(QWidget):
         self.controller.attach(bubble)
         self._start_worker(payload, model)
 
+    def _set_ping_state(self, state: str, label: str, tooltip: str = ''):
+        self.ping_btn.setProperty('pingState', state)
+        self.ping_btn.setText(label)
+        if tooltip:
+            self.ping_btn.setToolTip(tooltip)
+        self.ping_btn.style().unpolish(self.ping_btn)
+        self.ping_btn.style().polish(self.ping_btn)
+        self.ping_btn.update()
+
     def _ping_current(self):
         model = self._current_model()
         zh = self.language == 'zh'
@@ -887,6 +906,7 @@ class ModelChatPanel(QWidget):
         cfg['enabled'] = True
         self.ping_btn.setEnabled(False)
         self.ping_status.setText('正在测试…' if zh else 'Testing…')
+        self._set_ping_state('testing', '◌ 测试中…' if zh else '◌ Testing…', '正在测试连通性…' if zh else 'Testing connectivity…')
         self._ping_worker = _PingWorker(cfg)
         self._ping_worker.completed.connect(self._on_ping)
         self._ping_worker.finished.connect(lambda: self.ping_btn.setEnabled(True))
@@ -903,15 +923,19 @@ class ModelChatPanel(QWidget):
         model = data.get('model') or ''
         elapsed = data.get('elapsed_ms')
         if data.get('ok'):
-            self.ping_status.setText(
+            detail = (
                 f'成功 · {name} · {model} · {elapsed} ms' if zh else
                 f'OK · {name} · {model} · {elapsed} ms'
             )
+            self.ping_status.setText(detail)
+            self._set_ping_state('ok', f'● {elapsed}ms' if elapsed is not None else ('● 已连通' if zh else '● OK'), detail)
         else:
-            self.ping_status.setText(
+            detail = (
                 f'失败 · {elapsed} ms · {data.get("error") or ""}' if zh else
                 f'Failed · {elapsed} ms · {data.get("error") or ""}'
             )
+            self.ping_status.setText(detail)
+            self._set_ping_state('fail', '● 失败' if zh else '● Failed', detail)
 
 
 class _SkillManagerDialog(QDialog):

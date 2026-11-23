@@ -408,22 +408,21 @@ class InterfaceDebugPanel(QWidget):
         self.capture_zone.setParent(self)
         self.capture_zone.hide()
 
-        # 会话筛选条（搜索/chip，不含主监听按钮）；保留 iface-session-toolbar，避免 chip 计入 page-filter-bar 基线
+        # 会话筛选条（扁平无套娃卡，搜索与筛选芯片紧凑排列）
         tools = QFrame()
         self.session_toolbar = tools
-        apply_surface(tools, 'zone')
         tools.setObjectName('iface-session-toolbar')
         tv = QVBoxLayout(tools)
-        tv.setContentsMargins(12, 8, 12, 8)
-        tv.setSpacing(8)
+        tv.setContentsMargins(0, 2, 0, 4)
+        tv.setSpacing(6)
         tl = QHBoxLayout()
-        tl.setSpacing(8)
+        tl.setSpacing(6)
         self.filter_edit = QLineEdit()
         self.filter_edit.setObjectName('iface-session-search')
         self.filter_edit.setPlaceholderText('搜索 URL / host / path / method / 状态…')
         self.filter_edit.textChanged.connect(lambda *_: self._search_timer.start())
-        self.filter_edit.setMinimumHeight(36)
-        self.filter_edit.setMaximumHeight(40)
+        self.filter_edit.setMinimumHeight(28)
+        self.filter_edit.setMaximumHeight(32)
 
         self._filter_chips: dict[str, _FilterChip] = {}
         chip_defs = [
@@ -521,7 +520,7 @@ class InterfaceDebugPanel(QWidget):
         self.session_toolbar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.session_toolbar.setMinimumWidth(0)
         self.session_toolbar_scroll.setWidget(self.session_toolbar)
-        self.session_toolbar_scroll.setMinimumHeight(78)
+        self.session_toolbar_scroll.setMinimumHeight(68)
         ll.addWidget(self.session_toolbar_scroll)
         ll.addWidget(self.status_label)
         ll.addWidget(self.live_status)
@@ -2865,15 +2864,29 @@ class InterfaceDebugPanel(QWidget):
             return None
         return self._records_by_id.get(self._selected_id)
 
+    def _delete_session_record(self, record_id: str):
+        rid = str(record_id or '')
+        if not rid or rid not in self._records_by_id:
+            return
+        self._records_by_id.pop(rid, None)
+        self._records = [r for r in self._records if str(r.get('id') or '') != rid]
+        if self._selected_id == rid:
+            self._selected_id = None
+        self._rebuild_table()
+        self._refresh_detail()
+
     def _table_context_menu(self, pos):
         rec = self._selected_record()
         if not rec:
             return
+        zh = self.language == 'zh'
         menu = QMenu(self)
-        act_copy_url = menu.addAction('复制 URL')
-        act_copy_path = menu.addAction('复制路径')
-        act_format = menu.addAction('送格式工具')
-        act_gw = menu.addAction('送入加解密')
+        act_copy_url = menu.addAction('复制 URL' if zh else 'Copy URL')
+        act_copy_path = menu.addAction('复制路径' if zh else 'Copy path')
+        act_format = menu.addAction('送格式工具' if zh else 'Send to Format')
+        act_gw = menu.addAction('送入加解密' if zh else 'Send to Crypto')
+        menu.addSeparator()
+        act_delete = menu.addAction('删除此条会话' if zh else 'Delete session item')
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
         if chosen == act_copy_url:
             self._copy_text(mask_url_query(rec.get('url') or '', True), sensitive=True)
@@ -2883,6 +2896,8 @@ class InterfaceDebugPanel(QWidget):
             self._send_body_side('response', 'format')
         elif chosen == act_gw:
             self._send_body_side('response', 'gateway')
+        elif chosen == act_delete:
+            self._delete_session_record(str(rec.get('id') or ''))
 
     # ── 详情 ─────────────────────────────────────────
     def _format_headers(self, headers: dict) -> str:
