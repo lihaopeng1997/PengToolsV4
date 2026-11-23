@@ -328,22 +328,23 @@ class InterfaceDebugPanel(QWidget):
         session_layout.setSpacing(SPACING_PAGE)
         self.workspace_tabs.addTab(session_page, '会话')
 
-        # L2：测试监听 / 显示敏感 / 更多 + 脱敏提示
+        # L2：显示敏感 / 更多（收纳测试监听、恢复系统代理与 HTTPS 证书）+ 状态提示
         page_toolbar, page_tool_l = make_page_toolbar(divided=True)
         self.page_toolbar = page_toolbar
-        self.test_listen_btn = QPushButton()
+        self.test_listen_btn = QPushButton(page_toolbar)
         apply_button(self.test_listen_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
         self.test_listen_btn.clicked.connect(self._test_listen_loopback)
-        page_tool_l.addWidget(self.test_listen_btn)
+        self.test_listen_btn.hide()
         self.reveal_cb = QCheckBox()
         self.reveal_cb.toggled.connect(self._on_reveal)
         page_tool_l.addWidget(self.reveal_cb)
-        self.restore_proxy_btn = QPushButton()
+        self.restore_proxy_btn = QPushButton(page_toolbar)
         apply_button(self.restore_proxy_btn, 'ghost', compact=True, icon='refresh', icon_size=16)
         self.restore_proxy_btn.setToolTip('若抓包异常退出导致网页/接口不通，点此恢复系统代理')
         self.restore_proxy_btn.clicked.connect(self._manual_restore_proxy)
-        page_tool_l.addWidget(self.restore_proxy_btn)
+        self.restore_proxy_btn.hide()
         self.capture_actions_more_btn, self._capture_actions_menu = self._make_overflow_button(page_tool_l)
+        self.capture_actions_more_btn.show()
         self.toolbar_hint = QLabel()
         self.toolbar_hint.setObjectName('field-hint')
         self.toolbar_hint.setWordWrap(True)
@@ -1059,21 +1060,19 @@ class InterfaceDebugPanel(QWidget):
         from tools.ie_proxy import is_recorded_root_cert_installed
         cert_installed = is_recorded_root_cert_installed()
 
+        test_act = menu.addAction('测试监听（本机探测）' if zh else 'Test listen (loopback)')
+        test_act.triggered.connect(self._test_listen_loopback)
+
+        restore_act = menu.addAction('恢复系统代理' if zh else 'Restore system proxy')
+        restore_act.triggered.connect(self._manual_restore_proxy)
+
+        menu.addSeparator()
         if cert_installed:
             remove_act = menu.addAction('移除 HTTPS 抓包证书' if zh else 'Remove HTTPS CA certificate')
             remove_act.triggered.connect(self._remove_ie_cert)
         else:
             install_act = menu.addAction('安装 HTTPS 抓包证书' if zh else 'Install HTTPS CA certificate')
             install_act.triggered.connect(self._install_ie_cert)
-
-        menu.addSeparator()
-        restore_act = menu.addAction('恢复系统代理' if zh else 'Restore system proxy')
-        restore_act.triggered.connect(self._manual_restore_proxy)
-
-        widths = getattr(self, '_last_responsive_widths', None) or (1000, 1000, 1000)
-        if widths[0] < 500:
-            test_act = menu.addAction('测试连接' if zh else 'Test connection')
-            test_act.triggered.connect(self._test_listen_loopback)
 
     def _refresh_capture_status_text(self):
         zh = self.language == 'zh'
@@ -1111,9 +1110,9 @@ class InterfaceDebugPanel(QWidget):
         self._last_responsive_widths = (left_width, right_width, table_width)
         self._update_session_toolbar_overflow(left_width)
 
-        capture_compact = left_width < 500
-        self._set_widgets_visible((self.test_listen_btn, self.restore_proxy_btn), not capture_compact)
-        self.capture_actions_more_btn.setVisible(capture_compact)
+        # 低频诊断项统一收纳进顶栏「更多 ▾」，任何宽度都保持 L2 工具栏清爽且证书入口常驻可达
+        self._set_widgets_visible((self.test_listen_btn, self.restore_proxy_btn), False)
+        self.capture_actions_more_btn.setVisible(True)
         self._rebuild_capture_actions_menu()
         self._refresh_capture_status_text()
 
@@ -1140,17 +1139,18 @@ class InterfaceDebugPanel(QWidget):
         """构建窄左栏的收纳菜单；复用原按钮行为，保证所有操作仍可访问。"""
         menu = self._session_actions_menu
         menu.clear()
-        if self.test_listen_btn.isHidden():
+        capture_more_hidden = bool(getattr(self, 'capture_actions_more_btn', None) is None or self.capture_actions_more_btn.isHidden())
+        if capture_more_hidden and self.test_listen_btn.isHidden():
             menu.addAction(
                 '测试连接' if self.language == 'zh' else 'Test connection',
                 self._test_listen_loopback,
             )
-        if self.restore_proxy_btn.isHidden():
+        if capture_more_hidden and self.restore_proxy_btn.isHidden():
             menu.addAction(
                 '恢复系统代理' if self.language == 'zh' else 'Restore proxy',
                 self._manual_restore_proxy,
             )
-        if self.test_listen_btn.isHidden() or self.restore_proxy_btn.isHidden():
+        if capture_more_hidden and (self.test_listen_btn.isHidden() or self.restore_proxy_btn.isHidden()):
             menu.addSeparator()
         for chip in self._filter_chips.values():
             action = menu.addAction(chip.text())
@@ -4569,7 +4569,9 @@ class InterfaceDebugPanel(QWidget):
         self.capture_toggle_btn.show()
         self.connect_btn.hide()
         self.stop_btn.hide()
-        self.test_listen_btn.show()
+        self.test_listen_btn.hide()
+        self.restore_proxy_btn.hide()
+        self.capture_actions_more_btn.show()
         for edit in (self.overview_edit, self.req_detail, self.resp_detail):
             edit.setMinimumHeight(240 if mode in ('compact', 'narrow') else editor_min_height())
         # The stacked workspace must scroll instead of squeezing its child

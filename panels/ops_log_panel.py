@@ -1934,7 +1934,7 @@ class OpsLogPanel(QWidget):
         toolbar, tool_l = make_page_toolbar(divided=True)
         self._log_manual_toolbar = toolbar
         self.connect_btn = QPushButton()
-        apply_button(self.connect_btn, 'secondary', compact=True, icon='terminal', icon_size=16)
+        apply_button(self.connect_btn, 'primary', compact=True, icon='terminal', icon_size=16)
         self.connect_btn.clicked.connect(self._connect_session)
         self.toolbar_export_btn = QPushButton()
         apply_button(self.toolbar_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
@@ -1955,6 +1955,8 @@ class OpsLogPanel(QWidget):
         # 左栏分段已能切到多机截取，工具栏不再重复放一个
         self.toolbar_export_btn.hide()
         tool_l.addWidget(self.toolbar_server_btn)
+        # 左侧当前主机卡和「更多操作」均已有服务器管理入口，顶栏不再重复占屏
+        self.toolbar_server_btn.hide()
         tool_l.addWidget(self.more_btn)
         tool_l.addStretch(1)
         tool_l.addWidget(self.toolbar_hint)

@@ -1500,7 +1500,7 @@ class RequirementPanel(QWidget):
     def _sync_toolbar_more_menu(self):
         """同步更多菜单中的各项操作状态。"""
         has_active_worker = self._active_worker is not None
-        for name in ('_action_bug', '_action_scan', '_action_checkout', '_action_manual'):
+        for name in ('_action_update_all', '_action_ticket', '_action_bug', '_action_scan', '_action_checkout', '_action_manual'):
             action = getattr(self, name, None)
             if action is not None:
                 action.setEnabled(not has_active_worker)
@@ -1549,8 +1549,8 @@ class RequirementPanel(QWidget):
         self.status_filter = QComboBox(self); self.status_filter.addItems(('全部状态',) + configured_statuses()); self.status_filter.currentIndexChanged.connect(self._on_filter_changed)
         self.status_filter.hide()
         size_combo(self.month_filter, 'sm'); size_combo(self.system_filter, 'md'); size_combo(self.kind_filter, 'sm'); size_combo(self.status_filter, 'sm')
-        # 筛选只占必要宽度，把空间留给搜索框
-        for combo, width in ((self.month_filter, 144), (self.system_filter, 156), (self.kind_filter, 134)):
+        # 筛选只占必要宽度，把空间留给搜索框与核心主按钮，避免窄窗口下工具栏被裁切
+        for combo, width in ((self.month_filter, 112), (self.system_filter, 124), (self.kind_filter, 100)):
             size_pick_combo(combo, width)
         toolbar_layout.addWidget(self.month_filter)
         toolbar_layout.addWidget(self.system_filter)
@@ -1563,8 +1563,11 @@ class RequirementPanel(QWidget):
         self.add_btn.setObjectName('primary-btn')
         self.add_btn.clicked.connect(self._add_requirement)
         self.toolbar_more_btn = QPushButton('更多', toolbar_card)
-        self.toolbar_more_btn.setToolTip('登记缺陷、通过 SVN 路径导入、通过需求目录导入、手动登记导入、系统配置')
+        self.toolbar_more_btn.setToolTip('拉取最新、一键提签、导入需求、登记缺陷与配置项')
         self.toolbar_more_menu = QMenu(self.toolbar_more_btn)
+        self._action_update_all = self.toolbar_more_menu.addAction('拉取最新（全部 SVN update）', self._update_all)
+        self._action_ticket = self.toolbar_more_menu.addAction('一键提签…', self._open_ticket_submit)
+        self.toolbar_more_menu.addSeparator()
         self._action_bug = self.toolbar_more_menu.addAction('登记缺陷（粘贴 BUG）', self._paste_bug)
         self._action_checkout = self.toolbar_more_menu.addAction('通过 SVN 路径导入…', self._checkout_svn)
         self._action_scan = self.toolbar_more_menu.addAction('通过需求目录导入…', self._scan_folder)
@@ -1578,9 +1581,13 @@ class RequirementPanel(QWidget):
         self.ticket_btn = QPushButton('一键提签', toolbar_card)
         self.ticket_btn.setToolTip('把选中的需求写进环境签文档，并提交到签库 SVN')
         self.ticket_btn.clicked.connect(self._open_ticket_submit)
-        for button in (self.update_all_btn, self.toolbar_more_btn, self.ticket_btn, self.add_btn):
+        for button in (self.update_all_btn, self.ticket_btn, self.add_btn, self.toolbar_more_btn):
             size_compact_button(button)
-            toolbar_layout.addWidget(button)
+        # 顶栏仅保留高频主操作「新建需求」与「更多 ▾」，「拉取最新」「一键提签」收纳进「更多」且保留原按钮属性兼容
+        toolbar_layout.addWidget(self.add_btn)
+        toolbar_layout.addWidget(self.toolbar_more_btn)
+        self.update_all_btn.hide()
+        self.ticket_btn.hide()
         try:
             from ui.icons import apply_icon
             apply_icon(self.update_all_btn, 'refresh', 16)
@@ -1771,10 +1778,19 @@ class RequirementPanel(QWidget):
             pass
         for button in self.quick_buttons.values():
             size_compact_button(button)
-            quick.addWidget(button)
+        # 详情头仅保留「开发目录」「写日报」「更多 ▾」，避免与下方文件库工具条的「更新」「提交」重复
+        quick.addWidget(self.open_dev_btn)
+        quick.addWidget(self.daily_btn)
+        self.quick_update_btn.setParent(self.detail_card)
+        self.quick_update_btn.hide()
+        self.quick_commit_btn.setParent(self.detail_card)
+        self.quick_commit_btn.hide()
         self.detail_more_btn = QPushButton('更多')
         size_compact_button(self.detail_more_btn)
         self.detail_more_menu = QMenu(self.detail_more_btn)
+        self._action_quick_update = self.detail_more_menu.addAction('SVN 更新当前需求', self._update_current)
+        self._action_quick_commit = self.detail_more_menu.addAction('提交需求改动', self._commit_current_changes)
+        self.detail_more_menu.addSeparator()
         self._action_open_folder = self.detail_more_menu.addAction('打开需求资料目录', self._open_folder)
         self._action_open_dev = self.detail_more_menu.addAction('打开本地开发目录', lambda: self._open_dev_project_folder(self._current))
         self._action_daily = self.detail_more_menu.addAction('写入日报', self._send_daily)
@@ -3301,6 +3317,10 @@ class RequirementPanel(QWidget):
         self.refresh_svn_btn.setEnabled(has_path)
         for button in (self.update_current_btn, self.quick_update_btn, self.quick_commit_btn, self.add_file_btn, self.new_text_btn):
             button.setEnabled(is_svn)
+        for action_name in ('_action_quick_update', '_action_quick_commit'):
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(is_svn)
         self._action_open_folder.setEnabled(has_path)
         self._update_vcs_action_state()
         if not self._current:
@@ -3428,7 +3448,7 @@ class RequirementPanel(QWidget):
         )
         for widget in widgets:
             widget.setEnabled(not busy)
-        for action_name in ('_action_bug', '_action_scan', '_action_checkout', '_action_import', '_action_syscfg'):
+        for action_name in ('_action_update_all', '_action_ticket', '_action_bug', '_action_scan', '_action_checkout', '_action_import', '_action_syscfg'):
             action = getattr(self, action_name, None)
             if action is not None:
                 action.setEnabled(not busy)
