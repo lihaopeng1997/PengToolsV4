@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import datetime
+import importlib
 import json
 import math
 import os
+import time
 
 from PyQt6.QtCore import QPoint, QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -92,6 +94,13 @@ class MainWindow(QMainWindow):
         self._agent_shutdown_error = ''
         self._startup_ready = False
         self._boot_step = 0
+        self._startup_started_at = time.perf_counter()
+        self._startup_interactive_at = None
+        self._startup_warmup_started_at = None
+        self._startup_warmup_started = False
+        self._startup_warmup_done = 0
+        self._startup_warmup_total = 0
+        self._startup_metrics = {}
         self._user_navigated = False
         # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
         self._private_unlocked = bool(self._settings.get('private_unlocked', False))
@@ -906,19 +915,45 @@ class MainWindow(QMainWindow):
     def _warmup_boot_steps(self):
         zh = self.language == 'zh'
         return [
-            ('证件与 VIN' if zh else 'IDs & VIN', lambda: (self._ensure_credit_panel(), self._ensure_vin_panel())),
-            ('运维与网关' if zh else 'Ops & gateway', lambda: (self._ensure_ops_panel(), self._ensure_gateway_panel())),
-            ('SQL 与文档' if zh else 'SQL & docs', lambda: (self._ensure_sql_panel(), self._ensure_docx_panel())),
+            ('证件' if zh else 'Identity', self._ensure_credit_panel),
+            ('VIN' if zh else 'VIN', self._ensure_vin_panel),
+            ('运维' if zh else 'Operations', self._ensure_ops_panel),
+            ('网关' if zh else 'Gateway', self._ensure_gateway_panel),
+            ('SQL' if zh else 'SQL', self._ensure_sql_panel),
+            ('接口文档' if zh else 'API docs', self._ensure_docx_panel),
             ('格式工具' if zh else 'Format tools', self._ensure_format_panel),
             ('需求管理' if zh else 'Requirements', self._ensure_requirement_panel),
             ('个人模块' if zh else 'Personal', self._ensure_personal_panel),
         ]
 
+    def _startup_import_steps(self):
+        """预加载纯本地模块，避免首次进入低频页面时承担导入成本。"""
+        return [
+            ('接口排查', 'panels.interface_debug_panel'),
+            ('日志排查', 'panels.ops_log_panel'),
+            ('模型聊天', 'panels.model_chat_panel'),
+            ('Agent 工作台', 'panels.agent_workbench_panel'),
+            ('数据中心', 'panels.data_center_panel'),
+        ]
+
+    def _update_startup_progress(self, label: str) -> None:
+        if self._user_navigated or self._startup_warmup_total <= 0:
+            return
+        progress = round(self._startup_warmup_done / self._startup_warmup_total * 100)
+        loading = getattr(self, '_startup_loading', None)
+        if loading is None:
+            return
+        loading.set_progress(progress, label)
+
     def _become_interactive(self):
-        """首页可用后立刻收起全局 Loading，其余面板后台预热。"""
+        """首页可用后先释放交互，后台预热使用独立的非阻塞进度提示。"""
         if self._startup_ready:
             return
         self._startup_ready = True
+        self._startup_interactive_at = time.perf_counter()
+        self._startup_metrics['interactive_ms'] = round(
+            (self._startup_interactive_at - self._startup_started_at) * 1000
+        )
         self._hide_startup_loading()
         if self.quick_panel is not None:
             self.quick_panel.set_language(self.language)
@@ -960,6 +995,16 @@ class MainWindow(QMainWindow):
         if not self._startup_ready:
             self._become_interactive()
         warmup = self._warmup_boot_steps()
+        imports = self._startup_import_steps()
+        if not self._startup_warmup_started:
+            self._startup_warmup_started = True
+            self._startup_warmup_started_at = time.perf_counter()
+            self._startup_warmup_total = len(warmup) + len(imports)
+            if not self._user_navigated:
+                self._show_startup_loading(
+                    '正在后台预热模块…' if self.language == 'zh' else 'Warming up modules…'
+                )
+
         warmup_index = self._boot_step - len(interactive)
         if warmup_index < len(warmup):
             label, action = warmup[warmup_index]
@@ -972,9 +1017,29 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
             self._boot_step += 1
+            self._startup_warmup_done += 1
+            self._update_startup_progress(
+                f'后台预热{label}…' if self.language == 'zh' else f'Warming up {label}…'
+            )
             QTimer.singleShot(0, self._startup_tick)
             return
-        self._apply_language_to_created_panels()
+
+        import_index = warmup_index - len(warmup)
+        if import_index < len(imports):
+            label, module_name = imports[import_index]
+            try:
+                importlib.import_module(module_name)
+            except Exception as exc:
+                self.status_bar.showMessage(f'模块预加载异常：{exc}', 5000)
+            self._boot_step += 1
+            self._startup_warmup_done += 1
+            self._update_startup_progress(
+                f'准备{label}…' if self.language == 'zh' else f'Preparing {label}…'
+            )
+            QTimer.singleShot(0, self._startup_tick)
+            return
+
+        self._finish_startup()
 
     def _apply_language_to_created_panels(self):
         for panel in self._iter_created_panels():
@@ -1002,6 +1067,19 @@ class MainWindow(QMainWindow):
     def _finish_startup(self):
         self._become_interactive()
         self._apply_language_to_created_panels()
+        self._hide_startup_loading()
+        finished_at = time.perf_counter()
+        self._startup_metrics['ready_ms'] = round(
+            (finished_at - self._startup_started_at) * 1000
+        )
+        if self._startup_warmup_started_at is not None:
+            self._startup_metrics['warmup_ms'] = round(
+                (finished_at - self._startup_warmup_started_at) * 1000
+            )
+        self._startup_metrics['preloaded_modules'] = max(
+            0, self._startup_warmup_done - len(self._warmup_boot_steps())
+        )
+        log_web_event('startup_ready', **self._startup_metrics)
 
     def _create_prism_sidebar(self):
         """Create the native fallback rail from the authoritative nav DTO.
