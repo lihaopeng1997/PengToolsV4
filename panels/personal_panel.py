@@ -798,8 +798,9 @@ class KnowledgeTab(QWidget):
 
     @staticmethod
     def _display_workbook_rows(entry):
-        """自我学习界面展示经过敏感字段遮罩的表头与单元格内容。"""
-        return masked_workbook_rows(entry)
+        """自我学习界面按用户确认的明文策略展示表头与单元格内容。"""
+        rows = entry.get('rows') or []
+        return [['' if value is None else str(value) for value in row] for row in rows]
 
 
     def _step_workbook_page(self, delta: int):
