@@ -1958,6 +1958,7 @@ class SettingsPanel(QWidget):
             return
         self.ai_probe_btn.setEnabled(False)
         self.ai_status.setText('正在探测…' if zh else 'Probing…')
+        self._save_loading.start_busy('正在探测模型服务…' if zh else 'Probing model service…')
         self._ai_probe_worker = _AiProbeWorker(cfg, self)
         self._ai_probe_worker.completed.connect(self._on_ai_probe_ok)
         self._ai_probe_worker.failed.connect(self._on_ai_probe_fail)
@@ -1967,6 +1968,7 @@ class SettingsPanel(QWidget):
     def _on_ai_probe_ok(self, models):
         zh = self.language == 'zh'
         names = [str(item) for item in (models or []) if str(item).strip()]
+        self._save_loading.finish('模型连通正常' if zh else 'Model reachable')
         current = self.ai_model.text().strip()
         self._ai_available_models = names
         if not current and names:
@@ -2004,6 +2006,7 @@ class SettingsPanel(QWidget):
             )
 
     def _on_ai_probe_fail(self, message):
+        self._save_loading.fail('探测失败' if self.language == 'zh' else 'Probe failed')
         self.ai_status.setText(str(message or ''))
         from ui.confirm_dialog import show_error
         show_error(self, '模型服务' if self.language == 'zh' else 'Model service', str(message or ''))

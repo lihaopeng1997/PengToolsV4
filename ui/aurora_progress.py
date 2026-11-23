@@ -18,9 +18,61 @@ from PyQt6.QtWidgets import QWidget
 
 DEFAULT_DELAY_SHOW_MS = 300
 DEFAULT_MIN_VISIBLE_MS = 500
-DEFAULT_SUCCESS_LINGER_MS = 350
+DEFAULT_SUCCESS_LINGER_MS = 450
 FAIL_LINGER_MS = 2200
 DEFAULT_ANIM_TICK_MS = 28
+
+_CONTEXT_QUIPS_ZH = (
+    (('数据库', '目录', '表', 'sql', 'redis', 'mongo', '集合', '查询', '连接'), (
+        '数据库正在努力翻箱倒柜…',
+        '索引小哥正踩着风火轮查表…',
+        '连接池正在热身做广播体操…',
+        '正在和数据库深情对视中…',
+    )),
+    (('ssh', '日志', '远程', '服务器', '主机'), (
+        'SSH 小哥正顺着网线爬过去…',
+        '正在礼貌敲开远程服务器的门…',
+        '正在日志海里捞针，马上捞上来…',
+    )),
+    (('模型', '探测', 'ai', 'llm', 'agent'), (
+        '正在喊大模型起床干活…',
+        '正在确认模型今天没偷懒掉线…',
+        '神经网络正在疯狂转动脑筋…',
+    )),
+    (('svn', '需求', '文档', '导入', '导出', 'docx', '矩阵', '整理'), (
+        '文档小助手正在疯狂翻页整理…',
+        '正在把文件排好队立正站好…',
+        'SVN 正在搬砖，马上搬完…',
+    )),
+    (('抓包', '代理', '证书', '监听', '浏览器', 'cdp', '请求'), (
+        '正在支起抓包小雷达…',
+        '数据包正在排队过安检…',
+        '正在礼貌地敲接口大门…',
+    )),
+)
+
+_DEFAULT_QUIPS_ZH = (
+    '小马达已拉满，喝口水马上好…',
+    '正在疯狂敲键盘赶工中，别催别催…',
+    '马上就好，先顺手活动下脖子吧…',
+    '齿轮飞转中，请稍等片刻…',
+)
+
+_DEFAULT_QUIPS_EN = (
+    'Tiny prism bot is typing furiously…',
+    'Brewing coffee while crunching this…',
+    'Almost there, stretching our circuits…',
+)
+
+
+def _pick_context_quip(label: str, elapsed: float, is_en: bool) -> str:
+    if is_en:
+        return _DEFAULT_QUIPS_EN[int(elapsed / 2.2) % len(_DEFAULT_QUIPS_EN)]
+    low = (label or '').lower()
+    for keywords, quips in _CONTEXT_QUIPS_ZH:
+        if any(kw in low for kw in keywords):
+            return quips[int(elapsed / 2.2) % len(quips)]
+    return _DEFAULT_QUIPS_ZH[int(elapsed / 2.2) % len(_DEFAULT_QUIPS_ZH)]
 
 
 def _palette():
@@ -78,8 +130,8 @@ class AuroraProgress(QWidget):
         self._anim_timer.setInterval(DEFAULT_ANIM_TICK_MS)
         self._anim_timer.timeout.connect(self._tick)
 
-        self.setFixedHeight(62)
-        self.setFixedWidth(320)
+        self.setFixedHeight(72)
+        self.setFixedWidth(348)
         # 仅作视觉反馈：不拦截鼠标，避免「Loading 盖住界面 → 点什么都没反应」
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.hide()
@@ -167,12 +219,12 @@ class AuroraProgress(QWidget):
         self._cancel_linger_timer()
 
     def place_overlay(self, host=None):
-        """相对宿主定位：目标宽 320，max host 宽-32；右上 16；窄 host 居中。"""
+        """相对宿主定位：目标宽 348，max host 宽-32；右上 16；窄 host 居中。"""
         host = host or self.parentWidget()
         if host is None:
             return
         host_w = max(host.width(), 1)
-        width = min(320, max(240, host_w - 32))
+        width = min(348, max(260, host_w - 32))
         self.setFixedWidth(width)
 
         if host_w >= 480:
@@ -387,88 +439,123 @@ class AuroraProgress(QWidget):
         now = time.monotonic()
         elapsed = now - self._shown_timestamp if self._shown_timestamp > 0 else 0.0
 
-        # 3. 左侧指示器区域：24x24 环 / 静态成功 / 静态失败 (LD-02 / LD-08)
-        ind_size = 24.0
-        ind_x = bounds.left() + 14.0
-        ind_y = bounds.top() + (bounds.height() - ind_size) / 2.0 - (2.0 if has_progress else 0.0)
-        ind_rect = QRectF(ind_x, ind_y, ind_size, ind_size)
+        # 3. 左侧迷你趣味棱镜小人（34x34）：忙碌时弹性跳动左右张望；完成微笑 ^ ^；失败晕眼 x x
+        ind_size = 34.0
+        ind_x = bounds.left() + 12.0
+        ind_y = bounds.top() + (bounds.height() - ind_size) / 2.0 - 2.0
         center_x = ind_x + ind_size / 2.0
         center_y = ind_y + ind_size / 2.0
 
+        is_en = str(getattr(self.parentWidget(), 'language', 'zh') or 'zh').lower().startswith('en')
+
         if is_finish:
-            # LD-08: 静态 18px 绿色对勾（淡入 150ms，禁止放礼花）
             finish_elapsed = (now - self._finish_timestamp) if self._finish_timestamp > 0 else 0.15
-            fade = min(1.0, max(0.2, finish_elapsed / 0.15))
-            c = QColor(success)
-            c.setAlpha(int(fade * 255))
-            painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            fade = min(1.0, max(0.78, finish_elapsed / 0.15))
+            bg_c = QColor(success_bg)
+            bg_c.setAlpha(int(fade * 255))
+            fg_c = QColor(success)
+            fg_c.setAlpha(int(fade * 255))
+            painter.setPen(QPen(QColor(success_border), 1.2))
+            painter.setBrush(bg_c)
+            painter.drawRoundedRect(QRectF(ind_x + 2, ind_y + 2, ind_size - 4, ind_size - 4), 10, 10)
+            # 开心笑眼 + 小笑嘴
+            painter.setPen(QPen(fg_c, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            # 对勾折线: (cx-5, cy) -> (cx-1, cy+4) -> (cx+6, cy-4)
-            path = QPainterPath()
-            path.moveTo(center_x - 5.5, center_y)
-            path.lineTo(center_x - 1.5, center_y + 4.0)
-            path.lineTo(center_x + 6.0, center_y - 4.5)
-            painter.drawPath(path)
+            for ex in (center_x - 5.0, center_x + 5.0):
+                ep = QPainterPath()
+                ep.moveTo(ex - 2.4, center_y - 1.5)
+                ep.quadTo(ex, center_y - 5.0, ex + 2.4, center_y - 1.5)
+                painter.drawPath(ep)
+            mp = QPainterPath()
+            mp.moveTo(center_x - 3.5, center_y + 2.8)
+            mp.quadTo(center_x, center_y + 6.5, center_x + 3.5, center_y + 2.8)
+            painter.drawPath(mp)
 
         elif is_fail:
-            # LD-08: 静态 18px 红色错误叉号（无 shake，无循环动画）
-            painter.setPen(QPen(danger, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            # 叉号两条线: (cx-4.5, cy-4.5) <-> (cx+4.5, cy+4.5)
-            painter.drawLine(QPointF(center_x - 4.5, center_y - 4.5), QPointF(center_x + 4.5, center_y + 4.5))
-            painter.drawLine(QPointF(center_x + 4.5, center_y - 4.5), QPointF(center_x - 4.5, center_y + 4.5))
+            painter.setPen(QPen(danger_border, 1.2))
+            painter.setBrush(danger_bg)
+            painter.drawRoundedRect(QRectF(ind_x + 2, ind_y + 2, ind_size - 4, ind_size - 4), 10, 10)
+            # 晕眼 x x + 委屈小波浪嘴
+            painter.setPen(QPen(danger, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for ex in (center_x - 5.0, center_x + 5.0):
+                painter.drawLine(QPointF(ex - 2.2, center_y - 4.2), QPointF(ex + 2.2, center_y + 0.2))
+                painter.drawLine(QPointF(ex + 2.2, center_y - 4.2), QPointF(ex - 2.2, center_y + 0.2))
+            mp = QPainterPath()
+            mp.moveTo(center_x - 3.5, center_y + 5.2)
+            mp.quadTo(center_x, center_y + 2.5, center_x + 3.5, center_y + 5.2)
+            painter.drawPath(mp)
 
         elif is_cancelled:
-            # LD-08: static neutral stop mark; cancellation is not presented as failure.
             neutral = _qc(pal, 'TEXT_MUTED', '#615D73')
+            painter.setPen(QPen(border, 1.2))
+            painter.setBrush(_qc(pal, 'SURFACE_SOFT', '#F4F2FA'))
+            painter.drawRoundedRect(QRectF(ind_x + 2, ind_y + 2, ind_size - 4, ind_size - 4), 10, 10)
             painter.setPen(QPen(neutral, 2.0))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(ind_rect.adjusted(7.0, 7.0, -7.0, -7.0), 1.5, 1.5)
+            painter.drawRoundedRect(QRectF(center_x - 5, center_y - 5, 10, 10), 2.0, 2.0)
 
         else:
-            # LD-02: 24x24 棱镜环，描边 2，前景 90 度圆弧；900ms 循环；中心单菱形静置
-            # 背景圆环 (Loading Track)
-            track_pen = QPen(track_color, 2.0)
-            painter.setPen(track_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(ind_rect.adjusted(1, 1, -1, -1))
+            t = elapsed if motion_on else 0.3
+            hop = abs(math.sin(t * 7.5)) * 2.8
+            tilt = math.sin(t * 3.75) * 5.0
 
-            # 前景 90 度圆弧 (900ms 周期线性旋转)
-            if motion_on:
-                rot_deg = (elapsed / 0.9 * 360.0) % 360.0
-            else:
-                rot_deg = 45.0
-            arc_pen = QPen(primary, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-            painter.setPen(arc_pen)
-            painter.drawArc(ind_rect.adjusted(1, 1, -1, -1), int(rot_deg * 16), int(90 * 16))
-
-            # 中心单菱形微晶静置 (4x4 菱形)
-            gem_path = QPainterPath()
-            gem_path.moveTo(center_x, center_y - 2.5)
-            gem_path.lineTo(center_x + 2.5, center_y)
-            gem_path.lineTo(center_x, center_y + 2.5)
-            gem_path.lineTo(center_x - 2.5, center_y)
-            gem_path.closeSubpath()
+            # 地面小影子
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(primary)
-            painter.drawPath(gem_path)
+            painter.setBrush(QColor(primary.red(), primary.green(), primary.blue(), 36))
+            painter.drawEllipse(QPointF(center_x, ind_y + ind_size - 1.5), 10.5 - hop * 0.7, 2.4)
+
+            painter.save()
+            painter.translate(center_x, center_y + 1.0 - hop)
+            painter.rotate(tilt)
+            # 迷你小天线
+            sway = math.sin(t * 7.5 - 0.6) * 2.8
+            painter.setPen(QPen(primary, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawLine(QPointF(0.0, -11.0), QPointF(sway, -15.5))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor('#38BDF8'))
+            painter.drawEllipse(QPointF(sway, -16.0), 2.1, 2.1)
+            # 小棱镜身体
+            bg_grad = QLinearGradient(-12, -11, 12, 11)
+            bg_grad.setColorAt(0.0, QColor('#8470F2'))
+            bg_grad.setColorAt(1.0, primary)
+            painter.setBrush(bg_grad)
+            painter.drawRoundedRect(QRectF(-12.5, -11.0, 25.0, 22.0), 8.0, 8.0)
+            # 白色小脸
+            painter.setBrush(QColor('#FCFbff'))
+            painter.drawRoundedRect(QRectF(-9.0, -5.5, 18.0, 11.5), 4.5, 4.5)
+            # 灵动眼神 + 眨眼
+            blink = (t % 3.1) > 2.95
+            gaze = math.sin(t * 4.2) * 1.3
+            if blink:
+                painter.setPen(QPen(QColor('#2A2546'), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.drawLine(QPointF(-5.5, -0.5), QPointF(-2.5, -0.5))
+                painter.drawLine(QPointF(2.5, -0.5), QPointF(5.5, -0.5))
+            else:
+                painter.setBrush(QColor('#2A2546'))
+                painter.drawEllipse(QPointF(-4.0 + gaze, -0.5), 1.6, 1.9)
+                painter.drawEllipse(QPointF(4.0 + gaze, -0.5), 1.6, 1.9)
+            # 小腮红
+            painter.setBrush(QColor(244, 114, 182, 95))
+            painter.drawEllipse(QPointF(-6.4, 2.6), 1.7, 1.0)
+            painter.drawEllipse(QPointF(6.4, 2.6), 1.7, 1.0)
+            painter.restore()
 
         # 4. 右侧状态徽标 (Status Chip)
-        chip_w = 54 if has_progress else 60
+        chip_w = 52 if has_progress else 56
         chip_h = 22.0
-        chip = QRectF(bounds.right() - chip_w - 12.0, bounds.top() + (bounds.height() - chip_h) / 2.0 - (3.0 if has_progress else 0.0), chip_w, chip_h)
+        chip = QRectF(bounds.right() - chip_w - 11.0, bounds.top() + 12.0, chip_w, chip_h)
         painter.setPen(Qt.PenStyle.NoPen)
 
         if is_fail:
             painter.setBrush(danger_bg)
             painter.setPen(QPen(danger_border, 1.0))
             chip_fg = danger
-            chip_text = '失败'
+            chip_text = 'Failed' if is_en else '卡壳了'
         elif is_finish:
             painter.setBrush(success_bg)
             painter.setPen(QPen(success_border, 1.0))
             chip_fg = success
-            chip_text = '完成'
+            chip_text = 'Done' if is_en else '搞定'
         elif is_cancelled:
             neutral = _qc(pal, 'TEXT_MUTED', '#615D73')
             neutral_bg = _qc(pal, 'SURFACE', '#F7F7FA')
@@ -485,41 +572,71 @@ class AuroraProgress(QWidget):
             painter.setBrush(primary_soft)
             painter.setPen(QPen(border, 1.0))
             chip_fg = primary
-            chip_text = '处理中'
+            chip_text = 'Busy' if is_en else '搬砖中'
 
         painter.drawRoundedRect(chip, 10, 10)
         painter.setPen(chip_fg)
         painter.setFont(QFont('Microsoft YaHei UI', 8, QFont.Weight.Bold))
         painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, chip_text)
 
-        # 5. 主文本描述 (13px / TEXT_STRONG)
+        # 5. 主文案 + 趣味场景副文案（两行排版）
         label_x = ind_x + ind_size + 10.0
-        label_w = chip.left() - label_x - 8.0
-        label_y = bounds.top() + 12.0 if has_progress else bounds.top() + (bounds.height() - 20.0) / 2.0
-        label_rect = QRectF(label_x, label_y, max(0.0, label_w), 20.0)
-
+        label_w = max(0.0, chip.left() - label_x - 8.0)
+        title_rect = QRectF(label_x, bounds.top() + 10.0, label_w, 20.0)
         painter.setPen(text_strong)
-        painter.setFont(QFont('Microsoft YaHei UI', 9, QFont.Weight.DemiBold))
-        painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._label)
+        title_font = QFont('Microsoft YaHei UI', 9, QFont.Weight.DemiBold)
+        painter.setFont(title_font)
+        elided_title = painter.fontMetrics().elidedText(self._label, Qt.TextElideMode.ElideRight, int(label_w))
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_title)
 
-        # 6. 细进度轨道（有真实进度时显示：4px 细轨道，无任务阻断鼠标）
-        if has_progress:
-            track_rect = QRectF(label_x, bounds.bottom() - 14.0, bounds.right() - label_x - 14.0, 4.0)
+        if is_finish:
+            sub_text = 'All done!' if is_en else '顺顺利利搞定啦'
+        elif is_fail:
+            sub_text = 'Check settings and retry' if is_en else '稍微卡壳了，检查一下再试'
+        elif is_cancelled:
+            sub_text = 'Stopped cleanly' if is_en else '已按要求及时刹车'
+        else:
+            sub_text = _pick_context_quip(self._label, elapsed, is_en)
+        sub_w = max(0.0, bounds.right() - label_x - 14.0)
+        sub_rect = QRectF(label_x, bounds.top() + 31.0, sub_w, 18.0)
+        painter.setPen(text_muted)
+        sub_font = QFont('Microsoft YaHei UI', 8)
+        painter.setFont(sub_font)
+        elided_sub = painter.fontMetrics().elidedText(sub_text, Qt.TextElideMode.ElideRight, int(sub_w))
+        painter.drawText(sub_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_sub)
+
+        # 6. 底部纤细进度轨（有真实百分比显示实进度，忙碌无百分比显示灵动往返极光光带）
+        if not is_fail and not is_cancelled:
+            track_rect = QRectF(label_x, bounds.bottom() - 10.0, bounds.right() - label_x - 14.0, 3.5)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(track_color)
-            painter.drawRoundedRect(track_rect, 2.0, 2.0)
+            painter.drawRoundedRect(track_rect, 1.8, 1.8)
 
-            val_pct = max(0.0, min(1.0, self._value / 100.0))
-            fill_rect = QRectF(track_rect.left(), track_rect.top(), track_rect.width() * val_pct, track_rect.height())
-
-            fill_grad = QLinearGradient(fill_rect.topLeft(), fill_rect.topRight())
-            fill_grad.setColorAt(0.0, _qc(pal, 'PRIMARY_GRAD_START', primary))
-            fill_grad.setColorAt(1.0, _qc(pal, 'PRIMARY_GRAD_END', primary))
-
-            path = QPainterPath()
-            path.addRoundedRect(track_rect, 2.0, 2.0)
+            clip_p = QPainterPath()
+            clip_p.addRoundedRect(track_rect, 1.8, 1.8)
             painter.save()
-            painter.setClipPath(path)
-            painter.setBrush(fill_grad)
-            painter.drawRoundedRect(fill_rect, 2.0, 2.0)
+            painter.setClipPath(clip_p)
+            if is_finish:
+                painter.setBrush(success)
+                painter.drawRect(track_rect)
+            elif has_progress:
+                val_pct = max(0.0, min(1.0, self._value / 100.0))
+                fill_rect = QRectF(track_rect.left(), track_rect.top(), track_rect.width() * val_pct, track_rect.height())
+                fill_grad = QLinearGradient(fill_rect.topLeft(), fill_rect.topRight())
+                fill_grad.setColorAt(0.0, _qc(pal, 'PRIMARY_GRAD_START', primary))
+                fill_grad.setColorAt(1.0, _qc(pal, 'PRIMARY_GRAD_END', primary))
+                painter.setBrush(fill_grad)
+                painter.drawRoundedRect(fill_rect, 1.8, 1.8)
+            else:
+                # 柔滑往返光带（1.4s 周期，一眼感知仍在流畅运转）
+                phase = (elapsed % 1.4) / 1.4 if motion_on else 0.35
+                seg_w = max(44.0, track_rect.width() * 0.34)
+                travel = track_rect.width() + seg_w
+                seg_x = track_rect.left() - seg_w + travel * phase
+                wave_grad = QLinearGradient(seg_x, track_rect.top(), seg_x + seg_w, track_rect.top())
+                wave_grad.setColorAt(0.0, QColor(primary.red(), primary.green(), primary.blue(), 0))
+                wave_grad.setColorAt(0.5, primary)
+                wave_grad.setColorAt(1.0, QColor(primary.red(), primary.green(), primary.blue(), 0))
+                painter.setBrush(wave_grad)
+                painter.drawRect(QRectF(seg_x, track_rect.top(), seg_w, track_rect.height()))
             painter.restore()

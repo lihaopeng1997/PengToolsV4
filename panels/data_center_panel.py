@@ -78,6 +78,8 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
                 "tls_client_key_password_token",
             }
         }
+        from ui.aurora_progress import AuroraProgress
+        self._test_loading = AuroraProgress(self)
         self._transport_button = QPushButton("SSH / TLS 设置…" if zh else "SSH / TLS settings…")
         apply_button(self._transport_button, "secondary", compact=True)
         self._transport_button.clicked.connect(self._open_transport_settings)
@@ -218,6 +220,13 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         worker.finished.connect(self._on_transport_test_finished)
         self.test_btn.setEnabled(False)
         self.save_btn.setEnabled(False)
+        if hasattr(self, "_test_loading") and self._test_loading is not None:
+            label = (
+                ("正在校验 SSH 指纹…" if action == "inspect" else "正在测试数据库连接…")
+                if self.language == "zh"
+                else ("Inspecting SSH host key…" if action == "inspect" else "Testing database connection…")
+            )
+            self._test_loading.start_busy(label)
         worker.start()
 
     def _on_transport_test_completed(self, action: str, result: object) -> None:
@@ -238,11 +247,24 @@ class _WorkspaceConnectionDialog(ConnectionDialog):
         self.test_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
         if self._transport_test_pending_close:
+            if hasattr(self, "_test_loading") and self._test_loading is not None:
+                self._test_loading.hide_now()
             self._transport_test_context = None
             QDialog.reject(self)
             return
         action, payload = result
         state = str(payload.get("state") or "failed")
+        if hasattr(self, "_test_loading") and self._test_loading is not None:
+            if action == "inspect" and state == "trusted":
+                pass
+            elif state == "connected":
+                self._test_loading.finish("连接成功" if self.language == "zh" else "Connected")
+            elif state == "cancelled":
+                self._test_loading.cancel("已取消" if self.language == "zh" else "Cancelled")
+            elif action == "inspect" and state == "unknown":
+                self._test_loading.hide_now()
+            else:
+                self._test_loading.fail("连接失败" if self.language == "zh" else "Connection failed")
         if action == "inspect":
             inspection = payload.get("inspection")
             if state == "trusted":
@@ -653,6 +675,8 @@ class DataCenterPanel(QWidget):
         self._catalog_collapsed = False
         self._layout_mode = "wide"
         self._low_height = False
+        from ui.aurora_progress import AuroraProgress
+        self.loading = AuroraProgress(self)
         self._build_ui()
         self.refresh_catalog()
 
@@ -1088,9 +1112,13 @@ class DataCenterPanel(QWidget):
         self._publish_completion_catalog(connection_id)
         refresh = self._tree_capture_refresh.pop(connection_id, False)
         self.tree.set_directory_loading(connection_id, target, root, generation, True)
+        if hasattr(self, "loading") and self.loading is not None:
+            self.loading.start_busy("正在读取数据库目录…" if self.language == "zh" else "Loading database catalog…")
         owner.load_children(target, root, refresh=refresh, generation=generation)
 
     def _on_tree_page_ready(self, connection_id: str, page, request_cursor: str | None, _generation: int) -> None:
+        if hasattr(self, "loading") and self.loading is not None:
+            self.loading.finish("目录已加载" if self.language == "zh" else "Catalog loaded")
         if not self.tree.set_directory_page(connection_id, page, request_cursor):
             return
         owner = self._tree_owners.get(connection_id)
@@ -1163,6 +1191,12 @@ class DataCenterPanel(QWidget):
         return pair[0 if self.language == "zh" else 1]
 
     def _on_tree_request_failed(self, connection_id: str, failure) -> None:
+        if hasattr(self, "loading") and self.loading is not None:
+            code = str(getattr(failure, "code", "") or "")
+            if code == "CANCELLED":
+                self.loading.cancel("已取消" if self.language == "zh" else "Cancelled")
+            else:
+                self.loading.fail("目录读取失败" if self.language == "zh" else "Catalog load failed")
         owner = self._tree_owners.get(connection_id)
         target = getattr(owner, "target", None) if owner is not None else None
         parent_ref = str(getattr(failure, "parent_ref", "") or "")
@@ -1262,6 +1296,8 @@ class DataCenterPanel(QWidget):
         if target != owner.target:
             return
         self.tree.set_directory_loading(connection_id, target, node, generation, True)
+        if hasattr(self, "loading") and self.loading is not None:
+            self.loading.start_busy("正在展开数据库目录…" if self.language == "zh" else "Expanding catalog…")
         owner.load_children(target, node, generation=generation)
 
     def _on_tree_more_requested(
@@ -1273,6 +1309,8 @@ class DataCenterPanel(QWidget):
         if target != owner.target:
             return
         self.tree.set_directory_loading(connection_id, target, parent, generation, True)
+        if hasattr(self, "loading") and self.loading is not None:
+            self.loading.start_busy("正在加载更多数据库对象…" if self.language == "zh" else "Loading more objects…")
         owner.load_children(target, parent, cursor=cursor, generation=generation)
 
     def _on_tree_node_activated(

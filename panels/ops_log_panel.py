@@ -3510,18 +3510,26 @@ class OpsLogPanel(QWidget):
         worker.finished_err.connect(self._on_list_ssh_test_err)
         worker.finished.connect(self._on_list_ssh_test_done)
         self._ssh_test_worker = worker
+        if getattr(self, '_list_ssh_loading', None) is None:
+            from ui.aurora_progress import AuroraProgress
+            self._list_ssh_loading = AuroraProgress(self)
+        self._list_ssh_loading.start_busy(f'正在测试 SSH：{name}…' if zh else f'Testing SSH: {name}…')
         worker.start()
 
     def _on_list_ssh_test_done(self):
         return
 
     def _on_list_ssh_test_ok(self, result: dict):
+        if getattr(self, '_list_ssh_loading', None) is not None:
+            self._list_ssh_loading.finish('SSH 连通正常' if self.language == 'zh' else 'SSH reachable')
         text = format_connection_ok(result, self.language)
         self.session_status.setText(text.replace('\n', '  ·  '))
         show_success(self, 'PengTools · SSH', text)
 
     def _on_list_ssh_test_err(self, message: str):
         zh = self.language == 'zh'
+        if getattr(self, '_list_ssh_loading', None) is not None:
+            self._list_ssh_loading.fail('SSH 连接失败' if zh else 'SSH failed')
         msg = message or ('连接失败' if zh else 'Connection failed')
         self.session_status.setText(('测试失败：' if zh else 'Failed: ') + msg)
         show_error(self, 'PengTools · SSH', msg)

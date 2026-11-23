@@ -289,6 +289,9 @@ class RedisWorkbenchPanel(QWidget):
         root.addWidget(toolbar)
         self.query_status_band = QueryStatusBand(self)
         root.addWidget(self.query_status_band)
+        from ui.aurora_progress import AuroraProgress
+        self.loading = AuroraProgress(self)
+        self._loading_active = False
         self.nosql_draft_tabs = NoSqlDraftTabs('redis', self.language, self)
         self.nosql_draft_tabs.draft_about_to_change.connect(self._save_nosql_draft_text)
         self.nosql_draft_tabs.draft_changed.connect(self._load_nosql_draft_text)
@@ -1683,6 +1686,18 @@ class RedisWorkbenchPanel(QWidget):
         else:
             text = done_zh if zh else done_en
         self.query_status_band.setText(text, querying=state == 'running')
+        loading = getattr(self, 'loading', None)
+        if loading is not None:
+            if state == 'running':
+                if not getattr(self, '_loading_active', False):
+                    self._loading_active = True
+                    loading.start_busy(text)
+            elif getattr(self, '_loading_active', False):
+                self._loading_active = False
+                if state == 'failed':
+                    loading.fail(text)
+                else:
+                    loading.finish(text)
 
     def _fill_overview(self, overview: dict | None, info_table: dict | None):
         zh = self.language == 'zh'
