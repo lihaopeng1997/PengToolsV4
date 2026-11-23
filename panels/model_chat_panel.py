@@ -10,7 +10,7 @@ import base64
 import mimetypes
 import os
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
