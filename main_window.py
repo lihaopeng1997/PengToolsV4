@@ -144,11 +144,18 @@ class MainWindow(QMainWindow):
             main_shell=self.main_shell_renderer,
             dashboard=self.dashboard_renderer,
         )
-        self._show_startup_loading('正在加载模块…' if self.language == 'zh' else 'Loading modules…')
+        self._startup_all_done = False
+        self._startup_veil = None
         # 测试/offscreen：同步 boot，避免用例拿到半成品窗口
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or os.environ.get('PENGTOOLS_SYNC_BOOT') == '1':
             self._complete_startup_sync()
         else:
+            from ui.startup_veil import StartupVeil
+            self._startup_veil = StartupVeil(self, language=self.language)
+            self._startup_veil.begin(
+                '正在初始化界面与工作台…' if self.language == 'zh' else 'Initializing workspace…',
+                progress=8.0,
+            )
             QTimer.singleShot(0, self._startup_tick)
 
     def _center_on_screen(self):
@@ -945,14 +952,44 @@ class MainWindow(QMainWindow):
             and not bool(getattr(self, '_web_shell_ready_announced', False))
         )
 
+    def _capture_startup_veil_backdrop(self) -> None:
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None and veil.is_active:
+            veil.capture_blurred_backdrop()
+
+    def _dismiss_startup_veil_now(self) -> None:
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None:
+            try:
+                veil.dismiss_now()
+            except Exception:
+                pass
+            self._startup_veil = None
+
     def _resume_startup_warmup_after_web_shell(self) -> None:
-        if self._shutting_down or not getattr(self, '_startup_waiting_web_shell', False):
+        if self._shutting_down:
+            return
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None and veil.is_active:
+            veil.set_progress(
+                24.0,
+                '界面已就绪，正在预热常用模块…' if self.language == 'zh' else 'UI ready, warming up modules…',
+            )
+            QTimer.singleShot(60, self._capture_startup_veil_backdrop)
+        if not getattr(self, '_startup_waiting_web_shell', False):
             return
         self._startup_waiting_web_shell = False
         QTimer.singleShot(80, self._startup_tick)
 
     def _update_startup_progress(self, label: str) -> None:
-        if self._user_navigated or self._startup_warmup_total <= 0:
+        if self._startup_warmup_total <= 0:
+            return
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None and veil.is_active:
+            pct = 24.0 + (self._startup_warmup_done / self._startup_warmup_total) * 74.0
+            veil.set_progress(pct, label)
+            return
+        if self._user_navigated:
             return
         progress = round(self._startup_warmup_done / self._startup_warmup_total * 100)
         loading = getattr(self, '_startup_loading', None)
@@ -992,13 +1029,17 @@ class MainWindow(QMainWindow):
         )
 
     def _startup_tick(self):
-        """先让窗口与 WebEngine 首页完成就绪，再带节流间隔后台预热全部本地面板骨架。"""
+        """全窗口虚化遮罩下完成 WebEngine 首屏与全部 14 个本地面板预热，就绪后一次性展示。"""
         if self._shutting_down:
             return
+        veil = getattr(self, '_startup_veil', None)
+        veil_active = veil is not None and veil.is_active
         interactive = self._interactive_boot_steps()
         if self._boot_step < len(interactive):
             message, action = interactive[self._boot_step]
-            if not self._user_navigated:
+            if veil_active:
+                veil.set_progress(10.0 + self._boot_step * 5.0, message)
+            elif not self._user_navigated:
                 self._show_startup_loading(message)
             try:
                 action()
@@ -1012,6 +1053,11 @@ class MainWindow(QMainWindow):
             self._become_interactive()
         if self._web_shell_pending():
             self._startup_waiting_web_shell = True
+            if veil_active:
+                veil.set_progress(
+                    20.0,
+                    '正在加载首页与导航界面…' if self.language == 'zh' else 'Loading dashboard & chrome…',
+                )
             return
         warmup = self._warmup_boot_steps()
         imports = self._startup_import_steps()
@@ -1019,7 +1065,12 @@ class MainWindow(QMainWindow):
             self._startup_warmup_started = True
             self._startup_warmup_started_at = time.perf_counter()
             self._startup_warmup_total = len(warmup) + len(imports)
-            if not self._user_navigated:
+            if veil_active:
+                veil.set_progress(
+                    24.0,
+                    '正在预热工作台模块…' if self.language == 'zh' else 'Warming up modules…',
+                )
+            elif not self._user_navigated:
                 self._show_startup_loading(
                     '正在后台预热模块…' if self.language == 'zh' else 'Warming up modules…'
                 )
@@ -1041,7 +1092,9 @@ class MainWindow(QMainWindow):
             self._boot_step += 1
             self._startup_warmup_done += 1
             self._update_startup_progress(
-                f'后台预热{label}…' if self.language == 'zh' else f'Warming up {label}…'
+                f'正在预热 {label}（{self._startup_warmup_done}/{self._startup_warmup_total}）…'
+                if self.language == 'zh'
+                else f'Warming up {label} ({self._startup_warmup_done}/{self._startup_warmup_total})…'
             )
             QTimer.singleShot(60, self._startup_tick)
             return
@@ -1088,9 +1141,17 @@ class MainWindow(QMainWindow):
         self._finish_startup()
 
     def _finish_startup(self):
+        self._startup_all_done = True
         self._become_interactive()
         self._apply_language_to_created_panels()
         self._hide_startup_loading()
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None and veil.is_active:
+            veil.capture_blurred_backdrop()
+            veil.complete_and_reveal(
+                '全部模块已就绪' if self.language == 'zh' else 'All modules ready'
+            )
+            self._startup_veil = None
         finished_at = time.perf_counter()
         self._startup_metrics['ready_ms'] = round(
             (finished_at - self._startup_started_at) * 1000
@@ -1691,6 +1752,12 @@ class MainWindow(QMainWindow):
         # result is the documented Qt hand-off for every message we do not
         # claim, and leaves WM_CLOSE/WM_SYSCOMMAND/Alt+F4 to the OS/Qt path.
         return False, 0
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        veil = getattr(self, '_startup_veil', None)
+        if veil is not None and veil.is_active:
+            veil.sync_to_host()
 
     def changeEvent(self, event):  # noqa: N802
         super().changeEvent(event)
@@ -2910,6 +2977,7 @@ class MainWindow(QMainWindow):
             event.accept()
             return
         self._shutting_down = True
+        self._dismiss_startup_veil_now()
         if not self._manual_shutdown_done:
             outcome = self._advance_manual_shutdown()
             if outcome != 'ready':

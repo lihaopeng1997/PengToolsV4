@@ -170,7 +170,10 @@ def main():
     # 退出时释放本地服务；最小化托盘不释放
     app.aboutToQuit.connect(guard.release)
     window.show()
-    splash.finish(window)
+    if getattr(window, '_startup_veil', None) is not None and window._startup_veil.is_active:
+        splash.handoff_now()
+    else:
+        splash.finish(window)
     app.processEvents()
 
     smoke_raw = os.environ.get('PENGTOOLS_SMOKE_EXIT_MS')

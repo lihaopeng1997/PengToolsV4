@@ -30,8 +30,9 @@ const error = computed(() => props.state.error)
 const isDemoMode = computed(() => Boolean(summary.value?.is_demo || summary.value?.stats?.is_demo))
 
 const isHidden = ref(false)
-// 「需要关注」切到看板时占满整行
+// 「项目进度」切到看板（或尚无需求走空看板）时整行铺展，同时自动重排第 2 行便当格消除右侧空白
 const boardView = ref<'list' | 'board'>('list')
+const isBoardWide = computed(() => boardView.value === 'board' || !(summary.value?.progress?.board?.length))
 
 function onVisibilityChange() {
   if (typeof document !== 'undefined') {
@@ -250,8 +251,8 @@ function onRetry(): void {
   <IconSprite />
 
   <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden }">
-    <!-- 首页便当格：主卡（问候+搜索）| 本月上线日历 → 阶段进度 | 需要关注 | 日报+常用工具 → 本月上线任务 | 上线总览 -->
-    <div class="bento">
+    <!-- 首页便当格：主卡（问候+搜索）| 本月上线日历 → 阶段进度 | 需要关注 | 日报+常用工具（看板模式下第 2 行由阶段进度+日报/常用工具铺满） -->
+    <div class="bento" :class="{ 'is-board': isBoardWide }">
       <HomeHero
         class="home-hero b-hero"
         :greeting="summary.greeting"
@@ -296,7 +297,7 @@ function onRetry(): void {
       <ProgressBoard
         ref="boardRef"
         class="home-board b-focus"
-        :class="{ wide: boardView === 'board' }"
+        :class="{ wide: isBoardWide }"
         :progress="summary.progress"
         :focus="focus"
         :busy-id="busyId"
@@ -472,6 +473,19 @@ button, input, select, textarea { font: inherit; }
   min-width: 0;
 }
 
+/* 看板整行模式：第 2 行由「阶段进度(4) + 日报/常用工具(8)」填满 12 列，消除右侧大块留白 */
+.bento.is-board .b-stage {
+  grid-column: span 4;
+}
+
+.bento.is-board .b-side {
+  grid-column: span 8;
+}
+
+.bento.is-board .b-side :deep(.quick-grid) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .bento > * {
   min-width: 0;
   animation: section-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -526,19 +540,26 @@ button, input, select, textarea { font: inherit; }
 @media (max-width: 1199px) {
   .b-hero { grid-column: span 12; }
   .b-cal { grid-column: span 5; }
-  .b-stage { grid-column: span 7; }
+  .b-stage,
+  .bento.is-board .b-stage { grid-column: span 7; }
   .b-focus { grid-column: span 12; }
-  .b-side {
+  .b-side,
+  .bento.is-board .b-side {
     grid-column: span 12;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+  .bento.is-board .b-side :deep(.quick-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
   .b-cal,
-  .b-stage { grid-column: span 12; }
-  .b-side { grid-template-columns: 1fr; }
+  .b-stage,
+  .bento.is-board .b-stage { grid-column: span 12; }
+  .b-side,
+  .bento.is-board .b-side { grid-template-columns: 1fr; }
 }
 
 .toast {

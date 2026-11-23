@@ -220,32 +220,36 @@ function onOpen(item: DashboardBoardItem): void {
     <header class="board-head">
       <div class="head-title">
         <h2>项目进度</h2>
+        <span v-if="totalCards" class="head-count">{{ totalCards }}</span>
         <span class="head-sub">{{
           !totalCards ? '还没有在推进的需求'
-            : view === 'list' ? `${totalCards} 个需求 · 先看最需要关注的`
-              : `${totalCards} 个需求 · 拖动卡片即可改阶段`
+            : view === 'list' ? '按紧急度与上线日排序'
+              : '拖动卡片即可切换阶段'
         }}</span>
       </div>
       <div class="head-actions">
+        <button v-if="props.focus && view === 'board'" class="chip focus-chip" type="button" @click="emit('focusStage', null)">
+          只看 {{ focusLabel }}
+          <PrismIcon name="x" :size="12" />
+        </button>
         <div v-if="totalCards" class="seg" role="tablist" aria-label="视图">
           <button type="button" :class="{ on: view === 'list' }" data-action="view-list" @click="setView('list')">列表</button>
           <button type="button" :class="{ on: view === 'board' }" data-action="view-board" @click="setView('board')">看板</button>
         </div>
         <button
           v-if="totalCards && view === 'board'"
-          class="chip view-toggle"
+          class="tool-btn view-toggle"
           type="button"
           :title="compact ? '切换为详细卡片' : '切换为一行一条的紧凑视图'"
           data-action="toggle-compact"
           @click="toggleCompact"
         >
-          {{ compact ? '紧凑' : '详细' }}
+          {{ compact ? '紧凑视图' : '详细卡片' }}
         </button>
-        <button v-if="props.focus && view === 'board'" class="chip" type="button" @click="emit('focusStage', null)">
-          只看 {{ focusLabel }}
-          <PrismIcon name="x" :size="12" />
+        <button class="tool-btn nav-btn" type="button" @click="emit('navigate', 10)">
+          <span>需求管理</span>
+          <span class="nav-arrow" aria-hidden="true">→</span>
         </button>
-        <button class="link" type="button" @click="emit('navigate', 10)">需求管理</button>
       </div>
     </header>
 
@@ -319,6 +323,7 @@ function onOpen(item: DashboardBoardItem): void {
           dim: props.focus && props.focus !== col.key,
           drop: dropKey === col.key,
           focused: props.focus === col.key,
+          'is-empty': !col.items.length,
         }"
         :style="{ '--stage': col.color }"
         @dragover="onDragOver($event, col.key)"
@@ -403,7 +408,16 @@ function onOpen(item: DashboardBoardItem): void {
           </button>
 
           <div v-if="!col.items.length && creatingIn !== col.key" class="empty">
-            {{ dragId ? '放到这里' : col.key === 'online' ? '本月还没有上线' : '暂无' }}
+            <span class="empty-text">{{ dragId ? '松手移入此阶段' : col.key === 'online' ? '本月暂无上线' : '暂无需求' }}</span>
+            <button
+              v-if="!dragId && col.key !== 'online' && !props.isDemo"
+              type="button"
+              class="empty-add"
+              @click="startCreate(col.key)"
+            >
+              <PrismIcon name="plus" :size="12" />
+              <span>新建</span>
+            </button>
           </div>
         </div>
       </div>
@@ -413,37 +427,52 @@ function onOpen(item: DashboardBoardItem): void {
 
 <style scoped>
 .card {
-  background: var(--surface);
+  background: rgba(253, 253, 255, 0.94);
   border: 1px solid var(--border);
   border-radius: 20px;
-  box-shadow: 0 1px 3px var(--shadow-l1);
+  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .board {
-  padding: 18px 18px 14px;
+  padding: 18px 20px 18px;
   min-width: 0;
 }
 
 .board-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .head-title {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
 }
 
 h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-strong);
+}
+
+.head-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .head-sub {
@@ -464,56 +493,111 @@ h2 {
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
+  gap: 5px;
+  height: 30px;
   padding: 0 10px;
-  border-radius: 13px;
-  border: 1px solid var(--primary);
+  border-radius: 9px;
+  border: 1px solid rgba(108, 88, 217, 0.45);
   background: var(--primary-soft);
   color: var(--primary);
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
 }
 
-.link {
-  border: none;
-  background: none;
+.chip:hover {
+  border-color: var(--primary);
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.tool-btn:hover {
+  border-color: rgba(108, 88, 217, 0.55);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.tool-btn.nav-btn {
+  background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
 }
 
-.link:hover {
-  color: var(--primary);
+.tool-btn.nav-btn:hover {
   background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.nav-arrow {
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 150ms ease;
+}
+
+.tool-btn.nav-btn:hover .nav-arrow {
+  transform: translateX(2px);
 }
 
 .columns {
   display: grid;
   grid-template-columns: repeat(5, minmax(176px, 1fr));
-  gap: 10px;
+  gap: 12px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 
 .column {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border-radius: 14px;
-  background: var(--surface-soft);
-  border: 1px solid transparent;
-  transition: opacity 200ms ease, border-color 160ms ease, background 160ms ease;
+  background: linear-gradient(180deg, rgba(246, 244, 253, 0.78) 0%, rgba(250, 249, 255, 0.44) 100%);
+  border: 1px solid rgba(216, 211, 234, 0.72);
+  overflow: hidden;
+  transition: opacity 200ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.column::before {
+  content: "";
+  display: block;
+  height: 3px;
+  width: 100%;
+  background: var(--stage);
+  opacity: 0.78;
+}
+
+.column.is-empty {
+  background: rgba(248, 247, 253, 0.52);
+  border-color: rgba(216, 211, 234, 0.52);
+}
+
+.column.is-empty::before {
+  opacity: 0.32;
 }
 
 .column.dim {
-  opacity: 0.38;
+  opacity: 0.36;
 }
 
 .column.focused {
   border-color: var(--stage);
+  box-shadow: 0 0 0 2px rgba(108, 88, 217, 0.12);
 }
 
 .column.drop {
@@ -521,11 +605,15 @@ h2 {
   background: var(--primary-soft);
 }
 
+.column.drop::before {
+  opacity: 1;
+}
+
 .col-head {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 10px 10px 8px 12px;
+  padding: 11px 10px 9px 12px;
 }
 
 .dot {
@@ -533,17 +621,27 @@ h2 {
   height: 8px;
   border-radius: 50%;
   background: var(--stage);
-  box-shadow: 0 0 0 3px var(--surface);
+  flex-shrink: 0;
 }
 
 .col-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .col-count {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(216, 211, 234, 0.72);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -555,31 +653,36 @@ h2 {
   display: grid;
   place-items: center;
   border-radius: 7px;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .col-add:hover {
   background: var(--surface);
+  border-color: var(--border);
   color: var(--primary);
 }
 
 .col-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 8px 10px;
-  min-height: 120px;
-  max-height: 420px;
+  gap: 9px;
+  padding: 2px 9px 11px;
+  min-height: 116px;
+  max-height: 430px;
   overflow-y: auto;
 }
 
 .seg {
   display: inline-flex;
+  align-items: center;
+  height: 30px;
   padding: 2px;
-  border-radius: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
   background: var(--surface-soft);
 }
 
@@ -587,18 +690,24 @@ h2 {
   height: 24px;
   padding: 0 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.seg button:hover:not(.on) {
+  color: var(--text-strong);
 }
 
 .seg button.on {
   background: var(--surface);
   color: var(--primary);
   font-weight: 600;
-  box-shadow: 0 1px 3px var(--shadow-l1);
+  box-shadow: 0 1px 3px rgba(38, 36, 56, 0.10);
 }
 
 .focus-list {
@@ -806,13 +915,20 @@ h2 {
 }
 
 .columns.compact .task {
-  padding: 6px 10px 6px 12px;
+  padding: 7px 10px 7px 13px;
   border-radius: 9px;
 }
 
 .columns.compact .task::before {
+  content: "";
+  position: absolute;
+  left: 0;
   top: 6px;
   bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--stage);
+  opacity: 0.85;
 }
 
 .columns.compact .task-top {
@@ -822,6 +938,7 @@ h2 {
 .columns.compact .task-title {
   margin: 0;
   font-size: 12.5px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -847,32 +964,21 @@ h2 {
 
 .task {
   position: relative;
-  padding: 10px 11px 10px 13px;
+  padding: 12px 13px 11px;
   border-radius: 12px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid rgba(214, 208, 232, 0.82);
+  box-shadow: 0 1px 3px rgba(38, 36, 56, 0.04);
   cursor: pointer;
   outline: none;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
-}
-
-.task::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--stage);
-  opacity: 0.85;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease, border-color 160ms ease;
 }
 
 .task:hover,
 .task:focus-visible {
   transform: translateY(-2px);
-  border-color: var(--border-strong);
-  box-shadow: 0 8px 18px var(--shadow-l1);
+  border-color: rgba(108, 88, 217, 0.55);
+  box-shadow: 0 8px 20px rgba(108, 88, 217, 0.11);
 }
 
 .task:focus-visible {
@@ -905,14 +1011,15 @@ h2 {
   text-overflow: ellipsis;
 }
 
-.prio {
+.task .prio {
   margin-left: auto;
   flex-shrink: 0;
-  font-size: 11px;
-  padding: 0 6px;
+  font-size: 10.5px;
+  padding: 1px 7px;
   border-radius: 6px;
   background: var(--warning-bg);
   color: var(--warning);
+  border: none;
 }
 
 .task.urgent .prio {
@@ -921,9 +1028,10 @@ h2 {
 }
 
 .task-title {
-  margin: 4px 0 6px;
-  font-size: 13px;
-  line-height: 1.45;
+  margin: 5px 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.44;
   color: var(--text-strong);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -934,6 +1042,7 @@ h2 {
 .task-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   font-size: 11px;
   color: var(--text-muted);
@@ -941,6 +1050,10 @@ h2 {
 }
 
 .sys {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(240, 237, 250, 0.85);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -951,19 +1064,20 @@ h2 {
   align-items: center;
   gap: 3px;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .tp {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 7px;
+  gap: 7px;
+  margin-top: 9px;
 }
 
 .tp-bar {
   flex: 1;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 999px;
   background: var(--loading-track);
   overflow: hidden;
 }
@@ -971,31 +1085,61 @@ h2 {
 .tp-bar span {
   display: block;
   height: 100%;
-  border-radius: 2px;
+  border-radius: 999px;
   background: var(--stage);
   transition: width 300ms ease;
 }
 
 .tp-text {
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .next {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   font-size: 11px;
   color: var(--text-muted);
 }
 
 .empty {
-  display: grid;
-  place-items: center;
-  min-height: 84px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 96px;
+  padding: 12px 8px;
+  border-radius: 10px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.empty-text {
+  opacity: 0.72;
+}
+
+.empty-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(212, 206, 230, 0.85);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.empty-add:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .draft-input {

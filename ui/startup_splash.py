@@ -219,6 +219,11 @@ class StartupSplash(QWidget):
                 self._finish_timer.timeout.connect(self._do_finish)
                 self._finish_timer.start(remaining_ms)
 
+    def handoff_now(self):
+        """无缝交接给全窗口 StartupVeil 时立即收起闪屏，避免双卡片重叠。"""
+        self._finish_requested = True
+        self._do_finish()
+
     def _do_finish(self):
         if self._is_finished:
             return

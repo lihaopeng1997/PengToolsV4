@@ -49,11 +49,14 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 
 <style scoped>
 .quick-tools-card {
-  background: var(--surface);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(253, 253, 255, 0.92);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 2px 8px var(--shadow-l1);
+  border-radius: 20px;
+  padding: 16px 18px 16px;
+  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
   box-sizing: border-box;
 }
 
@@ -62,13 +65,13 @@ const displayTools = computed<DashboardToolItem[]>(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .card-title {
   font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
+  font-weight: 700;
+  color: var(--text-strong);
   margin: 0;
 }
 
@@ -79,22 +82,24 @@ const displayTools = computed<DashboardToolItem[]>(() => {
 }
 
 .quick-grid {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
+  align-content: stretch;
 }
 
 .quick-btn {
   min-width: 0;
   height: auto;
-  min-height: 76px;
+  min-height: 74px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: rgba(246, 244, 252, 0.72);
+  border: 1px solid rgba(216, 211, 234, 0.75);
+  border-radius: 12px;
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
