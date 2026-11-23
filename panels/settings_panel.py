@@ -1838,7 +1838,6 @@ class SettingsPanel(QWidget):
         self._pending_ai_save = (deepcopy(pending_cfg), self._ai_token_action())
         self._save_loading.start_busy(
             '正在保存内网模型…' if zh else 'Saving intranet model…',
-            immediate=True,
         )
         # Let the busy chip receive a paint event before doing the synchronous
         # local file write. No artificial delay or nested processEvents is used.
@@ -2143,7 +2142,6 @@ class SettingsPanel(QWidget):
         self._disable_save_actions()
         self._save_loading.start_busy(
             '正在保存设置…' if zh else 'Saving settings…',
-            immediate=True,
         )
         # Give the loading surface a normal Qt paint turn before the local
         # persistence/apply callback runs. This keeps feedback real without

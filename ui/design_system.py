@@ -223,25 +223,13 @@ class _GlobalButtonRippleFilter(QObject):
 
 
 def install_global_button_ripples(app) -> None:
-    """在 QApplication 上幂等安装全局按钮点击水波纹。"""
-    if app is None:
-        return
-    if getattr(app, '_global_button_ripple_filter', None) is not None:
-        return
-    flt = _GlobalButtonRippleFilter(app)
-    app._global_button_ripple_filter = flt
-    app.installEventFilter(flt)
+    """保留兼容入口：已关闭点击扩散水波纹，保持桌面按钮即时利落反馈。"""
+    _ = app
 
 
 def install_button_ripple(button, *, primary: bool = False) -> None:
-    """为原生 PyQt6 按钮挂接清风玻璃水波纹（幂等安装）。"""
-    existing = getattr(button, '_airy_ripple_filter', None)
-    if isinstance(existing, _AiryRippleFilter):
-        existing.set_primary(primary)
-        return
-    flt = _AiryRippleFilter(button, primary=primary)
-    button._airy_ripple_filter = flt
-    button.installEventFilter(flt)
+    """保留兼容入口：已关闭点击扩散水波纹，保持桌面按钮即时利落反馈。"""
+    _, _ = button, primary
 
 
 def apply_button(

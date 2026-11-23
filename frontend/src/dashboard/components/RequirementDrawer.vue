@@ -3,7 +3,7 @@
  * 首页右侧抽屉：就地查看与调整一个需求（或快速新建），不跳转需求管理。
  * 所有写入通过 props.act（= bridge.homeAction）完成，每次改动立即保存。
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { HomeActionResult } from '../../shared/bridge'
 import PrismIcon from '../../shared/components/PrismIcon.vue'
 import { STAGE_DEFS, type RequirementDetail, type StageKey, type TestPoint } from '../types'
@@ -28,11 +28,30 @@ const statuses = ref<string[]>([])
 const priorities = ref<string[]>(['普通', '重要', '紧急'])
 const loading = ref(false)
 const saving = ref(false)
+const showSavingHint = ref(false)
 const error = ref('')
 const savedTick = ref(0)
 const newPoint = ref('')
 const titleDraft = ref('')
 const codeDraft = ref('')
+
+let loadSeq = 0
+let loadSkeletonTimer = 0
+let savingHintTimer = 0
+
+function beginSavingHint(): void {
+  saving.value = true
+  window.clearTimeout(savingHintTimer)
+  savingHintTimer = window.setTimeout(() => {
+    if (saving.value) showSavingHint.value = true
+  }, 200)
+}
+
+function endSavingHint(): void {
+  saving.value = false
+  window.clearTimeout(savingHintTimer)
+  showSavingHint.value = false
+}
 
 const createForm = ref({ title: '', code: '', group: 'develop' as StageKey, date: '' })
 const createTitle = ref<HTMLInputElement | null>(null)
@@ -60,20 +79,32 @@ function apply(result: HomeActionResult): boolean {
   return true
 }
 
-async function load(): Promise<void> {
+async function load(options: { silent?: boolean } = {}): Promise<void> {
   if (!props.id) return
-  loading.value = true
+  const seq = ++loadSeq
+  window.clearTimeout(loadSkeletonTimer)
   error.value = ''
-  detail.value = null
-  apply(await props.act({ action: 'detail', id: props.id }))
+  const silent = Boolean(options.silent)
+  if (!silent) {
+    detail.value = null
+    // 本地桥接通常 5–20ms 返回，仅超过 200ms 才展示骨架屏，避免瞬时闪一下加载动画
+    loading.value = false
+    loadSkeletonTimer = window.setTimeout(() => {
+      if (seq === loadSeq && detail.value === null) loading.value = true
+    }, 200)
+  }
+  const result = await props.act({ action: 'detail', id: props.id })
+  if (seq !== loadSeq) return
+  window.clearTimeout(loadSkeletonTimer)
+  apply(result)
   loading.value = false
 }
 
 async function run(payload: Record<string, unknown>): Promise<void> {
   if (!detail.value) return
-  saving.value = true
+  beginSavingHint()
   const ok = apply(await props.act({ ...payload, id: detail.value.id }))
-  saving.value = false
+  endSavingHint()
   if (ok) savedTick.value += 1
 }
 
@@ -130,7 +161,7 @@ async function submitCreate(): Promise<void> {
     error.value = '请填写需求标题'
     return
   }
-  saving.value = true
+  beginSavingHint()
   const result = await props.act({
     action: 'create',
     title: form.title,
@@ -138,17 +169,20 @@ async function submitCreate(): Promise<void> {
     group: form.group,
     actual_release_date: form.date,
   })
-  saving.value = false
+  endSavingHint()
   if (apply(result) && detail.value) emit('created', detail.value.id)
 }
 
 watch(
   () => [props.open, props.mode, props.id] as const,
-  async ([open, mode]) => {
+  async ([open, mode, id]) => {
+    window.clearTimeout(loadSkeletonTimer)
+    loading.value = false
     if (!open) return
     error.value = ''
     if (mode === 'detail') {
-      await load()
+      const alreadyLoaded = Boolean(detail.value && id && String(detail.value.id) === String(id))
+      await load({ silent: alreadyLoaded })
     } else {
       detail.value = null
       createForm.value = { title: '', code: '', group: props.createGroup || 'develop', date: '' }
@@ -158,6 +192,11 @@ watch(
   },
   { immediate: true },
 )
+
+onBeforeUnmount(() => {
+  window.clearTimeout(loadSkeletonTimer)
+  window.clearTimeout(savingHintTimer)
+})
 </script>
 
 <template>
@@ -168,7 +207,7 @@ watch(
     <aside v-if="props.open" class="drawer" role="dialog" aria-modal="true" @keydown.esc="emit('close')">
       <header class="d-head">
         <span class="eyebrow">{{ props.mode === 'create' ? '新建需求' : detail?.kind || '需求' }}</span>
-        <span v-if="saving" class="saving">保存中…</span>
+        <span v-if="showSavingHint" class="saving">保存中…</span>
         <span v-else-if="savedTick" :key="savedTick" class="saved"><PrismIcon name="check" :size="12" />已保存</span>
         <button class="icon-btn" type="button" aria-label="关闭" @click="emit('close')">
           <PrismIcon name="x" :size="16" />

@@ -2437,14 +2437,7 @@ class MainWindow(QMainWindow):
             self.personal_panel.open_daily_report()
         elif index == 10 and self.requirement_panel is not None:
             self.requirement_panel.refresh_systems()
-        prev_stack_idx = self.stack.currentIndex()
         self.stack.setCurrentIndex(stack_index)
-        if prev_stack_idx != stack_index:
-            try:
-                from ui.motion import play_page_enter
-                play_page_enter(self.stack.currentWidget())
-            except Exception:
-                pass
         if getattr(self, '_module_tabs', None) is not None:
             self._module_tabs.open_nav(index, activate=True)
         if getattr(self, '_prism_sidebar', None) is not None:
