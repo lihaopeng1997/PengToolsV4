@@ -101,6 +101,8 @@ class MainWindow(QMainWindow):
         self._startup_warmup_done = 0
         self._startup_warmup_total = 0
         self._startup_failures = 0
+        self._startup_waiting_web_shell = False
+        self._startup_panel_timings = {}
         self._startup_metrics = {}
         self._user_navigated = False
         # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
@@ -925,17 +927,29 @@ class MainWindow(QMainWindow):
             ('格式工具' if zh else 'Format tools', self._ensure_format_panel),
             ('需求管理' if zh else 'Requirements', self._ensure_requirement_panel),
             ('个人模块' if zh else 'Personal', self._ensure_personal_panel),
+            ('模型聊天' if zh else 'Model chat', self._ensure_model_chat_panel),
+            ('Agent 工作台' if zh else 'Agent workbench', self._ensure_agent_workbench_panel),
+            ('接口排查' if zh else 'API debug', self._ensure_interface_debug_panel),
+            ('日志排查' if zh else 'Log inspect', self._ensure_ops_log_panel),
+            ('数据中心' if zh else 'Data center', self._ensure_data_center_panel),
         ]
 
     def _startup_import_steps(self):
-        """预加载纯本地模块，避免首次进入低频页面时承担导入成本。"""
-        return [
-            ('接口排查', 'panels.interface_debug_panel'),
-            ('日志排查', 'panels.ops_log_panel'),
-            ('模型聊天', 'panels.model_chat_panel'),
-            ('Agent 工作台', 'panels.agent_workbench_panel'),
-            ('数据中心', 'panels.data_center_panel'),
-        ]
+        """保留兼容入口：五个纯本地模块现已纳入分阶段骨架预热（零外连）。"""
+        return []
+
+    def _web_shell_pending(self) -> bool:
+        """WebEngine 首页与侧栏尚未完成加载与桥接握手时，暂停重型后台预热避免抢占主线程超时。"""
+        return (
+            bool(getattr(self, '_web_shell_enabled', False))
+            and not bool(getattr(self, '_web_shell_ready_announced', False))
+        )
+
+    def _resume_startup_warmup_after_web_shell(self) -> None:
+        if self._shutting_down or not getattr(self, '_startup_waiting_web_shell', False):
+            return
+        self._startup_waiting_web_shell = False
+        QTimer.singleShot(80, self._startup_tick)
 
     def _update_startup_progress(self, label: str) -> None:
         if self._user_navigated or self._startup_warmup_total <= 0:
@@ -955,7 +969,8 @@ class MainWindow(QMainWindow):
         self._startup_metrics['interactive_ms'] = round(
             (self._startup_interactive_at - self._startup_started_at) * 1000
         )
-        self._hide_startup_loading()
+        if self._user_navigated or not self._web_shell_pending():
+            self._hide_startup_loading()
         if self.quick_panel is not None:
             self.quick_panel.set_language(self.language)
             if self._settings.get('floating_show_on_startup'):
@@ -977,7 +992,7 @@ class MainWindow(QMainWindow):
         )
 
     def _startup_tick(self):
-        """先让窗口可点，再后台预热其余面板，不再用全局浮层罩到全部完成。"""
+        """先让窗口与 WebEngine 首页完成就绪，再带节流间隔后台预热全部本地面板骨架。"""
         if self._shutting_down:
             return
         interactive = self._interactive_boot_steps()
@@ -991,11 +1006,13 @@ class MainWindow(QMainWindow):
                 self._startup_failures += 1
                 self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
             self._boot_step += 1
-            QApplication.processEvents()
-            QTimer.singleShot(0, self._startup_tick)
+            QTimer.singleShot(20, self._startup_tick)
             return
         if not self._startup_ready:
             self._become_interactive()
+        if self._web_shell_pending():
+            self._startup_waiting_web_shell = True
+            return
         warmup = self._warmup_boot_steps()
         imports = self._startup_import_steps()
         if not self._startup_warmup_started:
@@ -1014,16 +1031,19 @@ class MainWindow(QMainWindow):
                 self.status_bar.showMessage(f'后台预热{label}…', 1500)
             else:
                 self.status_bar.showMessage(f'Warming up {label}…', 1500)
+            t0 = time.perf_counter()
             try:
                 action()
             except Exception as exc:
+                self._startup_failures += 1
                 self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
+            self._startup_panel_timings[label] = round((time.perf_counter() - t0) * 1000)
             self._boot_step += 1
             self._startup_warmup_done += 1
             self._update_startup_progress(
                 f'后台预热{label}…' if self.language == 'zh' else f'Warming up {label}…'
             )
-            QTimer.singleShot(0, self._startup_tick)
+            QTimer.singleShot(60, self._startup_tick)
             return
 
         import_index = warmup_index - len(warmup)
@@ -1039,7 +1059,7 @@ class MainWindow(QMainWindow):
             self._update_startup_progress(
                 f'准备{label}…' if self.language == 'zh' else f'Preparing {label}…'
             )
-            QTimer.singleShot(0, self._startup_tick)
+            QTimer.singleShot(60, self._startup_tick)
             return
 
         self._finish_startup()
@@ -1079,10 +1099,11 @@ class MainWindow(QMainWindow):
             self._startup_metrics['warmup_ms'] = round(
                 (finished_at - self._startup_warmup_started_at) * 1000
             )
-        self._startup_metrics['preloaded_modules'] = max(
-            0, self._startup_warmup_done - len(self._warmup_boot_steps())
-        )
+        self._startup_metrics['preloaded_panels'] = self._startup_warmup_done
         self._startup_metrics['startup_failures'] = self._startup_failures
+        if self._startup_panel_timings:
+            slowest = max(self._startup_panel_timings.items(), key=lambda kv: kv[1])
+            self._startup_metrics['slowest_panel'] = f'{slowest[0]}:{slowest[1]}ms'
         log_web_event('startup_ready', **self._startup_metrics)
 
     def _create_prism_sidebar(self):
@@ -2042,6 +2063,7 @@ class MainWindow(QMainWindow):
         holder = getattr(self, '_dash_holder', None)
         if holder is not None:
             holder.setCurrentIndex(1)
+        self._resume_startup_warmup_after_web_shell()
 
     def _check_web_shell_ready(self):
         """统一健康判定：loadFinished(True) 与 bridge ready 双四条件全部满足才 announce 一次。"""
@@ -2060,6 +2082,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage('V2 界面已就绪', 3000)
         except Exception:
             pass
+        self._resume_startup_warmup_after_web_shell()
 
     def _on_web_page_ready(self, page_name):
         """pageReady 仅代表 QWebChannel + 页面 JS 初始化完成。"""
@@ -2532,13 +2555,24 @@ class MainWindow(QMainWindow):
         font = app.font()
         font.setPointSize(max(8, int(candidate['font_size']) - 2))
         try:
-            from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID
-            ThemeManager.instance().apply(
-                app,
-                candidate.get('ui_theme', DEFAULT_THEME_ID),
-                font_size=candidate.get('font_size', 12),
+            from ui.theme_manager import ThemeManager, DEFAULT_THEME_ID, resolve_theme_id
+            target_theme = resolve_theme_id(candidate.get('ui_theme', DEFAULT_THEME_ID))
+            target_font_size = int(candidate.get('font_size', 12))
+            already_applied = (
+                not persist
+                and app is not None
+                and app.property('ui_theme') == target_theme
+                and app.property('ui_font_size') == target_font_size
+                and bool(app.styleSheet())
             )
-            app.setFont(font)
+            if not already_applied:
+                ThemeManager.instance().apply(
+                    app,
+                    target_theme,
+                    font_size=target_font_size,
+                )
+            if app is not None and app.font().pointSize() != font.pointSize():
+                app.setFont(font)
             saved = save_settings(candidate) if persist else candidate
         except Exception as exc:
             app.setFont(previous_font)

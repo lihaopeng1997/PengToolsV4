@@ -489,6 +489,7 @@ class ThemeManager:
             if app is not None:
                 app.setProperty('base_stylesheet', qss)
                 app.setProperty('ui_theme', theme_id)
+                app.setProperty('ui_font_size', None if font_size is None else int(font_size))
                 self._ensure_fusion_style(app)
                 palette = build_app_palette(THEMES[theme_id])
                 app.setPalette(palette)
