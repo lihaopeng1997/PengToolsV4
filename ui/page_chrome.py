@@ -389,22 +389,30 @@ class OnboardingGuideCard(QFrame):
             from ui.theme_manager import ThemeManager
             tm = ThemeManager.instance()
             primary = tm.token('PRIMARY') or '#6C58D9'
-            primary_soft = tm.token('PRIMARY_SOFT') or '#EFEBF9'
-            border = tm.token('BORDER_SUBTLE') or '#DDD6F5'
-            surface_soft = tm.token('SURFACE_ALT') or '#F8F6FE'
-            text_strong = tm.token('TEXT_PRIMARY') or '#1F1D2B'
-            text_muted = tm.token('TEXT_MUTED') or '#5F5B73'
+            primary_soft = tm.token('PRIMARY_SOFT') or '#EEE9FF'
+            border = tm.token('BORDER') or '#DFD9F0'
+            surface_soft = tm.token('SURFACE_SOFT') or '#F2EEFB'
+            text_strong = tm.token('TEXT_STRONG') or '#262438'
+            text_muted = tm.token('TEXT_MUTED') or '#615D73'
         except Exception:
             primary = '#6C58D9'
-            primary_soft = '#EFEBF9'
-            border = '#DDD6F5'
-            surface_soft = '#F8F6FE'
-            text_strong = '#1F1D2B'
-            text_muted = '#5F5B73'
+            primary_soft = '#EEE9FF'
+            border = '#DFD9F0'
+            surface_soft = '#F2EEFB'
+            text_strong = '#262438'
+            text_muted = '#615D73'
+
+        # 避免未知 token 回退到纯黑，显式兜底为浅色 Prism calm 卡片色
+        if border.lower() == '#000000':
+            border = '#DFD9F0'
+        if surface_soft.lower() == '#000000':
+            surface_soft = '#F2EEFB'
+        if text_strong.lower() == '#000000':
+            text_strong = '#262438'
 
         self.setStyleSheet(
             f'QFrame#onboarding-guide-card {{'
-            f' background: {surface_soft};'
+            f' background-color: {surface_soft};'
             f' border: 1px solid {border};'
             f' border-radius: 12px;'
             f'}}'
@@ -416,9 +424,11 @@ class OnboardingGuideCard(QFrame):
             f'}}'
             f'QLabel#onboarding-step-num {{'
             f' color: {primary};'
-            f' background: {primary_soft};'
+            f' background-color: {primary_soft};'
             f' border: 1px solid {border};'
             f' border-radius: 10px;'
+            f' padding: 0px;'
+            f' margin: 0px;'
             f' font-size: 11px;'
             f' font-weight: 700;'
             f'}}'
