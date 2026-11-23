@@ -73,7 +73,7 @@ from ui.confirm_dialog import (
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
-from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.page_chrome import make_onboarding_guide, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs, layout_bucket
 from ui.table_utils import autofit_columns
 
@@ -577,6 +577,17 @@ class InterfaceDebugPanel(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ll.addWidget(self.empty_hint)
+        self.empty_guide = make_onboarding_guide(
+            '3 步开始接口抓包',
+            [
+                ('点击右上角「开始监听」', '自动启用本机抓包代理（首次抓 HTTPS 请在上方「更多 ▾」安装证书）'),
+                ('重开浏览器访问目标页面', '完全退出并重新打开 Chrome / Edge，正常操作业务触发接口请求'),
+                ('点击左侧请求查详情与解密', '右侧直接查看请求头、响应体，或一键送入格式工具 / 加解密'),
+            ],
+            compact=True,
+            parent=left,
+        )
+        ll.addWidget(self.empty_guide)
         self._session_list_widget = left
         self.mid_splitter.addWidget(left)
 
@@ -2496,19 +2507,43 @@ class InterfaceDebugPanel(QWidget):
 
     def _update_empty_hint(self):
         zh = self.language == 'zh'
-        if self._listening and self._channel_ready and not self._records:
+        has_records = bool(self._records)
+        shown = len(getattr(self, '_filtered', ()) or ())
+        if hasattr(self, 'empty_guide'):
+            self.empty_guide.set_content(
+                '3 步开始接口抓包' if zh else 'Start capturing in 3 steps',
+                [
+                    ('点击右上角「开始监听」', '自动启用本机抓包代理（首次抓 HTTPS 请在上方「更多 ▾」安装证书）'),
+                    ('重开浏览器访问目标页面', '完全退出并重新打开 Chrome / Edge，正常操作业务触发接口请求'),
+                    ('点击左侧请求查详情与解密', '右侧直接查看请求头、响应体，或一键送入格式工具 / 加解密'),
+                ] if zh else [
+                    ('Click "Start listen"', 'Enables local capture proxy (install HTTPS cert under More if needed).'),
+                    ('Restart browser & open app', 'Fully restart Chrome/Edge and trigger requests on your target page.'),
+                    ('Inspect & decrypt details', 'Click any captured row to view headers/body or send to Crypto/Format.'),
+                ],
+            )
+            self.empty_guide.setVisible(not has_records and not (self._listening and self._channel_ready))
+        if self._listening and self._channel_ready and not has_records:
             self.empty_hint.setText(
-                '抓包中，等待请求…\n请用浏览器打开业务页面并操作，列表会显示 method / URL / 状态。'
+                '抓包中，等待请求…\n请用浏览器打开业务页面并操作，列表会实时显示 method / URL / 状态。'
                 if zh else
                 'Capturing — open your browser and use the app; URL list will fill in.'
             )
+            self.empty_hint.setVisible(True)
+        elif has_records and shown == 0:
+            self.empty_hint.setText(
+                '当前筛选条件下没有匹配的请求，可清空关键词或切回「全部」。'
+                if zh else
+                'No requests match the current filter.'
+            )
+            self.empty_hint.setVisible(True)
         else:
             self.empty_hint.setText(
-                '点「开始监听」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。\n'
-                '列表会显示 # / 结果 / 协议 / 方法 / 主机 / URL。'
+                '点「开始监听」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。'
                 if zh else
                 'Start listen → fully restart Chrome/Edge → open your app pages.'
             )
+            self.empty_hint.setVisible(False)
 
     def _confirm_clear_session(self):
         zh = self.language == 'zh'
@@ -2552,7 +2587,7 @@ class InterfaceDebugPanel(QWidget):
         self.resp_detail.clear()
         self.draft_preview.clear()
         self.session_count.setText('0 / 0')
-        self.empty_hint.setVisible(True)
+        self._update_empty_hint()
 
     # ── HTTPS 抓包证书 ──────────────────────────────────
     def _install_ie_cert(self):
@@ -2721,7 +2756,7 @@ class InterfaceDebugPanel(QWidget):
         shown = len(self._filtered)
         self.session_count.setText(f'{shown} / {total}')
         self._refresh_listen_status_pill()
-        self.empty_hint.setVisible(shown == 0)
+        self._update_empty_hint()
         self.table.setRowCount(shown)
         labels = self.COL_LABELS_ZH if self.language == 'zh' else self.COL_LABELS_EN
         self.table.setHorizontalHeaderLabels([labels[k] for k in COLUMN_KEYS])

@@ -35,7 +35,7 @@ from ui.field_metrics import size_line
 from ui import layout_metrics as _lm
 from ui.layout_metrics import TREE_ITEM_H
 from ui.navigation_model import FIXED_DB_PAGES, dialect_for_nav
-from ui.page_chrome import make_page_header, set_header_home_language
+from ui.page_chrome import make_onboarding_guide, make_page_header, set_header_home_language
 from ui.data_center.workspace_tree import NODE_KIND_ROLE, TREE_LOADED_ROLE, WorkspaceTree
 from ui.data_center.connection_transport import (
     ConnectionTransportWorker,
@@ -890,6 +890,17 @@ class DataCenterPanel(QWidget):
         self.summary_hint.setObjectName("field-hint")
         self.summary_hint.setWordWrap(True)
         layout.addWidget(self.summary_hint)
+        self.summary_guide = make_onboarding_guide(
+            "3 步上手数据中心",
+            [
+                ("新建数据库连接", "点下方或顶栏「新建连接」，支持 Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB"),
+                ("双击打开专属工作区", "在左侧目录双击连接即可打开标签，切换标签不会串库或中断任务"),
+                ("查数据与看表结构", "在工作区显式测试连接、执行只读 SQL 或浏览 Key / 集合"),
+            ],
+            parent=page,
+        )
+        self.summary_guide.setMaximumWidth(620)
+        layout.addWidget(self.summary_guide)
         self.summary_create_btn = QPushButton()
         apply_button(self.summary_create_btn, "secondary", compact=True)  # 工具条已有主操作，概览页不再抢第二个主按钮
         self.summary_create_btn.clicked.connect(self._new_connection)
@@ -1529,8 +1540,25 @@ class DataCenterPanel(QWidget):
                 "Each internal workspace is fixed to its connection ID. Switching tabs does not retarget or stop its tasks."
             )
             self.summary_create_btn.setVisible(count == 0)
+            if hasattr(self, "summary_guide"):
+                zh = self.language == "zh"
+                self.summary_guide.set_content(
+                    "3 步上手数据中心" if zh else "Get started in 3 steps",
+                    [
+                        ("新建数据库连接", "点下方或顶栏「新建连接」，支持 Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB"),
+                        ("双击打开专属工作区", "在左侧目录双击连接即可打开标签，切换标签不会串库或中断任务"),
+                        ("查数据与看表结构", "在工作区显式测试连接、执行只读 SQL 或浏览 Key / 集合"),
+                    ] if zh else [
+                        ("Create a connection", "Click New connection for Oracle / MySQL / OceanBase / Dameng / Redis / MongoDB."),
+                        ("Double-click to open workspace", "Each tab is bound to its connection ID without retargeting."),
+                        ("Query or inspect safely", "Explicitly test, browse tables/keys, or run queries inside the tab."),
+                    ],
+                )
+                self.summary_guide.setVisible(count == 0)
             self.workspace_tabs.setCurrentIndex(0)
             return
+        if hasattr(self, "summary_guide"):
+            self.summary_guide.hide()
         self.summary_title.setText(summary.name)
         location = " / ".join(summary.group_path) or ("未分组" if self.language == "zh" else "Ungrouped")
         environment_label = self.tree._environment_label(summary.environment_key)

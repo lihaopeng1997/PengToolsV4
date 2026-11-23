@@ -44,7 +44,7 @@ from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
 from ui.password_field import PasswordField
 from ui.motion import play_dialog_enter
-from ui.page_chrome import make_page_header, make_page_toolbar
+from ui.page_chrome import make_onboarding_guide, make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 from ui.table_utils import autofit_columns
 from ui.ssh_terminal import SshTerminalWidget
@@ -2074,6 +2074,23 @@ class OpsLogPanel(QWidget):
         self.server_list.hide()
         left_root.addWidget(left)
 
+        self.ops_onboarding_btn = QPushButton('添加服务器' if self.language == 'zh' else 'Add server')
+        apply_button(self.ops_onboarding_btn, 'secondary', compact=True)
+        self.ops_onboarding_btn.clicked.connect(self._open_server_manage_dialog)
+        self.ops_onboarding = make_onboarding_guide(
+            '3 步开始日志排查',
+            [
+                ('添加 SSH 服务器', '点下方按钮或上方「管理」，填写主机地址、账号与服务日志目录'),
+                ('连接交互终端', '点击顶栏紫色「连接本会话」，每个标签都是独立 SSH 会话'),
+                ('检索或 AI 排查', '在下方选服务预览/截取日志，或切到顶部「AI 日志与系统排查」'),
+            ],
+            action_button=self.ops_onboarding_btn,
+            compact=True,
+            parent=left_scroll_host,
+        )
+        self.ops_onboarding.hide()
+        left_root.addWidget(self.ops_onboarding)
+
         # —— 抓取日志（主区域，默认展开）——
         self.session_ops, sess_l = self._card()
         self.session_ops.setObjectName('ops-capture-card')
@@ -2849,6 +2866,23 @@ class OpsLogPanel(QWidget):
                 self.server_combo.setCurrentIndex(idx)
         self.server_combo.blockSignals(False)
         size_pick_combo(self.server_combo)
+        if hasattr(self, 'ops_onboarding'):
+            zh = self.language == 'zh'
+            self.ops_onboarding.set_content(
+                '3 步开始日志排查' if zh else 'Start log investigation in 3 steps',
+                [
+                    ('添加 SSH 服务器', '点下方按钮或上方「管理」，填写主机地址、账号与服务日志目录'),
+                    ('连接交互终端', '点击顶栏紫色「连接本会话」，每个标签都是独立 SSH 会话'),
+                    ('检索或 AI 排查', '在下方选服务预览/截取日志，或切到顶部「AI 日志与系统排查」'),
+                ] if zh else [
+                    ('Add an SSH server', 'Click below or Manage to configure host, credentials, and log paths.'),
+                    ('Connect terminal session', 'Click the primary Connect button; each tab keeps its own SSH session.'),
+                    ('Search or use AI', 'Preview/capture service logs below or switch to AI Log Investigation.'),
+                ],
+            )
+            if hasattr(self, 'ops_onboarding_btn'):
+                self.ops_onboarding_btn.setText('添加服务器' if zh else 'Add server')
+            self.ops_onboarding.setVisible(len(self._servers) == 0)
 
     # ── 语言 ────────────────────────────────────────────
     def set_language(self, language):

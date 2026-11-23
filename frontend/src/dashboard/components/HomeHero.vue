@@ -19,6 +19,7 @@ const props = defineProps<{
   tools?: DashboardToolItem[] | null
   focus?: StageKey | null
   isDemo?: boolean | null
+  homeMode?: 'simple' | 'full'
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   (e: 'rename', name: string): void
   (e: 'openRequirement', id: string): void
   (e: 'navigate', navIndex: number): void
+  (e: 'update:homeMode', mode: 'simple' | 'full'): void
 }>()
 
 // ── 称呼就地修改：点名字进入编辑，回车保存、Esc 取消 ──
@@ -184,10 +186,28 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
       <span class="hero-grid"></span>
     </div>
 
-    <p class="hero-eyebrow">
-      {{ props.dateLine }}
-      <span v-if="props.isDemo" class="hero-demo">示例数据</span>
-    </p>
+    <div class="hero-eyebrow">
+      <span class="hero-eyebrow-meta">
+        {{ props.dateLine }}
+        <span v-if="props.isDemo" class="hero-demo">示例数据</span>
+      </span>
+      <div class="hero-mode-seg" role="group" aria-label="首页视图模式">
+        <button
+          class="hero-mode-btn"
+          :class="{ active: props.homeMode === 'simple' }"
+          type="button"
+          title="简洁视图：仅保留搜索、常用工具与项目进度"
+          @click="emit('update:homeMode', 'simple')"
+        >简洁</button>
+        <button
+          class="hero-mode-btn"
+          :class="{ active: (props.homeMode || 'full') === 'full' }"
+          type="button"
+          title="完整视图：展示日历、阶段进度、日报与上线概览"
+          @click="emit('update:homeMode', 'full')"
+        >完整</button>
+      </div>
+    </div>
     <h1 class="hero-title">
       {{ props.greeting || '你好' }}，<input
         v-if="editingName"
@@ -348,7 +368,49 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   color: var(--text-muted);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.hero-eyebrow-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hero-mode-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(238, 234, 249, 0.9);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.hero-mode-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.hero-mode-btn:hover {
+  color: var(--text-strong);
+}
+
+.hero-mode-btn.active {
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(38, 36, 56, 0.08);
 }
 
 .hero-demo {

@@ -365,3 +365,137 @@ def make_empty_state(
 
     layout.addStretch(1)
     return frame
+
+
+class OnboardingGuideCard(QFrame):
+    """3 步新手引导卡：用于复杂模块空态，一旦用户拥有数据自动隐藏，零业务逻辑耦合。"""
+
+    def __init__(
+        self,
+        title: str,
+        steps: list[tuple[str, str]],
+        *,
+        action_button: QPushButton | None = None,
+        compact: bool = False,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self.setObjectName('onboarding-guide-card')
+        self._compact = bool(compact)
+        self._step_title_labels: list[QLabel] = []
+        self._step_desc_labels: list[QLabel] = []
+
+        try:
+            from ui.theme_manager import ThemeManager
+            tm = ThemeManager.instance()
+            primary = tm.token('PRIMARY') or '#6C58D9'
+            primary_soft = tm.token('PRIMARY_SOFT') or '#EFEBF9'
+            border = tm.token('BORDER_SUBTLE') or '#DDD6F5'
+            surface_soft = tm.token('SURFACE_ALT') or '#F8F6FE'
+            text_strong = tm.token('TEXT_PRIMARY') or '#1F1D2B'
+            text_muted = tm.token('TEXT_MUTED') or '#5F5B73'
+        except Exception:
+            primary = '#6C58D9'
+            primary_soft = '#EFEBF9'
+            border = '#DDD6F5'
+            surface_soft = '#F8F6FE'
+            text_strong = '#1F1D2B'
+            text_muted = '#5F5B73'
+
+        self.setStyleSheet(
+            f'QFrame#onboarding-guide-card {{'
+            f' background: {surface_soft};'
+            f' border: 1px solid {border};'
+            f' border-radius: 12px;'
+            f'}}'
+            f'QLabel#onboarding-guide-title {{'
+            f' color: {text_strong};'
+            f' font-size: {"12px" if compact else "13px"};'
+            f' font-weight: 700;'
+            f' background: transparent;'
+            f'}}'
+            f'QLabel#onboarding-step-num {{'
+            f' color: {primary};'
+            f' background: {primary_soft};'
+            f' border: 1px solid {border};'
+            f' border-radius: 10px;'
+            f' font-size: 11px;'
+            f' font-weight: 700;'
+            f'}}'
+            f'QLabel#onboarding-step-title {{'
+            f' color: {text_strong};'
+            f' font-size: {"12px" if compact else "13px"};'
+            f' font-weight: 600;'
+            f' background: transparent;'
+            f'}}'
+            f'QLabel#onboarding-step-desc {{'
+            f' color: {text_muted};'
+            f' font-size: {"11px" if compact else "12px"};'
+            f' background: transparent;'
+            f'}}'
+        )
+
+        root = QVBoxLayout(self)
+        pad = 10 if compact else 14
+        root.setContentsMargins(pad, pad, pad, pad)
+        root.setSpacing(6 if compact else 8)
+
+        self.title_label = QLabel(title, self)
+        self.title_label.setObjectName('onboarding-guide-title')
+        self.title_label.setWordWrap(True)
+        root.addWidget(self.title_label)
+
+        for idx, (step_title, step_desc) in enumerate(steps, start=1):
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            badge = QLabel(str(idx), self)
+            badge.setObjectName('onboarding-step-num')
+            badge.setFixedSize(20, 20)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            row.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(1)
+            t_lbl = QLabel(step_title, self)
+            t_lbl.setObjectName('onboarding-step-title')
+            t_lbl.setWordWrap(True)
+            d_lbl = QLabel(step_desc, self)
+            d_lbl.setObjectName('onboarding-step-desc')
+            d_lbl.setWordWrap(True)
+            col.addWidget(t_lbl)
+            col.addWidget(d_lbl)
+            row.addLayout(col, 1)
+            root.addLayout(row)
+            self._step_title_labels.append(t_lbl)
+            self._step_desc_labels.append(d_lbl)
+
+        if action_button is not None:
+            root.addSpacing(2)
+            root.addWidget(action_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+    def set_content(self, title: str, steps: list[tuple[str, str]]) -> None:
+        self.title_label.setText(title)
+        for idx, (step_title, step_desc) in enumerate(steps):
+            if idx < len(self._step_title_labels):
+                self._step_title_labels[idx].setText(step_title)
+                self._step_desc_labels[idx].setText(step_desc)
+
+
+def make_onboarding_guide(
+    title: str,
+    steps: list[tuple[str, str]],
+    *,
+    action_button: QPushButton | None = None,
+    compact: bool = False,
+    parent: QWidget | None = None,
+) -> OnboardingGuideCard:
+    """构建统一的 3 步新手引导卡片。"""
+    return OnboardingGuideCard(
+        title,
+        steps,
+        action_button=action_button,
+        compact=compact,
+        parent=parent,
+    )

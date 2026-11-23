@@ -1751,6 +1751,20 @@ class RequirementPanel(QWidget):
         card.addWidget(self.stage_caption)
         self.stage_caption.hide()  # 步骤条已显示阶段名与细状态
 
+        from ui.page_chrome import make_onboarding_guide
+        self.detail_onboarding = make_onboarding_guide(
+            '3 步上手需求管理',
+            [
+                ('新建或导入需求', '点顶栏紫色「新建需求」，或在「更多 ▾」里通过 SVN / 本地目录批量导入'),
+                ('推进阶段与管文件', '点击上方进度节点改阶段，下方直接看需求文件库、测试点和 SQL 脚本'),
+                ('写日报与一键提签', '点「写日报」自动带入进展，完成后在顶栏「更多 ▾」里一键提签'),
+            ],
+            compact=True,
+            parent=self.detail_card,
+        )
+        self.detail_onboarding.hide()
+        card.addWidget(self.detail_onboarding)
+
         # 快捷动作：日常最常用的四个，复用既有处理函数
         quick = QHBoxLayout(); quick.setSpacing(6)
         self.quick_actions_layout = quick
@@ -3332,6 +3346,19 @@ class RequirementPanel(QWidget):
             self.detail_eyebrow.setText('')
             self.stage_bar.set_status('')
             self.stage_caption.setText('')
+            if hasattr(self, 'detail_onboarding'):
+                if not self._requirements:
+                    self.detail_onboarding.set_content(
+                        '3 步上手需求管理',
+                        [
+                            ('新建或导入需求', '点顶栏紫色「新建需求」，或在「更多 ▾」里通过 SVN / 本地目录批量导入'),
+                            ('推进阶段与管文件', '点击进度节点推进状态，下方集中管理需求文件库、测试点与 SQL'),
+                            ('写日报与一键提签', '点「写日报」自动带入进展，完成后在顶栏「更多 ▾」里一键提签'),
+                        ],
+                    )
+                    self.detail_onboarding.show()
+                else:
+                    self.detail_onboarding.hide()
             self.open_dev_btn.setEnabled(False)
             for btn in self._flag_buttons.values():
                 btn.hide()
@@ -3351,6 +3378,8 @@ class RequirementPanel(QWidget):
             self.test_points_editor.set_source(points=[], description='')
             return
 
+        if hasattr(self, 'detail_onboarding'):
+            self.detail_onboarding.hide()
         requirement = normalize_requirement(self._current)
         self._current = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
         title = requirement.get('title') or '未命名需求'

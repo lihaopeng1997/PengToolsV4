@@ -34,6 +34,25 @@ const isHidden = ref(false)
 const boardView = ref<'list' | 'board'>('list')
 const isBoardWide = computed(() => boardView.value === 'board' || !(summary.value?.progress?.board?.length))
 
+const HOME_MODE_KEY = 'pengtools.home.mode'
+function loadHomeMode(): 'simple' | 'full' {
+  try {
+    return window.localStorage.getItem(HOME_MODE_KEY) === 'simple' ? 'simple' : 'full'
+  } catch {
+    return 'full'
+  }
+}
+const homeMode = ref<'simple' | 'full'>(loadHomeMode())
+function setHomeMode(mode: 'simple' | 'full'): void {
+  if (homeMode.value === mode) return
+  homeMode.value = mode
+  try {
+    window.localStorage.setItem(HOME_MODE_KEY, mode)
+  } catch {
+    // 忽略受限环境存储异常
+  }
+}
+
 function onVisibilityChange() {
   if (typeof document !== 'undefined') {
     isHidden.value = document.hidden
@@ -251,8 +270,8 @@ function onRetry(): void {
   <IconSprite />
 
   <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden }">
-    <!-- 首页便当格：主卡（问候+搜索）| 本月上线日历 → 阶段进度 | 需要关注 | 日报+常用工具（看板模式下第 2 行由阶段进度+日报/常用工具铺满） -->
-    <div class="bento" :class="{ 'is-board': isBoardWide }">
+    <!-- 首页便当格：支持「简洁 / 完整」切换；简洁视图只保留主卡、常用工具和项目进度 -->
+    <div class="bento" :class="{ 'is-board': isBoardWide, 'is-simple': homeMode === 'simple' }">
       <HomeHero
         class="home-hero b-hero"
         :greeting="summary.greeting"
@@ -264,15 +283,18 @@ function onRetry(): void {
         :tools="summary.tools"
         :focus="focus"
         :is-demo="isDemoMode"
+        :home-mode="homeMode"
         @write-daily="onWriteDaily"
         @create-requirement="onCreateRequirement"
         @focus-stage="onFocusStage"
         @rename="onRename"
         @open-requirement="onOpenRequirement"
         @navigate="onNavClick"
+        @update:home-mode="setHomeMode"
       />
 
       <CalendarTile
+        v-if="homeMode === 'full'"
         class="b-cal"
         :board="summary.progress?.board"
         :tasks="summary.monthly_release_tasks"
@@ -288,6 +310,7 @@ function onRetry(): void {
       />
 
       <StageTile
+        v-if="homeMode === 'full'"
         class="b-stage"
         :progress="summary.progress"
         :focus="focus"
@@ -297,7 +320,7 @@ function onRetry(): void {
       <ProgressBoard
         ref="boardRef"
         class="home-board b-focus"
-        :class="{ wide: isBoardWide }"
+        :class="{ wide: isBoardWide || homeMode === 'simple' }"
         :progress="summary.progress"
         :focus="focus"
         :busy-id="busyId"
@@ -312,7 +335,7 @@ function onRetry(): void {
       />
 
       <div class="b-side">
-        <DailyTile :stats="summary.stats" @write-daily="onWriteDaily" />
+        <DailyTile v-if="homeMode === 'full'" :stats="summary.stats" @write-daily="onWriteDaily" />
         <QuickTools
           :tools="summary.tools"
           @navigate="onNavClick"
@@ -320,7 +343,7 @@ function onRetry(): void {
       </div>
     </div>
 
-    <div class="home-grid">
+    <div v-if="homeMode === 'full'" class="home-grid">
       <div class="home-left">
         <MonthlyTasks
           :tasks="summary.monthly_release_tasks"
@@ -485,6 +508,25 @@ button, input, select, textarea { font: inherit; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* 简洁模式：主卡全宽 → 常用工具 3 列全宽 → 项目进度全宽，无留白无滚动压迫 */
+.bento.is-simple .b-hero {
+  grid-column: span 12;
+}
+
+.bento.is-simple .b-side {
+  grid-column: span 12;
+  order: 2;
+}
+
+.bento.is-simple .b-side :deep(.quick-grid) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bento.is-simple .b-focus {
+  grid-column: span 12;
+  order: 3;
+}
+
 .bento > * {
   min-width: 0;
   animation: section-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -546,7 +588,12 @@ button, input, select, textarea { font: inherit; }
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   }
-  .bento.is-board .b-side :deep(.quick-grid) {
+  .bento.is-simple .b-side {
+    display: flex;
+    flex-direction: column;
+  }
+  .bento.is-board .b-side :deep(.quick-grid),
+  .bento.is-simple .b-side :deep(.quick-grid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
