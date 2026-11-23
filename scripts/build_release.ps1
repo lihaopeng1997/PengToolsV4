@@ -402,14 +402,22 @@ $list
     if (-not (Test-Path -LiteralPath (Join-Path $AppDir '_internal'))) {
         throw "onedir runtime directory not found: " + (Join-Path $AppDir '_internal')
     }
-    # 移除生产包中冗余的 WebEngine debug 资源（保留正式 release .pak）
+    # 移除生产包中冗余的 WebEngine debug 资源（保留正式 release .pak / .bin）
     $debugPaks = @(
         (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_devtools_resources.debug.pak'),
-        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_resources.debug.pak')
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_resources.debug.pak'),
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_resources_100p.debug.pak'),
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\qtwebengine_resources_200p.debug.pak'),
+        (Join-Path $AppDir '_internal\PyQt6\Qt6\resources\v8_context_snapshot.debug.bin')
     )
     foreach ($dp in $debugPaks) {
         if (Test-Path -LiteralPath $dp) {
             Remove-Item -LiteralPath $dp -Force -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($dp in $debugPaks) {
+        if (Test-Path -LiteralPath $dp) {
+            throw "Post-condition failed: WebEngine debug resource remained: $dp"
         }
     }
     # 裁剪 WebEngine locales（仅保留产品支持的 zh-CN 及 Chromium fallback en-US）
@@ -567,17 +575,142 @@ $list
         Remove-Item -LiteralPath $sqldriversPluginDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # Post-condition 校验：Designer 与 sqldrivers 0 残留，且核心合同保持
+    # Post-condition 校验：Designer 与 sqldrivers 0 残留
     if (Test-Path -LiteralPath $designerDll) {
         throw "Post-condition failed: Qt6Designer.dll remained in $qtBinDir"
     }
     if (Test-Path -LiteralPath $sqldriversPluginDir) {
         throw "Post-condition failed: sqldrivers plugin directory remained in $sqldriversPluginDir"
     }
+
+    # 裁剪经 PE 导入表静态闭环 + 运行期模块校验确认零引用的 Qt6 冗余模块（约 43.2 MiB，含 QuickControls2/Dialogs/Labs/Pdf/Bluetooth 等）
+    $unusedQtBinFiles = @(
+        # QuickControls2 / QuickDialogs2 / QuickTemplates2（应用为纯 Widgets + WebEngine 壳，未使用 QML 控件库）
+        'Qt6QuickControls2Imagine.dll',
+        'Qt6QuickDialogs2QuickImpl.dll',
+        'Qt6QuickTemplates2.dll',
+        'Qt6QuickControls2Material.dll',
+        'Qt6QuickControls2Basic.dll',
+        'Qt6QuickControls2Universal.dll',
+        'Qt6QuickControls2Fusion.dll',
+        'Qt6QuickControls2Impl.dll',
+        'Qt6QuickControls2MaterialStyleImpl.dll',
+        'Qt6QuickControls2FusionStyleImpl.dll',
+        'Qt6QuickControls2UniversalStyleImpl.dll',
+        'Qt6QuickControls2BasicStyleImpl.dll',
+        'Qt6QuickControls2ImagineStyleImpl.dll',
+        'Qt6QuickControls2.dll',
+        'Qt6QuickDialogs2.dll',
+        'Qt6QuickDialogs2Utils.dll',
+        # 未使用的 Quick 扩展与 Labs
+        'Qt6QuickParticles.dll',
+        'Qt6QuickEffects.dll',
+        'Qt6QuickShapes.dll',
+        'Qt6QuickLayouts.dll',
+        'Qt6QuickTest.dll',
+        'Qt6QuickTimeline.dll',
+        'Qt6QuickTimelineBlendTrees.dll',
+        'Qt6QuickVectorImage.dll',
+        'Qt6QuickVectorImageGenerator.dll',
+        'Qt6LabsPlatform.dll',
+        'Qt6LabsQmlModels.dll',
+        'Qt6LabsFolderListModel.dll',
+        'Qt6LabsSettings.dll',
+        'Qt6LabsWavefrontMesh.dll',
+        'Qt6LabsSharedImage.dll',
+        'Qt6LabsAnimation.dll',
+        # 未使用的独立 Qt 模块（WebEngine 内置 PDFium，不依赖 Qt6Pdf.dll / qpdf.dll）
+        'Qt6Bluetooth.dll',
+        'Qt6RemoteObjects.dll',
+        'Qt6RemoteObjectsQml.dll',
+        'Qt6SpatialAudio.dll',
+        'Qt6DBus.dll',
+        'Qt6Help.dll',
+        'Qt6Pdf.dll',
+        'Qt6PdfQuick.dll',
+        'Qt6PdfWidgets.dll',
+        'Qt6Test.dll',
+        'Qt6PositioningQuick.dll',
+        'Qt6StateMachine.dll',
+        'Qt6StateMachineQml.dll',
+        'Qt6Sql.dll',
+        'Qt6Sensors.dll',
+        'Qt6SensorsQuick.dll',
+        'Qt6WebSockets.dll',
+        'Qt6Nfc.dll',
+        'Qt6Xml.dll',
+        'Qt6TextToSpeech.dll',
+        'Qt6SerialPort.dll',
+        'Qt6Concurrent.dll'
+    )
+    foreach ($uFile in $unusedQtBinFiles) {
+        $target = Join-Path $qtBinDir $uFile
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $unusedQtPluginDirs = @('help', 'position', 'qmllint', 'qmlls', 'scxmldatamodel', 'sensors', 'texttospeech', 'webview')
+    foreach ($pdir in $unusedQtPluginDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $unusedQtPluginFiles = @('imageformats\qpdf.dll')
+    foreach ($pfile in $unusedQtPluginFiles) {
+        $targetFile = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pfile)
+        if (Test-Path -LiteralPath $targetFile) {
+            Remove-Item -LiteralPath $targetFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $unusedQtQmlDirs = @(
+        'QtQuick3D', 'QtMultimedia', 'QtRemoteObjects', 'QtSensors',
+        'QtTest', 'QtTextToSpeech', 'QtWebSockets', 'QtPositioning',
+        'QtQuick\Controls', 'QtQuick\Dialogs', 'QtQuick\Effects', 'QtQuick\Layouts',
+        'QtQuick\LocalStorage', 'QtQuick\NativeStyle', 'QtQuick\Particles', 'QtQuick\Pdf',
+        'QtQuick\Scene2D', 'QtQuick\Scene3D', 'QtQuick\Shapes', 'QtQuick\Templates',
+        'QtQuick\Timeline', 'QtQuick\tooling', 'QtQuick\VectorImage',
+        'QtQml\StateMachine', 'QtQml\XmlListModel'
+    )
+    foreach ($qdir in $unusedQtQmlDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\qml\' + $qdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Post-condition 校验：已裁剪的冗余 Qt6 DLL / 插件 / QML 0 残留，且核心运行契约二进制完好
+    foreach ($uFile in $unusedQtBinFiles) {
+        $target = Join-Path $qtBinDir $uFile
+        if (Test-Path -LiteralPath $target) {
+            throw "Post-condition failed: unused Qt6 binary '$uFile' remained in $qtBinDir"
+        }
+    }
+    foreach ($pdir in $unusedQtPluginDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            throw "Post-condition failed: unused Qt6 plugin directory '$pdir' remained in $targetDir"
+        }
+    }
+    foreach ($pfile in $unusedQtPluginFiles) {
+        $targetFile = Join-Path $AppDir ('_internal\PyQt6\Qt6\plugins\' + $pfile)
+        if (Test-Path -LiteralPath $targetFile) {
+            throw "Post-condition failed: unused Qt6 plugin file '$pfile' remained in $targetFile"
+        }
+    }
+    foreach ($qdir in $unusedQtQmlDirs) {
+        $targetDir = Join-Path $AppDir ('_internal\PyQt6\Qt6\qml\' + $qdir)
+        if (Test-Path -LiteralPath $targetDir) {
+            throw "Post-condition failed: unused Qt6 QML directory '$qdir' remained in $targetDir"
+        }
+    }
     $requiredFinalContractBinaries = @(
-        'Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6Quick.dll',
-        'Qt6Qml.dll', 'Qt6QmlModels.dll', 'Qt6QmlMeta.dll', 'Qt6OpenGL.dll',
-        'Qt6Widgets.dll', 'Qt6Gui.dll', 'Qt6Core.dll'
+        'Qt6WebEngineCore.dll', 'Qt6WebEngineQuick.dll', 'Qt6WebEngineWidgets.dll',
+        'Qt6WebChannel.dll', 'Qt6WebChannelQuick.dll', 'Qt6Positioning.dll',
+        'Qt6Quick.dll', 'Qt6QuickWidgets.dll', 'Qt6Qml.dll', 'Qt6QmlModels.dll',
+        'Qt6QmlMeta.dll', 'Qt6QmlWorkerScript.dll', 'Qt6OpenGL.dll', 'Qt6Network.dll',
+        'Qt6Svg.dll', 'Qt6PrintSupport.dll', 'Qt6Widgets.dll', 'Qt6Gui.dll',
+        'Qt6Core.dll', 'QtWebEngineProcess.exe'
     )
     foreach ($req in $requiredFinalContractBinaries) {
         $reqPath = Join-Path $qtBinDir $req
