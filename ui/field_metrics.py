@@ -211,10 +211,19 @@ def apply_button_role(button, role: str = 'secondary', *, compact: bool = False)
     apply_button(button, role, compact=compact)
 
 
+_STEPPER_FULLWIDTH_MAP = str.maketrans('０１２３４５６７８９＋－−　', '0123456789+-- ')
+
+
+def _normalize_stepper_text(text: str) -> str:
+    """将全角数字/符号归一为 ASCII，便于中文输入法下正常输入数值。"""
+    return str(text or '').translate(_STEPPER_FULLWIDTH_MAP).strip()
+
+
 class CompactStepper(QWidget):
     """主题一致的数量步进：− 数字 +，统一分段外框与独立数值输入。"""
 
     valueChanged = pyqtSignal(int)
+    invalidInput = pyqtSignal(str)
 
     def __init__(self, minimum=0, maximum=200, value=0, parent=None, *, edit_width=None, suffix=''):
         super().__init__(parent)
@@ -289,9 +298,21 @@ class CompactStepper(QWidget):
             return
         super().keyPressEvent(event)
 
-    def value(self) -> int:
+    def has_invalid_text(self) -> bool:
+        """当前编辑框文本非空且无法解析为整数时返回 True。"""
+        raw = _normalize_stepper_text(self.edit.text())
+        if not raw:
+            return False
         try:
-            return int(self.edit.text().strip())
+            int(raw)
+            return False
+        except ValueError:
+            return True
+
+    def value(self) -> int:
+        raw = _normalize_stepper_text(self.edit.text())
+        try:
+            return int(raw)
         except ValueError:
             return self._min
 
@@ -327,7 +348,13 @@ class CompactStepper(QWidget):
         self.suffix_label.setVisible(bool(text))
 
     def _commit_edit(self):
+        raw_display = self.edit.text().strip()
+        norm = _normalize_stepper_text(raw_display)
+        if not norm:
+            self.setValue(self._min)
+            return
         try:
-            self.setValue(int(self.edit.text().strip()))
+            self.setValue(int(norm))
         except ValueError:
             self.setValue(self._min)
+            self.invalidInput.emit(raw_display)

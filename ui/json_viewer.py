@@ -221,6 +221,7 @@ class JsonViewer(QWidget):
         self._match_index = -1
         self._search_mode = 'text'  # 'tree' | 'text'
         self._text_spans: list[tuple[int, int]] = []
+        self._painted_indices: set[int] = set()
         self._setup_ui()
         self.set_language(language)
 
@@ -513,6 +514,7 @@ class JsonViewer(QWidget):
             self._child_model.set_children([])
             self.path_value.setText('$')
             self._items.clear()
+            self._painted_indices.clear()
             self._nodes, self._truncated = _source_nodes(text, self._non_bmp) if error is None else ([], False)
             self._node_starts = [node.start for node in self._nodes]
             if self._nodes:
@@ -609,7 +611,7 @@ class JsonViewer(QWidget):
         self.tree.setColumnWidth(0, _KEY_COL_MIN)
         header.blockSignals(False)
 
-    def _add_item(self, index, parent=None):
+    def _build_item(self, index):
         node = self._nodes[index]
         value = node.display_value()
         item = QTreeWidgetItem([node.key, node.type_name, _preview(value)])
@@ -621,14 +623,21 @@ class JsonViewer(QWidget):
         if node.children:
             item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         self._items[index] = item
+        return item
+
+    def _add_item(self, index, parent=None):
+        item = self._build_item(index)
         (parent.addChild(item) if parent is not None else self.tree.addTopLevelItem(item))
         return item
 
     def _load_children(self, item):
         if item.childCount():
             return
-        for index in self._nodes[item.data(0, _NODE_ROLE)].children:
-            self._add_item(index, item)
+        children = self._nodes[item.data(0, _NODE_ROLE)].children
+        if not children:
+            return
+        batch = [self._build_item(index) for index in children]
+        item.addChildren(batch)
 
     def _focus_node(self, index):
         ancestors = []
@@ -644,38 +653,64 @@ class JsonViewer(QWidget):
         focus_tree_item(self.tree, item)
         return item
 
-    def _search(self, query):
-        for item in self._items.values():
-            paint_tree_item(item, matched=False)
-        self.text_edit.set_search_selections([])
-        self._matches = []
-        self._match_index = -1
-        self._text_spans = []
-        self._search_mode = 'text' if self.search_scope.currentIndex() == 0 else 'tree'
-        needle = (query or '').strip()
-        if needle and self._search_mode == 'text':
-            non_bmp = self._non_bmp
-            if self._refresh_timer.isActive():
-                non_bmp = [match.start() for match in _NON_BMP.finditer(self.plain_text())]
-            self._text_spans = [
-                (start + bisect_left(non_bmp, start), end + bisect_left(non_bmp, end))
-                for start, end in collect_text_spans(self.text_edit, needle)
-            ]
-            self._matches = self._text_spans
-        elif needle:
-            folded = needle.casefold()
-            self._matches = [
-                index for index, node in enumerate(self._nodes)
-                if folded in '\n'.join((node.key, node.type_name, node.display_value(), node.path)).casefold()
-            ]
-            for index in self._matches:
-                if index in self._items:
-                    paint_tree_item(self._items[index], matched=True)
+    def _clear_painted_tree_items(self):
+        if not self._painted_indices:
+            return
+        for index in self._painted_indices:
+            item = self._items.get(index)
+            if item is not None:
+                paint_tree_item(item, matched=False)
+        self._painted_indices.clear()
 
-        if self._matches:
-            self._match_index = 0
-            self._focus_match(take_focus=False)
-        self._update_search_status()
+    def _search(self, query):
+        self.tree.setUpdatesEnabled(False)
+        try:
+            self._clear_painted_tree_items()
+            self.text_edit.set_search_selections([])
+            self._matches = []
+            self._match_index = -1
+            self._text_spans = []
+            self._search_mode = 'text' if self.search_scope.currentIndex() == 0 else 'tree'
+            needle = (query or '').strip()
+            if needle and self._search_mode == 'text':
+                non_bmp = self._non_bmp
+                if self._refresh_timer.isActive():
+                    non_bmp = [match.start() for match in _NON_BMP.finditer(self.plain_text())]
+                self._text_spans = [
+                    (start + bisect_left(non_bmp, start), end + bisect_left(non_bmp, end))
+                    for start, end in collect_text_spans(self.text_edit, needle)
+                ]
+                self._matches = self._text_spans
+            elif needle:
+                folded = needle.casefold()
+                matches = []
+                for index, node in enumerate(self._nodes):
+                    if (
+                        folded in node.key.casefold()
+                        or folded in node.path.casefold()
+                        or folded in node.type_name.casefold()
+                        or folded in node.display_value().casefold()
+                    ):
+                        matches.append(index)
+                self._matches = matches
+                # 大 JSON 搜索时限制同步着色的已展开节点数，避免上万次 setData 导致界面卡顿；
+                # 完整匹配计数与上一条/下一条定位保持精确，当前聚焦节点始终着色。
+                painted = 0
+                for index in matches:
+                    item = self._items.get(index)
+                    if item is not None:
+                        paint_tree_item(item, matched=True)
+                        self._painted_indices.add(index)
+                        painted += 1
+                        if painted >= 300:
+                            break
+
+            if self._matches:
+                self._match_index = 0
+                self._focus_match(take_focus=False)
+            self._update_search_status()
+        finally:
+            self.tree.setUpdatesEnabled(True)
 
     def _update_search_status(self):
         current = self._match_index + 1 if self._matches else 0
@@ -691,9 +726,11 @@ class JsonViewer(QWidget):
         if not self._matches:
             return
         if self._search_mode == 'tree':
-            old_item = self._items.get(self._matches[self._match_index])
+            old_idx = self._matches[self._match_index]
+            old_item = self._items.get(old_idx)
             if old_item is not None:
                 paint_tree_item(old_item, matched=True)
+                self._painted_indices.add(old_idx)
         self._match_index = (self._match_index + delta) % len(self._matches)
         self._focus_match()
         self._update_search_status()
@@ -710,8 +747,10 @@ class JsonViewer(QWidget):
         if self._search_mode == 'text':
             apply_text_match_index(self.text_edit, self._text_spans, self._match_index, take_focus=take_focus)
         else:
-            item = self._focus_node(self._matches[self._match_index])
+            idx = self._matches[self._match_index]
+            item = self._focus_node(idx)
             paint_tree_item(item, matched=True, current=True)
+            self._painted_indices.add(idx)
             self._locate_text(item)
 
     def _on_text_cursor(self):
@@ -787,13 +826,17 @@ class JsonViewer(QWidget):
             self._set_expanded_recursive(item, False)
 
     def _set_expanded_recursive(self, item, expanded):
-        pending = [item]
-        while pending:
-            current = pending.pop()
-            if expanded:
-                self._load_children(current)
-            current.setExpanded(expanded)
-            pending.extend(current.child(index) for index in range(current.childCount()))
+        self.tree.setUpdatesEnabled(False)
+        try:
+            pending = [item]
+            while pending:
+                current = pending.pop()
+                if expanded:
+                    self._load_children(current)
+                current.setExpanded(expanded)
+                pending.extend(current.child(index) for index in range(current.childCount()))
+        finally:
+            self.tree.setUpdatesEnabled(True)
 
     def _expand_all(self):
         self.text_edit.expand_all_folds()

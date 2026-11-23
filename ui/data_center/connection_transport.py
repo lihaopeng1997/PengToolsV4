@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ui.confirm_dialog import show_warning
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import size_compact_button, size_enum_combo, size_line
@@ -172,6 +173,65 @@ class DataCenterTransportDialog(QDialog):
             widget.setEnabled(tls)
         for button in self._tls_browse_buttons:
             button.setEnabled(tls)
+
+    def validate(self) -> tuple[bool, str, Any]:
+        """校验已启用的 SSH/TLS 必填项与端口范围，返回 (是否通过, 提示文案, 聚焦控件)。"""
+        if self.ssh_enabled.isChecked():
+            if not self.ssh_host.text().strip():
+                return (
+                    False,
+                    "已启用 SSH 隧道，请填写 SSH 主机地址。" if self.zh else "SSH tunnel is enabled. Please enter the SSH host.",
+                    self.ssh_host,
+                )
+            port_text = self.ssh_port.text().strip()
+            if not port_text:
+                return (
+                    False,
+                    "已启用 SSH 隧道，请填写 SSH 端口（1–65535）。" if self.zh else "SSH tunnel is enabled. Please enter an SSH port (1–65535).",
+                    self.ssh_port,
+                )
+            try:
+                port = int(port_text)
+            except ValueError:
+                port = -1
+            if not 1 <= port <= 65535:
+                return (
+                    False,
+                    "SSH 端口需为 1–65535 之间的整数。" if self.zh else "SSH port must be an integer between 1 and 65535.",
+                    self.ssh_port,
+                )
+            if not self.ssh_username.text().strip():
+                return (
+                    False,
+                    "已启用 SSH 隧道，请填写 SSH 用户名。" if self.zh else "SSH tunnel is enabled. Please enter the SSH username.",
+                    self.ssh_username,
+                )
+            auth = str(self.ssh_auth.currentData() or "password")
+            if auth == "private_key" and not self.ssh_key_path.text().strip():
+                return (
+                    False,
+                    "私钥认证方式下请填写或选择 SSH 私钥路径。" if self.zh else "Please enter or browse to the SSH private key path.",
+                    self.ssh_key_path,
+                )
+        if self.tls_enabled.isChecked():
+            has_cert = bool(self.tls_cert.text().strip())
+            has_key = bool(self.tls_key.text().strip())
+            if has_cert != has_key:
+                return (
+                    False,
+                    "启用双向 TLS 时，客户端证书和客户端私钥需成对填写。" if self.zh else "Client certificate and client key must be provided together.",
+                    self.tls_key if has_cert else self.tls_cert,
+                )
+        return (True, "", None)
+
+    def accept(self) -> None:
+        ok, message, focus_widget = self.validate()
+        if not ok:
+            show_warning(self, self.windowTitle(), message)
+            if focus_widget is not None:
+                focus_widget.setFocus()
+            return
+        super().accept()
 
     def payload(self) -> dict[str, Any]:
         result: dict[str, Any] = {

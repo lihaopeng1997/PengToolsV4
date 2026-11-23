@@ -669,8 +669,14 @@ class SettingsPanel(QWidget):
         self.ai_agent_reasoning_fields_label = QLabel()
         self.ai_agent_deadline_seconds = CompactStepper(1, 600, 60, suffix=' s')
         self.ai_agent_deadline_seconds_label = QLabel()
+        self.ai_agent_deadline_seconds.invalidInput.connect(
+            lambda raw: self._on_ai_stepper_invalid(self.ai_agent_deadline_seconds, self.ai_agent_deadline_seconds_label, raw)
+        )
         self.ai_agent_max_turn_seconds = CompactStepper(1, 3600, 600, suffix=' s')
         self.ai_agent_max_turn_seconds_label = QLabel()
+        self.ai_agent_max_turn_seconds.invalidInput.connect(
+            lambda raw: self._on_ai_stepper_invalid(self.ai_agent_max_turn_seconds, self.ai_agent_max_turn_seconds_label, raw)
+        )
         self.ai_agent_max_reasoning_bytes = QComboBox()
         self.ai_agent_max_text_bytes = QComboBox()
         self.ai_agent_max_tool_argument_bytes = QComboBox()
@@ -709,6 +715,9 @@ class SettingsPanel(QWidget):
         self.ai_app_tag_label = QLabel()
         self.ai_timeout = CompactStepper(5, 300, 120, suffix=' s')
         self.ai_timeout_label = QLabel()
+        self.ai_timeout.invalidInput.connect(
+            lambda raw: self._on_ai_stepper_invalid(self.ai_timeout, self.ai_timeout_label, raw)
+        )
         self.ai_ssl_verify = QCheckBox()
         self.ai_ssl_label = QLabel()
         self.ai_supports_vision = QCheckBox()
@@ -1603,7 +1612,34 @@ class SettingsPanel(QWidget):
             names.insert(0, model)
         return names
 
+    def _on_ai_stepper_invalid(self, stepper, label, raw_text: str):
+        zh = self.language == 'zh'
+        name = (label.text() or '').strip() or ('超时' if zh else 'Timeout')
+        msg = (
+            f'「{name}」输入无效（{raw_text}），仅支持 {stepper._min}–{stepper._max} 的整数，已重置为 {stepper._min} 秒。'
+            if zh else
+            f'Invalid input "{raw_text}" for {name}. Enter an integer between {stepper._min} and {stepper._max}; reset to {stepper._min} s.'
+        )
+        self.ai_status.setText(msg)
+
+    def _validate_ai_timeout_steppers(self):
+        zh = self.language == 'zh'
+        for stepper, label in (
+            (self.ai_timeout, self.ai_timeout_label),
+            (self.ai_agent_deadline_seconds, self.ai_agent_deadline_seconds_label),
+            (self.ai_agent_max_turn_seconds, self.ai_agent_max_turn_seconds_label),
+        ):
+            if stepper.has_invalid_text():
+                name = (label.text() or '').strip() or ('超时' if zh else 'Timeout')
+                raw = stepper.edit.text().strip()
+                raise ValueError(
+                    f'「{name}」输入无效（{raw}），请输入 {stepper._min}–{stepper._max} 之间的整数。'
+                    if zh else
+                    f'Invalid input "{raw}" for {name}. Enter an integer between {stepper._min} and {stepper._max}.'
+                )
+
     def _ai_cfg_from_ui(self):
+        self._validate_ai_timeout_steppers()
         from tools.intranet_llm import (
             encrypt_token,
             normalize_agent_capability,
