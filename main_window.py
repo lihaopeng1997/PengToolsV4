@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self._startup_warmup_started = False
         self._startup_warmup_done = 0
         self._startup_warmup_total = 0
+        self._startup_failures = 0
         self._startup_metrics = {}
         self._user_navigated = False
         # 从 data/settings.json 恢复彩蛋解锁（升级替换程序文件不丢）
@@ -987,6 +988,7 @@ class MainWindow(QMainWindow):
             try:
                 action()
             except Exception as exc:
+                self._startup_failures += 1
                 self.status_bar.showMessage(f'模块加载异常：{exc}', 5000)
             self._boot_step += 1
             QApplication.processEvents()
@@ -1030,6 +1032,7 @@ class MainWindow(QMainWindow):
             try:
                 importlib.import_module(module_name)
             except Exception as exc:
+                self._startup_failures += 1
                 self.status_bar.showMessage(f'模块预加载异常：{exc}', 5000)
             self._boot_step += 1
             self._startup_warmup_done += 1
@@ -1079,6 +1082,7 @@ class MainWindow(QMainWindow):
         self._startup_metrics['preloaded_modules'] = max(
             0, self._startup_warmup_done - len(self._warmup_boot_steps())
         )
+        self._startup_metrics['startup_failures'] = self._startup_failures
         log_web_event('startup_ready', **self._startup_metrics)
 
     def _create_prism_sidebar(self):
