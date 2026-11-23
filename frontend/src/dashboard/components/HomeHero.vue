@@ -289,11 +289,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   gap: 10px;
   padding: 22px 26px 20px;
   border-radius: 22px;
-  background: rgba(253, 253, 255, 0.86);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 28px rgba(38, 36, 56, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  background: rgba(253, 253, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 28px rgba(38, 36, 56, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.98);
   min-width: 0;
   transition: box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms ease;
 }
@@ -315,27 +313,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 .aurora {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
 }
 
 .a1 {
-  width: 480px;
-  height: 320px;
+  width: 520px;
+  height: 360px;
   left: -140px;
   top: -190px;
-  background: var(--aurora-end);
-  opacity: 0.42;
-  animation: drift-a 22s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(139, 122, 232, 0.30) 0%, rgba(139, 122, 232, 0) 70%);
 }
 
 .a2 {
-  width: 520px;
-  height: 300px;
+  width: 540px;
+  height: 340px;
   right: -120px;
   bottom: -200px;
-  background: var(--aurora-mid);
-  opacity: 0.16;
-  animation: drift-b 26s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.16) 0%, rgba(14, 165, 233, 0) 70%);
 }
 
 .hero-grid {

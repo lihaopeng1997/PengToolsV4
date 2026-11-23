@@ -379,11 +379,10 @@ body {
   line-height: 1.5;
   color: var(--text);
   background:
-    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.20), transparent 65%),
-    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.14), transparent 65%),
-    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.55), transparent 70%),
+    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.18), transparent 65%),
+    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.12), transparent 65%),
+    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.50), transparent 70%),
     var(--app-bg);
-  background-attachment: fixed;
 }
 button, input, select, textarea { font: inherit; }
 *, *::before, *::after { box-sizing: border-box; }
@@ -496,15 +495,13 @@ button, input, select, textarea { font: inherit; }
 .bento > :nth-child(4) { animation-delay: 140ms; }
 .bento > :nth-child(5) { animation-delay: 180ms; }
 
-/* 便当格卡片的统一外观（子组件根节点带 .tile） */
+/* 便当格卡片的统一外观（采用高通透纯白表面替代实时 backdrop-filter 模糊，消除滚动逐帧重绘卡顿） */
 .bento :deep(.tile) {
   padding: 16px 16px 14px;
   border-radius: 20px;
-  background: rgba(253, 253, 255, 0.92);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: rgba(253, 253, 255, 0.96);
   border: 1px solid var(--border);
-  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
 }
 

@@ -489,7 +489,10 @@ class RequirementAttachmentDialog(QDialog):
 
     def _setup_excel(self, root):
         search_row = QHBoxLayout(); search_row.addWidget(QLabel('实时定位'))
-        self.search = QLineEdit(); self.search.setProperty('editableField', True); self.search.setClearButtonEnabled(True); self.search.textChanged.connect(self._filter_excel)
+        self.search = QLineEdit(); self.search.setProperty('editableField', True); self.search.setClearButtonEnabled(True)
+        self._excel_filter_timer = QTimer(self); self._excel_filter_timer.setSingleShot(True); self._excel_filter_timer.setInterval(160)
+        self._excel_filter_timer.timeout.connect(self._filter_excel)
+        self.search.textChanged.connect(lambda *_: self._excel_filter_timer.start())
         search_row.addWidget(self.search, 1); root.addLayout(search_row)
         rows = self._entry.get('rows', []); columns = self._entry.get('column_count') or max((len(row) for row in rows), default=0)
         self.table = QTableWidget(len(rows), columns); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -572,26 +575,30 @@ class RequirementAttachmentDialog(QDialog):
         self._filter_excel()
 
     def _filter_excel(self):
-        for item, brush in self._highlights: item.setBackground(brush)
-        self._highlights = []; terms = [term.casefold() for term in self.search.text().split() if term]
-        first = None
-        for row in range(self.table.rowCount()):
-            text = '\t'.join(self.table.item(row, c).text() if self.table.item(row, c) else '' for c in range(self.table.columnCount())).casefold()
-            match = not terms or all(term in text for term in terms)
-            self.table.setRowHidden(row, row in self._hidden_rows or not match)
-            if terms and match:
-                for column in range(self.table.columnCount()):
-                    item = self.table.item(row, column)
-                    if item and any(term in item.text().casefold() for term in terms):
-                        self._highlights.append((item, QBrush(item.background())))
-                        try:
-                            from ui.theme_manager import ThemeManager
-                            sc = QColor(ThemeManager.instance().token('SEARCH_MATCH'))
-                        except Exception:
-                            sc = QColor('#FFF19C')
-                        item.setBackground(sc); first = first or item
-        if first:
-            self.table.setCurrentItem(first); self.table.scrollToItem(first, QAbstractItemView.ScrollHint.PositionAtCenter); self.table.clearSelection()
+        try:
+            from ui.theme_manager import ThemeManager
+            sc = QColor(ThemeManager.instance().token('SEARCH_MATCH'))
+        except Exception:
+            sc = QColor('#FFF19C')
+        self.table.setUpdatesEnabled(False)
+        try:
+            for item, brush in self._highlights: item.setBackground(brush)
+            self._highlights = []; terms = [term.casefold() for term in self.search.text().split() if term]
+            first = None
+            for row in range(self.table.rowCount()):
+                text = '\t'.join(self.table.item(row, c).text() if self.table.item(row, c) else '' for c in range(self.table.columnCount())).casefold()
+                match = not terms or all(term in text for term in terms)
+                self.table.setRowHidden(row, row in self._hidden_rows or not match)
+                if terms and match:
+                    for column in range(self.table.columnCount()):
+                        item = self.table.item(row, column)
+                        if item and any(term in item.text().casefold() for term in terms):
+                            self._highlights.append((item, QBrush(item.background())))
+                            item.setBackground(sc); first = first or item
+            if first:
+                self.table.setCurrentItem(first); self.table.scrollToItem(first, QAbstractItemView.ScrollHint.PositionAtCenter); self.table.clearSelection()
+        finally:
+            self.table.setUpdatesEnabled(True)
 
     def _sync_excel(self):
         self._entry['rows'] = [[self.table.item(r, c).text() if self.table.item(r, c) else '' for c in range(self.table.columnCount())] for r in range(self.table.rowCount())]

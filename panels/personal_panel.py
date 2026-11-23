@@ -3,7 +3,7 @@ import datetime
 import copy
 import os
 
-from PyQt6.QtCore import QDate, QModelIndex, QStringListModel, QTime, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QDate, QModelIndex, QStringListModel, QThread, QTime, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
@@ -354,7 +354,11 @@ class KnowledgeTab(QWidget):
         self.sheet_filter = QLineEdit()
         self.sheet_filter.setPlaceholderText('筛选当前工作表')
         self.sheet_filter.setClearButtonEnabled(True)
-        self.sheet_filter.textChanged.connect(self._apply_sheet_filter)
+        self._sheet_filter_timer = QTimer(self)
+        self._sheet_filter_timer.setSingleShot(True)
+        self._sheet_filter_timer.setInterval(160)
+        self._sheet_filter_timer.timeout.connect(self._apply_sheet_filter)
+        self.sheet_filter.textChanged.connect(lambda *_: self._sheet_filter_timer.start())
         filter_row.addWidget(self.filter_column)
         filter_row.addWidget(self.sheet_filter, 1)
         table_layout.addLayout(filter_row)
@@ -944,47 +948,54 @@ class KnowledgeTab(QWidget):
 
     def _filter_workbook_rows(self, entry):
         from tools.personal_knowledge import workbook_visible_row_indexes
-        for item, background in self._highlighted_cells:
-            item.setBackground(background)
-        self._highlighted_cells = []
-        rows = self._workbook_rows
-        query = self._sanitize_search_query(self.search_edit.text()) if hasattr(self, 'search_edit') else ''
-        visible = workbook_visible_row_indexes(entry, query, display_rows=rows)
-        visible_set = None if visible is None else set(visible)
-        manually_hidden = self._hidden_rows.get(entry.get('id'), set())
-        filter_text = self.sheet_filter.text().strip().casefold()
-        filter_column = self.filter_column.currentData()
-        shown = 0
-        terms = [term.casefold() for term in query.split() if term.strip()]
-        first_match = None
-        for row_index, row in enumerate(rows):
-            cells = row if filter_column in (-1, None) else row[filter_column:filter_column + 1]
-            row_visible = (row_index != 0 and row_index not in manually_hidden
-                           and (visible_set is None or row_index in visible_set)
-                           and (not filter_text or any(filter_text in cell.casefold() for cell in cells)))
-            self.table_view.setRowHidden(row_index, not row_visible)
-            self.table_view.frozen.setRowHidden(row_index, not row_visible)
-            shown += bool(row_visible)
-            if not terms or not row_visible:
-                continue
-            row_text = ' '.join(str(value) for value in row).casefold()
-            if not any(term in row_text for term in terms):
-                continue
-            for column_index in range(min(len(row), self.table_view.columnCount())):
-                item = self.table_view.item(row_index, column_index)
-                if item and any(term in item.text().casefold() for term in terms):
-                    self._highlighted_cells.append((item, QBrush(item.background())))
-                    try:
-                        from ui.theme_manager import ThemeManager
-                        item.setBackground(QColor(ThemeManager.instance().token('SEARCH_MATCH')))
-                    except Exception:
-                        item.setBackground(QColor('#FFF19C'))
-                    first_match = first_match or item
-        if first_match:
-            self.table_view.setCurrentItem(first_match)
-            self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
-            self.table_view.clearSelection()
-        self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击复制单元格，点击表头排序')
+        try:
+            from ui.theme_manager import ThemeManager
+            match_color = QColor(ThemeManager.instance().token('SEARCH_MATCH'))
+        except Exception:
+            match_color = QColor('#FFF19C')
+        self.table_view.setUpdatesEnabled(False)
+        self.table_view.frozen.setUpdatesEnabled(False)
+        try:
+            for item, background in self._highlighted_cells:
+                item.setBackground(background)
+            self._highlighted_cells = []
+            rows = self._workbook_rows
+            query = self._sanitize_search_query(self.search_edit.text()) if hasattr(self, 'search_edit') else ''
+            visible = workbook_visible_row_indexes(entry, query, display_rows=rows)
+            visible_set = None if visible is None else set(visible)
+            manually_hidden = self._hidden_rows.get(entry.get('id'), set())
+            filter_text = self.sheet_filter.text().strip().casefold()
+            filter_column = self.filter_column.currentData()
+            shown = 0
+            terms = [term.casefold() for term in query.split() if term.strip()]
+            first_match = None
+            for row_index, row in enumerate(rows):
+                cells = row if filter_column in (-1, None) else row[filter_column:filter_column + 1]
+                row_visible = (row_index != 0 and row_index not in manually_hidden
+                               and (visible_set is None or row_index in visible_set)
+                               and (not filter_text or any(filter_text in cell.casefold() for cell in cells)))
+                self.table_view.setRowHidden(row_index, not row_visible)
+                self.table_view.frozen.setRowHidden(row_index, not row_visible)
+                shown += bool(row_visible)
+                if not terms or not row_visible:
+                    continue
+                row_text = ' '.join(str(value) for value in row).casefold()
+                if not any(term in row_text for term in terms):
+                    continue
+                for column_index in range(min(len(row), self.table_view.columnCount())):
+                    item = self.table_view.item(row_index, column_index)
+                    if item and any(term in item.text().casefold() for term in terms):
+                        self._highlighted_cells.append((item, QBrush(item.background())))
+                        item.setBackground(match_color)
+                        first_match = first_match or item
+            if first_match:
+                self.table_view.setCurrentItem(first_match)
+                self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.table_view.clearSelection()
+            self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击复制单元格，点击表头排序')
+        finally:
+            self.table_view.setUpdatesEnabled(True)
+            self.table_view.frozen.setUpdatesEnabled(True)
         self._table_autofit.schedule()
 
     def _open_table_cell(self, row, column, *, sensitive_only=False):
@@ -1266,6 +1277,9 @@ class KnowledgeTab(QWidget):
 
     def _import_documents(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        if getattr(self, '_doc_import_worker', None) is not None and self._doc_import_worker.isRunning():
+            show_info(self, '文档导入', '已有文档正在后台解析导入中，请稍候。')
+            return
         start = get_dialog_start_dir('personal_doc_import')
         paths, _ = QFileDialog.getOpenFileNames(
             self, '选择要整理的文档', start,
@@ -1274,30 +1288,57 @@ class KnowledgeTab(QWidget):
         if not paths:
             return
         remember_dialog_path('personal_doc_import', paths)
-        entries, errors = [], []
-        for path in paths:
+
+        class _DocImportWorker(QThread):
+            finished_batch = pyqtSignal(list, list, list, list)
+
+            def __init__(self, target_paths, parent=None):
+                super().__init__(parent)
+                self._paths = list(target_paths)
+
+            def run(self):
+                entries, errors, need_pwd = [], [], []
+                for path in self._paths:
+                    try:
+                        if os.path.splitext(path)[1].lower() == '.xlsx':
+                            entries.extend(extract_workbook_entries(path, source=os.path.basename(path)))
+                        else:
+                            entries.extend(extract_document_entries(path))
+                    except PermissionError as exc:
+                        if str(exc) == 'PASSWORD_REQUIRED':
+                            need_pwd.append(path)
+                        else:
+                            errors.append(f'{os.path.basename(path)}：{exc}')
+                    except (OSError, ValueError) as exc:
+                        errors.append(f'{os.path.basename(path)}：{exc}')
+                self.finished_batch.emit(self._paths, entries, errors, need_pwd)
+
+        if getattr(self, '_import_loading', None) is None:
+            from ui.aurora_progress import AuroraProgress
+            self._import_loading = AuroraProgress(self)
+        self._import_loading.start_busy(f'正在导入并解析 {len(paths)} 个文档…')
+        worker = _DocImportWorker(paths, self)
+        worker.finished_batch.connect(self._on_import_documents_done)
+        self._doc_import_worker = worker
+        worker.start()
+
+    def _on_import_documents_done(self, paths, entries, errors, need_pwd):
+        if getattr(self, '_import_loading', None) is not None:
+            self._import_loading.finish('文档解析完成')
+        entries = list(entries)
+        errors = list(errors)
+        for path in need_pwd:
+            password, accepted = QInputDialog.getText(
+                self, '工作簿密码', f'请输入 {os.path.basename(path)} 的打开密码：',
+                QLineEdit.EchoMode.Password,
+            )
+            if not accepted:
+                errors.append(f'{os.path.basename(path)}：已取消密码输入')
+                continue
             try:
-                if os.path.splitext(path)[1].lower() == '.xlsx':
-                    entries.extend(extract_workbook_entries(path, source=os.path.basename(path)))
-                else:
-                    entries.extend(extract_document_entries(path))
-            except PermissionError as exc:
-                if str(exc) != 'PASSWORD_REQUIRED':
-                    errors.append(f'{os.path.basename(path)}：{exc}')
-                    continue
-                password, accepted = QInputDialog.getText(
-                    self, '工作簿密码', f'请输入 {os.path.basename(path)} 的打开密码：',
-                    QLineEdit.EchoMode.Password,
-                )
-                if not accepted:
-                    errors.append(f'{os.path.basename(path)}：已取消密码输入')
-                    continue
-                try:
-                    entries.extend(extract_workbook_entries(path, password, source=os.path.basename(path)))
-                except (OSError, ValueError) as password_error:
-                    errors.append(f'{os.path.basename(path)}：{password_error}')
-            except (OSError, ValueError) as exc:
-                errors.append(f'{os.path.basename(path)}：{exc}')
+                entries.extend(extract_workbook_entries(path, password, source=os.path.basename(path)))
+            except (OSError, ValueError) as password_error:
+                errors.append(f'{os.path.basename(path)}：{password_error}')
         added, duplicates = self._append_entries(entries)
         message = f'已从 {len(paths) - len(errors)} 个文档新增 {added} 条，跳过重复 {duplicates} 条。'
         if errors:

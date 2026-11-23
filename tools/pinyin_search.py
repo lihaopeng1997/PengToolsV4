@@ -164,7 +164,8 @@ def build_search_blob(*parts: object) -> str:
         init_bits.append(pinyin_initials(text))
     raw = '\n'.join(raw_bits)
     full = ' '.join(x for x in full_bits if x)
-    initials = ''.join(init_bits)
+    # 不同字段首字母之间保留空格，避免跨字段首尾字母意外拼出假命中（如字段A末字z + 字段B首字z → zz）
+    initials = ' '.join(x for x in init_bits if x)
     compact_full = _VOWEL_STRIP.sub('', full)
     # 首行必须是「可见原文」专用（供单字母/中文原文匹配），不要把拼音拼进首行。
     # 旧实现 normalize_query(整段) 会把换行压成空格，导致 e 命中 che、乱输仍像有结果。
@@ -174,7 +175,7 @@ def build_search_blob(*parts: object) -> str:
         full,
         compact_full,
         initials,
-        ' '.join(init_bits),
+        initials,
     ])
 
 
@@ -235,16 +236,11 @@ def match_query(blob_or_text: str, query: str) -> bool:
             if term in raw_visible or term in raw_line:
                 matched = True
         elif has_cjk:
-            # 中文：先原文，再拼音（全拼走 compact/full，首字母只走 init 行，避免 sq 误伤 jiekousql）
+            # 用户已明确输入汉字（如「自主」）：只做精确原文子串匹配，禁止回退到首字母「zz」
+            # 否则「旧准则(jzz) / 新增智能(xzzn) / 济宁中支(jnzz)」等无关项会被误命中。
+            # 若要按拼音/首字母搜索，直接输入字母（如 zizhu / zz）走下方 latin 分支。
             if term in raw_visible or term in raw_line:
                 matched = True
-            else:
-                q_full = _latin_token(pinyin_full(term))
-                q_init = (pinyin_initials(term) or '').casefold()
-                if q_full and len(q_full) >= 2 and (q_full in compact_line or q_full in full_line):
-                    matched = True
-                elif q_init and len(q_init) >= 2 and q_init in init_line:
-                    matched = True
         elif latin:
             if len(latin) >= 2:
                 # 英文/数字/拼音：可见原文、全拼紧凑或首字母串
