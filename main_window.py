@@ -1719,38 +1719,16 @@ class MainWindow(QMainWindow):
         quit_act.triggered.connect(self.exit_application)
 
     def _show_about(self):
-        """左下角关于：励志搞笑文案，署名 Lihp。"""
-        from ui.confirm_dialog import show_info
-        zh = self.language == 'zh'
-        if zh:
-            title = f'关于 {APP_NAME}'
-            message = (
-                f'👋 嗨，我是 {APP_NAME}，Lihp 亲手喂大的离线打工人。\n\n'
-                f'今天也要记得：Bug 怕认真的人，需求怕写清楚的人，'
-                f'而加班最怕的是——你其实已经写完了却还在刷新邮箱。\n\n'
-                f'☕ 建议：先喝口水，再点一次「保存」。\n'
-                f'🚀 励志一句：代码可以重构，青春不行；但你可以先把日报写了。\n\n'
-                f'作者：Lihp\n'
-                f'版本：{app_version_text()}\n'
-                f'构建：{APP_BUILD_DATE}\n'
-                f'口号：离线也能起飞，摸鱼也要有工具感。\n\n'
-                f'完整操作请看菜单中的「使用说明」。'
-            )
-            btn = '笑完继续干'
-        else:
-            title = f'About {APP_NAME}'
-            message = (
-                f'Hi, I am {APP_NAME} — raised offline by Lihp.\n\n'
-                f'Bugs fear careful people. Specs fear clear people. '
-                f'Overtime fears the person who already finished but still refreshes email.\n\n'
-                f'Author: Lihp\n'
-                f'Version: {app_version_text()}\n'
-                f'Build: {APP_BUILD_DATE}\n'
-                f'Motto: Ship offline. Keep smiling. Save the daily report.\n\n'
-                f'See User Guide in the menu for full documentation.'
-            )
-            btn = 'Back to work'
-        show_info(self, title, message, kind='info', button_text=btn)
+        """帮助 / 左下角关于：趣味卡片版，带语录切换与使用说明直达。"""
+        from ui.help_dialog import show_about_dialog
+        show_about_dialog(
+            app_name=APP_NAME,
+            version_text=app_version_text(),
+            build_date=APP_BUILD_DATE,
+            language=self.language,
+            on_open_guide=self._show_user_guide,
+            parent=self,
+        )
         self.status_bar.showMessage(
             f'{APP_NAME} {app_version_text()} · Lihp · {APP_BUILD_DATE}', 5000
         )
