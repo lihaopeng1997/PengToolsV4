@@ -43,7 +43,7 @@
     color: #3D3952;
   }
   li {
-    margin: 3px 0;
+    margin: 4px 0;
   }
   table.grid {
     width: 100%;
@@ -85,6 +85,18 @@
     background-color: #F7F5FD;
     border: 1px solid #E4DFF5;
     padding: 12px 16px;
+  }
+  table.steps {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px;
+    font-size: 13px;
+  }
+  table.steps td {
+    background-color: #FAF9FE;
+    border: 1px solid #E6E0F5;
+    padding: 9px 12px;
+    color: #262438;
   }
   table.callout-tip {
     width: 100%;
@@ -134,6 +146,10 @@
     color: #503DBE;
     font-weight: 700;
   }
+  .step-tag {
+    font-weight: 700;
+    color: #503DBE;
+  }
   .muted {
     color: #615D73;
     font-size: 12px;
@@ -145,8 +161,8 @@
 <table class="hero" cellspacing="0" cellpadding="0">
   <tr>
     <td>
-      <div style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">PengToolsHub 使用说明</div>
-      <div style="font-size: 13px; color: #EEE9FF;">内网离线研发与运维桌面工作台 · 数据中心 / 智能助手 / 交付管理 / 运维排查 / 开发工具</div>
+      <div style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">PengToolsHub 操作手册与使用说明</div>
+      <div style="font-size: 13px; color: #EEE9FF;">每个模块都配有手把手操作步骤 · 内网离线研发与运维一站式桌面工作台</div>
       <div style="font-size: 12px; color: #DFD8FF; margin-top: 6px;">版本：V4 Prism Calm · 作者：Lihp · 全本地离线运行 · 数据仅存本机 data/ 目录</div>
     </td>
   </tr>
@@ -155,176 +171,193 @@
 <table class="toc" cellspacing="0" cellpadding="0">
   <tr>
     <td>
-      <div style="font-size: 14px; font-weight: 700; color: #503DBE; margin-bottom: 6px;">快速目录（点击跳转，顶部可直接搜关键词）</div>
+      <div style="font-size: 14px; font-weight: 700; color: #503DBE; margin-bottom: 6px;">快速目录（点章节直达，顶部搜索框可按关键词跳转）</div>
       <table width="100%" cellspacing="0" cellpadding="3" style="border:none;">
         <tr>
-          <td width="33%" style="border:none; background-color:#F7F5FD;"><a href="#s1">1. 3 分钟上手与界面减负</a></td>
-          <td width="33%" style="border:none; background-color:#F7F5FD;"><a href="#s2">2. 模块导航与快捷键</a></td>
-          <td width="34%" style="border:none; background-color:#F7F5FD;"><a href="#s3">3. 首页工作台</a></td>
+          <td width="33%" style="border:none; background-color:#F7F5FD;"><a href="#s1">1. 新手 3 分钟上手 & 界面减负</a></td>
+          <td width="33%" style="border:none; background-color:#F7F5FD;"><a href="#s2">2. 模块总览与快捷键</a></td>
+          <td width="34%" style="border:none; background-color:#F7F5FD;"><a href="#s3">3. 首页工作台操作步骤</a></td>
         </tr>
         <tr>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s4">4. 数据中心（多库查询）</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s5">5. 智能助手（模型 / Agent）</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s6">6. 需求管理与发版联动</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s4">4. 数据中心（多库查数步骤）</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s5">5. 智能助手（模型配置与对话）</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s6">6. 需求管理与发版联动步骤</a></td>
         </tr>
         <tr>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s7">7. 日志排查与 AI 日志排查</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s8">8. 命令库与 AI / 终端联动</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s9">9. 接口排查与格式工具</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s7">7. 日志排查与 AI 排查步骤</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s8">8. 命令库与终端 / AI 联动步骤</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s9">9. 接口排查抓包与重放步骤</a></td>
         </tr>
         <tr>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s10">10. 测试数据、日报与个人空间</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s11">11. 设置、数据目录与升级</a></td>
-          <td style="border:none; background-color:#F7F5FD;"><a href="#s12">12. 常见问题 FAQ</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s10">10. 格式工具（含图片/PDF 转 Base64）</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s11">11. 测试数据、日报与设置</a></td>
+          <td style="border:none; background-color:#F7F5FD;"><a href="#s12">12. 数据目录、升级与 FAQ</a></td>
         </tr>
       </table>
     </td>
   </tr>
 </table>
 
-<h2 id="s1">1. 3 分钟上手与界面减负</h2>
-<p><strong>PengToolsHub</strong> 把日常开发、数据库查数、需求发版、SSH 日志排查、接口抓包、测试数据生成与内网大模型能力整合到一个本地窗口里，所有业务数据仅存本机，不依赖公网。</p>
-<h3>觉得功能多、上手复杂？先用好这 4 个减负开关</h3>
-<ol>
-  <li><strong>侧边栏「精简 / 全部」</strong>：在左侧导航顶部切换。「精简」默认折叠低频分组让菜单更清爽，点分组名随时展开，<strong>不会禁用任何功能</strong>。</li>
-  <li><strong>悬停星标「常用置顶」</strong>：鼠标悬停在左侧任意模块上，点右侧 <code>☆</code> 即可固定到最上方的「常用置顶」区。</li>
-  <li><strong>首页「简洁 / 完整」</strong>：在首页主卡右上角一键切换。「简洁」只保留搜索、常用工具和项目进度；「完整」展开上线日历、阶段统计与日报概览。</li>
-  <li><strong>全模块分步「引导」按钮</strong>：在数据中心、需求管理、发版联动、接口文档、日志排查、AI 日志排查、命令库、接口排查、格式工具、测试数据、设置页顶栏均配有轻量 <code>引导</code> 按钮，点一下即弹出聚光灯式「下一步 → 下一步」交互向导。</li>
-</ol>
-<table class="callout-tip" cellspacing="0" cellpadding="0">
-  <tr><td><strong>安全与离线原则：</strong>程序支持单实例防重复打开；所有配置与台账仅保存在程序同级 <code>data/</code> 目录，无云端上传。</td></tr>
+<h2 id="s1">1. 新手 3 分钟上手与界面减负</h2>
+<p><strong>PengToolsHub</strong> 把数据库查数、需求与发版、SSH 日志排查、接口抓包、格式转换、测试数据与内网大模型整合到一个纯本地桌面窗口。第一次打开不用背功能，照着下面 4 步就能立刻顺手：</p>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">第 1 步 · 精简菜单：</span>左侧导航顶部默认在 <code>精简</code> 模式，低频分组自动折叠；想看全部分组点 <code>全部</code>，或直接点任意分组标题展开（<strong>不隐藏任何功能</strong>）。</div>
+    <div><span class="step-tag">第 2 步 · 置顶常用：</span>鼠标移到左侧你每天要用的模块上，点右侧出现的小星星 <code>☆</code>，它会立刻固定到最上方的「常用置顶」。</div>
+    <div><span class="step-tag">第 3 步 · 首页切简洁：</span>首页主卡右上角点 <code>简洁</code> 只留搜索、常用工具和项目进度；需要看上线日历与统计再点回 <code>完整</code>。</div>
+    <div><span class="step-tag">第 4 步 · 不会就点引导：</span>所有核心页面右上角/顶栏都有 <code>引导</code> 按钮，点一下就会亮起聚光灯，按「下一步 → 下一步」手把手带你认一遍按钮。</div>
+  </td></tr>
 </table>
 
-<h2 id="s2">2. 模块导航与快捷键</h2>
-<h3>2.1 当前模块总览</h3>
+<h2 id="s2">2. 模块总览与快捷键</h2>
 <table class="grid" cellspacing="0" cellpadding="0">
   <tr><th width="16%">分组</th><th width="20%">模块</th><th>核心用途</th></tr>
-  <tr><td>工作台</td><td>首页</td><td>全局搜需求/工具/命令、常用工具、项目进度看板与上线日历</td></tr>
+  <tr><td>工作台</td><td>首页</td><td>全局搜索、常用工具直达、项目进度看板与上线日历</td></tr>
   <tr><td>数据中心</td><td>数据中心</td><td>Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB 多标签独立查数工作区</td></tr>
-  <tr><td rowspan="2">智能助手</td><td>模型聊天</td><td>对接已配置的内网大模型进行多轮对话、附件分析与配置验证</td></tr>
-  <tr><td>Agent 工作台</td><td>面向项目目录与复杂任务的代理工作台</td></tr>
-  <tr><td rowspan="4">交付管理</td><td>需求管理</td><td>需求/BUG 台账、节点进度推进、SVN 文件库、测试点与 SQL 联动</td></tr>
-  <tr><td>发版联动</td><td>多系统 SQL 整理、升级准备与 23 列标准发版 Excel 生成</td></tr>
-  <tr><td>接口文档更新</td><td>SQL 驱动批量更新接口 Word 文档</td></tr>
-  <tr><td>日报</td><td>按日记录今日完成/问题/明日计划，支持带入昨日计划和需求联动</td></tr>
-  <tr><td rowspan="2">运维工作台</td><td>日志排查</td><td>单机多标签 SSH 终端、远端目录、多机并行日志截取，以及「AI 日志与系统排查」</td></tr>
-  <tr><td>命令库</td><td>119 条 Linux / Java JVM 排查模板 + AI 生成/解释 + 一键填入日志排查终端</td></tr>
-  <tr><td rowspan="3">开发工具</td><td>接口排查</td><td>本机 HTTP/HTTPS 抓包、明细过滤导出与 Postman 风格请求测试</td></tr>
+  <tr><td rowspan="2">智能助手</td><td>模型聊天</td><td>连接内网大模型多轮对话、贴图/文件分析与连通验证</td></tr>
+  <tr><td>Agent 工作台</td><td>绑定本地项目目录执行复杂代理任务</td></tr>
+  <tr><td rowspan="4">交付管理</td><td>需求管理</td><td>需求/BUG 台账、进度节点、SVN 文件库、测试点与 SQL 联动</td></tr>
+  <tr><td>发版联动</td><td>勾选需求、按系统整理 SQL、一键生成 23 列标准发版 Excel</td></tr>
+  <tr><td>接口文档更新</td><td>根据建表/改表 SQL 批量更新本地 Word 接口文档</td></tr>
+  <tr><td>日报</td><td>按月归档每日进展，支持带入昨日计划、贴图与需求联动</td></tr>
+  <tr><td rowspan="2">运维工作台</td><td>日志排查</td><td>单机多标签 SSH 终端、远端目录、多机并行截取与「AI 日志与系统排查」</td></tr>
+  <tr><td>命令库</td><td>119 条 Linux / Java JVM 排查模板 + AI 生成/解释 + 一键送到日志排查终端</td></tr>
+  <tr><td rowspan="3">开发工具</td><td>接口排查</td><td>本机 HTTP/HTTPS 抓包、筛选导出与 Postman 风格请求测试</td></tr>
   <tr><td>格式工具</td><td>JSON（2 万节点快搜）/ XML / SQL / 文本辅助 / 图片与 PDF 转 Base64</td></tr>
-  <tr><td>测试数据</td><td>个人证件、单位信用代码、车辆 VIN 三合一离线模拟生成（全宽统一样式）</td></tr>
+  <tr><td>测试数据</td><td>个人证件、单位信用代码、车辆 VIN 三合一全宽模拟生成</td></tr>
   <tr><td>个人效率</td><td>自我学习</td><td>本地 Word / Excel / 文本知识库与后台异步导入</td></tr>
 </table>
 
-<h3>2.2 常用快捷键</h3>
 <table class="grid" cellspacing="0" cellpadding="0">
   <tr><th width="28%">快捷键</th><th>作用</th></tr>
-  <tr><td><span class="kbd">Ctrl + K</span></td><td>聚焦顶部全局功能搜索，秒跳任意模块</td></tr>
-  <tr><td><span class="kbd">Ctrl + Shift + P</span></td><td>显示 / 收起桌面悬浮快捷工具栏</td></tr>
-  <tr><td><span class="kbd">/</span>（在首页）</td><td>直接聚焦首页搜索框，搜索需求、工具或快捷命令</td></tr>
-  <tr><td><span class="kbd">← / → / Esc</span></td><td>在「引导」高亮向导中切换上一步、下一步或退出</td></tr>
+  <tr><td><span class="kbd">Ctrl + K</span></td><td>聚焦顶部全局功能搜索，输入模块名回车秒跳</td></tr>
+  <tr><td><span class="kbd">Ctrl + Shift + P</span></td><td>呼出 / 隐藏桌面悬浮快捷栏</td></tr>
+  <tr><td><span class="kbd">/</span>（在首页）</td><td>直接聚焦首页搜索框，搜需求、工具或快捷命令</td></tr>
+  <tr><td><span class="kbd">← / → / Esc</span></td><td>在「引导」交互式高亮向导中切上一步、下一步或退出</td></tr>
 </table>
 
-<h2 id="s3">3. 首页工作台</h2>
-<ul>
-  <li><strong>全局搜索框</strong>：支持搜索推进中的需求、模块工具与常用命令，方向键选定回车直达。</li>
-  <li><strong>简洁 / 完整切换</strong>：右上角带平滑过渡反馈的视图开关，偏好自动记住。</li>
-  <li><strong>项目进度（列表 / 看板）</strong>：看板模式支持直接拖动卡片推进需求阶段，也可点「新建需求」就地抽屉录入。</li>
-  <li><strong>称呼修改</strong>：点击问候语旁的昵称即可就地编辑，回车保存。</li>
-</ul>
+<h2 id="s3">3. 首页工作台操作步骤</h2>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1：</span>按 <span class="kbd">/</span> 或点顶部搜索框，输入需求标题、工具名或「新建需求」「写日报」，回车直达。</div>
+    <div><span class="step-tag">步骤 2：</span>在「项目进度」右上角可切 <code>列表 / 看板</code>；看板模式下按住卡片拖到下一阶段列即可更新状态。</div>
+    <div><span class="step-tag">步骤 3：</span>点击「新建需求」可在当前页右侧抽屉快速录入，无需来回切页；点击问候语旁的昵称可直接改称呼。</div>
+  </td></tr>
+</table>
 
-<h2 id="s4">4. 数据中心（多库查询）</h2>
-<ol>
-  <li><strong>新建连接</strong>：点击左侧目录「新建连接」，按引擎填写主机、端口、库名与凭据，支持 SSH 隧道与 TLS 配置。</li>
-  <li><strong>独立标签工作区</strong>：双击左侧连接在右侧打开专属标签，每个标签固定绑定其连接 ID，切换标签不串库、不中断查询。</li>
-  <li><strong>显式操作更安全</strong>：打开标签不自动连库、不自动扫描全量 Redis Keyspace，测试与查询均由你显式触发。</li>
-</ol>
+<h2 id="s4">4. 数据中心（多库查数操作步骤）</h2>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 新建连接：</span>点击左侧目录的 <code>新建连接</code>，选好数据库类型（Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB），填主机、端口、账号与库名（需要跳板机时在弹窗里配 SSH 隧道 / TLS）。</div>
+    <div><span class="step-tag">步骤 2 · 双击打开工作区：</span>在左侧连接树中<strong>双击</strong>目标连接，右侧会新开一个独立标签页；每个标签固定绑定自己的连接 ID，切换标签绝不串库。</div>
+    <div><span class="step-tag">步骤 3 · 显式连接与查数：</span>工作区默认不自动连库。先点「测试/连接」，再浏览库表、执行只读 SQL 或按前缀浏览 Redis Key / Mongo 集合。</div>
+  </td></tr>
+</table>
 
-<h2 id="s5">5. 智能助手（模型聊天 / Agent 工作台）</h2>
-<ul>
-  <li><strong>配置方式</strong>：进入「设置 → 模型服务」添加并启用内网 OpenAI 兼容或 Anthropic 兼容接口，支持多模型管理与连通测试。</li>
-  <li><strong>模型聊天</strong>：支持流式输出、代码块滚动、附件分析与防抖会话搜索；思考过程仅留内存不落盘污染历史。</li>
-  <li><strong>安全策略</strong>：凭据与敏感错误自动脱敏，只使用你明确勾选的内网模型。</li>
-</ul>
+<h2 id="s5">5. 智能助手（模型配置与对话操作步骤）</h2>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 添加内网模型：</span>进入左侧底部 <code>设置 → 模型服务</code>，填写内网大模型接口地址（支持 OpenAI 兼容与 Anthropic 兼容）、API Key 和模型名，点「测试连通」并勾选启用保存。</div>
+    <div><span class="step-tag">步骤 2 · 开始对话：</span>打开 <code>智能助手 → 模型聊天</code>，顶部选好已启用的模型，输入问题按 <code>Enter</code> 发送（<code>Shift+Enter</code> 换行），支持附带代码/文本/图片附件。</div>
+    <div><span class="step-tag">步骤 3 · 检索历史：</span>左侧会话列表支持实时防抖搜索、右键重命名或删除；模型思考过程仅内存展示，不污染历史记录。</div>
+  </td></tr>
+</table>
 
-<h2 id="s6">6. 需求管理与发版联动</h2>
+<h2 id="s6">6. 需求管理与发版联动操作步骤</h2>
 <h3>6.1 需求管理</h3>
-<ul>
-  <li><strong>精准搜索</strong>：输入<strong>中文</strong>时按原文精确匹配（不再误匹配无关首字母）；输入<strong>英文字母或编号</strong>时走拼音全拼与首字母匹配。</li>
-  <li><strong>顶栏与新增弹框瘦身</strong>：高频操作「新建需求」直达，批量操作（拉取最新、一键提签、SVN/目录导入、登记缺陷）统一收进「更多 ▾」；新增需求中勾选多个所属系统时，「开发分支/目录绑定」默认折叠为一行摘要，需要时点击展开单行填写。</li>
-  <li><strong>SVN 与文件库</strong>：复用本机 SVN 命令行缓存，软件不保存 SVN 密码；支持检出、更新、提交、锁/解锁与拖入文件。</li>
-</ul>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 录入或导入：</span>点顶栏紫色 <code>新建需求</code> 手工登记；若已有本地目录或 SVN 地址，点旁边 <code>更多 ▾</code> 选择「通过 SVN 路径导入」或「通过需求目录导入」。</div>
+    <div><span class="step-tag">步骤 2 · 快速查找：</span>顶部搜索框输入<strong>中文</strong>按原文精准匹配，输入<strong>字母/编号</strong>走拼音与首字母匹配，右侧可叠加月份、系统、类型筛选。</div>
+    <div><span class="step-tag">步骤 3 · 推进与文件管理：</span>选中左侧需求后，点右侧上方进度节点即可改阶段；在「文件库」直接拖入文件、更新或提交 SVN；在「测试点」「SQL / 联动」记录明细。</div>
+    <div><span class="step-tag">步骤 4 · 写日报与提签：</span>点 <code>写日报</code> 把当前需求进展自动带进今日日报；发版前点顶栏 <code>更多 ▾ → 一键提签</code> 或详情 <code>更多 ▾ → 准备本次升级</code>。</div>
+  </td></tr>
+</table>
 <h3>6.2 发版联动与接口文档更新</h3>
-<ul>
-  <li>需求详情「更多 ▾ → 准备本次升级」可一键带入发版联动，按 23 列标准模板生成发版 Excel。</li>
-  <li>接口文档更新可根据建表/改表 SQL 批量更新本地接口 Word 模板。</li>
-</ul>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">发版联动：</span>① 选定「升级日期」→ ② 勾选参与发版的需求/BUG → ③ 切到「SQL 整理」按系统核对去重 → ④ 一键生成 23 列标准发版 Excel。</div>
+    <div><span class="step-tag">接口文档更新：</span>① 选择接口文档所在目录并在左侧点选模板 DOCX → ② 在右侧粘贴或从需求带入变更 SQL → ③ 点右上角主按钮生成新的本地 Word 稿（不覆盖原模板）。</div>
+  </td></tr>
+</table>
 
-<h2 id="s7">7. 日志排查与 AI 日志排查</h2>
-<h3>7.1 人工排查（单机终端 / 多机截取）</h3>
-<ul>
-  <li><strong>服务器管理</strong>：在左侧「服务器与日志 → 管理」或顶栏「更多操作」维护主机地址、认证方式与各服务日志路径。</li>
-  <li><strong>单机会话</strong>：点击顶栏紫色「连接本会话」打开交互式 SSH 终端，支持多标签并发连接不同主机，左侧可预览日志、看尾部和浏览远端目录。</li>
-  <li><strong>多机截取</strong>：切到「多机截取」并行检索多台服务器日志并流式导出本地（不在远端写临时文件），导出后可一键送入「AI 日志与系统排查」。</li>
-</ul>
+<h2 id="s7">7. 日志排查与 AI 日志排查操作步骤</h2>
+<h3>7.1 人工排查（单机 SSH / 多机截取）</h3>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 配服务器：</span>点左侧「服务器与日志」卡片的 <code>管理</code>，添加主机 IP、端口、账号密码/密钥以及各服务的日志路径。</div>
+    <div><span class="step-tag">步骤 2 · 连终端（单机）：</span>下拉选中主机后，点顶栏紫色 <code>连接本会话</code> 打开交互终端；下方可选择服务一键看尾部、预览日志、关键字截取或浏览远端目录。</div>
+    <div><span class="step-tag">步骤 3 · 并行查多机：</span>切到左侧 <code>多机截取</code> 分段，勾选多台主机与服务，输入关键字（支持逗号多词），点击导出即并行流式拉回本地（不在服务器写临时文件）。</div>
+  </td></tr>
+</table>
 <h3>7.2 AI 日志与系统排查</h3>
-<ul>
-  <li>支持 <strong>历史日志分析</strong>、<strong>Linux 实时监控</strong>、<strong>仅实时日志</strong> 三种模式；左侧「异常事件 / 已采集日志 / 实际覆盖范围」打开即完整展示。</li>
-  <li>点「展开设置」选择本地文件或服务器日志并启动采集，在右侧选择内网模型并勾选确认后，即可「分析所选」或让 AI 整理故障报告。</li>
-  <li>发送给模型的日志片段强制清洗密码与 Token；所有采集只做只读查询，绝不修改或重启远端服务。</li>
-</ul>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 选排查方式：</span>切到顶部 <code>AI 日志与系统排查</code> 标签，选择「历史日志分析」「Linux 实时监控」或「仅实时日志」。</div>
+    <div><span class="step-tag">步骤 2 · 选目标并采集：</span>点左上角 <code>展开设置</code> 选择本地文件（或多机截取刚导出的日志）或远端服务器与路径，点右侧 <code>读取文件 / 开始监控</code>。</div>
+    <div><span class="step-tag">步骤 3 · 让 AI 定根因：</span>左侧「异常事件」表出现聚合异常后，在右侧选择内网模型并勾选「确认使用所选内网模型」，点 <code>分析所选</code> 或直接在下方提问，也可点 <code>报告</code> 让 AI 整理故障草稿。</div>
+  </td></tr>
+</table>
 
-<h2 id="s8">8. 命令库与 AI / 终端联动</h2>
-<ul>
-  <li><strong>119 条实战模板 / 11 大分类</strong>：包含日志查询（含时间段与分钟报错峰值）、<strong>Java / JVM 排查</strong>（<code>jps</code> / <code>jstat</code> / <code>jstack</code> / <code>top -Hp</code> / <code>jmap</code>）、进程、网络（TCP 状态分布、HTTP 耗时拆解）、磁盘（<code>lsof +L1</code> 幽灵大文件）、容器与 K8s 等，支持右键置顶与自定义命令。</li>
-  <li><strong>AI 命令助手</strong>：右侧内置「AI 命令助手」，输入白话需求可让内网模型生成只读命令，或点「AI 解释当前命令」拆解参数含义与风险。</li>
-  <li><strong>一键联动日志排查</strong>：点 <code>送到日志排查终端</code> 自动跳到 SSH 终端并填入命令栏；点 <code>AI 日志排查</code> 带入命令上下文切到 AI 排查页。</li>
-</ul>
+<h2 id="s8">8. 命令库与 AI / 日志排查联动操作步骤</h2>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 找命令与填空：</span>在左侧搜场景（如 <code>死锁</code>、<code>幽灵文件</code>、<code>HTTP 耗时</code>、<code>报错峰值</code>）或切到 <code>Java / JVM 排查</code> 等 11 个分类，在参数栏改一下 PID、端口或日志路径，预览区自动生成带安全转义的命令。</div>
+    <div><span class="step-tag">步骤 2 · 用 AI 定制或解释：</span>找不到现成模板时，在右侧「AI 命令助手」输入白话需求点 <code>AI 生成命令</code>；看不懂某条复杂命令就点 <code>AI 解释当前命令</code>。</div>
+    <div><span class="step-tag">步骤 3 · 一键联动执行：</span>点右下角 <code>送到日志排查终端</code> 会自动跳到 SSH 终端并把命令填进输入框（<strong>绝不自动执行</strong>，核对主机无误后按回车运行）；或点 <code>AI 日志排查</code> 带入上下文继续分析。</div>
+  </td></tr>
+</table>
 <table class="callout-warn" cellspacing="0" cellpadding="0">
-  <tr><td><strong>安全红线：</strong>严禁收录或生成 <code>rm</code> / <code>rmdir</code> / <code>unlink</code> / <code>shred</code> / <code>find -delete</code> 等删除指令；送到日志排查终端也<strong>只填入输入框、绝不自动执行</strong>，修改状态的高风险命令仍需二次确认。</td></tr>
+  <tr><td><strong>安全红线：</strong>命令库禁止收录和生成 <code>rm</code> / <code>rmdir</code> / <code>unlink</code> / <code>shred</code> / <code>find -delete</code> 等删除指令；修改系统状态的高风险命令在复制和发送到终端前均强制二次确认。</td></tr>
 </table>
 
-<h2 id="s9">9. 接口排查与格式工具</h2>
-<h3>9.1 接口排查（HTTP / HTTPS 抓包与请求测试）</h3>
-<ol>
-  <li>点击右上角「开始监听」启用本机 <code>127.0.0.1</code> 抓包代理；首次抓 HTTPS 请在顶栏「更多 ▾ → 安装 HTTPS 抓包证书」（随时可一键移除）。</li>
-  <li>完全退出并重新打开 Chrome / Edge 访问业务页，请求会实时进入左侧列表，支持状态、慢请求与 JSON/XML 筛选。</li>
-  <li>点选记录可在右侧查看概览/请求/响应，并一键「送格式工具」或切到「请求测试」按环境重放。</li>
-</ol>
+<h2 id="s9">9. 接口排查（抓包与请求测试操作步骤）</h2>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">步骤 1 · 开启监听：</span>点击右上角紫色 <code>开始监听</code> 启动本机 <code>127.0.0.1</code> 代理；首次抓 HTTPS 明文请先点顶栏 <code>更多 ▾ → 安装 HTTPS 抓包证书</code>（随时可一键移除）。</div>
+    <div><span class="step-tag">步骤 2 · 重开浏览器抓包：</span><strong>完全退出并重新打开</strong> Chrome / Edge 访问目标业务页面，请求会实时流进左侧列表，可用状态、慢请求、JSON/XML 标签快速过滤。</div>
+    <div><span class="step-tag">步骤 3 · 查报文与重放：</span>选中左侧任意请求，右侧查看概览/请求/响应，可一键 <code>送格式工具</code> 美化，或切到 <code>请求测试</code> 按保存的环境地址改参重发。</div>
+    <div><span class="step-tag">步骤 4 · 停止恢复代理：</span>排查完点右上角 <code>停止监听</code> 即自动恢复 Windows 系统代理（会话记录保留不清空）。</div>
+  </td></tr>
+</table>
 <table class="callout-danger" cellspacing="0" cellpadding="0">
-  <tr><td><strong>代理恢复提醒：</strong>正常点「停止监听」或关闭软件会自动恢复 Windows 系统代理。若异常强杀导致网页不通，可在「更多 ▾ → 恢复系统代理」一键修复，或重启软件自动清理。</td></tr>
+  <tr><td><strong>异常断网急救：</strong>若因任务管理器强杀进程导致网页打不开，点接口排查顶栏 <code>更多 ▾ → 恢复系统代理</code>，或重启一次软件即可自动清理残留代理。</td></tr>
 </table>
-<h3>9.2 格式工具（含图片 / PDF 转 Base64）</h3>
-<p>内置 JSON（支持 2 万节点快速搜索与树/文联动）、XML、SQL、文本与编码辅助，以及 <strong>图片 / PDF 转 Base64</strong>（支持选文件、拖拽或粘贴剪贴板截图转纯 Base64 / Data URI / HTML / CSS，也支持粘贴 Base64 还原图片预览并另存文件；大文件自动后台编码并截断界面预览防卡顿），全程离线不上传。</p>
 
-<h2 id="s10">10. 测试数据、日报与个人空间</h2>
+<h2 id="s10">10. 格式工具（含图片 / PDF 转 Base64 操作步骤）</h2>
+<h3>10.1 图片 / PDF ↔ Base64（双向互转）</h3>
+<table class="steps" cellspacing="0" cellpadding="0">
+  <tr><td>
+    <div><span class="step-tag">转成 Base64：</span>打开 <code>格式工具 → 图片 / PDF 转 Base64</code>，支持 ① 点 <code>选择图片 / PDF</code>、② 把文件直接<strong>拖进左侧虚线框</strong>、或 ③ 截图/复制文件后点 <code>粘贴剪贴板图片</code>；顶部可切换纯 Base64 / Data URI / HTML / CSS 与 76 列换行，右侧点 <code>复制 Base64</code> 或 <code>导出 .txt</code>（大 PDF 自动截断界面预览防卡顿，复制和导出始终为完整内容）。</div>
+    <div><span class="step-tag">Base64 还原文件：</span>把已有 Base64（支持纯串、Data URI、带引号或 <code>src="..."</code>）粘贴到右侧编辑框，点顶部 <code>Base64 还原预览</code>，左侧立即展示图片缩略图或 PDF 信息，再点左侧顶栏 <code>保存还原文件…</code> 另存回本机。</div>
+  </td></tr>
+</table>
+<h3>10.2 JSON / XML / SQL / 文本辅助</h3>
+<p>顶部直接切换对应页签：JSON 支持 2 万节点快速搜索与树/文联动定位，XML/SQL 离线美化压缩，文本辅助涵盖 URL、Unicode、时间戳与 Java 堆栈提取，全程不落盘。</p>
+
+<h2 id="s11">11. 测试数据、日报与设置操作步骤</h2>
 <ul>
-  <li><strong>测试数据（证件 + 车辆三合一）</strong>：已将原「证件类型」与「车辆 VIN」合并为单一全宽模块，顶部直接切换「个人证件」「单位证件」「车辆 VIN」，支持全随机或按条件批量生成、双击复制与 CSV 导出。</li>
-  <li><strong>日报</strong>：按月归档，支持「带入昨日计划」「复制为今日」「插入图片」和需求一键写入；切换日期会暂存草稿，确认后请点「保存日报」。</li>
-  <li><strong>自我学习</strong>：本地 Word / Excel / 文本知识库，支持防抖搜索与后台异步导入大文件。</li>
+  <li><strong>测试数据（证件 + 车辆三合一）</strong>：① 打开 <code>开发工具 → 测试数据</code> → ② 顶部选「个人证件」「单位证件」或「车辆 VIN」→ ③ 选全随机或指定条件后点 <code>生成</code> → ④ 双击单格复制，或底部一键复制全部 / 导出 CSV。</li>
+  <li><strong>日报</strong>：① 左侧选今天或历史日期 → ② 点 <code>带入昨日计划</code> 或直接填写 4 个分区（支持粘贴/拖入图片）→ ③ 点 <code>保存日报</code> 落盘。</li>
+  <li><strong>设置</strong>：① 左侧按 6 大分类切换（外观 / 悬浮工具栏 / 提醒与关闭 / 安全与安测 / 数据库客户端 / 模型服务）→ ② 修改后点右下角 <code>应用并保存偏好</code> 生效。</li>
 </ul>
 
-<h2 id="s11">11. 设置、数据目录与升级</h2>
+<h2 id="s12">12. 数据目录、升级与常见问题 FAQ</h2>
 <table class="grid" cellspacing="0" cellpadding="0">
   <tr><th width="28%">运行方式</th><th>本机数据目录</th></tr>
   <tr><td>源码开发运行</td><td>项目目录下 <code>data/</code></td></tr>
   <tr><td>打包版运行</td><td><code>&lt;PengToolsHub.exe 同级&gt;/data/</code></td></tr>
 </table>
-<ul>
-  <li><strong>设置页</strong>：左侧分 6 大类管理外观字号、悬浮工具栏、日报提醒与关闭行为、安全安测、数据库客户端和内网模型服务，点右上角 <code>引导</code> 可快速熟悉。</li>
-  <li><strong>无损升级</strong>：升级只需替换程序文件，<strong>切勿删除同级 <code>data/</code> 目录</strong>，所有连接、台账与配置都会完整保留。</li>
-</ul>
+<p><strong>无损升级：</strong>替换程序文件即可，<strong>切勿删除同级 <code>data/</code> 目录</strong>，所有连接、需求台账、服务器与日报都会完整保留。</p>
 
-<h2 id="s12">12. 常见问题 FAQ</h2>
 <h3>Q1：之前单独的「车辆 VIN」和「加解密」去哪了？</h3>
-<p>「车辆 VIN」已合并到左侧「开发工具 → 测试数据」的第 3 个页签（个人证件 / 单位证件 / 车辆 VIN 一站式切换）；「加解密」因网关逻辑变更已下线隐藏，同时减少了启动预热和内存占用。</p>
-<h3>Q2：需求搜索中文和拼音怎么配合？</h3>
-<p>输入中文按中文原文精准匹配（不会误匹配无关首字母）；输入英文字母或拼音首字母（如 <code>cxcb</code>、<code>zizhu</code>）自动走拼音检索。</p>
-<h3>Q3：抓包后列表为空或网页连不上网？</h3>
-<p>列表为空请确认已点击「开始监听」并完全重开浏览器（HTTPS 需在「更多 ▾」安装本机证书）；网页连不上网请点「更多 ▾ → 恢复系统代理」或重启一次软件自动清理残留代理。</p>
-<h3>Q4：命令库的 AI 助手提示未配置内网模型？</h3>
-<p>请先到「设置 → 模型服务」添加并启用内网模型，再回到命令库点「刷新模型」；未配置模型时，119 条内置命令与「送到日志排查终端」仍可直接使用。</p>
-<h3>Q5：功能太多记不住怎么用？</h3>
-<p>按 <span class="kbd">Ctrl + K</span> 搜名字秒跳任意模块；打开陌生页面点右上角 <code>引导</code> 按钮走一遍「下一步 → 下一步」高亮向导，一分钟就能上手。</p>
+<p>「车辆 VIN」已合并到 <code>开发工具 → 测试数据</code> 第 3 个页签；「加解密」因业务逻辑变更已下线隐藏，同时提升了启动速度、降低了内存占用。</p>
+<h3>Q2：抓包后列表是空的或网页连不上网？</h3>
+<p>列表为空请确认已点「开始监听」并<strong>完全退出重开浏览器</strong>（HTTPS 需在「更多 ▾」装证书）；网页连不上网点「更多 ▾ → 恢复系统代理」或重启一次软件即可恢复。</p>
+<h3>Q3：需求搜索中文和拼音怎么用？</h3>
+<p>输入中文按中文原文精准匹配（不再误匹配无关拼音首字母）；输入英文字母或首字母（如 <code>cxcb</code>、<code>zizhu</code>）自动走拼音检索。</p>
+<h3>Q4：图片 / PDF 转 Base64 有大小限制吗？</h3>
+<p>单文件上限 25 MB；超过 1 MB 自动后台线程编码，超过 12 万字符自动截断编辑框显示防止界面卡顿，点「复制 Base64」和「导出 .txt」都会完整输出。</p>
 
 <hr style="border:none; border-top:1px solid #DFD9F0; margin: 22px 0 10px;"/>
 <p class="muted" align="center">PengToolsHub V4 · 作者 Lihp · Prism Calm 离线工作台 · 本说明随软件内置无需联网</p>

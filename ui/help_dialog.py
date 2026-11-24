@@ -147,21 +147,23 @@ def show_user_guide(parent=None, language: str = 'zh'):
 
 
 class AboutDialog(QDialog):
-    """精致有趣味性的「关于 PengToolsHub」弹窗。"""
+    """搞笑又有温度的「关于 PengToolsHub」弹窗，记录作者 Lihp 的血泪手搓日常。"""
 
     _QUIPS_ZH = [
-        '“需求不会凭空消失，但写清楚测试点和发版清单，它至少不会在周五晚上六点找你。”',
-        '“查日志的最高境界：还没等业务群 @你，你已经用多机截取和 AI 把堆栈拍桌上了。”',
-        '“代码可以重构，发际线不行；先喝口水，记得点保存，顺手把今天日报写了。”',
-        '“别担心不会用——每个页面右上角都有「引导」，不会就下一步下一步，主打一个零门槛。”',
-        '“离线也能起飞：没有花里胡哨的云端弹窗，数据稳稳躺在本机 data/ 里，安全感拉满。”',
-        '“数据库别乱删、生产别硬扛、抓包记得停代理——剩下的脏活累活交给我来干。”',
+        '“为了让你少切 8 个窗口、少熬 2 小时夜，作者 Lihp 自己先熬了 20 个夜，把数据库、抓包、日志、发版、AI 全塞进这一个壳子里。”',
+        '“你以为界面丝滑是天生的？那是作者跟 PyQt、Chromium 毛玻璃、Windows 代理和各种玄学换行大战三百回合换来的。”',
+        '“如果这软件帮你早下班了 10 分钟，请在心里默默给 Lihp 点个赞——他此刻大概率还在为了 1 像素没对齐的边框跟自己较劲。”',
+        '“有人问作者做这么多离线功能累不累？作者抹了把眼泪说：不累，只要大家别在周五 17:59 提紧急发版就行。”',
+        '“纯离线、零广告、不弹窗逼充 VIP、绝不偷偷传云端——作者图啥？图自己用着痛快，顺带抢救一下全组同胞摇摇欲坠的发际线！”',
+        '“搜中文不乱配、删库前死命拦你、抓完包乖乖还你代理、大 PDF 后台悄悄转——这哪是工具箱，这是作者亲手给你缝的赛博保姆。”',
+        '“代码可以重构，发际线不能回滚；所以作者拼命把重复体力活全做成一键按钮，好让你喝口热水、写完日报、准点下班。”',
+        '“哪个页面要是实在摸不着头脑，千万别硬挠头！右上角点「引导」走下一步，作者连聚光灯手把手教程都熬夜给你肝出来了。”',
     ]
     _QUIPS_EN = [
-        '"Requirements never vanish, but clean checklists keep Friday 6 PM calm."',
-        '"Offline first: your data stays right inside local data/, zero cloud surprises."',
-        '"Drink some water, hit Save, and let the interactive Guide walk you through any page."',
-        '"Never run rm in prod, always restore proxy — leave the repetitive chores to me."',
+        '"To save you 2 hours a week, Lihp stayed up 20 late nights packing DB, SSH, capture, Base64, and AI into one offline box."',
+        '"Zero ads, zero cloud telemetry, zero surprise proxy leaks — crafted purely to protect your hairline and Friday evenings."',
+        '"If this tool gets you home 10 minutes early, silently cheer for Lihp — he is probably still nudging a border by 1 pixel."',
+        '"Not sure where to click? Hit the Guide button in the top corner — Lihp even built spotlight walkthroughs for you!"',
     ]
 
     def __init__(
@@ -181,7 +183,7 @@ class AboutDialog(QDialog):
         self.setObjectName('confirm-dialog')
         self.setWindowTitle(f'关于 {app_name}' if zh else f'About {app_name}')
         self.setModal(True)
-        clamp_dialog_geometry(self, 488, 344, min_width=450, min_height=306)
+        clamp_dialog_geometry(self, 512, 392, min_width=470, min_height=348)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 16)
@@ -223,17 +225,56 @@ class AboutDialog(QDialog):
         title_col.addLayout(name_row)
 
         sub_lbl = QLabel(
-            'Lihp 亲手打磨的内网离线研发与运维工作台'
+            'Lihp 用无数杯咖啡、发际线和深夜掉的头发手搓出来的离线打工人救命台'
             if zh else
-            'Offline engineering & ops desktop workbench crafted by Lihp',
+            'Crafted offline by Lihp with endless coffee, late nights, and stubborn pixel polish',
             self,
         )
+        sub_lbl.setWordWrap(True)
         sub_lbl.setStyleSheet('color: #615D73; font-size: 12px; background: transparent;')
         title_col.addWidget(sub_lbl)
         hero.addLayout(title_col, 1)
         root.addLayout(hero)
 
-        # 每日打工金句卡（可点换一句）
+        # 作者辛苦血泪账单条
+        stats_card = QFrame(self)
+        stats_card.setStyleSheet(
+            'QFrame { background-color: #FDFBFF; border: 1px solid #E4DFF5; border-radius: 10px; }'
+        )
+        sl = QHBoxLayout(stats_card)
+        sl.setContentsMargins(12, 8, 12, 8)
+        sl.setSpacing(8)
+        stat_items = (
+            [
+                ('消耗咖啡', '∞ 杯'),
+                ('祭天发丝', '统计溢出'),
+                ('加班剿 Bug', '全年无休'),
+                ('偷传云端', '0 字节'),
+            ]
+            if zh else
+            [
+                ('Coffee', '∞ cups'),
+                ('Hair lost', 'Overflow'),
+                ('Bugs fixed', 'Countless'),
+                ('Cloud upload', '0 bytes'),
+            ]
+        )
+        for caption, val in stat_items:
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(1)
+            v_lbl = QLabel(val, stats_card)
+            v_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            v_lbl.setStyleSheet('color: #503DBE; font-size: 13px; font-weight: 700; border: none; background: transparent;')
+            c_lbl = QLabel(caption, stats_card)
+            c_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c_lbl.setStyleSheet('color: #615D73; font-size: 11px; border: none; background: transparent;')
+            col.addWidget(v_lbl)
+            col.addWidget(c_lbl)
+            sl.addLayout(col, 1)
+        root.addWidget(stats_card)
+
+        # 作者碎碎念 / 搞笑语录卡（点「换一句吐槽」循环切换）
         quip_card = QFrame(self)
         quip_card.setStyleSheet(
             'QFrame { background-color: #F7F5FD; border: 1px solid #DFD9F0; border-radius: 12px; }'
@@ -245,22 +286,23 @@ class AboutDialog(QDialog):
         self._quip_idx = random.randrange(len(self._quips))
         self.quip_label = QLabel(self._quips[self._quip_idx], quip_card)
         self.quip_label.setWordWrap(True)
+        self.quip_label.setMinimumHeight(46)
         self.quip_label.setStyleSheet('color: #262438; font-size: 13px; line-height: 1.6; border: none; background: transparent;')
         ql.addWidget(self.quip_label)
         quip_foot = QHBoxLayout()
         quip_foot.setContentsMargins(0, 0, 0, 0)
-        tag = QLabel('☕ 打工续命语录' if zh else '☕ Daily dev note', quip_card)
+        tag = QLabel('☕ 作者 Lihp 深夜碎碎念' if zh else '☕ Late-night dev confession', quip_card)
         tag.setStyleSheet('color: #6C58D9; font-size: 11px; font-weight: 600; border: none; background: transparent;')
         quip_foot.addWidget(tag)
         quip_foot.addStretch(1)
-        self.next_quip_btn = QPushButton('换一句' if zh else 'Another', quip_card)
+        self.next_quip_btn = QPushButton('换一句吐槽' if zh else 'Another joke', quip_card)
         apply_button(self.next_quip_btn, 'ghost', compact=True)
         self.next_quip_btn.clicked.connect(self._next_quip)
         quip_foot.addWidget(self.next_quip_btn)
         ql.addLayout(quip_foot)
         root.addWidget(quip_card)
 
-        # 核心元信息（紧凑两行）
+        # 核心元信息
         meta_card = QFrame(self)
         meta_card.setStyleSheet(
             'QFrame { background-color: #FFFFFF; border: 1px solid #E8E3F6; border-radius: 10px; }'
@@ -269,16 +311,16 @@ class AboutDialog(QDialog):
         ml.setContentsMargins(12, 9, 12, 9)
         ml.setSpacing(4)
         meta_line_1 = QLabel(
-            f'作者：Lihp    ·    构建日期：{build_date}    ·    运行模式：纯离线本机'
+            f'全栈苦力作者：Lihp    ·    构建：{build_date}    ·    模式：纯离线不联网'
             if zh else
             f'Author: Lihp  ·  Build: {build_date}  ·  Mode: Offline local',
             meta_card,
         )
         meta_line_1.setStyleSheet('color: #3D3952; font-size: 12px; border: none; background: transparent;')
         meta_line_2 = QLabel(
-            '涵盖：数据中心 · 智能助手 · 需求发版 · 日志与 AI 排查 · 命令库 · 接口排查 · 测试数据'
+            '数据中心 · 智能助手 · 需求发版 · 日志与 AI 排查 · 命令库 · 接口排查 · 格式与图片/PDF转Base64 · 测试数据'
             if zh else
-            'Includes: Data Center · AI Chat · Requirements · Log & AI Inspect · Commands · API Debug · Test Data',
+            'Data Center · AI Chat · Requirements · Log & AI Inspect · Commands · API Debug · Format & Base64 · Test Data',
             meta_card,
         )
         meta_line_2.setWordWrap(True)
@@ -290,12 +332,12 @@ class AboutDialog(QDialog):
         # 底栏按钮
         foot = QHBoxLayout()
         foot.setSpacing(8)
-        self.guide_btn = QPushButton('查看使用说明' if zh else 'User Guide', self)
+        self.guide_btn = QPushButton('查看操作手册' if zh else 'User Guide', self)
         apply_button(self.guide_btn, 'secondary', compact=True)
         self.guide_btn.clicked.connect(self._open_guide)
         foot.addWidget(self.guide_btn)
         foot.addStretch(1)
-        self.ok_btn = QPushButton('笑完继续搬砖' if zh else 'Back to work', self)
+        self.ok_btn = QPushButton('心疼作者，继续搬砖' if zh else 'Cheer Lihp & work', self)
         apply_button(self.ok_btn, 'primary', compact=True)
         self.ok_btn.setDefault(True)
         self.ok_btn.clicked.connect(self.accept)
