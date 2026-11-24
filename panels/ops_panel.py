@@ -449,11 +449,11 @@ class OpsPanel(QWidget):
         splitter.setStretchFactor(1, 1)
         install_splitter_prefs(
             splitter,
-            defaults=[280, 864],
-            defaults_for_extent=lambda extent: [280, max(360, extent - 280)],
+            defaults=[310, 834],
+            defaults_for_extent=lambda extent: [310, max(380, extent - 310)],
             page_id='ops-commands',
-            tab_id='list-detail',
-            min_sizes=[220, 360],
+            tab_id='list-detail-v2',
+            min_sizes=[240, 380],
             accessible_name='运维命令列表/详情分隔',
         )
         root.addWidget(splitter, 1)

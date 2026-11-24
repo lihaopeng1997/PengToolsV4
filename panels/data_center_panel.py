@@ -862,7 +862,7 @@ class DataCenterPanel(QWidget):
         self._body_splitter.addWidget(self.workspace_tabs)
         self._body_splitter.setStretchFactor(0, 0)
         self._body_splitter.setStretchFactor(1, 1)
-        self._body_splitter.setSizes([260, 900])
+        self._body_splitter.setSizes([296, 864])
         root.addWidget(self._body_splitter, 1)
         self._apply_language()
         self._sync_actions()

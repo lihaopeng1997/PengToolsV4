@@ -356,17 +356,17 @@ class DocxUpdatePanel(QWidget):
         work_split.setSizes([360, 160])
         work_layout.addWidget(work_split)
         mid.addWidget(work_box)
-        mid.setSizes([280, 720])
+        mid.setSizes([310, 690])
         try:
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 mid,
-                defaults=[280, 720],
-                defaults_for_extent=lambda extent: [280, max(520, extent - 280)],
+                defaults=[310, 690],
+                defaults_for_extent=lambda extent: [310, max(520, extent - 310)],
                 page_id='docx-update',
-                tab_id='browser-work',
+                tab_id='browser-work-v2',
                 bucket=layout_bucket('standard'),
-                min_sizes=[280, 520],
+                min_sizes=[290, 520],
                 accessible_name='接口文档浏览器/编辑分隔',
             )
             install_splitter_prefs(

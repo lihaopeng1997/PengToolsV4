@@ -1995,7 +1995,7 @@ class OpsLogPanel(QWidget):
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        left_scroll.setMinimumWidth(260)
+        left_scroll.setMinimumWidth(356)
         self._left_scroll = left_scroll
         # 不设 MaximumWidth，交给 splitter 左右拖
         left_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -2657,11 +2657,14 @@ class OpsLogPanel(QWidget):
         self.main_split.setStretchFactor(1, 1)
         install_splitter_prefs(
             self.main_split,
-            defaults=[260, 884],
-            defaults_for_extent=lambda extent: [260, max(480, extent - 260)],
+            defaults=[368, 776],
+            defaults_for_extent=lambda extent: [
+                max(356, min(420, int(extent * 0.32))),
+                max(480, extent - max(356, min(420, int(extent * 0.32)))),
+            ],
             page_id='ops-log',
-            tab_id='main',
-            min_sizes=[260, 480],
+            tab_id='main-v2',
+            min_sizes=[356, 480],
             accessible_name='日志排查主分隔',
         )
         # 允许把左侧拖宽看全路径/表单
@@ -2734,8 +2737,8 @@ class OpsLogPanel(QWidget):
                 split.setSizes([left.minimumWidth(), max(0, total - left.minimumWidth())])
 
     def _left_min_width(self) -> int:
-        """多机截取要看清地址与日志路径，左栏更宽；会话模式保持紧凑。"""
-        return 380 if getattr(self, '_work_mode', 'session') == 'export' else 260
+        """多机截取要看清地址与日志路径；会话模式也需保证按钮行与目录框不裁切。"""
+        return 400 if getattr(self, '_work_mode', 'session') == 'export' else 356
 
 
     def _capture_settings(self) -> dict:
@@ -3178,16 +3181,19 @@ class OpsLogPanel(QWidget):
                     w.setMinimumHeight(0)
         install_splitter_prefs(
             self.main_split,
-            defaults=[260, 884] if mode != 'narrow' else [240, 420],
-            defaults_for_extent=(lambda extent: [260, max(400, extent - 260)])
+            defaults=[368, 776] if mode != 'narrow' else [240, 420],
+            defaults_for_extent=(lambda extent: [
+                max(356, min(420, int(extent * 0.32))),
+                max(400, extent - max(356, min(420, int(extent * 0.32)))),
+            ])
                 if mode != 'narrow' else None,
             page_id='ops-log',
-            tab_id='main',
+            tab_id='main-v2',
             bucket=layout_bucket(mode),
             min_sizes=(
                 [200, 220] if mode == 'narrow'
-                else [260, 400] if mode == 'compact'
-                else [260, 480]
+                else [320, 400] if mode == 'compact'
+                else [356, 480]
             ),
             accessible_name='日志排查主分隔',
         )

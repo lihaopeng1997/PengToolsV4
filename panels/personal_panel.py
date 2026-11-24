@@ -468,11 +468,11 @@ class KnowledgeTab(QWidget):
         splitter.setStretchFactor(1, 1)
         install_splitter_prefs(
             splitter,
-            defaults=[260, 780],
-            defaults_for_extent=lambda extent: [260, max(360, extent - 260)],
+            defaults=[296, 744],
+            defaults_for_extent=lambda extent: [296, max(380, extent - 296)],
             page_id='personal-knowledge',
-            tab_id='list-detail',
-            min_sizes=[220, 360],
+            tab_id='list-detail-v2',
+            min_sizes=[240, 380],
             accessible_name='个人资料列表/详情分隔',
         )
         root.addWidget(splitter, 1)
@@ -1714,12 +1714,12 @@ class DailyReportTab(QWidget):
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 splitter,
-                defaults=[264, 780],
-                defaults_for_extent=lambda extent: [264, max(520, extent - 264)],
+                defaults=[300, 744],
+                defaults_for_extent=lambda extent: [300, max(520, extent - 300)],
                 page_id='daily-report',
-                tab_id='history-editor',
+                tab_id='history-editor-v2',
                 bucket=layout_bucket('standard'),
-                min_sizes=[264, 520],
+                min_sizes=[288, 520],
                 accessible_name='日报历史/编辑分隔',
             )
         except Exception:

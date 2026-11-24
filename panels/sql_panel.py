@@ -733,9 +733,9 @@ class SqlToolPanel(QWidget):
         self.processing_splitter.setStretchFactor(0, 0)
         self.processing_splitter.setStretchFactor(1, 1)
         from ui.splitter_prefs import install_splitter_prefs
-        install_splitter_prefs(self.processing_splitter, defaults=[320, 824],
-            defaults_for_extent=lambda extent: [320, max(420, extent - 320)],
-            min_sizes=[240, 420], page_id='release-sql', tab_id='context-editor',
+        install_splitter_prefs(self.processing_splitter, defaults=[350, 794],
+            defaults_for_extent=lambda extent: [350, max(420, extent - 350)],
+            min_sizes=[260, 420], page_id='release-sql', tab_id='context-editor-v2',
             accessible_name='SQL交付上下文与编辑预览分隔')
         self.processing_scroll = QScrollArea()
         self.processing_scroll.setWidgetResizable(True)
@@ -943,10 +943,10 @@ class SqlToolPanel(QWidget):
                 pane.setMinimumHeight(0)
             install_splitter_prefs(
                 self.processing_splitter,
-                defaults=[280, 520] if narrow else [320, 824],
-                defaults_for_extent=None if narrow else lambda extent: [320, max(420, extent - 320)],
-                min_sizes=[200, 420] if narrow else [240, 420],
-                page_id='release-sql', tab_id='context-editor', bucket=layout_bucket(mode),
+                defaults=[280, 520] if narrow else [350, 794],
+                defaults_for_extent=None if narrow else lambda extent: [350, max(420, extent - 350)],
+                min_sizes=[200, 420] if narrow else [260, 420],
+                page_id='release-sql', tab_id='context-editor-v2', bucket=layout_bucket(mode),
                 accessible_name='SQL交付上下文与编辑预览分隔',
             )
         # The scrollable SQL workspace keeps all original actions reachable.
