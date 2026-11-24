@@ -7,13 +7,14 @@ import os
 import sys
 
 from PyQt6.QtCore import QUrl, Qt
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QTextDocument
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout,
+    QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout,
 )
 
 from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry
+from ui.field_metrics import size_line
 from ui.motion import play_dialog_enter
 
 
@@ -50,7 +51,24 @@ class UserGuideDialog(QDialog):
         head = QHBoxLayout()
         title = QLabel('使用说明' if zh else 'User Guide')
         title.setObjectName('confirm-title')
-        head.addWidget(title, 1)
+        head.addWidget(title)
+        head.addSpacing(8)
+        self.search_edit = QLineEdit(self)
+        size_line(self.search_edit, 'search')
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setPlaceholderText(
+            '搜关键词：抓包、代理、JVM、SSH、快捷键…' if zh else 'Search guide: proxy, JVM, SSH, shortcuts…'
+        )
+        self.search_edit.returnPressed.connect(lambda: self._find_in_guide(False))
+        head.addWidget(self.search_edit, 1)
+        self.find_prev_btn = QPushButton('上一个' if zh else 'Prev')
+        apply_button(self.find_prev_btn, 'ghost', compact=True)
+        self.find_prev_btn.clicked.connect(lambda: self._find_in_guide(True))
+        head.addWidget(self.find_prev_btn)
+        self.find_next_btn = QPushButton('下一个' if zh else 'Next')
+        apply_button(self.find_next_btn, 'secondary', compact=True)
+        self.find_next_btn.clicked.connect(lambda: self._find_in_guide(False))
+        head.addWidget(self.find_next_btn)
         self.open_external_btn = QPushButton('用系统浏览器打开' if zh else 'Open in browser')
         apply_button(self.open_external_btn, 'secondary', compact=True, icon='external-open', icon_size=16)
         self.open_external_btn.clicked.connect(self._open_external)
@@ -93,6 +111,18 @@ class UserGuideDialog(QDialog):
             f'<p>{"未找到使用说明文件。" if zh else "User guide file not found."}</p>'
             f'<p><code>{path or "(empty)"}</code></p>'
         )
+
+    def _find_in_guide(self, backward: bool = False):
+        keyword = self.search_edit.text().strip()
+        if not keyword:
+            return
+        flags = QTextDocument.FindFlag.FindBackward if backward else QTextDocument.FindFlag(0)
+        if not self.browser.find(keyword, flags):
+            # 到达文末/文首时循环回到另一端重搜一次
+            cursor = self.browser.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End if backward else cursor.MoveOperation.Start)
+            self.browser.setTextCursor(cursor)
+            self.browser.find(keyword, flags)
 
     def _open_external(self):
         path = help_html_path()

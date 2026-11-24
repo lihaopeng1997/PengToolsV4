@@ -5,69 +5,90 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>PengToolsHub 使用说明</title>
 <style>
-  :root {
-    --bg: #F4F7F5;
-    --surface: #FFFFFF;
-    --text: #272B29;
-    --muted: #5C6560;
-    --primary: #668C78;
-    --primary-soft: #E4EFE8;
-    --border: #D5DDD8;
-    --warn: #B45309;
-    --danger: #B42318;
-    --code-bg: #EEF2F0;
-  }
-  * { box-sizing: border-box; }
   body {
     margin: 0;
     padding: 0;
     font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
     font-size: 14px;
-    line-height: 1.65;
-    color: var(--text);
-    background: var(--bg);
+    line-height: 1.7;
+    color: #262438;
+    background-color: #F4F1FC;
   }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 20px 22px 48px; }
-  header.hero {
-    background: linear-gradient(135deg, #668C78 0%, #4F735F 100%);
-    color: #fff;
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 20px 22px 44px;
+  }
+  .hero {
+    background-color: #6C58D9;
+    background: linear-gradient(135deg, #6C58D9 0%, #503DBE 100%);
+    color: #FFFFFF;
     border-radius: 14px;
     padding: 22px 24px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
   }
-  header.hero h1 { margin: 0 0 8px; font-size: 24px; font-weight: 700; }
-  header.hero p { margin: 0; opacity: 0.95; font-size: 13px; }
-  .meta { margin-top: 10px; font-size: 12px; opacity: 0.9; }
-  nav.toc {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 18px;
-    margin-bottom: 20px;
+  .hero h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #FFFFFF;
   }
-  nav.toc h2 { margin: 0 0 8px; font-size: 15px; color: var(--primary); }
-  nav.toc a { color: var(--primary); text-decoration: none; }
-  nav.toc a:hover { text-decoration: underline; }
-  nav.toc ol { margin: 0; padding-left: 22px; }
-  nav.toc li { margin: 4px 0; }
-  section {
-    background: var(--surface);
-    border: 1px solid var(--border);
+  .hero p {
+    margin: 0;
+    font-size: 13px;
+    color: #EEE9FF;
+  }
+  .meta {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #E2DAFF;
+  }
+  .toc, .section {
+    background-color: #FFFFFF;
+    border: 1px solid #DFD9F0;
     border-radius: 12px;
-    padding: 16px 18px 18px;
+    padding: 16px 18px;
     margin-bottom: 14px;
+  }
+  .toc h2 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    color: #503DBE;
+    border-left: none;
+    padding-left: 0;
+  }
+  .toc a {
+    color: #6C58D9;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .toc a:hover { text-decoration: underline; }
+  .toc-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+  }
+  .toc-table td {
+    border: none;
+    padding: 4px 10px 4px 0;
+    width: 33%;
+    font-size: 13px;
   }
   h2 {
     margin: 0 0 10px;
-    font-size: 18px;
-    color: var(--primary);
-    border-left: 4px solid var(--primary);
+    font-size: 17px;
+    color: #503DBE;
+    border-left: 4px solid #6C58D9;
     padding-left: 10px;
   }
-  h3 { margin: 14px 0 6px; font-size: 15px; }
-  p { margin: 8px 0; }
+  h3 {
+    margin: 14px 0 6px;
+    font-size: 14px;
+    color: #262438;
+  }
+  p { margin: 6px 0 8px; }
   ul, ol { margin: 6px 0 10px; padding-left: 22px; }
-  li { margin: 3px 0; }
+  li { margin: 4px 0; }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -75,15 +96,20 @@
     font-size: 13px;
   }
   th, td {
-    border: 1px solid var(--border);
+    border: 1px solid #DFD9F0;
     padding: 8px 10px;
     text-align: left;
     vertical-align: top;
   }
-  th { background: var(--primary-soft); font-weight: 700; }
+  th {
+    background-color: #F2EEFB;
+    color: #262438;
+    font-weight: 700;
+  }
   code, .path {
     font-family: Consolas, "Courier New", monospace;
-    background: var(--code-bg);
+    background-color: #F2EEFB;
+    color: #503DBE;
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 12px;
@@ -94,22 +120,44 @@
     margin: 10px 0;
     font-size: 13px;
   }
-  .tip { background: var(--primary-soft); border: 1px solid var(--primary); }
-  .warn { background: #FEF3C7; border: 1px solid #F59E0B; color: #78350F; }
-  .danger { background: #FEE4E2; border: 1px solid #F97066; color: #7A271A; }
+  .tip {
+    background-color: #F2EEFB;
+    border: 1px solid #CFC5EE;
+    color: #262438;
+  }
+  .warn {
+    background-color: #FEF7E6;
+    border: 1px solid #EBC06D;
+    color: #78440A;
+  }
+  .danger {
+    background-color: #FEECEE;
+    border: 1px solid #F2A5AE;
+    color: #7A1E2B;
+  }
   .kbd {
     display: inline-block;
-    border: 1px solid var(--border);
-    border-bottom-width: 2px;
+    border: 1px solid #CFC5EE;
     border-radius: 4px;
     padding: 0 6px;
     font-size: 12px;
-    background: #fff;
+    background-color: #F9F7FE;
+    color: #503DBE;
     font-family: Consolas, monospace;
+    font-weight: 600;
+  }
+  .badge {
+    display: inline-block;
+    background-color: #EEE9FF;
+    color: #503DBE;
+    border-radius: 6px;
+    padding: 1px 7px;
+    font-size: 12px;
+    font-weight: 600;
   }
   footer {
     text-align: center;
-    color: var(--muted);
+    color: #615D73;
     font-size: 12px;
     margin-top: 8px;
     padding: 12px;
@@ -119,252 +167,211 @@
 <body>
 <div class="wrap">
 
-<header class="hero">
+<div class="hero">
   <h1>PengToolsHub 使用说明</h1>
-  <p>Windows 离线桌面工具台 · 需求 / 发版 / 日报 / 加解密 / 接口排查 / 格式工具</p>
-  <div class="meta">版本展示：V4 Private · 作者：Lihp · 数据仅存本机 · 无账号无云同步</div>
-</header>
+  <p>内网离线研发与运维桌面工作台 · 数据中心 / 智能助手 / 交付管理 / 运维排查 / 开发工具</p>
+  <div class="meta">版本：V4 Prism Calm · 作者：Lihp · 全本地离线运行 · 数据仅存本机 data/ 目录</div>
+</div>
 
-<nav class="toc">
-  <h2>目录</h2>
-  <ol>
-    <li><a href="#s1">产品简介与安装</a></li>
-    <li><a href="#s2">界面总览</a></li>
-    <li><a href="#s3">首页工作台</a></li>
-    <li><a href="#s4">需求管理</a></li>
-    <li><a href="#s5">发版联动（升级准备）</a></li>
-    <li><a href="#s6">日报</a></li>
-    <li><a href="#s7">网关加解密</a></li>
-    <li><a href="#s8">接口排查（抓包 / 请求测试）</a></li>
-    <li><a href="#s9">格式工具与其它模块</a></li>
-    <li><a href="#s10">设置与悬浮栏</a></li>
-    <li><a href="#s11">数据目录与升级</a></li>
-    <li><a href="#s12">常见问题 FAQ</a></li>
-  </ol>
-</nav>
-
-<section id="s1">
-  <h2>1. 产品简介与安装</h2>
-  <p><strong>PengToolsHub</strong> 是面向内网办公的 <strong>离线</strong> Windows 工具集合，把日常开发、运维、需求归档、SQL 发版、接口排查、加解密等流程收敛到一个本地窗口里。</p>
-  <h3>1.1 能做什么</h3>
-  <ul>
-    <li>管理需求 / BUG、SVN 工作副本与文件库</li>
-    <li>整理 SQL、生成发版 Excel</li>
-    <li>写日报、（彩蛋解锁后）管理自我学习资料</li>
-    <li>网关 SM2+SM4 加解密、JSON/XML 格式化</li>
-    <li>本机 HTTP/HTTPS 抓包、按环境做请求测试</li>
-  </ul>
-  <h3>1.2 安装与启动</h3>
-  <ol>
-    <li>解压安装包 <code>PengToolsHub_Offline_Setup.zip</code></li>
-    <li>运行目录中的 <code>PengToolsHub.exe</code>（或运行 <code>setup.cmd</code>）</li>
-    <li>首次运行会在 <strong>EXE 同级</strong> 自动创建 <code>data/</code> 目录存放配置与业务数据</li>
-  </ol>
-  <div class="tip"><strong>提示：</strong>程序支持单实例。重复启动会激活已打开的窗口，不会开第二套托盘/后台服务。</div>
-</section>
-
-<section id="s2">
-  <h2>2. 界面总览</h2>
-  <h3>2.1 左侧导航</h3>
-  <table>
-    <tr><th>分组</th><th>模块</th><th>说明</th></tr>
-    <tr><td>工作台</td><td>首页</td><td>最近需求、待升级事项、快捷入口</td></tr>
-    <tr><td rowspan="4">交付管理</td><td>需求管理</td><td>需求树、文件库、SVN、联动</td></tr>
-    <tr><td>发版联动</td><td>升级准备 / SQL / 系统配置</td></tr>
-    <tr><td>接口文档更新</td><td>SQL 驱动 DOCX 更新</td></tr>
-    <tr><td>日报</td><td>按日填写完成与计划</td></tr>
-    <tr><td rowspan="6">开发工具</td><td>加解密</td><td>网关报文解密</td></tr>
-    <tr><td>接口排查</td><td>抓包、明细导出、请求测试</td></tr>
-    <tr><td>格式工具</td><td>JSON / XML / SQL / 文本辅助</td></tr>
-    <tr><td>证件类型</td><td>测试用证件号等</td></tr>
-    <tr><td>车辆 VIN</td><td>测试 VIN</td></tr>
-    <tr><td>运维助手</td><td>命令查询与复制（不自动执行破坏性操作）</td></tr>
-    <tr><td>个人</td><td>自我学习</td><td>需彩蛋解锁后显示</td></tr>
+<div class="toc">
+  <h2>快速目录（点击跳转）</h2>
+  <table class="toc-table">
+    <tr>
+      <td><a href="#s1">1. 3 分钟上手与界面减负</a></td>
+      <td><a href="#s2">2. 模块导航与快捷键</a></td>
+      <td><a href="#s3">3. 首页工作台</a></td>
+    </tr>
+    <tr>
+      <td><a href="#s4">4. 数据中心（多库查询）</a></td>
+      <td><a href="#s5">5. 智能助手（模型 / Agent）</a></td>
+      <td><a href="#s6">6. 需求管理与发版联动</a></td>
+    </tr>
+    <tr>
+      <td><a href="#s7">7. 日志排查与 AI 日志排查</a></td>
+      <td><a href="#s8">8. 命令库与 AI / 终端联动</a></td>
+      <td><a href="#s9">9. 接口排查与网关加解密</a></td>
+    </tr>
+    <tr>
+      <td><a href="#s10">10. 日报、格式与辅助工具</a></td>
+      <td><a href="#s11">11. 设置、数据目录与升级</a></td>
+      <td><a href="#s12">12. 常见问题 FAQ</a></td>
+    </tr>
   </table>
-  <h3>2.2 左下角</h3>
-  <ul>
-    <li><strong>设置</strong>：主题、字体、语言、悬浮栏、关闭行为等</li>
-    <li><strong>用户菜单（LH）</strong>：语言、悬浮栏、关于、使用说明、退出</li>
-  </ul>
-  <h3>2.3 悬浮栏</h3>
-  <p>快捷键 <span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">P</span> 打开/收起桌面悬浮入口，可在设置中编辑快捷模块。</p>
-</section>
+</div>
 
-<section id="s3">
+<div class="section" id="s1">
+  <h2>1. 3 分钟上手与界面减负</h2>
+  <p><strong>PengToolsHub</strong> 把日常开发、数据库查数、需求发版、SSH 日志排查、接口抓包、报文加解密与内网大模型能力整合到一个本地窗口里，所有业务数据仅保存在本机，不依赖公网。</p>
+  <h3>觉得功能多、界面复杂？先用好这 4 个减负开关</h3>
+  <ol>
+    <li><strong>侧边栏「精简 / 全部」</strong>：在左侧导航顶部切换。默认「精简」会自动折叠低频分组，只留当前高频区；点击任意分组名随时展开，<strong>不会隐藏或阉割任何功能</strong>。</li>
+    <li><strong>悬停星标「常用置顶」</strong>：鼠标悬停在左侧任意模块上，点右侧 <code>☆</code> 即可钉到顶部「常用置顶」区。</li>
+    <li><strong>首页「简洁 / 完整」</strong>：在首页主卡右上角切换。「简洁」视图只保留搜索框、常用工具和项目进度；「完整」视图展开上线日历、阶段统计和日报概览。</li>
+    <li><strong>分步交互「引导」按钮</strong>：在数据中心、需求管理、接口排查、日志排查、AI 日志排查、命令库顶部均有轻量 <span class="badge">引导</span> 按钮，不会用时点一下即可按「下一步 → 下一步」高亮真实按钮带你走一遍。</li>
+  </ol>
+  <div class="tip"><strong>安全与离线原则：</strong>软件支持单实例启动；重复运行会直接激活已有窗口。业务配置与台账全部保存在程序同级 <code>data/</code> 目录，无云端上传。</div>
+</div>
+
+<div class="section" id="s2">
+  <h2>2. 模块导航与快捷键</h2>
+  <h3>2.1 模块总览</h3>
+  <table>
+    <tr><th style="width:16%;">分组</th><th style="width:20%;">模块</th><th>核心用途</th></tr>
+    <tr><td>工作台</td><td>首页</td><td>全局搜需求/工具/命令、常用入口、项目进度看板与上线日历</td></tr>
+    <tr><td>数据中心</td><td>数据中心</td><td>Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB 多标签独立工作区，支持 SSH 隧道与 TLS</td></tr>
+    <tr><td rowspan="2">智能助手</td><td>模型聊天</td><td>对接已配置的内网大模型进行多轮对话、附件分析与配置验证</td></tr>
+    <tr><td>Agent 工作台</td><td>面向复杂任务的代理工作流与工具调用台</td></tr>
+    <tr><td rowspan="4">交付管理</td><td>需求管理</td><td>需求/BUG 台账、进度条推进、SVN 文件库、测试点与 SQL 联动</td></tr>
+    <tr><td>发版联动</td><td>多系统 SQL 整理、升级准备与 23 列标准发版 Excel 生成</td></tr>
+    <tr><td>接口文档更新</td><td>基于 SQL 与模板批量更新接口 Word 文档</td></tr>
+    <tr><td>日报</td><td>按日记录今日完成、问题风险与明日计划，支持一键带入昨日计划和需求联动</td></tr>
+    <tr><td rowspan="2">运维工作台</td><td>日志排查</td><td>单机多标签 SSH 终端、远端目录、多机并行日志截取，以及「AI 日志与系统排查」</td></tr>
+    <tr><td>命令库</td><td>119 条 Linux / Java JVM 排查模板 + AI 生成/解释命令 + 一键填入日志排查终端</td></tr>
+    <tr><td rowspan="5">开发工具</td><td>接口排查</td><td>本机 HTTP/HTTPS 抓包、明细过滤导出与 Postman 风格请求测试</td></tr>
+    <tr><td>加解密</td><td>网关 SM2 + SM4 报文解密查看与一键格式化</td></tr>
+    <tr><td>格式工具</td><td>JSON（支持 2 万节点快速搜索）/ XML / SQL / Base64 / URL / 时间戳 / 堆栈离线处理</td></tr>
+    <tr><td>证件类型 / 车辆 VIN</td><td>测试用证件号与车辆 VIN 码生成校验</td></tr>
+    <tr><td>个人空间</td><td>本地文档与表格知识库（后台异步导入不卡顿）</td></tr>
+  </table>
+  <h3>2.2 常用快捷键</h3>
+  <table>
+    <tr><th style="width:28%;">快捷键</th><th>作用</th></tr>
+    <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">K</span></td><td>聚焦顶部全局功能搜索，秒跳任意模块</td></tr>
+    <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">P</span></td><td>显示 / 收起桌面悬浮快捷工具栏</td></tr>
+    <tr><td><span class="kbd">/</span>（在首页）</td><td>直接聚焦首页搜索框，搜索需求、工具或快捷命令</td></tr>
+    <tr><td><span class="kbd">←</span> / <span class="kbd">→</span> / <span class="kbd">Esc</span></td><td>在交互式「引导」向导中切换上一步、下一步或退出引导</td></tr>
+  </table>
+</div>
+
+<div class="section" id="s3">
   <h2>3. 首页工作台</h2>
   <ul>
-    <li><strong>最近需求</strong>：按更新时间展示最近几条，点击跳转需求管理并定位。</li>
-    <li><strong>待升级事项</strong>：只列出<strong>已填写上线日期</strong>且<strong>日期 ≥ 今天</strong>、尚未实际上线、状态非「已上线/关闭/取消/暂停」的需求。</li>
-    <li><strong>今天上线</strong>的需求会高亮显示，并优先排在前面。</li>
-    <li><strong>常用工具</strong>：一键跳转加解密、证件、文档、VIN、运维等。</li>
+    <li><strong>全局搜索框</strong>：支持搜索在推进的需求、模块工具与常用命令，方向键选择后回车直达。</li>
+    <li><strong>简洁 / 完整切换</strong>：右上角一键切换，状态自动记忆，重启软件后保持你的习惯。</li>
+    <li><strong>项目进度（列表 / 看板）</strong>：支持列表与看板切换；看板模式下可直接拖动卡片推进需求阶段，也可以点右上角「新建需求」就地抽屉录入。</li>
+    <li><strong>称呼修改</strong>：点击问候语旁的昵称即可就地编辑，回车保存。</li>
   </ul>
-</section>
+</div>
 
-<section id="s4">
-  <h2>4. 需求管理</h2>
-  <h3>4.1 左侧需求树</h3>
-  <ul>
-    <li>按月份/类型组织需求与 BUG</li>
-    <li>支持搜索（含拼音）、筛选系统/类型/状态</li>
-    <li>批量选择与删除（删除有二次确认，默认焦点在「取消」）</li>
-  </ul>
-  <h3>4.2 右侧摘要与页签</h3>
-  <ul>
-    <li>上方摘要：标题、系统、状态、计划上线日、标志芯片等</li>
-    <li><strong>文件库</strong>：名称 / 类型 / 时间 / 大小 / 路径；仅名称列带图标；可拖列宽、横向滚动、拖入本地文件到工作副本</li>
-    <li>SQL / 发版联动入口、发布与联动（写入日报、准备升级、接口文档等）</li>
-  </ul>
-  <h3>4.3 SVN 相关</h3>
-  <ul>
-    <li>检出、更新、提交、锁定/解锁等依赖本机已安装的 SVN 命令行</li>
-    <li>认证使用本机缓存，软件<strong>不保存密码</strong></li>
-    <li>内网 SVN 需在你本机环境验证</li>
-  </ul>
-  <div class="warn"><strong>注意：</strong>破坏性操作（删除、提交等）均有确认框；请确认后再执行。</div>
-</section>
-
-<section id="s5">
-  <h2>5. 发版联动（升级准备）</h2>
+<div class="section" id="s4">
+  <h2>4. 数据中心（多库查询）</h2>
   <ol>
-    <li>确认/选择升级日期</li>
-    <li>推荐或勾选参与发版的需求 / BUG</li>
-    <li>按多系统分别整理 SQL</li>
-    <li>生成发版 Excel（基于内置模板，23 列表头固定）</li>
+    <li><strong>新建连接</strong>：点击左侧目录「新建连接」，按引擎填写主机、端口、库名与凭据；需要跳板机或加密传输时可配置 SSH 隧道 / TLS。</li>
+    <li><strong>独立标签工作区</strong>：双击左侧连接在右侧打开专属工作区标签，每个标签固定绑定其连接 ID，切换标签不会串库，也不会中断其它标签的查询。</li>
+    <li><strong>显式操作更安全</strong>：打开工作区默认不自动连库、不自动扫描全量 Redis Keyspace，测试连接与执行查询均由你显式触发。</li>
   </ol>
-  <p>开发分支 SVN 地址可以为空，不会阻塞生成。验证用 SQL 不会进入 SVN 提交目录逻辑。</p>
-</section>
+  <div class="tip"><strong>提示：</strong>不熟悉目录与多标签操作时，点右侧标签栏右上角 <span class="badge">引导</span> 即可开启 3 步高亮向导。</div>
+</div>
 
-<section id="s6">
-  <h2>6. 日报</h2>
+<div class="section" id="s5">
+  <h2>5. 智能助手（模型聊天 / Agent 工作台）</h2>
   <ul>
-    <li>左侧历史日期列表，右侧编辑：今日完成 / 问题与风险 / 明日计划 / 备注</li>
-    <li><strong>未点保存就切换日期</strong>：内容会作为草稿保留，列表可能显示「未保存」</li>
-    <li><strong>复制为今日</strong>：把当前正在看的内容一键写成「今天」的草稿，确认后请点「保存日报」</li>
-    <li>从需求「写入日报」会追加模板段落，不覆盖你已写内容</li>
-    <li>提醒时间在「设置」中配置</li>
+    <li><strong>模型配置</strong>：在「设置 → 模型配置」中添加内网 OpenAI 兼容或 Anthropic 兼容接口并启用，支持多模型切换与连通性测试。</li>
+    <li><strong>模型聊天</strong>：多轮对话、代码高亮、流式输出、附件发送与会话防抖检索；思考过程仅在当前内存展示，不落盘污染历史记录。</li>
+    <li><strong>隐私保护</strong>：敏感错误与凭据字段发送前自动脱敏清洗；不自动切换未授权模型。</li>
   </ul>
-</section>
+</div>
 
-<section id="s7">
-  <h2>7. 网关加解密</h2>
+<div class="section" id="s6">
+  <h2>6. 需求管理与发版联动</h2>
+  <h3>6.1 需求管理</h3>
   <ul>
-    <li>用于网关 SM2 + SM4 类报文解密与查看</li>
-    <li>从接口排查「送入加解密」时可自动带入报文与 Key（能识别时）</li>
-    <li><strong>密钥 / 明文 / 报文默认不落盘、不写日志</strong></li>
+    <li><strong>精准搜索</strong>：输入<strong>中文</strong>时严格按原文匹配（不再误匹配无关拼音首字母）；输入<strong>英文字母或编号</strong>时支持全拼与首字母检索。</li>
+    <li><strong>顶栏与详情瘦身</strong>：顶栏聚焦「搜索 / 筛选 / 新建需求 / 更多 ▾ / 引导」，批量操作（拉取最新、一键提签、SVN 导入、目录导入、登记缺陷）统一收纳在「更多 ▾」菜单中。</li>
+    <li><strong>新增需求更紧凑</strong>：勾选多个所属系统时，「开发分支 / 本地目录绑定」默认收起为一行摘要，需要配置时点击展开，按单行清爽编辑每个系统的分支与目录。</li>
+    <li><strong>文件库与 SVN</strong>：支持检出、更新、提交、锁/解锁与拖入文件；认证复用本机 SVN 缓存，软件不存 SVN 密码。</li>
   </ul>
-</section>
+  <h3>6.2 发版联动与接口文档更新</h3>
+  <ul>
+    <li>在需求详情「更多 ▾ → 准备本次升级」可一键勾选该需求并带入 SQL 到「发版联动」，按 23 列内置模板生成标准发版 Excel。</li>
+    <li>「接口文档更新」可根据 SQL 变更与本地模板生成或更新 Word 接口文档。</li>
+  </ul>
+</div>
 
-<section id="s8">
-  <h2>8. 接口排查（Private）</h2>
-  <h3>8.1 开始抓包会做什么</h3>
+<div class="section" id="s7">
+  <h2>7. 日志排查与 AI 日志排查</h2>
+  <h3>7.1 人工排查（单机终端 / 多机截取）</h3>
+  <ul>
+    <li><strong>服务器管理</strong>：在左侧「当前主机 → 管理」或顶栏「更多操作」维护 SSH 主机、账号/密钥与各服务日志路径。</li>
+    <li><strong>单机会话</strong>：点顶栏紫色「连接本会话」打开独立交互终端，可开多个标签同时连不同服务器，左侧可直接预览日志、看尾部或浏览远端目录。</li>
+    <li><strong>多机截取</strong>：切到左侧「多机截取」分段，勾选多台主机与服务并发检索关键字，支持流式导出到本地（不在远端写临时文件），导出后可一键送入「AI 日志与系统排查」。</li>
+  </ul>
+  <h3>7.2 AI 日志与系统排查</h3>
+  <ul>
+    <li>支持 3 种排查模式：<strong>历史日志分析</strong>（本地或远端文件）、<strong>Linux 实时监控</strong>（CPU/内存/磁盘/服务/端口）、<strong>仅实时日志</strong>。</li>
+    <li>点左上角「展开设置」选择目标并启动采集，候选异常会自动聚合到「异常事件」表；右侧选择内网模型并勾选确认后即可点「分析所选」或让 AI 整理故障报告。</li>
+    <li>发给模型的日志片段会强制清洗密码、Token 等敏感字段；只做只读查询，绝不自动修改或重启服务。</li>
+  </ul>
+</div>
+
+<div class="section" id="s8">
+  <h2>8. 命令库与 AI / 终端联动</h2>
+  <ul>
+    <li><strong>119 条实战模板</strong>：覆盖日志截取（含时间段与分钟报错峰值）、<strong>Java / JVM 排查</strong>（<code>jps</code> / <code>jstat</code> / <code>jstack</code> / <code>top -Hp</code> / <code>jmap</code>）、进程、网络（TCP 状态统计、HTTP 分段耗时拆解）、磁盘（<code>lsof +L1</code> 幽灵大文件定位）、容器与 K8s 等 11 大分类，支持右键置顶与自定义命令。</li>
+    <li><strong>AI 命令助手</strong>：右侧内置「AI 命令助手」，输入白话场景（如“查 8080 端口占用并看最近 100 行报错”）可调用内网模型生成只读排查命令，也可点「AI 解释当前命令」逐段讲清参数含义与风险。</li>
+    <li><strong>与日志排查无缝联动</strong>：点击右下角 <span class="badge">送到日志排查终端</span> 会自动跳转到「日志排查」并将命令填入 SSH 命令输入框；点击 <span class="badge">AI 日志排查</span> 会带入当前命令上下文切到 AI 排查页。</li>
+  </ul>
+  <div class="warn"><strong>安全红线：</strong>命令库严禁收录或生成 <code>rm</code> / <code>rmdir</code> / <code>unlink</code> / <code>shred</code> / <code>find -delete</code> 等删除命令；发送到日志排查终端也<strong>只填入输入框、绝不自动执行</strong>，修改状态的高风险命令仍需二次确认。</div>
+</div>
+
+<div class="section" id="s9">
+  <h2>9. 接口排查与网关加解密</h2>
+  <h3>9.1 接口排查（HTTP / HTTPS 抓包与请求测试）</h3>
   <ol>
-    <li>在本机 <code>127.0.0.1:端口</code> 启动 MITM 代理</li>
-    <li><strong>临时修改 Windows 系统代理</strong>指向该地址（便于 Chrome/Edge 等走代理）</li>
-    <li>状态栏提示抓包中；请用浏览器访问业务页（必要时<strong>完全退出并重启浏览器</strong>）</li>
+    <li>点击右上角「开始监听」启动本机 <code>127.0.0.1</code> 代理；首次抓取 HTTPS 明文时，可在「更多 ▾ → 安装 HTTPS 抓包证书」安装仅限当前用户的本地根证书（随时可一键移除）。</li>
+    <li>完全关闭并重新打开 Chrome / Edge 访问业务页，请求会实时显示在左侧列表中，支持状态、慢请求、JSON/XML 等筛选。</li>
+    <li>点击左侧记录可在右侧查看概览、请求、响应，并支持一键送入「格式工具」「加解密」或切到「请求测试」按环境重放。</li>
   </ol>
-  <div class="danger">
-    <strong>重要：</strong>抓包会改系统代理。请务必用「停止抓包」或正常退出软件，代理会自动恢复。
-    若任务管理器强杀进程，可能导致代理残留，其它接口会「不好使」。
-  </div>
-  <h3>8.2 停止 / 恢复代理</h3>
-  <ul>
-    <li><strong>停止抓包</strong>：恢复系统代理，会话列表默认保留（不清空）</li>
-    <li><strong>清空</strong>：才清空内存中的抓包记录</li>
-    <li><strong>恢复系统代理</strong>按钮：异常后一键修复</li>
-    <li>软件<strong>启动时</strong>也会自动检测并清理残留的本机抓包代理</li>
-  </ul>
-  <h3>8.3 列表与详情</h3>
-  <ul>
-    <li>列表：# / 结果 / 协议 / 方法 / 主机 / URL / Body / 类型 / 耗时 等（可列设置）</li>
-    <li>详情：概览 / 请求 / 响应 / <strong>请求测试</strong></li>
-    <li>可复制、送格式工具、送入加解密（尽量带 Key）</li>
-  </ul>
-  <h3>8.4 请求测试（Postman 风格）</h3>
-  <ol>
-    <li>维护<strong>环境</strong>：Base 形如 <code>http://host:port</code>（可保存多个）</li>
-    <li>从会话填充：自动用当前环境替换抓包 URL 的 host，保留 path/query</li>
-    <li>编辑 Method / Headers / Params / Body 后点「发送」</li>
-    <li>Body 优先使用能解密的明文；解不了则用原报文</li>
-  </ol>
-  <h3>8.5 导出 / 导入明细</h3>
-  <ul>
-    <li>导出格式：<code>pengtools_iface_session_v1</code>（JSON）</li>
-    <li>内容含 URL、请求/响应（优先解密明文）等</li>
-    <li>可再「导入明细」或把 JSON 拖入请求测试页自动填充</li>
-  </ul>
-  <div class="tip"><strong>安全：</strong>抓到的请求/响应/Cookie/Token 只在内存；配置里只存端口、环境地址、证书指纹等，不写报文正文。</div>
-</section>
+  <div class="danger"><strong>代理恢复提醒：</strong>正常点「停止监听」或退出软件都会自动恢复 Windows 系统代理。若因异常强制结束导致网页打不开，可在接口排查顶栏「更多 ▾ → 恢复系统代理」一键修复，或重启软件自动清理。</div>
+  <h3>9.2 网关加解密</h3>
+  <p>支持网关 SM2 + SM4 报文解密查看，从接口排查「送入加解密」可自动带入报文与识别到的 Key；密钥与报文默认只在内存处理、不落盘。</p>
+</div>
 
-<section id="s9">
-  <h2>9. 格式工具与其它模块</h2>
-  <h3>9.1 格式工具</h3>
-  <p>JSON / XML / SQL / Base64 / URL / 时间戳 / Java 堆栈等离线处理，无网络请求。</p>
-  <h3>9.2 接口文档更新</h3>
-  <p>根据 SQL 与模板更新接口 Word 文档（依赖本机模板匹配规则）。</p>
-  <h3>9.3 证件 / VIN / 运维</h3>
+<div class="section" id="s10">
+  <h2>10. 日报、格式与辅助工具</h2>
   <ul>
-    <li>证件类型、车辆 VIN：生成/校验测试数据</li>
-    <li>运维助手：搜索命令与说明；<strong>不会自动执行破坏性命令</strong></li>
+    <li><strong>日报</strong>：左侧按月归档，支持「带入昨日计划」「复制为今日」「插入图片」；未保存切换日期会自动留草稿，确认无误请点「保存日报」。</li>
+    <li><strong>格式工具</strong>：JSON 树视图支持 2 万节点快速搜索定位、XML / SQL 格式化、Base64 / URL / 时间戳 / 堆栈离线处理。</li>
+    <li><strong>证件类型 / 车辆 VIN</strong>：纯离线生成与校验测试数据。</li>
+    <li><strong>个人空间</strong>：支持本地 Word / Excel / 文本资料归档、搜索防抖过滤，大文件导入在后台线程执行不卡界面。</li>
   </ul>
-  <h3>9.4 自我学习（彩蛋）</h3>
-  <p>默认隐藏。通过约定入口解锁后显示；解锁状态保存在本机 <code>data/settings.json</code>，升级换 EXE 一般仍保留。</p>
-</section>
+</div>
 
-<section id="s10">
-  <h2>10. 设置与关于</h2>
-  <ul>
-    <li>主题（含夜间）、字体、语言</li>
-    <li>悬浮栏透明度、置顶、快捷入口编辑</li>
-    <li>关闭行为：询问 / 托盘 / 退出</li>
-    <li>日报提醒时间</li>
-    <li>左下角菜单：关于、使用说明、退出软件</li>
-  </ul>
-</section>
-
-<section id="s11">
-  <h2>11. 数据目录与升级</h2>
+<div class="section" id="s11">
+  <h2>11. 设置、数据目录与升级</h2>
   <table>
-    <tr><th>场景</th><th>数据位置</th></tr>
-    <tr><td>开发运行</td><td>源码旁 <code>PengToolsV4/data/</code></td></tr>
-    <tr><td>安装包运行</td><td><code>&lt;PengToolsHub.exe 同级&gt;/data/</code></td></tr>
+    <tr><th style="width:28%;">运行方式</th><th>本地数据目录</th></tr>
+    <tr><td>源码开发运行</td><td>项目目录下 <code>data/</code></td></tr>
+    <tr><td>打包版运行</td><td><code>&lt;PengToolsHub.exe 同级&gt;/data/</code></td></tr>
   </table>
   <ul>
-    <li>常见文件：<code>settings.json</code>、<code>requirements.json</code>、<code>daily_reports.json</code>、<code>interface_debug.json</code> 等</li>
-    <li><strong>升级</strong> = 替换 EXE 等程序文件；<strong>不要删除</strong>安装目录下的 <code>data</code></li>
-    <li>安装包不会携带你的业务 data</li>
+    <li><strong>设置中心</strong>：可配置字体、语言、内网大模型、悬浮快捷栏、日报提醒时间及关闭窗口行为（隐藏托盘 / 直接退出）。</li>
+    <li><strong>无损升级</strong>：替换程序文件即可，<strong>切勿删除同级 <code>data/</code> 目录</strong>，所有台账、连接、服务器与日报记录都会完整保留。</li>
   </ul>
-</section>
+</div>
 
-<section id="s12">
+<div class="section" id="s12">
   <h2>12. 常见问题 FAQ</h2>
-  <h3>Q1：抓包后列表是空的？</h3>
+  <h3>Q1：需求搜索中文时能搜拼音吗？</h3>
+  <p>输入中文时按中文原文精准匹配（不会误召回无关首字母）；输入英文字母或拼音首字母（如 <code>cxcb</code>、<code>zizhu</code>）时自动走拼音匹配。</p>
+  <h3>Q2：抓包开始后列表一直是空的？</h3>
   <ul>
-    <li>确认已点「开始抓包」且状态为抓包中</li>
-    <li>完全退出浏览器再打开，再访问业务页</li>
-    <li>HTTPS 需信任本机抓包证书（软件会尽量静默准备）</li>
-    <li>检查筛选条件是否过滤掉了静态资源/全部请求</li>
+    <li>确认右上角按钮已处于「监听中」状态；</li>
+    <li>完全退出浏览器进程后重新打开再访问目标页面；</li>
+    <li>抓 HTTPS 时确认已在「更多 ▾」安装了本机 HTTPS 抓包证书；</li>
+    <li>检查左侧筛选标签是否误勾选了「失败」或「慢请求」。</li>
   </ul>
-  <h3>Q2：抓包后网页/其它接口都不好使？</h3>
-  <ul>
-    <li>点「停止抓包」或「恢复系统代理」</li>
-    <li>或重启一次 PengToolsHub（启动会自动清理残留代理）</li>
-    <li>仍不行：Windows 设置 → 网络和 Internet → 代理 → 关闭「使用代理服务器」</li>
-  </ul>
-  <h3>Q3：请求测试发不出去？</h3>
-  <ul>
-    <li>检查环境 Base 是否为 <code>http(s)://host:port</code> 且不带业务 path</li>
-    <li>目标服务是否可达（本机/内网）</li>
-    <li>HTTPS 内网自签证书：工具侧已尽量放宽校验，仍失败请看响应区错误信息</li>
-  </ul>
-  <h3>Q4：日报写了但刷新没了？</h3>
-  <p>请点「保存日报」。未保存内容在切换日期时会暂存草稿，但退出进程后只有已保存的 JSON 会保留。</p>
-  <h3>Q5：发版 Excel 列不对？</h3>
-  <p>请使用软件内置模板生成，勿手工改 23 列表头顺序。</p>
-</section>
+  <h3>Q3：抓包异常退出后浏览器连不上网？</h3>
+  <p>打开接口排查顶栏「更多 ▾ → 恢复系统代理」，或重启一次 PengToolsHub（启动会自动清理残留代理）；也可在 Windows「设置 → 网络和 Internet → 代理」里手动关闭代理。</p>
+  <h3>Q4：命令库的 AI 助手提示未配置内网模型？</h3>
+  <p>请先到「设置 → 模型配置」添加并启用内网大模型接口，回到命令库点「刷新模型」即可使用；未配置模型时，119 条内置命令和「送到日志排查终端」依然全部可用。</p>
+  <h3>Q5：找不到某个模块或觉得菜单太长？</h3>
+  <p>按 <span class="kbd">Ctrl</span> + <span class="kbd">K</span> 直接搜模块名即可秒跳；平时可以把左侧切到「精简」，并把常用模块点星标 <code>☆</code> 固定在最上方。</p>
+</div>
 
 <footer>
-  PengToolsHub · 作者 Lihp · 离线也能起飞<br/>
-  本说明随软件内置，无需联网。
+  PengToolsHub V4 · 作者 Lihp · Prism Calm 离线工作台<br/>
+  本说明随软件内置，无需联网；点右上角可在系统浏览器中全屏阅读。
 </footer>
 
 </div>
